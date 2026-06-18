@@ -95,6 +95,15 @@ Because there's only one kind of object, there's one list. The sidebar shows
 every conversation tagged with small **capability badges**, filterable and
 searchable in one place — instead of three histories you switch between.
 
+### 4.6 Configuration follows context, too
+The same principle extends to the model/effort control in the composer. Its
+default is **Auto**, which matches reasoning effort to the conversation's
+attached context: a plain chat stays light (Medium), a workspace bumps it up
+(High), a repo pushes it to Max. In the prototype the effort pill visibly steps
+up during the tour as the thread gains a workspace and then a repo — the
+configuration analogue of the progressively-disclosed panel. (Manual override is
+always one click away.)
+
 ## 5. How it maps to the prototype
 
 | Proposal idea | Where to see it |
@@ -104,6 +113,7 @@ searchable in one place — instead of three histories you switch between.
 | Progressive disclosure | The right panel is absent in chat, appears for workspace/repo. |
 | In-place escalation | **Play the tour** — one thread, three beats. |
 | Adaptive panel | The panel morphs from artifacts → code at the repo step. |
+| Configuration follows context | The model/effort pill — effort auto-steps Medium → High → Max as the thread gains a workspace then a repo. |
 | Unified history | The sidebar list with capability badges; open different items. |
 
 ## 6. Design principles (carry beyond this one screen)

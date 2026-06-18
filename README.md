@@ -77,6 +77,7 @@ src/
   components/
     Sidebar.tsx           # unified history with capability badges
     Composer.tsx          # one composer + attached-context chips
+    ModelEffortControl.tsx# model picker + effort config (Auto matches context)
     CaptionBar.tsx        # guided-tour narration + controls
     IntroOverlay.tsx      # the motivation (problems with today's three tabs)
     WorkspacePanel.tsx    # the adaptive panel that morphs workspace ⇄ repo

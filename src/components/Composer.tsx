@@ -1,14 +1,7 @@
 import { useRef, useState } from 'react'
-import {
-  ArrowUp,
-  ChevronDown,
-  GitBranch,
-  Github,
-  PanelsTopLeft,
-  Paperclip,
-  Plus,
-} from 'lucide-react'
+import { ArrowUp, GitBranch, Github, PanelsTopLeft, Paperclip, Plus } from 'lucide-react'
 import type { Capability, Connector } from '../types'
+import { ModelEffortControl } from './ModelEffortControl'
 
 /** The single composer for every conversation. The chips above it show what
  *  context is *attached* to the thread — the thing that, in today's app, is
@@ -97,10 +90,7 @@ export function Composer({
               >
                 <Paperclip size={16} />
               </button>
-              <button className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-ink-soft transition hover:bg-panel-2">
-                Claude Opus 4.8
-                <ChevronDown size={13} />
-              </button>
+              <ModelEffortControl caps={caps} />
             </div>
             <button
               onClick={submit}
