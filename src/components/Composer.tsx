@@ -7,6 +7,7 @@ import {
   GitBranch,
   Image as ImageIcon,
   PanelsTopLeft,
+  Trash2,
 } from 'lucide-react'
 import type {
   AddedContext,
@@ -25,6 +26,17 @@ import { UsageControl } from './UsageControl'
 import { connectorIconFor } from '../lib/connectors'
 import { sameFocus } from '../lib/focus'
 
+const SKIP_CONFIRM_KEY = 'claude-ui.composer.skipDeleteConfirm.v1'
+
+/** Whether the user previously ticked "Don't ask again" when deleting context. */
+function loadSkipConfirm(): boolean {
+  try {
+    return localStorage.getItem(SKIP_CONFIRM_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
 /** The single composer for every conversation. The chips above it show what
  *  context is *attached* to the thread — the thing that, in today's app, is
  *  instead encoded by which tab you opened. Every chip is clickable and opens
@@ -38,6 +50,7 @@ export function Composer({
   onSend,
   onAddContext,
   onOpenContext,
+  onRemoveContext,
 }: {
   workspaces: Workspace[]
   repos: Repo[]
@@ -47,9 +60,20 @@ export function Composer({
   onSend: (text: string) => void
   onAddContext: (ctx: AddedContext) => void
   onOpenContext: (focus: PanelFocus) => void
+  onRemoveContext: (focus: PanelFocus) => void
 }) {
   const [value, setValue] = useState('')
   const ref = useRef<HTMLTextAreaElement>(null)
+  // "Don't ask again" — once opted out, the trash button deletes immediately.
+  const [skipConfirm, setSkipConfirm] = useState(loadSkipConfirm)
+  const persistSkipConfirm = (v: boolean) => {
+    setSkipConfirm(v)
+    try {
+      localStorage.setItem(SKIP_CONFIRM_KEY, v ? '1' : '0')
+    } catch {
+      /* ignore quota / privacy-mode errors */
+    }
+  }
 
   // Group attached context by type. Every type can hold more than one item, so
   // each one collapses into a single chip with a secondary list once it does;
@@ -167,7 +191,15 @@ export function Composer({
         {hasChips && (
           <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
             {groups.map((g) => (
-              <ChipGroup key={g.key} group={g} focus={focus} onOpen={onOpenContext} />
+              <ChipGroup
+                key={g.key}
+                group={g}
+                focus={focus}
+                onOpen={onOpenContext}
+                onRemove={onRemoveContext}
+                skipConfirm={skipConfirm}
+                onSkipConfirm={persistSkipConfirm}
+              />
             ))}
           </div>
         )}
@@ -237,17 +269,28 @@ interface ChipGroupModel {
 
 /** Renders a context type as a chip. A single item is a plain chip that opens
  *  its sidebar; several items collapse into a counted chip whose popup lists
- *  them, and picking one opens that item's sidebar. */
+ *  them, and picking one opens that item's sidebar. Each popup row also has a
+ *  trash button that removes the item (after a confirmation that can be muted). */
 function ChipGroup({
   group,
   focus,
   onOpen,
+  onRemove,
+  skipConfirm,
+  onSkipConfirm,
 }: {
   group: ChipGroupModel
   focus: PanelFocus | null
   onOpen: (f: PanelFocus) => void
+  onRemove: (f: PanelFocus) => void
+  skipConfirm: boolean
+  onSkipConfirm: (v: boolean) => void
 }) {
   const [open, setOpen] = useState(false)
+  // The item key currently awaiting delete confirmation (null = none).
+  const [confirmKey, setConfirmKey] = useState<string | null>(null)
+  // Local "don't ask again" tick inside the confirmation prompt.
+  const [dontAsk, setDontAsk] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
   const anyActive = group.items.some((it) => sameFocus(focus, it.focus))
 
@@ -264,6 +307,30 @@ function ChipGroup({
       document.removeEventListener('keydown', onKey)
     }
   }, [open])
+
+  // Reset any pending confirmation whenever the popup closes.
+  useEffect(() => {
+    if (!open) {
+      setConfirmKey(null)
+      setDontAsk(false)
+    }
+  }, [open])
+
+  const requestRemove = (it: ChipItem) => {
+    if (skipConfirm) {
+      onRemove(it.focus)
+      return
+    }
+    setDontAsk(false)
+    setConfirmKey(it.key)
+  }
+
+  const confirmRemove = (it: ChipItem) => {
+    if (dontAsk) onSkipConfirm(true)
+    onRemove(it.focus)
+    setConfirmKey(null)
+    setDontAsk(false)
+  }
 
   // A lone item needs no grouping — show it directly.
   if (group.items.length === 1) {
@@ -290,27 +357,79 @@ function ChipGroup({
       </Chip>
 
       {open && (
-        <div className="absolute bottom-full left-0 z-20 mb-1.5 max-h-64 w-[244px] overflow-auto rounded-xl border border-line-strong bg-surface p-1 shadow-xl">
+        <div className="absolute bottom-full left-0 z-20 mb-1.5 max-h-72 w-[256px] overflow-auto rounded-xl border border-line-strong bg-surface p-1 shadow-xl">
           <div className="px-1.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
             {group.label}
           </div>
           {group.items.map((it) => {
+            if (confirmKey === it.key) {
+              return (
+                <div key={it.key} className="rounded-lg bg-panel-2/60 px-2 py-2">
+                  <p className="text-[12px] leading-snug text-ink">
+                    Remove <span className="font-medium">{it.label}</span> from the conversation?
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setDontAsk((v) => !v)}
+                    className="mt-2 flex items-center gap-1.5 text-[11px] text-ink-soft transition hover:text-ink"
+                  >
+                    <span
+                      className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border ${
+                        dontAsk ? 'border-accent bg-accent text-white' : 'border-line-strong'
+                      }`}
+                    >
+                      {dontAsk && <Check size={10} strokeWidth={3} />}
+                    </span>
+                    Don’t ask again
+                  </button>
+                  <div className="mt-2 flex justify-end gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setConfirmKey(null)}
+                      className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:bg-panel-2"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => confirmRemove(it)}
+                      className="rounded-md bg-red-600 px-2 py-1 text-[12px] font-medium text-white transition hover:bg-red-700"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              )
+            }
             const active = sameFocus(focus, it.focus)
             return (
-              <button
+              <div
                 key={it.key}
-                onClick={() => {
-                  onOpen(it.focus)
-                  setOpen(false)
-                }}
-                className={`flex w-full items-center gap-2 rounded-lg px-1.5 py-1.5 text-left transition ${
+                className={`group flex items-center gap-1 rounded-lg pr-1 transition ${
                   active ? 'bg-panel-2' : 'hover:bg-panel-2/60'
                 }`}
               >
-                <span className="shrink-0 text-ink-soft">{it.icon}</span>
-                <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{it.label}</span>
-                {active && <Check size={14} className="shrink-0 text-accent" />}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpen(it.focus)
+                    setOpen(false)
+                  }}
+                  className="flex min-w-0 flex-1 items-center gap-2 px-1.5 py-1.5 text-left"
+                >
+                  <span className="shrink-0 text-ink-soft">{it.icon}</span>
+                  <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{it.label}</span>
+                  {active && <Check size={14} className="shrink-0 text-accent" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => requestRemove(it)}
+                  title="Remove from context"
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint opacity-0 transition hover:bg-red-50 hover:text-red-600 focus:opacity-100 group-hover:opacity-100"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
             )
           })}
         </div>

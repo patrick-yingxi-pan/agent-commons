@@ -333,6 +333,25 @@ export default function App() {
     setLive((l) => ({ ...l, connectors: l.connectors.filter((c) => c.id !== id) }))
   }, [])
 
+  // Remove any attached context by its focus (used by the chip-popup trash button).
+  const removeContext = useCallback((f: PanelFocus) => {
+    setLive((l) => {
+      switch (f.kind) {
+        case 'workspace':
+          return { ...l, workspaces: l.workspaces.filter((w) => w.id !== f.id) }
+        case 'repo':
+          return { ...l, repos: l.repos.filter((r) => r.id !== f.id) }
+        case 'connector':
+          return { ...l, connectors: l.connectors.filter((c) => c.id !== f.id) }
+        case 'file':
+        case 'photo':
+          return { ...l, attachments: l.attachments.filter((a) => a.id !== f.id) }
+        default:
+          return l
+      }
+    })
+  }, [])
+
   // Close the sidebar if its context no longer exists (removed / switched away).
   useEffect(() => {
     if (!focus) return
@@ -413,6 +432,7 @@ export default function App() {
                 onSend={handleSend}
                 onAddContext={handleAddContext}
                 onOpenContext={focusContext}
+                onRemoveContext={removeContext}
               />
             </section>
 
