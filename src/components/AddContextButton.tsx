@@ -75,13 +75,12 @@ export function AddContextButton({ onAttach }: { onAttach: (ctx: AddedContext) =
     <div ref={wrapRef} className="relative">
       <button
         onClick={() => (open ? close() : setOpen(true))}
-        className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium transition ${
-          open ? 'bg-panel-2 text-ink' : 'text-ink-soft hover:bg-panel-2'
+        className={`flex h-8 w-8 items-center justify-center rounded-lg transition ${
+          open ? 'bg-panel-2 text-ink' : 'text-ink-soft hover:bg-panel-2 hover:text-ink'
         }`}
         title="Add context — files, folders, repos, connectors, MCP servers"
       >
-        <Plus size={15} />
-        Add context
+        <Plus size={18} />
       </button>
 
       {open && (

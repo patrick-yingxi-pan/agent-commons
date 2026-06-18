@@ -172,7 +172,7 @@ export function ModelEffortControl() {
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-0 z-20 mb-2 w-[320px] overflow-hidden rounded-xl border border-line-strong bg-surface shadow-xl">
+        <div className="absolute bottom-full right-0 z-20 mb-2 w-[320px] overflow-hidden rounded-xl border border-line-strong bg-surface shadow-xl">
           {/* Model */}
           <div className="px-2 pt-2">
             <div className="px-1.5 pb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">

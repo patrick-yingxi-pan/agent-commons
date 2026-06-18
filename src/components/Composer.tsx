@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react'
-import { ArrowUp, FileText, GitBranch, Image as ImageIcon, PanelsTopLeft } from 'lucide-react'
+import { CornerDownLeft, FileText, GitBranch, Image as ImageIcon, PanelsTopLeft } from 'lucide-react'
 import type { AddedContext, Attachment, Capability, Connector, PanelFocus } from '../types'
 import { ModelEffortControl } from './ModelEffortControl'
 import { AddContextButton } from './AddContextButton'
@@ -103,8 +103,8 @@ export function Composer({
           </div>
         )}
 
-        {/* Input */}
-        <div className="rounded-2xl border border-line-strong bg-surface shadow-sm transition focus-within:border-accent">
+        {/* Input — clean inside; Enter sends, Shift+Enter for a new line */}
+        <div className="flex items-end gap-2 rounded-2xl border border-line-strong bg-surface px-4 py-3 shadow-sm transition focus-within:border-accent">
           <textarea
             ref={ref}
             value={value}
@@ -121,23 +121,24 @@ export function Composer({
               }
             }}
             placeholder="Reply to Claude…"
-            className="max-h-[180px] w-full resize-none bg-transparent px-4 pt-3 text-[15px] leading-relaxed text-ink outline-none placeholder:text-ink-faint"
+            className="max-h-[180px] min-w-0 flex-1 resize-none bg-transparent text-[15px] leading-relaxed text-ink outline-none placeholder:text-ink-faint"
           />
-          <div className="flex items-center justify-between px-3 pb-2.5 pt-1">
-            <div className="flex items-center gap-1">
-              <AddContextButton onAttach={onAddContext} />
-              <ModelEffortControl />
-            </div>
-            <button
-              onClick={submit}
-              disabled={!value.trim()}
-              className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent text-white transition enabled:hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-30"
-            >
-              <ArrowUp size={17} strokeWidth={2.5} />
-            </button>
+          <span className="shrink-0 self-end pb-0.5 text-ink-faint" title="Enter to send">
+            <CornerDownLeft size={16} />
+          </span>
+        </div>
+
+        {/* Controls under the box, split left / right */}
+        <div className="mt-2 flex items-center justify-between gap-2 px-0.5">
+          <div className="flex items-center gap-1">
+            <AddContextButton onAttach={onAddContext} />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <ModelEffortControl />
           </div>
         </div>
-        <p className="mt-1.5 text-center text-[11px] text-ink-faint">
+
+        <p className="mt-2 text-center text-[11px] text-ink-faint">
           Prototype · the guided tour drives the escalation. Free-typed replies get a canned answer.
         </p>
       </div>
