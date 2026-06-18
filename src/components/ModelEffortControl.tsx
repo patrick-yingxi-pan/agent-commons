@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Check, ChevronDown, Gauge, Sparkles, Workflow, Zap } from 'lucide-react'
+import { Check, ChevronDown, Workflow, Zap } from 'lucide-react'
 
 /** Reasoning-effort ladder — a single continuum from quick to maximal. */
 type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
@@ -149,25 +149,21 @@ export function ModelEffortControl() {
         }`}
         title="Model & effort"
       >
-        <Sparkles size={13} className="text-accent" />
-        <span className="text-ink">{model.short}</span>
-        <span className="text-ink-faint">·</span>
-        <span className="inline-flex items-center gap-1">
-          <Gauge size={12} className="text-ink-faint" />
-          {effortMeta.label}
-        </span>
+        {/* Orthogonal modes, when on, show as icons to the left so the
+            model/effort text stays put next to the usage button. */}
         {ultracode && (
-          <span className="inline-flex items-center gap-1 rounded bg-accent-tint px-1 py-0.5 text-[10px] font-semibold text-accent-strong">
-            <Workflow size={11} />
-            Ultracode
+          <span title="Ultracode — multi-agent workflow" className="flex items-center text-accent">
+            <Workflow size={14} />
           </span>
         )}
         {fast && model.isOpus && (
-          <span className="inline-flex items-center gap-1 rounded bg-accent-tint px-1 py-0.5 text-[10px] font-semibold text-accent-strong">
-            <Zap size={11} />
-            Fast
+          <span title="Fast output" className="flex items-center text-accent">
+            <Zap size={14} />
           </span>
         )}
+        <span className="text-ink">
+          {model.short} · {effortMeta.label}
+        </span>
         <ChevronDown size={13} className={`transition ${open ? 'rotate-180' : ''}`} />
       </button>
 
