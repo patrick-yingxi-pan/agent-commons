@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, ChevronDown, Gauge, Sparkles, Wand2, Zap } from 'lucide-react'
+import { Check, ChevronDown, Gauge, Sparkles, Wand2, Workflow, Zap } from 'lucide-react'
 import type { Capability } from '../types'
 
-/** Effort levels mirror Claude's reasoning-effort vocabulary. */
-type Effort = 'low' | 'medium' | 'high' | 'max'
+/** Effort levels mirror Claude's reasoning-effort ladder. `ultracode` is the
+ *  top tier and is qualitatively different — it fans the turn out into a
+ *  multi-agent workflow rather than just thinking harder. */
+type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'ultracode'
 
 const MODELS = [
   {
@@ -29,18 +31,27 @@ const MODELS = [
   },
 ] as const
 
-const EFFORTS: { id: Effort; label: string; blurb: string }[] = [
+/** The first four sit on one continuum (a segmented control). */
+const SEGMENT_EFFORTS: { id: Effort; label: string; blurb: string }[] = [
   { id: 'low', label: 'Low', blurb: 'Quick replies, minimal reasoning.' },
   { id: 'medium', label: 'Medium', blurb: 'Balanced speed and depth.' },
   { id: 'high', label: 'High', blurb: 'Deeper, step-by-step reasoning.' },
-  { id: 'max', label: 'Max', blurb: 'Maximum reasoning for the hardest problems.' },
+  { id: 'xhigh', label: 'xHigh', blurb: 'Extended reasoning for hard, multi-file work.' },
 ]
+/** Ultracode is set apart because it changes *kind*, not just degree. */
+const ULTRACODE = {
+  id: 'ultracode' as Effort,
+  label: 'Ultracode',
+  blurb: 'Fans out into a multi-agent workflow — most exhaustive, highest cost.',
+}
+const ALL_EFFORTS = [...SEGMENT_EFFORTS, ULTRACODE]
 
 /** The adaptive default: with no attached context it stays light; a workspace
- *  bumps it up; a repo pushes it to max. This is the model/effort analogue of
- *  the progressively-disclosed panel — configuration follows context. */
+ *  bumps it up; a repo pushes it to xHigh. It deliberately caps at xHigh and
+ *  never auto-selects Ultracode — escalating into a multi-agent fleet (real
+ *  cost + latency) should be a human decision, not an inference. */
 function autoEffort(caps: Capability[]): Effort {
-  if (caps.includes('repo')) return 'max'
+  if (caps.includes('repo')) return 'xhigh'
   if (caps.includes('workspace')) return 'high'
   return 'medium'
 }
@@ -61,7 +72,8 @@ export function ModelEffortControl({ caps }: { caps: Capability[] }) {
 
   const model = MODELS.find((m) => m.id === modelId)!
   const effort: Effort = auto ? autoEffort(caps) : manualEffort
-  const effortMeta = EFFORTS.find((e) => e.id === effort)!
+  const effortMeta = ALL_EFFORTS.find((e) => e.id === effort)!
+  const isUltra = effort === 'ultracode'
 
   // Close on outside click / Escape.
   useEffect(() => {
@@ -96,15 +108,21 @@ export function ModelEffortControl({ caps }: { caps: Capability[] }) {
         <span className="text-ink">{model.short}</span>
         <span className="text-ink-faint">·</span>
         <span className="inline-flex items-center gap-1">
-          <Gauge size={12} className="text-ink-faint" />
-          {effortMeta.label}
+          {isUltra ? (
+            <Workflow size={12} className="text-accent-strong" />
+          ) : (
+            <Gauge size={12} className="text-ink-faint" />
+          )}
+          <span className={isUltra ? 'font-semibold text-accent-strong' : undefined}>
+            {effortMeta.label}
+          </span>
           {auto && <span className="text-[10px] font-semibold text-accent-strong">AUTO</span>}
         </span>
         <ChevronDown size={13} className={`transition ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-0 z-20 mb-2 w-[296px] overflow-hidden rounded-xl border border-line-strong bg-surface shadow-xl">
+        <div className="absolute bottom-full left-0 z-20 mb-2 w-[300px] overflow-hidden rounded-xl border border-line-strong bg-surface shadow-xl">
           {/* Model */}
           <div className="px-2 pt-2">
             <div className="px-1.5 pb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
@@ -150,9 +168,7 @@ export function ModelEffortControl({ caps }: { caps: Capability[] }) {
               <button
                 onClick={() => setAuto((a) => !a)}
                 className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold transition ${
-                  auto
-                    ? 'bg-accent-tint text-accent-strong'
-                    : 'text-ink-faint hover:bg-panel-2'
+                  auto ? 'bg-accent-tint text-accent-strong' : 'text-ink-faint hover:bg-panel-2'
                 }`}
                 title="Match effort to the conversation's attached context"
               >
@@ -162,8 +178,8 @@ export function ModelEffortControl({ caps }: { caps: Capability[] }) {
             </div>
 
             <div className="flex gap-1 rounded-lg bg-panel-2 p-0.5">
-              {EFFORTS.map((e) => {
-                const active = e.id === effort
+              {SEGMENT_EFFORTS.map((e) => {
+                const active = !isUltra && e.id === effort
                 return (
                   <button
                     key={e.id}
@@ -190,6 +206,35 @@ export function ModelEffortControl({ caps }: { caps: Capability[] }) {
                 effortMeta.blurb
               )}
             </p>
+
+            {/* Ultracode — set apart as a distinct top tier */}
+            <button
+              onClick={() => pickEffort('ultracode')}
+              className={`mt-2 flex w-full items-center gap-2.5 rounded-lg border px-2 py-1.5 text-left transition ${
+                isUltra
+                  ? 'border-accent bg-accent-tint'
+                  : 'border-line hover:border-line-strong hover:bg-panel-2/60'
+              }`}
+            >
+              <Workflow
+                size={16}
+                className={isUltra ? 'text-accent-strong' : 'text-ink-faint'}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13px] font-medium text-ink">{ULTRACODE.label}</span>
+                <span className="block text-[11px] leading-snug text-ink-faint">
+                  {ULTRACODE.blurb}
+                </span>
+              </span>
+              {isUltra && (
+                <Check size={15} strokeWidth={2.5} className="shrink-0 text-accent-strong" />
+              )}
+            </button>
+            {auto && (
+              <p className="mt-1 text-[11px] leading-snug text-ink-faint">
+                Auto won't escalate to Ultracode — that stays your call.
+              </p>
+            )}
           </div>
 
           <div className="my-1.5 border-t border-line" />

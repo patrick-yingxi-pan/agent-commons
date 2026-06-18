@@ -96,13 +96,20 @@ every conversation tagged with small **capability badges**, filterable and
 searchable in one place — instead of three histories you switch between.
 
 ### 4.6 Configuration follows context, too
-The same principle extends to the model/effort control in the composer. Its
-default is **Auto**, which matches reasoning effort to the conversation's
-attached context: a plain chat stays light (Medium), a workspace bumps it up
-(High), a repo pushes it to Max. In the prototype the effort pill visibly steps
-up during the tour as the thread gains a workspace and then a repo — the
-configuration analogue of the progressively-disclosed panel. (Manual override is
-always one click away.)
+The same principle extends to the model/effort control in the composer. The
+effort ladder is **Low → Medium → High → xHigh → Ultracode**, where Ultracode is
+qualitatively different — it fans the turn out into a multi-agent workflow rather
+than just thinking harder. The control's default is **Auto**, which matches
+reasoning effort to the conversation's attached context: a plain chat stays light
+(Medium), a workspace bumps it up (High), a repo pushes it to xHigh. In the
+prototype the effort pill visibly steps up during the tour as the thread gains a
+workspace and then a repo — the configuration analogue of the
+progressively-disclosed panel.
+
+Auto deliberately **caps at xHigh and never selects Ultracode**: adapting *how
+hard Claude thinks* to context is a reasonable inference, but escalating into a
+multi-agent fleet is a real cost-and-latency decision that should stay an explicit
+human choice. Manual override is always one click away.
 
 ## 5. How it maps to the prototype
 
@@ -113,7 +120,7 @@ always one click away.)
 | Progressive disclosure | The right panel is absent in chat, appears for workspace/repo. |
 | In-place escalation | **Play the tour** — one thread, three beats. |
 | Adaptive panel | The panel morphs from artifacts → code at the repo step. |
-| Configuration follows context | The model/effort pill — effort auto-steps Medium → High → Max as the thread gains a workspace then a repo. |
+| Configuration follows context | The model/effort pill — effort auto-steps Medium → High → xHigh as the thread gains a workspace then a repo (Ultracode stays a manual choice). |
 | Unified history | The sidebar list with capability badges; open different items. |
 
 ## 6. Design principles (carry beyond this one screen)
