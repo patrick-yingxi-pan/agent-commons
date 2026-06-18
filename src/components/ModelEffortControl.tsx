@@ -1,11 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Check, ChevronDown, Gauge, Sparkles, Wand2, Workflow, Zap } from 'lucide-react'
 import type { Capability } from '../types'
 
-/** Effort levels mirror Claude's reasoning-effort ladder. `ultracode` is the
- *  top tier and is qualitatively different — it fans the turn out into a
- *  multi-agent workflow rather than just thinking harder. */
-type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'ultracode'
+/** Reasoning-effort ladder — a single continuum from quick to maximal. */
+type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 const MODELS = [
   {
@@ -31,25 +29,18 @@ const MODELS = [
   },
 ] as const
 
-/** The first four sit on one continuum (a segmented control). */
-const SEGMENT_EFFORTS: { id: Effort; label: string; blurb: string }[] = [
+const EFFORTS: { id: Effort; label: string; blurb: string }[] = [
   { id: 'low', label: 'Low', blurb: 'Quick replies, minimal reasoning.' },
   { id: 'medium', label: 'Medium', blurb: 'Balanced speed and depth.' },
   { id: 'high', label: 'High', blurb: 'Deeper, step-by-step reasoning.' },
   { id: 'xhigh', label: 'xHigh', blurb: 'Extended reasoning for hard, multi-file work.' },
+  { id: 'max', label: 'Max', blurb: 'Maximum reasoning for the hardest problems.' },
 ]
-/** Ultracode is set apart because it changes *kind*, not just degree. */
-const ULTRACODE = {
-  id: 'ultracode' as Effort,
-  label: 'Ultracode',
-  blurb: 'Fans out into a multi-agent workflow — most exhaustive, highest cost.',
-}
-const ALL_EFFORTS = [...SEGMENT_EFFORTS, ULTRACODE]
 
-/** The adaptive default: with no attached context it stays light; a workspace
- *  bumps it up; a repo pushes it to xHigh. It deliberately caps at xHigh and
- *  never auto-selects Ultracode — escalating into a multi-agent fleet (real
- *  cost + latency) should be a human decision, not an inference. */
+/** The adaptive default for the *effort* axis: a bare chat stays light, a
+ *  workspace bumps it up, a repo pushes it to xHigh. It caps at xHigh — Max (the
+ *  effort ceiling) stays a deliberate manual reach. Ultracode lives on its own
+ *  axis and is never touched by Auto (see below). */
 function autoEffort(caps: Capability[]): Effort {
   if (caps.includes('repo')) return 'xhigh'
   if (caps.includes('workspace')) return 'high'
@@ -62,18 +53,61 @@ function contextLabel(caps: Capability[]): string {
   return 'a chat'
 }
 
+/** An orthogonal on/off mode (Ultracode, Fast output) — visually distinct from
+ *  the effort ladder to signal it's a different axis, combinable with any level. */
+function ToggleRow({
+  icon,
+  title,
+  subtitle,
+  on,
+  disabled,
+  onToggle,
+}: {
+  icon: ReactNode
+  title: string
+  subtitle: string
+  on: boolean
+  disabled?: boolean
+  onToggle: () => void
+}) {
+  return (
+    <button
+      onClick={() => !disabled && onToggle()}
+      disabled={disabled}
+      className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition enabled:hover:bg-panel-2/60 disabled:opacity-45"
+    >
+      <span className={on ? 'text-accent' : 'text-ink-faint'}>{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[13px] font-medium text-ink">{title}</span>
+        <span className="block text-[11px] leading-snug text-ink-faint">{subtitle}</span>
+      </span>
+      <span
+        className={`relative h-4 w-7 shrink-0 rounded-full transition ${
+          on ? 'bg-accent' : 'bg-line-strong'
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${
+            on ? 'left-3.5' : 'left-0.5'
+          }`}
+        />
+      </span>
+    </button>
+  )
+}
+
 export function ModelEffortControl({ caps }: { caps: Capability[] }) {
   const [open, setOpen] = useState(false)
   const [modelId, setModelId] = useState<(typeof MODELS)[number]['id']>('opus')
   const [auto, setAuto] = useState(true)
   const [manualEffort, setManualEffort] = useState<Effort>('high')
+  const [ultracode, setUltracode] = useState(false)
   const [fast, setFast] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
 
   const model = MODELS.find((m) => m.id === modelId)!
   const effort: Effort = auto ? autoEffort(caps) : manualEffort
-  const effortMeta = ALL_EFFORTS.find((e) => e.id === effort)!
-  const isUltra = effort === 'ultracode'
+  const effortMeta = EFFORTS.find((e) => e.id === effort)!
 
   // Close on outside click / Escape.
   useEffect(() => {
@@ -108,21 +142,21 @@ export function ModelEffortControl({ caps }: { caps: Capability[] }) {
         <span className="text-ink">{model.short}</span>
         <span className="text-ink-faint">·</span>
         <span className="inline-flex items-center gap-1">
-          {isUltra ? (
-            <Workflow size={12} className="text-accent-strong" />
-          ) : (
-            <Gauge size={12} className="text-ink-faint" />
-          )}
-          <span className={isUltra ? 'font-semibold text-accent-strong' : undefined}>
-            {effortMeta.label}
-          </span>
+          <Gauge size={12} className="text-ink-faint" />
+          {effortMeta.label}
           {auto && <span className="text-[10px] font-semibold text-accent-strong">AUTO</span>}
         </span>
+        {ultracode && (
+          <span className="inline-flex items-center gap-1 rounded bg-accent-tint px-1 py-0.5 text-[10px] font-semibold text-accent-strong">
+            <Workflow size={11} />
+            Ultracode
+          </span>
+        )}
         <ChevronDown size={13} className={`transition ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-0 z-20 mb-2 w-[300px] overflow-hidden rounded-xl border border-line-strong bg-surface shadow-xl">
+        <div className="absolute bottom-full left-0 z-20 mb-2 w-[320px] overflow-hidden rounded-xl border border-line-strong bg-surface shadow-xl">
           {/* Model */}
           <div className="px-2 pt-2">
             <div className="px-1.5 pb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
@@ -159,7 +193,7 @@ export function ModelEffortControl({ caps }: { caps: Capability[] }) {
 
           <div className="my-1.5 border-t border-line" />
 
-          {/* Effort */}
+          {/* Effort — the continuum */}
           <div className="px-3">
             <div className="flex items-center justify-between pb-1.5">
               <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
@@ -178,8 +212,8 @@ export function ModelEffortControl({ caps }: { caps: Capability[] }) {
             </div>
 
             <div className="flex gap-1 rounded-lg bg-panel-2 p-0.5">
-              {SEGMENT_EFFORTS.map((e) => {
-                const active = !isUltra && e.id === effort
+              {EFFORTS.map((e) => {
+                const active = e.id === effort
                 return (
                   <button
                     key={e.id}
@@ -206,64 +240,26 @@ export function ModelEffortControl({ caps }: { caps: Capability[] }) {
                 effortMeta.blurb
               )}
             </p>
-
-            {/* Ultracode — set apart as a distinct top tier */}
-            <button
-              onClick={() => pickEffort('ultracode')}
-              className={`mt-2 flex w-full items-center gap-2.5 rounded-lg border px-2 py-1.5 text-left transition ${
-                isUltra
-                  ? 'border-accent bg-accent-tint'
-                  : 'border-line hover:border-line-strong hover:bg-panel-2/60'
-              }`}
-            >
-              <Workflow
-                size={16}
-                className={isUltra ? 'text-accent-strong' : 'text-ink-faint'}
-              />
-              <span className="min-w-0 flex-1">
-                <span className="block text-[13px] font-medium text-ink">{ULTRACODE.label}</span>
-                <span className="block text-[11px] leading-snug text-ink-faint">
-                  {ULTRACODE.blurb}
-                </span>
-              </span>
-              {isUltra && (
-                <Check size={15} strokeWidth={2.5} className="shrink-0 text-accent-strong" />
-              )}
-            </button>
-            {auto && (
-              <p className="mt-1 text-[11px] leading-snug text-ink-faint">
-                Auto won't escalate to Ultracode — that stays your call.
-              </p>
-            )}
           </div>
 
           <div className="my-1.5 border-t border-line" />
 
-          {/* Fast output (Opus only) */}
-          <button
-            onClick={() => model.isOpus && setFast((f) => !f)}
+          {/* Orthogonal modes — independent of the effort level above */}
+          <ToggleRow
+            icon={<Workflow size={15} />}
+            title="Ultracode"
+            subtitle="Run as a multi-agent workflow — combines with any effort"
+            on={ultracode}
+            onToggle={() => setUltracode((v) => !v)}
+          />
+          <ToggleRow
+            icon={<Zap size={15} />}
+            title="Fast output"
+            subtitle={model.isOpus ? 'Opus, with faster streaming' : 'Available on Opus models'}
+            on={fast && model.isOpus}
             disabled={!model.isOpus}
-            className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition enabled:hover:bg-panel-2/60 disabled:opacity-45"
-          >
-            <Zap size={15} className={fast && model.isOpus ? 'text-accent' : 'text-ink-faint'} />
-            <span className="min-w-0 flex-1">
-              <span className="block text-[13px] font-medium text-ink">Fast output</span>
-              <span className="block text-[11px] text-ink-faint">
-                {model.isOpus ? 'Opus, with faster streaming' : 'Available on Opus models'}
-              </span>
-            </span>
-            <span
-              className={`relative h-4 w-7 shrink-0 rounded-full transition ${
-                fast && model.isOpus ? 'bg-accent' : 'bg-line-strong'
-              }`}
-            >
-              <span
-                className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${
-                  fast && model.isOpus ? 'left-3.5' : 'left-0.5'
-                }`}
-              />
-            </span>
-          </button>
+            onToggle={() => setFast((v) => !v)}
+          />
         </div>
       )}
     </div>
