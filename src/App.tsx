@@ -6,6 +6,7 @@ import { Composer } from './components/Composer'
 import { MessageRow, TypingRow } from './components/Message'
 import { CaptionBar, type TourPhase } from './components/CaptionBar'
 import { WorkspacePanel, type PanelState } from './components/WorkspacePanel'
+import { AttachmentPanel } from './components/AttachmentPanel'
 import { IntroOverlay } from './components/IntroOverlay'
 import { CapBadges } from './components/CapBadges'
 import { CONVERSATIONS, DEMO_CONVERSATION_ID } from './data/conversations'
@@ -96,6 +97,8 @@ export default function App() {
   const [live, setLive] = useState<Live>(EMPTY_DEMO)
   const [typing, setTyping] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
+  // Which attachment group's preview/edit panel is open (null = none).
+  const [openGroup, setOpenGroup] = useState<'file' | 'photo' | null>(null)
 
   // Guided-tour state (only meaningful for the demo conversation).
   const [phase, setPhase] = useState<TourPhase>('idle')
@@ -140,6 +143,7 @@ export default function App() {
       setBusy(false)
       setActiveId(id)
       setCollapsed(false)
+      setOpenGroup(null)
       const conv = CONVERSATIONS.find((c) => c.id === id)!
       setLive(liveFromConversation(conv))
       if (conv.isDemo) {
@@ -263,6 +267,19 @@ export default function App() {
     })
   }, [])
 
+  const openAttachments = useCallback((kind: 'file' | 'photo') => {
+    setOpenGroup((g) => (g === kind ? null : kind))
+  }, [])
+
+  const removeAttachment = useCallback((id: string) => {
+    setLive((l) => ({ ...l, attachments: l.attachments.filter((a) => a.id !== id) }))
+  }, [])
+
+  // Close the preview panel once its group has no items left.
+  useEffect(() => {
+    if (openGroup && !live.attachments.some((a) => a.kind === openGroup)) setOpenGroup(null)
+  }, [openGroup, live.attachments])
+
   const workspaceName = live.workspaceLabel ?? workspaceNameFor(activeConv)
   const branch = live.branchLabel ?? branchFor(activeId)
 
@@ -334,17 +351,30 @@ export default function App() {
                 attachments={live.attachments}
                 repoBranch={branch}
                 workspaceName={workspaceName}
+                openAttachmentKind={openGroup}
                 onSend={handleSend}
                 onAddContext={handleAddContext}
+                onOpenAttachments={openAttachments}
               />
             </section>
 
             <AnimatePresence>
-              {panelVisible && (
+              {panelVisible && !openGroup && (
                 <WorkspacePanel
                   state={panelState}
                   collapsed={collapsed}
                   onToggle={() => setCollapsed((c) => !c)}
+                />
+              )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+              {openGroup && (
+                <AttachmentPanel
+                  kind={openGroup}
+                  items={live.attachments.filter((a) => a.kind === openGroup)}
+                  onClose={() => setOpenGroup(null)}
+                  onRemove={removeAttachment}
                 />
               )}
             </AnimatePresence>

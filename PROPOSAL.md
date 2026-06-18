@@ -88,6 +88,9 @@ absent:
 - **No context** → no panel. It's just a chat.
 - **Workspace attached** → an **artifacts** panel (documents, emails, images).
 - **Repo attached** → a **code** panel (file tree, diff, terminal).
+- **Files / photos attached** → a **preview & edit** panel, opened from the
+  grouped thumbnail tiles on the composer (a photo grid with crop/annotate, an
+  editable view for text files).
 
 It can be collapsed to a rail at any time. Tools appear *because the work needs
 them*, not because you navigated to them.
@@ -111,6 +114,7 @@ searchable in one place — instead of three histories you switch between.
 | No mode chosen up front | The app opens to a single empty thread + composer. |
 | Context as attachment | The **Add context** button — one entry point for files, folders, repos, photos, connectors, and MCP servers — and the chips it produces above the composer. |
 | Progressive disclosure | The right panel is absent in chat, appears for workspace/repo. |
+| Attachments are previewable | Files & photos attach as grouped thumbnail tiles; click one to open the right-side preview / edit panel. |
 | In-place escalation | **Play the tour** — one thread, three beats. |
 | Adaptive panel | The panel morphs from artifacts → code at the repo step. |
 | Unified history | The sidebar list with capability badges; open different items. |

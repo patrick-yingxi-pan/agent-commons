@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react'
-import { ArrowUp, FileText, GitBranch, Image as ImageIcon, PanelsTopLeft } from 'lucide-react'
+import { ArrowUp, GitBranch, PanelsTopLeft } from 'lucide-react'
 import type { AddedContext, Attachment, Capability, Connector } from '../types'
 import { ModelEffortControl } from './ModelEffortControl'
 import { AddContextButton } from './AddContextButton'
+import { AttachmentThumbs } from './AttachmentThumbs'
 import { connectorIconFor } from '../lib/connectors'
 
 /** The single composer for every conversation. The chips above it show what
@@ -14,23 +15,27 @@ export function Composer({
   attachments,
   repoBranch,
   workspaceName,
+  openAttachmentKind,
   onSend,
   onAddContext,
+  onOpenAttachments,
 }: {
   caps: Capability[]
   connectors: Connector[]
   attachments: Attachment[]
   repoBranch?: string
   workspaceName?: string
+  openAttachmentKind: 'file' | 'photo' | null
   onSend: (text: string) => void
   onAddContext: (ctx: AddedContext) => void
+  onOpenAttachments: (kind: 'file' | 'photo') => void
 }) {
   const [value, setValue] = useState('')
   const ref = useRef<HTMLTextAreaElement>(null)
 
   const hasWorkspace = caps.includes('workspace')
   const hasRepo = caps.includes('repo')
-  const hasChips = hasWorkspace || hasRepo || connectors.length > 0 || attachments.length > 0
+  const hasChips = hasWorkspace || hasRepo || connectors.length > 0
 
   const submit = () => {
     const t = value.trim()
@@ -64,16 +69,16 @@ export function Composer({
                 </Chip>
               )
             })}
-            {attachments.map((a) => (
-              <Chip
-                key={a.id}
-                icon={a.kind === 'photo' ? <ImageIcon size={12} /> : <FileText size={12} />}
-                tone="chat"
-              >
-                {a.label}
-              </Chip>
-            ))}
           </div>
+        )}
+
+        {/* File & photo attachments — thumbnails grouped one tile per type */}
+        {attachments.length > 0 && (
+          <AttachmentThumbs
+            attachments={attachments}
+            onOpen={onOpenAttachments}
+            activeKind={openAttachmentKind}
+          />
         )}
 
         {/* Input */}

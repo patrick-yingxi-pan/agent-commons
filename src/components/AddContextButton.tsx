@@ -12,6 +12,7 @@ import {
   Server,
 } from 'lucide-react'
 import type { AddedContext } from '../types'
+import { gradientFor } from '../lib/thumbs'
 import {
   CONNECTOR_OPTIONS,
   FILE_OPTIONS,
@@ -234,29 +235,22 @@ function WorkflowBody({ type, onAttach }: { type: TypeId; onAttach: (ctx: AddedC
   return (
     <Section label="Photo library">
       <div className="grid grid-cols-4 gap-1.5 px-1 pb-1">
-        {PHOTO_OPTIONS.map((p, i) => (
+        {PHOTO_OPTIONS.map((p) => (
           <button
             key={p.id}
             title={p.label}
             onClick={() =>
               onAttach({ kind: 'photos', attachments: [{ id: p.id, label: p.label, kind: 'photo' }] })
             }
-            className={`aspect-square rounded-lg ring-1 ring-black/5 transition hover:opacity-80 ${
-              PHOTO_BG[i % PHOTO_BG.length]
-            }`}
+            className={`aspect-square rounded-lg ring-1 ring-black/5 transition hover:opacity-80 ${gradientFor(
+              p.id,
+            )}`}
           />
         ))}
       </div>
     </Section>
   )
 }
-
-const PHOTO_BG = [
-  'bg-gradient-to-br from-[#f3d9c9] to-[#cf8f6e]',
-  'bg-gradient-to-br from-[#cfe0e6] to-[#86a7b3]',
-  'bg-gradient-to-br from-[#e3dcc9] to-[#b3a786]',
-  'bg-gradient-to-br from-[#e6cfd9] to-[#b386a0]',
-]
 
 function Section({ label, children }: { label: string; children: ReactNode }) {
   return (
