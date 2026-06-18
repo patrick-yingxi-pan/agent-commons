@@ -7,10 +7,12 @@ import { MessageRow, TypingRow } from './components/Message'
 import { CaptionBar, type TourPhase } from './components/CaptionBar'
 import { WorkspacePanel, type PanelState } from './components/WorkspacePanel'
 import { AttachmentPanel } from './components/AttachmentPanel'
+import { ConnectorPanel } from './components/ConnectorPanel'
 import { IntroOverlay } from './components/IntroOverlay'
 import { CapBadges } from './components/CapBadges'
 import { CONVERSATIONS, DEMO_CONVERSATION_ID } from './data/conversations'
 import { DEMO_STEPS } from './data/demo'
+import { sameFocus } from './lib/focus'
 import type {
   AddedContext,
   Artifact,
@@ -21,6 +23,7 @@ import type {
   DiffLine,
   FileNode,
   Message,
+  PanelFocus,
 } from './types'
 
 /** Everything that makes up the live view of the open conversation. */
@@ -96,9 +99,8 @@ export default function App() {
   const [showIntro, setShowIntro] = useState(true)
   const [live, setLive] = useState<Live>(EMPTY_DEMO)
   const [typing, setTyping] = useState(false)
-  const [collapsed, setCollapsed] = useState(false)
-  // Which attachment group's preview/edit panel is open (null = none).
-  const [openGroup, setOpenGroup] = useState<'file' | 'photo' | null>(null)
+  // Which attached context the right-hand sidebar is showing (null = closed).
+  const [focus, setFocus] = useState<PanelFocus | null>(null)
 
   // Guided-tour state (only meaningful for the demo conversation).
   const [phase, setPhase] = useState<TourPhase>('idle')
@@ -142,10 +144,16 @@ export default function App() {
       setTyping(false)
       setBusy(false)
       setActiveId(id)
-      setCollapsed(false)
-      setOpenGroup(null)
       const conv = CONVERSATIONS.find((c) => c.id === id)!
       setLive(liveFromConversation(conv))
+      // Auto-focus the conversation's strongest context so its sidebar opens.
+      setFocus(
+        conv.caps.includes('repo')
+          ? { kind: 'repo' }
+          : conv.caps.includes('workspace')
+            ? { kind: 'workspace' }
+            : null,
+      )
       if (conv.isDemo) {
         setPhase('idle')
         setStepIndex(-1)
@@ -182,6 +190,8 @@ export default function App() {
             ? [...l.connectors, ...step.connectors]
             : l.connectors,
         }))
+        // Auto-disclose the newly attached context's sidebar (drives the tour).
+        if (step.assistant.escalate) setFocus({ kind: step.assistant.escalate })
         setBusy(false)
         if (index >= DEMO_STEPS.length - 1) setPhase('done')
       }, 950)
@@ -233,9 +243,9 @@ export default function App() {
   )
 
   // Manually attach context to the open thread — the same escalation the tour
-  // performs, but user-driven. Every context type funnels through here.
+  // performs, but user-driven. Every context type funnels through here, and the
+  // newly attached context's sidebar opens so you see what you added.
   const handleAddContext = useCallback((ctx: AddedContext) => {
-    setCollapsed(false)
     setLive((l) => {
       switch (ctx.kind) {
         case 'folder':
@@ -265,25 +275,56 @@ export default function App() {
           return l
       }
     })
+    switch (ctx.kind) {
+      case 'folder':
+        setFocus({ kind: 'workspace' })
+        break
+      case 'repo':
+        setFocus({ kind: 'repo' })
+        break
+      case 'connector':
+      case 'mcp':
+        setFocus({ kind: 'connector', id: ctx.connector.id })
+        break
+      case 'files':
+      case 'photos': {
+        const first = ctx.attachments[0]
+        if (first) setFocus({ kind: first.kind, id: first.id })
+        break
+      }
+    }
   }, [])
 
-  const openAttachments = useCallback((kind: 'file' | 'photo') => {
-    setOpenGroup((g) => (g === kind ? null : kind))
+  // Clicking a chip toggles its sidebar.
+  const focusContext = useCallback((f: PanelFocus) => {
+    setFocus((cur) => (sameFocus(cur, f) ? null : f))
   }, [])
 
   const removeAttachment = useCallback((id: string) => {
     setLive((l) => ({ ...l, attachments: l.attachments.filter((a) => a.id !== id) }))
   }, [])
 
-  // Close the preview panel once its group has no items left.
+  const removeConnector = useCallback((id: string) => {
+    setLive((l) => ({ ...l, connectors: l.connectors.filter((c) => c.id !== id) }))
+  }, [])
+
+  // Close the sidebar if its context no longer exists (removed / switched away).
   useEffect(() => {
-    if (openGroup && !live.attachments.some((a) => a.kind === openGroup)) setOpenGroup(null)
-  }, [openGroup, live.attachments])
+    if (!focus) return
+    const valid =
+      focus.kind === 'workspace'
+        ? live.caps.includes('workspace')
+        : focus.kind === 'repo'
+          ? live.caps.includes('repo')
+          : focus.kind === 'connector'
+            ? live.connectors.some((c) => c.id === focus.id)
+            : live.attachments.some((a) => a.id === focus.id)
+    if (!valid) setFocus(null)
+  }, [focus, live])
 
   const workspaceName = live.workspaceLabel ?? workspaceNameFor(activeConv)
   const branch = live.branchLabel ?? branchFor(activeId)
 
-  const panelVisible = live.caps.includes('workspace') || live.caps.includes('repo')
   const panelState: PanelState = {
     caps: live.caps,
     artifacts: live.artifacts,
@@ -294,6 +335,9 @@ export default function App() {
     branch,
     workspaceName,
   }
+
+  const focusedConnector =
+    focus?.kind === 'connector' ? live.connectors.find((c) => c.id === focus.id) : undefined
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-canvas text-ink">
@@ -351,29 +395,44 @@ export default function App() {
                 attachments={live.attachments}
                 repoBranch={branch}
                 workspaceName={workspaceName}
-                openAttachmentKind={openGroup}
+                focus={focus}
                 onSend={handleSend}
                 onAddContext={handleAddContext}
-                onOpenAttachments={openAttachments}
+                onOpenContext={focusContext}
               />
             </section>
 
+            {/* One focused-context sidebar at a time, chosen by the active chip. */}
             <AnimatePresence>
-              {panelVisible && !openGroup && (
+              {(focus?.kind === 'workspace' || focus?.kind === 'repo') && (
                 <WorkspacePanel
+                  key="ws"
+                  mode={focus.kind}
                   state={panelState}
-                  collapsed={collapsed}
-                  onToggle={() => setCollapsed((c) => !c)}
+                  onClose={() => setFocus(null)}
                 />
               )}
             </AnimatePresence>
 
             <AnimatePresence>
-              {openGroup && (
+              {focusedConnector && (
+                <ConnectorPanel
+                  key="conn"
+                  connector={focusedConnector}
+                  onClose={() => setFocus(null)}
+                  onDisconnect={() => removeConnector(focusedConnector.id)}
+                />
+              )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+              {(focus?.kind === 'file' || focus?.kind === 'photo') && (
                 <AttachmentPanel
-                  kind={openGroup}
-                  items={live.attachments.filter((a) => a.kind === openGroup)}
-                  onClose={() => setOpenGroup(null)}
+                  key="att"
+                  kind={focus.kind}
+                  items={live.attachments.filter((a) => a.kind === focus.kind)}
+                  initialId={focus.id}
+                  onClose={() => setFocus(null)}
                   onRemove={removeAttachment}
                 />
               )}

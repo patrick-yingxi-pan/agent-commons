@@ -75,19 +75,22 @@ src/
     demo.ts               # the scripted chat → workspace → repo escalation
     conversations.ts      # the unified sidebar history + canned states
     contextOptions.ts     # options + sample payloads for the Add-context flows
+    connectorDetails.ts   # connector / MCP sidebar content (mock)
   lib/
     connectors.tsx        # shared connector → icon mapping
     thumbs.ts             # deterministic photo gradient by id
+    focus.ts              # which chip's sidebar is open
   components/
     Sidebar.tsx           # unified history with capability badges
-    Composer.tsx          # one composer + attached-context chips
+    Composer.tsx          # one composer + clickable attached-context chips
     AddContextButton.tsx  # one entry point: files/folders/repos/connectors/MCP
-    AttachmentThumbs.tsx  # file/photo attachments as grouped thumbnail tiles
-    AttachmentPanel.tsx   # right-side preview / edit panel for files & photos
     ModelEffortControl.tsx# model picker + effort + orthogonal mode toggles
     CaptionBar.tsx        # guided-tour narration + controls
     IntroOverlay.tsx      # the motivation (problems with today's three tabs)
-    WorkspacePanel.tsx    # the adaptive panel that morphs workspace ⇄ repo
+    PanelShell.tsx        # shared sliding sidebar chrome (header + close)
+    WorkspacePanel.tsx    # workspace ⇄ repo sidebar (morphs by mode)
+    ConnectorPanel.tsx    # connector / MCP sidebar: status, access, tools
+    AttachmentPanel.tsx   # file / photo sidebar: preview & edit
     panels/
       ArtifactPanel.tsx   # workspace view (Cowork)
       CodePanel.tsx       # repo view: files / diff / terminal (Code)

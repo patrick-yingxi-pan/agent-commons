@@ -81,19 +81,22 @@ grid). One affordance replaces today's scattering of per-type controls (a
 paperclip for files, a separate `+`, and so on), and it doubles as the
 discoverable answer to "what can I attach?"
 
-### 4.3 The workspace panel is adaptive and progressive
-A right-hand panel **morphs to fit the attached context** and is otherwise
-absent:
+### 4.3 The sidebar is adaptive, and every chip opens it
+A right-hand sidebar shows the **focused context** and is otherwise absent. It
+opens automatically as context attaches (and during the tour), and **every chip
+above the composer is clickable** to open — or, if already open, close — that
+context's view:
 
-- **No context** → no panel. It's just a chat.
-- **Workspace attached** → an **artifacts** panel (documents, emails, images).
-- **Repo attached** → a **code** panel (file tree, diff, terminal).
-- **Files / photos attached** → a **preview & edit** panel, opened from the
-  grouped thumbnail tiles on the composer (a photo grid with crop/annotate, an
-  editable view for text files).
+- **Workspace** → an **artifacts** panel (documents, emails, images).
+- **Repo** → a **code** panel (file tree, diff, terminal).
+- **Connector / MCP server** → a **detail** panel (status, what it can access,
+  the resources or tools it exposes, and disconnect).
+- **File / photo** → a **preview & edit** panel (an editable text view; a photo
+  grid with crop / annotate / caption).
 
-It can be collapsed to a rail at any time. Tools appear *because the work needs
-them*, not because you navigated to them.
+Only one sidebar shows at a time — the chips are the switcher, and the active
+one is highlighted. Tools appear *because the work needs them*, not because you
+navigated to them.
 
 ### 4.4 Escalation is fluid and in-place
 The defining move: a plain chat can **level up into a workspace, then into a
@@ -113,8 +116,8 @@ searchable in one place — instead of three histories you switch between.
 |---------------|-----------------|
 | No mode chosen up front | The app opens to a single empty thread + composer. |
 | Context as attachment | The **Add context** button — one entry point for files, folders, repos, photos, connectors, and MCP servers — and the chips it produces above the composer. |
-| Progressive disclosure | The right panel is absent in chat, appears for workspace/repo. |
-| Attachments are previewable | Files & photos attach as grouped thumbnail tiles; click one to open the right-side preview / edit panel. |
+| Progressive disclosure | The right sidebar is absent in chat; it opens as context attaches. |
+| Every chip opens a sidebar | Click any context chip — workspace, repo, connector, MCP, file, or photo — to open its detail / preview / edit panel. |
 | In-place escalation | **Play the tour** — one thread, three beats. |
 | Adaptive panel | The panel morphs from artifacts → code at the repo step. |
 | Unified history | The sidebar list with capability badges; open different items. |

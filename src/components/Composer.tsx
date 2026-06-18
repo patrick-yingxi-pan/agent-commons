@@ -1,41 +1,45 @@
-import { useRef, useState } from 'react'
-import { ArrowUp, GitBranch, PanelsTopLeft } from 'lucide-react'
-import type { AddedContext, Attachment, Capability, Connector } from '../types'
+import { useRef, useState, type ReactNode } from 'react'
+import { ArrowUp, FileText, GitBranch, Image as ImageIcon, PanelsTopLeft } from 'lucide-react'
+import type { AddedContext, Attachment, Capability, Connector, PanelFocus } from '../types'
 import { ModelEffortControl } from './ModelEffortControl'
 import { AddContextButton } from './AddContextButton'
-import { AttachmentThumbs } from './AttachmentThumbs'
 import { connectorIconFor } from '../lib/connectors'
+import { sameFocus } from '../lib/focus'
 
 /** The single composer for every conversation. The chips above it show what
  *  context is *attached* to the thread — the thing that, in today's app, is
- *  instead encoded by which tab you opened. */
+ *  instead encoded by which tab you opened. Every chip is clickable and opens
+ *  that context's sidebar. */
 export function Composer({
   caps,
   connectors,
   attachments,
   repoBranch,
   workspaceName,
-  openAttachmentKind,
+  focus,
   onSend,
   onAddContext,
-  onOpenAttachments,
+  onOpenContext,
 }: {
   caps: Capability[]
   connectors: Connector[]
   attachments: Attachment[]
   repoBranch?: string
   workspaceName?: string
-  openAttachmentKind: 'file' | 'photo' | null
+  focus: PanelFocus | null
   onSend: (text: string) => void
   onAddContext: (ctx: AddedContext) => void
-  onOpenAttachments: (kind: 'file' | 'photo') => void
+  onOpenContext: (focus: PanelFocus) => void
 }) {
   const [value, setValue] = useState('')
   const ref = useRef<HTMLTextAreaElement>(null)
 
   const hasWorkspace = caps.includes('workspace')
   const hasRepo = caps.includes('repo')
-  const hasChips = hasWorkspace || hasRepo || connectors.length > 0
+  const hasChips =
+    hasWorkspace || hasRepo || connectors.length > 0 || attachments.length > 0
+
+  const isActive = (f: PanelFocus) => sameFocus(focus, f)
 
   const submit = () => {
     const t = value.trim()
@@ -48,37 +52,55 @@ export function Composer({
   return (
     <div className="px-4 pb-4 pt-1">
       <div className="mx-auto w-full max-w-3xl">
-        {/* Attached-context chips — what the thread currently holds */}
+        {/* Attached-context chips — click any one to open its sidebar */}
         {hasChips && (
           <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
             {hasWorkspace && (
-              <Chip icon={<PanelsTopLeft size={12} />} tone="workspace">
+              <Chip
+                icon={<PanelsTopLeft size={12} />}
+                tone="workspace"
+                active={isActive({ kind: 'workspace' })}
+                onClick={() => onOpenContext({ kind: 'workspace' })}
+              >
                 {workspaceName ?? 'Workspace'}
               </Chip>
             )}
             {hasRepo && (
-              <Chip icon={<GitBranch size={12} />} tone="repo">
+              <Chip
+                icon={<GitBranch size={12} />}
+                tone="repo"
+                active={isActive({ kind: 'repo' })}
+                onClick={() => onOpenContext({ kind: 'repo' })}
+              >
                 {repoBranch ?? 'main'}
               </Chip>
             )}
             {connectors.map((c) => {
               const Icon = connectorIconFor(c.kind)
               return (
-                <Chip key={c.id} icon={<Icon size={12} />} tone="repo">
+                <Chip
+                  key={c.id}
+                  icon={<Icon size={12} />}
+                  tone="repo"
+                  active={isActive({ kind: 'connector', id: c.id })}
+                  onClick={() => onOpenContext({ kind: 'connector', id: c.id })}
+                >
                   {c.label}
                 </Chip>
               )
             })}
+            {attachments.map((a) => (
+              <Chip
+                key={a.id}
+                icon={a.kind === 'photo' ? <ImageIcon size={12} /> : <FileText size={12} />}
+                tone="chat"
+                active={isActive({ kind: a.kind, id: a.id })}
+                onClick={() => onOpenContext({ kind: a.kind, id: a.id })}
+              >
+                {a.label}
+              </Chip>
+            ))}
           </div>
-        )}
-
-        {/* File & photo attachments — thumbnails grouped one tile per type */}
-        {attachments.length > 0 && (
-          <AttachmentThumbs
-            attachments={attachments}
-            onOpen={onOpenAttachments}
-            activeKind={openAttachmentKind}
-          />
         )}
 
         {/* Input */}
@@ -126,11 +148,15 @@ export function Composer({
 function Chip({
   icon,
   tone,
+  active,
+  onClick,
   children,
 }: {
-  icon: React.ReactNode
+  icon: ReactNode
   tone: Capability
-  children: React.ReactNode
+  active: boolean
+  onClick: () => void
+  children: ReactNode
 }) {
   const toneClass =
     tone === 'workspace'
@@ -139,11 +165,15 @@ function Chip({
         ? 'bg-[#e9f0f3] text-cap-repo'
         : 'bg-panel-2 text-cap-chat'
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full ${toneClass} px-2 py-0.5 text-[11px] font-medium`}
+    <button
+      onClick={onClick}
+      title="Open in sidebar"
+      className={`inline-flex max-w-[220px] items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition ${toneClass} ${
+        active ? 'ring-1 ring-accent' : 'ring-1 ring-transparent hover:ring-line-strong'
+      }`}
     >
       {icon}
-      {children}
-    </span>
+      <span className="truncate">{children}</span>
+    </button>
   )
 }

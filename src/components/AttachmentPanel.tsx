@@ -1,32 +1,26 @@
 import { useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
-import {
-  Crop,
-  FileText,
-  Image as ImageIcon,
-  PenLine,
-  RotateCw,
-  Sheet,
-  Trash2,
-  X,
-} from 'lucide-react'
+import { Crop, FileText, Image as ImageIcon, PenLine, RotateCw, Sheet, Trash2 } from 'lucide-react'
 import type { Attachment } from '../types'
 import { gradientFor } from '../lib/thumbs'
+import { PanelShell } from './PanelShell'
 
 /** Right-side panel that displays a group of file or photo attachments and lets
- *  the user preview / edit / remove them. Slides in like the workspace panel. */
+ *  the user preview / edit / remove them. Opened by clicking a file/photo chip;
+ *  `initialId` pre-selects the clicked item. */
 export function AttachmentPanel({
   kind,
   items,
+  initialId,
   onClose,
   onRemove,
 }: {
   kind: 'file' | 'photo'
   items: Attachment[]
+  initialId?: string
   onClose: () => void
   onRemove: (id: string) => void
 }) {
-  const [selectedId, setSelectedId] = useState(items[0]?.id)
+  const [selectedId, setSelectedId] = useState(initialId ?? items[0]?.id)
 
   useEffect(() => {
     if (!items.some((i) => i.id === selectedId)) setSelectedId(items[0]?.id)
@@ -35,40 +29,22 @@ export function AttachmentPanel({
   const selected = items.find((i) => i.id === selectedId) ?? items[0]
 
   return (
-    <motion.div
-      initial={{ width: 0, opacity: 0 }}
-      animate={{ width: 388, opacity: 1 }}
-      exit={{ width: 0, opacity: 0 }}
-      transition={{ type: 'spring', stiffness: 260, damping: 30 }}
-      className="flex h-full shrink-0 flex-col overflow-hidden border-l border-line bg-panel"
+    <PanelShell
+      icon={kind === 'photo' ? <ImageIcon size={15} /> : <FileText size={15} />}
+      title={kind === 'photo' ? 'Photos' : 'Files'}
+      count={items.length}
+      onClose={onClose}
     >
-      <div className="flex w-[388px] flex-1 flex-col">
-        <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-1.5">
-          <span className="flex items-center gap-1.5 text-sm font-semibold text-ink">
-            {kind === 'photo' ? <ImageIcon size={15} /> : <FileText size={15} />}
-            {kind === 'photo' ? 'Photos' : 'Files'}
-          </span>
-          <span className="text-[11px] text-ink-faint">{items.length}</span>
-          <button
-            onClick={onClose}
-            className="ml-auto flex h-7 w-7 items-center justify-center rounded-lg text-ink-soft transition hover:bg-surface hover:text-ink"
-            title="Close"
-          >
-            <X size={16} />
-          </button>
-        </div>
-
-        {selected ? (
-          kind === 'photo' ? (
-            <PhotoBody key={selected.id} item={selected} items={items} onSelect={setSelectedId} onRemove={onRemove} />
-          ) : (
-            <FileBody key={selected.id} item={selected} items={items} onSelect={setSelectedId} onRemove={onRemove} />
-          )
+      {selected ? (
+        kind === 'photo' ? (
+          <PhotoBody key={selected.id} item={selected} items={items} onSelect={setSelectedId} onRemove={onRemove} />
         ) : (
-          <div className="flex flex-1 items-center justify-center text-sm text-ink-faint">No items</div>
-        )}
-      </div>
-    </motion.div>
+          <FileBody key={selected.id} item={selected} items={items} onSelect={setSelectedId} onRemove={onRemove} />
+        )
+      ) : (
+        <div className="flex flex-1 items-center justify-center text-sm text-ink-faint">No items</div>
+      )}
+    </PanelShell>
   )
 }
 

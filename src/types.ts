@@ -36,6 +36,15 @@ export type AddedContext =
   | { kind: 'files'; attachments: Attachment[] }
   | { kind: 'photos'; attachments: Attachment[] }
 
+/** Which attached context the right-hand sidebar is currently showing. Every
+ *  chip maps to one of these; clicking a chip focuses it. */
+export type PanelFocus =
+  | { kind: 'workspace' }
+  | { kind: 'repo' }
+  | { kind: 'connector'; id: string }
+  | { kind: 'file'; id: string }
+  | { kind: 'photo'; id: string }
+
 export interface Message {
   id: string
   role: 'user' | 'assistant'
