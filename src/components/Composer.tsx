@@ -90,7 +90,7 @@ export function Composer({
               >
                 <Paperclip size={16} />
               </button>
-              <ModelEffortControl caps={caps} />
+              <ModelEffortControl />
             </div>
             <button
               onClick={submit}

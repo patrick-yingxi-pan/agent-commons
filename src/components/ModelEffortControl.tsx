@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Check, ChevronDown, Gauge, Sparkles, Wand2, Workflow, Zap } from 'lucide-react'
-import type { Capability } from '../types'
+import { Check, ChevronDown, Gauge, Sparkles, Workflow, Zap } from 'lucide-react'
 
 /** Reasoning-effort ladder — a single continuum from quick to maximal. */
 type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+type ModelId = 'opus' | 'sonnet' | 'haiku'
 
 const MODELS = [
   {
@@ -37,20 +37,26 @@ const EFFORTS: { id: Effort; label: string; blurb: string }[] = [
   { id: 'max', label: 'Max', blurb: 'Maximum reasoning for the hardest problems.' },
 ]
 
-/** The adaptive default for the *effort* axis: a bare chat stays light, a
- *  workspace bumps it up, a repo pushes it to xHigh. It caps at xHigh — Max (the
- *  effort ceiling) stays a deliberate manual reach. Ultracode lives on its own
- *  axis and is never touched by Auto (see below). */
-function autoEffort(caps: Capability[]): Effort {
-  if (caps.includes('repo')) return 'xhigh'
-  if (caps.includes('workspace')) return 'high'
-  return 'medium'
+/** The full composer config. Persisted so the user's last choice becomes the
+ *  default next time — no adaptive guessing, just a sticky manual setting. */
+type Config = {
+  modelId: ModelId
+  effort: Effort
+  ultracode: boolean
+  fast: boolean
 }
 
-function contextLabel(caps: Capability[]): string {
-  if (caps.includes('repo')) return 'the attached repo'
-  if (caps.includes('workspace')) return 'the workspace'
-  return 'a chat'
+const DEFAULT_CONFIG: Config = { modelId: 'opus', effort: 'high', ultracode: false, fast: false }
+const STORAGE_KEY = 'claude-ui.composer.modelEffort.v1'
+
+function loadConfig(): Config {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return DEFAULT_CONFIG
+    return { ...DEFAULT_CONFIG, ...(JSON.parse(raw) as Partial<Config>) }
+  } catch {
+    return DEFAULT_CONFIG
+  }
 }
 
 /** An orthogonal on/off mode (Ultracode, Fast output) — visually distinct from
@@ -96,18 +102,25 @@ function ToggleRow({
   )
 }
 
-export function ModelEffortControl({ caps }: { caps: Capability[] }) {
+export function ModelEffortControl() {
   const [open, setOpen] = useState(false)
-  const [modelId, setModelId] = useState<(typeof MODELS)[number]['id']>('opus')
-  const [auto, setAuto] = useState(true)
-  const [manualEffort, setManualEffort] = useState<Effort>('high')
-  const [ultracode, setUltracode] = useState(false)
-  const [fast, setFast] = useState(false)
+  const [config, setConfig] = useState<Config>(loadConfig)
   const wrapRef = useRef<HTMLDivElement>(null)
 
+  const { modelId, effort, ultracode, fast } = config
+  const update = (patch: Partial<Config>) => setConfig((c) => ({ ...c, ...patch }))
+
   const model = MODELS.find((m) => m.id === modelId)!
-  const effort: Effort = auto ? autoEffort(caps) : manualEffort
   const effortMeta = EFFORTS.find((e) => e.id === effort)!
+
+  // Remember the last-used config as the default.
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(config))
+    } catch {
+      /* ignore quota / privacy-mode errors */
+    }
+  }, [config])
 
   // Close on outside click / Escape.
   useEffect(() => {
@@ -124,11 +137,6 @@ export function ModelEffortControl({ caps }: { caps: Capability[] }) {
     }
   }, [open])
 
-  const pickEffort = (id: Effort) => {
-    setAuto(false)
-    setManualEffort(id)
-  }
-
   return (
     <div ref={wrapRef} className="relative">
       <button
@@ -144,7 +152,6 @@ export function ModelEffortControl({ caps }: { caps: Capability[] }) {
         <span className="inline-flex items-center gap-1">
           <Gauge size={12} className="text-ink-faint" />
           {effortMeta.label}
-          {auto && <span className="text-[10px] font-semibold text-accent-strong">AUTO</span>}
         </span>
         {ultracode && (
           <span className="inline-flex items-center gap-1 rounded bg-accent-tint px-1 py-0.5 text-[10px] font-semibold text-accent-strong">
@@ -167,10 +174,7 @@ export function ModelEffortControl({ caps }: { caps: Capability[] }) {
               return (
                 <button
                   key={m.id}
-                  onClick={() => {
-                    setModelId(m.id)
-                    if (!m.isOpus) setFast(false)
-                  }}
+                  onClick={() => update({ modelId: m.id, ...(m.isOpus ? {} : { fast: false }) })}
                   className={`flex w-full items-start gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition ${
                     active ? 'bg-panel-2' : 'hover:bg-panel-2/60'
                   }`}
@@ -195,29 +199,16 @@ export function ModelEffortControl({ caps }: { caps: Capability[] }) {
 
           {/* Effort — the continuum */}
           <div className="px-3">
-            <div className="flex items-center justify-between pb-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-                Effort
-              </span>
-              <button
-                onClick={() => setAuto((a) => !a)}
-                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold transition ${
-                  auto ? 'bg-accent-tint text-accent-strong' : 'text-ink-faint hover:bg-panel-2'
-                }`}
-                title="Match effort to the conversation's attached context"
-              >
-                <Wand2 size={11} />
-                Auto
-              </button>
+            <div className="pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+              Effort
             </div>
-
             <div className="flex gap-1 rounded-lg bg-panel-2 p-0.5">
               {EFFORTS.map((e) => {
                 const active = e.id === effort
                 return (
                   <button
                     key={e.id}
-                    onClick={() => pickEffort(e.id)}
+                    onClick={() => update({ effort: e.id })}
                     className={`flex-1 rounded-md px-1 py-1 text-[12px] font-medium transition ${
                       active
                         ? 'bg-surface text-ink shadow-sm ring-1 ring-line-strong'
@@ -229,17 +220,7 @@ export function ModelEffortControl({ caps }: { caps: Capability[] }) {
                 )
               })}
             </div>
-            <p className="mt-1.5 text-[11px] leading-snug text-ink-soft">
-              {auto ? (
-                <>
-                  <span className="font-semibold text-accent-strong">Auto:</span> matched to{' '}
-                  {contextLabel(caps)} → <span className="font-medium">{effortMeta.label}</span>.{' '}
-                  {effortMeta.blurb}
-                </>
-              ) : (
-                effortMeta.blurb
-              )}
-            </p>
+            <p className="mt-1.5 text-[11px] leading-snug text-ink-soft">{effortMeta.blurb}</p>
           </div>
 
           <div className="my-1.5 border-t border-line" />
@@ -250,7 +231,7 @@ export function ModelEffortControl({ caps }: { caps: Capability[] }) {
             title="Ultracode"
             subtitle="Run as a multi-agent workflow — combines with any effort"
             on={ultracode}
-            onToggle={() => setUltracode((v) => !v)}
+            onToggle={() => update({ ultracode: !ultracode })}
           />
           <ToggleRow
             icon={<Zap size={15} />}
@@ -258,7 +239,7 @@ export function ModelEffortControl({ caps }: { caps: Capability[] }) {
             subtitle={model.isOpus ? 'Opus, with faster streaming' : 'Available on Opus models'}
             on={fast && model.isOpus}
             disabled={!model.isOpus}
-            onToggle={() => setFast((v) => !v)}
+            onToggle={() => update({ fast: !fast })}
           />
         </div>
       )}
