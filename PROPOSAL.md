@@ -111,8 +111,20 @@ re-explained.
 
 ### 4.5 One history, one search
 Because there's only one kind of object, there's one list. The sidebar shows
-every conversation tagged with small **capability badges**, filterable and
-searchable in one place — instead of three histories you switch between.
+every conversation as a **compact, one-line row** tagged with small
+**capability badges**, filterable and searchable in one place — instead of
+three histories you switch between.
+
+### 4.6 Cross-cutting tools, not mode tabs
+A conversation is the unit, but a few functions span all of them: starting a
+**new task**, browsing **Projects**, finding any **Artifact**, managing
+**Scheduled** runs, watching background **Dispatch** jobs, and **Customize**.
+The sidebar keeps these as a small nav above the history — they are *tools*,
+not modes. What it deliberately omits is the **Chat / Cowork / Code** tab
+switcher: collapsing those three into one surface is the entire point, so
+re-introducing them as tabs would undercut the argument. The modes survive
+only as per-conversation capability badges, never as a gate you pass through
+first.
 
 ## 5. How it maps to the prototype
 
@@ -125,6 +137,7 @@ searchable in one place — instead of three histories you switch between.
 | In-place escalation | **Play the tour** — one thread, three beats. |
 | Adaptive panel | The panel morphs from artifacts → code at the repo step. |
 | Unified history | The sidebar list with capability badges; open different items. |
+| Cross-cutting tools, not tabs | The sidebar nav — New task, Projects, Artifacts, Scheduled, Dispatch, Customize — and their section views; no Chat/Cowork/Code switcher. |
 
 ## 6. Design principles (carry beyond this one screen)
 
