@@ -7,7 +7,34 @@ export type Capability = 'chat' | 'workspace' | 'repo'
 export interface Connector {
   id: string
   label: string
+  /** Drives the chip icon. Defaults to a GitHub mark when unset. */
+  kind?: 'github' | 'connector' | 'mcp'
 }
+
+/** A file or photo attached to the conversation (shown as a composer chip). */
+export interface Attachment {
+  id: string
+  label: string
+  kind: 'file' | 'photo'
+}
+
+/** The payload produced by the "Add context" flow. Every attachable thing is
+ *  just context the conversation gains — so one entry point covers them all. */
+export type AddedContext =
+  | { kind: 'folder'; label: string; artifacts: Artifact[] }
+  | {
+      kind: 'repo'
+      label: string
+      branch: string
+      files: FileNode[]
+      diff: DiffLine[]
+      terminal: string[]
+      connector: Connector
+    }
+  | { kind: 'connector'; connector: Connector }
+  | { kind: 'mcp'; connector: Connector }
+  | { kind: 'files'; attachments: Attachment[] }
+  | { kind: 'photos'; attachments: Attachment[] }
 
 export interface Message {
   id: string

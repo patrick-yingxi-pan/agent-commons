@@ -11,7 +11,9 @@ import { CapBadges } from './components/CapBadges'
 import { CONVERSATIONS, DEMO_CONVERSATION_ID } from './data/conversations'
 import { DEMO_STEPS } from './data/demo'
 import type {
+  AddedContext,
   Artifact,
+  Attachment,
   Capability,
   Connector,
   Conversation,
@@ -29,6 +31,11 @@ interface Live {
   diff: DiffLine[]
   terminal: string[]
   connectors: Connector[]
+  attachments: Attachment[]
+  /** Set when context is attached manually, overriding the conversation's
+   *  derived workspace name / branch. */
+  workspaceLabel?: string
+  branchLabel?: string
 }
 
 const EMPTY_DEMO: Live = {
@@ -39,6 +46,15 @@ const EMPTY_DEMO: Live = {
   diff: [],
   terminal: [],
   connectors: [],
+  attachments: [],
+}
+
+function withCap(caps: Capability[], cap: Capability): Capability[] {
+  return caps.includes(cap) ? caps : [...caps, cap]
+}
+
+function withConnector(list: Connector[], c: Connector): Connector[] {
+  return list.some((x) => x.id === c.id) ? list : [...list, c]
 }
 
 const BRANCH: Record<string, string> = {
@@ -69,6 +85,7 @@ function liveFromConversation(conv: Conversation): Live {
     diff: conv.diff ?? [],
     terminal: conv.terminal ?? [],
     connectors: conv.connectors ?? [],
+    attachments: [],
   }
 }
 
@@ -148,6 +165,7 @@ export default function App() {
       schedule(() => {
         setTyping(false)
         setLive((l) => ({
+          ...l,
           messages: [...l.messages, step.assistant],
           caps: step.assistant.escalate
             ? Array.from(new Set([...l.caps, step.assistant.escalate]))
@@ -210,6 +228,44 @@ export default function App() {
     [isDemo, schedule],
   )
 
+  // Manually attach context to the open thread — the same escalation the tour
+  // performs, but user-driven. Every context type funnels through here.
+  const handleAddContext = useCallback((ctx: AddedContext) => {
+    setCollapsed(false)
+    setLive((l) => {
+      switch (ctx.kind) {
+        case 'folder':
+          return {
+            ...l,
+            caps: withCap(l.caps, 'workspace'),
+            artifacts: ctx.artifacts,
+            workspaceLabel: ctx.label,
+          }
+        case 'repo':
+          return {
+            ...l,
+            caps: withCap(l.caps, 'repo'),
+            files: ctx.files,
+            diff: ctx.diff,
+            terminal: ctx.terminal,
+            branchLabel: ctx.branch,
+            connectors: withConnector(l.connectors, ctx.connector),
+          }
+        case 'connector':
+        case 'mcp':
+          return { ...l, connectors: withConnector(l.connectors, ctx.connector) }
+        case 'files':
+        case 'photos':
+          return { ...l, attachments: [...l.attachments, ...ctx.attachments] }
+        default:
+          return l
+      }
+    })
+  }, [])
+
+  const workspaceName = live.workspaceLabel ?? workspaceNameFor(activeConv)
+  const branch = live.branchLabel ?? branchFor(activeId)
+
   const panelVisible = live.caps.includes('workspace') || live.caps.includes('repo')
   const panelState: PanelState = {
     caps: live.caps,
@@ -218,8 +274,8 @@ export default function App() {
     diff: live.diff,
     terminal: live.terminal,
     connectors: live.connectors,
-    branch: branchFor(activeId),
-    workspaceName: workspaceNameFor(activeConv),
+    branch,
+    workspaceName,
   }
 
   return (
@@ -275,9 +331,11 @@ export default function App() {
               <Composer
                 caps={live.caps}
                 connectors={live.connectors}
-                repoBranch={branchFor(activeId)}
-                workspaceName={workspaceNameFor(activeConv)}
+                attachments={live.attachments}
+                repoBranch={branch}
+                workspaceName={workspaceName}
                 onSend={handleSend}
+                onAddContext={handleAddContext}
               />
             </section>
 

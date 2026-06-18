@@ -74,9 +74,13 @@ src/
   data/
     demo.ts               # the scripted chat → workspace → repo escalation
     conversations.ts      # the unified sidebar history + canned states
+    contextOptions.ts     # options + sample payloads for the Add-context flows
+  lib/
+    connectors.tsx        # shared connector → icon mapping
   components/
     Sidebar.tsx           # unified history with capability badges
     Composer.tsx          # one composer + attached-context chips
+    AddContextButton.tsx  # one entry point: files/folders/repos/connectors/MCP
     ModelEffortControl.tsx# model picker + effort + orthogonal mode toggles
     CaptionBar.tsx        # guided-tour narration + controls
     IntroOverlay.tsx      # the motivation (problems with today's three tabs)

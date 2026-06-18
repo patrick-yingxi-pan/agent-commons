@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react'
-import { ArrowUp, GitBranch, Github, PanelsTopLeft, Paperclip, Plus } from 'lucide-react'
-import type { Capability, Connector } from '../types'
+import { ArrowUp, FileText, GitBranch, Image as ImageIcon, PanelsTopLeft } from 'lucide-react'
+import type { AddedContext, Attachment, Capability, Connector } from '../types'
 import { ModelEffortControl } from './ModelEffortControl'
+import { AddContextButton } from './AddContextButton'
+import { connectorIconFor } from '../lib/connectors'
 
 /** The single composer for every conversation. The chips above it show what
  *  context is *attached* to the thread — the thing that, in today's app, is
@@ -9,21 +11,26 @@ import { ModelEffortControl } from './ModelEffortControl'
 export function Composer({
   caps,
   connectors,
+  attachments,
   repoBranch,
   workspaceName,
   onSend,
+  onAddContext,
 }: {
   caps: Capability[]
   connectors: Connector[]
+  attachments: Attachment[]
   repoBranch?: string
   workspaceName?: string
   onSend: (text: string) => void
+  onAddContext: (ctx: AddedContext) => void
 }) {
   const [value, setValue] = useState('')
   const ref = useRef<HTMLTextAreaElement>(null)
 
   const hasWorkspace = caps.includes('workspace')
   const hasRepo = caps.includes('repo')
+  const hasChips = hasWorkspace || hasRepo || connectors.length > 0 || attachments.length > 0
 
   const submit = () => {
     const t = value.trim()
@@ -36,31 +43,38 @@ export function Composer({
   return (
     <div className="px-4 pb-4 pt-1">
       <div className="mx-auto w-full max-w-3xl">
-        {/* Attached-context chips */}
-        <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-          {hasWorkspace && (
-            <Chip icon={<PanelsTopLeft size={12} />} tone="workspace">
-              {workspaceName ?? 'Workspace'}
-            </Chip>
-          )}
-          {hasRepo && (
-            <Chip icon={<GitBranch size={12} />} tone="repo">
-              {repoBranch ?? 'main'}
-            </Chip>
-          )}
-          {connectors.map((c) => (
-            <Chip key={c.id} icon={<Github size={12} />} tone="repo">
-              {c.label}
-            </Chip>
-          ))}
-          <button
-            className="inline-flex items-center gap-1 rounded-full border border-dashed border-line-strong px-2 py-0.5 text-[11px] font-medium text-ink-faint transition hover:border-accent hover:text-accent-strong"
-            title="Attach a folder, repo, or connector — escalates the same thread"
-          >
-            <Plus size={12} />
-            Add context
-          </button>
-        </div>
+        {/* Attached-context chips — what the thread currently holds */}
+        {hasChips && (
+          <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+            {hasWorkspace && (
+              <Chip icon={<PanelsTopLeft size={12} />} tone="workspace">
+                {workspaceName ?? 'Workspace'}
+              </Chip>
+            )}
+            {hasRepo && (
+              <Chip icon={<GitBranch size={12} />} tone="repo">
+                {repoBranch ?? 'main'}
+              </Chip>
+            )}
+            {connectors.map((c) => {
+              const Icon = connectorIconFor(c.kind)
+              return (
+                <Chip key={c.id} icon={<Icon size={12} />} tone="repo">
+                  {c.label}
+                </Chip>
+              )
+            })}
+            {attachments.map((a) => (
+              <Chip
+                key={a.id}
+                icon={a.kind === 'photo' ? <ImageIcon size={12} /> : <FileText size={12} />}
+                tone="chat"
+              >
+                {a.label}
+              </Chip>
+            ))}
+          </div>
+        )}
 
         {/* Input */}
         <div className="rounded-2xl border border-line-strong bg-surface shadow-sm transition focus-within:border-accent">
@@ -84,12 +98,7 @@ export function Composer({
           />
           <div className="flex items-center justify-between px-3 pb-2.5 pt-1">
             <div className="flex items-center gap-1">
-              <button
-                className="flex h-7 w-7 items-center justify-center rounded-lg text-ink-faint transition hover:bg-panel-2 hover:text-ink"
-                title="Attach files"
-              >
-                <Paperclip size={16} />
-              </button>
+              <AddContextButton onAttach={onAddContext} />
               <ModelEffortControl />
             </div>
             <button

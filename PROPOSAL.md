@@ -72,6 +72,15 @@ to the conversation. Attachment is what grants capability. In the prototype the
 attached context is shown as **chips above the composer** (`▸ workspace/`,
 `▸ feat/insights-dashboard`, `▸ GitHub`).
 
+Because *everything* attachable — files, folders, repos, photos, connectors, MCP
+servers — is just context, the prototype funnels them all through **one
+consistent "Add context" entry point** on the composer. A single button opens a
+type picker; each type then runs its own short workflow (recent folders, your
+repositories, the connector list, the MCP registry, a file drop zone, a photo
+grid). One affordance replaces today's scattering of per-type controls (a
+paperclip for files, a separate `+`, and so on), and it doubles as the
+discoverable answer to "what can I attach?"
+
 ### 4.3 The workspace panel is adaptive and progressive
 A right-hand panel **morphs to fit the attached context** and is otherwise
 absent:
@@ -100,7 +109,7 @@ searchable in one place — instead of three histories you switch between.
 | Proposal idea | Where to see it |
 |---------------|-----------------|
 | No mode chosen up front | The app opens to a single empty thread + composer. |
-| Context as attachment | The context chips above the composer. |
+| Context as attachment | The **Add context** button — one entry point for files, folders, repos, photos, connectors, and MCP servers — and the chips it produces above the composer. |
 | Progressive disclosure | The right panel is absent in chat, appears for workspace/repo. |
 | In-place escalation | **Play the tour** — one thread, three beats. |
 | Adaptive panel | The panel morphs from artifacts → code at the repo step. |

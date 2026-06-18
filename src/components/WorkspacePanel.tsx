@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion'
-import { GitBranch, Github, PanelsTopLeft, PanelRightClose, PanelRightOpen } from 'lucide-react'
+import { GitBranch, PanelsTopLeft, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import type { Artifact, Capability, Connector, DiffLine, FileNode } from '../types'
+import { connectorIconFor } from '../lib/connectors'
 import { ArtifactPanel } from './panels/ArtifactPanel'
 import { CodePanel } from './panels/CodePanel'
 
@@ -66,15 +67,18 @@ export function WorkspacePanel({
             {mode === 'repo' ? 'Repository' : 'Workspace'}
           </span>
           <div className="ml-auto flex items-center gap-1">
-            {state.connectors.map((c) => (
-              <span
-                key={c.id}
-                className="inline-flex items-center gap-1 rounded-full bg-[#e9f0f3] px-1.5 py-0.5 text-[11px] font-medium text-cap-repo"
-              >
-                <Github size={11} />
-                {c.label}
-              </span>
-            ))}
+            {state.connectors.map((c) => {
+              const Icon = connectorIconFor(c.kind)
+              return (
+                <span
+                  key={c.id}
+                  className="inline-flex items-center gap-1 rounded-full bg-[#e9f0f3] px-1.5 py-0.5 text-[11px] font-medium text-cap-repo"
+                >
+                  <Icon size={11} />
+                  {c.label}
+                </span>
+              )
+            })}
           </div>
         </div>
 
