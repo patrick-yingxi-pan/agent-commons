@@ -1,0 +1,130 @@
+@import "tailwindcss";
+
+/* ---- Claude-flavoured light theme tokens ---------------------------------
+   Exposed to Tailwind v4 as utilities, e.g. bg-canvas, text-ink, border-line.
+   ------------------------------------------------------------------------- */
+@theme {
+  --color-canvas: #faf9f5;
+  --color-sidebar: #f2f0e9;
+  --color-surface: #ffffff;
+  --color-panel: #fbfaf6;
+  --color-panel-2: #f5f3ec;
+
+  --color-ink: #28261f;
+  --color-ink-soft: #5c584f;
+  --color-ink-faint: #908b7e;
+
+  --color-line: #e8e5db;
+  --color-line-strong: #dbd7ca;
+
+  --color-accent: #d97757;
+  --color-accent-strong: #c15f3c;
+  --color-accent-tint: #f6e9e1;
+
+  --color-userbubble: #efece3;
+
+  --color-cap-chat: #8a877d;
+  --color-cap-workspace: #c98a3c;
+  --color-cap-repo: #6c8ea0;
+
+  --color-added: #3f7d52;
+  --color-added-bg: #eaf3ec;
+  --color-removed: #b5573a;
+  --color-removed-bg: #f8eae4;
+
+  --font-serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua",
+    Georgia, ui-serif, serif;
+}
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Thin, warm scrollbars so the panels feel native rather than browser-y. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-line-strong);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+/* Blinking cursor used by the fake streaming effect. */
+@keyframes caret-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+.stream-caret {
+  display: inline-block;
+  width: 0.5ch;
+  margin-left: 1px;
+  background: var(--color-accent);
+  color: transparent;
+  animation: caret-blink 1s steps(1) infinite;
+  border-radius: 1px;
+}
+
+/* A soft three-dot "thinking" pulse. */
+@keyframes dot-pulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+.thinking-dot {
+  animation: dot-pulse 1.2s ease-in-out infinite;
+}
+
+.font-serif {
+  font-family: var(--font-serif);
+}
+
+/* Panel morph: plays when the adaptive panel swaps between workspace and repo
+   views. Resting state is fully visible, so it can never get stuck hidden. */
+@keyframes panel-morph-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.panel-morph {
+  animation: panel-morph-in 0.28s ease-out;
+}
