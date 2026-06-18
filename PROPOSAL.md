@@ -95,7 +95,10 @@ context's view:
   grid with crop / annotate / caption).
 
 Only one sidebar shows at a time — the chips are the switcher, and the active
-one is highlighted. Tools appear *because the work needs them*, not because you
+one is highlighted. A context *type* that holds more than one item (several
+files, a couple of connectors) collapses into a single counted chip
+(`▸ Files · 2`) whose popup lists the items, so the row stays compact; picking
+one opens its view. Tools appear *because the work needs them*, not because you
 navigated to them.
 
 ### 4.4 Escalation is fluid and in-place
