@@ -6,6 +6,7 @@ import { Composer } from './components/Composer'
 import { MessageRow, TypingRow } from './components/Message'
 import { CaptionBar, type TourPhase } from './components/CaptionBar'
 import { WorkspacePanel } from './components/WorkspacePanel'
+import { SectionView } from './components/SectionView'
 import { AttachmentPanel } from './components/AttachmentPanel'
 import { ConnectorPanel } from './components/ConnectorPanel'
 import { IntroOverlay } from './components/IntroOverlay'
@@ -21,6 +22,7 @@ import type {
   Message,
   PanelFocus,
   Repo,
+  SectionId,
   Workspace,
 } from './types'
 
@@ -106,6 +108,8 @@ export default function App() {
   const [typing, setTyping] = useState(false)
   // Which attached context the right-hand sidebar is showing (null = closed).
   const [focus, setFocus] = useState<PanelFocus | null>(null)
+  // Which cross-cutting tool is open in the main area (null = the conversation).
+  const [activeSection, setActiveSection] = useState<SectionId | null>(null)
 
   // Guided-tour state (only meaningful for the demo conversation).
   const [phase, setPhase] = useState<TourPhase>('idle')
@@ -148,6 +152,7 @@ export default function App() {
       clearTimers()
       setTyping(false)
       setBusy(false)
+      setActiveSection(null)
       setActiveId(id)
       const conv = CONVERSATIONS.find((c) => c.id === id)!
       const nextLive = liveFromConversation(conv)
@@ -325,6 +330,13 @@ export default function App() {
     setFocus((cur) => (sameFocus(cur, f) ? null : f))
   }, [])
 
+  // "New task" reopens a fresh conversation; a nav tool takes over the main area.
+  const newTask = useCallback(
+    () => selectConversation(DEMO_CONVERSATION_ID),
+    [selectConversation],
+  )
+  const openSection = useCallback((s: SectionId) => setActiveSection(s), [])
+
   const removeAttachment = useCallback((id: string) => {
     setLive((l) => ({ ...l, attachments: l.attachments.filter((a) => a.id !== id) }))
   }, [])
@@ -381,12 +393,19 @@ export default function App() {
         <Sidebar
           conversations={CONVERSATIONS}
           activeId={activeId}
+          activeSection={activeSection}
           query={query}
           onQuery={setQuery}
           onSelect={selectConversation}
+          onNewTask={newTask}
+          onOpenSection={openSection}
         />
 
         <main className="flex min-w-0 flex-1 flex-col">
+          {activeSection ? (
+            <SectionView section={activeSection} />
+          ) : (
+            <>
           {isDemo ? (
             <CaptionBar
               phase={phase}
@@ -475,6 +494,8 @@ export default function App() {
               )}
             </AnimatePresence>
           </div>
+            </>
+          )}
         </main>
       </div>
 

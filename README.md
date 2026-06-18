@@ -76,12 +76,15 @@ src/
     conversations.ts      # the unified sidebar history + canned states
     contextOptions.ts     # options + sample payloads for the Add-context flows
     connectorDetails.ts   # connector / MCP sidebar content (mock)
+    cowork.ts             # mock data for the nav tools (projects, schedules, …)
   lib/
     connectors.tsx        # shared connector → icon mapping
     thumbs.ts             # deterministic photo gradient by id
     focus.ts              # which chip's sidebar is open
+    sections.tsx          # the cross-cutting nav tools (label / icon registry)
   components/
-    Sidebar.tsx           # unified history with capability badges
+    Sidebar.tsx           # nav tools + scheduled + compact unified history
+    SectionView.tsx       # Projects / Artifacts / Scheduled / Dispatch / Customize
     Composer.tsx          # the box + an under-box toolbar (Enter to send)
     AddContextButton.tsx  # one entry point: files/folders/repos/connectors/MCP
     PermissionModeControl.tsx # permission mode menu (Ask/Accept/Plan/Auto/Bypass)

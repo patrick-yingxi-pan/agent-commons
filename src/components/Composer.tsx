@@ -26,14 +26,17 @@ import { UsageControl } from './UsageControl'
 import { connectorIconFor } from '../lib/connectors'
 import { sameFocus } from '../lib/focus'
 
-const SKIP_CONFIRM_KEY = 'claude-ui.composer.skipDeleteConfirm.v1'
+const SKIP_CONFIRM_KEY = 'claude-ui.composer.skipDeleteConfirm.v2'
 
-/** Whether the user previously ticked "Don't ask again" when deleting context. */
-function loadSkipConfirm(): boolean {
+/** Which context types the user has ticked "Don't ask again" for — keyed by the
+ *  chip group's key (files, connectors, …), so muting one type leaves the
+ *  confirmation in place for the others. */
+function loadSkipConfirm(): Record<string, boolean> {
   try {
-    return localStorage.getItem(SKIP_CONFIRM_KEY) === '1'
+    const raw = localStorage.getItem(SKIP_CONFIRM_KEY)
+    return raw ? (JSON.parse(raw) as Record<string, boolean>) : {}
   } catch {
-    return false
+    return {}
   }
 }
 
@@ -64,15 +67,19 @@ export function Composer({
 }) {
   const [value, setValue] = useState('')
   const ref = useRef<HTMLTextAreaElement>(null)
-  // "Don't ask again" — once opted out, the trash button deletes immediately.
-  const [skipConfirm, setSkipConfirm] = useState(loadSkipConfirm)
-  const persistSkipConfirm = (v: boolean) => {
-    setSkipConfirm(v)
-    try {
-      localStorage.setItem(SKIP_CONFIRM_KEY, v ? '1' : '0')
-    } catch {
-      /* ignore quota / privacy-mode errors */
-    }
+  // "Don't ask again" — tracked per context type, so opting out of (say)
+  // deleting files still confirms before removing a repo.
+  const [skipConfirm, setSkipConfirm] = useState<Record<string, boolean>>(loadSkipConfirm)
+  const setTypeSkip = (typeKey: string, v: boolean) => {
+    setSkipConfirm((prev) => {
+      const next = { ...prev, [typeKey]: v }
+      try {
+        localStorage.setItem(SKIP_CONFIRM_KEY, JSON.stringify(next))
+      } catch {
+        /* ignore quota / privacy-mode errors */
+      }
+      return next
+    })
   }
 
   // Group attached context by type. Every type can hold more than one item, so
@@ -197,8 +204,8 @@ export function Composer({
                 focus={focus}
                 onOpen={onOpenContext}
                 onRemove={onRemoveContext}
-                skipConfirm={skipConfirm}
-                onSkipConfirm={persistSkipConfirm}
+                skipConfirm={!!skipConfirm[g.key]}
+                onSkipConfirm={(v) => setTypeSkip(g.key, v)}
               />
             ))}
           </div>

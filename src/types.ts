@@ -3,6 +3,11 @@
  *  single conversation can hold, all at once. */
 export type Capability = 'chat' | 'workspace' | 'repo'
 
+/** A cross-cutting tool in the sidebar nav — not a conversation, but a global
+ *  surface (your projects, every artifact, scheduled runs, …). Opening one
+ *  takes over the main area in place of the active thread. */
+export type SectionId = 'projects' | 'artifacts' | 'scheduled' | 'dispatch' | 'customize'
+
 /** A connector / MCP attached to the conversation (GitHub, Drive, …). */
 export interface Connector {
   id: string
