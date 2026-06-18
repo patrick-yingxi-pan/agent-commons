@@ -1,39 +1,31 @@
 import { GitBranch, PanelsTopLeft } from 'lucide-react'
-import type { Artifact, Capability, Connector, DiffLine, FileNode } from '../types'
+import type { Connector, Repo, Workspace } from '../types'
 import { connectorIconFor } from '../lib/connectors'
 import { PanelShell } from './PanelShell'
 import { ArtifactPanel } from './panels/ArtifactPanel'
 import { CodePanel } from './panels/CodePanel'
 
-export interface PanelState {
-  caps: Capability[]
-  artifacts: Artifact[]
-  files: FileNode[]
-  diff: DiffLine[]
-  terminal: string[]
-  connectors: Connector[]
-  branch: string
-  workspaceName: string
-}
-
 /** The workspace ⇄ repo sidebar. `mode` is supplied by the focused chip, so the
  *  same panel can show artifacts (workspace) or code (repo); switching mode
- *  morphs the body. */
+ *  morphs the body. The focused entity supplies the content. */
 export function WorkspacePanel({
   mode,
-  state,
+  workspace,
+  repo,
   onClose,
 }: {
   mode: 'workspace' | 'repo'
-  state: PanelState
+  workspace?: Workspace
+  repo?: Repo
   onClose: () => void
 }) {
+  const connectors: Connector[] = repo?.connector ? [repo.connector] : []
   return (
     <PanelShell
       icon={mode === 'repo' ? <GitBranch size={15} /> : <PanelsTopLeft size={15} />}
       title={mode === 'repo' ? 'Repository' : 'Workspace'}
       onClose={onClose}
-      headerRight={state.connectors.map((c) => {
+      headerRight={connectors.map((c) => {
         const Icon = connectorIconFor(c.kind)
         return (
           <span
@@ -54,13 +46,16 @@ export function WorkspacePanel({
         <div key={mode} className="panel-morph absolute inset-0">
           {mode === 'repo' ? (
             <CodePanel
-              files={state.files}
-              diff={state.diff}
-              terminal={state.terminal}
-              branch={state.branch}
+              files={repo?.files ?? []}
+              diff={repo?.diff ?? []}
+              terminal={repo?.terminal ?? []}
+              branch={repo?.branch ?? 'main'}
             />
           ) : (
-            <ArtifactPanel artifacts={state.artifacts} workspaceName={state.workspaceName} />
+            <ArtifactPanel
+              artifacts={workspace?.artifacts ?? []}
+              workspaceName={workspace?.label ?? 'Workspace'}
+            />
           )}
         </div>
       </div>

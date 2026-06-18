@@ -8,7 +8,15 @@ import {
   Image as ImageIcon,
   PanelsTopLeft,
 } from 'lucide-react'
-import type { AddedContext, Attachment, Capability, Connector, PanelFocus } from '../types'
+import type {
+  AddedContext,
+  Attachment,
+  Capability,
+  Connector,
+  PanelFocus,
+  Repo,
+  Workspace,
+} from '../types'
 import { ModelEffortControl } from './ModelEffortControl'
 import { AddContextButton } from './AddContextButton'
 import { PermissionModeControl } from './PermissionModeControl'
@@ -22,21 +30,19 @@ import { sameFocus } from '../lib/focus'
  *  instead encoded by which tab you opened. Every chip is clickable and opens
  *  that context's sidebar. */
 export function Composer({
-  caps,
+  workspaces,
+  repos,
   connectors,
   attachments,
-  repoBranch,
-  workspaceName,
   focus,
   onSend,
   onAddContext,
   onOpenContext,
 }: {
-  caps: Capability[]
+  workspaces: Workspace[]
+  repos: Repo[]
   connectors: Connector[]
   attachments: Attachment[]
-  repoBranch?: string
-  workspaceName?: string
   focus: PanelFocus | null
   onSend: (text: string) => void
   onAddContext: (ctx: AddedContext) => void
@@ -45,12 +51,9 @@ export function Composer({
   const [value, setValue] = useState('')
   const ref = useRef<HTMLTextAreaElement>(null)
 
-  const hasWorkspace = caps.includes('workspace')
-  const hasRepo = caps.includes('repo')
-
-  // Group attached context by type. Types that can hold more than one item
-  // (connectors, MCP servers, files, photos) collapse into a single chip with
-  // a secondary list; a group with just one item renders as a plain chip.
+  // Group attached context by type. Every type can hold more than one item, so
+  // each one collapses into a single chip with a secondary list once it does;
+  // a group with just one item renders as a plain chip.
   const connIcon = (kind: Connector['kind']) => {
     const Icon = connectorIconFor(kind)
     return <Icon size={12} />
@@ -61,36 +64,32 @@ export function Composer({
   const photoItems = attachments.filter((a) => a.kind === 'photo')
 
   const groups: ChipGroupModel[] = []
-  if (hasWorkspace) {
+  if (workspaces.length) {
     groups.push({
-      key: 'workspace',
-      label: 'Workspace',
+      key: 'workspaces',
+      label: 'Workspaces',
       tone: 'workspace',
       icon: <PanelsTopLeft size={12} />,
-      items: [
-        {
-          key: 'workspace',
-          label: workspaceName ?? 'Workspace',
-          icon: <PanelsTopLeft size={12} />,
-          focus: { kind: 'workspace' },
-        },
-      ],
+      items: workspaces.map((w) => ({
+        key: w.id,
+        label: w.label,
+        icon: <PanelsTopLeft size={12} />,
+        focus: { kind: 'workspace', id: w.id },
+      })),
     })
   }
-  if (hasRepo) {
+  if (repos.length) {
     groups.push({
-      key: 'repo',
-      label: 'Repository',
+      key: 'repos',
+      label: 'Repositories',
       tone: 'repo',
       icon: <GitBranch size={12} />,
-      items: [
-        {
-          key: 'repo',
-          label: repoBranch ?? 'main',
-          icon: <GitBranch size={12} />,
-          focus: { kind: 'repo' },
-        },
-      ],
+      items: repos.map((r) => ({
+        key: r.id,
+        label: r.label,
+        icon: <GitBranch size={12} />,
+        focus: { kind: 'repo', id: r.id },
+      })),
     })
   }
   if (plainConnectors.length) {

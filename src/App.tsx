@@ -5,7 +5,7 @@ import { Sidebar } from './components/Sidebar'
 import { Composer } from './components/Composer'
 import { MessageRow, TypingRow } from './components/Message'
 import { CaptionBar, type TourPhase } from './components/CaptionBar'
-import { WorkspacePanel, type PanelState } from './components/WorkspacePanel'
+import { WorkspacePanel } from './components/WorkspacePanel'
 import { AttachmentPanel } from './components/AttachmentPanel'
 import { ConnectorPanel } from './components/ConnectorPanel'
 import { IntroOverlay } from './components/IntroOverlay'
@@ -15,50 +15,41 @@ import { DEMO_STEPS } from './data/demo'
 import { sameFocus } from './lib/focus'
 import type {
   AddedContext,
-  Artifact,
   Attachment,
-  Capability,
   Connector,
   Conversation,
-  DiffLine,
-  FileNode,
   Message,
   PanelFocus,
+  Repo,
+  Workspace,
 } from './types'
 
-/** Everything that makes up the live view of the open conversation. */
+/** Everything that makes up the live view of the open conversation. Workspaces
+ *  and repos are arrays because a conversation can hold more than one of each —
+ *  the same as connectors and attachments. */
 interface Live {
   messages: Message[]
-  caps: Capability[]
-  artifacts: Artifact[]
-  files: FileNode[]
-  diff: DiffLine[]
-  terminal: string[]
+  workspaces: Workspace[]
+  repos: Repo[]
   connectors: Connector[]
   attachments: Attachment[]
-  /** Set when context is attached manually, overriding the conversation's
-   *  derived workspace name / branch. */
-  workspaceLabel?: string
-  branchLabel?: string
 }
 
 const EMPTY_DEMO: Live = {
   messages: [],
-  caps: ['chat'],
-  artifacts: [],
-  files: [],
-  diff: [],
-  terminal: [],
+  workspaces: [],
+  repos: [],
   connectors: [],
   attachments: [],
 }
 
-function withCap(caps: Capability[], cap: Capability): Capability[] {
-  return caps.includes(cap) ? caps : [...caps, cap]
-}
-
 function withConnector(list: Connector[], c: Connector): Connector[] {
   return list.some((x) => x.id === c.id) ? list : [...list, c]
+}
+
+/** A stable, dedup-friendly id derived from a label. */
+function slug(s: string) {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
 }
 
 const BRANCH: Record<string, string> = {
@@ -81,13 +72,27 @@ function workspaceNameFor(conv: Conversation) {
 
 function liveFromConversation(conv: Conversation): Live {
   if (conv.isDemo) return EMPTY_DEMO
+  const workspaces: Workspace[] = conv.artifacts?.length
+    ? [{ id: `ws-${conv.id}`, label: workspaceNameFor(conv), artifacts: conv.artifacts }]
+    : []
+  const hasRepo = !!(conv.files?.length || conv.diff?.length || conv.terminal?.length)
+  const repos: Repo[] = hasRepo
+    ? [
+        {
+          id: `repo-${conv.id}`,
+          label: branchFor(conv.id),
+          branch: branchFor(conv.id),
+          files: conv.files ?? [],
+          diff: conv.diff ?? [],
+          terminal: conv.terminal ?? [],
+          connector: conv.connectors?.[0],
+        },
+      ]
+    : []
   return {
     messages: conv.messages ?? [],
-    caps: conv.caps,
-    artifacts: conv.artifacts ?? [],
-    files: conv.files ?? [],
-    diff: conv.diff ?? [],
-    terminal: conv.terminal ?? [],
+    workspaces,
+    repos,
     connectors: conv.connectors ?? [],
     attachments: [],
   }
@@ -145,13 +150,15 @@ export default function App() {
       setBusy(false)
       setActiveId(id)
       const conv = CONVERSATIONS.find((c) => c.id === id)!
-      setLive(liveFromConversation(conv))
-      // Auto-focus the conversation's strongest context so its sidebar opens.
+      const nextLive = liveFromConversation(conv)
+      setLive(nextLive)
+      // Auto-focus the conversation's strongest present context so its sidebar
+      // opens — a repo if there is one, else a workspace, else nothing.
       setFocus(
-        conv.caps.includes('repo')
-          ? { kind: 'repo' }
-          : conv.caps.includes('workspace')
-            ? { kind: 'workspace' }
+        nextLive.repos[0]
+          ? { kind: 'repo', id: nextLive.repos[0].id }
+          : nextLive.workspaces[0]
+            ? { kind: 'workspace', id: nextLive.workspaces[0].id }
             : null,
       )
       if (conv.isDemo) {
@@ -176,27 +183,39 @@ export default function App() {
       setTyping(true)
       schedule(() => {
         setTyping(false)
-        setLive((l) => ({
-          ...l,
-          messages: [...l.messages, step.assistant],
-          caps: step.assistant.escalate
-            ? Array.from(new Set([...l.caps, step.assistant.escalate]))
-            : l.caps,
-          artifacts: step.artifacts ?? l.artifacts,
-          files: step.files ?? l.files,
-          diff: step.diff ?? l.diff,
-          terminal: step.terminal ?? l.terminal,
-          connectors: step.connectors
-            ? [...l.connectors, ...step.connectors]
-            : l.connectors,
-        }))
+        setLive((l) => {
+          const next: Live = { ...l, messages: [...l.messages, step.assistant] }
+          if (step.assistant.escalate === 'workspace') {
+            next.workspaces = [
+              ...l.workspaces,
+              { id: 'ws-demo', label: workspaceNameFor(activeConv), artifacts: step.artifacts ?? [] },
+            ]
+          }
+          if (step.assistant.escalate === 'repo') {
+            next.repos = [
+              ...l.repos,
+              {
+                id: 'repo-demo',
+                label: branchFor(activeConv.id),
+                branch: branchFor(activeConv.id),
+                files: step.files ?? [],
+                diff: step.diff ?? [],
+                terminal: step.terminal ?? [],
+                connector: step.connectors?.[0],
+              },
+            ]
+          }
+          if (step.connectors) next.connectors = [...l.connectors, ...step.connectors]
+          return next
+        })
         // Auto-disclose the newly attached context's sidebar (drives the tour).
-        if (step.assistant.escalate) setFocus({ kind: step.assistant.escalate })
+        if (step.assistant.escalate === 'workspace') setFocus({ kind: 'workspace', id: 'ws-demo' })
+        if (step.assistant.escalate === 'repo') setFocus({ kind: 'repo', id: 'repo-demo' })
         setBusy(false)
         if (index >= DEMO_STEPS.length - 1) setPhase('done')
       }, 950)
     },
-    [schedule],
+    [schedule, activeConv],
   )
 
   const startTour = useCallback(() => {
@@ -248,23 +267,29 @@ export default function App() {
   const handleAddContext = useCallback((ctx: AddedContext) => {
     setLive((l) => {
       switch (ctx.kind) {
-        case 'folder':
+        case 'folder': {
+          const id = `ws-${slug(ctx.label)}`
+          if (l.workspaces.some((w) => w.id === id)) return l
           return {
             ...l,
-            caps: withCap(l.caps, 'workspace'),
-            artifacts: ctx.artifacts,
-            workspaceLabel: ctx.label,
+            workspaces: [...l.workspaces, { id, label: ctx.label, artifacts: ctx.artifacts }],
           }
-        case 'repo':
-          return {
-            ...l,
-            caps: withCap(l.caps, 'repo'),
+        }
+        case 'repo': {
+          const id = `repo-${slug(ctx.label)}`
+          const connectors = withConnector(l.connectors, ctx.connector)
+          if (l.repos.some((r) => r.id === id)) return { ...l, connectors }
+          const repo: Repo = {
+            id,
+            label: ctx.branch,
+            branch: ctx.branch,
             files: ctx.files,
             diff: ctx.diff,
             terminal: ctx.terminal,
-            branchLabel: ctx.branch,
-            connectors: withConnector(l.connectors, ctx.connector),
+            connector: ctx.connector,
           }
+          return { ...l, repos: [...l.repos, repo], connectors }
+        }
         case 'connector':
         case 'mcp':
           return { ...l, connectors: withConnector(l.connectors, ctx.connector) }
@@ -277,10 +302,10 @@ export default function App() {
     })
     switch (ctx.kind) {
       case 'folder':
-        setFocus({ kind: 'workspace' })
+        setFocus({ kind: 'workspace', id: `ws-${slug(ctx.label)}` })
         break
       case 'repo':
-        setFocus({ kind: 'repo' })
+        setFocus({ kind: 'repo', id: `repo-${slug(ctx.label)}` })
         break
       case 'connector':
       case 'mcp':
@@ -313,29 +338,19 @@ export default function App() {
     if (!focus) return
     const valid =
       focus.kind === 'workspace'
-        ? live.caps.includes('workspace')
+        ? live.workspaces.some((w) => w.id === focus.id)
         : focus.kind === 'repo'
-          ? live.caps.includes('repo')
+          ? live.repos.some((r) => r.id === focus.id)
           : focus.kind === 'connector'
             ? live.connectors.some((c) => c.id === focus.id)
             : live.attachments.some((a) => a.id === focus.id)
     if (!valid) setFocus(null)
   }, [focus, live])
 
-  const workspaceName = live.workspaceLabel ?? workspaceNameFor(activeConv)
-  const branch = live.branchLabel ?? branchFor(activeId)
-
-  const panelState: PanelState = {
-    caps: live.caps,
-    artifacts: live.artifacts,
-    files: live.files,
-    diff: live.diff,
-    terminal: live.terminal,
-    connectors: live.connectors,
-    branch,
-    workspaceName,
-  }
-
+  const focusedWorkspace =
+    focus?.kind === 'workspace' ? live.workspaces.find((w) => w.id === focus.id) : undefined
+  const focusedRepo =
+    focus?.kind === 'repo' ? live.repos.find((r) => r.id === focus.id) : undefined
   const focusedConnector =
     focus?.kind === 'connector' ? live.connectors.find((c) => c.id === focus.id) : undefined
 
@@ -390,11 +405,10 @@ export default function App() {
               </div>
 
               <Composer
-                caps={live.caps}
+                workspaces={live.workspaces}
+                repos={live.repos}
                 connectors={live.connectors}
                 attachments={live.attachments}
-                repoBranch={branch}
-                workspaceName={workspaceName}
                 focus={focus}
                 onSend={handleSend}
                 onAddContext={handleAddContext}
@@ -402,13 +416,16 @@ export default function App() {
               />
             </section>
 
-            {/* One focused-context sidebar at a time, chosen by the active chip. */}
+            {/* One focused-context sidebar at a time, chosen by the active chip.
+                One keyed WorkspacePanel serves both workspace and repo so the
+                body morphs when you switch between the two. */}
             <AnimatePresence>
-              {(focus?.kind === 'workspace' || focus?.kind === 'repo') && (
+              {(focusedWorkspace || focusedRepo) && (
                 <WorkspacePanel
                   key="ws"
-                  mode={focus.kind}
-                  state={panelState}
+                  mode={focusedRepo ? 'repo' : 'workspace'}
+                  workspace={focusedWorkspace}
+                  repo={focusedRepo}
                   onClose={() => setFocus(null)}
                 />
               )}

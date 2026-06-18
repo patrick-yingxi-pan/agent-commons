@@ -18,6 +18,29 @@ export interface Attachment {
   kind: 'file' | 'photo'
 }
 
+/** A workspace (a folder attached as a Cowork-style surface). A conversation
+ *  can hold several — each carries its own set of artifacts. */
+export interface Workspace {
+  id: string
+  /** Display name shown on the chip / panel header, e.g. `insights/`. */
+  label: string
+  artifacts: Artifact[]
+}
+
+/** A repo attached to the conversation. A conversation can hold several — each
+ *  carries its own branch, file tree, diff, and terminal output. */
+export interface Repo {
+  id: string
+  /** Display name shown on the chip, e.g. a branch or `owner/name`. */
+  label: string
+  branch: string
+  files: FileNode[]
+  diff: DiffLine[]
+  terminal: string[]
+  /** The connector (usually GitHub) shown in the repo panel header. */
+  connector?: Connector
+}
+
 /** The payload produced by the "Add context" flow. Every attachable thing is
  *  just context the conversation gains — so one entry point covers them all. */
 export type AddedContext =
@@ -37,10 +60,11 @@ export type AddedContext =
   | { kind: 'photos'; attachments: Attachment[] }
 
 /** Which attached context the right-hand sidebar is currently showing. Every
- *  chip maps to one of these; clicking a chip focuses it. */
+ *  chip maps to one of these; clicking a chip focuses it. Workspaces and repos
+ *  carry an id because a conversation can hold more than one of each. */
 export type PanelFocus =
-  | { kind: 'workspace' }
-  | { kind: 'repo' }
+  | { kind: 'workspace'; id: string }
+  | { kind: 'repo'; id: string }
   | { kind: 'connector'; id: string }
   | { kind: 'file'; id: string }
   | { kind: 'photo'; id: string }
