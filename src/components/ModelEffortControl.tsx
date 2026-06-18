@@ -65,6 +65,7 @@ function ToggleRow({
   icon,
   title,
   subtitle,
+  hint,
   on,
   disabled,
   onToggle,
@@ -72,6 +73,7 @@ function ToggleRow({
   icon: ReactNode
   title: string
   subtitle: string
+  hint?: string
   on: boolean
   disabled?: boolean
   onToggle: () => void
@@ -80,6 +82,7 @@ function ToggleRow({
     <button
       onClick={() => !disabled && onToggle()}
       disabled={disabled}
+      title={hint}
       className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition enabled:hover:bg-panel-2/60 disabled:opacity-45"
     >
       <span className={on ? 'text-accent' : 'text-ink-faint'}>{icon}</span>
@@ -159,6 +162,12 @@ export function ModelEffortControl() {
             Ultracode
           </span>
         )}
+        {fast && model.isOpus && (
+          <span className="inline-flex items-center gap-1 rounded bg-accent-tint px-1 py-0.5 text-[10px] font-semibold text-accent-strong">
+            <Zap size={11} />
+            Fast
+          </span>
+        )}
         <ChevronDown size={13} className={`transition ${open ? 'rotate-180' : ''}`} />
       </button>
 
@@ -230,6 +239,7 @@ export function ModelEffortControl() {
             icon={<Workflow size={15} />}
             title="Ultracode"
             subtitle="Run as a multi-agent workflow — combines with any effort"
+            hint="An orthogonal mode, independent of the effort level above. Ultracode changes how the turn runs — fanning it out into a multi-agent workflow — and can be combined with any effort level."
             on={ultracode}
             onToggle={() => update({ ultracode: !ultracode })}
           />
@@ -237,6 +247,7 @@ export function ModelEffortControl() {
             icon={<Zap size={15} />}
             title="Fast output"
             subtitle={model.isOpus ? 'Opus, with faster streaming' : 'Available on Opus models'}
+            hint="An orthogonal mode, independent of the effort level above. Fast output speeds up Opus token streaming and can be combined with any effort level."
             on={fast && model.isOpus}
             disabled={!model.isOpus}
             onToggle={() => update({ fast: !fast })}
