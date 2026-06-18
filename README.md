@@ -82,9 +82,12 @@ src/
     focus.ts              # which chip's sidebar is open
   components/
     Sidebar.tsx           # unified history with capability badges
-    Composer.tsx          # one composer + clickable attached-context chips
+    Composer.tsx          # the box + an under-box toolbar (Enter to send)
     AddContextButton.tsx  # one entry point: files/folders/repos/connectors/MCP
+    PermissionModeControl.tsx # permission mode menu (Ask/Accept/Plan/Auto/Bypass)
+    AudioInputControl.tsx # mic + microphone device menu
     ModelEffortControl.tsx# model picker + effort + orthogonal mode toggles
+    UsageControl.tsx      # usage ring + context-window / rate-limit popup
     CaptionBar.tsx        # guided-tour narration + controls
     IntroOverlay.tsx      # the motivation (problems with today's three tabs)
     PanelShell.tsx        # shared sliding sidebar chrome (header + close)

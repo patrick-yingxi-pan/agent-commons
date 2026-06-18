@@ -3,6 +3,9 @@ import { CornerDownLeft, FileText, GitBranch, Image as ImageIcon, PanelsTopLeft 
 import type { AddedContext, Attachment, Capability, Connector, PanelFocus } from '../types'
 import { ModelEffortControl } from './ModelEffortControl'
 import { AddContextButton } from './AddContextButton'
+import { PermissionModeControl } from './PermissionModeControl'
+import { AudioInputControl } from './AudioInputControl'
+import { UsageControl } from './UsageControl'
 import { connectorIconFor } from '../lib/connectors'
 import { sameFocus } from '../lib/focus'
 
@@ -131,10 +134,13 @@ export function Composer({
         {/* Controls under the box, split left / right */}
         <div className="mt-2 flex items-center justify-between gap-2 px-0.5">
           <div className="flex items-center gap-1">
+            <PermissionModeControl />
             <AddContextButton onAttach={onAddContext} />
+            <AudioInputControl />
           </div>
           <div className="flex items-center gap-1.5">
             <ModelEffortControl />
+            <UsageControl />
           </div>
         </div>
 
