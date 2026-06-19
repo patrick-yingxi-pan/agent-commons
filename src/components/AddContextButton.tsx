@@ -168,19 +168,7 @@ function WorkflowBody({
   hasGitHubConnector: boolean
 }) {
   if (type === 'folder') {
-    return (
-      <Section label="Recent folders">
-        {FOLDER_OPTIONS.map((f) => (
-          <OptionRow
-            key={f.id}
-            icon={<FolderOpen size={16} />}
-            label={f.label}
-            meta={f.meta}
-            onClick={() => onAttach({ kind: 'folder', label: f.label, artifacts: FOLDER_ARTIFACTS })}
-          />
-        ))}
-      </Section>
-    )
+    return <FolderPicker onAttach={onAttach} hasGitHubConnector={hasGitHubConnector} />
   }
   if (type === 'repo') {
     return <RepoPicker onAttach={onAttach} hasGitHubConnector={hasGitHubConnector} />
@@ -273,6 +261,73 @@ function basename(path: string) {
   return parts[parts.length - 1] || path
 }
 
+/** A 3-choice attach confirmation shown inside the Add-context popover: Cancel
+ *  aborts the whole attach; the secondary and primary buttons are the two
+ *  outcomes; the ☐ remembers whichever outcome was picked. Used by both the
+ *  repo connector prompt and the folder → repo / connector prompts. */
+function AttachPromptCard({
+  message,
+  dontAsk,
+  onToggleDontAsk,
+  onCancel,
+  secondaryLabel,
+  onSecondary,
+  primaryLabel,
+  onPrimary,
+}: {
+  message: ReactNode
+  dontAsk: boolean
+  onToggleDontAsk: () => void
+  onCancel: () => void
+  secondaryLabel: string
+  onSecondary: () => void
+  primaryLabel: string
+  onPrimary: () => void
+}) {
+  return (
+    <div className="pb-1">
+      <p className="px-1 text-[13px] leading-snug text-ink">{message}</p>
+      <button
+        type="button"
+        onClick={onToggleDontAsk}
+        className="mt-2 flex items-center gap-1.5 px-1 text-[11px] text-ink-soft transition hover:text-ink"
+      >
+        <span
+          className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border ${
+            dontAsk ? 'border-accent bg-accent text-white' : 'border-line-strong'
+          }`}
+        >
+          {dontAsk && <Check size={10} strokeWidth={3} />}
+        </span>
+        Don’t ask again
+      </button>
+      <div className="mt-2.5 flex flex-wrap justify-end gap-1.5">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:bg-panel-2"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={onSecondary}
+          className="rounded-md px-2 py-1 text-[12px] font-medium text-ink ring-1 ring-line-strong transition hover:bg-panel-2"
+        >
+          {secondaryLabel}
+        </button>
+        <button
+          type="button"
+          onClick={onPrimary}
+          className="rounded-md bg-accent px-2 py-1 text-[12px] font-medium text-white transition hover:bg-accent-strong"
+        >
+          {primaryLabel}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 /** Repository picker: Local and GitHub sections. Picking a repo that has a
  *  GitHub remote, when the connector isn't already attached, asks whether to add
  *  the connector too (it's what's needed to push & open PRs) — Cancel aborts the
@@ -310,56 +365,28 @@ function RepoPicker({
 
   if (pending) {
     return (
-      <div className="pb-1">
-        <p className="px-1 text-[13px] leading-snug text-ink">
-          <span className="font-medium">{pending.label}</span> has a GitHub remote. Add the{' '}
-          <span className="font-medium">GitHub connector</span> too, so Claude can push and open PRs?
-        </p>
-        <button
-          type="button"
-          onClick={() => setDontAsk((v) => !v)}
-          className="mt-2 flex items-center gap-1.5 px-1 text-[11px] text-ink-soft transition hover:text-ink"
-        >
-          <span
-            className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border ${
-              dontAsk ? 'border-accent bg-accent text-white' : 'border-line-strong'
-            }`}
-          >
-            {dontAsk && <Check size={10} strokeWidth={3} />}
-          </span>
-          Don’t ask again
-        </button>
-        <div className="mt-2.5 flex flex-wrap justify-end gap-1.5">
-          <button
-            type="button"
-            onClick={() => setPending(null)}
-            className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:bg-panel-2"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (dontAsk) setDecision('linkOnAttach', 'never')
-              onAttach(pending)
-            }}
-            className="rounded-md px-2 py-1 text-[12px] font-medium text-ink ring-1 ring-line-strong transition hover:bg-panel-2"
-          >
-            Just the repo
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (dontAsk) setDecision('linkOnAttach', 'always')
-              onAttach({ kind: 'connector', connector: GITHUB_CONNECTOR })
-              onAttach(pending)
-            }}
-            className="rounded-md bg-accent px-2 py-1 text-[12px] font-medium text-white transition hover:bg-accent-strong"
-          >
-            Add both
-          </button>
-        </div>
-      </div>
+      <AttachPromptCard
+        message={
+          <>
+            <span className="font-medium">{pending.label}</span> has a GitHub remote. Add the{' '}
+            <span className="font-medium">GitHub connector</span> too, so Claude can push and open PRs?
+          </>
+        }
+        dontAsk={dontAsk}
+        onToggleDontAsk={() => setDontAsk((v) => !v)}
+        onCancel={() => setPending(null)}
+        secondaryLabel="Just the repo"
+        onSecondary={() => {
+          if (dontAsk) setDecision('linkOnAttach', 'never')
+          onAttach(pending)
+        }}
+        primaryLabel="Add both"
+        onPrimary={() => {
+          if (dontAsk) setDecision('linkOnAttach', 'always')
+          onAttach({ kind: 'connector', connector: GITHUB_CONNECTOR })
+          onAttach(pending)
+        }}
+      />
     )
   }
 
@@ -411,6 +438,141 @@ function RepoPicker({
         ))}
       </Section>
     </>
+  )
+}
+
+type FolderOption = (typeof FOLDER_OPTIONS)[number]
+
+/** Folder picker. Attaching a folder normally just adds a workspace. When the
+ *  folder is a git working tree it first offers to also attach it as a repo
+ *  (code / diff / terminal); if that repo has a GitHub remote, it then chains
+ *  the same "add the connector?" prompt the repo flow uses. Every prompt's
+ *  Cancel aborts the whole attach, and each choice can be remembered. */
+function FolderPicker({
+  onAttach,
+  hasGitHubConnector,
+}: {
+  onAttach: (ctx: AddedContext) => void
+  hasGitHubConnector: boolean
+}) {
+  const [stage, setStage] = useState<'list' | 'repo' | 'connector'>('list')
+  const [folder, setFolder] = useState<FolderOption | null>(null)
+  const [dontAsk, setDontAsk] = useState(false)
+
+  const attachFolder = (f: FolderOption) =>
+    onAttach({ kind: 'folder', label: f.label, artifacts: FOLDER_ARTIFACTS })
+
+  const repoCtxFor = (f: FolderOption): RepoContext => ({
+    kind: 'repo',
+    origin: 'local',
+    label: basename(f.label),
+    path: f.label,
+    remote: f.repo?.remote,
+    branch: f.repo!.branch,
+    files: REPO_FILES,
+    diff: REPO_DIFF,
+    terminal: REPO_TERMINAL,
+  })
+
+  // Attach the folder (workspace) and its repo — connector first when wanted, so
+  // focus lands on the repo.
+  const attachFolderAndRepo = (f: FolderOption, withConnector: boolean) => {
+    if (withConnector) onAttach({ kind: 'connector', connector: GITHUB_CONNECTOR })
+    attachFolder(f)
+    onAttach(repoCtxFor(f))
+  }
+
+  // The repo is being attached too — settle the GitHub connector question.
+  const proceedWithRepo = (f: FolderOption) => {
+    if (!f.repo?.remote || hasGitHubConnector) return attachFolderAndRepo(f, false)
+    const decision = getDecision('linkOnAttach')
+    if (decision === 'always') return attachFolderAndRepo(f, true)
+    if (decision === 'never') return attachFolderAndRepo(f, false)
+    setDontAsk(false)
+    setFolder(f)
+    setStage('connector')
+  }
+
+  const select = (f: FolderOption) => {
+    if (!f.repo) return attachFolder(f) // not a git folder → workspace only
+    const decision = getDecision('attachRepoOnFolder')
+    if (decision === 'never') return attachFolder(f)
+    if (decision === 'always') return proceedWithRepo(f)
+    setDontAsk(false)
+    setFolder(f)
+    setStage('repo')
+  }
+
+  const backToList = () => {
+    setStage('list')
+    setFolder(null)
+  }
+
+  if (stage === 'repo' && folder) {
+    return (
+      <AttachPromptCard
+        message={
+          <>
+            <span className="font-medium">{folder.label}</span> is a git repo (
+            <span className="font-medium">{folder.repo!.branch}</span>). Also attach it as a{' '}
+            <span className="font-medium">repository</span> — code, diff &amp; terminal?
+          </>
+        }
+        dontAsk={dontAsk}
+        onToggleDontAsk={() => setDontAsk((v) => !v)}
+        onCancel={backToList}
+        secondaryLabel="Just the folder"
+        onSecondary={() => {
+          if (dontAsk) setDecision('attachRepoOnFolder', 'never')
+          attachFolder(folder)
+        }}
+        primaryLabel="Folder + repo"
+        onPrimary={() => {
+          if (dontAsk) setDecision('attachRepoOnFolder', 'always')
+          proceedWithRepo(folder)
+        }}
+      />
+    )
+  }
+
+  if (stage === 'connector' && folder) {
+    return (
+      <AttachPromptCard
+        message={
+          <>
+            <span className="font-medium">{basename(folder.label)}</span> has a GitHub remote. Add the{' '}
+            <span className="font-medium">GitHub connector</span> too, so Claude can push and open PRs?
+          </>
+        }
+        dontAsk={dontAsk}
+        onToggleDontAsk={() => setDontAsk((v) => !v)}
+        onCancel={backToList}
+        secondaryLabel="Skip connector"
+        onSecondary={() => {
+          if (dontAsk) setDecision('linkOnAttach', 'never')
+          attachFolderAndRepo(folder, false)
+        }}
+        primaryLabel="Add connector"
+        onPrimary={() => {
+          if (dontAsk) setDecision('linkOnAttach', 'always')
+          attachFolderAndRepo(folder, true)
+        }}
+      />
+    )
+  }
+
+  return (
+    <Section label="Recent folders">
+      {FOLDER_OPTIONS.map((f) => (
+        <OptionRow
+          key={f.id}
+          icon={<FolderOpen size={16} />}
+          label={f.label}
+          meta={`${f.meta}${f.repo ? ' · git repo' : ''}`}
+          onClick={() => select(f)}
+        />
+      ))}
+    </Section>
   )
 }
 

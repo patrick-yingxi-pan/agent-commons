@@ -2,6 +2,7 @@
  *  context-dependency prompts (a GitHub-remote repo ⇄ the GitHub connector).
  *
  *  Each key remembers the *decision* the user made, not just "skip":
+ *    - 'attachRepoOnFolder'      → 'always' | 'never'   (a git folder: attach the repo too?)
  *    - 'linkOnAttach'            → 'always' | 'never'   (add the connector with the repo?)
  *    - 'cascadeRepoRemove'       → 'both'   | 'keep'    (remove the orphaned connector too?)
  *    - 'cascadeConnectorRemove'  → 'all'    | 'keep'    (remove dependent repos too?)

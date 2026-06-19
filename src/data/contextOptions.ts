@@ -3,10 +3,28 @@ import type { Artifact, Connector, DiffLine, FileNode } from '../types'
 /** Mock options + sample payloads for the "Add context" flows. Picking an
  *  option attaches representative content so the panel actually populates. */
 
-export const FOLDER_OPTIONS = [
-  { id: 'f1', label: '~/projects/insights-dashboard', meta: '42 files · edited 2h ago' },
+export const FOLDER_OPTIONS: {
+  id: string
+  label: string
+  meta: string
+  /** Present when the folder is a git working tree — lets the folder flow offer
+   *  to also attach it as a repository (and chain the connector prompt if the
+   *  repo has a GitHub remote). */
+  repo?: { branch: string; remote?: string }
+}[] = [
+  {
+    id: 'f1',
+    label: '~/projects/insights-dashboard',
+    meta: '42 files · edited 2h ago',
+    repo: { branch: 'feat/insights', remote: 'patrick-yingxi-pan/web-app' },
+  },
   { id: 'f2', label: '~/Documents/launch-assets', meta: '9 files · edited yesterday' },
-  { id: 'f3', label: '~/projects/marketing-site', meta: '120 files · edited 3d ago' },
+  {
+    id: 'f3',
+    label: '~/projects/marketing-site',
+    meta: '120 files · edited 3d ago',
+    repo: { branch: 'main', remote: 'acme/marketing-site' },
+  },
 ]
 
 export const FOLDER_ARTIFACTS: Artifact[] = [
