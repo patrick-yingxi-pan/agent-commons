@@ -55,6 +55,30 @@ export const CONVERSATIONS: Conversation[] = [
     ],
   },
   {
+    id: 'onboarding-ab',
+    title: 'Onboarding A/B readout',
+    caps: ['chat', 'workspace'],
+    updatedLabel: '2h ago',
+    preview: 'Variant B lifted activation +6.2% — ship it.',
+    messages: [
+      {
+        id: 'm1',
+        role: 'user',
+        content: 'Read out the onboarding A/B. Did variant B beat control on activation?',
+      },
+      {
+        id: 'm2',
+        role: 'assistant',
+        content:
+          'Yes — variant B lifted activation +6.2% (95% CI: +2.1–10.3%), with no hit to the day-7 retention guardrail. Recommendation: ship B to 100%. The readout and the funnel chart are in the workspace.',
+      },
+    ],
+    artifacts: [
+      { id: 'ob1', name: 'onboarding-ab-readout.md', kind: 'doc', meta: 'summary' },
+      { id: 'ob2', name: 'activation-funnel.png', kind: 'image', meta: '1200×700' },
+    ],
+  },
+  {
     id: 'board-deck',
     title: 'Q3 board deck',
     caps: ['chat', 'workspace'],
@@ -101,6 +125,30 @@ export const CONVERSATIONS: Conversation[] = [
     artifacts: [
       { id: 'c1', name: 'june-churn-cohorts.sheet', kind: 'sheet', meta: '2,481 rows' },
       { id: 'c2', name: 'churn-drivers.md', kind: 'doc', meta: 'summary' },
+    ],
+  },
+  {
+    id: 'brand-voice',
+    title: 'Brand voice guidelines',
+    caps: ['chat', 'workspace'],
+    updatedLabel: 'Yesterday',
+    preview: 'Warm, plain, confident — with do/don’t examples.',
+    messages: [
+      {
+        id: 'm1',
+        role: 'user',
+        content: 'Draft brand voice guidelines from the site copy and the launch deck.',
+      },
+      {
+        id: 'm2',
+        role: 'assistant',
+        content:
+          'Drafted a one-page guide: the voice is warm, plain, and confident, with do/don’t pairs and a banned-words list. The new wordmark lockups are alongside it in the workspace.',
+      },
+    ],
+    artifacts: [
+      { id: 'bv1', name: 'brand-voice-guide.md', kind: 'doc', meta: 'guide' },
+      { id: 'bv2', name: 'logo-lockups.png', kind: 'image', meta: '1600×900' },
     ],
   },
   {

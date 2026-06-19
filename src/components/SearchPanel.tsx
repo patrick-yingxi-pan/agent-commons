@@ -84,7 +84,7 @@ export function SearchPanel({
     const projectResults: Result[] = PROJECTS.filter((p) => hit(p.name, p.description)).map((p) => ({
       key: `p-${p.id}`,
       title: p.name,
-      subtitle: `${p.items} items · ${p.description}`,
+      subtitle: `${p.conversationIds.length} chat${p.conversationIds.length === 1 ? '' : 's'} · ${p.description}`,
       Icon: SECTION_META.projects.Icon,
       run: goSection('projects'),
     }))

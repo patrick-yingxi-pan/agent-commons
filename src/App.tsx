@@ -51,6 +51,18 @@ const EMPTY_DEMO: Live = {
 // conversation that doesn't already have one (seeded/demo convs bring their own).
 const WS_ID = 'ws-active'
 
+// A brand-new, unsent chat. "New task" opens this — an empty thread with the
+// composer ready, the way the desktop app's "New chat" does. Nothing is saved
+// until you send, so it isn't in the recents list; activeConv falls back to it.
+const DRAFT_ID = 'draft'
+const DRAFT_CONV: Conversation = {
+  id: DRAFT_ID,
+  title: 'New chat',
+  caps: ['chat'],
+  updatedLabel: 'now',
+  preview: '',
+}
+
 // Left-rail resize bounds.
 const LEFT_MIN = 208
 const LEFT_MAX = 420
@@ -173,10 +185,14 @@ export default function App() {
   liveRef.current = live
 
   const activeConv = useMemo(
-    () => CONVERSATIONS.find((c) => c.id === activeId)!,
+    () => CONVERSATIONS.find((c) => c.id === activeId) ?? DRAFT_CONV,
     [activeId],
   )
   const isDemo = !!activeConv.isDemo
+  // The transient "New chat" draft (not a saved conversation). Drives the empty
+  // greeting + title-bar suppression off the actual id, so a future *empty* real
+  // conversation falls back to neutral copy with its title still shown.
+  const isDraft = activeId === DRAFT_ID
 
   const clearTimers = useCallback(() => {
     runId.current += 1
@@ -395,11 +411,20 @@ export default function App() {
     setFocus((cur) => (sameFocus(cur, f) ? null : f))
   }, [])
 
-  // "New task" reopens a fresh conversation; a nav tool takes over the main area.
-  const newTask = useCallback(
-    () => selectConversation(DEMO_CONVERSATION_ID),
-    [selectConversation],
-  )
+  // "New task" opens a blank chat — an empty thread with the composer ready,
+  // like the desktop app's "New chat" (not a jump to an existing session).
+  const newTask = useCallback(() => {
+    clearTimers()
+    setTyping(false)
+    setBusy(false)
+    setActiveSection(null)
+    setActiveId(DRAFT_ID)
+    setLive(EMPTY_DEMO)
+    setFocus(null)
+    setPhase('idle')
+    setStepIndex(-1)
+    setCaption('')
+  }, [clearTimers])
   const openSection = useCallback((s: SectionId) => setActiveSection(s), [])
 
   const removeAttachment = useCallback((id: string) => {
@@ -516,10 +541,14 @@ export default function App() {
 
         <main className="flex min-w-0 flex-1 flex-col">
           {activeSection ? (
-            <SectionView section={activeSection} />
+            <SectionView
+              section={activeSection}
+              onOpenConversation={selectConversation}
+              onNewChat={newTask}
+            />
           ) : (
             <>
-          {!isDemo && (
+          {!isDemo && !isDraft && (
             <div
               className={`flex items-center gap-3 border-b border-line bg-canvas/80 py-2 pr-4 ${
                 leftOpen ? 'pl-4' : 'pl-14'
@@ -535,7 +564,7 @@ export default function App() {
             <section className="flex min-w-0 flex-1 flex-col">
               <div className="flex-1 overflow-y-auto">
                 {live.messages.length === 0 && !typing ? (
-                  <EmptyState />
+                  <EmptyState mode={isDemo ? 'demo' : isDraft ? 'draft' : 'empty'} />
                 ) : (
                   <div className="py-4">
                     {live.messages.map((m) => (
@@ -632,7 +661,32 @@ export default function App() {
   )
 }
 
-function EmptyState() {
+function EmptyState({ mode }: { mode: 'demo' | 'draft' | 'empty' }) {
+  if (mode === 'draft') {
+    return (
+      <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+        <div className="max-w-md">
+          <div className="font-serif text-xl font-semibold text-ink">What should we work on?</div>
+          <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+            Start typing below. Attach a folder, a repo, or a connector and this one chat grows a
+            workspace or a code panel as the work needs it — no tabs, no lost context.
+          </p>
+        </div>
+      </div>
+    )
+  }
+  if (mode === 'empty') {
+    return (
+      <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+        <div className="max-w-sm">
+          <div className="font-serif text-lg font-semibold text-ink">No messages yet</div>
+          <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+            Start typing below to pick this conversation back up.
+          </p>
+        </div>
+      </div>
+    )
+  }
   return (
     <div className="flex h-full flex-col items-center justify-center px-6 text-center">
       <div className="max-w-sm">
