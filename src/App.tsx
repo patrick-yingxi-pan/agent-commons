@@ -10,7 +10,7 @@ import { SectionView } from './components/SectionView'
 import { AttachmentPanel } from './components/AttachmentPanel'
 import { ConnectorPanel } from './components/ConnectorPanel'
 import { IntroOverlay } from './components/IntroOverlay'
-import { CapBadges } from './components/CapBadges'
+import { ProposalBar } from './components/ProposalBar'
 import { CONVERSATIONS, DEMO_CONVERSATION_ID } from './data/conversations'
 import { DEMO_STEPS } from './data/demo'
 import { sameFocus } from './lib/focus'
@@ -438,13 +438,30 @@ export default function App() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-canvas text-ink">
-      <TopBar
-        onAbout={() => setShowIntro(true)}
-        sidebarOpen={leftOpen}
-        onToggleSidebar={() => setLeftOpen((o) => !o)}
-      />
+      {/* ===== Proposal framing — the description, kept outside the product mock.
+              A dark band holding the concept label, "About this proposal", and
+              the guided tour, so the product below can read like a real app. ===== */}
+      <div className="shrink-0 bg-ink text-canvas">
+        <ProposalBar onAbout={() => setShowIntro(true)} />
+        {isDemo && !activeSection && (
+          <CaptionBar
+            phase={phase}
+            stepIndex={stepIndex}
+            totalSteps={DEMO_STEPS.length}
+            caption={caption}
+            busy={busy}
+            onStart={startTour}
+            onNext={nextStep}
+            onRestart={startTour}
+          />
+        )}
+      </div>
 
-      <div className="flex min-h-0 flex-1">
+      {/* ===== The proposed product ===== */}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <TopBar sidebarOpen={leftOpen} onToggleSidebar={() => setLeftOpen((o) => !o)} />
+
+        <div className="flex min-h-0 flex-1">
         {/* Left rail: collapsible (width → 0) and drag-resizable. The inner div
             holds a fixed width so the content doesn't reflow while collapsing. */}
         <div
@@ -478,23 +495,11 @@ export default function App() {
             <SectionView section={activeSection} />
           ) : (
             <>
-          {isDemo ? (
-            <CaptionBar
-              phase={phase}
-              stepIndex={stepIndex}
-              totalSteps={DEMO_STEPS.length}
-              caption={caption}
-              busy={busy}
-              onStart={startTour}
-              onNext={nextStep}
-              onRestart={startTour}
-            />
-          ) : (
+          {!isDemo && (
             <div className="flex items-center gap-3 border-b border-line bg-canvas/80 px-4 py-2">
               <span className="font-serif text-[15px] font-semibold text-ink">
                 {activeConv.title}
               </span>
-              <CapBadges caps={activeConv.caps} size="md" />
             </div>
           )}
 
@@ -570,6 +575,7 @@ export default function App() {
             </>
           )}
         </main>
+        </div>
       </div>
 
       {/* Rendered without AnimatePresence: framer-motion 11 + React 19 can leave

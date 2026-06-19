@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react'
 import { Plus, Search, SlidersHorizontal } from 'lucide-react'
 import type { Conversation, SectionId } from '../types'
-import { CapBadges } from './CapBadges'
 import { ResizeHandle } from './ResizeHandle'
 import { SECTION_META, SECTION_ORDER } from '../lib/sections'
 import { SCHEDULED_TASKS } from '../data/cowork'
@@ -122,9 +121,6 @@ export function Sidebar({
             >
               <Dot active={active} />
               <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{c.title}</span>
-              <span className="shrink-0">
-                <CapBadges caps={c.caps} />
-              </span>
             </button>
           )
         })}
