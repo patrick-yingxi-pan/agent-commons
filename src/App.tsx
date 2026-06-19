@@ -14,6 +14,7 @@ import { CapBadges } from './components/CapBadges'
 import { CONVERSATIONS, DEMO_CONVERSATION_ID } from './data/conversations'
 import { DEMO_STEPS } from './data/demo'
 import { sameFocus } from './lib/focus'
+import { clamp, getLayout, setLayout } from './lib/uiPrefs'
 import type {
   AddedContext,
   Attachment,
@@ -48,6 +49,10 @@ const EMPTY_DEMO: Live = {
 // The id of the single shared workspace created when folders are attached to a
 // conversation that doesn't already have one (seeded/demo convs bring their own).
 const WS_ID = 'ws-active'
+
+// Left-rail resize bounds.
+const LEFT_MIN = 208
+const LEFT_MAX = 420
 
 function withConnector(list: Connector[], c: Connector): Connector[] {
   return list.some((x) => x.id === c.id) ? list : [...list, c]
@@ -130,6 +135,14 @@ export default function App() {
   const [focus, setFocus] = useState<PanelFocus | null>(null)
   // Which cross-cutting tool is open in the main area (null = the conversation).
   const [activeSection, setActiveSection] = useState<SectionId | null>(null)
+
+  // Left-rail layout: collapsed state + drag-resizable width, both persisted.
+  const [leftOpen, setLeftOpen] = useState<boolean>(() => getLayout('leftOpen', true))
+  const [leftW, setLeftW] = useState(() => clamp(getLayout('leftW', 272), LEFT_MIN, LEFT_MAX))
+  const [leftDragging, setLeftDragging] = useState(false)
+  const leftWRef = useRef(leftW)
+  leftWRef.current = leftW
+  useEffect(() => setLayout('leftOpen', leftOpen), [leftOpen])
 
   // Guided-tour state (only meaningful for the demo conversation).
   const [phase, setPhase] = useState<TourPhase>('idle')
@@ -425,19 +438,40 @@ export default function App() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-canvas text-ink">
-      <TopBar onAbout={() => setShowIntro(true)} />
+      <TopBar
+        onAbout={() => setShowIntro(true)}
+        sidebarOpen={leftOpen}
+        onToggleSidebar={() => setLeftOpen((o) => !o)}
+      />
 
       <div className="flex min-h-0 flex-1">
-        <Sidebar
-          conversations={CONVERSATIONS}
-          activeId={activeId}
-          activeSection={activeSection}
-          query={query}
-          onQuery={setQuery}
-          onSelect={selectConversation}
-          onNewTask={newTask}
-          onOpenSection={openSection}
-        />
+        {/* Left rail: collapsible (width → 0) and drag-resizable. The inner div
+            holds a fixed width so the content doesn't reflow while collapsing. */}
+        <div
+          className={`relative h-full shrink-0 overflow-hidden ${
+            leftDragging ? '' : 'transition-[width] duration-200 ease-out'
+          } ${leftOpen ? '' : 'pointer-events-none'}`}
+          style={{ width: leftOpen ? leftW : 0 }}
+        >
+          <div style={{ width: leftW }} className="h-full">
+            <Sidebar
+              conversations={CONVERSATIONS}
+              activeId={activeId}
+              activeSection={activeSection}
+              query={query}
+              onQuery={setQuery}
+              onSelect={selectConversation}
+              onNewTask={newTask}
+              onOpenSection={openSection}
+              onResizeStart={() => setLeftDragging(true)}
+              onResize={(clientX) => setLeftW(clamp(clientX, LEFT_MIN, LEFT_MAX))}
+              onResizeEnd={() => {
+                setLeftDragging(false)
+                setLayout('leftW', leftWRef.current)
+              }}
+            />
+          </div>
+        </div>
 
         <main className="flex min-w-0 flex-1 flex-col">
           {activeSection ? (

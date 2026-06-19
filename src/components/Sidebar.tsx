@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Plus, Search, SlidersHorizontal } from 'lucide-react'
 import type { Conversation, SectionId } from '../types'
 import { CapBadges } from './CapBadges'
+import { ResizeHandle } from './ResizeHandle'
 import { SECTION_META, SECTION_ORDER } from '../lib/sections'
 import { SCHEDULED_TASKS } from '../data/cowork'
 
@@ -14,6 +15,9 @@ export function Sidebar({
   onSelect,
   onNewTask,
   onOpenSection,
+  onResizeStart,
+  onResize,
+  onResizeEnd,
 }: {
   conversations: Conversation[]
   activeId: string
@@ -23,6 +27,10 @@ export function Sidebar({
   onSelect: (id: string) => void
   onNewTask: () => void
   onOpenSection: (s: SectionId) => void
+  /** Drag-to-resize wiring; the parent owns the width and clamps it. */
+  onResizeStart: () => void
+  onResize: (clientX: number) => void
+  onResizeEnd: () => void
 }) {
   const q = query.trim().toLowerCase()
   const filtered = q
@@ -34,7 +42,8 @@ export function Sidebar({
   const scheduledPinned = SCHEDULED_TASKS.filter((t) => t.enabled)
 
   return (
-    <aside className="flex h-full w-[272px] shrink-0 flex-col border-r border-line bg-sidebar">
+    <aside className="relative flex h-full w-full shrink-0 flex-col border-r border-line bg-sidebar">
+      <ResizeHandle side="right" onStart={onResizeStart} onMove={onResize} onEnd={onResizeEnd} />
       <div className="px-3 pt-3">
         <div className="relative">
           <Search
