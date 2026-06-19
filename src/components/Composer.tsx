@@ -15,7 +15,6 @@ import {
 import type {
   AddedContext,
   Attachment,
-  Capability,
   Connector,
   PanelFocus,
   Repo,
@@ -28,7 +27,7 @@ import { AudioInputControl } from './AudioInputControl'
 import { UsageControl } from './UsageControl'
 import { GITHUB_CONNECTOR_ID, connectorIconFor } from '../lib/connectors'
 import { getDecision, setDecision } from '../lib/prefs'
-import { CAP_META } from '../lib/capabilities'
+import { CHIP_TONES, type ChipTone } from '../lib/capabilities'
 import { sameFocus } from '../lib/focus'
 
 const SKIP_CONFIRM_KEY = 'claude-ui.composer.skipDeleteConfirm.v2'
@@ -159,7 +158,7 @@ export function Composer({
     groups.push({
       key: 'connectors',
       label: 'Connectors',
-      tone: 'repo',
+      tone: 'connector',
       icon: connIcon('connector'),
       items: plainConnectors.map((c) => {
         // Removing the GitHub connector strands any repo that depends on it.
@@ -191,7 +190,7 @@ export function Composer({
     groups.push({
       key: 'mcp',
       label: 'MCP servers',
-      tone: 'repo',
+      tone: 'mcp',
       icon: connIcon('mcp'),
       items: mcpServers.map((c) => ({
         key: c.id,
@@ -205,7 +204,7 @@ export function Composer({
     groups.push({
       key: 'files',
       label: 'Files',
-      tone: 'chat',
+      tone: 'file',
       icon: <FileText size={12} />,
       items: fileItems.map((a) => ({
         key: a.id,
@@ -219,7 +218,7 @@ export function Composer({
     groups.push({
       key: 'photos',
       label: 'Photos',
-      tone: 'chat',
+      tone: 'photo',
       icon: <ImageIcon size={12} />,
       items: photoItems.map((a) => ({
         key: a.id,
@@ -344,7 +343,7 @@ interface ChipItem {
 interface ChipGroupModel {
   key: string
   label: string
-  tone: Capability
+  tone: ChipTone
   icon: ReactNode
   items: ChipItem[]
 }
@@ -644,7 +643,7 @@ function Chip({
   children,
 }: {
   icon: ReactNode
-  tone: Capability
+  tone: ChipTone
   active: boolean
   count?: number
   expandable?: boolean
@@ -652,8 +651,8 @@ function Chip({
   onClick: () => void
   children: ReactNode
 }) {
-  // One source of truth for the per-capability palette (see lib/capabilities).
-  const { tint, color } = CAP_META[tone]
+  // One source of truth for the per-context-type chip palette (see lib/capabilities).
+  const { tint, color } = CHIP_TONES[tone]
   const toneClass = `${tint} ${color}`
   return (
     <button
