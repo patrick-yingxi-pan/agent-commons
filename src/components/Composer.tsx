@@ -24,6 +24,7 @@ import { PermissionModeControl } from './PermissionModeControl'
 import { AudioInputControl } from './AudioInputControl'
 import { UsageControl } from './UsageControl'
 import { connectorIconFor } from '../lib/connectors'
+import { CAP_META } from '../lib/capabilities'
 import { sameFocus } from '../lib/focus'
 
 const SKIP_CONFIRM_KEY = 'claude-ui.composer.skipDeleteConfirm.v2'
@@ -50,6 +51,7 @@ export function Composer({
   connectors,
   attachments,
   focus,
+  disabled,
   onSend,
   onAddContext,
   onOpenContext,
@@ -60,6 +62,8 @@ export function Composer({
   connectors: Connector[]
   attachments: Attachment[]
   focus: PanelFocus | null
+  /** Locks free-typing — used while the guided tour is auto-playing. */
+  disabled?: boolean
   onSend: (text: string) => void
   onAddContext: (ctx: AddedContext) => void
   onOpenContext: (focus: PanelFocus) => void
@@ -183,7 +187,7 @@ export function Composer({
 
   const submit = () => {
     const t = value.trim()
-    if (!t) return
+    if (!t || disabled) return
     onSend(t)
     setValue('')
     if (ref.current) ref.current.style.height = 'auto'
@@ -212,11 +216,16 @@ export function Composer({
         )}
 
         {/* Input — clean inside; Enter sends, Shift+Enter for a new line */}
-        <div className="flex items-end gap-2 rounded-2xl border border-line-strong bg-surface px-4 py-3 shadow-sm transition focus-within:border-accent">
+        <div
+          className={`flex items-end gap-2 rounded-2xl border border-line-strong bg-surface px-4 py-3 shadow-sm transition focus-within:border-accent ${
+            disabled ? 'opacity-60' : ''
+          }`}
+        >
           <textarea
             ref={ref}
             value={value}
             rows={1}
+            disabled={disabled}
             onChange={(e) => {
               setValue(e.target.value)
               e.target.style.height = 'auto'
@@ -228,8 +237,8 @@ export function Composer({
                 submit()
               }
             }}
-            placeholder="Reply to Claude…"
-            className="max-h-[180px] min-w-0 flex-1 resize-none bg-transparent text-[15px] leading-relaxed text-ink outline-none placeholder:text-ink-faint"
+            placeholder={disabled ? 'Playing the tour…' : 'Reply to Claude…'}
+            className="max-h-[180px] min-w-0 flex-1 resize-none bg-transparent text-[15px] leading-relaxed text-ink outline-none placeholder:text-ink-faint disabled:cursor-not-allowed"
           />
           <span className="shrink-0 self-end pb-0.5 text-ink-faint" title="Enter to send">
             <CornerDownLeft size={16} />
@@ -364,7 +373,11 @@ function ChipGroup({
       </Chip>
 
       {open && (
-        <div className="absolute bottom-full left-0 z-20 mb-1.5 max-h-72 w-[256px] overflow-auto rounded-xl border border-line-strong bg-surface p-1 shadow-xl">
+        <div
+          role="menu"
+          aria-label={group.label}
+          className="absolute bottom-full left-0 z-20 mb-1.5 max-h-72 w-[256px] overflow-auto rounded-xl border border-line-strong bg-surface p-1 shadow-xl"
+        >
           <div className="px-1.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
             {group.label}
           </div>
@@ -400,7 +413,7 @@ function ChipGroup({
                     <button
                       type="button"
                       onClick={() => confirmRemove(it)}
-                      className="rounded-md bg-red-600 px-2 py-1 text-[12px] font-medium text-white transition hover:bg-red-700"
+                      className="rounded-md bg-removed px-2 py-1 text-[12px] font-medium text-white transition hover:brightness-95"
                     >
                       Remove
                     </button>
@@ -432,7 +445,7 @@ function ChipGroup({
                   type="button"
                   onClick={() => requestRemove(it)}
                   title="Remove from context"
-                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint opacity-0 transition hover:bg-red-50 hover:text-red-600 focus:opacity-100 group-hover:opacity-100"
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint opacity-0 transition hover:bg-removed-bg hover:text-removed focus:opacity-100 group-hover:opacity-100"
                 >
                   <Trash2 size={13} />
                 </button>
@@ -464,16 +477,15 @@ function Chip({
   onClick: () => void
   children: ReactNode
 }) {
-  const toneClass =
-    tone === 'workspace'
-      ? 'bg-[#f7efe0] text-cap-workspace'
-      : tone === 'repo'
-        ? 'bg-[#e9f0f3] text-cap-repo'
-        : 'bg-panel-2 text-cap-chat'
+  // One source of truth for the per-capability palette (see lib/capabilities).
+  const { tint, color } = CAP_META[tone]
+  const toneClass = `${tint} ${color}`
   return (
     <button
       onClick={onClick}
       title={expandable ? `${children} (${count})` : 'Open in sidebar'}
+      aria-haspopup={expandable ? 'menu' : undefined}
+      aria-expanded={expandable ? open : undefined}
       className={`inline-flex max-w-[220px] items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition ${toneClass} ${
         active ? 'ring-1 ring-accent' : 'ring-1 ring-transparent hover:ring-line-strong'
       }`}

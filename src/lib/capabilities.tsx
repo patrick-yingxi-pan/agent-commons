@@ -25,14 +25,14 @@ export const CAP_META: Record<Capability, CapMeta> = {
     legacyTab: 'Cowork',
     Icon: PanelsTopLeft,
     color: 'text-cap-workspace',
-    tint: 'bg-[#f7efe0]',
+    tint: 'bg-cap-workspace-tint',
   },
   repo: {
     label: 'Repo',
     legacyTab: 'Code',
     Icon: GitBranch,
     color: 'text-cap-repo',
-    tint: 'bg-[#e9f0f3]',
+    tint: 'bg-cap-repo-tint',
   },
 }
 

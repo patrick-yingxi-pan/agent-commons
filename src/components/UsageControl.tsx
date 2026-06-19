@@ -34,6 +34,9 @@ export function UsageControl() {
       <button
         onClick={() => setOpen((o) => !o)}
         title="Usage"
+        aria-label="Usage"
+        aria-haspopup="dialog"
+        aria-expanded={open}
         className={`flex h-7 w-7 items-center justify-center rounded-lg transition ${
           open ? 'bg-panel-2' : 'hover:bg-panel-2'
         }`}
@@ -94,7 +97,7 @@ function Ring({ pct }: { pct: number }) {
         strokeLinecap="round"
         strokeDasharray={c}
         strokeDashoffset={c * (1 - pct / 100)}
-        className="stroke-blue-500"
+        className="stroke-accent"
       />
     </svg>
   )
@@ -103,7 +106,7 @@ function Ring({ pct }: { pct: number }) {
 function Bar({ pct, className = '' }: { pct: number; className?: string }) {
   return (
     <div className={`h-1.5 w-full overflow-hidden rounded-full bg-line ${className}`}>
-      <div className="h-full rounded-full bg-blue-500" style={{ width: `${pct}%` }} />
+      <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
     </div>
   )
 }

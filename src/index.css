@@ -27,6 +27,11 @@
   --color-cap-workspace: #c98a3c;
   --color-cap-repo: #6c8ea0;
 
+  /* Soft per-capability background tints (chips, badges, panel pills). Defined
+     once here so the capability palette has a single source of truth. */
+  --color-cap-workspace-tint: #f7efe0;
+  --color-cap-repo-tint: #e9f0f3;
+
   --color-added: #3f7d52;
   --color-added-bg: #eaf3ec;
   --color-removed: #b5573a;
@@ -127,4 +132,15 @@ body {
 }
 .panel-morph {
   animation: panel-morph-in 0.28s ease-out;
+}
+
+/* Keyboard focus ring. Tailwind's preflight strips the default outline; this
+   restores one on-brand focus-visible ring for every interactive element.
+   Inputs/textarea opt out (they use `outline-none` + a focus border instead),
+   and `:where()` keeps specificity at 0 so any explicit utility still wins. */
+@layer base {
+  :where(button, a, [role="button"], [tabindex]:not([tabindex="-1"])):focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
 }

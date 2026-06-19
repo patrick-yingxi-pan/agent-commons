@@ -30,7 +30,7 @@ export function WorkspacePanel({
         return (
           <span
             key={c.id}
-            className="inline-flex items-center gap-1 rounded-full bg-[#e9f0f3] px-1.5 py-0.5 text-[11px] font-medium text-cap-repo"
+            className="inline-flex items-center gap-1 rounded-full bg-cap-repo-tint px-1.5 py-0.5 text-[11px] font-medium text-cap-repo"
           >
             <Icon size={11} />
             {c.label}

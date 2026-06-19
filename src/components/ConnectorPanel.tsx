@@ -68,7 +68,7 @@ export function ConnectorPanel({
       <div className="shrink-0 border-t border-line p-3">
         <button
           onClick={onDisconnect}
-          className="flex items-center gap-1.5 text-[12px] font-medium text-ink-faint transition hover:text-red-600"
+          className="flex items-center gap-1.5 text-[12px] font-medium text-ink-faint transition hover:text-removed"
         >
           <Trash2 size={13} />
           {isMcp ? 'Remove server' : 'Disconnect'}

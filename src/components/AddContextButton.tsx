@@ -79,12 +79,19 @@ export function AddContextButton({ onAttach }: { onAttach: (ctx: AddedContext) =
           open ? 'bg-panel-2 text-ink' : 'text-ink-soft hover:bg-panel-2 hover:text-ink'
         }`}
         title="Add context — files, folders, repos, connectors, MCP servers"
+        aria-label="Add context"
+        aria-haspopup="dialog"
+        aria-expanded={open}
       >
         <Plus size={18} />
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-0 z-20 mb-2 w-[340px] overflow-hidden rounded-xl border border-line-strong bg-surface shadow-xl">
+        <div
+          role="dialog"
+          aria-label="Add context"
+          className="absolute bottom-full left-0 z-20 mb-2 w-[340px] overflow-hidden rounded-xl border border-line-strong bg-surface shadow-xl"
+        >
           {activeType === null ? (
             <div className="p-2">
               <div className="px-1.5 pb-1 pt-0.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">

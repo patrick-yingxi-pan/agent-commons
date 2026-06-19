@@ -54,13 +54,16 @@ function slug(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
 }
 
-const BRANCH: Record<string, string> = {
+// Branch names for the two scripted seed conversations that carry a repo. This
+// is demo seed data, not a general registry — context attached at runtime brings
+// its own branch (see handleAddContext), so anything not seeded here is 'main'.
+const SEED_BRANCHES: Record<string, string> = {
   'insights-launch': 'feat/insights-dashboard',
   'auth-refactor': 'refactor/auth-middleware',
 }
 
 function branchFor(id: string) {
-  return BRANCH[id] ?? 'main'
+  return SEED_BRANCHES[id] ?? 'main'
 }
 
 function workspaceNameFor(conv: Conversation) {
@@ -190,13 +193,14 @@ export default function App() {
         setTyping(false)
         setLive((l) => {
           const next: Live = { ...l, messages: [...l.messages, step.assistant] }
-          if (step.assistant.escalate === 'workspace') {
+          // Guard the id-keyed pushes so a replayed step can't duplicate a panel.
+          if (step.assistant.escalate === 'workspace' && !l.workspaces.some((w) => w.id === 'ws-demo')) {
             next.workspaces = [
               ...l.workspaces,
               { id: 'ws-demo', label: workspaceNameFor(activeConv), artifacts: step.artifacts ?? [] },
             ]
           }
-          if (step.assistant.escalate === 'repo') {
+          if (step.assistant.escalate === 'repo' && !l.repos.some((r) => r.id === 'repo-demo')) {
             next.repos = [
               ...l.repos,
               {
@@ -210,38 +214,39 @@ export default function App() {
               },
             ]
           }
-          if (step.connectors) next.connectors = [...l.connectors, ...step.connectors]
+          if (step.connectors) next.connectors = step.connectors.reduce(withConnector, l.connectors)
           return next
         })
         // Auto-disclose the newly attached context's sidebar (drives the tour).
         if (step.assistant.escalate === 'workspace') setFocus({ kind: 'workspace', id: 'ws-demo' })
         if (step.assistant.escalate === 'repo') setFocus({ kind: 'repo', id: 'repo-demo' })
         setBusy(false)
-        if (index >= DEMO_STEPS.length - 1) setPhase('done')
       }, 950)
     },
     [schedule, activeConv],
   )
 
+  // Resets step/caption too, so this doubles as a one-click "Replay" from the
+  // finished state — not just the first run.
   const startTour = useCallback(() => {
-    clearTimers()
-    setLive(EMPTY_DEMO)
-    setPhase('running')
-    schedule(() => playStep(0), 200)
-  }, [clearTimers, playStep, schedule])
-
-  const nextStep = useCallback(() => {
-    if (busy) return
-    playStep(stepIndex + 1)
-  }, [busy, playStep, stepIndex])
-
-  const restartTour = useCallback(() => {
     clearTimers()
     setLive(EMPTY_DEMO)
     setStepIndex(-1)
     setCaption('')
-    setPhase('idle')
-  }, [clearTimers])
+    setPhase('running')
+    schedule(() => playStep(0), 200)
+  }, [clearTimers, playStep, schedule])
+
+  // "Next" advances a beat; on the final beat the button reads "Finish" and
+  // ends the tour rather than stepping past the last step.
+  const nextStep = useCallback(() => {
+    if (busy) return
+    if (stepIndex + 1 >= DEMO_STEPS.length) {
+      setPhase('done')
+      return
+    }
+    playStep(stepIndex + 1)
+  }, [busy, playStep, stepIndex])
 
   // Free-typed replies get an honest canned answer (no fake intelligence).
   const handleSend = useCallback(
@@ -341,11 +346,8 @@ export default function App() {
     setLive((l) => ({ ...l, attachments: l.attachments.filter((a) => a.id !== id) }))
   }, [])
 
-  const removeConnector = useCallback((id: string) => {
-    setLive((l) => ({ ...l, connectors: l.connectors.filter((c) => c.id !== id) }))
-  }, [])
-
-  // Remove any attached context by its focus (used by the chip-popup trash button).
+  // Remove any attached context by its focus (used by the chip-popup trash button
+  // and the connector panel's Disconnect).
   const removeContext = useCallback((f: PanelFocus) => {
     setLive((l) => {
       switch (f.kind) {
@@ -415,7 +417,7 @@ export default function App() {
               busy={busy}
               onStart={startTour}
               onNext={nextStep}
-              onRestart={restartTour}
+              onRestart={startTour}
             />
           ) : (
             <div className="flex items-center gap-3 border-b border-line bg-canvas/80 px-4 py-2">
@@ -448,6 +450,7 @@ export default function App() {
                 connectors={live.connectors}
                 attachments={live.attachments}
                 focus={focus}
+                disabled={isDemo && phase === 'running'}
                 onSend={handleSend}
                 onAddContext={handleAddContext}
                 onOpenContext={focusContext}
@@ -476,7 +479,7 @@ export default function App() {
                   key="conn"
                   connector={focusedConnector}
                   onClose={() => setFocus(null)}
-                  onDisconnect={() => removeConnector(focusedConnector.id)}
+                  onDisconnect={() => removeContext({ kind: 'connector', id: focusedConnector.id })}
                 />
               )}
             </AnimatePresence>
@@ -499,18 +502,19 @@ export default function App() {
         </main>
       </div>
 
-      <AnimatePresence>
-        {showIntro && (
-          <IntroOverlay
-            onClose={() => setShowIntro(false)}
-            onStartTour={() => {
-              setShowIntro(false)
-              selectConversation(DEMO_CONVERSATION_ID)
-              startTour()
-            }}
-          />
-        )}
-      </AnimatePresence>
+      {/* Rendered without AnimatePresence: framer-motion 11 + React 19 can leave
+          an exited overlay in the DOM (an invisible, click-blocking backdrop).
+          A plain conditional unmounts instantly; the entrance still animates. */}
+      {showIntro && (
+        <IntroOverlay
+          onClose={() => setShowIntro(false)}
+          onStartTour={() => {
+            setShowIntro(false)
+            selectConversation(DEMO_CONVERSATION_ID)
+            startTour()
+          }}
+        />
+      )}
     </div>
   )
 }

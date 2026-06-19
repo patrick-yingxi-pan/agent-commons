@@ -13,7 +13,7 @@ const DEVICES = [
 export function AudioInputControl() {
   const [open, setOpen] = useState(false)
   const [device, setDevice] = useState(0)
-  const [hold, setHold] = useState(true)
+  const [hold, setHold] = useState(false)
   const [recording, setRecording] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
 
@@ -36,6 +36,8 @@ export function AudioInputControl() {
       <button
         onClick={() => setRecording((r) => !r)}
         title={recording ? 'Stop' : 'Voice input'}
+        aria-label={recording ? 'Stop voice input' : 'Voice input'}
+        aria-pressed={recording}
         className={`flex h-8 w-8 items-center justify-center rounded-lg transition ${
           recording ? 'bg-red-50 text-red-600' : 'text-ink-soft hover:bg-panel-2 hover:text-ink'
         }`}
@@ -45,6 +47,9 @@ export function AudioInputControl() {
       <button
         onClick={() => setOpen((o) => !o)}
         title="Microphone settings"
+        aria-label="Microphone settings"
+        aria-haspopup="menu"
+        aria-expanded={open}
         className={`flex h-8 w-5 items-center justify-center rounded-lg transition ${
           open ? 'bg-panel-2 text-ink' : 'text-ink-faint hover:bg-panel-2 hover:text-ink'
         }`}
@@ -53,7 +58,11 @@ export function AudioInputControl() {
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-0 z-20 mb-2 w-[300px] overflow-hidden rounded-xl border border-line-strong bg-surface p-1.5 shadow-xl">
+        <div
+          role="menu"
+          aria-label="Microphone"
+          className="absolute bottom-full left-0 z-20 mb-2 w-[300px] overflow-hidden rounded-xl border border-line-strong bg-surface p-1.5 shadow-xl"
+        >
           <div className="px-1.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
             Microphone
           </div>

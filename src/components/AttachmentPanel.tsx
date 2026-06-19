@@ -21,6 +21,12 @@ export function AttachmentPanel({
   onRemove: (id: string) => void
 }) {
   const [selectedId, setSelectedId] = useState(initialId ?? items[0]?.id)
+  // Per-item edit drafts live here (not in the child) so switching between
+  // files/photos preserves unsaved edits instead of discarding them on remount.
+  const [fileDrafts, setFileDrafts] = useState<Record<string, { text: string; saved: string }>>({})
+  const [photoDrafts, setPhotoDrafts] = useState<
+    Record<string, { caption: string; applied: string[] }>
+  >({})
 
   useEffect(() => {
     if (!items.some((i) => i.id === selectedId)) setSelectedId(items[0]?.id)
@@ -37,9 +43,23 @@ export function AttachmentPanel({
     >
       {selected ? (
         kind === 'photo' ? (
-          <PhotoBody key={selected.id} item={selected} items={items} onSelect={setSelectedId} onRemove={onRemove} />
+          <PhotoBody
+            item={selected}
+            items={items}
+            draft={photoDrafts[selected.id]}
+            onDraft={(d) => setPhotoDrafts((m) => ({ ...m, [selected.id]: d }))}
+            onSelect={setSelectedId}
+            onRemove={onRemove}
+          />
         ) : (
-          <FileBody key={selected.id} item={selected} items={items} onSelect={setSelectedId} onRemove={onRemove} />
+          <FileBody
+            item={selected}
+            items={items}
+            draft={fileDrafts[selected.id]}
+            onDraft={(d) => setFileDrafts((m) => ({ ...m, [selected.id]: d }))}
+            onSelect={setSelectedId}
+            onRemove={onRemove}
+          />
         )
       ) : (
         <div className="flex flex-1 items-center justify-center text-sm text-ink-faint">No items</div>
@@ -57,19 +77,26 @@ const PHOTO_TOOLS = [
 function PhotoBody({
   item,
   items,
+  draft,
+  onDraft,
   onSelect,
   onRemove,
 }: {
   item: Attachment
   items: Attachment[]
+  draft?: { caption: string; applied: string[] }
+  onDraft: (d: { caption: string; applied: string[] }) => void
   onSelect: (id: string) => void
   onRemove: (id: string) => void
 }) {
-  const [caption, setCaption] = useState('')
-  const [applied, setApplied] = useState<string[]>([])
+  const caption = draft?.caption ?? ''
+  const applied = draft?.applied ?? []
 
   const toggle = (id: string) =>
-    setApplied((a) => (a.includes(id) ? a.filter((x) => x !== id) : [...a, id]))
+    onDraft({
+      caption,
+      applied: applied.includes(id) ? applied.filter((x) => x !== id) : [...applied, id],
+    })
 
   return (
     <div className="flex flex-1 flex-col overflow-y-auto">
@@ -124,14 +151,14 @@ function PhotoBody({
 
         <input
           value={caption}
-          onChange={(e) => setCaption(e.target.value)}
+          onChange={(e) => onDraft({ caption: e.target.value, applied })}
           placeholder="Add a caption…"
           className="mt-2 w-full rounded-lg border border-line bg-canvas px-2 py-1.5 text-[12px] text-ink outline-none transition focus:border-accent"
         />
 
         <button
           onClick={() => onRemove(item.id)}
-          className="mt-2 flex items-center gap-1.5 text-[12px] font-medium text-ink-faint transition hover:text-red-600"
+          className="mt-2 flex items-center gap-1.5 text-[12px] font-medium text-ink-faint transition hover:text-removed"
         >
           <Trash2 size={13} />
           Remove photo
@@ -144,17 +171,21 @@ function PhotoBody({
 function FileBody({
   item,
   items,
+  draft,
+  onDraft,
   onSelect,
   onRemove,
 }: {
   item: Attachment
   items: Attachment[]
+  draft?: { text: string; saved: string }
+  onDraft: (d: { text: string; saved: string }) => void
   onSelect: (id: string) => void
   onRemove: (id: string) => void
 }) {
   const info = fileInfo(item.label)
-  const [saved, setSaved] = useState(info.content)
-  const [text, setText] = useState(info.content)
+  const saved = draft?.saved ?? info.content
+  const text = draft?.text ?? info.content
   const dirty = text !== saved
 
   return (
@@ -180,7 +211,7 @@ function FileBody({
               <button
                 onClick={() => onRemove(f.id)}
                 title="Remove file"
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint opacity-0 transition hover:bg-panel-2 hover:text-red-600 group-hover:opacity-100"
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint opacity-0 transition hover:bg-panel-2 hover:text-removed group-hover:opacity-100"
               >
                 <Trash2 size={13} />
               </button>
@@ -200,13 +231,13 @@ function FileBody({
             </div>
             <textarea
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => onDraft({ text: e.target.value, saved })}
               spellCheck={false}
               className="h-44 w-full flex-1 resize-none rounded-lg border border-line bg-canvas p-2 font-mono text-[12px] leading-relaxed text-ink outline-none transition focus:border-accent"
             />
             <div className="mt-2 flex justify-end">
               <button
-                onClick={() => setSaved(text)}
+                onClick={() => onDraft({ text, saved: text })}
                 disabled={!dirty}
                 className="rounded-lg bg-accent px-3 py-1 text-xs font-medium text-white transition enabled:hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-40"
               >

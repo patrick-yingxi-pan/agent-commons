@@ -148,6 +148,9 @@ export function ModelEffortControl() {
           open ? 'bg-panel-2 text-ink' : 'text-ink-soft hover:bg-panel-2'
         }`}
         title="Model & effort"
+        aria-label="Model and effort"
+        aria-haspopup="dialog"
+        aria-expanded={open}
       >
         {/* Orthogonal modes, when on, show as icons to the left so the
             model/effort text stays put next to the usage button. */}
@@ -168,7 +171,11 @@ export function ModelEffortControl() {
       </button>
 
       {open && (
-        <div className="absolute bottom-full right-0 z-20 mb-2 w-[320px] overflow-hidden rounded-xl border border-line-strong bg-surface shadow-xl">
+        <div
+          role="dialog"
+          aria-label="Model and effort"
+          className="absolute bottom-full right-0 z-20 mb-2 w-[320px] overflow-hidden rounded-xl border border-line-strong bg-surface shadow-xl"
+        >
           {/* Model */}
           <div className="px-2 pt-2">
             <div className="px-1.5 pb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">

@@ -71,7 +71,7 @@ export const DEMO_STEPS: DemoStep[] = [
       content:
         "Connecting your repo and the GitHub connector. I branched `feat/insights-dashboard`, added the flag, and wired the route. Tests pass — diff’s on the right.",
     },
-    connectors: [{ id: 'gh', label: 'GitHub' }],
+    connectors: [{ id: 'gh-mcp', label: 'GitHub', kind: 'github' }],
     files: [
       { path: 'web/src/routes/insights.tsx', status: 'added' },
       { path: 'web/src/lib/flags.ts', status: 'modified' },

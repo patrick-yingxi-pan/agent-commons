@@ -70,21 +70,30 @@ npm run typecheck  # tsc --noEmit
 
 ```
 src/
+  main.tsx                # React entry point
   App.tsx                 # state machine: thread, guided tour, adaptive panel
+  types.ts                # shared types: Conversation, Connector, PanelFocus, …
+  index.css               # Tailwind v4 + the Claude-flavoured theme tokens
   data/
     demo.ts               # the scripted chat → workspace → repo escalation
     conversations.ts      # the unified sidebar history + canned states
     contextOptions.ts     # options + sample payloads for the Add-context flows
-    connectorDetails.ts   # connector / MCP sidebar content (mock)
+    connectorDetails.ts   # connector / MCP panel content (mock)
     cowork.ts             # mock data for the nav tools (projects, schedules, …)
   lib/
+    capabilities.tsx      # capability → label / legacy-tab / icon / color
     connectors.tsx        # shared connector → icon mapping
+    rich.tsx              # tiny inline-markdown renderer for message text
     thumbs.ts             # deterministic photo gradient by id
-    focus.ts              # which chip's sidebar is open
+    focus.ts              # which chip's panel is open
     sections.tsx          # the cross-cutting nav tools (label / icon registry)
   components/
+    TopBar.tsx            # app header: wordmark + “About this proposal”
     Sidebar.tsx           # nav tools + scheduled + compact unified history
     SectionView.tsx       # Projects / Artifacts / Scheduled / Dispatch / Customize
+    Message.tsx           # one chat row (user / assistant) + typing indicator
+    CapBadges.tsx         # per-conversation capability badges
+    ClaudeMark.tsx        # the small Claude sunburst mark
     Composer.tsx          # the box + an under-box toolbar (Enter to send)
     AddContextButton.tsx  # one entry point: files/folders/repos/connectors/MCP
     PermissionModeControl.tsx # permission mode menu (Ask/Accept/Plan/Auto/Bypass)
@@ -93,10 +102,10 @@ src/
     UsageControl.tsx      # usage ring + context-window / rate-limit popup
     CaptionBar.tsx        # guided-tour narration + controls
     IntroOverlay.tsx      # the motivation (problems with today's three tabs)
-    PanelShell.tsx        # shared sliding sidebar chrome (header + close)
-    WorkspacePanel.tsx    # workspace ⇄ repo sidebar (morphs by mode)
-    ConnectorPanel.tsx    # connector / MCP sidebar: status, access, tools
-    AttachmentPanel.tsx   # file / photo sidebar: preview & edit
+    PanelShell.tsx        # shared sliding panel chrome (header + close)
+    WorkspacePanel.tsx    # workspace ⇄ repo panel (morphs by mode)
+    ConnectorPanel.tsx    # connector / MCP panel: status, access, tools
+    AttachmentPanel.tsx   # file / photo panel: preview & edit
     panels/
       ArtifactPanel.tsx   # workspace view (Cowork)
       CodePanel.tsx       # repo view: files / diff / terminal (Code)

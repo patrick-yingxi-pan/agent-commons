@@ -56,7 +56,7 @@ user asks: *"wait, which one do I use?"*
 | **Cowork**  | A conversation with **a workspace** (files, artifacts, connectors). |
 | **Code**    | A conversation with **a repository** (editor, diff, terminal). |
 
-Once you see the tabs this way, the unification is obvious: **capability is an
+Once you see the tabs this way, the unification follows: **capability is an
 attribute of a conversation, not a category of app.** A single conversation can
 hold none, one, or all three at once.
 
@@ -69,7 +69,7 @@ There is no mode to pick. This is the default the prototype opens to.
 ### 4.2 Context attaches to the thread
 Instead of choosing "Code," you **attach a repo** (or a folder, or a connector)
 to the conversation. Attachment is what grants capability. In the prototype the
-attached context is shown as **chips above the composer** (`▸ workspace/`,
+attached context is shown as **chips above the composer** (`▸ insights-dashboard-launch/`,
 `▸ feat/insights-dashboard`, `▸ GitHub`).
 
 Because *everything* attachable — files, folders, repos, photos, connectors, MCP
@@ -81,8 +81,8 @@ grid). One affordance replaces today's scattering of per-type controls (a
 paperclip for files, a separate `+`, and so on), and it doubles as the
 discoverable answer to "what can I attach?"
 
-### 4.3 The sidebar is adaptive, and every chip opens it
-A right-hand sidebar shows the **focused context** and is otherwise absent. It
+### 4.3 The panel is adaptive, and every chip opens it
+A right-hand panel shows the **focused context** and is otherwise absent. It
 opens automatically as context attaches (and during the tour), and **every chip
 above the composer is clickable** to open — or, if already open, close — that
 context's view:
@@ -94,7 +94,7 @@ context's view:
 - **File / photo** → a **preview & edit** panel (an editable text view; a photo
   grid with crop / annotate / caption).
 
-Only one sidebar shows at a time — the chips are the switcher, and the active
+Only one panel shows at a time — the chips are the switcher, and the active
 one is highlighted. A context *type* that holds more than one item (several
 files, a couple of connectors) collapses into a single counted chip
 (`▸ Files · 2`) whose popup lists the items, so the row stays compact; picking
@@ -105,8 +105,8 @@ work needs them*, not because you navigated to them.
 ### 4.4 Escalation is fluid and in-place
 The defining move: a plain chat can **level up into a workspace, then into a
 repo, in the same thread**, carrying all prior context. The prototype's guided
-tour is exactly this — strategy chat → drafts a one-pager/email (workspace) →
-ships a feature flag and route (repo) — with no tab switch and nothing
+tour is exactly this — strategy chat → drafts a one-pager, launch email, and hero
+image (workspace) → ships a feature flag and route (repo) — with no tab switch and nothing
 re-explained.
 
 ### 4.5 One history, one search
@@ -132,8 +132,8 @@ first.
 |---------------|-----------------|
 | No mode chosen up front | The app opens to a single empty thread + composer. |
 | Context as attachment | The **Add context** button — one entry point for files, folders, repos, photos, connectors, and MCP servers — and the chips it produces above the composer. |
-| Progressive disclosure | The right sidebar is absent in chat; it opens as context attaches. |
-| Every chip opens a sidebar | Click any context chip — workspace, repo, connector, MCP, file, or photo — to open its detail / preview / edit panel. |
+| Progressive disclosure | The right panel is absent in chat; it opens as context attaches. |
+| Every chip opens a panel | Click any context chip — workspace, repo, connector, MCP, file, or photo — to open its detail / preview / edit panel. |
 | In-place escalation | **Play the tour** — one thread, three beats. |
 | Adaptive panel | The panel morphs from artifacts → code at the repo step. |
 | Unified history | The sidebar list with capability badges; open different items. |

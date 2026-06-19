@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowRight, GitBranch, MessagesSquare, PanelsTopLeft, X } from 'lucide-react'
 import { ClaudeMark } from './ClaudeMark'
@@ -9,15 +10,54 @@ export function IntroOverlay({
   onClose: () => void
   onStartTour: () => void
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const tourBtnRef = useRef<HTMLButtonElement>(null)
+
+  // Modal a11y: move focus into the dialog on open, trap Tab within it, close
+  // on Escape, and restore focus to whatever opened it on close.
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null
+    tourBtnRef.current?.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+        return
+      }
+      if (e.key === 'Tab' && dialogRef.current) {
+        const nodes = dialogRef.current.querySelectorAll<HTMLElement>(
+          'button, a[href], input, [tabindex]:not([tabindex="-1"])',
+        )
+        if (nodes.length === 0) return
+        const first = nodes[0]
+        const last = nodes[nodes.length - 1]
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault()
+          last.focus()
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault()
+          first.focus()
+        }
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      opener?.focus?.()
+    }
+  }, [onClose])
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <motion.div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="intro-title"
         initial={{ opacity: 0, y: 12, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ type: 'spring', stiffness: 260, damping: 26 }}
@@ -26,6 +66,7 @@ export function IntroOverlay({
       >
         <button
           onClick={onClose}
+          aria-label="Close"
           className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-lg text-ink-faint transition hover:bg-panel-2 hover:text-ink"
         >
           <X size={17} />
@@ -34,7 +75,7 @@ export function IntroOverlay({
         <div className="px-6 pt-6">
           <div className="flex items-center gap-2">
             <ClaudeMark />
-            <span className="font-serif text-lg font-semibold text-ink">
+            <span id="intro-title" className="font-serif text-lg font-semibold text-ink">
               One surface for Chat, Cowork &amp; Code
             </span>
           </div>
@@ -87,6 +128,7 @@ export function IntroOverlay({
             Explore on my own
           </button>
           <button
+            ref={tourBtnRef}
             onClick={onStartTour}
             className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-1.5 text-sm font-semibold text-white transition hover:bg-accent-strong"
           >

@@ -33,7 +33,7 @@ export function CodePanel({
         >
           Terminal
         </TabButton>
-        <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-[#e9f0f3] px-2 py-0.5 text-[11px] font-medium text-cap-repo">
+        <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-cap-repo-tint px-2 py-0.5 text-[11px] font-medium text-cap-repo">
           {branch}
         </span>
       </div>
@@ -74,7 +74,7 @@ function TabButton({
 function FilesView({ files }: { files: FileNode[] }) {
   const statusMeta = {
     added: { label: 'A', cls: 'text-added bg-added-bg' },
-    modified: { label: 'M', cls: 'text-cap-repo bg-[#e9f0f3]' },
+    modified: { label: 'M', cls: 'text-cap-repo bg-cap-repo-tint' },
     unchanged: { label: '·', cls: 'text-ink-faint bg-panel-2' },
   } as const
   return (
