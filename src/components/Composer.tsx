@@ -4,7 +4,9 @@ import {
   ChevronDown,
   CornerDownLeft,
   FileText,
+  FolderGit2,
   GitBranch,
+  Github,
   Image as ImageIcon,
   PanelsTopLeft,
   Trash2,
@@ -24,7 +26,8 @@ import { AddContextButton } from './AddContextButton'
 import { PermissionModeControl } from './PermissionModeControl'
 import { AudioInputControl } from './AudioInputControl'
 import { UsageControl } from './UsageControl'
-import { connectorIconFor } from '../lib/connectors'
+import { GITHUB_CONNECTOR_ID, connectorIconFor } from '../lib/connectors'
+import { getDecision, setDecision } from '../lib/prefs'
 import { CAP_META } from '../lib/capabilities'
 import { sameFocus } from '../lib/focus'
 
@@ -56,7 +59,7 @@ export function Composer({
   onSend,
   onAddContext,
   onOpenContext,
-  onRemoveContext,
+  onRemoveContexts,
 }: {
   workspaces: Workspace[]
   repos: Repo[]
@@ -68,7 +71,8 @@ export function Composer({
   onSend: (text: string) => void
   onAddContext: (ctx: AddedContext) => void
   onOpenContext: (focus: PanelFocus) => void
-  onRemoveContext: (focus: PanelFocus) => void
+  /** Removes one or more contexts at once (a cascade may remove two). */
+  onRemoveContexts: (focuses: PanelFocus[]) => void
 }) {
   const [value, setValue] = useState('')
   const ref = useRef<HTMLTextAreaElement>(null)
@@ -99,6 +103,12 @@ export function Composer({
   const fileItems = attachments.filter((a) => a.kind === 'file')
   const photoItems = attachments.filter((a) => a.kind === 'photo')
 
+  // Dependency between a GitHub-remote repo and the GitHub connector. It stays
+  // invisible until a removal could break it — then the chip's confirm offers to
+  // cascade (see the cascade plans below).
+  const hasGitHubConnector = connectors.some((c) => c.id === GITHUB_CONNECTOR_ID)
+  const remoteRepos = repos.filter((r) => r.remote)
+
   const groups: ChipGroupModel[] = []
   if (workspaces.length) {
     groups.push({
@@ -120,12 +130,29 @@ export function Composer({
       label: 'Repositories',
       tone: 'repo',
       icon: <GitBranch size={12} />,
-      items: repos.map((r) => ({
-        key: r.id,
-        label: r.label,
-        icon: <GitBranch size={12} />,
-        focus: { kind: 'repo', id: r.id },
-      })),
+      items: repos.map((r) => {
+        // Removing this repo orphans the connector only if it's the sole repo
+        // that still uses one.
+        const orphansConnector =
+          !!r.remote && hasGitHubConnector && remoteRepos.every((o) => o.id === r.id)
+        return {
+          key: r.id,
+          label: r.label,
+          icon: r.origin === 'local' ? <FolderGit2 size={12} /> : <Github size={12} />,
+          focus: { kind: 'repo', id: r.id },
+          cascade: orphansConnector
+            ? {
+                detail: 'Nothing else is using the GitHub connector — remove it too?',
+                keepLabel: 'Keep connector',
+                removeAllLabel: 'Remove both',
+                extra: [{ kind: 'connector', id: GITHUB_CONNECTOR_ID }],
+                prefKey: 'cascadeRepoRemove',
+                keepValue: 'keep',
+                removeAllValue: 'both',
+              }
+            : undefined,
+        }
+      }),
     })
   }
   if (plainConnectors.length) {
@@ -134,12 +161,30 @@ export function Composer({
       label: 'Connectors',
       tone: 'repo',
       icon: connIcon('connector'),
-      items: plainConnectors.map((c) => ({
-        key: c.id,
-        label: c.label,
-        icon: connIcon(c.kind),
-        focus: { kind: 'connector', id: c.id },
-      })),
+      items: plainConnectors.map((c) => {
+        // Removing the GitHub connector strands any repo that depends on it.
+        const dependents = c.id === GITHUB_CONNECTOR_ID ? remoteRepos : []
+        const n = dependents.length
+        return {
+          key: c.id,
+          label: c.label,
+          icon: connIcon(c.kind),
+          focus: { kind: 'connector', id: c.id },
+          cascade: n
+            ? {
+                detail: `${n} repo${n > 1 ? 's' : ''} depend${n > 1 ? '' : 's'} on it — remove ${
+                  n > 1 ? 'them' : 'it'
+                } too?`,
+                keepLabel: n > 1 ? 'Keep repos' : 'Keep repo',
+                removeAllLabel: n > 1 ? 'Remove all' : 'Remove both',
+                extra: dependents.map((r) => ({ kind: 'repo', id: r.id })),
+                prefKey: 'cascadeConnectorRemove',
+                keepValue: 'keep',
+                removeAllValue: 'all',
+              }
+            : undefined,
+        }
+      }),
     })
   }
   if (mcpServers.length) {
@@ -208,7 +253,7 @@ export function Composer({
                 group={g}
                 focus={focus}
                 onOpen={onOpenContext}
-                onRemove={onRemoveContext}
+                onRemove={onRemoveContexts}
                 skipConfirm={!!skipConfirm[g.key]}
                 onSkipConfirm={(v) => setTypeSkip(g.key, v)}
               />
@@ -250,7 +295,7 @@ export function Composer({
         <div className="mt-2 flex items-center justify-between gap-2 px-0.5">
           <div className="flex items-center gap-1">
             <PermissionModeControl />
-            <AddContextButton onAttach={onAddContext} />
+            <AddContextButton onAttach={onAddContext} hasGitHubConnector={hasGitHubConnector} />
             <AudioInputControl />
           </div>
           <div className="flex items-center gap-1.5">
@@ -267,12 +312,32 @@ export function Composer({
   )
 }
 
+/** A dependency cascade offered when removing an item would break a link — e.g.
+ *  removing the last GitHub-remote repo can also drop the now-unused connector,
+ *  or removing the connector can also drop the repos that depend on it. */
+interface CascadePlan {
+  /** Second line of the confirm — the cascade question. */
+  detail: string
+  /** Button that removes only the clicked item (keeps the linked context). */
+  keepLabel: string
+  /** Button that removes the clicked item *and* the linked contexts. */
+  removeAllLabel: string
+  /** The linked contexts removed when the user picks "remove all". */
+  extra: PanelFocus[]
+  /** Persisted-decision key + the values stored for each choice. */
+  prefKey: string
+  keepValue: string
+  removeAllValue: string
+}
+
 /** One attached-context item inside a typed group. */
 interface ChipItem {
   key: string
   label: string
   icon: ReactNode
   focus: PanelFocus
+  /** Present when removing this item can cascade to a linked context. */
+  cascade?: CascadePlan
 }
 
 /** A type of attached context (Files, Connectors, …) with its items. */
@@ -299,7 +364,7 @@ function ChipGroup({
   group: ChipGroupModel
   focus: PanelFocus | null
   onOpen: (f: PanelFocus) => void
-  onRemove: (f: PanelFocus) => void
+  onRemove: (focuses: PanelFocus[]) => void
   skipConfirm: boolean
   onSkipConfirm: (v: boolean) => void
 }) {
@@ -341,20 +406,42 @@ function ChipGroup({
     }
   }, [open])
 
+  const finishConfirm = () => {
+    setConfirmKey(null)
+    setDontAsk(false)
+  }
+
+  // Click the chip's trash / ✕. If a decision is already remembered (a basic
+  // mute, or a cascade choice), apply it silently; otherwise open the confirm.
   const requestRemove = (it: ChipItem) => {
-    if (skipConfirm) {
-      onRemove(it.focus)
+    if (it.cascade) {
+      const decision = getDecision(it.cascade.prefKey)
+      if (decision === it.cascade.removeAllValue) return onRemove([it.focus, ...it.cascade.extra])
+      if (decision === it.cascade.keepValue) return onRemove([it.focus])
+      setDontAsk(false)
+      setConfirmKey(it.key)
       return
     }
+    if (skipConfirm) return onRemove([it.focus])
     setDontAsk(false)
     setConfirmKey(it.key)
   }
 
-  const confirmRemove = (it: ChipItem) => {
-    if (dontAsk) onSkipConfirm(true)
-    onRemove(it.focus)
-    setConfirmKey(null)
-    setDontAsk(false)
+  // "Only" removes just this item (the basic Remove, or a cascade's keep-the-link
+  // choice); "All" also removes the linked contexts.
+  const removeOnly = (it: ChipItem) => {
+    if (dontAsk) {
+      if (it.cascade) setDecision(it.cascade.prefKey, it.cascade.keepValue)
+      else onSkipConfirm(true)
+    }
+    onRemove([it.focus])
+    finishConfirm()
+  }
+
+  const removeAll = (it: ChipItem) => {
+    if (dontAsk && it.cascade) setDecision(it.cascade.prefKey, it.cascade.removeAllValue)
+    onRemove([it.focus, ...(it.cascade?.extra ?? [])])
+    finishConfirm()
   }
 
   // A lone item needs no grouping — show it directly, with a hover ✕ to remove
@@ -379,13 +466,15 @@ function ChipGroup({
         </div>
 
         {confirmKey === only.key && (
-          <div className="absolute bottom-full left-0 z-20 mb-1.5 w-[240px] rounded-xl border border-line-strong bg-surface p-1 shadow-xl">
+          <div className="absolute bottom-full left-0 z-20 mb-1.5 w-[264px] rounded-xl border border-line-strong bg-surface p-1 shadow-xl">
             <RemoveConfirm
               label={only.label}
+              cascade={only.cascade}
               dontAsk={dontAsk}
               onToggleDontAsk={() => setDontAsk((v) => !v)}
-              onCancel={() => setConfirmKey(null)}
-              onConfirm={() => confirmRemove(only)}
+              onCancel={finishConfirm}
+              onRemoveOnly={() => removeOnly(only)}
+              onRemoveAll={only.cascade ? () => removeAll(only) : undefined}
             />
           </div>
         )}
@@ -422,10 +511,12 @@ function ChipGroup({
                 <RemoveConfirm
                   key={it.key}
                   label={it.label}
+                  cascade={it.cascade}
                   dontAsk={dontAsk}
                   onToggleDontAsk={() => setDontAsk((v) => !v)}
-                  onCancel={() => setConfirmKey(null)}
-                  onConfirm={() => confirmRemove(it)}
+                  onCancel={finishConfirm}
+                  onRemoveOnly={() => removeOnly(it)}
+                  onRemoveAll={it.cascade ? () => removeAll(it) : undefined}
                 />
               )
             }
@@ -466,26 +557,35 @@ function ChipGroup({
   )
 }
 
-/** The "Remove X from the conversation?" confirmation — shared by the multi-item
- *  popup rows and the single-chip ✕ button so both read and behave the same. */
+/** The remove confirmation — shared by the multi-item popup rows and the
+ *  single-chip ✕ so both read and behave the same. Without a cascade it's the
+ *  plain "Remove X?" with Cancel / Remove. With one it becomes the dependency
+ *  prompt: a second line plus three choices — Cancel (abort), keep the linked
+ *  context, or remove it too. The ☐ remembers whichever non-cancel choice. */
 function RemoveConfirm({
   label,
+  cascade,
   dontAsk,
   onToggleDontAsk,
   onCancel,
-  onConfirm,
+  onRemoveOnly,
+  onRemoveAll,
 }: {
   label: string
+  cascade?: CascadePlan
   dontAsk: boolean
   onToggleDontAsk: () => void
   onCancel: () => void
-  onConfirm: () => void
+  onRemoveOnly: () => void
+  onRemoveAll?: () => void
 }) {
   return (
     <div className="rounded-lg bg-panel-2/60 px-2 py-2">
       <p className="text-[12px] leading-snug text-ink">
-        Remove <span className="font-medium">{label}</span> from the conversation?
+        Remove <span className="font-medium">{label}</span>
+        {cascade ? '?' : ' from the conversation?'}
       </p>
+      {cascade && <p className="mt-1 text-[12px] leading-snug text-ink-soft">{cascade.detail}</p>}
       <button
         type="button"
         onClick={onToggleDontAsk}
@@ -500,7 +600,7 @@ function RemoveConfirm({
         </span>
         Don’t ask again
       </button>
-      <div className="mt-2 flex justify-end gap-1.5">
+      <div className="mt-2 flex flex-wrap justify-end gap-1.5">
         <button
           type="button"
           onClick={onCancel}
@@ -510,11 +610,24 @@ function RemoveConfirm({
         </button>
         <button
           type="button"
-          onClick={onConfirm}
-          className="rounded-md bg-removed px-2 py-1 text-[12px] font-medium text-white transition hover:brightness-95"
+          onClick={onRemoveOnly}
+          className={
+            cascade
+              ? 'rounded-md px-2 py-1 text-[12px] font-medium text-ink ring-1 ring-line-strong transition hover:bg-panel-2'
+              : 'rounded-md bg-removed px-2 py-1 text-[12px] font-medium text-white transition hover:brightness-95'
+          }
         >
-          Remove
+          {cascade ? cascade.keepLabel : 'Remove'}
         </button>
+        {cascade && onRemoveAll && (
+          <button
+            type="button"
+            onClick={onRemoveAll}
+            className="rounded-md bg-removed px-2 py-1 text-[12px] font-medium text-white transition hover:brightness-95"
+          >
+            {cascade.removeAllLabel}
+          </button>
+        )}
       </div>
     </div>
   )

@@ -98,11 +98,12 @@ function liveFromConversation(conv: Conversation): Live {
         {
           id: `repo-${conv.id}`,
           label: remoteFor(conv.id),
+          origin: 'github',
+          remote: remoteFor(conv.id),
           branch: branchFor(conv.id),
           files: conv.files ?? [],
           diff: conv.diff ?? [],
           terminal: conv.terminal ?? [],
-          connector: conv.connectors?.[0],
         },
       ]
     : []
@@ -218,11 +219,12 @@ export default function App() {
               {
                 id: 'repo-demo',
                 label: remoteFor(activeConv.id),
+                origin: 'github',
+                remote: remoteFor(activeConv.id),
                 branch: branchFor(activeConv.id),
                 files: step.files ?? [],
                 diff: step.diff ?? [],
                 terminal: step.terminal ?? [],
-                connector: step.connectors?.[0],
               },
             ]
           }
@@ -299,18 +301,21 @@ export default function App() {
         }
         case 'repo': {
           const id = `repo-${slug(ctx.label)}`
-          const connectors = withConnector(l.connectors, ctx.connector)
-          if (l.repos.some((r) => r.id === id)) return { ...l, connectors }
+          if (l.repos.some((r) => r.id === id)) return l
+          // The GitHub connector, if wanted, arrives as its own separate attach
+          // (see the repo picker's link prompt) — a repo no longer owns one.
           const repo: Repo = {
             id,
             label: ctx.label,
+            origin: ctx.origin,
+            path: ctx.path,
+            remote: ctx.remote,
             branch: ctx.branch,
             files: ctx.files,
             diff: ctx.diff,
             terminal: ctx.terminal,
-            connector: ctx.connector,
           }
-          return { ...l, repos: [...l.repos, repo], connectors }
+          return { ...l, repos: [...l.repos, repo] }
         }
         case 'connector':
         case 'mcp':
@@ -358,22 +363,24 @@ export default function App() {
     setLive((l) => ({ ...l, attachments: l.attachments.filter((a) => a.id !== id) }))
   }, [])
 
-  // Remove any attached context by its focus (used by the chip-popup trash button
-  // and the connector panel's Disconnect).
-  const removeContext = useCallback((f: PanelFocus) => {
+  // Remove one or more attached contexts in a single update. The chip remove
+  // flow passes several at once when a removal cascades (a repo + its orphaned
+  // GitHub connector, or the connector + the repos that depend on it); the
+  // connector panel's Disconnect passes just the connector.
+  const removeContexts = useCallback((focuses: PanelFocus[]) => {
     setLive((l) => {
-      switch (f.kind) {
-        case 'workspace':
-          return { ...l, workspaces: l.workspaces.filter((w) => w.id !== f.id) }
-        case 'repo':
-          return { ...l, repos: l.repos.filter((r) => r.id !== f.id) }
-        case 'connector':
-          return { ...l, connectors: l.connectors.filter((c) => c.id !== f.id) }
-        case 'file':
-        case 'photo':
-          return { ...l, attachments: l.attachments.filter((a) => a.id !== f.id) }
-        default:
-          return l
+      const ids = (kind: PanelFocus['kind']) =>
+        new Set(focuses.filter((f) => f.kind === kind).map((f) => f.id))
+      const wsIds = ids('workspace')
+      const repoIds = ids('repo')
+      const connIds = ids('connector')
+      const attIds = new Set([...ids('file'), ...ids('photo')])
+      return {
+        ...l,
+        workspaces: l.workspaces.filter((w) => !wsIds.has(w.id)),
+        repos: l.repos.filter((r) => !repoIds.has(r.id)),
+        connectors: l.connectors.filter((c) => !connIds.has(c.id)),
+        attachments: l.attachments.filter((a) => !attIds.has(a.id)),
       }
     })
   }, [])
@@ -466,7 +473,7 @@ export default function App() {
                 onSend={handleSend}
                 onAddContext={handleAddContext}
                 onOpenContext={focusContext}
-                onRemoveContext={removeContext}
+                onRemoveContexts={removeContexts}
               />
             </section>
 
@@ -491,7 +498,7 @@ export default function App() {
                   key="conn"
                   connector={focusedConnector}
                   onClose={() => setFocus(null)}
-                  onDisconnect={() => removeContext({ kind: 'connector', id: focusedConnector.id })}
+                  onDisconnect={() => removeContexts([{ kind: 'connector', id: focusedConnector.id }])}
                 />
               )}
             </AnimatePresence>

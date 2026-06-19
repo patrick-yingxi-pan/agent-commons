@@ -15,10 +15,39 @@ export const FOLDER_ARTIFACTS: Artifact[] = [
   { id: 'wa3', name: 'insights-hero.png', kind: 'image', meta: 'PNG · 1440×900' },
 ]
 
-export const REPO_OPTIONS = [
-  { id: 'r1', label: 'patrick-yingxi-pan/web-app', branch: 'main', meta: 'TypeScript · 1h ago' },
-  { id: 'r2', label: 'patrick-yingxi-pan/claude-ui-proposal', branch: 'main', meta: 'TypeScript · just now' },
-  { id: 'r3', label: 'acme/dashboard', branch: 'develop', meta: 'TypeScript · 2d ago' },
+/** GitHub repos — attached by their remote `owner/name`. These always have a
+ *  remote, so they depend on the GitHub connector to push & open PRs. */
+export const GITHUB_REPO_OPTIONS = [
+  { id: 'gh-web', remote: 'patrick-yingxi-pan/web-app', branch: 'main', meta: 'TypeScript · 1h ago' },
+  { id: 'gh-proposal', remote: 'patrick-yingxi-pan/claude-ui-proposal', branch: 'main', meta: 'TypeScript · just now' },
+  { id: 'gh-dash', remote: 'acme/dashboard', branch: 'develop', meta: 'TypeScript · 2d ago' },
+]
+
+/** Local repos — a folder + git working tree on disk. `remote` is optional: a
+ *  local clone may track a GitHub remote (then it also depends on the connector)
+ *  or be purely local (then it doesn't). */
+export const LOCAL_REPO_OPTIONS: {
+  id: string
+  path: string
+  branch: string
+  remote?: string
+  meta: string
+}[] = [
+  {
+    id: 'lr-insights',
+    path: '~/projects/insights-dashboard',
+    branch: 'feat/insights',
+    remote: 'patrick-yingxi-pan/web-app',
+    meta: 'TypeScript · edited 2h ago',
+  },
+  { id: 'lr-scripts', path: '~/code/data-scripts', branch: 'main', meta: 'Python · edited yesterday' },
+  {
+    id: 'lr-site',
+    path: '~/projects/marketing-site',
+    branch: 'main',
+    remote: 'acme/marketing-site',
+    meta: 'Astro · edited 3d ago',
+  },
 ]
 
 export const REPO_FILES: FileNode[] = [

@@ -1,9 +1,20 @@
-import { GitBranch, PanelsTopLeft } from 'lucide-react'
-import type { Connector, Repo, Workspace } from '../types'
-import { connectorIconFor } from '../lib/connectors'
+import type { ReactNode } from 'react'
+import { FolderGit2, GitBranch, Github, PanelsTopLeft } from 'lucide-react'
+import type { Repo, Workspace } from '../types'
 import { PanelShell } from './PanelShell'
 import { ArtifactPanel } from './panels/ArtifactPanel'
 import { CodePanel } from './panels/CodePanel'
+
+/** A repo's origin shown in the panel header — a property of the repo itself
+ *  (where it lives / its remote), not the account-level GitHub connector. */
+function OriginBadge({ icon, children }: { icon: ReactNode; children: ReactNode }) {
+  return (
+    <span className="inline-flex max-w-[190px] items-center gap-1 rounded-full bg-cap-repo-tint px-1.5 py-0.5 text-[11px] font-medium text-cap-repo">
+      {icon}
+      <span className="truncate">{children}</span>
+    </span>
+  )
+}
 
 /** The workspace ⇄ repo sidebar. `mode` is supplied by the focused chip, so the
  *  same panel can show artifacts (workspace) or code (repo); switching mode
@@ -19,24 +30,24 @@ export function WorkspacePanel({
   repo?: Repo
   onClose: () => void
 }) {
-  const connectors: Connector[] = repo?.connector ? [repo.connector] : []
+  // The repo header shows its own origin — a local path and/or a GitHub remote.
+  const originBadges =
+    mode === 'repo' && repo ? (
+      repo.origin === 'local' ? (
+        <>
+          <OriginBadge icon={<FolderGit2 size={11} />}>{repo.path ?? repo.label}</OriginBadge>
+          {repo.remote && <OriginBadge icon={<Github size={11} />}>{repo.remote}</OriginBadge>}
+        </>
+      ) : (
+        <OriginBadge icon={<Github size={11} />}>{repo.remote ?? repo.label}</OriginBadge>
+      )
+    ) : null
   return (
     <PanelShell
       icon={mode === 'repo' ? <GitBranch size={15} /> : <PanelsTopLeft size={15} />}
       title={mode === 'repo' ? 'Repository' : 'Workspace'}
       onClose={onClose}
-      headerRight={connectors.map((c) => {
-        const Icon = connectorIconFor(c.kind)
-        return (
-          <span
-            key={c.id}
-            className="inline-flex items-center gap-1 rounded-full bg-cap-repo-tint px-1.5 py-0.5 text-[11px] font-medium text-cap-repo"
-          >
-            <Icon size={11} />
-            {c.label}
-          </span>
-        )
-      })}
+      headerRight={originBadges}
     >
       {/* Morphing body. A keyed plain element (CSS-animated) rather than
           AnimatePresence mode="wait" — the latter can deadlock on a key swap

@@ -36,15 +36,21 @@ export interface Workspace {
  *  carries its own branch, file tree, diff, and terminal output. */
 export interface Repo {
   id: string
-  /** The repo's remote, shown on the chip — e.g. `owner/name`. The branch is
-   *  separate (below) and shows in the repo panel. */
+  /** The repo's display name on the chip — the folder name for a local repo,
+   *  the `owner/name` remote for a GitHub one. */
   label: string
+  /** How the repo was attached, and what its panel header shows. */
+  origin: 'local' | 'github'
+  /** Local working-tree path (present for local repos). */
+  path?: string
+  /** GitHub remote `owner/name`. Always set for a GitHub repo; optional for a
+   *  local repo that tracks one. Its presence is what makes the repo *depend on*
+   *  the GitHub connector (drives the link/cascade prompts). */
+  remote?: string
   branch: string
   files: FileNode[]
   diff: DiffLine[]
   terminal: string[]
-  /** The connector (usually GitHub) shown in the repo panel header. */
-  connector?: Connector
 }
 
 /** The payload produced by the "Add context" flow. Every attachable thing is
@@ -54,11 +60,13 @@ export type AddedContext =
   | {
       kind: 'repo'
       label: string
+      origin: 'local' | 'github'
+      path?: string
+      remote?: string
       branch: string
       files: FileNode[]
       diff: DiffLine[]
       terminal: string[]
-      connector: Connector
     }
   | { kind: 'connector'; connector: Connector }
   | { kind: 'mcp'; connector: Connector }

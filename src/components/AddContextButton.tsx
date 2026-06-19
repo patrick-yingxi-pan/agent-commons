@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
+  Check,
   ChevronLeft,
   ChevronRight,
   FileText,
+  FolderGit2,
   FolderOpen,
   GitBranch,
+  Github,
   Image as ImageIcon,
   Paperclip,
   Plug,
@@ -13,16 +16,19 @@ import {
 } from 'lucide-react'
 import type { AddedContext } from '../types'
 import { gradientFor } from '../lib/thumbs'
+import { GITHUB_CONNECTOR } from '../lib/connectors'
+import { getDecision, setDecision } from '../lib/prefs'
 import {
   CONNECTOR_OPTIONS,
   FILE_OPTIONS,
   FOLDER_ARTIFACTS,
   FOLDER_OPTIONS,
+  GITHUB_REPO_OPTIONS,
+  LOCAL_REPO_OPTIONS,
   MCP_OPTIONS,
   PHOTO_OPTIONS,
   REPO_DIFF,
   REPO_FILES,
-  REPO_OPTIONS,
   REPO_TERMINAL,
 } from '../data/contextOptions'
 
@@ -40,7 +46,15 @@ const CONTEXT_TYPES: { id: TypeId; label: string; desc: string; Icon: typeof Pap
 /** One consistent entry point for attaching context — every attachable thing
  *  (files, folders, repos, connectors, MCP servers) is "context" the thread
  *  gains. Step 1 picks the type; step 2 runs that type's specific workflow. */
-export function AddContextButton({ onAttach }: { onAttach: (ctx: AddedContext) => void }) {
+export function AddContextButton({
+  onAttach,
+  hasGitHubConnector,
+}: {
+  onAttach: (ctx: AddedContext) => void
+  /** Whether the GitHub connector is already attached — drives the "also add the
+   *  connector?" prompt when attaching a repo with a GitHub remote. */
+  hasGitHubConnector: boolean
+}) {
   const [open, setOpen] = useState(false)
   const [type, setType] = useState<TypeId | null>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -130,7 +144,11 @@ export function AddContextButton({ onAttach }: { onAttach: (ctx: AddedContext) =
                 </span>
               </div>
               <div className="px-0.5">
-                <WorkflowBody type={activeType.id} onAttach={attach} />
+                <WorkflowBody
+                  type={activeType.id}
+                  onAttach={attach}
+                  hasGitHubConnector={hasGitHubConnector}
+                />
               </div>
             </div>
           )}
@@ -140,7 +158,15 @@ export function AddContextButton({ onAttach }: { onAttach: (ctx: AddedContext) =
   )
 }
 
-function WorkflowBody({ type, onAttach }: { type: TypeId; onAttach: (ctx: AddedContext) => void }) {
+function WorkflowBody({
+  type,
+  onAttach,
+  hasGitHubConnector,
+}: {
+  type: TypeId
+  onAttach: (ctx: AddedContext) => void
+  hasGitHubConnector: boolean
+}) {
   if (type === 'folder') {
     return (
       <Section label="Recent folders">
@@ -157,29 +183,7 @@ function WorkflowBody({ type, onAttach }: { type: TypeId; onAttach: (ctx: AddedC
     )
   }
   if (type === 'repo') {
-    return (
-      <Section label="Your repositories">
-        {REPO_OPTIONS.map((r) => (
-          <OptionRow
-            key={r.id}
-            icon={<GitBranch size={16} />}
-            label={r.label}
-            meta={`${r.branch} · ${r.meta}`}
-            onClick={() =>
-              onAttach({
-                kind: 'repo',
-                label: r.label,
-                branch: r.branch,
-                files: REPO_FILES,
-                diff: REPO_DIFF,
-                terminal: REPO_TERMINAL,
-                connector: { id: 'gh-mcp', label: 'GitHub', kind: 'github' },
-              })
-            }
-          />
-        ))}
-      </Section>
-    )
+    return <RepoPicker onAttach={onAttach} hasGitHubConnector={hasGitHubConnector} />
   }
   if (type === 'connector') {
     return (
@@ -258,6 +262,155 @@ function WorkflowBody({ type, onAttach }: { type: TypeId; onAttach: (ctx: AddedC
         ))}
       </div>
     </Section>
+  )
+}
+
+type RepoContext = Extract<AddedContext, { kind: 'repo' }>
+
+/** The chip / panel name for a local repo — the trailing folder name. */
+function basename(path: string) {
+  const parts = path.replace(/\/+$/, '').split('/')
+  return parts[parts.length - 1] || path
+}
+
+/** Repository picker: Local and GitHub sections. Picking a repo that has a
+ *  GitHub remote, when the connector isn't already attached, asks whether to add
+ *  the connector too (it's what's needed to push & open PRs) — Cancel aborts the
+ *  whole attach, "Just the repo" / "Add both" decide, and a remembered choice
+ *  skips the prompt next time. */
+function RepoPicker({
+  onAttach,
+  hasGitHubConnector,
+}: {
+  onAttach: (ctx: AddedContext) => void
+  hasGitHubConnector: boolean
+}) {
+  const [pending, setPending] = useState<RepoContext | null>(null)
+  const [dontAsk, setDontAsk] = useState(false)
+
+  const select = (ctx: RepoContext) => {
+    // No GitHub remote, or the connector is already present → nothing to ask.
+    if (!ctx.remote || hasGitHubConnector) {
+      onAttach(ctx)
+      return
+    }
+    const decision = getDecision('linkOnAttach')
+    if (decision === 'always') {
+      onAttach({ kind: 'connector', connector: GITHUB_CONNECTOR })
+      onAttach(ctx)
+      return
+    }
+    if (decision === 'never') {
+      onAttach(ctx)
+      return
+    }
+    setDontAsk(false)
+    setPending(ctx)
+  }
+
+  if (pending) {
+    return (
+      <div className="pb-1">
+        <p className="px-1 text-[13px] leading-snug text-ink">
+          <span className="font-medium">{pending.label}</span> has a GitHub remote. Add the{' '}
+          <span className="font-medium">GitHub connector</span> too, so Claude can push and open PRs?
+        </p>
+        <button
+          type="button"
+          onClick={() => setDontAsk((v) => !v)}
+          className="mt-2 flex items-center gap-1.5 px-1 text-[11px] text-ink-soft transition hover:text-ink"
+        >
+          <span
+            className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border ${
+              dontAsk ? 'border-accent bg-accent text-white' : 'border-line-strong'
+            }`}
+          >
+            {dontAsk && <Check size={10} strokeWidth={3} />}
+          </span>
+          Don’t ask again
+        </button>
+        <div className="mt-2.5 flex flex-wrap justify-end gap-1.5">
+          <button
+            type="button"
+            onClick={() => setPending(null)}
+            className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:bg-panel-2"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (dontAsk) setDecision('linkOnAttach', 'never')
+              onAttach(pending)
+            }}
+            className="rounded-md px-2 py-1 text-[12px] font-medium text-ink ring-1 ring-line-strong transition hover:bg-panel-2"
+          >
+            Just the repo
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (dontAsk) setDecision('linkOnAttach', 'always')
+              onAttach({ kind: 'connector', connector: GITHUB_CONNECTOR })
+              onAttach(pending)
+            }}
+            className="rounded-md bg-accent px-2 py-1 text-[12px] font-medium text-white transition hover:bg-accent-strong"
+          >
+            Add both
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <Section label="Local">
+        {LOCAL_REPO_OPTIONS.map((r) => (
+          <OptionRow
+            key={r.id}
+            icon={<FolderGit2 size={16} />}
+            label={r.path}
+            meta={`${r.remote ?? 'local only'} · ${r.branch}`}
+            onClick={() =>
+              select({
+                kind: 'repo',
+                origin: 'local',
+                label: basename(r.path),
+                path: r.path,
+                remote: r.remote,
+                branch: r.branch,
+                files: REPO_FILES,
+                diff: REPO_DIFF,
+                terminal: REPO_TERMINAL,
+              })
+            }
+          />
+        ))}
+      </Section>
+      <Section label="GitHub">
+        {GITHUB_REPO_OPTIONS.map((r) => (
+          <OptionRow
+            key={r.id}
+            icon={<Github size={16} />}
+            label={r.remote}
+            meta={`${r.branch} · ${r.meta}`}
+            onClick={() =>
+              select({
+                kind: 'repo',
+                origin: 'github',
+                label: r.remote,
+                remote: r.remote,
+                branch: r.branch,
+                files: REPO_FILES,
+                diff: REPO_DIFF,
+                terminal: REPO_TERMINAL,
+              })
+            }
+          />
+        ))}
+      </Section>
+    </>
   )
 }
 
