@@ -66,6 +66,18 @@ function branchFor(id: string) {
   return SEED_BRANCHES[id] ?? 'main'
 }
 
+// The repo's remote (owner/name) shown on the chip for the scripted seed
+// conversations — distinct from the branch, which shows in the repo panel.
+// Runtime-attached repos carry their own remote (see handleAddContext).
+const SEED_REMOTES: Record<string, string> = {
+  'insights-launch': 'patrick-yingxi-pan/web-app',
+  'auth-refactor': 'patrick-yingxi-pan/server',
+}
+
+function remoteFor(id: string) {
+  return SEED_REMOTES[id] ?? 'origin'
+}
+
 function workspaceNameFor(conv: Conversation) {
   return (
     conv.title
@@ -85,7 +97,7 @@ function liveFromConversation(conv: Conversation): Live {
     ? [
         {
           id: `repo-${conv.id}`,
-          label: branchFor(conv.id),
+          label: remoteFor(conv.id),
           branch: branchFor(conv.id),
           files: conv.files ?? [],
           diff: conv.diff ?? [],
@@ -205,7 +217,7 @@ export default function App() {
               ...l.repos,
               {
                 id: 'repo-demo',
-                label: branchFor(activeConv.id),
+                label: remoteFor(activeConv.id),
                 branch: branchFor(activeConv.id),
                 files: step.files ?? [],
                 diff: step.diff ?? [],
@@ -291,7 +303,7 @@ export default function App() {
           if (l.repos.some((r) => r.id === id)) return { ...l, connectors }
           const repo: Repo = {
             id,
-            label: ctx.branch,
+            label: ctx.label,
             branch: ctx.branch,
             files: ctx.files,
             diff: ctx.diff,

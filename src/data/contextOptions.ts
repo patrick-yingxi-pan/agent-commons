@@ -1,4 +1,4 @@
-import type { Artifact, DiffLine, FileNode } from '../types'
+import type { Artifact, Connector, DiffLine, FileNode } from '../types'
 
 /** Mock options + sample payloads for the "Add context" flows. Picking an
  *  option attaches representative content so the panel actually populates. */
@@ -43,12 +43,14 @@ export const REPO_TERMINAL: string[] = [
   '     Tests  9 passed (9)',
 ]
 
-export const CONNECTOR_OPTIONS = [
+export const CONNECTOR_OPTIONS: { id: string; label: string; kind?: Connector['kind'] }[] = [
   { id: 'gdrive', label: 'Google Drive' },
   { id: 'slack', label: 'Slack' },
   { id: 'notion', label: 'Notion' },
   { id: 'linear', label: 'Linear' },
-  { id: 'github', label: 'GitHub' },
+  // Same identity (id + kind) as the repo's GitHub connector, so attaching a
+  // repo and the GitHub connector dedup to a single chip instead of two.
+  { id: 'gh-mcp', label: 'GitHub', kind: 'github' },
 ]
 
 export const MCP_OPTIONS = [

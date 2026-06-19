@@ -8,6 +8,7 @@ import {
   Image as ImageIcon,
   PanelsTopLeft,
   Trash2,
+  X,
 } from 'lucide-react'
 import type {
   AddedContext,
@@ -310,19 +311,27 @@ function ChipGroup({
   const wrapRef = useRef<HTMLDivElement>(null)
   const anyActive = group.items.some((it) => sameFocus(focus, it.focus))
 
+  // Dismiss the popup — or, for a single chip, its remove confirmation — on an
+  // outside click or Escape.
+  const popoverOpen = open || confirmKey !== null
   useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+    if (!popoverOpen) return
+    const dismiss = () => {
+      setOpen(false)
+      setConfirmKey(null)
+      setDontAsk(false)
     }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    const onDown = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) dismiss()
+    }
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && dismiss()
     document.addEventListener('mousedown', onDown)
     document.addEventListener('keydown', onKey)
     return () => {
       document.removeEventListener('mousedown', onDown)
       document.removeEventListener('keydown', onKey)
     }
-  }, [open])
+  }, [popoverOpen])
 
   // Reset any pending confirmation whenever the popup closes.
   useEffect(() => {
@@ -348,13 +357,39 @@ function ChipGroup({
     setDontAsk(false)
   }
 
-  // A lone item needs no grouping — show it directly.
+  // A lone item needs no grouping — show it directly, with a hover ✕ to remove
+  // it (the multi-item case gets its trash button inside the popup instead).
   if (group.items.length === 1) {
     const only = group.items[0]
     return (
-      <Chip icon={only.icon} tone={group.tone} active={anyActive} onClick={() => onOpen(only.focus)}>
-        {only.label}
-      </Chip>
+      <div ref={wrapRef} className="relative">
+        <div className="group/chip relative inline-flex">
+          <Chip icon={only.icon} tone={group.tone} active={anyActive} onClick={() => onOpen(only.focus)}>
+            {only.label}
+          </Chip>
+          <button
+            type="button"
+            onClick={() => requestRemove(only)}
+            aria-label={`Remove ${only.label} from the conversation`}
+            title="Remove from context"
+            className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-line-strong bg-surface text-ink-faint opacity-0 shadow-sm transition hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 group-hover/chip:opacity-100"
+          >
+            <X size={10} strokeWidth={2.5} />
+          </button>
+        </div>
+
+        {confirmKey === only.key && (
+          <div className="absolute bottom-full left-0 z-20 mb-1.5 w-[240px] rounded-xl border border-line-strong bg-surface p-1 shadow-xl">
+            <RemoveConfirm
+              label={only.label}
+              dontAsk={dontAsk}
+              onToggleDontAsk={() => setDontAsk((v) => !v)}
+              onCancel={() => setConfirmKey(null)}
+              onConfirm={() => confirmRemove(only)}
+            />
+          </div>
+        )}
+      </div>
     )
   }
 
@@ -384,41 +419,14 @@ function ChipGroup({
           {group.items.map((it) => {
             if (confirmKey === it.key) {
               return (
-                <div key={it.key} className="rounded-lg bg-panel-2/60 px-2 py-2">
-                  <p className="text-[12px] leading-snug text-ink">
-                    Remove <span className="font-medium">{it.label}</span> from the conversation?
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setDontAsk((v) => !v)}
-                    className="mt-2 flex items-center gap-1.5 text-[11px] text-ink-soft transition hover:text-ink"
-                  >
-                    <span
-                      className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border ${
-                        dontAsk ? 'border-accent bg-accent text-white' : 'border-line-strong'
-                      }`}
-                    >
-                      {dontAsk && <Check size={10} strokeWidth={3} />}
-                    </span>
-                    Don’t ask again
-                  </button>
-                  <div className="mt-2 flex justify-end gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setConfirmKey(null)}
-                      className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:bg-panel-2"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => confirmRemove(it)}
-                      className="rounded-md bg-removed px-2 py-1 text-[12px] font-medium text-white transition hover:brightness-95"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </div>
+                <RemoveConfirm
+                  key={it.key}
+                  label={it.label}
+                  dontAsk={dontAsk}
+                  onToggleDontAsk={() => setDontAsk((v) => !v)}
+                  onCancel={() => setConfirmKey(null)}
+                  onConfirm={() => confirmRemove(it)}
+                />
               )
             }
             const active = sameFocus(focus, it.focus)
@@ -454,6 +462,60 @@ function ChipGroup({
           })}
         </div>
       )}
+    </div>
+  )
+}
+
+/** The "Remove X from the conversation?" confirmation — shared by the multi-item
+ *  popup rows and the single-chip ✕ button so both read and behave the same. */
+function RemoveConfirm({
+  label,
+  dontAsk,
+  onToggleDontAsk,
+  onCancel,
+  onConfirm,
+}: {
+  label: string
+  dontAsk: boolean
+  onToggleDontAsk: () => void
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  return (
+    <div className="rounded-lg bg-panel-2/60 px-2 py-2">
+      <p className="text-[12px] leading-snug text-ink">
+        Remove <span className="font-medium">{label}</span> from the conversation?
+      </p>
+      <button
+        type="button"
+        onClick={onToggleDontAsk}
+        className="mt-2 flex items-center gap-1.5 text-[11px] text-ink-soft transition hover:text-ink"
+      >
+        <span
+          className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border ${
+            dontAsk ? 'border-accent bg-accent text-white' : 'border-line-strong'
+          }`}
+        >
+          {dontAsk && <Check size={10} strokeWidth={3} />}
+        </span>
+        Don’t ask again
+      </button>
+      <div className="mt-2 flex justify-end gap-1.5">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:bg-panel-2"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={onConfirm}
+          className="rounded-md bg-removed px-2 py-1 text-[12px] font-medium text-white transition hover:brightness-95"
+        >
+          Remove
+        </button>
+      </div>
     </div>
   )
 }

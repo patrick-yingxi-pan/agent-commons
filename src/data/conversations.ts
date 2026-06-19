@@ -18,7 +18,7 @@ export const CONVERSATIONS: Conversation[] = [
     caps: ['chat', 'repo'],
     updatedLabel: '2h ago',
     preview: 'Collapse the two token-refresh paths into one.',
-    connectors: [{ id: 'gh', label: 'GitHub' }],
+    connectors: [{ id: 'gh-mcp', label: 'GitHub', kind: 'github' }],
     messages: [
       {
         id: 'm1',

@@ -36,7 +36,8 @@ export interface Workspace {
  *  carries its own branch, file tree, diff, and terminal output. */
 export interface Repo {
   id: string
-  /** Display name shown on the chip, e.g. a branch or `owner/name`. */
+  /** The repo's remote, shown on the chip — e.g. `owner/name`. The branch is
+   *  separate (below) and shows in the repo panel. */
   label: string
   branch: string
   files: FileNode[]

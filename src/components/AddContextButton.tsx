@@ -191,7 +191,10 @@ function WorkflowBody({ type, onAttach }: { type: TypeId; onAttach: (ctx: AddedC
             label={c.label}
             meta="Connect account"
             onClick={() =>
-              onAttach({ kind: 'connector', connector: { id: c.id, label: c.label, kind: 'connector' } })
+              onAttach({
+                kind: 'connector',
+                connector: { id: c.id, label: c.label, kind: c.kind ?? 'connector' },
+              })
             }
           />
         ))}
