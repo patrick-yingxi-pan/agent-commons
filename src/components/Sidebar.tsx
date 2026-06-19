@@ -1,16 +1,16 @@
 import type { ReactNode } from 'react'
 import { PanelLeftClose, Plus, Search, SlidersHorizontal } from 'lucide-react'
-import type { Conversation, SectionId } from '../types'
+import type { Session, SectionId } from '../types'
 import { ResizeHandle } from './ResizeHandle'
 import { SECTION_META, SECTION_ORDER } from '../lib/sections'
 import { SCHEDULED_TASKS } from '../data/cowork'
 
 export function Sidebar({
-  conversations,
+  sessions,
   activeId,
   activeSection,
   onSelect,
-  onNewTask,
+  onNewSession,
   onOpenSection,
   onToggleCollapse,
   onOpenSearch,
@@ -18,11 +18,11 @@ export function Sidebar({
   onResize,
   onResizeEnd,
 }: {
-  conversations: Conversation[]
+  sessions: Session[]
   activeId: string
   activeSection: SectionId | null
   onSelect: (id: string) => void
-  onNewTask: () => void
+  onNewSession: () => void
   onOpenSection: (s: SectionId) => void
   /** Collapse the rail (its own toggle, top-left). Re-opening is handled by a
    *  floating control in the parent, since this one hides with the rail. */
@@ -34,7 +34,7 @@ export function Sidebar({
   onResize: (clientX: number) => void
   onResizeEnd: () => void
 }) {
-  const inConversation = activeSection === null
+  const inSession = activeSection === null
   const scheduledPinned = SCHEDULED_TASKS.filter((t) => t.enabled)
 
   return (
@@ -62,9 +62,9 @@ export function Sidebar({
         </button>
       </div>
 
-      {/* Nav: a new task plus the cross-cutting tools. */}
+      {/* Nav: a new session plus the cross-cutting tools. */}
       <nav className="mt-3 px-2">
-        <NavRow icon={<Plus size={16} />} label="New task" onClick={onNewTask} />
+        <NavRow icon={<Plus size={16} />} label="New session" onClick={onNewSession} />
         {SECTION_ORDER.map((id) => {
           const { label, Icon, beta } = SECTION_META[id]
           return (
@@ -112,8 +112,8 @@ export function Sidebar({
           </button>
         </div>
 
-        {conversations.map((c) => {
-          const active = inConversation && c.id === activeId
+        {sessions.map((c) => {
+          const active = inSession && c.id === activeId
           return (
             <button
               key={c.id}

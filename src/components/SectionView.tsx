@@ -15,9 +15,9 @@ import {
   Plus,
   Search,
 } from 'lucide-react'
-import type { Conversation, SectionId } from '../types'
+import type { Session, SectionId } from '../types'
 import { SECTION_META } from '../lib/sections'
-import { CONVERSATIONS } from '../data/conversations'
+import { SESSIONS } from '../data/sessions'
 import {
   ALL_ARTIFACTS,
   DISPATCH_RUNS,
@@ -37,15 +37,15 @@ import { ArtifactThumb, ArtifactViewer, KIND_ICON } from './artifactPreview'
  *  tools share the generic header + body. */
 export function SectionView({
   section,
-  onOpenConversation,
-  onNewChat,
+  onOpenSession,
+  onNewSession,
 }: {
   section: SectionId
-  onOpenConversation: (id: string) => void
-  onNewChat: () => void
+  onOpenSession: (id: string) => void
+  onNewSession: () => void
 }) {
   if (section === 'projects')
-    return <ProjectsSection onOpenConversation={onOpenConversation} onNewChat={onNewChat} />
+    return <ProjectsSection onOpenSession={onOpenSession} onNewSession={onNewSession} />
   if (section === 'artifacts') return <ArtifactsSection />
   return <GenericSection section={section} />
 }
@@ -53,11 +53,11 @@ export function SectionView({
 /* ─────────────────────────── Projects ─────────────────────────── */
 
 function ProjectsSection({
-  onOpenConversation,
-  onNewChat,
+  onOpenSession,
+  onNewSession,
 }: {
-  onOpenConversation: (id: string) => void
-  onNewChat: () => void
+  onOpenSession: (id: string) => void
+  onNewSession: () => void
 }) {
   const [openId, setOpenId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -69,8 +69,8 @@ function ProjectsSection({
       <ProjectDetail
         project={open}
         onBack={() => setOpenId(null)}
-        onOpenConversation={onOpenConversation}
-        onNewChat={onNewChat}
+        onOpenSession={onOpenSession}
+        onNewSession={onNewSession}
       />
     )
 
@@ -118,7 +118,7 @@ function ProjectCard({ project, onOpen }: { project: Project; onOpen: () => void
         <span>Updated {project.updated}</span>
         <span>·</span>
         <span>
-          {project.conversationIds.length} chat{project.conversationIds.length === 1 ? '' : 's'}
+          {project.sessionIds.length} session{project.sessionIds.length === 1 ? '' : 's'}
         </span>
       </div>
     </button>
@@ -135,17 +135,17 @@ const CONTEXT_ICON: Record<ProjectContext['kind'], typeof Folder> = {
 function ProjectDetail({
   project,
   onBack,
-  onOpenConversation,
-  onNewChat,
+  onOpenSession,
+  onNewSession,
 }: {
   project: Project
   onBack: () => void
-  onOpenConversation: (id: string) => void
-  onNewChat: () => void
+  onOpenSession: (id: string) => void
+  onNewSession: () => void
 }) {
-  const convs = project.conversationIds
-    .map((id) => CONVERSATIONS.find((c) => c.id === id))
-    .filter(Boolean) as Conversation[]
+  const convs = project.sessionIds
+    .map((id) => SESSIONS.find((c) => c.id === id))
+    .filter(Boolean) as Session[]
 
   return (
     <Page>
@@ -162,23 +162,23 @@ function ProjectDetail({
           <h1 className="font-serif text-2xl font-semibold text-ink">{project.name}</h1>
           <p className="mt-1 text-sm text-ink-soft">{project.description}</p>
         </div>
-        <PrimaryButton icon={<Plus size={15} />} onClick={onNewChat}>
-          New chat
+        <PrimaryButton icon={<Plus size={15} />} onClick={onNewSession}>
+          New session
         </PrimaryButton>
       </header>
 
       <div className="flex flex-col gap-6 lg:flex-row">
         {/* Main panel — the project's recent sessions. */}
         <div className="min-w-0 flex-1">
-          <PanelLabel>Recent chats</PanelLabel>
+          <PanelLabel>Recent sessions</PanelLabel>
           {convs.length === 0 ? (
-            <Empty>No chats in this project yet.</Empty>
+            <Empty>No sessions in this project yet.</Empty>
           ) : (
             <div className="overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
               {convs.map((c, i) => (
                 <button
                   key={c.id}
-                  onClick={() => onOpenConversation(c.id)}
+                  onClick={() => onOpenSession(c.id)}
                   className={`flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-panel-2/60 ${
                     i > 0 ? 'border-t border-line' : ''
                   }`}
@@ -456,7 +456,7 @@ function CustomizeView() {
           ))}
         </div>
       </Card>
-      <Card title="Default model" desc="What new conversations start with.">
+      <Card title="Default model" desc="What new sessions start with.">
         <span className="rounded-lg bg-panel-2 px-3 py-1 text-[12px] font-medium text-ink">
           Claude Opus 4.8 · High
         </span>

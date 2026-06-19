@@ -123,7 +123,7 @@ export interface DiffLine {
   text: string
 }
 
-export interface Conversation {
+export interface Session {
   id: string
   title: string
   caps: Capability[]

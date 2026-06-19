@@ -31,9 +31,9 @@ export interface Project {
   scheduled: ProjectSchedule[]
   /** Folders, repos, connectors, and docs this project carries (right panel). */
   contexts: ProjectContext[]
-  /** Conversations that live in this project (main panel) — ids into
-   *  CONVERSATIONS so each row opens the real thread. */
-  conversationIds: string[]
+  /** Sessions that live in this project (main panel) — ids into
+   *  SESSIONS so each row opens the real thread. */
+  sessionIds: string[]
 }
 
 export const PROJECTS: Project[] = [
@@ -52,7 +52,7 @@ export const PROJECTS: Project[] = [
       { kind: 'repo', label: 'patrick-yingxi-pan/web-app', meta: 'feat/insights-dashboard' },
       { kind: 'connector', label: 'Linear', meta: 'connected' },
     ],
-    conversationIds: ['insights-launch', 'board-deck'],
+    sessionIds: ['insights-launch', 'board-deck'],
   },
   {
     id: 'p-growth',
@@ -69,7 +69,7 @@ export const PROJECTS: Project[] = [
       { kind: 'connector', label: 'Amplitude', meta: 'connected' },
       { kind: 'doc', label: 'experiment-log.sheet', meta: '34 rows' },
     ],
-    conversationIds: ['onboarding-ab', 'churn-analysis'],
+    sessionIds: ['onboarding-ab', 'churn-analysis'],
   },
   {
     id: 'p-brand',
@@ -83,7 +83,7 @@ export const PROJECTS: Project[] = [
       { kind: 'folder', label: 'brand-kit/', meta: 'workspace · 9 files' },
       { kind: 'connector', label: 'Figma', meta: 'connected' },
     ],
-    conversationIds: ['brand-voice'],
+    sessionIds: ['brand-voice'],
   },
   {
     id: 'p-infra',
@@ -98,7 +98,7 @@ export const PROJECTS: Project[] = [
       { kind: 'connector', label: 'GitHub', meta: 'connected' },
       { kind: 'connector', label: 'PagerDuty', meta: 'connected' },
     ],
-    conversationIds: ['auth-refactor'],
+    sessionIds: ['auth-refactor'],
   },
 ]
 

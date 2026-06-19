@@ -9,7 +9,7 @@ import {
   Sheet,
   type LucideIcon,
 } from 'lucide-react'
-import type { ArtifactKind, Conversation, SectionId } from '../types'
+import type { ArtifactKind, Session, SectionId } from '../types'
 import { SECTION_META, SECTION_ORDER } from '../lib/sections'
 import { ALL_ARTIFACTS, PROJECTS, SCHEDULED_TASKS } from '../data/cowork'
 
@@ -35,17 +35,17 @@ interface Group {
 }
 
 /** A command-palette search over everything the prototype knows about —
- *  conversations, projects, artifacts, scheduled tasks, and the nav pages.
+ *  sessions, projects, artifacts, scheduled tasks, and the nav pages.
  *  Typing filters live; ↑/↓ + ↵ or a click runs the result (open the
  *  conversation / jump to the page). Opened from the rail's search icon. */
 export function SearchPanel({
-  conversations,
-  onSelectConversation,
+  sessions,
+  onSelectSession,
   onOpenSection,
   onClose,
 }: {
-  conversations: Conversation[]
-  onSelectConversation: (id: string) => void
+  sessions: Session[]
+  onSelectSession: (id: string) => void
   onOpenSection: (s: SectionId) => void
   onClose: () => void
 }) {
@@ -62,8 +62,8 @@ export function SearchPanel({
     const hit = (...fields: string[]) =>
       needle === '' || fields.some((f) => f.toLowerCase().includes(needle))
 
-    const goConversation = (id: string) => () => {
-      onSelectConversation(id)
+    const goSession = (id: string) => () => {
+      onSelectSession(id)
       onClose()
     }
     const goSection = (s: SectionId) => () => {
@@ -71,20 +71,20 @@ export function SearchPanel({
       onClose()
     }
 
-    const conversationResults: Result[] = conversations
+    const sessionResults: Result[] = sessions
       .filter((c) => hit(c.title, c.preview))
       .map((c) => ({
         key: `c-${c.id}`,
         title: c.title,
         subtitle: c.preview,
         Icon: MessageSquare,
-        run: goConversation(c.id),
+        run: goSession(c.id),
       }))
 
     const projectResults: Result[] = PROJECTS.filter((p) => hit(p.name, p.description)).map((p) => ({
       key: `p-${p.id}`,
       title: p.name,
-      subtitle: `${p.conversationIds.length} chat${p.conversationIds.length === 1 ? '' : 's'} · ${p.description}`,
+      subtitle: `${p.sessionIds.length} session${p.sessionIds.length === 1 ? '' : 's'} · ${p.description}`,
       Icon: SECTION_META.projects.Icon,
       run: goSection('projects'),
     }))
@@ -121,17 +121,17 @@ export function SearchPanel({
     if (needle === '') {
       return [
         { label: 'Jump to', items: pageResults },
-        { label: 'Recent', items: conversationResults.slice(0, 5) },
+        { label: 'Recent', items: sessionResults.slice(0, 5) },
       ].filter((g) => g.items.length > 0)
     }
     return [
-      { label: 'Conversations', items: conversationResults },
+      { label: 'Sessions', items: sessionResults },
       { label: 'Projects', items: projectResults },
       { label: 'Artifacts', items: artifactResults },
       { label: 'Scheduled', items: scheduledResults },
       { label: 'Pages', items: pageResults },
     ].filter((g) => g.items.length > 0)
-  }, [q, conversations, onSelectConversation, onOpenSection, onClose])
+  }, [q, sessions, onSelectSession, onOpenSection, onClose])
 
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups])
 
@@ -178,7 +178,7 @@ export function SearchPanel({
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Search conversations, projects, artifacts…"
+            placeholder="Search sessions, projects, artifacts…"
             className="flex-1 bg-transparent py-3 text-[15px] text-ink outline-none placeholder:text-ink-faint"
           />
           <kbd className="shrink-0 rounded border border-line-strong bg-panel-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-faint">

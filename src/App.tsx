@@ -12,7 +12,7 @@ import { ConnectorPanel } from './components/ConnectorPanel'
 import { IntroOverlay } from './components/IntroOverlay'
 import { ProposalBar } from './components/ProposalBar'
 import { SearchPanel } from './components/SearchPanel'
-import { CONVERSATIONS, DEMO_CONVERSATION_ID } from './data/conversations'
+import { SESSIONS, DEMO_SESSION_ID } from './data/sessions'
 import { DEMO_STEPS } from './data/demo'
 import { sameFocus } from './lib/focus'
 import { clamp, getLayout, setLayout } from './lib/uiPrefs'
@@ -20,7 +20,7 @@ import type {
   AddedContext,
   Attachment,
   Connector,
-  Conversation,
+  Session,
   Message,
   PanelFocus,
   Repo,
@@ -51,13 +51,13 @@ const EMPTY_DEMO: Live = {
 // conversation that doesn't already have one (seeded/demo convs bring their own).
 const WS_ID = 'ws-active'
 
-// A brand-new, unsent chat. "New task" opens this — an empty thread with the
-// composer ready, the way the desktop app's "New chat" does. Nothing is saved
-// until you send, so it isn't in the recents list; activeConv falls back to it.
+// A brand-new, unsent chat. "New session" opens this — an empty thread with the
+// composer ready, the way the desktop app's "New session" does. Nothing is saved
+// until you send, so it isn't in the recents list; activeSession falls back to it.
 const DRAFT_ID = 'draft'
-const DRAFT_CONV: Conversation = {
+const DRAFT_SESSION: Session = {
   id: DRAFT_ID,
-  title: 'New chat',
+  title: 'New session',
   caps: ['chat'],
   updatedLabel: 'now',
   preview: '',
@@ -76,7 +76,7 @@ function slug(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
 }
 
-// Branch names for the two scripted seed conversations that carry a repo. This
+// Branch names for the two scripted seed sessions that carry a repo. This
 // is demo seed data, not a general registry — context attached at runtime brings
 // its own branch (see handleAddContext), so anything not seeded here is 'main'.
 const SEED_BRANCHES: Record<string, string> = {
@@ -89,7 +89,7 @@ function branchFor(id: string) {
 }
 
 // The repo's remote (owner/name) shown on the chip for the scripted seed
-// conversations — distinct from the branch, which shows in the repo panel.
+// sessions — distinct from the branch, which shows in the repo panel.
 // Runtime-attached repos carry their own remote (see handleAddContext).
 const SEED_REMOTES: Record<string, string> = {
   'insights-launch': 'patrick-yingxi-pan/web-app',
@@ -100,7 +100,7 @@ function remoteFor(id: string) {
   return SEED_REMOTES[id] ?? 'origin'
 }
 
-function workspaceNameFor(conv: Conversation) {
+function workspaceNameFor(conv: Session) {
   return (
     conv.title
       .toLowerCase()
@@ -109,7 +109,7 @@ function workspaceNameFor(conv: Conversation) {
   )
 }
 
-function liveFromConversation(conv: Conversation): Live {
+function liveFromSession(conv: Session): Live {
   if (conv.isDemo) return EMPTY_DEMO
   const workspaces: Workspace[] = conv.artifacts?.length
     ? [{ id: `ws-${conv.id}`, label: workspaceNameFor(conv), artifacts: conv.artifacts }]
@@ -139,7 +139,7 @@ function liveFromConversation(conv: Conversation): Live {
 }
 
 export default function App() {
-  const [activeId, setActiveId] = useState(DEMO_CONVERSATION_ID)
+  const [activeId, setActiveId] = useState(DEMO_SESSION_ID)
   const [searchOpen, setSearchOpen] = useState(false)
   const [showIntro, setShowIntro] = useState(true)
   const [live, setLive] = useState<Live>(EMPTY_DEMO)
@@ -175,7 +175,7 @@ export default function App() {
   const [caption, setCaption] = useState('')
   const [busy, setBusy] = useState(false)
 
-  // Timer bookkeeping so switching conversations cancels in-flight callbacks.
+  // Timer bookkeeping so switching sessions cancels in-flight callbacks.
   const runId = useRef(0)
   const timers = useRef<ReturnType<typeof setTimeout>[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -184,12 +184,12 @@ export default function App() {
   const liveRef = useRef(live)
   liveRef.current = live
 
-  const activeConv = useMemo(
-    () => CONVERSATIONS.find((c) => c.id === activeId) ?? DRAFT_CONV,
+  const activeSession = useMemo(
+    () => SESSIONS.find((c) => c.id === activeId) ?? DRAFT_SESSION,
     [activeId],
   )
-  const isDemo = !!activeConv.isDemo
-  // The transient "New chat" draft (not a saved conversation). Drives the empty
+  const isDemo = !!activeSession.isDemo
+  // The transient "New session" draft (not a saved conversation). Drives the empty
   // greeting + title-bar suppression off the actual id, so a future *empty* real
   // conversation falls back to neutral copy with its title still shown.
   const isDraft = activeId === DRAFT_ID
@@ -213,15 +213,15 @@ export default function App() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [live.messages, typing])
 
-  const selectConversation = useCallback(
+  const selectSession = useCallback(
     (id: string) => {
       clearTimers()
       setTyping(false)
       setBusy(false)
       setActiveSection(null)
       setActiveId(id)
-      const conv = CONVERSATIONS.find((c) => c.id === id)!
-      const nextLive = liveFromConversation(conv)
+      const conv = SESSIONS.find((c) => c.id === id)!
+      const nextLive = liveFromSession(conv)
       setLive(nextLive)
       // Auto-focus the conversation's strongest present context so its sidebar
       // opens — a repo if there is one, else a workspace, else nothing.
@@ -260,7 +260,7 @@ export default function App() {
           if (step.assistant.escalate === 'workspace' && !l.workspaces.some((w) => w.id === 'ws-demo')) {
             next.workspaces = [
               ...l.workspaces,
-              { id: 'ws-demo', label: workspaceNameFor(activeConv), artifacts: step.artifacts ?? [] },
+              { id: 'ws-demo', label: workspaceNameFor(activeSession), artifacts: step.artifacts ?? [] },
             ]
           }
           if (step.assistant.escalate === 'repo' && !l.repos.some((r) => r.id === 'repo-demo')) {
@@ -268,10 +268,10 @@ export default function App() {
               ...l.repos,
               {
                 id: 'repo-demo',
-                label: remoteFor(activeConv.id),
+                label: remoteFor(activeSession.id),
                 origin: 'github',
-                remote: remoteFor(activeConv.id),
-                branch: branchFor(activeConv.id),
+                remote: remoteFor(activeSession.id),
+                branch: branchFor(activeSession.id),
                 files: step.files ?? [],
                 diff: step.diff ?? [],
                 terminal: step.terminal ?? [],
@@ -287,7 +287,7 @@ export default function App() {
         setBusy(false)
       }, 950)
     },
-    [schedule, activeConv],
+    [schedule, activeSession],
   )
 
   // Resets step/caption too, so this doubles as a one-click "Replay" from the
@@ -411,9 +411,9 @@ export default function App() {
     setFocus((cur) => (sameFocus(cur, f) ? null : f))
   }, [])
 
-  // "New task" opens a blank chat — an empty thread with the composer ready,
-  // like the desktop app's "New chat" (not a jump to an existing session).
-  const newTask = useCallback(() => {
+  // "New session" opens a blank chat — an empty thread with the composer ready,
+  // like the desktop app's "New session" (not a jump to an existing session).
+  const newSession = useCallback(() => {
     clearTimers()
     setTyping(false)
     setBusy(false)
@@ -521,11 +521,11 @@ export default function App() {
         >
           <div style={{ width: leftW }} className="h-full">
             <Sidebar
-              conversations={CONVERSATIONS}
+              sessions={SESSIONS}
               activeId={activeId}
               activeSection={activeSection}
-              onSelect={selectConversation}
-              onNewTask={newTask}
+              onSelect={selectSession}
+              onNewSession={newSession}
               onOpenSection={openSection}
               onToggleCollapse={() => setLeftOpen((o) => !o)}
               onOpenSearch={() => setSearchOpen(true)}
@@ -543,8 +543,8 @@ export default function App() {
           {activeSection ? (
             <SectionView
               section={activeSection}
-              onOpenConversation={selectConversation}
-              onNewChat={newTask}
+              onOpenSession={selectSession}
+              onNewSession={newSession}
             />
           ) : (
             <>
@@ -555,7 +555,7 @@ export default function App() {
               }`}
             >
               <span className="font-serif text-[15px] font-semibold text-ink">
-                {activeConv.title}
+                {activeSession.title}
               </span>
             </div>
           )}
@@ -637,8 +637,8 @@ export default function App() {
 
       {searchOpen && (
         <SearchPanel
-          conversations={CONVERSATIONS}
-          onSelectConversation={selectConversation}
+          sessions={SESSIONS}
+          onSelectSession={selectSession}
           onOpenSection={openSection}
           onClose={() => setSearchOpen(false)}
         />
@@ -652,7 +652,7 @@ export default function App() {
           onClose={() => setShowIntro(false)}
           onStartTour={() => {
             setShowIntro(false)
-            selectConversation(DEMO_CONVERSATION_ID)
+            selectSession(DEMO_SESSION_ID)
             startTour()
           }}
         />
@@ -668,7 +668,7 @@ function EmptyState({ mode }: { mode: 'demo' | 'draft' | 'empty' }) {
         <div className="max-w-md">
           <div className="font-serif text-xl font-semibold text-ink">What should we work on?</div>
           <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-            Start typing below. Attach a folder, a repo, or a connector and this one chat grows a
+            Start typing below. Attach a folder, a repo, or a connector and this one session grows a
             workspace or a code panel as the work needs it — no tabs, no lost context.
           </p>
         </div>

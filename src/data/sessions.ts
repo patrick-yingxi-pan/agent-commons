@@ -1,9 +1,9 @@
-import type { Conversation } from '../types'
+import type { Session } from '../types'
 
 /** The unified history. Note every item is the *same* kind of thing — a
  *  conversation — distinguished only by the capabilities it carries, shown as
  *  small badges. Today these would be scattered across three separate tabs. */
-export const CONVERSATIONS: Conversation[] = [
+export const SESSIONS: Session[] = [
   {
     id: 'insights-launch',
     title: 'Insights dashboard launch',
@@ -173,4 +173,4 @@ export const CONVERSATIONS: Conversation[] = [
   },
 ]
 
-export const DEMO_CONVERSATION_ID = 'insights-launch'
+export const DEMO_SESSION_ID = 'insights-launch'
