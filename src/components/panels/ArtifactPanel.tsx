@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FileText, Image as ImageIcon, Mail, Sheet, Presentation } from 'lucide-react'
+import { ChevronDown, ChevronRight, FileText, Image as ImageIcon, Mail, Sheet, Presentation, X } from 'lucide-react'
 import type { Artifact, ArtifactKind } from '../../types'
 
 const KIND_ICON: Record<ArtifactKind, typeof FileText> = {
@@ -18,6 +18,11 @@ export function ArtifactPanel({
   workspaceName: string
 }) {
   const [selectedId, setSelectedId] = useState(artifacts[0]?.id)
+  // Whether the bottom preview pane is showing. Closing it hands the list the
+  // full height; clicking any artifact brings it back on that artifact.
+  const [previewOpen, setPreviewOpen] = useState(true)
+  // Folder groups the user has folded shut, keyed by group id.
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
 
   // Keep the selection valid as the workspace fills in during the demo.
   useEffect(() => {
@@ -27,6 +32,19 @@ export function ArtifactPanel({
   }, [artifacts, selectedId])
 
   const selected = artifacts.find((a) => a.id === selectedId) ?? artifacts[0]
+
+  const openPreview = (id: string) => {
+    setSelectedId(id)
+    setPreviewOpen(true)
+  }
+
+  const toggleGroup = (id: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
 
   // Group artifacts by their source folder. Artifacts with no source (a
   // conversation's own seeded/demo outputs) fall under one default group labelled
@@ -41,15 +59,18 @@ export function ArtifactPanel({
     }
     return [...m.values()]
   }, [artifacts, workspaceName])
-  const grouped = groups.length > 1
+  // Show foldable folder headers once any folder has contributed; the pure
+  // seeded/default workspace (no sourced artifacts) stays a flat list.
+  const showGroups = artifacts.some((a) => a.source)
+  const folderCount = groups.filter((g) => g.id !== '__default').length
 
   const renderRow = (a: Artifact) => {
     const Icon = KIND_ICON[a.kind]
-    const active = a.id === selected?.id
+    const active = previewOpen && a.id === selected?.id
     return (
       <button
         key={a.id}
-        onClick={() => setSelectedId(a.id)}
+        onClick={() => openPreview(a.id)}
         className={`mb-1 flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition ${
           active ? 'bg-surface ring-1 ring-line-strong' : 'hover:bg-surface/60'
         }`}
@@ -69,26 +90,44 @@ export function ArtifactPanel({
         <div className="text-xs font-semibold text-ink">{workspaceName}</div>
         <div className="text-[11px] text-ink-faint">
           {artifacts.length} item{artifacts.length === 1 ? '' : 's'}
-          {grouped ? ` · ${groups.length} folders` : ' in workspace'}
+          {folderCount > 0 ? ` · ${folderCount} folder${folderCount === 1 ? '' : 's'}` : ' in workspace'}
         </div>
       </div>
 
-      <div className="shrink-0 overflow-y-auto px-2 py-2" style={{ maxHeight: '46%' }}>
-        {grouped
-          ? groups.map((g) => (
-              <div key={g.id} className="mb-1.5">
-                <div className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
-                  {g.label}
+      <div
+        className={`overflow-y-auto px-2 py-2 ${previewOpen && selected ? 'shrink-0' : 'flex-1'}`}
+        style={previewOpen && selected ? { maxHeight: '46%' } : undefined}
+      >
+        {showGroups
+          ? groups.map((g) => {
+              const isCollapsed = collapsed.has(g.id)
+              return (
+                <div key={g.id} className="mb-1.5">
+                  <button
+                    onClick={() => toggleGroup(g.id)}
+                    aria-expanded={!isCollapsed}
+                    className="mb-0.5 flex w-full items-center gap-1 rounded-md px-1.5 py-1 text-left transition hover:bg-surface/60"
+                  >
+                    {isCollapsed ? (
+                      <ChevronRight size={12} className="shrink-0 text-ink-faint" />
+                    ) : (
+                      <ChevronDown size={12} className="shrink-0 text-ink-faint" />
+                    )}
+                    <span className="min-w-0 flex-1 truncate text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
+                      {g.label}
+                    </span>
+                    <span className="shrink-0 text-[10px] font-medium text-ink-faint">{g.items.length}</span>
+                  </button>
+                  {!isCollapsed && g.items.map(renderRow)}
                 </div>
-                {g.items.map(renderRow)}
-              </div>
-            ))
+              )
+            })
           : artifacts.map(renderRow)}
       </div>
 
-      {selected && (
+      {previewOpen && selected && (
         <div className="flex-1 overflow-y-auto border-t border-line bg-surface p-3">
-          <ArtifactPreview artifact={selected} />
+          <ArtifactPreview artifact={selected} onClose={() => setPreviewOpen(false)} />
         </div>
       )}
     </div>
@@ -125,11 +164,21 @@ const KIND_LABEL: Record<ArtifactKind, string> = {
   sheet: 'Sheet',
 }
 
-function ArtifactPreview({ artifact }: { artifact: Artifact }) {
+function ArtifactPreview({ artifact, onClose }: { artifact: Artifact; onClose: () => void }) {
   return (
     <div>
-      <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-ink-faint">
-        {KIND_LABEL[artifact.kind]}
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-ink-faint">
+          {KIND_LABEL[artifact.kind]}
+        </span>
+        <button
+          onClick={onClose}
+          title="Close preview"
+          aria-label="Close preview"
+          className="-mr-1 -mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink"
+        >
+          <X size={14} />
+        </button>
       </div>
       <div className="mb-3 truncate text-sm font-semibold text-ink">{artifact.name}</div>
 
