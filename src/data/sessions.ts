@@ -152,6 +152,138 @@ export const SESSIONS: Session[] = [
     ],
   },
   {
+    id: 'insights-empty-states',
+    title: 'Insights empty & error states',
+    caps: ['chat', 'workspace'],
+    updatedLabel: '5h ago',
+    preview: 'Zero-data, loading, and error states for the dashboard.',
+    messages: [
+      {
+        id: 'm1',
+        role: 'user',
+        content:
+          'We need empty and error states for the Insights dashboard. What should each one say?',
+      },
+      {
+        id: 'm2',
+        role: 'assistant',
+        content:
+          'I drafted four: first-run (no data yet), filtered-to-empty, partial-load, and query-failed. Each leads with what happened, then the single action to fix it — never a dead end. Copy and a spec are in the workspace.',
+      },
+    ],
+    artifacts: [
+      { id: 'is1', name: 'empty-states-spec.md', kind: 'doc', meta: '4 states' },
+      { id: 'is2', name: 'empty-states.png', kind: 'image', meta: '1600×900' },
+    ],
+  },
+  {
+    id: 'dashboard-perf',
+    title: 'Dashboard query performance',
+    caps: ['chat', 'workspace'],
+    updatedLabel: 'Tue',
+    preview: 'p95 widget latency 1.8s → 240ms with one index.',
+    messages: [
+      {
+        id: 'm1',
+        role: 'user',
+        content: 'The Insights widgets feel slow on big workspaces. Where’s the time going?',
+      },
+      {
+        id: 'm2',
+        role: 'assistant',
+        content:
+          'p95 was 1.8s, almost all in the cohort rollup scan. A composite index on (workspace_id, event_date) drops it to ~240ms with no query changes. Before/after numbers per widget are in the sheet.',
+      },
+    ],
+    artifacts: [{ id: 'dp1', name: 'query-perf.sheet', kind: 'sheet', meta: '12 widgets' }],
+  },
+  {
+    id: 'homepage-rewrite',
+    title: 'Homepage rewrite',
+    caps: ['chat', 'workspace'],
+    updatedLabel: 'Yesterday',
+    preview: 'New hero, three proof points, one CTA.',
+    messages: [
+      {
+        id: 'm1',
+        role: 'user',
+        content: 'Rewrite the homepage hero — it’s too clever and nobody knows what we do.',
+      },
+      {
+        id: 'm2',
+        role: 'assistant',
+        content:
+          'New hero: “See what your product is actually doing.” Then three proof points — set up in minutes, no SQL, alerts that matter — and a single “Start free” CTA. Full copy’s in the workspace.',
+      },
+    ],
+    artifacts: [{ id: 'hr1', name: 'homepage-copy.md', kind: 'doc', meta: 'hero + 3 sections' }],
+  },
+  {
+    id: 'logo-feedback',
+    title: 'Logo lockup feedback',
+    caps: ['chat'],
+    updatedLabel: '2d ago',
+    preview: 'Which wordmark lockup holds up at favicon size?',
+    messages: [
+      {
+        id: 'm1',
+        role: 'user',
+        content: 'Three logo lockups attached. Which survives at 16px and on a dark header?',
+      },
+      {
+        id: 'm2',
+        role: 'assistant',
+        content:
+          'Lockup B. A’s ascender fills in below ~20px and C loses the gap in the mark on dark. B keeps its counters at favicon size — I’d ship B and drop the descriptor under 24px.',
+      },
+    ],
+  },
+  {
+    id: 'rate-limits',
+    title: 'Rate limiting RFC',
+    caps: ['chat', 'workspace'],
+    updatedLabel: 'Wed',
+    preview: 'Token-bucket per API key; 429 with Retry-After.',
+    messages: [
+      {
+        id: 'm1',
+        role: 'user',
+        content: 'Draft an RFC for API rate limits — one integration is hammering us.',
+      },
+      {
+        id: 'm2',
+        role: 'assistant',
+        content:
+          'Proposed a token-bucket per API key (600 req/min, burst 60), returning 429 with a Retry-After header and the remaining budget in the response headers, with tiered limits by plan. The RFC’s in the workspace.',
+      },
+    ],
+    artifacts: [{ id: 'rl1', name: 'rate-limit-rfc.md', kind: 'doc', meta: 'RFC · draft' }],
+  },
+  {
+    id: 'oncall-runbook',
+    title: 'On-call runbook',
+    caps: ['chat', 'workspace'],
+    updatedLabel: '3d ago',
+    preview: 'First five minutes, escalation, and the rollback.',
+    messages: [
+      {
+        id: 'm1',
+        role: 'user',
+        content: 'Write the on-call runbook for the auth service.',
+      },
+      {
+        id: 'm2',
+        role: 'assistant',
+        content:
+          'Drafted it: the first-five-minutes checklist, how to read the Sentry and PagerDuty signals, the escalation path to the platform lead, and the one-command rollback. It’s in the workspace alongside the error-budget sheet.',
+      },
+    ],
+    artifacts: [
+      { id: 'or1', name: 'oncall-runbook.md', kind: 'doc', meta: 'runbook' },
+      { id: 'or2', name: 'error-budget.sheet', kind: 'sheet', meta: '4 services' },
+    ],
+  },
+  {
     id: 'vector-db',
     title: 'Vector databases, explained',
     caps: ['chat'],
