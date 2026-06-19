@@ -18,9 +18,11 @@ export function ConnectorPanel({
   const Icon = connectorIconFor(connector.kind)
   const detail = connectorDetail(connector)
   const isMcp = connector.kind === 'mcp'
+  // Accent the panel to match its composer chip (MCP → teal, connector → violet).
+  const accent = isMcp ? 'text-cap-mcp' : 'text-cap-connector'
 
   return (
-    <PanelShell icon={<Icon size={15} />} title={connector.label} onClose={onClose}>
+    <PanelShell icon={<Icon size={15} className={accent} />} title={connector.label} onClose={onClose}>
       <div className="flex-1 overflow-y-auto p-3">
         <div className="flex items-center gap-1.5 text-[12px] font-medium text-emerald-700">
           <span className="h-2 w-2 rounded-full bg-emerald-500" />
@@ -35,7 +37,7 @@ export function ConnectorPanel({
         <div className="mt-1.5 space-y-1.5">
           {detail.access.map((a, i) => (
             <div key={i} className="flex items-center gap-2 text-[13px] text-ink">
-              <Check size={14} className="shrink-0 text-accent" />
+              <Check size={14} className={`shrink-0 ${accent}`} />
               {a}
             </div>
           ))}

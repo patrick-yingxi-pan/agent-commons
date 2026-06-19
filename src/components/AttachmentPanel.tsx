@@ -36,7 +36,13 @@ export function AttachmentPanel({
 
   return (
     <PanelShell
-      icon={kind === 'photo' ? <ImageIcon size={15} /> : <FileText size={15} />}
+      icon={
+        kind === 'photo' ? (
+          <ImageIcon size={15} className="text-cap-photo" />
+        ) : (
+          <FileText size={15} className="text-cap-file" />
+        )
+      }
       title={kind === 'photo' ? 'Photos' : 'Files'}
       count={items.length}
       onClose={onClose}
@@ -205,7 +211,7 @@ function FileBody({
                 onClick={() => onSelect(f.id)}
                 className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
               >
-                <Icon size={16} className="shrink-0 text-cap-repo" />
+                <Icon size={16} className="shrink-0 text-cap-file" />
                 <span className="min-w-0 truncate text-[13px] font-medium text-ink">{f.label}</span>
               </button>
               <button

@@ -35,14 +35,15 @@
   /* Per-context-type chip colors, so every attached-context chip is its own hue.
      Workspaces (amber) and Repositories (slate) reuse the capability colors
      above; these four cover the rest, following common UI convention:
-     connectors → violet (integrations), MCP → teal (servers), files → neutral
-     stone, photos → rose (media). */
-  --color-cap-connector: #7e63a8;
-  --color-cap-connector-tint: #efeaf6;
+     connectors → violet (integrations), MCP → teal (servers), files → indigo
+     (documents), photos → rose (media). Connector is nudged a touch purpler and
+     files a saturated indigo so the cool hues stay distinct from repo's slate. */
+  --color-cap-connector: #8a5fa6;
+  --color-cap-connector-tint: #f1ebf7;
   --color-cap-mcp: #45867f;
   --color-cap-mcp-tint: #e6f1ef;
-  --color-cap-file: #8a877d;
-  --color-cap-file-tint: #efece4;
+  --color-cap-file: #5e6fb8;
+  --color-cap-file-tint: #eaedf8;
   --color-cap-photo: #ab6781;
   --color-cap-photo-tint: #f5eaed;
 
