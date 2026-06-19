@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Plus, Search, SlidersHorizontal } from 'lucide-react'
+import { PanelLeftClose, Plus, Search, SlidersHorizontal } from 'lucide-react'
 import type { Conversation, SectionId } from '../types'
 import { ResizeHandle } from './ResizeHandle'
 import { SECTION_META, SECTION_ORDER } from '../lib/sections'
@@ -14,6 +14,7 @@ export function Sidebar({
   onSelect,
   onNewTask,
   onOpenSection,
+  onToggleCollapse,
   onResizeStart,
   onResize,
   onResizeEnd,
@@ -26,6 +27,9 @@ export function Sidebar({
   onSelect: (id: string) => void
   onNewTask: () => void
   onOpenSection: (s: SectionId) => void
+  /** Collapse the rail (its own toggle, top-left). Re-opening is handled by a
+   *  floating control in the parent, since this one hides with the rail. */
+  onToggleCollapse: () => void
   /** Drag-to-resize wiring; the parent owns the width and clamps it. */
   onResizeStart: () => void
   onResize: (clientX: number) => void
@@ -43,7 +47,19 @@ export function Sidebar({
   return (
     <aside className="relative flex h-full w-full shrink-0 flex-col border-r border-line bg-sidebar">
       <ResizeHandle side="right" onStart={onResizeStart} onMove={onResize} onEnd={onResizeEnd} />
-      <div className="px-3 pt-3">
+      {/* Rail header — the collapse toggle sits at the top-left, the way the
+          real app does (there is no separate product top bar above it). */}
+      <div className="flex items-center px-2.5 pt-2.5">
+        <button
+          onClick={onToggleCollapse}
+          title="Collapse sidebar"
+          aria-label="Collapse sidebar"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-soft transition hover:bg-surface hover:text-ink"
+        >
+          <PanelLeftClose size={18} />
+        </button>
+      </div>
+      <div className="px-3 pt-2">
         <div className="relative">
           <Search
             size={15}

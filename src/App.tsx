@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
-import { TopBar } from './components/TopBar'
+import { PanelLeft } from 'lucide-react'
 import { Sidebar } from './components/Sidebar'
 import { Composer } from './components/Composer'
 import { MessageRow, TypingRow } from './components/Message'
@@ -457,9 +457,20 @@ export default function App() {
         )}
       </div>
 
-      {/* ===== The proposed product ===== */}
-      <div className="flex min-h-0 flex-1 flex-col">
-        <TopBar sidebarOpen={leftOpen} onToggleSidebar={() => setLeftOpen((o) => !o)} />
+      {/* ===== The proposed product — no top bar; the rail owns its toggle ===== */}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {/* When the rail is collapsed its own toggle hides with it, so a floating
+            control re-opens it — in the same top-left spot the rail's toggle sits. */}
+        {!leftOpen && (
+          <button
+            onClick={() => setLeftOpen(true)}
+            title="Expand sidebar"
+            aria-label="Expand sidebar"
+            className="absolute left-2.5 top-2.5 z-30 flex h-8 w-8 items-center justify-center rounded-lg border border-line bg-surface text-ink-soft shadow-sm transition hover:bg-panel-2 hover:text-ink"
+          >
+            <PanelLeft size={18} />
+          </button>
+        )}
 
         <div className="flex min-h-0 flex-1">
         {/* Left rail: collapsible (width → 0) and drag-resizable. The inner div
@@ -480,6 +491,7 @@ export default function App() {
               onSelect={selectConversation}
               onNewTask={newTask}
               onOpenSection={openSection}
+              onToggleCollapse={() => setLeftOpen((o) => !o)}
               onResizeStart={() => setLeftDragging(true)}
               onResize={(clientX) => setLeftW(clamp(clientX, LEFT_MIN, LEFT_MAX))}
               onResizeEnd={() => {
@@ -496,7 +508,11 @@ export default function App() {
           ) : (
             <>
           {!isDemo && (
-            <div className="flex items-center gap-3 border-b border-line bg-canvas/80 px-4 py-2">
+            <div
+              className={`flex items-center gap-3 border-b border-line bg-canvas/80 py-2 pr-4 ${
+                leftOpen ? 'pl-4' : 'pl-14'
+              }`}
+            >
               <span className="font-serif text-[15px] font-semibold text-ink">
                 {activeConv.title}
               </span>
