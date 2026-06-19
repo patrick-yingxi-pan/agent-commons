@@ -1,0 +1,380 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { DEMO_STEPS } from '../data/demo'
+import { DEMO_SESSION_ID, SESSIONS } from '../data/sessions'
+import {
+  DRAFT_ID,
+  DRAFT_SESSION,
+  EMPTY_LIVE,
+  WS_ID,
+  branchFor,
+  liveFromSession,
+  remoteFor,
+  slug,
+  withConnector,
+  workspaceNameFor,
+  type Live,
+} from '../data/liveSession'
+import { sameFocus } from '../lib/focus'
+import type { AddedContext, Message, PanelFocus, Repo, SectionId, TourPhase } from '../types'
+
+/** ── Controller: the active session + its live workspace ───────────────────
+ *  Owns all session, live-context, panel-focus, section, and guided-tour state,
+ *  plus every handler the view binds to. App.tsx is a thin view over what this
+ *  returns; the domain rules it calls live in data/liveSession.ts (model). */
+export function useSessionWorkspace() {
+  const [activeId, setActiveId] = useState(DEMO_SESSION_ID)
+  const [live, setLive] = useState<Live>(EMPTY_LIVE)
+  const [typing, setTyping] = useState(false)
+  // Which attached context the right-hand sidebar is showing (null = closed).
+  const [focus, setFocus] = useState<PanelFocus | null>(null)
+  // Which cross-cutting tool is open in the main area (null = the session).
+  const [activeSection, setActiveSection] = useState<SectionId | null>(null)
+
+  // Guided-tour state (only meaningful for the demo session).
+  const [phase, setPhase] = useState<TourPhase>('idle')
+  const [stepIndex, setStepIndex] = useState(-1)
+  const [caption, setCaption] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  // Timer bookkeeping so switching sessions cancels in-flight callbacks.
+  const runId = useRef(0)
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([])
+  const bottomRef = useRef<HTMLDivElement>(null)
+  // Mirror of `live` for reads inside event handlers (handleAddContext has empty
+  // deps and must not close over a stale snapshot).
+  const liveRef = useRef(live)
+  liveRef.current = live
+
+  const activeSession = useMemo(
+    () => SESSIONS.find((c) => c.id === activeId) ?? DRAFT_SESSION,
+    [activeId],
+  )
+  const isDemo = !!activeSession.isDemo
+  // The transient "New session" draft (not a saved session). Drives the empty
+  // greeting + title-bar suppression off the actual id, so a future *empty* real
+  // session falls back to neutral copy with its title still shown.
+  const isDraft = activeId === DRAFT_ID
+
+  const clearTimers = useCallback(() => {
+    runId.current += 1
+    timers.current.forEach(clearTimeout)
+    timers.current = []
+  }, [])
+
+  const schedule = useCallback((fn: () => void, ms: number) => {
+    const myRun = runId.current
+    const t = setTimeout(() => {
+      if (myRun === runId.current) fn()
+    }, ms)
+    timers.current.push(t)
+  }, [])
+
+  // Auto-scroll the thread as messages/typing change.
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }, [live.messages, typing])
+
+  const selectSession = useCallback(
+    (id: string) => {
+      clearTimers()
+      setTyping(false)
+      setBusy(false)
+      setActiveSection(null)
+      setActiveId(id)
+      const session = SESSIONS.find((c) => c.id === id)!
+      const nextLive = liveFromSession(session)
+      setLive(nextLive)
+      // Auto-focus the session's strongest present context so its sidebar opens —
+      // a repo if there is one, else a workspace, else nothing.
+      setFocus(
+        nextLive.repos[0]
+          ? { kind: 'repo', id: nextLive.repos[0].id }
+          : nextLive.workspaces[0]
+            ? { kind: 'workspace', id: nextLive.workspaces[0].id }
+            : null,
+      )
+      setPhase('idle')
+      if (session.isDemo) {
+        setStepIndex(-1)
+        setCaption('')
+      }
+    },
+    [clearTimers],
+  )
+
+  const playStep = useCallback(
+    (index: number) => {
+      const step = DEMO_STEPS[index]
+      if (!step) return
+      setStepIndex(index)
+      setCaption(step.caption)
+      setBusy(true)
+      setLive((l) => ({ ...l, messages: [...l.messages, step.user] }))
+      setTyping(true)
+      schedule(() => {
+        setTyping(false)
+        setLive((l) => {
+          const next: Live = { ...l, messages: [...l.messages, step.assistant] }
+          // Guard the id-keyed pushes so a replayed step can't duplicate a panel.
+          if (step.assistant.escalate === 'workspace' && !l.workspaces.some((w) => w.id === 'ws-demo')) {
+            next.workspaces = [
+              ...l.workspaces,
+              { id: 'ws-demo', label: workspaceNameFor(activeSession), artifacts: step.artifacts ?? [] },
+            ]
+          }
+          if (step.assistant.escalate === 'repo' && !l.repos.some((r) => r.id === 'repo-demo')) {
+            next.repos = [
+              ...l.repos,
+              {
+                id: 'repo-demo',
+                label: remoteFor(activeSession.id),
+                origin: 'github',
+                remote: remoteFor(activeSession.id),
+                branch: branchFor(activeSession.id),
+                files: step.files ?? [],
+                diff: step.diff ?? [],
+                terminal: step.terminal ?? [],
+              },
+            ]
+          }
+          if (step.connectors) next.connectors = step.connectors.reduce(withConnector, l.connectors)
+          return next
+        })
+        // Auto-disclose the newly attached context's sidebar (drives the tour).
+        if (step.assistant.escalate === 'workspace') setFocus({ kind: 'workspace', id: 'ws-demo' })
+        if (step.assistant.escalate === 'repo') setFocus({ kind: 'repo', id: 'repo-demo' })
+        setBusy(false)
+      }, 950)
+    },
+    [schedule, activeSession],
+  )
+
+  // Resets step/caption too, so this doubles as a one-click "Replay" from the
+  // finished state — not just the first run.
+  const startTour = useCallback(() => {
+    clearTimers()
+    setLive(EMPTY_LIVE)
+    setStepIndex(-1)
+    setCaption('')
+    setPhase('running')
+    schedule(() => playStep(0), 200)
+  }, [clearTimers, playStep, schedule])
+
+  // "Next" advances a beat; on the final beat the button reads "Finish" and
+  // ends the tour rather than stepping past the last step.
+  const nextStep = useCallback(() => {
+    if (busy) return
+    if (stepIndex + 1 >= DEMO_STEPS.length) {
+      setPhase('done')
+      return
+    }
+    playStep(stepIndex + 1)
+  }, [busy, playStep, stepIndex])
+
+  // Open the demo session and immediately play its guided tour. Owned by the
+  // controller so the view doesn't have to encode the select-then-tour ordering.
+  const startDemoTour = useCallback(() => {
+    selectSession(DEMO_SESSION_ID)
+    startTour()
+  }, [selectSession, startTour])
+
+  // Free-typed replies get an honest canned answer (no fake intelligence).
+  const handleSend = useCallback(
+    (text: string) => {
+      const userMsg: Message = { id: `u-${Date.now()}`, role: 'user', content: text }
+      setLive((l) => ({ ...l, messages: [...l.messages, userMsg] }))
+      setTyping(true)
+      setBusy(true)
+      schedule(() => {
+        setTyping(false)
+        const reply: Message = {
+          id: `a-${Date.now()}`,
+          role: 'assistant',
+          content: isDemo
+            ? 'This is a static prototype, so I won’t actually answer here. Use **Play the tour** above to watch one session flow from chat → workspace → code without switching tabs.'
+            : 'This is a static prototype — open the **Insights dashboard launch** session and play the guided tour to see the unified flow.',
+        }
+        setLive((l) => ({ ...l, messages: [...l.messages, reply] }))
+        setBusy(false)
+      }, 800)
+    },
+    [isDemo, schedule],
+  )
+
+  // Manually attach context to the open thread — the same escalation the tour
+  // performs, but user-driven. Every context type funnels through here, and the
+  // newly attached context's sidebar opens so you see what you added.
+  const handleAddContext = useCallback((ctx: AddedContext) => {
+    setLive((l) => {
+      switch (ctx.kind) {
+        case 'folder': {
+          // One shared Cowork workspace per session. Attaching a folder adds its
+          // (source-tagged) artifacts into that single workspace, creating it if
+          // there isn't one. Dedup by artifact id so re-attaching is a no-op.
+          const existing = l.workspaces[0]
+          if (!existing) {
+            return { ...l, workspaces: [{ id: WS_ID, label: 'Workspace', artifacts: ctx.artifacts }] }
+          }
+          const seen = new Set(existing.artifacts.map((a) => a.id))
+          const added = ctx.artifacts.filter((a) => !seen.has(a.id))
+          if (added.length === 0) return l
+          return {
+            ...l,
+            workspaces: [{ ...existing, artifacts: [...existing.artifacts, ...added] }],
+          }
+        }
+        case 'repo': {
+          const id = `repo-${slug(ctx.label)}`
+          if (l.repos.some((r) => r.id === id)) return l
+          // The GitHub connector, if wanted, arrives as its own separate attach
+          // (see the repo picker's link prompt) — a repo no longer owns one.
+          const repo: Repo = {
+            id,
+            label: ctx.label,
+            origin: ctx.origin,
+            path: ctx.path,
+            remote: ctx.remote,
+            branch: ctx.branch,
+            files: ctx.files,
+            diff: ctx.diff,
+            terminal: ctx.terminal,
+          }
+          return { ...l, repos: [...l.repos, repo] }
+        }
+        case 'connector':
+        case 'mcp':
+          return { ...l, connectors: withConnector(l.connectors, ctx.connector) }
+        case 'files':
+        case 'photos':
+          return { ...l, attachments: [...l.attachments, ...ctx.attachments] }
+        default:
+          return l
+      }
+    })
+    switch (ctx.kind) {
+      case 'folder':
+        // Focus the (possibly pre-existing) shared workspace it merged into.
+        setFocus({ kind: 'workspace', id: liveRef.current.workspaces[0]?.id ?? WS_ID })
+        break
+      case 'repo':
+        setFocus({ kind: 'repo', id: `repo-${slug(ctx.label)}` })
+        break
+      case 'connector':
+      case 'mcp':
+        setFocus({ kind: 'connector', id: ctx.connector.id })
+        break
+      case 'files':
+      case 'photos': {
+        const first = ctx.attachments[0]
+        if (first) setFocus({ kind: first.kind, id: first.id })
+        break
+      }
+    }
+  }, [])
+
+  // Clicking a chip toggles its sidebar.
+  const focusContext = useCallback((f: PanelFocus) => {
+    setFocus((cur) => (sameFocus(cur, f) ? null : f))
+  }, [])
+
+  // "New session" opens a blank thread with the composer ready, like the desktop
+  // app's "New chat" (not a jump to an existing session).
+  const newSession = useCallback(() => {
+    clearTimers()
+    setTyping(false)
+    setBusy(false)
+    setActiveSection(null)
+    setActiveId(DRAFT_ID)
+    setLive(EMPTY_LIVE)
+    setFocus(null)
+    setPhase('idle')
+    setStepIndex(-1)
+    setCaption('')
+  }, [clearTimers])
+
+  const openSection = useCallback((s: SectionId) => setActiveSection(s), [])
+
+  const removeAttachment = useCallback((id: string) => {
+    setLive((l) => ({ ...l, attachments: l.attachments.filter((a) => a.id !== id) }))
+  }, [])
+
+  // Remove one or more attached contexts in a single update. The chip remove
+  // flow passes several at once when a removal cascades (a repo + its orphaned
+  // GitHub connector, or the connector + the repos that depend on it); the
+  // connector panel's Disconnect passes just the connector.
+  const removeContexts = useCallback((focuses: PanelFocus[]) => {
+    setLive((l) => {
+      const ids = (kind: PanelFocus['kind']) =>
+        new Set(focuses.filter((f) => f.kind === kind).map((f) => f.id))
+      const wsIds = ids('workspace')
+      const repoIds = ids('repo')
+      const connIds = ids('connector')
+      const attIds = new Set([...ids('file'), ...ids('photo')])
+      return {
+        ...l,
+        workspaces: l.workspaces.filter((w) => !wsIds.has(w.id)),
+        repos: l.repos.filter((r) => !repoIds.has(r.id)),
+        connectors: l.connectors.filter((c) => !connIds.has(c.id)),
+        attachments: l.attachments.filter((a) => !attIds.has(a.id)),
+      }
+    })
+  }, [])
+
+  // Close the sidebar if its context no longer exists (removed / switched away).
+  useEffect(() => {
+    if (!focus) return
+    const valid =
+      focus.kind === 'workspace'
+        ? live.workspaces.some((w) => w.id === focus.id)
+        : focus.kind === 'repo'
+          ? live.repos.some((r) => r.id === focus.id)
+          : focus.kind === 'connector'
+            ? live.connectors.some((c) => c.id === focus.id)
+            : live.attachments.some((a) => a.id === focus.id)
+    if (!valid) setFocus(null)
+  }, [focus, live])
+
+  const focusedWorkspace =
+    focus?.kind === 'workspace' ? live.workspaces.find((w) => w.id === focus.id) : undefined
+  const focusedRepo = focus?.kind === 'repo' ? live.repos.find((r) => r.id === focus.id) : undefined
+  const focusedConnector =
+    focus?.kind === 'connector' ? live.connectors.find((c) => c.id === focus.id) : undefined
+
+  const closePanel = useCallback(() => setFocus(null), [])
+
+  return {
+    // state
+    activeId,
+    activeSection,
+    live,
+    typing,
+    focus,
+    activeSession,
+    isDemo,
+    isDraft,
+    // guided tour
+    phase,
+    stepIndex,
+    caption,
+    busy,
+    totalSteps: DEMO_STEPS.length,
+    bottomRef,
+    // derived focus
+    focusedWorkspace,
+    focusedRepo,
+    focusedConnector,
+    // actions
+    selectSession,
+    newSession,
+    openSection,
+    handleSend,
+    handleAddContext,
+    focusContext,
+    removeContexts,
+    removeAttachment,
+    closePanel,
+    startTour,
+    nextStep,
+    startDemoTour,
+  }
+}

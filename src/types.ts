@@ -8,6 +8,10 @@ export type Capability = 'chat' | 'workspace' | 'repo'
  *  takes over the main area in place of the active thread. */
 export type SectionId = 'projects' | 'artifacts' | 'scheduled' | 'dispatch' | 'customize'
 
+/** The guided tour's lifecycle: idle (not started), running (stepping through),
+ *  or done (finished, showing Replay). */
+export type TourPhase = 'idle' | 'running' | 'done'
+
 /** A connector / MCP attached to the conversation (GitHub, Drive, …). */
 export interface Connector {
   id: string

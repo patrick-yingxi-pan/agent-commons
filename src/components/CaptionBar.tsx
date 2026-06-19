@@ -1,6 +1,5 @@
 import { ChevronRight, Play, RotateCcw, Sparkles } from 'lucide-react'
-
-export type TourPhase = 'idle' | 'running' | 'done'
+import type { TourPhase } from '../types'
 
 export function CaptionBar({
   phase,
