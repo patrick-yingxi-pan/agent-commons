@@ -95,11 +95,20 @@ export interface Message {
 
 export type ArtifactKind = 'doc' | 'email' | 'image' | 'slide' | 'sheet'
 
+/** Which attached folder an artifact came from. Lets the one shared workspace
+ *  group its artifacts by source. Absent for a conversation's own (seeded/demo)
+ *  artifacts, which fall under a single default group. */
+export interface ArtifactSource {
+  id: string
+  label: string
+}
+
 export interface Artifact {
   id: string
   name: string
   kind: ArtifactKind
   meta: string
+  source?: ArtifactSource
 }
 
 export type FileStatus = 'added' | 'modified' | 'unchanged'

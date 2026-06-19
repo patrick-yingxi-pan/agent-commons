@@ -21,15 +21,11 @@ import { getDecision, setDecision } from '../lib/prefs'
 import {
   CONNECTOR_OPTIONS,
   FILE_OPTIONS,
-  FOLDER_ARTIFACTS,
   FOLDER_OPTIONS,
   GITHUB_REPO_OPTIONS,
   LOCAL_REPO_OPTIONS,
   MCP_OPTIONS,
   PHOTO_OPTIONS,
-  REPO_DIFF,
-  REPO_FILES,
-  REPO_TERMINAL,
 } from '../data/contextOptions'
 
 type TypeId = 'files' | 'photos' | 'folder' | 'repo' | 'connector' | 'mcp'
@@ -407,9 +403,9 @@ function RepoPicker({
                 path: r.path,
                 remote: r.remote,
                 branch: r.branch,
-                files: REPO_FILES,
-                diff: REPO_DIFF,
-                terminal: REPO_TERMINAL,
+                files: r.files,
+                diff: r.diff,
+                terminal: r.terminal,
               })
             }
           />
@@ -429,9 +425,9 @@ function RepoPicker({
                 label: r.remote,
                 remote: r.remote,
                 branch: r.branch,
-                files: REPO_FILES,
-                diff: REPO_DIFF,
-                terminal: REPO_TERMINAL,
+                files: r.files,
+                diff: r.diff,
+                terminal: r.terminal,
               })
             }
           />
@@ -459,8 +455,16 @@ function FolderPicker({
   const [folder, setFolder] = useState<FolderOption | null>(null)
   const [dontAsk, setDontAsk] = useState(false)
 
-  const attachFolder = (f: FolderOption) =>
-    onAttach({ kind: 'folder', label: f.label, artifacts: FOLDER_ARTIFACTS })
+  // Attach the folder as a workspace, tagging its artifacts with the folder as
+  // their source so the one shared workspace can group by folder.
+  const attachFolder = (f: FolderOption) => {
+    const source = { id: f.id, label: `${basename(f.label)}/` }
+    onAttach({
+      kind: 'folder',
+      label: f.label,
+      artifacts: f.artifacts.map((a) => ({ ...a, source })),
+    })
+  }
 
   const repoCtxFor = (f: FolderOption): RepoContext => ({
     kind: 'repo',
@@ -469,9 +473,9 @@ function FolderPicker({
     path: f.label,
     remote: f.repo?.remote,
     branch: f.repo!.branch,
-    files: REPO_FILES,
-    diff: REPO_DIFF,
-    terminal: REPO_TERMINAL,
+    files: f.repo!.files,
+    diff: f.repo!.diff,
+    terminal: f.repo!.terminal,
   })
 
   // Attach the folder (workspace) and its repo — connector first when wanted, so

@@ -45,6 +45,10 @@ const EMPTY_DEMO: Live = {
   attachments: [],
 }
 
+// The id of the single shared workspace created when folders are attached to a
+// conversation that doesn't already have one (seeded/demo convs bring their own).
+const WS_ID = 'ws-active'
+
 function withConnector(list: Connector[], c: Connector): Connector[] {
   return list.some((x) => x.id === c.id) ? list : [...list, c]
 }
@@ -137,6 +141,10 @@ export default function App() {
   const runId = useRef(0)
   const timers = useRef<ReturnType<typeof setTimeout>[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
+  // Mirror of `live` for reads inside event handlers (handleAddContext has empty
+  // deps and must not close over a stale snapshot).
+  const liveRef = useRef(live)
+  liveRef.current = live
 
   const activeConv = useMemo(
     () => CONVERSATIONS.find((c) => c.id === activeId)!,
@@ -292,11 +300,19 @@ export default function App() {
     setLive((l) => {
       switch (ctx.kind) {
         case 'folder': {
-          const id = `ws-${slug(ctx.label)}`
-          if (l.workspaces.some((w) => w.id === id)) return l
+          // One shared Cowork workspace per conversation. Attaching a folder adds
+          // its (source-tagged) artifacts into that single workspace, creating it
+          // if there isn't one. Dedup by artifact id so re-attaching is a no-op.
+          const existing = l.workspaces[0]
+          if (!existing) {
+            return { ...l, workspaces: [{ id: WS_ID, label: 'Workspace', artifacts: ctx.artifacts }] }
+          }
+          const seen = new Set(existing.artifacts.map((a) => a.id))
+          const added = ctx.artifacts.filter((a) => !seen.has(a.id))
+          if (added.length === 0) return l
           return {
             ...l,
-            workspaces: [...l.workspaces, { id, label: ctx.label, artifacts: ctx.artifacts }],
+            workspaces: [{ ...existing, artifacts: [...existing.artifacts, ...added] }],
           }
         }
         case 'repo': {
@@ -329,7 +345,8 @@ export default function App() {
     })
     switch (ctx.kind) {
       case 'folder':
-        setFocus({ kind: 'workspace', id: `ws-${slug(ctx.label)}` })
+        // Focus the (possibly pre-existing) shared workspace it merged into.
+        setFocus({ kind: 'workspace', id: liveRef.current.workspaces[0]?.id ?? WS_ID })
         break
       case 'repo':
         setFocus({ kind: 'repo', id: `repo-${slug(ctx.label)}` })
