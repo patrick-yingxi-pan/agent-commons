@@ -6,6 +6,7 @@ import {
   FileText,
   FolderGit2,
   FolderOpen,
+  FolderSearch,
   GitBranch,
   Github,
   Image as ImageIcon,
@@ -18,6 +19,7 @@ import type { AddedContext } from '../types'
 import { gradientFor } from '../lib/thumbs'
 import { GITHUB_CONNECTOR } from '../lib/connectors'
 import { getDecision, setDecision } from '../lib/prefs'
+import { getRecentIds, pushRecent } from '../lib/recents'
 import {
   CONNECTOR_OPTIONS,
   FILE_OPTIONS,
@@ -26,9 +28,10 @@ import {
   LOCAL_REPO_OPTIONS,
   MCP_OPTIONS,
   PHOTO_OPTIONS,
+  type ContextTypeId,
 } from '../data/contextOptions'
 
-type TypeId = 'files' | 'photos' | 'folder' | 'repo' | 'connector' | 'mcp'
+type TypeId = ContextTypeId
 
 const CONTEXT_TYPES: { id: TypeId; label: string; desc: string; Icon: typeof Paperclip }[] = [
   { id: 'files', label: 'Files', desc: 'Images, PDFs, docs from your computer', Icon: Paperclip },
@@ -41,7 +44,8 @@ const CONTEXT_TYPES: { id: TypeId; label: string; desc: string; Icon: typeof Pap
 
 /** One consistent entry point for attaching context — every attachable thing
  *  (files, folders, repos, connectors, MCP servers) is "context" the thread
- *  gains. Step 1 picks the type; step 2 runs that type's specific workflow. */
+ *  gains. Step 1 picks the type; step 2 shows that type's *recent* picks plus a
+ *  "Browse…" explorer for everything else (which then becomes recent, LRU). */
 export function AddContextButton({
   onAttach,
   hasGitHubConnector,
@@ -171,85 +175,431 @@ function WorkflowBody({
   }
   if (type === 'connector') {
     return (
-      <Section label="Available connectors">
-        {CONNECTOR_OPTIONS.map((c) => (
-          <OptionRow
-            key={c.id}
-            icon={<Plug size={16} />}
-            label={c.label}
-            meta="Connect account"
-            onClick={() =>
-              onAttach({
-                kind: 'connector',
-                connector: { id: c.id, label: c.label, kind: c.kind ?? 'connector' },
-              })
-            }
-          />
-        ))}
-      </Section>
+      <ListPicker
+        type="connector"
+        options={CONNECTOR_OPTIONS}
+        recentLabel="Recent connectors"
+        browseLabel="Browse connectors…"
+        browseTitle="Connect an account"
+        location={['Connectors']}
+        rowIcon={<Plug size={16} />}
+        browseIcon={<Plug size={15} />}
+        rowMeta={() => 'Connect account'}
+        toContext={(c) => ({
+          kind: 'connector',
+          connector: { id: c.id, label: c.label, kind: c.kind ?? 'connector' },
+        })}
+        onAttach={onAttach}
+      />
     )
   }
   if (type === 'mcp') {
     return (
-      <Section label="From the MCP registry">
-        {MCP_OPTIONS.map((m) => (
-          <OptionRow
-            key={m.id}
-            icon={<Server size={16} />}
-            label={m.label}
-            meta={m.meta}
-            onClick={() =>
-              onAttach({ kind: 'mcp', connector: { id: `mcp-${m.id}`, label: `MCP · ${m.label}`, kind: 'mcp' } })
-            }
-          />
-        ))}
-      </Section>
+      <ListPicker
+        type="mcp"
+        options={MCP_OPTIONS}
+        recentLabel="Recent MCP servers"
+        browseLabel="Browse MCP registry…"
+        browseTitle="MCP Registry"
+        location={['MCP Registry']}
+        rowIcon={<Server size={16} />}
+        browseIcon={<Server size={15} />}
+        rowMeta={(m) => m.meta}
+        toContext={(m) => ({
+          kind: 'mcp',
+          connector: { id: `mcp-${m.id}`, label: `MCP · ${m.label}`, kind: 'mcp' },
+        })}
+        onAttach={onAttach}
+      />
     )
   }
   if (type === 'files') {
-    return (
-      <div className="pb-1">
-        <div className="mb-2 flex flex-col items-center justify-center rounded-lg border border-dashed border-line-strong px-3 py-4 text-center">
-          <Paperclip size={18} className="mb-1 text-ink-faint" />
-          <span className="text-[12px] font-medium text-ink">Drop files here</span>
-          <span className="text-[11px] text-ink-faint">or pick a recent file below</span>
-        </div>
-        {FILE_OPTIONS.map((f) => (
-          <OptionRow
-            key={f.id}
-            icon={<FileText size={16} />}
-            label={f.label}
-            meta={f.meta}
-            onClick={() =>
-              onAttach({ kind: 'files', attachments: [{ id: f.id, label: f.label, kind: 'file' }] })
-            }
-          />
-        ))}
-      </div>
-    )
+    return <FilesPicker onAttach={onAttach} />
   }
-  // photos
+  return <PhotosPicker onAttach={onAttach} />
+}
+
+/* ------------------------------------------------------------------ Browse --
+   A simulated file-system explorer window (macOS Finder flavour) for picking
+   something that isn't in the recents list. Selecting an item hands its id back
+   to the picker, which runs the normal attach path (so the repo / folder
+   dependency prompts still fire) and promotes it into recents. */
+
+interface BrowseItem {
+  id: string
+  name: string
+  meta?: string
+  icon?: ReactNode
+  /** Tailwind gradient class for grid (photo) thumbnails. */
+  thumb?: string
+}
+
+interface BrowseGroup {
+  label?: string
+  items: BrowseItem[]
+}
+
+function BrowseDialog({
+  title,
+  location,
+  groups,
+  layout = 'list',
+  onCancel,
+  onConfirm,
+}: {
+  title: string
+  location: string[]
+  groups: BrowseGroup[]
+  layout?: 'list' | 'grid'
+  onCancel: () => void
+  onConfirm: (id: string) => void
+}) {
+  const [picked, setPicked] = useState<string | null>(null)
+  const items = groups.flatMap((g) => g.items)
+  const pickedItem = items.find((i) => i.id === picked) ?? null
+
+  // Capture-phase Escape so this modal closes before the popover's own Escape
+  // handler (which would otherwise tear the whole popover down).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        onCancel()
+      }
+    }
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
+  }, [onCancel])
+
   return (
-    <Section label="Photo library">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      onMouseDown={onCancel}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${title} — browse`}
+    >
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" />
+      <div
+        onMouseDown={(e) => e.stopPropagation()}
+        className="relative flex max-h-[72vh] w-[560px] max-w-[92vw] flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong"
+      >
+        {/* Title bar — Finder-style traffic lights + centered title. */}
+        <div className="relative flex h-9 shrink-0 items-center border-b border-line bg-panel-2 px-3">
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={onCancel}
+              title="Close"
+              aria-label="Close"
+              className="h-3 w-3 rounded-full bg-[#ff5f57] ring-1 ring-black/10 transition hover:brightness-90"
+            />
+            <span className="h-3 w-3 rounded-full bg-[#febc2e] ring-1 ring-black/10" />
+            <span className="h-3 w-3 rounded-full bg-[#28c840] ring-1 ring-black/10" />
+          </div>
+          <span className="absolute left-1/2 -translate-x-1/2 text-[12px] font-semibold text-ink-soft">
+            {title}
+          </span>
+        </div>
+
+        {/* Location / breadcrumb bar. */}
+        <div className="flex shrink-0 items-center gap-1 border-b border-line px-3 py-1.5 text-[11px] text-ink-faint">
+          <FolderOpen size={13} className="text-ink-faint" />
+          {location.map((seg, i) => (
+            <span key={i} className="flex items-center gap-1">
+              {i > 0 && <ChevronRight size={11} className="text-line-strong" />}
+              <span className={i === location.length - 1 ? 'font-medium text-ink-soft' : ''}>{seg}</span>
+            </span>
+          ))}
+        </div>
+
+        {/* Body. */}
+        <div className="min-h-[140px] flex-1 overflow-y-auto p-2">
+          {items.length === 0 ? (
+            <div className="flex h-full min-h-[140px] items-center justify-center px-6 text-center text-[12px] text-ink-faint">
+              Everything here is already in your recents.
+            </div>
+          ) : layout === 'grid' ? (
+            <div className="grid grid-cols-4 gap-2 p-1">
+              {items.map((it) => (
+                <button
+                  key={it.id}
+                  title={it.name}
+                  onClick={() => setPicked(it.id)}
+                  onDoubleClick={() => onConfirm(it.id)}
+                  className={`aspect-square rounded-lg ring-2 transition ${it.thumb ?? 'bg-panel-2'} ${
+                    it.id === picked ? 'ring-accent' : 'ring-transparent hover:ring-line-strong'
+                  }`}
+                />
+              ))}
+            </div>
+          ) : (
+            groups.map((g, gi) => (
+              <div key={gi} className="pb-1">
+                {g.label && (
+                  <p className="px-1 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+                    {g.label}
+                  </p>
+                )}
+                {g.items.map((it) => (
+                  <button
+                    key={it.id}
+                    onClick={() => setPicked(it.id)}
+                    onDoubleClick={() => onConfirm(it.id)}
+                    className={`mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition ${
+                      it.id === picked ? 'bg-accent-tint ring-1 ring-accent/40' : 'hover:bg-panel-2'
+                    }`}
+                  >
+                    <span className="shrink-0 text-ink-soft">{it.icon}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-medium text-ink">{it.name}</span>
+                      {it.meta && <span className="block truncate text-[11px] text-ink-faint">{it.meta}</span>}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Footer — selected name + Cancel / Open. */}
+        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-line bg-panel px-3 py-2">
+          <span className="min-w-0 truncate text-[11px] text-ink-faint">
+            {pickedItem ? pickedItem.name : 'Select an item to open'}
+          </span>
+          <div className="flex shrink-0 gap-1.5">
+            <button
+              onClick={onCancel}
+              className="rounded-md px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:bg-panel-2"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => picked && onConfirm(picked)}
+              disabled={!picked}
+              className="rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-white transition enabled:hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Open
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** The dashed "Browse…" row that ends every recents list and opens the explorer. */
+function BrowseRow({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="mt-0.5 flex w-full items-center gap-2.5 rounded-lg border border-dashed border-line-strong px-2 py-1.5 text-left text-ink-soft transition hover:bg-panel-2 hover:text-ink"
+    >
+      <FolderSearch size={16} className="shrink-0" />
+      <span className="min-w-0 flex-1 text-[13px] font-medium">{label}</span>
+      <ChevronRight size={15} className="shrink-0 text-ink-faint" />
+    </button>
+  )
+}
+
+/* ------------------------------------------------------------- simple lists --
+   Connectors and MCP servers: a flat recents list + Browse, no dependency
+   prompts. Shared so the recents/LRU wiring lives in one place. */
+function ListPicker<T extends { id: string; label: string }>({
+  type,
+  options,
+  recentLabel,
+  browseLabel,
+  browseTitle,
+  location,
+  rowIcon,
+  browseIcon,
+  rowMeta,
+  toContext,
+  onAttach,
+}: {
+  type: ContextTypeId
+  options: readonly T[]
+  recentLabel: string
+  browseLabel: string
+  browseTitle: string
+  location: string[]
+  rowIcon: ReactNode
+  browseIcon: ReactNode
+  rowMeta: (o: T) => string | undefined
+  toContext: (o: T) => AddedContext
+  onAttach: (ctx: AddedContext) => void
+}) {
+  const [browsing, setBrowsing] = useState(false)
+  const recentIds = getRecentIds(type)
+  const byId = new Map(options.map((o) => [o.id, o]))
+  const recent = recentIds.map((id) => byId.get(id)).filter(Boolean) as T[]
+  const rest = options.filter((o) => !recentIds.includes(o.id))
+
+  const choose = (o: T) => {
+    pushRecent(type, o.id)
+    onAttach(toContext(o))
+  }
+
+  return (
+    <>
+      <Section label={recentLabel}>
+        {recent.map((o) => (
+          <OptionRow key={o.id} icon={rowIcon} label={o.label} meta={rowMeta(o)} onClick={() => choose(o)} />
+        ))}
+        <BrowseRow label={browseLabel} onClick={() => setBrowsing(true)} />
+      </Section>
+      {browsing && (
+        <BrowseDialog
+          title={browseTitle}
+          location={location}
+          groups={[{ items: rest.map((o) => ({ id: o.id, name: o.label, meta: rowMeta(o), icon: browseIcon })) }]}
+          onCancel={() => setBrowsing(false)}
+          onConfirm={(id) => {
+            setBrowsing(false)
+            const o = byId.get(id)
+            if (o) choose(o)
+          }}
+        />
+      )}
+    </>
+  )
+}
+
+function FilesPicker({ onAttach }: { onAttach: (ctx: AddedContext) => void }) {
+  const [browsing, setBrowsing] = useState(false)
+  const recentIds = getRecentIds('files')
+  const byId = new Map(FILE_OPTIONS.map((f) => [f.id, f]))
+  const recent = recentIds.map((id) => byId.get(id)).filter(Boolean) as (typeof FILE_OPTIONS)[number][]
+  const rest = FILE_OPTIONS.filter((f) => !recentIds.includes(f.id))
+
+  const choose = (f: (typeof FILE_OPTIONS)[number]) => {
+    pushRecent('files', f.id)
+    onAttach({ kind: 'files', attachments: [{ id: f.id, label: f.label, kind: 'file' }] })
+  }
+
+  return (
+    <div className="pb-1">
+      <button
+        onClick={() => setBrowsing(true)}
+        className="mb-2 flex w-full flex-col items-center justify-center rounded-lg border border-dashed border-line-strong px-3 py-4 text-center transition hover:bg-panel-2"
+      >
+        <Paperclip size={18} className="mb-1 text-ink-faint" />
+        <span className="text-[12px] font-medium text-ink">Drop files here</span>
+        <span className="text-[11px] text-ink-faint">or browse your files</span>
+      </button>
+      <p className="px-1 pb-1.5 text-[11px] text-ink-faint">Recent files</p>
+      {recent.map((f) => (
+        <OptionRow key={f.id} icon={<FileText size={16} />} label={f.label} meta={f.meta} onClick={() => choose(f)} />
+      ))}
+      <BrowseRow label="Browse files…" onClick={() => setBrowsing(true)} />
+      {browsing && (
+        <BrowseDialog
+          title="Open"
+          location={['~', 'Recent Files']}
+          groups={[
+            { items: rest.map((f) => ({ id: f.id, name: f.label, meta: f.meta, icon: <FileText size={15} /> })) },
+          ]}
+          onCancel={() => setBrowsing(false)}
+          onConfirm={(id) => {
+            setBrowsing(false)
+            const f = byId.get(id)
+            if (f) choose(f)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function PhotosPicker({ onAttach }: { onAttach: (ctx: AddedContext) => void }) {
+  const [browsing, setBrowsing] = useState(false)
+  const recentIds = getRecentIds('photos')
+  const byId = new Map(PHOTO_OPTIONS.map((p) => [p.id, p]))
+  const recent = recentIds.map((id) => byId.get(id)).filter(Boolean) as (typeof PHOTO_OPTIONS)[number][]
+  const rest = PHOTO_OPTIONS.filter((p) => !recentIds.includes(p.id))
+
+  const choose = (p: (typeof PHOTO_OPTIONS)[number]) => {
+    pushRecent('photos', p.id)
+    onAttach({ kind: 'photos', attachments: [{ id: p.id, label: p.label, kind: 'photo' }] })
+  }
+
+  return (
+    <Section label="Recent photos">
       <div className="grid grid-cols-4 gap-1.5 px-1 pb-1">
-        {PHOTO_OPTIONS.map((p) => (
+        {recent.map((p) => (
           <button
             key={p.id}
             title={p.label}
-            onClick={() =>
-              onAttach({ kind: 'photos', attachments: [{ id: p.id, label: p.label, kind: 'photo' }] })
-            }
-            className={`aspect-square rounded-lg ring-1 ring-black/5 transition hover:opacity-80 ${gradientFor(
-              p.id,
-            )}`}
+            onClick={() => choose(p)}
+            className={`aspect-square rounded-lg ring-1 ring-black/5 transition hover:opacity-80 ${gradientFor(p.id)}`}
           />
         ))}
+        <button
+          title="Browse photos…"
+          onClick={() => setBrowsing(true)}
+          className="flex aspect-square items-center justify-center rounded-lg border border-dashed border-line-strong text-ink-faint transition hover:bg-panel-2 hover:text-ink"
+        >
+          <FolderSearch size={16} />
+        </button>
       </div>
+      {browsing && (
+        <BrowseDialog
+          title="Photo Library"
+          location={['Photo Library']}
+          layout="grid"
+          groups={[{ items: rest.map((p) => ({ id: p.id, name: p.label, thumb: gradientFor(p.id) })) }]}
+          onCancel={() => setBrowsing(false)}
+          onConfirm={(id) => {
+            setBrowsing(false)
+            const p = byId.get(id)
+            if (p) choose(p)
+          }}
+        />
+      )}
     </Section>
   )
 }
 
 type RepoContext = Extract<AddedContext, { kind: 'repo' }>
+
+type RepoOption =
+  | ((typeof LOCAL_REPO_OPTIONS)[number] & { origin: 'local' })
+  | ((typeof GITHUB_REPO_OPTIONS)[number] & { origin: 'github' })
+
+/** Local + GitHub repos merged into one catalog so recents can mix origins. */
+const REPO_CATALOG: RepoOption[] = [
+  ...LOCAL_REPO_OPTIONS.map((r) => ({ ...r, origin: 'local' as const })),
+  ...GITHUB_REPO_OPTIONS.map((r) => ({ ...r, origin: 'github' as const })),
+]
+
+const isLocalRepo = (o: RepoOption): o is Extract<RepoOption, { origin: 'local' }> => o.origin === 'local'
+const isGithubRepo = (o: RepoOption): o is Extract<RepoOption, { origin: 'github' }> => o.origin === 'github'
+
+function repoOptionToContext(o: RepoOption): RepoContext {
+  if (isLocalRepo(o)) {
+    return {
+      kind: 'repo',
+      origin: 'local',
+      label: basename(o.path),
+      path: o.path,
+      remote: o.remote,
+      branch: o.branch,
+      files: o.files,
+      diff: o.diff,
+      terminal: o.terminal,
+    }
+  }
+  return {
+    kind: 'repo',
+    origin: 'github',
+    label: o.remote,
+    remote: o.remote,
+    branch: o.branch,
+    files: o.files,
+    diff: o.diff,
+    terminal: o.terminal,
+  }
+}
 
 /** The chip / panel name for a local repo — the trailing folder name. */
 function basename(path: string) {
@@ -324,11 +674,12 @@ function AttachPromptCard({
   )
 }
 
-/** Repository picker: Local and GitHub sections. Picking a repo that has a
- *  GitHub remote, when the connector isn't already attached, asks whether to add
- *  the connector too (it's what's needed to push & open PRs) — Cancel aborts the
+/** Repository picker: one merged "Recent repositories" list (local + GitHub,
+ *  each row badged) plus a Browse explorer that groups the rest into Local /
+ *  GitHub. Picking a repo that has a GitHub remote, when the connector isn't
+ *  already attached, asks whether to add the connector too — Cancel aborts the
  *  whole attach, "Just the repo" / "Add both" decide, and a remembered choice
- *  skips the prompt next time. */
+ *  skips the prompt next time. A real attach promotes the repo into recents. */
 function RepoPicker({
   onAttach,
   hasGitHubConnector,
@@ -336,27 +687,32 @@ function RepoPicker({
   onAttach: (ctx: AddedContext) => void
   hasGitHubConnector: boolean
 }) {
-  const [pending, setPending] = useState<RepoContext | null>(null)
+  const [pending, setPending] = useState<{ ctx: RepoContext; id: string } | null>(null)
   const [dontAsk, setDontAsk] = useState(false)
+  const [browsing, setBrowsing] = useState(false)
 
-  const select = (ctx: RepoContext) => {
+  const recentIds = getRecentIds('repo')
+  const byId = new Map(REPO_CATALOG.map((o) => [o.id, o]))
+  const recent = recentIds.map((id) => byId.get(id)).filter(Boolean) as RepoOption[]
+  const rest = REPO_CATALOG.filter((o) => !recentIds.includes(o.id))
+
+  const finalize = (ctx: RepoContext, id: string) => {
+    pushRecent('repo', id)
+    onAttach(ctx)
+  }
+
+  const select = (o: RepoOption) => {
+    const ctx = repoOptionToContext(o)
     // No GitHub remote, or the connector is already present → nothing to ask.
-    if (!ctx.remote || hasGitHubConnector) {
-      onAttach(ctx)
-      return
-    }
+    if (!ctx.remote || hasGitHubConnector) return finalize(ctx, o.id)
     const decision = getDecision('linkOnAttach')
     if (decision === 'always') {
       onAttach({ kind: 'connector', connector: GITHUB_CONNECTOR })
-      onAttach(ctx)
-      return
+      return finalize(ctx, o.id)
     }
-    if (decision === 'never') {
-      onAttach(ctx)
-      return
-    }
+    if (decision === 'never') return finalize(ctx, o.id)
     setDontAsk(false)
-    setPending(ctx)
+    setPending({ ctx, id: o.id })
   }
 
   if (pending) {
@@ -364,7 +720,7 @@ function RepoPicker({
       <AttachPromptCard
         message={
           <>
-            <span className="font-medium">{pending.label}</span> has a GitHub remote. Add the{' '}
+            <span className="font-medium">{pending.ctx.label}</span> has a GitHub remote. Add the{' '}
             <span className="font-medium">GitHub connector</span> too, so Claude can push and open PRs?
           </>
         }
@@ -374,65 +730,70 @@ function RepoPicker({
         secondaryLabel="Just the repo"
         onSecondary={() => {
           if (dontAsk) setDecision('linkOnAttach', 'never')
-          onAttach(pending)
+          finalize(pending.ctx, pending.id)
         }}
         primaryLabel="Add both"
         onPrimary={() => {
           if (dontAsk) setDecision('linkOnAttach', 'always')
           onAttach({ kind: 'connector', connector: GITHUB_CONNECTOR })
-          onAttach(pending)
+          finalize(pending.ctx, pending.id)
         }}
       />
     )
   }
 
+  const repoRow = (o: RepoOption) => (
+    <OptionRow
+      key={o.id}
+      icon={o.origin === 'local' ? <FolderGit2 size={16} /> : <Github size={16} />}
+      label={o.origin === 'local' ? o.path : o.remote}
+      meta={
+        o.origin === 'local'
+          ? `local · ${o.remote ?? 'local only'} · ${o.branch}`
+          : `github · ${o.branch} · ${o.meta}`
+      }
+      onClick={() => select(o)}
+    />
+  )
+
   return (
     <>
-      <Section label="Local">
-        {LOCAL_REPO_OPTIONS.map((r) => (
-          <OptionRow
-            key={r.id}
-            icon={<FolderGit2 size={16} />}
-            label={r.path}
-            meta={`${r.remote ?? 'local only'} · ${r.branch}`}
-            onClick={() =>
-              select({
-                kind: 'repo',
-                origin: 'local',
-                label: basename(r.path),
-                path: r.path,
-                remote: r.remote,
-                branch: r.branch,
-                files: r.files,
-                diff: r.diff,
-                terminal: r.terminal,
-              })
-            }
-          />
-        ))}
+      <Section label="Recent repositories">
+        {recent.map(repoRow)}
+        <BrowseRow label="Browse repositories…" onClick={() => setBrowsing(true)} />
       </Section>
-      <Section label="GitHub">
-        {GITHUB_REPO_OPTIONS.map((r) => (
-          <OptionRow
-            key={r.id}
-            icon={<Github size={16} />}
-            label={r.remote}
-            meta={`${r.branch} · ${r.meta}`}
-            onClick={() =>
-              select({
-                kind: 'repo',
-                origin: 'github',
-                label: r.remote,
-                remote: r.remote,
-                branch: r.branch,
-                files: r.files,
-                diff: r.diff,
-                terminal: r.terminal,
-              })
-            }
-          />
-        ))}
-      </Section>
+      {browsing && (
+        <BrowseDialog
+          title="Open Repository"
+          location={['Repositories']}
+          groups={[
+            {
+              label: 'Local',
+              items: rest.filter(isLocalRepo).map((o) => ({
+                id: o.id,
+                name: basename(o.path),
+                meta: `${o.remote ?? 'local only'} · ${o.branch}`,
+                icon: <FolderGit2 size={15} />,
+              })),
+            },
+            {
+              label: 'GitHub',
+              items: rest.filter(isGithubRepo).map((o) => ({
+                id: o.id,
+                name: o.remote,
+                meta: `${o.branch} · ${o.meta}`,
+                icon: <Github size={15} />,
+              })),
+            },
+          ]}
+          onCancel={() => setBrowsing(false)}
+          onConfirm={(id) => {
+            setBrowsing(false)
+            const o = byId.get(id)
+            if (o) select(o)
+          }}
+        />
+      )}
     </>
   )
 }
@@ -443,7 +804,8 @@ type FolderOption = (typeof FOLDER_OPTIONS)[number]
  *  folder is a git working tree it first offers to also attach it as a repo
  *  (code / diff / terminal); if that repo has a GitHub remote, it then chains
  *  the same "add the connector?" prompt the repo flow uses. Every prompt's
- *  Cancel aborts the whole attach, and each choice can be remembered. */
+ *  Cancel aborts the whole attach, and each choice can be remembered. Recent
+ *  folders show first; Browse reaches the rest, promoting them on attach. */
 function FolderPicker({
   onAttach,
   hasGitHubConnector,
@@ -454,10 +816,18 @@ function FolderPicker({
   const [stage, setStage] = useState<'list' | 'repo' | 'connector'>('list')
   const [folder, setFolder] = useState<FolderOption | null>(null)
   const [dontAsk, setDontAsk] = useState(false)
+  const [browsing, setBrowsing] = useState(false)
+
+  const recentIds = getRecentIds('folder')
+  const byId = new Map(FOLDER_OPTIONS.map((f) => [f.id, f]))
+  const recent = recentIds.map((id) => byId.get(id)).filter(Boolean) as FolderOption[]
+  const rest = FOLDER_OPTIONS.filter((f) => !recentIds.includes(f.id))
 
   // Attach the folder as a workspace, tagging its artifacts with the folder as
-  // their source so the one shared workspace can group by folder.
+  // their source so the one shared workspace can group by folder. Promotes the
+  // folder into recents — this runs on every path that actually attaches.
   const attachFolder = (f: FolderOption) => {
+    pushRecent('folder', f.id)
     const source = { id: f.id, label: `${basename(f.label)}/` }
     onAttach({
       kind: 'folder',
@@ -566,17 +936,42 @@ function FolderPicker({
   }
 
   return (
-    <Section label="Recent folders">
-      {FOLDER_OPTIONS.map((f) => (
-        <OptionRow
-          key={f.id}
-          icon={<FolderOpen size={16} />}
-          label={f.label}
-          meta={`${f.meta}${f.repo ? ' · git repo' : ''}`}
-          onClick={() => select(f)}
+    <>
+      <Section label="Recent folders">
+        {recent.map((f) => (
+          <OptionRow
+            key={f.id}
+            icon={<FolderOpen size={16} />}
+            label={f.label}
+            meta={`${f.meta}${f.repo ? ' · git repo' : ''}`}
+            onClick={() => select(f)}
+          />
+        ))}
+        <BrowseRow label="Browse folders…" onClick={() => setBrowsing(true)} />
+      </Section>
+      {browsing && (
+        <BrowseDialog
+          title="Open Folder"
+          location={['~', 'Folders']}
+          groups={[
+            {
+              items: rest.map((f) => ({
+                id: f.id,
+                name: basename(f.label),
+                meta: `${f.meta}${f.repo ? ' · git repo' : ''}`,
+                icon: <FolderOpen size={15} />,
+              })),
+            },
+          ]}
+          onCancel={() => setBrowsing(false)}
+          onConfirm={(id) => {
+            setBrowsing(false)
+            const f = byId.get(id)
+            if (f) select(f)
+          }}
         />
-      ))}
-    </Section>
+      )}
+    </>
   )
 }
 

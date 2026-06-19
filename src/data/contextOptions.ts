@@ -158,6 +158,28 @@ export const FOLDER_OPTIONS: {
     ],
     repo: { branch: 'main', remote: 'acme/marketing-site', ...marketingRepoCode },
   },
+  // Plain (non-git) folders — these only surface via "Browse…", so the recents
+  // list stays short and the explorer has somewhere new to go.
+  {
+    id: 'f4',
+    label: '~/Desktop/research-notes',
+    meta: '17 files · edited 5d ago',
+    artifacts: [
+      { id: 'f4-lit', name: 'literature-review.md', kind: 'doc', meta: 'Markdown · 5.2 KB' },
+      { id: 'f4-survey', name: 'survey-results.csv', kind: 'sheet', meta: 'CSV · 31 KB' },
+      { id: 'f4-deck', name: 'findings-deck.key', kind: 'slide', meta: 'Keynote · 8.1 MB' },
+    ],
+  },
+  {
+    id: 'f5',
+    label: '~/Documents/q3-budget',
+    meta: '6 files · edited 1w ago',
+    artifacts: [
+      { id: 'f5-model', name: 'budget-model.xlsx', kind: 'sheet', meta: 'Excel · 88 KB' },
+      { id: 'f5-memo', name: 'finance-memo.md', kind: 'doc', meta: 'Markdown · 2.0 KB' },
+      { id: 'f5-fwd', name: 'cfo-forward.eml', kind: 'email', meta: 'Email · 1.3 KB' },
+    ],
+  },
 ]
 
 /** GitHub repos — attached by their remote `owner/name`. These always have a
@@ -231,6 +253,8 @@ export const CONNECTOR_OPTIONS: { id: string; label: string; kind?: Connector['k
   { id: 'slack', label: 'Slack' },
   { id: 'notion', label: 'Notion' },
   { id: 'linear', label: 'Linear' },
+  { id: 'jira', label: 'Jira' },
+  { id: 'gcal', label: 'Google Calendar' },
   // Same identity (id + kind) as the repo's GitHub connector, so attaching a
   // repo and the GitHub connector dedup to a single chip instead of two.
   { id: 'gh-mcp', label: 'GitHub', kind: 'github' },
@@ -241,12 +265,16 @@ export const MCP_OPTIONS = [
   { id: 'github', label: 'github', meta: 'Issues, PRs, code search' },
   { id: 'postgres', label: 'postgres', meta: 'Query a Postgres database' },
   { id: 'puppeteer', label: 'puppeteer', meta: 'Headless browser automation' },
+  { id: 'sqlite', label: 'sqlite', meta: 'Query a local SQLite file' },
 ]
 
 export const FILE_OPTIONS = [
   { id: 'doc1', label: 'Q3-roadmap.pdf', meta: 'PDF · 320 KB' },
   { id: 'doc2', label: 'metrics.csv', meta: 'CSV · 18 KB' },
   { id: 'doc3', label: 'notes.md', meta: 'Markdown · 4 KB' },
+  { id: 'doc4', label: 'design-doc.pdf', meta: 'PDF · 1.2 MB' },
+  { id: 'doc5', label: 'budget.xlsx', meta: 'Excel · 44 KB' },
+  { id: 'doc6', label: 'changelog.md', meta: 'Markdown · 7 KB' },
 ]
 
 export const PHOTO_OPTIONS = [
@@ -254,4 +282,23 @@ export const PHOTO_OPTIONS = [
   { id: 'p2', label: 'mockup.png' },
   { id: 'p3', label: 'chart.png' },
   { id: 'p4', label: 'logo.png' },
+  { id: 'p5', label: 'wireframe.png' },
+  { id: 'p6', label: 'hero-banner.png' },
 ]
+
+/** The "Add context" types, in the order they appear in the picker. The recents
+ *  store (lib/recents.ts) is keyed by these. */
+export type ContextTypeId = 'files' | 'photos' | 'folder' | 'repo' | 'connector' | 'mcp'
+
+/** What each type's "Recent" list shows before the user has picked anything —
+ *  the first few catalog ids. Items outside this seed are reachable via the
+ *  "Browse…" explorer, which then promotes them into recents (LRU). Repo mixes
+ *  local + GitHub ids so both origins show in one list. */
+export const DEFAULT_RECENT_IDS: Record<ContextTypeId, string[]> = {
+  files: ['doc1', 'doc2', 'doc3'],
+  photos: ['p1', 'p2', 'p3'],
+  folder: ['f1', 'f2', 'f3'],
+  repo: ['lr-insights', 'gh-proposal', 'lr-scripts'],
+  connector: ['gdrive', 'slack', 'notion'],
+  mcp: ['filesystem', 'github', 'postgres'],
+}
