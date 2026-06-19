@@ -9,12 +9,11 @@ export function Sidebar({
   conversations,
   activeId,
   activeSection,
-  query,
-  onQuery,
   onSelect,
   onNewTask,
   onOpenSection,
   onToggleCollapse,
+  onOpenSearch,
   onResizeStart,
   onResize,
   onResizeEnd,
@@ -22,34 +21,29 @@ export function Sidebar({
   conversations: Conversation[]
   activeId: string
   activeSection: SectionId | null
-  query: string
-  onQuery: (q: string) => void
   onSelect: (id: string) => void
   onNewTask: () => void
   onOpenSection: (s: SectionId) => void
   /** Collapse the rail (its own toggle, top-left). Re-opening is handled by a
    *  floating control in the parent, since this one hides with the rail. */
   onToggleCollapse: () => void
+  /** Open the floating search palette (the rail keeps only an icon). */
+  onOpenSearch: () => void
   /** Drag-to-resize wiring; the parent owns the width and clamps it. */
   onResizeStart: () => void
   onResize: (clientX: number) => void
   onResizeEnd: () => void
 }) {
-  const q = query.trim().toLowerCase()
-  const filtered = q
-    ? conversations.filter(
-        (c) => c.title.toLowerCase().includes(q) || c.preview.toLowerCase().includes(q),
-      )
-    : conversations
   const inConversation = activeSection === null
   const scheduledPinned = SCHEDULED_TASKS.filter((t) => t.enabled)
 
   return (
     <aside className="relative flex h-full w-full shrink-0 flex-col border-r border-line bg-sidebar">
       <ResizeHandle side="right" onStart={onResizeStart} onMove={onResize} onEnd={onResizeEnd} />
-      {/* Rail header — the collapse toggle sits at the top-left, the way the
-          real app does (there is no separate product top bar above it). */}
-      <div className="flex items-center px-2.5 pt-2.5">
+      {/* Rail header — the collapse toggle sits at the top-left, with a search
+          icon beside it; both on one line (no separate product top bar). Search
+          opens a floating palette rather than filtering inline. */}
+      <div className="flex items-center gap-1 px-2 pt-2.5">
         <button
           onClick={onToggleCollapse}
           title="Collapse sidebar"
@@ -58,24 +52,18 @@ export function Sidebar({
         >
           <PanelLeftClose size={18} />
         </button>
-      </div>
-      <div className="px-3 pt-2">
-        <div className="relative">
-          <Search
-            size={15}
-            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-faint"
-          />
-          <input
-            value={query}
-            onChange={(e) => onQuery(e.target.value)}
-            placeholder="Search all work…"
-            className="w-full rounded-lg border border-line bg-surface/70 py-1.5 pl-8 pr-2 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-accent"
-          />
-        </div>
+        <button
+          onClick={onOpenSearch}
+          title="Search  (⌘K)"
+          aria-label="Search"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-soft transition hover:bg-surface hover:text-ink"
+        >
+          <Search size={18} />
+        </button>
       </div>
 
       {/* Nav: a new task plus the cross-cutting tools. */}
-      <nav className="mt-2 px-2">
+      <nav className="mt-3 px-2">
         <NavRow icon={<Plus size={16} />} label="New task" onClick={onNewTask} />
         {SECTION_ORDER.map((id) => {
           const { label, Icon, beta } = SECTION_META[id]
@@ -124,7 +112,7 @@ export function Sidebar({
           </button>
         </div>
 
-        {filtered.map((c) => {
+        {conversations.map((c) => {
           const active = inConversation && c.id === activeId
           return (
             <button
@@ -140,9 +128,6 @@ export function Sidebar({
             </button>
           )
         })}
-        {filtered.length === 0 && (
-          <p className="px-2 py-6 text-center text-sm text-ink-faint">No matches.</p>
-        )}
       </div>
 
       <div className="border-t border-line px-3 py-2.5">

@@ -11,6 +11,7 @@ import { AttachmentPanel } from './components/AttachmentPanel'
 import { ConnectorPanel } from './components/ConnectorPanel'
 import { IntroOverlay } from './components/IntroOverlay'
 import { ProposalBar } from './components/ProposalBar'
+import { SearchPanel } from './components/SearchPanel'
 import { CONVERSATIONS, DEMO_CONVERSATION_ID } from './data/conversations'
 import { DEMO_STEPS } from './data/demo'
 import { sameFocus } from './lib/focus'
@@ -127,7 +128,7 @@ function liveFromConversation(conv: Conversation): Live {
 
 export default function App() {
   const [activeId, setActiveId] = useState(DEMO_CONVERSATION_ID)
-  const [query, setQuery] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
   const [showIntro, setShowIntro] = useState(true)
   const [live, setLive] = useState<Live>(EMPTY_DEMO)
   const [typing, setTyping] = useState(false)
@@ -143,6 +144,18 @@ export default function App() {
   const leftWRef = useRef(leftW)
   leftWRef.current = leftW
   useEffect(() => setLayout('leftOpen', leftOpen), [leftOpen])
+
+  // ⌘K / Ctrl+K opens the search palette from anywhere.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setSearchOpen(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   // Guided-tour state (only meaningful for the demo conversation).
   const [phase, setPhase] = useState<TourPhase>('idle')
@@ -486,12 +499,11 @@ export default function App() {
               conversations={CONVERSATIONS}
               activeId={activeId}
               activeSection={activeSection}
-              query={query}
-              onQuery={setQuery}
               onSelect={selectConversation}
               onNewTask={newTask}
               onOpenSection={openSection}
               onToggleCollapse={() => setLeftOpen((o) => !o)}
+              onOpenSearch={() => setSearchOpen(true)}
               onResizeStart={() => setLeftDragging(true)}
               onResize={(clientX) => setLeftW(clamp(clientX, LEFT_MIN, LEFT_MAX))}
               onResizeEnd={() => {
@@ -593,6 +605,15 @@ export default function App() {
         </main>
         </div>
       </div>
+
+      {searchOpen && (
+        <SearchPanel
+          conversations={CONVERSATIONS}
+          onSelectConversation={selectConversation}
+          onOpenSection={openSection}
+          onClose={() => setSearchOpen(false)}
+        />
+      )}
 
       {/* Rendered without AnimatePresence: framer-motion 11 + React 19 can leave
           an exited overlay in the DOM (an invisible, click-blocking backdrop).
