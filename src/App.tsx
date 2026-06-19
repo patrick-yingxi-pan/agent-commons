@@ -139,12 +139,13 @@ export default function App() {
                 section={activeSection}
                 onOpenSession={selectSession}
                 onNewSession={newSession}
+                railCollapsed={!leftOpen}
               />
             ) : (
               <>
                 {!isDemo && !isDraft && (
                   <div
-                    className={`flex items-center gap-3 border-b border-line bg-canvas/80 py-2 pr-4 ${
+                    className={`flex min-h-[52px] items-center gap-3 border-b border-line bg-canvas/80 py-2 pr-4 ${
                       leftOpen ? 'pl-4' : 'pl-14'
                     }`}
                   >
@@ -160,7 +161,7 @@ export default function App() {
                       {live.messages.length === 0 && !typing ? (
                         <EmptyState mode={isDemo ? 'demo' : isDraft ? 'draft' : 'empty'} />
                       ) : (
-                        <div className="py-4">
+                        <div className={!leftOpen && (isDemo || isDraft) ? 'pb-4 pt-14' : 'py-4'}>
                           {live.messages.map((m) => (
                             <MessageRow key={m.id} message={m} />
                           ))}

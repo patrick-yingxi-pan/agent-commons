@@ -39,15 +39,27 @@ export function SectionView({
   section,
   onOpenSession,
   onNewSession,
+  railCollapsed = false,
 }: {
   section: SectionId
   onOpenSession: (id: string) => void
   onNewSession: () => void
+  /** When the left rail is collapsed, a floating expand toggle sits in the
+   *  top-left of this panel; inset the content so it clears that button rather
+   *  than rendering underneath it. */
+  railCollapsed?: boolean
 }) {
-  if (section === 'projects')
-    return <ProjectsSection onOpenSession={onOpenSession} onNewSession={onNewSession} />
-  if (section === 'artifacts') return <ArtifactsSection />
-  return <GenericSection section={section} />
+  const body =
+    section === 'projects' ? (
+      <ProjectsSection onOpenSession={onOpenSession} onNewSession={onNewSession} />
+    ) : section === 'artifacts' ? (
+      <ArtifactsSection />
+    ) : (
+      <GenericSection section={section} />
+    )
+  return (
+    <div className={`flex min-h-0 flex-1 flex-col ${railCollapsed ? 'pl-8' : ''}`}>{body}</div>
+  )
 }
 
 /* ─────────────────────────── Projects ─────────────────────────── */
