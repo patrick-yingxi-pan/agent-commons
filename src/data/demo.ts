@@ -36,23 +36,45 @@ export const DEMO_STEPS: DemoStep[] = [
   {
     id: 'step-workspace',
     caption:
-      'The same thread grows a workspace. In today’s app this is where you’d stop, switch to the Cowork tab, and re-explain everything from scratch.',
+      'The same thread grows a workspace — drafts plus the folders it pulled in, grouped by source; resize or close it like any panel. In today’s app you’d stop, switch to the Cowork tab, and re-explain from scratch.',
     user: {
       id: 'u2',
       role: 'user',
-      content: 'Yes — turn that into a one-pager and a launch email, plus a hero image.',
+      content:
+        'Yes — turn that into a one-pager and a launch email, plus a hero image. Pull from our brand kit and the last launch’s assets so it stays on-brand.',
     },
     assistant: {
       id: 'a2',
       role: 'assistant',
       escalate: 'workspace',
       content:
-        "Opening a workspace so the drafts stay together. First pass is on the right — the one-pager reuses the value prop above, and the email is written for admins.",
+        "Opening a workspace and pulling in `brand-kit/` and `launch-assets/` for reference. First pass is on the right, grouped by source — the one-pager reuses the value prop above, the email is written for admins, and the hero is built from the brand kit.",
     },
     artifacts: [
       { id: 'art-onepager', name: 'insights-onepager.md', kind: 'doc', meta: 'draft · 1 page' },
       { id: 'art-email', name: 'launch-email.md', kind: 'email', meta: 'draft · to: admins' },
       { id: 'art-hero', name: 'insights-hero.png', kind: 'image', meta: '1600×900 · generated' },
+      {
+        id: 'art-voice-guide',
+        name: 'voice-guide.md',
+        kind: 'doc',
+        meta: 'reference',
+        source: { id: 'src-brand-kit', label: 'brand-kit/' },
+      },
+      {
+        id: 'art-wordmark',
+        name: 'wordmark-lockups.png',
+        kind: 'image',
+        meta: 'reference',
+        source: { id: 'src-brand-kit', label: 'brand-kit/' },
+      },
+      {
+        id: 'art-q1-email',
+        name: 'q1-launch-email.md',
+        kind: 'email',
+        meta: 'reused',
+        source: { id: 'src-launch-assets', label: 'launch-assets/' },
+      },
     ],
   },
   {
