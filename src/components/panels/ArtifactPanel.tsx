@@ -52,19 +52,20 @@ export function ArtifactPanel({
       return next
     })
 
-  // Group artifacts by their source folder. Artifacts with no source (a
-  // conversation's own seeded/demo outputs) fall under one default group labelled
-  // with the workspace name. Subheaders only appear once ≥2 folders contribute,
-  // so the common single-source case looks exactly as before.
+  // Group artifacts by their source folder. Artifacts with no source (the
+  // session's own seeded/demo outputs) fall under one default group labelled
+  // "This session", to set it apart from the attached source folders rather than
+  // read as a folder named after the workspace. Folder subheaders appear once any
+  // folder contributes; a purely sourceless workspace stays a flat list.
   const groups = useMemo(() => {
     const m = new Map<string, { id: string; label: string; items: Artifact[] }>()
     for (const a of artifacts) {
       const key = a.source?.id ?? '__default'
-      if (!m.has(key)) m.set(key, { id: key, label: a.source?.label ?? workspaceName, items: [] })
+      if (!m.has(key)) m.set(key, { id: key, label: a.source?.label ?? 'This session', items: [] })
       m.get(key)!.items.push(a)
     }
     return [...m.values()]
-  }, [artifacts, workspaceName])
+  }, [artifacts])
   // Show foldable folder headers once any folder has contributed; the pure
   // seeded/default workspace (no sourced artifacts) stays a flat list.
   const showGroups = artifacts.some((a) => a.source)
@@ -140,6 +141,10 @@ export function ArtifactPanel({
                       </button>
                     )}
                   </div>
+                  {/* Folder-scoped confirm, inline in the list. Intentionally
+                      simpler than the composer chips' shared RemoveConfirm (no
+                      cascade, no "don't ask again") — it removes a workspace
+                      folder, not a conversation-level context. */}
                   {confirming && (
                     <div className="mb-1 flex items-center gap-2 rounded-md bg-panel-2/60 px-2 py-1.5">
                       <span className="min-w-0 flex-1 text-[11px] leading-snug text-ink-soft">

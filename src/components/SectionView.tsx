@@ -55,9 +55,12 @@ export function SectionView({
 }) {
   const body =
     section === 'projects' ? (
-      // Key on the deep-link target so re-entering the section (a session's
-      // breadcrumb, or the rail's Projects item) remounts at the right level —
-      // the focused project, or the list — instead of keeping a stale openId.
+      // Key on the deep-link target (focusProjectId). The "In ‹Project›"
+      // breadcrumb sets it and remounts straight into that project's detail;
+      // clicking the rail's Projects item clears it, so coming back to the rail
+      // from a breadcrumb remounts to the list rather than the deep-linked
+      // project. (A drill-down opened by clicking a card is local to the section
+      // and stays put.)
       <ProjectsSection
         key={initialProjectId ?? 'projects-list'}
         onOpenSession={onOpenSession}

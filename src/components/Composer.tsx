@@ -71,6 +71,7 @@ export function Composer({
   onAddContext,
   onOpenContext,
   onRemoveContexts,
+  onRemoveFolder,
 }: {
   workspaces: Workspace[]
   repos: Repo[]
@@ -84,6 +85,9 @@ export function Composer({
   onOpenContext: (focus: PanelFocus) => void
   /** Removes one or more contexts at once (a cascade may remove two). */
   onRemoveContexts: (focuses: PanelFocus[]) => void
+  /** Removes a single source folder from the shared workspace — used by the
+   *  one-folder workspace chip's ✕ so it matches the panel's per-folder delete. */
+  onRemoveFolder?: (sourceId: string) => void
 }) {
   const [value, setValue] = useState('')
   const ref = useRef<HTMLTextAreaElement>(null)
@@ -240,13 +244,16 @@ export function Composer({
       tone="workspace"
       active={sameFocus(focus, { kind: 'workspace', id: workspace.id })}
       count={workspaceFolders.length}
+      hint={`${workspaceFolders.length} source folders`}
       onClick={() => onOpenContext({ kind: 'workspace', id: workspace.id })}
     >
       {workspace.label}
     </Chip>
   ) : (
-    // 0–1 folder reuses the generic single-item chip — its hover ✕ removes the
-    // whole workspace, and a lone folder shows its own name rather than "Workspace".
+    // 0–1 folder reuses the generic single-item chip. With one folder the chip
+    // shows that folder's name and its ✕ removes just that folder (matching the
+    // panel's per-folder delete); with none, the chip is the workspace itself
+    // and its ✕ removes the whole workspace.
     <ChipGroup
       key="workspaces"
       group={{
@@ -265,7 +272,11 @@ export function Composer({
       }}
       focus={focus}
       onOpen={onOpenContext}
-      onRemove={onRemoveContexts}
+      onRemove={
+        workspaceFolders[0] && onRemoveFolder
+          ? () => onRemoveFolder(workspaceFolders[0].id)
+          : onRemoveContexts
+      }
       skipConfirm={!!skipConfirm['workspaces']}
       onSkipConfirm={(v) => setTypeSkip('workspaces', v)}
     />
@@ -683,6 +694,7 @@ function Chip({
   count,
   expandable,
   open,
+  hint,
   onClick,
   children,
 }: {
@@ -692,6 +704,9 @@ function Chip({
   count?: number
   expandable?: boolean
   open?: boolean
+  /** Overrides the default hover tooltip — used to clarify what a bare count
+   *  means (e.g. the workspace chip counts folders, not items). */
+  hint?: string
   onClick: () => void
   children: ReactNode
 }) {
@@ -701,7 +716,7 @@ function Chip({
   return (
     <button
       onClick={onClick}
-      title={expandable ? `${children} (${count})` : 'Open in sidebar'}
+      title={hint ?? (expandable ? `${children} (${count})` : 'Open in sidebar')}
       aria-haspopup={expandable ? 'menu' : undefined}
       aria-expanded={expandable ? open : undefined}
       className={`inline-flex max-w-[220px] items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition ${toneClass} ${

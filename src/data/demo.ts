@@ -48,7 +48,7 @@ export const DEMO_STEPS: DemoStep[] = [
       role: 'assistant',
       escalate: 'workspace',
       content:
-        "Opening a workspace and pulling in `brand-kit/` and `launch-assets/` for reference. First pass is on the right, grouped by source — the one-pager reuses the value prop above, the email is written for admins, and the hero is built from the brand kit.",
+        "Opening a workspace and pulling in `brand-kit/` and `launch-assets/` for reference. First pass is on the right, grouped by source — the one-pager reuses the value prop above, the email is written for admins, and the hero picks up the brand-kit palette.",
     },
     artifacts: [
       { id: 'art-onepager', name: 'insights-onepager.md', kind: 'doc', meta: 'draft · 1 page' },

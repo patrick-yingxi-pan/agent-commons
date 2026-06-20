@@ -203,6 +203,7 @@ export default function App() {
                       onAddContext={handleAddContext}
                       onOpenContext={focusContext}
                       onRemoveContexts={removeContexts}
+                      onRemoveFolder={removeFolder}
                     />
                   </section>
 
