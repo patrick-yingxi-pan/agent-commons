@@ -44,6 +44,18 @@ function loadSkipConfirm(): Record<string, boolean> {
   }
 }
 
+/** The distinct source folders contributing to a workspace, in first-seen
+ *  order. A workspace's artifacts are tagged with the folder they came from;
+ *  seeded/demo outputs carry no source, so such a workspace has zero folders. */
+function workspaceFoldersOf(workspace: Workspace | undefined): { id: string; label: string }[] {
+  if (!workspace) return []
+  const seen = new Map<string, { id: string; label: string }>()
+  for (const a of workspace.artifacts) {
+    if (a.source && !seen.has(a.source.id)) seen.set(a.source.id, { id: a.source.id, label: a.source.label })
+  }
+  return [...seen.values()]
+}
+
 /** The single composer for every conversation. The chips above it show what
  *  context is *attached* to the thread — the thing that, in today's app, is
  *  instead encoded by which tab you opened. Every chip is clickable and opens
@@ -109,20 +121,6 @@ export function Composer({
   const remoteRepos = repos.filter((r) => r.remote)
 
   const groups: ChipGroupModel[] = []
-  if (workspaces.length) {
-    groups.push({
-      key: 'workspaces',
-      label: 'Workspaces',
-      tone: 'workspace',
-      icon: <PanelsTopLeft size={12} />,
-      items: workspaces.map((w) => ({
-        key: w.id,
-        label: w.label,
-        icon: <PanelsTopLeft size={12} />,
-        focus: { kind: 'workspace', id: w.id },
-      })),
-    })
-  }
   if (repos.length) {
     groups.push({
       key: 'repos',
@@ -228,7 +226,52 @@ export function Composer({
       })),
     })
   }
-  const hasChips = groups.length > 0
+  // The workspace chip is special: the model keeps one shared workspace, and its
+  // "items" are the distinct source folders inside it. So it renders by folder
+  // count — a single removable chip at 0–1 folder, a counted chip at ≥2 (whose
+  // folders are managed in the panel) — rather than going through the generic
+  // group machinery like the other context types.
+  const workspace = workspaces[0]
+  const workspaceFolders = workspaceFoldersOf(workspace)
+  const workspaceNode = !workspace ? null : workspaceFolders.length >= 2 ? (
+    <Chip
+      key="workspaces"
+      icon={<PanelsTopLeft size={12} />}
+      tone="workspace"
+      active={sameFocus(focus, { kind: 'workspace', id: workspace.id })}
+      count={workspaceFolders.length}
+      onClick={() => onOpenContext({ kind: 'workspace', id: workspace.id })}
+    >
+      {workspace.label}
+    </Chip>
+  ) : (
+    // 0–1 folder reuses the generic single-item chip — its hover ✕ removes the
+    // whole workspace, and a lone folder shows its own name rather than "Workspace".
+    <ChipGroup
+      key="workspaces"
+      group={{
+        key: 'workspaces',
+        label: 'Workspace',
+        tone: 'workspace',
+        icon: <PanelsTopLeft size={12} />,
+        items: [
+          {
+            key: workspace.id,
+            label: workspaceFolders[0]?.label ?? workspace.label,
+            icon: <PanelsTopLeft size={12} />,
+            focus: { kind: 'workspace', id: workspace.id },
+          },
+        ],
+      }}
+      focus={focus}
+      onOpen={onOpenContext}
+      onRemove={onRemoveContexts}
+      skipConfirm={!!skipConfirm['workspaces']}
+      onSkipConfirm={(v) => setTypeSkip('workspaces', v)}
+    />
+  )
+
+  const hasChips = !!workspaceNode || groups.length > 0
 
   const submit = () => {
     const t = value.trim()
@@ -246,6 +289,7 @@ export function Composer({
             item opens that context's sidebar. */}
         {hasChips && (
           <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+            {workspaceNode}
             {groups.map((g) => (
               <ChipGroup
                 key={g.key}

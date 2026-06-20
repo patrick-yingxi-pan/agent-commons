@@ -313,6 +313,19 @@ export function useSessionWorkspace() {
     setLive((l) => ({ ...l, attachments: l.attachments.filter((a) => a.id !== id) }))
   }, [])
 
+  // Remove a single source folder from the shared workspace: drop the artifacts
+  // it contributed, and drop the workspace itself if that empties it (the
+  // valid-focus effect below then closes the panel). Seeded/default artifacts
+  // (no source) are never touched, so a workspace that still holds them stays.
+  const removeFolder = useCallback((sourceId: string) => {
+    setLive((l) => ({
+      ...l,
+      workspaces: l.workspaces
+        .map((w) => ({ ...w, artifacts: w.artifacts.filter((a) => a.source?.id !== sourceId) }))
+        .filter((w) => w.artifacts.length > 0),
+    }))
+  }, [])
+
   // Remove one or more attached contexts in a single update. The chip remove
   // flow passes several at once when a removal cascades (a repo + its orphaned
   // GitHub connector, or the connector + the repos that depend on it); the
@@ -389,6 +402,7 @@ export function useSessionWorkspace() {
     focusContext,
     removeContexts,
     removeAttachment,
+    removeFolder,
     closePanel,
     startTour,
     nextStep,

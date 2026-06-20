@@ -53,6 +53,7 @@ export default function App() {
     focusContext,
     removeContexts,
     removeAttachment,
+    removeFolder,
     closePanel,
     startTour,
     nextStep,
@@ -216,6 +217,7 @@ export default function App() {
                         workspace={focusedWorkspace}
                         repo={focusedRepo}
                         onClose={closePanel}
+                        onRemoveFolder={removeFolder}
                       />
                     )}
                   </AnimatePresence>

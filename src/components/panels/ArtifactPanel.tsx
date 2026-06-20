@@ -13,9 +13,13 @@ const KIND_ICON: Record<ArtifactKind, typeof FileText> = {
 export function ArtifactPanel({
   artifacts,
   workspaceName,
+  onRemoveFolder,
 }: {
   artifacts: Artifact[]
   workspaceName: string
+  /** Remove a whole source folder from the workspace (the per-folder ✕). When
+   *  absent, folder headers show no remove control. */
+  onRemoveFolder?: (sourceId: string) => void
 }) {
   const [selectedId, setSelectedId] = useState(artifacts[0]?.id)
   // Whether the bottom preview pane is showing. Closing it hands the list the
@@ -23,6 +27,8 @@ export function ArtifactPanel({
   const [previewOpen, setPreviewOpen] = useState(true)
   // Folder groups the user has folded shut, keyed by group id.
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
+  // The folder group awaiting a remove confirmation (null = none).
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null)
 
   // Keep the selection valid as the workspace fills in during the demo.
   useEffect(() => {
@@ -101,23 +107,63 @@ export function ArtifactPanel({
         {showGroups
           ? groups.map((g) => {
               const isCollapsed = collapsed.has(g.id)
+              // The default group holds the conversation's own (sourceless)
+              // outputs — not a folder, so it has no per-folder remove.
+              const canRemove = g.id !== '__default' && !!onRemoveFolder
+              const confirming = confirmRemoveId === g.id
               return (
                 <div key={g.id} className="mb-1.5">
-                  <button
-                    onClick={() => toggleGroup(g.id)}
-                    aria-expanded={!isCollapsed}
-                    className="mb-0.5 flex w-full items-center gap-1 rounded-md px-1.5 py-1 text-left transition hover:bg-surface/60"
-                  >
-                    {isCollapsed ? (
-                      <ChevronRight size={12} className="shrink-0 text-ink-faint" />
-                    ) : (
-                      <ChevronDown size={12} className="shrink-0 text-ink-faint" />
+                  <div className="group/fold mb-0.5 flex items-center gap-1 rounded-md px-1.5 py-1 transition hover:bg-surface/60">
+                    <button
+                      onClick={() => toggleGroup(g.id)}
+                      aria-expanded={!isCollapsed}
+                      className="flex min-w-0 flex-1 items-center gap-1 text-left"
+                    >
+                      {isCollapsed ? (
+                        <ChevronRight size={12} className="shrink-0 text-ink-faint" />
+                      ) : (
+                        <ChevronDown size={12} className="shrink-0 text-ink-faint" />
+                      )}
+                      <span className="min-w-0 flex-1 truncate text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
+                        {g.label}
+                      </span>
+                      <span className="shrink-0 text-[10px] font-medium text-ink-faint">{g.items.length}</span>
+                    </button>
+                    {canRemove && !confirming && (
+                      <button
+                        onClick={() => setConfirmRemoveId(g.id)}
+                        title="Remove folder from workspace"
+                        aria-label={`Remove ${g.label} from the workspace`}
+                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint opacity-0 transition hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 group-hover/fold:opacity-100"
+                      >
+                        <X size={12} />
+                      </button>
                     )}
-                    <span className="min-w-0 flex-1 truncate text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
-                      {g.label}
-                    </span>
-                    <span className="shrink-0 text-[10px] font-medium text-ink-faint">{g.items.length}</span>
-                  </button>
+                  </div>
+                  {confirming && (
+                    <div className="mb-1 flex items-center gap-2 rounded-md bg-panel-2/60 px-2 py-1.5">
+                      <span className="min-w-0 flex-1 text-[11px] leading-snug text-ink-soft">
+                        Remove this folder from the workspace?
+                      </span>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button
+                          onClick={() => setConfirmRemoveId(null)}
+                          className="rounded px-1.5 py-0.5 text-[11px] font-medium text-ink-soft transition hover:bg-panel-2"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => {
+                            onRemoveFolder?.(g.id)
+                            setConfirmRemoveId(null)
+                          }}
+                          className="rounded bg-removed px-1.5 py-0.5 text-[11px] font-medium text-white transition hover:brightness-95"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   {!isCollapsed && g.items.map(renderRow)}
                 </div>
               )

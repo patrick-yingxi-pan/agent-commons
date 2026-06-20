@@ -24,11 +24,15 @@ export function WorkspacePanel({
   workspace,
   repo,
   onClose,
+  onRemoveFolder,
 }: {
   mode: 'workspace' | 'repo'
   workspace?: Workspace
   repo?: Repo
   onClose: () => void
+  /** Remove one source folder from the workspace (per-folder ✕ in the artifact
+   *  list). Absent in repo mode. */
+  onRemoveFolder?: (sourceId: string) => void
 }) {
   // The repo header shows its own origin — a local path and/or a GitHub remote.
   const originBadges =
@@ -66,6 +70,7 @@ export function WorkspacePanel({
             <ArtifactPanel
               artifacts={workspace?.artifacts ?? []}
               workspaceName={workspace?.label ?? 'Workspace'}
+              onRemoveFolder={onRemoveFolder}
             />
           )}
         </div>
