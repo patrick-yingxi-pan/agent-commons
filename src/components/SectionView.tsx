@@ -3,28 +3,45 @@ import { createPortal } from 'react-dom'
 import {
   AlertCircle,
   ArrowLeft,
+  BarChart3,
+  Bell,
+  Bug,
   Check,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   Clock,
+  Copy,
   FileText,
   Folder,
   FolderGit2,
   GitBranch,
   Github,
+  Globe,
   Loader2,
+  Mail,
   MessageSquare,
+  MinusCircle,
+  PauseCircle,
+  Play,
+  PlayCircle,
   Plug,
   Plus,
   Search,
+  SendHorizontal,
   Server,
+  Sparkles,
+  SquareKanban,
   Trash2,
   Unplug,
+  type LucideIcon,
 } from 'lucide-react'
 import type { Connector, Session, SectionId } from '../types'
 import { SECTION_META } from '../lib/sections'
 import { connectorIconFor } from '../lib/connectors'
+import { CHIP_TONES, type ChipTone } from '../lib/capabilities'
 import { ConnectorDetailBody } from './ConnectorPanel'
+import { ClaudeMark } from './ClaudeMark'
 import { SAVED_CONTEXTS, type SavedContext, type SavedContextKind } from '../data/savedContexts'
 import {
   CONNECTOR_OPTIONS,
@@ -38,11 +55,16 @@ import {
   DISPATCH_RUNS,
   PROJECTS,
   SCHEDULED_TASKS,
+  SCHEDULE_TEMPLATES,
   type ArtifactItem,
   type DispatchRun,
   type Project,
   type ProjectContext,
+  type ScheduledRun,
   type ScheduledTask,
+  type ScheduleTemplate,
+  type StepTool,
+  type StepToolTone,
 } from '../data/cowork'
 import { ArtifactThumb, ArtifactViewer, KIND_ICON } from './artifactPreview'
 
@@ -86,6 +108,8 @@ export function SectionView({
       <ArtifactsSection />
     ) : section === 'contexts' ? (
       <ContextsSection />
+    ) : section === 'scheduled' ? (
+      <ScheduledSection />
     ) : (
       <GenericSection section={section} />
     )
@@ -1026,8 +1050,15 @@ function RepoDetailBody({ ctx }: { ctx: SavedContext }) {
   )
 }
 
-function StatusPill({ tone, label }: { tone: 'ok' | 'warn' | 'neutral'; label: string }) {
-  const dot = tone === 'ok' ? 'bg-emerald-500' : tone === 'warn' ? 'bg-amber-500' : 'bg-line-strong'
+function StatusPill({ tone, label }: { tone: 'ok' | 'warn' | 'bad' | 'neutral'; label: string }) {
+  const dot =
+    tone === 'ok'
+      ? 'bg-emerald-500'
+      : tone === 'warn'
+        ? 'bg-amber-500'
+        : tone === 'bad'
+          ? 'bg-red-500'
+          : 'bg-line-strong'
   return (
     <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-line px-2 py-0.5 text-[11px] font-medium text-ink-soft">
       <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
@@ -1057,12 +1088,11 @@ function GenericSection({ section }: { section: SectionId }) {
           </div>
           {section !== 'customize' && (
             <PrimaryButton icon={<Plus size={15} />}>
-              {section === 'scheduled' ? 'New schedule' : section === 'dispatch' ? 'New dispatch' : 'Upload'}
+              {section === 'dispatch' ? 'New dispatch' : 'Upload'}
             </PrimaryButton>
           )}
         </header>
 
-        {section === 'scheduled' && <ScheduledView />}
         {section === 'dispatch' && <DispatchView />}
         {section === 'customize' && <CustomizeView />}
       </div>
@@ -1070,29 +1100,862 @@ function GenericSection({ section }: { section: SectionId }) {
   )
 }
 
-function ScheduledView() {
+/* ─────────────────────────── Scheduled ───────────────────────────
+   A scheduled task is a recurring agentic workflow: on a cadence Claude runs an
+   ordered sequence of tool-bearing steps and delivers the result. The list drills
+   into a detail page whose hero is the workflow rail — and selecting a past run
+   re-lights that rail to show exactly how far the run got. */
+
+/** Per-tool glyph for step chips, the row mini-pipeline, and delivery nodes.
+ *  connectorIconFor only knows Github/Plug/Server, so scheduled tools carry their
+ *  own (brand-ish) lucide marks; an unknown id falls back to a plug. */
+const STEP_TOOL_ICON: Record<string, LucideIcon> = {
+  web: Globe,
+  claude: Sparkles,
+  session: MessageSquare,
+  linear: SquareKanban,
+  slack: MessageSquare,
+  github: Github,
+  gmail: Mail,
+  gdrive: FileText,
+  notion: FileText,
+  amplitude: BarChart3,
+  sentry: Bug,
+}
+function stepToolIcon(id: string): LucideIcon {
+  return STEP_TOOL_ICON[id] ?? Plug
+}
+
+/** Chip tint + text color for a step tool's tone. connector/mcp/repo/workspace use
+ *  the shared capability palette; 'web' (a built-in tool) and 'claude' (a pure
+ *  reasoning step) read neutral so the rail never has a colorless hole. */
+function toneChip(tone: StepToolTone): { tint: string; color: string } {
+  if (tone === 'claude') return { tint: 'bg-panel-2', color: 'text-accent' }
+  if (tone === 'web') return { tint: 'bg-panel-2', color: 'text-ink-soft' }
+  return CHIP_TONES[tone as ChipTone]
+}
+
+/** A bare tool icon, tinted by tone. */
+function ToolGlyph({ tool, size = 16 }: { tool: StepTool; size?: number }) {
+  const Icon = stepToolIcon(tool.id)
+  return <Icon size={size} className={toneChip(tool.tone).color} />
+}
+
+/** A small rounded tool node for the row mini-pipeline. */
+function PipeNode({ tool }: { tool: StepTool }) {
   return (
-    <div className="space-y-2.5">
-      {SCHEDULED_TASKS.map((t) => (
-        <ScheduledRow key={t.id} task={t} />
+    <span className="flex h-5 w-5 items-center justify-center rounded bg-panel-2">
+      <ToolGlyph tool={tool} size={12} />
+    </span>
+  )
+}
+
+/** The full step chip — icon + label, with an amber dot when the tool needs auth. */
+function ToolChip({ tool }: { tool: StepTool }) {
+  const { tint, color } = toneChip(tool.tone)
+  const Icon = stepToolIcon(tool.id)
+  return (
+    <span className={`inline-flex h-5 items-center gap-1 rounded-md px-1.5 text-[11px] font-medium ${tint} ${color}`}>
+      <Icon size={11} />
+      {tool.label}
+      {tool.needsAuth && <span className="ml-0.5 h-1.5 w-1.5 rounded-full bg-amber-500" />}
+    </span>
+  )
+}
+
+/** The status pill for a task row / header: paused, failed, or "ran …". */
+function taskPill(task: ScheduledTask): { tone: 'ok' | 'warn' | 'bad' | 'neutral'; label: string } {
+  if (!task.enabled) return { tone: 'neutral', label: 'Paused' }
+  if (task.lastStatus === 'failed') return { tone: 'bad', label: 'Failed' }
+  const last = task.runs[0]
+  return { tone: 'ok', label: last ? `Ran ${last.absolute}` : 'Active' }
+}
+
+function ScheduledSection() {
+  const [items, setItems] = useState(SCHEDULED_TASKS)
+  const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState('All')
+  const [folded, setFolded] = useState<Set<'active' | 'paused'>>(new Set())
+  const [openId, setOpenId] = useState<string | null>(null)
+  // Ids with a mock "Run now" in flight; resolves to a fresh ok run after a beat.
+  const [running, setRunning] = useState<Set<string>>(new Set())
+  const timers = useRef<number[]>([])
+  const seq = useRef(0)
+  useEffect(() => () => timers.current.forEach((t) => window.clearTimeout(t)), [])
+
+  const toggleEnabled = (id: string) =>
+    setItems((prev) => prev.map((t) => (t.id === id ? { ...t, enabled: !t.enabled } : t)))
+  const remove = (id: string) => setItems((prev) => prev.filter((t) => t.id !== id))
+
+  const runNow = (id: string) => {
+    if (running.has(id)) return
+    setRunning((prev) => new Set(prev).add(id))
+    const timer = window.setTimeout(() => {
+      setItems((prev) =>
+        prev.map((t) => {
+          if (t.id !== id) return t
+          const run: ScheduledRun = {
+            id: `run-live-${++seq.current}`,
+            status: 'ok',
+            when: 'Just now',
+            absolute: 'moments ago',
+            duration: `${8 + t.steps.length * 3}s`,
+            reachedStep: t.steps.length,
+            summary: `Ran on demand — delivered to ${t.delivery.target}`,
+          }
+          return { ...t, lastStatus: 'ok', runs: [run, ...t.runs] }
+        }),
+      )
+      setRunning((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }, 1600)
+    timers.current.push(timer)
+  }
+
+  const addFromTemplate = (tpl: ScheduleTemplate) => {
+    const id = `s-new-${++seq.current}`
+    setItems((prev) => [{ ...tpl.seed, id }, ...prev])
+    setOpenId(id)
+  }
+
+  const foldGroup = (g: 'active' | 'paused') =>
+    setFolded((prev) => {
+      const next = new Set(prev)
+      next.has(g) ? next.delete(g) : next.add(g)
+      return next
+    })
+
+  // Clicking a row drills into the task's workflow + run history.
+  const open = openId ? (items.find((t) => t.id === openId) ?? null) : null
+  if (open)
+    return (
+      <ScheduledDetail
+        task={open}
+        running={running.has(open.id)}
+        onBack={() => setOpenId(null)}
+        onToggleEnabled={() => toggleEnabled(open.id)}
+        onRunNow={() => runNow(open.id)}
+        onRemove={() => {
+          remove(open.id)
+          setOpenId(null)
+        }}
+      />
+    )
+
+  const needle = query.trim().toLowerCase()
+  const matches = items.filter(
+    (t) =>
+      needle === '' ||
+      t.name.toLowerCase().includes(needle) ||
+      t.subtitle.toLowerCase().includes(needle) ||
+      t.steps.some((s) => s.tool.label.toLowerCase().includes(needle)),
+  )
+  const wantEnabled = filter === 'Active' ? true : filter === 'Paused' ? false : null
+  const allGroups = [
+    { key: 'active' as const, label: 'Active', items: matches.filter((t) => t.enabled) },
+    { key: 'paused' as const, label: 'Paused', items: matches.filter((t) => !t.enabled) },
+  ]
+  const groups = allGroups.filter((g) => {
+    if (wantEnabled === true && g.key !== 'active') return false
+    if (wantEnabled === false && g.key !== 'paused') return false
+    return g.items.length > 0
+  })
+
+  return (
+    <Page>
+      <PageHeader title="Scheduled">
+        <Dropdown label="Show" value={filter} options={['All', 'Active', 'Paused']} onChange={setFilter} />
+        <NewScheduleControl onAdd={addFromTemplate} />
+      </PageHeader>
+      <p className="-mt-2 mb-4 text-[13px] leading-relaxed text-ink-soft">
+        Recurring workflows — Claude runs a sequence of steps on a cadence and delivers the result. Open one to
+        see its steps and run history.
+      </p>
+      <SearchBox value={query} onChange={setQuery} placeholder="Search scheduled tasks…" />
+
+      {groups.length === 0 ? (
+        <Empty>No scheduled tasks match.</Empty>
+      ) : (
+        <div className="space-y-7">
+          {groups.map((g) => {
+            const isFolded = folded.has(g.key)
+            return (
+              <div key={g.key}>
+                <button
+                  onClick={() => foldGroup(g.key)}
+                  aria-expanded={!isFolded}
+                  className="group mb-2.5 flex w-full items-center gap-1.5 text-left"
+                >
+                  <ChevronDown
+                    size={15}
+                    className={`text-ink-faint transition group-hover:text-ink-soft ${isFolded ? '-rotate-90' : ''}`}
+                  />
+                  <span className="text-[13px] font-semibold text-ink">{g.label}</span>
+                  <span className="text-[12px] text-ink-faint">{g.items.length}</span>
+                </button>
+                {!isFolded && (
+                  <div
+                    className={`overflow-hidden rounded-xl border border-line bg-surface shadow-sm ${
+                      g.key === 'paused' ? 'opacity-80' : ''
+                    }`}
+                  >
+                    {g.items.map((t, i) => (
+                      <ScheduledRow
+                        key={t.id}
+                        task={t}
+                        first={i === 0}
+                        running={running.has(t.id)}
+                        onOpen={() => setOpenId(t.id)}
+                        onToggle={() => toggleEnabled(t.id)}
+                        onRunNow={() => runNow(t.id)}
+                        onRemove={() => remove(t.id)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </Page>
+  )
+}
+
+function ScheduledRow({
+  task,
+  first,
+  running,
+  onOpen,
+  onToggle,
+  onRunNow,
+  onRemove,
+}: {
+  task: ScheduledTask
+  first: boolean
+  running: boolean
+  onOpen: () => void
+  onToggle: () => void
+  onRunNow: () => void
+  onRemove: () => void
+}) {
+  const lead = task.steps[0]?.tool ?? task.delivery.tool
+  const pill = running ? { tone: 'warn' as const, label: 'Running…' } : taskPill(task)
+  const lastRun = task.runs[0]
+  const dot =
+    task.lastStatus === 'ok' ? 'bg-emerald-500' : task.lastStatus === 'failed' ? 'bg-red-500' : 'bg-line-strong'
+
+  return (
+    <div
+      className={`group flex items-center gap-3 transition hover:bg-panel-2/50 ${
+        first ? '' : 'border-t border-line'
+      }`}
+    >
+      {/* The main region drills into the detail; the trailing controls sit outside
+          this button so they don't trigger navigation. */}
+      <button onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left">
+        <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-panel-2">
+          <ToolGlyph tool={lead} size={16} />
+          <span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-surface ${dot}`} />
+        </span>
+
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[14px] font-medium text-ink">{task.name}</div>
+          <MiniPipeline task={task} />
+          <div className="truncate text-[12px] text-ink-faint sm:hidden">
+            {task.steps.length} step{task.steps.length === 1 ? '' : 's'} · {task.subtitle}
+          </div>
+        </div>
+
+        <div className="hidden shrink-0 pr-1 text-right md:block">
+          <div className="text-[12px] text-ink-soft">next {task.next}</div>
+          <div className="text-[11px] text-ink-faint">{lastRun ? `ran ${lastRun.absolute}` : 'no runs yet'}</div>
+        </div>
+      </button>
+
+      <div className="flex shrink-0 items-center gap-2 pr-4">
+        <StatusPill tone={pill.tone} label={pill.label} />
+
+        <div className="flex items-center gap-1 opacity-0 transition focus-within:opacity-100 group-hover:opacity-100">
+          <Tooltip label="Run now">
+            <button
+              onClick={onRunNow}
+              aria-label={`Run ${task.name} now`}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink"
+            >
+              {running ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+            </button>
+          </Tooltip>
+          <button
+            onClick={onRemove}
+            title="Delete schedule"
+            aria-label={`Delete ${task.name}`}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-removed-bg hover:text-removed"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+
+        <Toggle on={task.enabled} onToggle={onToggle} />
+      </div>
+    </div>
+  )
+}
+
+/** The row's at-a-glance pipeline: the step tools joined by chevrons, capped by
+ *  the delivery target. Collapses the middle to "+N" past four steps. */
+function MiniPipeline({ task }: { task: ScheduledTask }) {
+  const tools = task.steps.map((s) => s.tool)
+  const shown = tools.length > 4 ? tools.slice(0, 3) : tools
+  const overflow = tools.length - shown.length
+  return (
+    <div className="mt-1 hidden items-center gap-1 sm:flex">
+      {shown.map((t, i) => (
+        <span key={i} className="flex items-center gap-1">
+          {i > 0 && <ChevronRight size={11} className="text-ink-faint" />}
+          <PipeNode tool={t} />
+        </span>
+      ))}
+      {overflow > 0 && (
+        <>
+          <ChevronRight size={11} className="text-ink-faint" />
+          <span className="rounded bg-panel-2 px-1 text-[10px] font-medium text-ink-soft">+{overflow}</span>
+        </>
+      )}
+      <ChevronRight size={11} className="text-ink-faint" />
+      <PipeNode tool={task.delivery.tool} />
+    </div>
+  )
+}
+
+/** "New schedule" — a template picker cloned from AddContextControl. Picking a
+ *  template seeds a fully-formed (paused) task into local state and drills straight
+ *  into its detail, so the user lands on a populated workflow rather than a form. */
+function NewScheduleControl({ onAdd }: { onAdd: (tpl: ScheduleTemplate) => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  // Group templates by category, preserving first-seen order.
+  const cats: { label: string; items: ScheduleTemplate[] }[] = []
+  for (const t of SCHEDULE_TEMPLATES) {
+    let c = cats.find((x) => x.label === t.category)
+    if (!c) {
+      c = { label: t.category, items: [] }
+      cats.push(c)
+    }
+    c.items.push(t)
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        className="flex shrink-0 items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas shadow-sm transition hover:opacity-90"
+      >
+        <Plus size={15} />
+        New schedule
+      </button>
+
+      {open && (
+        <div
+          role="dialog"
+          aria-label="New schedule"
+          className="absolute right-0 z-30 mt-2 w-[340px] overflow-hidden rounded-xl border border-line-strong bg-surface shadow-xl"
+        >
+          <div className="max-h-[min(60vh,440px)] overflow-y-auto p-2">
+            {cats.map((c) => (
+              <div key={c.label} className="pb-1">
+                <p className="px-1.5 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+                  {c.label}
+                </p>
+                {c.items.map((t) => (
+                  <NewScheduleRow
+                    key={t.name}
+                    tpl={t}
+                    onAdd={() => {
+                      onAdd(t)
+                      setOpen(false)
+                    }}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function NewScheduleRow({ tpl, onAdd }: { tpl: ScheduleTemplate; onAdd: () => void }) {
+  const lead = tpl.seed.steps[0]?.tool
+  const blank = tpl.category === 'Start from scratch'
+  return (
+    <button
+      onClick={onAdd}
+      className="group mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition hover:bg-panel-2"
+    >
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-ink-soft">
+        {blank ? <Sparkles size={15} className="text-accent" /> : lead ? <ToolGlyph tool={lead} size={15} /> : <Clock size={15} />}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13px] font-medium text-ink">{tpl.name}</span>
+        <span className="block truncate text-[11px] text-ink-faint">{tpl.preview}</span>
+      </span>
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent group-hover:text-white">
+        <Plus size={14} />
+      </span>
+    </button>
+  )
+}
+
+/** Drill-down for one scheduled task: the instruction, the workflow rail (lit by
+ *  whichever run is selected), recent runs, and the schedule / delivery / tools /
+ *  model side panels. */
+function ScheduledDetail({
+  task,
+  running,
+  onBack,
+  onToggleEnabled,
+  onRunNow,
+  onRemove,
+}: {
+  task: ScheduledTask
+  running: boolean
+  onBack: () => void
+  onToggleEnabled: () => void
+  onRunNow: () => void
+  onRemove: () => void
+}) {
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(task.runs[0]?.id ?? null)
+  const [notifyOnFail, setNotifyOnFail] = useState(true)
+
+  // Snap the selection to the freshest run whenever a run finishes (so "Run now"
+  // lights the run you just triggered, not the previous one) — but leave a manual
+  // pick of an older run alone, since neither dep changes then.
+  const freshestRunId = task.runs[0]?.id ?? null
+  useEffect(() => {
+    if (!running) setSelectedRunId(freshestRunId)
+  }, [running, freshestRunId])
+
+  // The rail reflects the selected run (default = freshest). A live "Run now"
+  // overrides it with an in-flight state until the new run resolves.
+  const selectedRun = running ? null : (task.runs.find((r) => r.id === selectedRunId) ?? task.runs[0] ?? null)
+  const DeliveryIcon = stepToolIcon(task.delivery.tool.id)
+
+  return (
+    <Page>
+      <button
+        onClick={onBack}
+        className="mb-4 inline-flex items-center gap-1.5 text-[13px] font-medium text-ink-soft transition hover:text-ink"
+      >
+        <ArrowLeft size={15} />
+        Scheduled
+      </button>
+
+      <header className="mb-6 flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-panel-2 text-ink-soft">
+            <DeliveryIcon size={20} />
+          </span>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h1 className="font-serif text-2xl font-semibold leading-tight text-ink">{task.name}</h1>
+              {running ? (
+                <StatusPill tone="warn" label="Running…" />
+              ) : !task.enabled ? (
+                <StatusPill tone="neutral" label="Paused" />
+              ) : task.lastStatus === 'failed' ? (
+                <StatusPill tone="bad" label="Failed" />
+              ) : (
+                <StatusPill tone="ok" label="Active" />
+              )}
+            </div>
+            <p className="mt-0.5 truncate text-[13px] text-ink-soft">{task.subtitle}</p>
+          </div>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            onClick={onRunNow}
+            disabled={running}
+            className="flex items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas shadow-sm transition hover:opacity-90 disabled:opacity-60"
+          >
+            {running ? <Loader2 size={15} className="animate-spin" /> : <Play size={15} />}
+            {running ? 'Running…' : 'Run now'}
+          </button>
+          <button
+            onClick={onToggleEnabled}
+            className="flex items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[13px] font-medium text-ink shadow-sm transition hover:border-accent"
+          >
+            {task.enabled ? <PauseCircle size={15} /> : <PlayCircle size={15} />}
+            {task.enabled ? 'Pause' : 'Resume'}
+          </button>
+          <button
+            onClick={onRemove}
+            className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[13px] font-medium text-ink-soft shadow-sm transition hover:border-removed hover:bg-removed-bg hover:text-removed"
+          >
+            <Trash2 size={14} />
+            Delete
+          </button>
+        </div>
+      </header>
+
+      <div className="flex flex-col gap-6 lg:flex-row">
+        <div className="min-w-0 flex-1 space-y-4">
+          <PromptCard prompt={task.prompt} />
+          <WorkflowCard task={task} run={selectedRun} running={running} />
+          <RunHistoryCard task={task} selectedRunId={selectedRun?.id ?? null} onSelect={setSelectedRunId} />
+        </div>
+
+        <aside className="w-full shrink-0 space-y-4 lg:w-72">
+          <SidePanel title="Schedule" icon={<Clock size={14} />}>
+            <div className="space-y-2 text-[13px] text-ink">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-ink-soft">Cadence</span>
+                <span className="text-right font-medium">{task.cadence}</span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-ink-soft">Next run</span>
+                <span className="text-right font-medium">{task.enabled ? task.next : 'Paused'}</span>
+              </div>
+              {task.timezone && (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-ink-soft">Timezone</span>
+                  <span className="text-right font-medium">{task.timezone}</span>
+                </div>
+              )}
+            </div>
+            {task.startedLabel && (
+              <p className="mt-2.5 border-t border-line pt-2.5 text-[11px] text-ink-faint">{task.startedLabel}</p>
+            )}
+          </SidePanel>
+
+          <SidePanel title="Delivers to" icon={<SendHorizontal size={14} />}>
+            <div className="flex items-center gap-2">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-panel-2">
+                <DeliveryIcon size={15} className={toneChip(task.delivery.tool.tone).color} />
+              </span>
+              <div className="min-w-0">
+                <div className="truncate text-[13px] font-medium text-ink">{task.delivery.target}</div>
+                <div className="truncate text-[11px] text-ink-faint">{task.delivery.tool.label}</div>
+              </div>
+            </div>
+            {task.delivery.note && (
+              <p className="mt-2 text-[12px] leading-relaxed text-ink-soft">{task.delivery.note}</p>
+            )}
+            <label className="mt-3 flex items-center justify-between gap-2 border-t border-line pt-3">
+              <span className="flex items-center gap-1.5 text-[12px] text-ink-soft">
+                <Bell size={13} />
+                Notify me on failure
+              </span>
+              <Toggle on={notifyOnFail} onToggle={() => setNotifyOnFail((v) => !v)} />
+            </label>
+          </SidePanel>
+
+          <ContextToolsPanel task={task} />
+
+          <SidePanel title="Model" icon={<Sparkles size={14} />}>
+            <span className="inline-flex items-center gap-1.5 rounded-lg bg-panel-2 px-3 py-1 text-[12px] font-medium text-ink">
+              <ClaudeMark size={13} />
+              {task.model}
+            </span>
+            <p className="mt-2 text-[11px] leading-relaxed text-ink-faint">Runs headless — no approval prompts.</p>
+          </SidePanel>
+        </aside>
+      </div>
+    </Page>
+  )
+}
+
+function PromptCard({ prompt }: { prompt: string }) {
+  return (
+    <div className="rounded-xl border border-line bg-surface p-4 shadow-sm">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Instruction</span>
+        <Tooltip label="Copy">
+          <button
+            onClick={() => navigator.clipboard?.writeText(prompt)}
+            aria-label="Copy instruction"
+            className="flex h-6 w-6 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink-soft"
+          >
+            <Copy size={14} />
+          </button>
+        </Tooltip>
+      </div>
+      <p className="mt-2 rounded-lg bg-panel-2/40 px-3 py-2.5 text-[13px] leading-relaxed text-ink">{prompt}</p>
+    </div>
+  )
+}
+
+type RailState = 'idle' | 'done' | 'fail' | 'running'
+
+// Backgrounds are opaque (not a /10 alpha) so the rail line stays hidden behind
+// the marker; the tint still reads as a soft fill for done / failed steps.
+function railMarkerClasses(state: RailState): string {
+  if (state === 'done') return 'border-emerald-500 bg-emerald-50 text-emerald-700'
+  if (state === 'fail') return 'border-red-500 bg-red-50 text-red-500'
+  if (state === 'running') return 'border-accent bg-surface text-accent'
+  return 'border-line bg-surface text-ink-soft'
+}
+
+/** One node on the workflow rail. The vertical connector below the marker turns
+ *  green once this node is complete, so a finished run's green "flows down" the
+ *  rail to exactly the step it reached. */
+function RailRow({
+  state,
+  connect,
+  marker,
+  delivery = false,
+  children,
+}: {
+  state: RailState
+  connect: boolean
+  marker: ReactNode
+  delivery?: boolean
+  children: ReactNode
+}) {
+  const content =
+    !delivery && state === 'done' ? (
+      <Check size={14} />
+    ) : !delivery && state === 'fail' ? (
+      <AlertCircle size={14} />
+    ) : !delivery && state === 'running' ? (
+      <Loader2 size={13} className="animate-spin" />
+    ) : (
+      marker
+    )
+  return (
+    <div className="relative flex gap-3">
+      {connect && (
+        <span
+          className={`absolute bottom-0 left-[13px] top-7 w-0.5 ${state === 'done' ? 'bg-emerald-500' : 'bg-line'}`}
+        />
+      )}
+      <span
+        className={`relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 bg-surface text-[12px] font-semibold ${railMarkerClasses(
+          state,
+        )}`}
+      >
+        {content}
+      </span>
+      <div className="min-w-0 flex-1">{children}</div>
+    </div>
+  )
+}
+
+/** The hero: the WHEN trigger, the numbered step rail, and the DELIVER terminus —
+ *  all lit to reflect the selected run. */
+function WorkflowCard({ task, run, running }: { task: ScheduledTask; run: ScheduledRun | null; running: boolean }) {
+  const reached = run ? run.reachedStep : 0
+  const failedAt = run && run.status === 'failed' ? run.reachedStep : -1
+
+  const stepState = (i: number): RailState => {
+    if (running) return 'running'
+    if (!run) return 'idle'
+    if (i < reached) return 'done'
+    if (i === failedAt) return 'fail'
+    return 'idle'
+  }
+  const deliveredState: RailState = running
+    ? 'running'
+    : run && run.status === 'ok' && run.reachedStep >= task.steps.length
+      ? 'done'
+      : 'idle'
+
+  return (
+    <div className="rounded-xl border border-line bg-surface shadow-sm">
+      <div className="flex items-center justify-between border-b border-line px-4 py-3">
+        <span className="text-[13px] font-semibold text-ink">Workflow</span>
+        <span className="text-[12px] text-ink-faint">
+          {task.steps.length} step{task.steps.length === 1 ? '' : 's'} · runs top to bottom
+        </span>
+      </div>
+      <div className="p-4">
+        <div className="mb-3 flex items-center gap-2.5 rounded-lg bg-panel-2/40 px-3 py-2.5">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface text-ink-soft">
+            <Clock size={15} />
+          </span>
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">When</span>
+          <span className="min-w-0 truncate text-[13px] text-ink">{task.trigger}</span>
+        </div>
+
+        <div className="relative">
+          {task.steps.map((s, i) => (
+            <RailRow key={s.id} state={stepState(i)} connect marker={i + 1}>
+              <div className="pb-5">
+                <ToolChip tool={s.tool} />
+                <p className="mt-1 text-[13px] text-ink">{s.action}</p>
+              </div>
+            </RailRow>
+          ))}
+
+          <RailRow state={deliveredState} connect={false} delivery marker={<ToolGlyph tool={task.delivery.tool} size={14} />}>
+            <div className="rounded-lg bg-accent-tint px-3 py-2.5">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-accent-strong">
+                <SendHorizontal size={12} />
+                Deliver
+              </div>
+              <div className="mt-1 text-[13px] font-medium text-ink">
+                {task.delivery.tool.label} · {task.delivery.target}
+              </div>
+              {task.delivery.note && <p className="mt-0.5 text-[12px] text-ink-soft">{task.delivery.note}</p>}
+            </div>
+          </RailRow>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function RunStatusIcon({ status }: { status: ScheduledRun['status'] }) {
+  if (status === 'running') return <Loader2 size={16} className="mt-0.5 shrink-0 animate-spin text-accent" />
+  if (status === 'failed') return <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-500" />
+  if (status === 'skipped') return <MinusCircle size={16} className="mt-0.5 shrink-0 text-ink-faint" />
+  return <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-emerald-500" />
+}
+
+/** A GitHub-streak-style strip of the last seven runs, newest on the right. */
+function WeekStrip({ runs }: { runs: ScheduledRun[] }) {
+  const recent = runs.slice(0, 7).reverse()
+  const pad = Math.max(0, 7 - recent.length)
+  const cells: (ScheduledRun['status'] | null)[] = [...Array(pad).fill(null), ...recent.map((r) => r.status)]
+  return (
+    <div className="flex items-center gap-1" title="Last 7 runs">
+      {cells.map((s, i) => (
+        <span
+          key={i}
+          className={`h-4 w-1.5 rounded-sm ${
+            s === 'ok'
+              ? 'bg-emerald-500'
+              : s === 'failed'
+                ? 'bg-red-500'
+                : s === 'running'
+                  ? 'bg-accent'
+                  : s === 'skipped'
+                    ? 'bg-line-strong'
+                    : 'bg-line'
+          }`}
+        />
       ))}
     </div>
   )
 }
 
-function ScheduledRow({ task }: { task: ScheduledTask }) {
-  const [enabled, setEnabled] = useState(task.enabled)
+/** Recent runs — a 7-day reliability strip plus a selectable list; picking a run
+ *  re-lights the Workflow rail above to show how far that run got. */
+function RunHistoryCard({
+  task,
+  selectedRunId,
+  onSelect,
+}: {
+  task: ScheduledTask
+  selectedRunId: string | null
+  onSelect: (id: string) => void
+}) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3 shadow-sm">
-      <StatusDot status={task.lastStatus} />
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[14px] font-medium text-ink">{task.name}</div>
-        <div className="truncate text-[12px] text-ink-faint">
-          {task.cadence} · next {task.next}
-        </div>
+    <div className="rounded-xl border border-line bg-surface shadow-sm">
+      <div className="flex items-center justify-between border-b border-line px-4 py-3">
+        <span className="text-[13px] font-semibold text-ink">Recent runs</span>
+        {task.runs.length > 0 && <WeekStrip runs={task.runs} />}
       </div>
-      <Toggle on={enabled} onToggle={() => setEnabled((v) => !v)} />
+      {task.runs.length === 0 ? (
+        <div className="px-4 py-8 text-center text-[13px] text-ink-faint">No runs yet — Run now to try it.</div>
+      ) : (
+        <div>
+          {task.runs.map((r, i) => (
+            <RunRow
+              key={r.id}
+              run={r}
+              first={i === 0}
+              selected={r.id === selectedRunId}
+              onSelect={() => onSelect(r.id)}
+            />
+          ))}
+        </div>
+      )}
     </div>
+  )
+}
+
+function RunRow({
+  run,
+  first,
+  selected,
+  onSelect,
+}: {
+  run: ScheduledRun
+  first: boolean
+  selected: boolean
+  onSelect: () => void
+}) {
+  return (
+    <button
+      onClick={onSelect}
+      aria-pressed={selected}
+      className={`flex w-full items-start gap-3 px-4 py-3 text-left transition hover:bg-panel-2/60 ${
+        first ? '' : 'border-t border-line'
+      } ${selected ? 'bg-accent-tint/50' : ''}`}
+    >
+      <RunStatusIcon status={run.status} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-[13px] font-medium text-ink">
+            {run.when} <span className="font-normal text-ink-faint">· {run.absolute}</span>
+          </span>
+          {run.duration !== '—' && <span className="shrink-0 text-[11px] text-ink-faint">ran in {run.duration}</span>}
+        </div>
+        <p className={`mt-0.5 text-[12px] ${run.status === 'failed' ? 'text-red-600' : 'text-ink-soft'}`}>
+          {run.summary}
+        </p>
+      </div>
+    </button>
+  )
+}
+
+/** The distinct connectors / tools the workflow touches (the pure-reasoning Claude
+ *  steps are omitted), each with its auth status — so a "Needs auth" tool explains
+ *  at a glance why a run might fail. */
+function ContextToolsPanel({ task }: { task: ScheduledTask }) {
+  const seen = new Set<string>()
+  const tools: StepTool[] = []
+  for (const t of [...task.steps.map((s) => s.tool), task.delivery.tool]) {
+    if (t.tone === 'claude' || t.tone === 'web' || seen.has(t.id)) continue
+    seen.add(t.id)
+    tools.push(t)
+  }
+  if (tools.length === 0) return null
+  return (
+    <SidePanel title="Context & tools" icon={<Plug size={14} />}>
+      <div className="space-y-2">
+        {tools.map((t) => (
+          <div key={t.id} className="flex items-center gap-2">
+            <ToolGlyph tool={t} size={15} />
+            <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{t.label}</span>
+            <StatusPill tone={t.needsAuth ? 'warn' : 'ok'} label={t.needsAuth ? 'Needs auth' : 'Connected'} />
+          </div>
+        ))}
+      </div>
+    </SidePanel>
   )
 }
 
@@ -1289,12 +2152,6 @@ function Empty({ children }: { children: ReactNode }) {
       {children}
     </div>
   )
-}
-
-function StatusDot({ status }: { status: ScheduledTask['lastStatus'] }) {
-  const tone =
-    status === 'ok' ? 'bg-emerald-500' : status === 'failed' ? 'bg-red-500' : 'bg-line-strong'
-  return <span className={`mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full ${tone}`} />
 }
 
 function DispatchStatus({ status }: { status: DispatchRun['status'] }) {
