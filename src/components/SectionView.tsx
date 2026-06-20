@@ -40,6 +40,7 @@ export function SectionView({
   onOpenSession,
   onNewSession,
   railCollapsed = false,
+  initialProjectId = null,
 }: {
   section: SectionId
   onOpenSession: (id: string) => void
@@ -48,10 +49,21 @@ export function SectionView({
    *  top-left of this panel; inset the content so it clears that button rather
    *  than rendering underneath it. */
   railCollapsed?: boolean
+  /** When opened via a session's "In ‹Project›" breadcrumb, the project to show
+   *  in detail straight away (null = the project list). */
+  initialProjectId?: string | null
 }) {
   const body =
     section === 'projects' ? (
-      <ProjectsSection onOpenSession={onOpenSession} onNewSession={onNewSession} />
+      // Key on the deep-link target so re-entering the section (a session's
+      // breadcrumb, or the rail's Projects item) remounts at the right level —
+      // the focused project, or the list — instead of keeping a stale openId.
+      <ProjectsSection
+        key={initialProjectId ?? 'projects-list'}
+        onOpenSession={onOpenSession}
+        onNewSession={onNewSession}
+        initialProjectId={initialProjectId}
+      />
     ) : section === 'artifacts' ? (
       <ArtifactsSection />
     ) : (
@@ -67,11 +79,13 @@ export function SectionView({
 function ProjectsSection({
   onOpenSession,
   onNewSession,
+  initialProjectId,
 }: {
   onOpenSession: (id: string) => void
   onNewSession: () => void
+  initialProjectId: string | null
 }) {
-  const [openId, setOpenId] = useState<string | null>(null)
+  const [openId, setOpenId] = useState<string | null>(initialProjectId)
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState('Last updated')
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
-import { PanelLeft } from 'lucide-react'
+import { Folder, PanelLeft } from 'lucide-react'
 import { Sidebar } from './components/Sidebar'
 import { Composer } from './components/Composer'
 import { MessageRow, TypingRow } from './components/Message'
@@ -13,6 +13,7 @@ import { IntroOverlay } from './components/IntroOverlay'
 import { ProposalBar } from './components/ProposalBar'
 import { SearchPanel } from './components/SearchPanel'
 import { SESSIONS } from './data/sessions'
+import { projectForSession } from './data/cowork'
 import { useSessionWorkspace } from './controller/useSessionWorkspace'
 import { useLayout } from './controller/useLayout'
 
@@ -27,6 +28,7 @@ export default function App() {
   const {
     activeId,
     activeSection,
+    focusProjectId,
     live,
     typing,
     focus,
@@ -45,6 +47,7 @@ export default function App() {
     selectSession,
     newSession,
     openSection,
+    openProject,
     handleSend,
     handleAddContext,
     focusContext,
@@ -70,6 +73,10 @@ export default function App() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+
+  // The open session's home project (if any), for the title-bar breadcrumb that
+  // deep-links back into the project's detail page.
+  const homeProject = projectForSession(activeSession.id)
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-canvas text-ink">
@@ -140,18 +147,31 @@ export default function App() {
                 onOpenSession={selectSession}
                 onNewSession={newSession}
                 railCollapsed={!leftOpen}
+                initialProjectId={focusProjectId}
               />
             ) : (
               <>
                 {!isDemo && !isDraft && (
                   <div
-                    className={`flex min-h-[52px] items-center gap-3 border-b border-line bg-canvas/80 py-2 pr-4 ${
+                    className={`flex min-h-[52px] flex-col justify-center gap-0.5 border-b border-line bg-canvas/80 py-2 pr-4 ${
                       leftOpen ? 'pl-4' : 'pl-14'
                     }`}
                   >
-                    <span className="font-serif text-[15px] font-semibold text-ink">
+                    <span className="font-serif text-[15px] font-semibold leading-tight text-ink">
                       {activeSession.title}
                     </span>
+                    {homeProject && (
+                      <button
+                        onClick={() => openProject(homeProject.id)}
+                        title={`Open ${homeProject.name}`}
+                        className="inline-flex w-fit items-center gap-1 text-[12px] text-ink-faint transition hover:text-ink"
+                      >
+                        <Folder size={12} className="shrink-0" />
+                        <span>
+                          In <span className="font-medium">{homeProject.name}</span>
+                        </span>
+                      </button>
+                    )}
                   </div>
                 )}
 

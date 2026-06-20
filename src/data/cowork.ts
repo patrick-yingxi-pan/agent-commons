@@ -109,6 +109,14 @@ export const PROJECTS: Project[] = [
   },
 ]
 
+/** A session's home project, if any. Sessions live in a single project (or
+ *  none); we derive the back-link from `sessionIds` so there's one source of
+ *  truth and no `projectId` on the session to keep in sync. Returns the first
+ *  match, which — under the single-home rule — is the only one. */
+export function projectForSession(sessionId: string): Project | undefined {
+  return PROJECTS.find((p) => p.sessionIds.includes(sessionId))
+}
+
 export interface ScheduledTask {
   id: string
   name: string

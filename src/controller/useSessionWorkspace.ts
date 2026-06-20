@@ -29,6 +29,9 @@ export function useSessionWorkspace() {
   const [focus, setFocus] = useState<PanelFocus | null>(null)
   // Which cross-cutting tool is open in the main area (null = the session).
   const [activeSection, setActiveSection] = useState<SectionId | null>(null)
+  // When a session deep-links into its project, which project the Projects
+  // section should open in detail (null = show the project list).
+  const [focusProjectId, setFocusProjectId] = useState<string | null>(null)
 
   // Guided-tour state (only meaningful for the demo session).
   const [phase, setPhase] = useState<TourPhase>('idle')
@@ -292,7 +295,19 @@ export function useSessionWorkspace() {
     setCaption('')
   }, [clearTimers])
 
-  const openSection = useCallback((s: SectionId) => setActiveSection(s), [])
+  // Opening a section from the rail always lands on its top level, so clear any
+  // project a previous deep-link had focused.
+  const openSection = useCallback((s: SectionId) => {
+    setActiveSection(s)
+    setFocusProjectId(null)
+  }, [])
+
+  // Deep-link from a session into its home project: open the Projects section
+  // with that project already expanded to its detail page.
+  const openProject = useCallback((projectId: string) => {
+    setActiveSection('projects')
+    setFocusProjectId(projectId)
+  }, [])
 
   const removeAttachment = useCallback((id: string) => {
     setLive((l) => ({ ...l, attachments: l.attachments.filter((a) => a.id !== id) }))
@@ -346,6 +361,7 @@ export function useSessionWorkspace() {
     // state
     activeId,
     activeSection,
+    focusProjectId,
     live,
     typing,
     focus,
@@ -367,6 +383,7 @@ export function useSessionWorkspace() {
     selectSession,
     newSession,
     openSection,
+    openProject,
     handleSend,
     handleAddContext,
     focusContext,
