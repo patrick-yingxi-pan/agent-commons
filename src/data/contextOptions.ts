@@ -211,6 +211,15 @@ export const GITHUB_REPO_OPTIONS: ({
     meta: 'TypeScript · 2d ago',
     ...dashboardRepoCode,
   },
+  // Not pre-saved on the Contexts page — so it's something genuinely new to add
+  // (here or in a session's Add-context Browse).
+  {
+    id: 'gh-api',
+    remote: 'acme/api-gateway',
+    branch: 'main',
+    meta: 'Go · 4d ago',
+    ...dashboardRepoCode,
+  },
 ]
 
 /** Local repos — a folder + git working tree on disk. `remote` is optional: a
@@ -258,6 +267,9 @@ export const CONNECTOR_OPTIONS: { id: string; label: string; kind?: Connector['k
   // Same identity (id + kind) as the repo's GitHub connector, so attaching a
   // repo and the GitHub connector dedup to a single chip instead of two.
   { id: 'gh-mcp', label: 'GitHub', kind: 'github' },
+  // Not pre-saved on the Contexts page — genuinely new connectors to set up.
+  { id: 'figma', label: 'Figma' },
+  { id: 'sentry', label: 'Sentry' },
 ]
 
 export const MCP_OPTIONS = [
@@ -266,6 +278,8 @@ export const MCP_OPTIONS = [
   { id: 'postgres', label: 'postgres', meta: 'Query a Postgres database' },
   { id: 'puppeteer', label: 'puppeteer', meta: 'Headless browser automation' },
   { id: 'sqlite', label: 'sqlite', meta: 'Query a local SQLite file' },
+  // Not pre-saved on the Contexts page — a genuinely new server to add.
+  { id: 'fetch', label: 'fetch', meta: 'HTTP fetch & web requests' },
 ]
 
 export const FILE_OPTIONS = [

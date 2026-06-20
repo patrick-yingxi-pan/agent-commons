@@ -25,6 +25,12 @@ import { SECTION_META } from '../lib/sections'
 import { connectorIconFor } from '../lib/connectors'
 import { ConnectorDetailBody } from './ConnectorPanel'
 import { SAVED_CONTEXTS, type SavedContext, type SavedContextKind } from '../data/savedContexts'
+import {
+  CONNECTOR_OPTIONS,
+  GITHUB_REPO_OPTIONS,
+  LOCAL_REPO_OPTIONS,
+  MCP_OPTIONS,
+} from '../data/contextOptions'
 import { SESSIONS } from '../data/sessions'
 import {
   ALL_ARTIFACTS,
@@ -422,6 +428,219 @@ function contextIcon(ctx: SavedContext) {
       : connectorIconFor(ctx.connectorKind)
 }
 
+/* ── Add context ─────────────────────────────────────────────────────────────
+   The same catalog a session attaches from (data/contextOptions), surfaced here
+   as savable contexts. An option that's already a saved context reuses its rich
+   seed entry; anything new (not yet set up) gets a freshly-derived one — so the
+   page can add the exact connectors / MCP servers / repos a session can. */
+
+const SEED_BY_ID = new Map(SAVED_CONTEXTS.map((c) => [c.id, c]))
+
+/** The trailing folder name of a local repo path. */
+function repoBasename(p: string) {
+  const parts = p.replace(/\/+$/, '').split('/')
+  return parts[parts.length - 1] || p
+}
+
+const connectorSaved = (o: { id: string; label: string; kind?: Connector['kind'] }): SavedContext =>
+  SEED_BY_ID.get(o.id) ?? {
+    id: o.id,
+    label: o.label,
+    kind: 'connector',
+    connectorKind: o.kind ?? 'connector',
+    status: 'connected',
+    detail: 'Connected · just now',
+    lastUsed: 'just now',
+    sessions: 0,
+  }
+
+const mcpSaved = (o: { id: string; label: string; meta: string }): SavedContext =>
+  SEED_BY_ID.get(o.id) ?? {
+    id: o.id,
+    label: o.label,
+    kind: 'mcp',
+    status: 'connected',
+    detail: o.meta,
+    lastUsed: 'just now',
+    sessions: 0,
+  }
+
+const githubRepoSaved = (o: { id: string; remote: string; branch: string }): SavedContext =>
+  SEED_BY_ID.get(o.id) ?? {
+    id: o.id,
+    label: o.remote,
+    kind: 'repo',
+    origin: 'github',
+    dependsOnGitHub: true,
+    status: 'connected',
+    detail: `github · ${o.branch}`,
+    lastUsed: 'just now',
+    sessions: 0,
+  }
+
+const localRepoSaved = (o: { id: string; path: string; branch: string; remote?: string }): SavedContext =>
+  SEED_BY_ID.get(o.id) ?? {
+    id: o.id,
+    label: repoBasename(o.path),
+    kind: 'repo',
+    origin: 'local',
+    dependsOnGitHub: !!o.remote,
+    status: 'connected',
+    detail: `${o.path} · ${o.branch}${o.remote ? '' : ' · local only'}`,
+    lastUsed: 'just now',
+    sessions: 0,
+  }
+
+/** Every addable context, grouped the same way the page lists them. */
+const ADDABLE_GROUPS: { kind: SavedContextKind; label: string; items: SavedContext[] }[] = [
+  { kind: 'connector', label: 'Connectors', items: CONNECTOR_OPTIONS.map(connectorSaved) },
+  { kind: 'mcp', label: 'MCP servers', items: MCP_OPTIONS.map(mcpSaved) },
+  {
+    kind: 'repo',
+    label: 'Repositories',
+    items: [...GITHUB_REPO_OPTIONS.map(githubRepoSaved), ...LOCAL_REPO_OPTIONS.map(localRepoSaved)],
+  },
+]
+
+/** A bubble that appears after a short hover delay — for icon-only controls whose
+ *  purpose isn't obvious at a glance (e.g. the connect/disconnect plug). */
+function Tooltip({
+  label,
+  children,
+  delay = 400,
+}: {
+  label: string
+  children: ReactNode
+  delay?: number
+}) {
+  const [show, setShow] = useState(false)
+  const timer = useRef<number | undefined>(undefined)
+  const openSoon = () => {
+    timer.current = window.setTimeout(() => setShow(true), delay)
+  }
+  const cancel = () => {
+    window.clearTimeout(timer.current)
+    setShow(false)
+  }
+  useEffect(() => () => window.clearTimeout(timer.current), [])
+
+  return (
+    <span
+      className="relative inline-flex"
+      onMouseEnter={openSoon}
+      onMouseLeave={cancel}
+      onFocus={openSoon}
+      onBlur={cancel}
+    >
+      {children}
+      {show && (
+        <span
+          role="tooltip"
+          className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-ink px-2 py-1 text-[11px] font-medium text-canvas shadow-md"
+        >
+          {label}
+          <span className="absolute left-1/2 top-full h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rotate-45 bg-ink" />
+        </span>
+      )}
+    </span>
+  )
+}
+
+/** The header "Add context" button + its popover. Lists everything not yet saved
+ *  (grouped by type); adding one drops it from the popover and into the list,
+ *  staying open so several can be added in a row. */
+function AddContextControl({
+  existingIds,
+  onAdd,
+}: {
+  existingIds: Set<string>
+  onAdd: (ctx: SavedContext) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const groups = ADDABLE_GROUPS.map((g) => ({
+    ...g,
+    items: g.items.filter((c) => !existingIds.has(c.id)),
+  })).filter((g) => g.items.length > 0)
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        className="flex shrink-0 items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas shadow-sm transition hover:opacity-90"
+      >
+        <Plus size={15} />
+        Add context
+      </button>
+
+      {open && (
+        <div
+          role="dialog"
+          aria-label="Add context"
+          className="absolute right-0 z-30 mt-2 w-[320px] overflow-hidden rounded-xl border border-line-strong bg-surface shadow-xl"
+        >
+          <div className="max-h-[min(60vh,420px)] overflow-y-auto p-2">
+            {groups.length === 0 ? (
+              <div className="px-2 py-6 text-center text-[12px] text-ink-faint">
+                Everything’s set up — nothing new to add.
+              </div>
+            ) : (
+              groups.map((g) => (
+                <div key={g.kind} className="pb-1">
+                  <p className="px-1.5 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+                    {g.label}
+                  </p>
+                  {g.items.map((c) => (
+                    <AddContextRow key={c.id} ctx={c} onAdd={() => onAdd(c)} />
+                  ))}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AddContextRow({ ctx, onAdd }: { ctx: SavedContext; onAdd: () => void }) {
+  const Icon = contextIcon(ctx)
+  return (
+    <button
+      onClick={onAdd}
+      className="group mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition hover:bg-panel-2"
+    >
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-ink-soft">
+        <Icon size={15} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13px] font-medium text-ink">{ctx.label}</span>
+        <span className="block truncate text-[11px] text-ink-faint">{ctx.detail}</span>
+      </span>
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent group-hover:text-white">
+        <Plus size={14} />
+      </span>
+    </button>
+  )
+}
+
 function ContextsSection() {
   const [items, setItems] = useState(SAVED_CONTEXTS)
   const [query, setQuery] = useState('')
@@ -437,6 +656,8 @@ function ContextsSection() {
       ),
     )
   const remove = (id: string) => setItems((prev) => prev.filter((c) => c.id !== id))
+  const add = (ctx: SavedContext) =>
+    setItems((prev) => (prev.some((c) => c.id === ctx.id) ? prev : [ctx, ...prev]))
   const foldGroup = (kind: SavedContextKind) =>
     setFolded((prev) => {
       const next = new Set(prev)
@@ -477,7 +698,7 @@ function ContextsSection() {
     <Page>
       <PageHeader title="Contexts">
         <Dropdown label="Show" value={filter} options={CONTEXT_FILTERS} onChange={setFilter} />
-        <PrimaryButton icon={<Plus size={15} />}>Add context</PrimaryButton>
+        <AddContextControl existingIds={new Set(items.map((c) => c.id))} onAdd={add} />
       </PageHeader>
       <p className="-mt-2 mb-4 text-[13px] leading-relaxed text-ink-soft">
         Accounts, servers, and repos you’ve set up once. Any session can reuse them from{' '}
@@ -591,14 +812,15 @@ function ContextRow({
         {/* Hover-revealed actions — same idiom as the panel's per-folder delete. */}
         <div className="flex items-center gap-1 opacity-0 transition focus-within:opacity-100 group-hover:opacity-100">
           {ctx.kind !== 'repo' && (
-            <button
-              onClick={onToggle}
-              title={connected ? 'Disconnect' : 'Connect'}
-              aria-label={connected ? `Disconnect ${ctx.label}` : `Connect ${ctx.label}`}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink"
-            >
-              {connected ? <Unplug size={14} /> : <Plug size={14} />}
-            </button>
+            <Tooltip label={connected ? 'Disconnect' : 'Connect'}>
+              <button
+                onClick={onToggle}
+                aria-label={connected ? `Disconnect ${ctx.label}` : `Connect ${ctx.label}`}
+                className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink"
+              >
+                {connected ? <Unplug size={14} /> : <Plug size={14} />}
+              </button>
+            </Tooltip>
           )}
           <button
             onClick={onRemove}
