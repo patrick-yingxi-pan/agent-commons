@@ -9,6 +9,7 @@ import {
   FileText,
   Folder,
   FolderGit2,
+  GitBranch,
   Github,
   Loader2,
   MessageSquare,
@@ -19,9 +20,10 @@ import {
   Trash2,
   Unplug,
 } from 'lucide-react'
-import type { Session, SectionId } from '../types'
+import type { Connector, Session, SectionId } from '../types'
 import { SECTION_META } from '../lib/sections'
 import { connectorIconFor } from '../lib/connectors'
+import { ConnectorDetailBody } from './ConnectorPanel'
 import { SAVED_CONTEXTS, type SavedContext, type SavedContextKind } from '../data/savedContexts'
 import { SESSIONS } from '../data/sessions'
 import {
@@ -408,10 +410,25 @@ const CONTEXT_FILTERS = ['All', 'Connectors', 'MCP servers', 'Repositories']
  *  servers (set up / authenticated once) plus the repos you've attached before.
  *  Manage them here once; any session reuses them from Add-context. Statuses and
  *  removals are interactive (local state), like the Scheduled toggles. */
+/** Row icon for a saved context — repo (local vs GitHub), MCP server, or the
+ *  service-specific connector mark. Shared by the list row and the detail page. */
+function contextIcon(ctx: SavedContext) {
+  return ctx.kind === 'repo'
+    ? ctx.origin === 'local'
+      ? FolderGit2
+      : Github
+    : ctx.kind === 'mcp'
+      ? Server
+      : connectorIconFor(ctx.connectorKind)
+}
+
 function ContextsSection() {
   const [items, setItems] = useState(SAVED_CONTEXTS)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('All')
+  // Which group headers are folded shut, and which context is opened in detail.
+  const [folded, setFolded] = useState<Set<SavedContextKind>>(new Set())
+  const [openId, setOpenId] = useState<string | null>(null)
 
   const toggle = (id: string) =>
     setItems((prev) =>
@@ -420,6 +437,27 @@ function ContextsSection() {
       ),
     )
   const remove = (id: string) => setItems((prev) => prev.filter((c) => c.id !== id))
+  const foldGroup = (kind: SavedContextKind) =>
+    setFolded((prev) => {
+      const next = new Set(prev)
+      next.has(kind) ? next.delete(kind) : next.add(kind)
+      return next
+    })
+
+  // Clicking a row drills into the same detail a session shows for that context.
+  const open = openId ? (items.find((c) => c.id === openId) ?? null) : null
+  if (open)
+    return (
+      <ContextDetail
+        ctx={open}
+        onBack={() => setOpenId(null)}
+        onToggle={() => toggle(open.id)}
+        onRemove={() => {
+          remove(open.id)
+          setOpenId(null)
+        }}
+      />
+    )
 
   const needle = query.trim().toLowerCase()
   const wantKind =
@@ -451,25 +489,41 @@ function ContextsSection() {
         <Empty>No contexts match.</Empty>
       ) : (
         <div className="space-y-7">
-          {groups.map((g) => (
-            <div key={g.kind}>
-              <div className="mb-2.5 flex items-baseline gap-2">
-                <span className="text-[13px] font-semibold text-ink">{g.label}</span>
-                <span className="text-[12px] text-ink-faint">{g.items.length}</span>
-              </div>
-              <div className="overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
-                {g.items.map((c, i) => (
-                  <ContextRow
-                    key={c.id}
-                    ctx={c}
-                    first={i === 0}
-                    onToggle={() => toggle(c.id)}
-                    onRemove={() => remove(c.id)}
+          {groups.map((g) => {
+            const isFolded = folded.has(g.kind)
+            return (
+              <div key={g.kind}>
+                <button
+                  onClick={() => foldGroup(g.kind)}
+                  aria-expanded={!isFolded}
+                  className="group mb-2.5 flex w-full items-center gap-1.5 text-left"
+                >
+                  <ChevronDown
+                    size={15}
+                    className={`text-ink-faint transition group-hover:text-ink-soft ${
+                      isFolded ? '-rotate-90' : ''
+                    }`}
                   />
-                ))}
+                  <span className="text-[13px] font-semibold text-ink">{g.label}</span>
+                  <span className="text-[12px] text-ink-faint">{g.items.length}</span>
+                </button>
+                {!isFolded && (
+                  <div className="overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
+                    {g.items.map((c, i) => (
+                      <ContextRow
+                        key={c.id}
+                        ctx={c}
+                        first={i === 0}
+                        onOpen={() => setOpenId(c.id)}
+                        onToggle={() => toggle(c.id)}
+                        onRemove={() => remove(c.id)}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </Page>
@@ -479,52 +533,55 @@ function ContextsSection() {
 function ContextRow({
   ctx,
   first,
+  onOpen,
   onToggle,
   onRemove,
 }: {
   ctx: SavedContext
   first: boolean
+  onOpen: () => void
   onToggle: () => void
   onRemove: () => void
 }) {
-  const Icon =
-    ctx.kind === 'repo'
-      ? ctx.origin === 'local'
-        ? FolderGit2
-        : Github
-      : ctx.kind === 'mcp'
-        ? Server
-        : connectorIconFor(ctx.connectorKind)
+  const Icon = contextIcon(ctx)
   const connected = ctx.status === 'connected'
 
   return (
-    <div className={`group flex items-center gap-3 px-4 py-3 ${first ? '' : 'border-t border-line'}`}>
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-ink-soft">
-        <Icon size={16} />
-      </span>
+    <div
+      className={`group flex items-center gap-3 transition hover:bg-panel-2/50 ${
+        first ? '' : 'border-t border-line'
+      }`}
+    >
+      {/* The main region drills into the detail; the trailing actions sit outside
+          this button so they don't trigger the navigation. */}
+      <button onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-ink-soft">
+          <Icon size={16} />
+        </span>
 
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="truncate text-[14px] font-medium text-ink">{ctx.label}</span>
-          {ctx.kind === 'repo' && (
-            <span className="shrink-0 rounded bg-panel-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-soft">
-              {ctx.origin === 'local' ? 'Local' : 'GitHub'}
-            </span>
-          )}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-[14px] font-medium text-ink">{ctx.label}</span>
+            {ctx.kind === 'repo' && (
+              <span className="shrink-0 rounded bg-panel-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-soft">
+                {ctx.origin === 'local' ? 'Local' : 'GitHub'}
+              </span>
+            )}
+          </div>
+          <div className="truncate text-[12px] text-ink-faint">{ctx.detail}</div>
         </div>
-        <div className="truncate text-[12px] text-ink-faint">{ctx.detail}</div>
-      </div>
 
-      <div className="hidden shrink-0 pr-1 text-right sm:block">
-        <div className="text-[12px] text-ink-soft">
-          {ctx.sessions} session{ctx.sessions === 1 ? '' : 's'}
+        <div className="hidden shrink-0 pr-1 text-right sm:block">
+          <div className="text-[12px] text-ink-soft">
+            {ctx.sessions} session{ctx.sessions === 1 ? '' : 's'}
+          </div>
+          <div className="text-[11px] text-ink-faint">
+            {ctx.lastUsed === '—' ? 'Never used' : `Last used ${ctx.lastUsed}`}
+          </div>
         </div>
-        <div className="text-[11px] text-ink-faint">
-          {ctx.lastUsed === '—' ? 'Never used' : `Last used ${ctx.lastUsed}`}
-        </div>
-      </div>
+      </button>
 
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2 pr-4">
         {ctx.kind === 'repo' ? (
           <StatusPill tone="neutral" label={ctx.dependsOnGitHub ? 'via GitHub' : 'Local only'} />
         ) : (
@@ -554,6 +611,182 @@ function ContextRow({
         </div>
       </div>
     </div>
+  )
+}
+
+/** Drill-down for one saved context — the same detail a session shows when you
+ *  click its chip. Connectors / MCP servers reuse the live sidebar's body
+ *  (ConnectorDetailBody); repos get an equivalent summary of where they live and
+ *  what attaching one grants. */
+function ContextDetail({
+  ctx,
+  onBack,
+  onToggle,
+  onRemove,
+}: {
+  ctx: SavedContext
+  onBack: () => void
+  onToggle: () => void
+  onRemove: () => void
+}) {
+  const Icon = contextIcon(ctx)
+  const isRepo = ctx.kind === 'repo'
+  const connected = ctx.status === 'connected'
+  const asConnector: Connector = {
+    id: ctx.id,
+    label: ctx.label,
+    kind: ctx.kind === 'mcp' ? 'mcp' : ctx.connectorKind,
+  }
+
+  return (
+    <Page>
+      <button
+        onClick={onBack}
+        className="mb-4 inline-flex items-center gap-1.5 text-[13px] font-medium text-ink-soft transition hover:text-ink"
+      >
+        <ArrowLeft size={15} />
+        Contexts
+      </button>
+
+      <header className="mb-6 flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-panel-2 text-ink-soft">
+            <Icon size={20} />
+          </span>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h1 className="truncate font-serif text-2xl font-semibold text-ink">{ctx.label}</h1>
+              {isRepo && (
+                <span className="shrink-0 rounded bg-panel-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-soft">
+                  {ctx.origin === 'local' ? 'Local' : 'GitHub'}
+                </span>
+              )}
+            </div>
+            <p className="mt-0.5 truncate text-[13px] text-ink-soft">{ctx.detail}</p>
+          </div>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
+          {!isRepo && (
+            <button
+              onClick={onToggle}
+              className="flex items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[13px] font-medium text-ink shadow-sm transition hover:border-accent"
+            >
+              {connected ? <Unplug size={14} /> : <Plug size={14} />}
+              {connected ? 'Disconnect' : 'Connect'}
+            </button>
+          )}
+          <button
+            onClick={onRemove}
+            className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[13px] font-medium text-ink-soft shadow-sm transition hover:border-removed hover:bg-removed-bg hover:text-removed"
+          >
+            <Trash2 size={14} />
+            Remove
+          </button>
+        </div>
+      </header>
+
+      <div className="flex flex-col gap-6 lg:flex-row">
+        <div className="min-w-0 flex-1">
+          <div className="rounded-xl border border-line bg-surface p-4 shadow-sm">
+            {isRepo ? (
+              <RepoDetailBody ctx={ctx} />
+            ) : (
+              <ConnectorDetailBody connector={asConnector} connected={connected} />
+            )}
+          </div>
+        </div>
+
+        <aside className="w-full shrink-0 space-y-4 lg:w-72">
+          <SidePanel title="Usage" icon={<Clock size={14} />}>
+            <div className="space-y-2 text-[13px] text-ink">
+              <div className="flex items-center justify-between">
+                <span className="text-ink-soft">Sessions</span>
+                <span className="font-medium">{ctx.sessions}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-ink-soft">Last used</span>
+                <span className="font-medium">{ctx.lastUsed === '—' ? 'Never' : ctx.lastUsed}</span>
+              </div>
+            </div>
+          </SidePanel>
+
+          {isRepo && ctx.dependsOnGitHub && (
+            <SidePanel title="Depends on" icon={<Github size={14} />}>
+              <div className="flex items-center gap-2 text-[13px] text-ink">
+                <Github size={15} className="shrink-0 text-ink-soft" />
+                GitHub connector
+              </div>
+              <p className="mt-1.5 text-[12px] leading-relaxed text-ink-faint">
+                Sessions that attach this repo reuse the GitHub connector — no re-cloning.
+              </p>
+            </SidePanel>
+          )}
+        </aside>
+      </div>
+    </Page>
+  )
+}
+
+/** The repo equivalent of ConnectorDetailBody — status, a one-line blurb, where
+ *  the repo lives, and what attaching it grants. Mirrors the connector body's
+ *  visual language so both detail pages read the same. */
+function RepoDetailBody({ ctx }: { ctx: SavedContext }) {
+  const local = ctx.origin === 'local'
+  // The saved row's detail is "<path|origin> · <branch>[ · local only]"; the
+  // branch is the middle segment.
+  const branch = ctx.detail.split('·')[1]?.trim() ?? 'main'
+  const location = local
+    ? ctx.detail.split('·')[0]?.trim() ?? ctx.label
+    : ctx.label
+
+  const grants = [
+    'Read & edit files in the working tree',
+    'Run commands and inspect diffs in a session',
+    local ? 'Stays on your machine — nothing re-cloned' : 'Cloned on attach from GitHub',
+  ]
+
+  return (
+    <>
+      <div className="flex items-center gap-1.5 text-[12px] font-medium text-emerald-700">
+        <span className="h-2 w-2 rounded-full bg-emerald-500" />
+        Connected
+      </div>
+
+      <p className="mt-2 text-[13px] leading-relaxed text-ink-soft">
+        {local
+          ? 'A local repository you’ve worked in before — attach it to any session without re-cloning.'
+          : 'A GitHub repository — attach it to any session and it’s cloned for you.'}
+      </p>
+
+      <div className="mt-4 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Location</div>
+      <div className="mt-1.5 space-y-1.5">
+        <div className="flex items-center gap-2 text-[13px] text-ink">
+          {local ? (
+            <FolderGit2 size={14} className="shrink-0 text-cap-repo" />
+          ) : (
+            <Github size={14} className="shrink-0 text-cap-repo" />
+          )}
+          <span className="min-w-0 truncate">{location}</span>
+        </div>
+        <div className="flex items-center gap-2 text-[13px] text-ink">
+          <GitBranch size={14} className="shrink-0 text-cap-repo" />
+          <span className="min-w-0 truncate font-mono text-[12px]">{branch}</span>
+        </div>
+      </div>
+
+      <div className="mt-4 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+        What it grants
+      </div>
+      <div className="mt-1.5 space-y-1.5">
+        {grants.map((g, i) => (
+          <div key={i} className="flex items-center gap-2 text-[13px] text-ink">
+            <Check size={14} className="shrink-0 text-cap-repo" />
+            {g}
+          </div>
+        ))}
+      </div>
+    </>
   )
 }
 
