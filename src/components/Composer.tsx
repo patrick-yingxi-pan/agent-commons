@@ -349,7 +349,13 @@ export function Composer({
         <div className="mt-2 flex items-center justify-between gap-2 px-0.5">
           <div className="flex items-center gap-1">
             <PermissionModeControl />
-            <AddContextButton onAttach={onAddContext} hasGitHubConnector={hasGitHubConnector} />
+            <AddContextButton
+              onAttach={onAddContext}
+              connectors={connectors}
+              repos={repos}
+              attachments={attachments}
+              workspaces={workspaces}
+            />
             <AudioInputControl />
           </div>
           <div className="flex items-center gap-1.5">

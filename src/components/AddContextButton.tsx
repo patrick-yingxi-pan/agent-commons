@@ -15,9 +15,10 @@ import {
   Plus,
   Server,
 } from 'lucide-react'
-import type { AddedContext } from '../types'
+import type { AddedContext, Attachment, Connector, Repo, Workspace } from '../types'
 import { gradientFor } from '../lib/thumbs'
-import { GITHUB_CONNECTOR } from '../lib/connectors'
+import { GITHUB_CONNECTOR, GITHUB_CONNECTOR_ID } from '../lib/connectors'
+import { repoIdForLabel } from '../data/liveSession'
 import { getDecision, setDecision } from '../lib/prefs'
 import { getRecentIds, pushRecent } from '../lib/recents'
 import { addKnownId, getKnownIds } from '../lib/known'
@@ -45,16 +46,25 @@ const CONTEXT_TYPES: { id: TypeId; label: string; desc: string; Icon: typeof Pap
 
 /** One consistent entry point for attaching context — every attachable thing
  *  (files, folders, repos, connectors, MCP servers) is "context" the thread
- *  gains. Step 1 picks the type; step 2 shows that type's *recent* picks plus a
- *  "Browse…" explorer for everything else (which then becomes recent, LRU). */
+ *  gains. Step 1 picks the type; step 2 shows that type's quick picks plus a
+ *  "Browse…" explorer for everything else. Every picker is multi-add: a pick
+ *  attaches without closing and the row flips to ✓ Added; a "Done" footer closes.
+ *  Whether a row reads "Added" is derived from what's *actually attached* to the
+ *  thread (the live context props below), so it persists across reopens. */
 export function AddContextButton({
   onAttach,
-  hasGitHubConnector,
+  connectors,
+  repos,
+  attachments,
+  workspaces,
 }: {
   onAttach: (ctx: AddedContext) => void
-  /** Whether the GitHub connector is already attached — drives the "also add the
-   *  connector?" prompt when attaching a repo with a GitHub remote. */
-  hasGitHubConnector: boolean
+  /** The thread's currently-attached context — drives which rows show "Added"
+   *  and the repo→GitHub-connector prompt. */
+  connectors: Connector[]
+  repos: Repo[]
+  attachments: Attachment[]
+  workspaces: Workspace[]
 }) {
   const [open, setOpen] = useState(false)
   const [type, setType] = useState<TypeId | null>(null)
@@ -144,7 +154,10 @@ export function AddContextButton({
                   type={activeType.id}
                   onAttach={onAttach}
                   onClose={close}
-                  hasGitHubConnector={hasGitHubConnector}
+                  connectors={connectors}
+                  repos={repos}
+                  attachments={attachments}
+                  workspaces={workspaces}
                 />
               </div>
             </div>
@@ -159,27 +172,52 @@ function WorkflowBody({
   type,
   onAttach,
   onClose,
-  hasGitHubConnector,
+  connectors,
+  repos,
+  attachments,
+  workspaces,
 }: {
   type: TypeId
-  /** Attach without closing — lets the multi-add pickers stack several adds. */
+  /** Attach without closing — every picker stacks adds (multi-add). */
   onAttach: (ctx: AddedContext) => void
-  /** Close the whole popover (the multi-add "Done", and folder/repo's one-shot). */
+  /** Close the whole popover (the multi-add "Done"). */
   onClose: () => void
-  hasGitHubConnector: boolean
+  connectors: Connector[]
+  repos: Repo[]
+  attachments: Attachment[]
+  workspaces: Workspace[]
 }) {
-  // Folder & repo attach one-shot: each pick can raise a decision prompt
-  // (attach the repo? add the connector?), which can't be batched — so they
-  // close on attach, as before.
-  const attachAndClose = (ctx: AddedContext) => {
-    onAttach(ctx)
-    onClose()
-  }
+  // Which option ids are already attached, per type — so an attached element
+  // reads "Added" (no plus) instead of inviting a duplicate add. Mapped back to
+  // each catalog's id space (mcp connectors carry an `mcp-` prefix; repos derive
+  // their live id from the label; folders tag their workspace artifacts).
+  const hasGitHubConnector = connectors.some((c) => c.id === GITHUB_CONNECTOR_ID)
+  const addedConnectorIds = connectors.filter((c) => c.kind !== 'mcp').map((c) => c.id)
+  const addedMcpIds = connectors.filter((c) => c.kind === 'mcp').map((c) => c.id.replace(/^mcp-/, ''))
+  const addedFileIds = attachments.filter((a) => a.kind === 'file').map((a) => a.id)
+  const addedPhotoIds = attachments.filter((a) => a.kind === 'photo').map((a) => a.id)
+  const addedRepoIds = repos.map((r) => r.id)
+  const addedFolderIds = workspaces.flatMap((w) => w.artifacts).flatMap((a) => (a.source ? [a.source.id] : []))
+
   if (type === 'folder') {
-    return <FolderPicker onAttach={attachAndClose} hasGitHubConnector={hasGitHubConnector} />
+    return (
+      <FolderPicker
+        onAdd={onAttach}
+        onClose={onClose}
+        addedIds={addedFolderIds}
+        hasGitHubConnector={hasGitHubConnector}
+      />
+    )
   }
   if (type === 'repo') {
-    return <RepoPicker onAttach={attachAndClose} hasGitHubConnector={hasGitHubConnector} />
+    return (
+      <RepoPicker
+        onAdd={onAttach}
+        onClose={onClose}
+        addedRepoIds={addedRepoIds}
+        hasGitHubConnector={hasGitHubConnector}
+      />
+    )
   }
   if (type === 'connector') {
     return (
@@ -197,6 +235,7 @@ function WorkflowBody({
           kind: 'connector',
           connector: { id: c.id, label: c.label, kind: c.kind ?? 'connector' },
         })}
+        addedIds={addedConnectorIds}
         onAdd={onAttach}
         onClose={onClose}
       />
@@ -218,15 +257,16 @@ function WorkflowBody({
           kind: 'mcp',
           connector: { id: `mcp-${m.id}`, label: `MCP · ${m.label}`, kind: 'mcp' },
         })}
+        addedIds={addedMcpIds}
         onAdd={onAttach}
         onClose={onClose}
       />
     )
   }
   if (type === 'files') {
-    return <FilesPicker onAdd={onAttach} onClose={onClose} />
+    return <FilesPicker onAdd={onAttach} onClose={onClose} addedIds={addedFileIds} />
   }
-  return <PhotosPicker onAdd={onAttach} onClose={onClose} />
+  return <PhotosPicker onAdd={onAttach} onClose={onClose} addedIds={addedPhotoIds} />
 }
 
 /* ------------------------------------------------------------------ Browse --
@@ -429,6 +469,7 @@ function ListPicker<T extends { id: string; label: string }>({
   browseIcon,
   rowMeta,
   toContext,
+  addedIds,
   onAdd,
   onClose,
 }: {
@@ -444,6 +485,8 @@ function ListPicker<T extends { id: string; label: string }>({
    *  a Browse candidate (still to set up). */
   rowMeta: (o: T, connected: boolean) => string | undefined
   toContext: (o: T) => AddedContext
+  /** Option ids already attached to the thread — shown as ✓ Added, not a plus. */
+  addedIds: readonly string[]
   onAdd: (ctx: AddedContext) => void
   onClose: () => void
 }) {
@@ -451,16 +494,14 @@ function ListPicker<T extends { id: string; label: string }>({
   // The set-up ids (seeded from savedContexts), as state so a Browse promotion
   // shows up immediately. The rest are the Browse candidates.
   const [knownIds, setKnownIds] = useState<string[]>(() => getKnownIds(type))
-  const [added, setAdded] = useState<string[]>([])
   const connected = options.filter((o) => knownIds.includes(o.id))
   const rest = options.filter((o) => !knownIds.includes(o.id))
 
-  // Attach without closing, so multiple can be stacked. Each adds to recents and
-  // flips the row to ✓ Added.
+  // Attach without closing, so multiple can be stacked. The row flips to ✓ Added
+  // off the live attached state (addedIds), so it stays Added across reopens.
   const choose = (o: T) => {
     pushRecent(type, o.id)
     onAdd(toContext(o))
-    setAdded((a) => (a.includes(o.id) ? a : [...a, o.id]))
   }
 
   // A freshly set-up element joins the Connected quick list (and attaches).
@@ -480,13 +521,13 @@ function ListPicker<T extends { id: string; label: string }>({
             label={o.label}
             meta={rowMeta(o, true)}
             accentDot
-            added={added.includes(o.id)}
+            added={addedIds.includes(o.id)}
             onClick={() => choose(o)}
           />
         ))}
         <BrowseRow label={browseLabel} onClick={() => setBrowsing(true)} />
       </Section>
-      <MultiAddFooter count={added.length} onDone={onClose} />
+      <MultiAddFooter count={addedIds.length} onDone={onClose} />
       {browsing && (
         <BrowseDialog
           title={browseTitle}
@@ -529,22 +570,25 @@ function MultiAddFooter({ count, onDone }: { count: number; onDone: () => void }
 function FilesPicker({
   onAdd,
   onClose,
+  addedIds,
 }: {
   onAdd: (ctx: AddedContext) => void
   onClose: () => void
+  addedIds: readonly string[]
 }) {
   const [browsing, setBrowsing] = useState(false)
-  const [added, setAdded] = useState<string[]>([])
   const recentIds = getRecentIds('files')
   const byId = new Map(FILE_OPTIONS.map((f) => [f.id, f]))
   const recent = recentIds.map((id) => byId.get(id)).filter(Boolean) as (typeof FILE_OPTIONS)[number][]
-  const rest = FILE_OPTIONS.filter((f) => !recentIds.includes(f.id))
+  // Browse lists what's neither recent nor already attached — so an attached
+  // file that's been evicted from recents can't reappear here to be added twice.
+  const rest = FILE_OPTIONS.filter((f) => !recentIds.includes(f.id) && !addedIds.includes(f.id))
 
-  // Attach without closing so several files can be added in one pass.
+  // Attach without closing so several files can be added in one pass. The row
+  // flips to ✓ Added off the live attached state (addedIds).
   const choose = (f: (typeof FILE_OPTIONS)[number]) => {
     pushRecent('files', f.id)
     onAdd({ kind: 'files', attachments: [{ id: f.id, label: f.label, kind: 'file' }] })
-    setAdded((a) => (a.includes(f.id) ? a : [...a, f.id]))
   }
 
   return (
@@ -564,12 +608,12 @@ function FilesPicker({
           icon={<FileText size={16} />}
           label={f.label}
           meta={f.meta}
-          added={added.includes(f.id)}
+          added={addedIds.includes(f.id)}
           onClick={() => choose(f)}
         />
       ))}
       <BrowseRow label="Browse files…" onClick={() => setBrowsing(true)} />
-      <MultiAddFooter count={added.length} onDone={onClose} />
+      <MultiAddFooter count={addedIds.length} onDone={onClose} />
       {browsing && (
         <BrowseDialog
           title="Open"
@@ -592,35 +636,38 @@ function FilesPicker({
 function PhotosPicker({
   onAdd,
   onClose,
+  addedIds,
 }: {
   onAdd: (ctx: AddedContext) => void
   onClose: () => void
+  addedIds: readonly string[]
 }) {
   const [browsing, setBrowsing] = useState(false)
-  const [added, setAdded] = useState<string[]>([])
   const recentIds = getRecentIds('photos')
   const byId = new Map(PHOTO_OPTIONS.map((p) => [p.id, p]))
   const recent = recentIds.map((id) => byId.get(id)).filter(Boolean) as (typeof PHOTO_OPTIONS)[number][]
-  const rest = PHOTO_OPTIONS.filter((p) => !recentIds.includes(p.id))
+  // Browse lists what's neither recent nor already attached — so an attached
+  // photo evicted from recents can't reappear here to be added twice.
+  const rest = PHOTO_OPTIONS.filter((p) => !recentIds.includes(p.id) && !addedIds.includes(p.id))
 
-  // Attach without closing so several photos can be added in one pass.
+  // Attach without closing so several photos can be added in one pass. The
+  // thumbnail flips to a ✓ overlay off the live attached state (addedIds).
   const choose = (p: (typeof PHOTO_OPTIONS)[number]) => {
     pushRecent('photos', p.id)
     onAdd({ kind: 'photos', attachments: [{ id: p.id, label: p.label, kind: 'photo' }] })
-    setAdded((a) => (a.includes(p.id) ? a : [...a, p.id]))
   }
 
   return (
     <Section label="Recent photos">
       <div className="grid grid-cols-4 gap-1.5 px-1 pb-1">
         {recent.map((p) => {
-          const isAdded = added.includes(p.id)
+          const isAdded = addedIds.includes(p.id)
           return (
             <button
               key={p.id}
               title={p.label}
-              disabled={isAdded}
-              onClick={() => choose(p)}
+              aria-disabled={isAdded}
+              onClick={isAdded ? undefined : () => choose(p)}
               className={`relative aspect-square rounded-lg transition ${gradientFor(p.id)} ${
                 isAdded ? 'ring-2 ring-emerald-500' : 'ring-1 ring-black/5 hover:opacity-80'
               }`}
@@ -641,7 +688,7 @@ function PhotosPicker({
           <FolderSearch size={16} />
         </button>
       </div>
-      <MultiAddFooter count={added.length} onDone={onClose} />
+      <MultiAddFooter count={addedIds.length} onDone={onClose} />
       {browsing && (
         <BrowseDialog
           title="Photo Library"
@@ -776,29 +823,42 @@ function AttachPromptCard({
 
 /** Repository picker: one merged "Recent repositories" list (local + GitHub,
  *  each row badged) plus a Browse explorer that groups the rest into Local /
- *  GitHub. Picking a repo that has a GitHub remote, when the connector isn't
- *  already attached, asks whether to add the connector too — Cancel aborts the
- *  whole attach, "Just the repo" / "Add both" decide, and a remembered choice
- *  skips the prompt next time. A real attach promotes the repo into recents. */
+ *  GitHub. Multi-add like the other pickers — a pick attaches without closing
+ *  and the row flips to ✓ Added (off the live attached repos). Picking a repo
+ *  that has a GitHub remote, when the connector isn't already attached, asks
+ *  whether to add the connector too — Cancel returns to the list, "Just the repo"
+ *  / "Add both" decide, and a remembered choice skips the prompt next time. */
 function RepoPicker({
-  onAttach,
+  onAdd,
+  onClose,
+  addedRepoIds,
   hasGitHubConnector,
 }: {
-  onAttach: (ctx: AddedContext) => void
+  onAdd: (ctx: AddedContext) => void
+  onClose: () => void
+  /** Live-repo ids already attached — rows for these read ✓ Added. */
+  addedRepoIds: readonly string[]
   hasGitHubConnector: boolean
 }) {
   const [pending, setPending] = useState<{ ctx: RepoContext; id: string } | null>(null)
   const [dontAsk, setDontAsk] = useState(false)
   const [browsing, setBrowsing] = useState(false)
 
+  const labelOf = (o: RepoOption) => (o.origin === 'local' ? basename(o.path) : o.remote)
+  const isAdded = (o: RepoOption) => addedRepoIds.includes(repoIdForLabel(labelOf(o)))
+
   const recentIds = getRecentIds('repo')
   const byId = new Map(REPO_CATALOG.map((o) => [o.id, o]))
   const recent = recentIds.map((id) => byId.get(id)).filter(Boolean) as RepoOption[]
-  const rest = REPO_CATALOG.filter((o) => !recentIds.includes(o.id))
+  // Browse lists what's neither recent nor already attached — so re-selecting an
+  // attached repo can't re-fire its attach (and re-attach the GitHub connector).
+  const rest = REPO_CATALOG.filter((o) => !recentIds.includes(o.id) && !isAdded(o))
 
+  // Attach without closing and return to the list (clears any prompt).
   const finalize = (ctx: RepoContext, id: string) => {
     pushRecent('repo', id)
-    onAttach(ctx)
+    onAdd(ctx)
+    setPending(null)
   }
 
   const select = (o: RepoOption) => {
@@ -807,7 +867,7 @@ function RepoPicker({
     if (!ctx.remote || hasGitHubConnector) return finalize(ctx, o.id)
     const decision = getDecision('linkOnAttach')
     if (decision === 'always') {
-      onAttach({ kind: 'connector', connector: GITHUB_CONNECTOR })
+      onAdd({ kind: 'connector', connector: GITHUB_CONNECTOR })
       return finalize(ctx, o.id)
     }
     if (decision === 'never') return finalize(ctx, o.id)
@@ -835,7 +895,7 @@ function RepoPicker({
         primaryLabel="Add both"
         onPrimary={() => {
           if (dontAsk) setDecision('linkOnAttach', 'always')
-          onAttach({ kind: 'connector', connector: GITHUB_CONNECTOR })
+          onAdd({ kind: 'connector', connector: GITHUB_CONNECTOR })
           finalize(pending.ctx, pending.id)
         }}
       />
@@ -852,6 +912,7 @@ function RepoPicker({
           ? `local · ${o.remote ?? 'local only'} · ${o.branch}`
           : `github · ${o.branch} · ${o.meta}`
       }
+      added={isAdded(o)}
       onClick={() => select(o)}
     />
   )
@@ -862,6 +923,7 @@ function RepoPicker({
         {recent.map(repoRow)}
         <BrowseRow label="Browse repositories…" onClick={() => setBrowsing(true)} />
       </Section>
+      <MultiAddFooter count={addedRepoIds.length} onDone={onClose} />
       {browsing && (
         <BrowseDialog
           title="Open Repository"
@@ -907,10 +969,15 @@ type FolderOption = (typeof FOLDER_OPTIONS)[number]
  *  Cancel aborts the whole attach, and each choice can be remembered. Recent
  *  folders show first; Browse reaches the rest, promoting them on attach. */
 function FolderPicker({
-  onAttach,
+  onAdd,
+  onClose,
+  addedIds,
   hasGitHubConnector,
 }: {
-  onAttach: (ctx: AddedContext) => void
+  onAdd: (ctx: AddedContext) => void
+  onClose: () => void
+  /** Folder ids already in the shared workspace — rows for these read ✓ Added. */
+  addedIds: readonly string[]
   hasGitHubConnector: boolean
 }) {
   const [stage, setStage] = useState<'list' | 'repo' | 'connector'>('list')
@@ -921,19 +988,27 @@ function FolderPicker({
   const recentIds = getRecentIds('folder')
   const byId = new Map(FOLDER_OPTIONS.map((f) => [f.id, f]))
   const recent = recentIds.map((id) => byId.get(id)).filter(Boolean) as FolderOption[]
-  const rest = FOLDER_OPTIONS.filter((f) => !recentIds.includes(f.id))
+  // Browse lists what's neither recent nor already attached.
+  const rest = FOLDER_OPTIONS.filter((f) => !recentIds.includes(f.id) && !addedIds.includes(f.id))
+
+  const backToList = () => {
+    setStage('list')
+    setFolder(null)
+  }
 
   // Attach the folder as a workspace, tagging its artifacts with the folder as
   // their source so the one shared workspace can group by folder. Promotes the
-  // folder into recents — this runs on every path that actually attaches.
+  // folder into recents and returns to the list (multi-add — no close). Runs on
+  // every path that actually attaches, so it's the single reset point.
   const attachFolder = (f: FolderOption) => {
     pushRecent('folder', f.id)
     const source = { id: f.id, label: `${basename(f.label)}/` }
-    onAttach({
+    onAdd({
       kind: 'folder',
       label: f.label,
       artifacts: f.artifacts.map((a) => ({ ...a, source })),
     })
+    backToList()
   }
 
   const repoCtxFor = (f: FolderOption): RepoContext => ({
@@ -949,11 +1024,11 @@ function FolderPicker({
   })
 
   // Attach the folder (workspace) and its repo — connector first when wanted, so
-  // focus lands on the repo.
+  // focus lands on the repo. attachFolder handles the list reset.
   const attachFolderAndRepo = (f: FolderOption, withConnector: boolean) => {
-    if (withConnector) onAttach({ kind: 'connector', connector: GITHUB_CONNECTOR })
+    if (withConnector) onAdd({ kind: 'connector', connector: GITHUB_CONNECTOR })
     attachFolder(f)
-    onAttach(repoCtxFor(f))
+    onAdd(repoCtxFor(f))
   }
 
   // The repo is being attached too — settle the GitHub connector question.
@@ -975,11 +1050,6 @@ function FolderPicker({
     setDontAsk(false)
     setFolder(f)
     setStage('repo')
-  }
-
-  const backToList = () => {
-    setStage('list')
-    setFolder(null)
   }
 
   if (stage === 'repo' && folder) {
@@ -1044,11 +1114,13 @@ function FolderPicker({
             icon={<FolderOpen size={16} />}
             label={f.label}
             meta={`${f.meta}${f.repo ? ' · git repo' : ''}`}
+            added={addedIds.includes(f.id)}
             onClick={() => select(f)}
           />
         ))}
         <BrowseRow label="Browse folders…" onClick={() => setBrowsing(true)} />
       </Section>
+      <MultiAddFooter count={addedIds.length} onDone={onClose} />
       {browsing && (
         <BrowseDialog
           title="Open Folder"
@@ -1097,7 +1169,8 @@ function OptionRow({
   meta?: string
   /** A small green "connected / ready" dot before the icon (the quick list). */
   accentDot?: boolean
-  /** Already attached this pass — shows ✓ Added and stops re-adding (multi-add). */
+  /** Already attached to the thread — shows ✓ Added (not a plus) and isn't
+   *  clickable, so it can't be added twice. Persists across reopens. */
   added?: boolean
   onClick: () => void
 }) {

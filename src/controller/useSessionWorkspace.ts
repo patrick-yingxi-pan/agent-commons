@@ -9,6 +9,7 @@ import {
   branchFor,
   liveFromSession,
   remoteFor,
+  repoIdForLabel,
   slug,
   withConnector,
   workspaceNameFor,
@@ -227,7 +228,7 @@ export function useSessionWorkspace() {
           }
         }
         case 'repo': {
-          const id = `repo-${slug(ctx.label)}`
+          const id = repoIdForLabel(ctx.label)
           if (l.repos.some((r) => r.id === id)) return l
           // The GitHub connector, if wanted, arrives as its own separate attach
           // (see the repo picker's link prompt) — a repo no longer owns one.
@@ -248,8 +249,15 @@ export function useSessionWorkspace() {
         case 'mcp':
           return { ...l, connectors: withConnector(l.connectors, ctx.connector) }
         case 'files':
-        case 'photos':
-          return { ...l, attachments: [...l.attachments, ...ctx.attachments] }
+        case 'photos': {
+          // Dedup by id so re-attaching the same file/photo is a no-op (mirrors
+          // the connector/repo guards) — otherwise a duplicate chip shares a
+          // React key and a single remove would drop both copies.
+          const seen = new Set(l.attachments.map((a) => a.id))
+          const added = ctx.attachments.filter((a) => !seen.has(a.id))
+          if (added.length === 0) return l
+          return { ...l, attachments: [...l.attachments, ...added] }
+        }
         default:
           return l
       }

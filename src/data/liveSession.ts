@@ -52,6 +52,13 @@ export function slug(s: string) {
     .replace(/(^-|-$)/g, '')
 }
 
+/** The live-repo id for a repo's display label. One source of truth so the
+ *  Add-context picker can tell whether a repo option is already attached (it
+ *  derives the same id the controller assigns on attach). */
+export function repoIdForLabel(label: string) {
+  return `repo-${slug(label)}`
+}
+
 // Branch names for the two scripted seed sessions that carry a repo. Demo seed
 // data, not a general registry — context attached at runtime brings its own
 // branch (see the controller's handleAddContext), so anything not seeded is 'main'.
