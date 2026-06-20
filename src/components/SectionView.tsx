@@ -324,6 +324,14 @@ function ArtifactsSection() {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('All')
   const [openId, setOpenId] = useState<string | null>(null)
+  const [folded, setFolded] = useState<Set<string>>(new Set())
+
+  const foldGroup = (id: string) =>
+    setFolded((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
 
   const needle = query.trim().toLowerCase()
   const wantKind =
@@ -369,19 +377,34 @@ function ArtifactsSection() {
         <Empty>No artifacts match.</Empty>
       ) : (
         <div className="space-y-7">
-          {groups.map((g) => (
-            <div key={g.project.id}>
-              <div className="mb-2.5 flex items-baseline gap-2">
-                <span className="text-[13px] font-semibold text-ink">{g.project.name}</span>
-                <span className="text-[12px] text-ink-faint">{g.items.length}</span>
+          {groups.map((g) => {
+            const isFolded = folded.has(g.project.id)
+            return (
+              <div key={g.project.id}>
+                <button
+                  onClick={() => foldGroup(g.project.id)}
+                  aria-expanded={!isFolded}
+                  className="group mb-2.5 flex w-full items-center gap-1.5 text-left"
+                >
+                  <ChevronDown
+                    size={15}
+                    className={`text-ink-faint transition group-hover:text-ink-soft ${
+                      isFolded ? '-rotate-90' : ''
+                    }`}
+                  />
+                  <span className="text-[13px] font-semibold text-ink">{g.project.name}</span>
+                  <span className="text-[12px] text-ink-faint">{g.items.length}</span>
+                </button>
+                {!isFolded && (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {g.items.map((a) => (
+                      <ArtifactCard key={a.id} artifact={a} onOpen={() => setOpenId(a.id)} />
+                    ))}
+                  </div>
+                )}
               </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {g.items.map((a) => (
-                  <ArtifactCard key={a.id} artifact={a} onOpen={() => setOpenId(a.id)} />
-                ))}
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
@@ -404,7 +427,7 @@ function ArtifactCard({ artifact, onOpen }: { artifact: ArtifactItem; onOpen: ()
       className="flex flex-col overflow-hidden rounded-xl border border-line bg-surface text-left shadow-sm transition hover:border-line-strong hover:shadow"
     >
       <div className="h-28 w-full overflow-hidden border-b border-line bg-panel-2/40">
-        <ArtifactThumb kind={artifact.kind} id={artifact.id} name={artifact.name} />
+        <ArtifactThumb kind={artifact.kind} name={artifact.name} excerpt={artifact.excerpt} />
       </div>
       <div className="flex flex-1 flex-col p-3.5">
         <div className="flex items-center gap-2">

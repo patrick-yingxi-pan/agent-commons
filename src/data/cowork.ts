@@ -754,7 +754,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
     meta: '4 services',
     source: 'On-call runbook',
     projectId: 'p-infra',
-    excerpt: 'SLOs and 30-day error-budget burn for the auth service.',
+    excerpt: 'SLOs and 30-day error-budget burn across auth, api, ingest, and web — ingest is over budget.',
     edited: 'Wed',
     tag: 'Code',
   },

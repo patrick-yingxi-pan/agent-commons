@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Crop, FileText, Image as ImageIcon, PenLine, RotateCw, Sheet, Trash2 } from 'lucide-react'
-import type { Attachment } from '../types'
+import type { Attachment, ArtifactKind } from '../types'
 import { gradientFor } from '../lib/thumbs'
 import { PanelShell } from './PanelShell'
+import { ArtifactBodyView } from './artifactPreview'
 
 /** Right-side panel that displays a group of file or photo attachments and lets
  *  the user preview / edit / remove them. Opened by clicking a file/photo chip;
@@ -256,9 +257,7 @@ function FileBody({
             <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-ink-faint">
               Preview · {item.label}
             </div>
-            <div className="flex aspect-[3/4] w-full items-center justify-center rounded-lg border border-line bg-panel-2 text-sm text-ink-faint">
-              {info.ext.toUpperCase()} preview
-            </div>
+            <ArtifactBodyView kind={previewKind(info.ext)} name={item.label} size="compact" />
           </>
         )}
       </div>
@@ -273,8 +272,29 @@ function fileIcon(label: string) {
   return FileText
 }
 
+/** Which artifact renderer to use for a non-editable file preview. */
+function previewKind(ext: string): ArtifactKind {
+  if (['png', 'jpg', 'jpeg', 'svg', 'gif'].includes(ext)) return 'image'
+  if (['csv', 'xlsx'].includes(ext)) return 'sheet'
+  return 'doc'
+}
+
+/** Real, hand-authored bodies for the editable files in the attach catalog, so
+ *  opening one shows actual content (and edits track as unsaved) rather than a
+ *  generic placeholder. */
+const FILE_TEXT: Record<string, string> = {
+  'metrics.csv':
+    'metric,this week,last week,Δ\nWAU,18420,17310,+6.4%\nActivation,71%,67%,+4pt\np95 latency,240ms,1.81s,−87%\nNRR,114%,112%,+2pt',
+  'notes.md':
+    '# Notes\n\n- Insights ships behind the `insights` flag next week\n- Variant B won the onboarding test (+6.2% activation)\n- Ingest is over error budget — freeze risky changes',
+  'changelog.md':
+    '# Changelog\n\n## Unreleased\n- Insights dashboard (behind a flag)\n- Unified auth refresh path\n\n## 2026.6.1\n- Rate limiting: 429 + Retry-After\n- Faster widget queries (composite index)',
+}
+
 function fileInfo(label: string): { ext: string; editable: boolean; content: string } {
   const ext = label.split('.').pop()?.toLowerCase() ?? ''
+  const named = FILE_TEXT[label]
+  if (named !== undefined) return { ext, editable: true, content: named }
   if (ext === 'csv')
     return {
       ext,

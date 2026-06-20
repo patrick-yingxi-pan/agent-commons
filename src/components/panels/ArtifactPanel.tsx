@@ -1,14 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, ChevronRight, FileText, Image as ImageIcon, Mail, Sheet, Presentation, X } from 'lucide-react'
-import type { Artifact, ArtifactKind } from '../../types'
-
-const KIND_ICON: Record<ArtifactKind, typeof FileText> = {
-  doc: FileText,
-  email: Mail,
-  image: ImageIcon,
-  slide: Presentation,
-  sheet: Sheet,
-}
+import { ChevronDown, ChevronRight, X } from 'lucide-react'
+import type { Artifact } from '../../types'
+import { ArtifactBodyView, KIND_ICON, KIND_LABEL } from '../artifactPreview'
 
 export function ArtifactPanel({
   artifacts,
@@ -185,36 +178,6 @@ export function ArtifactPanel({
   )
 }
 
-function hashId(id: string): number {
-  let h = 0
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
-  return h
-}
-
-/** Deterministic skeleton-line widths seeded by an artifact id, so two same-kind
- *  artifacts in the shared workspace never render an identical body. */
-const LINE_WIDTHS = ['w-full', 'w-11/12', 'w-5/6', 'w-4/5', 'w-3/4', 'w-2/3', 'w-1/2']
-function bodyLines(id: string, n: number): string[] {
-  const h = hashId(id)
-  return Array.from({ length: n }, (_, i) => LINE_WIDTHS[(h + i * 3) % LINE_WIDTHS.length])
-}
-
-/** A muted gradient seeded across the full hue circle by id, so two different
- *  image artifacts in the same workspace get visibly different previews (a small
- *  fixed palette collides — see the 4-gradient photo set). */
-function imageTint(id: string): string {
-  const hue = hashId(id) % 360
-  return `linear-gradient(135deg, hsl(${hue} 38% 74%), hsl(${(hue + 26) % 360} 34% 55%))`
-}
-
-const KIND_LABEL: Record<ArtifactKind, string> = {
-  doc: 'Document',
-  email: 'Draft email',
-  image: 'Image',
-  slide: 'Slides',
-  sheet: 'Sheet',
-}
-
 function ArtifactPreview({ artifact, onClose }: { artifact: Artifact; onClose: () => void }) {
   return (
     <div>
@@ -232,40 +195,7 @@ function ArtifactPreview({ artifact, onClose }: { artifact: Artifact; onClose: (
         </button>
       </div>
       <div className="mb-3 truncate text-sm font-semibold text-ink">{artifact.name}</div>
-
-      {artifact.kind === 'image' ? (
-        <div
-          className="flex aspect-video w-full items-center justify-center rounded-lg text-sm font-medium text-white/90 shadow-inner"
-          style={{ background: imageTint(artifact.id) }}
-        >
-          {artifact.name}
-        </div>
-      ) : artifact.kind === 'sheet' ? (
-        <div className="overflow-hidden rounded-lg border border-line text-[11px]">
-          {['cohort,users,churn', 'Annual · May,1,204,2.1%', 'Annual · Jun,1,190,4.8%', 'Monthly · Jun,3,902,3.0%'].map(
-            (row, i) => (
-              <div
-                key={i}
-                className={`grid grid-cols-3 gap-2 px-2 py-1 ${
-                  i === 0 ? 'bg-panel-2 font-semibold text-ink' : 'text-ink-soft'
-                } ${i > 0 ? 'border-t border-line' : ''}`}
-              >
-                {row.split(',').map((c, j) => (
-                  <span key={j} className="truncate">
-                    {c}
-                  </span>
-                ))}
-              </div>
-            ),
-          )}
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {bodyLines(artifact.id, 7).map((w, i) => (
-            <div key={i} className={`h-2.5 rounded bg-panel-2 ${w}`} />
-          ))}
-        </div>
-      )}
+      <ArtifactBodyView kind={artifact.kind} name={artifact.name} size="compact" />
     </div>
   )
 }

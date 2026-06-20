@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import type { ArtifactKind } from '../types'
 import type { ArtifactItem } from '../data/cowork'
+import { artifactContentFor, type ArtifactContent, type DocBlock } from '../data/artifactContent'
 
 export const KIND_ICON: Record<ArtifactKind, LucideIcon> = {
   doc: FileText,
@@ -27,181 +28,463 @@ export const KIND_LABEL: Record<ArtifactKind, string> = {
   sheet: 'Sheet',
 }
 
-function hashId(id: string): number {
+/** Where the body is being rendered — drives type scale and how much we show.
+ *  `thumb` = the small gallery card preview; `compact` = the workspace side
+ *  panel; `full` = the modal viewer. */
+type Size = 'thumb' | 'compact' | 'full'
+
+function hashId(seed: string): number {
   let h = 0
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
   return h
 }
 
-const LINE_WIDTHS = ['w-full', 'w-11/12', 'w-5/6', 'w-4/5', 'w-3/4', 'w-2/3', 'w-1/2']
-/** Deterministic skeleton-line widths seeded by id, so two same-kind artifacts
- *  never render an identical body. */
-function bodyLines(id: string, n: number): string[] {
-  const h = hashId(id)
-  return Array.from({ length: n }, (_, i) => LINE_WIDTHS[(h + i * 3) % LINE_WIDTHS.length])
-}
-
-/** A muted gradient seeded across the hue circle by id, so two image artifacts
- *  get visibly different previews. */
-function imageTint(id: string): string {
-  const hue = hashId(id) % 360
+/** A muted gradient seeded across the hue circle by file name (not artifact id) —
+ *  matching the by-name content library, so an image's gradient is stable across
+ *  the gallery, the workspace panel, and the composer preview. */
+function imageTint(seed: string): string {
+  const hue = hashId(seed) % 360
   return `linear-gradient(135deg, hsl(${hue} 38% 74%), hsl(${(hue + 26) % 360} 34% 55%))`
 }
 
-const SHEET_ROWS = [
-  ['cohort', 'users', 'churn'],
-  ['Annual · May', '1,204', '2.1%'],
-  ['Annual · Jun', '1,190', '4.8%'],
-  ['Monthly · Jun', '3,902', '3.0%'],
-  ['Trial · Jun', '2,180', '6.4%'],
-]
+/** Turn a file name into a human title for files that have no authored body. */
+function titleFromName(name: string): string {
+  return name
+    .replace(/\.[a-z0-9]+$/i, '')
+    .replace(/[-_]+/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+}
 
-/** A compact, kind-appropriate thumbnail for an artifact card. Purely decorative
- *  — a faux render so the gallery reads like the real Artifacts gallery. */
-export function ArtifactThumb({ kind, id, name }: { kind: ArtifactKind; id: string; name: string }) {
-  if (kind === 'image') {
-    return (
-      <div
-        className="flex h-full w-full items-end p-2.5"
-        style={{ background: imageTint(id) }}
-      >
-        <span className="truncate text-[10px] font-medium text-white/85">{name}</span>
-      </div>
-    )
-  }
+/* ───────────────────────────── doc / email ───────────────────────────── */
 
-  if (kind === 'sheet') {
+const DOC = {
+  thumb: { title: 'text-[9px]', gap: 'space-y-1', h: 'text-[8px]', p: 'text-[8px]', lead: 'leading-snug' },
+  compact: { title: 'text-[13px]', gap: 'space-y-2.5', h: 'text-[11px]', p: 'text-[12px]', lead: 'leading-relaxed' },
+  full: { title: 'text-lg', gap: 'space-y-3.5', h: 'text-[13px]', p: 'text-[14px]', lead: 'leading-relaxed' },
+} as const
+
+function DocBlockView({ block, size }: { block: DocBlock; size: Size }) {
+  const t = DOC[size]
+  if ('email' in block) {
     return (
-      <div className="h-full w-full p-3">
-        <div className="overflow-hidden rounded border border-line bg-surface">
-          {SHEET_ROWS.slice(0, 5).map((row, r) => (
-            <div key={r} className={`grid grid-cols-3 ${r > 0 ? 'border-t border-line' : ''}`}>
-              {row.map((_, c) => (
-                <div
-                  key={c}
-                  className={`px-1.5 py-[3px] ${c > 0 ? 'border-l border-line' : ''} ${
-                    r === 0 ? 'bg-panel-2' : ''
-                  }`}
-                >
-                  <div
-                    className={`h-1 rounded-sm ${r === 0 ? 'bg-ink-faint/60' : 'bg-line-strong/60'}`}
-                    style={{ width: `${45 + ((hashId(id) + r * 5 + c * 3) % 45)}%` }}
-                  />
-                </div>
-              ))}
-            </div>
-          ))}
+      <div className={`space-y-0.5 rounded-lg bg-panel-2/50 px-3 py-2 text-ink-soft ${t.p}`}>
+        <div>
+          <span className="text-ink-faint">To:</span> {block.email.to}
+        </div>
+        <div className="truncate">
+          <span className="text-ink-faint">Subject:</span> {block.email.subject}
         </div>
       </div>
     )
   }
-
-  if (kind === 'slide') {
+  if ('h' in block) {
+    return <div className={`${t.h} font-semibold text-ink`}>{block.h}</div>
+  }
+  if ('p' in block) {
+    return <p className={`${t.p} ${t.lead} text-ink-soft ${size === 'thumb' ? 'line-clamp-2' : ''}`}>{block.p}</p>
+  }
+  if ('ul' in block) {
+    const items = size === 'thumb' ? block.ul.slice(0, 2) : block.ul
     return (
-      <div className="flex h-full w-full items-center justify-center p-3">
-        <div className="aspect-video w-full rounded border border-line bg-surface p-2.5 shadow-sm">
-          <div className="h-1.5 w-1/2 rounded-sm bg-ink-faint/50" />
-          <div className="mt-2 space-y-1.5">
-            {bodyLines(id, 3).map((w, i) => (
-              <div key={i} className={`h-1 rounded-sm bg-line-strong/60 ${w}`} />
-            ))}
-          </div>
-        </div>
-      </div>
+      <ul className={`${t.p} ${t.lead} space-y-1 text-ink-soft`}>
+        {items.map((li, i) => (
+          <li key={i} className="flex gap-1.5">
+            <span className="mt-[3px] shrink-0 text-accent">•</span>
+            <span className={size === 'thumb' ? 'line-clamp-1' : ''}>{li}</span>
+          </li>
+        ))}
+      </ul>
     )
   }
-
-  // doc / email — a sheet of "paper" with text lines.
+  // code
   return (
-    <div className="h-full w-full p-3">
-      <div className="h-full overflow-hidden rounded border border-line bg-surface p-2.5 shadow-sm">
-        {kind === 'email' && <div className="mb-2 h-1 w-1/3 rounded-sm bg-ink-faint/50" />}
-        <div className="space-y-1.5">
-          {bodyLines(id, 6).map((w, i) => (
-            <div key={i} className={`h-1 rounded-sm bg-line-strong/50 ${w}`} />
-          ))}
+    <div className={`overflow-hidden rounded-md bg-panel-2/60 px-2.5 py-1.5 font-mono text-ink ${t.p}`}>
+      {block.code.map((ln, i) => (
+        <div key={i} className="truncate">
+          {ln}
         </div>
-      </div>
+      ))}
     </div>
   )
 }
 
-/** The fuller body shown inside the artifact detail viewer. */
-function ArtifactBody({ artifact }: { artifact: ArtifactItem }) {
-  const { kind, id, name, excerpt } = artifact
+function DocView({ doc, size }: { doc: Extract<ArtifactContent, { type: 'doc' }>; size: Size }) {
+  const t = DOC[size]
+  const blocks = size === 'thumb' ? doc.blocks.slice(0, 2) : doc.blocks
+  return (
+    <div className={t.gap}>
+      <div className={`${t.title} font-serif font-semibold leading-snug text-ink ${size === 'thumb' ? 'line-clamp-1' : ''}`}>
+        {doc.title}
+      </div>
+      {blocks.map((b, i) => (
+        <DocBlockView key={i} block={b} size={size} />
+      ))}
+    </div>
+  )
+}
 
-  if (kind === 'image') {
+/* ───────────────────────────────── sheet ───────────────────────────────── */
+
+const SHEET = {
+  thumb: { text: 'text-[8px]', cell: 'px-1.5 py-[3px]' },
+  compact: { text: 'text-[11px]', cell: 'px-2.5 py-1' },
+  full: { text: 'text-[12px]', cell: 'px-3 py-1.5' },
+} as const
+
+const HEX = /^#[0-9a-f]{6}$/i
+
+function SheetView({ sheet, size }: { sheet: Extract<ArtifactContent, { type: 'sheet' }>; size: Size }) {
+  const t = SHEET[size]
+  const rows = size === 'thumb' ? sheet.rows.slice(0, 3) : sheet.rows
+  return (
+    <div className={`overflow-hidden rounded-lg border border-line ${t.text}`}>
+      <table className="w-full border-collapse">
+        <thead>
+          <tr className="bg-panel-2">
+            {sheet.columns.map((c, i) => (
+              <th
+                key={i}
+                className={`${t.cell} text-left font-semibold text-ink ${i > 0 ? 'border-l border-line text-right' : ''}`}
+              >
+                {c}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, ri) => (
+            <tr key={ri} className="border-t border-line">
+              {r.map((c, ci) => (
+                <td
+                  key={ci}
+                  className={`${t.cell} ${ci === 0 ? 'text-ink' : 'border-l border-line text-right tabular-nums text-ink-soft'}`}
+                >
+                  {HEX.test(c) ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <span
+                        className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm ring-1 ring-line-strong"
+                        style={{ background: c }}
+                      />
+                      <span className="font-mono">{c}</span>
+                    </span>
+                  ) : (
+                    c
+                  )}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {sheet.note && size !== 'thumb' && (
+        <div className="border-t border-line bg-panel/40 px-3 py-1.5 text-[11px] italic text-ink-faint">{sheet.note}</div>
+      )}
+    </div>
+  )
+}
+
+/* ───────────────────────────────── slides ──────────────────────────────── */
+
+function SlidesView({ slides, size }: { slides: Extract<ArtifactContent, { type: 'slides' }>['slides']; size: Size }) {
+  const shown = size === 'thumb' ? slides.slice(0, 1) : slides
+  return (
+    <div className={size === 'thumb' ? '' : 'space-y-3'}>
+      {shown.map((s, i) => (
+        <div
+          key={i}
+          className={`flex w-full flex-col rounded-lg border border-line bg-surface shadow-sm ${
+            size === 'thumb' ? 'h-full p-2.5' : 'aspect-video p-4'
+          }`}
+        >
+          <div
+            className={`font-serif font-semibold leading-snug text-ink ${
+              size === 'thumb' ? 'text-[9px] line-clamp-1' : size === 'compact' ? 'text-[12px]' : 'text-[15px]'
+            }`}
+          >
+            {s.title}
+          </div>
+          <ul className={`mt-1.5 space-y-1 text-ink-soft ${size === 'thumb' ? 'text-[8px]' : 'text-[12px]'}`}>
+            {(size === 'thumb' ? s.bullets.slice(0, 2) : s.bullets).map((b, j) => (
+              <li key={j} className="flex gap-1.5">
+                <span className="mt-[2px] shrink-0 text-accent">•</span>
+                <span className={size === 'thumb' ? 'line-clamp-1' : ''}>{b}</span>
+              </li>
+            ))}
+          </ul>
+          {size !== 'thumb' && (
+            <div className="mt-auto pt-2 text-right text-[10px] text-ink-faint">
+              {i + 1} / {slides.length}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/* ───────────────────────────────── figure ──────────────────────────────── */
+
+const FIG_H = { thumb: 'h-full', compact: 'h-32', full: 'h-52' } as const
+
+function FigureView({
+  fig,
+  name,
+  size,
+}: {
+  fig: Extract<ArtifactContent, { type: 'figure' }>
+  name: string
+  size: Size
+}) {
+  const caption = size !== 'thumb' && (
+    <p className="mt-2 text-[12px] leading-snug text-ink-faint">{fig.caption}</p>
+  )
+
+  if (fig.shape === 'hero') {
     return (
-      <div
-        className="flex aspect-video w-full items-center justify-center rounded-lg text-sm font-medium text-white/90 shadow-inner"
-        style={{ background: imageTint(id) }}
-      >
-        {name}
+      <div>
+        <div
+          className={`relative flex w-full items-center justify-center overflow-hidden rounded-lg shadow-inner ${
+            size === 'thumb' ? 'h-full' : 'aspect-video'
+          }`}
+          style={{ background: imageTint(name) }}
+        >
+          <div
+            className={`px-4 text-center font-serif font-semibold text-white drop-shadow-sm ${
+              size === 'thumb' ? 'text-[13px]' : size === 'compact' ? 'text-xl' : 'text-3xl'
+            }`}
+          >
+            {fig.headline ?? titleFromName(name)}
+          </div>
+        </div>
+        {caption}
       </div>
     )
   }
 
-  if (kind === 'sheet') {
+  const chartH = FIG_H[size]
+  const series = fig.series ?? []
+  const dataMax = Math.max(1, ...series, ...(fig.series2 ?? []))
+  // Anchor the axis at 0 (and at 100 when the data fits) so bar heights and the
+  // line slope are proportional to the actual values — not stretched to fill the
+  // min–max window, which would overstate small changes.
+  const axisMax = dataMax <= 100 ? 100 : dataMax
+
+  if (fig.shape === 'bars') {
     return (
-      <div className="overflow-hidden rounded-lg border border-line text-[12px]">
-        {SHEET_ROWS.map((row, i) => (
-          <div
-            key={i}
-            className={`grid grid-cols-3 gap-2 px-3 py-1.5 ${
-              i === 0 ? 'bg-panel-2 font-semibold text-ink' : 'text-ink-soft'
-            } ${i > 0 ? 'border-t border-line' : ''}`}
-          >
-            {row.map((c, j) => (
-              <span key={j} className="truncate">
-                {c}
-              </span>
+      <div>
+        <div className={`flex items-end gap-2 rounded-lg border border-line bg-surface p-3 ${chartH}`}>
+          {series.map((v, i) => (
+            <div key={i} className="flex h-full flex-1 flex-col items-center justify-end gap-1">
+              <div className="w-full rounded-t bg-accent/80" style={{ height: `${(v / axisMax) * 100}%` }} />
+              {size !== 'thumb' && fig.labels?.[i] && (
+                <span className="truncate text-[10px] text-ink-faint">{fig.labels[i]}</span>
+              )}
+            </div>
+          ))}
+        </div>
+        {caption}
+      </div>
+    )
+  }
+
+  if (fig.shape === 'line') {
+    const n = series.length
+    if (n === 0) return <div>{caption}</div>
+    const pts = series
+      .map((v, i) => `${n === 1 ? 50 : (i / (n - 1)) * 100},${40 - (v / axisMax) * 36 - 2}`)
+      .join(' ')
+    return (
+      <div>
+        <div className={`rounded-lg border border-line bg-surface p-3 ${chartH}`}>
+          {/* preserveAspectRatio='none' stretches the viewBox to fill the card, so
+              only non-scaling geometry (the stroke) stays undistorted — no circle
+              markers, which would render as squashed ellipses. */}
+          <svg viewBox="0 0 100 40" preserveAspectRatio="none" className="h-full w-full text-accent">
+            <polyline points={pts} fill="none" stroke="currentColor" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
+          </svg>
+        </div>
+        {size !== 'thumb' && fig.labels && (
+          <div className="mt-1 flex justify-between text-[10px] text-ink-faint">
+            {fig.labels.map((l, i) => (
+              <span key={i}>{l}</span>
             ))}
           </div>
-        ))}
+        )}
+        {caption}
       </div>
     )
   }
 
-  if (kind === 'slide') {
-    return (
-      <div className="space-y-3">
-        {[0, 1].map((s) => (
-          <div key={s} className="aspect-video w-full rounded-lg border border-line bg-surface p-5 shadow-sm">
-            <div className="h-3 w-2/5 rounded bg-ink-faint/40" />
-            <div className="mt-4 space-y-2.5">
-              {bodyLines(`${id}-${s}`, 4).map((w, i) => (
-                <div key={i} className={`h-2 rounded bg-panel-2 ${w}`} />
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    )
-  }
-
-  // doc / email
+  // funnel
   return (
     <div>
-      {kind === 'email' && (
-        <div className="mb-4 space-y-1 rounded-lg bg-panel/60 px-3 py-2 text-[12px] text-ink-soft">
-          <div>
-            <span className="font-medium text-ink-faint">To:</span> {artifact.meta.replace(/^to:\s*/i, '')}
+      <div className={`space-y-2 rounded-lg border border-line bg-surface p-3 ${size === 'thumb' ? 'overflow-hidden' : ''}`}>
+        {fig.legend && size !== 'thumb' && (
+          <div className="flex gap-3 text-[11px] text-ink-soft">
+            <span className="flex items-center gap-1">
+              <span className="h-2 w-2 rounded-sm bg-accent/80" />
+              {fig.legend[0]}
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="h-2 w-2 rounded-sm bg-line-strong" />
+              {fig.legend[1]}
+            </span>
           </div>
-          <div>
-            <span className="font-medium text-ink-faint">Subject:</span>{' '}
-            {artifact.source}
+        )}
+        {(fig.labels ?? []).map((lab, i) => (
+          <div key={i}>
+            {size !== 'thumb' && <div className="text-[11px] text-ink-soft">{lab}</div>}
+            <div className="mt-0.5 space-y-1">
+              {i < series.length && (
+                <FunnelBar v={series[i]} max={axisMax} tone="bg-accent/80" showLabel={size !== 'thumb'} />
+              )}
+              {fig.series2 && i < fig.series2.length && (
+                <FunnelBar v={fig.series2[i]} max={axisMax} tone="bg-line-strong" showLabel={size !== 'thumb'} />
+              )}
+            </div>
           </div>
-        </div>
+        ))}
+      </div>
+      {caption}
+    </div>
+  )
+}
+
+function FunnelBar({ v, max, tone, showLabel }: { v: number; max: number; tone: string; showLabel: boolean }) {
+  return (
+    <div className="flex items-center gap-2">
+      <div className="h-2.5 min-w-[2px] rounded-r-sm" style={{ width: `${(v / max) * 100}%` }}>
+        <div className={`h-full w-full rounded-r-sm ${tone}`} />
+      </div>
+      {showLabel && <span className="shrink-0 text-[10px] tabular-nums text-ink-faint">{v}%</span>}
+    </div>
+  )
+}
+
+/* ─────────────────────────── structured fallback ───────────────────────── */
+
+/** A file with no authored body still reads as a real document: a title from
+ *  the file name, its one-line excerpt, and a kind-appropriate scaffold — never
+ *  bare skeleton bars with no heading. */
+function Scaffold({ kind, name, size, excerpt }: { kind: ArtifactKind; name: string; size: Size; excerpt?: string }) {
+  if (kind === 'image') {
+    return <FigureView fig={{ type: 'figure', shape: 'hero', caption: excerpt ?? '', headline: titleFromName(name) }} name={name} size={size} />
+  }
+  if (kind === 'sheet') {
+    return (
+      <SheetView
+        sheet={{
+          type: 'sheet',
+          columns: ['metric', 'value', 'Δ'],
+          rows: [
+            ['—', '—', '—'],
+            ['—', '—', '—'],
+            ['—', '—', '—'],
+          ],
+        }}
+        size={size}
+      />
+    )
+  }
+  if (kind === 'slide') {
+    return <SlidesView slides={[{ title: titleFromName(name), bullets: excerpt ? [excerpt] : [] }]} size={size} />
+  }
+  if (kind === 'email') {
+    return (
+      <DocView
+        doc={{
+          type: 'doc',
+          title: titleFromName(name),
+          blocks: [
+            { email: { to: 'recipients', subject: titleFromName(name) } },
+            ...(excerpt ? [{ p: excerpt } as DocBlock] : []),
+          ],
+        }}
+        size={size}
+      />
+    )
+  }
+  const t = DOC[size]
+  const widths = ['w-full', 'w-11/12', 'w-5/6', 'w-3/4']
+  return (
+    <div className={t.gap}>
+      <div className={`${t.title} font-serif font-semibold leading-snug text-ink ${size === 'thumb' ? 'line-clamp-1' : ''}`}>
+        {titleFromName(name)}
+      </div>
+      {excerpt && (
+        <p className={`${t.p} ${t.lead} text-ink-soft ${size === 'thumb' ? 'line-clamp-2' : ''}`}>{excerpt}</p>
       )}
-      {excerpt && <p className="mb-4 text-[15px] leading-relaxed text-ink">{excerpt}</p>}
-      <div className="space-y-2.5">
-        {bodyLines(id, 12).map((w, i) => (
-          <div key={i} className={`h-2.5 rounded bg-panel-2 ${w}`} />
+      <div className="space-y-1.5 pt-0.5">
+        {widths.slice(0, size === 'thumb' ? 3 : 4).map((w, i) => (
+          <div key={i} className={`h-2 rounded bg-panel-2 ${w}`} />
         ))}
       </div>
     </div>
   )
 }
+
+/* ───────────────────────────── shared entry point ──────────────────────── */
+
+/** The real, kind-appropriate body for an artifact — shared by the gallery card
+ *  thumbnail, the gallery's full viewer, and the workspace side panel. Looks the
+ *  body up by file name; falls back to a structured scaffold for unauthored
+ *  files. */
+export function ArtifactBodyView({
+  kind,
+  name,
+  size,
+  excerpt,
+}: {
+  kind: ArtifactKind
+  name: string
+  size: Size
+  excerpt?: string
+}) {
+  const content = artifactContentFor(name)
+  if (content) {
+    switch (content.type) {
+      case 'doc':
+        return <DocView doc={content} size={size} />
+      case 'sheet':
+        return <SheetView sheet={content} size={size} />
+      case 'slides':
+        return <SlidesView slides={content.slides} size={size} />
+      case 'figure':
+        return <FigureView fig={content} name={name} size={size} />
+      default: {
+        // Exhaustiveness guard: a new ArtifactContent variant becomes a compile error here.
+        const _exhaustive: never = content
+        return _exhaustive
+      }
+    }
+  }
+  return <Scaffold kind={kind} name={name} size={size} excerpt={excerpt} />
+}
+
+/** A compact, kind-appropriate thumbnail for an artifact card — a faithful
+ *  miniature of the file's real content. */
+export function ArtifactThumb({ kind, name, excerpt }: { kind: ArtifactKind; name: string; excerpt?: string }) {
+  const content = artifactContentFor(name)
+  const isFigure = (content?.type === 'figure' && content.shape === 'hero') || (!content && kind === 'image')
+  // Hero images fill the tile edge-to-edge; everything else sits on "paper".
+  if (isFigure) {
+    return (
+      <div className="h-full w-full">
+        <ArtifactBodyView kind={kind} name={name} size="thumb" excerpt={excerpt} />
+      </div>
+    )
+  }
+  return (
+    <div className="relative h-full w-full overflow-hidden p-2.5">
+      <ArtifactBodyView kind={kind} name={name} size="thumb" excerpt={excerpt} />
+      {/* fade any clipped bottom line into the tile so the miniature reads as a
+          preview rather than truncated text */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-9 bg-gradient-to-t from-panel-2 via-panel-2/85 to-transparent" />
+    </div>
+  )
+}
+
+/* ─────────────────────────────── full viewer ───────────────────────────── */
 
 /** A modal that opens an artifact "in full" from the Artifacts gallery. */
 export function ArtifactViewer({
@@ -259,7 +542,7 @@ export function ArtifactViewer({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          <ArtifactBody artifact={artifact} />
+          <ArtifactBodyView kind={artifact.kind} name={artifact.name} size="full" excerpt={artifact.excerpt} />
         </div>
 
         <div className="flex shrink-0 items-center gap-2 border-t border-line bg-panel px-5 py-2.5 text-[12px] text-ink-faint">
