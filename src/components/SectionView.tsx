@@ -9,14 +9,20 @@ import {
   FileText,
   Folder,
   FolderGit2,
+  Github,
   Loader2,
   MessageSquare,
   Plug,
   Plus,
   Search,
+  Server,
+  Trash2,
+  Unplug,
 } from 'lucide-react'
 import type { Session, SectionId } from '../types'
 import { SECTION_META } from '../lib/sections'
+import { connectorIconFor } from '../lib/connectors'
+import { SAVED_CONTEXTS, type SavedContext, type SavedContextKind } from '../data/savedContexts'
 import { SESSIONS } from '../data/sessions'
 import {
   ALL_ARTIFACTS,
@@ -69,6 +75,8 @@ export function SectionView({
       />
     ) : section === 'artifacts' ? (
       <ArtifactsSection />
+    ) : section === 'contexts' ? (
+      <ContextsSection />
     ) : (
       <GenericSection section={section} />
     )
@@ -383,6 +391,179 @@ function ArtifactCard({ artifact, onOpen }: { artifact: ArtifactItem; onOpen: ()
         </div>
       </div>
     </button>
+  )
+}
+
+/* ─────────────────────────── Contexts ─────────────────────────── */
+
+const CONTEXT_GROUPS: { kind: SavedContextKind; label: string }[] = [
+  { kind: 'connector', label: 'Connectors' },
+  { kind: 'mcp', label: 'MCP servers' },
+  { kind: 'repo', label: 'Repositories' },
+]
+
+const CONTEXT_FILTERS = ['All', 'Connectors', 'MCP servers', 'Repositories']
+
+/** The reusable context the workspace already knows about — connectors and MCP
+ *  servers (set up / authenticated once) plus the repos you've attached before.
+ *  Manage them here once; any session reuses them from Add-context. Statuses and
+ *  removals are interactive (local state), like the Scheduled toggles. */
+function ContextsSection() {
+  const [items, setItems] = useState(SAVED_CONTEXTS)
+  const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState('All')
+
+  const toggle = (id: string) =>
+    setItems((prev) =>
+      prev.map((c) =>
+        c.id === id ? { ...c, status: c.status === 'connected' ? 'needs-auth' : 'connected' } : c,
+      ),
+    )
+  const remove = (id: string) => setItems((prev) => prev.filter((c) => c.id !== id))
+
+  const needle = query.trim().toLowerCase()
+  const wantKind =
+    filter === 'Connectors' ? 'connector' : filter === 'MCP servers' ? 'mcp' : filter === 'Repositories' ? 'repo' : null
+
+  const visible = items.filter(
+    (c) =>
+      (wantKind === null || c.kind === wantKind) &&
+      (needle === '' || c.label.toLowerCase().includes(needle) || c.detail.toLowerCase().includes(needle)),
+  )
+  const groups = CONTEXT_GROUPS.map((g) => ({
+    ...g,
+    items: visible.filter((c) => c.kind === g.kind),
+  })).filter((g) => g.items.length > 0)
+
+  return (
+    <Page>
+      <PageHeader title="Contexts">
+        <Dropdown label="Show" value={filter} options={CONTEXT_FILTERS} onChange={setFilter} />
+        <PrimaryButton icon={<Plus size={15} />}>Add context</PrimaryButton>
+      </PageHeader>
+      <p className="-mt-2 mb-4 text-[13px] leading-relaxed text-ink-soft">
+        Accounts, servers, and repos you’ve set up once. Any session can reuse them from{' '}
+        <span className="font-medium text-ink">Add context</span> — no re-authenticating, no re-cloning.
+      </p>
+      <SearchBox value={query} onChange={setQuery} placeholder="Search contexts…" />
+
+      {groups.length === 0 ? (
+        <Empty>No contexts match.</Empty>
+      ) : (
+        <div className="space-y-7">
+          {groups.map((g) => (
+            <div key={g.kind}>
+              <div className="mb-2.5 flex items-baseline gap-2">
+                <span className="text-[13px] font-semibold text-ink">{g.label}</span>
+                <span className="text-[12px] text-ink-faint">{g.items.length}</span>
+              </div>
+              <div className="overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
+                {g.items.map((c, i) => (
+                  <ContextRow
+                    key={c.id}
+                    ctx={c}
+                    first={i === 0}
+                    onToggle={() => toggle(c.id)}
+                    onRemove={() => remove(c.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Page>
+  )
+}
+
+function ContextRow({
+  ctx,
+  first,
+  onToggle,
+  onRemove,
+}: {
+  ctx: SavedContext
+  first: boolean
+  onToggle: () => void
+  onRemove: () => void
+}) {
+  const Icon =
+    ctx.kind === 'repo'
+      ? ctx.origin === 'local'
+        ? FolderGit2
+        : Github
+      : ctx.kind === 'mcp'
+        ? Server
+        : connectorIconFor(ctx.connectorKind)
+  const connected = ctx.status === 'connected'
+
+  return (
+    <div className={`group flex items-center gap-3 px-4 py-3 ${first ? '' : 'border-t border-line'}`}>
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-ink-soft">
+        <Icon size={16} />
+      </span>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="truncate text-[14px] font-medium text-ink">{ctx.label}</span>
+          {ctx.kind === 'repo' && (
+            <span className="shrink-0 rounded bg-panel-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-soft">
+              {ctx.origin === 'local' ? 'Local' : 'GitHub'}
+            </span>
+          )}
+        </div>
+        <div className="truncate text-[12px] text-ink-faint">{ctx.detail}</div>
+      </div>
+
+      <div className="hidden shrink-0 pr-1 text-right sm:block">
+        <div className="text-[12px] text-ink-soft">
+          {ctx.sessions} session{ctx.sessions === 1 ? '' : 's'}
+        </div>
+        <div className="text-[11px] text-ink-faint">
+          {ctx.lastUsed === '—' ? 'Never used' : `Last used ${ctx.lastUsed}`}
+        </div>
+      </div>
+
+      <div className="flex shrink-0 items-center gap-2">
+        {ctx.kind === 'repo' ? (
+          <StatusPill tone="neutral" label={ctx.dependsOnGitHub ? 'via GitHub' : 'Local only'} />
+        ) : (
+          <StatusPill tone={connected ? 'ok' : 'warn'} label={connected ? 'Connected' : 'Needs auth'} />
+        )}
+
+        {/* Hover-revealed actions — same idiom as the panel's per-folder delete. */}
+        <div className="flex items-center gap-1 opacity-0 transition focus-within:opacity-100 group-hover:opacity-100">
+          {ctx.kind !== 'repo' && (
+            <button
+              onClick={onToggle}
+              title={connected ? 'Disconnect' : 'Connect'}
+              aria-label={connected ? `Disconnect ${ctx.label}` : `Connect ${ctx.label}`}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink"
+            >
+              {connected ? <Unplug size={14} /> : <Plug size={14} />}
+            </button>
+          )}
+          <button
+            onClick={onRemove}
+            title="Remove from contexts"
+            aria-label={`Remove ${ctx.label} from contexts`}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-removed-bg hover:text-removed"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function StatusPill({ tone, label }: { tone: 'ok' | 'warn' | 'neutral'; label: string }) {
+  const dot = tone === 'ok' ? 'bg-emerald-500' : tone === 'warn' ? 'bg-amber-500' : 'bg-line-strong'
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-line px-2 py-0.5 text-[11px] font-medium text-ink-soft">
+      <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
+      {label}
+    </span>
   )
 }
 

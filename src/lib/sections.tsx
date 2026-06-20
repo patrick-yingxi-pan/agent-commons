@@ -1,4 +1,4 @@
-import { Box, Briefcase, Clock, SendHorizontal, Shapes } from 'lucide-react'
+import { Box, Briefcase, Cable, Clock, SendHorizontal, Shapes } from 'lucide-react'
 import type { SectionId } from '../types'
 
 /** The cross-cutting tools in the sidebar nav. One source of truth for the
@@ -16,6 +16,11 @@ export const SECTION_META: Record<
     label: 'Artifacts',
     subtitle: 'Every document, deck, sheet, and image you’ve made.',
     Icon: Shapes,
+  },
+  contexts: {
+    label: 'Contexts',
+    subtitle: 'Accounts, servers, and repos you’ve set up once and reuse across sessions.',
+    Icon: Cable,
   },
   scheduled: {
     label: 'Scheduled',
@@ -38,6 +43,7 @@ export const SECTION_META: Record<
 export const SECTION_ORDER: SectionId[] = [
   'projects',
   'artifacts',
+  'contexts',
   'scheduled',
   'dispatch',
   'customize',

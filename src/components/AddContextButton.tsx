@@ -30,6 +30,7 @@ import {
   PHOTO_OPTIONS,
   type ContextTypeId,
 } from '../data/contextOptions'
+import { CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from '../data/savedContexts'
 
 type TypeId = ContextTypeId
 
@@ -178,13 +179,14 @@ function WorkflowBody({
       <ListPicker
         type="connector"
         options={CONNECTOR_OPTIONS}
-        recentLabel="Recent connectors"
-        browseLabel="Browse connectors…"
+        connectedIds={CONNECTED_CONNECTOR_IDS}
+        connectedLabel="Connected"
+        browseLabel="Connect a new account…"
         browseTitle="Connect an account"
         location={['Connectors']}
         rowIcon={<Plug size={16} />}
         browseIcon={<Plug size={15} />}
-        rowMeta={() => 'Connect account'}
+        rowMeta={(c) => (CONNECTED_CONNECTOR_IDS.includes(c.id) ? 'Ready to use' : 'Set up to connect')}
         toContext={(c) => ({
           kind: 'connector',
           connector: { id: c.id, label: c.label, kind: c.kind ?? 'connector' },
@@ -198,8 +200,9 @@ function WorkflowBody({
       <ListPicker
         type="mcp"
         options={MCP_OPTIONS}
-        recentLabel="Recent MCP servers"
-        browseLabel="Browse MCP registry…"
+        connectedIds={CONNECTED_MCP_IDS}
+        connectedLabel="Connected"
+        browseLabel="Add an MCP server…"
         browseTitle="MCP Registry"
         location={['MCP Registry']}
         rowIcon={<Server size={16} />}
@@ -402,12 +405,15 @@ function BrowseRow({ label, onClick }: { label: string; onClick: () => void }) {
 }
 
 /* ------------------------------------------------------------- simple lists --
-   Connectors and MCP servers: a flat recents list + Browse, no dependency
-   prompts. Shared so the recents/LRU wiring lives in one place. */
+   Connectors and MCP servers: the auth/setup-heavy context. Their already
+   set-up entries (from the Contexts page) show as a "Connected" quick list that
+   attaches instantly — no re-authenticating; everything else is reachable via
+   Browse, which sets up / authenticates a new one and promotes it into recents. */
 function ListPicker<T extends { id: string; label: string }>({
   type,
   options,
-  recentLabel,
+  connectedIds,
+  connectedLabel,
   browseLabel,
   browseTitle,
   location,
@@ -419,7 +425,10 @@ function ListPicker<T extends { id: string; label: string }>({
 }: {
   type: ContextTypeId
   options: readonly T[]
-  recentLabel: string
+  /** Ids already connected/set up — shown as the instant-attach quick list. The
+   *  rest are reachable via Browse to set up a new one. */
+  connectedIds: readonly string[]
+  connectedLabel: string
   browseLabel: string
   browseTitle: string
   location: string[]
@@ -430,10 +439,8 @@ function ListPicker<T extends { id: string; label: string }>({
   onAttach: (ctx: AddedContext) => void
 }) {
   const [browsing, setBrowsing] = useState(false)
-  const recentIds = getRecentIds(type)
-  const byId = new Map(options.map((o) => [o.id, o]))
-  const recent = recentIds.map((id) => byId.get(id)).filter(Boolean) as T[]
-  const rest = options.filter((o) => !recentIds.includes(o.id))
+  const connected = options.filter((o) => connectedIds.includes(o.id))
+  const rest = options.filter((o) => !connectedIds.includes(o.id))
 
   const choose = (o: T) => {
     pushRecent(type, o.id)
@@ -442,9 +449,9 @@ function ListPicker<T extends { id: string; label: string }>({
 
   return (
     <>
-      <Section label={recentLabel}>
-        {recent.map((o) => (
-          <OptionRow key={o.id} icon={rowIcon} label={o.label} meta={rowMeta(o)} onClick={() => choose(o)} />
+      <Section label={connectedLabel}>
+        {connected.map((o) => (
+          <OptionRow key={o.id} icon={rowIcon} label={o.label} meta={rowMeta(o)} accentDot onClick={() => choose(o)} />
         ))}
         <BrowseRow label={browseLabel} onClick={() => setBrowsing(true)} />
       </Section>
@@ -456,7 +463,7 @@ function ListPicker<T extends { id: string; label: string }>({
           onCancel={() => setBrowsing(false)}
           onConfirm={(id) => {
             setBrowsing(false)
-            const o = byId.get(id)
+            const o = options.find((x) => x.id === id)
             if (o) choose(o)
           }}
         />
@@ -988,11 +995,14 @@ function OptionRow({
   icon,
   label,
   meta,
+  accentDot,
   onClick,
 }: {
   icon: ReactNode
   label: string
   meta?: string
+  /** A small green "connected / ready" dot before the icon (the quick list). */
+  accentDot?: boolean
   onClick: () => void
 }) {
   return (
@@ -1000,6 +1010,9 @@ function OptionRow({
       onClick={onClick}
       className="mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition hover:bg-panel-2"
     >
+      {accentDot && (
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" title="Connected" />
+      )}
       <span className="shrink-0 text-ink-soft">{icon}</span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[13px] font-medium text-ink">{label}</span>
