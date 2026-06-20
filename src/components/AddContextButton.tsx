@@ -20,6 +20,7 @@ import { gradientFor } from '../lib/thumbs'
 import { GITHUB_CONNECTOR } from '../lib/connectors'
 import { getDecision, setDecision } from '../lib/prefs'
 import { getRecentIds, pushRecent } from '../lib/recents'
+import { addKnownId, getKnownIds } from '../lib/known'
 import {
   CONNECTOR_OPTIONS,
   FILE_OPTIONS,
@@ -30,7 +31,6 @@ import {
   PHOTO_OPTIONS,
   type ContextTypeId,
 } from '../data/contextOptions'
-import { CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from '../data/savedContexts'
 
 type TypeId = ContextTypeId
 
@@ -78,11 +78,6 @@ export function AddContextButton({
       document.removeEventListener('keydown', onKey)
     }
   }, [open])
-
-  const attach = (ctx: AddedContext) => {
-    onAttach(ctx)
-    close()
-  }
 
   const activeType = type ? CONTEXT_TYPES.find((t) => t.id === type)! : null
 
@@ -147,7 +142,8 @@ export function AddContextButton({
               <div className="px-0.5">
                 <WorkflowBody
                   type={activeType.id}
-                  onAttach={attach}
+                  onAttach={onAttach}
+                  onClose={close}
                   hasGitHubConnector={hasGitHubConnector}
                 />
               </div>
@@ -162,36 +158,47 @@ export function AddContextButton({
 function WorkflowBody({
   type,
   onAttach,
+  onClose,
   hasGitHubConnector,
 }: {
   type: TypeId
+  /** Attach without closing — lets the multi-add pickers stack several adds. */
   onAttach: (ctx: AddedContext) => void
+  /** Close the whole popover (the multi-add "Done", and folder/repo's one-shot). */
+  onClose: () => void
   hasGitHubConnector: boolean
 }) {
+  // Folder & repo attach one-shot: each pick can raise a decision prompt
+  // (attach the repo? add the connector?), which can't be batched — so they
+  // close on attach, as before.
+  const attachAndClose = (ctx: AddedContext) => {
+    onAttach(ctx)
+    onClose()
+  }
   if (type === 'folder') {
-    return <FolderPicker onAttach={onAttach} hasGitHubConnector={hasGitHubConnector} />
+    return <FolderPicker onAttach={attachAndClose} hasGitHubConnector={hasGitHubConnector} />
   }
   if (type === 'repo') {
-    return <RepoPicker onAttach={onAttach} hasGitHubConnector={hasGitHubConnector} />
+    return <RepoPicker onAttach={attachAndClose} hasGitHubConnector={hasGitHubConnector} />
   }
   if (type === 'connector') {
     return (
       <ListPicker
         type="connector"
         options={CONNECTOR_OPTIONS}
-        connectedIds={CONNECTED_CONNECTOR_IDS}
         connectedLabel="Connected"
         browseLabel="Connect a new account…"
         browseTitle="Connect an account"
         location={['Connectors']}
         rowIcon={<Plug size={16} />}
         browseIcon={<Plug size={15} />}
-        rowMeta={(c) => (CONNECTED_CONNECTOR_IDS.includes(c.id) ? 'Ready to use' : 'Set up to connect')}
+        rowMeta={(_c, connected) => (connected ? 'Ready to use' : 'Set up to connect')}
         toContext={(c) => ({
           kind: 'connector',
           connector: { id: c.id, label: c.label, kind: c.kind ?? 'connector' },
         })}
-        onAttach={onAttach}
+        onAdd={onAttach}
+        onClose={onClose}
       />
     )
   }
@@ -200,7 +207,6 @@ function WorkflowBody({
       <ListPicker
         type="mcp"
         options={MCP_OPTIONS}
-        connectedIds={CONNECTED_MCP_IDS}
         connectedLabel="Connected"
         browseLabel="Add an MCP server…"
         browseTitle="MCP Registry"
@@ -212,14 +218,15 @@ function WorkflowBody({
           kind: 'mcp',
           connector: { id: `mcp-${m.id}`, label: `MCP · ${m.label}`, kind: 'mcp' },
         })}
-        onAttach={onAttach}
+        onAdd={onAttach}
+        onClose={onClose}
       />
     )
   }
   if (type === 'files') {
-    return <FilesPicker onAttach={onAttach} />
+    return <FilesPicker onAdd={onAttach} onClose={onClose} />
   }
-  return <PhotosPicker onAttach={onAttach} />
+  return <PhotosPicker onAdd={onAttach} onClose={onClose} />
 }
 
 /* ------------------------------------------------------------------ Browse --
@@ -407,12 +414,13 @@ function BrowseRow({ label, onClick }: { label: string; onClick: () => void }) {
 /* ------------------------------------------------------------- simple lists --
    Connectors and MCP servers: the auth/setup-heavy context. Their already
    set-up entries (from the Contexts page) show as a "Connected" quick list that
-   attaches instantly — no re-authenticating; everything else is reachable via
-   Browse, which sets up / authenticates a new one and promotes it into recents. */
+   attaches instantly — no re-authenticating. This is a multi-add surface: each
+   row attaches without closing (marked ✓) so several can be added in one pass,
+   and a "Done" footer closes. Browse sets up / authenticates a *new* one, which
+   is promoted into the Connected list (lib/known) so it's reusable next time. */
 function ListPicker<T extends { id: string; label: string }>({
   type,
   options,
-  connectedIds,
   connectedLabel,
   browseLabel,
   browseTitle,
@@ -421,50 +429,76 @@ function ListPicker<T extends { id: string; label: string }>({
   browseIcon,
   rowMeta,
   toContext,
-  onAttach,
+  onAdd,
+  onClose,
 }: {
   type: ContextTypeId
   options: readonly T[]
-  /** Ids already connected/set up — shown as the instant-attach quick list. The
-   *  rest are reachable via Browse to set up a new one. */
-  connectedIds: readonly string[]
   connectedLabel: string
   browseLabel: string
   browseTitle: string
   location: string[]
   rowIcon: ReactNode
   browseIcon: ReactNode
-  rowMeta: (o: T) => string | undefined
+  /** Row subtitle. `connected` says whether it's in the quick list (set up) or
+   *  a Browse candidate (still to set up). */
+  rowMeta: (o: T, connected: boolean) => string | undefined
   toContext: (o: T) => AddedContext
-  onAttach: (ctx: AddedContext) => void
+  onAdd: (ctx: AddedContext) => void
+  onClose: () => void
 }) {
   const [browsing, setBrowsing] = useState(false)
-  const connected = options.filter((o) => connectedIds.includes(o.id))
-  const rest = options.filter((o) => !connectedIds.includes(o.id))
+  // The set-up ids (seeded from savedContexts), as state so a Browse promotion
+  // shows up immediately. The rest are the Browse candidates.
+  const [knownIds, setKnownIds] = useState<string[]>(() => getKnownIds(type))
+  const [added, setAdded] = useState<string[]>([])
+  const connected = options.filter((o) => knownIds.includes(o.id))
+  const rest = options.filter((o) => !knownIds.includes(o.id))
 
+  // Attach without closing, so multiple can be stacked. Each adds to recents and
+  // flips the row to ✓ Added.
   const choose = (o: T) => {
     pushRecent(type, o.id)
-    onAttach(toContext(o))
+    onAdd(toContext(o))
+    setAdded((a) => (a.includes(o.id) ? a : [...a, o.id]))
+  }
+
+  // A freshly set-up element joins the Connected quick list (and attaches).
+  const setUpNew = (o: T) => {
+    addKnownId(type, o.id)
+    setKnownIds((ids) => (ids.includes(o.id) ? ids : [...ids, o.id]))
+    choose(o)
   }
 
   return (
     <>
       <Section label={connectedLabel}>
         {connected.map((o) => (
-          <OptionRow key={o.id} icon={rowIcon} label={o.label} meta={rowMeta(o)} accentDot onClick={() => choose(o)} />
+          <OptionRow
+            key={o.id}
+            icon={rowIcon}
+            label={o.label}
+            meta={rowMeta(o, true)}
+            accentDot
+            added={added.includes(o.id)}
+            onClick={() => choose(o)}
+          />
         ))}
         <BrowseRow label={browseLabel} onClick={() => setBrowsing(true)} />
       </Section>
+      <MultiAddFooter count={added.length} onDone={onClose} />
       {browsing && (
         <BrowseDialog
           title={browseTitle}
           location={location}
-          groups={[{ items: rest.map((o) => ({ id: o.id, name: o.label, meta: rowMeta(o), icon: browseIcon })) }]}
+          groups={[
+            { items: rest.map((o) => ({ id: o.id, name: o.label, meta: rowMeta(o, false), icon: browseIcon })) },
+          ]}
           onCancel={() => setBrowsing(false)}
           onConfirm={(id) => {
             setBrowsing(false)
             const o = options.find((x) => x.id === id)
-            if (o) choose(o)
+            if (o) setUpNew(o)
           }}
         />
       )}
@@ -472,16 +506,45 @@ function ListPicker<T extends { id: string; label: string }>({
   )
 }
 
-function FilesPicker({ onAttach }: { onAttach: (ctx: AddedContext) => void }) {
+/** Footer for the multi-add pickers: a running "N added" count and a Done button
+ *  to close (click-outside / Esc also close). Signals that adds don't close the
+ *  picker, so you can keep clicking. */
+function MultiAddFooter({ count, onDone }: { count: number; onDone: () => void }) {
+  return (
+    <div className="mt-1 flex items-center justify-between gap-2 border-t border-line px-1 pt-2">
+      <span className="min-w-0 truncate text-[11px] text-ink-faint">
+        {count === 0 ? 'Add as many as you need' : `${count} added`}
+      </span>
+      <button
+        type="button"
+        onClick={onDone}
+        className="shrink-0 rounded-md px-2 py-1 text-[12px] font-medium text-ink ring-1 ring-line-strong transition hover:bg-panel-2"
+      >
+        Done
+      </button>
+    </div>
+  )
+}
+
+function FilesPicker({
+  onAdd,
+  onClose,
+}: {
+  onAdd: (ctx: AddedContext) => void
+  onClose: () => void
+}) {
   const [browsing, setBrowsing] = useState(false)
+  const [added, setAdded] = useState<string[]>([])
   const recentIds = getRecentIds('files')
   const byId = new Map(FILE_OPTIONS.map((f) => [f.id, f]))
   const recent = recentIds.map((id) => byId.get(id)).filter(Boolean) as (typeof FILE_OPTIONS)[number][]
   const rest = FILE_OPTIONS.filter((f) => !recentIds.includes(f.id))
 
+  // Attach without closing so several files can be added in one pass.
   const choose = (f: (typeof FILE_OPTIONS)[number]) => {
     pushRecent('files', f.id)
-    onAttach({ kind: 'files', attachments: [{ id: f.id, label: f.label, kind: 'file' }] })
+    onAdd({ kind: 'files', attachments: [{ id: f.id, label: f.label, kind: 'file' }] })
+    setAdded((a) => (a.includes(f.id) ? a : [...a, f.id]))
   }
 
   return (
@@ -496,9 +559,17 @@ function FilesPicker({ onAttach }: { onAttach: (ctx: AddedContext) => void }) {
       </button>
       <p className="px-1 pb-1.5 text-[11px] text-ink-faint">Recent files</p>
       {recent.map((f) => (
-        <OptionRow key={f.id} icon={<FileText size={16} />} label={f.label} meta={f.meta} onClick={() => choose(f)} />
+        <OptionRow
+          key={f.id}
+          icon={<FileText size={16} />}
+          label={f.label}
+          meta={f.meta}
+          added={added.includes(f.id)}
+          onClick={() => choose(f)}
+        />
       ))}
       <BrowseRow label="Browse files…" onClick={() => setBrowsing(true)} />
+      <MultiAddFooter count={added.length} onDone={onClose} />
       {browsing && (
         <BrowseDialog
           title="Open"
@@ -518,29 +589,50 @@ function FilesPicker({ onAttach }: { onAttach: (ctx: AddedContext) => void }) {
   )
 }
 
-function PhotosPicker({ onAttach }: { onAttach: (ctx: AddedContext) => void }) {
+function PhotosPicker({
+  onAdd,
+  onClose,
+}: {
+  onAdd: (ctx: AddedContext) => void
+  onClose: () => void
+}) {
   const [browsing, setBrowsing] = useState(false)
+  const [added, setAdded] = useState<string[]>([])
   const recentIds = getRecentIds('photos')
   const byId = new Map(PHOTO_OPTIONS.map((p) => [p.id, p]))
   const recent = recentIds.map((id) => byId.get(id)).filter(Boolean) as (typeof PHOTO_OPTIONS)[number][]
   const rest = PHOTO_OPTIONS.filter((p) => !recentIds.includes(p.id))
 
+  // Attach without closing so several photos can be added in one pass.
   const choose = (p: (typeof PHOTO_OPTIONS)[number]) => {
     pushRecent('photos', p.id)
-    onAttach({ kind: 'photos', attachments: [{ id: p.id, label: p.label, kind: 'photo' }] })
+    onAdd({ kind: 'photos', attachments: [{ id: p.id, label: p.label, kind: 'photo' }] })
+    setAdded((a) => (a.includes(p.id) ? a : [...a, p.id]))
   }
 
   return (
     <Section label="Recent photos">
       <div className="grid grid-cols-4 gap-1.5 px-1 pb-1">
-        {recent.map((p) => (
-          <button
-            key={p.id}
-            title={p.label}
-            onClick={() => choose(p)}
-            className={`aspect-square rounded-lg ring-1 ring-black/5 transition hover:opacity-80 ${gradientFor(p.id)}`}
-          />
-        ))}
+        {recent.map((p) => {
+          const isAdded = added.includes(p.id)
+          return (
+            <button
+              key={p.id}
+              title={p.label}
+              disabled={isAdded}
+              onClick={() => choose(p)}
+              className={`relative aspect-square rounded-lg transition ${gradientFor(p.id)} ${
+                isAdded ? 'ring-2 ring-emerald-500' : 'ring-1 ring-black/5 hover:opacity-80'
+              }`}
+            >
+              {isAdded && (
+                <span className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/35">
+                  <Check size={18} className="text-white" strokeWidth={3} />
+                </span>
+              )}
+            </button>
+          )
+        })}
         <button
           title="Browse photos…"
           onClick={() => setBrowsing(true)}
@@ -549,6 +641,7 @@ function PhotosPicker({ onAttach }: { onAttach: (ctx: AddedContext) => void }) {
           <FolderSearch size={16} />
         </button>
       </div>
+      <MultiAddFooter count={added.length} onDone={onClose} />
       {browsing && (
         <BrowseDialog
           title="Photo Library"
@@ -996,6 +1089,7 @@ function OptionRow({
   label,
   meta,
   accentDot,
+  added,
   onClick,
 }: {
   icon: ReactNode
@@ -1003,12 +1097,17 @@ function OptionRow({
   meta?: string
   /** A small green "connected / ready" dot before the icon (the quick list). */
   accentDot?: boolean
+  /** Already attached this pass — shows ✓ Added and stops re-adding (multi-add). */
+  added?: boolean
   onClick: () => void
 }) {
   return (
     <button
-      onClick={onClick}
-      className="mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition hover:bg-panel-2"
+      onClick={added ? undefined : onClick}
+      aria-disabled={added}
+      className={`group mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition ${
+        added ? 'cursor-default' : 'hover:bg-panel-2'
+      }`}
     >
       {accentDot && (
         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" title="Connected" />
@@ -1018,7 +1117,18 @@ function OptionRow({
         <span className="block truncate text-[13px] font-medium text-ink">{label}</span>
         {meta && <span className="block truncate text-[11px] text-ink-faint">{meta}</span>}
       </span>
-      <Plus size={15} className="shrink-0 text-ink-faint" />
+      {added ? (
+        <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-emerald-600">
+          <Check size={13} strokeWidth={2.5} /> Added
+        </span>
+      ) : (
+        <span
+          title="Add"
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent group-hover:text-white"
+        >
+          <Plus size={14} />
+        </span>
+      )}
     </button>
   )
 }
