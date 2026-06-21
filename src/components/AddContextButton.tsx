@@ -20,8 +20,8 @@ import { gradientFor } from '../lib/thumbs'
 import { GITHUB_CONNECTOR, GITHUB_CONNECTOR_ID } from '../lib/connectors'
 import { repoIdForLabel } from '../data/liveSession'
 import { getDecision, setDecision } from '../lib/prefs'
-import { getRecentIds, pushRecent } from '../lib/recents'
-import { addKnownId, getKnownIds } from '../lib/known'
+import { useRecentIds } from '../lib/recents'
+import { useKnownIds } from '../lib/known'
 import {
   CONNECTOR_OPTIONS,
   FILE_OPTIONS,
@@ -491,24 +491,20 @@ function ListPicker<T extends { id: string; label: string }>({
   onClose: () => void
 }) {
   const [browsing, setBrowsing] = useState(false)
-  // The set-up ids (seeded from savedContexts), as state so a Browse promotion
-  // shows up immediately. The rest are the Browse candidates.
-  const [knownIds, setKnownIds] = useState<string[]>(() => getKnownIds(type))
+  // The set-up ids (seeded from savedContexts) read reactively, so a Browse
+  // promotion — or any other attach path — shows up here immediately. The rest
+  // are the Browse candidates.
+  const knownIds = useKnownIds(type)
   const connected = options.filter((o) => knownIds.includes(o.id))
   const rest = options.filter((o) => !knownIds.includes(o.id))
 
   // Attach without closing, so multiple can be stacked. The row flips to ✓ Added
   // off the live attached state (addedIds), so it stays Added across reopens.
+  // Promotion into the Connected set happens at the attach funnel
+  // (lib/contextShortcuts.ts), so setting up a freshly-browsed element moves it
+  // from Browse into the quick list without any extra bookkeeping here.
   const choose = (o: T) => {
-    pushRecent(type, o.id)
     onAdd(toContext(o))
-  }
-
-  // A freshly set-up element joins the Connected quick list (and attaches).
-  const setUpNew = (o: T) => {
-    addKnownId(type, o.id)
-    setKnownIds((ids) => (ids.includes(o.id) ? ids : [...ids, o.id]))
-    choose(o)
   }
 
   return (
@@ -539,7 +535,7 @@ function ListPicker<T extends { id: string; label: string }>({
           onConfirm={(id) => {
             setBrowsing(false)
             const o = options.find((x) => x.id === id)
-            if (o) setUpNew(o)
+            if (o) choose(o)
           }}
         />
       )}
@@ -577,7 +573,7 @@ function FilesPicker({
   addedIds: readonly string[]
 }) {
   const [browsing, setBrowsing] = useState(false)
-  const recentIds = getRecentIds('files')
+  const recentIds = useRecentIds('files')
   const byId = new Map(FILE_OPTIONS.map((f) => [f.id, f]))
   const recent = recentIds.map((id) => byId.get(id)).filter(Boolean) as (typeof FILE_OPTIONS)[number][]
   // Browse lists what's neither recent nor already attached — so an attached
@@ -585,9 +581,9 @@ function FilesPicker({
   const rest = FILE_OPTIONS.filter((f) => !recentIds.includes(f.id) && !addedIds.includes(f.id))
 
   // Attach without closing so several files can be added in one pass. The row
-  // flips to ✓ Added off the live attached state (addedIds).
+  // flips to ✓ Added off the live attached state (addedIds); the attach funnel
+  // promotes the pick into Recent, which this list reads reactively.
   const choose = (f: (typeof FILE_OPTIONS)[number]) => {
-    pushRecent('files', f.id)
     onAdd({ kind: 'files', attachments: [{ id: f.id, label: f.label, kind: 'file' }] })
   }
 
@@ -643,7 +639,7 @@ function PhotosPicker({
   addedIds: readonly string[]
 }) {
   const [browsing, setBrowsing] = useState(false)
-  const recentIds = getRecentIds('photos')
+  const recentIds = useRecentIds('photos')
   const byId = new Map(PHOTO_OPTIONS.map((p) => [p.id, p]))
   const recent = recentIds.map((id) => byId.get(id)).filter(Boolean) as (typeof PHOTO_OPTIONS)[number][]
   // Browse lists what's neither recent nor already attached — so an attached
@@ -651,9 +647,9 @@ function PhotosPicker({
   const rest = PHOTO_OPTIONS.filter((p) => !recentIds.includes(p.id) && !addedIds.includes(p.id))
 
   // Attach without closing so several photos can be added in one pass. The
-  // thumbnail flips to a ✓ overlay off the live attached state (addedIds).
+  // thumbnail flips to a ✓ overlay off the live attached state (addedIds); the
+  // attach funnel promotes the pick into Recent, which this list reads reactively.
   const choose = (p: (typeof PHOTO_OPTIONS)[number]) => {
-    pushRecent('photos', p.id)
     onAdd({ kind: 'photos', attachments: [{ id: p.id, label: p.label, kind: 'photo' }] })
   }
 
@@ -847,16 +843,17 @@ function RepoPicker({
   const labelOf = (o: RepoOption) => (o.origin === 'local' ? basename(o.path) : o.remote)
   const isAdded = (o: RepoOption) => addedRepoIds.includes(repoIdForLabel(labelOf(o)))
 
-  const recentIds = getRecentIds('repo')
+  const recentIds = useRecentIds('repo')
   const byId = new Map(REPO_CATALOG.map((o) => [o.id, o]))
   const recent = recentIds.map((id) => byId.get(id)).filter(Boolean) as RepoOption[]
   // Browse lists what's neither recent nor already attached — so re-selecting an
   // attached repo can't re-fire its attach (and re-attach the GitHub connector).
   const rest = REPO_CATALOG.filter((o) => !recentIds.includes(o.id) && !isAdded(o))
 
-  // Attach without closing and return to the list (clears any prompt).
-  const finalize = (ctx: RepoContext, id: string) => {
-    pushRecent('repo', id)
+  // Attach without closing and return to the list (clears any prompt). The
+  // attach funnel promotes the repo into Recent (mapping it back by path/remote),
+  // which this list reads reactively — so a browsed-in repo joins it at once.
+  const finalize = (ctx: RepoContext, _id: string) => {
     onAdd(ctx)
     setPending(null)
   }
@@ -985,7 +982,7 @@ function FolderPicker({
   const [dontAsk, setDontAsk] = useState(false)
   const [browsing, setBrowsing] = useState(false)
 
-  const recentIds = getRecentIds('folder')
+  const recentIds = useRecentIds('folder')
   const byId = new Map(FOLDER_OPTIONS.map((f) => [f.id, f]))
   const recent = recentIds.map((id) => byId.get(id)).filter(Boolean) as FolderOption[]
   // Browse lists what's neither recent nor already attached.
@@ -997,11 +994,11 @@ function FolderPicker({
   }
 
   // Attach the folder as a workspace, tagging its artifacts with the folder as
-  // their source so the one shared workspace can group by folder. Promotes the
-  // folder into recents and returns to the list (multi-add — no close). Runs on
-  // every path that actually attaches, so it's the single reset point.
+  // their source so the one shared workspace can group by folder (and so the
+  // attach funnel can recover the folder's id to promote it into Recent).
+  // Returns to the list (multi-add — no close). Runs on every path that actually
+  // attaches, so it's the single reset point.
   const attachFolder = (f: FolderOption) => {
-    pushRecent('folder', f.id)
     const source = { id: f.id, label: `${basename(f.label)}/` }
     onAdd({
       kind: 'folder',

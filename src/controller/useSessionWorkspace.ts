@@ -16,6 +16,7 @@ import {
   type Live,
 } from '../data/liveSession'
 import { sameFocus } from '../lib/focus'
+import { rememberAttached } from '../lib/contextShortcuts'
 import { matchRelationOps } from '../data/relationIntents'
 import type { AddedContext, Message, PanelFocus, Repo, SectionId, TourPhase } from '../types'
 
@@ -222,6 +223,12 @@ export function useSessionWorkspace() {
   // performs, but user-driven. Every context type funnels through here, and the
   // newly attached context's sidebar opens so you see what you added.
   const handleAddContext = useCallback((ctx: AddedContext) => {
+    // The single attach funnel — every context type, from every surface (this
+    // picker, Browse, an AI proposal, a repo's side-effect connector), lands
+    // here. Promote into the Add-context shortcut list from this one place so
+    // the "Recent"/"Connected" quick lists always reflect what was just added
+    // (the invariant lives in lib/contextShortcuts.ts).
+    rememberAttached(ctx)
     setLive((l) => {
       switch (ctx.kind) {
         case 'folder': {
