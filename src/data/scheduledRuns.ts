@@ -71,3 +71,9 @@ const BY_ID = new Map(RECENT_RUNS.map((e) => [e.session.id, e]))
 export function runSessionById(id: string): Session | undefined {
   return BY_ID.get(id)?.session
 }
+
+/** The full run entry (task + run + session) for a session id — lets the session
+ *  page show which routine it belongs to and link back to it. */
+export function runEntryById(id: string): RunSessionEntry | undefined {
+  return BY_ID.get(id)
+}

@@ -77,6 +77,7 @@ export function SectionView({
   onNewSession,
   railCollapsed = false,
   initialProjectId = null,
+  initialScheduleId = null,
 }: {
   section: SectionId
   onOpenSession: (id: string) => void
@@ -88,6 +89,9 @@ export function SectionView({
   /** When opened via a session's "In ‹Project›" breadcrumb, the project to show
    *  in detail straight away (null = the project list). */
   initialProjectId?: string | null
+  /** When opened via a run session's "Scheduled run of ‹routine›" breadcrumb,
+   *  the routine to open in detail straight away (null = the schedule list). */
+  initialScheduleId?: string | null
 }) {
   const body =
     section === 'projects' ? (
@@ -108,7 +112,9 @@ export function SectionView({
     ) : section === 'contexts' ? (
       <ContextsSection />
     ) : section === 'scheduled' ? (
-      <ScheduledSection />
+      // Key on the deep-link target so a run session's breadcrumb remounts
+      // straight into that routine's detail (mirrors Projects above).
+      <ScheduledSection key={initialScheduleId ?? 'scheduled-list'} initialOpenId={initialScheduleId} />
     ) : (
       <GenericSection section={section} />
     )
@@ -1241,12 +1247,12 @@ function taskPill(task: ScheduledTask): { tone: 'ok' | 'warn' | 'bad' | 'neutral
   return { tone: 'ok', label: last ? `Ran ${last.absolute}` : 'Active' }
 }
 
-function ScheduledSection() {
+function ScheduledSection({ initialOpenId = null }: { initialOpenId?: string | null }) {
   const [items, setItems] = useState(SCHEDULED_TASKS)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('All')
   const [folded, setFolded] = useState<Set<'active' | 'paused'>>(new Set())
-  const [openId, setOpenId] = useState<string | null>(null)
+  const [openId, setOpenId] = useState<string | null>(initialOpenId)
   // Ids with a mock "Run now" in flight; resolves to a fresh ok run after a beat.
   const [running, setRunning] = useState<Set<string>>(new Set())
   const timers = useRef<number[]>([])

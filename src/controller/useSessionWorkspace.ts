@@ -36,6 +36,8 @@ export function useSessionWorkspace() {
   // When a session deep-links into its project, which project the Projects
   // section should open in detail (null = show the project list).
   const [focusProjectId, setFocusProjectId] = useState<string | null>(null)
+  // Likewise for a scheduled run session deep-linking back to its routine.
+  const [focusScheduleId, setFocusScheduleId] = useState<string | null>(null)
 
   // Guided-tour state (only meaningful for the demo session).
   const [phase, setPhase] = useState<TourPhase>('idle')
@@ -330,6 +332,7 @@ export function useSessionWorkspace() {
   const openSection = useCallback((s: SectionId) => {
     setActiveSection(s)
     setFocusProjectId(null)
+    setFocusScheduleId(null)
   }, [])
 
   // Deep-link from a session into its home project: open the Projects section
@@ -337,6 +340,15 @@ export function useSessionWorkspace() {
   const openProject = useCallback((projectId: string) => {
     setActiveSection('projects')
     setFocusProjectId(projectId)
+    setFocusScheduleId(null)
+  }, [])
+
+  // Deep-link from a scheduled run session back to its routine: open the
+  // Scheduled section with that routine already expanded to its detail.
+  const openSchedule = useCallback((scheduleId: string) => {
+    setActiveSection('scheduled')
+    setFocusScheduleId(scheduleId)
+    setFocusProjectId(null)
   }, [])
 
   const removeAttachment = useCallback((id: string) => {
@@ -405,6 +417,7 @@ export function useSessionWorkspace() {
     activeId,
     activeSection,
     focusProjectId,
+    focusScheduleId,
     live,
     typing,
     focus,
@@ -427,6 +440,7 @@ export function useSessionWorkspace() {
     newSession,
     openSection,
     openProject,
+    openSchedule,
     handleSend,
     handleAddContext,
     focusContext,

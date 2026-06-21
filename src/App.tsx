@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
-import { Folder, PanelLeft } from 'lucide-react'
+import { CalendarClock, Folder, PanelLeft } from 'lucide-react'
 import { Sidebar } from './components/Sidebar'
 import { Composer } from './components/Composer'
 import { MessageRow, TypingRow } from './components/Message'
@@ -13,6 +13,7 @@ import { IntroOverlay } from './components/IntroOverlay'
 import { ProposalBar } from './components/ProposalBar'
 import { SearchPanel } from './components/SearchPanel'
 import { SESSIONS } from './data/sessions'
+import { runEntryById } from './data/scheduledRuns'
 import { useSessionWorkspace } from './controller/useSessionWorkspace'
 import { useLayout } from './controller/useLayout'
 import { RelationsProvider, useRelations } from './controller/useRelations'
@@ -30,6 +31,7 @@ export default function App() {
     activeId,
     activeSection,
     focusProjectId,
+    focusScheduleId,
     live,
     typing,
     focus,
@@ -49,6 +51,7 @@ export default function App() {
     newSession,
     openSection,
     openProject,
+    openSchedule,
     handleSend,
     handleAddContext,
     focusContext,
@@ -154,6 +157,7 @@ export default function App() {
                 onNewSession={newSession}
                 railCollapsed={!leftOpen}
                 initialProjectId={focusProjectId}
+                initialScheduleId={focusScheduleId}
               />
             ) : (
               <>
@@ -162,6 +166,7 @@ export default function App() {
                     session={activeSession}
                     leftOpen={leftOpen}
                     onOpenProject={openProject}
+                    onOpenSchedule={openSchedule}
                   />
                 )}
 
@@ -277,13 +282,18 @@ function SessionTitleBar({
   session,
   leftOpen,
   onOpenProject,
+  onOpenSchedule,
 }: {
   session: Session
   leftOpen: boolean
   onOpenProject: (id: string) => void
+  onOpenSchedule: (id: string) => void
 }) {
   const { projectForSessionId } = useRelations()
-  const homeProject = projectForSessionId(session.id)
+  // A scheduled run's session belongs to its routine, not a project — so its
+  // breadcrumb links back to the routine in the Scheduled section.
+  const runEntry = runEntryById(session.id)
+  const homeProject = runEntry ? undefined : projectForSessionId(session.id)
   return (
     <div
       className={`flex min-h-[52px] flex-col justify-center gap-0.5 border-b border-line bg-canvas/80 py-2 pr-4 ${
@@ -293,6 +303,18 @@ function SessionTitleBar({
       <span className="font-serif text-[15px] font-semibold leading-tight text-ink">
         {session.title}
       </span>
+      {runEntry && (
+        <button
+          onClick={() => onOpenSchedule(runEntry.task.id)}
+          title={`Open the ${runEntry.task.name} routine`}
+          className="inline-flex w-fit items-center gap-1 text-[12px] text-ink-faint transition hover:text-ink"
+        >
+          <CalendarClock size={12} className="shrink-0" />
+          <span>
+            Scheduled run of <span className="font-medium">{runEntry.task.name}</span>
+          </span>
+        </button>
+      )}
       {homeProject && (
         <button
           onClick={() => onOpenProject(homeProject.id)}
