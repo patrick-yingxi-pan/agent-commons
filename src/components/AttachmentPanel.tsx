@@ -33,6 +33,16 @@ export function AttachmentPanel({
     if (!items.some((i) => i.id === selectedId)) setSelectedId(items[0]?.id)
   }, [items, selectedId])
 
+  // Follow the chip the user picked. The panel stays mounted (one shared key) so
+  // its per-item edit drafts survive, which means a new `initialId` — from
+  // picking a different item in the counted chip's popup, or switching between
+  // the Files and Photos chips — won't remount it; sync the selection here
+  // instead. Keyed on `initialId` only: `items` is a fresh filtered array each
+  // render, so depending on it would clobber an in-panel selection every render.
+  useEffect(() => {
+    if (initialId) setSelectedId(initialId)
+  }, [initialId])
+
   const selected = items.find((i) => i.id === selectedId) ?? items[0]
 
   return (
