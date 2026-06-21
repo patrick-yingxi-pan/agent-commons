@@ -1,11 +1,12 @@
 /** Route table for the mock backend. Each resource registers its endpoints here;
  *  Phase 1 wires capabilities, the ambient event stream, and sessions. The router
  *  is plain data — adding a resource is adding a `.get(...)` line. */
-import type { Capabilities } from '../../contract/index.ts'
+import type { Capabilities, Message, SendMessageRequest } from '../../contract/index.ts'
 import { Router } from '../http/router.ts'
 import { sendJson, sendError } from '../http/respond.ts'
 import { openSse } from '../http/sse.ts'
 import { store } from '../store.ts'
+import { buildReply, chunkText } from '../generate.ts'
 
 export function buildRouter(): Router {
   const r = new Router()
@@ -52,6 +53,50 @@ export function buildRouter(): Router {
     const session = store.getSession(params.id)
     if (!session) return sendError(res, 'not_found', `No session '${params.id}'`)
     sendJson(res, session)
+  })
+
+  // Send a turn → stream the assistant reply as SSE (mirrors the Anthropic
+  // Messages API). The body carries typed events, not just text: an assistant
+  // turn can escalate the session or propose relation edits mid-stream.
+  r.post('/sessions/:id/messages', async ({ req, res, params, body }) => {
+    const { text } = await body<SendMessageRequest>()
+    // A draft / run session may not be persisted; reply with a generic shell.
+    const known = store.getSession(params.id)
+    const session = known
+      ? { id: known.id, title: known.title, isDemo: known.isDemo }
+      : { id: params.id, title: 'New session', isDemo: false }
+
+    const full = buildReply(session, text ?? '')
+    const channel = openSse(res)
+    const shell: Message = { id: full.id, role: 'assistant', content: '' }
+    channel.send({ type: 'message.start', sessionId: session.id, message: shell })
+
+    const chunks = chunkText(full.content)
+    let i = 0
+    let aborted = false
+    req.on('close', () => {
+      aborted = true
+    })
+    const tick = () => {
+      if (aborted || res.writableEnded) return
+      if (i < chunks.length) {
+        channel.send({ type: 'message.delta', sessionId: session.id, messageId: full.id, text: chunks[i] })
+        i += 1
+        setTimeout(tick, 26)
+      } else {
+        if (full.relationActions?.length) {
+          channel.send({
+            type: 'message.relations',
+            sessionId: session.id,
+            messageId: full.id,
+            relationActions: full.relationActions,
+          })
+        }
+        channel.send({ type: 'message.end', sessionId: session.id, message: full })
+        channel.close()
+      }
+    }
+    setTimeout(tick, 110) // a brief "thinking" beat before the first token
   })
 
   // ── Dispatch ──────────────────────────────────────────────────────────────

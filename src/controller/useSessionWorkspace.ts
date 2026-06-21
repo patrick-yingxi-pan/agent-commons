@@ -17,8 +17,8 @@ import {
 } from '../data/liveSession'
 import { sameFocus } from '../lib/focus'
 import { rememberAttached } from '../lib/contextShortcuts'
-import { matchRelationOps } from '../data/relationIntents'
 import { runSessionById } from '../data/scheduledRuns'
+import { sendMessage } from '../api'
 import type { AddedContext, Message, PanelFocus, Repo, SectionId, TourPhase } from '../types'
 
 /** ── Controller: the active session + its live workspace ───────────────────
@@ -53,6 +53,10 @@ export function useSessionWorkspace() {
   // deps and must not close over a stale snapshot).
   const liveRef = useRef(live)
   liveRef.current = live
+  // Mirror of the open session id, so a streaming reply that arrives after the
+  // user switched sessions is ignored rather than landing in the wrong thread.
+  const activeIdRef = useRef(activeId)
+  activeIdRef.current = activeId
 
   const activeSession = useMemo(
     // A scheduled run opens its own synthesized session, so resolve those ids too.
@@ -188,40 +192,51 @@ export function useSessionWorkspace() {
     startTour()
   }, [selectSession, startTour])
 
-  // Free-typed replies get an honest canned answer (no fake intelligence) —
-  // except an organize-style request ("file this under …", "save as an
-  // artifact", "have the schedule …"), which Claude answers with the matching
-  // relation-edit proposals as an inline confirmation card.
-  const handleSend = useCallback(
-    (text: string) => {
-      const userMsg: Message = { id: `u-${Date.now()}`, role: 'user', content: text }
-      setLive((l) => ({ ...l, messages: [...l.messages, userMsg] }))
-      setTyping(true)
-      setBusy(true)
-      const ops = matchRelationOps(text, { id: activeSession.id, title: activeSession.title })
-      schedule(() => {
+  // A turn now streams from the backend (POST /sessions/:id/messages), mirroring
+  // the real Messages API: we append the user message, then render the assistant
+  // reply token-by-token as it arrives. The honest behavior is unchanged but now
+  // lives server-side — an "organize" request streams back the matching
+  // relation-edit proposals; anything else gets a canned answer.
+  const handleSend = useCallback((text: string) => {
+    const sid = activeIdRef.current
+    const userMsg: Message = { id: `u-${Date.now()}`, role: 'user', content: text }
+    setLive((l) => ({ ...l, messages: [...l.messages, userMsg] }))
+    setTyping(true)
+    setBusy(true)
+    // Ignore stream events that arrive after the user switched away.
+    const stale = () => activeIdRef.current !== sid
+    sendMessage(sid, text, {
+      onStart: (_id, message) => {
+        if (stale()) return
         setTyping(false)
-        const reply: Message =
-          ops.length > 0
-            ? {
-                id: `a-${Date.now()}`,
-                role: 'assistant',
-                content: "Here's what I can organize — confirm what you'd like, nothing changes until you do:",
-                relationActions: ops,
-              }
-            : {
-                id: `a-${Date.now()}`,
-                role: 'assistant',
-                content: isDemo
-                  ? 'This is a static prototype, so I won’t actually answer here. Use **Play the tour** above to watch one session flow from chat → workspace → code without switching tabs.'
-                  : 'This is a static prototype — open the **Insights dashboard launch** session and play the guided tour to see the unified flow. You can also ask me to *file this under a project*, *save a draft as an artifact*, or *have a schedule save a digest*.',
-              }
-        setLive((l) => ({ ...l, messages: [...l.messages, reply] }))
+        setLive((l) => ({ ...l, messages: [...l.messages, message] }))
+      },
+      onDelta: (messageId, chunk) => {
+        if (stale()) return
+        setLive((l) => ({
+          ...l,
+          messages: l.messages.map((m) => (m.id === messageId ? { ...m, content: m.content + chunk } : m)),
+        }))
+      },
+      onRelations: (messageId, relationActions) => {
+        if (stale()) return
+        setLive((l) => ({
+          ...l,
+          messages: l.messages.map((m) => (m.id === messageId ? { ...m, relationActions } : m)),
+        }))
+      },
+      onEnd: (message) => {
+        if (stale()) return
+        setLive((l) => ({ ...l, messages: l.messages.map((m) => (m.id === message.id ? message : m)) }))
+        setTyping(false)
         setBusy(false)
-      }, 800)
-    },
-    [isDemo, schedule, activeSession],
-  )
+      },
+    }).catch(() => {
+      if (stale()) return
+      setTyping(false)
+      setBusy(false)
+    })
+  }, [])
 
   // Manually attach context to the open thread — the same escalation the tour
   // performs, but user-driven. Every context type funnels through here, and the
