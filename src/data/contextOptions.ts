@@ -180,6 +180,26 @@ export const FOLDER_OPTIONS: {
       { id: 'f5-fwd', name: 'cfo-forward.eml', kind: 'email', meta: 'Email · 1.3 KB' },
     ],
   },
+  {
+    id: 'f6',
+    label: '~/Downloads/vendor-contracts',
+    meta: '11 files · edited 4d ago',
+    artifacts: [
+      { id: 'f6-msa', name: 'msa-acme.pdf', kind: 'doc', meta: 'PDF · 1.1 MB' },
+      { id: 'f6-nda', name: 'mutual-nda.pdf', kind: 'doc', meta: 'PDF · 410 KB' },
+      { id: 'f6-terms', name: 'terms-redline.md', kind: 'doc', meta: 'Markdown · 3.4 KB' },
+    ],
+  },
+  {
+    id: 'f7',
+    label: '~/projects/api-mocks',
+    meta: '28 files · edited 6d ago',
+    artifacts: [
+      { id: 'f7-openapi', name: 'openapi.yaml', kind: 'doc', meta: 'YAML · 14 KB' },
+      { id: 'f7-fixtures', name: 'fixtures.json', kind: 'doc', meta: 'JSON · 22 KB' },
+      { id: 'f7-readme', name: 'README.md', kind: 'doc', meta: 'Markdown · 2.7 KB' },
+    ],
+  },
 ]
 
 /** GitHub repos — attached by their remote `owner/name`. These always have a
@@ -267,9 +287,16 @@ export const CONNECTOR_OPTIONS: { id: string; label: string; kind?: Connector['k
   // Same identity (id + kind) as the repo's GitHub connector, so attaching a
   // repo and the GitHub connector dedup to a single chip instead of two.
   { id: 'gh-mcp', label: 'GitHub', kind: 'github' },
-  // Not pre-saved on the Contexts page — genuinely new connectors to set up.
   { id: 'figma', label: 'Figma' },
   { id: 'sentry', label: 'Sentry' },
+  { id: 'asana', label: 'Asana' },
+  { id: 'intercom', label: 'Intercom' },
+  { id: 'hubspot', label: 'HubSpot' },
+  { id: 'dropbox', label: 'Dropbox' },
+  { id: 'zoom', label: 'Zoom' },
+  // Not pre-saved on the Contexts page — genuinely new connectors to set up.
+  { id: 'airtable', label: 'Airtable' },
+  { id: 'stripe', label: 'Stripe' },
 ]
 
 export const MCP_OPTIONS = [
@@ -278,8 +305,13 @@ export const MCP_OPTIONS = [
   { id: 'postgres', label: 'postgres', meta: 'Query a Postgres database' },
   { id: 'puppeteer', label: 'puppeteer', meta: 'Headless browser automation' },
   { id: 'sqlite', label: 'sqlite', meta: 'Query a local SQLite file' },
-  // Not pre-saved on the Contexts page — a genuinely new server to add.
   { id: 'fetch', label: 'fetch', meta: 'HTTP fetch & web requests' },
+  { id: 'brave-search', label: 'brave-search', meta: 'Web search via Brave' },
+  { id: 'memory', label: 'memory', meta: 'Persistent knowledge graph' },
+  { id: 'time', label: 'time', meta: 'Time & timezone conversions' },
+  // Not pre-saved on the Contexts page — genuinely new servers to add.
+  { id: 'sentry-mcp', label: 'sentry', meta: 'Error tracking & traces' },
+  { id: 'gitlab', label: 'gitlab', meta: 'Issues, MRs, pipelines' },
 ]
 
 export const FILE_OPTIONS = [
@@ -289,6 +321,10 @@ export const FILE_OPTIONS = [
   { id: 'doc4', label: 'design-doc.pdf', meta: 'PDF · 1.2 MB' },
   { id: 'doc5', label: 'budget.xlsx', meta: 'Excel · 44 KB' },
   { id: 'doc6', label: 'changelog.md', meta: 'Markdown · 7 KB' },
+  { id: 'doc7', label: 'launch-plan.docx', meta: 'Word · 96 KB' },
+  { id: 'doc8', label: 'survey-results.csv', meta: 'CSV · 52 KB' },
+  { id: 'doc9', label: 'architecture.pdf', meta: 'PDF · 2.1 MB' },
+  { id: 'doc10', label: 'release-notes.md', meta: 'Markdown · 5 KB' },
 ]
 
 export const PHOTO_OPTIONS = [
@@ -298,6 +334,9 @@ export const PHOTO_OPTIONS = [
   { id: 'p4', label: 'logo.png' },
   { id: 'p5', label: 'wireframe.png' },
   { id: 'p6', label: 'hero-banner.png' },
+  { id: 'p7', label: 'diagram.png' },
+  { id: 'p8', label: 'team-photo.png' },
+  { id: 'p9', label: 'icon-set.png' },
 ]
 
 /** The "Add context" types, in the order they appear in the picker. The recents
@@ -312,10 +351,12 @@ export type ContextTypeId = 'files' | 'photos' | 'folder' | 'repo' | 'connector'
  *  (lib/recents `seedFor`), so their quick list is every set-up account — the
  *  entries below are only a fallback. */
 export const DEFAULT_RECENT_IDS: Record<ContextTypeId, string[]> = {
-  files: ['doc1', 'doc2', 'doc3'],
-  photos: ['p1', 'p2', 'p3'],
-  folder: ['f1', 'f2', 'f3'],
-  repo: ['lr-insights', 'gh-proposal', 'lr-scripts'],
+  files: ['doc1', 'doc2', 'doc3', 'doc4', 'doc5', 'doc6', 'doc7', 'doc8'],
+  photos: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'],
+  folder: ['f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7'],
+  repo: ['lr-insights', 'gh-proposal', 'lr-scripts', 'gh-web', 'gh-dash', 'lr-site', 'gh-api'],
+  // connector / mcp seed from the connected sets in savedContexts (see lib/recents
+  // `seedFor`), not from these entries.
   connector: ['gdrive', 'slack', 'notion'],
   mcp: ['filesystem', 'github', 'postgres'],
 }

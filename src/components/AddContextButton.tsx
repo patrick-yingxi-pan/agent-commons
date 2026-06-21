@@ -108,7 +108,9 @@ export function AddContextButton({
     const recompute = () => {
       const top = wrapRef.current?.getBoundingClientRect().top ?? window.innerHeight
       const rows = Math.floor((top - 16 - RECENT_CHROME_H) / RECENT_ROW_H)
-      setMaxRecentRows(Math.max(3, Math.min(14, rows)))
+      // Cap the inline list at a comfortable height even on tall screens; beyond
+      // that the tail folds into "More" rather than becoming a giant wall of rows.
+      setMaxRecentRows(Math.max(3, Math.min(9, rows)))
     }
     recompute()
     window.addEventListener('resize', recompute)
