@@ -10,6 +10,7 @@ import {
   GitBranch,
   Github,
   Image as ImageIcon,
+  MoreHorizontal,
   Paperclip,
   Plug,
   Plus,
@@ -21,7 +22,7 @@ import { GITHUB_CONNECTOR, GITHUB_CONNECTOR_ID } from '../lib/connectors'
 import { repoIdForLabel } from '../data/liveSession'
 import { getDecision, setDecision } from '../lib/prefs'
 import { useRecentIds } from '../lib/recents'
-import { useKnownIds } from '../lib/known'
+import { RecentOverflowList, FlyoutPanel, useFlyout, type OverflowRow } from './RecentOverflowList'
 import {
   CONNECTOR_OPTIONS,
   FILE_OPTIONS,
@@ -34,6 +35,12 @@ import {
 } from '../data/contextOptions'
 
 type TypeId = ContextTypeId
+
+/** Approx height of one recent row, and the fixed chrome a picker keeps around
+ *  the list (header + label + Browse row + footer + padding). Used to size the
+ *  inline recent list to the available height; the remainder folds into "More". */
+const RECENT_ROW_H = 38
+const RECENT_CHROME_H = 156
 
 const CONTEXT_TYPES: { id: TypeId; label: string; desc: string; Icon: typeof Paperclip }[] = [
   { id: 'files', label: 'Files', desc: 'Images, PDFs, docs from your computer', Icon: Paperclip },
@@ -68,6 +75,10 @@ export function AddContextButton({
 }) {
   const [open, setOpen] = useState(false)
   const [type, setType] = useState<TypeId | null>(null)
+  // How many recent rows fit inline — measured from the space above the composer
+  // so the list is "as long as the layout allows"; the rest folds into the
+  // "More" flyout. Recomputed on open and on window resize.
+  const [maxRecentRows, setMaxRecentRows] = useState(8)
   const wrapRef = useRef<HTMLDivElement>(null)
 
   const close = () => {
@@ -87,6 +98,21 @@ export function AddContextButton({
       document.removeEventListener('mousedown', onDown)
       document.removeEventListener('keydown', onKey)
     }
+  }, [open])
+
+  // Size the inline recent list to the height available above the composer: the
+  // popover opens upward from the button, so the button's top is how much room
+  // there is. Subtract the picker's fixed chrome, divide by a row's height.
+  useEffect(() => {
+    if (!open) return
+    const recompute = () => {
+      const top = wrapRef.current?.getBoundingClientRect().top ?? window.innerHeight
+      const rows = Math.floor((top - 16 - RECENT_CHROME_H) / RECENT_ROW_H)
+      setMaxRecentRows(Math.max(3, Math.min(14, rows)))
+    }
+    recompute()
+    window.addEventListener('resize', recompute)
+    return () => window.removeEventListener('resize', recompute)
   }, [open])
 
   const activeType = type ? CONTEXT_TYPES.find((t) => t.id === type)! : null
@@ -152,6 +178,7 @@ export function AddContextButton({
               <div className="px-0.5">
                 <WorkflowBody
                   type={activeType.id}
+                  maxRows={maxRecentRows}
                   onAttach={onAttach}
                   onClose={close}
                   connectors={connectors}
@@ -170,6 +197,7 @@ export function AddContextButton({
 
 function WorkflowBody({
   type,
+  maxRows,
   onAttach,
   onClose,
   connectors,
@@ -178,6 +206,8 @@ function WorkflowBody({
   workspaces,
 }: {
   type: TypeId
+  /** How many recent rows to show inline before folding the rest into "More". */
+  maxRows: number
   /** Attach without closing — every picker stacks adds (multi-add). */
   onAttach: (ctx: AddedContext) => void
   /** Close the whole popover (the multi-add "Done"). */
@@ -202,6 +232,7 @@ function WorkflowBody({
   if (type === 'folder') {
     return (
       <FolderPicker
+        maxRows={maxRows}
         onAdd={onAttach}
         onClose={onClose}
         addedIds={addedFolderIds}
@@ -212,6 +243,7 @@ function WorkflowBody({
   if (type === 'repo') {
     return (
       <RepoPicker
+        maxRows={maxRows}
         onAdd={onAttach}
         onClose={onClose}
         addedRepoIds={addedRepoIds}
@@ -223,6 +255,7 @@ function WorkflowBody({
     return (
       <ListPicker
         type="connector"
+        maxRows={maxRows}
         options={CONNECTOR_OPTIONS}
         connectedLabel="Connected"
         browseLabel="Connect a new account…"
@@ -245,6 +278,7 @@ function WorkflowBody({
     return (
       <ListPicker
         type="mcp"
+        maxRows={maxRows}
         options={MCP_OPTIONS}
         connectedLabel="Connected"
         browseLabel="Add an MCP server…"
@@ -264,9 +298,9 @@ function WorkflowBody({
     )
   }
   if (type === 'files') {
-    return <FilesPicker onAdd={onAttach} onClose={onClose} addedIds={addedFileIds} />
+    return <FilesPicker maxRows={maxRows} onAdd={onAttach} onClose={onClose} addedIds={addedFileIds} />
   }
-  return <PhotosPicker onAdd={onAttach} onClose={onClose} addedIds={addedPhotoIds} />
+  return <PhotosPicker maxRows={maxRows} onAdd={onAttach} onClose={onClose} addedIds={addedPhotoIds} />
 }
 
 /* ------------------------------------------------------------------ Browse --
@@ -457,9 +491,12 @@ function BrowseRow({ label, onClick }: { label: string; onClick: () => void }) {
    attaches instantly — no re-authenticating. This is a multi-add surface: each
    row attaches without closing (marked ✓) so several can be added in one pass,
    and a "Done" footer closes. Browse sets up / authenticates a *new* one, which
-   is promoted into the Connected list (lib/known) so it's reusable next time. */
+   the attach funnel promotes into the Connected list (the shared recents store,
+   lib/recents) so it's reusable next time. The list never evicts — a long one
+   folds its tail into a "More" flyout (RecentOverflowList). */
 function ListPicker<T extends { id: string; label: string }>({
   type,
+  maxRows,
   options,
   connectedLabel,
   browseLabel,
@@ -474,6 +511,7 @@ function ListPicker<T extends { id: string; label: string }>({
   onClose,
 }: {
   type: ContextTypeId
+  maxRows: number
   options: readonly T[]
   connectedLabel: string
   browseLabel: string
@@ -491,36 +529,41 @@ function ListPicker<T extends { id: string; label: string }>({
   onClose: () => void
 }) {
   const [browsing, setBrowsing] = useState(false)
-  // The set-up ids (seeded from savedContexts) read reactively, so a Browse
-  // promotion — or any other attach path — shows up here immediately. The rest
-  // are the Browse candidates.
-  const knownIds = useKnownIds(type)
-  const connected = options.filter((o) => knownIds.includes(o.id))
-  const rest = options.filter((o) => !knownIds.includes(o.id))
+  // The set-up ids read reactively from the one recents store (in recency order),
+  // so a Browse promotion — or any other attach path — shows up here at once. The
+  // rest are the Browse candidates. Nothing is evicted; a long list folds into the
+  // "More" flyout (RecentOverflowList).
+  const recentIds = useRecentIds(type)
+  const byId = new Map(options.map((o) => [o.id, o]))
+  const connected = recentIds.map((id) => byId.get(id)).filter(Boolean) as T[]
+  const rest = options.filter((o) => !recentIds.includes(o.id))
 
   // Attach without closing, so multiple can be stacked. The row flips to ✓ Added
-  // off the live attached state (addedIds), so it stays Added across reopens.
-  // Promotion into the Connected set happens at the attach funnel
-  // (lib/contextShortcuts.ts), so setting up a freshly-browsed element moves it
-  // from Browse into the quick list without any extra bookkeeping here.
+  // off the live attached state (addedIds). Promotion into the quick list happens
+  // at the attach funnel (lib/contextShortcuts.ts), so a freshly-browsed element
+  // moves from Browse into the list with no extra bookkeeping here.
   const choose = (o: T) => {
     onAdd(toContext(o))
   }
 
+  const rows: OverflowRow[] = connected.map((o) => ({
+    key: o.id,
+    node: (
+      <OptionRow
+        icon={rowIcon}
+        label={o.label}
+        meta={rowMeta(o, true)}
+        accentDot
+        added={addedIds.includes(o.id)}
+        onClick={() => choose(o)}
+      />
+    ),
+  }))
+
   return (
     <>
       <Section label={connectedLabel}>
-        {connected.map((o) => (
-          <OptionRow
-            key={o.id}
-            icon={rowIcon}
-            label={o.label}
-            meta={rowMeta(o, true)}
-            accentDot
-            added={addedIds.includes(o.id)}
-            onClick={() => choose(o)}
-          />
-        ))}
+        <RecentOverflowList rows={rows} maxRows={maxRows} moreLabel={`More ${connectedLabel.toLowerCase()}`} />
         <BrowseRow label={browseLabel} onClick={() => setBrowsing(true)} />
       </Section>
       <MultiAddFooter count={addedIds.length} onDone={onClose} />
@@ -564,10 +607,12 @@ function MultiAddFooter({ count, onDone }: { count: number; onDone: () => void }
 }
 
 function FilesPicker({
+  maxRows,
   onAdd,
   onClose,
   addedIds,
 }: {
+  maxRows: number
   onAdd: (ctx: AddedContext) => void
   onClose: () => void
   addedIds: readonly string[]
@@ -598,16 +643,22 @@ function FilesPicker({
         <span className="text-[11px] text-ink-faint">or browse your files</span>
       </button>
       <p className="px-1 pb-1.5 text-[11px] text-ink-faint">Recent files</p>
-      {recent.map((f) => (
-        <OptionRow
-          key={f.id}
-          icon={<FileText size={16} />}
-          label={f.label}
-          meta={f.meta}
-          added={addedIds.includes(f.id)}
-          onClick={() => choose(f)}
-        />
-      ))}
+      <RecentOverflowList
+        maxRows={Math.max(2, maxRows - 2)}
+        moreLabel="More recent files"
+        rows={recent.map((f) => ({
+          key: f.id,
+          node: (
+            <OptionRow
+              icon={<FileText size={16} />}
+              label={f.label}
+              meta={f.meta}
+              added={addedIds.includes(f.id)}
+              onClick={() => choose(f)}
+            />
+          ),
+        }))}
+      />
       <BrowseRow label="Browse files…" onClick={() => setBrowsing(true)} />
       <MultiAddFooter count={addedIds.length} onDone={onClose} />
       {browsing && (
@@ -630,10 +681,12 @@ function FilesPicker({
 }
 
 function PhotosPicker({
+  maxRows,
   onAdd,
   onClose,
   addedIds,
 }: {
+  maxRows: number
   onAdd: (ctx: AddedContext) => void
   onClose: () => void
   addedIds: readonly string[]
@@ -643,8 +696,10 @@ function PhotosPicker({
   const byId = new Map(PHOTO_OPTIONS.map((p) => [p.id, p]))
   const recent = recentIds.map((id) => byId.get(id)).filter(Boolean) as (typeof PHOTO_OPTIONS)[number][]
   // Browse lists what's neither recent nor already attached — so an attached
-  // photo evicted from recents can't reappear here to be added twice.
+  // photo can't reappear here to be added twice.
   const rest = PHOTO_OPTIONS.filter((p) => !recentIds.includes(p.id) && !addedIds.includes(p.id))
+  const more = useFlyout()
+  const moreRef = useRef<HTMLButtonElement>(null)
 
   // Attach without closing so several photos can be added in one pass. The
   // thumbnail flips to a ✓ overlay off the live attached state (addedIds); the
@@ -653,29 +708,53 @@ function PhotosPicker({
     onAdd({ kind: 'photos', attachments: [{ id: p.id, label: p.label, kind: 'photo' }] })
   }
 
+  // One thumbnail, reused inline and in the "More" flyout grid so both render
+  // identically.
+  const thumb = (p: (typeof PHOTO_OPTIONS)[number]) => {
+    const isAdded = addedIds.includes(p.id)
+    return (
+      <button
+        key={p.id}
+        title={p.label}
+        aria-disabled={isAdded}
+        onClick={isAdded ? undefined : () => choose(p)}
+        className={`relative aspect-square rounded-lg transition ${gradientFor(p.id)} ${
+          isAdded ? 'ring-2 ring-emerald-500' : 'ring-1 ring-black/5 hover:opacity-80'
+        }`}
+      >
+        {isAdded && (
+          <span className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/35">
+            <Check size={18} className="text-white" strokeWidth={3} />
+          </span>
+        )}
+      </button>
+    )
+  }
+
+  // Same non-evicting overflow as the list pickers, in grid terms: show as many
+  // thumbnails as the height allows (≈4 per row), fold the rest into a "More"
+  // cell whose hover opens a scrollable flyout grid.
+  const cap = Math.max(7, maxRows * 2)
+  const overflow = recent.length > cap
+  const head = overflow ? recent.slice(0, cap - 1) : recent
+  const tail = overflow ? recent.slice(cap - 1) : []
+
   return (
     <Section label="Recent photos">
       <div className="grid grid-cols-4 gap-1.5 px-1 pb-1">
-        {recent.map((p) => {
-          const isAdded = addedIds.includes(p.id)
-          return (
-            <button
-              key={p.id}
-              title={p.label}
-              aria-disabled={isAdded}
-              onClick={isAdded ? undefined : () => choose(p)}
-              className={`relative aspect-square rounded-lg transition ${gradientFor(p.id)} ${
-                isAdded ? 'ring-2 ring-emerald-500' : 'ring-1 ring-black/5 hover:opacity-80'
-              }`}
-            >
-              {isAdded && (
-                <span className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/35">
-                  <Check size={18} className="text-white" strokeWidth={3} />
-                </span>
-              )}
-            </button>
-          )
-        })}
+        {head.map(thumb)}
+        {overflow && (
+          <button
+            ref={moreRef}
+            title={`${tail.length} more`}
+            onMouseEnter={more.openNow}
+            onMouseLeave={more.closeSoon}
+            className="flex aspect-square flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-line-strong text-ink-faint transition hover:bg-panel-2 hover:text-ink"
+          >
+            <MoreHorizontal size={16} />
+            <span className="text-[10px] font-medium">{tail.length} more</span>
+          </button>
+        )}
         <button
           title="Browse photos…"
           onClick={() => setBrowsing(true)}
@@ -684,6 +763,11 @@ function PhotosPicker({
           <FolderSearch size={16} />
         </button>
       </div>
+      {more.open && (
+        <FlyoutPanel anchor={moreRef.current} width={208} onEnter={more.openNow} onLeave={more.closeSoon}>
+          <div className="grid grid-cols-4 gap-1.5 p-1">{tail.map(thumb)}</div>
+        </FlyoutPanel>
+      )}
       <MultiAddFooter count={addedIds.length} onDone={onClose} />
       {browsing && (
         <BrowseDialog
@@ -825,11 +909,13 @@ function AttachPromptCard({
  *  whether to add the connector too — Cancel returns to the list, "Just the repo"
  *  / "Add both" decide, and a remembered choice skips the prompt next time. */
 function RepoPicker({
+  maxRows,
   onAdd,
   onClose,
   addedRepoIds,
   hasGitHubConnector,
 }: {
+  maxRows: number
   onAdd: (ctx: AddedContext) => void
   onClose: () => void
   /** Live-repo ids already attached — rows for these read ✓ Added. */
@@ -917,7 +1003,11 @@ function RepoPicker({
   return (
     <>
       <Section label="Recent repositories">
-        {recent.map(repoRow)}
+        <RecentOverflowList
+          maxRows={maxRows}
+          moreLabel="More recent repositories"
+          rows={recent.map((o) => ({ key: o.id, node: repoRow(o) }))}
+        />
         <BrowseRow label="Browse repositories…" onClick={() => setBrowsing(true)} />
       </Section>
       <MultiAddFooter count={addedRepoIds.length} onDone={onClose} />
@@ -966,11 +1056,13 @@ type FolderOption = (typeof FOLDER_OPTIONS)[number]
  *  Cancel aborts the whole attach, and each choice can be remembered. Recent
  *  folders show first; Browse reaches the rest, promoting them on attach. */
 function FolderPicker({
+  maxRows,
   onAdd,
   onClose,
   addedIds,
   hasGitHubConnector,
 }: {
+  maxRows: number
   onAdd: (ctx: AddedContext) => void
   onClose: () => void
   /** Folder ids already in the shared workspace — rows for these read ✓ Added. */
@@ -1105,16 +1197,22 @@ function FolderPicker({
   return (
     <>
       <Section label="Recent folders">
-        {recent.map((f) => (
-          <OptionRow
-            key={f.id}
-            icon={<FolderOpen size={16} />}
-            label={f.label}
-            meta={`${f.meta}${f.repo ? ' · git repo' : ''}`}
-            added={addedIds.includes(f.id)}
-            onClick={() => select(f)}
-          />
-        ))}
+        <RecentOverflowList
+          maxRows={maxRows}
+          moreLabel="More recent folders"
+          rows={recent.map((f) => ({
+            key: f.id,
+            node: (
+              <OptionRow
+                icon={<FolderOpen size={16} />}
+                label={f.label}
+                meta={`${f.meta}${f.repo ? ' · git repo' : ''}`}
+                added={addedIds.includes(f.id)}
+                onClick={() => select(f)}
+              />
+            ),
+          }))}
+        />
         <BrowseRow label="Browse folders…" onClick={() => setBrowsing(true)} />
       </Section>
       <MultiAddFooter count={addedIds.length} onDone={onClose} />

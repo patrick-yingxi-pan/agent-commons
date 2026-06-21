@@ -306,8 +306,11 @@ export type ContextTypeId = 'files' | 'photos' | 'folder' | 'repo' | 'connector'
 
 /** What each type's "Recent" list shows before the user has picked anything —
  *  the first few catalog ids. Items outside this seed are reachable via the
- *  "Browse…" explorer, which then promotes them into recents (LRU). Repo mixes
- *  local + GitHub ids so both origins show in one list. */
+ *  "Browse…" explorer, which promotes them into recents (front-of-list, never
+ *  evicting). Repo mixes local + GitHub ids so both origins show in one list.
+ *  Note: connector / mcp seed instead from the connected sets in savedContexts
+ *  (lib/recents `seedFor`), so their quick list is every set-up account — the
+ *  entries below are only a fallback. */
 export const DEFAULT_RECENT_IDS: Record<ContextTypeId, string[]> = {
   files: ['doc1', 'doc2', 'doc3'],
   photos: ['p1', 'p2', 'p3'],

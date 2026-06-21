@@ -19,7 +19,6 @@
 import type { AddedContext } from '../types'
 import { GITHUB_REPO_OPTIONS, LOCAL_REPO_OPTIONS } from '../data/contextOptions'
 import { pushRecent } from './recents'
-import { addKnownId } from './known'
 
 /** Recover a repo's catalog id from the attached context. Local repos are keyed
  *  by working-tree path, GitHub repos by remote — each unique within its origin,
@@ -54,14 +53,15 @@ export function rememberAttached(ctx: AddedContext) {
       break
     }
     case 'connector':
-      // Connectors use the "Connected" set, not recency — membership is the
-      // shortcut. (Their catalog id is the connector id itself, e.g. `gdrive`.)
-      addKnownId('connector', ctx.connector.id)
+      // Connectors share the one recents store (their quick list is seeded from
+      // every connected account). Catalog id is the connector id itself, e.g.
+      // `gdrive`.
+      pushRecent('connector', ctx.connector.id)
       break
     case 'mcp':
-      // MCP connector ids carry an `mcp-` prefix; the catalog / Connected set is
-      // keyed by the bare server id.
-      addKnownId('mcp', ctx.connector.id.replace(/^mcp-/, ''))
+      // MCP connector ids carry an `mcp-` prefix; the catalog is keyed by the
+      // bare server id.
+      pushRecent('mcp', ctx.connector.id.replace(/^mcp-/, ''))
       break
   }
 }

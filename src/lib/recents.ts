@@ -1,29 +1,28 @@
-/** A tiny persisted "recently used" store for each Add-context type. The picker
- *  shows these as the type's "Recent …" list; the "Browse…" explorer pulls from
- *  everything *not* in here.
+/** The single "recently used / set-up" store behind every Add-context type's
+ *  quick list. One ordered id list per type — the shortcut surface for re-adding
+ *  context the thread has used.
  *
- *  ── The concept (so the update rule is deducible, not incidental) ────────────
- *  The Recent list is the *shortcut surface* for re-adding context: it exists so
- *  anything the thread has used is one click away next time. The invariant that
- *  follows from that purpose: **every element newly attached to a thread must be
- *  promoted here** — whether it came from this picker, the Browse explorer, an
- *  AI proposal, or a side-effect attach (a repo pulling in its GitHub connector).
- *  Promotion is therefore done once, at the single attach funnel
- *  (`lib/contextShortcuts.ts` → `controller/handleAddContext`), not scattered
- *  across click handlers — see [[../lib/contextShortcuts]]. `pushRecent` moves an
- *  id to the front and evicts the least-recently-used tail once the list is full
- *  (a classic MRU-front / LRU-evict cache), and notifies subscribers so every
- *  open picker re-renders to reflect the new entry.
+ *  ── The concept (one model for all types, so behavior can't drift) ───────────
+ *  • Append-only recency, NEVER evict. Picking or attaching an element promotes
+ *    it to the front; the list only grows. (Eviction was wrong: it threw away
+ *    things the user had just set up — see the connectors case, where the list is
+ *    meant to show *every* set-up element.) When the list outgrows the space the
+ *    picker can show, the VIEW folds the tail into a "More" flyout
+ *    (components/RecentOverflowList) — the store never drops anything.
+ *  • Seeded per type: files / photos / folders / repos start from a few catalog
+ *    defaults; connectors / MCP start from everything already connected (so the
+ *    quick list shows all set-up accounts, not a recency sample).
+ *  • Promotion is total: any element attached to a thread — from the picker,
+ *    Browse, an AI proposal, or a side-effect attach — funnels through
+ *    lib/contextShortcuts.rememberAttached, which calls pushRecent here. See
+ *    [[contextShortcuts]].
  *
- *  Only option *ids* are stored (under one localStorage key), so the heavy repo
- *  / folder code payloads never hit storage — the picker rehydrates each id from
- *  its in-memory catalog. */
+ *  Only option *ids* are stored (one localStorage key); the picker rehydrates
+ *  each id from its in-memory catalog. Reactive via useSyncExternalStore so every
+ *  open picker reflects an add immediately. */
 import { useSyncExternalStore } from 'react'
 import { DEFAULT_RECENT_IDS, type ContextTypeId } from '../data/contextOptions'
-
-/** How many entries each type's recents list holds before LRU eviction kicks in.
- *  Deliberately small so the demo can show eviction after a couple of browses. */
-export const MAX_RECENTS = 3
+import { CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from '../data/savedContexts'
 
 const KEY = 'claude-ui.recents.v1'
 
@@ -32,9 +31,18 @@ type Store = Partial<Record<ContextTypeId, string[]>>
 /** In-memory mirror of the persisted lists. It's the snapshot source for the
  *  reactive hook, so each type's array keeps a *stable identity* until
  *  `pushRecent` replaces it — without this, `useSyncExternalStore` would loop on
- *  a freshly-sliced array every render. */
+ *  a fresh array every render. */
 const cache: Partial<Record<ContextTypeId, string[]>> = {}
 const subscribers = new Set<() => void>()
+
+/** A type's starting list before the user has touched it. Connectors / MCP show
+ *  every already-connected element (requirement: the quick list is the full set,
+ *  not a sample); the file-like types start from a few catalog defaults. */
+function seedFor(type: ContextTypeId): string[] {
+  if (type === 'connector') return [...CONNECTED_CONNECTOR_IDS]
+  if (type === 'mcp') return [...CONNECTED_MCP_IDS]
+  return [...DEFAULT_RECENT_IDS[type]]
+}
 
 function load(): Store {
   try {
@@ -53,25 +61,22 @@ function save(store: Store) {
   }
 }
 
-/** Compute a type's list from storage, falling back to the seeded defaults until
- *  the user has picked something. */
 function compute(type: ContextTypeId): string[] {
-  const stored = load()[type]
-  return (stored ?? DEFAULT_RECENT_IDS[type]).slice(0, MAX_RECENTS)
+  return load()[type] ?? seedFor(type)
 }
 
 /** The most-recent-first ids for a type — a reference-stable array (cached) so it
- *  can back the reactive hook. */
+ *  can back the reactive hook. The full list; the view decides how many to show. */
 export function getRecentIds(type: ContextTypeId): string[] {
   return (cache[type] ??= compute(type))
 }
 
-/** Promote `id` to the front of `type`'s recents (de-duping), evict the
- *  least-recently-used tail beyond MAX_RECENTS, persist, and notify subscribers
- *  so any open picker reflects it immediately. */
+/** Promote `id` to the front of `type`'s list (de-duping). The list only grows —
+ *  nothing is evicted — and the view folds any overflow into a "More" flyout.
+ *  Persists and notifies subscribers so every open picker reflects it at once. */
 export function pushRecent(type: ContextTypeId, id: string) {
   const current = getRecentIds(type)
-  const next = [id, ...current.filter((x) => x !== id)].slice(0, MAX_RECENTS)
+  const next = [id, ...current.filter((x) => x !== id)]
   cache[type] = next
   const store = load()
   store[type] = next
@@ -86,9 +91,9 @@ function subscribe(cb: () => void): () => void {
   }
 }
 
-/** Reactive read of a type's recents — re-renders the caller whenever
- *  `pushRecent` runs (from any attach path), so the shortcut list stays current
- *  without relying on an incidental parent re-render. */
+/** Reactive read of a type's list — re-renders the caller whenever `pushRecent`
+ *  runs (from any attach path), so the quick list stays current without relying
+ *  on an incidental parent re-render. */
 export function useRecentIds(type: ContextTypeId): string[] {
   return useSyncExternalStore(subscribe, () => getRecentIds(type))
 }
