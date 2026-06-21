@@ -65,6 +65,10 @@ export function FlyoutPanel({
       role="menu"
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
+      // The flyout is portaled to <body>, outside the popover's click-outside
+      // wrapper — so swallow mousedown here, or picking an item would be read as
+      // an outside click and tear the whole popover down before the click lands.
+      onMouseDown={(e) => e.stopPropagation()}
       style={{ position: 'fixed', left: pos.left, top: pos.top, width, maxHeight: pos.maxH }}
       className="z-[70] overflow-y-auto overflow-x-hidden rounded-xl border border-line-strong bg-surface p-1 shadow-xl"
     >
