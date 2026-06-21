@@ -6,7 +6,16 @@
 import { useQuery, type QueryState } from './cache.ts'
 import { apiGet } from './client.ts'
 import { keys, paths } from './keys.ts'
-import type { Capabilities, DispatchRun, Session } from '../../contract/index.ts'
+import type {
+  ArtifactContentLibrary,
+  Capabilities,
+  Connector,
+  ConnectorDetail,
+  DispatchRun,
+  SavedContextsSnapshot,
+  ScheduleTemplate,
+  Session,
+} from '../../contract/index.ts'
 
 /** What this backend can do — the UI gates native-only affordances on this,
  *  never on sniffing Electron vs web. */
@@ -27,4 +36,26 @@ export function useSession(id: string): QueryState<Session> {
 /** The Dispatch section's agent-run feed. */
 export function useDispatchRuns(): QueryState<DispatchRun[]> {
   return useQuery(keys.dispatch, () => apiGet<DispatchRun[]>(paths.dispatch))
+}
+
+/** The set-up contexts (Contexts page) + which connector/MCP ids are connected. */
+export function useSavedContexts(): QueryState<SavedContextsSnapshot> {
+  return useQuery(keys.savedContexts, () => apiGet<SavedContextsSnapshot>(paths.savedContexts))
+}
+
+/** The sidebar detail for one connector / MCP server (keyed by its id). */
+export function useConnectorDetail(connector: Connector): QueryState<ConnectorDetail> {
+  return useQuery(keys.connectorDetail(connector.id), () =>
+    apiGet<ConnectorDetail>(paths.connectorDetail(connector)),
+  )
+}
+
+/** The artifact-body library, keyed by file name. */
+export function useArtifactContent(): QueryState<ArtifactContentLibrary> {
+  return useQuery(keys.artifactContent, () => apiGet<ArtifactContentLibrary>(paths.artifactContent))
+}
+
+/** The "New schedule" starter templates. */
+export function useScheduleTemplates(): QueryState<ScheduleTemplate[]> {
+  return useQuery(keys.scheduleTemplates, () => apiGet<ScheduleTemplate[]>(paths.scheduleTemplates))
 }

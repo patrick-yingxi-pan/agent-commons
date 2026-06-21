@@ -59,5 +59,28 @@ export function buildRouter(): Router {
     sendJson(res, store.listDispatch())
   })
 
+  // ── Contexts (set-up) + connector detail ──────────────────────────────────
+  r.get('/saved-contexts', ({ res }) => {
+    sendJson(res, store.savedContexts())
+  })
+  r.get('/connectors/detail', ({ res, url }) => {
+    const label = url.searchParams.get('label')
+    if (!label) return sendError(res, 'bad_request', 'label is required')
+    const kind = (url.searchParams.get('kind') ?? undefined) as
+      | 'github'
+      | 'connector'
+      | 'mcp'
+      | undefined
+    sendJson(res, store.connectorDetail({ id: url.searchParams.get('id') ?? label, label, kind }))
+  })
+
+  // ── Artifact bodies + schedule templates ──────────────────────────────────
+  r.get('/artifact-content', ({ res }) => {
+    sendJson(res, store.artifactContent())
+  })
+  r.get('/schedule-templates', ({ res }) => {
+    sendJson(res, store.scheduleTemplates())
+  })
+
   return r
 }

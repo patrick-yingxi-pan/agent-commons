@@ -10,7 +10,8 @@ import {
 } from 'lucide-react'
 import type { ArtifactKind } from '../types'
 import type { ArtifactItem } from '../data/cowork'
-import { artifactContentFor, type ArtifactContent, type DocBlock } from '../data/artifactContent'
+import type { ArtifactContent, DocBlock } from '../types'
+import { useArtifactContent } from '../api'
 
 export const KIND_ICON: Record<ArtifactKind, LucideIcon> = {
   doc: FileText,
@@ -440,7 +441,7 @@ export function ArtifactBodyView({
   size: Size
   excerpt?: string
 }) {
-  const content = artifactContentFor(name)
+  const content = useArtifactContent().data?.[name]
   if (content) {
     switch (content.type) {
       case 'doc':
@@ -464,7 +465,7 @@ export function ArtifactBodyView({
 /** A compact, kind-appropriate thumbnail for an artifact card — a faithful
  *  miniature of the file's real content. */
 export function ArtifactThumb({ kind, name, excerpt }: { kind: ArtifactKind; name: string; excerpt?: string }) {
-  const content = artifactContentFor(name)
+  const content = useArtifactContent().data?.[name]
   const isFigure = (content?.type === 'figure' && content.shape === 'hero') || (!content && kind === 'image')
   // Hero images fill the tile edge-to-edge; everything else sits on "paper".
   if (isFigure) {

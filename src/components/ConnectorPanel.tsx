@@ -1,8 +1,11 @@
 import { Check, Trash2 } from 'lucide-react'
-import type { Connector } from '../types'
+import type { Connector, ConnectorDetail } from '../types'
 import { connectorIconFor } from '../lib/connectors'
-import { connectorDetail } from '../data/connectorDetails'
+import { useConnectorDetail } from '../api'
 import { PanelShell } from './PanelShell'
+
+/** Shown while the connector's detail is loading from the backend (a beat). */
+const LOADING_DETAIL: ConnectorDetail = { blurb: '', access: [], itemsLabel: '', items: [] }
 
 /** The body of a connector / MCP detail — status, what it grants, and the
  *  resources / tools it exposes. Shared by the session sidebar (below) and the
@@ -16,7 +19,7 @@ export function ConnectorDetailBody({
   connector: Connector
   connected?: boolean
 }) {
-  const detail = connectorDetail(connector)
+  const detail = useConnectorDetail(connector).data ?? LOADING_DETAIL
   const isMcp = connector.kind === 'mcp'
   // Accent matches the composer chip (MCP → teal, connector → violet).
   const accent = isMcp ? 'text-cap-mcp' : 'text-cap-connector'

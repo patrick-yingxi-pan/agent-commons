@@ -1,11 +1,17 @@
 /** Cache keys + API paths, defined once so a query and the event that invalidates
  *  it can't drift. `keys.*` index the client cache; `paths.*` are the URLs under
  *  `API_BASE`. Both grow per resource as reads migrate. */
+import type { Connector } from '../../contract/index.ts'
+
 export const keys = {
   capabilities: 'capabilities',
   sessions: 'sessions',
   session: (id: string) => `session:${id}`,
   dispatch: 'dispatch',
+  savedContexts: 'saved-contexts',
+  connectorDetail: (id: string) => `connector-detail:${id}`,
+  artifactContent: 'artifact-content',
+  scheduleTemplates: 'schedule-templates',
 }
 
 export const paths = {
@@ -13,4 +19,12 @@ export const paths = {
   sessions: '/sessions',
   session: (id: string) => `/sessions/${encodeURIComponent(id)}`,
   dispatch: '/dispatch',
+  savedContexts: '/saved-contexts',
+  connectorDetail: (c: Connector) => {
+    const q = new URLSearchParams({ id: c.id, label: c.label })
+    if (c.kind) q.set('kind', c.kind)
+    return `/connectors/detail?${q.toString()}`
+  },
+  artifactContent: '/artifact-content',
+  scheduleTemplates: '/schedule-templates',
 }

@@ -52,7 +52,6 @@ import {
 import {
   PROJECTS,
   SCHEDULED_TASKS,
-  SCHEDULE_TEMPLATES,
   type ArtifactItem,
   type DispatchRun,
   type Project,
@@ -63,7 +62,7 @@ import {
   type StepTool,
   type StepToolTone,
 } from '../data/cowork'
-import { useDispatchRuns } from '../api'
+import { useDispatchRuns, useScheduleTemplates } from '../api'
 import { ArtifactThumb, ArtifactViewer, KIND_ICON } from './artifactPreview'
 import { useRelations } from '../controller/useRelations'
 
@@ -1514,6 +1513,7 @@ function MiniPipeline({ task }: { task: ScheduledTask }) {
 function NewScheduleControl({ onAdd }: { onAdd: (tpl: ScheduleTemplate) => void }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const templates = useScheduleTemplates().data ?? []
 
   useEffect(() => {
     if (!open) return
@@ -1531,7 +1531,7 @@ function NewScheduleControl({ onAdd }: { onAdd: (tpl: ScheduleTemplate) => void 
 
   // Group templates by category, preserving first-seen order.
   const cats: { label: string; items: ScheduleTemplate[] }[] = []
-  for (const t of SCHEDULE_TEMPLATES) {
+  for (const t of templates) {
     let c = cats.find((x) => x.label === t.category)
     if (!c) {
       c = { label: t.category, items: [] }
