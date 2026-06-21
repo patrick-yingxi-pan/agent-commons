@@ -1,0 +1,65 @@
+/** Minimal ambient declarations for the Node built-ins the mock server uses, so
+ *  the server type-checks against the shared contract without pulling in the full
+ *  `@types/node` dev dependency (the prototype stays zero-install — Node 26 runs
+ *  the TypeScript directly). Only the surface we actually touch is declared. */
+
+declare module 'node:http' {
+  export interface IncomingMessage {
+    url?: string
+    method?: string
+    headers: Record<string, string | string[] | undefined>
+    on(event: 'data', cb: (chunk: unknown) => void): void
+    on(event: 'end', cb: () => void): void
+    on(event: 'error', cb: (err: unknown) => void): void
+    on(event: 'close', cb: () => void): void
+  }
+  export interface ServerResponse {
+    writeHead(status: number, headers?: Record<string, string>): ServerResponse
+    setHeader(name: string, value: string): void
+    write(chunk: string): boolean
+    end(chunk?: string): void
+    flushHeaders?(): void
+    writableEnded: boolean
+    on(event: 'close', cb: () => void): void
+  }
+  export interface Server {
+    listen(port: number, host: string, cb?: () => void): Server
+    listen(port: number, cb?: () => void): Server
+  }
+  export function createServer(
+    handler: (req: IncomingMessage, res: ServerResponse) => void,
+  ): Server
+}
+
+declare module 'node:fs' {
+  export function readFileSync(path: string): { toString(): string } & Uint8Array
+  export function existsSync(path: string): boolean
+  export function statSync(path: string): { isFile(): boolean; isDirectory(): boolean }
+}
+
+declare module 'node:path' {
+  export function join(...parts: string[]): string
+  export function extname(p: string): string
+  export function resolve(...parts: string[]): string
+  export function dirname(p: string): string
+}
+
+declare module 'node:url' {
+  export function fileURLToPath(url: string | URL): string
+}
+
+declare const process: {
+  env: Record<string, string | undefined>
+  argv: string[]
+  cwd(): string
+  platform: string
+  exit(code?: number): never
+}
+
+declare const Buffer: {
+  concat(list: Uint8Array[]): { toString(encoding?: string): string }
+  from(data: string, encoding?: string): Uint8Array
+}
+
+declare const __dirname: string
+declare const __filename: string

@@ -12,8 +12,8 @@ import { ConnectorPanel } from './components/ConnectorPanel'
 import { IntroOverlay } from './components/IntroOverlay'
 import { ProposalBar } from './components/ProposalBar'
 import { SearchPanel } from './components/SearchPanel'
-import { SESSIONS } from './data/sessions'
 import { runEntryById } from './data/scheduledRuns'
+import { useSessions, useServerEvents } from './api'
 import { useSessionWorkspace } from './controller/useSessionWorkspace'
 import { useLayout } from './controller/useLayout'
 import { RelationsProvider, useRelations } from './controller/useRelations'
@@ -26,6 +26,12 @@ import type { Connector, SectionId, Session } from './types'
 export default function App() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [showIntro, setShowIntro] = useState(true)
+
+  // Subscribe to the backend's ambient event stream (scheduled runs, standing
+  // approvals, connector status). The session list now comes from the server —
+  // the sidebar and search read the same rows the API serves, not a local const.
+  useServerEvents()
+  const sessions = useSessions().data ?? []
 
   const {
     activeId,
@@ -134,7 +140,7 @@ export default function App() {
           >
             <div style={{ width: leftW }} className="h-full">
               <Sidebar
-                sessions={SESSIONS}
+                sessions={sessions}
                 activeId={activeId}
                 activeSection={activeSection}
                 onSelect={selectSession}
@@ -251,7 +257,7 @@ export default function App() {
 
       {searchOpen && (
         <SearchPanel
-          sessions={SESSIONS}
+          sessions={sessions}
           onSelectSession={selectSession}
           onOpenSection={openSection}
           onClose={() => setSearchOpen(false)}
