@@ -12,6 +12,10 @@ export const keys = {
   connectorDetail: (id: string) => `connector-detail:${id}`,
   artifactContent: 'artifact-content',
   scheduleTemplates: 'schedule-templates',
+  projects: 'projects',
+  artifacts: 'artifacts',
+  schedules: 'schedules',
+  relations: 'relations',
 }
 
 export const paths = {
@@ -27,4 +31,9 @@ export const paths = {
   },
   artifactContent: '/artifact-content',
   scheduleTemplates: '/schedule-templates',
+  projects: '/projects',
+  artifacts: '/artifacts',
+  schedules: '/schedules',
+  relations: '/relations',
+  relationOps: '/relations/ops',
 }

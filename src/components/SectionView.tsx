@@ -50,8 +50,6 @@ import {
   MCP_OPTIONS,
 } from '../data/contextOptions'
 import {
-  PROJECTS,
-  SCHEDULED_TASKS,
   type ArtifactItem,
   type DispatchRun,
   type Project,
@@ -62,7 +60,7 @@ import {
   type StepTool,
   type StepToolTone,
 } from '../data/cowork'
-import { useDispatchRuns, useScheduleTemplates } from '../api'
+import { useDispatchRuns, useProjects, useScheduleTemplates, useSchedules } from '../api'
 import { ArtifactThumb, ArtifactViewer, KIND_ICON } from './artifactPreview'
 import { useRelations } from '../controller/useRelations'
 
@@ -137,8 +135,9 @@ function ProjectsSection({
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState('Last updated')
   const rel = useRelations()
+  const projects = useProjects().data ?? []
 
-  const open = openId ? (PROJECTS.find((p) => p.id === openId) ?? null) : null
+  const open = openId ? (projects.find((p) => p.id === openId) ?? null) : null
   if (open)
     return (
       <ProjectDetail
@@ -150,7 +149,7 @@ function ProjectsSection({
     )
 
   const needle = query.trim().toLowerCase()
-  const filtered = PROJECTS.filter(
+  const filtered = projects.filter(
     (p) =>
       needle === '' ||
       p.name.toLowerCase().includes(needle) ||
@@ -354,6 +353,7 @@ function ArtifactsSection() {
   const [openId, setOpenId] = useState<string | null>(null)
   const [folded, setFolded] = useState<Set<string>>(new Set())
   const rel = useRelations()
+  const projects = useProjects().data ?? []
 
   const foldGroup = (id: string) =>
     setFolded((prev) => {
@@ -390,14 +390,14 @@ function ArtifactsSection() {
   // "save as artifact under …" edit re-groups the gallery live. A trailing
   // "Unfiled" bucket catches artifacts not under any project (e.g. a draft
   // saved with no project), so nothing a user confirmed can vanish from view.
-  const knownProjectId = new Set(PROJECTS.map((p) => p.id))
+  const knownProjectId = new Set(projects.map((p) => p.id))
   const groups = [
-    ...PROJECTS.map((p) => ({ id: p.id, name: p.name, items: matches.filter((a) => rel.artifactProjectId(a) === p.id) })),
+    ...projects.map((p) => ({ id: p.id, name: p.name, items: matches.filter((a) => rel.artifactProjectId(a) === p.id) })),
     { id: '__unfiled', name: 'Unfiled', items: matches.filter((a) => !knownProjectId.has(rel.artifactProjectId(a))) },
   ].filter((g) => g.items.length > 0)
 
   const openArtifact = openId ? (rel.allArtifacts().find((a) => a.id === openId) ?? null) : null
-  const projectName = (pid: string) => PROJECTS.find((p) => p.id === pid)?.name ?? 'Other'
+  const projectName = (pid: string) => projects.find((p) => p.id === pid)?.name ?? 'Other'
 
   return (
     <Page>
@@ -1247,7 +1247,19 @@ function taskPill(task: ScheduledTask): { tone: 'ok' | 'warn' | 'bad' | 'neutral
 }
 
 function ScheduledSection({ initialOpenId = null }: { initialOpenId?: string | null }) {
-  const [items, setItems] = useState(SCHEDULED_TASKS)
+  // The routines come from the server; ScheduledSection keeps a local working
+  // copy for the toggles / run-now / add-remove that haven't become commands yet.
+  // Seed it once when the fetch lands (the ref guard preserves local edits across
+  // any later refetch).
+  const seedSchedules = useSchedules().data
+  const [items, setItems] = useState<ScheduledTask[]>([])
+  const seeded = useRef(false)
+  useEffect(() => {
+    if (!seeded.current && seedSchedules) {
+      setItems(seedSchedules)
+      seeded.current = true
+    }
+  }, [seedSchedules])
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('All')
   const [folded, setFolded] = useState<Set<'active' | 'paused'>>(new Set())

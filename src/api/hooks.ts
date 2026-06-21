@@ -8,11 +8,15 @@ import { apiGet } from './client.ts'
 import { keys, paths } from './keys.ts'
 import type {
   ArtifactContentLibrary,
+  ArtifactItem,
   Capabilities,
   Connector,
   ConnectorDetail,
   DispatchRun,
+  Project,
+  RelationGraph,
   SavedContextsSnapshot,
+  ScheduledTask,
   ScheduleTemplate,
   Session,
 } from '../../contract/index.ts'
@@ -58,4 +62,24 @@ export function useArtifactContent(): QueryState<ArtifactContentLibrary> {
 /** The "New schedule" starter templates. */
 export function useScheduleTemplates(): QueryState<ScheduleTemplate[]> {
   return useQuery(keys.scheduleTemplates, () => apiGet<ScheduleTemplate[]>(paths.scheduleTemplates))
+}
+
+/** The projects list. */
+export function useProjects(): QueryState<Project[]> {
+  return useQuery(keys.projects, () => apiGet<Project[]>(paths.projects))
+}
+
+/** The base artifacts (the relation graph carries any saved-out extras). */
+export function useArtifacts(): QueryState<ArtifactItem[]> {
+  return useQuery(keys.artifacts, () => apiGet<ArtifactItem[]>(paths.artifacts))
+}
+
+/** The scheduled routines. */
+export function useSchedules(): QueryState<ScheduledTask[]> {
+  return useQuery(keys.schedules, () => apiGet<ScheduledTask[]>(paths.schedules))
+}
+
+/** The relationship graph (seed + applied edits). */
+export function useRelationGraph(): QueryState<RelationGraph> {
+  return useQuery(keys.relations, () => apiGet<RelationGraph>(paths.relations))
 }

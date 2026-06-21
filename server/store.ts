@@ -9,16 +9,22 @@
  *  carries sessions + the event bus, the spine everything else hangs off. */
 import type {
   ArtifactContentLibrary,
+  ArtifactItem,
   Connector,
   ConnectorDetail,
   DispatchRun,
+  Project,
+  RelationGraph,
+  RelationOp,
   SavedContextsSnapshot,
+  ScheduledTask,
   ScheduleTemplate,
   ServerEvent,
   Session,
 } from '../contract/index.ts'
+import { applyGraphOp, seedGraph } from '../contract/index.ts'
 import { SESSIONS, DEMO_SESSION_ID } from './data/sessions.ts'
-import { DISPATCH_RUNS, SCHEDULE_TEMPLATES } from './data/cowork.ts'
+import { DISPATCH_RUNS, SCHEDULE_TEMPLATES, PROJECTS, ALL_ARTIFACTS, SCHEDULED_TASKS } from './data/cowork.ts'
 import { SAVED_CONTEXTS, CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from './data/savedContexts.ts'
 import { connectorDetail } from './data/connectorDetails.ts'
 import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
@@ -30,6 +36,12 @@ type Listener = (e: ServerEvent) => void
 const EPOCH = `e${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`
 
 const listeners = new Set<Listener>()
+
+// The canonical relationship graph — seeded from the entities' join fields, then
+// mutated by confirmed ops (the one place a relation edit lands server-side).
+let graph: RelationGraph = seedGraph(PROJECTS, ALL_ARTIFACTS, SCHEDULED_TASKS)
+let artifactSeq = 0
+const mintArtifactId = () => `art-live-${++artifactSeq}`
 
 export const store = {
   epoch: EPOCH,
@@ -97,5 +109,31 @@ export const store = {
   // ── Schedule templates (the "New schedule" starters) ──
   scheduleTemplates(): ScheduleTemplate[] {
     return SCHEDULE_TEMPLATES
+  },
+
+  // ── Entity graph (Projects / Artifacts / Schedules + the relationship graph) ──
+  listProjects(): Project[] {
+    return PROJECTS
+  },
+  /** The base artifacts (the relation graph carries any saved-out extras). */
+  listArtifacts(): ArtifactItem[] {
+    return ALL_ARTIFACTS
+  },
+  listSchedules(): ScheduledTask[] {
+    return SCHEDULED_TASKS
+  },
+  /** The current relationship graph (seed + applied edits). */
+  relationGraph(): RelationGraph {
+    return graph
+  },
+  /** Apply a confirmed relation op (the canonical write), broadcast it, and
+   *  return the updated graph. `attach-context` is a live-session effect, not a
+   *  graph edit, so it's a no-op here. */
+  applyRelationOp(op: RelationOp): RelationGraph {
+    if (op.kind !== 'attach-context') {
+      graph = applyGraphOp(graph, op, mintArtifactId)
+    }
+    this.emit({ type: 'relation.applied', op, by: 'user' })
+    return graph
   },
 }

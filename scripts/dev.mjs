@@ -7,8 +7,13 @@ import { spawn } from 'node:child_process'
 const procs = []
 let shuttingDown = false
 
-function run(name, command, args, color) {
-  const p = spawn(command, args, { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+// The mock backend's port. Pin it (don't inherit PORT) so it can't collide with
+// the UI dev server's port when a host sets PORT for the UI (e.g. a preview
+// runner). The Vite proxy targets this same port.
+const MOCK_PORT = process.env.MOCK_PORT ?? '8787'
+
+function run(name, command, args, color, env) {
+  const p = spawn(command, args, { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] })
   const prefix = `\x1b[${color}m[${name}]\x1b[0m `
   const pipe = (stream, out) => {
     let buf = ''
@@ -40,6 +45,7 @@ function shutdown(code) {
 process.on('SIGINT', () => shutdown(0))
 process.on('SIGTERM', () => shutdown(0))
 
-// 36 = cyan (backend), 35 = magenta (ui).
-run('server', 'node', ['--watch', 'server/index.ts'], '36')
+// 36 = cyan (backend), 35 = magenta (ui). The server gets PORT pinned so it
+// binds the mock port regardless of any inherited PORT (which targets the UI).
+run('server', 'node', ['--watch', 'server/index.ts'], '36', { PORT: MOCK_PORT })
 run('ui', 'node', ['node_modules/vite/bin/vite.js'], '35')

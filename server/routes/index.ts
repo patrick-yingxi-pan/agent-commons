@@ -1,7 +1,7 @@
 /** Route table for the mock backend. Each resource registers its endpoints here;
  *  Phase 1 wires capabilities, the ambient event stream, and sessions. The router
  *  is plain data — adding a resource is adding a `.get(...)` line. */
-import type { Capabilities, Message, SendMessageRequest } from '../../contract/index.ts'
+import type { ApplyOpRequest, Capabilities, Message, SendMessageRequest } from '../../contract/index.ts'
 import { Router } from '../http/router.ts'
 import { sendJson, sendError } from '../http/respond.ts'
 import { openSse } from '../http/sse.ts'
@@ -125,6 +125,27 @@ export function buildRouter(): Router {
   })
   r.get('/schedule-templates', ({ res }) => {
     sendJson(res, store.scheduleTemplates())
+  })
+
+  // ── Entity graph (Projects / Artifacts / Schedules) + the relationship graph ─
+  r.get('/projects', ({ res }) => {
+    sendJson(res, store.listProjects())
+  })
+  r.get('/artifacts', ({ res }) => {
+    sendJson(res, store.listArtifacts())
+  })
+  r.get('/schedules', ({ res }) => {
+    sendJson(res, store.listSchedules())
+  })
+  r.get('/relations', ({ res }) => {
+    sendJson(res, store.relationGraph())
+  })
+  // Apply a confirmed relation edit — the privileged write (a standing op
+  // authorizes the schedule daemon). Returns the updated graph + broadcasts it.
+  r.post('/relations/ops', async ({ res, body }) => {
+    const { op } = await body<ApplyOpRequest>()
+    if (!op || typeof op.kind !== 'string') return sendError(res, 'bad_request', 'op is required')
+    sendJson(res, store.applyRelationOp(op))
   })
 
   return r

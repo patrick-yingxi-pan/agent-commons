@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import type { ArtifactKind, Session, SectionId } from '../types'
 import { SECTION_META, SECTION_ORDER } from '../lib/sections'
-import { ALL_ARTIFACTS, PROJECTS, SCHEDULED_TASKS } from '../data/cowork'
+import { useArtifacts, useProjects, useSchedules } from '../api'
 
 const KIND_ICON: Record<ArtifactKind, LucideIcon> = {
   doc: FileText,
@@ -52,6 +52,10 @@ export function SearchPanel({
   const [q, setQ] = useState('')
   const [active, setActive] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
+  // Projects / artifacts / schedules come from the server (sessions arrive as a prop).
+  const projects = useProjects().data ?? []
+  const artifacts = useArtifacts().data ?? []
+  const schedules = useSchedules().data ?? []
 
   useEffect(() => {
     inputRef.current?.focus()
@@ -81,7 +85,7 @@ export function SearchPanel({
         run: goSession(c.id),
       }))
 
-    const projectResults: Result[] = PROJECTS.filter((p) => hit(p.name, p.description)).map((p) => ({
+    const projectResults: Result[] = projects.filter((p) => hit(p.name, p.description)).map((p) => ({
       key: `p-${p.id}`,
       title: p.name,
       subtitle: `${p.sessionIds.length} session${p.sessionIds.length === 1 ? '' : 's'} · ${p.description}`,
@@ -89,7 +93,7 @@ export function SearchPanel({
       run: goSection('projects'),
     }))
 
-    const artifactResults: Result[] = ALL_ARTIFACTS.filter((a) => hit(a.name, a.source)).map((a) => ({
+    const artifactResults: Result[] = artifacts.filter((a) => hit(a.name, a.source)).map((a) => ({
       key: `a-${a.id}`,
       title: a.name,
       subtitle: `${a.meta} · ${a.source}`,
@@ -97,7 +101,7 @@ export function SearchPanel({
       run: goSection('artifacts'),
     }))
 
-    const scheduledResults: Result[] = SCHEDULED_TASKS.filter((s) => hit(s.name, s.cadence)).map(
+    const scheduledResults: Result[] = schedules.filter((s) => hit(s.name, s.cadence)).map(
       (s) => ({
         key: `s-${s.id}`,
         title: s.name,
@@ -131,7 +135,7 @@ export function SearchPanel({
       { label: 'Scheduled', items: scheduledResults },
       { label: 'Pages', items: pageResults },
     ].filter((g) => g.items.length > 0)
-  }, [q, sessions, onSelectSession, onOpenSection, onClose])
+  }, [q, sessions, projects, artifacts, schedules, onSelectSession, onOpenSection, onClose])
 
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups])
 

@@ -1,75 +1,44 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { Connector, SectionId, Session } from '../types'
+import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react'
+import type {
+  ArtifactItem,
+  Connector,
+  Project,
+  ProjectContext,
+  RelationGraph,
+  RelationOp,
+  ScheduledTask,
+  SectionId,
+  Session,
+  StepTool,
+} from '../types'
+import { emptyGraph } from '../../contract/index.ts'
 import {
-  ALL_ARTIFACTS,
-  PROJECTS,
-  SCHEDULED_TASKS,
-  type ArtifactItem,
-  type Project,
-  type ProjectContext,
-  type ScheduledTask,
-  type StepTool,
-} from '../data/cowork'
-import { SESSIONS } from '../data/sessions'
-import { artifactFromDraft, opKey, type RelationOp } from '../data/relations'
-import { slug } from '../data/liveSession'
+  applyRelationOp,
+  useArtifacts,
+  useProjects,
+  useRelationGraph,
+  useSchedules,
+  useSessions,
+} from '../api'
 
 /** ── Controller: the relationship overlay ──────────────────────────────────
- *  Holds the *editable* graph between Session / Project / Artifact / Context /
- *  Schedule as a thin overlay on top of the static seed data, seeded from it so
- *  the views read the same thing they did before any edit. `applyOp` is the one
- *  place a confirmed relation edit lands; the section views read through the
- *  selectors, so a confirmed edit shows up wherever that relationship is drawn.
+ *  The editable graph between Session / Project / Artifact / Context / Schedule
+ *  now lives on the backend (GET /relations, POST /relations/ops). This provider
+ *  reads the graph + the base entities through the API and exposes the same
+ *  selectors the section views always used, so a confirmed edit shows up wherever
+ *  that relationship is drawn — only now it's server-owned and survives a reload
+ *  (and, via the event stream, syncs across clients).
  *
- *  All in-memory — refresh resets, like the rest of the mock. */
+ *  `applyOp` patches the cached graph optimistically (the card flips instantly)
+ *  and POSTs the canonical write; `attach-context` is a live-session effect, so
+ *  it's handed to the session controller instead of the graph. */
 
-interface Overlay {
-  /** session id → project id (or null when explicitly unfiled). */
-  sessionProject: Record<string, string | null>
-  /** artifact id → project id (overrides the seed `projectId`). */
-  artifactProject: Record<string, string>
-  /** Artifacts saved out of a session by an AI proposal. */
-  extraArtifacts: ArtifactItem[]
-  /** schedule id → project id (or null when unlinked). */
-  scheduleProject: Record<string, string | null>
-  /** project id → its scoped contexts (seeded from `Project.contexts`). */
-  projectContexts: Record<string, ProjectContext[]>
-  /** artifact id → the context label it derives from. */
-  artifactSource: Record<string, string>
-  /** schedule id → the artifact name it now saves each run. */
-  scheduleArtifact: Record<string, string>
-  /** schedule id → a session label it now opens each run. */
-  scheduleSession: Record<string, string>
-  /** schedule id → extra tool-contexts it now uses each run. */
-  scheduleExtraTools: Record<string, StepTool[]>
-  /** opKey → true for recurring schedule effects approved once, in advance. */
-  standingApprovals: Record<string, true>
-}
-
-function seed(): Overlay {
-  const sessionProject: Record<string, string | null> = {}
-  const projectContexts: Record<string, ProjectContext[]> = {}
-  for (const p of PROJECTS) {
-    for (const sid of p.sessionIds) sessionProject[sid] = p.id
-    projectContexts[p.id] = [...p.contexts]
-  }
-  const artifactProject: Record<string, string> = {}
-  for (const a of ALL_ARTIFACTS) artifactProject[a.id] = a.projectId
-  const scheduleProject: Record<string, string | null> = {}
-  for (const t of SCHEDULED_TASKS) if (t.projectId) scheduleProject[t.id] = t.projectId
-  return {
-    sessionProject,
-    artifactProject,
-    extraArtifacts: [],
-    scheduleProject,
-    projectContexts,
-    artifactSource: {},
-    scheduleArtifact: {},
-    scheduleSession: {},
-    scheduleExtraTools: {},
-    standingApprovals: {},
-  }
-}
+// Stable empty fallbacks so the selectors' useMemo deps don't churn while loading.
+const NO_PROJECTS: Project[] = []
+const NO_ARTIFACTS: ArtifactItem[] = []
+const NO_SCHEDULES: ScheduledTask[] = []
+const NO_SESSIONS: Session[] = []
+const EMPTY_GRAPH: RelationGraph = emptyGraph()
 
 export interface RelationsValue {
   applyOp: (op: RelationOp) => void
@@ -108,110 +77,55 @@ export function RelationsProvider({
   navigate?: (section: SectionId, projectId?: string) => void
   children: ReactNode
 }) {
-  const [ov, setOv] = useState<Overlay>(seed)
-  const artSeq = useRef(0)
+  const projects = useProjects().data ?? NO_PROJECTS
+  const baseArtifacts = useArtifacts().data ?? NO_ARTIFACTS
+  const schedules = useSchedules().data ?? NO_SCHEDULES
+  const sessions = useSessions().data ?? NO_SESSIONS
+  const graph = useRelationGraph().data ?? EMPTY_GRAPH
 
   const applyOp = useCallback(
     (op: RelationOp) => {
-      switch (op.kind) {
-        case 'file-session':
-          setOv((o) => ({ ...o, sessionProject: { ...o.sessionProject, [op.sessionId]: op.projectId } }))
-          break
-        case 'refile-artifact':
-          setOv((o) => ({ ...o, artifactProject: { ...o.artifactProject, [op.artifactId]: op.projectId } }))
-          break
-        case 'save-artifact': {
-          const id = `art-live-${slug(op.artifact.name)}-${++artSeq.current}`
-          const pid = op.projectId ?? ''
-          const item = artifactFromDraft(op.artifact, id, op.sessionTitle, pid)
-          setOv((o) => ({
-            ...o,
-            extraArtifacts: [item, ...o.extraArtifacts],
-            artifactProject: pid ? { ...o.artifactProject, [id]: pid } : o.artifactProject,
-          }))
-          break
-        }
-        case 'attach-context':
-          attachConnector?.({ id: op.connectorId, label: op.connectorLabel, kind: op.connectorKind })
-          break
-        case 'scope-context':
-          setOv((o) => {
-            const cur = o.projectContexts[op.projectId] ?? []
-            if (cur.some((c) => c.label === op.context.label)) return o
-            return { ...o, projectContexts: { ...o.projectContexts, [op.projectId]: [...cur, op.context] } }
-          })
-          break
-        case 'link-schedule-project':
-          setOv((o) => ({ ...o, scheduleProject: { ...o.scheduleProject, [op.scheduleId]: op.projectId } }))
-          break
-        case 'set-artifact-source':
-          setOv((o) => ({ ...o, artifactSource: { ...o.artifactSource, [op.artifactId]: op.contextLabel } }))
-          break
-        case 'set-schedule-session':
-          setOv((o) => ({
-            ...o,
-            scheduleSession: { ...o.scheduleSession, [op.scheduleId]: op.sessionLabel },
-            standingApprovals: { ...o.standingApprovals, [opKey(op)]: true },
-          }))
-          break
-        case 'set-schedule-artifact':
-          setOv((o) => ({
-            ...o,
-            scheduleArtifact: { ...o.scheduleArtifact, [op.scheduleId]: op.artifactName },
-            standingApprovals: { ...o.standingApprovals, [opKey(op)]: true },
-          }))
-          break
-        case 'schedule-add-tool':
-          setOv((o) => {
-            const cur = o.scheduleExtraTools[op.scheduleId] ?? []
-            const tools = cur.some((t) => t.id === op.tool.id) ? cur : [...cur, op.tool]
-            return {
-              ...o,
-              scheduleExtraTools: { ...o.scheduleExtraTools, [op.scheduleId]: tools },
-              standingApprovals: { ...o.standingApprovals, [opKey(op)]: true },
-            }
-          })
-          break
-        default: {
-          const _exhaustive: never = op
-          return _exhaustive
-        }
+      if (op.kind === 'attach-context') {
+        attachConnector?.({ id: op.connectorId, label: op.connectorLabel, kind: op.connectorKind })
+        return
       }
+      // Optimistic + canonical; a failed POST leaves the optimistic patch, which
+      // the next /relations fetch (or a server event) reconciles.
+      void applyRelationOp(op)
     },
     [attachConnector],
   )
 
   const value = useMemo<RelationsValue>(() => {
     const projectIdForSession = (sid: string) =>
-      sid in ov.sessionProject ? ov.sessionProject[sid] : null
-    const artifactProjectId = (a: ArtifactItem) => ov.artifactProject[a.id] ?? a.projectId
-    const allArtifacts = () => [...ov.extraArtifacts, ...ALL_ARTIFACTS]
+      sid in graph.sessionProject ? graph.sessionProject[sid] : null
+    const artifactProjectId = (a: ArtifactItem) => graph.artifactProject[a.id] ?? a.projectId
+    const allArtifacts = () => [...graph.extraArtifacts, ...baseArtifacts]
     const scheduleProjectId = (schedId: string) =>
-      schedId in ov.scheduleProject ? ov.scheduleProject[schedId] : null
+      schedId in graph.scheduleProject ? graph.scheduleProject[schedId] : null
 
     return {
       applyOp,
       projectIdForSession,
       projectForSessionId: (sid) => {
         const pid = projectIdForSession(sid)
-        return pid ? PROJECTS.find((p) => p.id === pid) : undefined
+        return pid ? projects.find((p) => p.id === pid) : undefined
       },
-      sessionsForProject: (pid) =>
-        SESSIONS.filter((s) => projectIdForSession(s.id) === pid),
+      sessionsForProject: (pid) => sessions.filter((s) => projectIdForSession(s.id) === pid),
       artifactProjectId,
       allArtifacts,
       artifactsForProject: (pid) => allArtifacts().filter((a) => artifactProjectId(a) === pid),
-      artifactSourceFor: (aid) => ov.artifactSource[aid],
+      artifactSourceFor: (aid) => graph.artifactSource[aid],
       scheduleProjectId,
-      schedulesForProject: (pid) => SCHEDULED_TASKS.filter((t) => scheduleProjectId(t.id) === pid),
-      scheduleArtifactFor: (schedId) => ov.scheduleArtifact[schedId],
-      scheduleSessionFor: (schedId) => ov.scheduleSession[schedId],
-      scheduleExtraToolsFor: (schedId) => ov.scheduleExtraTools[schedId] ?? [],
-      isStandingApproved: (key) => !!ov.standingApprovals[key],
-      contextsForProject: (pid) => ov.projectContexts[pid] ?? [],
+      schedulesForProject: (pid) => schedules.filter((t) => scheduleProjectId(t.id) === pid),
+      scheduleArtifactFor: (schedId) => graph.scheduleArtifact[schedId],
+      scheduleSessionFor: (schedId) => graph.scheduleSession[schedId],
+      scheduleExtraToolsFor: (schedId) => graph.scheduleExtraTools[schedId] ?? [],
+      isStandingApproved: (key) => !!graph.standingApprovals[key],
+      contextsForProject: (pid) => graph.projectContexts[pid] ?? [],
       navigate: (section, projectId) => navigate?.(section, projectId),
     }
-  }, [ov, applyOp, navigate])
+  }, [projects, baseArtifacts, schedules, sessions, graph, applyOp, navigate])
 
   return <RelationsContext.Provider value={value}>{children}</RelationsContext.Provider>
 }

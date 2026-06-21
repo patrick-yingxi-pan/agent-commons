@@ -2,9 +2,18 @@
  *  The UI's writes. Reads come back through hooks + the cache; writes go here.
  *  Phase 3 starts with the streaming send — the one command whose response is
  *  itself a stream (the assistant turn), mirroring the Anthropic Messages API. */
-import type { ReplyStreamEvent, SendMessageRequest } from '../../contract/index.ts'
-import { API_BASE } from './client.ts'
-import { paths } from './keys.ts'
+import {
+  applyGraphOp,
+  emptyGraph,
+  type ApplyOpRequest,
+  type RelationGraph,
+  type RelationOp,
+  type ReplyStreamEvent,
+  type SendMessageRequest,
+} from '../../contract/index.ts'
+import { API_BASE, apiPost } from './client.ts'
+import { mutate, setData } from './cache.ts'
+import { keys, paths } from './keys.ts'
 
 /** Callbacks for a streamed assistant turn. Each fires as its event arrives. */
 export interface SendHandlers {
@@ -59,6 +68,21 @@ export async function sendMessage(
       dispatch(event, handlers)
     }
   }
+}
+
+let optSeq = 0
+
+/** Apply a confirmed relation edit. Optimistically patches the cached graph so
+ *  the card flips instantly, then reconciles with the server's authoritative
+ *  graph (which also broadcasts the change to other clients). `attach-context`
+ *  is a live-session effect, not a graph edit, and is handled by the caller. */
+export async function applyRelationOp(op: RelationOp): Promise<void> {
+  mutate<RelationGraph>(keys.relations, (g) =>
+    applyGraphOp(g ?? emptyGraph(), op, () => `art-opt-${(optSeq += 1)}`),
+  )
+  const body: ApplyOpRequest = { op }
+  const updated = await apiPost<RelationGraph>(paths.relationOps, body)
+  setData(keys.relations, updated)
 }
 
 function dispatch(event: ReplyStreamEvent, h: SendHandlers): void {
