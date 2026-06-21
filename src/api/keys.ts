@@ -16,6 +16,7 @@ export const keys = {
   artifacts: 'artifacts',
   schedules: 'schedules',
   relations: 'relations',
+  recentRuns: 'runs-recent',
 }
 
 export const paths = {
@@ -34,6 +35,9 @@ export const paths = {
   projects: '/projects',
   artifacts: '/artifacts',
   schedules: '/schedules',
+  schedule: (id: string) => `/schedules/${encodeURIComponent(id)}`,
+  scheduleRun: (id: string) => `/schedules/${encodeURIComponent(id)}/run`,
   relations: '/relations',
   relationOps: '/relations/ops',
+  recentRuns: '/runs/recent',
 }

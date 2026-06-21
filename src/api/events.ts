@@ -28,11 +28,26 @@ function route(e: ServerEvent): void {
       break
     }
     case 'session.updated':
-      // Phase 1 keeps the session list fresh; richer events arrive in later phases.
       invalidate(keys.sessions)
       break
-    // run.*, relation.applied, recents.changed, connector.status — wired in
-    // Phases 3–4 as those resources move server-side.
+    // A scheduled run fired / finished (run-now or the daemon) — the recent-runs
+    // feed and the schedules (their run lists) are now stale. This is the
+    // ambient-push that makes a run appear in the rail with no user request.
+    case 'run.started':
+    case 'run.progress':
+    case 'run.finished':
+      invalidate(keys.recentRuns)
+      invalidate(keys.schedules)
+      break
+    // A relation edit was applied (by another client, or this one's standing
+    // approval acting on a run) — re-read the graph.
+    case 'relation.applied':
+      invalidate(keys.relations)
+      break
+    // A connector's auth/setup state changed asynchronously.
+    case 'connector.status':
+      invalidate(keys.savedContexts)
+      break
     default:
       break
   }

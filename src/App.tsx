@@ -12,7 +12,6 @@ import { ConnectorPanel } from './components/ConnectorPanel'
 import { IntroOverlay } from './components/IntroOverlay'
 import { ProposalBar } from './components/ProposalBar'
 import { SearchPanel } from './components/SearchPanel'
-import { runEntryById } from './data/scheduledRuns'
 import { useSessions, useServerEvents } from './api'
 import { useSessionWorkspace } from './controller/useSessionWorkspace'
 import { useLayout } from './controller/useLayout'
@@ -296,10 +295,11 @@ function SessionTitleBar({
   onOpenSchedule: (id: string) => void
 }) {
   const { projectForSessionId } = useRelations()
-  // A scheduled run's session belongs to its routine, not a project — so its
-  // breadcrumb links back to the routine in the Scheduled section.
-  const runEntry = runEntryById(session.id)
-  const homeProject = runEntry ? undefined : projectForSessionId(session.id)
+  // A scheduled run's session belongs to its routine, not a project — the server
+  // tags the run session with `scheduledRunOf`, so the breadcrumb links back to
+  // the routine without a client-side lookup.
+  const runOf = session.scheduledRunOf
+  const homeProject = runOf ? undefined : projectForSessionId(session.id)
   return (
     <div
       className={`flex min-h-[52px] flex-col justify-center gap-0.5 border-b border-line bg-canvas/80 py-2 pr-4 ${
@@ -309,15 +309,15 @@ function SessionTitleBar({
       <span className="font-serif text-[15px] font-semibold leading-tight text-ink">
         {session.title}
       </span>
-      {runEntry && (
+      {runOf && (
         <button
-          onClick={() => onOpenSchedule(runEntry.task.id)}
-          title={`Open the ${runEntry.task.name} routine`}
+          onClick={() => onOpenSchedule(runOf.taskId)}
+          title={`Open the ${runOf.taskName} routine`}
           className="inline-flex w-fit items-center gap-1 text-[12px] text-ink-faint transition hover:text-ink"
         >
           <CalendarClock size={12} className="shrink-0" />
           <span>
-            Scheduled run of <span className="font-medium">{runEntry.task.name}</span>
+            Scheduled run of <span className="font-medium">{runOf.taskName}</span>
           </span>
         </button>
       )}

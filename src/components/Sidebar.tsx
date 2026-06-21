@@ -1,10 +1,9 @@
 import { useState, type ReactNode } from 'react'
 import { ChevronRight, PanelLeftClose, Plus, Search, SlidersHorizontal } from 'lucide-react'
-import type { Session, SectionId } from '../types'
-import type { ScheduledRun } from '../data/cowork'
+import type { ScheduledRun, Session, SectionId } from '../types'
 import { ResizeHandle } from './ResizeHandle'
 import { SECTION_META, SECTION_ORDER } from '../lib/sections'
-import { RECENT_RUNS } from '../data/scheduledRuns'
+import { useRecentRuns } from '../api'
 import { getLayout, setLayout } from '../lib/uiPrefs'
 
 export function Sidebar({
@@ -39,6 +38,9 @@ export function Sidebar({
   const inSession = activeSection === null
   // The "Scheduled" section folds (persisted) to save rail space.
   const [schedOpen, setSchedOpen] = useState<boolean>(() => getLayout('schedOpen', true))
+  // The recent-runs feed comes from the server now (a single live source) — a run
+  // the daemon fires appears here without a reload, via the event stream.
+  const recentRuns = useRecentRuns().data ?? []
   const toggleSched = () =>
     setSchedOpen((v) => {
       setLayout('schedOpen', !v)
@@ -91,7 +93,7 @@ export function Sidebar({
       <div className="mt-3 min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         {/* Recent scheduled runs — each opens the session that run executed in
             (not the Scheduled page). Foldable to save rail space. */}
-        {RECENT_RUNS.length > 0 && (
+        {recentRuns.length > 0 && (
           <>
             <button
               onClick={toggleSched}
@@ -108,7 +110,7 @@ export function Sidebar({
               </span>
             </button>
             {schedOpen &&
-              RECENT_RUNS.map(({ task, run, session }) => {
+              recentRuns.map(({ task, run, session }) => {
                 const active = inSession && session.id === activeId
                 return (
                   <button

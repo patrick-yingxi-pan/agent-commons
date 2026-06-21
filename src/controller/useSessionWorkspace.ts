@@ -18,7 +18,7 @@ import {
 import { sameFocus } from '../lib/focus'
 import { rememberAttached } from '../lib/contextShortcuts'
 import { runSessionById } from '../data/scheduledRuns'
-import { sendMessage } from '../api'
+import { runSessionFromCache, sendMessage } from '../api'
 import type { AddedContext, Message, PanelFocus, Repo, SectionId, TourPhase } from '../types'
 
 /** ── Controller: the active session + its live workspace ───────────────────
@@ -59,8 +59,13 @@ export function useSessionWorkspace() {
   activeIdRef.current = activeId
 
   const activeSession = useMemo(
-    // A scheduled run opens its own synthesized session, so resolve those ids too.
-    () => SESSIONS.find((c) => c.id === activeId) ?? runSessionById(activeId) ?? DRAFT_SESSION,
+    // A scheduled run opens its own synthesized session — resolve from the live
+    // feed cache first (covers daemon/run-now runs), then the seed fallback.
+    () =>
+      SESSIONS.find((c) => c.id === activeId) ??
+      runSessionFromCache(activeId) ??
+      runSessionById(activeId) ??
+      DRAFT_SESSION,
     [activeId],
   )
   const isDemo = !!activeSession.isDemo
@@ -95,7 +100,11 @@ export function useSessionWorkspace() {
       setBusy(false)
       setActiveSection(null)
       setActiveId(id)
-      const session = SESSIONS.find((c) => c.id === id) ?? runSessionById(id) ?? DRAFT_SESSION
+      const session =
+        SESSIONS.find((c) => c.id === id) ??
+        runSessionFromCache(id) ??
+        runSessionById(id) ??
+        DRAFT_SESSION
       const nextLive = liveFromSession(session)
       setLive(nextLive)
       // Auto-focus the session's strongest present context so its sidebar opens —

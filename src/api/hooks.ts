@@ -15,6 +15,7 @@ import type {
   DispatchRun,
   Project,
   RelationGraph,
+  RunSessionEntry,
   SavedContextsSnapshot,
   ScheduledTask,
   ScheduleTemplate,
@@ -82,4 +83,9 @@ export function useSchedules(): QueryState<ScheduledTask[]> {
 /** The relationship graph (seed + applied edits). */
 export function useRelationGraph(): QueryState<RelationGraph> {
   return useQuery(keys.relations, () => apiGet<RelationGraph>(paths.relations))
+}
+
+/** The left rail's recent-runs feed (a single live source; updates on run events). */
+export function useRecentRuns(): QueryState<RunSessionEntry[]> {
+  return useQuery(keys.recentRuns, () => apiGet<RunSessionEntry[]>(paths.recentRuns))
 }

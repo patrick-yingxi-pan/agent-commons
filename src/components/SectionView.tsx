@@ -60,7 +60,16 @@ import {
   type StepTool,
   type StepToolTone,
 } from '../data/cowork'
-import { useDispatchRuns, useProjects, useScheduleTemplates, useSchedules } from '../api'
+import {
+  addScheduleFromSeed,
+  removeSchedule,
+  runScheduleNow,
+  toggleScheduleEnabled,
+  useDispatchRuns,
+  useProjects,
+  useScheduleTemplates,
+  useSchedules,
+} from '../api'
 import { ArtifactThumb, ArtifactViewer, KIND_ICON } from './artifactPreview'
 import { useRelations } from '../controller/useRelations'
 
@@ -1248,65 +1257,40 @@ function taskPill(task: ScheduledTask): { tone: 'ok' | 'warn' | 'bad' | 'neutral
 
 function ScheduledSection({ initialOpenId = null }: { initialOpenId?: string | null }) {
   // The routines come from the server; ScheduledSection keeps a local working
-  // copy for the toggles / run-now / add-remove that haven't become commands yet.
-  // Seed it once when the fetch lands (the ref guard preserves local edits across
-  // any later refetch).
-  const seedSchedules = useSchedules().data
-  const [items, setItems] = useState<ScheduledTask[]>([])
-  const seeded = useRef(false)
-  useEffect(() => {
-    if (!seeded.current && seedSchedules) {
-      setItems(seedSchedules)
-      seeded.current = true
-    }
-  }, [seedSchedules])
+  // The routines + their runs come straight from the server now (one live source,
+  // shared with the rail's recent-runs feed). Mutations are commands; the run.*
+  // events invalidate the cache, so the list reflects run-now / the daemon live.
+  const items = useSchedules().data ?? []
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('All')
   const [folded, setFolded] = useState<Set<'active' | 'paused'>>(new Set())
   const [openId, setOpenId] = useState<string | null>(initialOpenId)
-  // Ids with a mock "Run now" in flight; resolves to a fresh ok run after a beat.
+  // Ids with a "Run now" in flight — drives the button spinner until the run's
+  // run.finished event lands (cleared on a timer as a safety net).
   const [running, setRunning] = useState<Set<string>>(new Set())
   const timers = useRef<number[]>([])
-  const seq = useRef(0)
   useEffect(() => () => timers.current.forEach((t) => window.clearTimeout(t)), [])
 
-  const toggleEnabled = (id: string) =>
-    setItems((prev) => prev.map((t) => (t.id === id ? { ...t, enabled: !t.enabled } : t)))
-  const remove = (id: string) => setItems((prev) => prev.filter((t) => t.id !== id))
+  const toggleEnabled = (id: string) => void toggleScheduleEnabled(id)
+  const remove = (id: string) => void removeSchedule(id)
 
   const runNow = (id: string) => {
     if (running.has(id)) return
     setRunning((prev) => new Set(prev).add(id))
+    void runScheduleNow(id)
     const timer = window.setTimeout(() => {
-      setItems((prev) =>
-        prev.map((t) => {
-          if (t.id !== id) return t
-          const run: ScheduledRun = {
-            id: `run-live-${++seq.current}`,
-            status: 'ok',
-            when: 'Just now',
-            absolute: 'moments ago',
-            duration: `${8 + t.steps.length * 3}s`,
-            reachedStep: t.steps.length,
-            summary: `Ran on demand — delivered to ${t.delivery.target}`,
-            at: 0,
-          }
-          return { ...t, lastStatus: 'ok', runs: [run, ...t.runs] }
-        }),
-      )
       setRunning((prev) => {
         const next = new Set(prev)
         next.delete(id)
         return next
       })
-    }, 1600)
+    }, 2000)
     timers.current.push(timer)
   }
 
-  const addFromTemplate = (tpl: ScheduleTemplate) => {
-    const id = `s-new-${++seq.current}`
-    setItems((prev) => [{ ...tpl.seed, id }, ...prev])
-    setOpenId(id)
+  const addFromTemplate = async (tpl: ScheduleTemplate) => {
+    const task = await addScheduleFromSeed(tpl.seed)
+    setOpenId(task.id)
   }
 
   const foldGroup = (g: 'active' | 'paused') =>

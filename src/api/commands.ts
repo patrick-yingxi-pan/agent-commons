@@ -9,10 +9,13 @@ import {
   type RelationGraph,
   type RelationOp,
   type ReplyStreamEvent,
+  type RunSessionEntry,
+  type ScheduledTask,
   type SendMessageRequest,
+  type Session,
 } from '../../contract/index.ts'
-import { API_BASE, apiPost } from './client.ts'
-import { mutate, setData } from './cache.ts'
+import { API_BASE, apiDelete, apiPatch, apiPost } from './client.ts'
+import { invalidate, mutate, peek, setData } from './cache.ts'
 import { keys, paths } from './keys.ts'
 
 /** Callbacks for a streamed assistant turn. Each fires as its event arrives. */
@@ -83,6 +86,44 @@ export async function applyRelationOp(op: RelationOp): Promise<void> {
   const body: ApplyOpRequest = { op }
   const updated = await apiPost<RelationGraph>(paths.relationOps, body)
   setData(keys.relations, updated)
+}
+
+// ── Scheduled routines ──────────────────────────────────────────────────────
+
+/** Run a routine now. The server appends the run + broadcasts run.* events, which
+ *  invalidate the feed; we also nudge the local caches so it shows immediately. */
+export async function runScheduleNow(id: string): Promise<void> {
+  await apiPost(paths.scheduleRun(id))
+  invalidate(keys.recentRuns)
+  invalidate(keys.schedules)
+}
+
+/** Toggle a routine on/off. */
+export async function toggleScheduleEnabled(id: string): Promise<void> {
+  await apiPatch(paths.schedule(id), {})
+  invalidate(keys.schedules)
+  invalidate(keys.recentRuns)
+}
+
+/** Add a routine from a template's seed (lands paused); returns the new routine. */
+export async function addScheduleFromSeed(seed: Omit<ScheduledTask, 'id'>): Promise<ScheduledTask> {
+  const task = await apiPost<ScheduledTask>(paths.schedules, { seed })
+  invalidate(keys.schedules)
+  return task
+}
+
+/** Remove a routine. */
+export async function removeSchedule(id: string): Promise<void> {
+  await apiDelete(paths.schedule(id))
+  invalidate(keys.schedules)
+  invalidate(keys.recentRuns)
+}
+
+/** Resolve a run session from the recent-runs feed cache — the controller uses
+ *  this to open an `srun-*` session (including ones the daemon just created)
+ *  without an extra fetch. */
+export function runSessionFromCache(id: string): Session | undefined {
+  return peek<RunSessionEntry[]>(keys.recentRuns)?.find((e) => e.session.id === id)?.session
 }
 
 function dispatch(event: ReplyStreamEvent, h: SendHandlers): void {

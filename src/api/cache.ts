@@ -87,6 +87,13 @@ export function setData<T>(key: string, data: T): void {
   setState(key, { status: 'success', data, error: undefined })
 }
 
+/** Read a key's cached data without subscribing — for imperative lookups outside
+ *  React (e.g. the controller resolving a run session from the recent-runs feed).
+ *  Returns undefined if the key was never queried / hasn't loaded. */
+export function peek<T>(key: string): T | undefined {
+  return entries.get(key)?.state.data as T | undefined
+}
+
 /** Drop every cached entry and notify — used when the server's epoch changes
  *  (it restarted and reseeded), so the UI refetches everything fresh. */
 export function resetAll(): void {
