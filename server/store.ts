@@ -12,8 +12,10 @@ import type {
   ArtifactItem,
   Connector,
   ConnectorDetail,
+  ContextTypeId,
   DispatchRun,
   Project,
+  RecentsSnapshot,
   RelationGraph,
   RelationOp,
   RunSessionEntry,
@@ -33,6 +35,7 @@ import {
 } from '../contract/index.ts'
 import { SESSIONS, DEMO_SESSION_ID } from './data/sessions.ts'
 import { DISPATCH_RUNS, SCHEDULE_TEMPLATES, PROJECTS, ALL_ARTIFACTS, SCHEDULED_TASKS } from './data/cowork.ts'
+import { DEFAULT_RECENT_IDS } from './data/contextOptions.ts'
 import { SAVED_CONTEXTS, CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from './data/savedContexts.ts'
 import { connectorDetail } from './data/connectorDetails.ts'
 import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
@@ -57,6 +60,24 @@ const mintArtifactId = () => `art-live-${++artifactSeq}`
 const schedules: ScheduledTask[] = JSON.parse(JSON.stringify(SCHEDULED_TASKS))
 let runSeq = 0
 let scheduleSeq = 0
+
+// Per-user recents — one non-evicting MRU id list per context type. Connectors /
+// MCP seed from the connected accounts (their quick list shows every set-up
+// element); the file-like types from the catalog defaults. Server-owned so it's
+// per-user and syncs across devices (the audit flagged it as domain, not UI).
+const CONTEXT_TYPES: ContextTypeId[] = ['files', 'photos', 'folder', 'repo', 'connector', 'mcp']
+let recents: RecentsSnapshot = (() => {
+  const out = {} as RecentsSnapshot
+  for (const t of CONTEXT_TYPES) {
+    out[t] =
+      t === 'connector'
+        ? [...CONNECTED_CONNECTOR_IDS]
+        : t === 'mcp'
+          ? [...CONNECTED_MCP_IDS]
+          : [...DEFAULT_RECENT_IDS[t]]
+  }
+  return out
+})()
 
 /** Publish a domain event to every open ambient SSE channel. */
 function emit(e: ServerEvent): void {
@@ -195,6 +216,19 @@ export const store = {
   removeSchedule(id: string): void {
     const i = schedules.findIndex((t) => t.id === id)
     if (i >= 0) schedules.splice(i, 1)
+  },
+
+  // ── Recents (per-user Add-context shortcut lists) ──
+  recents(): RecentsSnapshot {
+    return recents
+  },
+  /** Promote an id to the front of its type's list — non-evicting; the list only
+   *  grows. Broadcasts so every open picker (and other devices) reflects it. */
+  pushRecent(type: ContextTypeId, id: string): RecentsSnapshot {
+    const list = recents[type] ?? []
+    recents = { ...recents, [type]: [id, ...list.filter((x) => x !== id)] }
+    emit({ type: 'recents.changed', contextType: type, ids: recents[type] })
+    return recents
   },
 
   /** The current relationship graph (seed + applied edits). */

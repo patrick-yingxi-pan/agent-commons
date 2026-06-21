@@ -6,6 +6,8 @@ import {
   applyGraphOp,
   emptyGraph,
   type ApplyOpRequest,
+  type ContextTypeId,
+  type RecentsSnapshot,
   type RelationGraph,
   type RelationOp,
   type ReplyStreamEvent,
@@ -124,6 +126,20 @@ export async function removeSchedule(id: string): Promise<void> {
  *  without an extra fetch. */
 export function runSessionFromCache(id: string): Session | undefined {
   return peek<RunSessionEntry[]>(keys.recentRuns)?.find((e) => e.session.id === id)?.session
+}
+
+// ── Recents (Add-context shortcut lists) ────────────────────────────────────
+
+/** Promote an id to the front of its type's recents (non-evicting). Optimistic
+ *  so the quick list flips instantly, then POSTs the canonical write (the server
+ *  broadcasts recents.changed, reconciling this + any other client). */
+export function pushRecentId(type: ContextTypeId, id: string): void {
+  mutate<RecentsSnapshot>(keys.recents, (snap) => {
+    if (!snap) return snap as unknown as RecentsSnapshot
+    const cur = snap[type] ?? []
+    return { ...snap, [type]: [id, ...cur.filter((x) => x !== id)] }
+  })
+  void apiPost(paths.recentsType(type), { id })
 }
 
 function dispatch(event: ReplyStreamEvent, h: SendHandlers): void {

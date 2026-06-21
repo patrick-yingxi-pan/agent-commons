@@ -173,6 +173,16 @@ export function buildRouter(): Router {
   r.get('/relations', ({ res }) => {
     sendJson(res, store.relationGraph())
   })
+
+  // ── Recents (per-user shortcut lists) ──────────────────────────────────────
+  r.get('/recents', ({ res }) => {
+    sendJson(res, store.recents())
+  })
+  r.post('/recents/:type', async ({ res, params, body }) => {
+    const { id } = await body<{ id?: string }>()
+    if (!id) return sendError(res, 'bad_request', 'id is required')
+    sendJson(res, store.pushRecent(params.type as import('../../contract/index.ts').ContextTypeId, id))
+  })
   // Apply a confirmed relation edit — the privileged write (a standing op
   // authorizes the schedule daemon). Returns the updated graph + broadcasts it.
   r.post('/relations/ops', async ({ res, body }) => {

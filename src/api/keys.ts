@@ -17,6 +17,7 @@ export const keys = {
   schedules: 'schedules',
   relations: 'relations',
   recentRuns: 'runs-recent',
+  recents: 'recents',
 }
 
 export const paths = {
@@ -40,4 +41,6 @@ export const paths = {
   relations: '/relations',
   relationOps: '/relations/ops',
   recentRuns: '/runs/recent',
+  recents: '/recents',
+  recentsType: (type: string) => `/recents/${encodeURIComponent(type)}`,
 }

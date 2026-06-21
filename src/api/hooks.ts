@@ -14,6 +14,7 @@ import type {
   ConnectorDetail,
   DispatchRun,
   Project,
+  RecentsSnapshot,
   RelationGraph,
   RunSessionEntry,
   SavedContextsSnapshot,
@@ -88,4 +89,9 @@ export function useRelationGraph(): QueryState<RelationGraph> {
 /** The left rail's recent-runs feed (a single live source; updates on run events). */
 export function useRecentRuns(): QueryState<RunSessionEntry[]> {
   return useQuery(keys.recentRuns, () => apiGet<RunSessionEntry[]>(paths.recentRuns))
+}
+
+/** The per-user recents snapshot (one MRU id list per context type). */
+export function useRecents(): QueryState<RecentsSnapshot> {
+  return useQuery(keys.recents, () => apiGet<RecentsSnapshot>(paths.recents))
 }

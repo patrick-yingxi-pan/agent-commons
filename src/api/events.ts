@@ -48,6 +48,10 @@ function route(e: ServerEvent): void {
     case 'connector.status':
       invalidate(keys.savedContexts)
       break
+    // Recents changed (attached on another device/tab) — re-read the snapshot.
+    case 'recents.changed':
+      invalidate(keys.recents)
+      break
     default:
       break
   }
