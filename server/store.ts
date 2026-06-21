@@ -8,11 +8,14 @@
  *  State is added to this store as each resource's reads/commands migrate; Phase 1
  *  carries sessions + the event bus, the spine everything else hangs off. */
 import type {
+  Artifact,
   ArtifactContentLibrary,
   ArtifactItem,
+  Capabilities,
   Connector,
   ConnectorDetail,
   ContextTypeId,
+  DiffLine,
   DispatchRun,
   Project,
   RecentsSnapshot,
@@ -35,7 +38,12 @@ import {
 } from '../contract/index.ts'
 import { SESSIONS, DEMO_SESSION_ID } from './data/sessions.ts'
 import { DISPATCH_RUNS, SCHEDULE_TEMPLATES, PROJECTS, ALL_ARTIFACTS, SCHEDULED_TASKS } from './data/cowork.ts'
-import { DEFAULT_RECENT_IDS } from './data/contextOptions.ts'
+import {
+  DEFAULT_RECENT_IDS,
+  FOLDER_OPTIONS,
+  GITHUB_REPO_OPTIONS,
+  LOCAL_REPO_OPTIONS,
+} from './data/contextOptions.ts'
 import { SAVED_CONTEXTS, CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from './data/savedContexts.ts'
 import { connectorDetail } from './data/connectorDetails.ts'
 import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
@@ -45,6 +53,13 @@ type Listener = (e: ServerEvent) => void
 /** A monotonic-ish boot id. Math.random/Date are fine here (server side, not in
  *  the resumable-workflow sandbox); a fresh value each boot signals a reseed. */
 const EPOCH = `e${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`
+
+// Which backend variant this process is: the default mock behaves like a NATIVE
+// sidecar (it can touch the OS); `BACKEND=remote` makes it behave like a remote
+// web server (native ops report unavailable). Same API, two fulfilments — this is
+// how the one UI runs in both scenarios without env-sniffing (it reads the flags).
+const BACKEND_MODE: 'mock' | 'remote' = process.env.BACKEND === 'remote' ? 'remote' : 'mock'
+const NATIVE = BACKEND_MODE !== 'remote'
 
 const listeners = new Set<Listener>()
 
@@ -92,6 +107,47 @@ function emit(e: ServerEvent): void {
 
 export const store = {
   epoch: EPOCH,
+
+  // ── Capabilities (what this backend variant can do) ──
+  /** The UI gates native-only affordances on these flags — never on sniffing
+   *  Electron vs web. A native sidecar reports the local-* flags true; a remote
+   *  web server reports them false (and the native endpoints 409). */
+  capabilities(): Capabilities {
+    return {
+      backend: BACKEND_MODE,
+      epoch: EPOCH,
+      features: {
+        localFs: NATIVE,
+        localGit: NATIVE,
+        osPicker: NATIVE,
+        clipboard: NATIVE,
+        scheduledExecution: true, // a remote server can run schedules too
+        streaming: true,
+      },
+    }
+  },
+  /** True when this backend can fulfill a native feature; the native routes use
+   *  it to 409 with `capability_unavailable` on a remote server. */
+  can(feature: 'localFs' | 'localGit' | 'osPicker' | 'clipboard'): boolean {
+    return this.capabilities().features[feature]
+  },
+
+  // ── Native resources (only a native sidecar fulfills these) ──
+  /** OS file/photo/folder picker → the chosen path. */
+  fsPick(kind: string): { path: string; kind: string } {
+    return { path: kind === 'file' ? '~/Documents/launch-assets/gtm-brief.md' : '~/projects/insights-dashboard', kind }
+  },
+  /** Scan a local folder → the artifacts it holds (what the workspace shows). */
+  scanFolder(id: string): { id: string; label: string; artifacts: Artifact[] } | undefined {
+    const f = FOLDER_OPTIONS.find((o) => o.id === id)
+    return f ? { id: f.id, label: f.label, artifacts: f.artifacts } : undefined
+  },
+  /** Compute a local repo's working-tree diff (native git). */
+  repoDiff(id: string): DiffLine[] | undefined {
+    const repo =
+      LOCAL_REPO_OPTIONS.find((r) => r.id === id) ?? GITHUB_REPO_OPTIONS.find((r) => r.id === id)
+    return repo?.diff
+  },
 
   // ── Event bus ──
   /** Subscribe to the ambient event stream; returns an unsubscribe fn. */

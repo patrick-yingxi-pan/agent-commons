@@ -1,34 +1,51 @@
 /** Route table for the mock backend. Each resource registers its endpoints here;
  *  Phase 1 wires capabilities, the ambient event stream, and sessions. The router
  *  is plain data — adding a resource is adding a `.get(...)` line. */
-import type { ApplyOpRequest, Capabilities, Message, SendMessageRequest } from '../../contract/index.ts'
+import type { ApplyOpRequest, Message, SendMessageRequest } from '../../contract/index.ts'
 import { Router } from '../http/router.ts'
 import { sendJson, sendError } from '../http/respond.ts'
 import { openSse } from '../http/sse.ts'
 import { store } from '../store.ts'
 import { buildReply, chunkText } from '../generate.ts'
+import type { ServerResponse } from 'node:http'
+
+/** Gate a native route on a capability: 409 capability_unavailable when this
+ *  backend (a remote web server) can't fulfill it. Returns whether to proceed. */
+function gate(res: ServerResponse, feature: 'localFs' | 'localGit' | 'osPicker' | 'clipboard'): boolean {
+  if (store.can(feature)) return true
+  sendError(res, 'capability_unavailable', `'${feature}' needs the native backend; this is a remote web server.`)
+  return false
+}
 
 export function buildRouter(): Router {
   const r = new Router()
 
   // ── Capabilities ────────────────────────────────────────────────────────
-  // The mock advertises a *native-like* backend, so the UI renders the full
-  // experience (local folders, local repos). A remote web server would report
-  // the local-* flags false; the UI adapts off these flags, never off env.
+  // What this backend variant can do. The default mock behaves like a native
+  // sidecar (local-* true); `BACKEND=remote` makes it a remote web server
+  // (local-* false). The UI adapts off these flags, never off env-sniffing.
   r.get('/capabilities', ({ res }) => {
-    const caps: Capabilities = {
-      backend: 'mock',
-      epoch: store.epoch,
-      features: {
-        localFs: true,
-        localGit: true,
-        osPicker: true,
-        clipboard: true,
-        scheduledExecution: true,
-        streaming: true,
-      },
-    }
-    sendJson(res, caps)
+    sendJson(res, store.capabilities())
+  })
+
+  // ── Native resources (a native sidecar fulfills these; a remote server 409s) ─
+  // The same endpoints exist in both backends — only the fulfilment differs. This
+  // is what lets ONE UI run as a native desktop app and as a web app unchanged.
+  r.get('/fs/pick', ({ res, url }) => {
+    if (!gate(res, 'osPicker')) return
+    sendJson(res, store.fsPick(url.searchParams.get('kind') ?? 'folder'))
+  })
+  r.get('/fs/folders/:id', ({ res, params }) => {
+    if (!gate(res, 'localFs')) return
+    const scan = store.scanFolder(params.id)
+    if (!scan) return sendError(res, 'not_found', `No folder '${params.id}'`)
+    sendJson(res, scan)
+  })
+  r.get('/git/repos/:id/diff', ({ res, params }) => {
+    if (!gate(res, 'localGit')) return
+    const diff = store.repoDiff(params.id)
+    if (!diff) return sendError(res, 'not_found', `No repo '${params.id}'`)
+    sendJson(res, diff)
   })
 
   // ── Ambient event stream ────────────────────────────────────────────────
