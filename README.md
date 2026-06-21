@@ -48,79 +48,114 @@ composer chips and panel. Open "Refactor auth middleware" (chat + repo) or
 "Vector databases, explained" (chat only) to see the panel adapt per
 conversation.
 
+## Architecture: a real frontend over a portable backend
+
+The UI is **not** wired to in-process mock data — it's a real web frontend that
+talks to a backend over a versioned HTTP + SSE API. That backend is a
+**zero-dependency mock server** today, but the contract is designed so the same
+UI runs unchanged in two deployments:
+
+1. **Native desktop app** — the UI renders in an app shell; the backend is a
+   local sidecar. It can reach native resources (the filesystem, a local git
+   working tree, OS pickers) that a browser can't, and later proxy the real
+   Anthropic API — *without changing the API the UI speaks*.
+2. **Web app** — the same UI is served by a remote web server that implements the
+   same API. So the desktop and web experiences are byte-identical, with no drift
+   between two separate codebases.
+
+Three trees, one contract:
+
+```
+contract/   Framework-free wire types, imported VERBATIM by the UI (Vite) and the
+            server (Node 26's native TypeScript). This type-identity IS the
+            portability guarantee: entities, the relationship graph + reducer, the
+            ServerEvent union (SSE), Capabilities, and the id invariants both ends
+            must agree on.
+
+server/     The mock backend — a ~zero-dependency node:http server run directly by
+            Node 26 (no build step). In-memory store + event bus, a tiny router,
+            SSE, and the seed data. Serves the built UI from dist/ too, so "web UI
+            served from the server" is literally true.
+
+src/        The UI. Components read through hooks (src/api), controllers issue
+            commands; nothing else knows a URL or an event. Point VITE_API_BASE at
+            a native sidecar or a remote server and the whole app moves.
+```
+
+**How it stays in sync (simple, push-based).** Reads go through a small
+read-through query cache (`useSyncExternalStore`). The server pushes everything
+the UI *didn't* request over one SSE stream (`GET /v1/events`) — a scheduled run
+firing, a standing approval acting, a connector's auth expiring — and an event
+router turns each into a cache patch. An assistant turn streams token-by-token
+from `POST /v1/sessions/:id/messages`, mirroring the Anthropic Messages API, so
+the future real backend is a straight proxy.
+
+**Native vs remote, without env-sniffing.** `GET /v1/capabilities` tells the UI
+what *this* backend can do (`localFs`, `localGit`, `osPicker`, …). The UI gates
+native-only affordances on those flags — never on detecting Electron vs web.
+Native-only endpoints (`/fs/pick`, `/fs/folders/:id`, `/git/repos/:id/diff`) live
+behind the same API; a remote backend returns `409 capability_unavailable`. Run
+the server with `BACKEND=remote` to see the web-server variant.
+
 ## Run it
 
-Requires Node 18+ (developed on Node 25).
+Requires **Node 26+** (the mock server runs TypeScript natively, no build step).
 
 ```bash
 npm install
-npm run dev      # → http://127.0.0.1:5173
+npm run dev        # boots BOTH the UI (Vite, :5173) and the mock backend (:8787)
+                   # → http://127.0.0.1:5173   (Vite proxies /api → the server)
 ```
 
 Other scripts:
 
 ```bash
+npm run dev:ui     # just the Vite UI (expects a backend on :8787)
+npm run server     # just the mock backend (node --watch server/index.ts)
+npm run start      # one process: serve the built UI + the API (the deploy shape)
 npm run build      # production build to dist/
-npm run preview    # serve the production build
-npm run typecheck  # tsc --noEmit
+npm run typecheck  # tsc --noEmit (UI + contract)
+
+BACKEND=remote npm run server   # the remote-web-server variant (native ops 409)
 ```
 
 ## Stack
 
-- **React + TypeScript + Vite**
-- **Tailwind CSS v4** (theme tokens approximate Claude's light palette)
-- **framer-motion** for panel transitions, **lucide-react** for icons
-- No backend — the conversation is scripted/mock data on purpose, so the demo
-  is deterministic and easy to review.
+- **React + TypeScript + Vite** (UI) · **Tailwind CSS v4** · **framer-motion** ·
+  **lucide-react**
+- **Node 26 + node:http** (mock backend) — zero runtime dependencies; runs the
+  TypeScript directly.
+- The data is mock on purpose (deterministic, easy to review) — but it now lives
+  *behind the API*, in the server, exactly where a real backend's database +
+  Anthropic API would.
 
 ## Project layout
 
 ```
+contract/                 # the shared wire types (the API IS these types)
+  entities · cowork · relations · graph · runs · contexts · content
+  events (SSE union) · api (Capabilities + DTOs) · ids (shared invariants)
+
+server/                   # the zero-dep mock backend (Node 26 native TS)
+  index.ts                # http server: prefix routing, CORS, static dist/, daemon
+  store.ts                # in-memory state + event bus + the run daemon
+  generate.ts             # streams the assistant reply (the Anthropic-API seam)
+  http/{router,respond,sse}.ts
+  routes/index.ts         # the route table (one .get/.post per endpoint)
+  data/                   # the seed data (sessions, cowork, contexts, …)
+
 src/
-  main.tsx                # React entry point
-  App.tsx                 # state machine: thread, guided tour, adaptive panel
-  types.ts                # shared types: Conversation, Connector, PanelFocus, …
-  index.css               # Tailwind v4 + the Claude-flavoured theme tokens
-  data/
-    demo.ts               # the scripted chat → workspace → repo → organize tour
-    sessions.ts           # the unified sidebar history + canned states
-    contextOptions.ts     # options + sample payloads for the Add-context flows
-    connectorDetails.ts   # connector / MCP panel content (mock)
-    cowork.ts             # mock data for the nav tools (projects, schedules, …)
-    relations.ts          # the 5-entity relationship model + edit ops (RelationOp)
-    relationIntents.ts    # keyword-matches a typed message to relation-edit proposals
-  controller/
-    useSessionWorkspace.ts # the active session + its live attached context
-    useLayout.ts          # left-rail collapse / resize state
-    useRelations.tsx      # the relationship overlay store (AI-proposed edits)
-  lib/
-    capabilities.tsx      # per-type chip tones (color / tint per context type)
-    connectors.tsx        # shared connector → icon mapping
-    rich.tsx              # tiny inline-markdown renderer for message text
-    thumbs.ts             # deterministic photo gradient by id
-    focus.ts              # which chip's panel is open
-    sections.tsx          # the cross-cutting nav tools (label / icon registry)
-  components/
-    TopBar.tsx            # app header: wordmark + “About this proposal”
-    Sidebar.tsx           # nav tools + scheduled + compact unified history
-    SectionView.tsx       # Projects / Artifacts / Scheduled / Dispatch / Customize
-    Message.tsx           # one chat row (user / assistant) + typing indicator
-    ClaudeMark.tsx        # the small Claude sunburst mark
-    Composer.tsx          # the box + an under-box toolbar (Enter to send)
-    AddContextButton.tsx  # one entry point: files/folders/repos/connectors/MCP
-    PermissionModeControl.tsx # permission mode menu (Ask/Accept/Plan/Auto/Bypass)
-    AudioInputControl.tsx # mic + microphone device menu
-    ModelEffortControl.tsx# model picker + effort + orthogonal mode toggles
-    UsageControl.tsx      # usage ring + context-window / rate-limit popup
-    CaptionBar.tsx        # guided-tour narration + controls
-    IntroOverlay.tsx      # the motivation (problems with today's three tabs)
-    PanelShell.tsx        # shared sliding panel chrome (header + close)
-    WorkspacePanel.tsx    # workspace ⇄ repo panel (morphs by mode)
-    ConnectorPanel.tsx    # connector / MCP panel: status, access, tools
-    AttachmentPanel.tsx   # file / photo panel: preview & edit
-    panels/
-      ArtifactPanel.tsx   # workspace view (Cowork)
-      CodePanel.tsx       # repo view: files / diff / terminal (Code)
+  main.tsx · App.tsx · types.ts (re-exports the contract) · index.css
+  api/                    # the UI's one door to the backend
+    client.ts             # fetch wrapper (base URL = VITE_API_BASE ?? /api/v1)
+    cache.ts              # normalized read-through query cache (useSyncExternalStore)
+    events.ts             # EventSource → cache invalidations (the event router)
+    commands.ts           # writes: streaming send, relation ops, schedules, recents
+    hooks.ts · keys.ts
+  controller/             # useSessionWorkspace · useRelations · useLayout
+  components/             # Sidebar · SectionView · Composer · AddContextButton · …
+  lib/                    # connectors · sections · recents (server-backed) · …
+  data/                   # thin shims over server/data for not-yet-migrated reads
 ```
 
 ## Status

@@ -233,11 +233,54 @@ Unifying the surface does **not** require deleting the workflows people rely on:
 ## 9. What the prototype is and isn't
 
 **Is:** a faithful, clickable illustration of the proposed interaction model and
-visual direction, with a scripted end-to-end escalation and a unified history.
+visual direction, with a scripted end-to-end escalation, a unified history, and —
+as of the latest pass — a **real frontend over a real (mock) backend API** (see
+§10), so the structure is buildable, not just drawn.
 
-**Isn't:** a real client. There's no model, no file system, no execution; the
-conversation content and panel data are mocked so the demo is deterministic and
-reviewable. The goal is to make the *idea* tangible enough to react to.
+**Isn't:** a production client. The data is still mocked and there's no real model
+behind the streaming reply — the conversation content and panel data are
+deterministic so the demo is reviewable. The goal is to make the *idea* tangible
+enough to react to, while showing it maps onto a real client/server shape.
+
+## 10. Architecture: a real frontend over a portable backend
+
+The interaction model above is the proposal. This section is the engineering
+answer to an obvious question — *is this actually buildable as one product across
+desktop and web?* — because today Anthropic ships a desktop app and a web app
+that drift apart. The prototype is structured to show it is.
+
+**The split.** The UI no longer imports mock data; it's a real web frontend
+talking to a backend over a **versioned HTTP + SSE API**, defined by one
+framework-free **contract** that the UI and the server import *verbatim*. The
+backend is a zero-dependency mock server today, but the same UI is designed to
+run unchanged against two backends:
+
+- **Native desktop** — UI in an app shell, backend a local sidecar that can reach
+  native resources (filesystem, local git, OS pickers) and later proxy the real
+  Anthropic API, **without changing the API the UI speaks**.
+- **Web** — the same UI served by a remote web server implementing the same API.
+  One UI, one contract → the desktop/web inconsistency disappears by construction.
+
+**Three properties it was built for:**
+
+1. **Portability via one contract.** The shared types *are* the API. Swap the
+   backend by pointing one base URL at a sidecar or a remote server; nothing else
+   in the UI knows a URL.
+2. **Simple, push-based sync.** Reads go through a small read-through cache; the
+   server pushes everything the UI didn't request — a scheduled run firing, a
+   standing approval acting unprompted, a connector's auth expiring — over one SSE
+   stream, and an event router turns each into a cache patch. An assistant turn
+   *streams* from `POST /v1/sessions/:id/messages`, mirroring the Anthropic
+   Messages API, so the real backend is a straight proxy.
+3. **Native vs remote without env-sniffing.** `GET /v1/capabilities` declares what
+   *this* backend can do; the UI gates native-only affordances on those flags, and
+   native-only endpoints return `409 capability_unavailable` on a remote server.
+   The relationship graph and standing approvals are server-owned, so an edit
+   confirmed in the conversation **persists** and could sync across devices — and a
+   standing schedule approval is the privileged grant that authorizes the daemon.
+
+This is why the same proposal works whether Claude ships as a desktop app or a web
+app: the surface is the same, and so is the wire underneath it.
 
 ---
 
