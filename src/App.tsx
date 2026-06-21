@@ -13,9 +13,10 @@ import { IntroOverlay } from './components/IntroOverlay'
 import { ProposalBar } from './components/ProposalBar'
 import { SearchPanel } from './components/SearchPanel'
 import { SESSIONS } from './data/sessions'
-import { projectForSession } from './data/cowork'
 import { useSessionWorkspace } from './controller/useSessionWorkspace'
 import { useLayout } from './controller/useLayout'
+import { RelationsProvider, useRelations } from './controller/useRelations'
+import type { Connector, SectionId, Session } from './types'
 
 /** The View: composes the product chrome from two controllers — the session +
  *  its live workspace, and the rail layout — holding only local view chrome
@@ -75,11 +76,15 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // The open session's home project (if any), for the title-bar breadcrumb that
-  // deep-links back into the project's detail page.
-  const homeProject = projectForSession(activeSession.id)
+  // Bridges the relations store needs: attaching a context to the live session
+  // (for the AI's `attach-context` op) and the "View in …" deep-link nav.
+  const attachConnector = (c: Connector) =>
+    handleAddContext({ kind: c.kind === 'mcp' ? 'mcp' : 'connector', connector: c })
+  const navigateToSection = (section: SectionId, projectId?: string) =>
+    section === 'projects' && projectId ? openProject(projectId) : openSection(section)
 
   return (
+    <RelationsProvider attachConnector={attachConnector} navigate={navigateToSection}>
     <div className="flex h-screen flex-col overflow-hidden bg-canvas text-ink">
       {/* ===== Proposal framing — the description, kept outside the product mock.
               A dark band holding the concept label, "About this proposal", and
@@ -153,27 +158,11 @@ export default function App() {
             ) : (
               <>
                 {!isDemo && !isDraft && (
-                  <div
-                    className={`flex min-h-[52px] flex-col justify-center gap-0.5 border-b border-line bg-canvas/80 py-2 pr-4 ${
-                      leftOpen ? 'pl-4' : 'pl-14'
-                    }`}
-                  >
-                    <span className="font-serif text-[15px] font-semibold leading-tight text-ink">
-                      {activeSession.title}
-                    </span>
-                    {homeProject && (
-                      <button
-                        onClick={() => openProject(homeProject.id)}
-                        title={`Open ${homeProject.name}`}
-                        className="inline-flex w-fit items-center gap-1 text-[12px] text-ink-faint transition hover:text-ink"
-                      >
-                        <Folder size={12} className="shrink-0" />
-                        <span>
-                          In <span className="font-medium">{homeProject.name}</span>
-                        </span>
-                      </button>
-                    )}
-                  </div>
+                  <SessionTitleBar
+                    session={activeSession}
+                    leftOpen={leftOpen}
+                    onOpenProject={openProject}
+                  />
                 )}
 
                 <div className="flex min-h-0 flex-1">
@@ -275,6 +264,46 @@ export default function App() {
             startDemoTour()
           }}
         />
+      )}
+    </div>
+    </RelationsProvider>
+  )
+}
+
+/** The session title bar's home-project breadcrumb — reads the *live* relation
+ *  graph (so an AI "file this session" edit updates it immediately) rather than
+ *  the static seed. Lives below the provider so it can call useRelations. */
+function SessionTitleBar({
+  session,
+  leftOpen,
+  onOpenProject,
+}: {
+  session: Session
+  leftOpen: boolean
+  onOpenProject: (id: string) => void
+}) {
+  const { projectForSessionId } = useRelations()
+  const homeProject = projectForSessionId(session.id)
+  return (
+    <div
+      className={`flex min-h-[52px] flex-col justify-center gap-0.5 border-b border-line bg-canvas/80 py-2 pr-4 ${
+        leftOpen ? 'pl-4' : 'pl-14'
+      }`}
+    >
+      <span className="font-serif text-[15px] font-semibold leading-tight text-ink">
+        {session.title}
+      </span>
+      {homeProject && (
+        <button
+          onClick={() => onOpenProject(homeProject.id)}
+          title={`Open ${homeProject.name}`}
+          className="inline-flex w-fit items-center gap-1 text-[12px] text-ink-faint transition hover:text-ink"
+        >
+          <Folder size={12} className="shrink-0" />
+          <span>
+            In <span className="font-medium">{homeProject.name}</span>
+          </span>
+        </button>
       )}
     </div>
   )

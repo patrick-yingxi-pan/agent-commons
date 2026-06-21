@@ -127,6 +127,45 @@ re-introducing them as tabs would undercut the argument. The modes survive
 only as the **context attached to a conversation** — surfaced as the chips
 above its composer — never as a gate you pass through first.
 
+### 4.7 The relationship graph, edited with consent
+The five things this surface models — a **session**, a **project**, an
+**artifact**, a **context**, and a **schedule** — aren't islands. Every pair
+relates, and the prototype already encodes all ten relationships:
+
+| Pair | Relationship |
+|------|--------------|
+| Session ↔ Project | a session is **filed under** at most one project |
+| Session ↔ Artifact | a session **produces** artifacts |
+| Session ↔ Context | a session **attaches** context (a folder, repo, connector) |
+| Session ↔ Schedule | a schedule **opens / delivers to** a session each run |
+| Project ↔ Artifact | a project **collects** its artifacts |
+| Project ↔ Context | a project **scopes** the context its work shares |
+| Project ↔ Schedule | a project **owns** recurring schedules |
+| Artifact ↔ Context | an artifact **derives from**, or is **promoted into**, a context |
+| Artifact ↔ Schedule | a schedule **writes** an artifact on each run |
+| Context ↔ Schedule | a schedule **uses** connectors and tools — the context it runs on |
+
+Because the surface is one conversation, the natural place to *change* these
+relationships is the conversation itself: **Claude proposes a relation edit and
+you approve it inline**. "File this session under Insights dashboard," "save
+this draft as an artifact," "have the triage schedule keep a digest" — each
+arrives as a small confirmation card under Claude's message, and **nothing
+changes until you confirm**. Confirm a card and the edit propagates to wherever
+that relationship is drawn — the Projects list, the Artifacts gallery, a
+schedule's delivery — because they all read one shared relation graph.
+
+**Two kinds of consent.** Not every approval is the same shape:
+
+- **Per-action** — a one-off edit (filing a session, re-filing an artifact,
+  scoping a context) is confirmed *each time*, right when it's proposed.
+- **Standing** — a **schedule** is the unit of *advance* approval. Approving a
+  recurring workflow once pre-approves everything it does on **every run** — the
+  session it opens, the artifact it overwrites, the connectors it uses — and it
+  then executes those edits **unprompted** on its cadence. The card says so
+  ("runs on every 2 hours — approved once, then unprompted"), and the schedule's
+  page marks the effect *pre-approved*. This is the honest model for automation:
+  you grant the recurring permission deliberately, in advance, not run by run.
+
 ## 5. How it maps to the prototype
 
 | Proposal idea | Where to see it |
@@ -139,6 +178,7 @@ above its composer — never as a gate you pass through first.
 | Adaptive panel | The panel morphs from artifacts → code at the repo step. |
 | Unified history | The single sidebar list — one row per conversation; the open conversation's composer chips show what it carries. |
 | Cross-cutting tools, not tabs | The sidebar nav — New task, Projects, Artifacts, Scheduled, Dispatch, Customize — and their section views; no Chat/Cowork/Code switcher. |
+| Relations, edited with consent | The guided tour's **Organize** beat (and any "file this under…" message) — Claude proposes relation edits as inline cards; confirming one updates the Projects / Artifacts / Scheduled views. A standing card ("approve for all runs") shows the advance-approval model for schedules. |
 
 ## 6. Design principles (carry beyond this one screen)
 
@@ -152,6 +192,10 @@ above its composer — never as a gate you pass through first.
    belong to the same effort live and are found together.
 5. **Reversibility.** Any panel can collapse; attaching context is additive and
    undoable.
+6. **Claude proposes structure; you approve it.** The model can suggest how to
+   file, link, and organize — but a relationship only changes on the user's
+   confirmation. One-off edits confirm each time; a recurring schedule is
+   approved once, in advance, and then runs unprompted.
 
 ## 7. Migration & compatibility (sketch)
 
@@ -175,7 +219,12 @@ Unifying the surface does **not** require deleting the workflows people rely on:
   collapse-to-rail behavior is a start but needs responsive rules.
 - **Permissions & safety.** Escalating a chat into a repo session crosses a
   capability boundary (file writes, command execution). The attach step is the
-  natural place for an explicit consent moment — worth designing carefully.
+  natural place for an explicit consent moment — worth designing carefully. The
+  same applies when Claude proposes to *re-organize* things (move a session,
+  promote an artifact into a project's context): each edit confirms inline. The
+  subtle case is a **schedule**, which acts repeatedly — there the consent is an
+  *advance* approval granted once and honored on every run, so the boundary is
+  "do you trust this recurring workflow," asked up front, not re-asked each run.
 - **Naming.** "Workspace" vs. "Cowork", "Repo" vs. "Code" — terminology should
   be decided with the broader product language.
 - **Backend reality.** Whether Chat/Cowork/Code share enough infrastructure to

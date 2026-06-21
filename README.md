@@ -27,7 +27,7 @@ See [`PROPOSAL.md`](PROPOSAL.md) for the full write-up.
 
 ## What the demo shows
 
-Open it and press **Play the tour**. One conversation walks through three beats
+Open it and press **Play the tour**. One conversation walks through four beats
 without ever switching tabs:
 
 1. **Chat** — an ordinary message thread. No mode chosen up front.
@@ -35,6 +35,12 @@ without ever switching tabs:
    one-pager, a launch email, and a hero image. *(This is today's "Cowork".)*
 3. **→ Repo** — it becomes a coding session: a branch, a real diff, a passing
    test run in the terminal. *(This is today's "Code".)*
+4. **→ Organize** — Claude proposes how to file what you just made (the session
+   under a project, the drafts as artifacts, a schedule to keep a digest) as
+   **inline confirmation cards**. Confirm one and it shows up in Projects /
+   Artifacts / Scheduled. One-off edits confirm each time; a recurring schedule
+   is approved once, then runs unprompted. You can also just type *"file this
+   under Growth experiments"* in any session to get the same cards.
 
 The sidebar shows the payoff: **one unified history** instead of three
 scattered across tabs — each conversation's capabilities surface on its own
@@ -76,11 +82,17 @@ src/
   types.ts                # shared types: Conversation, Connector, PanelFocus, …
   index.css               # Tailwind v4 + the Claude-flavoured theme tokens
   data/
-    demo.ts               # the scripted chat → workspace → repo escalation
-    conversations.ts      # the unified sidebar history + canned states
+    demo.ts               # the scripted chat → workspace → repo → organize tour
+    sessions.ts           # the unified sidebar history + canned states
     contextOptions.ts     # options + sample payloads for the Add-context flows
     connectorDetails.ts   # connector / MCP panel content (mock)
     cowork.ts             # mock data for the nav tools (projects, schedules, …)
+    relations.ts          # the 5-entity relationship model + edit ops (RelationOp)
+    relationIntents.ts    # keyword-matches a typed message to relation-edit proposals
+  controller/
+    useSessionWorkspace.ts # the active session + its live attached context
+    useLayout.ts          # left-rail collapse / resize state
+    useRelations.tsx      # the relationship overlay store (AI-proposed edits)
   lib/
     capabilities.tsx      # per-type chip tones (color / tint per context type)
     connectors.tsx        # shared connector → icon mapping

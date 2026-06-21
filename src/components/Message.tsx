@@ -2,6 +2,7 @@ import { motion } from 'framer-motion'
 import type { Message as MessageT } from '../types'
 import { renderRich } from '../lib/rich'
 import { ClaudeMark } from './ClaudeMark'
+import { RelationActionCard } from './RelationActionCard'
 
 export function MessageRow({ message }: { message: MessageT }) {
   const isUser = message.role === 'user'
@@ -31,6 +32,9 @@ export function MessageRow({ message }: { message: MessageT }) {
           <div className="whitespace-pre-wrap text-[15px] leading-relaxed text-ink">
             {renderRich(message.content)}
           </div>
+          {message.relationActions && message.relationActions.length > 0 && (
+            <RelationActionCard ops={message.relationActions} />
+          )}
         </div>
       </div>
     </motion.div>

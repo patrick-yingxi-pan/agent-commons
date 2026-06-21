@@ -2,7 +2,7 @@ import type { Artifact, Connector, DiffLine, FileNode, Message } from '../types'
 
 /** One beat of the guided demo: a user turn, Claude's reply, and whatever the
  *  reply reveals in the adaptive side panel. Playing these in order walks a
- *  single conversation from plain Chat → Cowork → Code. */
+ *  single conversation from plain Chat → Cowork → Code, then Organize. */
 export interface DemoStep {
   id: string
   /** Narrative shown in the caption bar while this step is on screen. */
@@ -125,6 +125,47 @@ export const DEMO_STEPS: DemoStep[] = [
       role: 'assistant',
       content:
         'Done — PR opened and the launch assets are saved in the workspace, all linked to this thread. The strategy, the docs, and the code now live in one place.',
+    },
+  },
+  {
+    id: 'step-organize',
+    caption:
+      'The last move: Claude proposes how to file what you just made — and you approve it, right here in the thread. One-off edits confirm each time; a recurring schedule is approved once, then runs unprompted.',
+    user: { id: 'u5', role: 'user', content: 'Perfect. Tidy this up — file it where it belongs and keep me posted.' },
+    assistant: {
+      id: 'a5',
+      role: 'assistant',
+      content:
+        "Here's how I'd organize it. Confirm whatever you want — nothing changes until you do:",
+      relationActions: [
+        {
+          kind: 'file-session',
+          sessionId: 'insights-launch',
+          sessionTitle: 'Insights dashboard launch',
+          projectId: 'p-insights',
+          projectName: 'Insights dashboard',
+        },
+        {
+          kind: 'save-artifact',
+          artifact: {
+            name: 'launch-recap.md',
+            kind: 'doc',
+            meta: '1 page',
+            excerpt: 'What shipped, the flag, and the rollout plan — in one place.',
+          },
+          sessionId: 'insights-launch',
+          sessionTitle: 'Insights dashboard launch',
+          projectId: 'p-insights',
+          projectName: 'Insights dashboard',
+        },
+        {
+          kind: 'set-schedule-artifact',
+          scheduleId: 's-issue-triage',
+          scheduleName: 'Triage new GitHub issues',
+          cadence: 'every 2 hours',
+          artifactName: 'triage-digest.md',
+        },
+      ],
     },
   },
 ]

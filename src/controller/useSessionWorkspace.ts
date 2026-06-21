@@ -16,6 +16,7 @@ import {
   type Live,
 } from '../data/liveSession'
 import { sameFocus } from '../lib/focus'
+import { matchRelationOps } from '../data/relationIntents'
 import type { AddedContext, Message, PanelFocus, Repo, SectionId, TourPhase } from '../types'
 
 /** ── Controller: the active session + its live workspace ───────────────────
@@ -182,27 +183,39 @@ export function useSessionWorkspace() {
     startTour()
   }, [selectSession, startTour])
 
-  // Free-typed replies get an honest canned answer (no fake intelligence).
+  // Free-typed replies get an honest canned answer (no fake intelligence) —
+  // except an organize-style request ("file this under …", "save as an
+  // artifact", "have the schedule …"), which Claude answers with the matching
+  // relation-edit proposals as an inline confirmation card.
   const handleSend = useCallback(
     (text: string) => {
       const userMsg: Message = { id: `u-${Date.now()}`, role: 'user', content: text }
       setLive((l) => ({ ...l, messages: [...l.messages, userMsg] }))
       setTyping(true)
       setBusy(true)
+      const ops = matchRelationOps(text, { id: activeSession.id, title: activeSession.title })
       schedule(() => {
         setTyping(false)
-        const reply: Message = {
-          id: `a-${Date.now()}`,
-          role: 'assistant',
-          content: isDemo
-            ? 'This is a static prototype, so I won’t actually answer here. Use **Play the tour** above to watch one session flow from chat → workspace → code without switching tabs.'
-            : 'This is a static prototype — open the **Insights dashboard launch** session and play the guided tour to see the unified flow.',
-        }
+        const reply: Message =
+          ops.length > 0
+            ? {
+                id: `a-${Date.now()}`,
+                role: 'assistant',
+                content: "Here's what I can organize — confirm what you'd like, nothing changes until you do:",
+                relationActions: ops,
+              }
+            : {
+                id: `a-${Date.now()}`,
+                role: 'assistant',
+                content: isDemo
+                  ? 'This is a static prototype, so I won’t actually answer here. Use **Play the tour** above to watch one session flow from chat → workspace → code without switching tabs.'
+                  : 'This is a static prototype — open the **Insights dashboard launch** session and play the guided tour to see the unified flow. You can also ask me to *file this under a project*, *save a draft as an artifact*, or *have a schedule save a digest*.',
+              }
         setLive((l) => ({ ...l, messages: [...l.messages, reply] }))
         setBusy(false)
       }, 800)
     },
-    [isDemo, schedule],
+    [isDemo, schedule, activeSession],
   )
 
   // Manually attach context to the open thread — the same escalation the tour

@@ -36,7 +36,7 @@ import {
   Unplug,
   type LucideIcon,
 } from 'lucide-react'
-import type { Connector, Session, SectionId } from '../types'
+import type { Connector, SectionId } from '../types'
 import { SECTION_META } from '../lib/sections'
 import { connectorIconFor } from '../lib/connectors'
 import { CHIP_TONES, type ChipTone } from '../lib/capabilities'
@@ -49,9 +49,7 @@ import {
   LOCAL_REPO_OPTIONS,
   MCP_OPTIONS,
 } from '../data/contextOptions'
-import { SESSIONS } from '../data/sessions'
 import {
-  ALL_ARTIFACTS,
   DISPATCH_RUNS,
   PROJECTS,
   SCHEDULED_TASKS,
@@ -67,6 +65,7 @@ import {
   type StepToolTone,
 } from '../data/cowork'
 import { ArtifactThumb, ArtifactViewer, KIND_ICON } from './artifactPreview'
+import { useRelations } from '../controller/useRelations'
 
 /** The main area when a cross-cutting tool (Projects, Artifacts, …) is open
  *  instead of a conversation. All content is mock — this is a clickable demo.
@@ -132,6 +131,7 @@ function ProjectsSection({
   const [openId, setOpenId] = useState<string | null>(initialProjectId)
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState('Last updated')
+  const rel = useRelations()
 
   const open = openId ? (PROJECTS.find((p) => p.id === openId) ?? null) : null
   if (open)
@@ -166,7 +166,12 @@ function ProjectsSection({
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {sorted.map((p) => (
-            <ProjectCard key={p.id} project={p} onOpen={() => setOpenId(p.id)} />
+            <ProjectCard
+              key={p.id}
+              project={p}
+              sessionCount={rel.sessionsForProject(p.id).length}
+              onOpen={() => setOpenId(p.id)}
+            />
           ))}
         </div>
       )}
@@ -174,7 +179,15 @@ function ProjectsSection({
   )
 }
 
-function ProjectCard({ project, onOpen }: { project: Project; onOpen: () => void }) {
+function ProjectCard({
+  project,
+  sessionCount,
+  onOpen,
+}: {
+  project: Project
+  sessionCount: number
+  onOpen: () => void
+}) {
   return (
     <button
       onClick={onOpen}
@@ -188,7 +201,7 @@ function ProjectCard({ project, onOpen }: { project: Project; onOpen: () => void
         <span>Updated {project.updated}</span>
         <span>·</span>
         <span>
-          {project.sessionIds.length} session{project.sessionIds.length === 1 ? '' : 's'}
+          {sessionCount} session{sessionCount === 1 ? '' : 's'}
         </span>
       </div>
     </button>
@@ -213,9 +226,19 @@ function ProjectDetail({
   onOpenSession: (id: string) => void
   onNewSession: () => void
 }) {
-  const convs = project.sessionIds
-    .map((id) => SESSIONS.find((c) => c.id === id))
-    .filter(Boolean) as Session[]
+  const rel = useRelations()
+  const convs = rel.sessionsForProject(project.id)
+  const contexts = rel.contextsForProject(project.id)
+  // The project's recurring runs: its hand-authored cadence plus any global
+  // schedule the relation graph links here (deduped by name), so an AI
+  // "link schedule to project" edit shows up alongside the seeded ones.
+  const scheduled = [
+    ...project.scheduled,
+    ...rel
+      .schedulesForProject(project.id)
+      .filter((t) => !project.scheduled.some((s) => s.name === t.name))
+      .map((t) => ({ name: t.name, cadence: t.cadence, enabled: t.enabled })),
+  ]
 
   return (
     <Page>
@@ -272,11 +295,11 @@ function ProjectDetail({
           </SidePanel>
 
           <SidePanel title="Scheduled" icon={<Clock size={14} />}>
-            {project.scheduled.length === 0 ? (
+            {scheduled.length === 0 ? (
               <p className="text-[12px] text-ink-faint">No scheduled runs.</p>
             ) : (
               <div className="space-y-2.5">
-                {project.scheduled.map((s, i) => (
+                {scheduled.map((s, i) => (
                   <div key={i} className="flex items-start gap-2.5">
                     <span
                       className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
@@ -298,7 +321,7 @@ function ProjectDetail({
 
           <SidePanel title="Context" icon={<Folder size={14} />}>
             <div className="space-y-2">
-              {project.contexts.map((ctx, i) => {
+              {contexts.map((ctx, i) => {
                 const CIcon = CONTEXT_ICON[ctx.kind]
                 return (
                   <div key={i} className="flex items-center gap-2.5">
@@ -325,6 +348,7 @@ function ArtifactsSection() {
   const [filter, setFilter] = useState('All')
   const [openId, setOpenId] = useState<string | null>(null)
   const [folded, setFolded] = useState<Set<string>>(new Set())
+  const rel = useRelations()
 
   const foldGroup = (id: string) =>
     setFolded((prev) => {
@@ -347,7 +371,7 @@ function ArtifactsSection() {
               ? 'email'
               : null
 
-  const matches = ALL_ARTIFACTS.filter(
+  const matches = rel.allArtifacts().filter(
     (a) =>
       (wantKind === null || a.kind === wantKind) &&
       (needle === '' ||
@@ -357,12 +381,17 @@ function ArtifactsSection() {
   )
 
   // Sorted by project by default — group in PROJECTS order, drop empty groups.
-  const groups = PROJECTS.map((p) => ({
-    project: p,
-    items: matches.filter((a) => a.projectId === p.id),
-  })).filter((g) => g.items.length > 0)
+  // Membership comes from the relation graph, so an AI "move to project" /
+  // "save as artifact under …" edit re-groups the gallery live. A trailing
+  // "Unfiled" bucket catches artifacts not under any project (e.g. a draft
+  // saved with no project), so nothing a user confirmed can vanish from view.
+  const knownProjectId = new Set(PROJECTS.map((p) => p.id))
+  const groups = [
+    ...PROJECTS.map((p) => ({ id: p.id, name: p.name, items: matches.filter((a) => rel.artifactProjectId(a) === p.id) })),
+    { id: '__unfiled', name: 'Unfiled', items: matches.filter((a) => !knownProjectId.has(rel.artifactProjectId(a))) },
+  ].filter((g) => g.items.length > 0)
 
-  const openArtifact = openId ? (ALL_ARTIFACTS.find((a) => a.id === openId) ?? null) : null
+  const openArtifact = openId ? (rel.allArtifacts().find((a) => a.id === openId) ?? null) : null
   const projectName = (pid: string) => PROJECTS.find((p) => p.id === pid)?.name ?? 'Other'
 
   return (
@@ -378,11 +407,11 @@ function ArtifactsSection() {
       ) : (
         <div className="space-y-7">
           {groups.map((g) => {
-            const isFolded = folded.has(g.project.id)
+            const isFolded = folded.has(g.id)
             return (
-              <div key={g.project.id}>
+              <div key={g.id}>
                 <button
-                  onClick={() => foldGroup(g.project.id)}
+                  onClick={() => foldGroup(g.id)}
                   aria-expanded={!isFolded}
                   className="group mb-2.5 flex w-full items-center gap-1.5 text-left"
                 >
@@ -392,13 +421,18 @@ function ArtifactsSection() {
                       isFolded ? '-rotate-90' : ''
                     }`}
                   />
-                  <span className="text-[13px] font-semibold text-ink">{g.project.name}</span>
+                  <span className="text-[13px] font-semibold text-ink">{g.name}</span>
                   <span className="text-[12px] text-ink-faint">{g.items.length}</span>
                 </button>
                 {!isFolded && (
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {g.items.map((a) => (
-                      <ArtifactCard key={a.id} artifact={a} onOpen={() => setOpenId(a.id)} />
+                      <ArtifactCard
+                        key={a.id}
+                        artifact={a}
+                        source={rel.artifactSourceFor(a.id)}
+                        onOpen={() => setOpenId(a.id)}
+                      />
                     ))}
                   </div>
                 )}
@@ -419,7 +453,15 @@ function ArtifactsSection() {
   )
 }
 
-function ArtifactCard({ artifact, onOpen }: { artifact: ArtifactItem; onOpen: () => void }) {
+function ArtifactCard({
+  artifact,
+  source,
+  onOpen,
+}: {
+  artifact: ArtifactItem
+  source?: string
+  onOpen: () => void
+}) {
   const Icon = KIND_ICON[artifact.kind]
   return (
     <button
@@ -438,6 +480,11 @@ function ArtifactCard({ artifact, onOpen }: { artifact: ArtifactItem; onOpen: ()
           <p className="mt-1.5 line-clamp-2 text-[12px] leading-snug text-ink-soft">
             {artifact.excerpt}
           </p>
+        )}
+        {source && (
+          <div className="mt-2 inline-flex w-fit items-center gap-1 rounded bg-accent-tint px-1.5 py-0.5 text-[10px] font-medium text-accent-strong">
+            from {source}
+          </div>
         )}
         <div className="mt-3 flex items-center gap-2">
           <span className="rounded bg-panel-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-soft">
@@ -1571,6 +1618,14 @@ function ScheduledDetail({
 }) {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(task.runs[0]?.id ?? null)
   const [notifyOnFail, setNotifyOnFail] = useState(true)
+  const rel = useRelations()
+  // Standing-approved recurring effects: an AI "save X each run" / "open a
+  // session each run" edit overrides where this schedule delivers, and the
+  // pre-approval means it runs unprompted.
+  const savedArtifact = rel.scheduleArtifactFor(task.id)
+  const sessionTarget = rel.scheduleSessionFor(task.id)
+  const deliveryTarget = savedArtifact ?? sessionTarget ?? task.delivery.target
+  const preApproved = !!(savedArtifact || sessionTarget)
 
   // Snap the selection to the freshest run whenever a run finishes (so "Run now"
   // lights the run you just triggered, not the previous one) — but leave a manual
@@ -1679,11 +1734,17 @@ function ScheduledDetail({
                 <DeliveryIcon size={15} className={toneChip(task.delivery.tool.tone).color} />
               </span>
               <div className="min-w-0">
-                <div className="truncate text-[13px] font-medium text-ink">{task.delivery.target}</div>
+                <div className="truncate text-[13px] font-medium text-ink">{deliveryTarget}</div>
                 <div className="truncate text-[11px] text-ink-faint">{task.delivery.tool.label}</div>
               </div>
             </div>
-            {task.delivery.note && (
+            {preApproved && (
+              <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700">
+                <Check size={11} />
+                Pre-approved · runs unprompted
+              </div>
+            )}
+            {!preApproved && task.delivery.note && (
               <p className="mt-2 text-[12px] leading-relaxed text-ink-soft">{task.delivery.note}</p>
             )}
             <label className="mt-3 flex items-center justify-between gap-2 border-t border-line pt-3">
@@ -1789,8 +1850,13 @@ function RailRow({
 /** The hero: the WHEN trigger, the numbered step rail, and the DELIVER terminus —
  *  all lit to reflect the selected run. */
 function WorkflowCard({ task, run, running }: { task: ScheduledTask; run: ScheduledRun | null; running: boolean }) {
+  const rel = useRelations()
   const reached = run ? run.reachedStep : 0
   const failedAt = run && run.status === 'failed' ? run.reachedStep : -1
+  // A standing "save X / open a session each run" edit overrides where the
+  // terminal node delivers, so the rail matches the "Delivers to" panel.
+  const overrideTarget = rel.scheduleArtifactFor(task.id) ?? rel.scheduleSessionFor(task.id)
+  const deliveryTarget = overrideTarget ?? task.delivery.target
 
   const stepState = (i: number): RailState => {
     if (running) return 'running'
@@ -1839,9 +1905,11 @@ function WorkflowCard({ task, run, running }: { task: ScheduledTask; run: Schedu
                 Deliver
               </div>
               <div className="mt-1 text-[13px] font-medium text-ink">
-                {task.delivery.tool.label} · {task.delivery.target}
+                {task.delivery.tool.label} · {deliveryTarget}
               </div>
-              {task.delivery.note && <p className="mt-0.5 text-[12px] text-ink-soft">{task.delivery.note}</p>}
+              {!overrideTarget && task.delivery.note && (
+                <p className="mt-0.5 text-[12px] text-ink-soft">{task.delivery.note}</p>
+              )}
             </div>
           </RailRow>
         </div>
@@ -1959,9 +2027,12 @@ function RunRow({
  *  steps are omitted), each with its auth status — so a "Needs auth" tool explains
  *  at a glance why a run might fail. */
 function ContextToolsPanel({ task }: { task: ScheduledTask }) {
+  const rel = useRelations()
   const seen = new Set<string>()
   const tools: StepTool[] = []
-  for (const t of [...task.steps.map((s) => s.tool), task.delivery.tool]) {
+  // Steps + delivery, plus any tool-context an AI "let it use X each run" edit
+  // added (those are standing-approved, so they belong in the run's toolbox).
+  for (const t of [...task.steps.map((s) => s.tool), task.delivery.tool, ...rel.scheduleExtraToolsFor(task.id)]) {
     if (t.tone === 'claude' || t.tone === 'web' || seen.has(t.id)) continue
     seen.add(t.id)
     tools.push(t)

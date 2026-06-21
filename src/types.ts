@@ -95,6 +95,11 @@ export interface Message {
    *  a workspace or a repo and morphs the side panel. This is the heart of the
    *  "one fluid continuum" demo. */
   escalate?: 'workspace' | 'repo'
+  /** Relation edits Claude proposes inline — rendered as a confirmation card
+   *  under the message, applied to the relationship graph only on the user's OK.
+   *  Typed as `RelationOp[]` (data/relations.ts); kept loose here to avoid a
+   *  type-import cycle from the shared types module. */
+  relationActions?: import('./data/relations').RelationOp[]
 }
 
 export type ArtifactKind = 'doc' | 'email' | 'image' | 'slide' | 'sheet'

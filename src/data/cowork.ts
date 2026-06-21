@@ -53,7 +53,9 @@ export const PROJECTS: Project[] = [
       { kind: 'connector', label: 'Linear', meta: 'INS team · 18 issues' },
       { kind: 'connector', label: 'Figma', meta: 'Insights v2' },
     ],
-    sessionIds: ['insights-launch', 'insights-empty-states', 'dashboard-perf'],
+    // The demo session ('insights-launch') starts *unfiled* — the guided tour's
+    // Organize beat proposes filing it here, so the move is real and visible.
+    sessionIds: ['insights-empty-states', 'dashboard-perf'],
   },
   {
     id: 'p-growth',
