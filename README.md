@@ -36,10 +36,11 @@ without ever switching tabs:
 3. **→ Repo** — it becomes a coding session: a branch, a real diff, a passing
    test run in the terminal. *(This is today's "Code".)*
 
-The sidebar shows the payoff: **one unified history**, every item tagged with
-small capability badges instead of being scattered across three tabs. Open
-"Refactor auth middleware" (chat + repo) or "Vector databases, explained"
-(chat only) to see the panel adapt per conversation.
+The sidebar shows the payoff: **one unified history** instead of three
+scattered across tabs — each conversation's capabilities surface on its own
+composer chips and panel. Open "Refactor auth middleware" (chat + repo) or
+"Vector databases, explained" (chat only) to see the panel adapt per
+conversation.
 
 ## Run it
 
@@ -81,7 +82,7 @@ src/
     connectorDetails.ts   # connector / MCP panel content (mock)
     cowork.ts             # mock data for the nav tools (projects, schedules, …)
   lib/
-    capabilities.tsx      # capability → label / legacy-tab / icon / color
+    capabilities.tsx      # per-type chip tones (color / tint per context type)
     connectors.tsx        # shared connector → icon mapping
     rich.tsx              # tiny inline-markdown renderer for message text
     thumbs.ts             # deterministic photo gradient by id
@@ -92,7 +93,6 @@ src/
     Sidebar.tsx           # nav tools + scheduled + compact unified history
     SectionView.tsx       # Projects / Artifacts / Scheduled / Dispatch / Customize
     Message.tsx           # one chat row (user / assistant) + typing indicator
-    CapBadges.tsx         # per-conversation capability badges
     ClaudeMark.tsx        # the small Claude sunburst mark
     Composer.tsx          # the box + an under-box toolbar (Enter to send)
     AddContextButton.tsx  # one entry point: files/folders/repos/connectors/MCP

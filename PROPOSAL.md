@@ -111,9 +111,10 @@ re-explained.
 
 ### 4.5 One history, one search
 Because there's only one kind of object, there's one list. The sidebar shows
-every conversation as a **compact, one-line row** tagged with small
-**capability badges**, filterable and searchable in one place — instead of
-three histories you switch between.
+every conversation as a **compact, one-line row**, searchable in one place —
+instead of three histories you switch between. A conversation's capabilities
+live *with the conversation*: open it and the **context chips above the
+composer** (and the panel they open) show exactly what it carries.
 
 ### 4.6 Cross-cutting tools, not mode tabs
 A conversation is the unit, but a few functions span all of them: starting a
@@ -123,8 +124,8 @@ The sidebar keeps these as a small nav above the history — they are *tools*,
 not modes. What it deliberately omits is the **Chat / Cowork / Code** tab
 switcher: collapsing those three into one surface is the entire point, so
 re-introducing them as tabs would undercut the argument. The modes survive
-only as per-conversation capability badges, never as a gate you pass through
-first.
+only as the **context attached to a conversation** — surfaced as the chips
+above its composer — never as a gate you pass through first.
 
 ## 5. How it maps to the prototype
 
@@ -136,7 +137,7 @@ first.
 | Every chip opens a panel | Click any context chip — workspace, repo, connector, MCP, file, or photo — to open its detail / preview / edit panel. |
 | In-place escalation | **Play the tour** — one thread, three beats. |
 | Adaptive panel | The panel morphs from artifacts → code at the repo step. |
-| Unified history | The sidebar list with capability badges; open different items. |
+| Unified history | The single sidebar list — one row per conversation; the open conversation's composer chips show what it carries. |
 | Cross-cutting tools, not tabs | The sidebar nav — New task, Projects, Artifacts, Scheduled, Dispatch, Customize — and their section views; no Chat/Cowork/Code switcher. |
 
 ## 6. Design principles (carry beyond this one screen)
