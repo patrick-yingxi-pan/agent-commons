@@ -50,7 +50,9 @@ export function buildRouter(): Router {
     sendJson(res, store.listSessions())
   })
   r.get('/sessions/:id', ({ res, params }) => {
-    const session = store.getSession(params.id)
+    // A scheduled run *is* a session — resolve `srun-*` ids to the synthesized run
+    // session (which reflects the current, live runs).
+    const session = store.getSession(params.id) ?? store.runSession(params.id)
     if (!session) return sendError(res, 'not_found', `No session '${params.id}'`)
     sendJson(res, session)
   })
@@ -136,6 +138,37 @@ export function buildRouter(): Router {
   })
   r.get('/schedules', ({ res }) => {
     sendJson(res, store.listSchedules())
+  })
+  // Run a routine now (server appends + broadcasts the run).
+  r.post('/schedules/:id/run', ({ res, params }) => {
+    const run = store.runSchedule(params.id)
+    if (!run) return sendError(res, 'not_found', `No schedule '${params.id}'`)
+    sendJson(res, run)
+  })
+  // Toggle a routine on/off.
+  r.patch('/schedules/:id', async ({ res, params, body }) => {
+    const { enabled } = await body<{ enabled?: boolean }>()
+    const task = store.toggleSchedule(params.id)
+    if (!task) return sendError(res, 'not_found', `No schedule '${params.id}'`)
+    // `enabled` in the body is advisory; toggle already flipped it. (Kept simple
+    // for the mock; a real API would set the exact value.)
+    void enabled
+    sendJson(res, task)
+  })
+  // Add a routine from a template's seed (lands paused).
+  r.post('/schedules', async ({ res, body }) => {
+    const { seed } = await body<{ seed?: Omit<import('../../contract/index.ts').ScheduledTask, 'id'> }>()
+    if (!seed) return sendError(res, 'bad_request', 'seed is required')
+    sendJson(res, store.addSchedule(seed))
+  })
+  // Remove a routine.
+  r.delete('/schedules/:id', ({ res, params }) => {
+    store.removeSchedule(params.id)
+    sendJson(res, { ok: true })
+  })
+  // The left rail's recent-runs feed (a single live source).
+  r.get('/runs/recent', ({ res }) => {
+    sendJson(res, store.recentRuns())
   })
   r.get('/relations', ({ res }) => {
     sendJson(res, store.relationGraph())

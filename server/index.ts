@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url'
 import { API_BASE_PATH } from '../contract/index.ts'
 import { CORS_HEADERS, sendError } from './http/respond.ts'
 import { buildRouter } from './routes/index.ts'
-import { store } from './store.ts'
+import { store, startRunDaemon } from './store.ts'
 
 const PORT = Number(process.env.PORT ?? 8787)
 const HOST = process.env.HOST ?? '127.0.0.1'
@@ -80,4 +80,6 @@ function serveStatic(pathname: string, res: import('node:http').ServerResponse):
 server.listen(PORT, HOST, () => {
   console.log(`[mock-backend] http://${HOST}:${PORT}${API_BASE_PATH}  ·  epoch ${store.epoch}`)
   console.log(`[mock-backend] serving ${existsSync(DIST) ? 'built UI (dist/) + ' : ''}API`)
+  // The scheduled-run daemon: fires a run on a cadence and pushes it to clients.
+  startRunDaemon()
 })
