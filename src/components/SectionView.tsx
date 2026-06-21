@@ -1272,6 +1272,7 @@ function ScheduledSection() {
             duration: `${8 + t.steps.length * 3}s`,
             reachedStep: t.steps.length,
             summary: `Ran on demand — delivered to ${t.delivery.target}`,
+            at: 0,
           }
           return { ...t, lastStatus: 'ok', runs: [run, ...t.runs] }
         }),

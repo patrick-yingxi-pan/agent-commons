@@ -1,9 +1,11 @@
-import type { ReactNode } from 'react'
-import { PanelLeftClose, Plus, Search, SlidersHorizontal } from 'lucide-react'
+import { useState, type ReactNode } from 'react'
+import { ChevronRight, PanelLeftClose, Plus, Search, SlidersHorizontal } from 'lucide-react'
 import type { Session, SectionId } from '../types'
+import type { ScheduledRun } from '../data/cowork'
 import { ResizeHandle } from './ResizeHandle'
 import { SECTION_META, SECTION_ORDER } from '../lib/sections'
-import { SCHEDULED_TASKS } from '../data/cowork'
+import { RECENT_RUNS } from '../data/scheduledRuns'
+import { getLayout, setLayout } from '../lib/uiPrefs'
 
 export function Sidebar({
   sessions,
@@ -35,7 +37,13 @@ export function Sidebar({
   onResizeEnd: () => void
 }) {
   const inSession = activeSection === null
-  const scheduledPinned = SCHEDULED_TASKS.filter((t) => t.enabled)
+  // The "Scheduled" section folds (persisted) to save rail space.
+  const [schedOpen, setSchedOpen] = useState<boolean>(() => getLayout('schedOpen', true))
+  const toggleSched = () =>
+    setSchedOpen((v) => {
+      setLayout('schedOpen', !v)
+      return !v
+    })
 
   return (
     <aside className="relative flex h-full w-full shrink-0 flex-col border-r border-line bg-sidebar">
@@ -81,23 +89,42 @@ export function Sidebar({
       </nav>
 
       <div className="mt-3 min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-        {/* Pinned scheduled tasks. */}
-        {scheduledPinned.length > 0 && (
+        {/* Recent scheduled runs — each opens the session that run executed in
+            (not the Scheduled page). Foldable to save rail space. */}
+        {RECENT_RUNS.length > 0 && (
           <>
-            <SectionLabel>Scheduled</SectionLabel>
-            {scheduledPinned.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => onOpenSection('scheduled')}
-                className="group flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition hover:bg-surface/70"
-              >
-                <Dot active={false} />
-                <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{t.name}</span>
-                <span className="shrink-0 text-[11px] text-ink-faint">
-                  {t.cadence.split('·')[0].trim()}
-                </span>
-              </button>
-            ))}
+            <button
+              onClick={toggleSched}
+              aria-expanded={schedOpen}
+              className="flex w-full items-center gap-1 px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint transition hover:text-ink-soft"
+            >
+              <ChevronRight
+                size={12}
+                className={`shrink-0 transition-transform ${schedOpen ? 'rotate-90' : ''}`}
+              />
+              Scheduled
+              <span className="ml-1 font-normal normal-case tracking-normal text-ink-faint">
+                recent runs
+              </span>
+            </button>
+            {schedOpen &&
+              RECENT_RUNS.map(({ task, run, session }) => {
+                const active = inSession && session.id === activeId
+                return (
+                  <button
+                    key={session.id}
+                    onClick={() => onSelect(session.id)}
+                    title={`${run.when} · ${run.summary}`}
+                    className={`group flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition ${
+                      active ? 'bg-surface shadow-sm ring-1 ring-line-strong' : 'hover:bg-surface/70'
+                    }`}
+                  >
+                    <RunDot status={run.status} />
+                    <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{task.name}</span>
+                    <span className="shrink-0 text-[11px] text-ink-faint">{run.absolute}</span>
+                  </button>
+                )
+              })}
           </>
         )}
 
@@ -195,4 +222,18 @@ function Dot({ active }: { active: boolean }) {
       }`}
     />
   )
+}
+
+/** A run's leading dot, colored by outcome: green ok, red failed, muted skipped,
+ *  accent while running. */
+function RunDot({ status }: { status: ScheduledRun['status'] }) {
+  const color =
+    status === 'failed'
+      ? 'bg-red-500'
+      : status === 'skipped'
+        ? 'bg-line-strong'
+        : status === 'running'
+          ? 'bg-accent'
+          : 'bg-emerald-500'
+  return <span className={`h-2 w-2 shrink-0 rounded-full ${color}`} title={status} />
 }

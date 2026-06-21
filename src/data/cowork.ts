@@ -160,6 +160,9 @@ export interface ScheduledRun {
   duration: string
   reachedStep: number
   summary: string
+  /** Minutes-ago, for ordering runs newest-first *across* routines in the left
+   *  rail's "recent runs" list. Smaller = more recent. */
+  at: number
 }
 
 /** A scheduled task isn't a cron toggle — it's a recurring agentic workflow: on a
@@ -233,10 +236,10 @@ export const SCHEDULED_TASKS: ScheduledTask[] = [
     timezone: 'America/Los_Angeles',
     startedLabel: 'Started Feb 2026 · 96 runs',
     runs: [
-      { id: 'r1', status: 'ok', when: 'Today, 8:00 AM', absolute: '6h ago', duration: '18s', reachedStep: 3, summary: 'Briefed 6 stories into a new session' },
-      { id: 'r2', status: 'ok', when: 'Yesterday, 8:00 AM', absolute: 'Jun 18', duration: '21s', reachedStep: 3, summary: 'Briefed 5 stories into a new session' },
-      { id: 'r3', status: 'ok', when: 'Wed, 8:00 AM', absolute: 'Jun 17', duration: '17s', reachedStep: 3, summary: 'Briefed 7 stories into a new session' },
-      { id: 'r4', status: 'ok', when: 'Tue, 8:00 AM', absolute: 'Jun 16', duration: '19s', reachedStep: 3, summary: 'Briefed 4 stories into a new session' },
+      { id: 'r1', status: 'ok', when: 'Today, 8:00 AM', absolute: '6h ago', duration: '18s', reachedStep: 3, summary: 'Briefed 6 stories into a new session', at: 360 },
+      { id: 'r2', status: 'ok', when: 'Yesterday, 8:00 AM', absolute: 'Jun 18', duration: '21s', reachedStep: 3, summary: 'Briefed 5 stories into a new session', at: 1800 },
+      { id: 'r3', status: 'ok', when: 'Wed, 8:00 AM', absolute: 'Jun 17', duration: '17s', reachedStep: 3, summary: 'Briefed 7 stories into a new session', at: 3240 },
+      { id: 'r4', status: 'ok', when: 'Tue, 8:00 AM', absolute: 'Jun 16', duration: '19s', reachedStep: 3, summary: 'Briefed 4 stories into a new session', at: 4680 },
     ],
   },
   {
@@ -261,10 +264,10 @@ export const SCHEDULED_TASKS: ScheduledTask[] = [
     startedLabel: 'Started Mar 2026 · 71 runs',
     projectId: 'p-infra',
     runs: [
-      { id: 'r1', status: 'failed', when: 'Today, 9:30 AM', absolute: '4h ago', duration: '3s', reachedStep: 0, summary: 'Stopped at step 1 — Linear auth expired' },
-      { id: 'r2', status: 'ok', when: 'Yesterday, 9:30 AM', absolute: 'Jun 18', duration: '12s', reachedStep: 3, summary: 'Posted a 9-item digest to #eng-standup' },
-      { id: 'r3', status: 'ok', when: 'Wed, 9:30 AM', absolute: 'Jun 17', duration: '11s', reachedStep: 3, summary: 'Posted a 7-item digest to #eng-standup' },
-      { id: 'r4', status: 'ok', when: 'Tue, 9:30 AM', absolute: 'Jun 16', duration: '13s', reachedStep: 3, summary: 'Posted a 12-item digest to #eng-standup' },
+      { id: 'r1', status: 'failed', when: 'Today, 9:30 AM', absolute: '4h ago', duration: '3s', reachedStep: 0, summary: 'Stopped at step 1 — Linear auth expired', at: 240 },
+      { id: 'r2', status: 'ok', when: 'Yesterday, 9:30 AM', absolute: 'Jun 18', duration: '12s', reachedStep: 3, summary: 'Posted a 9-item digest to #eng-standup', at: 1740 },
+      { id: 'r3', status: 'ok', when: 'Wed, 9:30 AM', absolute: 'Jun 17', duration: '11s', reachedStep: 3, summary: 'Posted a 7-item digest to #eng-standup', at: 3180 },
+      { id: 'r4', status: 'ok', when: 'Tue, 9:30 AM', absolute: 'Jun 16', duration: '13s', reachedStep: 3, summary: 'Posted a 12-item digest to #eng-standup', at: 4620 },
     ],
   },
   {
@@ -289,10 +292,10 @@ export const SCHEDULED_TASKS: ScheduledTask[] = [
     startedLabel: 'Started May 2026 · 218 runs',
     projectId: 'p-insights',
     runs: [
-      { id: 'r1', status: 'ok', when: 'Today, 2:00 PM', absolute: '38m ago', duration: '42s', reachedStep: 3, summary: 'Labeled 11 issues, drafted 6 replies' },
-      { id: 'r2', status: 'ok', when: 'Today, 12:00 PM', absolute: '2h ago', duration: '38s', reachedStep: 3, summary: 'Labeled 7 issues, drafted 3 replies' },
-      { id: 'r3', status: 'ok', when: 'Today, 10:00 AM', absolute: '4h ago', duration: '29s', reachedStep: 3, summary: 'Labeled 4 issues, drafted 2 replies' },
-      { id: 'r4', status: 'ok', when: 'Today, 8:00 AM', absolute: '6h ago', duration: '40s', reachedStep: 3, summary: 'Labeled 9 issues, drafted 5 replies' },
+      { id: 'r1', status: 'ok', when: 'Today, 2:00 PM', absolute: '38m ago', duration: '42s', reachedStep: 3, summary: 'Labeled 11 issues, drafted 6 replies', at: 38 },
+      { id: 'r2', status: 'ok', when: 'Today, 12:00 PM', absolute: '2h ago', duration: '38s', reachedStep: 3, summary: 'Labeled 7 issues, drafted 3 replies', at: 120 },
+      { id: 'r3', status: 'ok', when: 'Today, 10:00 AM', absolute: '4h ago', duration: '29s', reachedStep: 3, summary: 'Labeled 4 issues, drafted 2 replies', at: 240 },
+      { id: 'r4', status: 'ok', when: 'Today, 8:00 AM', absolute: '6h ago', duration: '40s', reachedStep: 3, summary: 'Labeled 9 issues, drafted 5 replies', at: 360 },
     ],
   },
   {
@@ -317,10 +320,10 @@ export const SCHEDULED_TASKS: ScheduledTask[] = [
     timezone: 'America/Los_Angeles',
     startedLabel: 'Started Apr 2026 · 73 runs',
     runs: [
-      { id: 'r1', status: 'ok', when: 'Yesterday, 6:00 PM', absolute: 'Jun 18', duration: '26s', reachedStep: 4, summary: '5 themes from 38 tickets → #support-digest' },
-      { id: 'r2', status: 'ok', when: 'Wed, 6:00 PM', absolute: 'Jun 17', duration: '24s', reachedStep: 4, summary: '5 themes from 31 tickets → #support-digest' },
-      { id: 'r3', status: 'failed', when: 'Tue, 6:00 PM', absolute: 'Jun 16', duration: '9s', reachedStep: 0, summary: 'Stopped at step 1 — Notion rate limit' },
-      { id: 'r4', status: 'ok', when: 'Mon, 6:00 PM', absolute: 'Jun 15', duration: '27s', reachedStep: 4, summary: '4 themes from 22 tickets → #support-digest' },
+      { id: 'r1', status: 'ok', when: 'Yesterday, 6:00 PM', absolute: 'Jun 18', duration: '26s', reachedStep: 4, summary: '5 themes from 38 tickets → #support-digest', at: 1200 },
+      { id: 'r2', status: 'ok', when: 'Wed, 6:00 PM', absolute: 'Jun 17', duration: '24s', reachedStep: 4, summary: '5 themes from 31 tickets → #support-digest', at: 2640 },
+      { id: 'r3', status: 'failed', when: 'Tue, 6:00 PM', absolute: 'Jun 16', duration: '9s', reachedStep: 0, summary: 'Stopped at step 1 — Notion rate limit', at: 4080 },
+      { id: 'r4', status: 'ok', when: 'Mon, 6:00 PM', absolute: 'Jun 15', duration: '27s', reachedStep: 4, summary: '4 themes from 22 tickets → #support-digest', at: 5520 },
     ],
   },
   {
@@ -345,10 +348,10 @@ export const SCHEDULED_TASKS: ScheduledTask[] = [
     startedLabel: 'Started May 2026 · 1,440 runs',
     projectId: 'p-infra',
     runs: [
-      { id: 'r1', status: 'skipped', when: 'Today, 1:30 PM', absolute: '12m ago', duration: '4s', reachedStep: 1, summary: 'No spike — stayed quiet' },
-      { id: 'r2', status: 'skipped', when: 'Today, 1:00 PM', absolute: '42m ago', duration: '4s', reachedStep: 1, summary: 'No spike — stayed quiet' },
-      { id: 'r3', status: 'ok', when: 'Today, 12:30 PM', absolute: '1h ago', duration: '16s', reachedStep: 3, summary: 'Spike caught — emailed on-call (auth errors +180%)' },
-      { id: 'r4', status: 'skipped', when: 'Today, 12:00 PM', absolute: '2h ago', duration: '3s', reachedStep: 1, summary: 'No spike — stayed quiet' },
+      { id: 'r1', status: 'skipped', when: 'Today, 1:30 PM', absolute: '12m ago', duration: '4s', reachedStep: 1, summary: 'No spike — stayed quiet', at: 12 },
+      { id: 'r2', status: 'skipped', when: 'Today, 1:00 PM', absolute: '42m ago', duration: '4s', reachedStep: 1, summary: 'No spike — stayed quiet', at: 42 },
+      { id: 'r3', status: 'ok', when: 'Today, 12:30 PM', absolute: '1h ago', duration: '16s', reachedStep: 3, summary: 'Spike caught — emailed on-call (auth errors +180%)', at: 60 },
+      { id: 'r4', status: 'skipped', when: 'Today, 12:00 PM', absolute: '2h ago', duration: '3s', reachedStep: 1, summary: 'No spike — stayed quiet', at: 120 },
     ],
   },
   {
@@ -374,9 +377,9 @@ export const SCHEDULED_TASKS: ScheduledTask[] = [
     startedLabel: 'Paused · 14 runs',
     projectId: 'p-growth',
     runs: [
-      { id: 'r1', status: 'ok', when: 'Mon, 7:00 AM', absolute: 'Jun 16', duration: '34s', reachedStep: 4, summary: 'Saved metrics-rollup.md · WAT +4.2%' },
-      { id: 'r2', status: 'ok', when: 'Mon, 7:00 AM', absolute: 'Jun 9', duration: '31s', reachedStep: 4, summary: 'Saved metrics-rollup.md · WAT +1.1%' },
-      { id: 'r3', status: 'skipped', when: 'Mon, 7:00 AM', absolute: 'Jun 2', duration: '—', reachedStep: 0, summary: 'Skipped — paused for the holiday' },
+      { id: 'r1', status: 'ok', when: 'Mon, 7:00 AM', absolute: 'Jun 16', duration: '34s', reachedStep: 4, summary: 'Saved metrics-rollup.md · WAT +4.2%', at: 7200 },
+      { id: 'r2', status: 'ok', when: 'Mon, 7:00 AM', absolute: 'Jun 9', duration: '31s', reachedStep: 4, summary: 'Saved metrics-rollup.md · WAT +1.1%', at: 17280 },
+      { id: 'r3', status: 'skipped', when: 'Mon, 7:00 AM', absolute: 'Jun 2', duration: '—', reachedStep: 0, summary: 'Skipped — paused for the holiday', at: 27360 },
     ],
   },
 ]

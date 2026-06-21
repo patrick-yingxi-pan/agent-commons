@@ -18,6 +18,7 @@ import {
 import { sameFocus } from '../lib/focus'
 import { rememberAttached } from '../lib/contextShortcuts'
 import { matchRelationOps } from '../data/relationIntents'
+import { runSessionById } from '../data/scheduledRuns'
 import type { AddedContext, Message, PanelFocus, Repo, SectionId, TourPhase } from '../types'
 
 /** ── Controller: the active session + its live workspace ───────────────────
@@ -52,7 +53,8 @@ export function useSessionWorkspace() {
   liveRef.current = live
 
   const activeSession = useMemo(
-    () => SESSIONS.find((c) => c.id === activeId) ?? DRAFT_SESSION,
+    // A scheduled run opens its own synthesized session, so resolve those ids too.
+    () => SESSIONS.find((c) => c.id === activeId) ?? runSessionById(activeId) ?? DRAFT_SESSION,
     [activeId],
   )
   const isDemo = !!activeSession.isDemo
@@ -87,7 +89,7 @@ export function useSessionWorkspace() {
       setBusy(false)
       setActiveSection(null)
       setActiveId(id)
-      const session = SESSIONS.find((c) => c.id === id)!
+      const session = SESSIONS.find((c) => c.id === id) ?? runSessionById(id) ?? DRAFT_SESSION
       const nextLive = liveFromSession(session)
       setLive(nextLive)
       // Auto-focus the session's strongest present context so its sidebar opens —
