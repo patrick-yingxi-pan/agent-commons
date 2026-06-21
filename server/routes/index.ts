@@ -54,5 +54,10 @@ export function buildRouter(): Router {
     sendJson(res, session)
   })
 
+  // ── Dispatch ──────────────────────────────────────────────────────────────
+  r.get('/dispatch', ({ res }) => {
+    sendJson(res, store.listDispatch())
+  })
+
   return r
 }

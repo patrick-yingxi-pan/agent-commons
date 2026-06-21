@@ -6,7 +6,7 @@
 import { useQuery, type QueryState } from './cache.ts'
 import { apiGet } from './client.ts'
 import { keys, paths } from './keys.ts'
-import type { Capabilities, Session } from '../../contract/index.ts'
+import type { Capabilities, DispatchRun, Session } from '../../contract/index.ts'
 
 /** What this backend can do — the UI gates native-only affordances on this,
  *  never on sniffing Electron vs web. */
@@ -22,4 +22,9 @@ export function useSessions(): QueryState<Session[]> {
 /** A full session by id (messages / artifacts / repo included). */
 export function useSession(id: string): QueryState<Session> {
   return useQuery(keys.session(id), () => apiGet<Session>(paths.session(id)))
+}
+
+/** The Dispatch section's agent-run feed. */
+export function useDispatchRuns(): QueryState<DispatchRun[]> {
+  return useQuery(keys.dispatch, () => apiGet<DispatchRun[]>(paths.dispatch))
 }

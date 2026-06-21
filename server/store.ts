@@ -7,8 +7,9 @@
  *
  *  State is added to this store as each resource's reads/commands migrate; Phase 1
  *  carries sessions + the event bus, the spine everything else hangs off. */
-import type { ServerEvent, Session } from '../contract/index.ts'
+import type { DispatchRun, ServerEvent, Session } from '../contract/index.ts'
 import { SESSIONS, DEMO_SESSION_ID } from './data/sessions.ts'
+import { DISPATCH_RUNS } from './data/cowork.ts'
 
 type Listener = (e: ServerEvent) => void
 
@@ -55,4 +56,10 @@ export const store = {
     return SESSIONS.find((s) => s.id === id)
   },
   demoSessionId: DEMO_SESSION_ID,
+
+  // ── Dispatch ──
+  /** The agent-run feed shown in the Dispatch section. */
+  listDispatch(): DispatchRun[] {
+    return DISPATCH_RUNS
+  },
 }

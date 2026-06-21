@@ -50,7 +50,6 @@ import {
   MCP_OPTIONS,
 } from '../data/contextOptions'
 import {
-  DISPATCH_RUNS,
   PROJECTS,
   SCHEDULED_TASKS,
   SCHEDULE_TEMPLATES,
@@ -64,6 +63,7 @@ import {
   type StepTool,
   type StepToolTone,
 } from '../data/cowork'
+import { useDispatchRuns } from '../api'
 import { ArtifactThumb, ArtifactViewer, KIND_ICON } from './artifactPreview'
 import { useRelations } from '../controller/useRelations'
 
@@ -2061,9 +2061,10 @@ function ContextToolsPanel({ task }: { task: ScheduledTask }) {
 }
 
 function DispatchView() {
+  const runs = useDispatchRuns().data ?? []
   return (
     <div className="space-y-2.5">
-      {DISPATCH_RUNS.map((r) => (
+      {runs.map((r) => (
         <div
           key={r.id}
           className="flex items-start gap-3 rounded-xl border border-line bg-surface px-4 py-3 shadow-sm"

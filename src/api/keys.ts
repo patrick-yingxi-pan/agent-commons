@@ -5,10 +5,12 @@ export const keys = {
   capabilities: 'capabilities',
   sessions: 'sessions',
   session: (id: string) => `session:${id}`,
+  dispatch: 'dispatch',
 }
 
 export const paths = {
   capabilities: '/capabilities',
   sessions: '/sessions',
   session: (id: string) => `/sessions/${encodeURIComponent(id)}`,
+  dispatch: '/dispatch',
 }
