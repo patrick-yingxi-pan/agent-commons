@@ -3,6 +3,7 @@ import { ChevronRight, PanelLeftClose, Plus, Search } from 'lucide-react'
 import type { Project, ScheduledRun, Session, SectionId } from '../types'
 import { ResizeHandle } from './ResizeHandle'
 import { SessionFilterMenu } from './SessionFilterMenu'
+import { ScheduledFilterMenu } from './ScheduledFilterMenu'
 import { SECTION_META, SECTION_ORDER } from '../lib/sections'
 import { useProjects, useRecentRuns } from '../api'
 import { useRelations } from '../controller/useRelations'
@@ -13,6 +14,7 @@ import {
   saveSessionFilter,
   type SessionFilter,
 } from '../lib/sessionFilter'
+import { filterRuns, loadRunFilter, saveRunFilter, type RunFilter } from '../lib/runFilter'
 
 // Stable empty fallback so the filter useMemo's deps don't churn while projects load.
 const NO_PROJECTS: Project[] = []
@@ -60,16 +62,32 @@ export function Sidebar({
     setFilter(next)
     saveSessionFilter(next)
   }
-  const { projectIdForSession } = useRelations()
+  const { projectIdForSession, scheduleProjectId } = useRelations()
   const projects = useProjects().data ?? NO_PROJECTS
+  const projectName = (pid: string) => projects.find((p) => p.id === pid)?.name ?? 'Project'
   const { groups, total } = useMemo(() => {
-    const projectName = (pid: string) => projects.find((p) => p.id === pid)?.name ?? 'Project'
     return filterSessions(sessions, filter, {
       projectIdOf: projectIdForSession,
       projectName,
       now: Date.now(),
     })
   }, [sessions, filter, projectIdForSession, projects])
+
+  // The Scheduled feed gets the same "Filter & sort" control, retuned for runs
+  // (Status → Outcome). Its own persisted choice + project resolver (routine →
+  // project, via the relations graph).
+  const [runFilter, setRunFilter] = useState<RunFilter>(loadRunFilter)
+  const updateRunFilter = (next: RunFilter) => {
+    setRunFilter(next)
+    saveRunFilter(next)
+  }
+  const { groups: runGroups, total: runTotal } = useMemo(() => {
+    return filterRuns(recentRuns, runFilter, {
+      projectIdOfTask: scheduleProjectId,
+      projectName,
+      now: Date.now(),
+    })
+  }, [recentRuns, runFilter, scheduleProjectId, projects])
 
   const toggleSched = () =>
     setSchedOpen((v) => {
@@ -125,38 +143,48 @@ export function Sidebar({
             (not the Scheduled page). Foldable to save rail space. */}
         {recentRuns.length > 0 && (
           <>
-            <button
-              onClick={toggleSched}
-              aria-expanded={schedOpen}
-              className="flex w-full items-center gap-1 px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint transition hover:text-ink-soft"
-            >
-              <ChevronRight
-                size={12}
-                className={`shrink-0 transition-transform ${schedOpen ? 'rotate-90' : ''}`}
-              />
-              Scheduled
-              <span className="ml-1 font-normal normal-case tracking-normal text-ink-faint">
-                recent runs
-              </span>
-            </button>
-            {schedOpen &&
-              recentRuns.map(({ task, run, session }) => {
-                const active = inSession && session.id === activeId
-                return (
-                  <button
-                    key={session.id}
-                    onClick={() => onSelect(session.id)}
-                    title={`${run.when} · ${run.summary}`}
-                    className={`group flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition ${
-                      active ? 'bg-surface shadow-sm ring-1 ring-line-strong' : 'hover:bg-surface/70'
-                    }`}
-                  >
-                    <RunDot status={run.status} />
-                    <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{task.name}</span>
-                    <span className="shrink-0 text-[11px] text-ink-faint">{run.absolute}</span>
-                  </button>
-                )
-              })}
+            <div className="flex items-center justify-between pr-1">
+              <button
+                onClick={toggleSched}
+                aria-expanded={schedOpen}
+                className="flex flex-1 items-center gap-1 px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint transition hover:text-ink-soft"
+              >
+                <ChevronRight
+                  size={12}
+                  className={`shrink-0 transition-transform ${schedOpen ? 'rotate-90' : ''}`}
+                />
+                Scheduled
+                <span className="ml-1 font-normal normal-case tracking-normal text-ink-faint">
+                  recent runs
+                </span>
+              </button>
+              {schedOpen && (
+                <ScheduledFilterMenu filter={runFilter} onChange={updateRunFilter} projects={projects} />
+              )}
+            </div>
+            {schedOpen && (
+              <>
+                {runGroups.map((g) => (
+                  <Fragment key={g.key}>
+                    {g.label && <GroupHeader>{g.label}</GroupHeader>}
+                    {g.entries.map(({ task, run, session }) => (
+                      <RunRow
+                        key={session.id}
+                        taskName={task.name}
+                        status={run.status}
+                        absolute={run.absolute}
+                        title={`${run.when} · ${run.summary}`}
+                        active={inSession && session.id === activeId}
+                        onSelect={() => onSelect(session.id)}
+                      />
+                    ))}
+                  </Fragment>
+                ))}
+                {runTotal === 0 && (
+                  <p className="px-2 py-2 text-[12px] text-ink-faint">No runs match these filters.</p>
+                )}
+              </>
+            )}
           </>
         )}
 
@@ -269,6 +297,37 @@ function SessionRow({
 /** A group divider label shown above each bucket when Group by ≠ None. */
 function GroupHeader({ children }: { children: ReactNode }) {
   return <div className="px-2 pb-1 pt-2.5 text-[11px] font-semibold text-ink-faint">{children}</div>
+}
+
+/** One Scheduled-feed row — a run's outcome dot, the routine name, and its time. */
+function RunRow({
+  taskName,
+  status,
+  absolute,
+  title,
+  active,
+  onSelect,
+}: {
+  taskName: string
+  status: ScheduledRun['status']
+  absolute: string
+  title: string
+  active: boolean
+  onSelect: () => void
+}) {
+  return (
+    <button
+      onClick={onSelect}
+      title={title}
+      className={`group flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition ${
+        active ? 'bg-surface shadow-sm ring-1 ring-line-strong' : 'hover:bg-surface/70'
+      }`}
+    >
+      <RunDot status={status} />
+      <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{taskName}</span>
+      <span className="shrink-0 text-[11px] text-ink-faint">{absolute}</span>
+    </button>
+  )
 }
 
 /** A leading status dot — filled for the active item, a hollow ring otherwise. */
