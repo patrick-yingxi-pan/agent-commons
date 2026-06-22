@@ -1,5 +1,14 @@
 import type { Session } from '../../contract/entities.ts'
 
+/** Concrete timestamps backing the sidebar's sort + "Last activity" filter.
+ *  Anchored to process start so the seed's relative `updatedLabel`s ("2h ago",
+ *  "Yesterday", …) stay roughly truthful while the server runs. `ago(ms)` is a
+ *  point in the past; HOUR/DAY keep the call sites readable. */
+const NOW = Date.now()
+const HOUR = 3_600_000
+const DAY = 24 * HOUR
+const ago = (ms: number) => NOW - ms
+
 /** The unified history. Note every item is the *same* kind of thing — a
  *  conversation — distinguished only by the capabilities it carries. Today these
  *  would be scattered across three separate tabs.
@@ -13,6 +22,10 @@ export const SESSIONS: Session[] = [
     caps: ['chat', 'workspace', 'repo'],
     updatedLabel: 'now',
     preview: 'Strategy → one-pager & email → feature flag and route. Guided demo.',
+    status: 'active',
+    environment: 'local',
+    updatedAt: ago(5 * 60_000),
+    createdAt: ago(3 * DAY),
     isDemo: true,
   },
   {
@@ -21,6 +34,10 @@ export const SESSIONS: Session[] = [
     caps: ['chat', 'repo'],
     updatedLabel: '2h ago',
     preview: 'Collapse the two token-refresh paths into one.',
+    status: 'active',
+    environment: 'local',
+    updatedAt: ago(2 * HOUR),
+    createdAt: ago(5 * DAY),
     connectors: [{ id: 'gh-mcp', label: 'GitHub', kind: 'github' }],
     messages: [
       {
@@ -63,6 +80,10 @@ export const SESSIONS: Session[] = [
     caps: ['chat', 'workspace'],
     updatedLabel: '2h ago',
     preview: 'Variant B lifted activation +6.2% — ship it.',
+    status: 'active',
+    environment: 'local',
+    updatedAt: ago(2 * HOUR + 40 * 60_000),
+    createdAt: ago(4 * DAY),
     messages: [
       {
         id: 'm1',
@@ -87,6 +108,10 @@ export const SESSIONS: Session[] = [
     caps: ['chat', 'workspace'],
     updatedLabel: 'Yesterday',
     preview: 'Narrative + 14 slides from the metrics review.',
+    status: 'active',
+    environment: 'local',
+    updatedAt: ago(DAY + 2 * HOUR),
+    createdAt: ago(8 * DAY),
     messages: [
       {
         id: 'm1',
@@ -112,6 +137,10 @@ export const SESSIONS: Session[] = [
     caps: ['chat', 'workspace'],
     updatedLabel: 'Mon',
     preview: 'Cohort export + the three drivers behind the spike.',
+    status: 'active',
+    environment: 'local',
+    updatedAt: ago(2 * DAY),
+    createdAt: ago(9 * DAY),
     messages: [
       {
         id: 'm1',
@@ -136,6 +165,10 @@ export const SESSIONS: Session[] = [
     caps: ['chat', 'workspace'],
     updatedLabel: 'Yesterday',
     preview: 'Warm, plain, confident — with do/don’t examples.',
+    status: 'active',
+    environment: 'local',
+    updatedAt: ago(DAY + 5 * HOUR),
+    createdAt: ago(6 * DAY),
     messages: [
       {
         id: 'm1',
@@ -160,6 +193,10 @@ export const SESSIONS: Session[] = [
     caps: ['chat', 'workspace'],
     updatedLabel: '5h ago',
     preview: 'Zero-data, loading, and error states for the dashboard.',
+    status: 'active',
+    environment: 'local',
+    updatedAt: ago(5 * HOUR),
+    createdAt: ago(2 * DAY),
     messages: [
       {
         id: 'm1',
@@ -185,6 +222,10 @@ export const SESSIONS: Session[] = [
     caps: ['chat', 'workspace'],
     updatedLabel: 'Tue',
     preview: 'p95 widget latency 1.8s → 240ms with one index.',
+    status: 'active',
+    environment: 'local',
+    updatedAt: ago(2 * DAY + 3 * HOUR),
+    createdAt: ago(7 * DAY),
     messages: [
       {
         id: 'm1',
@@ -206,6 +247,10 @@ export const SESSIONS: Session[] = [
     caps: ['chat', 'workspace'],
     updatedLabel: 'Yesterday',
     preview: 'New hero, three proof points, one CTA.',
+    status: 'active',
+    environment: 'local',
+    updatedAt: ago(DAY + 8 * HOUR),
+    createdAt: ago(5 * DAY),
     messages: [
       {
         id: 'm1',
@@ -227,6 +272,10 @@ export const SESSIONS: Session[] = [
     caps: ['chat'],
     updatedLabel: '2d ago',
     preview: 'Which wordmark lockup holds up at favicon size?',
+    status: 'archived',
+    environment: 'local',
+    updatedAt: ago(2 * DAY),
+    createdAt: ago(15 * DAY),
     messages: [
       {
         id: 'm1',
@@ -247,6 +296,10 @@ export const SESSIONS: Session[] = [
     caps: ['chat', 'workspace'],
     updatedLabel: 'Wed',
     preview: 'Token-bucket per API key; 429 with Retry-After.',
+    status: 'active',
+    environment: 'local',
+    updatedAt: ago(5 * DAY),
+    createdAt: ago(12 * DAY),
     messages: [
       {
         id: 'm1',
@@ -268,6 +321,10 @@ export const SESSIONS: Session[] = [
     caps: ['chat', 'workspace'],
     updatedLabel: '3d ago',
     preview: 'First five minutes, escalation, and the rollback.',
+    status: 'active',
+    environment: 'local',
+    updatedAt: ago(3 * DAY + 4 * HOUR),
+    createdAt: ago(20 * DAY),
     messages: [
       {
         id: 'm1',
@@ -292,6 +349,10 @@ export const SESSIONS: Session[] = [
     caps: ['chat'],
     updatedLabel: 'Mon',
     preview: 'Plain chat — no workspace, no repo.',
+    status: 'archived',
+    environment: 'local',
+    updatedAt: ago(2 * DAY + 6 * HOUR),
+    createdAt: ago(40 * DAY),
     messages: [
       {
         id: 'm1',

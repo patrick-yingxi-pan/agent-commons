@@ -1,10 +1,21 @@
-import { useState, type ReactNode } from 'react'
-import { ChevronRight, PanelLeftClose, Plus, Search, SlidersHorizontal } from 'lucide-react'
-import type { ScheduledRun, Session, SectionId } from '../types'
+import { Fragment, useMemo, useState, type ReactNode } from 'react'
+import { ChevronRight, PanelLeftClose, Plus, Search } from 'lucide-react'
+import type { Project, ScheduledRun, Session, SectionId } from '../types'
 import { ResizeHandle } from './ResizeHandle'
+import { SessionFilterMenu } from './SessionFilterMenu'
 import { SECTION_META, SECTION_ORDER } from '../lib/sections'
-import { useRecentRuns } from '../api'
+import { useProjects, useRecentRuns } from '../api'
+import { useRelations } from '../controller/useRelations'
 import { getLayout, setLayout } from '../lib/uiPrefs'
+import {
+  filterSessions,
+  loadSessionFilter,
+  saveSessionFilter,
+  type SessionFilter,
+} from '../lib/sessionFilter'
+
+// Stable empty fallback so the filter useMemo's deps don't churn while projects load.
+const NO_PROJECTS: Project[] = []
 
 export function Sidebar({
   sessions,
@@ -41,6 +52,25 @@ export function Sidebar({
   // The recent-runs feed comes from the server now (a single live source) — a run
   // the daemon fires appears here without a reload, via the event stream.
   const recentRuns = useRecentRuns().data ?? []
+
+  // Recents "Filter & sort": the persisted choice, plus the project membership /
+  // names it needs to filter and group by project (read from the relations graph).
+  const [filter, setFilter] = useState<SessionFilter>(loadSessionFilter)
+  const updateFilter = (next: SessionFilter) => {
+    setFilter(next)
+    saveSessionFilter(next)
+  }
+  const { projectIdForSession } = useRelations()
+  const projects = useProjects().data ?? NO_PROJECTS
+  const { groups, total } = useMemo(() => {
+    const projectName = (pid: string) => projects.find((p) => p.id === pid)?.name ?? 'Project'
+    return filterSessions(sessions, filter, {
+      projectIdOf: projectIdForSession,
+      projectName,
+      now: Date.now(),
+    })
+  }, [sessions, filter, projectIdForSession, projects])
+
   const toggleSched = () =>
     setSchedOpen((v) => {
       setLayout('schedOpen', !v)
@@ -130,33 +160,30 @@ export function Sidebar({
           </>
         )}
 
-        {/* Recents — one compact line per conversation. */}
+        {/* Recents — one compact line per conversation, filtered / sorted / grouped
+            by the "Filter & sort" menu. When Group by ≠ None each bucket gets a
+            small header; otherwise it's one flat, header-less list. */}
         <div className="mt-3 flex items-center justify-between pr-1">
           <SectionLabel className="mt-0">Recents</SectionLabel>
-          <button
-            title="Filter & sort"
-            className="flex h-5 w-5 items-center justify-center rounded text-ink-faint transition hover:bg-surface/70 hover:text-ink-soft"
-          >
-            <SlidersHorizontal size={14} />
-          </button>
+          <SessionFilterMenu filter={filter} onChange={updateFilter} projects={projects} />
         </div>
 
-        {sessions.map((c) => {
-          const active = inSession && c.id === activeId
-          return (
-            <button
-              key={c.id}
-              onClick={() => onSelect(c.id)}
-              title={c.preview}
-              className={`group flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition ${
-                active ? 'bg-surface shadow-sm ring-1 ring-line-strong' : 'hover:bg-surface/70'
-              }`}
-            >
-              <Dot active={active} />
-              <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{c.title}</span>
-            </button>
-          )
-        })}
+        {groups.map((g) => (
+          <Fragment key={g.key}>
+            {g.label && <GroupHeader>{g.label}</GroupHeader>}
+            {g.sessions.map((c) => (
+              <SessionRow
+                key={c.id}
+                session={c}
+                active={inSession && c.id === activeId}
+                onSelect={() => onSelect(c.id)}
+              />
+            ))}
+          </Fragment>
+        ))}
+        {total === 0 && (
+          <p className="px-2 py-3 text-[12px] text-ink-faint">No sessions match these filters.</p>
+        )}
       </div>
 
       <div className="border-t border-line px-3 py-2.5">
@@ -213,6 +240,35 @@ function SectionLabel({ children, className = '' }: { children: ReactNode; class
       {children}
     </div>
   )
+}
+
+/** One Recents row — a leading dot plus the session title. */
+function SessionRow({
+  session,
+  active,
+  onSelect,
+}: {
+  session: Session
+  active: boolean
+  onSelect: () => void
+}) {
+  return (
+    <button
+      onClick={onSelect}
+      title={session.preview}
+      className={`group flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition ${
+        active ? 'bg-surface shadow-sm ring-1 ring-line-strong' : 'hover:bg-surface/70'
+      }`}
+    >
+      <Dot active={active} />
+      <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{session.title}</span>
+    </button>
+  )
+}
+
+/** A group divider label shown above each bucket when Group by ≠ None. */
+function GroupHeader({ children }: { children: ReactNode }) {
+  return <div className="px-2 pb-1 pt-2.5 text-[11px] font-semibold text-ink-faint">{children}</div>
 }
 
 /** A leading status dot — filled for the active item, a hollow ring otherwise. */

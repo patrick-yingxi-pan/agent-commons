@@ -168,6 +168,11 @@ export const store = {
       updatedLabel: s.updatedLabel,
       preview: s.preview,
       isDemo: s.isDemo,
+      // Sidebar filter/sort backing — cheap scalars, safe to ship in the list rows.
+      status: s.status,
+      environment: s.environment,
+      updatedAt: s.updatedAt,
+      createdAt: s.createdAt,
     }))
   },
   /** A full session by id (messages/artifacts/repo included). */

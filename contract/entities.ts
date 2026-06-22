@@ -160,4 +160,19 @@ export interface Session {
    *  lets the title bar show a "Scheduled run of ‹routine›" breadcrumb without the
    *  client needing the run-synthesis logic. Set by the backend for `srun-*` ids. */
   scheduledRunOf?: { taskId: string; taskName: string }
+  /** ── Sidebar filter / sort backing (the Recents "Filter & sort" menu) ──
+   *  All optional so draft / synthesized sessions need not set them; the filter
+   *  treats a missing value as the neutral default (active, local, epoch 0). */
+  /** Archival status. The Recents filter defaults to showing only `active`;
+   *  `archived` sessions are hidden until the Status filter is widened. */
+  status?: 'active' | 'archived'
+  /** Where the session's compute runs. Only `local` is wired today; `cloud` and
+   *  `remote` are reserved for when those backends exist.
+   *  TODO(env): populate `cloud` / `remote` once those environments ship. */
+  environment?: 'local' | 'cloud' | 'remote'
+  /** Sortable activity timestamps (epoch ms). `updatedAt` backs recency sort and
+   *  the "Last activity" filter; `createdAt` backs the "Created time" sort.
+   *  `updatedLabel` stays the human-facing display string. */
+  updatedAt?: number
+  createdAt?: number
 }
