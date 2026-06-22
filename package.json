@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "description": "A prototype proposing a unified Chat / Cowork / Code experience for the Claude desktop app.",
+  "license": "AGPL-3.0-only",
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:ui": "vite",
