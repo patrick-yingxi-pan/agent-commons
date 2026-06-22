@@ -23,7 +23,9 @@ The prototype proposes the alternative: you just start talking, and **context
 **progressively reveals** the right tools — artifacts for a workspace, a code
 editor / diff / terminal for a repo — all inside one conversation, one history.
 
-See [`PROPOSAL.md`](PROPOSAL.md) for the full write-up.
+See [`PROPOSAL.md`](PROPOSAL.md) for the full write-up. **Evaluating this with a
+code agent?** [`AGENTS.md`](AGENTS.md) is the agent-facing digest — quick start,
+how to verify, and a claim-by-claim evaluation guide.
 
 ## What the demo shows
 
@@ -160,5 +162,6 @@ src/
 
 ## Status
 
-Private prototype. Intended to be made public and shared with Anthropic
-alongside the written proposal once it's ready.
+A public proposal prototype, shared with Anthropic as constructive feedback
+alongside the written proposal. An **independent concept** — mock data, **not
+affiliated with or endorsed by Anthropic**.
