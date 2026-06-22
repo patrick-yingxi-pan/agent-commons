@@ -72,6 +72,7 @@ import {
 } from '../api'
 import { ArtifactThumb, ArtifactViewer, KIND_ICON } from './artifactPreview'
 import { useRelations } from '../controller/useRelations'
+import { runSessionId } from '../../contract/ids.ts'
 
 /** The main area when a cross-cutting tool (Projects, Artifacts, …) is open
  *  instead of a conversation. All content is mock — this is a clickable demo.
@@ -120,7 +121,11 @@ export function SectionView({
     ) : section === 'scheduled' ? (
       // Key on the deep-link target so a run session's breadcrumb remounts
       // straight into that routine's detail (mirrors Projects above).
-      <ScheduledSection key={initialScheduleId ?? 'scheduled-list'} initialOpenId={initialScheduleId} />
+      <ScheduledSection
+        key={initialScheduleId ?? 'scheduled-list'}
+        initialOpenId={initialScheduleId}
+        onOpenSession={onOpenSession}
+      />
     ) : (
       <GenericSection section={section} />
     )
@@ -1255,7 +1260,14 @@ function taskPill(task: ScheduledTask): { tone: 'ok' | 'warn' | 'bad' | 'neutral
   return { tone: 'ok', label: last ? `Ran ${last.absolute}` : 'Active' }
 }
 
-function ScheduledSection({ initialOpenId = null }: { initialOpenId?: string | null }) {
+function ScheduledSection({
+  initialOpenId = null,
+  onOpenSession,
+}: {
+  initialOpenId?: string | null
+  /** Open a run's session (the run-history rows + the rail both land here). */
+  onOpenSession: (id: string) => void
+}) {
   // The routines come from the server; ScheduledSection keeps a local working
   // The routines + their runs come straight from the server now (one live source,
   // shared with the rail's recent-runs feed). Mutations are commands; the run.*
@@ -1313,6 +1325,7 @@ function ScheduledSection({ initialOpenId = null }: { initialOpenId?: string | n
         onBack={() => setOpenId(null)}
         onToggleEnabled={() => toggleEnabled(open.id)}
         onRunNow={() => runNow(open.id)}
+        onOpenSession={onOpenSession}
         onRemove={() => {
           remove(open.id)
           setOpenId(null)
@@ -1613,6 +1626,7 @@ function ScheduledDetail({
   onBack,
   onToggleEnabled,
   onRunNow,
+  onOpenSession,
   onRemove,
 }: {
   task: ScheduledTask
@@ -1620,9 +1634,11 @@ function ScheduledDetail({
   onBack: () => void
   onToggleEnabled: () => void
   onRunNow: () => void
+  /** Open a run's session — the run-history rows link here, same destination as
+   *  clicking the routine in the left rail. */
+  onOpenSession: (id: string) => void
   onRemove: () => void
 }) {
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(task.runs[0]?.id ?? null)
   const [notifyOnFail, setNotifyOnFail] = useState(true)
   const rel = useRelations()
   // Standing-approved recurring effects: an AI "save X each run" / "open a
@@ -1633,17 +1649,11 @@ function ScheduledDetail({
   const deliveryTarget = savedArtifact ?? sessionTarget ?? task.delivery.target
   const preApproved = !!(savedArtifact || sessionTarget)
 
-  // Snap the selection to the freshest run whenever a run finishes (so "Run now"
-  // lights the run you just triggered, not the previous one) — but leave a manual
-  // pick of an older run alone, since neither dep changes then.
-  const freshestRunId = task.runs[0]?.id ?? null
-  useEffect(() => {
-    if (!running) setSelectedRunId(freshestRunId)
-  }, [running, freshestRunId])
-
-  // The rail reflects the selected run (default = freshest). A live "Run now"
-  // overrides it with an in-flight state until the new run resolves.
-  const selectedRun = running ? null : (task.runs.find((r) => r.id === selectedRunId) ?? task.runs[0] ?? null)
+  // The rail reflects the freshest run (a live "Run now" overrides it with an
+  // in-flight state until the new run resolves). Inspecting an *older* run is now
+  // done by opening its session from the run history, which carries the full
+  // thread + its own run switcher.
+  const shownRun = running ? null : (task.runs[0] ?? null)
   const DeliveryIcon = stepToolIcon(task.delivery.tool.id)
 
   return (
@@ -1707,8 +1717,8 @@ function ScheduledDetail({
       <div className="flex flex-col gap-6 lg:flex-row">
         <div className="min-w-0 flex-1 space-y-4">
           <PromptCard prompt={task.prompt} />
-          <WorkflowCard task={task} run={selectedRun} running={running} />
-          <RunHistoryCard task={task} selectedRunId={selectedRun?.id ?? null} onSelect={setSelectedRunId} />
+          <WorkflowCard task={task} run={shownRun} running={running} />
+          <RunHistoryCard task={task} onOpenRun={(runId) => onOpenSession(runSessionId(task.id, runId))} />
         </div>
 
         <aside className="w-full shrink-0 space-y-4 lg:w-72">
@@ -1958,16 +1968,15 @@ function WeekStrip({ runs }: { runs: ScheduledRun[] }) {
   )
 }
 
-/** Recent runs — a 7-day reliability strip plus a selectable list; picking a run
- *  re-lights the Workflow rail above to show how far that run got. */
+/** Recent runs — a 7-day reliability strip plus the run list; each row opens that
+ *  run's own session (its full thread + run switcher), the same destination as
+ *  clicking the routine in the left rail. */
 function RunHistoryCard({
   task,
-  selectedRunId,
-  onSelect,
+  onOpenRun,
 }: {
   task: ScheduledTask
-  selectedRunId: string | null
-  onSelect: (id: string) => void
+  onOpenRun: (id: string) => void
 }) {
   return (
     <div className="rounded-xl border border-line bg-surface shadow-sm">
@@ -1980,13 +1989,7 @@ function RunHistoryCard({
       ) : (
         <div>
           {task.runs.map((r, i) => (
-            <RunRow
-              key={r.id}
-              run={r}
-              first={i === 0}
-              selected={r.id === selectedRunId}
-              onSelect={() => onSelect(r.id)}
-            />
+            <RunRow key={r.id} run={r} first={i === 0} onOpen={() => onOpenRun(r.id)} />
           ))}
         </div>
       )}
@@ -1997,21 +2000,19 @@ function RunHistoryCard({
 function RunRow({
   run,
   first,
-  selected,
-  onSelect,
+  onOpen,
 }: {
   run: ScheduledRun
   first: boolean
-  selected: boolean
-  onSelect: () => void
+  onOpen: () => void
 }) {
   return (
     <button
-      onClick={onSelect}
-      aria-pressed={selected}
-      className={`flex w-full items-start gap-3 px-4 py-3 text-left transition hover:bg-panel-2/60 ${
+      onClick={onOpen}
+      title="Open this run’s session"
+      className={`group flex w-full items-start gap-3 px-4 py-3 text-left transition hover:bg-panel-2/60 ${
         first ? '' : 'border-t border-line'
-      } ${selected ? 'bg-accent-tint/50' : ''}`}
+      }`}
     >
       <RunStatusIcon status={run.status} />
       <div className="min-w-0 flex-1">
@@ -2025,6 +2026,10 @@ function RunRow({
           {run.summary}
         </p>
       </div>
+      <ChevronRight
+        size={15}
+        className="mt-0.5 shrink-0 text-ink-faint opacity-0 transition group-hover:opacity-100"
+      />
     </button>
   )
 }

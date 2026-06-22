@@ -27,17 +27,27 @@ function connectorsFor(task: ScheduledTask): Connector[] {
 }
 
 /** Turn one execution into a readable session: the standing instruction it ran,
- *  then Claude's recap of what that run did (or why it stopped / stayed quiet). */
+ *  then Claude's recap of what that run did (or why it stopped / stayed quiet).
+ *  Each run carries its own `detail` (the output it produced), so two runs of the
+ *  same routine read as distinct history rather than the same templated recap;
+ *  a run without one falls back to a recap generated from its steps + summary.
+ *  The run's own when/duration are stamped in either way. */
 export function buildRunSession(task: ScheduledTask, run: ScheduledRun): Session {
+  const stamp = run.duration && run.duration !== '—' ? `${run.when} · ran in ${run.duration}` : run.when
   let recap: string
   if (run.status === 'failed') {
-    recap = `Heads up — this run failed. ${run.summary}. I'll retry on the next run once it's resolved.`
+    // Name the step it stopped at, so a failed run reads as a specific incident.
+    const failedStep = task.steps[run.reachedStep]
+    recap =
+      `Heads up — this run failed (${stamp}). ${run.summary}.` +
+      (failedStep ? `\n\nIt stopped at step ${run.reachedStep + 1}, “${failedStep.action}”, so nothing after it ran.` : '') +
+      (run.detail ? `\n\n${run.detail}` : '') +
+      `\n\nI'll retry on the next scheduled run once it's cleared.`
   } else if (run.status === 'skipped') {
-    recap = `${run.summary}. Nothing needed doing this run, so I left everything as it was.`
+    recap = `${run.summary} (${stamp}).` + (run.detail ? `\n\n${run.detail}` : '\n\nThe trigger condition wasn’t met, so I left everything as it was.')
   } else {
-    recap = `Done — ${run.summary}.\n\nSteps this run:\n${task.steps
-      .map((s, i) => `${i + 1}. ${s.action}`)
-      .join('\n')}\n\nDelivered to ${task.delivery.target}.`
+    const body = run.detail ?? task.steps.map((s, i) => `${i + 1}. ${s.action}`).join('\n')
+    recap = `Done — ${run.summary} (${stamp}).\n\n${body}\n\nDelivered to ${task.delivery.target}.`
   }
   return {
     id: runSessionId(task.id, run.id),

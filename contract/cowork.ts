@@ -81,6 +81,11 @@ export interface ScheduledRun {
   /** Minutes-ago, for ordering runs newest-first *across* routines in the left
    *  rail's "recent runs" list. Smaller = more recent. */
   at: number
+  /** The output this specific run produced — the body of its session thread, so
+   *  two runs of the same routine read as distinct history (the briefing it
+   *  wrote, the digest it posted, what tripped a failure). Optional: a run
+   *  without one falls back to a recap generated from its steps + summary. */
+  detail?: string
 }
 
 /** A scheduled task isn't a cron toggle — it's a recurring agentic workflow: on a
