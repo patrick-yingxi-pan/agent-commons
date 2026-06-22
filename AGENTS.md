@@ -111,6 +111,17 @@ the mock?
   the running app, not just by reading code.
 - **Git:** this repo commits and pushes straight to `main` over HTTPS.
 
+### Design decisions (locked in)
+
+- **Light theme only.** There is no dark mode — no `dark:` variants and no theme
+  toggle. Don't add one unless the proposal direction changes.
+- **No "before" view.** The prototype deliberately does *not* reproduce today's
+  three-tab UI. The motivation lives in the docs and the in-app tour captions, and
+  reviewers can diff against the live app — so don't build a side-by-side "before".
+- **The dev server binds IPv4** (`server.host: '127.0.0.1'` in `vite.config.ts`).
+  On some hosts `localhost` resolves to `::1` only, which a browser/preview hitting
+  `127.0.0.1` can't reach. Keep the explicit bind (the API proxy targets it too).
+
 ## Repo map (detail in [`README.md`](README.md))
 
 ```

@@ -20,3 +20,5 @@ Essentials:
 - **Mock by design:** no real model; seed data in `server/data/`. Don't file
   intentional mock behavior as bugs.
 - **Git:** commit and push straight to `main` over HTTPS.
+- **Design decisions (locked in):** light theme only (no dark mode), no "before"
+  view, and the dev server binds IPv4 (`127.0.0.1`). See `AGENTS.md` for the why.
