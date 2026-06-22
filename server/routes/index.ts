@@ -162,14 +162,11 @@ export function buildRouter(): Router {
     if (!run) return sendError(res, 'not_found', `No schedule '${params.id}'`)
     sendJson(res, run)
   })
-  // Toggle a routine on/off.
+  // Set a routine's enabled state (or toggle when `enabled` is omitted).
   r.patch('/schedules/:id', async ({ res, params, body }) => {
     const { enabled } = await body<{ enabled?: boolean }>()
-    const task = store.toggleSchedule(params.id)
+    const task = store.setScheduleEnabled(params.id, enabled)
     if (!task) return sendError(res, 'not_found', `No schedule '${params.id}'`)
-    // `enabled` in the body is advisory; toggle already flipped it. (Kept simple
-    // for the mock; a real API would set the exact value.)
-    void enabled
     sendJson(res, task)
   })
   // Add a routine from a template's seed (lands paused).

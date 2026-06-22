@@ -1,44 +1,42 @@
 import type { ArtifactKind } from '../../contract/entities.ts'
 
+/** Types are the contract's; this file only holds the seed *data* that fills
+ *  them. We import them so the consts below type-check, and re-export them so
+ *  existing importers of `../data/cowork` keep resolving (the src shim does
+ *  `export *`). */
+import type {
+  ProjectSchedule,
+  ProjectContext,
+  Project,
+  StepToolTone,
+  StepTool,
+  WorkflowStep,
+  ScheduledDelivery,
+  ScheduledRun,
+  ScheduledTask,
+  ScheduleTemplate,
+  ArtifactItem,
+  DispatchRun,
+} from '../../contract/cowork.ts'
+export type {
+  ProjectSchedule,
+  ProjectContext,
+  Project,
+  StepToolTone,
+  StepTool,
+  WorkflowStep,
+  ScheduledDelivery,
+  ScheduledRun,
+  ScheduledTask,
+  ScheduleTemplate,
+  ArtifactItem,
+  DispatchRun,
+} from '../../contract/cowork.ts'
+
 /** The backend's seed data behind the sidebar's cross-cutting tools (Projects,
  *  Artifacts, Scheduled, Dispatch). In the real product this comes from a
  *  database; here the mock server holds it in memory and serves it over the API.
- *  (The entity types are restated in contract/cowork.ts as the shared wire
- *  shapes; these local copies are reconciled to the contract as each read
- *  migrates.) */
-
-/** A scheduled run that belongs to a project (shown in the project's right-hand
- *  panel). Mirrors the shape of the global SCHEDULED_TASKS but scoped to one
- *  project, so a project can list its own cadence without a join. */
-export interface ProjectSchedule {
-  name: string
-  cadence: string
-  enabled: boolean
-}
-
-/** A piece of context attached to a project — a folder, a repo, a connector, or
- *  a knowledge doc. Drives the icon + label in the project's "Context" panel. */
-export interface ProjectContext {
-  kind: 'folder' | 'repo' | 'connector' | 'doc'
-  label: string
-  meta: string
-}
-
-export interface Project {
-  id: string
-  name: string
-  description: string
-  updated: string
-  /** Custom instructions Claude follows inside this project (right panel). */
-  instructions: string
-  /** Recurring runs scoped to this project (right panel). */
-  scheduled: ProjectSchedule[]
-  /** Folders, repos, connectors, and docs this project carries (right panel). */
-  contexts: ProjectContext[]
-  /** Sessions that live in this project (main panel) — ids into
-   *  SESSIONS so each row opens the real thread. */
-  sessionIds: string[]
-}
+ *  The entity types are the shared wire shapes in contract/cowork.ts. */
 
 export const PROJECTS: Project[] = [
   {
@@ -121,84 +119,6 @@ export const PROJECTS: Project[] = [
  *  match, which — under the single-home rule — is the only one. */
 export function projectForSession(sessionId: string): Project | undefined {
   return PROJECTS.find((p) => p.sessionIds.includes(sessionId))
-}
-
-/** The hue of a workflow step's tool chip. Connector/MCP/repo/workspace map onto
- *  the shared CHIP_TONES palette; 'web' and 'claude' are rendered neutral (a
- *  built-in tool / a pure-reasoning step) so the rail never has a colorless hole. */
-export type StepToolTone = 'connector' | 'mcp' | 'repo' | 'workspace' | 'web' | 'claude'
-
-/** The tool a single workflow step leans on — drives the step chip's icon, label,
- *  and tone, and (via `needsAuth`) the amber marker that explains a failed run. */
-export interface StepTool {
-  id: string
-  label: string
-  tone: StepToolTone
-  needsAuth?: boolean
-}
-
-/** One ordered step in a scheduled task's workflow — an imperative action and the
- *  tool it uses. Renders as a single node on the detail page's vertical rail. */
-export interface WorkflowStep {
-  id: string
-  action: string
-  tool: StepTool
-}
-
-/** Where a task's output lands — the rail's terminal node and the "Delivers to"
- *  side panel. */
-export interface ScheduledDelivery {
-  tool: StepTool
-  target: string
-  note?: string
-}
-
-/** One past execution of a scheduled task. `reachedStep` is how far the run got
- *  (drives the detail rail's relight: steps 0..reachedStep-1 turn green; a failed
- *  run stops red at `reachedStep`). `summary` is the one line of what it produced. */
-export interface ScheduledRun {
-  id: string
-  status: 'ok' | 'failed' | 'running' | 'skipped'
-  when: string
-  absolute: string
-  duration: string
-  reachedStep: number
-  summary: string
-  /** Minutes-ago, for ordering runs newest-first *across* routines in the left
-   *  rail's "recent runs" list. Smaller = more recent. */
-  at: number
-}
-
-/** A scheduled task isn't a cron toggle — it's a recurring agentic workflow: on a
- *  cadence Claude runs an ordered sequence of steps (each using a tool) and
- *  delivers the result somewhere. The first six fields are the original shape the
- *  Projects "Scheduled" panel still reads; everything below is the workflow. */
-export interface ScheduledTask {
-  id: string
-  name: string
-  cadence: string
-  next: string
-  enabled: boolean
-  lastStatus: 'ok' | 'failed' | 'pending'
-  /** Plain-language one-liner for the row + detail header sub-line. */
-  subtitle: string
-  /** The human "when" sentence for the workflow's WHEN band (no cron syntax). */
-  trigger: string
-  /** The verbatim instruction every run executes against. */
-  prompt: string
-  /** The ordered workflow — the detail page's centerpiece. */
-  steps: WorkflowStep[]
-  /** The terminal: where each run's output goes. */
-  delivery: ScheduledDelivery
-  /** Recent executions, newest first. */
-  runs: ScheduledRun[]
-  /** Model + effort the task runs on, e.g. "Claude Opus 4.8 · High". */
-  model: string
-  timezone?: string
-  /** Faint "Started … · N runs" stamp for the Schedule panel. */
-  startedLabel?: string
-  /** Home project, if any — cross-links into the Projects section. */
-  projectId?: string
 }
 
 /** The tools the mock workflows reference. Kept in one place so a tool reads the
@@ -388,18 +308,6 @@ export const SCHEDULED_TASKS: ScheduledTask[] = [
   },
 ]
 
-/** A starter a user can spin up from "New schedule" — a fully-formed workflow
- *  (steps, cadence, delivery, prompt) that's seeded into local state as a new,
- *  paused task and opened straight into its detail. `preview` is the plain-language
- *  pipeline shape shown in the popover row. */
-export interface ScheduleTemplate {
-  category: string
-  name: string
-  preview: string
-  /** Everything but the id — the id is minted when the user adds it. */
-  seed: Omit<ScheduledTask, 'id'>
-}
-
 export const SCHEDULE_TEMPLATES: ScheduleTemplate[] = [
   {
     category: 'Start from scratch',
@@ -524,23 +432,6 @@ export const SCHEDULE_TEMPLATES: ScheduleTemplate[] = [
     },
   },
 ]
-
-export interface ArtifactItem {
-  id: string
-  name: string
-  kind: ArtifactKind
-  meta: string
-  /** The conversation that produced it. */
-  source: string
-  /** The project it belongs to (groups the Artifacts gallery). */
-  projectId: string
-  /** A one-line preview shown on the card and in the viewer. */
-  excerpt?: string
-  /** Relative last-edited label, e.g. "4 hours ago". */
-  edited: string
-  /** The surface it came from — Cowork, Code, or Chat. */
-  tag: 'Cowork' | 'Code' | 'Chat'
-}
 
 export const ALL_ARTIFACTS: ArtifactItem[] = [
   // ── Insights dashboard ───────────────────────────────────────────────────
@@ -768,14 +659,6 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
     tag: 'Code',
   },
 ]
-
-export interface DispatchRun {
-  id: string
-  title: string
-  status: 'running' | 'done' | 'failed'
-  when: string
-  detail: string
-}
 
 export const DISPATCH_RUNS: DispatchRun[] = [
   {

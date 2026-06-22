@@ -339,9 +339,10 @@ export const PHOTO_OPTIONS = [
   { id: 'p9', label: 'icon-set.png' },
 ]
 
-/** The "Add context" types, in the order they appear in the picker. The recents
- *  store (lib/recents.ts) is keyed by these. */
-export type ContextTypeId = 'files' | 'photos' | 'folder' | 'repo' | 'connector' | 'mcp'
+/** The "Add context" types (the recents store is keyed by these) — the one home
+ *  is the contract; re-exported here so this module's consumers keep resolving. */
+export type { ContextTypeId } from '../../contract/contexts.ts'
+import type { ContextTypeId } from '../../contract/contexts.ts'
 
 /** What each type's "Recent" list shows before the user has picked anything —
  *  the first few catalog ids. Items outside this seed are reachable via the

@@ -42,6 +42,7 @@ declare module 'node:path' {
   export function extname(p: string): string
   export function resolve(...parts: string[]): string
   export function dirname(p: string): string
+  export const sep: string
 }
 
 declare module 'node:url' {
@@ -54,6 +55,7 @@ declare const process: {
   cwd(): string
   platform: string
   exit(code?: number): never
+  on(event: string, listener: (...args: unknown[]) => void): void
 }
 
 declare const Buffer: {

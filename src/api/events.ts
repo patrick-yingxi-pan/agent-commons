@@ -68,7 +68,15 @@ export function connectEvents(): void {
       /* ignore a malformed frame */
     }
   }
-  // EventSource reconnects on its own; nothing to do on error but let it retry.
+  // EventSource retries transient errors itself. If it gives up entirely (the
+  // server was down at load, or a long outage), it lands in CLOSED — reset and
+  // reconnect with a small backoff so the UI recovers without a reload.
+  source.onerror = () => {
+    if (source && source.readyState === EventSource.CLOSED) {
+      source = null
+      setTimeout(connectEvents, 2000)
+    }
+  }
 }
 
 /** Mount-time hook: ensure the app is subscribed to server pushes. */

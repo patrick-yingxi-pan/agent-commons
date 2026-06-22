@@ -25,6 +25,11 @@ interface Entry {
   subs: Set<() => void>
   inFlight?: Promise<void>
   fetcher?: () => Promise<unknown>
+  /** Bumped on every write (a started fetch, an optimistic mutate, a setData). A
+   *  fetch only applies its result if the generation is still its own — so a
+   *  stale in-flight fetch can't clobber a newer optimistic/authoritative write
+   *  or a more recent refetch (epoch reset, rapid invalidations). */
+  gen: number
 }
 
 const entries = new Map<string, Entry>()
@@ -33,7 +38,7 @@ const IDLE: QueryState<unknown> = { status: 'idle', data: undefined, error: unde
 function getEntry(key: string): Entry {
   let e = entries.get(key)
   if (!e) {
-    e = { state: IDLE, subs: new Set() }
+    e = { state: IDLE, subs: new Set(), gen: 0 }
     entries.set(key, e)
   }
   return e
@@ -56,14 +61,19 @@ function ensure(key: string, fetcher: () => Promise<unknown>): void {
 
 function run(key: string, fetcher: () => Promise<unknown>): void {
   const e = getEntry(key)
+  const myGen = (e.gen += 1)
   setState(key, { status: 'loading', data: e.state.data, error: undefined })
   e.inFlight = fetcher()
     .then(
-      (data) => setState(key, { status: 'success', data, error: undefined }),
-      (error) => setState(key, { status: 'error', data: e.state.data, error: error as Error }),
+      (data) => {
+        if (e.gen === myGen) setState(key, { status: 'success', data, error: undefined })
+      },
+      (error) => {
+        if (e.gen === myGen) setState(key, { status: 'error', data: e.state.data, error: error as Error })
+      },
     )
     .finally(() => {
-      e.inFlight = undefined
+      if (e.gen === myGen) e.inFlight = undefined
     })
 }
 
@@ -79,11 +89,13 @@ export function invalidate(key: string): void {
 export function mutate<T>(key: string, updater: (prev: T | undefined) => T): void {
   const e = entries.get(key)
   if (!e) return
+  e.gen += 1 // an optimistic write supersedes any in-flight fetch
   setState(key, { status: 'success', data: updater(e.state.data as T | undefined), error: undefined })
 }
 
 /** Seed/replace a key's data directly (e.g. a command's authoritative result). */
 export function setData<T>(key: string, data: T): void {
+  getEntry(key).gen += 1 // an authoritative write supersedes any in-flight fetch
   setState(key, { status: 'success', data, error: undefined })
 }
 

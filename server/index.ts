@@ -11,7 +11,7 @@
  *  In dev, Vite serves the UI with HMR and proxies `/api/*` here. */
 import { createServer } from 'node:http'
 import { readFileSync, existsSync, statSync } from 'node:fs'
-import { join, extname, dirname } from 'node:path'
+import { join, extname, dirname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { API_BASE_PATH } from '../contract/index.ts'
 import { CORS_HEADERS, sendError } from './http/respond.ts'
@@ -69,6 +69,12 @@ function serveStatic(pathname: string, res: import('node:http').ServerResponse):
     return
   }
   let filePath = join(DIST, pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, ''))
+  // Reject path traversal: the resolved path must stay inside DIST. A crafted
+  // `/../../etc/passwd` normalizes out of dist/, so fall back to index.html.
+  const distRoot = resolve(DIST)
+  if (resolve(filePath) !== distRoot && !resolve(filePath).startsWith(distRoot + sep)) {
+    filePath = join(DIST, 'index.html')
+  }
   if (!existsSync(filePath) || !statSync(filePath).isFile()) {
     filePath = join(DIST, 'index.html') // SPA fallback
   }
@@ -81,5 +87,13 @@ server.listen(PORT, HOST, () => {
   console.log(`[mock-backend] http://${HOST}:${PORT}${API_BASE_PATH}  ·  epoch ${store.epoch}`)
   console.log(`[mock-backend] serving ${existsSync(DIST) ? 'built UI (dist/) + ' : ''}API`)
   // The scheduled-run daemon: fires a run on a cadence and pushes it to clients.
-  startRunDaemon()
+  const stopDaemon = startRunDaemon()
+  // Clean shutdown (the dev --watch restart sends SIGTERM): stop the daemon's
+  // interval so it can't outlive the process / pile up across restarts.
+  const shutdown = () => {
+    stopDaemon()
+    process.exit(0)
+  }
+  process.on('SIGTERM', shutdown)
+  process.on('SIGINT', shutdown)
 })

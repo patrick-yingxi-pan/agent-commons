@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { CalendarClock, Folder, PanelLeft } from 'lucide-react'
 import { Sidebar } from './components/Sidebar'
@@ -86,10 +86,18 @@ export default function App() {
 
   // Bridges the relations store needs: attaching a context to the live session
   // (for the AI's `attach-context` op) and the "View in …" deep-link nav.
-  const attachConnector = (c: Connector) =>
-    handleAddContext({ kind: c.kind === 'mcp' ? 'mcp' : 'connector', connector: c })
-  const navigateToSection = (section: SectionId, projectId?: string) =>
-    section === 'projects' && projectId ? openProject(projectId) : openSection(section)
+  // Memoized so the RelationsProvider value (which deps on these) doesn't rebuild
+  // every render — otherwise every useRelations consumer re-renders on each App
+  // render. handleAddContext / openProject / openSection are stable callbacks.
+  const attachConnector = useCallback(
+    (c: Connector) => handleAddContext({ kind: c.kind === 'mcp' ? 'mcp' : 'connector', connector: c }),
+    [handleAddContext],
+  )
+  const navigateToSection = useCallback(
+    (section: SectionId, projectId?: string) =>
+      section === 'projects' && projectId ? openProject(projectId) : openSection(section),
+    [openProject, openSection],
+  )
 
   return (
     <RelationsProvider attachConnector={attachConnector} navigate={navigateToSection}>

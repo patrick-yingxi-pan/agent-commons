@@ -85,9 +85,14 @@ export async function applyRelationOp(op: RelationOp): Promise<void> {
   mutate<RelationGraph>(keys.relations, (g) =>
     applyGraphOp(g ?? emptyGraph(), op, () => `art-opt-${(optSeq += 1)}`),
   )
-  const body: ApplyOpRequest = { op }
-  const updated = await apiPost<RelationGraph>(paths.relationOps, body)
-  setData(keys.relations, updated)
+  try {
+    const body: ApplyOpRequest = { op }
+    const updated = await apiPost<RelationGraph>(paths.relationOps, body)
+    setData(keys.relations, updated)
+  } catch {
+    // The POST failed — drop the optimistic patch by re-reading the server truth.
+    invalidate(keys.relations)
+  }
 }
 
 // ── Scheduled routines ──────────────────────────────────────────────────────
@@ -100,9 +105,9 @@ export async function runScheduleNow(id: string): Promise<void> {
   invalidate(keys.schedules)
 }
 
-/** Toggle a routine on/off. */
-export async function toggleScheduleEnabled(id: string): Promise<void> {
-  await apiPatch(paths.schedule(id), {})
+/** Set a routine's enabled state (omit to toggle server-side). */
+export async function toggleScheduleEnabled(id: string, enabled?: boolean): Promise<void> {
+  await apiPatch(paths.schedule(id), { enabled })
   invalidate(keys.schedules)
   invalidate(keys.recentRuns)
 }
@@ -139,7 +144,7 @@ export function pushRecentId(type: ContextTypeId, id: string): void {
     const cur = snap[type] ?? []
     return { ...snap, [type]: [id, ...cur.filter((x) => x !== id)] }
   })
-  void apiPost(paths.recentsType(type), { id })
+  apiPost(paths.recentsType(type), { id }).catch(() => invalidate(keys.recents))
 }
 
 function dispatch(event: ReplyStreamEvent, h: SendHandlers): void {

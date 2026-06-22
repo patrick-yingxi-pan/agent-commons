@@ -41,12 +41,25 @@ export function sendError(res: ServerResponse, code: ApiErrorCode, message: stri
   sendJson(res, body, STATUS_FOR[code])
 }
 
+/** Max request body — guards against a client exhausting memory. The API only
+ *  ever posts small JSON (a message, an op, an id), so 1 MB is generous. */
+const MAX_BODY_BYTES = 1024 * 1024
+
 /** Read and JSON-parse the request body. Returns `{}` for an empty body so
- *  handlers can destructure without guarding. */
+ *  handlers can destructure without guarding; rejects past the size cap. */
 export function readBody<T>(req: IncomingMessage): Promise<T> {
   return new Promise((resolve, reject) => {
     const chunks: Uint8Array[] = []
-    req.on('data', (c) => chunks.push(c as Uint8Array))
+    let size = 0
+    req.on('data', (c) => {
+      const chunk = c as Uint8Array
+      size += chunk.length
+      if (size > MAX_BODY_BYTES) {
+        reject(new Error('request body too large'))
+        return
+      }
+      chunks.push(chunk)
+    })
     req.on('end', () => {
       if (chunks.length === 0) return resolve({} as T)
       try {

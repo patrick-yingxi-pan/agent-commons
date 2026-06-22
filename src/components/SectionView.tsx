@@ -1271,7 +1271,10 @@ function ScheduledSection({ initialOpenId = null }: { initialOpenId?: string | n
   const timers = useRef<number[]>([])
   useEffect(() => () => timers.current.forEach((t) => window.clearTimeout(t)), [])
 
-  const toggleEnabled = (id: string) => void toggleScheduleEnabled(id)
+  const toggleEnabled = (id: string) => {
+    const t = items.find((x) => x.id === id)
+    void toggleScheduleEnabled(id, t ? !t.enabled : undefined)
+  }
   const remove = (id: string) => void removeSchedule(id)
 
   const runNow = (id: string) => {

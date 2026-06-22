@@ -45,9 +45,9 @@ export class Router {
       try {
         await route.handler(ctx)
       } catch (err) {
-        if (!res.writableEnded) {
-          sendError(res, 'internal', err instanceof Error ? err.message : 'Unhandled error')
-        }
+        // Log the detail server-side; don't leak internals to the client.
+        console.error('[mock-backend] route error:', err)
+        if (!res.writableEnded) sendError(res, 'internal', 'Internal error')
       }
       return true
     }

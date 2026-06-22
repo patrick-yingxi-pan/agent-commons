@@ -255,11 +255,12 @@ export const store = {
     }, 1600)
     return run
   },
-  /** Toggle a routine on/off. */
-  toggleSchedule(id: string): ScheduledTask | undefined {
+  /** Set a routine's enabled state — to an explicit value, or toggle when the
+   *  value is omitted. */
+  setScheduleEnabled(id: string, enabled?: boolean): ScheduledTask | undefined {
     const task = schedules.find((t) => t.id === id)
     if (!task) return undefined
-    task.enabled = !task.enabled
+    task.enabled = enabled ?? !task.enabled
     return task
   },
   /** Add a routine from a template (lands paused), return it. */
