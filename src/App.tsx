@@ -10,6 +10,7 @@ import { SectionView } from './components/SectionView'
 import { AttachmentPanel } from './components/AttachmentPanel'
 import { ConnectorPanel } from './components/ConnectorPanel'
 import { IntroOverlay } from './components/IntroOverlay'
+import { TourPermissionPrompt } from './components/TourPermissionPrompt'
 import { ProposalBar } from './components/ProposalBar'
 import { SearchPanel } from './components/SearchPanel'
 import { useSessions, useServerEvents } from './api'
@@ -48,6 +49,7 @@ export default function App() {
     caption,
     busy,
     totalSteps,
+    pendingApproval,
     bottomRef,
     focusedWorkspace,
     focusedRepo,
@@ -67,6 +69,7 @@ export default function App() {
     startTour,
     nextStep,
     startDemoTour,
+    approveEscalation,
   } = useSessionWorkspace()
 
   const { leftOpen, leftW, leftDragging, toggleLeft, openLeft, startResize, resize, endResize } =
@@ -194,6 +197,25 @@ export default function App() {
                             <MessageRow key={m.id} message={m} />
                           ))}
                           <AnimatePresence>{typing && <TypingRow />}</AnimatePresence>
+                          {/* The tour asks before it escalates: this consent prompt
+                              gates attaching a workspace / repo (see the controller). */}
+                          {pendingApproval && (
+                            <TourPermissionPrompt
+                              key={pendingApproval.kind}
+                              kind={pendingApproval.kind}
+                              rootChoices={
+                                pendingApproval.kind === 'workspace'
+                                  ? pendingApproval.rootChoices
+                                  : undefined
+                              }
+                              connectorLabel={
+                                pendingApproval.kind === 'repo'
+                                  ? pendingApproval.connectorLabel
+                                  : undefined
+                              }
+                              onApprove={approveEscalation}
+                            />
+                          )}
                           <div ref={bottomRef} />
                         </div>
                       )}

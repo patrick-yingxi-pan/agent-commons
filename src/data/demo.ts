@@ -14,6 +14,11 @@ export interface DemoStep {
   diff?: DiffLine[]
   terminal?: string[]
   connectors?: Connector[]
+  /** For an escalating beat (`assistant.escalate` set), config for the inline
+   *  consent prompt shown before the escalation applies. A workspace beat lets
+   *  the user pick a cowork root from `rootChoices` (first = suggested default);
+   *  a repo beat asks to connect the service named in `connectors`. */
+  approval?: { rootChoices: string[] }
 }
 
 export const DEMO_STEPS: DemoStep[] = [
@@ -76,6 +81,9 @@ export const DEMO_STEPS: DemoStep[] = [
         source: { id: 'src-launch-assets', label: 'launch-assets/' },
       },
     ],
+    approval: {
+      rootChoices: ['~/work/insights-dashboard-launch/', '~/projects/insights/', '~/Desktop/'],
+    },
   },
   {
     id: 'step-repo',

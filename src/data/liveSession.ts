@@ -82,6 +82,15 @@ export function workspaceNameFor(session: Session) {
   )
 }
 
+/** The chip/panel label for a user-chosen cowork root: its last path segment,
+ *  e.g. `~/work/insights-launch/` → `insights-launch/`. Keeps the workspace's
+ *  label in the same `folder/` style whichever root the user picks. */
+export function folderLabel(path: string) {
+  const trimmed = path.replace(/\/+$/, '')
+  const base = trimmed.slice(trimmed.lastIndexOf('/') + 1)
+  return base ? base + '/' : path
+}
+
 /** Derive the live view from a seeded session: its workspace (if it has
  *  artifacts) and its repo (if it has files/diff/terminal). The demo starts
  *  empty and grows during the guided tour, so it derives to EMPTY_LIVE. */

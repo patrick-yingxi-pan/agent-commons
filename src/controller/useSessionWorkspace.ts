@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { DEMO_STEPS } from '../data/demo'
+import { DEMO_STEPS, type DemoStep } from '../data/demo'
 import { DEMO_SESSION_ID, SESSIONS } from '../data/sessions'
 import {
   DRAFT_ID,
@@ -7,6 +7,7 @@ import {
   EMPTY_LIVE,
   WS_ID,
   branchFor,
+  folderLabel,
   liveFromSession,
   remoteFor,
   repoIdForLabel,
@@ -44,6 +45,10 @@ export function useSessionWorkspace() {
   const [stepIndex, setStepIndex] = useState(-1)
   const [caption, setCaption] = useState('')
   const [busy, setBusy] = useState(false)
+  // An escalating beat (workspace / repo) holds here until the user consents:
+  // the beat's step waits in `pendingStep` while the inline consent prompt is
+  // shown, and the escalation applies only on approval. Null = nothing pending.
+  const [pendingStep, setPendingStep] = useState<DemoStep | null>(null)
 
   // Timer bookkeeping so switching sessions cancels in-flight callbacks.
   const runId = useRef(0)
@@ -88,10 +93,11 @@ export function useSessionWorkspace() {
     timers.current.push(t)
   }, [])
 
-  // Auto-scroll the thread as messages/typing change.
+  // Auto-scroll the thread as messages/typing change — and when a consent prompt
+  // appears, so it isn't left below the fold.
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [live.messages, typing])
+  }, [live.messages, typing, pendingStep])
 
   const selectSession = useCallback(
     (id: string) => {
@@ -117,12 +123,57 @@ export function useSessionWorkspace() {
             : null,
       )
       setPhase('idle')
+      setPendingStep(null)
       if (session.isDemo) {
         setStepIndex(-1)
         setCaption('')
       }
     },
     [clearTimers],
+  )
+
+  // Apply a beat's escalation to the live session — attach the workspace (using
+  // the user-chosen root as its label) or the repo + its connector — and focus
+  // the newly attached context's sidebar. Split out of playStep so the guided
+  // tour can gate it behind the inline consent prompt: it runs only once the
+  // user approves (see approveEscalation), never automatically.
+  const applyEscalation = useCallback(
+    (step: DemoStep, workspaceRoot?: string) => {
+      setLive((l) => {
+        const next: Live = { ...l }
+        // Guard the id-keyed pushes so a replayed step can't duplicate a panel.
+        if (step.assistant.escalate === 'workspace' && !l.workspaces.some((w) => w.id === 'ws-demo')) {
+          next.workspaces = [
+            ...l.workspaces,
+            {
+              id: 'ws-demo',
+              label: workspaceRoot ? folderLabel(workspaceRoot) : workspaceNameFor(activeSession),
+              artifacts: step.artifacts ?? [],
+            },
+          ]
+        }
+        if (step.assistant.escalate === 'repo' && !l.repos.some((r) => r.id === 'repo-demo')) {
+          next.repos = [
+            ...l.repos,
+            {
+              id: 'repo-demo',
+              label: remoteFor(activeSession.id),
+              origin: 'github',
+              remote: remoteFor(activeSession.id),
+              branch: branchFor(activeSession.id),
+              files: step.files ?? [],
+              diff: step.diff ?? [],
+              terminal: step.terminal ?? [],
+            },
+          ]
+        }
+        if (step.connectors) next.connectors = step.connectors.reduce(withConnector, l.connectors)
+        return next
+      })
+      if (step.assistant.escalate === 'workspace') setFocus({ kind: 'workspace', id: 'ws-demo' })
+      if (step.assistant.escalate === 'repo') setFocus({ kind: 'repo', id: 'repo-demo' })
+    },
+    [activeSession],
   )
 
   const playStep = useCallback(
@@ -136,40 +187,32 @@ export function useSessionWorkspace() {
       setTyping(true)
       schedule(() => {
         setTyping(false)
-        setLive((l) => {
-          const next: Live = { ...l, messages: [...l.messages, step.assistant] }
-          // Guard the id-keyed pushes so a replayed step can't duplicate a panel.
-          if (step.assistant.escalate === 'workspace' && !l.workspaces.some((w) => w.id === 'ws-demo')) {
-            next.workspaces = [
-              ...l.workspaces,
-              { id: 'ws-demo', label: workspaceNameFor(activeSession), artifacts: step.artifacts ?? [] },
-            ]
-          }
-          if (step.assistant.escalate === 'repo' && !l.repos.some((r) => r.id === 'repo-demo')) {
-            next.repos = [
-              ...l.repos,
-              {
-                id: 'repo-demo',
-                label: remoteFor(activeSession.id),
-                origin: 'github',
-                remote: remoteFor(activeSession.id),
-                branch: branchFor(activeSession.id),
-                files: step.files ?? [],
-                diff: step.diff ?? [],
-                terminal: step.terminal ?? [],
-              },
-            ]
-          }
-          if (step.connectors) next.connectors = step.connectors.reduce(withConnector, l.connectors)
-          return next
-        })
-        // Auto-disclose the newly attached context's sidebar (drives the tour).
-        if (step.assistant.escalate === 'workspace') setFocus({ kind: 'workspace', id: 'ws-demo' })
-        if (step.assistant.escalate === 'repo') setFocus({ kind: 'repo', id: 'repo-demo' })
-        setBusy(false)
+        setLive((l) => ({ ...l, messages: [...l.messages, step.assistant] }))
+        // An escalating beat now asks first: append Claude's reply, then hold
+        // here on the inline consent prompt (busy stays true, so "Next" stays
+        // disabled) until the user approves. Non-escalating beats finish now.
+        if (step.assistant.escalate) {
+          setPendingStep(step)
+        } else {
+          setBusy(false)
+        }
       }, 950)
     },
-    [schedule, activeSession],
+    [schedule],
+  )
+
+  // Consent resolved: apply the held beat's escalation (with the chosen cowork
+  // root, for a workspace), clear the prompt, and release "Next". Deny is handled
+  // in the prompt itself (a recoverable "denied" view) and never reaches here, so
+  // the tour can't advance without access.
+  const approveEscalation = useCallback(
+    (workspaceRoot?: string) => {
+      if (!pendingStep) return
+      applyEscalation(pendingStep, workspaceRoot)
+      setPendingStep(null)
+      setBusy(false)
+    },
+    [pendingStep, applyEscalation],
   )
 
   // Resets step/caption too, so this doubles as a one-click "Replay" from the
@@ -179,6 +222,7 @@ export function useSessionWorkspace() {
     setLive(EMPTY_LIVE)
     setStepIndex(-1)
     setCaption('')
+    setPendingStep(null)
     setPhase('running')
     schedule(() => playStep(0), 200)
   }, [clearTimers, playStep, schedule])
@@ -349,6 +393,7 @@ export function useSessionWorkspace() {
     setPhase('idle')
     setStepIndex(-1)
     setCaption('')
+    setPendingStep(null)
   }, [clearTimers])
 
   // Opening a section from the rail always lands on its top level, so clear any
@@ -436,6 +481,18 @@ export function useSessionWorkspace() {
 
   const closePanel = useCallback(() => setFocus(null), [])
 
+  // The view-facing shape of the held consent prompt: which escalation is
+  // pending plus what the prompt needs to render (a workspace beat's root
+  // choices; a repo beat's service name). Null when nothing is pending.
+  const pendingApproval = useMemo(() => {
+    if (!pendingStep) return null
+    const kind = pendingStep.assistant.escalate
+    if (kind === 'workspace') {
+      return { kind, rootChoices: pendingStep.approval?.rootChoices ?? ['~/'] } as const
+    }
+    return { kind: 'repo', connectorLabel: pendingStep.connectors?.[0]?.label ?? 'GitHub' } as const
+  }, [pendingStep])
+
   return {
     // state
     activeId,
@@ -454,6 +511,7 @@ export function useSessionWorkspace() {
     caption,
     busy,
     totalSteps: DEMO_STEPS.length,
+    pendingApproval,
     bottomRef,
     // derived focus
     focusedWorkspace,
@@ -475,5 +533,6 @@ export function useSessionWorkspace() {
     startTour,
     nextStep,
     startDemoTour,
+    approveEscalation,
   }
 }
