@@ -149,12 +149,14 @@ export function Sidebar({
                 aria-expanded={schedOpen}
                 className="flex flex-1 items-center gap-1 px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint transition hover:text-ink-soft"
               >
+                {/* Label left-aligned (matching RECENTS + the row dots); the fold
+                    caret sits to its right, Claude-app "Recents ⌄" style. */}
+                Scheduled
                 <ChevronRight
                   size={12}
                   className={`shrink-0 transition-transform ${schedOpen ? 'rotate-90' : ''}`}
                 />
-                Scheduled
-                <span className="ml-1 font-normal normal-case tracking-normal text-ink-faint">
+                <span className="font-normal normal-case tracking-normal text-ink-faint">
                   recent runs
                 </span>
               </button>
