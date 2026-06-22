@@ -1,6 +1,20 @@
 import { useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { ArrowRight, GitBranch, MessagesSquare, PanelsTopLeft, X } from 'lucide-react'
+import {
+  ArrowRight,
+  GitBranch,
+  LayoutGrid,
+  Layers,
+  MessagesSquare,
+  MonitorSmartphone,
+  PanelsTopLeft,
+  Plus,
+  Search,
+  ShieldCheck,
+  Sparkles,
+  Workflow,
+  X,
+} from 'lucide-react'
 import { ClaudeMark } from './ClaudeMark'
 
 export function IntroOverlay({
@@ -62,7 +76,7 @@ export function IntroOverlay({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ type: 'spring', stiffness: 260, damping: 26 }}
         onClick={(e) => e.stopPropagation()}
-        className="relative w-full max-w-xl overflow-hidden rounded-2xl border border-line bg-surface shadow-xl"
+        className="relative w-full max-w-2xl overflow-hidden rounded-2xl border border-line bg-surface shadow-xl"
       >
         <button
           onClick={onClose}
@@ -80,43 +94,46 @@ export function IntroOverlay({
             </span>
           </div>
 
-          <p className="mt-3 text-sm leading-relaxed text-ink-soft">
-            Today the desktop app splits work across three top-level tabs. But Chat, Cowork, and Code
-            are the same primitive — a conversation with Claude plus some context — wearing three
-            different costumes. The split has a cost:
+          <p className="mt-2.5 text-sm leading-relaxed text-ink-soft">
+            Today the desktop app splits work across three tabs — Chat, Cowork, and Code. They’re one
+            primitive — a conversation plus some context — in three costumes. Here’s what changes when
+            they collapse into a single adaptive thread:
           </p>
 
-          <ul className="mt-3 space-y-2 text-sm text-ink">
-            <Problem>
-              You pick a <b>mode up front</b>, before you know where the work will actually go.
-            </Problem>
-            <Problem>
-              Each tab is a <b>silo</b> — separate history, separate composer. A chat can’t become a
-              coding task without starting over and re-explaining context.
-            </Problem>
-            <Problem>
-              The capabilities <b>overlap heavily</b>, so three tabs read as redundant rather than
-              distinct.
-            </Problem>
-          </ul>
+          <div className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3.5 sm:grid-cols-2">
+            <Win icon={<Layers size={15} />} title="One surface, not three tabs">
+              Chat, Cowork &amp; Code become a single conversation.
+            </Win>
+            <Win icon={<Sparkles size={15} />} title="No mode up front">
+              Just start typing; the workspace appears as the work needs it.
+            </Win>
+            <Win icon={<Workflow size={15} />} title="Context travels the thread">
+              Escalate from chat to files to a repo without re-explaining.
+            </Win>
+            <Win icon={<Plus size={15} />} title="One “Add context”">
+              Files, folders, repos, connectors &amp; MCP through a single door.
+            </Win>
+            <Win icon={<Search size={15} />} title="One history, one search">
+              Every conversation is one row that carries its own tools.
+            </Win>
+            <Win icon={<LayoutGrid size={15} />} title="Tools, not tabs">
+              Projects, Artifacts &amp; Scheduled live as utilities, not modes.
+            </Win>
+            <Win icon={<ShieldCheck size={15} />} title="Claude proposes, you confirm">
+              Filing, saving &amp; scheduling arrive as inline cards to approve.
+            </Win>
+            <Win icon={<MonitorSmartphone size={15} />} title="One contract, no drift">
+              The same UI runs on desktop and web, so they can’t diverge.
+            </Win>
+          </div>
 
-          <div className="mt-4 rounded-xl border border-line bg-panel p-3">
-            <div className="text-xs font-semibold uppercase tracking-wide text-accent-strong">
-              The proposal
-            </div>
-            <p className="mt-1 text-sm leading-relaxed text-ink">
-              Collapse the three tabs into <b>one conversation with an adaptive workspace</b>. You
-              just start talking; context (a folder, a repo, a connector) <i>attaches</i> to the
-              thread, and the panel on the right progressively reveals the right tools.
-            </p>
-            <div className="mt-3 flex items-center justify-center gap-2 text-sm font-medium">
-              <Stage icon={<MessagesSquare size={15} />} label="Chat" />
-              <ArrowRight size={15} className="text-ink-faint" />
-              <Stage icon={<PanelsTopLeft size={15} />} label="Workspace" />
-              <ArrowRight size={15} className="text-ink-faint" />
-              <Stage icon={<GitBranch size={15} />} label="Repo" />
-              <span className="ml-1 text-xs text-ink-faint">· one thread</span>
-            </div>
+          <div className="mt-4 flex items-center justify-center gap-2 rounded-xl border border-line bg-panel py-2.5 text-sm font-medium">
+            <Stage icon={<MessagesSquare size={15} />} label="Chat" />
+            <ArrowRight size={15} className="text-ink-faint" />
+            <Stage icon={<PanelsTopLeft size={15} />} label="Workspace" />
+            <ArrowRight size={15} className="text-ink-faint" />
+            <Stage icon={<GitBranch size={15} />} label="Repo" />
+            <span className="ml-1 text-xs text-ink-faint">· one thread</span>
           </div>
         </div>
 
@@ -141,12 +158,25 @@ export function IntroOverlay({
   )
 }
 
-function Problem({ children }: { children: React.ReactNode }) {
+function Win({
+  icon,
+  title,
+  children,
+}: {
+  icon: React.ReactNode
+  title: string
+  children: React.ReactNode
+}) {
   return (
-    <li className="flex gap-2">
-      <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
-      <span className="leading-relaxed">{children}</span>
-    </li>
+    <div className="flex gap-2.5">
+      <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent-tint text-accent-strong">
+        {icon}
+      </span>
+      <div className="min-w-0">
+        <div className="text-[13px] font-semibold leading-snug text-ink">{title}</div>
+        <p className="mt-0.5 text-[12px] leading-relaxed text-ink-faint">{children}</p>
+      </div>
+    </div>
   )
 }
 
