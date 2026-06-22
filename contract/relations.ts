@@ -119,6 +119,8 @@ export type Approval = 'per-action' | 'standing'
 export type RelationOp =
   // Session ↔ Project — file / move a session into a project (null = unfile).
   | { kind: 'file-session'; sessionId: string; sessionTitle: string; projectId: string | null; projectName: string }
+  // Session ↔ Project — create a new project and file a session into it in one move.
+  | { kind: 'create-project'; projectId: string; projectName: string; projectDescription: string; sessionId: string; sessionTitle: string }
   // Project ↔ Artifact — re-file an existing artifact under a project.
   | { kind: 'refile-artifact'; artifactId: string; artifactName: string; projectId: string; projectName: string }
   // Session ↔ Artifact — save a draft out of the session as an artifact (and,
@@ -145,6 +147,8 @@ export function opKey(op: RelationOp): string {
   switch (op.kind) {
     case 'file-session':
       return `file-session:${op.sessionId}:${op.projectId ?? 'none'}`
+    case 'create-project':
+      return `create-project:${op.projectId}`
     case 'refile-artifact':
       return `refile-artifact:${op.artifactId}:${op.projectId}`
     case 'save-artifact':
@@ -205,6 +209,15 @@ export function describeOp(op: RelationOp): OpDescription {
             relationId: 'session-project',
             approval: 'per-action',
           }
+    case 'create-project':
+      return {
+        text: `Create the **${op.projectName}** project and file **${op.sessionTitle}** into it`,
+        done: `Created ${op.projectName}`,
+        section: 'projects',
+        projectId: op.projectId,
+        relationId: 'session-project',
+        approval: 'per-action',
+      }
     case 'refile-artifact':
       return {
         text: `Move **${op.artifactName}** into **${op.projectName}**`,

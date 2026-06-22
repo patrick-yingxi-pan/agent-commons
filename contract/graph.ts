@@ -20,6 +20,7 @@ export function emptyGraph(): RelationGraph {
     scheduleSession: {},
     scheduleExtraTools: {},
     extraArtifacts: [],
+    extraProjects: [],
     standingApprovals: {},
   }
 }
@@ -56,6 +57,25 @@ export function applyGraphOp(
   switch (op.kind) {
     case 'file-session':
       return { ...graph, sessionProject: { ...graph.sessionProject, [op.sessionId]: op.projectId } }
+    case 'create-project': {
+      // File the session under the (new or already-created) project. A replayed
+      // op finds the project present, so it just (re)files rather than duplicating.
+      const filed = { ...graph.sessionProject, [op.sessionId]: op.projectId }
+      if (graph.extraProjects.some((p) => p.id === op.projectId)) {
+        return { ...graph, sessionProject: filed }
+      }
+      const project: Project = {
+        id: op.projectId,
+        name: op.projectName,
+        description: op.projectDescription,
+        updated: 'just now',
+        instructions: '',
+        scheduled: [],
+        contexts: [],
+        sessionIds: [op.sessionId],
+      }
+      return { ...graph, extraProjects: [project, ...graph.extraProjects], sessionProject: filed }
+    }
     case 'refile-artifact':
       return { ...graph, artifactProject: { ...graph.artifactProject, [op.artifactId]: op.projectId } }
     case 'save-artifact': {

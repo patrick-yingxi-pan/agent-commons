@@ -127,7 +127,10 @@ export default function App() {
               the guided tour, so the product below can read like a real app. ===== */}
       <div className="shrink-0 bg-ink text-canvas">
         <ProposalBar onAbout={() => setShowIntro(true)} />
-        {isDemo && !activeSection && (
+        {/* The caption bar normally hides when a section is open — but during the
+            running tour the create-project beat sends the user to the project page,
+            so keep it visible there so "Next" can bring them back. */}
+        {isDemo && (!activeSection || phase === 'running') && (
           <CaptionBar
             phase={phase}
             stepIndex={stepIndex}
@@ -233,6 +236,11 @@ export default function App() {
                               connectorLabel={
                                 pendingApproval.kind === 'repo'
                                   ? pendingApproval.connectorLabel
+                                  : undefined
+                              }
+                              projectName={
+                                pendingApproval.kind === 'project'
+                                  ? pendingApproval.projectName
                                   : undefined
                               }
                               onApprove={approveEscalation}

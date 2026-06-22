@@ -20,6 +20,7 @@ import { sameFocus } from '../lib/focus'
 import { rememberAttached } from '../lib/contextShortcuts'
 import { runSessionById } from '../data/scheduledRuns'
 import {
+  applyRelationOp,
   deleteSession as deleteSessionCmd,
   patchSession,
   runSessionFromCache,
@@ -188,6 +189,11 @@ export function useSessionWorkspace() {
     (index: number) => {
       const step = DEMO_STEPS[index]
       if (!step) return
+      // A beat always plays in the session thread — so if a prior beat sent the
+      // user to the project page (the create-project detour), advancing returns
+      // here first, then plays.
+      setActiveSection(null)
+      setFocusProjectId(null)
       setStepIndex(index)
       setCaption(step.caption)
       setBusy(true)
@@ -216,11 +222,35 @@ export function useSessionWorkspace() {
   const approveEscalation = useCallback(
     (workspaceRoot?: string) => {
       if (!pendingStep) return
-      applyEscalation(pendingStep, workspaceRoot)
+      if (pendingStep.assistant.escalate === 'project') {
+        // A project beat doesn't touch the live session — it creates a real
+        // project (a server-backed relation op) and files this session into it,
+        // then walks the user to the project's page so the change is visible.
+        // "Next" (still on the caption bar) plays the next beat, which clears the
+        // section and lands back in the thread.
+        const proj = pendingStep.approval?.project
+        if (proj) {
+          applyRelationOp({
+            kind: 'create-project',
+            projectId: proj.id,
+            projectName: proj.name,
+            projectDescription: proj.description,
+            sessionId: activeSession.id,
+            sessionTitle: activeSession.title,
+          })
+          // Same as openProject, inlined to avoid referencing that later const.
+          setActiveSection('projects')
+          setFocusProjectId(proj.id)
+          setFocusScheduleId(null)
+          if (pendingStep.approval?.visitCaption) setCaption(pendingStep.approval.visitCaption)
+        }
+      } else {
+        applyEscalation(pendingStep, workspaceRoot)
+      }
       setPendingStep(null)
       setBusy(false)
     },
-    [pendingStep, applyEscalation],
+    [pendingStep, applyEscalation, activeSession],
   )
 
   // Resets step/caption too, so this doubles as a one-click "Replay" from the
@@ -519,6 +549,9 @@ export function useSessionWorkspace() {
     const kind = pendingStep.assistant.escalate
     if (kind === 'workspace') {
       return { kind, rootChoices: pendingStep.approval?.rootChoices ?? ['~/'] } as const
+    }
+    if (kind === 'project') {
+      return { kind, projectName: pendingStep.approval?.project?.name ?? 'New project' } as const
     }
     return { kind: 'repo', connectorLabel: pendingStep.connectors?.[0]?.label ?? 'GitHub' } as const
   }, [pendingStep])

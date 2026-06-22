@@ -93,6 +93,8 @@ export interface RelationGraph {
   scheduleExtraTools: Record<string, import('./cowork.ts').StepTool[]>
   /** Artifacts saved out of a session by a confirmed proposal. */
   extraArtifacts: import('./cowork.ts').ArtifactItem[]
+  /** Projects created by a confirmed proposal (the base list carries the seed). */
+  extraProjects: import('./cowork.ts').Project[]
   /** opKey → true for recurring schedule effects approved once, in advance. */
   standingApprovals: Record<string, true>
 }

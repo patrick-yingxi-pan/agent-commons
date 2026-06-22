@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Check, Folder, FolderOpen, Github, ShieldAlert } from 'lucide-react'
+import { Check, Folder, FolderOpen, FolderPlus, Github, ShieldAlert } from 'lucide-react'
 
 /** ── The guided tour's consent gate ───────────────────────────────────────────
  *  Before the tour escalates a chat into a workspace — or connects a repo /
@@ -13,6 +13,7 @@ import { Check, Folder, FolderOpen, Github, ShieldAlert } from 'lucide-react'
  *    candidate roots (the browser mock's stand-in for the native picker), and the
  *    one chosen becomes the workspace's root.
  *  • Repo: a single `Connect` approves attaching the repo + its connector.
+ *  • Project: a single `Create project` files this session into a new project.
  *
  *  Deny doesn't dead-end the tour: it flips the card to a recoverable "access
  *  denied" view with `Grant access`, and the tour stays paused (the caption bar's
@@ -21,11 +22,13 @@ export function TourPermissionPrompt({
   kind,
   rootChoices = [],
   connectorLabel = 'GitHub',
+  projectName = 'New project',
   onApprove,
 }: {
-  kind: 'workspace' | 'repo'
+  kind: 'workspace' | 'repo' | 'project'
   rootChoices?: readonly string[]
   connectorLabel?: string
+  projectName?: string
   onApprove: (workspaceRoot?: string) => void
 }) {
   const [denied, setDenied] = useState(false)
@@ -60,7 +63,13 @@ export function TourPermissionPrompt({
         <motion.div
           ref={rootRef}
           role="dialog"
-          aria-label={kind === 'workspace' ? 'Cowork in a folder' : `Connect ${connectorLabel}`}
+          aria-label={
+            kind === 'workspace'
+              ? 'Cowork in a folder'
+              : kind === 'project'
+                ? `Create ${projectName} project`
+                : `Connect ${connectorLabel}`
+          }
           onKeyDown={onKeyDown}
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
@@ -68,7 +77,27 @@ export function TourPermissionPrompt({
           className="min-w-0 flex-1 overflow-hidden rounded-xl border border-line-strong bg-surface shadow-sm"
         >
           {denied ? (
-            <DeniedView kind={kind} connectorLabel={connectorLabel} onRetry={() => setDenied(false)} />
+            <DeniedView
+              kind={kind}
+              connectorLabel={connectorLabel}
+              projectName={projectName}
+              onRetry={() => setDenied(false)}
+            />
+          ) : kind === 'project' ? (
+            <Prompt
+              icon={<FolderPlus size={16} />}
+              title={
+                <>
+                  Claude would like to create the{' '}
+                  <b className="font-semibold text-ink">{projectName}</b> project
+                </>
+              }
+              subtitle="Creates a new project and files this session into it, so its chats, docs, and code live in one place. Nothing else moves."
+              primaryLabel="Create project"
+              primaryRef={primaryRef}
+              onDeny={() => setDenied(true)}
+              onPrimary={() => onApprove()}
+            />
           ) : kind === 'workspace' ? (
             picking ? (
               <FolderPicker
@@ -219,10 +248,12 @@ function FolderPicker({
 function DeniedView({
   kind,
   connectorLabel,
+  projectName,
   onRetry,
 }: {
-  kind: 'workspace' | 'repo'
+  kind: 'workspace' | 'repo' | 'project'
   connectorLabel: string
+  projectName: string
   onRetry: () => void
 }) {
   return (
@@ -235,7 +266,9 @@ function DeniedView({
         <p className="mt-0.5 text-[12px] leading-relaxed text-ink-faint">
           {kind === 'workspace'
             ? 'Claude can’t open a workspace without a folder to work in.'
-            : `Claude can’t connect ${connectorLabel} without your approval.`}{' '}
+            : kind === 'project'
+              ? `Claude can’t create the ${projectName} project without your approval.`
+              : `Claude can’t connect ${connectorLabel} without your approval.`}{' '}
           The tour pauses here until you grant access.
         </p>
         <div className="mt-2.5 flex items-center justify-end">

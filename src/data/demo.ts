@@ -17,8 +17,14 @@ export interface DemoStep {
   /** For an escalating beat (`assistant.escalate` set), config for the inline
    *  consent prompt shown before the escalation applies. A workspace beat lets
    *  the user pick a cowork root from `rootChoices` (first = suggested default);
-   *  a repo beat asks to connect the service named in `connectors`. */
-  approval?: { rootChoices: string[] }
+   *  a repo beat asks to connect the service named in `connectors`; a project
+   *  beat names the `project` to create (and files this session into it), then
+   *  shows `visitCaption` once the tour lands you on that project's page. */
+  approval?: {
+    rootChoices?: string[]
+    project?: { id: string; name: string; description: string }
+    visitCaption?: string
+  }
 }
 
 export const DEMO_STEPS: DemoStep[] = [
@@ -136,10 +142,37 @@ export const DEMO_STEPS: DemoStep[] = [
     },
   },
   {
+    id: 'step-project',
+    caption:
+      'This has grown into a whole effort — so give it a home. Claude asks before it creates anything; approve, and it files this session into a new project and walks you to its page so you can see the change. Next brings you back.',
+    user: {
+      id: 'u-proj',
+      role: 'user',
+      content: 'This is becoming a real effort. Can you give it a home of its own?',
+    },
+    assistant: {
+      id: 'a-proj',
+      role: 'assistant',
+      escalate: 'project',
+      content:
+        "Good idea — I'll spin up an **Insights dashboard launch** project and file this session into it, so the strategy, the docs, and the code all sit under one roof. Approve below and I'll take you straight to it.",
+    },
+    approval: {
+      project: {
+        id: 'p-insights-launch',
+        name: 'Insights dashboard launch',
+        description:
+          'Everything for the Insights dashboard launch — the strategy thread, the one-pager and email, and the feature-flagged rollout.',
+      },
+      visitCaption:
+        'Here it is: a brand-new project with this session already filed inside. Same conversation — now it has a home, and everything it produces will collect here. Next heads back to the thread to wrap up.',
+    },
+  },
+  {
     id: 'step-organize',
     caption:
       'The last move: Claude proposes how to file what you just made — and you approve it, right here in the thread. One-off edits confirm each time; a recurring schedule is approved once, then runs unprompted.',
-    user: { id: 'u5', role: 'user', content: 'Perfect. Tidy this up — file it where it belongs and keep me posted.' },
+    user: { id: 'u5', role: 'user', content: 'Perfect. Tidy this up — save the recap and keep me posted.' },
     assistant: {
       id: 'a5',
       role: 'assistant',
@@ -147,13 +180,8 @@ export const DEMO_STEPS: DemoStep[] = [
         "Here's how I'd organize it. Confirm whatever you want — nothing changes until you do:",
       relationActions: [
         {
-          kind: 'file-session',
-          sessionId: 'insights-launch',
-          sessionTitle: 'Insights dashboard launch',
-          projectId: 'p-insights',
-          projectName: 'Insights dashboard',
-        },
-        {
+          // The session was filed in the previous beat; here we collect the recap
+          // under that same new project and stand up a recurring digest.
           kind: 'save-artifact',
           artifact: {
             name: 'launch-recap.md',
@@ -163,8 +191,8 @@ export const DEMO_STEPS: DemoStep[] = [
           },
           sessionId: 'insights-launch',
           sessionTitle: 'Insights dashboard launch',
-          projectId: 'p-insights',
-          projectName: 'Insights dashboard',
+          projectId: 'p-insights-launch',
+          projectName: 'Insights dashboard launch',
         },
         {
           kind: 'set-schedule-artifact',

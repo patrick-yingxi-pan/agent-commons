@@ -66,7 +66,6 @@ import {
   runScheduleNow,
   toggleScheduleEnabled,
   useDispatchRuns,
-  useProjects,
   useScheduleTemplates,
   useSchedules,
 } from '../api'
@@ -149,7 +148,9 @@ function ProjectsSection({
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState('Last updated')
   const rel = useRelations()
-  const projects = useProjects().data ?? []
+  // Includes projects created mid-tour (the relation graph's extras), so a freshly
+  // created project shows in the list and opens to its detail like any seed one.
+  const projects = rel.allProjects()
 
   const open = openId ? (projects.find((p) => p.id === openId) ?? null) : null
   if (open)
@@ -309,7 +310,11 @@ function ProjectDetail({
         {/* Right panel — instructions, scheduled runs, and attached context. */}
         <aside className="w-full shrink-0 space-y-4 lg:w-72">
           <SidePanel title="Instructions" icon={<FileText size={14} />}>
-            <p className="text-[13px] leading-relaxed text-ink-soft">{project.instructions}</p>
+            {project.instructions ? (
+              <p className="text-[13px] leading-relaxed text-ink-soft">{project.instructions}</p>
+            ) : (
+              <p className="text-[12px] text-ink-faint">No custom instructions yet.</p>
+            )}
           </SidePanel>
 
           <SidePanel title="Scheduled" icon={<Clock size={14} />}>
@@ -338,6 +343,9 @@ function ProjectDetail({
           </SidePanel>
 
           <SidePanel title="Context" icon={<Folder size={14} />}>
+            {contexts.length === 0 ? (
+              <p className="text-[12px] text-ink-faint">No context attached yet.</p>
+            ) : (
             <div className="space-y-2">
               {contexts.map((ctx, i) => {
                 const CIcon = CONTEXT_ICON[ctx.kind]
@@ -350,6 +358,7 @@ function ProjectDetail({
                 )
               })}
             </div>
+            )}
           </SidePanel>
         </aside>
       </div>
@@ -367,7 +376,7 @@ function ArtifactsSection() {
   const [openId, setOpenId] = useState<string | null>(null)
   const [folded, setFolded] = useState<Set<string>>(new Set())
   const rel = useRelations()
-  const projects = useProjects().data ?? []
+  const projects = rel.allProjects()
 
   const foldGroup = (id: string) =>
     setFolded((prev) => {

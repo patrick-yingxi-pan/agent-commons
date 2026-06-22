@@ -100,10 +100,10 @@ export interface Message {
   id: string
   role: 'user' | 'assistant'
   content: string
-  /** When set, replaying this message escalates the conversation: it attaches
-   *  a workspace or a repo and morphs the side panel. This is the heart of the
-   *  "one fluid continuum" demo. */
-  escalate?: 'workspace' | 'repo'
+  /** When set, replaying this message escalates the conversation: it attaches a
+   *  workspace or a repo and morphs the side panel, or (project) files the session
+   *  into a project it creates. This is the heart of the "one fluid continuum" demo. */
+  escalate?: 'workspace' | 'repo' | 'project'
   /** Relation edits Claude proposes inline — rendered as a confirmation card
    *  under the message, applied to the relationship graph only on the user's OK.
    *  Typed as `RelationOp[]` (contract/relations.ts); kept loose here to avoid a

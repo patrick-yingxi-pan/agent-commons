@@ -42,6 +42,9 @@ const EMPTY_GRAPH: RelationGraph = emptyGraph()
 
 export interface RelationsValue {
   applyOp: (op: RelationOp) => void
+  // ── Projects ──
+  /** The seed projects plus any created by a confirmed proposal (graph extras). */
+  allProjects: () => Project[]
   // ── Session ↔ Project ──
   projectIdForSession: (sid: string) => string | null
   projectForSessionId: (sid: string) => Project | undefined
@@ -106,6 +109,7 @@ export function RelationsProvider({
 
     return {
       applyOp,
+      allProjects: () => [...graph.extraProjects, ...projects],
       projectIdForSession,
       projectForSessionId: (sid) => {
         const pid = projectIdForSession(sid)

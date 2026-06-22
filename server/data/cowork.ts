@@ -56,7 +56,8 @@ export const PROJECTS: Project[] = [
       { kind: 'connector', label: 'Figma', meta: 'Insights v2' },
     ],
     // The demo session ('insights-launch') starts *unfiled* — the guided tour's
-    // Organize beat proposes filing it here, so the move is real and visible.
+    // "create a project" beat spins up a fresh project ('p-insights-launch') and
+    // files it there, so that move is real and visible (not into this project).
     sessionIds: ['insights-empty-states', 'dashboard-perf'],
   },
   {
