@@ -5,6 +5,7 @@
 import {
   applyGraphOp,
   emptyGraph,
+  entryById,
   type ApplyOpRequest,
   type ContextTypeId,
   type RecentsSnapshot,
@@ -131,6 +132,45 @@ export async function removeSchedule(id: string): Promise<void> {
  *  without an extra fetch. */
 export function runSessionFromCache(id: string): Session | undefined {
   return peek<RunSessionEntry[]>(keys.recentRuns)?.find((e) => e.session.id === id)?.session
+}
+
+/** Resolve a run session from the live schedules cache — which holds *every* run
+ *  of every routine, not just the recent-feed top-two. The run switcher lists all
+ *  of a routine's runs, so opening one (a live run-now, or an older seed run) must
+ *  resolve against this full set. The cache is warm (the sidebar reads it). */
+export function runSessionFromSchedules(id: string): Session | undefined {
+  const schedules = peek<ScheduledTask[]>(keys.schedules)
+  return schedules ? entryById(schedules, id)?.session : undefined
+}
+
+// ── Sessions (the sidebar row menu's edits) ─────────────────────────────────
+
+/** Patch a session's row fields — rename / pin / archive — from the row menu.
+ *  Optimistically patches the cached list (the row updates instantly), then PATCHes;
+ *  the server's `session.updated` event reconciles every client. */
+export async function patchSession(
+  id: string,
+  patch: { title?: string; status?: 'active' | 'archived'; pinned?: boolean },
+): Promise<void> {
+  mutate<Session[]>(keys.sessions, (list) =>
+    (list ?? []).map((s) => (s.id === id ? { ...s, ...patch } : s)),
+  )
+  try {
+    await apiPatch(paths.session(id), patch)
+  } catch {
+    invalidate(keys.sessions)
+  }
+}
+
+/** Delete a session (the row menu's "Delete"). Optimistically drops it from the
+ *  cached list, then DELETEs; a failed call re-reads the server truth. */
+export async function deleteSession(id: string): Promise<void> {
+  mutate<Session[]>(keys.sessions, (list) => (list ?? []).filter((s) => s.id !== id))
+  try {
+    await apiDelete(paths.session(id))
+  } catch {
+    invalidate(keys.sessions)
+  }
 }
 
 // ── Recents (Add-context shortcut lists) ────────────────────────────────────

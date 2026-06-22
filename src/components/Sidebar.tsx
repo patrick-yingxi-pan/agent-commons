@@ -1,12 +1,30 @@
 import { Fragment, useMemo, useState, type ReactNode } from 'react'
-import { ChevronRight, PanelLeftClose, Plus, Search } from 'lucide-react'
-import type { Project, ScheduledRun, Session, SectionId } from '../types'
+import {
+  Archive,
+  ArchiveRestore,
+  ChevronRight,
+  FolderInput,
+  FolderMinus,
+  PanelLeftClose,
+  PauseCircle,
+  Pencil,
+  Pin,
+  PinOff,
+  Play,
+  PlayCircle,
+  Plus,
+  Search,
+  Trash2,
+} from 'lucide-react'
+import type { Project, ScheduledTask, Session, SectionId } from '../types'
 import { ResizeHandle } from './ResizeHandle'
 import { SessionFilterMenu } from './SessionFilterMenu'
 import { ScheduledFilterMenu } from './ScheduledFilterMenu'
+import { RowMenu, projectMenuItems, type RowMenuItem } from './RowMenu'
 import { SECTION_META, SECTION_ORDER } from '../lib/sections'
-import { useProjects, useRecentRuns } from '../api'
+import { removeSchedule, runScheduleNow, toggleScheduleEnabled, useProjects, useSchedules } from '../api'
 import { useRelations } from '../controller/useRelations'
+import { runSessionId } from '../../contract/ids.ts'
 import { getLayout, setLayout } from '../lib/uiPrefs'
 import {
   filterSessions,
@@ -14,7 +32,12 @@ import {
   saveSessionFilter,
   type SessionFilter,
 } from '../lib/sessionFilter'
-import { filterRuns, loadRunFilter, saveRunFilter, type RunFilter } from '../lib/runFilter'
+import {
+  filterRoutines,
+  loadRoutineFilter,
+  saveRoutineFilter,
+  type RoutineFilter,
+} from '../lib/routineFilter'
 
 // Stable empty fallback so the filter useMemo's deps don't churn while projects load.
 const NO_PROJECTS: Project[] = []
@@ -26,6 +49,11 @@ export function Sidebar({
   onSelect,
   onNewSession,
   onOpenSection,
+  onOpenSchedule,
+  onPinSession,
+  onRenameSession,
+  onArchiveSession,
+  onDeleteSession,
   onToggleCollapse,
   onOpenSearch,
   onResizeStart,
@@ -38,6 +66,13 @@ export function Sidebar({
   onSelect: (id: string) => void
   onNewSession: () => void
   onOpenSection: (s: SectionId) => void
+  /** Open a routine's page in the Scheduled section (the row menu / "no runs" yet). */
+  onOpenSchedule: (scheduleId: string) => void
+  /** Row-menu session edits (controller-owned: delete navigates away if active). */
+  onPinSession: (id: string, pinned: boolean) => void
+  onRenameSession: (id: string, title: string) => void
+  onArchiveSession: (id: string, archived: boolean) => void
+  onDeleteSession: (id: string) => void
   /** Collapse the rail (its own toggle, top-left). Re-opening is handled by a
    *  floating control in the parent, since this one hides with the rail. */
   onToggleCollapse: () => void
@@ -51,9 +86,13 @@ export function Sidebar({
   const inSession = activeSection === null
   // The "Scheduled" section folds (persisted) to save rail space.
   const [schedOpen, setSchedOpen] = useState<boolean>(() => getLayout('schedOpen', true))
-  // The recent-runs feed comes from the server now (a single live source) — a run
-  // the daemon fires appears here without a reload, via the event stream.
-  const recentRuns = useRecentRuns().data ?? []
+  // The rail now lists scheduled *routines* (each entry is the recurring workflow,
+  // not one run of it) — the same live source the Scheduled section reads.
+  const routines = useSchedules().data ?? []
+
+  const { applyOp, projectIdForSession, scheduleProjectId } = useRelations()
+  const projects = useProjects().data ?? NO_PROJECTS
+  const projectName = (pid: string) => projects.find((p) => p.id === pid)?.name ?? 'Project'
 
   // Recents "Filter & sort": the persisted choice, plus the project membership /
   // names it needs to filter and group by project (read from the relations graph).
@@ -62,9 +101,6 @@ export function Sidebar({
     setFilter(next)
     saveSessionFilter(next)
   }
-  const { projectIdForSession, scheduleProjectId } = useRelations()
-  const projects = useProjects().data ?? NO_PROJECTS
-  const projectName = (pid: string) => projects.find((p) => p.id === pid)?.name ?? 'Project'
   const { groups, total } = useMemo(() => {
     return filterSessions(sessions, filter, {
       projectIdOf: projectIdForSession,
@@ -73,27 +109,66 @@ export function Sidebar({
     })
   }, [sessions, filter, projectIdForSession, projects])
 
-  // The Scheduled feed gets the same "Filter & sort" control, retuned for runs
-  // (Status → Outcome). Its own persisted choice + project resolver (routine →
-  // project, via the relations graph).
-  const [runFilter, setRunFilter] = useState<RunFilter>(loadRunFilter)
-  const updateRunFilter = (next: RunFilter) => {
-    setRunFilter(next)
-    saveRunFilter(next)
+  // The Scheduled feed gets the same "Filter & sort" control, retuned for routines
+  // (Status active/paused, group by project). Its own persisted choice + project
+  // resolver (routine → project, via the relations graph).
+  const [routineFilter, setRoutineFilter] = useState<RoutineFilter>(loadRoutineFilter)
+  const updateRoutineFilter = (next: RoutineFilter) => {
+    setRoutineFilter(next)
+    saveRoutineFilter(next)
   }
-  const { groups: runGroups, total: runTotal } = useMemo(() => {
-    return filterRuns(recentRuns, runFilter, {
+  const { groups: routineGroups, total: routineTotal } = useMemo(() => {
+    return filterRoutines(routines, routineFilter, {
       projectIdOfTask: scheduleProjectId,
       projectName,
-      now: Date.now(),
     })
-  }, [recentRuns, runFilter, scheduleProjectId, projects])
+  }, [routines, routineFilter, scheduleProjectId, projects])
 
   const toggleSched = () =>
     setSchedOpen((v) => {
       setLayout('schedOpen', !v)
       return !v
     })
+
+  // Open a routine from the rail: land on its latest run (a run *is* a session);
+  // a routine that hasn't run yet opens its page instead.
+  const openRoutine = (task: ScheduledTask) => {
+    const latest = task.runs[0]
+    if (latest) onSelect(runSessionId(task.id, latest.id))
+    else onOpenSchedule(task.id)
+  }
+
+  // The project-membership menu items, shared by sessions and routines, built from
+  // the relation op each entity files under.
+  const sessionProjectItems = (s: Session): RowMenuItem[] =>
+    projectMenuItems(
+      projectIdForSession(s.id),
+      projects,
+      (projectId) =>
+        applyOp({
+          kind: 'file-session',
+          sessionId: s.id,
+          sessionTitle: s.title,
+          projectId,
+          projectName: projectName(projectId ?? projectIdForSession(s.id) ?? ''),
+        }),
+      { add: <FolderInput size={15} />, remove: <FolderMinus size={15} /> },
+    )
+
+  const routineProjectItems = (t: ScheduledTask): RowMenuItem[] =>
+    projectMenuItems(
+      scheduleProjectId(t.id),
+      projects,
+      (projectId) =>
+        applyOp({
+          kind: 'link-schedule-project',
+          scheduleId: t.id,
+          scheduleName: t.name,
+          projectId,
+          projectName: projectName(projectId ?? scheduleProjectId(t.id) ?? ''),
+        }),
+      { add: <FolderInput size={15} />, remove: <FolderMinus size={15} /> },
+    )
 
   return (
     <aside className="relative flex h-full w-full shrink-0 flex-col border-r border-line bg-sidebar">
@@ -139,9 +214,9 @@ export function Sidebar({
       </nav>
 
       <div className="mt-3 min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-        {/* Recent scheduled runs — each opens the session that run executed in
-            (not the Scheduled page). Foldable to save rail space. */}
-        {recentRuns.length > 0 && (
+        {/* Scheduled — each row is a recurring routine; clicking opens its latest
+            run, with a right panel to switch among runs. Foldable to save space. */}
+        {routines.length > 0 && (
           <>
             <div className="flex items-center justify-between pr-1">
               <button
@@ -157,33 +232,62 @@ export function Sidebar({
                   className={`shrink-0 transition-transform ${schedOpen ? 'rotate-90' : ''}`}
                 />
                 <span className="font-normal normal-case tracking-normal text-ink-faint">
-                  recent runs
+                  routines
                 </span>
               </button>
               {schedOpen && (
-                <ScheduledFilterMenu filter={runFilter} onChange={updateRunFilter} projects={projects} />
+                <ScheduledFilterMenu
+                  filter={routineFilter}
+                  onChange={updateRoutineFilter}
+                  projects={projects}
+                />
               )}
             </div>
             {schedOpen && (
               <>
-                {runGroups.map((g) => (
+                {routineGroups.map((g) => (
                   <Fragment key={g.key}>
                     {g.label && <GroupHeader>{g.label}</GroupHeader>}
-                    {g.entries.map(({ task, run, session }) => (
-                      <RunRow
-                        key={session.id}
-                        taskName={task.name}
-                        status={run.status}
-                        absolute={run.absolute}
-                        title={`${run.when} · ${run.summary}`}
-                        active={inSession && session.id === activeId}
-                        onSelect={() => onSelect(session.id)}
+                    {g.tasks.map((t) => (
+                      <RoutineRow
+                        key={t.id}
+                        task={t}
+                        active={inSession && activeId.startsWith(`srun-${t.id}-`)}
+                        onOpen={() => openRoutine(t)}
+                        menuItems={[
+                          {
+                            kind: 'action',
+                            key: 'run',
+                            label: 'Run now',
+                            icon: <Play size={15} />,
+                            onSelect: () => void runScheduleNow(t.id),
+                          },
+                          {
+                            kind: 'action',
+                            key: 'toggle',
+                            label: t.enabled ? 'Pause' : 'Resume',
+                            icon: t.enabled ? <PauseCircle size={15} /> : <PlayCircle size={15} />,
+                            onSelect: () => void toggleScheduleEnabled(t.id, !t.enabled),
+                          },
+                          { kind: 'divider', key: 'd1' },
+                          ...routineProjectItems(t),
+                          { kind: 'divider', key: 'd2' },
+                          {
+                            kind: 'action',
+                            key: 'delete',
+                            label: 'Delete',
+                            icon: <Trash2 size={15} />,
+                            danger: true,
+                            confirm: `Delete the “${t.name}” routine? A server restart restores the seed.`,
+                            onSelect: () => void removeSchedule(t.id),
+                          },
+                        ]}
                       />
                     ))}
                   </Fragment>
                 ))}
-                {runTotal === 0 && (
-                  <p className="px-2 py-2 text-[12px] text-ink-faint">No runs match these filters.</p>
+                {routineTotal === 0 && (
+                  <p className="px-2 py-2 text-[12px] text-ink-faint">No routines match these filters.</p>
                 )}
               </>
             )}
@@ -207,6 +311,41 @@ export function Sidebar({
                 session={c}
                 active={inSession && c.id === activeId}
                 onSelect={() => onSelect(c.id)}
+                onRename={(title) => onRenameSession(c.id, title)}
+                menuItems={[
+                  {
+                    kind: 'action',
+                    key: 'pin',
+                    label: c.pinned ? 'Unpin' : 'Pin',
+                    icon: c.pinned ? <PinOff size={15} /> : <Pin size={15} />,
+                    onSelect: () => onPinSession(c.id, !c.pinned),
+                  },
+                  {
+                    kind: 'action',
+                    key: 'rename',
+                    label: 'Rename',
+                    icon: <Pencil size={15} />,
+                    onSelect: () => {}, // wired to the row's inline editor below
+                  },
+                  ...sessionProjectItems(c),
+                  { kind: 'divider', key: 'd1' },
+                  {
+                    kind: 'action',
+                    key: 'archive',
+                    label: c.status === 'archived' ? 'Unarchive' : 'Archive',
+                    icon: c.status === 'archived' ? <ArchiveRestore size={15} /> : <Archive size={15} />,
+                    onSelect: () => onArchiveSession(c.id, c.status !== 'archived'),
+                  },
+                  {
+                    kind: 'action',
+                    key: 'delete',
+                    label: 'Delete',
+                    icon: <Trash2 size={15} />,
+                    danger: true,
+                    confirm: `Delete “${c.title}”? A server restart restores the seed.`,
+                    onSelect: () => onDeleteSession(c.id),
+                  },
+                ]}
               />
             ))}
           </Fragment>
@@ -272,27 +411,76 @@ function SectionLabel({ children, className = '' }: { children: ReactNode; class
   )
 }
 
-/** One Recents row — a leading dot plus the session title. */
+/** One Recents row — a leading dot (or pin), the title, and a hover "⋮" menu.
+ *  "Rename" flips the title into an inline editor; the rest go through the menu's
+ *  own handlers. The main region selects the session; the menu sits outside that
+ *  button so its clicks don't also open the thread. */
 function SessionRow({
   session,
   active,
   onSelect,
+  onRename,
+  menuItems,
 }: {
   session: Session
   active: boolean
   onSelect: () => void
+  onRename: (title: string) => void
+  menuItems: RowMenuItem[]
 }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(session.title)
+
+  const commit = () => {
+    const next = draft.trim()
+    if (next && next !== session.title) onRename(next)
+    setEditing(false)
+  }
+  const startRename = () => {
+    setDraft(session.title)
+    setEditing(true)
+  }
+  // Splice the live rename starter into the menu's "Rename" item.
+  const items = menuItems.map((it) =>
+    it.kind === 'action' && it.key === 'rename' ? { ...it, onSelect: startRename } : it,
+  )
+
   return (
-    <button
-      onClick={onSelect}
-      title={session.preview}
-      className={`group flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition ${
+    <div
+      className={`group flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 transition ${
         active ? 'bg-surface shadow-sm ring-1 ring-line-strong' : 'hover:bg-surface/70'
       }`}
     >
-      <Dot active={active} />
-      <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{session.title}</span>
-    </button>
+      {session.pinned ? (
+        <Pin size={12} className="shrink-0 text-ink-faint" />
+      ) : (
+        <Dot active={active} />
+      )}
+      {editing ? (
+        <input
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onFocus={(e) => e.target.select()}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit()
+            else if (e.key === 'Escape') setEditing(false)
+          }}
+          onBlur={commit}
+          className="min-w-0 flex-1 rounded border border-line-strong bg-surface px-1 py-0.5 text-[13px] text-ink outline-none focus:border-accent"
+        />
+      ) : (
+        <button
+          onClick={onSelect}
+          title={session.preview}
+          className="min-w-0 flex-1 truncate text-left text-[13px] text-ink"
+        >
+          {session.title}
+        </button>
+      )}
+      {!editing && <RowMenu ariaLabel={`Actions for ${session.title}`} items={items} />}
+    </div>
   )
 }
 
@@ -301,34 +489,37 @@ function GroupHeader({ children }: { children: ReactNode }) {
   return <div className="px-2 pb-1 pt-2.5 text-[11px] font-semibold text-ink-faint">{children}</div>
 }
 
-/** One Scheduled-feed row — a run's outcome dot, the routine name, and its time. */
-function RunRow({
-  taskName,
-  status,
-  absolute,
-  title,
+/** One Scheduled-routine row — an outcome/paused dot, the routine name, its short
+ *  cadence, and a hover "⋮" menu. Clicking opens the routine's latest run. */
+function RoutineRow({
+  task,
   active,
-  onSelect,
+  onOpen,
+  menuItems,
 }: {
-  taskName: string
-  status: ScheduledRun['status']
-  absolute: string
-  title: string
+  task: ScheduledTask
   active: boolean
-  onSelect: () => void
+  onOpen: () => void
+  menuItems: RowMenuItem[]
 }) {
+  const cadence = task.cadence.split('·')[0]?.trim() || task.cadence
   return (
-    <button
-      onClick={onSelect}
-      title={title}
-      className={`group flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition ${
+    <div
+      className={`group flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 transition ${
         active ? 'bg-surface shadow-sm ring-1 ring-line-strong' : 'hover:bg-surface/70'
       }`}
     >
-      <RunDot status={status} />
-      <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{taskName}</span>
-      <span className="shrink-0 text-[11px] text-ink-faint">{absolute}</span>
-    </button>
+      <RoutineDot enabled={task.enabled} lastStatus={task.lastStatus} />
+      <button
+        onClick={onOpen}
+        title={`${task.cadence} · ${task.subtitle}`}
+        className="min-w-0 flex-1 truncate text-left text-[13px] text-ink"
+      >
+        {task.name}
+      </button>
+      <span className="shrink-0 text-[11px] text-ink-faint group-hover:hidden">{cadence}</span>
+      <RowMenu ariaLabel={`Actions for ${task.name}`} items={menuItems} />
+    </div>
   )
 }
 
@@ -343,16 +534,15 @@ function Dot({ active }: { active: boolean }) {
   )
 }
 
-/** A run's leading dot, colored by outcome: green ok, red failed, muted skipped,
- *  accent while running. */
-function RunDot({ status }: { status: ScheduledRun['status'] }) {
-  const color =
-    status === 'failed'
-      ? 'bg-red-500'
-      : status === 'skipped'
-        ? 'bg-line-strong'
-        : status === 'running'
-          ? 'bg-accent'
-          : 'bg-emerald-500'
-  return <span className={`h-2 w-2 shrink-0 rounded-full ${color}`} title={status} />
+/** A routine's leading dot: muted when paused, red on a failed last run, else
+ *  green (healthy / active). */
+function RoutineDot({
+  enabled,
+  lastStatus,
+}: {
+  enabled: boolean
+  lastStatus: ScheduledTask['lastStatus']
+}) {
+  const color = !enabled ? 'bg-line-strong' : lastStatus === 'failed' ? 'bg-red-500' : 'bg-emerald-500'
+  return <span className={`h-2 w-2 shrink-0 rounded-full ${color}`} title={enabled ? lastStatus : 'paused'} />
 }

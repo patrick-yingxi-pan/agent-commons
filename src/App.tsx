@@ -6,6 +6,7 @@ import { Composer } from './components/Composer'
 import { MessageRow, TypingRow } from './components/Message'
 import { CaptionBar } from './components/CaptionBar'
 import { WorkspacePanel } from './components/WorkspacePanel'
+import { RunsPanel } from './components/RunsPanel'
 import { SectionView } from './components/SectionView'
 import { AttachmentPanel } from './components/AttachmentPanel'
 import { ConnectorPanel } from './components/ConnectorPanel'
@@ -26,6 +27,9 @@ import type { Connector, SectionId, Session } from './types'
 export default function App() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [showIntro, setShowIntro] = useState(true)
+  // A scheduled-run session's right panel (the run switcher) is open by default;
+  // closing it is per-session, so switching threads re-opens it.
+  const [runsPanelOpen, setRunsPanelOpen] = useState(true)
 
   // Subscribe to the backend's ambient event stream (scheduled runs, standing
   // approvals, connector status). The session list now comes from the server —
@@ -59,6 +63,10 @@ export default function App() {
     openSection,
     openProject,
     openSchedule,
+    pinSession,
+    renameSession,
+    archiveSession,
+    deleteSession,
     handleSend,
     handleAddContext,
     focusContext,
@@ -86,6 +94,15 @@ export default function App() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+
+  // Re-open the run switcher whenever the open session changes.
+  useEffect(() => {
+    setRunsPanelOpen(true)
+  }, [activeId])
+
+  // A scheduled routine's run *is* a session — the backend tags it with the
+  // routine it belongs to, which is what the run-switcher panel keys off.
+  const isRunSession = !!activeSession.scheduledRunOf
 
   // Bridges the relations store needs: attaching a context to the live session
   // (for the AI's `attach-context` op) and the "View in …" deep-link nav.
@@ -156,6 +173,11 @@ export default function App() {
                 onSelect={selectSession}
                 onNewSession={newSession}
                 onOpenSection={openSection}
+                onOpenSchedule={openSchedule}
+                onPinSession={pinSession}
+                onRenameSession={renameSession}
+                onArchiveSession={archiveSession}
+                onDeleteSession={deleteSession}
                 onToggleCollapse={toggleLeft}
                 onOpenSearch={() => setSearchOpen(true)}
                 onResizeStart={startResize}
@@ -248,6 +270,22 @@ export default function App() {
                         repo={focusedRepo}
                         onClose={closePanel}
                         onRemoveFolder={removeFolder}
+                      />
+                    )}
+                  </AnimatePresence>
+
+                  {/* A scheduled-run session's run switcher — its default right
+                      panel. Yields to a focused-context panel (so a chip click
+                      still works) and can be dismissed per session. */}
+                  <AnimatePresence>
+                    {isRunSession && !focus && runsPanelOpen && activeSession.scheduledRunOf && (
+                      <RunsPanel
+                        key="runs"
+                        taskId={activeSession.scheduledRunOf.taskId}
+                        activeRunSessionId={activeId}
+                        onSelectRun={selectSession}
+                        onOpenRoutine={openSchedule}
+                        onClose={() => setRunsPanelOpen(false)}
                       />
                     )}
                   </AnimatePresence>

@@ -166,6 +166,9 @@ export interface Session {
   /** Archival status. The Recents filter defaults to showing only `active`;
    *  `archived` sessions are hidden until the Status filter is widened. */
   status?: 'active' | 'archived'
+  /** Pinned to the top of the Recents list (the row menu's "Pin"). Sorts ahead
+   *  of everything else regardless of the active sort; unset = not pinned. */
+  pinned?: boolean
   /** Where the session's compute runs. Only `local` is wired today; `cloud` and
    *  `remote` are reserved for when those backends exist.
    *  TODO(env): populate `cloud` / `remote` once those environments ship. */

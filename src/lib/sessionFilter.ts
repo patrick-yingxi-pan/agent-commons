@@ -116,9 +116,16 @@ export function filterSessions(
 }
 
 function sortRows(rows: Session[], by: SortBy) {
-  if (by === 'alpha') rows.sort((a, b) => a.title.localeCompare(b.title))
-  else if (by === 'created') rows.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
-  else rows.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+  // Pinned sessions float to the top regardless of the chosen sort (and, when
+  // grouped, to the top of each bucket — the order is preserved per group).
+  const pin = (s: Session) => (s.pinned ? 0 : 1)
+  const cmp =
+    by === 'alpha'
+      ? (a: Session, b: Session) => a.title.localeCompare(b.title)
+      : by === 'created'
+        ? (a: Session, b: Session) => (b.createdAt ?? 0) - (a.createdAt ?? 0)
+        : (a: Session, b: Session) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)
+  rows.sort((a, b) => pin(a) - pin(b) || cmp(a, b))
 }
 
 /** Calendar-relative bucket for the "Date" grouping. `order` fixes the section

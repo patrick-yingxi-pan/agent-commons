@@ -173,6 +173,7 @@ export const store = {
       environment: s.environment,
       updatedAt: s.updatedAt,
       createdAt: s.createdAt,
+      pinned: s.pinned,
     }))
   },
   /** A full session by id (messages/artifacts/repo included). */
@@ -180,6 +181,31 @@ export const store = {
     return SESSIONS.find((s) => s.id === id)
   },
   demoSessionId: DEMO_SESSION_ID,
+
+  /** Edit a session's row-level fields from the sidebar's row menu — rename
+   *  (title), pin/unpin, or archive/unarchive. Mutates in place and broadcasts
+   *  `session.updated` so every client's list refreshes. */
+  patchSession(
+    id: string,
+    patch: { title?: string; status?: 'active' | 'archived'; pinned?: boolean },
+  ): Session | undefined {
+    const session = SESSIONS.find((s) => s.id === id)
+    if (!session) return undefined
+    if (patch.title !== undefined) session.title = patch.title
+    if (patch.status !== undefined) session.status = patch.status
+    if (patch.pinned !== undefined) session.pinned = patch.pinned
+    emit({ type: 'session.updated', session })
+    return session
+  },
+  /** Delete a session (the row menu's "Delete"). Splices it from the seed and
+   *  broadcasts a refresh; a server restart reseeds it (mock semantics). */
+  removeSession(id: string): boolean {
+    const i = SESSIONS.findIndex((s) => s.id === id)
+    if (i === -1) return false
+    const [removed] = SESSIONS.splice(i, 1)
+    emit({ type: 'session.updated', session: removed })
+    return true
+  },
 
   // ── Dispatch ──
   /** The agent-run feed shown in the Dispatch section. */

@@ -73,6 +73,18 @@ export function buildRouter(): Router {
     if (!session) return sendError(res, 'not_found', `No session '${params.id}'`)
     sendJson(res, session)
   })
+  // Edit a session's row fields (rename / pin / archive) from the sidebar menu.
+  r.patch('/sessions/:id', async ({ res, params, body }) => {
+    const patch = await body<{ title?: string; status?: 'active' | 'archived'; pinned?: boolean }>()
+    const session = store.patchSession(params.id, patch)
+    if (!session) return sendError(res, 'not_found', `No session '${params.id}'`)
+    sendJson(res, session)
+  })
+  // Delete a session (the row menu's "Delete").
+  r.delete('/sessions/:id', ({ res, params }) => {
+    if (!store.removeSession(params.id)) return sendError(res, 'not_found', `No session '${params.id}'`)
+    sendJson(res, { ok: true })
+  })
 
   // Send a turn → stream the assistant reply as SSE (mirrors the Anthropic
   // Messages API). The body carries typed events, not just text: an assistant

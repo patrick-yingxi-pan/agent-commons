@@ -128,8 +128,8 @@ export type RelationOp =
   | { kind: 'attach-context'; sessionTitle: string; connectorId: string; connectorLabel: string; connectorKind?: 'github' | 'connector' | 'mcp' }
   // Project ↔ Context — scope a context to a project.
   | { kind: 'scope-context'; projectId: string; projectName: string; context: ProjectContext }
-  // Project ↔ Schedule — link a recurring schedule to a project.
-  | { kind: 'link-schedule-project'; scheduleId: string; scheduleName: string; projectId: string; projectName: string }
+  // Project ↔ Schedule — link a recurring schedule to a project (null = unlink).
+  | { kind: 'link-schedule-project'; scheduleId: string; scheduleName: string; projectId: string | null; projectName: string }
   // Artifact ↔ Context — record that an artifact derives from a context.
   | { kind: 'set-artifact-source'; artifactId: string; artifactName: string; contextLabel: string }
   // Session ↔ Schedule — have a schedule open a fresh session each run (standing).
@@ -154,7 +154,7 @@ export function opKey(op: RelationOp): string {
     case 'scope-context':
       return `scope-context:${op.projectId}:${op.context.label}`
     case 'link-schedule-project':
-      return `link-schedule-project:${op.scheduleId}:${op.projectId}`
+      return `link-schedule-project:${op.scheduleId}:${op.projectId ?? 'none'}`
     case 'set-artifact-source':
       return `set-artifact-source:${op.artifactId}:${op.contextLabel}`
     case 'set-schedule-session':
@@ -242,14 +242,22 @@ export function describeOp(op: RelationOp): OpDescription {
         approval: 'per-action',
       }
     case 'link-schedule-project':
-      return {
-        text: `Link the **${op.scheduleName}** schedule to **${op.projectName}**`,
-        done: `Linked to ${op.projectName}`,
-        section: 'projects',
-        projectId: op.projectId,
-        relationId: 'project-schedule',
-        approval: 'per-action',
-      }
+      return op.projectId === null
+        ? {
+            text: `Remove the **${op.scheduleName}** schedule from **${op.projectName}**`,
+            done: `Unlinked from ${op.projectName}`,
+            section: 'scheduled',
+            relationId: 'project-schedule',
+            approval: 'per-action',
+          }
+        : {
+            text: `Link the **${op.scheduleName}** schedule to **${op.projectName}**`,
+            done: `Linked to ${op.projectName}`,
+            section: 'projects',
+            projectId: op.projectId,
+            relationId: 'project-schedule',
+            approval: 'per-action',
+          }
     case 'set-artifact-source':
       return {
         text: `Note that **${op.artifactName}** derives from **${op.contextLabel}**`,

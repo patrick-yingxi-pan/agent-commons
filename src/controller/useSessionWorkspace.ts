@@ -19,7 +19,13 @@ import {
 import { sameFocus } from '../lib/focus'
 import { rememberAttached } from '../lib/contextShortcuts'
 import { runSessionById } from '../data/scheduledRuns'
-import { runSessionFromCache, sendMessage } from '../api'
+import {
+  deleteSession as deleteSessionCmd,
+  patchSession,
+  runSessionFromCache,
+  runSessionFromSchedules,
+  sendMessage,
+} from '../api'
 import type { AddedContext, Message, PanelFocus, Repo, SectionId, TourPhase } from '../types'
 
 /** ── Controller: the active session + its live workspace ───────────────────
@@ -68,6 +74,7 @@ export function useSessionWorkspace() {
     // feed cache first (covers daemon/run-now runs), then the seed fallback.
     () =>
       SESSIONS.find((c) => c.id === activeId) ??
+      runSessionFromSchedules(activeId) ??
       runSessionFromCache(activeId) ??
       runSessionById(activeId) ??
       DRAFT_SESSION,
@@ -108,6 +115,7 @@ export function useSessionWorkspace() {
       setActiveId(id)
       const session =
         SESSIONS.find((c) => c.id === id) ??
+        runSessionFromSchedules(id) ??
         runSessionFromCache(id) ??
         runSessionById(id) ??
         DRAFT_SESSION
@@ -420,6 +428,28 @@ export function useSessionWorkspace() {
     setFocusProjectId(null)
   }, [])
 
+  // ── Recents row-menu edits (pin / rename / archive / delete) ──────────────
+  // List-level mutations; the sidebar reflects them through the live session
+  // feed. Delete also steps the open thread away if it was the one removed (the
+  // controller resolves the full session from a static mirror, so a dangling id
+  // would otherwise linger).
+  const pinSession = useCallback((id: string, pinned: boolean) => {
+    void patchSession(id, { pinned })
+  }, [])
+  const renameSession = useCallback((id: string, title: string) => {
+    void patchSession(id, { title })
+  }, [])
+  const archiveSession = useCallback((id: string, archived: boolean) => {
+    void patchSession(id, { status: archived ? 'archived' : 'active' })
+  }, [])
+  const deleteSession = useCallback(
+    (id: string) => {
+      void deleteSessionCmd(id)
+      if (id === activeIdRef.current) newSession()
+    },
+    [newSession],
+  )
+
   const removeAttachment = useCallback((id: string) => {
     setLive((l) => ({ ...l, attachments: l.attachments.filter((a) => a.id !== id) }))
   }, [])
@@ -523,6 +553,10 @@ export function useSessionWorkspace() {
     openSection,
     openProject,
     openSchedule,
+    pinSession,
+    renameSession,
+    archiveSession,
+    deleteSession,
     handleSend,
     handleAddContext,
     focusContext,

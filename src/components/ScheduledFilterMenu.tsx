@@ -1,37 +1,28 @@
 import type { Project } from '../types'
 import { FilterMenu, type FilterRowSpec } from './FilterMenu'
-import type { OutcomeFilter, RunActivityFilter, RunFilter, RunSortBy } from '../lib/runFilter'
+import type { RoutineFilter, RoutineSortBy, RoutineStatusFilter } from '../lib/routineFilter'
 
-/** ── Scheduled "Filter & sort" — the run-flavoured menu ───────────────────────
- *  The same control as Recents, retuned for the recent-runs feed: the session
- *  filter's Status becomes run Outcome (All / Succeeded / Failed / Skipped), and
- *  Group by offers Date / Project / Outcome. There's no Environment row (every
- *  run is local) and no Created-time sort (a run's only time is when it ran). */
+/** ── Scheduled "Filter & sort" — the routine-flavoured menu ───────────────────
+ *  The same control as Recents, retuned for the rail's routine list: the session
+ *  filter's Status becomes Active / Paused, Project carries over, and Group by
+ *  offers Project / Status. There's no Environment, Outcome, or Last-activity row
+ *  (those were run concepts) and no Created-time sort. */
 
-const OUTCOME_OPTS: { id: OutcomeFilter; label: string }[] = [
-  { id: 'all', label: 'All outcomes' },
-  { id: 'ok', label: 'Succeeded' },
-  { id: 'failed', label: 'Failed' },
-  { id: 'skipped', label: 'Skipped' },
+const STATUS_OPTS: { id: RoutineStatusFilter; label: string }[] = [
+  { id: 'all', label: 'All routines' },
+  { id: 'active', label: 'Active' },
+  { id: 'paused', label: 'Paused' },
 ]
 
-const ACTIVITY_OPTS: { id: RunActivityFilter; label: string }[] = [
-  { id: '1d', label: '1d' },
-  { id: '3d', label: '3d' },
-  { id: '7d', label: '7d' },
-  { id: '30d', label: '30d' },
-]
-
-const SORT_OPTS: { id: RunSortBy; label: string }[] = [
+const SORT_OPTS: { id: RoutineSortBy; label: string }[] = [
   { id: 'alpha', label: 'Alphabetically' },
   { id: 'recency', label: 'Recency' },
 ]
 
-const OUTCOME_VALUE: Record<OutcomeFilter, string> = {
+const STATUS_VALUE: Record<RoutineStatusFilter, string> = {
   all: 'All',
-  ok: 'Succeeded',
-  failed: 'Failed',
-  skipped: 'Skipped',
+  active: 'Active',
+  paused: 'Paused',
 }
 
 export function ScheduledFilterMenu({
@@ -39,23 +30,23 @@ export function ScheduledFilterMenu({
   onChange,
   projects,
 }: {
-  filter: RunFilter
-  onChange: (next: RunFilter) => void
+  filter: RoutineFilter
+  onChange: (next: RoutineFilter) => void
   projects: Project[]
 }) {
-  const set = (patch: Partial<RunFilter>) => onChange({ ...filter, ...patch })
+  const set = (patch: Partial<RoutineFilter>) => onChange({ ...filter, ...patch })
 
   const rows: FilterRowSpec[] = [
     {
-      key: 'outcome',
-      label: 'Outcome',
-      value: OUTCOME_VALUE[filter.outcome],
-      accent: filter.outcome !== 'all',
+      key: 'status',
+      label: 'Status',
+      value: STATUS_VALUE[filter.status],
+      accent: filter.status !== 'all',
       width: 170,
-      options: OUTCOME_OPTS.map((o) => ({
+      options: STATUS_OPTS.map((o) => ({
         label: o.label,
-        selected: filter.outcome === o.id,
-        onSelect: () => set({ outcome: o.id }),
+        selected: filter.status === o.id,
+        onSelect: () => set({ status: o.id }),
       })),
     },
     {
@@ -77,21 +68,6 @@ export function ScheduledFilterMenu({
       ],
     },
     {
-      key: 'activity',
-      label: 'Last activity',
-      value: filter.activity === 'all' ? 'All' : filter.activity,
-      accent: filter.activity !== 'all',
-      width: 140,
-      options: [
-        ...ACTIVITY_OPTS.map((o) => ({
-          label: o.label,
-          selected: filter.activity === o.id,
-          onSelect: () => set({ activity: o.id }),
-        })),
-        { label: 'All', dividerBefore: true, selected: filter.activity === 'all', onSelect: () => set({ activity: 'all' }) },
-      ],
-    },
-    {
       key: 'group',
       label: 'Group by',
       value: GROUP_LABEL(filter.groupBy),
@@ -99,9 +75,8 @@ export function ScheduledFilterMenu({
       width: 184,
       dividerBefore: true,
       options: [
-        { label: 'Date', selected: filter.groupBy === 'date', onSelect: () => set({ groupBy: 'date' }) },
         { label: 'Project', selected: filter.groupBy === 'project', onSelect: () => set({ groupBy: 'project' }) },
-        { label: 'Outcome', selected: filter.groupBy === 'outcome', onSelect: () => set({ groupBy: 'outcome' }) },
+        { label: 'Status', selected: filter.groupBy === 'status', onSelect: () => set({ groupBy: 'status' }) },
         { label: 'None', dividerBefore: true, selected: filter.groupBy === 'none', onSelect: () => set({ groupBy: 'none' }) },
       ],
     },
@@ -119,9 +94,9 @@ export function ScheduledFilterMenu({
     },
   ]
 
-  return <FilterMenu ariaLabel="Filter & sort scheduled runs" rows={rows} />
+  return <FilterMenu ariaLabel="Filter & sort scheduled routines" rows={rows} />
 }
 
-function GROUP_LABEL(g: RunFilter['groupBy']): string {
-  return { none: 'None', date: 'Date', project: 'Project', outcome: 'Outcome' }[g]
+function GROUP_LABEL(g: RoutineFilter['groupBy']): string {
+  return { none: 'None', project: 'Project', status: 'Status' }[g]
 }
