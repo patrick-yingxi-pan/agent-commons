@@ -335,7 +335,18 @@ leans the right way:
   scope matching, grant enforcement, fulfilment) + `tests/routes-invoke.test.ts`
   (integration: every error path). 35 tests total; verified live (in-scope 200,
   out-of-scope 403).
-- **Slice 3 — system of record (D2).** Agent-authoritative projection; outbox +
-  per-agent cursor sync; idempotency keys; read-through freshness.
+- **Slice 3 — system of record (D2). ✅ Built.**
+  `server/journal.ts` — the `AgentJournal`: each agent's authoritative effect log
+  with **idempotency** by `commandId` (a retry replays the recorded effect, never
+  re-executes), **monotonic per-agent `agentSeq`**, a **projection cursor** +
+  `reconcile` (the relay path projects synchronously; emits `agent.effect` as
+  effects project so clients converge), and **`merge`** — the outbox replay an
+  agent uses to tee fast-path / offline effects, deduped by `commandId`. Routes:
+  `invoke` now records + projects idempotently; `GET /agents/:id/effects?since=`
+  (read-through log); `POST /agents/:id/sync` (outbox replay → projected delta +
+  cursor). UI: `useAgentEffects`, `syncAgentEffects`, `agent.effect` invalidation.
+  Tests: `tests/journal.test.ts` (unit: idempotency, ordering, cursor/reconcile,
+  merge) + `tests/routes-effects.test.ts` (integration). 47 tests total; verified
+  live (idempotent retry replays the original effect; sync projects the delta).
 - **Slice 4 — UI surface + co-located fast path (D1).** Agent/registry UI,
   presence + onboarding, and the lowest-layer dual transport.

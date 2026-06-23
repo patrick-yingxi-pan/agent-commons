@@ -7,9 +7,11 @@ import {
   emptyGraph,
   entryById,
   type ApplyOpRequest,
+  type CapabilityEffect,
   type CapabilityRequest,
-  type CapabilityResult,
   type ContextTypeId,
+  type EffectReport,
+  type SyncEffectsResult,
   type RecentsSnapshot,
   type RelationGraph,
   type RelationOp,
@@ -194,12 +196,26 @@ export function pushRecentId(type: ContextTypeId, id: string): void {
 /** Invoke a capability on a connected agent's host — the addressed + routed call
  *  `(agent, capability, target)`. A write/effect command, not a read, so it goes
  *  here rather than through a hook; the agent enforces its scoped grant (D3) and
- *  the call rejects with `forbidden` / `capability_unavailable` accordingly. */
+ *  the call rejects with `forbidden` / `capability_unavailable` accordingly.
+ *  Returns the recorded effect; pass a stable `commandId` for idempotent retries. */
 export async function invokeCapability(
   agentId: string,
   request: CapabilityRequest,
-): Promise<CapabilityResult> {
-  return apiPost<CapabilityResult>(paths.agentInvoke(agentId), request)
+): Promise<CapabilityEffect> {
+  const effect = await apiPost<CapabilityEffect>(paths.agentInvoke(agentId), request)
+  invalidate(keys.agentEffects(agentId))
+  return effect
+}
+
+/** Replay an agent's outbox to the server — effects it executed out-of-band (the
+ *  co-located fast path, or while offline). Merged idempotently by commandId. */
+export async function syncAgentEffects(
+  agentId: string,
+  effects: EffectReport[],
+): Promise<SyncEffectsResult> {
+  const result = await apiPost<SyncEffectsResult>(paths.agentSync(agentId), { effects })
+  invalidate(keys.agentEffects(agentId))
+  return result
 }
 
 function dispatch(event: ReplyStreamEvent, h: SendHandlers): void {

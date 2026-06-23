@@ -18,7 +18,7 @@ import type { Connector, Message, Session } from './entities.ts'
 import type { ScheduledRun } from './cowork.ts'
 import type { RelationOp } from './relations.ts'
 import type { ContextTypeId } from './contexts.ts'
-import type { Agent } from './agents.ts'
+import type { Agent, CapabilityEffect } from './agents.ts'
 
 /** ── Reply-stream events (one assistant turn) ── */
 export interface MessageStartEvent {
@@ -126,6 +126,13 @@ export interface AgentCapabilitiesChangedEvent {
   type: 'agent.capabilities.changed'
   agent: Agent
 }
+/** A capability effect was projected into the server's record (D2) — from a
+ *  relayed invoke or a synced outbox. Broadcast so every client's view of that
+ *  agent's effect log converges without polling. */
+export interface AgentEffectEvent {
+  type: 'agent.effect'
+  effect: CapabilityEffect
+}
 
 /** Sent once when an SSE channel opens, so the client can confirm liveness. */
 export interface HelloEvent {
@@ -152,6 +159,7 @@ export type ServerEvent =
   | AgentConnectedEvent
   | AgentDisconnectedEvent
   | AgentCapabilitiesChangedEvent
+  | AgentEffectEvent
 
 export type ServerEventType = ServerEvent['type']
 

@@ -13,7 +13,7 @@ import { openSse } from '../http/sse.ts'
 import { store } from '../store.ts'
 import { generateReply } from '../generate.ts'
 import { CapabilityError, runCapability } from '../agent-runtime.ts'
-import type { CapabilityRequest } from '../../contract/index.ts'
+import type { CapabilityRequest, SyncEffectsRequest } from '../../contract/index.ts'
 import type { ServerResponse } from 'node:http'
 
 /** Gate a native route on a capability: 409 capability_unavailable when this
@@ -81,6 +81,10 @@ export function buildRouter(): Router {
   // broker (here) resolves the agent and checks liveness; the agent runtime
   // enforces the scoped grant (D3) and fulfils. `capability_unavailable` when no
   // such online capability; `forbidden` when the target is outside the grant.
+  //
+  // Idempotent by `commandId` (D2): a retried call returns the recorded effect
+  // without re-executing. On success the effect is recorded on the agent's
+  // authoritative log and projected (the relay/online path), returning the effect.
   r.post('/agents/:id/invoke', async ({ res, params, body }) => {
     const agent = store.registry.get(params.id)
     if (!agent) return sendError(res, 'not_found', `No agent '${params.id}'`)
@@ -88,15 +92,47 @@ export function buildRouter(): Router {
     if (!request?.capability || typeof request.target !== 'string') {
       return sendError(res, 'bad_request', 'capability and target are required')
     }
+    const commandId = request.commandId ?? store.journal.mintCommandId()
+    // Idempotency: a retry of an already-recorded command replays the effect.
+    const prior = store.journal.find(agent.id, commandId)
+    if (prior) return sendJson(res, prior)
     if (agent.status !== 'online') {
       return sendError(res, 'capability_unavailable', `Agent '${agent.id}' is offline`)
     }
     try {
-      sendJson(res, runCapability(agent, request))
+      const result = runCapability(agent, request)
+      const { effect } = store.journal.append(agent.id, {
+        commandId,
+        capability: result.capability,
+        target: result.target,
+        output: result.output,
+      })
+      store.journal.reconcile(agent.id) // relay path: project synchronously
+      sendJson(res, effect)
     } catch (err) {
       if (err instanceof CapabilityError) return sendError(res, err.code, err.message)
       throw err
     }
+  })
+
+  // The agent's authoritative effect log (read-through). `?since=<seq>` returns
+  // only the tail after a sequence number — the audit/projection read (D2/D3).
+  r.get('/agents/:id/effects', ({ res, params, url }) => {
+    if (!store.registry.get(params.id)) return sendError(res, 'not_found', `No agent '${params.id}'`)
+    const since = Number(url.searchParams.get('since') ?? 0) || 0
+    sendJson(res, store.journal.log(params.id, since))
+  })
+
+  // An agent replays its outbox — effects it executed out-of-band (via the
+  // co-located fast path, or while the server was unreachable). Merged idempotently
+  // by commandId, then projected; returns what was newly projected + the cursor.
+  r.post('/agents/:id/sync', async ({ res, params, body }) => {
+    if (!store.registry.get(params.id)) return sendError(res, 'not_found', `No agent '${params.id}'`)
+    const { effects } = await body<SyncEffectsRequest>()
+    if (!Array.isArray(effects)) return sendError(res, 'bad_request', 'effects is required')
+    store.journal.merge(params.id, effects)
+    const projected = store.journal.reconcile(params.id)
+    sendJson(res, { projected, cursor: store.journal.cursor(params.id) })
   })
 
   // ── Native resources (a native sidecar fulfills these; a remote server 409s) ─

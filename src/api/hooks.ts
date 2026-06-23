@@ -8,6 +8,7 @@ import { apiGet } from './client.ts'
 import { keys, paths } from './keys.ts'
 import type {
   Agent,
+  CapabilityEffect,
   ArtifactContentLibrary,
   ArtifactItem,
   Capabilities,
@@ -36,6 +37,14 @@ export function useCapabilities(): QueryState<Capabilities> {
  *  (the `agent.*` ambient events invalidate this). */
 export function useAgents(): QueryState<Agent[]> {
   return useQuery(keys.agents, () => apiGet<Agent[]>(paths.agents))
+}
+
+/** An agent's authoritative effect log (the server's projection of it). Updates
+ *  as effects project (`agent.effect` invalidates it). */
+export function useAgentEffects(agentId: string): QueryState<CapabilityEffect[]> {
+  return useQuery(keys.agentEffects(agentId), () =>
+    apiGet<CapabilityEffect[]>(paths.agentEffects(agentId)),
+  )
 }
 
 /** The session list (lightweight rows) for the sidebar + search. */

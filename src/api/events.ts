@@ -60,6 +60,10 @@ function route(e: ServerEvent): void {
     case 'agent.capabilities.changed':
       invalidate(keys.agents)
       break
+    // An effect was projected into an agent's record — refresh that agent's log.
+    case 'agent.effect':
+      invalidate(keys.agentEffects(e.effect.agentId))
+      break
     default:
       break
   }

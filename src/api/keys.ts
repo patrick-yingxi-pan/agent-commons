@@ -6,6 +6,7 @@ import type { Connector } from '../../contract/index.ts'
 export const keys = {
   capabilities: 'capabilities',
   agents: 'agents',
+  agentEffects: (id: string) => `agent-effects:${id}`,
   sessions: 'sessions',
   session: (id: string) => `session:${id}`,
   dispatch: 'dispatch',
@@ -27,6 +28,8 @@ export const paths = {
   agents: '/agents',
   agent: (id: string) => `/agents/${encodeURIComponent(id)}`,
   agentInvoke: (id: string) => `/agents/${encodeURIComponent(id)}/invoke`,
+  agentEffects: (id: string) => `/agents/${encodeURIComponent(id)}/effects`,
+  agentSync: (id: string) => `/agents/${encodeURIComponent(id)}/sync`,
   sessions: '/sessions',
   session: (id: string) => `/sessions/${encodeURIComponent(id)}`,
   dispatch: '/dispatch',

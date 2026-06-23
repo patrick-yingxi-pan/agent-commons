@@ -50,6 +50,7 @@ import { connectorDetail } from './data/connectorDetails.ts'
 import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
 import { USAGE } from './data/usage.ts'
 import { AgentRegistry } from './registry.ts'
+import { AgentJournal } from './journal.ts'
 import { LOCAL_AGENT_SEED } from './data/agents.ts'
 
 type Listener = (e: ServerEvent) => void
@@ -115,13 +116,20 @@ function emit(e: ServerEvent): void {
 const registry = new AgentRegistry(emit)
 if (NATIVE) registry.register(LOCAL_AGENT_SEED)
 
+// The effect journal — each agent's authoritative log of its host's effects (D2)
+// + the server's projection of it. Emits `agent.effect` as effects project.
+const journal = new AgentJournal(emit)
+
 export const store = {
   epoch: EPOCH,
 
-  // ── Native-agent registry ──
+  // ── Native-agent registry + effect journal ──
   /** The live registry of native agents + their advertised capabilities. The
    *  agent routes read/mutate this; changes broadcast ambient `agent.*` events. */
   registry,
+  /** Each agent's authoritative effect log + the server's projection of it (D2).
+   *  The invoke route records + reconciles; the sync route merges an outbox. */
+  journal,
 
   // ── Capabilities (what this backend variant can do) ──
   /** The UI gates native-only affordances on these flags — never on sniffing

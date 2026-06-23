@@ -61,11 +61,17 @@ export interface SetAgentCapabilitiesRequest {
  *  agent, which enforces that `target` is within one of its granted scopes (D3)
  *  before executing. `target` is the thing acted on (an fs path for `fs.*`, a
  *  command for `terminal`/`process`); `args` carries capability-specific input
- *  (e.g. `{ content }` for `fs.write`). */
+ *  (e.g. `{ content }` for `fs.write`).
+ *
+ *  `commandId` is the **idempotency key** (D2): a client assigns it once per
+ *  logical invocation, so a retried call (lost response, reconnect) returns the
+ *  recorded effect instead of executing twice. Omit it and the server mints one
+ *  (single execution, but no cross-retry dedup). */
 export interface CapabilityRequest {
   capability: CapabilityType
   target: string
   args?: Record<string, unknown>
+  commandId?: string
 }
 
 /** Result of a capability invocation. `output` is capability-specific (the agent
@@ -77,4 +83,46 @@ export interface CapabilityResult {
   /** Echoed target, so a caller can correlate without tracking request state. */
   target: string
   output: unknown
+}
+
+/** A recorded capability effect — an entry in an agent's authoritative log (D2).
+ *  The agent is the system of record for its host's effects; the server keeps a
+ *  projection of these and clients converge on it. `agentSeq` is the agent's
+ *  monotonic per-host ordering; `commandId` is the idempotency key + effect id. */
+export interface CapabilityEffect {
+  commandId: string
+  agentId: string
+  capability: CapabilityType
+  target: string
+  output: unknown
+  /** The agent's authoritative monotonic sequence on its host. */
+  agentSeq: number
+  /** Epoch-ms the agent executed it. */
+  at: number
+}
+
+/** One effect an agent reports to the server out-of-band — the unit of the
+ *  outbox replay (`POST /v1/agents/:id/sync`). The effect already happened on the
+ *  host (via the co-located fast path, or while the server was unreachable); the
+ *  agent now tees it up so the server's projection catches up. */
+export interface EffectReport {
+  commandId: string
+  capability: CapabilityType
+  target: string
+  output: unknown
+  at?: number
+}
+
+/** Body of `POST /v1/agents/:id/sync` — an agent replays its outbox. Effects are
+ *  merged idempotently by `commandId`, so re-sending an already-recorded effect
+ *  is a no-op (the at-least-once delivery guarantee). */
+export interface SyncEffectsRequest {
+  effects: EffectReport[]
+}
+
+/** Result of a sync: the effects newly projected by this call and the agent's new
+ *  projection cursor (how far the server has reconciled the agent's log). */
+export interface SyncEffectsResult {
+  projected: CapabilityEffect[]
+  cursor: number
 }
