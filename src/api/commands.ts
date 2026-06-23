@@ -7,6 +7,8 @@ import {
   emptyGraph,
   entryById,
   type ApplyOpRequest,
+  type CapabilityRequest,
+  type CapabilityResult,
   type ContextTypeId,
   type RecentsSnapshot,
   type RelationGraph,
@@ -185,6 +187,19 @@ export function pushRecentId(type: ContextTypeId, id: string): void {
     return { ...snap, [type]: [id, ...cur.filter((x) => x !== id)] }
   })
   apiPost(paths.recentsType(type), { id }).catch(() => invalidate(keys.recents))
+}
+
+// ── Native capabilities ─────────────────────────────────────────────────────
+
+/** Invoke a capability on a connected agent's host — the addressed + routed call
+ *  `(agent, capability, target)`. A write/effect command, not a read, so it goes
+ *  here rather than through a hook; the agent enforces its scoped grant (D3) and
+ *  the call rejects with `forbidden` / `capability_unavailable` accordingly. */
+export async function invokeCapability(
+  agentId: string,
+  request: CapabilityRequest,
+): Promise<CapabilityResult> {
+  return apiPost<CapabilityResult>(paths.agentInvoke(agentId), request)
 }
 
 function dispatch(event: ReplyStreamEvent, h: SendHandlers): void {

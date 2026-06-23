@@ -25,6 +25,8 @@ export const keys = {
 export const paths = {
   capabilities: '/capabilities',
   agents: '/agents',
+  agent: (id: string) => `/agents/${encodeURIComponent(id)}`,
+  agentInvoke: (id: string) => `/agents/${encodeURIComponent(id)}/invoke`,
   sessions: '/sessions',
   session: (id: string) => `/sessions/${encodeURIComponent(id)}`,
   dispatch: '/dispatch',

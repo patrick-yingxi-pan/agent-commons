@@ -55,3 +55,26 @@ export interface RegisterAgentRequest {
 export interface SetAgentCapabilitiesRequest {
   capabilities: AgentCapability[]
 }
+
+/** Body of `POST /v1/agents/:id/invoke` — run a capability on that agent's host.
+ *  This is the addressed-and-routed capability call: the broker routes it to the
+ *  agent, which enforces that `target` is within one of its granted scopes (D3)
+ *  before executing. `target` is the thing acted on (an fs path for `fs.*`, a
+ *  command for `terminal`/`process`); `args` carries capability-specific input
+ *  (e.g. `{ content }` for `fs.write`). */
+export interface CapabilityRequest {
+  capability: CapabilityType
+  target: string
+  args?: Record<string, unknown>
+}
+
+/** Result of a capability invocation. `output` is capability-specific (the agent
+ *  fulfils it on its host). Mock fulfilment today; the wire shape is real. */
+export interface CapabilityResult {
+  capability: CapabilityType
+  /** Which agent fulfilled it — the host the effect happened on. */
+  agentId: string
+  /** Echoed target, so a caller can correlate without tracking request state. */
+  target: string
+  output: unknown
+}

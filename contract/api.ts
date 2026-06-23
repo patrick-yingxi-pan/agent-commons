@@ -113,5 +113,6 @@ export interface ApiError {
 export type ApiErrorCode =
   | 'bad_request'
   | 'not_found'
+  | 'forbidden'
   | 'capability_unavailable'
   | 'internal'

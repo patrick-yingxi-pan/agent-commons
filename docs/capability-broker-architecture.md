@@ -323,9 +323,18 @@ leans the right way:
   (regression), agent routes (integration). *Caught a real bug:* TS parameter
   properties aren't erasable syntax, which Node's runtime type-stripping rejects —
   would have broken server boot.
-- **Slice 2 — capability addressing + routing.** `(agent, capability, scope)`
-  addressing; route a capability (fs-read) to the advertising agent; the agent
-  enforces its scoped grant; `capability_unavailable` when no agent offers it.
+- **Slice 2 — capability addressing + routing. ✅ Built.**
+  `POST /agents/:id/invoke` with a `(capability, target, args)` body. The broker
+  (route) resolves the agent + checks liveness; `server/agent-runtime.ts` — which
+  conceptually runs *inside the agent* — enforces the scoped grant (D3:
+  `scopeMatches` with path/command boundaries) and fulfils (mock, real-shaped
+  output per capability). Error mapping: `not_found` (unknown agent),
+  `capability_unavailable` (offline, or capability not advertised), `forbidden`
+  (target outside the grant — a new `403` contract error code). Client "one door"
+  command `invokeCapability()`. Tests: `tests/capabilities.test.ts` (runtime unit:
+  scope matching, grant enforcement, fulfilment) + `tests/routes-invoke.test.ts`
+  (integration: every error path). 35 tests total; verified live (in-scope 200,
+  out-of-scope 403).
 - **Slice 3 — system of record (D2).** Agent-authoritative projection; outbox +
   per-agent cursor sync; idempotency keys; read-through freshness.
 - **Slice 4 — UI surface + co-located fast path (D1).** Agent/registry UI,

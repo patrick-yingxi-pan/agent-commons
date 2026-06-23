@@ -32,6 +32,7 @@ export function sendJson(res: ServerResponse, body: unknown, status = 200): void
 const STATUS_FOR: Record<ApiErrorCode, number> = {
   bad_request: 400,
   not_found: 404,
+  forbidden: 403,
   capability_unavailable: 409,
   internal: 500,
 }

@@ -12,6 +12,8 @@ import { sendJson, sendError } from '../http/respond.ts'
 import { openSse } from '../http/sse.ts'
 import { store } from '../store.ts'
 import { generateReply } from '../generate.ts'
+import { CapabilityError, runCapability } from '../agent-runtime.ts'
+import type { CapabilityRequest } from '../../contract/index.ts'
 import type { ServerResponse } from 'node:http'
 
 /** Gate a native route on a capability: 409 capability_unavailable when this
@@ -73,6 +75,28 @@ export function buildRouter(): Router {
       return sendError(res, 'not_found', `No online agent '${params.id}'`)
     }
     sendJson(res, { ok: true })
+  })
+
+  // Invoke a capability on an agent's host — the addressed + routed call. The
+  // broker (here) resolves the agent and checks liveness; the agent runtime
+  // enforces the scoped grant (D3) and fulfils. `capability_unavailable` when no
+  // such online capability; `forbidden` when the target is outside the grant.
+  r.post('/agents/:id/invoke', async ({ res, params, body }) => {
+    const agent = store.registry.get(params.id)
+    if (!agent) return sendError(res, 'not_found', `No agent '${params.id}'`)
+    const request = await body<CapabilityRequest>()
+    if (!request?.capability || typeof request.target !== 'string') {
+      return sendError(res, 'bad_request', 'capability and target are required')
+    }
+    if (agent.status !== 'online') {
+      return sendError(res, 'capability_unavailable', `Agent '${agent.id}' is offline`)
+    }
+    try {
+      sendJson(res, runCapability(agent, request))
+    } catch (err) {
+      if (err instanceof CapabilityError) return sendError(res, err.code, err.message)
+      throw err
+    }
   })
 
   // ── Native resources (a native sidecar fulfills these; a remote server 409s) ─
