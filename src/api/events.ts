@@ -52,6 +52,14 @@ function route(e: ServerEvent): void {
     case 'recents.changed':
       invalidate(keys.recents)
       break
+    // The native-agent registry changed — an agent connected, disconnected, or
+    // re-advertised its capabilities. Re-read the registry so affordances that
+    // depend on a host's capabilities reflect it.
+    case 'agent.connected':
+    case 'agent.disconnected':
+    case 'agent.capabilities.changed':
+      invalidate(keys.agents)
+      break
     default:
       break
   }

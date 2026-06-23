@@ -49,6 +49,8 @@ import { SAVED_CONTEXTS, CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from './da
 import { connectorDetail } from './data/connectorDetails.ts'
 import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
 import { USAGE } from './data/usage.ts'
+import { AgentRegistry } from './registry.ts'
+import { LOCAL_AGENT_SEED } from './data/agents.ts'
 
 type Listener = (e: ServerEvent) => void
 
@@ -107,8 +109,19 @@ function emit(e: ServerEvent): void {
   }
 }
 
+// The native-agent registry — the broker's live view of connected hosts. In
+// native/mock mode we seed the co-located agent (the one-agent registry the
+// static capabilities describe); a remote web server seeds none.
+const registry = new AgentRegistry(emit)
+if (NATIVE) registry.register(LOCAL_AGENT_SEED)
+
 export const store = {
   epoch: EPOCH,
+
+  // ── Native-agent registry ──
+  /** The live registry of native agents + their advertised capabilities. The
+   *  agent routes read/mutate this; changes broadcast ambient `agent.*` events. */
+  registry,
 
   // ── Capabilities (what this backend variant can do) ──
   /** The UI gates native-only affordances on these flags — never on sniffing

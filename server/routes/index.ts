@@ -1,7 +1,12 @@
 /** Route table for the mock backend. Each resource registers its endpoints here;
  *  Phase 1 wires capabilities, the ambient event stream, and sessions. The router
  *  is plain data — adding a resource is adding a `.get(...)` line. */
-import type { ApplyOpRequest, SendMessageRequest } from '../../contract/index.ts'
+import type {
+  ApplyOpRequest,
+  RegisterAgentRequest,
+  SendMessageRequest,
+  SetAgentCapabilitiesRequest,
+} from '../../contract/index.ts'
 import { Router } from '../http/router.ts'
 import { sendJson, sendError } from '../http/respond.ts'
 import { openSse } from '../http/sse.ts'
@@ -26,6 +31,48 @@ export function buildRouter(): Router {
   // (local-* false). The UI adapts off these flags, never off env-sniffing.
   r.get('/capabilities', ({ res }) => {
     sendJson(res, store.capabilities())
+  })
+
+  // ── Native-agent registry ─────────────────────────────────────────────────
+  // The live set of connected agents (one per host) and the capabilities each
+  // advertises. Agents enroll/reconnect via POST, keep alive via heartbeat,
+  // re-advertise grants via PATCH, and disconnect via DELETE. Every change
+  // broadcasts an ambient `agent.*` event over `/events`. Reads here are the
+  // generalization of `/capabilities` from one static backend to a live registry.
+  r.get('/agents', ({ res }) => {
+    sendJson(res, store.registry.list())
+  })
+  r.get('/agents/:id', ({ res, params }) => {
+    const agent = store.registry.get(params.id)
+    if (!agent) return sendError(res, 'not_found', `No agent '${params.id}'`)
+    sendJson(res, agent)
+  })
+  r.post('/agents', async ({ res, body }) => {
+    const input = await body<RegisterAgentRequest>()
+    if (!input?.label || !input?.host || !Array.isArray(input.capabilities)) {
+      return sendError(res, 'bad_request', 'label, host, and capabilities are required')
+    }
+    sendJson(res, store.registry.register(input))
+  })
+  r.post('/agents/:id/heartbeat', ({ res, params }) => {
+    const agent = store.registry.heartbeat(params.id)
+    if (!agent) return sendError(res, 'not_found', `No agent '${params.id}'`)
+    sendJson(res, agent)
+  })
+  r.patch('/agents/:id/capabilities', async ({ res, params, body }) => {
+    const { capabilities } = await body<SetAgentCapabilitiesRequest>()
+    if (!Array.isArray(capabilities)) {
+      return sendError(res, 'bad_request', 'capabilities is required')
+    }
+    const agent = store.registry.setCapabilities(params.id, capabilities)
+    if (!agent) return sendError(res, 'not_found', `No agent '${params.id}'`)
+    sendJson(res, agent)
+  })
+  r.delete('/agents/:id', ({ res, params }) => {
+    if (!store.registry.deregister(params.id)) {
+      return sendError(res, 'not_found', `No online agent '${params.id}'`)
+    }
+    sendJson(res, { ok: true })
   })
 
   // ── Native resources (a native sidecar fulfills these; a remote server 409s) ─

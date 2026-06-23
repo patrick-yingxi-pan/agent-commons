@@ -7,6 +7,7 @@ import { useQuery, type QueryState } from './cache.ts'
 import { apiGet } from './client.ts'
 import { keys, paths } from './keys.ts'
 import type {
+  Agent,
   ArtifactContentLibrary,
   ArtifactItem,
   Capabilities,
@@ -28,6 +29,13 @@ import type {
  *  never on sniffing Electron vs web. */
 export function useCapabilities(): QueryState<Capabilities> {
   return useQuery(keys.capabilities, () => apiGet<Capabilities>(paths.capabilities))
+}
+
+/** The live registry of native agents (one per connected host) + the
+ *  capabilities each advertises. Updates as agents connect/disconnect/re-grant
+ *  (the `agent.*` ambient events invalidate this). */
+export function useAgents(): QueryState<Agent[]> {
+  return useQuery(keys.agents, () => apiGet<Agent[]>(paths.agents))
 }
 
 /** The session list (lightweight rows) for the sidebar + search. */

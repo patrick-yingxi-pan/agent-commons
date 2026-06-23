@@ -304,3 +304,29 @@ leans the right way:
    with the agent enforcing a scoped grant — exercises D2/D3 end to end on one path.
 4. Add the **co-located fast path** in the client's lowest layer behind the
    transport-transparency invariant, teeing audit to the server.
+
+## Implementation status (live)
+
+> What of this model is actually built in the repo now, vs. the forward-looking
+> design above. Updated as slices land. Each slice ships with tests (`npm test`,
+> Node's built-in runner — no new deps) and keeps `npm run typecheck` + `build`
+> green.
+
+- **Slice 1 — agent registry, durable identity, test harness. ✅ Built.**
+  `contract/agents.ts` (`Agent`, `CapabilityType`, `AgentCapability`, register /
+  set-capabilities DTOs); `server/registry.ts` (`AgentRegistry` —
+  register / heartbeat / setCapabilities / deregister / find / list, durable
+  offline identity per D4, ambient `agent.*` events, injectable clock); a
+  co-located agent seeded in native mode (`server/data/agents.ts`); the `/agents`
+  routes; and the `useAgents` cache hook + `agent.*` event invalidation (keeping
+  the frontend-as-cache invariant). Tests: registry (unit), store spine
+  (regression), agent routes (integration). *Caught a real bug:* TS parameter
+  properties aren't erasable syntax, which Node's runtime type-stripping rejects —
+  would have broken server boot.
+- **Slice 2 — capability addressing + routing.** `(agent, capability, scope)`
+  addressing; route a capability (fs-read) to the advertising agent; the agent
+  enforces its scoped grant; `capability_unavailable` when no agent offers it.
+- **Slice 3 — system of record (D2).** Agent-authoritative projection; outbox +
+  per-agent cursor sync; idempotency keys; read-through freshness.
+- **Slice 4 — UI surface + co-located fast path (D1).** Agent/registry UI,
+  presence + onboarding, and the lowest-layer dual transport.

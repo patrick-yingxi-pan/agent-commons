@@ -18,6 +18,7 @@ import type { Connector, Message, Session } from './entities.ts'
 import type { ScheduledRun } from './cowork.ts'
 import type { RelationOp } from './relations.ts'
 import type { ContextTypeId } from './contexts.ts'
+import type { Agent } from './agents.ts'
 
 /** ── Reply-stream events (one assistant turn) ── */
 export interface MessageStartEvent {
@@ -107,6 +108,25 @@ export interface SessionUpdatedEvent {
   type: 'session.updated'
   session: Session
 }
+/** A native agent connected — a new enrollment, or a known agent returning from
+ *  offline (its durable identity re-bound). Carries the full agent record so the
+ *  registry cache can upsert it without a refetch. */
+export interface AgentConnectedEvent {
+  type: 'agent.connected'
+  agent: Agent
+}
+/** A native agent disconnected. Its identity persists (marked offline) so a later
+ *  reconnect re-binds; the UI shows it offline rather than dropping it. */
+export interface AgentDisconnectedEvent {
+  type: 'agent.disconnected'
+  agentId: string
+}
+/** An online agent re-advertised its capabilities (a grant added or revoked). */
+export interface AgentCapabilitiesChangedEvent {
+  type: 'agent.capabilities.changed'
+  agent: Agent
+}
+
 /** Sent once when an SSE channel opens, so the client can confirm liveness. */
 export interface HelloEvent {
   type: 'hello'
@@ -129,6 +149,9 @@ export type ServerEvent =
   | RecentsChangedEvent
   | ConnectorStatusEvent
   | SessionUpdatedEvent
+  | AgentConnectedEvent
+  | AgentDisconnectedEvent
+  | AgentCapabilitiesChangedEvent
 
 export type ServerEventType = ServerEvent['type']
 
