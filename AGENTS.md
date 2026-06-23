@@ -52,8 +52,15 @@ Other scripts:
 npm run typecheck  # tsc --noEmit over UI + contract  ← run before declaring done
 npm run build      # production build to dist/
 npm run start      # one process: serve built UI + API (the deploy shape)
+npm run model      # the Anthropic-compatible mock model server, standalone (:8788)
 BACKEND=remote npm run server   # the remote-web-server variant (native ops 409)
 ```
+
+`npm run dev`/`start` boot the mock model server in-process, so one command is a
+complete stack. To run the backend against the **real** API instead of the mock,
+set `ANTHROPIC_BASE_URL=https://api.anthropic.com` and `ANTHROPIC_API_KEY` (the
+in-process mock then stands down). `ANTHROPIC_MODEL` overrides the model id
+(default `claude-opus-4-8`).
 
 ## Verify health quickly
 
@@ -88,8 +95,13 @@ the mock?
 
 ## What's intentionally mock (don't file these as bugs)
 
-- **No real model.** The assistant reply is deterministic, streamed from
-  `server/generate.ts` (the seam where a real Anthropic Messages proxy would go).
+- **No real model — but the seam is real.** Replies are canned, yet the backend
+  reaches them the production way: `server/generate.ts` calls an **Anthropic
+  Messages endpoint through the official SDK** and streams it back. In dev that
+  endpoint is a local **Anthropic-compatible mock model server** (`server/model/`,
+  on `:8788`) holding the canned text. Point `ANTHROPIC_BASE_URL` at
+  `api.anthropic.com` + set `ANTHROPIC_API_KEY` to talk to the real API — no code
+  change. (Don't file "the reply is canned" as a bug.)
 - **Seed data** lives in `server/data/` — sessions, projects, artifacts, repos,
   diffs, terminal output are fixtures, not live.
 - **Native ops are stubbed** behind capability flags; a remote backend returns
@@ -105,8 +117,11 @@ the mock?
   client and server reducers (`contract/graph.ts`) in agreement.
 - **One door to the backend.** UI components read through hooks (`src/api`);
   controllers issue commands. Nothing else should know a URL or an SSE event.
-- **No new runtime dependencies** without good reason — the server is
-  zero-dependency and the UI's deps are deliberately minimal.
+- **Few runtime dependencies.** The UI's deps are deliberately minimal. The
+  server carries a single, intentional dependency — **`@anthropic-ai/sdk`**, the
+  Messages client behind the generation seam (see Design decisions). Don't add
+  others without good reason; the rest of `server/` stays dependency-free (it even
+  hand-rolls its Node types in `server/node.d.ts`).
 - **Run `npm run typecheck` before declaring a change done.** Verify UI changes in
   the running app, not just by reading code.
 - **Git:** this repo commits and pushes straight to `main` over HTTPS.
@@ -121,12 +136,24 @@ the mock?
 - **The dev server binds IPv4** (`server.host: '127.0.0.1'` in `vite.config.ts`).
   On some hosts `localhost` resolves to `::1` only, which a browser/preview hitting
   `127.0.0.1` can't reach. Keep the explicit bind (the API proxy targets it too).
+- **Generation runs through a real Anthropic Messages API boundary** (not an
+  in-process fake). `server/generate.ts` `fetch`es an Anthropic-compatible endpoint
+  via `@anthropic-ai/sdk` — the one accepted server dependency. `server/model/` is
+  the dev mock of that endpoint: it holds the canned replies and speaks the Messages
+  wire format (JSON + streaming SSE). Going live is `ANTHROPIC_BASE_URL` +
+  `ANTHROPIC_API_KEY`, nothing more; model id `claude-opus-4-8`. The model owns the
+  *prose*; app-domain side-effects (relation proposals) are computed backend-side and
+  overlaid as `message.relations` — they are **not** part of the Messages API. This
+  follows the project's broader rule: build the real boundaries now (the frontend is
+  a cache of the backend; the backend is a client of the model), not prototype
+  shortcuts a production system would have to unwind.
 
 ## Repo map (detail in [`README.md`](README.md))
 
 ```
 contract/   framework-free wire types — the API IS these types
-server/     zero-dependency mock backend (Node 26 native TS): store, router, SSE, seed data
+server/     mock backend (Node 26 native TS): store, router, SSE, seed data
+server/model/  Anthropic-compatible mock model server — POST /v1/messages (the model seam)
 src/        the UI — api/ (cache, events, commands) · controller/ · components/ · data/
 PROPOSAL.md the written proposal (the argument)
 README.md   architecture + run guide (the engineering tour)

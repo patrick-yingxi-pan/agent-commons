@@ -1,12 +1,12 @@
 /** Route table for the mock backend. Each resource registers its endpoints here;
  *  Phase 1 wires capabilities, the ambient event stream, and sessions. The router
  *  is plain data — adding a resource is adding a `.get(...)` line. */
-import type { ApplyOpRequest, Message, SendMessageRequest } from '../../contract/index.ts'
+import type { ApplyOpRequest, SendMessageRequest } from '../../contract/index.ts'
 import { Router } from '../http/router.ts'
 import { sendJson, sendError } from '../http/respond.ts'
 import { openSse } from '../http/sse.ts'
 import { store } from '../store.ts'
-import { buildReply, chunkText } from '../generate.ts'
+import { generateReply } from '../generate.ts'
 import type { ServerResponse } from 'node:http'
 
 /** Gate a native route on a capability: 409 capability_unavailable when this
@@ -89,6 +89,11 @@ export function buildRouter(): Router {
   // Send a turn → stream the assistant reply as SSE (mirrors the Anthropic
   // Messages API). The body carries typed events, not just text: an assistant
   // turn can escalate the session or propose relation edits mid-stream.
+  //
+  // The reply text streams from the Anthropic Messages endpoint (the mock model
+  // server in dev; api.anthropic.com in prod) via the SDK — see server/generate.
+  // We relay the model's text deltas, then append the app-domain relation
+  // proposals as `message.relations` before `message.end`.
   r.post('/sessions/:id/messages', async ({ req, res, params, body }) => {
     const { text } = await body<SendMessageRequest>()
     // A draft / run session may not be persisted; reply with a generic shell.
@@ -97,37 +102,40 @@ export function buildRouter(): Router {
       ? { id: known.id, title: known.title, isDemo: known.isDemo }
       : { id: params.id, title: 'New session', isDemo: false }
 
-    const full = buildReply(session, text ?? '')
     const channel = openSse(res)
-    const shell: Message = { id: full.id, role: 'assistant', content: '' }
-    channel.send({ type: 'message.start', sessionId: session.id, message: shell })
+    const ac = new AbortController()
+    req.on('close', () => ac.abort())
 
-    const chunks = chunkText(full.content)
-    let i = 0
-    let aborted = false
-    req.on('close', () => {
-      aborted = true
-    })
-    const tick = () => {
-      if (aborted || res.writableEnded) return
-      if (i < chunks.length) {
-        channel.send({ type: 'message.delta', sessionId: session.id, messageId: full.id, text: chunks[i] })
-        i += 1
-        setTimeout(tick, 26)
-      } else {
-        if (full.relationActions?.length) {
-          channel.send({
-            type: 'message.relations',
-            sessionId: session.id,
-            messageId: full.id,
-            relationActions: full.relationActions,
-          })
-        }
-        channel.send({ type: 'message.end', sessionId: session.id, message: full })
-        channel.close()
+    let messageId = ''
+    try {
+      const message = await generateReply(
+        session,
+        text ?? '',
+        {
+          onStart: (id) => {
+            messageId = id
+            channel.send({ type: 'message.start', sessionId: session.id, message: { id, role: 'assistant', content: '' } })
+          },
+          onDelta: (delta) => {
+            channel.send({ type: 'message.delta', sessionId: session.id, messageId, text: delta })
+          },
+        },
+        ac.signal,
+      )
+      if (message.relationActions?.length) {
+        channel.send({
+          type: 'message.relations',
+          sessionId: session.id,
+          messageId: message.id,
+          relationActions: message.relationActions,
+        })
       }
+      channel.send({ type: 'message.end', sessionId: session.id, message })
+    } catch {
+      // Aborted (client closed) or a fatal error — nothing more to send.
+    } finally {
+      channel.close()
     }
-    setTimeout(tick, 110) // a brief "thinking" beat before the first token
   })
 
   // ── Dispatch ──────────────────────────────────────────────────────────────

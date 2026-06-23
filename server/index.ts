@@ -17,6 +17,7 @@ import { API_BASE_PATH } from '../contract/index.ts'
 import { CORS_HEADERS, sendError } from './http/respond.ts'
 import { buildRouter } from './routes/index.ts'
 import { store, startRunDaemon } from './store.ts'
+import { startModelServer } from './model/index.ts'
 
 const PORT = Number(process.env.PORT ?? 8787)
 const HOST = process.env.HOST ?? '127.0.0.1'
@@ -86,6 +87,14 @@ function serveStatic(pathname: string, res: import('node:http').ServerResponse):
 server.listen(PORT, HOST, () => {
   console.log(`[mock-backend] http://${HOST}:${PORT}${API_BASE_PATH}  ·  epoch ${store.epoch}`)
   console.log(`[mock-backend] serving ${existsSync(DIST) ? 'built UI (dist/) + ' : ''}API`)
+  // In mock mode, boot the Anthropic-compatible model server in-process so one
+  // command (`npm run dev` / `npm start`) is a complete stack. The backend reaches
+  // it over loopback HTTP through the Anthropic SDK (see server/generate.ts).
+  // Pointed at the real API (ANTHROPIC_BASE_URL=https://api.anthropic.com) — or
+  // with MODEL_INLINE=0 — this stands down.
+  const baseUrl = process.env.ANTHROPIC_BASE_URL
+  const usingMockModel = !baseUrl || /\/\/(127\.0\.0\.1|localhost|0\.0\.0\.0)/.test(baseUrl)
+  if (usingMockModel && process.env.MODEL_INLINE !== '0') startModelServer()
   // The scheduled-run daemon: fires a run on a cadence and pushes it to clients.
   const stopDaemon = startRunDaemon()
   // Clean shutdown (the dev --watch restart sends SIGTERM): stop the daemon's

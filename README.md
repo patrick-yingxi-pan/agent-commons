@@ -74,10 +74,12 @@ contract/   Framework-free wire types, imported VERBATIM by the UI (Vite) and th
             ServerEvent union (SSE), Capabilities, and the id invariants both ends
             must agree on.
 
-server/     The mock backend — a ~zero-dependency node:http server run directly by
-            Node 26 (no build step). In-memory store + event bus, a tiny router,
+server/     The mock backend — a near-zero-dependency node:http server run directly
+            by Node 26 (no build step). In-memory store + event bus, a tiny router,
             SSE, and the seed data. Serves the built UI from dist/ too, so "web UI
-            served from the server" is literally true.
+            served from the server" is literally true. Its one dependency is the
+            Anthropic SDK, used by the generation seam; server/model/ is the dev
+            mock of the Messages endpoint it streams from (api.anthropic.com in prod).
 
 src/        The UI. Components read through hooks (src/api), controllers issue
             commands; nothing else knows a URL or an event. Point VITE_API_BASE at
@@ -89,8 +91,11 @@ read-through query cache (`useSyncExternalStore`). The server pushes everything
 the UI *didn't* request over one SSE stream (`GET /v1/events`) — a scheduled run
 firing, a standing approval acting, a connector's auth expiring — and an event
 router turns each into a cache patch. An assistant turn streams token-by-token
-from `POST /v1/sessions/:id/messages`, mirroring the Anthropic Messages API, so
-the future real backend is a straight proxy.
+from `POST /v1/sessions/:id/messages`. The backend gets that text the production
+way — it calls an Anthropic **Messages** endpoint through `@anthropic-ai/sdk` and
+relays the stream. In dev that endpoint is a local Anthropic-compatible mock
+(`server/model/`, `:8788`) holding the canned replies, so going live is just
+`ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` — the seam is already real.
 
 **Native vs remote, without env-sniffing.** `GET /v1/capabilities` tells the UI
 what *this* backend can do (`localFs`, `localGit`, `osPicker`, …). The UI gates
@@ -114,19 +119,24 @@ Other scripts:
 ```bash
 npm run dev:ui     # just the Vite UI (expects a backend on :8787)
 npm run server     # just the mock backend (node --watch server/index.ts)
+npm run model      # just the Anthropic-compatible mock model server (:8788)
 npm run start      # one process: serve the built UI + the API (the deploy shape)
 npm run build      # production build to dist/
 npm run typecheck  # tsc --noEmit (UI + contract)
 
 BACKEND=remote npm run server   # the remote-web-server variant (native ops 409)
+
+# point the backend at the REAL Anthropic API instead of the in-process mock:
+ANTHROPIC_BASE_URL=https://api.anthropic.com ANTHROPIC_API_KEY=sk-... npm run dev
 ```
 
 ## Stack
 
 - **React + TypeScript + Vite** (UI) · **Tailwind CSS v4** · **framer-motion** ·
   **lucide-react**
-- **Node 26 + node:http** (mock backend) — zero runtime dependencies; runs the
-  TypeScript directly.
+- **Node 26 + node:http** (mock backend) — runs the TypeScript directly; one
+  runtime dependency, **`@anthropic-ai/sdk`** (the Messages client for the model
+  seam), otherwise dependency-free.
 - The data is mock on purpose (deterministic, easy to review) — but it now lives
   *behind the API*, in the server, exactly where a real backend's database +
   Anthropic API would.
@@ -138,10 +148,11 @@ contract/                 # the shared wire types (the API IS these types)
   entities · cowork · relations · graph · runs · contexts · content
   events (SSE union) · api (Capabilities + DTOs) · ids (shared invariants)
 
-server/                   # the zero-dep mock backend (Node 26 native TS)
+server/                   # the mock backend (Node 26 native TS; one dep: the SDK)
   index.ts                # http server: prefix routing, CORS, static dist/, daemon
   store.ts                # in-memory state + event bus + the run daemon
-  generate.ts             # streams the assistant reply (the Anthropic-API seam)
+  generate.ts             # the Anthropic Messages seam — streams the reply via the SDK
+  model/                  # the Anthropic-compatible mock model server (POST /v1/messages)
   http/{router,respond,sse}.ts
   routes/index.ts         # the route table (one .get/.post per endpoint)
   data/                   # the seed data (sessions, cowork, contexts, …)

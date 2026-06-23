@@ -9,12 +9,14 @@
     "dev": "node scripts/dev.mjs",
     "dev:ui": "vite",
     "server": "node --watch server/index.ts",
+    "model": "node server/model/index.ts",
     "start": "node server/index.ts",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.105.0",
     "framer-motion": "^11.15.0",
     "lucide-react": "^0.469.0",
     "react": "^19.0.0",
