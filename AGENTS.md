@@ -148,6 +148,17 @@ the mock?
   a cache of the backend; the backend is a client of the model), not prototype
   shortcuts a production system would have to unwind.
 
+### Open exploration (not locked — a design log, not a decision)
+
+- **Local-resource access & portability.** A worked-through line of reasoning that
+  capabilities are *not* a local-vs-remote backend property; that the UI is itself a
+  local-access bridge (browser sandbox vs Electron privileged); that local ingestion
+  is a *write path* (upload makes a replica, so transfer/sync is the hard part); and
+  that a **loopback companion app** makes "Electron = a browser with the local helper
+  pre-bundled," unifying the two scenarios. Captured — with the open design forks —
+  in [`docs/local-access-and-portability.md`](docs/local-access-and-portability.md).
+  This is forward-looking; it does **not** change current behavior.
+
 ## Repo map (detail in [`README.md`](README.md))
 
 ```
@@ -155,6 +166,7 @@ contract/   framework-free wire types — the API IS these types
 server/     mock backend (Node 26 native TS): store, router, SSE, seed data
 server/model/  Anthropic-compatible mock model server — POST /v1/messages (the model seam)
 src/        the UI — api/ (cache, events, commands) · controller/ · components/ · data/
+docs/       forward-looking design notes (exploration, not locked-in decisions)
 PROPOSAL.md the written proposal (the argument)
 README.md   architecture + run guide (the engineering tour)
 ```

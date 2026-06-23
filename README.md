@@ -157,6 +157,9 @@ server/                   # the mock backend (Node 26 native TS; one dep: the SD
   routes/index.ts         # the route table (one .get/.post per endpoint)
   data/                   # the seed data (sessions, cowork, contexts, …)
 
+docs/                     # forward-looking design notes (exploration, not locked-in)
+  local-access-and-portability.md   # the local-access / loopback-companion direction
+
 src/
   main.tsx · App.tsx · types.ts (re-exports the contract) · index.css
   api/                    # the UI's one door to the backend
