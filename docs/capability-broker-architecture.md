@@ -348,5 +348,20 @@ leans the right way:
   Tests: `tests/journal.test.ts` (unit: idempotency, ordering, cursor/reconcile,
   merge) + `tests/routes-effects.test.ts` (integration). 47 tests total; verified
   live (idempotent retry replays the original effect; sync projects the delta).
-- **Slice 4 — UI surface + co-located fast path (D1).** Agent/registry UI,
-  presence + onboarding, and the lowest-layer dual transport.
+- **Slice 4 — UI surface (the registry, made visible). ✅ Built.**
+  `src/components/HostsControl.tsx` — an ambient "Hosts" control in the composer's
+  right group (beside the usage gauge), reading `useAgents()`: an online-count
+  pill that opens a popover listing each connected host, its online/offline dot,
+  origin, and capability chips (fs read / fs write / terminal / process). It is
+  deliberately *not* in the Add-context menu — agents are a standing fabric,
+  referenced by name, not attached (D4). Verified live in the preview (shows the
+  seeded "This Mac" with its four capabilities); typecheck + build green.
+- **Still forward (needs a real loopback companion, not a mock): the co-located
+  fast-path *transport* (D1).** The registry, addressing, routing, system-of-record,
+  and now the UI are all built — but the actual *dual transport* (the client's
+  lowest layer talking direct-to-loopback vs. relay) is intentionally **not**
+  faked, because in a browser-only mock both paths resolve to the same origin and
+  a stubbed "direct" path would be theatre, not a real boundary. The seam is
+  identified and ready: a transport resolver keyed on an agent's loopback address,
+  wrapping `invokeCapability`, behind the transport-transparency invariant. This is
+  the one slice that genuinely requires the companion app to be meaningful.

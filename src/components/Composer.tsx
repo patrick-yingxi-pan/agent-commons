@@ -25,6 +25,7 @@ import { AddContextButton } from './AddContextButton'
 import { PermissionModeControl } from './PermissionModeControl'
 import { AudioInputControl } from './AudioInputControl'
 import { UsageControl } from './UsageControl'
+import { HostsControl } from './HostsControl'
 import { GITHUB_CONNECTOR_ID, connectorIconFor } from '../lib/connectors'
 import { getDecision, setDecision } from '../lib/prefs'
 import { CHIP_TONES, type ChipTone } from '../lib/capabilities'
@@ -360,6 +361,7 @@ export function Composer({
           </div>
           <div className="flex items-center gap-1.5">
             <ModelEffortControl />
+            <HostsControl />
             <UsageControl />
           </div>
         </div>
