@@ -10,6 +10,7 @@ export const keys = {
   dispatch: 'dispatch',
   savedContexts: 'saved-contexts',
   connectorDetail: (id: string) => `connector-detail:${id}`,
+  usage: 'usage',
   artifactContent: 'artifact-content',
   scheduleTemplates: 'schedule-templates',
   projects: 'projects',
@@ -31,6 +32,7 @@ export const paths = {
     if (c.kind) q.set('kind', c.kind)
     return `/connectors/detail?${q.toString()}`
   },
+  usage: '/usage',
   artifactContent: '/artifact-content',
   scheduleTemplates: '/schedule-templates',
   projects: '/projects',

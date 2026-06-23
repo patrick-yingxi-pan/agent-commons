@@ -150,6 +150,11 @@ export function buildRouter(): Router {
     sendJson(res, store.connectorDetail({ id: url.searchParams.get('id') ?? label, label, kind }))
   })
 
+  // ── Usage (composer gauge: context window + plan limit windows) ────────────
+  r.get('/usage', ({ res }) => {
+    sendJson(res, store.usage())
+  })
+
   // ── Artifact bodies + schedule templates ──────────────────────────────────
   r.get('/artifact-content', ({ res }) => {
     sendJson(res, store.artifactContent())

@@ -28,6 +28,7 @@ import type {
   ScheduleTemplate,
   ServerEvent,
   Session,
+  UsageSnapshot,
 } from '../contract/index.ts'
 import {
   applyGraphOp,
@@ -47,6 +48,7 @@ import {
 import { SAVED_CONTEXTS, CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from './data/savedContexts.ts'
 import { connectorDetail } from './data/connectorDetails.ts'
 import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
+import { USAGE } from './data/usage.ts'
 
 type Listener = (e: ServerEvent) => void
 
@@ -230,6 +232,13 @@ export const store = {
   // ── Artifact bodies ──
   artifactContent(): ArtifactContentLibrary {
     return ARTIFACT_CONTENT
+  },
+
+  // ── Usage (the composer gauge: context window + plan limit windows) ──
+  /** The usage snapshot the composer gauge renders. Mock: a fixture; a real
+   *  backend reads the account's live meter + the open session's context fill. */
+  usage(): UsageSnapshot {
+    return USAGE
   },
 
   // ── Schedule templates (the "New schedule" starters) ──

@@ -1,13 +1,14 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { ArrowRight, ChevronRight } from 'lucide-react'
+import { useUsage } from '../api'
+import type { UsageSnapshot } from '../../contract/index.ts'
 
-const USAGE = {
-  context: { used: '352.0k', total: '1.0M', pct: 35 },
-  limits: [
-    { label: '5-hour limit', reset: 'Resets 6:39 PM', pct: 71 },
-    { label: 'Weekly · all models', reset: 'Resets Jun 20', pct: 24 },
-    { label: 'Sonnet only', reset: '', pct: 0 },
-  ],
+/* Shown until the server's usage snapshot loads — a zeroed gauge rather than a
+   flash of a missing icon. The real figures arrive from `GET /v1/usage`, after
+   which the UI just caches them. */
+const EMPTY_USAGE: UsageSnapshot = {
+  context: { used: '—', total: '—', pct: 0 },
+  limits: [],
 }
 
 /* Status fill colors, shared by the gauge arcs and the water-level disc.
@@ -26,6 +27,9 @@ function waterColor(pct: number): string {
 export function UsageControl() {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
+  // Server-owned: the UI just caches the snapshot. EMPTY_USAGE covers the first
+  // paint before the fetch resolves.
+  const usage = useUsage().data ?? EMPTY_USAGE
 
   useEffect(() => {
     if (!open) return
@@ -42,8 +46,8 @@ export function UsageControl() {
   }, [open])
 
   const title =
-    `Usage — context ${USAGE.context.pct}%, ` +
-    `5-hour ${USAGE.limits[0].pct}%, weekly ${USAGE.limits[1].pct}%`
+    `Usage — context ${usage.context.pct}%, ` +
+    `5-hour ${usage.limits[0]?.pct ?? 0}%, weekly ${usage.limits[1]?.pct ?? 0}%`
 
   return (
     <div ref={wrapRef} className="relative">
@@ -57,7 +61,7 @@ export function UsageControl() {
           open ? 'bg-panel-2' : 'hover:bg-panel-2'
         }`}
       >
-        <UsageGauge />
+        <UsageGauge usage={usage} />
       </button>
 
       {open && (
@@ -65,11 +69,11 @@ export function UsageControl() {
           <button className="flex w-full items-center justify-between text-left">
             <span className="text-[12px] text-ink-faint">Context window</span>
             <span className="flex items-center gap-1 text-[12px] text-ink">
-              {USAGE.context.used} / {USAGE.context.total} ({USAGE.context.pct}%)
+              {usage.context.used} / {usage.context.total} ({usage.context.pct}%)
               <ChevronRight size={13} className="text-ink-faint" />
             </span>
           </button>
-          <Bar pct={USAGE.context.pct} className="mt-1.5" />
+          <Bar pct={usage.context.pct} className="mt-1.5" />
 
           <div className="my-2.5 border-t border-line" />
 
@@ -79,7 +83,7 @@ export function UsageControl() {
           </button>
 
           <div className="mt-2.5 space-y-2.5">
-            {USAGE.limits.map((l, i) => (
+            {usage.limits.map((l, i) => (
               <div key={i}>
                 <div className="flex items-center justify-between text-[12px]">
                   <span className="text-ink">{l.label}</span>
@@ -95,7 +99,7 @@ export function UsageControl() {
 
           {/* Key: connect the cryptic gauge back to the windows it stacks. */}
           <div className="mt-3 flex items-center gap-2 border-t border-line pt-2.5">
-            <UsageGauge />
+            <UsageGauge usage={usage} />
             <span className="text-[11px] leading-tight text-ink-faint">
               inner = context · middle = 5-hour · outer = weekly
             </span>
@@ -109,7 +113,7 @@ export function UsageControl() {
 /** Concentric usage gauge. The two outer rings fill clockwise like a dial
  *  (middle = 5-hour limit, outer = weekly limit); the inner solid disc is a
  *  water-level tank for the context window. Hue follows the usage threshold. */
-function UsageGauge() {
+function UsageGauge({ usage }: { usage: UsageSnapshot }) {
   const uid = useId().replace(/:/g, '')
   const cx = 12
   const cy = 12
@@ -121,14 +125,14 @@ function UsageGauge() {
   // unfilled and would otherwise merge into one grey block:
   //   weekly band [7.8–11.2] · 5-hour band [4.5–7.8] · disc r4.5.
   const arcs = [
-    { key: 'weekly', r: 9.5, w: 3.4, track: 'stroke-line-strong', pct: USAGE.limits[1].pct },
-    { key: 'fivehour', r: 6.15, w: 3.3, track: 'stroke-line', pct: USAGE.limits[0].pct },
+    { key: 'weekly', r: 9.5, w: 3.4, track: 'stroke-line-strong', pct: usage.limits[1]?.pct ?? 0 },
+    { key: 'fivehour', r: 6.15, w: 3.3, track: 'stroke-line', pct: usage.limits[0]?.pct ?? 0 },
   ]
 
   // The context window stays a water-level disc, filled from the bottom. Its
   // grey track is the inner "strong" stripe of the alternating pattern.
   const discR = 4.5
-  const ctxPct = USAGE.context.pct
+  const ctxPct = usage.context.pct
   const f = Math.max(0, Math.min(1, ctxPct / 100))
   const discBottom = cy + discR
   const surface = discBottom - 2 * discR * f

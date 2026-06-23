@@ -21,6 +21,7 @@ import type {
   ScheduledTask,
   ScheduleTemplate,
   Session,
+  UsageSnapshot,
 } from '../../contract/index.ts'
 
 /** What this backend can do — the UI gates native-only affordances on this,
@@ -54,6 +55,11 @@ export function useConnectorDetail(connector: Connector): QueryState<ConnectorDe
   return useQuery(keys.connectorDetail(connector.id), () =>
     apiGet<ConnectorDetail>(paths.connectorDetail(connector)),
   )
+}
+
+/** The composer's usage snapshot (context window + plan limit windows). */
+export function useUsage(): QueryState<UsageSnapshot> {
+  return useQuery(keys.usage, () => apiGet<UsageSnapshot>(paths.usage))
 }
 
 /** The artifact-body library, keyed by file name. */
