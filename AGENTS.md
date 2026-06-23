@@ -148,16 +148,19 @@ the mock?
   a cache of the backend; the backend is a client of the model), not prototype
   shortcuts a production system would have to unwind.
 
-### Open exploration (not locked — a design log, not a decision)
+### Open exploration (forward-looking — a design log, not shipped behavior)
 
-- **Local-resource access & portability.** A worked-through line of reasoning that
-  capabilities are *not* a local-vs-remote backend property; that the UI is itself a
-  local-access bridge (browser sandbox vs Electron privileged); that local ingestion
-  is a *write path* (upload makes a replica, so transfer/sync is the hard part); and
-  that a **loopback companion app** makes "Electron = a browser with the local helper
-  pre-bundled," unifying the two scenarios. Captured — with the open design forks —
-  in [`docs/local-access-and-portability.md`](docs/local-access-and-portability.md).
-  This is forward-looking; it does **not** change current behavior.
+- **Capability-broker architecture.** A worked-through future direction in which the
+  web server is a **control plane** brokering a live **registry of native agents** (one
+  per host) that advertise capabilities (fs / terminal / process); native and web
+  collapse into one model differing only by a co-located **fast path** (Electron = an
+  unbundled co-located agent). The dialogue settled four design choices — relay-default
+  + fast path, **agents are the system of record** for their host, server-side content
+  audit, and stable **ambient agent identity** — each recorded with its trade-offs and
+  rejected alternative in
+  [`docs/capability-broker-architecture.md`](docs/capability-broker-architecture.md).
+  This is forward-looking; it does **not** change current behavior, and these "decisions"
+  are settled *within the exploration*, not implemented in the prototype.
 
 ## Repo map (detail in [`README.md`](README.md))
 

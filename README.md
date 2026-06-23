@@ -158,7 +158,7 @@ server/                   # the mock backend (Node 26 native TS; one dep: the SD
   data/                   # the seed data (sessions, cowork, contexts, …)
 
 docs/                     # forward-looking design notes (exploration, not locked-in)
-  local-access-and-portability.md   # the local-access / loopback-companion direction
+  capability-broker-architecture.md  # control plane + native-agent registry direction
 
 src/
   main.tsx · App.tsx · types.ts (re-exports the contract) · index.css
