@@ -21,13 +21,49 @@ import { rememberAttached } from '../lib/contextShortcuts'
 import { runSessionById } from '../data/scheduledRuns'
 import {
   applyRelationOp,
+  attachContext,
   deleteSession as deleteSessionCmd,
+  detachContext,
   patchSession,
   runSessionFromCache,
   runSessionFromSchedules,
   sendMessage,
 } from '../api'
-import type { AddedContext, Message, PanelFocus, Repo, SectionId, TourPhase } from '../types'
+import type {
+  AddedContext,
+  AttachContextRequest,
+  Message,
+  PanelFocus,
+  Repo,
+  SectionId,
+  TourPhase,
+} from '../types'
+
+/** Map an attached `AddedContext` to the persistent binding(s) it should create —
+ *  the *attachment of record* the effect-mediation path resolves against
+ *  (Primitive 1 of docs/shared-resource-coordination.md). Ids match the live
+ *  model's so attach and the chip-remove focus pair up: a repo by `repoIdForLabel`,
+ *  the shared workspace by `WS_ID`, connectors / attachments by their own id.
+ *  `scope` is the resource boundary (a path for folder / repo, `'*'` otherwise);
+ *  files / photos expand to one binding per attachment. */
+function bindingsFor(ctx: AddedContext): AttachContextRequest[] {
+  switch (ctx.kind) {
+    case 'folder':
+      return [{ id: WS_ID, type: 'folder', label: ctx.label, scope: ctx.label }]
+    case 'repo':
+      return [{ id: repoIdForLabel(ctx.label), type: 'repo', label: ctx.label, scope: ctx.path ?? '*' }]
+    case 'connector':
+      return [{ id: ctx.connector.id, type: 'connector', label: ctx.connector.label, scope: '*' }]
+    case 'mcp':
+      return [{ id: ctx.connector.id, type: 'mcp', label: ctx.connector.label, scope: '*' }]
+    case 'files':
+      return ctx.attachments.map((a): AttachContextRequest => ({ id: a.id, type: 'files', label: a.label, scope: '*' }))
+    case 'photos':
+      return ctx.attachments.map((a): AttachContextRequest => ({ id: a.id, type: 'photos', label: a.label, scope: '*' }))
+    default:
+      return []
+  }
+}
 
 /** ── Controller: the active session + its live workspace ───────────────────
  *  Owns all session, live-context, panel-focus, section, and guided-tour state,
@@ -339,6 +375,11 @@ export function useSessionWorkspace() {
     // the "Recent"/"Connected" quick lists always reflect what was just added
     // (the invariant lives in lib/contextShortcuts.ts).
     rememberAttached(ctx)
+    // Write-through to the persistent attachment of record (Primitive 1): the
+    // server-owned binding the effect-mediation path resolves against. Fire-and-
+    // forget — client-side live state stays the panel's instant driver; the binding
+    // is the system of record (docs/shared-resource-coordination.md).
+    for (const b of bindingsFor(ctx)) void attachContext(activeIdRef.current, b).catch(() => {})
     setLive((l) => {
       switch (ctx.kind) {
         case 'folder': {
@@ -481,6 +522,7 @@ export function useSessionWorkspace() {
   )
 
   const removeAttachment = useCallback((id: string) => {
+    void detachContext(activeIdRef.current, id).catch(() => {})
     setLive((l) => ({ ...l, attachments: l.attachments.filter((a) => a.id !== id) }))
   }, [])
 
@@ -502,6 +544,9 @@ export function useSessionWorkspace() {
   // GitHub connector, or the connector + the repos that depend on it); the
   // connector panel's Disconnect passes just the connector.
   const removeContexts = useCallback((focuses: PanelFocus[]) => {
+    // Mirror the removal to the persistent binding (Primitive 1): detach each focus
+    // by id (the binding id pairs with the chip's focus id). Fire-and-forget.
+    for (const f of focuses) void detachContext(activeIdRef.current, f.id).catch(() => {})
     setLive((l) => {
       const ids = (kind: PanelFocus['kind']) =>
         new Set(focuses.filter((f) => f.kind === kind).map((f) => f.id))
