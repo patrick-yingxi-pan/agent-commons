@@ -210,6 +210,51 @@ than tracking live sockets.
 must trust that *this* agent legitimately owns host X's history before accepting its
 replayed log as authoritative. The `agentId` + pairing key is that trust anchor.
 
+## Availability — two critical paths, only one offline-safe
+
+The planes table implies this, but it is worth stating outright because the dialogue's
+shorthand — *"the web server is no longer on a critical path"* — overclaims. That phrase
+is **plane-specific**. There are **two** independent critical paths, and the co-located
+fast path (D1) shortens only one of them:
+
+- **Capability path** (UI → agent). On a co-located host this may take the loopback fast
+  path, so it survives a server outage: the agent executes, logs to its durable record,
+  and replays its outbox on reconnect (D2). **Offline-safe.**
+- **Model path** (UI → server → Anthropic). Always relays through the server, which holds
+  the API credential and the content audit (D3). The fast path never touches it, and the
+  co-located agent is **not** a model proxy — its capabilities are fs / terminal /
+  process, never "reach the model." So even in the Electron case, model messages do **not**
+  go through the local agent. **Not offline-safe.**
+
+What survives a server outage, precisely:
+
+| | Server down |
+|---|---|
+| Human-driven capability on a **co-located** host (run a command, read a file via the fast path) | ✅ executes, logs locally, replays on reconnect |
+| Durable record of effects already performed | ✅ never lost — the agent is the system of record (D2) |
+| Capability on a **remote** host (cross-host relay) | ❌ needs the server hop |
+| A **new model turn** — any agentic / model-driven work | ❌ the model + credential are server-side |
+
+The real boundary is **human-driven local work survives; model-driven work does not.**
+Even though a co-located agent *could* run your tests with the server down, nothing tells
+it to — the agentic loop (the model deciding to invoke a capability) lives behind the
+server. This is the same failure contract as any AI-in-editor tool: with the cloud down
+your editor and terminal still work by hand, but the assistant goes quiet. The local
+*environment* never depended on the model being reachable.
+
+**Decision (accepted).** Keep the model server-gated and scope the "off the critical
+path" claim to the capability/data plane. Model availability *requires* the server — and
+that is the same choice that makes the content audit free (D3): the credential and the
+relay live in one place on purpose. We do **not** move the credential onto the agent to
+win offline model access; that would invert D3 (lose central model-I/O audit, push key
+management onto every host) for a narrow gain.
+
+**Open fork (not yet decided).** If graceful model degradation is ever wanted, the cheap
+version is **queued model intents**: queue a model-requiring turn locally and replay it
+when the server returns, reusing D2's outbox machinery rather than moving the credential.
+This nudges the model path toward the capability path's offline behavior without touching
+the trust model. Recorded as open question 7.
+
 ## Capabilities as a live registry
 
 Capabilities are **not** a static descriptor of "the backend." They are **advertised
@@ -291,6 +336,9 @@ leans the right way:
 6. **Shared-state vs. agent-projection boundary** — the concrete schema of which fields
    are server-authoritative vs. projected from agents, and how references resolve in the
    UI.
+7. **Model-availability under partition** — accept the server-gated model (the model path
+   is not offline-safe; current choice) vs. **queued model intents** replayed on reconnect
+   (graceful degradation reusing D2's outbox, no credential move).
 
 ## If/when we build it — smallest first slice
 
