@@ -257,7 +257,7 @@ export default function App() {
                       connectors={live.connectors}
                       attachments={live.attachments}
                       focus={focus}
-                      disabled={isDemo && phase === 'running'}
+                      disabled={busy || (isDemo && phase === 'running')}
                       onSend={handleSend}
                       onAddContext={handleAddContext}
                       onOpenContext={focusContext}

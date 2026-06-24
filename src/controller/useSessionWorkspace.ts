@@ -131,6 +131,10 @@ export function useSessionWorkspace() {
   // has stable deps and must not close over a stale snapshot).
   const extraSessionsRef = useRef(extraSessions)
   extraSessionsRef.current = extraSessions
+  // The in-flight draft → real materialization, so two quick sends on a fresh draft
+  // coalesce into ONE session instead of racing to create two. Reset when a new
+  // draft begins (newSession) or the materialization fails.
+  const draftMaterializing = useRef<Promise<Session> | null>(null)
 
   const activeSession = useMemo(
     // A scheduled run opens its own synthesized session — resolve from the live
@@ -364,6 +368,11 @@ export function useSessionWorkspace() {
   // relation-edit proposals; anything else gets a canned answer.
   const handleSend = useCallback((text: string) => {
     const startId = activeIdRef.current
+    // The send generation at dispatch time. Any session switch / re-select bumps
+    // runId (via clearTimers), which invalidates this stream — so a reconcile
+    // triggered by re-selecting this same session mid-stream can't be clobbered by,
+    // or duplicate against, the still-arriving deltas.
+    const myRun = runId.current
     const userMsg: Message = { id: `u-${Date.now()}`, role: 'user', content: text }
     setLive((l) => ({ ...l, messages: [...l.messages, userMsg] }))
     setTyping(true)
@@ -376,9 +385,14 @@ export function useSessionWorkspace() {
       let sid = startId
       if (sid === DRAFT_ID) {
         try {
-          const created = await createSession(text)
+          // Coalesce a rapid second send on the same fresh draft into the first
+          // materialization (the composer isn't disabled while streaming), so two
+          // quick messages land in ONE session rather than creating two.
+          const pending = draftMaterializing.current ?? createSession(text)
+          draftMaterializing.current = pending
+          const created = await pending
           sid = created.id
-          setExtraSessions((prev) => [created, ...prev])
+          setExtraSessions((prev) => (prev.some((s) => s.id === created.id) ? prev : [created, ...prev]))
           // Adopt the new id only if the user is still on the draft — don't yank
           // them back if they navigated away while it was materializing.
           if (activeIdRef.current === DRAFT_ID) {
@@ -388,11 +402,13 @@ export function useSessionWorkspace() {
         } catch {
           // Couldn't materialize (server unreachable) — stream against the draft id;
           // the reply still renders, it just isn't persisted (graceful degradation).
+          draftMaterializing.current = null // let a retry re-materialize
           sid = startId
         }
       }
-      // Ignore stream events that arrive after the user switched away.
-      const stale = () => activeIdRef.current !== sid
+      // Ignore stream events that arrive after the user switched away — or
+      // re-selected this same session (which bumps runId and re-reconciles).
+      const stale = () => activeIdRef.current !== sid || runId.current !== myRun
       await sendMessage(sid, text, {
         onStart: (_id, message) => {
           if (stale()) return
@@ -493,6 +509,9 @@ export function useSessionWorkspace() {
     setBusy(false)
     setActiveSection(null)
     setActiveId(DRAFT_ID)
+    // A fresh draft must re-materialize on its first send — don't reuse the
+    // previous draft's (now resolved) session.
+    draftMaterializing.current = null
     setLive(EMPTY_LIVE)
     setFocus(null)
     setPhase('idle')
@@ -563,6 +582,12 @@ export function useSessionWorkspace() {
     const id = activeIdRef.current
     const next = removeFolderFromLive(liveRef.current, sourceId)
     setLive(next)
+    // If that emptied the shared workspace, detach its binding too — so the
+    // attachment-of-record (Primitive 1) stays in step with the panels (the other
+    // removers detach as they go; the folder funnel must too).
+    if (liveRef.current.workspaces.length > 0 && next.workspaces.length === 0) {
+      void detachContext(id, WS_ID).catch(() => {})
+    }
     persistLive(id, next)
   }, [persistLive])
 
