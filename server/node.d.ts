@@ -35,6 +35,9 @@ declare module 'node:fs' {
   export function readFileSync(path: string): { toString(): string } & Uint8Array
   export function existsSync(path: string): boolean
   export function statSync(path: string): { isFile(): boolean; isDirectory(): boolean }
+  export function writeFileSync(path: string, data: string): void
+  export function renameSync(oldPath: string, newPath: string): void
+  export function mkdirSync(path: string, options?: { recursive?: boolean }): void
 }
 
 declare module 'node:path' {

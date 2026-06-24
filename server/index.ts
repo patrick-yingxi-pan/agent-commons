@@ -24,6 +24,12 @@ const HOST = process.env.HOST ?? '127.0.0.1'
 const ROOT = dirname(fileURLToPath(import.meta.url))
 const DIST = join(ROOT, '..', 'dist')
 
+// Turn on filesystem persistence and rehydrate from the last snapshot, so UI
+// operations (sent messages, attached context, created sessions, schedules,
+// recents, relation edits) survive a restart. Only the real server does this;
+// tests import the router directly and stay in-memory.
+store.initPersistence()
+
 const router = buildRouter()
 
 const MIME: Record<string, string> = {

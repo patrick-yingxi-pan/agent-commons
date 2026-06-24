@@ -150,7 +150,8 @@ contract/                 # the shared wire types (the API IS these types)
 
 server/                   # the mock backend (Node 26 native TS; one dep: the SDK)
   index.ts                # http server: prefix routing, CORS, static dist/, daemon
-  store.ts                # in-memory state + event bus + the run daemon
+  store.ts                # working state + event bus + the run daemon
+  persist.ts              # filesystem persistence — snapshots UI state to .data/store.json
   generate.ts             # the Anthropic Messages seam — streams the reply via the SDK
   model/                  # the Anthropic-compatible mock model server (POST /v1/messages)
   http/{router,respond,sse}.ts

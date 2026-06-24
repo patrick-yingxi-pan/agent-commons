@@ -106,8 +106,13 @@ the mock?
   diffs, terminal output are fixtures, not live.
 - **Native ops are stubbed** behind capability flags; a remote backend returns
   `409 capability_unavailable` by design.
-- **Created state is in-memory** — a project created during the tour persists only
-  until the server restarts.
+- **Created state is persisted to the filesystem.** When the real server runs
+  (`dev` / `start` / `server`), the UI-owned state — sent messages, created
+  sessions, attached context + its panels, schedules, recents, relation edits — is
+  snapshotted to `.data/store.json` on each mutation and rehydrated on boot
+  (`server/persist.ts`), so it survives a restart. The simplest viable format (one
+  JSON snapshot, atomic write); refine later. Transient state (reservations, the
+  live agent registry) is deliberately *not* persisted. Tests run in-memory.
 
 ## Working in this repo (conventions)
 

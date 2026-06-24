@@ -1,9 +1,14 @@
 /** ── The mock backend's state + event bus ──────────────────────────────────
- *  In-memory, seeded from server/data. In the real product this is a database +
- *  the Anthropic API; here it's plain objects the routes read and mutate, plus a
- *  tiny pub/sub the SSE channels subscribe to. Refresh-resets, like the rest of
- *  the mock — restarting the server reseeds (a new `epoch` tells clients to drop
- *  their cache).
+ *  In-memory working state, seeded from server/data, plus a tiny pub/sub the SSE
+ *  channels subscribe to. In the real product this is a database + the Anthropic
+ *  API; here it's plain objects the routes read and mutate.
+ *
+ *  When the real server runs, the UI-owned state is also durable: it's snapshotted
+ *  to the filesystem on every mutation and rehydrated on boot (server/persist.ts),
+ *  so a sent message / attached context / created session survives a restart. The
+ *  seed is the *baseline*, written out on first boot; a later boot loads the
+ *  snapshot. Tests leave persistence off and run purely in-memory. (Transient
+ *  state — reservations, the live agent registry — is deliberately not persisted.)
  *
  *  State is added to this store as each resource's reads/commands migrate; Phase 1
  *  carries sessions + the event bus, the spine everything else hangs off. */
@@ -57,6 +62,7 @@ import { AgentJournal } from './journal.ts'
 import { ResourceGuardian } from './guardian.ts'
 import { LOCAL_AGENT_SEED } from './data/agents.ts'
 import { EMPTY_WORKSPACE, workspaceFromSeed } from './workspace.ts'
+import { STORE_VERSION, loadState, saveState, type PersistedState } from './persist.ts'
 
 type Listener = (e: ServerEvent) => void
 
@@ -112,7 +118,7 @@ let recents: RecentsSnapshot = (() => {
 // Per-session attached contexts — the *attachment of record* (Primitive 1 of
 // docs/shared-resource-coordination.md). Server-owned so every effect a session
 // initiates can be mediated by naming one of these (Tiers A–C). Seeded for the
-// demo sessions; created state is in-memory (mock semantics, refresh-resets).
+// demo sessions; created state is persisted to disk (see persist.ts).
 const sessionContextBindings = new Map<string, SessionContext[]>([
   ['insights-launch', [{ id: 'repo-insights', type: 'repo', label: 'insights-dashboard', scope: '~/projects/insights-dashboard' }]],
   ['auth-refactor', [{ id: 'repo-auth', type: 'repo', label: 'auth-service', scope: '~/projects/auth-service' }]],
@@ -122,7 +128,7 @@ const sessionContextBindings = new Map<string, SessionContext[]>([
 // of its attached contexts). Server-owned so a runtime attach survives a reload,
 // the way the conversation does. Lazily materialized from the session's flat seed
 // fields on first read (server/workspace.ts), then replaced by the client's
-// write-through as context attaches/detaches. In-memory (mock, refresh-resets).
+// write-through as context attaches/detaches. Persisted to disk (see persist.ts).
 const sessionWorkspaces = new Map<string, SessionWorkspace>()
 
 /** A session title from its first message — the leading words, trimmed to a row-
@@ -160,6 +166,60 @@ const journal = new AgentJournal(emit)
 // refuse a second session's irreversible write up front. Emits `reservation.changed`.
 const guardian = new ResourceGuardian(emit)
 
+// ── Filesystem persistence ──────────────────────────────────────────────────
+// Off until the real server entrypoint calls `store.initPersistence()`; tests
+// drive the store in-memory. When on, every mutation snapshots the UI-owned state
+// and writes it atomically, so a sent message / attached context / created session
+// survives a restart. Reservations + the agent registry are intentionally NOT
+// persisted: they're live/transient (a stale lock or a phantom offline agent must
+// not outlive the process).
+let persistEnabled = false
+
+/** Snapshot the mutable, UI-owned state for the on-disk format. */
+function snapshot(): PersistedState {
+  return {
+    version: STORE_VERSION,
+    sessions: SESSIONS,
+    bindings: [...sessionContextBindings.entries()],
+    workspaces: [...sessionWorkspaces.entries()],
+    schedules,
+    recents,
+    graph,
+    seq: {
+      session: sessionSeq,
+      message: messageSeq,
+      schedule: scheduleSeq,
+      run: runSeq,
+      artifact: artifactSeq,
+    },
+  }
+}
+
+/** Persist the current state (no-op until enabled). Called after every mutation. */
+function persist(): void {
+  if (persistEnabled) saveState(snapshot())
+}
+
+/** Replace the in-memory state with a loaded snapshot (rehydrate on boot). The
+ *  seed containers are mutated in place (SESSIONS / schedules are imported / fixed
+ *  bindings), the rest reassigned, and the id counters restored so freshly minted
+ *  ids continue past the persisted ones. */
+function rehydrate(s: PersistedState): void {
+  SESSIONS.splice(0, SESSIONS.length, ...s.sessions)
+  schedules.splice(0, schedules.length, ...s.schedules)
+  recents = s.recents
+  graph = s.graph
+  sessionContextBindings.clear()
+  for (const [k, v] of s.bindings) sessionContextBindings.set(k, v)
+  sessionWorkspaces.clear()
+  for (const [k, v] of s.workspaces) sessionWorkspaces.set(k, v)
+  sessionSeq = s.seq.session
+  messageSeq = s.seq.message
+  scheduleSeq = s.seq.schedule
+  runSeq = s.seq.run
+  artifactSeq = s.seq.artifact
+}
+
 export const store = {
   epoch: EPOCH,
 
@@ -174,6 +234,16 @@ export const store = {
    *  reservation routes drive it; the invoke route reserves/commits for
    *  non-monotonic effects so a second session can't write a held resource. */
   guardian,
+
+  /** Turn on filesystem persistence and rehydrate from the last snapshot (if any).
+   *  Called once by the real server entrypoint; tests leave it off and run
+   *  in-memory. On first boot (no snapshot) the seed is written out as the baseline. */
+  initPersistence(): void {
+    persistEnabled = true
+    const loaded = loadState()
+    if (loaded) rehydrate(loaded)
+    else persist()
+  },
 
   // ── Capabilities (what this backend variant can do) ──
   /** The UI gates native-only affordances on these flags — never on sniffing
@@ -272,6 +342,7 @@ export const store = {
     sessionWorkspaces.set(id, workspace)
     const session = SESSIONS.find((s) => s.id === id)
     if (session) emit({ type: 'session.updated', session })
+    persist()
     return workspace
   },
 
@@ -284,7 +355,7 @@ export const store = {
   /** Materialize a new persisted session — the desktop app's "New chat" the moment
    *  it's first sent to. `firstMessage` seeds the title (its first words) + preview.
    *  Added to the live list + broadcast (`session.updated`) so every sidebar shows
-   *  it; created state is in-memory (mock semantics, refresh-resets). */
+   *  it; created state is persisted to disk (see persist.ts). */
   createSession(firstMessage?: string): Session {
     const now = Date.now()
     const session: Session = {
@@ -301,6 +372,7 @@ export const store = {
     }
     SESSIONS.unshift(session)
     emit({ type: 'session.updated', session })
+    persist()
     return session
   },
 
@@ -317,6 +389,7 @@ export const store = {
     session.updatedLabel = 'now'
     session.updatedAt = Date.now()
     emit({ type: 'session.updated', session })
+    persist()
     return session
   },
 
@@ -333,6 +406,7 @@ export const store = {
     if (patch.status !== undefined) session.status = patch.status
     if (patch.pinned !== undefined) session.pinned = patch.pinned
     emit({ type: 'session.updated', session })
+    persist()
     return session
   },
   /** Delete a session (the row menu's "Delete"). Splices it from the seed and
@@ -342,6 +416,7 @@ export const store = {
     if (i === -1) return false
     const [removed] = SESSIONS.splice(i, 1)
     emit({ type: 'session.updated', session: removed })
+    persist()
     return true
   },
 
@@ -363,6 +438,7 @@ export const store = {
     const next = [...list.filter((c) => c.id !== ctx.id), ctx]
     sessionContextBindings.set(sessionId, next)
     emit({ type: 'session.contexts.changed', sessionId, contexts: next })
+    persist()
     return next
   },
   /** Detach a context from a session. Returns the new list, or undefined when the
@@ -373,6 +449,7 @@ export const store = {
     const next = list.filter((c) => c.id !== contextId)
     sessionContextBindings.set(sessionId, next)
     emit({ type: 'session.contexts.changed', sessionId, contexts: next })
+    persist()
     return next
   },
 
@@ -452,6 +529,7 @@ export const store = {
     task.runs = [run, ...task.runs]
     const sessionId = runSessionId(task.id, run.id)
     emit({ type: 'run.started', taskId: task.id, taskName: task.name, sessionId, run })
+    persist()
     setTimeout(() => {
       run.status = 'ok'
       run.reachedStep = task.steps.length
@@ -459,6 +537,7 @@ export const store = {
       run.summary = `Ran on demand — delivered to ${task.delivery.target}`
       task.lastStatus = 'ok'
       emit({ type: 'run.finished', taskId: task.id, taskName: task.name, sessionId, run })
+      persist()
     }, 1600)
     return run
   },
@@ -468,18 +547,21 @@ export const store = {
     const task = schedules.find((t) => t.id === id)
     if (!task) return undefined
     task.enabled = enabled ?? !task.enabled
+    persist()
     return task
   },
   /** Add a routine from a template (lands paused), return it. */
   addSchedule(seed: Omit<ScheduledTask, 'id'>): ScheduledTask {
     const task: ScheduledTask = { ...seed, id: `s-new-${(scheduleSeq += 1)}` }
     schedules.unshift(task)
+    persist()
     return task
   },
   /** Remove a routine. */
   removeSchedule(id: string): void {
     const i = schedules.findIndex((t) => t.id === id)
     if (i >= 0) schedules.splice(i, 1)
+    persist()
   },
 
   // ── Recents (per-user Add-context shortcut lists) ──
@@ -492,6 +574,7 @@ export const store = {
     const list = recents[type] ?? []
     recents = { ...recents, [type]: [id, ...list.filter((x) => x !== id)] }
     emit({ type: 'recents.changed', contextType: type, ids: recents[type] })
+    persist()
     return recents
   },
 
@@ -507,6 +590,7 @@ export const store = {
       graph = applyGraphOp(graph, op, mintArtifactId)
     }
     emit({ type: 'relation.applied', op, by: 'user' })
+    persist()
     return graph
   },
 }

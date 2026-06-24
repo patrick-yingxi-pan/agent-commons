@@ -28,3 +28,6 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# persisted mock-backend state (the filesystem store)
+.data/
