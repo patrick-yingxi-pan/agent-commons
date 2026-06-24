@@ -13,7 +13,7 @@ import { sendJson, sendError } from '../http/respond.ts'
 import { openSse } from '../http/sse.ts'
 import { store } from '../store.ts'
 import { generateReply } from '../generate.ts'
-import { CapabilityError, runCapability } from '../agent-runtime.ts'
+import { CapabilityError, runCapability, scopeMatches } from '../agent-runtime.ts'
 import type { CapabilityRequest, SyncEffectsRequest } from '../../contract/index.ts'
 import type { ServerResponse } from 'node:http'
 
@@ -93,12 +93,34 @@ export function buildRouter(): Router {
     if (!request?.capability || typeof request.target !== 'string') {
       return sendError(res, 'bad_request', 'capability and target are required')
     }
+    if (typeof request.sessionId !== 'string' || typeof request.contextId !== 'string') {
+      return sendError(res, 'bad_request', 'sessionId and contextId are required (context mediation)')
+    }
     const commandId = request.commandId ?? store.journal.mintCommandId()
     // Idempotency: a retry of an already-recorded command replays the effect.
     const prior = store.journal.find(agent.id, commandId)
     if (prior) return sendJson(res, prior)
     if (agent.status !== 'online') {
       return sendError(res, 'capability_unavailable', `Agent '${agent.id}' is offline`)
+    }
+    // Context mediation (D5): the effect must name a context attached to this
+    // session and act within that context's scope — the reference-monitor check,
+    // enforced here at the broker (the resource authority), on top of the agent's
+    // host grant (D3, enforced in the runtime). docs/shared-resource-coordination.md.
+    const ctx = store.resolveSessionContext(request.sessionId, request.contextId)
+    if (!ctx) {
+      return sendError(
+        res,
+        'forbidden',
+        `Context '${request.contextId}' is not attached to session '${request.sessionId}'`,
+      )
+    }
+    if (!scopeMatches(ctx.scope, request.target)) {
+      return sendError(
+        res,
+        'forbidden',
+        `'${request.target}' is outside context '${ctx.id}' (scope '${ctx.scope}')`,
+      )
     }
     try {
       const result = runCapability(agent, request)

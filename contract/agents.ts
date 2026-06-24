@@ -66,8 +66,18 @@ export interface SetAgentCapabilitiesRequest {
  *  `commandId` is the **idempotency key** (D2): a client assigns it once per
  *  logical invocation, so a retried call (lost response, reconnect) returns the
  *  recorded effect instead of executing twice. Omit it and the server mints one
- *  (single execution, but no cross-retry dedup). */
+ *  (single execution, but no cross-retry dedup).
+ *
+ *  `sessionId` + `contextId` are the **mediation handle** (D5): the effect is
+ *  routed *through* a context attached to the session, and the broker enforces
+ *  that `target` is within that context's scope (the reference-monitor check) on
+ *  top of the agent's host grant. See docs/shared-resource-coordination.md. */
 export interface CapabilityRequest {
+  /** The session initiating the effect — the mediation subject. */
+  sessionId: string
+  /** The attached context this effect is routed through; its scope bounds the
+   *  effect's `target`, enforced at the broker alongside the agent's host grant. */
+  contextId: string
   capability: CapabilityType
   target: string
   args?: Record<string, unknown>

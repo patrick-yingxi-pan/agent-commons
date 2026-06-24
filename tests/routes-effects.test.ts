@@ -1,11 +1,20 @@
 /** Integration tests for the system-of-record routes (D2): idempotent invoke,
  *  the effect-log read-through, and the outbox sync — through the real router. */
-import { test } from 'node:test'
+import { test, before } from 'node:test'
 import assert from 'node:assert/strict'
 import { call } from './helpers/http.ts'
 
+// Effects are context-mediated (D5): each invoke names a session + an attached
+// context. A permissive context (scope '*') keeps these system-of-record tests
+// focused on journaling rather than on the mediation check.
+before(async () => {
+  await call('POST', '/sessions/seff/contexts', { id: 'cx-all', type: 'folder', label: 'all', scope: '*' })
+})
+
 test('invoke records an effect with a commandId and agentSeq', async () => {
   const { status, json } = await call('POST', '/agents/agent-local/invoke', {
+    sessionId: 'seff',
+    contextId: 'cx-all',
     capability: 'fs.read',
     target: '~/projects/a.ts',
     commandId: 'cmd-eff-1',
@@ -20,12 +29,16 @@ test('invoke records an effect with a commandId and agentSeq', async () => {
 
 test('invoke is idempotent — a retry with the same commandId does not re-record', async () => {
   await call('POST', '/agents/agent-local/invoke', {
+    sessionId: 'seff',
+    contextId: 'cx-all',
     capability: 'terminal',
     target: 'echo hi',
     commandId: 'cmd-idem',
   })
   const before = await call('GET', '/agents/agent-local/effects')
   const retry = await call('POST', '/agents/agent-local/invoke', {
+    sessionId: 'seff',
+    contextId: 'cx-all',
     capability: 'terminal',
     target: 'echo DIFFERENT',
     commandId: 'cmd-idem',
@@ -40,6 +53,8 @@ test('effects?since returns only the tail after a sequence number', async () => 
   const full = await call('GET', '/agents/agent-local/effects')
   const maxSeq = Math.max(0, ...full.json.map((e: any) => e.agentSeq))
   await call('POST', '/agents/agent-local/invoke', {
+    sessionId: 'seff',
+    contextId: 'cx-all',
     capability: 'fs.read',
     target: '~/projects/tail.ts',
     commandId: `cmd-tail-${maxSeq}`,

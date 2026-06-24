@@ -252,6 +252,54 @@ The prototype already has the right seams; this note says what they would carry:
 - **The consent surface** (relation cards; escalation prompts) is the existing human
   chokepoint that would double as the serialization/commit gate.
 
+## Current mediation gap (inventory)
+
+A concrete audit of session-initiated actions and whether the context mechanism guards
+them **today**. The finding: the context mechanism is currently a **read-only catalog**
+(`GET /saved-contexts`, `/connectors/detail`, `/recents`) plus an MRU writer
+(`POST /recents/:type`); before slice 5 there was **no server-side session→context
+binding** (attach was ephemeral client state), so no effect was context-mediated. Tiered
+by whether the effect touches a shared / external resource:
+
+| Tier | Action | Effect | Guard before mediation |
+|---|---|---|---|
+| **A** (native) | `POST /agents/:id/invoke`, `/sync` | `fs.write` / `terminal` / `process` on a host | host **scope-grant** (D3) only — `target` raw, no context |
+| **A** (reads) | `GET /fs/folders/:id`, `/git/repos/:id/diff`, `/fs/pick` | reads of native fs / repo (stale-read risk) | capability flag |
+| **B** (shared internal) | `POST /relations/ops` | mutate the shared relation graph | human **consent** |
+| **B** | `POST /sessions/:id/messages` | model call + relation proposals | none on the turn |
+| **C** (standing) | `POST /schedules`, `PATCH`/`DELETE /schedules/:id`, `/run` | a routine runs unprompted; runs can produce A/B effects | one-time approval at creation |
+| **D** (session-local) | `PATCH`/`DELETE /sessions/:id` | rename / pin / archive / delete | single-owner; mediation N/A |
+| **E** (bookkeeping) | `POST /recents/:type` | MRU ordering | n/a — not an effect |
+
+Tiers **A–C** are the surface full mediation must cover; **D–E** largely don't need it.
+
+## Closing the gap — the two primitives (implementation status)
+
+> What of this note is **built** in the repo now, vs. forward-looking. Each slice ships
+> with tests (`npm test`) and keeps `npm run typecheck` + `build` green.
+
+- **Primitive 1 — session↔context binding. ✅ Built (slice 5).** A server-owned,
+  persisted `SessionContext` per session — the *attachment of record*, replacing the
+  ephemeral client-side attach (`SessionContext` in
+  [`../contract/contexts.ts`](../contract/contexts.ts); `GET`/`POST /sessions/:id/contexts`,
+  `DELETE …/:contextId`; the `session.contexts.changed` event; `useSessionContexts` +
+  `attachContext`/`detachContext`). This is the object a guardian hangs off, and it fixes
+  Tier B's structural root (attach is now a real, mediated write) while giving Tier C a
+  referent.
+- **Primitive 2 — context handle on the effect path. ✅ Built (slice 6).**
+  `CapabilityRequest` ([`../contract/agents.ts`](../contract/agents.ts)) carries
+  `sessionId` + `contextId`; `POST /agents/:id/invoke` resolves the binding and enforces
+  `target ∈ context.scope` — the **reference-monitor** check — *on top of* the agent's
+  host grant. That makes two authorities explicit: **D3 host grant** (may this host touch
+  this path?) in the runtime, and **D5 resource mediation** (is this effect attached and
+  in-scope?) at the broker. An effect can no longer reach a resource without naming a
+  context bound to the session (Tier A). A scheduled task carries `contextIds` so its
+  unprompted runs are mediation-ready (Tier C).
+- **Still forward — the guardian machinery:** per-resource invariants, monotonicity tags,
+  reservation / escrow, and cross-guardian coordination. The handle + binding make every
+  Tier A–C effect *named by its resource*; the guardian that enforces invariants and holds
+  the reservation ledger behind that name is the next, larger slice.
+
 ## Relationship to the broker doc
 
 - **D1–D4** answer *where work runs* and *who is authoritative for a host*. **D5

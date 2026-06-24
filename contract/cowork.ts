@@ -117,6 +117,12 @@ export interface ScheduledTask {
   startedLabel?: string
   /** Home project, if any — cross-links into the Projects section. */
   projectId?: string
+  /** The context elements this routine's runs operate through — so a scheduled
+   *  (unprompted) run's effects inherit the same mediation as an interactive turn
+   *  (Tier C of docs/shared-resource-coordination.md). Ids into the session ↔
+   *  context binding; absent / empty = the routine produces no resource-scoped
+   *  effects. */
+  contextIds?: string[]
 }
 
 /** A starter a user can spin up from "New schedule" — a fully-formed workflow
