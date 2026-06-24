@@ -295,10 +295,26 @@ Tiers **A–C** are the surface full mediation must cover; **D–E** largely don
   in-scope?) at the broker. An effect can no longer reach a resource without naming a
   context bound to the session (Tier A). A scheduled task carries `contextIds` so its
   unprompted runs are mediation-ready (Tier C).
-- **Still forward — the guardian machinery:** per-resource invariants, monotonicity tags,
-  reservation / escrow, and cross-guardian coordination. The handle + binding make every
-  Tier A–C effect *named by its resource*; the guardian that enforces invariants and holds
-  the reservation ledger behind that name is the next, larger slice.
+- **Guardian — per-resource reservation / escrow. ✅ Built (slices 8–9).** Each shared
+  resource (a context element id) has a `ResourceGuardian`
+  ([`../server/guardian.ts`](../server/guardian.ts)) enforcing a **capacity** invariant via
+  a reservation ledger: `reserve` (reversible, TTL'd, re-entrant per holder) → `commit` (the
+  single irreversible step) → `release`, capacity bounding concurrent distinct holders
+  (1 = mutual exclusion). **Monotonicity is honored** — `isMonotonic`
+  ([`../contract/agents.ts`](../contract/agents.ts)) marks `fs.read` coordination-free, so
+  reads skip the guardian (CALM); non-monotonic effects (`fs.write` / `terminal` /
+  `process`) must hold a reservation. The **invoke path enforces it**: a non-monotonic
+  effect reserves the resource (the context element) and commits on success; a second
+  session is refused with **`409 conflict`** — the escrow turning away a concurrent
+  irreversible writer up front. There are now two authorities at the broker — mediation
+  (attached + in scope?) and the guardian (resource free to write?) — atop the agent's host
+  grant (D3). Routes: `reserve` / `commit` / `release` / `status` / capacity; UI:
+  `useResourceStatus` + reserve/commit/release/setCapacity commands.
+- **Still forward — cross-guardian coordination.** A single effect spanning *two* shared
+  resources reintroduces distributed commit across guardians (2PC / sagas) — the
+  reserve-all → consent → commit-all pattern. Single-resource escrow is built; the
+  cross-resource orchestration, plus the open residue (unanticipated semantic conflict,
+  multi-principal negotiation), is the next, harder slice.
 
 ## Relationship to the broker doc
 

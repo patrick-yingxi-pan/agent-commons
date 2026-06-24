@@ -127,3 +127,59 @@ test('invoke without sessionId/contextId is 400 bad_request (missing mediation h
   assert.equal(status, 400)
   assert.equal(json.error.code, 'bad_request')
 })
+
+// ── Resource guardian (D5) — escrow on the effect path ──────────────────────
+
+test('a non-monotonic write is escrow-blocked for a second session, freed on release', async () => {
+  // Two sessions bound to the SAME shared resource id ('shared-res').
+  await call('POST', '/sessions/gX/contexts', { id: 'shared-res', type: 'repo', label: 'shared', scope: '*' })
+  await call('POST', '/sessions/gY/contexts', { id: 'shared-res', type: 'repo', label: 'shared', scope: '*' })
+
+  // Session X writes — acquires + holds the resource.
+  const wx = await call('POST', '/agents/agent-local/invoke', {
+    sessionId: 'gX', contextId: 'shared-res', capability: 'fs.write', target: '~/projects/f.ts', args: { content: 'x' },
+  })
+  assert.equal(wx.status, 200)
+
+  // Session Y writes the same resource — refused up front (escrow conflict).
+  const wy = await call('POST', '/agents/agent-local/invoke', {
+    sessionId: 'gY', contextId: 'shared-res', capability: 'fs.write', target: '~/projects/f.ts', args: { content: 'y' },
+  })
+  assert.equal(wy.status, 409)
+  assert.equal(wy.json.error.code, 'conflict')
+
+  // Release X's hold (found via the resource status), then Y succeeds.
+  const status = await call('GET', '/resources/shared-res')
+  const held = status.json.active.find((r: any) => r.holder === 'gX')
+  assert.ok(held)
+  await call('POST', `/reservations/${held.id}/release`)
+  const wy2 = await call('POST', '/agents/agent-local/invoke', {
+    sessionId: 'gY', contextId: 'shared-res', capability: 'fs.write', target: '~/projects/f.ts', args: { content: 'y' },
+  })
+  assert.equal(wy2.status, 200)
+})
+
+test('a monotonic read is coordination-free — allowed while another session holds the write lock', async () => {
+  await call('POST', '/sessions/gP/contexts', { id: 'res-ro', type: 'repo', label: 'ro', scope: '*' })
+  await call('POST', '/sessions/gQ/contexts', { id: 'res-ro', type: 'repo', label: 'ro', scope: '*' })
+  // P holds the write lock on the resource.
+  const wp = await call('POST', '/agents/agent-local/invoke', {
+    sessionId: 'gP', contextId: 'res-ro', capability: 'fs.write', target: '~/projects/r.ts', args: { content: 'p' },
+  })
+  assert.equal(wp.status, 200)
+  // Q reads the same resource — fs.read is monotonic, so it bypasses the guardian.
+  const rq = await call('POST', '/agents/agent-local/invoke', {
+    sessionId: 'gQ', contextId: 'res-ro', capability: 'fs.read', target: '~/projects/r.ts',
+  })
+  assert.equal(rq.status, 200)
+})
+
+test('the same session may write a resource repeatedly (re-entrant)', async () => {
+  await call('POST', '/sessions/gR/contexts', { id: 'res-re', type: 'repo', label: 're', scope: '*' })
+  for (const content of ['a', 'b']) {
+    const w = await call('POST', '/agents/agent-local/invoke', {
+      sessionId: 'gR', contextId: 'res-re', capability: 'fs.write', target: '~/projects/re.ts', args: { content },
+    })
+    assert.equal(w.status, 200)
+  }
+})

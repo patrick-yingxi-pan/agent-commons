@@ -15,6 +15,7 @@ import { store } from '../store.ts'
 import { generateReply } from '../generate.ts'
 import { CapabilityError, runCapability, scopeMatches } from '../agent-runtime.ts'
 import { GuardianError } from '../guardian.ts'
+import { isMonotonic } from '../../contract/index.ts'
 import type {
   CapabilityRequest,
   ReserveRequest,
@@ -128,6 +129,21 @@ export function buildRouter(): Router {
         `'${request.target}' is outside context '${ctx.id}' (scope '${ctx.scope}')`,
       )
     }
+    // Resource guardian (D5): a non-monotonic effect must hold a reservation on the
+    // resource (the context element). Monotonic effects (fs.read) are
+    // coordination-free and skip it (CALM). `reserve` is re-entrant for this
+    // session; `conflict` (409) when another session holds the resource — the escrow
+    // that refuses a concurrent irreversible writer up front. Held (TTL'd) on success
+    // so the session keeps the resource; released if the effect itself fails.
+    let reservation
+    if (!isMonotonic(request.capability)) {
+      try {
+        reservation = store.guardian.reserve(ctx.id, request.sessionId)
+      } catch (err) {
+        if (err instanceof GuardianError) return sendError(res, err.code, err.message)
+        throw err
+      }
+    }
     try {
       const result = runCapability(agent, request)
       const { effect } = store.journal.append(agent.id, {
@@ -137,8 +153,10 @@ export function buildRouter(): Router {
         output: result.output,
       })
       store.journal.reconcile(agent.id) // relay path: project synchronously
+      if (reservation) store.guardian.commit(reservation.id)
       sendJson(res, effect)
     } catch (err) {
+      if (reservation) store.guardian.release(reservation.id) // effect failed — free the lock
       if (err instanceof CapabilityError) return sendError(res, err.code, err.message)
       throw err
     }
