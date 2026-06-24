@@ -6,13 +6,17 @@ import {
   DRAFT_SESSION,
   EMPTY_LIVE,
   WS_ID,
+  addContextToLive,
   branchFor,
   folderLabel,
   liveFromSession,
   remoteFor,
+  removeAttachmentFromLive,
+  removeContextsFromLive,
+  removeFolderFromLive,
   repoIdForLabel,
-  slug,
   withConnector,
+  workspaceOf,
   workspaceNameFor,
   type Live,
 } from '../data/liveSession'
@@ -27,6 +31,7 @@ import {
   detachContext,
   loadSession,
   patchSession,
+  persistWorkspace,
   runSessionFromCache,
   runSessionFromSchedules,
   sendMessage,
@@ -66,6 +71,16 @@ function bindingsFor(ctx: AddedContext): AttachContextRequest[] {
     default:
       return []
   }
+}
+
+/** The strongest present context to auto-open when a session opens — a repo if
+ *  there is one, else a workspace, else nothing (the panel stays closed). */
+function strongestFocus(l: Live): PanelFocus | null {
+  return l.repos[0]
+    ? { kind: 'repo', id: l.repos[0].id }
+    : l.workspaces[0]
+      ? { kind: 'workspace', id: l.workspaces[0].id }
+      : null
 }
 
 /** ── Controller: the active session + its live workspace ───────────────────
@@ -174,29 +189,25 @@ export function useSessionWorkspace() {
         DRAFT_SESSION
       const nextLive = liveFromSession(session)
       setLive(nextLive)
-      // Auto-focus the session's strongest present context so its sidebar opens —
-      // a repo if there is one, else a workspace, else nothing.
-      setFocus(
-        nextLive.repos[0]
-          ? { kind: 'repo', id: nextLive.repos[0].id }
-          : nextLive.workspaces[0]
-            ? { kind: 'workspace', id: nextLive.workspaces[0].id }
-            : null,
-      )
+      // Auto-focus the session's strongest present context so its sidebar opens.
+      setFocus(strongestFocus(nextLive))
       setPhase('idle')
       setPendingStep(null)
       if (session.isDemo) {
         setStepIndex(-1)
         setCaption('')
       }
-      // Reconcile the thread from the server (the system of record): any persisted
-      // turn reappears. Skip the demo (the guided tour owns its thread, client-side)
+      // Reconcile the full live session from the server (the system of record): a
+      // persisted turn AND any persisted runtime attaches (workspace/repo/connector/
+      // file) reappear. Skip the demo (the guided tour owns its panels, client-side)
       // and the unsaved draft. Guarded by runId so a fast re-switch can't clobber.
       if (id !== DRAFT_ID && !session.isDemo) {
         loadSession(id)
           .then((s) => {
             if (runId.current !== myRun) return
-            setLive((l) => ({ ...l, messages: s.messages ?? [] }))
+            const reconciled = liveFromSession(s)
+            setLive(reconciled)
+            setFocus(strongestFocus(reconciled))
           })
           .catch(() => {})
       }
@@ -416,6 +427,19 @@ export function useSessionWorkspace() {
     })()
   }, [])
 
+  // Write the active session's panels through to the server (the system of record)
+  // after a panel mutation, so a runtime attach survives a reload / shows on
+  // another client. Skips the demo (the guided tour owns its panels, client-side)
+  // and the unsaved draft / run sessions (not persisted). Fire-and-forget — the
+  // optimistic `live` stays the panel's instant driver.
+  const persistLive = useCallback((id: string, next: Live) => {
+    if (id === DRAFT_ID) return
+    const session =
+      SESSIONS.find((s) => s.id === id) ?? extraSessionsRef.current.find((s) => s.id === id)
+    if (!session || session.isDemo) return
+    void persistWorkspace(id, workspaceOf(next)).catch(() => {})
+  }, [])
+
   // Manually attach context to the open thread — the same escalation the tour
   // performs, but user-driven. Every context type funnels through here, and the
   // newly attached context's sidebar opens so you see what you added.
@@ -426,71 +450,22 @@ export function useSessionWorkspace() {
     // the "Recent"/"Connected" quick lists always reflect what was just added
     // (the invariant lives in lib/contextShortcuts.ts).
     rememberAttached(ctx)
-    // Write-through to the persistent attachment of record (Primitive 1): the
-    // server-owned binding the effect-mediation path resolves against. Fire-and-
-    // forget — client-side live state stays the panel's instant driver; the binding
-    // is the system of record (docs/shared-resource-coordination.md).
-    for (const b of bindingsFor(ctx)) void attachContext(activeIdRef.current, b).catch(() => {})
-    setLive((l) => {
-      switch (ctx.kind) {
-        case 'folder': {
-          // One shared Cowork workspace per session. Attaching a folder adds its
-          // (source-tagged) artifacts into that single workspace, creating it if
-          // there isn't one. Dedup by artifact id so re-attaching is a no-op.
-          const existing = l.workspaces[0]
-          if (!existing) {
-            return { ...l, workspaces: [{ id: WS_ID, label: 'Workspace', artifacts: ctx.artifacts }] }
-          }
-          const seen = new Set(existing.artifacts.map((a) => a.id))
-          const added = ctx.artifacts.filter((a) => !seen.has(a.id))
-          if (added.length === 0) return l
-          return {
-            ...l,
-            workspaces: [{ ...existing, artifacts: [...existing.artifacts, ...added] }],
-          }
-        }
-        case 'repo': {
-          const id = repoIdForLabel(ctx.label)
-          if (l.repos.some((r) => r.id === id)) return l
-          // The GitHub connector, if wanted, arrives as its own separate attach
-          // (see the repo picker's link prompt) — a repo no longer owns one.
-          const repo: Repo = {
-            id,
-            label: ctx.label,
-            origin: ctx.origin,
-            path: ctx.path,
-            remote: ctx.remote,
-            branch: ctx.branch,
-            files: ctx.files,
-            diff: ctx.diff,
-            terminal: ctx.terminal,
-          }
-          return { ...l, repos: [...l.repos, repo] }
-        }
-        case 'connector':
-        case 'mcp':
-          return { ...l, connectors: withConnector(l.connectors, ctx.connector) }
-        case 'files':
-        case 'photos': {
-          // Dedup by id so re-attaching the same file/photo is a no-op (mirrors
-          // the connector/repo guards) — otherwise a duplicate chip shares a
-          // React key and a single remove would drop both copies.
-          const seen = new Set(l.attachments.map((a) => a.id))
-          const added = ctx.attachments.filter((a) => !seen.has(a.id))
-          if (added.length === 0) return l
-          return { ...l, attachments: [...l.attachments, ...added] }
-        }
-        default:
-          return l
-      }
-    })
+    const id = activeIdRef.current
+    // Two server-owned facets, both written through (the optimistic `live` is the
+    // panel's instant driver): the persistent *binding* the effect-mediation path
+    // resolves against (Primitive 1), and the panel *content* the binding produces.
+    for (const b of bindingsFor(ctx)) void attachContext(id, b).catch(() => {})
+    const next = addContextToLive(liveRef.current, ctx)
+    setLive(next)
+    persistLive(id, next)
+    // Open the newly attached context's sidebar so you see what you added.
     switch (ctx.kind) {
       case 'folder':
         // Focus the (possibly pre-existing) shared workspace it merged into.
-        setFocus({ kind: 'workspace', id: liveRef.current.workspaces[0]?.id ?? WS_ID })
+        setFocus({ kind: 'workspace', id: next.workspaces[0]?.id ?? WS_ID })
         break
       case 'repo':
-        setFocus({ kind: 'repo', id: `repo-${slug(ctx.label)}` })
+        setFocus({ kind: 'repo', id: repoIdForLabel(ctx.label) })
         break
       case 'connector':
       case 'mcp':
@@ -503,7 +478,7 @@ export function useSessionWorkspace() {
         break
       }
     }
-  }, [])
+  }, [persistLive])
 
   // Clicking a chip toggles its sidebar.
   const focusContext = useCallback((f: PanelFocus) => {
@@ -572,48 +547,38 @@ export function useSessionWorkspace() {
     [newSession],
   )
 
-  const removeAttachment = useCallback((id: string) => {
-    void detachContext(activeIdRef.current, id).catch(() => {})
-    setLive((l) => ({ ...l, attachments: l.attachments.filter((a) => a.id !== id) }))
-  }, [])
+  const removeAttachment = useCallback((attId: string) => {
+    const id = activeIdRef.current
+    void detachContext(id, attId).catch(() => {})
+    const next = removeAttachmentFromLive(liveRef.current, attId)
+    setLive(next)
+    persistLive(id, next)
+  }, [persistLive])
 
   // Remove a single source folder from the shared workspace: drop the artifacts
   // it contributed, and drop the workspace itself if that empties it (the
   // valid-focus effect below then closes the panel). Seeded/default artifacts
   // (no source) are never touched, so a workspace that still holds them stays.
   const removeFolder = useCallback((sourceId: string) => {
-    setLive((l) => ({
-      ...l,
-      workspaces: l.workspaces
-        .map((w) => ({ ...w, artifacts: w.artifacts.filter((a) => a.source?.id !== sourceId) }))
-        .filter((w) => w.artifacts.length > 0),
-    }))
-  }, [])
+    const id = activeIdRef.current
+    const next = removeFolderFromLive(liveRef.current, sourceId)
+    setLive(next)
+    persistLive(id, next)
+  }, [persistLive])
 
   // Remove one or more attached contexts in a single update. The chip remove
   // flow passes several at once when a removal cascades (a repo + its orphaned
   // GitHub connector, or the connector + the repos that depend on it); the
   // connector panel's Disconnect passes just the connector.
   const removeContexts = useCallback((focuses: PanelFocus[]) => {
+    const id = activeIdRef.current
     // Mirror the removal to the persistent binding (Primitive 1): detach each focus
     // by id (the binding id pairs with the chip's focus id). Fire-and-forget.
-    for (const f of focuses) void detachContext(activeIdRef.current, f.id).catch(() => {})
-    setLive((l) => {
-      const ids = (kind: PanelFocus['kind']) =>
-        new Set(focuses.filter((f) => f.kind === kind).map((f) => f.id))
-      const wsIds = ids('workspace')
-      const repoIds = ids('repo')
-      const connIds = ids('connector')
-      const attIds = new Set([...ids('file'), ...ids('photo')])
-      return {
-        ...l,
-        workspaces: l.workspaces.filter((w) => !wsIds.has(w.id)),
-        repos: l.repos.filter((r) => !repoIds.has(r.id)),
-        connectors: l.connectors.filter((c) => !connIds.has(c.id)),
-        attachments: l.attachments.filter((a) => !attIds.has(a.id)),
-      }
-    })
-  }, [])
+    for (const f of focuses) void detachContext(id, f.id).catch(() => {})
+    const next = removeContextsFromLive(liveRef.current, focuses)
+    setLive(next)
+    persistLive(id, next)
+  }, [persistLive])
 
   // Close the sidebar if its context no longer exists (removed / switched away).
   useEffect(() => {

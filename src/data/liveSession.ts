@@ -1,4 +1,4 @@
-import type { Attachment, Connector, Message, Repo, Session, Workspace } from '../types'
+import type { AddedContext, Attachment, Connector, Message, PanelFocus, Repo, Session, Workspace } from '../types'
 
 /** ── Model: the live session ──────────────────────────────────────────────
  *  Pure domain logic for the unit a user works in. A `Session` (sessions.ts) is
@@ -45,9 +45,10 @@ export function withConnector(list: Connector[], c: Connector): Connector[] {
 }
 
 // `slug` / `repoIdForLabel` are id-derivation invariants the client AND server
-// must agree on, so they live in the contract; re-exported here for the existing
-// `../data/liveSession` import sites.
-export { repoIdForLabel, slug } from '../../contract/ids.ts'
+// must agree on, so they live in the contract; imported for use here (the attach
+// rules) and re-exported for the existing `../data/liveSession` import sites.
+import { repoIdForLabel, slug } from '../../contract/ids.ts'
+export { repoIdForLabel, slug }
 
 // Branch names for the two scripted seed sessions that carry a repo. Demo seed
 // data, not a general registry — context attached at runtime brings its own
@@ -96,6 +97,13 @@ export function folderLabel(path: string) {
  *  empty and grows during the guided tour, so it derives to EMPTY_LIVE. */
 export function liveFromSession(session: Session): Live {
   if (session.isDemo) return EMPTY_LIVE
+  // The server owns the live workspace (runtime attaches persist into it). When the
+  // session carries one — a server read / the select-time reconcile — project it
+  // directly; otherwise derive from the flat seed fields, which is the instant
+  // render off the static-seed copy, before the server reconcile replaces it.
+  if (session.workspace) {
+    return { messages: session.messages ?? [], ...session.workspace }
+  }
   const workspaces: Workspace[] = session.artifacts?.length
     ? [{ id: `ws-${session.id}`, label: workspaceNameFor(session), artifacts: session.artifacts }]
     : []
@@ -121,4 +129,95 @@ export function liveFromSession(session: Session): Live {
     connectors: session.connectors ?? [],
     attachments: [],
   }
+}
+
+/** The session's panels alone (no messages) — the server-owned `SessionWorkspace`
+ *  shape, for write-through after a panel mutation. */
+export function workspaceOf(l: Live) {
+  return { workspaces: l.workspaces, repos: l.repos, connectors: l.connectors, attachments: l.attachments }
+}
+
+// ── Pure panel mutations ────────────────────────────────────────────────────
+// The single attach funnel + the chip removals, as pure (Live, …) → Live rules.
+// The controller computes the next Live with these, sets it, and writes the
+// resulting workspace through to the server (the system of record).
+
+/** Attach a context's panels: a folder merges its artifacts into the one shared
+ *  workspace (creating it if absent); a repo / connector / file dedups by id, so
+ *  re-attaching is a no-op. */
+export function addContextToLive(l: Live, ctx: AddedContext): Live {
+  switch (ctx.kind) {
+    case 'folder': {
+      const existing = l.workspaces[0]
+      if (!existing) {
+        return { ...l, workspaces: [{ id: WS_ID, label: 'Workspace', artifacts: ctx.artifacts }] }
+      }
+      const seen = new Set(existing.artifacts.map((a) => a.id))
+      const added = ctx.artifacts.filter((a) => !seen.has(a.id))
+      if (added.length === 0) return l
+      return { ...l, workspaces: [{ ...existing, artifacts: [...existing.artifacts, ...added] }] }
+    }
+    case 'repo': {
+      const id = repoIdForLabel(ctx.label)
+      if (l.repos.some((r) => r.id === id)) return l
+      const repo: Repo = {
+        id,
+        label: ctx.label,
+        origin: ctx.origin,
+        path: ctx.path,
+        remote: ctx.remote,
+        branch: ctx.branch,
+        files: ctx.files,
+        diff: ctx.diff,
+        terminal: ctx.terminal,
+      }
+      return { ...l, repos: [...l.repos, repo] }
+    }
+    case 'connector':
+    case 'mcp':
+      return { ...l, connectors: withConnector(l.connectors, ctx.connector) }
+    case 'files':
+    case 'photos': {
+      const seen = new Set(l.attachments.map((a) => a.id))
+      const added = ctx.attachments.filter((a) => !seen.has(a.id))
+      if (added.length === 0) return l
+      return { ...l, attachments: [...l.attachments, ...added] }
+    }
+    default:
+      return l
+  }
+}
+
+/** Remove one or more attached contexts in a single update (a repo + its orphaned
+ *  GitHub connector, a connector + its dependent repos, or just a connector). */
+export function removeContextsFromLive(l: Live, focuses: PanelFocus[]): Live {
+  const ids = (kind: PanelFocus['kind']) => new Set(focuses.filter((f) => f.kind === kind).map((f) => f.id))
+  const wsIds = ids('workspace')
+  const repoIds = ids('repo')
+  const connIds = ids('connector')
+  const attIds = new Set([...ids('file'), ...ids('photo')])
+  return {
+    ...l,
+    workspaces: l.workspaces.filter((w) => !wsIds.has(w.id)),
+    repos: l.repos.filter((r) => !repoIds.has(r.id)),
+    connectors: l.connectors.filter((c) => !connIds.has(c.id)),
+    attachments: l.attachments.filter((a) => !attIds.has(a.id)),
+  }
+}
+
+/** Remove one source folder from the shared workspace: drop the artifacts it
+ *  contributed, and drop the workspace itself if that empties it. Seeded/default
+ *  artifacts (no source) are never touched. */
+export function removeFolderFromLive(l: Live, sourceId: string): Live {
+  return {
+    ...l,
+    workspaces: l.workspaces
+      .map((w) => ({ ...w, artifacts: w.artifacts.filter((a) => a.source?.id !== sourceId) }))
+      .filter((w) => w.artifacts.length > 0),
+  }
+}
+
+/** Remove a single file/photo attachment. */
+export function removeAttachmentFromLive(l: Live, id: string): Live {
+  return { ...l, attachments: l.attachments.filter((a) => a.id !== id) }
 }

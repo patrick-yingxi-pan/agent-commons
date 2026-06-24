@@ -41,6 +41,7 @@ export const paths = {
   sessionContexts: (id: string) => `/sessions/${encodeURIComponent(id)}/contexts`,
   sessionContext: (id: string, contextId: string) =>
     `/sessions/${encodeURIComponent(id)}/contexts/${encodeURIComponent(contextId)}`,
+  sessionWorkspace: (id: string) => `/sessions/${encodeURIComponent(id)}/workspace`,
   dispatch: '/dispatch',
   savedContexts: '/saved-contexts',
   connectorDetail: (c: Connector) => {

@@ -30,6 +30,7 @@ import type {
   ServerEvent,
   Session,
   SessionContext,
+  SessionWorkspace,
   UsageSnapshot,
 } from '../contract/index.ts'
 import {
@@ -55,6 +56,7 @@ import { AgentRegistry } from './registry.ts'
 import { AgentJournal } from './journal.ts'
 import { ResourceGuardian } from './guardian.ts'
 import { LOCAL_AGENT_SEED } from './data/agents.ts'
+import { EMPTY_WORKSPACE, workspaceFromSeed } from './workspace.ts'
 
 type Listener = (e: ServerEvent) => void
 
@@ -115,6 +117,13 @@ const sessionContextBindings = new Map<string, SessionContext[]>([
   ['insights-launch', [{ id: 'repo-insights', type: 'repo', label: 'insights-dashboard', scope: '~/projects/insights-dashboard' }]],
   ['auth-refactor', [{ id: 'repo-auth', type: 'repo', label: 'auth-service', scope: '~/projects/auth-service' }]],
 ])
+
+// Per-session live workspace — the panels a conversation has grown (the *content*
+// of its attached contexts). Server-owned so a runtime attach survives a reload,
+// the way the conversation does. Lazily materialized from the session's flat seed
+// fields on first read (server/workspace.ts), then replaced by the client's
+// write-through as context attaches/detaches. In-memory (mock, refresh-resets).
+const sessionWorkspaces = new Map<string, SessionWorkspace>()
 
 /** A session title from its first message — the leading words, trimmed to a row-
  *  friendly length (mirrors how the desktop app titles a fresh chat). Empty input
@@ -234,11 +243,37 @@ export const store = {
       pinned: s.pinned,
     }))
   },
-  /** A full session by id (messages/artifacts/repo included). */
+  /** A full session by id — messages + the live, server-owned `workspace` (its
+   *  panels). The workspace is materialized from the flat seed fields on first
+   *  read, then reflects any attach/detach write-through. */
   getSession(id: string): Session | undefined {
-    return SESSIONS.find((s) => s.id === id)
+    const session = SESSIONS.find((s) => s.id === id)
+    if (!session) return undefined
+    return { ...session, workspace: this.sessionWorkspace(id) }
   },
   demoSessionId: DEMO_SESSION_ID,
+
+  /** A session's live workspace — the panels it has grown. Lazily seeded from the
+   *  flat seed fields (server/workspace.ts) so a never-touched session still
+   *  reports its seeded panels; an unknown / run session reports an empty one. */
+  sessionWorkspace(id: string): SessionWorkspace {
+    const stored = sessionWorkspaces.get(id)
+    if (stored) return stored
+    const session = SESSIONS.find((s) => s.id === id)
+    const seeded = session ? workspaceFromSeed(session) : { ...EMPTY_WORKSPACE }
+    sessionWorkspaces.set(id, seeded)
+    return seeded
+  },
+  /** Replace a session's live workspace (the client's attach/detach write-through —
+   *  it assembles the merged panels from the server-owned context catalogs and
+   *  persists the result here, the system of record). Broadcasts `session.updated`
+   *  so any other client reconciles. Returns the stored workspace. */
+  setSessionWorkspace(id: string, workspace: SessionWorkspace): SessionWorkspace {
+    sessionWorkspaces.set(id, workspace)
+    const session = SESSIONS.find((s) => s.id === id)
+    if (session) emit({ type: 'session.updated', session })
+    return workspace
+  },
 
   /** Mint a server-owned message id. The conversation is the system of record, so
    *  persisted messages carry the backend's id — not one the client fabricated. */

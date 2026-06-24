@@ -24,6 +24,7 @@ import {
   type SendMessageRequest,
   type Session,
   type SessionContext,
+  type SessionWorkspace,
 } from '../../contract/index.ts'
 import { API_BASE, apiDelete, apiGet, apiPatch, apiPost } from './client.ts'
 import { invalidate, mutate, peek, setData } from './cache.ts'
@@ -103,6 +104,16 @@ export async function loadSession(id: string): Promise<Session> {
   const session = await apiGet<Session>(paths.session(id))
   setData(keys.session(id), session)
   return session
+}
+
+/** Write a session's live workspace through to the server — the panels it has
+ *  grown (the *content* of its attached contexts), assembled by the controller
+ *  from the server-owned context catalogs. The server is the system of record, so
+ *  a runtime attach survives a reload / shows on another client. Fire-and-forget
+ *  (the optimistic `live` is the panel's instant driver); primes the session cache. */
+export async function persistWorkspace(id: string, workspace: SessionWorkspace): Promise<void> {
+  const session = await apiPatch<Session>(paths.sessionWorkspace(id), workspace)
+  setData(keys.session(id), session)
 }
 
 let optSeq = 0

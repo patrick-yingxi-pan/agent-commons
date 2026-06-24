@@ -322,6 +322,21 @@ export function buildRouter(): Router {
     sendJson(res, next)
   })
 
+  // The session's live workspace — its panels (workspaces / repos / connectors /
+  // attachments). Server-owned so a runtime attach survives a reload, the way the
+  // conversation does. The client write-throughs the merged panels it assembled
+  // from the (server-owned) context catalogs; the server stores them as the system
+  // of record and returns the full session. Broadcasts `session.updated`.
+  r.patch('/sessions/:id/workspace', async ({ res, params, body }) => {
+    const ws = await body<import('../../contract/index.ts').SessionWorkspace>()
+    if (!ws || !Array.isArray(ws.workspaces) || !Array.isArray(ws.repos) || !Array.isArray(ws.connectors) || !Array.isArray(ws.attachments)) {
+      return sendError(res, 'bad_request', 'workspaces, repos, connectors, and attachments arrays are required')
+    }
+    if (!store.getSession(params.id)) return sendError(res, 'not_found', `No session '${params.id}'`)
+    store.setSessionWorkspace(params.id, ws)
+    sendJson(res, store.getSession(params.id))
+  })
+
   // Send a turn → stream the assistant reply as SSE (mirrors the Anthropic
   // Messages API). The body carries typed events, not just text: an assistant
   // turn can escalate the session or propose relation edits mid-stream.

@@ -141,6 +141,20 @@ export interface DiffLine {
   text: string
 }
 
+/** The live, server-owned workspace of a session — the panels its conversation
+ *  has grown. Arrays because a session can hold several of each. The flat seed
+ *  fields on `Session` below are the *seed input*; this is the live view the
+ *  server materializes from them and then mutates as context is attached/detached
+ *  (docs/shared-resource-coordination.md — the panels are the session's contexts).
+ *  Carried on `Session.workspace` so one `GET /sessions/:id` returns the whole
+ *  live state; the client projects it into its `Live` shape. */
+export interface SessionWorkspace {
+  workspaces: Workspace[]
+  repos: Repo[]
+  connectors: Connector[]
+  attachments: Attachment[]
+}
+
 export interface Session {
   id: string
   title: string
@@ -151,6 +165,9 @@ export interface Session {
   isDemo?: boolean
   /** Canned content shown when a non-demo conversation is opened. */
   messages?: Message[]
+  /** The live, server-owned workspace (runtime attaches persist here). Populated
+   *  by the backend on read; the flat seed fields below seed it. */
+  workspace?: SessionWorkspace
   artifacts?: Artifact[]
   files?: FileNode[]
   diff?: DiffLine[]
