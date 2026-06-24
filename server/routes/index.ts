@@ -3,6 +3,7 @@
  *  is plain data — adding a resource is adding a `.get(...)` line. */
 import type {
   ApplyOpRequest,
+  AttachContextRequest,
   RegisterAgentRequest,
   SendMessageRequest,
   SetAgentCapabilitiesRequest,
@@ -191,6 +192,31 @@ export function buildRouter(): Router {
   r.delete('/sessions/:id', ({ res, params }) => {
     if (!store.removeSession(params.id)) return sendError(res, 'not_found', `No session '${params.id}'`)
     sendJson(res, { ok: true })
+  })
+
+  // Session ↔ context bindings — the attachment of record (Primitive 1 of
+  // docs/shared-resource-coordination.md). Persisted server-side so every effect a
+  // session initiates can be mediated by *naming* an attached context (Tiers A–C).
+  // Attach/detach broadcast `session.contexts.changed`.
+  r.get('/sessions/:id/contexts', ({ res, params }) => {
+    sendJson(res, store.sessionContexts(params.id))
+  })
+  r.post('/sessions/:id/contexts', async ({ res, params, body }) => {
+    const input = await body<AttachContextRequest>()
+    if (!input?.id || !input?.type || !input?.label) {
+      return sendError(res, 'bad_request', 'id, type, and label are required')
+    }
+    sendJson(res, store.attachContext(params.id, {
+      id: input.id,
+      type: input.type,
+      label: input.label,
+      scope: input.scope ?? '*',
+    }))
+  })
+  r.delete('/sessions/:id/contexts/:contextId', ({ res, params }) => {
+    const next = store.detachContext(params.id, params.contextId)
+    if (!next) return sendError(res, 'not_found', `No context '${params.contextId}' on session '${params.id}'`)
+    sendJson(res, next)
   })
 
   // Send a turn → stream the assistant reply as SSE (mirrors the Anthropic

@@ -7,6 +7,7 @@ import {
   emptyGraph,
   entryById,
   type ApplyOpRequest,
+  type AttachContextRequest,
   type CapabilityEffect,
   type CapabilityRequest,
   type ContextTypeId,
@@ -20,6 +21,7 @@ import {
   type ScheduledTask,
   type SendMessageRequest,
   type Session,
+  type SessionContext,
 } from '../../contract/index.ts'
 import { API_BASE, apiDelete, apiPatch, apiPost } from './client.ts'
 import { invalidate, mutate, peek, setData } from './cache.ts'
@@ -175,6 +177,27 @@ export async function deleteSession(id: string): Promise<void> {
   } catch {
     invalidate(keys.sessions)
   }
+}
+
+// ── Session contexts (the attachment of record) ─────────────────────────────
+
+/** Attach a context to a session — the persisted binding every effect routed
+ *  through this session is mediated against (Primitive 1 of
+ *  docs/shared-resource-coordination.md). Returns the new list; the
+ *  `session.contexts.changed` event reconciles any other client. */
+export async function attachContext(
+  sessionId: string,
+  context: AttachContextRequest,
+): Promise<SessionContext[]> {
+  const next = await apiPost<SessionContext[]>(paths.sessionContexts(sessionId), context)
+  setData(keys.sessionContexts(sessionId), next)
+  return next
+}
+
+/** Detach a context from a session. */
+export async function detachContext(sessionId: string, contextId: string): Promise<void> {
+  await apiDelete(paths.sessionContext(sessionId, contextId))
+  invalidate(keys.sessionContexts(sessionId))
 }
 
 // ── Recents (Add-context shortcut lists) ────────────────────────────────────

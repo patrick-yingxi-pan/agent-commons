@@ -9,6 +9,7 @@ export const keys = {
   agentEffects: (id: string) => `agent-effects:${id}`,
   sessions: 'sessions',
   session: (id: string) => `session:${id}`,
+  sessionContexts: (id: string) => `session-contexts:${id}`,
   dispatch: 'dispatch',
   savedContexts: 'saved-contexts',
   connectorDetail: (id: string) => `connector-detail:${id}`,
@@ -32,6 +33,9 @@ export const paths = {
   agentSync: (id: string) => `/agents/${encodeURIComponent(id)}/sync`,
   sessions: '/sessions',
   session: (id: string) => `/sessions/${encodeURIComponent(id)}`,
+  sessionContexts: (id: string) => `/sessions/${encodeURIComponent(id)}/contexts`,
+  sessionContext: (id: string, contextId: string) =>
+    `/sessions/${encodeURIComponent(id)}/contexts/${encodeURIComponent(contextId)}`,
   dispatch: '/dispatch',
   savedContexts: '/saved-contexts',
   connectorDetail: (c: Connector) => {

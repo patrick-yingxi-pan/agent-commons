@@ -28,6 +28,7 @@ import type {
   ScheduleTemplate,
   ServerEvent,
   Session,
+  SessionContext,
   UsageSnapshot,
 } from '../contract/index.ts'
 import {
@@ -98,6 +99,15 @@ let recents: RecentsSnapshot = (() => {
   }
   return out
 })()
+
+// Per-session attached contexts — the *attachment of record* (Primitive 1 of
+// docs/shared-resource-coordination.md). Server-owned so every effect a session
+// initiates can be mediated by naming one of these (Tiers A–C). Seeded for the
+// demo sessions; created state is in-memory (mock semantics, refresh-resets).
+const sessionContextBindings = new Map<string, SessionContext[]>([
+  ['insights-launch', [{ id: 'repo-insights', type: 'repo', label: 'insights-dashboard', scope: '~/projects/insights-dashboard' }]],
+  ['auth-refactor', [{ id: 'repo-auth', type: 'repo', label: 'auth-service', scope: '~/projects/auth-service' }]],
+])
 
 /** Publish a domain event to every open ambient SSE channel. */
 function emit(e: ServerEvent): void {
@@ -228,6 +238,37 @@ export const store = {
     const [removed] = SESSIONS.splice(i, 1)
     emit({ type: 'session.updated', session: removed })
     return true
+  },
+
+  // ── Session ↔ context bindings (the attachment of record — Primitive 1) ──
+  /** The contexts attached to a session — the set every effect this session
+   *  initiates is mediated against (docs/shared-resource-coordination.md). */
+  sessionContexts(sessionId: string): SessionContext[] {
+    return sessionContextBindings.get(sessionId) ?? []
+  },
+  /** Resolve one attached context for a session — the lookup the broker uses to
+   *  mediate an effect (Primitive 2). Undefined when it isn't attached. */
+  resolveSessionContext(sessionId: string, contextId: string): SessionContext | undefined {
+    return sessionContextBindings.get(sessionId)?.find((c) => c.id === contextId)
+  },
+  /** Attach a context to a session (idempotent by context id — re-attaching
+   *  replaces it). Broadcasts `session.contexts.changed`; returns the new list. */
+  attachContext(sessionId: string, ctx: SessionContext): SessionContext[] {
+    const list = sessionContextBindings.get(sessionId) ?? []
+    const next = [...list.filter((c) => c.id !== ctx.id), ctx]
+    sessionContextBindings.set(sessionId, next)
+    emit({ type: 'session.contexts.changed', sessionId, contexts: next })
+    return next
+  },
+  /** Detach a context from a session. Returns the new list, or undefined when the
+   *  context wasn't attached (so the route can 404). */
+  detachContext(sessionId: string, contextId: string): SessionContext[] | undefined {
+    const list = sessionContextBindings.get(sessionId)
+    if (!list || !list.some((c) => c.id === contextId)) return undefined
+    const next = list.filter((c) => c.id !== contextId)
+    sessionContextBindings.set(sessionId, next)
+    emit({ type: 'session.contexts.changed', sessionId, contexts: next })
+    return next
   },
 
   // ── Dispatch ──

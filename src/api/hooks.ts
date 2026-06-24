@@ -23,6 +23,7 @@ import type {
   ScheduledTask,
   ScheduleTemplate,
   Session,
+  SessionContext,
   UsageSnapshot,
 } from '../../contract/index.ts'
 
@@ -55,6 +56,15 @@ export function useSessions(): QueryState<Session[]> {
 /** A full session by id (messages / artifacts / repo included). */
 export function useSession(id: string): QueryState<Session> {
   return useQuery(keys.session(id), () => apiGet<Session>(paths.session(id)))
+}
+
+/** The contexts attached to a session — the attachment of record every effect
+ *  routed through this session is mediated against. Updates on
+ *  `session.contexts.changed`. */
+export function useSessionContexts(id: string): QueryState<SessionContext[]> {
+  return useQuery(keys.sessionContexts(id), () =>
+    apiGet<SessionContext[]>(paths.sessionContexts(id)),
+  )
 }
 
 /** The Dispatch section's agent-run feed. */

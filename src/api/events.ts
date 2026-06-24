@@ -30,6 +30,11 @@ function route(e: ServerEvent): void {
     case 'session.updated':
       invalidate(keys.sessions)
       break
+    // A session's attached contexts changed (here or on another client) — re-read
+    // the binding the effect-mediation path resolves against.
+    case 'session.contexts.changed':
+      invalidate(keys.sessionContexts(e.sessionId))
+      break
     // A scheduled run fired / finished (run-now or the daemon) — the recent-runs
     // feed and the schedules (their run lists) are now stale. This is the
     // ambient-push that makes a run appear in the rail with no user request.

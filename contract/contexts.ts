@@ -53,3 +53,19 @@ export interface ConnectorDetail {
   itemsLabel: string
   items: { label: string; meta?: string }[]
 }
+
+/** ── Session ↔ context binding (the attachment of record) ───────────────────
+ *  A context element attached to a session, persisted server-side — the durable
+ *  replacement for ephemeral client-side attach. This is the object a resource
+ *  *guardian* hangs off (see docs/shared-resource-coordination.md): every
+ *  session-initiated effect is mediated by *naming* one of these. */
+export interface SessionContext {
+  /** The context element's id (a repo / folder / connector / mcp / file id). */
+  id: string
+  type: ContextTypeId
+  label: string
+  /** The resource boundary this attachment authorizes: a path root for
+   *  `folder` / `repo`, an account / scope for `connector` / `mcp`. `'*'` is
+   *  unscoped. An effect routed through this context must fall within `scope`. */
+  scope: string
+}

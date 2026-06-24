@@ -2,7 +2,7 @@
  *  The request/response DTOs, the capability descriptor, and the error envelope.
  *  Versioned so the UI can target one stable surface whether the backend is the
  *  local mock, a native sidecar, or a remote web server. */
-import type { AddedContext, PanelFocus } from './entities.ts'
+import type { PanelFocus } from './entities.ts'
 import type { RelationOp } from './relations.ts'
 import type { ContextTypeId } from './contexts.ts'
 
@@ -44,9 +44,14 @@ export interface SendMessageRequest {
   text: string
 }
 
-/** Body of `POST /v1/sessions/:id/context` — the single attach funnel. */
+/** Body of `POST /v1/sessions/:id/contexts` — attach a context to a session (the
+ *  attachment of record; see docs/shared-resource-coordination.md). The persisted
+ *  binding is a `SessionContext`; `scope` defaults to `'*'` (unscoped) when omitted. */
 export interface AttachContextRequest {
-  context: AddedContext
+  id: string
+  type: ContextTypeId
+  label: string
+  scope?: string
 }
 
 /** Body of `POST /v1/sessions/:id/context:remove` — detach one or more contexts
