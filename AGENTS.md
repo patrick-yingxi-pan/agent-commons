@@ -162,6 +162,15 @@ the mock?
   This is forward-looking; it does **not** change current behavior, and these "decisions"
   are settled *within the exploration*, not implemented in the prototype.
 
+- **Shared-resource coordination.** The general form of the broker doc's branch model:
+  *different sessions producing irreversible effects on shared resources* (no common
+  ancestor to merge). Works through the monotonicity (CALM) boundary that defines the
+  hard case, **escrow/reservation** as the primitive that tames it, and a candidate
+  **D5 — resource-guardian principle** (a per-shared-resource authority, the third
+  system-of-record axis beside session and host). Grounded on this repo's **context
+  elements** as the session→resource conduit. Also forward-looking:
+  [`docs/shared-resource-coordination.md`](docs/shared-resource-coordination.md).
+
 ## Repo map (detail in [`README.md`](README.md))
 
 ```

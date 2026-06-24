@@ -255,6 +255,13 @@ when the server returns, reusing D2's outbox machinery rather than moving the cr
 This nudges the model path toward the capability path's offline behavior without touching
 the trust model. Recorded as open question 7.
 
+The *general* form of this — **different sessions producing irreversible effects on
+shared resources**, no common ancestor to merge — is worked through separately in
+[`shared-resource-coordination.md`](shared-resource-coordination.md) (candidate **D5**,
+the resource-guardian principle). Q7 is its single-effect special case: a model turn
+that writes shared session state is just another non-monotonic effect whose commit
+belongs at a guardian.
+
 ## Capabilities as a live registry
 
 Capabilities are **not** a static descriptor of "the backend." They are **advertised
