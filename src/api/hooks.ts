@@ -18,6 +18,7 @@ import type {
   Project,
   RecentsSnapshot,
   RelationGraph,
+  ResourceStatus,
   RunSessionEntry,
   SavedContextsSnapshot,
   ScheduledTask,
@@ -46,6 +47,12 @@ export function useAgentEffects(agentId: string): QueryState<CapabilityEffect[]>
   return useQuery(keys.agentEffects(agentId), () =>
     apiGet<CapabilityEffect[]>(paths.agentEffects(agentId)),
   )
+}
+
+/** A shared resource's guardian state — its capacity and the reservations
+ *  currently active (D5). Updates on `reservation.changed`. */
+export function useResourceStatus(key: string): QueryState<ResourceStatus> {
+  return useQuery(keys.resourceStatus(key), () => apiGet<ResourceStatus>(paths.resource(key)))
 }
 
 /** The session list (lightweight rows) for the sidebar + search. */

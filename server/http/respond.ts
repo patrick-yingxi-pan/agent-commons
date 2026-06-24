@@ -33,6 +33,7 @@ const STATUS_FOR: Record<ApiErrorCode, number> = {
   bad_request: 400,
   not_found: 404,
   forbidden: 403,
+  conflict: 409,
   capability_unavailable: 409,
   internal: 500,
 }

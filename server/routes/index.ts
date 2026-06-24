@@ -14,7 +14,13 @@ import { openSse } from '../http/sse.ts'
 import { store } from '../store.ts'
 import { generateReply } from '../generate.ts'
 import { CapabilityError, runCapability, scopeMatches } from '../agent-runtime.ts'
-import type { CapabilityRequest, SyncEffectsRequest } from '../../contract/index.ts'
+import { GuardianError } from '../guardian.ts'
+import type {
+  CapabilityRequest,
+  ReserveRequest,
+  SetCapacityRequest,
+  SyncEffectsRequest,
+} from '../../contract/index.ts'
 import type { ServerResponse } from 'node:http'
 
 /** Gate a native route on a capability: 409 capability_unavailable when this
@@ -156,6 +162,49 @@ export function buildRouter(): Router {
     store.journal.merge(params.id, effects)
     const projected = store.journal.reconcile(params.id)
     sendJson(res, { projected, cursor: store.journal.cursor(params.id) })
+  })
+
+  // ── Resource guardians + reservations (D5) ────────────────────────────────
+  // Per shared resource (a context element id), a reservation ledger enforcing a
+  // capacity invariant — the escrow that lets the broker refuse a second session's
+  // irreversible write up front (docs/shared-resource-coordination.md). `reserve`
+  // is reversible (releasable, TTL'd); `commit` records the irreversible step.
+  // `conflict` (409) when the resource is at capacity / held by another session.
+  r.get('/resources/:key', ({ res, params }) => {
+    sendJson(res, store.guardian.status(params.key))
+  })
+  r.patch('/resources/:key', async ({ res, params, body }) => {
+    const { capacity } = await body<SetCapacityRequest>()
+    if (typeof capacity !== 'number' || capacity < 1) {
+      return sendError(res, 'bad_request', 'capacity must be a positive number')
+    }
+    sendJson(res, store.guardian.setCapacity(params.key, capacity))
+  })
+  r.post('/resources/:key/reserve', async ({ res, params, body }) => {
+    const input = await body<ReserveRequest>()
+    if (!input?.holder) return sendError(res, 'bad_request', 'holder is required')
+    try {
+      sendJson(res, store.guardian.reserve(params.key, input.holder, { ttlMs: input.ttlMs }))
+    } catch (err) {
+      if (err instanceof GuardianError) return sendError(res, err.code, err.message)
+      throw err
+    }
+  })
+  r.post('/reservations/:id/commit', ({ res, params }) => {
+    try {
+      sendJson(res, store.guardian.commit(params.id))
+    } catch (err) {
+      if (err instanceof GuardianError) return sendError(res, err.code, err.message)
+      throw err
+    }
+  })
+  r.post('/reservations/:id/release', ({ res, params }) => {
+    try {
+      sendJson(res, store.guardian.release(params.id))
+    } catch (err) {
+      if (err instanceof GuardianError) return sendError(res, err.code, err.message)
+      throw err
+    }
   })
 
   // ── Native resources (a native sidecar fulfills these; a remote server 409s) ─

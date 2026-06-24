@@ -52,6 +52,7 @@ import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
 import { USAGE } from './data/usage.ts'
 import { AgentRegistry } from './registry.ts'
 import { AgentJournal } from './journal.ts'
+import { ResourceGuardian } from './guardian.ts'
 import { LOCAL_AGENT_SEED } from './data/agents.ts'
 
 type Listener = (e: ServerEvent) => void
@@ -130,6 +131,11 @@ if (NATIVE) registry.register(LOCAL_AGENT_SEED)
 // + the server's projection of it. Emits `agent.effect` as effects project.
 const journal = new AgentJournal(emit)
 
+// The resource guardian — per shared resource (a context element), a reservation
+// ledger enforcing a capacity invariant (D5). The escrow that lets the broker
+// refuse a second session's irreversible write up front. Emits `reservation.changed`.
+const guardian = new ResourceGuardian(emit)
+
 export const store = {
   epoch: EPOCH,
 
@@ -140,6 +146,10 @@ export const store = {
   /** Each agent's authoritative effect log + the server's projection of it (D2).
    *  The invoke route records + reconciles; the sync route merges an outbox. */
   journal,
+  /** Per-resource reservation ledgers enforcing a capacity invariant (D5). The
+   *  reservation routes drive it; the invoke route reserves/commits for
+   *  non-monotonic effects so a second session can't write a held resource. */
+  guardian,
 
   // ── Capabilities (what this backend variant can do) ──
   /** The UI gates native-only affordances on these flags — never on sniffing

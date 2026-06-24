@@ -16,6 +16,8 @@ import {
   type RecentsSnapshot,
   type RelationGraph,
   type RelationOp,
+  type Reservation,
+  type ResourceStatus,
   type ReplyStreamEvent,
   type RunSessionEntry,
   type ScheduledTask,
@@ -239,6 +241,38 @@ export async function syncAgentEffects(
   const result = await apiPost<SyncEffectsResult>(paths.agentSync(agentId), { effects })
   invalidate(keys.agentEffects(agentId))
   return result
+}
+
+// ── Resource guardians (reservations) ───────────────────────────────────────
+
+/** Reserve a shared resource for a holder (a session) — the reversible escrow
+ *  hold (D5). Re-entrant for the same holder; rejects with `conflict` when another
+ *  session holds the resource at capacity. */
+export async function reserveResource(key: string, holder: string, ttlMs?: number): Promise<Reservation> {
+  const r = await apiPost<Reservation>(paths.resourceReserve(key), { holder, ttlMs })
+  invalidate(keys.resourceStatus(key))
+  return r
+}
+
+/** Commit a reservation — record the single irreversible step. */
+export async function commitReservation(id: string): Promise<Reservation> {
+  const r = await apiPost<Reservation>(paths.reservationCommit(id))
+  invalidate(keys.resourceStatus(r.resourceId))
+  return r
+}
+
+/** Release a reservation — free the slot for another session. */
+export async function releaseReservation(id: string): Promise<Reservation> {
+  const r = await apiPost<Reservation>(paths.reservationRelease(id))
+  invalidate(keys.resourceStatus(r.resourceId))
+  return r
+}
+
+/** Set how many distinct sessions may concurrently hold a resource (default 1). */
+export async function setResourceCapacity(key: string, capacity: number): Promise<ResourceStatus> {
+  const s = await apiPatch<ResourceStatus>(paths.resource(key), { capacity })
+  invalidate(keys.resourceStatus(key))
+  return s
 }
 
 function dispatch(event: ReplyStreamEvent, h: SendHandlers): void {

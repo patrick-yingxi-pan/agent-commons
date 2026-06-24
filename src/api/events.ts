@@ -69,6 +69,11 @@ function route(e: ServerEvent): void {
     case 'agent.effect':
       invalidate(keys.agentEffects(e.effect.agentId))
       break
+    // A resource's reservation ledger changed (acquired / committed / released /
+    // capacity set) — re-read that resource's lock state.
+    case 'reservation.changed':
+      invalidate(keys.resourceStatus(e.resourceId))
+      break
     default:
       break
   }

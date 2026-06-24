@@ -119,5 +119,6 @@ export type ApiErrorCode =
   | 'bad_request'
   | 'not_found'
   | 'forbidden'
+  | 'conflict'
   | 'capability_unavailable'
   | 'internal'

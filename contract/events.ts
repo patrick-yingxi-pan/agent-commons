@@ -141,6 +141,13 @@ export interface AgentEffectEvent {
   type: 'agent.effect'
   effect: CapabilityEffect
 }
+/** A resource's reservation ledger changed (D5) — a reservation was acquired,
+ *  committed, released, or the capacity was set. Carries the resource id so a
+ *  client watching that resource's lock state re-reads it. */
+export interface ReservationChangedEvent {
+  type: 'reservation.changed'
+  resourceId: string
+}
 
 /** Sent once when an SSE channel opens, so the client can confirm liveness. */
 export interface HelloEvent {
@@ -169,6 +176,7 @@ export type ServerEvent =
   | AgentDisconnectedEvent
   | AgentCapabilitiesChangedEvent
   | AgentEffectEvent
+  | ReservationChangedEvent
 
 export type ServerEventType = ServerEvent['type']
 

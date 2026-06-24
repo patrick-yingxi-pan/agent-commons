@@ -12,6 +12,16 @@
  *  capability is a new member here, advertised by agents that can fulfill it. */
 export type CapabilityType = 'fs.read' | 'fs.write' | 'terminal' | 'process'
 
+/** Is a capability **monotonic** (CALM)? A monotonic effect only observes / adds —
+ *  it never retracts a conclusion another session acted on, so it is
+ *  coordination-free and bypasses the resource guardian (D5). Non-monotonic effects
+ *  (those that mutate shared state) must hold a reservation. Conservatively, only
+ *  `fs.read` is monotonic; writes / terminals / processes may mutate.
+ *  See docs/shared-resource-coordination.md. */
+export function isMonotonic(capability: CapabilityType): boolean {
+  return capability === 'fs.read'
+}
+
 /** One advertised capability plus the grant that scopes it. `scopes` means: the
  *  filesystem roots for `fs.*`, the allowed command patterns for `terminal` /
  *  `process`. `['*']` is unrestricted (the user granted everything of this kind).
