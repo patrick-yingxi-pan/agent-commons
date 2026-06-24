@@ -29,6 +29,9 @@ function route(e: ServerEvent): void {
     }
     case 'session.updated':
       invalidate(keys.sessions)
+      // The full session (its thread) changed too — a persisted turn, a rename.
+      // No-op unless some view has read this session (then it refetches).
+      invalidate(keys.session(e.session.id))
       break
     // A session's attached contexts changed (here or on another client) — re-read
     // the binding the effect-mediation path resolves against.

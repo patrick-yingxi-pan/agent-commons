@@ -22,8 +22,10 @@ import { runSessionById } from '../data/scheduledRuns'
 import {
   applyRelationOp,
   attachContext,
+  createSession,
   deleteSession as deleteSessionCmd,
   detachContext,
+  loadSession,
   patchSession,
   runSessionFromCache,
   runSessionFromSchedules,
@@ -36,6 +38,7 @@ import type {
   PanelFocus,
   Repo,
   SectionId,
+  Session,
   TourPhase,
 } from '../types'
 
@@ -92,6 +95,10 @@ export function useSessionWorkspace() {
   // the beat's step waits in `pendingStep` while the inline consent prompt is
   // shown, and the escalation applies only on approval. Null = nothing pending.
   const [pendingStep, setPendingStep] = useState<DemoStep | null>(null)
+  // Sessions materialized this client-session — a draft made real on its first
+  // send (server-minted, so absent from the static seed mirror). The active-session
+  // resolution and the sidebar consult this until the next reload reseeds from the API.
+  const [extraSessions, setExtraSessions] = useState<Session[]>([])
 
   // Timer bookkeeping so switching sessions cancels in-flight callbacks.
   const runId = useRef(0)
@@ -105,17 +112,24 @@ export function useSessionWorkspace() {
   // user switched sessions is ignored rather than landing in the wrong thread.
   const activeIdRef = useRef(activeId)
   activeIdRef.current = activeId
+  // Mirror of materialized sessions for reads inside event handlers (selectSession
+  // has stable deps and must not close over a stale snapshot).
+  const extraSessionsRef = useRef(extraSessions)
+  extraSessionsRef.current = extraSessions
 
   const activeSession = useMemo(
     // A scheduled run opens its own synthesized session — resolve from the live
-    // feed cache first (covers daemon/run-now runs), then the seed fallback.
+    // feed cache first (covers daemon/run-now runs), then the seed fallback. A
+    // session materialized this client-session (a sent draft) resolves from
+    // `extraSessions`, since it isn't in the static seed mirror.
     () =>
       SESSIONS.find((c) => c.id === activeId) ??
+      extraSessions.find((s) => s.id === activeId) ??
       runSessionFromSchedules(activeId) ??
       runSessionFromCache(activeId) ??
       runSessionById(activeId) ??
       DRAFT_SESSION,
-    [activeId],
+    [activeId, extraSessions],
   )
   const isDemo = !!activeSession.isDemo
   // The transient "New session" draft (not a saved session). Drives the empty
@@ -146,12 +160,14 @@ export function useSessionWorkspace() {
   const selectSession = useCallback(
     (id: string) => {
       clearTimers()
+      const myRun = runId.current
       setTyping(false)
       setBusy(false)
       setActiveSection(null)
       setActiveId(id)
       const session =
         SESSIONS.find((c) => c.id === id) ??
+        extraSessionsRef.current.find((s) => s.id === id) ??
         runSessionFromSchedules(id) ??
         runSessionFromCache(id) ??
         runSessionById(id) ??
@@ -172,6 +188,17 @@ export function useSessionWorkspace() {
       if (session.isDemo) {
         setStepIndex(-1)
         setCaption('')
+      }
+      // Reconcile the thread from the server (the system of record): any persisted
+      // turn reappears. Skip the demo (the guided tour owns its thread, client-side)
+      // and the unsaved draft. Guarded by runId so a fast re-switch can't clobber.
+      if (id !== DRAFT_ID && !session.isDemo) {
+        loadSession(id)
+          .then((s) => {
+            if (runId.current !== myRun) return
+            setLive((l) => ({ ...l, messages: s.messages ?? [] }))
+          })
+          .catch(() => {})
       }
     },
     [clearTimers],
@@ -325,44 +352,68 @@ export function useSessionWorkspace() {
   // lives server-side — an "organize" request streams back the matching
   // relation-edit proposals; anything else gets a canned answer.
   const handleSend = useCallback((text: string) => {
-    const sid = activeIdRef.current
+    const startId = activeIdRef.current
     const userMsg: Message = { id: `u-${Date.now()}`, role: 'user', content: text }
     setLive((l) => ({ ...l, messages: [...l.messages, userMsg] }))
     setTyping(true)
     setBusy(true)
-    // Ignore stream events that arrive after the user switched away.
-    const stale = () => activeIdRef.current !== sid
-    sendMessage(sid, text, {
-      onStart: (_id, message) => {
+    // The turn runs async so an unsaved draft is first materialized into a real,
+    // persisted session (the server mints its id + titles it from this message).
+    // The reply then streams under that id and the backend persists the turn —
+    // making "send" a real, durable operation rather than client-only state.
+    void (async () => {
+      let sid = startId
+      if (sid === DRAFT_ID) {
+        try {
+          const created = await createSession(text)
+          sid = created.id
+          setExtraSessions((prev) => [created, ...prev])
+          // Adopt the new id only if the user is still on the draft — don't yank
+          // them back if they navigated away while it was materializing.
+          if (activeIdRef.current === DRAFT_ID) {
+            setActiveId(sid)
+            activeIdRef.current = sid
+          }
+        } catch {
+          // Couldn't materialize (server unreachable) — stream against the draft id;
+          // the reply still renders, it just isn't persisted (graceful degradation).
+          sid = startId
+        }
+      }
+      // Ignore stream events that arrive after the user switched away.
+      const stale = () => activeIdRef.current !== sid
+      await sendMessage(sid, text, {
+        onStart: (_id, message) => {
+          if (stale()) return
+          setTyping(false)
+          setLive((l) => ({ ...l, messages: [...l.messages, message] }))
+        },
+        onDelta: (messageId, chunk) => {
+          if (stale()) return
+          setLive((l) => ({
+            ...l,
+            messages: l.messages.map((m) => (m.id === messageId ? { ...m, content: m.content + chunk } : m)),
+          }))
+        },
+        onRelations: (messageId, relationActions) => {
+          if (stale()) return
+          setLive((l) => ({
+            ...l,
+            messages: l.messages.map((m) => (m.id === messageId ? { ...m, relationActions } : m)),
+          }))
+        },
+        onEnd: (message) => {
+          if (stale()) return
+          setLive((l) => ({ ...l, messages: l.messages.map((m) => (m.id === message.id ? message : m)) }))
+          setTyping(false)
+          setBusy(false)
+        },
+      }).catch(() => {
         if (stale()) return
-        setTyping(false)
-        setLive((l) => ({ ...l, messages: [...l.messages, message] }))
-      },
-      onDelta: (messageId, chunk) => {
-        if (stale()) return
-        setLive((l) => ({
-          ...l,
-          messages: l.messages.map((m) => (m.id === messageId ? { ...m, content: m.content + chunk } : m)),
-        }))
-      },
-      onRelations: (messageId, relationActions) => {
-        if (stale()) return
-        setLive((l) => ({
-          ...l,
-          messages: l.messages.map((m) => (m.id === messageId ? { ...m, relationActions } : m)),
-        }))
-      },
-      onEnd: (message) => {
-        if (stale()) return
-        setLive((l) => ({ ...l, messages: l.messages.map((m) => (m.id === message.id ? message : m)) }))
         setTyping(false)
         setBusy(false)
-      },
-    }).catch(() => {
-      if (stale()) return
-      setTyping(false)
-      setBusy(false)
-    })
+      })
+    })()
   }, [])
 
   // Manually attach context to the open thread — the same escalation the tour

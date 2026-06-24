@@ -17,6 +17,7 @@ import type {
   ContextTypeId,
   DiffLine,
   DispatchRun,
+  Message,
   Project,
   RecentsSnapshot,
   RelationGraph,
@@ -82,6 +83,11 @@ const mintArtifactId = () => `art-live-${++artifactSeq}`
 const schedules: ScheduledTask[] = JSON.parse(JSON.stringify(SCHEDULED_TASKS))
 let runSeq = 0
 let scheduleSeq = 0
+// Monotonic counters for server-minted session + message ids. The conversation is
+// now server-owned (a sent turn persists; a draft materializes into a real session
+// on first send), so the backend mints these — the client no longer fabricates them.
+let sessionSeq = 0
+let messageSeq = 0
 
 // Per-user recents — one non-evicting MRU id list per context type. Connectors /
 // MCP seed from the connected accounts (their quick list shows every set-up
@@ -109,6 +115,15 @@ const sessionContextBindings = new Map<string, SessionContext[]>([
   ['insights-launch', [{ id: 'repo-insights', type: 'repo', label: 'insights-dashboard', scope: '~/projects/insights-dashboard' }]],
   ['auth-refactor', [{ id: 'repo-auth', type: 'repo', label: 'auth-service', scope: '~/projects/auth-service' }]],
 ])
+
+/** A session title from its first message — the leading words, trimmed to a row-
+ *  friendly length (mirrors how the desktop app titles a fresh chat). Empty input
+ *  (a session created before its first send) falls back to a neutral label. */
+function titleFrom(firstMessage?: string): string {
+  const text = (firstMessage ?? '').trim().replace(/\s+/g, ' ')
+  if (!text) return 'New session'
+  return text.length > 48 ? `${text.slice(0, 48).trimEnd()}…` : text
+}
 
 /** Publish a domain event to every open ambient SSE channel. */
 function emit(e: ServerEvent): void {
@@ -224,6 +239,51 @@ export const store = {
     return SESSIONS.find((s) => s.id === id)
   },
   demoSessionId: DEMO_SESSION_ID,
+
+  /** Mint a server-owned message id. The conversation is the system of record, so
+   *  persisted messages carry the backend's id — not one the client fabricated. */
+  mintMessageId(role: 'user' | 'assistant'): string {
+    return `m-${role[0]}-${(messageSeq += 1)}`
+  },
+
+  /** Materialize a new persisted session — the desktop app's "New chat" the moment
+   *  it's first sent to. `firstMessage` seeds the title (its first words) + preview.
+   *  Added to the live list + broadcast (`session.updated`) so every sidebar shows
+   *  it; created state is in-memory (mock semantics, refresh-resets). */
+  createSession(firstMessage?: string): Session {
+    const now = Date.now()
+    const session: Session = {
+      id: `sess-${(sessionSeq += 1)}`,
+      title: titleFrom(firstMessage),
+      caps: ['chat'],
+      updatedLabel: 'now',
+      preview: (firstMessage ?? '').slice(0, 120),
+      messages: [],
+      status: 'active',
+      environment: 'local',
+      createdAt: now,
+      updatedAt: now,
+    }
+    SESSIONS.unshift(session)
+    emit({ type: 'session.updated', session })
+    return session
+  },
+
+  /** Append a message to a session's thread — the write that makes "send" real.
+   *  Persists only for a known (listed) session; a draft is materialized via
+   *  `createSession` first, and synthesized run / unknown ids aren't persisted here
+   *  (returns undefined). Refreshes the row's preview + activity, then broadcasts
+   *  `session.updated` so every client's list reflects the new turn. */
+  appendMessage(id: string, message: Message): Session | undefined {
+    const session = SESSIONS.find((s) => s.id === id)
+    if (!session) return undefined
+    session.messages = [...(session.messages ?? []), message]
+    session.preview = message.content.slice(0, 120)
+    session.updatedLabel = 'now'
+    session.updatedAt = Date.now()
+    emit({ type: 'session.updated', session })
+    return session
+  },
 
   /** Edit a session's row-level fields from the sidebar's row menu — rename
    *  (title), pin/unpin, or archive/unarchive. Mutates in place and broadcasts

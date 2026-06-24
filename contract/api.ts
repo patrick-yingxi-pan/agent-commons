@@ -44,6 +44,13 @@ export interface SendMessageRequest {
   text: string
 }
 
+/** Body of `POST /v1/sessions` — materialize a new persisted session (the desktop
+ *  app's "New chat" the moment it's first sent to). `firstMessage`, when given,
+ *  seeds the session's title + preview. Returns the created `Session`. */
+export interface CreateSessionRequest {
+  firstMessage?: string
+}
+
 /** Body of `POST /v1/sessions/:id/contexts` — attach a context to a session (the
  *  attachment of record; see docs/shared-resource-coordination.md). The persisted
  *  binding is a `SessionContext`; `scope` defaults to `'*'` (unscoped) when omitted. */

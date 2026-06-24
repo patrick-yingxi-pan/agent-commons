@@ -25,7 +25,7 @@ import {
   type Session,
   type SessionContext,
 } from '../../contract/index.ts'
-import { API_BASE, apiDelete, apiPatch, apiPost } from './client.ts'
+import { API_BASE, apiDelete, apiGet, apiPatch, apiPost } from './client.ts'
 import { invalidate, mutate, peek, setData } from './cache.ts'
 import { keys, paths } from './keys.ts'
 
@@ -82,6 +82,27 @@ export async function sendMessage(
       dispatch(event, handlers)
     }
   }
+}
+
+// ── Sessions (the conversation, server-owned) ───────────────────────────────
+
+/** Materialize a draft into a real persisted session on its first send. The
+ *  server mints the id + titles it from the first message; we prime the caches so
+ *  the controller can resolve the new session immediately and the sidebar shows it. */
+export async function createSession(firstMessage?: string): Promise<Session> {
+  const session = await apiPost<Session>(paths.sessions, { firstMessage })
+  setData(keys.session(session.id), session)
+  invalidate(keys.sessions)
+  return session
+}
+
+/** Read a session's full thread from the server (the system of record) and prime
+ *  the cache. The controller calls this on select to reconcile the open thread, so
+ *  a persisted turn reappears after switching away and back. */
+export async function loadSession(id: string): Promise<Session> {
+  const session = await apiGet<Session>(paths.session(id))
+  setData(keys.session(id), session)
+  return session
 }
 
 let optSeq = 0

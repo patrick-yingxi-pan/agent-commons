@@ -278,6 +278,12 @@ export function buildRouter(): Router {
     if (!session) return sendError(res, 'not_found', `No session '${params.id}'`)
     sendJson(res, session)
   })
+  // Materialize a new persisted session — a draft becomes real on its first send
+  // (the client posts here, adopts the returned id, then streams the turn to it).
+  r.post('/sessions', async ({ res, body }) => {
+    const { firstMessage } = await body<import('../../contract/index.ts').CreateSessionRequest>()
+    sendJson(res, store.createSession(firstMessage))
+  })
   // Edit a session's row fields (rename / pin / archive) from the sidebar menu.
   r.patch('/sessions/:id', async ({ res, params, body }) => {
     const patch = await body<{ title?: string; status?: 'active' | 'archived'; pinned?: boolean }>()
@@ -332,6 +338,18 @@ export function buildRouter(): Router {
       ? { id: known.id, title: known.title, isDemo: known.isDemo }
       : { id: params.id, title: 'New session', isDemo: false }
 
+    // Persist the user's turn up front for a known session — the conversation is
+    // server-owned, so a sent message survives a reload even if generation fails.
+    // (Drafts are materialized via POST /sessions before they're sent to; run /
+    // unknown ids stay ephemeral — appendMessage no-ops for them.)
+    if (known) {
+      store.appendMessage(params.id, {
+        id: store.mintMessageId('user'),
+        role: 'user',
+        content: text ?? '',
+      })
+    }
+
     const channel = openSse(res)
     const ac = new AbortController()
     req.on('close', () => ac.abort())
@@ -360,6 +378,10 @@ export function buildRouter(): Router {
           relationActions: message.relationActions,
         })
       }
+      // The model's reply text is canned (the mock model server) but its
+      // *persistence* is real: record the assistant turn so the thread is the
+      // system of record, then close the stream.
+      if (known) store.appendMessage(params.id, message)
       channel.send({ type: 'message.end', sessionId: session.id, message })
     } catch {
       // Aborted (client closed) or a fatal error — nothing more to send.

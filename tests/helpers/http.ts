@@ -69,3 +69,40 @@ export async function call(method: string, path: string, bodyObj?: unknown): Pro
   await router.handle(req, res, new URL(`http://test${path}`))
   return result()
 }
+
+/** Like `call`, but returns the raw response text + status — for the streaming
+ *  (SSE) endpoints whose body is `data:` frames, not a single JSON object. The
+ *  route runs to completion (so its side-effects, e.g. persisting a turn, land)
+ *  before this resolves. */
+export async function callRaw(
+  method: string,
+  path: string,
+  bodyObj?: unknown,
+): Promise<{ status: number; body: string }> {
+  const req = makeReq(method, bodyObj)
+  let status = 0
+  let body = ''
+  let ended = false
+  const res: any = {
+    writeHead(s: number) {
+      status = s
+      return res
+    },
+    setHeader() {},
+    write(chunk: string) {
+      body += chunk
+      return true
+    },
+    end(chunk?: string) {
+      if (chunk) body += chunk
+      ended = true
+    },
+    flushHeaders() {},
+    on() {},
+    get writableEnded() {
+      return ended
+    },
+  }
+  await router.handle(req, res, new URL(`http://test${path}`))
+  return { status, body }
+}
