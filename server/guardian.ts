@@ -63,6 +63,17 @@ export class ResourceGuardian {
     return [...res.reservations.values()].filter((r) => this.isActive(r))
   }
 
+  /** Drop dead entries (released or lapsed) so the ledger doesn't grow unbounded —
+   *  one entry would otherwise linger per effect ever run. Called on the
+   *  read / acquire paths; the active set is unaffected (those entries were already
+   *  filtered out of it). */
+  private prune(res: Resource): void {
+    const now = this.now()
+    for (const [id, r] of res.reservations) {
+      if (r.status === 'released' || r.expiresAt <= now) res.reservations.delete(id)
+    }
+  }
+
   /** Set how many distinct sessions may concurrently hold this resource. */
   setCapacity(resourceId: string, capacity: number): ResourceStatus {
     const res = this.resourceFor(resourceId)
@@ -73,11 +84,14 @@ export class ResourceGuardian {
 
   /** Acquire — or re-enter — a reservation for `holder` on `resourceId`. Re-entrant:
    *  a holder already holding an active reservation gets it back with its TTL
-   *  refreshed (so a burst of writes by one session doesn't self-conflict). A new
-   *  holder is granted iff the distinct active holders are below capacity; otherwise
-   *  the resource is escrow-locked and this throws `conflict`. */
+   *  refreshed (so a burst of writes by one session doesn't self-conflict) — the
+   *  returned reservation reflects its current status (`held`, or `committed` if this
+   *  holder already committed). A new holder is granted iff the distinct active
+   *  holders are below capacity; otherwise the resource is escrow-locked and this
+   *  throws `conflict`. */
   reserve(resourceId: string, holder: string, opts: { ttlMs?: number } = {}): Reservation {
     const res = this.resourceFor(resourceId)
+    this.prune(res)
     const ttl = opts.ttlMs ?? DEFAULT_TTL_MS
     const now = this.now()
     const active = this.activeList(res)
@@ -142,6 +156,7 @@ export class ResourceGuardian {
   /** A resource's capacity + the reservations currently active. */
   status(resourceId: string): ResourceStatus {
     const res = this.resourceFor(resourceId)
+    this.prune(res)
     return { resourceId, capacity: res.capacity, active: this.activeList(res).map((r) => ({ ...r })) }
   }
 }

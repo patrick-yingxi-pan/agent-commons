@@ -136,13 +136,20 @@ export function buildRouter(): Router {
     // that refuses a concurrent irreversible writer up front. Held (TTL'd) on success
     // so the session keeps the resource; released if the effect itself fails.
     let reservation
+    let acquiredHere = false
     if (!isMonotonic(request.capability)) {
+      // Release on failure must free only what *this* invoke acquired — never a hold
+      // the session already had (e.g. an explicit reservation kept across a consent gate).
+      const heldBefore = store.guardian
+        .status(ctx.id)
+        .active.some((r) => r.holder === request.sessionId)
       try {
         reservation = store.guardian.reserve(ctx.id, request.sessionId)
       } catch (err) {
         if (err instanceof GuardianError) return sendError(res, err.code, err.message)
         throw err
       }
+      acquiredHere = !heldBefore
     }
     try {
       const result = runCapability(agent, request)
@@ -156,7 +163,8 @@ export function buildRouter(): Router {
       if (reservation) store.guardian.commit(reservation.id)
       sendJson(res, effect)
     } catch (err) {
-      if (reservation) store.guardian.release(reservation.id) // effect failed — free the lock
+      // The effect failed — free the lock only if this invoke is what acquired it.
+      if (reservation && acquiredHere) store.guardian.release(reservation.id)
       if (err instanceof CapabilityError) return sendError(res, err.code, err.message)
       throw err
     }

@@ -183,3 +183,18 @@ test('the same session may write a resource repeatedly (re-entrant)', async () =
     assert.equal(w.status, 200)
   }
 })
+
+test('a failed invoke does not release a session’s pre-existing explicit reservation', async () => {
+  await call('POST', '/sessions/gZ/contexts', { id: 'res-hold', type: 'repo', label: 'h', scope: '*' })
+  // gZ holds the resource explicitly (e.g. across a consent gate).
+  assert.equal((await call('POST', '/resources/res-hold/reserve', { holder: 'gZ' })).status, 200)
+  // A non-monotonic invoke that FAILS at the host grant (target outside ~/projects).
+  const bad = await call('POST', '/agents/agent-local/invoke', {
+    sessionId: 'gZ', contextId: 'res-hold', capability: 'fs.write', target: '/etc/x', args: { content: 'z' },
+  })
+  assert.equal(bad.status, 403)
+  assert.equal(bad.json.error.code, 'forbidden')
+  // gZ's explicit hold survives the failed invoke (it released only what it would have acquired — nothing).
+  const status = await call('GET', '/resources/res-hold')
+  assert.ok(status.json.active.some((x: any) => x.holder === 'gZ' && x.status !== 'released'))
+})
