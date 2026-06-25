@@ -113,6 +113,18 @@ the mock?
   (`server/persist.ts`), so it survives a restart. The simplest viable format (one
   JSON snapshot, atomic write); refine later. Transient state (reservations, the
   live agent registry) is deliberately *not* persisted. Tests run in-memory.
+- **Back up / restore that state for testing** (`scripts/snapshot.ts`): roll back
+  after clicking around. `npm run snapshot:save` copies the live store to
+  `.data/snapshots/backup.json`; `npm run snapshot:restore` copies it back (restart
+  the server — persistence loads once on boot); `npm run snapshot:list` shows them.
+  `npm run snapshot:build` manufactures a clean, **comprehensive** playground that
+  exercises every persisted slice once — it re-seeds from the `server/data/`
+  fixtures and drives the real store mutators + relation reducer (so it can't drift
+  from the contract and reproduces identically in any clone), then writes
+  `.data/snapshots/comprehensive.json` (`--activate` makes it the live store,
+  backing up the current one first). The `.json` outputs are gitignored; only the
+  generator is checked in. `tests/snapshot.test.ts` locks the round-trip and the
+  every-slice coverage invariant.
 
 ## Working in this repo (conventions)
 
