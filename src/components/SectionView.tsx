@@ -619,7 +619,7 @@ function ArtifactsSection() {
                 <button
                   onClick={() => foldGroup(g.id)}
                   aria-expanded={!isFolded}
-                  className="group mb-2.5 flex w-full items-center gap-1.5 text-left"
+                  className="group mb-1.5 -ml-1.5 flex w-fit items-center gap-1.5 rounded-md py-1 pl-1.5 pr-2.5 text-left transition hover:bg-panel-2/70"
                 >
                   <ChevronDown
                     size={15}
@@ -1240,7 +1240,7 @@ function ContextsSection() {
                 <button
                   onClick={() => foldGroup(g.kind)}
                   aria-expanded={!isFolded}
-                  className="group mb-2.5 flex w-full items-center gap-1.5 text-left"
+                  className="group mb-1.5 -ml-1.5 flex w-fit items-center gap-1.5 rounded-md py-1 pl-1.5 pr-2.5 text-left transition hover:bg-panel-2/70"
                 >
                   <ChevronDown
                     size={15}
@@ -1771,7 +1771,7 @@ function ScheduledSection({
                 <button
                   onClick={() => foldGroup(g.key)}
                   aria-expanded={!isFolded}
-                  className="group mb-2.5 flex w-full items-center gap-1.5 text-left"
+                  className="group mb-1.5 -ml-1.5 flex w-fit items-center gap-1.5 rounded-md py-1 pl-1.5 pr-2.5 text-left transition hover:bg-panel-2/70"
                 >
                   <ChevronDown
                     size={15}

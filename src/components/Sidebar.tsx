@@ -222,7 +222,7 @@ export function Sidebar({
               <button
                 onClick={toggleSched}
                 aria-expanded={schedOpen}
-                className="flex flex-1 items-center gap-1 px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint transition hover:text-ink-soft"
+                className="flex flex-1 items-center gap-1 rounded-md px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint transition hover:bg-surface hover:text-ink-soft"
               >
                 {/* Label left-aligned (matching RECENTS + the row dots); the fold
                     caret sits to its right, Claude-app "Recents ⌄" style. */}
