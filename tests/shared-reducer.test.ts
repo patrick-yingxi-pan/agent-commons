@@ -122,6 +122,49 @@ test('save-artifact mints a fresh id, prepends the artifact, and files it under 
   assert.equal(g.artifactProject[art.id], 'p1', 'filed under the project when one is given')
 })
 
+test('a sessionless save-artifact (the "New artifact" button) mints with a neutral source and files under a project', () => {
+  const g = applyGraphOp(
+    emptyGraph(),
+    { kind: 'save-artifact', artifact: { name: 'Brief', kind: 'doc', meta: 'Document' }, projectId: 'p1', projectName: 'P' },
+    mintIds(),
+  )
+  assert.equal(g.extraArtifacts.length, 1)
+  const art = g.extraArtifacts[0]
+  assert.equal(art.source, 'Created here', 'no session → a neutral source label (not a conversation title)')
+  assert.equal(art.projectId, 'p1')
+  assert.equal(g.artifactProject[art.id], 'p1', 'filed under the project')
+})
+
+test('a sessionless save-artifact with no project lands Unfiled (no artifactProject entry)', () => {
+  const g = applyGraphOp(
+    emptyGraph(),
+    { kind: 'save-artifact', artifact: { name: 'Loose', kind: 'sheet', meta: 'Sheet' } },
+    mintIds(),
+  )
+  const art = g.extraArtifacts[0]
+  assert.equal(art.projectId, '', 'an unfiled artifact carries an empty projectId')
+  assert.deepEqual(g.artifactProject, {}, 'no project key is written when no project is chosen')
+})
+
+test('refile-artifact assigns, reassigns, then unfiles an artifact (null → the Unfiled bucket)', () => {
+  let g = emptyGraph()
+  g = applyGraphOp(g, { kind: 'refile-artifact', artifactId: 'a1', artifactName: 'A', projectId: 'p1', projectName: 'P1' }, mintIds())
+  assert.equal(g.artifactProject['a1'], 'p1', 'assigned to p1')
+  g = applyGraphOp(g, { kind: 'refile-artifact', artifactId: 'a1', artifactName: 'A', projectId: 'p2', projectName: 'P2' }, mintIds())
+  assert.equal(g.artifactProject['a1'], 'p2', 'reassigned to p2')
+  g = applyGraphOp(g, { kind: 'refile-artifact', artifactId: 'a1', artifactName: 'A', projectId: null, projectName: '' }, mintIds())
+  assert.equal(g.artifactProject['a1'], '', 'unfiled → an empty id, which the gallery groups under Unfiled')
+})
+
+test('describeOp(refile-artifact): assign keeps the project deep-link; unfile reads as a removal', () => {
+  const assign = describeOp({ kind: 'refile-artifact', artifactId: 'a1', artifactName: 'Brief', projectId: 'p1', projectName: 'Insights' })
+  assert.equal(assign.text, 'Move **Brief** into **Insights**')
+  assert.equal(assign.projectId, 'p1', 'the assigned project drives the "View in projects" deep-link')
+  const unfile = describeOp({ kind: 'refile-artifact', artifactId: 'a1', artifactName: 'Brief', projectId: null, projectName: '' })
+  assert.equal(unfile.text, 'Remove **Brief** from its project')
+  assert.equal(unfile.projectId, undefined, 'no project to deep-link to when unfiled')
+})
+
 test("attach-context is a no-op on the graph (it's a live-session effect, applied by the caller)", () => {
   const g0 = emptyGraph()
   const g1 = applyGraphOp(

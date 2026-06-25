@@ -90,11 +90,16 @@ export function applyGraphOp(
       return { ...graph, extraProjects: [project, ...graph.extraProjects], sessionProject: filed }
     }
     case 'refile-artifact':
-      return { ...graph, artifactProject: { ...graph.artifactProject, [op.artifactId]: op.projectId } }
+      // null = unfile: map to '' (an unknown project id), which the gallery groups
+      // under "Unfiled" — distinct from an absent key, which falls back to the
+      // artifact's own seed projectId.
+      return { ...graph, artifactProject: { ...graph.artifactProject, [op.artifactId]: op.projectId ?? '' } }
     case 'save-artifact': {
       const id = mintArtifactId()
       const pid = op.projectId ?? ''
-      const item = artifactFromDraft(op.artifact, id, op.sessionTitle, pid)
+      // A user-created artifact (no session) cites a neutral source rather than a
+      // conversation title; an AI save-out passes the real session title.
+      const item = artifactFromDraft(op.artifact, id, op.sessionTitle ?? 'Created here', pid)
       return {
         ...graph,
         extraArtifacts: [item, ...graph.extraArtifacts],

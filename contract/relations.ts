@@ -123,11 +123,13 @@ export type RelationOp =
   // in the same move. The AI's tour proposal files the live session; a user
   // creating a project from the Projects page passes neither (an empty project).
   | { kind: 'create-project'; projectId: string; projectName: string; projectDescription: string; sessionId?: string; sessionTitle?: string }
-  // Project ↔ Artifact — re-file an existing artifact under a project.
-  | { kind: 'refile-artifact'; artifactId: string; artifactName: string; projectId: string; projectName: string }
-  // Session ↔ Artifact — save a draft out of the session as an artifact (and,
-  // when projectId is set, file it under that project in the same move).
-  | { kind: 'save-artifact'; artifact: ArtifactDraft; sessionId: string; sessionTitle: string; projectId?: string; projectName?: string }
+  // Project ↔ Artifact — move an artifact into a project (null = unfile, back to
+  // the gallery's "Unfiled" bucket).
+  | { kind: 'refile-artifact'; artifactId: string; artifactName: string; projectId: string | null; projectName: string }
+  // Session ↔ Artifact — save a draft as an artifact. Optionally files it under a
+  // project (projectId), and optionally cites the session it came from — a user
+  // creating one from the Artifacts gallery passes neither session field.
+  | { kind: 'save-artifact'; artifact: ArtifactDraft; sessionId?: string; sessionTitle?: string; projectId?: string; projectName?: string }
   // Session ↔ Context — attach a connector/context to the live session.
   | { kind: 'attach-context'; sessionTitle: string; connectorId: string; connectorLabel: string; connectorKind?: 'github' | 'connector' | 'mcp' }
   // Project ↔ Context — scope a context to a project.
@@ -152,9 +154,9 @@ export function opKey(op: RelationOp): string {
     case 'create-project':
       return `create-project:${op.projectId}`
     case 'refile-artifact':
-      return `refile-artifact:${op.artifactId}:${op.projectId}`
+      return `refile-artifact:${op.artifactId}:${op.projectId ?? 'none'}`
     case 'save-artifact':
-      return `save-artifact:${op.sessionId}:${op.artifact.name}`
+      return `save-artifact:${op.sessionId ?? 'manual'}:${op.artifact.name}`
     case 'attach-context':
       return `attach-context:${op.sessionTitle}:${op.connectorId}`
     case 'scope-context':
@@ -223,13 +225,22 @@ export function describeOp(op: RelationOp): OpDescription {
         approval: 'per-action',
       }
     case 'refile-artifact':
-      return {
-        text: `Move **${op.artifactName}** into **${op.projectName}**`,
-        done: `Moved into ${op.projectName}`,
-        section: 'artifacts',
-        relationId: 'project-artifact',
-        approval: 'per-action',
-      }
+      return op.projectId === null
+        ? {
+            text: `Remove **${op.artifactName}** from its project`,
+            done: 'Removed from its project',
+            section: 'artifacts',
+            relationId: 'project-artifact',
+            approval: 'per-action',
+          }
+        : {
+            text: `Move **${op.artifactName}** into **${op.projectName}**`,
+            done: `Moved into ${op.projectName}`,
+            section: 'artifacts',
+            projectId: op.projectId,
+            relationId: 'project-artifact',
+            approval: 'per-action',
+          }
     case 'save-artifact':
       return {
         text: op.projectName

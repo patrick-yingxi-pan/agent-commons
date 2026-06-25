@@ -38,7 +38,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react'
-import type { Connector, SectionId } from '../types'
+import type { ArtifactKind, Connector, SectionId } from '../types'
 import { SECTION_META } from '../lib/sections'
 import { connectorIconFor } from '../lib/connectors'
 import { CHIP_TONES, type ChipTone } from '../lib/capabilities'
@@ -73,7 +73,7 @@ import {
   useScheduleTemplates,
   useSchedules,
 } from '../api'
-import { ArtifactThumb, ArtifactViewer, KIND_ICON } from './artifactPreview'
+import { ArtifactThumb, ArtifactViewer, KIND_ICON, KIND_LABEL } from './artifactPreview'
 import { useRelations } from '../controller/useRelations'
 import { runSessionId, slug } from '../../contract/ids.ts'
 
@@ -523,6 +523,7 @@ function ArtifactsSection() {
   const [filter, setFilter] = useState('All')
   const [openId, setOpenId] = useState<string | null>(null)
   const [folded, setFolded] = useState<Set<string>>(new Set())
+  const [creating, setCreating] = useState(false)
   const rel = useRelations()
   const projects = rel.allProjects()
 
@@ -568,13 +569,42 @@ function ArtifactsSection() {
   ].filter((g) => g.items.length > 0)
 
   const openArtifact = openId ? (rel.allArtifacts().find((a) => a.id === openId) ?? null) : null
-  const projectName = (pid: string) => projects.find((p) => p.id === pid)?.name ?? 'Other'
+
+  // Create an artifact straight from the gallery (no session): a sessionless
+  // save-artifact op, optionally filed under a project. Server-owned + persisted
+  // via the same /relations/ops path; not auto-opened because the server mints
+  // its id (the optimistic id would be replaced on reconcile).
+  const createArtifact = (draft: { name: string; kind: ArtifactKind; excerpt: string }, projectId: string | null) => {
+    const project = projectId ? projects.find((p) => p.id === projectId) : undefined
+    rel.applyOp({
+      kind: 'save-artifact',
+      artifact: { name: draft.name, kind: draft.kind, meta: KIND_LABEL[draft.kind], excerpt: draft.excerpt || undefined },
+      projectId: project?.id,
+      projectName: project?.name,
+    })
+    setCreating(false)
+  }
+
+  // Assign an artifact to a project (or unfile it, projectId null) — re-files via
+  // the relation graph, re-grouping the gallery live for every client.
+  const assignProject = (artifact: ArtifactItem, projectId: string | null) => {
+    const project = projectId ? projects.find((p) => p.id === projectId) : undefined
+    rel.applyOp({
+      kind: 'refile-artifact',
+      artifactId: artifact.id,
+      artifactName: artifact.name,
+      projectId: project?.id ?? null,
+      projectName: project?.name ?? '',
+    })
+  }
 
   return (
     <Page>
       <PageHeader title="Artifacts">
         <Dropdown label="Filter by" value={filter} options={ARTIFACT_FILTERS} onChange={setFilter} />
-        <PrimaryButton icon={<Plus size={15} />}>New artifact</PrimaryButton>
+        <PrimaryButton icon={<Plus size={15} />} onClick={() => setCreating(true)}>
+          New artifact
+        </PrimaryButton>
       </PageHeader>
       <SearchBox value={query} onChange={setQuery} placeholder="Search artifacts…" />
 
@@ -621,11 +651,174 @@ function ArtifactsSection() {
       {openArtifact && (
         <ArtifactViewer
           artifact={openArtifact}
-          projectName={projectName(openArtifact.projectId)}
+          projects={projects}
+          currentProjectId={rel.artifactProjectId(openArtifact)}
+          onAssignProject={(projectId) => assignProject(openArtifact, projectId)}
           onClose={() => setOpenId(null)}
         />
       )}
+      {creating && (
+        <NewArtifactDialog projects={projects} onCreate={createArtifact} onClose={() => setCreating(false)} />
+      )}
     </Page>
+  )
+}
+
+/** The "New artifact" form — name, a kind picker (doc / sheet / image / slide /
+ *  email), an optional one-line excerpt, and an optional project to file it under.
+ *  Mirrors NewProjectDialog's modal idiom. */
+function NewArtifactDialog({
+  projects,
+  onCreate,
+  onClose,
+}: {
+  projects: Project[]
+  onCreate: (draft: { name: string; kind: ArtifactKind; excerpt: string }, projectId: string | null) => void
+  onClose: () => void
+}) {
+  const [name, setName] = useState('')
+  const [kind, setKind] = useState<ArtifactKind>('doc')
+  const [excerpt, setExcerpt] = useState('')
+  const [projectId, setProjectId] = useState<string | null>(null)
+  const nameRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    nameRef.current?.focus()
+  }, [])
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const canCreate = name.trim().length > 0
+  const submit = () => {
+    if (canCreate) onCreate({ name: name.trim(), kind, excerpt: excerpt.trim() }, projectId)
+  }
+
+  const KINDS: ArtifactKind[] = ['doc', 'sheet', 'image', 'slide', 'email']
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex justify-center px-4 pt-[12vh]"
+      onMouseDown={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="New artifact"
+    >
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" />
+      <div
+        onMouseDown={(e) => e.stopPropagation()}
+        className="relative flex h-fit w-[480px] max-w-full flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong"
+      >
+        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+          <div className="flex items-center gap-2">
+            <FileText size={18} className="text-cap-workspace" />
+            <span className="text-[15px] font-semibold text-ink">New artifact</span>
+          </div>
+          <button
+            onClick={onClose}
+            title="Close"
+            aria-label="Close"
+            className="-mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="space-y-4 p-5">
+          <label className="block">
+            <span className="mb-1.5 block text-[12px] font-medium text-ink-soft">Name</span>
+            <input
+              ref={nameRef}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submit()
+              }}
+              placeholder="e.g. launch-brief.md"
+              className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-[14px] text-ink outline-none transition placeholder:text-ink-faint focus:border-accent"
+            />
+          </label>
+
+          <div>
+            <span className="mb-1.5 block text-[12px] font-medium text-ink-soft">Type</span>
+            <div className="flex flex-wrap gap-1.5">
+              {KINDS.map((k) => {
+                const KIcon = KIND_ICON[k]
+                const on = kind === k
+                return (
+                  <button
+                    key={k}
+                    onClick={() => setKind(k)}
+                    aria-pressed={on}
+                    className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-medium transition ${
+                      on
+                        ? 'border-accent bg-accent-tint text-accent-strong'
+                        : 'border-line bg-surface text-ink-soft hover:border-line-strong'
+                    }`}
+                  >
+                    <KIcon size={14} />
+                    {KIND_LABEL[k]}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <label className="block">
+            <span className="mb-1.5 block text-[12px] font-medium text-ink-soft">
+              Excerpt <span className="font-normal text-ink-faint">(optional)</span>
+            </span>
+            <textarea
+              value={excerpt}
+              onChange={(e) => setExcerpt(e.target.value)}
+              rows={2}
+              placeholder="A one-line preview shown on the card."
+              className="w-full resize-none rounded-lg border border-line bg-surface px-3 py-2 text-[14px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-accent"
+            />
+          </label>
+
+          <label className="block">
+            <span className="mb-1.5 block text-[12px] font-medium text-ink-soft">
+              Project <span className="font-normal text-ink-faint">(optional)</span>
+            </span>
+            <select
+              value={projectId ?? ''}
+              onChange={(e) => setProjectId(e.target.value || null)}
+              className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-[14px] text-ink outline-none transition focus:border-accent"
+            >
+              <option value="">No project</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line bg-panel px-5 py-3">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-line-strong bg-surface px-3.5 py-1.5 text-[13px] font-medium text-ink-soft shadow-sm transition hover:border-accent hover:text-ink"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={submit}
+            disabled={!canCreate}
+            className="flex items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Plus size={15} />
+            Create artifact
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   )
 }
 

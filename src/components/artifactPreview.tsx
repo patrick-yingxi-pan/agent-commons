@@ -1,5 +1,8 @@
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
+  Box,
+  Check,
+  ChevronDown,
   FileText,
   Image as ImageIcon,
   Mail,
@@ -487,14 +490,22 @@ export function ArtifactThumb({ kind, name, excerpt }: { kind: ArtifactKind; nam
 
 /* ─────────────────────────────── full viewer ───────────────────────────── */
 
-/** A modal that opens an artifact "in full" from the Artifacts gallery. */
+/** A modal that opens an artifact "in full" from the Artifacts gallery. The header
+ *  carries a project picker so the artifact can be (re)assigned to a project — or
+ *  unfiled — right here. */
 export function ArtifactViewer({
   artifact,
-  projectName,
+  projects,
+  currentProjectId,
+  onAssignProject,
   onClose,
 }: {
   artifact: ArtifactItem
-  projectName: string
+  projects: { id: string; name: string }[]
+  /** The project the artifact is filed under right now ('' = unfiled). */
+  currentProjectId: string
+  /** Assign to a project, or unfile (null). */
+  onAssignProject: (projectId: string | null) => void
   onClose: () => void
 }) {
   useEffect(() => {
@@ -524,10 +535,14 @@ export function ArtifactViewer({
           <Icon size={20} className="mt-0.5 shrink-0 text-cap-workspace" />
           <div className="min-w-0 flex-1">
             <div className="truncate text-[15px] font-semibold text-ink">{artifact.name}</div>
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-ink-faint">
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-ink-faint">
               <span>{KIND_LABEL[artifact.kind]}</span>
               <span>·</span>
-              <span>{projectName}</span>
+              <ProjectAssignMenu
+                projects={projects}
+                currentProjectId={currentProjectId}
+                onAssign={onAssignProject}
+              />
               <span>·</span>
               <span>Edited {artifact.edited}</span>
             </div>
@@ -552,5 +567,90 @@ export function ArtifactViewer({
         </div>
       </div>
     </div>
+  )
+}
+
+/** The header's project control: shows the artifact's current project (or "Unfiled")
+ *  and, on click, a menu to assign it to any project or remove it from one. The edit
+ *  routes through a refile-artifact relation op, so the gallery re-groups live. */
+function ProjectAssignMenu({
+  projects,
+  currentProjectId,
+  onAssign,
+}: {
+  projects: { id: string; name: string }[]
+  currentProjectId: string
+  onAssign: (projectId: string | null) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLSpanElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [open])
+
+  const current = projects.find((p) => p.id === currentProjectId)
+
+  return (
+    <span ref={ref} className="relative inline-flex">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        title="Assign to a project"
+        className="inline-flex items-center gap-1 rounded font-medium text-ink-soft transition hover:text-ink"
+      >
+        <Box size={11} className="text-ink-faint" />
+        {current?.name ?? 'Unfiled'}
+        <ChevronDown size={11} className={`transition ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div
+          role="listbox"
+          className="absolute left-0 top-full z-40 mt-1 max-h-64 w-56 overflow-y-auto rounded-lg border border-line-strong bg-surface py-1 shadow-xl"
+        >
+          <ProjectAssignRow
+            label="No project"
+            active={!current}
+            onClick={() => {
+              onAssign(null)
+              setOpen(false)
+            }}
+          />
+          {projects.map((p) => (
+            <ProjectAssignRow
+              key={p.id}
+              label={p.name}
+              active={p.id === currentProjectId}
+              onClick={() => {
+                onAssign(p.id)
+                setOpen(false)
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </span>
+  )
+}
+
+function ProjectAssignRow({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      role="option"
+      aria-selected={active}
+      className={`flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-[13px] transition hover:bg-panel-2 ${
+        active ? 'font-medium text-accent-strong' : 'text-ink'
+      }`}
+    >
+      <span className="truncate">{label}</span>
+      {active && <Check size={14} className="shrink-0" />}
+    </button>
   )
 }
