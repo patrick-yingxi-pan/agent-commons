@@ -64,6 +64,7 @@ import {
 } from '../data/cowork'
 import {
   addScheduleFromSeed,
+  isOptimisticId,
   removeSchedule,
   runScheduleNow,
   setConnectorStatus,
@@ -586,8 +587,11 @@ function ArtifactsSection() {
   }
 
   // Assign an artifact to a project (or unfile it, projectId null) — re-files via
-  // the relation graph, re-grouping the gallery live for every client.
+  // the relation graph, re-grouping the gallery live for every client. A not-yet-
+  // reconciled artifact has no server id to re-file (its optimistic id is about to
+  // be replaced), so skip it — the gallery already prevents opening one.
   const assignProject = (artifact: ArtifactItem, projectId: string | null) => {
+    if (isOptimisticId(artifact.id)) return
     const project = projectId ? projects.find((p) => p.id === projectId) : undefined
     rel.applyOp({
       kind: 'refile-artifact',
@@ -632,14 +636,24 @@ function ArtifactsSection() {
                 </button>
                 {!isFolded && (
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {g.items.map((a) => (
-                      <ArtifactCard
-                        key={a.id}
-                        artifact={a}
-                        source={rel.artifactSourceFor(a.id)}
-                        onOpen={() => setOpenId(a.id)}
-                      />
-                    ))}
+                    {g.items.map((a) => {
+                      // A just-created artifact carries a temporary optimistic id until the
+                      // server's authoritative `art-live-*` id replaces it on reconcile. Don't
+                      // let it be opened in that window — its id isn't one the server would
+                      // recognize, so opening (then re-filing) it would target a phantom id.
+                      const pending = isOptimisticId(a.id)
+                      return (
+                        <ArtifactCard
+                          key={a.id}
+                          artifact={a}
+                          source={rel.artifactSourceFor(a.id)}
+                          pending={pending}
+                          onOpen={() => {
+                            if (!pending) setOpenId(a.id)
+                          }}
+                        />
+                      )
+                    })}
                   </div>
                 )}
               </div>
@@ -825,17 +839,26 @@ function NewArtifactDialog({
 function ArtifactCard({
   artifact,
   source,
+  pending = false,
   onOpen,
 }: {
   artifact: ArtifactItem
   source?: string
+  /** A just-created artifact still reconciling to its server id — shown saving and
+   *  not openable until its real id lands (so it can't be opened or re-filed by a
+   *  temporary id the server won't recognize). */
+  pending?: boolean
   onOpen: () => void
 }) {
   const Icon = KIND_ICON[artifact.kind]
   return (
     <button
       onClick={onOpen}
-      className="flex flex-col overflow-hidden rounded-xl border border-line bg-surface text-left shadow-sm transition hover:border-line-strong hover:shadow"
+      disabled={pending}
+      aria-busy={pending}
+      className={`flex flex-col overflow-hidden rounded-xl border border-line bg-surface text-left shadow-sm transition ${
+        pending ? 'cursor-default opacity-60' : 'hover:border-line-strong hover:shadow'
+      }`}
     >
       <div className="h-28 w-full overflow-hidden border-b border-line bg-panel-2/40">
         <ArtifactThumb kind={artifact.kind} name={artifact.name} excerpt={artifact.excerpt} />
@@ -859,7 +882,9 @@ function ArtifactCard({
           <span className="rounded bg-panel-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-soft">
             {artifact.tag}
           </span>
-          <span className="text-[11px] text-ink-faint">Edited {artifact.edited}</span>
+          <span className="text-[11px] text-ink-faint">
+            {pending ? 'Saving…' : `Edited ${artifact.edited}`}
+          </span>
         </div>
       </div>
     </button>

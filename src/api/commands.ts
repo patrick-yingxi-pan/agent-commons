@@ -34,6 +34,7 @@ import {
 import { API_BASE, apiDelete, apiGet, apiPatch, apiPost } from './client.ts'
 import { invalidate, mutate, peek, setData } from './cache.ts'
 import { keys, paths } from './keys.ts'
+import { OPTIMISTIC_ID_PREFIX } from './ids.ts'
 
 /** Callbacks for a streamed assistant turn. Each fires as its event arrives. */
 export interface SendHandlers {
@@ -127,7 +128,7 @@ let optSeq = 0
  *  is a live-session effect, not a graph edit, and is handled by the caller. */
 export async function applyRelationOp(op: RelationOp): Promise<void> {
   mutate<RelationGraph>(keys.relations, (g) =>
-    applyGraphOp(g ?? emptyGraph(), op, () => `art-opt-${(optSeq += 1)}`),
+    applyGraphOp(g ?? emptyGraph(), op, () => `${OPTIMISTIC_ID_PREFIX}${(optSeq += 1)}`),
   )
   try {
     const body: ApplyOpRequest = { op }

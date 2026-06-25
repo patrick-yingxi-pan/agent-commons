@@ -6,6 +6,7 @@
 export * from './client.ts'
 export * from './cache.ts'
 export * from './keys.ts'
+export * from './ids.ts'
 export * from './hooks.ts'
 export * from './events.ts'
 export * from './commands.ts'
