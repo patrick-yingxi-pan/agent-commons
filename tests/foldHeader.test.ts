@@ -1,31 +1,32 @@
-/** Foldable list-section headers share one styling source (src/lib/foldHeader.ts)
- *  so the "this header is clickable" hover cue stays identical across every
- *  disclosure header. These tests lock that unification:
- *    1. every surface variant actually carries a hover background + transition,
- *    2. the page section-header class composes that cue and stays layout-stable,
- *    3. the cue is defined ONCE — no component re-hardcodes the page hover, and the
- *       consumers source their styling from this module (no drift back to copies).
+/** Foldable list-section headers share one styling source (src/lib/foldHeader.ts),
+ *  and their hover cue is the same surface-lift the left rail uses — SIDEBAR_HOVER
+ *  (src/lib/sidebar.ts) — so the whole app shares one hover. These tests lock that:
+ *    1. every fold-header surface composes the shared sidebar hover,
+ *    2. the page section-header class composes it and stays layout-stable,
+ *    3. fold headers source the hover from the shared token — no hardcoded copy,
+ *    4. the consumers source their styling from the shared module.
  *
  *  (A `:hover` rule can't be exercised by the DOM-less node:test runner; what IS
  *  testable — and what regresses if someone re-duplicates the header — is that the
- *  styling has a single owner. That is what these assert.) */
+ *  styling and its hover have a single owner.) */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { ROOT, read, concatSource } from './helpers/source.ts'
+import { ROOT, read, stripComments } from './helpers/source.ts'
 import { FOLD_HOVER, FOLD_HEADER_CLASS } from '../src/lib/foldHeader.ts'
+import { SIDEBAR_HOVER } from '../src/lib/sidebar.ts'
 
-test('every fold-header surface variant carries a visible hover affordance', () => {
+test('every fold-header surface adopts the shared sidebar hover', () => {
   const variants = Object.entries(FOLD_HOVER)
   assert.ok(variants.length > 0, 'there is at least one surface variant')
   for (const [surface, cls] of variants) {
+    assert.ok(cls.includes(SIDEBAR_HOVER), `FOLD_HOVER.${surface} uses the shared sidebar hover`)
     assert.match(cls, /\btransition\b/, `FOLD_HOVER.${surface} animates the change`)
-    assert.match(cls, /\bhover:bg-/, `FOLD_HOVER.${surface} highlights the background on hover`)
   }
 })
 
-test('the page section-header class composes the shared hover cue and stays layout-stable', () => {
-  assert.ok(FOLD_HEADER_CLASS.includes(FOLD_HOVER.page), 'composes the shared page hover cue')
+test('the page section-header class composes the shared hover and stays layout-stable', () => {
+  assert.ok(FOLD_HEADER_CLASS.includes(SIDEBAR_HOVER), 'composes the shared sidebar hover')
   // content-width + left-aligned (negative margin cancels padding) = a highlight
   // with breathing room and no resting-state layout shift; `group` drives the
   // chevron's group-hover tint.
@@ -34,17 +35,18 @@ test('the page section-header class composes the shared hover cue and stays layo
   }
 })
 
-test('the page hover cue is defined once — no component re-hardcodes it', () => {
-  const moduleSrc = read(join(ROOT, 'src', 'lib', 'foldHeader.ts'))
-  assert.ok(moduleSrc.includes('hover:bg-panel-2/70'), 'the shared module owns the page hover literal')
+test('fold headers source the hover from the shared token — they hardcode no copy', () => {
+  const moduleSrc = stripComments(read(join(ROOT, 'src', 'lib', 'foldHeader.ts')))
+  assert.match(moduleSrc, /from\s+'\.\/sidebar/, 'foldHeader imports the shared hover token')
+  assert.ok(moduleSrc.includes('SIDEBAR_HOVER'), 'foldHeader composes its class from SIDEBAR_HOVER')
+  assert.ok(!moduleSrc.includes('hover:bg-'), 'foldHeader hardcodes no hover background of its own')
 
-  // Everywhere else under src/components/ must reference the constant, never the
-  // raw class — so re-introducing a copy-pasted fold header fails this test.
-  const components = concatSource('src/components')
-  assert.ok(
-    !components.includes('hover:bg-panel-2/70'),
-    'no component re-hardcodes the page fold-header hover — it must come from lib/foldHeader',
-  )
+  // The fold-header components apply the unified hover via the constants — they
+  // must not paste the literal, so a re-duplicated header fails here.
+  for (const rel of ['src/components/SectionView.tsx', 'src/components/panels/ArtifactPanel.tsx']) {
+    const src = stripComments(read(join(ROOT, ...rel.split('/'))))
+    assert.ok(!src.includes(SIDEBAR_HOVER), `${rel} applies the hover via the shared token, not a hardcoded copy`)
+  }
 })
 
 test('the fold-header consumers source their styling from the shared module', () => {

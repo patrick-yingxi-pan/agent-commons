@@ -13,7 +13,14 @@
  *
  *  Plain string (no JSX, no imports) so the DOM-less Node test runner can import
  *  and assert it directly. The sidebar's filter-menu triggers (FilterMenu) already
- *  use this same 70%-surface hover, so the whole rail stays of a piece. */
+ *  use this same 70%-surface hover, so the whole rail stays of a piece.
+ *
+ *  This is also the app's single hover token: the foldable list-section headers
+ *  (lib/foldHeader) adopt it too, so one surface-lift cue runs through the whole
+ *  UI. It lives here because the left rail is where it was defined and reads
+ *  strongest (the rail's darker surface gives the 70%-white lift the most to
+ *  contrast against). */
 
-/** The hover background shared by every interactive element in the left panel. */
+/** The hover background shared by every interactive element in the left panel —
+ *  and, through lib/foldHeader, by the foldable section headers across the app. */
 export const SIDEBAR_HOVER = 'hover:bg-surface/70'
