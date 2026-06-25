@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, X } from 'lucide-react'
 import type { Artifact } from '../../types'
 import { ArtifactBodyView, KIND_ICON, KIND_LABEL } from '../artifactPreview'
+import { FOLD_HOVER } from '../../lib/foldHeader'
 
 export function ArtifactPanel({
   artifacts,
@@ -107,7 +108,7 @@ export function ArtifactPanel({
               const confirming = confirmRemoveId === g.id
               return (
                 <div key={g.id} className="mb-1.5">
-                  <div className="group/fold mb-0.5 flex items-center gap-1 rounded-md px-1.5 py-1 transition hover:bg-surface/60">
+                  <div className={`group/fold mb-0.5 flex items-center gap-1 rounded-md px-1.5 py-1 ${FOLD_HOVER.panel}`}>
                     <button
                       onClick={() => toggleGroup(g.id)}
                       aria-expanded={!isCollapsed}

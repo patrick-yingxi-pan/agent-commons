@@ -22,6 +22,7 @@ import { SessionFilterMenu } from './SessionFilterMenu'
 import { ScheduledFilterMenu } from './ScheduledFilterMenu'
 import { RowMenu, projectMenuItems, type RowMenuItem } from './RowMenu'
 import { SECTION_META, SECTION_ORDER } from '../lib/sections'
+import { FOLD_HOVER } from '../lib/foldHeader'
 import { removeSchedule, runScheduleNow, toggleScheduleEnabled, useProjects, useSchedules } from '../api'
 import { useRelations } from '../controller/useRelations'
 import { runSessionId } from '../../contract/ids.ts'
@@ -222,7 +223,7 @@ export function Sidebar({
               <button
                 onClick={toggleSched}
                 aria-expanded={schedOpen}
-                className="flex flex-1 items-center gap-1 rounded-md px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint transition hover:bg-surface hover:text-ink-soft"
+                className={`flex flex-1 items-center gap-1 rounded-md px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint ${FOLD_HOVER.sidebar} hover:text-ink-soft`}
               >
                 {/* Label left-aligned (matching RECENTS + the row dots); the fold
                     caret sits to its right, Claude-app "Recents ⌄" style. */}

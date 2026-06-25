@@ -40,6 +40,7 @@ import {
 } from 'lucide-react'
 import type { ArtifactKind, Connector, SectionId } from '../types'
 import { SECTION_META } from '../lib/sections'
+import { FOLD_HEADER_CLASS } from '../lib/foldHeader'
 import { connectorIconFor } from '../lib/connectors'
 import { CHIP_TONES, type ChipTone } from '../lib/capabilities'
 import { ConnectorDetailBody } from './ConnectorPanel'
@@ -616,20 +617,12 @@ function ArtifactsSection() {
             const isFolded = folded.has(g.id)
             return (
               <div key={g.id}>
-                <button
-                  onClick={() => foldGroup(g.id)}
-                  aria-expanded={!isFolded}
-                  className="group mb-1.5 -ml-1.5 flex w-fit items-center gap-1.5 rounded-md py-1 pl-1.5 pr-2.5 text-left transition hover:bg-panel-2/70"
-                >
-                  <ChevronDown
-                    size={15}
-                    className={`text-ink-faint transition group-hover:text-ink-soft ${
-                      isFolded ? '-rotate-90' : ''
-                    }`}
-                  />
-                  <span className="text-[13px] font-semibold text-ink">{g.name}</span>
-                  <span className="text-[12px] text-ink-faint">{g.items.length}</span>
-                </button>
+                <FoldGroupHeader
+                  label={g.name}
+                  count={g.items.length}
+                  folded={isFolded}
+                  onToggle={() => foldGroup(g.id)}
+                />
                 {!isFolded && (
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {g.items.map((a) => {
@@ -1237,20 +1230,12 @@ function ContextsSection() {
             const isFolded = folded.has(g.kind)
             return (
               <div key={g.kind}>
-                <button
-                  onClick={() => foldGroup(g.kind)}
-                  aria-expanded={!isFolded}
-                  className="group mb-1.5 -ml-1.5 flex w-fit items-center gap-1.5 rounded-md py-1 pl-1.5 pr-2.5 text-left transition hover:bg-panel-2/70"
-                >
-                  <ChevronDown
-                    size={15}
-                    className={`text-ink-faint transition group-hover:text-ink-soft ${
-                      isFolded ? '-rotate-90' : ''
-                    }`}
-                  />
-                  <span className="text-[13px] font-semibold text-ink">{g.label}</span>
-                  <span className="text-[12px] text-ink-faint">{g.items.length}</span>
-                </button>
+                <FoldGroupHeader
+                  label={g.label}
+                  count={g.items.length}
+                  folded={isFolded}
+                  onToggle={() => foldGroup(g.kind)}
+                />
                 {!isFolded && (
                   <div className="overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
                     {g.items.map((c, i) => (
@@ -1768,18 +1753,12 @@ function ScheduledSection({
             const isFolded = folded.has(g.key)
             return (
               <div key={g.key}>
-                <button
-                  onClick={() => foldGroup(g.key)}
-                  aria-expanded={!isFolded}
-                  className="group mb-1.5 -ml-1.5 flex w-fit items-center gap-1.5 rounded-md py-1 pl-1.5 pr-2.5 text-left transition hover:bg-panel-2/70"
-                >
-                  <ChevronDown
-                    size={15}
-                    className={`text-ink-faint transition group-hover:text-ink-soft ${isFolded ? '-rotate-90' : ''}`}
-                  />
-                  <span className="text-[13px] font-semibold text-ink">{g.label}</span>
-                  <span className="text-[12px] text-ink-faint">{g.items.length}</span>
-                </button>
+                <FoldGroupHeader
+                  label={g.label}
+                  count={g.items.length}
+                  folded={isFolded}
+                  onToggle={() => foldGroup(g.key)}
+                />
                 {!isFolded && (
                   <div
                     className={`overflow-hidden rounded-xl border border-line bg-surface shadow-sm ${
@@ -2512,6 +2491,33 @@ function CustomizeView() {
 }
 
 /* ───────────────────────── shared bits ───────────────────────── */
+
+/** A foldable section group header — the chevron + label + count disclosure shared
+ *  verbatim by the Artifacts, Contexts, and Scheduled lists. Styling (including the
+ *  hover cue that signals click-ability) comes from lib/foldHeader, so all three
+ *  stay in lockstep instead of drifting between copy-pasted copies. */
+function FoldGroupHeader({
+  label,
+  count,
+  folded,
+  onToggle,
+}: {
+  label: string
+  count: number
+  folded: boolean
+  onToggle: () => void
+}) {
+  return (
+    <button onClick={onToggle} aria-expanded={!folded} className={FOLD_HEADER_CLASS}>
+      <ChevronDown
+        size={15}
+        className={`text-ink-faint transition group-hover:text-ink-soft ${folded ? '-rotate-90' : ''}`}
+      />
+      <span className="text-[13px] font-semibold text-ink">{label}</span>
+      <span className="text-[12px] text-ink-faint">{count}</span>
+    </button>
+  )
+}
 
 function Page({ children }: { children: ReactNode }) {
   return (
