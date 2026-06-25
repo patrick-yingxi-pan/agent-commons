@@ -1,10 +1,13 @@
 /** ── Foldable list-section headers ───────────────────────────────────────────
  *  The disclosure headers that collapse / expand a group of rows *in place* — the
- *  Artifacts / Contexts / Scheduled section headers, the sidebar's Scheduled
- *  routines header, and a workspace panel's folder headers. Their styling lives
- *  here so the hover cue that tells a user "this header is click-able" stays
- *  identical across the app: change it once and every fold header follows, instead
- *  of the cue drifting between copy-pasted copies.
+ *  Artifacts / Contexts / Scheduled section headers and a workspace panel's folder
+ *  headers. Their styling lives here so the hover cue that tells a user "this
+ *  header is click-able" stays identical across them: change it once and every fold
+ *  header follows, instead of the cue drifting between copy-pasted copies.
+ *
+ *  (The sidebar's Scheduled fold header is a left-panel element, so it draws its
+ *  hover from the unified left-panel token in lib/sidebar — SIDEBAR_HOVER — not
+ *  from here, so the whole left rail stays of a piece.)
  *
  *  Plain strings (no JSX, no imports) so the DOM-less Node test runner can import
  *  and assert them directly — see tests/foldHeader.test.ts, which locks that every
@@ -17,8 +20,6 @@
 export const FOLD_HOVER = {
   /** The page canvas — the Artifacts / Contexts / Scheduled section group headers. */
   page: 'transition hover:bg-panel-2/70',
-  /** The warm sidebar surface — matches the sidebar's own white row hovers. */
-  sidebar: 'transition hover:bg-surface',
   /** Inside a workspace panel — the artifact folder group headers. */
   panel: 'transition hover:bg-surface/60',
 }

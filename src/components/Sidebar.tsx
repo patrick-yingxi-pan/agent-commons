@@ -22,7 +22,7 @@ import { SessionFilterMenu } from './SessionFilterMenu'
 import { ScheduledFilterMenu } from './ScheduledFilterMenu'
 import { RowMenu, projectMenuItems, type RowMenuItem } from './RowMenu'
 import { SECTION_META, SECTION_ORDER } from '../lib/sections'
-import { FOLD_HOVER } from '../lib/foldHeader'
+import { SIDEBAR_HOVER } from '../lib/sidebar'
 import { removeSchedule, runScheduleNow, toggleScheduleEnabled, useProjects, useSchedules } from '../api'
 import { useRelations } from '../controller/useRelations'
 import { runSessionId } from '../../contract/ids.ts'
@@ -182,7 +182,7 @@ export function Sidebar({
           onClick={onToggleCollapse}
           title="Collapse sidebar"
           aria-label="Collapse sidebar"
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-soft transition hover:bg-surface hover:text-ink"
+          className={`flex h-8 w-8 items-center justify-center rounded-lg text-ink-soft transition ${SIDEBAR_HOVER} hover:text-ink`}
         >
           <PanelLeftClose size={18} />
         </button>
@@ -190,7 +190,7 @@ export function Sidebar({
           onClick={onOpenSearch}
           title="Search  (⌘K)"
           aria-label="Search"
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-soft transition hover:bg-surface hover:text-ink"
+          className={`flex h-8 w-8 items-center justify-center rounded-lg text-ink-soft transition ${SIDEBAR_HOVER} hover:text-ink`}
         >
           <Search size={18} />
         </button>
@@ -223,7 +223,7 @@ export function Sidebar({
               <button
                 onClick={toggleSched}
                 aria-expanded={schedOpen}
-                className={`flex flex-1 items-center gap-1 rounded-md px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint ${FOLD_HOVER.sidebar} hover:text-ink-soft`}
+                className={`flex flex-1 items-center gap-1 rounded-md px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink-soft`}
               >
                 {/* Label left-aligned (matching RECENTS + the row dots); the fold
                     caret sits to its right, Claude-app "Recents ⌄" style. */}
@@ -388,7 +388,7 @@ function NavRow({
     <button
       onClick={onClick}
       className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] transition ${
-        active ? 'bg-panel-2 font-medium text-ink' : 'text-ink-soft hover:bg-surface/70 hover:text-ink'
+        active ? 'bg-panel-2 font-medium text-ink' : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
       }`}
     >
       <span className="shrink-0">{icon}</span>
@@ -449,7 +449,7 @@ function SessionRow({
   return (
     <div
       className={`group flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 transition ${
-        active ? 'bg-surface shadow-sm ring-1 ring-line-strong' : 'hover:bg-surface/70'
+        active ? 'bg-surface shadow-sm ring-1 ring-line-strong' : SIDEBAR_HOVER
       }`}
     >
       {session.pinned ? (
@@ -507,7 +507,7 @@ function RoutineRow({
   return (
     <div
       className={`group flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 transition ${
-        active ? 'bg-surface shadow-sm ring-1 ring-line-strong' : 'hover:bg-surface/70'
+        active ? 'bg-surface shadow-sm ring-1 ring-line-strong' : SIDEBAR_HOVER
       }`}
     >
       <RoutineDot enabled={task.enabled} lastStatus={task.lastStatus} />

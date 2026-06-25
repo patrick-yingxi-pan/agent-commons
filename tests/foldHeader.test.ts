@@ -50,7 +50,6 @@ test('the page hover cue is defined once — no component re-hardcodes it', () =
 test('the fold-header consumers source their styling from the shared module', () => {
   const consumers = {
     'src/components/SectionView.tsx': 'FOLD_HEADER_CLASS',
-    'src/components/Sidebar.tsx': 'FOLD_HOVER',
     'src/components/panels/ArtifactPanel.tsx': 'FOLD_HOVER',
   }
   for (const [rel, symbol] of Object.entries(consumers)) {
