@@ -127,8 +127,16 @@ the mock?
   Messages client behind the generation seam (see Design decisions). Don't add
   others without good reason; the rest of `server/` stays dependency-free (it even
   hand-rolls its Node types in `server/node.d.ts`).
-- **Run `npm run typecheck` before declaring a change done.** Verify UI changes in
-  the running app, not just by reading code.
+- **Every feature ships with complete automated tests.** A change isn't done until
+  its behavior is locked by tests that fail on a regression — reducer/contract
+  behavior in `tests/*.test.ts`, server routes via the HTTP helper, and the
+  boundary contracts in `tests/contract-boundaries.test.ts` extended whenever a new
+  cross-component seam appears. UI-only behavior the `node --test` harness can't
+  exercise (it has no DOM) is verified in the running app and called out as such.
+  This holds **across clones**: write the tests every time rather than leaning on a
+  particular clone's existing coverage.
+- **Run `npm run typecheck` and `node --test` before declaring a change done.**
+  Verify UI changes in the running app, not just by reading code.
 - **Git:** this repo commits and pushes straight to `main` over HTTPS.
 
 ### Design decisions (locked in)

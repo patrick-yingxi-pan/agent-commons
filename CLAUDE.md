@@ -13,8 +13,10 @@ Essentials:
 
 - **Run:** `npm run dev` (Node 26+) → http://127.0.0.1:5173, then **Play the
   guided tour**.
-- **Verify:** `npm run typecheck` (and `npm run build`) before declaring a change
-  done; verify UI changes in the running app.
+- **Ship tests with every feature:** a change isn't done until `tests/` lock its
+  behavior against regression (see `AGENTS.md` conventions).
+- **Verify:** `npm run typecheck`, `node --test` (and `npm run build`) before
+  declaring a change done; verify UI changes in the running app.
 - **The contract is load-bearing:** `contract/*.ts` is imported verbatim by both
   the UI and the server — don't break that type-identity.
 - **Mock by design:** no real model; seed data in `server/data/`. Don't file
