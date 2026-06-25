@@ -109,3 +109,27 @@ test('build produces a snapshot covering every persisted slice', async () => {
     assert.ok(s.seq[k] > 0, `seq.${k} advanced`)
   }
 })
+
+test('the built snapshot boots through the real rehydrate path', async () => {
+  // Consumer-side lock: whatever `build` writes must be consumable by the exact
+  // server boot path the product uses (store.initPersistence → loadState →
+  // rehydrate), then visible through the public getters the routes/UI read. This
+  // is what keeps the snapshot's CONTENTS consistent with the code that uses them:
+  // if `build` ever wrote a field rehydrate doesn't restore, these would fail.
+  // (Runs after the build test, which wrote BUILD_STORE.)
+  process.env.DATA_FILE = BUILD_STORE
+  assert.ok(existsSync(BUILD_STORE), 'the build test wrote the snapshot this test boots')
+  const { store } = await import('../server/store.ts')
+  store.initPersistence() // loadState(BUILD_STORE) → rehydrate replaces in-memory state from disk
+
+  const projectIds = [...store.listProjects(), ...store.relationGraph().extraProjects].map((p) => p.id)
+  assert.ok(projectIds.includes('p-playground'), 'the created project survives a boot')
+  assert.ok(store.listSchedules().some((t) => t.id.startsWith('s-new-')), 'the created schedule survives a boot')
+  assert.ok(store.relationGraph().extraArtifacts.length >= 3, 'the created artifacts survive a boot')
+
+  const created = store.listSessions().find((x) => x.id.startsWith('sess-'))
+  assert.ok(created, 'the created session is listed after a boot')
+  const full = created && store.getSession(created.id)
+  assert.ok(full && (full.messages?.length ?? 0) >= 2, 'getSession returns the rehydrated thread')
+  assert.ok(full && (full.workspace?.repos.length ?? 0) > 0, 'getSession surfaces the rehydrated workspace')
+})

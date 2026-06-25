@@ -22,13 +22,13 @@
  *  for save/restore/list; the store is imported lazily, only for `build`. */
 import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { PersistedState } from '../server/persist.ts'
+import { dataFile, type PersistedState } from '../server/persist.ts'
 
-/** The live store path — mirrors persist.ts's `dataFile()` (DATA_FILE override,
- *  else `.data/store.json` under the cwd) so this tool and the server agree on
- *  where the snapshot lives. Read per-call so a test can point it elsewhere. */
+/** The live store path — the SAME resolver the server reads/writes through
+ *  (persist.ts owns the DATA_FILE-or-`.data/store.json` rule), imported rather
+ *  than re-derived so this tool can't drift from where the store actually lives. */
 export function dataFilePath(): string {
-  return process.env.DATA_FILE ?? join(process.cwd(), '.data', 'store.json')
+  return dataFile()
 }
 
 /** Snapshots live next to the live store, in a `snapshots/` sibling. */
@@ -233,11 +233,20 @@ export async function buildComprehensive(): Promise<PersistedState> {
   if (needsAuth) store.setConnectorStatus(needsAuth.id, 'connected')
 
   // Run the created routine and wait for it to finish (it steps one beat at a
-  // time, then a final beat applies the standing-approved artifact save).
+  // time, then a final beat applies the standing-approved artifact save). Poll the
+  // REAL run record for a terminal state rather than hard-coding the store's step
+  // cadence — so this stays correct if that timing constant ever changes.
   if (createdScheduleId) {
-    const steps = store.listSchedules().find((t) => t.id === createdScheduleId)?.steps.length ?? 4
     store.runSchedule(createdScheduleId)
-    await delay((steps + 2) * 300 + 250)
+    const settled = () => {
+      const run = store
+        .listSchedules()
+        .find((t) => t.id === createdScheduleId)
+        ?.runs.find((r) => r.id.startsWith('run-live-'))
+      return run !== undefined && run.status !== 'running'
+    }
+    const deadline = Date.now() + 15_000
+    while (!settled() && Date.now() < deadline) await delay(50)
   }
 
   const state = loadState()

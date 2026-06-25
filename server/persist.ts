@@ -48,8 +48,10 @@ export interface PersistedState {
 
 /** Where the snapshot lives. Override with `DATA_FILE`; defaults to
  *  `.data/store.json` under the process's working directory (the repo root for the
- *  run scripts). Read per-call so a test can point it at a throwaway path. */
-function dataFile(): string {
+ *  run scripts). Read per-call so a test can point it at a throwaway path.
+ *  Exported so the backup tool (scripts/snapshot.ts) resolves the SAME path the
+ *  store reads/writes, rather than re-deriving (and drifting from) it. */
+export function dataFile(): string {
   return process.env.DATA_FILE ?? join(process.cwd(), '.data', 'store.json')
 }
 

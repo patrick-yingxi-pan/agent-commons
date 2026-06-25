@@ -128,6 +128,13 @@ the mock?
 
 ## Working in this repo (conventions)
 
+- **Record decisions in the repo, not just memory.** Project-related decisions,
+  rationale, and notes belong in repo files — this file's *Design decisions (locked
+  in)* / *Open exploration* sections, `docs/`, or the relevant module's header
+  comment — so **every clone shares them**. A coding agent's local memory is
+  per-machine and invisible to other clones; the repo is the system of record. When
+  a decision settles, write it down where the next reader (human or agent) will find
+  it, next to the code it governs.
 - **The contract is load-bearing.** `contract/*.ts` is imported *verbatim* by both
   the Vite UI and the Node server — that type-identity **is** the portability
   guarantee. Don't add framework or Node-only types to `contract/`, and keep the
