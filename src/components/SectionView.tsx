@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   BarChart3,
   Bell,
+  Box,
   Bug,
   Check,
   CheckCircle2,
@@ -34,6 +35,7 @@ import {
   SquareKanban,
   Trash2,
   Unplug,
+  X,
   type LucideIcon,
 } from 'lucide-react'
 import type { Connector, SectionId } from '../types'
@@ -73,7 +75,7 @@ import {
 } from '../api'
 import { ArtifactThumb, ArtifactViewer, KIND_ICON } from './artifactPreview'
 import { useRelations } from '../controller/useRelations'
-import { runSessionId } from '../../contract/ids.ts'
+import { runSessionId, slug } from '../../contract/ids.ts'
 
 /** The main area when a cross-cutting tool (Projects, Artifacts, …) is open
  *  instead of a conversation. All content is mock — this is a clickable demo.
@@ -149,10 +151,22 @@ function ProjectsSection({
   const [openId, setOpenId] = useState<string | null>(initialProjectId)
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState('Last updated')
+  const [creating, setCreating] = useState(false)
   const rel = useRelations()
   // Includes projects created mid-tour (the relation graph's extras), so a freshly
   // created project shows in the list and opens to its detail like any seed one.
   const projects = rel.allProjects()
+
+  // Create a project from the dialog: mint a unique id (across seed + created
+  // ones, so a duplicate name can't re-file into an existing project), apply the
+  // sessionless create-project op (optimistic + persisted + broadcast), then open
+  // the new project — it's already in `projects` via the optimistic graph patch.
+  const createProject = (name: string, description: string) => {
+    const projectId = uniqueProjectId(name, new Set(projects.map((p) => p.id)))
+    rel.applyOp({ kind: 'create-project', projectId, projectName: name, projectDescription: description })
+    setCreating(false)
+    setOpenId(projectId)
+  }
 
   const open = openId ? (projects.find((p) => p.id === openId) ?? null) : null
   if (open)
@@ -179,11 +193,15 @@ function ProjectsSection({
     <Page>
       <PageHeader title="Projects">
         <Dropdown label="Sort by" value={sort} options={['Last updated', 'Name']} onChange={setSort} />
-        <PrimaryButton icon={<Plus size={15} />}>New project</PrimaryButton>
+        <PrimaryButton icon={<Plus size={15} />} onClick={() => setCreating(true)}>
+          New project
+        </PrimaryButton>
       </PageHeader>
       <SearchBox value={query} onChange={setQuery} placeholder="Search projects…" />
       {sorted.length === 0 ? (
-        <Empty>No projects match “{query.trim()}”.</Empty>
+        <Empty>
+          {query.trim() ? `No projects match “${query.trim()}”.` : 'No projects yet — create one to group related work.'}
+        </Empty>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {sorted.map((p) => (
@@ -196,7 +214,135 @@ function ProjectsSection({
           ))}
         </div>
       )}
+      {creating && <NewProjectDialog onCreate={createProject} onClose={() => setCreating(false)} />}
     </Page>
+  )
+}
+
+/** A unique project id derived from the name, disambiguated against ids already in
+ *  use (seed + created). The reducer is idempotent on id, so a colliding id would
+ *  silently re-file into the existing project instead of creating a new one —
+ *  hence the suffix. Falls back to "project" when the name has no slug characters.
+ *
+ *  `taken` is the *locally cached* graph, so this id is not globally collision-safe:
+ *  two clients creating the same name within the relation.applied broadcast window
+ *  can derive the same id. The server reducer is idempotent on id (it re-files
+ *  rather than minting a duplicate), so the graph stays consistent; the loser's
+ *  name/description is simply dropped. Acceptable for this single-user prototype —
+ *  the production fix is server-owned id minting (docs/shared-resource-coordination). */
+function uniqueProjectId(name: string, taken: Set<string>): string {
+  const base = slug(name) || 'project'
+  if (!taken.has(base)) return base
+  let n = 2
+  while (taken.has(`${base}-${n}`)) n += 1
+  return `${base}-${n}`
+}
+
+/** The "New project" form — a centered modal (same idiom as ArtifactViewer): a
+ *  required name and an optional description. Enter (in the name field) or the
+ *  Create button submits; Escape, the backdrop, or Cancel dismisses. */
+function NewProjectDialog({
+  onCreate,
+  onClose,
+}: {
+  onCreate: (name: string, description: string) => void
+  onClose: () => void
+}) {
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const nameRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    nameRef.current?.focus()
+  }, [])
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const canCreate = name.trim().length > 0
+  const submit = () => {
+    if (canCreate) onCreate(name.trim(), description.trim())
+  }
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex justify-center px-4 pt-[14vh]"
+      onMouseDown={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="New project"
+    >
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" />
+      <div
+        onMouseDown={(e) => e.stopPropagation()}
+        className="relative flex h-fit w-[460px] max-w-full flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong"
+      >
+        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+          <div className="flex items-center gap-2">
+            <Box size={18} className="text-cap-workspace" />
+            <span className="text-[15px] font-semibold text-ink">New project</span>
+          </div>
+          <button
+            onClick={onClose}
+            title="Close"
+            aria-label="Close"
+            className="-mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="space-y-4 p-5">
+          <label className="block">
+            <span className="mb-1.5 block text-[12px] font-medium text-ink-soft">Name</span>
+            <input
+              ref={nameRef}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submit()
+              }}
+              placeholder="e.g. Insights dashboard"
+              className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-[14px] text-ink outline-none transition placeholder:text-ink-faint focus:border-accent"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-[12px] font-medium text-ink-soft">
+              Description <span className="font-normal text-ink-faint">(optional)</span>
+            </span>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              placeholder="What this project groups together."
+              className="w-full resize-none rounded-lg border border-line bg-surface px-3 py-2 text-[14px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-accent"
+            />
+          </label>
+        </div>
+
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line bg-panel px-5 py-3">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-line-strong bg-surface px-3.5 py-1.5 text-[13px] font-medium text-ink-soft shadow-sm transition hover:border-accent hover:text-ink"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={submit}
+            disabled={!canCreate}
+            className="flex items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Plus size={15} />
+            Create project
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   )
 }
 

@@ -58,10 +58,23 @@ export function applyGraphOp(
     case 'file-session':
       return { ...graph, sessionProject: { ...graph.sessionProject, [op.sessionId]: op.projectId } }
     case 'create-project': {
-      // File the session under the (new or already-created) project. A replayed
-      // op finds the project present, so it just (re)files rather than duplicating.
-      const filed = { ...graph.sessionProject, [op.sessionId]: op.projectId }
-      if (graph.extraProjects.some((p) => p.id === op.projectId)) {
+      // File the session under the (new or already-created) project — when the op
+      // carries one. A user creating a project from the Projects page passes no
+      // session, so an empty project is minted. A replayed op finds the project
+      // present, so it just (re)files rather than duplicating.
+      const filed = op.sessionId
+        ? { ...graph.sessionProject, [op.sessionId]: op.projectId }
+        : graph.sessionProject
+      // Re-file only, never mint a duplicate, when the project already exists.
+      // "Exists" = a created project (extraProjects) OR a SEED project: the graph
+      // carries no seed Project objects, but seedGraph records every seed project as
+      // a projectContexts key, so that map is the reducer's view of seed ids. (The
+      // New-project button's uniqueProjectId already avoids a collision; this keeps
+      // the shared reducer safe for any other op producer — a seed-id collision
+      // would otherwise mint a duplicate id visible through allProjects().)
+      const exists =
+        graph.extraProjects.some((p) => p.id === op.projectId) || op.projectId in graph.projectContexts
+      if (exists) {
         return { ...graph, sessionProject: filed }
       }
       const project: Project = {
@@ -72,7 +85,7 @@ export function applyGraphOp(
         instructions: '',
         scheduled: [],
         contexts: [],
-        sessionIds: [op.sessionId],
+        sessionIds: op.sessionId ? [op.sessionId] : [],
       }
       return { ...graph, extraProjects: [project, ...graph.extraProjects], sessionProject: filed }
     }

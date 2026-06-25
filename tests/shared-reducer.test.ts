@@ -8,6 +8,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   applyGraphOp,
+  describeOp,
   emptyGraph,
   opKey,
   repoIdForLabel,
@@ -44,6 +45,67 @@ test('create-project is idempotent: a replayed op re-files the session, never du
   // Replay (e.g. the server re-applies what the client already optimistically did).
   g = applyGraphOp(g, op, mintIds())
   assert.equal(g.extraProjects.length, 1, 'the project is not duplicated on replay')
+})
+
+test('a sessionless create-project (the "New project" button) mints an empty project and files no session', () => {
+  const op = {
+    kind: 'create-project',
+    projectId: 'p-empty',
+    projectName: 'Empty',
+    projectDescription: 'd',
+  }
+  let g = applyGraphOp(emptyGraph(), op, mintIds())
+  assert.equal(g.extraProjects.length, 1)
+  const project = g.extraProjects[0]
+  assert.equal(project.id, 'p-empty')
+  assert.deepEqual(project.sessionIds, [], 'no session is filed into a user-created project')
+  assert.deepEqual(g.sessionProject, {}, 'the session→project map is untouched')
+  // Idempotent on replay, exactly like the session-carrying variant.
+  g = applyGraphOp(g, op, mintIds())
+  assert.equal(g.extraProjects.length, 1, 'the project is not duplicated on replay')
+})
+
+test('create-project with a SEED project id is a no-op — never mints a duplicate id (guards the shared reducer)', () => {
+  // seedGraph records every seed project as a projectContexts key; the create-project
+  // guard treats that as "exists", so a colliding id re-files rather than minting a
+  // second project that would surface twice through allProjects().
+  const seeded = { ...emptyGraph(), projectContexts: { 'p-seed': [] } }
+  const g = applyGraphOp(
+    seeded,
+    { kind: 'create-project', projectId: 'p-seed', projectName: 'Dupe', projectDescription: 'd' },
+    mintIds(),
+  )
+  assert.equal(g.extraProjects.length, 0, 'no duplicate project is minted for a seed-project id')
+})
+
+test('create-project uses op.projectId verbatim — the minter never influences it (the no-flicker invariant)', () => {
+  // Unlike save-artifact (server-minted id), create-project carries a client-chosen
+  // id used as-is by BOTH ends, so the optimistic and canonical projects share an id
+  // and the freshly-created project's detail opens without a reconcile flicker.
+  const op = { kind: 'create-project', projectId: 'p-fixed', projectName: 'X', projectDescription: 'd' }
+  const clientPatch = applyGraphOp(emptyGraph(), op, () => 'art-opt-1')
+  const serverPatch = applyGraphOp(emptyGraph(), op, () => 'art-live-1')
+  assert.equal(clientPatch.extraProjects[0].id, 'p-fixed')
+  assert.equal(serverPatch.extraProjects[0].id, 'p-fixed', 'the injected minter does not influence a create-project id')
+  assert.equal(clientPatch.extraProjects[0].id, serverPatch.extraProjects[0].id)
+})
+
+test('describeOp(create-project): sessionless variant drops the file phrasing but keeps projectId for the deep-link', () => {
+  const d = describeOp({ kind: 'create-project', projectId: 'p1', projectName: 'Empty', projectDescription: 'd' })
+  assert.equal(d.text, 'Create the **Empty** project')
+  assert.equal(d.projectId, 'p1', 'projectId still drives the "View in projects" deep-link')
+})
+
+test('describeOp(create-project): session-carrying variant keeps the file phrasing', () => {
+  const d = describeOp({
+    kind: 'create-project',
+    projectId: 'p1',
+    projectName: 'Empty',
+    projectDescription: 'd',
+    sessionId: 's1',
+    sessionTitle: 'S',
+  })
+  assert.equal(d.text, 'Create the **Empty** project and file **S** into it')
 })
 
 test('save-artifact mints a fresh id, prepends the artifact, and files it under the project', () => {

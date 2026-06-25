@@ -119,8 +119,10 @@ export type Approval = 'per-action' | 'standing'
 export type RelationOp =
   // Session ↔ Project — file / move a session into a project (null = unfile).
   | { kind: 'file-session'; sessionId: string; sessionTitle: string; projectId: string | null; projectName: string }
-  // Session ↔ Project — create a new project and file a session into it in one move.
-  | { kind: 'create-project'; projectId: string; projectName: string; projectDescription: string; sessionId: string; sessionTitle: string }
+  // Session ↔ Project — create a new project, optionally filing a session into it
+  // in the same move. The AI's tour proposal files the live session; a user
+  // creating a project from the Projects page passes neither (an empty project).
+  | { kind: 'create-project'; projectId: string; projectName: string; projectDescription: string; sessionId?: string; sessionTitle?: string }
   // Project ↔ Artifact — re-file an existing artifact under a project.
   | { kind: 'refile-artifact'; artifactId: string; artifactName: string; projectId: string; projectName: string }
   // Session ↔ Artifact — save a draft out of the session as an artifact (and,
@@ -211,7 +213,9 @@ export function describeOp(op: RelationOp): OpDescription {
           }
     case 'create-project':
       return {
-        text: `Create the **${op.projectName}** project and file **${op.sessionTitle}** into it`,
+        text: op.sessionTitle
+          ? `Create the **${op.projectName}** project and file **${op.sessionTitle}** into it`
+          : `Create the **${op.projectName}** project`,
         done: `Created ${op.projectName}`,
         section: 'projects',
         projectId: op.projectId,
