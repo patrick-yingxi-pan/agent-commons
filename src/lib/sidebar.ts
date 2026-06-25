@@ -11,16 +11,13 @@
  *  one). Text-color hovers stay per-element (faint→ink for nav/icon, →ink-soft for
  *  the uppercase fold header) — only the background is being unified.
  *
+ *  This is the rail's OWN hover, deliberately not shared with the page fold headers
+ *  (lib/foldHeader): the rail's darker surface wants a lightening hover, the
+ *  near-white page wants a darkening one, and one tint can't be visible on both.
+ *
  *  Plain string (no JSX, no imports) so the DOM-less Node test runner can import
  *  and assert it directly. The sidebar's filter-menu triggers (FilterMenu) already
- *  use this same 70%-surface hover, so the whole rail stays of a piece.
- *
- *  This is also the app's single hover token: the foldable list-section headers
- *  (lib/foldHeader) adopt it too, so one surface-lift cue runs through the whole
- *  UI. It lives here because the left rail is where it was defined and reads
- *  strongest (the rail's darker surface gives the 70%-white lift the most to
- *  contrast against). */
+ *  use this same 70%-surface hover, so the whole rail stays of a piece. */
 
-/** The hover background shared by every interactive element in the left panel —
- *  and, through lib/foldHeader, by the foldable section headers across the app. */
+/** The hover background shared by every interactive element in the left panel. */
 export const SIDEBAR_HOVER = 'hover:bg-surface/70'
