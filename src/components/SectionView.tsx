@@ -64,8 +64,10 @@ import {
   addScheduleFromSeed,
   removeSchedule,
   runScheduleNow,
+  setConnectorStatus,
   toggleScheduleEnabled,
   useDispatchRuns,
+  useSavedContexts,
   useScheduleTemplates,
   useSchedules,
 } from '../api'
@@ -778,22 +780,52 @@ function AddContextRow({ ctx, onAdd }: { ctx: SavedContext; onAdd: () => void })
 }
 
 function ContextsSection() {
-  const [items, setItems] = useState(SAVED_CONTEXTS)
+  // The base list is server-owned: a connect / disconnect routes through the server,
+  // which broadcasts `connector.status`, so the row's auth state reconciles here and
+  // on every other client. Fall back to the seed while the first fetch is in flight.
+  const saved = useSavedContexts()
+  const base = saved.data?.contexts ?? SAVED_CONTEXTS
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('All')
   // Which group headers are folded shut, and which context is opened in detail.
   const [folded, setFolded] = useState<Set<SavedContextKind>>(new Set())
   const [openId, setOpenId] = useState<string | null>(null)
+  // Add / remove are local view conveniences (not server-backed): `removed` hides a
+  // base row; `extra` layers locally set-up contexts on top.
+  const [removed, setRemoved] = useState<Set<string>>(new Set())
+  const [extra, setExtra] = useState<SavedContext[]>([])
+  const items = [...extra, ...base.filter((c) => !removed.has(c.id))]
 
-  const toggle = (id: string) =>
-    setItems((prev) =>
-      prev.map((c) =>
-        c.id === id ? { ...c, status: c.status === 'connected' ? 'needs-auth' : 'connected' } : c,
-      ),
-    )
-  const remove = (id: string) => setItems((prev) => prev.filter((c) => c.id !== id))
-  const add = (ctx: SavedContext) =>
-    setItems((prev) => (prev.some((c) => c.id === ctx.id) ? prev : [ctx, ...prev]))
+  // Connect / disconnect: a server-owned connector goes through the server (real
+  // `connector.status` broadcast); a locally-added one flips in view state.
+  const toggle = (id: string) => {
+    const serverItem = base.find((c) => c.id === id)
+    if (serverItem) {
+      void setConnectorStatus(id, serverItem.status === 'connected' ? 'needs-auth' : 'connected')
+    } else {
+      setExtra((prev) =>
+        prev.map((c) =>
+          c.id === id ? { ...c, status: c.status === 'connected' ? 'needs-auth' : 'connected' } : c,
+        ),
+      )
+    }
+  }
+  const remove = (id: string) => {
+    setRemoved((prev) => new Set(prev).add(id))
+    setExtra((prev) => prev.filter((c) => c.id !== id))
+  }
+  const add = (ctx: SavedContext) => {
+    if (base.some((c) => c.id === ctx.id)) {
+      // Re-adding a hidden base row just un-hides it.
+      setRemoved((prev) => {
+        const next = new Set(prev)
+        next.delete(ctx.id)
+        return next
+      })
+    } else {
+      setExtra((prev) => (prev.some((c) => c.id === ctx.id) ? prev : [ctx, ...prev]))
+    }
+  }
   const foldGroup = (kind: SavedContextKind) =>
     setFolded((prev) => {
       const next = new Set(prev)

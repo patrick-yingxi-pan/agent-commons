@@ -59,9 +59,8 @@ export interface RunStartedEvent {
   sessionId: string
   run: ScheduledRun
 }
-/** A running scheduled run advanced a step (relights the detail rail). Reserved:
- *  the mock's runs go started→finished in one beat (see store.runSchedule) and emit
- *  no progress yet; kept for a backend that drives genuinely stepped runs. */
+/** A running scheduled run advanced a step (relights the detail rail). Emitted per
+ *  step as `store.runSchedule` walks a run from 0 → its step count before finishing. */
 export interface RunProgressEvent {
   type: 'run.progress'
   taskId: string
@@ -77,10 +76,10 @@ export interface RunFinishedEvent {
   sessionId: string
   run: ScheduledRun
 }
-/** A relation edit was applied — by a user confirmation, or by a schedule's
- *  standing approval acting unprompted on a run. Open sections re-read. The mock
- *  emits only `by: 'user'` today (store.applyRelationOp); `'standing'` is reserved
- *  for when the daemon applies a standing-approved graph edit on a run. */
+/** A relation edit was applied — `by: 'user'` from a confirmation (store.applyRelationOp),
+ *  or `by: 'standing'` when a run applies a schedule's standing-approved effect
+ *  unprompted (store.applyStandingEffects — e.g. "save <artifact> each run"). Open
+ *  sections re-read. */
 export interface RelationAppliedEvent {
   type: 'relation.applied'
   op: RelationOp
@@ -92,9 +91,9 @@ export interface RecentsChangedEvent {
   contextType: ContextTypeId
   ids: string[]
 }
-/** A connector / MCP server's auth or setup state changed asynchronously
- *  (OAuth callback completed, token expired, admin revoked). Reserved: the mock's
- *  connector state is static seed data, so nothing emits this yet. */
+/** A connector / MCP server's auth or setup state changed (OAuth callback completed,
+ *  token expired, admin revoked). Emitted by `store.setConnectorStatus` — the
+ *  Contexts page connect / disconnect, and the seam a real OAuth callback would use. */
 export interface ConnectorStatusEvent {
   type: 'connector.status'
   id: string

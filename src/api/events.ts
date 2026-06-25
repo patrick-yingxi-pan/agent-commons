@@ -38,11 +38,10 @@ function route(e: ServerEvent): void {
     case 'session.contexts.changed':
       invalidate(keys.sessionContexts(e.sessionId))
       break
-    // A scheduled run fired / finished (run-now or the daemon) — the recent-runs
-    // feed and the schedules (their run lists) are now stale. This is the
-    // ambient-push that makes a run appear in the rail with no user request.
-    // ('run.progress' is reserved — the mock's runs go started→finished in one
-    // beat and emit no progress yet; the arm is here for a stepped-run backend.)
+    // A scheduled run fired / advanced a step / finished (run-now or the daemon) —
+    // the recent-runs feed and the schedules (their run lists) are now stale. This
+    // is the ambient-push that makes a run appear in the rail and step forward with
+    // no user request.
     case 'run.started':
     case 'run.progress':
     case 'run.finished':
@@ -54,8 +53,8 @@ function route(e: ServerEvent): void {
     case 'relation.applied':
       invalidate(keys.relations)
       break
-    // A connector's auth/setup state changed asynchronously. Reserved — the mock's
-    // connector state is static seed data, so nothing emits this yet.
+    // A connector's auth/setup state changed (the Contexts page connect/disconnect,
+    // here or on another client/device) — re-read the saved-contexts snapshot.
     case 'connector.status':
       invalidate(keys.savedContexts)
       break

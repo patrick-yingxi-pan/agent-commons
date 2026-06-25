@@ -3,7 +3,7 @@
  *  Versioned so the UI can target one stable surface whether the backend is the
  *  local mock, a native sidecar, or a remote web server. */
 import type { RelationOp } from './relations.ts'
-import type { ContextTypeId } from './contexts.ts'
+import type { ContextStatus, ContextTypeId } from './contexts.ts'
 
 /** The API version segment. One UI, one contract version, three backends. */
 export const API_VERSION = 'v1'
@@ -61,6 +61,14 @@ export interface AttachContextRequest {
   type: ContextTypeId
   label: string
   scope?: string
+}
+
+/** Body of `PATCH /v1/saved-contexts/:id` — set a saved connector / MCP server's
+ *  auth status (connect / disconnect on the Contexts page; the seam an OAuth
+ *  callback or token-expiry would use). Returns the updated `SavedContextsSnapshot`;
+ *  the server also broadcasts `connector.status` so every client reconciles. */
+export interface SetConnectorStatusRequest {
+  status: ContextStatus
 }
 
 /** Body of `POST /v1/relations/ops` — apply a confirmed relation edit. For a

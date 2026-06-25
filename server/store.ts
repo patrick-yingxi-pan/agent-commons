@@ -19,6 +19,7 @@ import type {
   Capabilities,
   Connector,
   ConnectorDetail,
+  ContextStatus,
   ContextTypeId,
   DiffLine,
   DispatchRun,
@@ -28,6 +29,7 @@ import type {
   RelationGraph,
   RelationOp,
   RunSessionEntry,
+  SavedContext,
   SavedContextsSnapshot,
   ScheduledRun,
   ScheduledTask,
@@ -115,6 +117,15 @@ let recents: RecentsSnapshot = (() => {
   return out
 })()
 
+// Per-user set-up contexts (the Contexts page) — connectors / MCP servers / repos
+// and their auth status. A mutable copy of the seed so a connect / disconnect — the
+// seam a real OAuth callback or token-expiry would use — is a live server mutation
+// that broadcasts `connector.status` and reconciles every client. Persisted to disk
+// (see persist.ts). The "Connected" quick lists derive from the *current* status.
+const savedCtxs: SavedContext[] = JSON.parse(JSON.stringify(SAVED_CONTEXTS))
+const connectedIds = (kind: 'connector' | 'mcp'): string[] =>
+  savedCtxs.filter((c) => c.kind === kind && c.status === 'connected').map((c) => c.id)
+
 // Per-session attached contexts — the *attachment of record* (Primitive 1 of
 // docs/shared-resource-coordination.md). Server-owned so every effect a session
 // initiates can be mediated by naming one of these (Tiers A–C). Seeded for the
@@ -185,6 +196,7 @@ function snapshot(): PersistedState {
     schedules,
     recents,
     graph,
+    savedContexts: savedCtxs,
     seq: {
       session: sessionSeq,
       message: messageSeq,
@@ -207,13 +219,14 @@ function persist(): void {
 function rehydrate(s: PersistedState): void {
   SESSIONS.splice(0, SESSIONS.length, ...s.sessions)
   schedules.splice(0, schedules.length, ...s.schedules)
-  // A run mints as 'running' and finishes ~1.6s later inside a setTimeout; both
-  // states persist. If the process restarted in that window the completing timer
-  // is gone, so a persisted 'running' run would be stuck in-flight forever. Sweep
-  // any to a terminal state so the feed doesn't show a phantom live run.
+  // A live-minted run ('run-live-*') mints as 'running' and finishes a beat later
+  // inside a setTimeout; both states persist. If the process restarted in that
+  // window the completing timer is gone, so a persisted 'running' run would be
+  // stuck in-flight forever — sweep it to a terminal state. (Seed runs that are
+  // intentionally 'running' for visual variety aren't live-minted, so leave them.)
   for (const task of schedules) {
     for (const run of task.runs) {
-      if (run.status === 'running') {
+      if (run.status === 'running' && run.id.startsWith('run-live-')) {
         run.status = 'failed'
         run.duration = run.duration === '—' ? '0s' : run.duration
         run.summary = 'Interrupted by a server restart'
@@ -222,6 +235,8 @@ function rehydrate(s: PersistedState): void {
   }
   recents = s.recents
   graph = s.graph
+  // Restore saved-context auth status (default to the seed for a pre-field snapshot).
+  if (s.savedContexts) savedCtxs.splice(0, savedCtxs.length, ...s.savedContexts)
   sessionContextBindings.clear()
   for (const [k, v] of s.bindings) sessionContextBindings.set(k, v)
   sessionWorkspaces.clear()
@@ -231,6 +246,47 @@ function rehydrate(s: PersistedState): void {
   scheduleSeq = s.seq.schedule
   runSeq = s.seq.run
   artifactSeq = s.seq.artifact
+}
+
+/** How fast a run relights its rail — one step per this interval, then a final
+ *  beat to finish. Perceptible in the UI, quick enough for tests. */
+const RUN_STEP_MS = 300
+
+/** Apply a routine's standing-approved effects on a run — the edits a user approved
+ *  once, in advance, that now execute unprompted each run (the schedule is the unit
+ *  of standing approval; docs/shared-resource-coordination.md). Today that's the
+ *  "save <artifact> each run" approval (graph.scheduleArtifact): the run refreshes the
+ *  routine's one delivered artifact and broadcasts `relation.applied` by:'standing' —
+ *  a graph edit nobody confirmed *this* run, because it was pre-authorized. No
+ *  standing approval on the routine → nothing happens.
+ *
+ *  The routine owns exactly ONE live artifact (keyed by its run-session source +
+ *  name), refreshed in place each run rather than appended — the daemon fires
+ *  indefinitely, so appending a fresh artifact per run would grow the persisted
+ *  snapshot without bound. The first run mints it; later runs just re-stamp it. */
+function applyStandingEffects(task: ScheduledTask, sessionId: string): void {
+  const artifactName = graph.scheduleArtifact[task.id]
+  if (!artifactName) return
+  const source = `Scheduled run of ${task.name}`
+  const op: RelationOp = {
+    kind: 'save-artifact',
+    artifact: { name: artifactName, kind: 'doc', meta: `Saved by ${task.name}` },
+    sessionId,
+    sessionTitle: source,
+    projectId: task.projectId,
+  }
+  const existing = graph.extraArtifacts.find((a) => a.source === source && a.name === artifactName)
+  if (existing) {
+    graph = {
+      ...graph,
+      extraArtifacts: graph.extraArtifacts.map((a) =>
+        a.id === existing.id ? { ...a, edited: 'just now', meta: `Saved by ${task.name}` } : a,
+      ),
+    }
+  } else {
+    graph = applyGraphOp(graph, op, mintArtifactId)
+  }
+  emit({ type: 'relation.applied', op, by: 'standing' })
 }
 
 export const store = {
@@ -476,10 +532,22 @@ export const store = {
   // ── Contexts (the set-up ones, on the Contexts page) ──
   savedContexts(): SavedContextsSnapshot {
     return {
-      contexts: SAVED_CONTEXTS,
-      connectedConnectorIds: CONNECTED_CONNECTOR_IDS,
-      connectedMcpIds: CONNECTED_MCP_IDS,
+      contexts: savedCtxs,
+      connectedConnectorIds: connectedIds('connector'),
+      connectedMcpIds: connectedIds('mcp'),
     }
+  },
+  /** Set a saved connector / MCP server's auth status — the connect / disconnect on
+   *  the Contexts page, and the seam a real OAuth callback or token-expiry would use.
+   *  Mutates the record, broadcasts `connector.status` so every client reconciles,
+   *  and persists. Returns the new snapshot, or undefined for an unknown id. */
+  setConnectorStatus(id: string, status: ContextStatus): SavedContextsSnapshot | undefined {
+    const ctx = savedCtxs.find((c) => c.id === id)
+    if (!ctx) return undefined
+    ctx.status = status
+    emit({ type: 'connector.status', id, status })
+    persist()
+    return this.savedContexts()
   },
   /** The sidebar detail for one connector / MCP server (mock: derived locally;
    *  a real backend fetches live resources from the connected service). */
@@ -525,8 +593,10 @@ export const store = {
   runSession(id: string): Session | undefined {
     return entryById(schedules, id)?.session
   },
-  /** Run a routine now: append a 'running' run, broadcast it, and finish it after
-   *  a beat (the daemon uses the same path on a cadence). */
+  /** Run a routine now: append a 'running' run, broadcast it, relight its rail one
+   *  step at a time (`run.progress`), then finish it (`run.finished`). On finish any
+   *  standing-approved effect the routine carries is applied unprompted
+   *  (`relation.applied` by:'standing'). The daemon uses this same path on a cadence. */
   runSchedule(id: string): ScheduledRun | undefined {
     const task = schedules.find((t) => t.id === id)
     if (!task) return undefined
@@ -544,15 +614,29 @@ export const store = {
     const sessionId = runSessionId(task.id, run.id)
     emit({ type: 'run.started', taskId: task.id, taskName: task.name, sessionId, run })
     persist()
+    const steps = task.steps.length
+    // Advance the rail one step per beat so a connected client sees the run progress
+    // (`run.progress`) rather than jump from 0 → done.
+    for (let i = 1; i <= steps; i += 1) {
+      setTimeout(() => {
+        if (run.status !== 'running') return // superseded (e.g. swept after a restart)
+        run.reachedStep = i
+        emit({ type: 'run.progress', taskId: task.id, runId: run.id, reachedStep: i, status: 'running' })
+        persist()
+      }, i * RUN_STEP_MS)
+    }
+    // A final beat after the last step: mark done, apply standing effects, finish.
     setTimeout(() => {
+      if (run.status !== 'running') return
       run.status = 'ok'
-      run.reachedStep = task.steps.length
-      run.duration = `${8 + task.steps.length * 3}s`
+      run.reachedStep = steps
+      run.duration = `${8 + steps * 3}s`
       run.summary = `Ran on demand — delivered to ${task.delivery.target}`
       task.lastStatus = 'ok'
+      applyStandingEffects(task, sessionId)
       emit({ type: 'run.finished', taskId: task.id, taskName: task.name, sessionId, run })
       persist()
-    }, 1600)
+    }, (steps + 1) * RUN_STEP_MS)
     return run
   },
   /** Set a routine's enabled state — to an explicit value, or toggle when the

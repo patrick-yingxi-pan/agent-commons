@@ -8,6 +8,7 @@ import type {
   RegisterAgentRequest,
   SendMessageRequest,
   SetAgentCapabilitiesRequest,
+  SetConnectorStatusRequest,
   UpdateScheduleRequest,
 } from '../../contract/index.ts'
 import { Router } from '../http/router.ts'
@@ -415,6 +416,18 @@ export function buildRouter(): Router {
   // ── Contexts (set-up) + connector detail ──────────────────────────────────
   r.get('/saved-contexts', ({ res }) => {
     sendJson(res, store.savedContexts())
+  })
+  // Set a saved connector / MCP server's auth status (connect / disconnect; the
+  // OAuth-callback / token-expiry seam). Broadcasts `connector.status` and returns
+  // the updated snapshot so the originating client reconciles immediately.
+  r.patch('/saved-contexts/:id', async ({ res, params, body }) => {
+    const { status } = await body<SetConnectorStatusRequest>()
+    if (status !== 'connected' && status !== 'needs-auth') {
+      return sendError(res, 'bad_request', "status must be 'connected' or 'needs-auth'")
+    }
+    const snapshot = store.setConnectorStatus(params.id, status)
+    if (!snapshot) return sendError(res, 'not_found', `No saved context '${params.id}'`)
+    sendJson(res, snapshot)
   })
   r.get('/connectors/detail', ({ res, url }) => {
     const label = url.searchParams.get('label')

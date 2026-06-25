@@ -48,6 +48,7 @@ export const paths = {
   sessionWorkspace: (id: string) => `/sessions/${encodeURIComponent(id)}/workspace`,
   dispatch: '/dispatch',
   savedContexts: '/saved-contexts',
+  savedContext: (id: string) => `/saved-contexts/${encodeURIComponent(id)}`,
   connectorDetail: (c: Connector) => {
     const q = new URLSearchParams({ id: c.id, label: c.label })
     if (c.kind) q.set('kind', c.kind)

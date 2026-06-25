@@ -10,6 +10,7 @@ import {
   type AttachContextRequest,
   type CapabilityEffect,
   type CapabilityRequest,
+  type ContextStatus,
   type ContextTypeId,
   type EffectReport,
   type SyncEffectsResult,
@@ -21,8 +22,10 @@ import {
   type ResourceStatus,
   type ReplyStreamEvent,
   type RunSessionEntry,
+  type SavedContextsSnapshot,
   type ScheduledTask,
   type SendMessageRequest,
+  type SetConnectorStatusRequest,
   type Session,
   type SessionContext,
   type SessionWorkspace,
@@ -232,6 +235,28 @@ export async function attachContext(
 export async function detachContext(sessionId: string, contextId: string): Promise<void> {
   await apiDelete(paths.sessionContext(sessionId, contextId))
   invalidate(keys.sessionContexts(sessionId))
+}
+
+// ── Saved contexts (the Contexts page) ──────────────────────────────────────
+
+/** Set a saved connector / MCP server's auth status (connect / disconnect on the
+ *  Contexts page). Optimistically flips the cached status so the row updates
+ *  instantly, then PATCHes; the server broadcasts `connector.status`, reconciling
+ *  this client and every other one (and the Add-context "Connected" quick list). */
+export async function setConnectorStatus(id: string, status: ContextStatus): Promise<void> {
+  mutate<SavedContextsSnapshot>(keys.savedContexts, (snap) => {
+    if (!snap) return snap as unknown as SavedContextsSnapshot
+    return { ...snap, contexts: snap.contexts.map((c) => (c.id === id ? { ...c, status } : c)) }
+  })
+  try {
+    const updated = await apiPatch<SavedContextsSnapshot>(
+      paths.savedContext(id),
+      { status } satisfies SetConnectorStatusRequest,
+    )
+    setData(keys.savedContexts, updated)
+  } catch {
+    invalidate(keys.savedContexts)
+  }
 }
 
 // ── Recents (Add-context shortcut lists) ────────────────────────────────────

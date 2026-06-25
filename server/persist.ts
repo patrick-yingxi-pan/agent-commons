@@ -18,6 +18,7 @@ import { join, dirname } from 'node:path'
 import type {
   RecentsSnapshot,
   RelationGraph,
+  SavedContext,
   ScheduledTask,
   Session,
   SessionContext,
@@ -39,6 +40,9 @@ export interface PersistedState {
   schedules: ScheduledTask[]
   recents: RecentsSnapshot
   graph: RelationGraph
+  /** Saved-context auth status (Contexts page connect/disconnect). Optional so a
+   *  snapshot written before this field loads cleanly (the store defaults to seed). */
+  savedContexts?: SavedContext[]
   seq: { session: number; message: number; schedule: number; run: number; artifact: number }
 }
 
