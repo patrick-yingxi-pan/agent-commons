@@ -28,8 +28,9 @@ import type {
   UsageSnapshot,
 } from '../../contract/index.ts'
 
-/** What this backend can do — the UI gates native-only affordances on this,
- *  never on sniffing Electron vs web. */
+/** What this backend can do — advertised so the UI needn't sniff Electron vs web.
+ *  The native-only affordance gate is enforced server-side (those endpoints 409 on
+ *  a remote backend); a component may also read these flags to pre-hide one. */
 export function useCapabilities(): QueryState<Capabilities> {
   return useQuery(keys.capabilities, () => apiGet<Capabilities>(paths.capabilities))
 }

@@ -2,7 +2,6 @@
  *  The request/response DTOs, the capability descriptor, and the error envelope.
  *  Versioned so the UI can target one stable surface whether the backend is the
  *  local mock, a native sidecar, or a remote web server. */
-import type { PanelFocus } from './entities.ts'
 import type { RelationOp } from './relations.ts'
 import type { ContextTypeId } from './contexts.ts'
 
@@ -12,10 +11,13 @@ export const API_VERSION = 'v1'
  *  the host injects an absolute `http://127.0.0.1:<port>`. Web: same-origin. */
 export const API_BASE_PATH = `/api/${API_VERSION}`
 
-/** What *this* backend can do. The UI shows or hides native-only affordances by
- *  reading these flags — never by sniffing Electron-vs-web — so the same build
- *  runs in both. A remote web server reports the local-* flags false (and returns
- *  `capability_unavailable` if asked); a native sidecar reports them true. */
+/** What *this* backend can do, advertised so the UI never has to sniff
+ *  Electron-vs-web. The load-bearing gate is server-side: a native sidecar reports
+ *  the local-* flags true and fulfils the native endpoints; a remote web server
+ *  reports them false and returns `capability_unavailable` from those endpoints
+ *  (`server/routes` `gate()`). A client may additionally read these flags to
+ *  pre-hide a native-only affordance, but the 409 is what keeps the one UI honest
+ *  across both backends. */
 export interface Capabilities {
   /** Which backend is answering — for display + diagnostics, never for branching
    *  (branch on the feature flags below instead). */
@@ -59,12 +61,6 @@ export interface AttachContextRequest {
   type: ContextTypeId
   label: string
   scope?: string
-}
-
-/** Body of `POST /v1/sessions/:id/context:remove` — detach one or more contexts
- *  (cascade-aware: a repo + its orphaned connector, or a connector + dependents). */
-export interface RemoveContextsRequest {
-  focuses: PanelFocus[]
 }
 
 /** Body of `POST /v1/relations/ops` — apply a confirmed relation edit. For a

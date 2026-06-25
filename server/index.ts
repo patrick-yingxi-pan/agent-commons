@@ -87,7 +87,10 @@ function serveStatic(pathname: string, res: import('node:http').ServerResponse):
   }
   const body = readFileSync(filePath)
   res.writeHead(200, { 'Content-Type': MIME[extname(filePath)] ?? 'application/octet-stream' })
-  res.end(body.toString())
+  // Send the Buffer's exact bytes. `body.toString()` would UTF-8-decode it, which
+  // is lossy for binary assets (fonts, images, the favicon) — text assets survive
+  // either way, but binaries would be corrupted, so write the Buffer verbatim.
+  res.end(body)
 }
 
 server.listen(PORT, HOST, () => {

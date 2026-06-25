@@ -15,6 +15,7 @@ import {
   removeContextsFromLive,
   removeFolderFromLive,
   repoIdForLabel,
+  slug,
   withConnector,
   workspaceOf,
   workspaceNameFor,
@@ -51,13 +52,16 @@ import type {
  *  the *attachment of record* the effect-mediation path resolves against
  *  (Primitive 1 of docs/shared-resource-coordination.md). Ids match the live
  *  model's so attach and the chip-remove focus pair up: a repo by `repoIdForLabel`,
- *  the shared workspace by `WS_ID`, connectors / attachments by their own id.
- *  `scope` is the resource boundary (a path for folder / repo, `'*'` otherwise);
- *  files / photos expand to one binding per attachment. */
+ *  connectors / attachments by their own id. A folder keys on its OWN source id
+ *  (the id its artifacts carry, which `removeFolder` detaches by) — NOT the shared
+ *  workspace panel id — so attaching a second folder doesn't overwrite the first
+ *  folder's binding-of-record (and its scope). `scope` is the resource boundary
+ *  (a path for folder / repo, `'*'` otherwise); files / photos expand to one
+ *  binding per attachment. */
 function bindingsFor(ctx: AddedContext): AttachContextRequest[] {
   switch (ctx.kind) {
     case 'folder':
-      return [{ id: WS_ID, type: 'folder', label: ctx.label, scope: ctx.label }]
+      return [{ id: ctx.artifacts[0]?.source?.id ?? slug(ctx.label), type: 'folder', label: ctx.label, scope: ctx.label }]
     case 'repo':
       return [{ id: repoIdForLabel(ctx.label), type: 'repo', label: ctx.label, scope: ctx.path ?? '*' }]
     case 'connector':
@@ -443,18 +447,27 @@ export function useSessionWorkspace() {
     })()
   }, [])
 
+  // Whether a session's server-owned writes (its panels AND its binding-of-record)
+  // should persist: a real, listed (or just-materialized) session that isn't the
+  // demo or the unsaved draft. Both write-through paths gate on this so the two
+  // facets stay in step — otherwise a binding write would land for a draft/demo
+  // while the panel write was skipped, orphaning a persisted binding.
+  const persistableSession = useCallback((id: string): boolean => {
+    if (id === DRAFT_ID) return false
+    const session =
+      SESSIONS.find((s) => s.id === id) ?? extraSessionsRef.current.find((s) => s.id === id)
+    return !!session && !session.isDemo
+  }, [])
+
   // Write the active session's panels through to the server (the system of record)
   // after a panel mutation, so a runtime attach survives a reload / shows on
   // another client. Skips the demo (the guided tour owns its panels, client-side)
   // and the unsaved draft / run sessions (not persisted). Fire-and-forget — the
   // optimistic `live` stays the panel's instant driver.
   const persistLive = useCallback((id: string, next: Live) => {
-    if (id === DRAFT_ID) return
-    const session =
-      SESSIONS.find((s) => s.id === id) ?? extraSessionsRef.current.find((s) => s.id === id)
-    if (!session || session.isDemo) return
+    if (!persistableSession(id)) return
     void persistWorkspace(id, workspaceOf(next)).catch(() => {})
-  }, [])
+  }, [persistableSession])
 
   // Manually attach context to the open thread — the same escalation the tour
   // performs, but user-driven. Every context type funnels through here, and the
@@ -470,7 +483,9 @@ export function useSessionWorkspace() {
     // Two server-owned facets, both written through (the optimistic `live` is the
     // panel's instant driver): the persistent *binding* the effect-mediation path
     // resolves against (Primitive 1), and the panel *content* the binding produces.
-    for (const b of bindingsFor(ctx)) void attachContext(id, b).catch(() => {})
+    // Both gate on persistableSession so a draft/demo doesn't persist an orphan
+    // binding the panel write (persistLive) deliberately skips.
+    if (persistableSession(id)) for (const b of bindingsFor(ctx)) void attachContext(id, b).catch(() => {})
     const next = addContextToLive(liveRef.current, ctx)
     setLive(next)
     persistLive(id, next)
@@ -494,7 +509,7 @@ export function useSessionWorkspace() {
         break
       }
     }
-  }, [persistLive])
+  }, [persistableSession, persistLive])
 
   // Clicking a chip toggles its sidebar.
   const focusContext = useCallback((f: PanelFocus) => {
@@ -568,11 +583,11 @@ export function useSessionWorkspace() {
 
   const removeAttachment = useCallback((attId: string) => {
     const id = activeIdRef.current
-    void detachContext(id, attId).catch(() => {})
+    if (persistableSession(id)) void detachContext(id, attId).catch(() => {})
     const next = removeAttachmentFromLive(liveRef.current, attId)
     setLive(next)
     persistLive(id, next)
-  }, [persistLive])
+  }, [persistableSession, persistLive])
 
   // Remove a single source folder from the shared workspace: drop the artifacts
   // it contributed, and drop the workspace itself if that empties it (the
@@ -582,14 +597,13 @@ export function useSessionWorkspace() {
     const id = activeIdRef.current
     const next = removeFolderFromLive(liveRef.current, sourceId)
     setLive(next)
-    // If that emptied the shared workspace, detach its binding too — so the
-    // attachment-of-record (Primitive 1) stays in step with the panels (the other
-    // removers detach as they go; the folder funnel must too).
-    if (liveRef.current.workspaces.length > 0 && next.workspaces.length === 0) {
-      void detachContext(id, WS_ID).catch(() => {})
-    }
+    // Detach this folder's own binding-of-record — keyed by its source id, the same
+    // id attach used (Primitive 1) — so it goes away even when other folders remain
+    // in the shared workspace (each folder is its own attachment now, not a shared
+    // WS_ID one that only detaches when the whole workspace empties).
+    if (persistableSession(id)) void detachContext(id, sourceId).catch(() => {})
     persistLive(id, next)
-  }, [persistLive])
+  }, [persistableSession, persistLive])
 
   // Remove one or more attached contexts in a single update. The chip remove
   // flow passes several at once when a removal cascades (a repo + its orphaned
@@ -598,12 +612,13 @@ export function useSessionWorkspace() {
   const removeContexts = useCallback((focuses: PanelFocus[]) => {
     const id = activeIdRef.current
     // Mirror the removal to the persistent binding (Primitive 1): detach each focus
-    // by id (the binding id pairs with the chip's focus id). Fire-and-forget.
-    for (const f of focuses) void detachContext(id, f.id).catch(() => {})
+    // by id (the binding id pairs with the chip's focus id). Fire-and-forget, and
+    // gated on persistableSession so it stays in step with the binding write.
+    if (persistableSession(id)) for (const f of focuses) void detachContext(id, f.id).catch(() => {})
     const next = removeContextsFromLive(liveRef.current, focuses)
     setLive(next)
     persistLive(id, next)
-  }, [persistLive])
+  }, [persistableSession, persistLive])
 
   // Close the sidebar if its context no longer exists (removed / switched away).
   useEffect(() => {

@@ -27,6 +27,10 @@ export const keys = {
 
 export const paths = {
   capabilities: '/capabilities',
+  // The native-only endpoints (`/fs/pick`, `/fs/folders/:id`, `/git/repos/:id/diff`)
+  // are intentionally absent here — no live UI flow calls them. They exist behind the
+  // capability gate and are exercised by the contract via tests + `BACKEND=remote`
+  // (which 409s them); that gate, not a client caller, is what demonstrates portability.
   agents: '/agents',
   agent: (id: string) => `/agents/${encodeURIComponent(id)}`,
   agentInvoke: (id: string) => `/agents/${encodeURIComponent(id)}/invoke`,

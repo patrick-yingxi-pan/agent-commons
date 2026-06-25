@@ -207,6 +207,19 @@ function persist(): void {
 function rehydrate(s: PersistedState): void {
   SESSIONS.splice(0, SESSIONS.length, ...s.sessions)
   schedules.splice(0, schedules.length, ...s.schedules)
+  // A run mints as 'running' and finishes ~1.6s later inside a setTimeout; both
+  // states persist. If the process restarted in that window the completing timer
+  // is gone, so a persisted 'running' run would be stuck in-flight forever. Sweep
+  // any to a terminal state so the feed doesn't show a phantom live run.
+  for (const task of schedules) {
+    for (const run of task.runs) {
+      if (run.status === 'running') {
+        run.status = 'failed'
+        run.duration = run.duration === '—' ? '0s' : run.duration
+        run.summary = 'Interrupted by a server restart'
+      }
+    }
+  }
   recents = s.recents
   graph = s.graph
   sessionContextBindings.clear()
@@ -246,9 +259,10 @@ export const store = {
   },
 
   // ── Capabilities (what this backend variant can do) ──
-  /** The UI gates native-only affordances on these flags — never on sniffing
-   *  Electron vs web. A native sidecar reports the local-* flags true; a remote
-   *  web server reports them false (and the native endpoints 409). */
+  /** What this backend variant can do, advertised so the UI needn't sniff
+   *  Electron vs web. A native sidecar reports the local-* flags true and fulfils
+   *  the native endpoints; a remote web server reports them false and 409s those
+   *  endpoints (the load-bearing, server-side gate — see the routes' `gate()`). */
   capabilities(): Capabilities {
     return {
       backend: BACKEND_MODE,

@@ -5,9 +5,10 @@
  *
  *  • The **reply stream** — the SSE body of `POST /v1/sessions/:id/messages`.
  *    An assistant turn is incremental and open-ended (mirrors the Anthropic
- *    Messages API), and it can carry *structured* side-effects mid-turn — it
- *    escalates the session (attaches a workspace/repo) or proposes relation edits.
- *    So the channel carries typed events, not just text deltas.
+ *    Messages API), and it can carry *structured* side-effects — it proposes
+ *    relation edits mid-turn (`message.relations`), and the final message can
+ *    escalate the session (carried on its `Message.escalate`, applied at
+ *    `message.end`). So the channel carries typed events, not just text deltas.
  *  • The **ambient stream** — `GET /v1/events`. A scheduled run fires on its
  *    cadence; a standing approval makes the daemon edit the graph unprompted; a
  *    connector's auth expires. None of these has a pending request to answer.
@@ -34,14 +35,6 @@ export interface MessageDeltaEvent {
   /** Text appended to the message's content. */
   text: string
 }
-/** A mid-turn escalation: the assistant attaches a workspace or a repo. The
- *  client applies it to the live session exactly as the guided tour does. */
-export interface MessageEscalateEvent {
-  type: 'message.escalate'
-  sessionId: string
-  messageId: string
-  escalate: 'workspace' | 'repo'
-}
 /** A mid-turn relation proposal: the assistant offers graph edits as a card. */
 export interface MessageRelationsEvent {
   type: 'message.relations'
@@ -66,7 +59,9 @@ export interface RunStartedEvent {
   sessionId: string
   run: ScheduledRun
 }
-/** A running scheduled run advanced a step (relights the detail rail). */
+/** A running scheduled run advanced a step (relights the detail rail). Reserved:
+ *  the mock's runs go started→finished in one beat (see store.runSchedule) and emit
+ *  no progress yet; kept for a backend that drives genuinely stepped runs. */
 export interface RunProgressEvent {
   type: 'run.progress'
   taskId: string
@@ -83,7 +78,9 @@ export interface RunFinishedEvent {
   run: ScheduledRun
 }
 /** A relation edit was applied — by a user confirmation, or by a schedule's
- *  standing approval acting unprompted on a run. Open sections re-read. */
+ *  standing approval acting unprompted on a run. Open sections re-read. The mock
+ *  emits only `by: 'user'` today (store.applyRelationOp); `'standing'` is reserved
+ *  for when the daemon applies a standing-approved graph edit on a run. */
 export interface RelationAppliedEvent {
   type: 'relation.applied'
   op: RelationOp
@@ -96,7 +93,8 @@ export interface RecentsChangedEvent {
   ids: string[]
 }
 /** A connector / MCP server's auth or setup state changed asynchronously
- *  (OAuth callback completed, token expired, admin revoked). */
+ *  (OAuth callback completed, token expired, admin revoked). Reserved: the mock's
+ *  connector state is static seed data, so nothing emits this yet. */
 export interface ConnectorStatusEvent {
   type: 'connector.status'
   id: string
@@ -161,7 +159,6 @@ export type ServerEvent =
   | HelloEvent
   | MessageStartEvent
   | MessageDeltaEvent
-  | MessageEscalateEvent
   | MessageRelationsEvent
   | MessageEndEvent
   | RunStartedEvent
@@ -185,6 +182,5 @@ export type ServerEventType = ServerEvent['type']
 export type ReplyStreamEvent =
   | MessageStartEvent
   | MessageDeltaEvent
-  | MessageEscalateEvent
   | MessageRelationsEvent
   | MessageEndEvent

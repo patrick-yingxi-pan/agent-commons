@@ -4,9 +4,11 @@
 import type {
   ApplyOpRequest,
   AttachContextRequest,
+  PushRecentRequest,
   RegisterAgentRequest,
   SendMessageRequest,
   SetAgentCapabilitiesRequest,
+  UpdateScheduleRequest,
 } from '../../contract/index.ts'
 import { Router } from '../http/router.ts'
 import { sendJson, sendError } from '../http/respond.ts'
@@ -456,7 +458,7 @@ export function buildRouter(): Router {
   })
   // Set a routine's enabled state (or toggle when `enabled` is omitted).
   r.patch('/schedules/:id', async ({ res, params, body }) => {
-    const { enabled } = await body<{ enabled?: boolean }>()
+    const { enabled } = await body<UpdateScheduleRequest>()
     const task = store.setScheduleEnabled(params.id, enabled)
     if (!task) return sendError(res, 'not_found', `No schedule '${params.id}'`)
     sendJson(res, task)
@@ -485,7 +487,7 @@ export function buildRouter(): Router {
     sendJson(res, store.recents())
   })
   r.post('/recents/:type', async ({ res, params, body }) => {
-    const { id } = await body<{ id?: string }>()
+    const { id } = await body<PushRecentRequest>()
     if (!id) return sendError(res, 'bad_request', 'id is required')
     sendJson(res, store.pushRecent(params.type as import('../../contract/index.ts').ContextTypeId, id))
   })

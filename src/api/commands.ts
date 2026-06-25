@@ -13,6 +13,7 @@ import {
   type ContextTypeId,
   type EffectReport,
   type SyncEffectsResult,
+  type PushRecentRequest,
   type RecentsSnapshot,
   type RelationGraph,
   type RelationOp,
@@ -25,6 +26,7 @@ import {
   type Session,
   type SessionContext,
   type SessionWorkspace,
+  type UpdateScheduleRequest,
 } from '../../contract/index.ts'
 import { API_BASE, apiDelete, apiGet, apiPatch, apiPost } from './client.ts'
 import { invalidate, mutate, peek, setData } from './cache.ts'
@@ -36,8 +38,6 @@ export interface SendHandlers {
   onStart?: (messageId: string, message: Extract<ReplyStreamEvent, { type: 'message.start' }>['message']) => void
   /** A chunk of assistant text to append to the message. */
   onDelta?: (messageId: string, text: string) => void
-  /** A mid-turn escalation (attach a workspace / repo). */
-  onEscalate?: (messageId: string, escalate: 'workspace' | 'repo') => void
   /** A mid-turn relation proposal (render the confirm card). */
   onRelations?: (messageId: string, relationActions: Extract<ReplyStreamEvent, { type: 'message.relations' }>['relationActions']) => void
   /** The final, complete assistant message (authoritative). */
@@ -148,7 +148,7 @@ export async function runScheduleNow(id: string): Promise<void> {
 
 /** Set a routine's enabled state (omit to toggle server-side). */
 export async function toggleScheduleEnabled(id: string, enabled?: boolean): Promise<void> {
-  await apiPatch(paths.schedule(id), { enabled })
+  await apiPatch(paths.schedule(id), { enabled } satisfies UpdateScheduleRequest)
   invalidate(keys.schedules)
   invalidate(keys.recentRuns)
 }
@@ -245,7 +245,7 @@ export function pushRecentId(type: ContextTypeId, id: string): void {
     const cur = snap[type] ?? []
     return { ...snap, [type]: [id, ...cur.filter((x) => x !== id)] }
   })
-  apiPost(paths.recentsType(type), { id }).catch(() => invalidate(keys.recents))
+  apiPost(paths.recentsType(type), { id } satisfies PushRecentRequest).catch(() => invalidate(keys.recents))
 }
 
 // ── Native capabilities ─────────────────────────────────────────────────────
@@ -314,9 +314,6 @@ function dispatch(event: ReplyStreamEvent, h: SendHandlers): void {
       break
     case 'message.delta':
       h.onDelta?.(event.messageId, event.text)
-      break
-    case 'message.escalate':
-      h.onEscalate?.(event.messageId, event.escalate)
       break
     case 'message.relations':
       h.onRelations?.(event.messageId, event.relationActions)
