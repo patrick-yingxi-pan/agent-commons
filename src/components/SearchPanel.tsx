@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import type { ArtifactKind, Session, SectionId } from '../types'
 import { SECTION_META, SECTION_ORDER } from '../lib/sections'
+import { useFocusTrap } from '../lib/useFocusTrap'
 import { useArtifacts, useProjects, useSchedules } from '../api'
 
 const KIND_ICON: Record<ArtifactKind, LucideIcon> = {
@@ -51,15 +52,16 @@ export function SearchPanel({
 }) {
   const [q, setQ] = useState('')
   const [active, setActive] = useState(0)
+  const dialogRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   // Projects / artifacts / schedules come from the server (sessions arrive as a prop).
   const projects = useProjects().data ?? []
   const artifacts = useArtifacts().data ?? []
   const schedules = useSchedules().data ?? []
 
-  useEffect(() => {
-    inputRef.current?.focus()
-  }, [])
+  // Focus the search input on open, trap Tab within the palette, close on
+  // Escape, restore focus on close.
+  useFocusTrap(dialogRef, onClose, { initialFocus: inputRef })
 
   const groups = useMemo<Group[]>(() => {
     const needle = q.trim().toLowerCase()
@@ -154,10 +156,8 @@ export function SearchPanel({
     } else if (e.key === 'Enter') {
       e.preventDefault()
       flat[active]?.run()
-    } else if (e.key === 'Escape') {
-      e.preventDefault()
-      onClose()
     }
+    // Escape (and the Tab trap) are handled by useFocusTrap.
   }
 
   let idx = -1
@@ -172,6 +172,7 @@ export function SearchPanel({
     >
       <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" />
       <div
+        ref={dialogRef}
         onMouseDown={(e) => e.stopPropagation()}
         className="relative flex max-h-[68vh] w-[580px] max-w-full flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong"
       >

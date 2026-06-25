@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 import { motion } from 'framer-motion'
 import {
   ArrowRight,
@@ -16,6 +16,7 @@ import {
   X,
 } from 'lucide-react'
 import { ClaudeMark } from './ClaudeMark'
+import { useFocusTrap } from '../lib/useFocusTrap'
 
 export function IntroOverlay({
   onClose,
@@ -27,38 +28,9 @@ export function IntroOverlay({
   const dialogRef = useRef<HTMLDivElement>(null)
   const tourBtnRef = useRef<HTMLButtonElement>(null)
 
-  // Modal a11y: move focus into the dialog on open, trap Tab within it, close
-  // on Escape, and restore focus to whatever opened it on close.
-  useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null
-    tourBtnRef.current?.focus()
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose()
-        return
-      }
-      if (e.key === 'Tab' && dialogRef.current) {
-        const nodes = dialogRef.current.querySelectorAll<HTMLElement>(
-          'button, a[href], input, [tabindex]:not([tabindex="-1"])',
-        )
-        if (nodes.length === 0) return
-        const first = nodes[0]
-        const last = nodes[nodes.length - 1]
-        if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault()
-          last.focus()
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault()
-          first.focus()
-        }
-      }
-    }
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('keydown', onKey)
-      opener?.focus?.()
-    }
-  }, [onClose])
+  // Modal a11y: focus the primary action on open, trap Tab within the dialog,
+  // close on Escape, and restore focus to whatever opened it on close.
+  useFocusTrap(dialogRef, onClose, { initialFocus: tourBtnRef })
 
   return (
     <motion.div

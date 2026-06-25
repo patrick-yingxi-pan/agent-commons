@@ -15,6 +15,7 @@ import type { ArtifactKind } from '../types'
 import type { ArtifactItem } from '../data/cowork'
 import type { ArtifactContent, DocBlock } from '../types'
 import { useArtifactContent } from '../api'
+import { useFocusTrap } from '../lib/useFocusTrap'
 
 export const KIND_ICON: Record<ArtifactKind, LucideIcon> = {
   doc: FileText,
@@ -508,13 +509,11 @@ export function ArtifactViewer({
   onAssignProject: (projectId: string | null) => void
   onClose: () => void
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  const dialogRef = useRef<HTMLDivElement>(null)
+
+  // Trap Tab within the viewer, close on Escape, restore focus on close (the
+  // viewer has no single primary field, so focus lands on the first control).
+  useFocusTrap(dialogRef, onClose)
 
   const Icon = KIND_ICON[artifact.kind]
 
@@ -528,6 +527,7 @@ export function ArtifactViewer({
     >
       <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" />
       <div
+        ref={dialogRef}
         onMouseDown={(e) => e.stopPropagation()}
         className="relative flex max-h-[80vh] w-[680px] max-w-full flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong"
       >

@@ -75,6 +75,7 @@ import {
   useSchedules,
 } from '../api'
 import { ArtifactThumb, ArtifactViewer, KIND_ICON, KIND_LABEL } from './artifactPreview'
+import { useFocusTrap } from '../lib/useFocusTrap'
 import { useRelations } from '../controller/useRelations'
 import { runSessionId, slug } from '../../contract/ids.ts'
 
@@ -251,18 +252,12 @@ function NewProjectDialog({
 }) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const dialogRef = useRef<HTMLDivElement>(null)
   const nameRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
-    nameRef.current?.focus()
-  }, [])
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  // Focus the name field on open, trap Tab within the dialog, close on Escape,
+  // restore focus on close.
+  useFocusTrap(dialogRef, onClose, { initialFocus: nameRef })
 
   const canCreate = name.trim().length > 0
   const submit = () => {
@@ -279,6 +274,7 @@ function NewProjectDialog({
     >
       <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" />
       <div
+        ref={dialogRef}
         onMouseDown={(e) => e.stopPropagation()}
         className="relative flex h-fit w-[460px] max-w-full flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong"
       >
@@ -694,18 +690,12 @@ function NewArtifactDialog({
   const [kind, setKind] = useState<ArtifactKind>('doc')
   const [excerpt, setExcerpt] = useState('')
   const [projectId, setProjectId] = useState<string | null>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
   const nameRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
-    nameRef.current?.focus()
-  }, [])
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  // Focus the name field on open, trap Tab within the dialog, close on Escape,
+  // restore focus on close.
+  useFocusTrap(dialogRef, onClose, { initialFocus: nameRef })
 
   const canCreate = name.trim().length > 0
   const submit = () => {
@@ -724,6 +714,7 @@ function NewArtifactDialog({
     >
       <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" />
       <div
+        ref={dialogRef}
         onMouseDown={(e) => e.stopPropagation()}
         className="relative flex h-fit w-[480px] max-w-full flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong"
       >

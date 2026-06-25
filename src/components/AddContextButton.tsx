@@ -21,6 +21,7 @@ import { gradientFor } from '../lib/thumbs'
 import { GITHUB_CONNECTOR, GITHUB_CONNECTOR_ID } from '../lib/connectors'
 import { repoIdForLabel } from '../data/liveSession'
 import { getDecision, setDecision } from '../lib/prefs'
+import { useFocusTrap } from '../lib/useFocusTrap'
 import { useRecentIds } from '../lib/recents'
 import { RecentOverflowList, FlyoutPanel, useFlyout, type OverflowRow } from './RecentOverflowList'
 import {
@@ -341,11 +342,14 @@ function BrowseDialog({
   onConfirm: (id: string) => void
 }) {
   const [picked, setPicked] = useState<string | null>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
   const items = groups.flatMap((g) => g.items)
   const pickedItem = items.find((i) => i.id === picked) ?? null
 
-  // Capture-phase Escape so this modal closes before the popover's own Escape
-  // handler (which would otherwise tear the whole popover down).
+  // Trap Tab within the browse window and restore focus on close. Escape is
+  // handled below in capture phase (closeOnEscape: false) so it closes this
+  // modal before the popover's own Escape handler tears the whole popover down.
+  useFocusTrap(dialogRef, onCancel, { closeOnEscape: false })
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -367,6 +371,7 @@ function BrowseDialog({
     >
       <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" />
       <div
+        ref={dialogRef}
         onMouseDown={(e) => e.stopPropagation()}
         className="relative flex max-h-[72vh] w-[560px] max-w-[92vw] flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong"
       >
