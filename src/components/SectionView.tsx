@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   Clock,
   Copy,
   FileText,
@@ -55,6 +56,8 @@ import {
   parseCadence,
 } from '../lib/cadence'
 import { EFFORTS, MODELS, composeModelLabel, parseModelLabel, type Effort, type ModelId } from '../lib/models'
+import { STEP_TOOLS } from '../lib/stepTools'
+import { cleanSteps, moveStep, removeStep } from '../lib/steps'
 import { ConnectorDetailBody } from './ConnectorPanel'
 import { AddContextButton } from './AddContextButton'
 import { Chip } from './Chip'
@@ -77,6 +80,7 @@ import {
   type ScheduleTemplate,
   type StepTool,
   type StepToolTone,
+  type WorkflowStep,
 } from '../data/cowork'
 import {
   addScheduleFromSeed,
@@ -2702,6 +2706,7 @@ function RailRow({
  *  all lit to reflect the selected run. */
 function WorkflowCard({ task, run, running }: { task: ScheduledTask; run: ScheduledRun | null; running: boolean }) {
   const rel = useRelations()
+  const [editing, setEditing] = useState(false)
   const reached = run ? run.reachedStep : 0
   const failedAt = run && run.status === 'failed' ? run.reachedStep : -1
   // A standing "save X / open a session each run" edit overrides where the
@@ -2726,9 +2731,22 @@ function WorkflowCard({ task, run, running }: { task: ScheduledTask; run: Schedu
     <div className="rounded-xl border border-line bg-surface shadow-sm">
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
         <span className="text-[13px] font-semibold text-ink">Workflow</span>
-        <span className="text-[12px] text-ink-faint">
-          {task.steps.length} step{task.steps.length === 1 ? '' : 's'} · runs top to bottom
-        </span>
+        {editing ? (
+          <span className="text-[12px] font-medium text-ink-faint">Editing steps</span>
+        ) : (
+          <div className="flex items-center gap-2.5">
+            <span className="text-[12px] text-ink-faint">
+              {task.steps.length} step{task.steps.length === 1 ? '' : 's'} · runs top to bottom
+            </span>
+            <button
+              onClick={() => setEditing(true)}
+              className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] font-medium text-ink-faint transition hover:bg-panel-2 hover:text-ink"
+            >
+              <Pencil size={12} />
+              Edit
+            </button>
+          </div>
+        )}
       </div>
       <div className="p-4">
         <div className="mb-3 flex items-center gap-2.5 rounded-lg bg-panel-2/40 px-3 py-2.5">
@@ -2739,32 +2757,187 @@ function WorkflowCard({ task, run, running }: { task: ScheduledTask; run: Schedu
           <span className="min-w-0 truncate text-[13px] text-ink">{task.trigger}</span>
         </div>
 
-        <div className="relative">
-          {task.steps.map((s, i) => (
-            <RailRow key={s.id} state={stepState(i)} connect marker={i + 1}>
-              <div className="pb-5">
-                <ToolChip tool={s.tool} />
-                <p className="mt-1 text-[13px] text-ink">{s.action}</p>
+        {editing ? (
+          <StepsEditor task={task} onClose={() => setEditing(false)} />
+        ) : (
+          <div className="relative">
+            {task.steps.map((s, i) => (
+              <RailRow key={s.id} state={stepState(i)} connect marker={i + 1}>
+                <div className="pb-5">
+                  <ToolChip tool={s.tool} />
+                  <p className="mt-1 text-[13px] text-ink">{s.action}</p>
+                </div>
+              </RailRow>
+            ))}
+
+            <RailRow state={deliveredState} connect={false} delivery marker={<ToolGlyph tool={task.delivery.tool} size={14} />}>
+              <div className="rounded-lg bg-accent-tint px-3 py-2.5">
+                <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-accent-strong">
+                  <SendHorizontal size={12} />
+                  Deliver
+                </div>
+                <div className="mt-1 text-[13px] font-medium text-ink">
+                  {task.delivery.tool.label} · {deliveryTarget}
+                </div>
+                {!overrideTarget && task.delivery.note && (
+                  <p className="mt-0.5 text-[12px] text-ink-soft">{task.delivery.note}</p>
+                )}
               </div>
             </RailRow>
-          ))}
-
-          <RailRow state={deliveredState} connect={false} delivery marker={<ToolGlyph tool={task.delivery.tool} size={14} />}>
-            <div className="rounded-lg bg-accent-tint px-3 py-2.5">
-              <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-accent-strong">
-                <SendHorizontal size={12} />
-                Deliver
-              </div>
-              <div className="mt-1 text-[13px] font-medium text-ink">
-                {task.delivery.tool.label} · {deliveryTarget}
-              </div>
-              {!overrideTarget && task.delivery.note && (
-                <p className="mt-0.5 text-[12px] text-ink-soft">{task.delivery.note}</p>
-              )}
-            </div>
-          </RailRow>
-        </div>
+          </div>
+        )}
       </div>
+    </div>
+  )
+}
+
+/** The workflow step editor — a draft of the ordered steps you can reorder, edit
+ *  (action text + tool), add to, and remove from, committed as one
+ *  updateSchedule({ steps }) on Save (an entity field edit; the standing
+ *  scheduleExtraTools overlay is a separate relation surface and is untouched). */
+function StepsEditor({ task, onClose }: { task: ScheduledTask; onClose: () => void }) {
+  const [steps, setSteps] = useState<WorkflowStep[]>(() => task.steps.map((s) => ({ ...s })))
+  const [picking, setPicking] = useState<string | null>(null)
+
+  const setAction = (i: number, action: string) =>
+    setSteps((s) => s.map((x, j) => (j === i ? { ...x, action } : x)))
+  const setTool = (i: number, tool: StepTool) => {
+    setSteps((s) => s.map((x, j) => (j === i ? { ...x, tool } : x)))
+    setPicking(null)
+  }
+  const add = () =>
+    setSteps((s) => [...s, { id: crypto.randomUUID(), action: '', tool: STEP_TOOLS[0] }])
+  const save = () => {
+    void updateSchedule(task.id, { steps: cleanSteps(steps) })
+    onClose()
+  }
+
+  return (
+    <div>
+      <div className="space-y-2">
+        {steps.map((s, i) => (
+          <div key={s.id} className="flex items-start gap-2 rounded-lg border border-line bg-panel-2/25 p-2">
+            <span className="mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-line-strong bg-surface text-[11px] font-semibold text-ink-soft">
+              {i + 1}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="relative inline-block">
+                <button
+                  onClick={() => setPicking((p) => (p === s.id ? null : s.id))}
+                  aria-haspopup="dialog"
+                  aria-expanded={picking === s.id}
+                  className="inline-flex items-center gap-1 rounded-md bg-surface px-1.5 py-0.5 text-[11px] font-medium text-ink ring-1 ring-line-strong transition hover:ring-accent"
+                >
+                  <ToolGlyph tool={s.tool} size={12} />
+                  {s.tool.label}
+                  {s.tool.needsAuth && <span className="ml-0.5 h-1.5 w-1.5 rounded-full bg-amber-500" />}
+                  <ChevronDown size={11} className="text-ink-faint" />
+                </button>
+                {picking === s.id && <StepToolPicker onPick={(t) => setTool(i, t)} onClose={() => setPicking(null)} />}
+              </div>
+              <textarea
+                value={s.action}
+                onChange={(e) => setAction(i, e.target.value)}
+                rows={2}
+                placeholder="What this step does…"
+                className="mt-1.5 w-full resize-none rounded-md border border-line bg-surface px-2 py-1.5 text-[13px] leading-snug text-ink outline-none transition placeholder:text-ink-faint focus:border-accent"
+              />
+            </div>
+            <div className="flex shrink-0 flex-col items-center gap-0.5">
+              <button
+                onClick={() => setSteps((cur) => moveStep(cur, i, -1))}
+                disabled={i === 0}
+                title="Move up"
+                aria-label="Move step up"
+                className="flex h-5 w-5 items-center justify-center rounded text-ink-faint transition hover:bg-panel-2 hover:text-ink disabled:opacity-30"
+              >
+                <ChevronUp size={13} />
+              </button>
+              <button
+                onClick={() => setSteps((cur) => moveStep(cur, i, 1))}
+                disabled={i === steps.length - 1}
+                title="Move down"
+                aria-label="Move step down"
+                className="flex h-5 w-5 items-center justify-center rounded text-ink-faint transition hover:bg-panel-2 hover:text-ink disabled:opacity-30"
+              >
+                <ChevronDown size={13} />
+              </button>
+              <button
+                onClick={() => setSteps((cur) => removeStep(cur, i))}
+                title="Remove step"
+                aria-label="Remove step"
+                className="flex h-5 w-5 items-center justify-center rounded text-ink-faint transition hover:bg-removed-bg hover:text-removed"
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+          </div>
+        ))}
+        {steps.length === 0 && (
+          <p className="rounded-lg border border-dashed border-line py-4 text-center text-[12px] text-ink-faint">
+            No steps yet — add the first one.
+          </p>
+        )}
+      </div>
+
+      <button
+        onClick={add}
+        className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-line-strong py-2 text-[12px] font-medium text-ink-soft transition hover:border-accent hover:text-ink"
+      >
+        <Plus size={14} />
+        Add step
+      </button>
+
+      <div className="mt-3 flex items-center justify-end gap-2 border-t border-line pt-3">
+        <button onClick={onClose} className="rounded-md px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:text-ink">
+          Cancel
+        </button>
+        <button
+          onClick={save}
+          className="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas shadow-sm transition hover:opacity-90"
+        >
+          <Check size={13} />
+          Save workflow
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/** The per-step tool picker popover — the STEP_TOOLS catalog, tinted by tone. */
+function StepToolPicker({ onPick, onClose }: { onPick: (tool: StepTool) => void; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+    }
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [onClose])
+
+  return (
+    <div
+      ref={ref}
+      role="dialog"
+      aria-label="Pick a tool"
+      className="absolute left-0 top-full z-30 mt-1 max-h-[240px] w-[200px] overflow-y-auto rounded-xl border border-line-strong bg-surface p-1 shadow-xl"
+    >
+      {STEP_TOOLS.map((t) => (
+        <button
+          key={t.id}
+          onClick={() => onPick(t)}
+          className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1.5 text-left transition hover:bg-panel-2"
+        >
+          <ToolGlyph tool={t} size={14} />
+          <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-ink">{t.label}</span>
+          {t.needsAuth && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" title="Needs auth" />}
+        </button>
+      ))}
     </div>
   )
 }
