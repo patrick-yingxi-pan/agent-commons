@@ -1,41 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Check, ChevronDown, Workflow, Zap } from 'lucide-react'
-
-/** Reasoning-effort ladder — a single continuum from quick to maximal. */
-type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
-type ModelId = 'opus' | 'sonnet' | 'haiku'
-
-const MODELS = [
-  {
-    id: 'opus',
-    name: 'Claude Opus 4.8',
-    short: 'Opus 4.8',
-    blurb: 'Most capable — best for hard reasoning & code.',
-    isOpus: true,
-  },
-  {
-    id: 'sonnet',
-    name: 'Claude Sonnet 4.6',
-    short: 'Sonnet 4.6',
-    blurb: 'Fast and balanced for everyday work.',
-    isOpus: false,
-  },
-  {
-    id: 'haiku',
-    name: 'Claude Haiku 4.5',
-    short: 'Haiku 4.5',
-    blurb: 'Fastest — for lightweight tasks.',
-    isOpus: false,
-  },
-] as const
-
-const EFFORTS: { id: Effort; label: string; blurb: string }[] = [
-  { id: 'low', label: 'Low', blurb: 'Quick replies, minimal reasoning.' },
-  { id: 'medium', label: 'Medium', blurb: 'Balanced speed and depth.' },
-  { id: 'high', label: 'High', blurb: 'Deeper, step-by-step reasoning.' },
-  { id: 'xhigh', label: 'xHigh', blurb: 'Extended reasoning for hard, multi-file work.' },
-  { id: 'max', label: 'Max', blurb: 'Maximum reasoning for the hardest problems.' },
-]
+import { EFFORTS, MODELS, type Effort, type ModelId } from '../lib/models'
 
 /** The full composer config. Persisted so the user's last choice becomes the
  *  default next time — no adaptive guessing, just a sticky manual setting. */

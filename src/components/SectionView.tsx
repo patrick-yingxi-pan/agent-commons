@@ -45,6 +45,16 @@ import { FOLD_HEADER_CLASS } from '../lib/foldHeader'
 import { connectorIconFor } from '../lib/connectors'
 import { CHIP_TONES, type ChipTone } from '../lib/capabilities'
 import { addedToProjectContexts, contextsToConnectors, projectContextTone } from '../lib/projectContext'
+import {
+  type CadenceSpec,
+  type Frequency,
+  TIMED_FREQS,
+  WEEKDAY_NAMES,
+  describeCadence,
+  nextRunLabel,
+  parseCadence,
+} from '../lib/cadence'
+import { EFFORTS, MODELS, composeModelLabel, parseModelLabel, type Effort, type ModelId } from '../lib/models'
 import { ConnectorDetailBody } from './ConnectorPanel'
 import { AddContextButton } from './AddContextButton'
 import { Chip } from './Chip'
@@ -2506,27 +2516,7 @@ function ScheduledDetail({
         </div>
 
         <aside className="w-full shrink-0 space-y-4 lg:w-72">
-          <SidePanel title="Schedule" icon={<Clock size={14} />}>
-            <div className="space-y-2 text-[13px] text-ink">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-ink-soft">Cadence</span>
-                <span className="text-right font-medium">{task.cadence}</span>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-ink-soft">Next run</span>
-                <span className="text-right font-medium">{task.enabled ? task.next : 'Paused'}</span>
-              </div>
-              {task.timezone && (
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-ink-soft">Timezone</span>
-                  <span className="text-right font-medium">{task.timezone}</span>
-                </div>
-              )}
-            </div>
-            {task.startedLabel && (
-              <p className="mt-2.5 border-t border-line pt-2.5 text-[11px] text-ink-faint">{task.startedLabel}</p>
-            )}
-          </SidePanel>
+          <SchedulePanel task={task} />
 
           <SidePanel title="Delivers to" icon={<SendHorizontal size={14} />}>
             <div className="flex items-center gap-2">
@@ -2558,13 +2548,7 @@ function ScheduledDetail({
 
           <ContextToolsPanel task={task} />
 
-          <SidePanel title="Model" icon={<Sparkles size={14} />}>
-            <span className="inline-flex items-center gap-1.5 rounded-lg bg-panel-2 px-3 py-1 text-[12px] font-medium text-ink">
-              <ClaudeMark size={13} />
-              {task.model}
-            </span>
-            <p className="mt-2 text-[11px] leading-relaxed text-ink-faint">Runs headless — no approval prompts.</p>
-          </SidePanel>
+          <ModelPanel task={task} />
         </aside>
       </div>
     </Page>
@@ -2912,6 +2896,311 @@ function ContextToolsPanel({ task }: { task: ScheduledTask }) {
         ))}
       </div>
     </SidePanel>
+  )
+}
+
+/** The frequencies offered by the cadence editor, and a small timezone set. */
+const FREQ_OPTIONS: { id: Frequency; label: string }[] = [
+  { id: 'every-30m', label: 'Every 30 min' },
+  { id: 'hourly', label: 'Hourly' },
+  { id: 'every-2h', label: 'Every 2 hours' },
+  { id: 'weekdays', label: 'Weekdays' },
+  { id: 'daily', label: 'Daily' },
+  { id: 'weekly', label: 'Weekly' },
+]
+const TIMEZONES = [
+  'America/Los_Angeles',
+  'America/Denver',
+  'America/Chicago',
+  'America/New_York',
+  'UTC',
+  'Europe/London',
+  'Europe/Berlin',
+  'Asia/Tokyo',
+  'Asia/Shanghai',
+  'Australia/Sydney',
+]
+
+/** The Schedule side panel — cadence / next-run / timezone, now editable. The
+ *  cadence chip, the WHEN sentence (task.trigger), and the next-run estimate are
+ *  all DERIVED from one structured pick (lib/cadence), so editing the frequency
+ *  keeps the three coherent. These are entity fields → a per-action updateSchedule. */
+function SchedulePanel({ task }: { task: ScheduledTask }) {
+  const [editing, setEditing] = useState(false)
+  return (
+    <SidePanel title="Schedule" icon={<Clock size={14} />}>
+      <div className="space-y-2 text-[13px] text-ink">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-ink-soft">Cadence</span>
+          <span className="text-right font-medium">{task.cadence}</span>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-ink-soft">Next run</span>
+          <span className="text-right font-medium">{task.enabled ? task.next : 'Paused'}</span>
+        </div>
+        {task.timezone && (
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-ink-soft">Timezone</span>
+            <span className="text-right font-medium">{task.timezone}</span>
+          </div>
+        )}
+      </div>
+      <div className="relative mt-2.5 flex items-center justify-between gap-2 border-t border-line pt-2.5">
+        <button
+          onClick={() => setEditing((v) => !v)}
+          aria-haspopup="dialog"
+          aria-expanded={editing}
+          className="inline-flex items-center gap-1 text-[12px] font-medium text-ink-faint transition hover:text-ink"
+        >
+          <Pencil size={12} />
+          Edit schedule
+        </button>
+        {task.startedLabel && <span className="truncate text-[11px] text-ink-faint">{task.startedLabel}</span>}
+        {editing && <CadenceEditor task={task} onClose={() => setEditing(false)} />}
+      </div>
+    </SidePanel>
+  )
+}
+
+/** The cadence editor popover — a frequency picker (+ time / weekday / timezone),
+ *  with a live preview of the derived cadence + next-run. Apply writes the three
+ *  derived fields via updateSchedule in one patch. */
+function CadenceEditor({ task, onClose }: { task: ScheduledTask; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [spec, setSpec] = useState<CadenceSpec>(() => parseCadence(task.cadence) ?? { freq: 'daily', time: '09:00' })
+  const [tz, setTz] = useState(task.timezone ?? 'America/Los_Angeles')
+
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+    }
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [onClose])
+
+  const timed = TIMED_FREQS.includes(spec.freq)
+  const preview = describeCadence(spec)
+  const next = nextRunLabel(spec, new Date())
+
+  const apply = () => {
+    const derived = describeCadence(spec)
+    void updateSchedule(task.id, {
+      cadence: derived.cadence,
+      trigger: derived.trigger,
+      next: nextRunLabel(spec, new Date()),
+      timezone: tz,
+    })
+    onClose()
+  }
+
+  return (
+    <div
+      ref={ref}
+      role="dialog"
+      aria-label="Edit schedule"
+      className="absolute right-0 top-full z-30 mt-1.5 w-[280px] rounded-xl border border-line-strong bg-surface p-3 shadow-xl"
+    >
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Frequency</div>
+      <div className="mt-1.5 grid grid-cols-2 gap-1">
+        {FREQ_OPTIONS.map((f) => {
+          const on = spec.freq === f.id
+          return (
+            <button
+              key={f.id}
+              onClick={() => setSpec((s) => ({ ...s, freq: f.id, time: s.time ?? '09:00', weekday: s.weekday ?? 1 }))}
+              aria-pressed={on}
+              className={`rounded-lg border px-2 py-1 text-[12px] font-medium transition ${
+                on ? 'border-accent bg-accent-tint text-accent-strong' : 'border-line bg-surface text-ink-soft hover:border-line-strong'
+              }`}
+            >
+              {f.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {spec.freq === 'weekly' && (
+        <label className="mt-2.5 block">
+          <span className="text-[11px] font-medium text-ink-soft">Day</span>
+          <select
+            value={spec.weekday ?? 1}
+            onChange={(e) => setSpec((s) => ({ ...s, weekday: Number(e.target.value) }))}
+            className="mt-1 w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-[13px] text-ink outline-none transition focus:border-accent"
+          >
+            {WEEKDAY_NAMES.map((n, i) => (
+              <option key={i} value={i}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
+      {timed && (
+        <label className="mt-2.5 block">
+          <span className="text-[11px] font-medium text-ink-soft">Time</span>
+          <input
+            type="time"
+            value={spec.time ?? '09:00'}
+            onChange={(e) => setSpec((s) => ({ ...s, time: e.target.value }))}
+            className="mt-1 w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-[13px] text-ink outline-none transition focus:border-accent"
+          />
+        </label>
+      )}
+
+      <label className="mt-2.5 block">
+        <span className="text-[11px] font-medium text-ink-soft">Timezone</span>
+        <select
+          value={tz}
+          onChange={(e) => setTz(e.target.value)}
+          className="mt-1 w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-[13px] text-ink outline-none transition focus:border-accent"
+        >
+          {TIMEZONES.map((z) => (
+            <option key={z} value={z}>
+              {z}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <div className="mt-3 rounded-lg bg-panel-2/50 px-2.5 py-2 text-[12px] text-ink-soft">
+        <span className="font-medium text-ink">{preview.cadence}</span> · next {next}
+      </div>
+
+      <div className="mt-2.5 flex items-center justify-end gap-2">
+        <button onClick={onClose} className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:text-ink">
+          Cancel
+        </button>
+        <button
+          onClick={apply}
+          className="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas shadow-sm transition hover:opacity-90"
+        >
+          <Check size={13} />
+          Apply
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/** The Model side panel — the model + effort the routine runs on, now a picker
+ *  (entity field → per-action updateSchedule). The stored label is composed from
+ *  the shared model/effort catalog (lib/models), the same one the composer uses. */
+function ModelPanel({ task }: { task: ScheduledTask }) {
+  const [editing, setEditing] = useState(false)
+  return (
+    <SidePanel title="Model" icon={<Sparkles size={14} />}>
+      <div className="relative">
+        <button
+          onClick={() => setEditing((v) => !v)}
+          title="Change model & effort"
+          aria-haspopup="dialog"
+          aria-expanded={editing}
+          className="group inline-flex max-w-full items-center gap-1.5 rounded-lg bg-panel-2 px-3 py-1 text-[12px] font-medium text-ink ring-1 ring-transparent transition hover:ring-line-strong"
+        >
+          <ClaudeMark size={13} />
+          <span className="truncate">{task.model}</span>
+          <ChevronDown size={12} className="shrink-0 text-ink-faint transition group-hover:text-ink-soft" />
+        </button>
+        {editing && <ScheduleModelPicker task={task} onClose={() => setEditing(false)} />}
+      </div>
+      <p className="mt-2 text-[11px] leading-relaxed text-ink-faint">Runs headless — no approval prompts.</p>
+    </SidePanel>
+  )
+}
+
+/** The model + effort picker for a routine — reuses the shared catalog and the
+ *  composer's two-section layout (model radios + an effort ladder). Each pick
+ *  applies live via updateSchedule({ model }); "Done" closes. */
+function ScheduleModelPicker({ task, onClose }: { task: ScheduledTask; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const init = parseModelLabel(task.model)
+  const [modelId, setModelId] = useState<ModelId>(init.modelId)
+  const [effort, setEffort] = useState<Effort>(init.effort)
+
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+    }
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [onClose])
+
+  const pickModel = (id: ModelId) => {
+    setModelId(id)
+    void updateSchedule(task.id, { model: composeModelLabel(id, effort) })
+  }
+  const pickEffort = (e: Effort) => {
+    setEffort(e)
+    void updateSchedule(task.id, { model: composeModelLabel(modelId, e) })
+  }
+
+  return (
+    <div
+      ref={ref}
+      role="dialog"
+      aria-label="Model and effort"
+      className="absolute bottom-full right-0 z-30 mb-1.5 w-[280px] rounded-xl border border-line-strong bg-surface p-2 shadow-xl"
+    >
+      <div className="px-1.5 pb-1 pt-0.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Model</div>
+      {MODELS.map((m) => {
+        const on = m.id === modelId
+        return (
+          <button
+            key={m.id}
+            onClick={() => pickModel(m.id)}
+            className={`flex w-full items-start gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition ${
+              on ? 'bg-panel-2' : 'hover:bg-panel-2/60'
+            }`}
+          >
+            <span
+              className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                on ? 'border-accent bg-accent text-white' : 'border-line-strong'
+              }`}
+            >
+              {on && <Check size={11} strokeWidth={3} />}
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[13px] font-medium text-ink">{m.name}</span>
+              <span className="block text-[11px] leading-snug text-ink-faint">{m.blurb}</span>
+            </span>
+          </button>
+        )
+      })}
+      <div className="my-1.5 border-t border-line" />
+      <div className="px-1.5 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Effort</div>
+      <div className="flex gap-1 rounded-lg bg-panel-2 p-0.5">
+        {EFFORTS.map((e) => {
+          const on = e.id === effort
+          return (
+            <button
+              key={e.id}
+              onClick={() => pickEffort(e.id)}
+              className={`flex-1 rounded-md px-1 py-1 text-[12px] font-medium transition ${
+                on ? 'bg-surface text-ink shadow-sm ring-1 ring-line-strong' : 'text-ink-soft hover:text-ink'
+              }`}
+            >
+              {e.label}
+            </button>
+          )
+        })}
+      </div>
+      <div className="mt-2 flex justify-end px-1">
+        <button onClick={onClose} className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:text-ink">
+          Done
+        </button>
+      </div>
+    </div>
   )
 }
 
