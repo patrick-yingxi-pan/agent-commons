@@ -469,10 +469,12 @@ export function buildRouter(): Router {
     if (!run) return sendError(res, 'not_found', `No schedule '${params.id}'`)
     sendJson(res, run)
   })
-  // Set a routine's enabled state (or toggle when `enabled` is omitted).
+  // Patch a routine's own fields — enabled, name, prompt, cadence, model, … (the
+  // entity edits behind the detail page). Cross-entity bindings (deliver to an
+  // artifact/session, add a tool) go through POST /relations/ops instead.
   r.patch('/schedules/:id', async ({ res, params, body }) => {
-    const { enabled } = await body<UpdateScheduleRequest>()
-    const task = store.setScheduleEnabled(params.id, enabled)
+    const patch = await body<UpdateScheduleRequest>()
+    const task = store.updateSchedule(params.id, patch)
     if (!task) return sendError(res, 'not_found', `No schedule '${params.id}'`)
     sendJson(res, task)
   })

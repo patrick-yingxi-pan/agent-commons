@@ -38,6 +38,7 @@ import type {
   Session,
   SessionContext,
   SessionWorkspace,
+  UpdateScheduleRequest,
   UsageSnapshot,
 } from '../contract/index.ts'
 import {
@@ -648,6 +649,28 @@ export const store = {
     const task = schedules.find((t) => t.id === id)
     if (!task) return undefined
     task.enabled = enabled ?? !task.enabled
+    persist()
+    return task
+  },
+  /** Merge a partial patch of a routine's OWN fields (the entity edits behind the
+   *  detail page — name, prompt, cadence, model, steps, …). Only the fields present
+   *  in the patch are written; id / runs / run-derived state are never touched
+   *  (cross-entity bindings live in the relation graph, not here). Returns the
+   *  updated task, or undefined if no routine has that id. */
+  updateSchedule(id: string, patch: UpdateScheduleRequest): ScheduledTask | undefined {
+    const task = schedules.find((t) => t.id === id)
+    if (!task) return undefined
+    if (patch.enabled !== undefined) task.enabled = patch.enabled
+    if (patch.name !== undefined) task.name = patch.name
+    if (patch.prompt !== undefined) task.prompt = patch.prompt
+    if (patch.cadence !== undefined) task.cadence = patch.cadence
+    if (patch.trigger !== undefined) task.trigger = patch.trigger
+    if (patch.next !== undefined) task.next = patch.next
+    if (patch.timezone !== undefined) task.timezone = patch.timezone
+    if (patch.model !== undefined) task.model = patch.model
+    if (patch.notifyOnFailure !== undefined) task.notifyOnFailure = patch.notifyOnFailure
+    if (patch.delivery !== undefined) task.delivery = patch.delivery
+    if (patch.steps !== undefined) task.steps = patch.steps
     persist()
     return task
   },

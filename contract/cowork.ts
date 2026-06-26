@@ -112,6 +112,9 @@ export interface ScheduledTask {
   runs: ScheduledRun[]
   /** Model + effort the task runs on, e.g. "Claude Opus 4.8 · High". */
   model: string
+  /** Whether a failed run pings the owner. A routine-local setting (like
+   *  `enabled`), not a cross-entity relation. Absent = on (the prior UI default). */
+  notifyOnFailure?: boolean
   timezone?: string
   /** Faint "Started … · N runs" stamp for the Schedule panel. */
   startedLabel?: string

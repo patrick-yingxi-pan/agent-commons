@@ -82,9 +82,23 @@ export interface PushRecentRequest {
   id: string
 }
 
-/** Body of `PATCH /v1/schedules/:id` — toggle enabled, etc. */
+/** Body of `PATCH /v1/schedules/:id` — a partial patch of a routine's own
+ *  (entity-intrinsic) fields. Cross-entity bindings (deliver to an artifact /
+ *  session, add a tool) are NOT here — those are standing relation ops applied via
+ *  `POST /relations/ops`. The server merges only the fields present; it never
+ *  touches a routine's id, runs, or run-derived state. */
 export interface UpdateScheduleRequest {
   enabled?: boolean
+  name?: string
+  prompt?: string
+  cadence?: string
+  trigger?: string
+  next?: string
+  timezone?: string
+  model?: string
+  notifyOnFailure?: boolean
+  delivery?: import('./cowork.ts').ScheduledDelivery
+  steps?: import('./cowork.ts').WorkflowStep[]
 }
 
 /** A relation-graph snapshot: the editable edges, seeded from the catalog and

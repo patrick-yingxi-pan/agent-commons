@@ -75,6 +75,7 @@ import {
   runScheduleNow,
   setConnectorStatus,
   toggleScheduleEnabled,
+  updateSchedule,
   useDispatchRuns,
   useSavedContexts,
   useScheduleTemplates,
@@ -2386,7 +2387,11 @@ function ScheduledDetail({
   onOpenSession: (id: string) => void
   onRemove: () => void
 }) {
-  const [notifyOnFail, setNotifyOnFail] = useState(true)
+  // The notify-on-failure setting is now a persisted routine field (absent = on,
+  // the prior default). Editing the routine name is a per-action entity edit.
+  const notifyOnFail = task.notifyOnFailure ?? true
+  const [editingName, setEditingName] = useState(false)
+  const [nameDraft, setNameDraft] = useState(task.name)
   const rel = useRelations()
   // Standing-approved recurring effects: an AI "save X each run" / "open a
   // session each run" edit overrides where this schedule delivers, and the
@@ -2420,7 +2425,39 @@ function ScheduledDetail({
           </span>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h1 className="font-serif text-2xl font-semibold leading-tight text-ink">{task.name}</h1>
+              {editingName ? (
+                <input
+                  autoFocus
+                  value={nameDraft}
+                  onChange={(e) => setNameDraft(e.target.value)}
+                  onBlur={() => setEditingName(false)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setNameDraft(task.name)
+                      setEditingName(false)
+                    }
+                    if (e.key === 'Enter') {
+                      const next = nameDraft.trim()
+                      if (next && next !== task.name) void updateSchedule(task.id, { name: next })
+                      setEditingName(false)
+                    }
+                  }}
+                  aria-label="Routine name"
+                  className="min-w-0 max-w-full rounded-md border border-accent bg-surface px-1.5 py-0.5 font-serif text-2xl font-semibold leading-tight text-ink outline-none"
+                />
+              ) : (
+                <button
+                  onClick={() => {
+                    setNameDraft(task.name)
+                    setEditingName(true)
+                  }}
+                  title="Rename routine"
+                  className="group flex min-w-0 items-center gap-1.5 rounded-md text-left transition hover:bg-panel-2/60"
+                >
+                  <h1 className="truncate font-serif text-2xl font-semibold leading-tight text-ink">{task.name}</h1>
+                  <Pencil size={14} className="shrink-0 text-ink-faint opacity-0 transition group-hover:opacity-100" />
+                </button>
+              )}
               {running ? (
                 <StatusPill tone="warn" label="Running…" />
               ) : !task.enabled ? (
@@ -2463,7 +2500,7 @@ function ScheduledDetail({
 
       <div className="flex flex-col gap-6 lg:flex-row">
         <div className="min-w-0 flex-1 space-y-4">
-          <PromptCard prompt={task.prompt} />
+          <PromptCard prompt={task.prompt} onSave={(prompt) => void updateSchedule(task.id, { prompt })} />
           <WorkflowCard task={task} run={shownRun} running={running} />
           <RunHistoryCard task={task} onOpenRun={(runId) => onOpenSession(runSessionId(task.id, runId))} />
         </div>
@@ -2515,7 +2552,7 @@ function ScheduledDetail({
                 <Bell size={13} />
                 Notify me on failure
               </span>
-              <Toggle on={notifyOnFail} onToggle={() => setNotifyOnFail((v) => !v)} />
+              <Toggle on={notifyOnFail} onToggle={() => void updateSchedule(task.id, { notifyOnFailure: !notifyOnFail })} />
             </label>
           </SidePanel>
 
@@ -2534,22 +2571,89 @@ function ScheduledDetail({
   )
 }
 
-function PromptCard({ prompt }: { prompt: string }) {
+/** The verbatim instruction every run executes against — an entity field, so it's
+ *  inline-editable (✎ → textarea, ⌘/Ctrl+Enter or Save commits via updateSchedule).
+ *  Copy stays available in read mode. */
+function PromptCard({ prompt, onSave }: { prompt: string; onSave: (prompt: string) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(prompt)
+  const taRef = useRef<HTMLTextAreaElement>(null)
+
+  const startEdit = () => {
+    setDraft(prompt)
+    setEditing(true)
+  }
+  const save = () => {
+    const next = draft.trim()
+    if (next && next !== prompt) onSave(next)
+    setEditing(false)
+  }
+  useEffect(() => {
+    if (editing) taRef.current?.focus()
+  }, [editing])
+
   return (
     <div className="rounded-xl border border-line bg-surface p-4 shadow-sm">
       <div className="flex items-center justify-between">
         <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Instruction</span>
-        <Tooltip label="Copy">
-          <button
-            onClick={() => navigator.clipboard?.writeText(prompt)}
-            aria-label="Copy instruction"
-            className="flex h-6 w-6 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink-soft"
-          >
-            <Copy size={14} />
-          </button>
-        </Tooltip>
+        {!editing && (
+          <div className="flex items-center gap-0.5">
+            <Tooltip label="Edit">
+              <button
+                onClick={startEdit}
+                aria-label="Edit instruction"
+                className="flex h-6 w-6 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink-soft"
+              >
+                <Pencil size={13} />
+              </button>
+            </Tooltip>
+            <Tooltip label="Copy">
+              <button
+                onClick={() => navigator.clipboard?.writeText(prompt)}
+                aria-label="Copy instruction"
+                className="flex h-6 w-6 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink-soft"
+              >
+                <Copy size={14} />
+              </button>
+            </Tooltip>
+          </div>
+        )}
       </div>
-      <p className="mt-2 rounded-lg bg-panel-2/40 px-3 py-2.5 text-[13px] leading-relaxed text-ink">{prompt}</p>
+      {editing ? (
+        <div className="mt-2">
+          <textarea
+            ref={taRef}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setEditing(false)
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) save()
+            }}
+            rows={5}
+            placeholder="What should this routine do each time it runs?"
+            className="w-full resize-none rounded-lg border border-line bg-surface px-3 py-2.5 text-[13px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-accent"
+          />
+          <div className="mt-2 flex items-center justify-end gap-2">
+            <button
+              onClick={() => setEditing(false)}
+              className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:text-ink"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={save}
+              className="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas shadow-sm transition hover:opacity-90"
+            >
+              <Check size={13} />
+              Save
+            </button>
+          </div>
+        </div>
+      ) : (
+        <p className="mt-2 whitespace-pre-wrap rounded-lg bg-panel-2/40 px-3 py-2.5 text-[13px] leading-relaxed text-ink">
+          {prompt}
+        </p>
+      )}
     </div>
   )
 }

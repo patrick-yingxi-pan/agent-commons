@@ -157,6 +157,19 @@ export async function toggleScheduleEnabled(id: string, enabled?: boolean): Prom
   invalidate(keys.recentRuns)
 }
 
+/** Patch a routine's own fields (name, prompt, cadence, model, notify-on-failure,
+ *  …) — the entity edits behind the detail page. Optimistically merges the patch
+ *  into the cached routine so the field updates instantly, then PATCHes and
+ *  re-reads. Cross-entity bindings (deliver-to, add-tool) are NOT here — those go
+ *  through applyRelationOp. */
+export async function updateSchedule(id: string, patch: UpdateScheduleRequest): Promise<void> {
+  mutate<ScheduledTask[]>(keys.schedules, (list) =>
+    (list ?? []).map((t) => (t.id === id ? { ...t, ...patch } : t)),
+  )
+  await apiPatch(paths.schedule(id), patch)
+  invalidate(keys.schedules)
+}
+
 /** Add a routine from a template's seed (lands paused); returns the new routine. */
 export async function addScheduleFromSeed(seed: Omit<ScheduledTask, 'id'>): Promise<ScheduledTask> {
   const task = await apiPost<ScheduledTask>(paths.schedules, { seed })

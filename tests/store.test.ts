@@ -63,6 +63,26 @@ test('relations: the graph seeds a project’s scoped contexts from its seed dat
   assert.ok(Array.isArray(seeded) && seeded.length > 0, 'a seed project carries its scoped contexts in the graph')
 })
 
+test('updateSchedule merges a partial field patch, leaving id / runs / unspecified fields intact', () => {
+  const task = store.listSchedules()[0]
+  const before = { prompt: task.prompt, cadence: task.cadence, model: task.model, runs: task.runs.length }
+
+  const updated = store.updateSchedule(task.id, { name: 'Renamed', notifyOnFailure: false })
+  assert.ok(updated)
+  assert.equal(updated.name, 'Renamed', 'name patched')
+  assert.equal(updated.notifyOnFailure, false, 'notifyOnFailure persisted (a real routine field now)')
+  assert.equal(updated.prompt, before.prompt, 'unspecified prompt untouched')
+  assert.equal(updated.cadence, before.cadence, 'unspecified cadence untouched')
+  assert.equal(updated.model, before.model, 'unspecified model untouched')
+  assert.equal(updated.id, task.id, 'id is never overwritten')
+  assert.equal(updated.runs.length, before.runs, 'run history is untouched by a field patch')
+  assert.equal(store.listSchedules()[0].name, 'Renamed', 'the change is live on the canonical list')
+})
+
+test('updateSchedule returns undefined for an unknown routine id (the 404 path)', () => {
+  assert.equal(store.updateSchedule('s-does-not-exist', { name: 'x' }), undefined)
+})
+
 test('relations: the project-detail ops mutate the canonical graph + broadcast relation.applied', () => {
   const project = store.listProjects()[0]
   const seedLabel = store.relationGraph().projectContexts[project.id][0].label
