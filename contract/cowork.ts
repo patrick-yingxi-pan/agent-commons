@@ -160,6 +160,8 @@ export interface DispatchRun {
   id: string
   title: string
   status: 'running' | 'done' | 'failed'
-  when: string
+  /** When the run started (epoch ms). The UI renders a live "time ago" label —
+   *  "started 4 minutes ago" while running, "4 minutes ago" once it's settled. */
+  startedAt: number
   detail: string
 }

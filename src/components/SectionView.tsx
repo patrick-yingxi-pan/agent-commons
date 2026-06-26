@@ -1334,8 +1334,8 @@ const connectorSaved = (o: { id: string; label: string; kind?: Connector['kind']
     kind: 'connector',
     connectorKind: o.kind ?? 'connector',
     status: 'connected',
-    detail: 'Connected · just now',
-    lastUsed: 'just now',
+    detail: 'Connected',
+    lastUsedAt: Date.now(),
     sessions: 0,
   }
 
@@ -1346,7 +1346,7 @@ const mcpSaved = (o: { id: string; label: string; meta: string }): SavedContext 
     kind: 'mcp',
     status: 'connected',
     detail: o.meta,
-    lastUsed: 'just now',
+    lastUsedAt: Date.now(),
     sessions: 0,
   }
 
@@ -1359,7 +1359,7 @@ const githubRepoSaved = (o: { id: string; remote: string; branch: string }): Sav
     dependsOnGitHub: true,
     status: 'connected',
     detail: `github · ${o.branch}`,
-    lastUsed: 'just now',
+    lastUsedAt: Date.now(),
     sessions: 0,
   }
 
@@ -1372,7 +1372,7 @@ const localRepoSaved = (o: { id: string; path: string; branch: string; remote?: 
     dependsOnGitHub: !!o.remote,
     status: 'connected',
     detail: `${o.path} · ${o.branch}${o.remote ? '' : ' · local only'}`,
-    lastUsed: 'just now',
+    lastUsedAt: Date.now(),
     sessions: 0,
   }
 
@@ -1717,7 +1717,7 @@ function ContextRow({
             {ctx.sessions} session{ctx.sessions === 1 ? '' : 's'}
           </div>
           <div className="text-[11px] text-ink-faint">
-            {ctx.lastUsed === '—' ? 'Never used' : `Last used ${ctx.lastUsed}`}
+            {ctx.lastUsedAt == null ? 'Never used' : `Last used ${relativeTime(ctx.lastUsedAt)}`}
           </div>
         </div>
       </button>
@@ -1845,7 +1845,7 @@ function ContextDetail({
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-ink-soft">Last used</span>
-                <span className="font-medium">{ctx.lastUsed === '—' ? 'Never' : ctx.lastUsed}</span>
+                <span className="font-medium">{ctx.lastUsedAt == null ? 'Never' : relativeTime(ctx.lastUsedAt)}</span>
               </div>
             </div>
           </SidePanel>
@@ -3637,7 +3637,9 @@ function DispatchView() {
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline justify-between gap-2">
               <span className="truncate text-[14px] font-medium text-ink">{r.title}</span>
-              <span className="shrink-0 text-[11px] text-ink-faint">{r.when}</span>
+              <span className="shrink-0 text-[11px] text-ink-faint">
+                {r.status === 'running' ? `started ${relativeTime(r.startedAt)}` : relativeTime(r.startedAt)}
+              </span>
             </div>
             <p className="mt-0.5 text-[12px] leading-snug text-ink-soft">{r.detail}</p>
           </div>

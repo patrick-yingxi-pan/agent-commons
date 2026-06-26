@@ -24,8 +24,9 @@ export interface SavedContext {
   status: ContextStatus
   /** Account, scope, or path · branch — the row's one-line subtitle. */
   detail: string
-  /** Human "last used" stamp; '—' when it's never been attached. */
-  lastUsed: string
+  /** When it was last attached (epoch ms); `null` when never attached. The UI
+   *  renders a live "time ago" label from it (src/lib/relativeTime). */
+  lastUsedAt: number | null
   /** How many sessions have attached this. */
   sessions: number
   /** Connectors only — drives the row icon (GitHub mark vs generic plug). */
@@ -34,6 +35,16 @@ export interface SavedContext {
   origin?: 'local' | 'github'
   dependsOnGitHub?: boolean
 }
+
+/** Seed "last used" stamps are authored as an AGE before module load and resolved
+ *  to an absolute epoch-ms, so the Contexts page shows live, advancing "Last used
+ *  …" labels instead of frozen strings. `null` = never attached. */
+const BOOT = Date.now()
+const MIN = 60_000
+const HOUR = 60 * MIN
+const DAY = 24 * HOUR
+const WEEK = 7 * DAY
+const ago = (age: number) => BOOT - age
 
 export const SAVED_CONTEXTS: SavedContext[] = [
   // ── Connectors (cover every CONNECTOR_OPTIONS id) ──
@@ -44,7 +55,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     connectorKind: 'github',
     status: 'connected',
     detail: 'patrick-yingxi-pan · all repos',
-    lastUsed: 'just now',
+    lastUsedAt: ago(0),
     sessions: 8,
   },
   {
@@ -54,7 +65,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     connectorKind: 'connector',
     status: 'connected',
     detail: 'patrick@acme.com',
-    lastUsed: '2h ago',
+    lastUsedAt: ago(2 * HOUR),
     sessions: 6,
   },
   {
@@ -64,7 +75,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     connectorKind: 'connector',
     status: 'connected',
     detail: 'acme.slack.com · 3 channels',
-    lastUsed: 'yesterday',
+    lastUsedAt: ago(28 * HOUR),
     sessions: 4,
   },
   {
@@ -74,7 +85,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     connectorKind: 'connector',
     status: 'connected',
     detail: 'Acme workspace',
-    lastUsed: '3d ago',
+    lastUsedAt: ago(3 * DAY),
     sessions: 5,
   },
   {
@@ -84,7 +95,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     connectorKind: 'connector',
     status: 'connected',
     detail: 'patrick@acme.com',
-    lastUsed: '1w ago',
+    lastUsedAt: ago(WEEK),
     sessions: 1,
   },
   {
@@ -94,7 +105,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     connectorKind: 'connector',
     status: 'needs-auth',
     detail: 'Token expired · reconnect to resume',
-    lastUsed: '2w ago',
+    lastUsedAt: ago(2 * WEEK),
     sessions: 2,
   },
   {
@@ -104,7 +115,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     connectorKind: 'connector',
     status: 'needs-auth',
     detail: 'acme.atlassian.net · finish setup',
-    lastUsed: '—',
+    lastUsedAt: null,
     sessions: 0,
   },
   {
@@ -114,7 +125,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     connectorKind: 'connector',
     status: 'connected',
     detail: 'Acme · Product team',
-    lastUsed: '5h ago',
+    lastUsedAt: ago(5 * HOUR),
     sessions: 3,
   },
   {
@@ -124,7 +135,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     connectorKind: 'connector',
     status: 'connected',
     detail: 'acme · 4 projects',
-    lastUsed: 'today',
+    lastUsedAt: ago(6 * HOUR),
     sessions: 4,
   },
   {
@@ -134,7 +145,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     connectorKind: 'connector',
     status: 'connected',
     detail: 'Acme workspace · 6 projects',
-    lastUsed: 'yesterday',
+    lastUsedAt: ago(28 * HOUR),
     sessions: 2,
   },
   {
@@ -144,7 +155,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     connectorKind: 'connector',
     status: 'connected',
     detail: 'acme.intercom.com',
-    lastUsed: '3d ago',
+    lastUsedAt: ago(3 * DAY),
     sessions: 2,
   },
   {
@@ -154,7 +165,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     connectorKind: 'connector',
     status: 'connected',
     detail: 'Acme · Marketing hub',
-    lastUsed: '4d ago',
+    lastUsedAt: ago(4 * DAY),
     sessions: 1,
   },
   {
@@ -164,7 +175,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     connectorKind: 'connector',
     status: 'connected',
     detail: 'patrick@acme.com',
-    lastUsed: '1w ago',
+    lastUsedAt: ago(WEEK),
     sessions: 1,
   },
   {
@@ -174,7 +185,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     connectorKind: 'connector',
     status: 'connected',
     detail: 'patrick@acme.com',
-    lastUsed: '1w ago',
+    lastUsedAt: ago(WEEK),
     sessions: 1,
   },
 
@@ -185,7 +196,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     kind: 'mcp',
     status: 'connected',
     detail: 'Local files & directories',
-    lastUsed: '1h ago',
+    lastUsedAt: ago(1 * HOUR),
     sessions: 5,
   },
   {
@@ -194,7 +205,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     kind: 'mcp',
     status: 'connected',
     detail: 'Issues, PRs, code search',
-    lastUsed: 'today',
+    lastUsedAt: ago(6 * HOUR),
     sessions: 3,
   },
   {
@@ -203,7 +214,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     kind: 'mcp',
     status: 'connected',
     detail: 'Headless browser automation',
-    lastUsed: '5d ago',
+    lastUsedAt: ago(5 * DAY),
     sessions: 1,
   },
   {
@@ -212,7 +223,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     kind: 'mcp',
     status: 'connected',
     detail: 'Local SQLite file',
-    lastUsed: '1w ago',
+    lastUsedAt: ago(WEEK),
     sessions: 2,
   },
   {
@@ -221,7 +232,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     kind: 'mcp',
     status: 'needs-auth',
     detail: 'Set DATABASE_URL to connect',
-    lastUsed: '—',
+    lastUsedAt: null,
     sessions: 0,
   },
   {
@@ -230,7 +241,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     kind: 'mcp',
     status: 'connected',
     detail: 'HTTP fetch & web requests',
-    lastUsed: 'today',
+    lastUsedAt: ago(6 * HOUR),
     sessions: 3,
   },
   {
@@ -239,7 +250,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     kind: 'mcp',
     status: 'connected',
     detail: 'Web search via Brave',
-    lastUsed: '6h ago',
+    lastUsedAt: ago(6 * HOUR),
     sessions: 2,
   },
   {
@@ -248,7 +259,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     kind: 'mcp',
     status: 'connected',
     detail: 'Persistent knowledge graph',
-    lastUsed: '2d ago',
+    lastUsedAt: ago(2 * DAY),
     sessions: 1,
   },
   {
@@ -257,7 +268,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     kind: 'mcp',
     status: 'connected',
     detail: 'Time & timezone conversions',
-    lastUsed: '1w ago',
+    lastUsedAt: ago(WEEK),
     sessions: 1,
   },
 
@@ -270,7 +281,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     origin: 'github',
     dependsOnGitHub: true,
     detail: 'github · main',
-    lastUsed: 'just now',
+    lastUsedAt: ago(0),
     sessions: 6,
   },
   {
@@ -281,7 +292,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     origin: 'github',
     dependsOnGitHub: true,
     detail: 'github · main',
-    lastUsed: '1h ago',
+    lastUsedAt: ago(1 * HOUR),
     sessions: 4,
   },
   {
@@ -292,7 +303,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     origin: 'github',
     dependsOnGitHub: true,
     detail: 'github · develop',
-    lastUsed: '2d ago',
+    lastUsedAt: ago(2 * DAY),
     sessions: 2,
   },
   {
@@ -303,7 +314,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     origin: 'local',
     dependsOnGitHub: true,
     detail: '~/projects/insights-dashboard · feat/insights',
-    lastUsed: '2h ago',
+    lastUsedAt: ago(2 * HOUR),
     sessions: 3,
   },
   {
@@ -314,7 +325,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     origin: 'local',
     dependsOnGitHub: true,
     detail: '~/projects/marketing-site · main',
-    lastUsed: '3d ago',
+    lastUsedAt: ago(3 * DAY),
     sessions: 2,
   },
   {
@@ -325,7 +336,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
     origin: 'local',
     dependsOnGitHub: false,
     detail: '~/code/data-scripts · main · local only',
-    lastUsed: 'yesterday',
+    lastUsedAt: ago(28 * HOUR),
     sessions: 1,
   },
 ]

@@ -25,8 +25,9 @@ export interface SavedContext {
   status: ContextStatus
   /** Account, scope, or path · branch — the row's one-line subtitle. */
   detail: string
-  /** Human "last used" stamp; '—' when it's never been attached. */
-  lastUsed: string
+  /** When it was last attached (epoch ms); `null` when never attached. The UI
+   *  renders a live "time ago" label from it (src/lib/relativeTime). */
+  lastUsedAt: number | null
   /** How many sessions have attached this. */
   sessions: number
   /** Connectors only — drives the row icon (GitHub mark vs generic plug). */
