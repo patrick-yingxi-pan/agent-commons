@@ -63,6 +63,8 @@ export default function App() {
     openSection,
     openProject,
     openSchedule,
+    goBack,
+    backTo,
     pinSession,
     renameSession,
     archiveSession,
@@ -202,9 +204,13 @@ export default function App() {
                 section={activeSection}
                 onOpenSession={selectSession}
                 onNewSession={newSession}
+                onOpenProject={openProject}
+                onOpenSchedule={openSchedule}
+                onBack={goBack}
+                backTo={backTo}
                 railCollapsed={!leftOpen}
-                initialProjectId={focusProjectId}
-                initialScheduleId={focusScheduleId}
+                focusProjectId={focusProjectId}
+                focusScheduleId={focusScheduleId}
               />
             ) : (
               <>

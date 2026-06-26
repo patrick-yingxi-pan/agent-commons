@@ -22,6 +22,7 @@ import {
   type Live,
 } from '../data/liveSession'
 import { sameFocus } from '../lib/focus'
+import { pushLocation, type NavLocation } from '../lib/nav'
 import { rememberAttached } from '../lib/contextShortcuts'
 import { runSessionById } from '../data/scheduledRuns'
 import {
@@ -100,10 +101,16 @@ export function useSessionWorkspace() {
   // Which cross-cutting tool is open in the main area (null = the session).
   const [activeSection, setActiveSection] = useState<SectionId | null>(null)
   // When a session deep-links into its project, which project the Projects
-  // section should open in detail (null = show the project list).
+  // section should open in detail (null = show the project list). This is the
+  // single source of truth for "which project detail is open" — a list-card click
+  // routes through openProject too, so every way in is recorded in history.
   const [focusProjectId, setFocusProjectId] = useState<string | null>(null)
   // Likewise for a scheduled run session deep-linking back to its routine.
   const [focusScheduleId, setFocusScheduleId] = useState<string | null>(null)
+  // The navigation history stack — the pages visited, so "back" returns to where
+  // you actually came *from* (dynamic) instead of a fixed structural parent. Each
+  // nav action pushes the page it leaves; goBack pops. (See lib/nav.ts.)
+  const [history, setHistory] = useState<NavLocation[]>([])
 
   // Guided-tour state (only meaningful for the demo session).
   const [phase, setPhase] = useState<TourPhase>('idle')
@@ -135,6 +142,17 @@ export function useSessionWorkspace() {
   // has stable deps and must not close over a stale snapshot).
   const extraSessionsRef = useRef(extraSessions)
   extraSessionsRef.current = extraSessions
+  // Mirrors of the current navigation location + the history stack, so the nav
+  // actions (stable callbacks) can read where they're leaving without stale
+  // closures. activeSessionRef is set after activeSession is computed, below.
+  const sectionRef = useRef(activeSection)
+  sectionRef.current = activeSection
+  const focusProjectRef = useRef(focusProjectId)
+  focusProjectRef.current = focusProjectId
+  const focusScheduleRef = useRef(focusScheduleId)
+  focusScheduleRef.current = focusScheduleId
+  const historyRef = useRef(history)
+  historyRef.current = history
   // The in-flight draft → real materialization, so two quick sends on a fresh draft
   // coalesce into ONE session instead of racing to create two. Reset when a new
   // draft begins (newSession) or the materialization fails.
@@ -160,6 +178,30 @@ export function useSessionWorkspace() {
   // session falls back to neutral copy with its title still shown.
   const isDraft = activeId === DRAFT_ID
 
+  // Mirror of the resolved active session, so `here()` can carry its title into a
+  // history entry (run sessions aren't in any list to look up by id later).
+  const activeSessionRef = useRef(activeSession)
+  activeSessionRef.current = activeSession
+
+  // The page currently shown — a section (with any open detail) or the session
+  // thread. Read from refs so the nav actions can capture it as the page they
+  // leave, without depending on (and rebuilding from) changing state.
+  const here = useCallback((): NavLocation => {
+    return sectionRef.current
+      ? { kind: 'section', section: sectionRef.current, projectId: focusProjectRef.current, scheduleId: focusScheduleRef.current }
+      : { kind: 'session', sessionId: activeIdRef.current, title: activeSessionRef.current.title }
+  }, [])
+
+  // Set while goBack is restoring a page, so the restore itself isn't recorded as
+  // a new forward step (otherwise back→back would ping-pong instead of unwinding).
+  const restoring = useRef(false)
+
+  // Record the page we're leaving as we navigate to `to` (deduped — see lib/nav).
+  const record = useCallback((to: NavLocation) => {
+    if (restoring.current) return
+    setHistory((h) => pushLocation(h, here(), to))
+  }, [here])
+
   const clearTimers = useCallback(() => {
     runId.current += 1
     timers.current.forEach(clearTimeout)
@@ -182,6 +224,9 @@ export function useSessionWorkspace() {
 
   const selectSession = useCallback(
     (id: string) => {
+      // Record the page we're leaving so back can return to it (title irrelevant
+      // for the dedupe check — it's only used to skip re-selecting this session).
+      record({ kind: 'session', sessionId: id, title: '' })
       clearTimers()
       const myRun = runId.current
       setTyping(false)
@@ -220,7 +265,7 @@ export function useSessionWorkspace() {
           .catch(() => {})
       }
     },
-    [clearTimers],
+    [clearTimers, record],
   )
 
   // Apply a beat's escalation to the live session — attach the workspace (using
@@ -320,7 +365,9 @@ export function useSessionWorkspace() {
             sessionId: activeSession.id,
             sessionTitle: activeSession.title,
           })
-          // Same as openProject, inlined to avoid referencing that later const.
+          // Same as openProject, inlined to avoid referencing that later const —
+          // recording the thread first so the project page's back returns to it.
+          record({ kind: 'section', section: 'projects', projectId: proj.id, scheduleId: null })
           setActiveSection('projects')
           setFocusProjectId(proj.id)
           setFocusScheduleId(null)
@@ -332,7 +379,7 @@ export function useSessionWorkspace() {
       setPendingStep(null)
       setBusy(false)
     },
-    [pendingStep, applyEscalation, activeSession],
+    [pendingStep, applyEscalation, activeSession, record],
   )
 
   // Resets step/caption too, so this doubles as a one-click "Replay" from the
@@ -360,8 +407,10 @@ export function useSessionWorkspace() {
 
   // Open the demo session and immediately play its guided tour. Owned by the
   // controller so the view doesn't have to encode the select-then-tour ordering.
+  // The demo is "home" — clear any history so back doesn't escape the tour.
   const startDemoTour = useCallback(() => {
     selectSession(DEMO_SESSION_ID)
+    setHistory([])
     startTour()
   }, [selectSession, startTour])
 
@@ -519,6 +568,7 @@ export function useSessionWorkspace() {
   // "New session" opens a blank thread with the composer ready, like the desktop
   // app's "New chat" (not a jump to an existing session).
   const newSession = useCallback(() => {
+    record({ kind: 'session', sessionId: DRAFT_ID, title: '' })
     clearTimers()
     setTyping(false)
     setBusy(false)
@@ -533,31 +583,78 @@ export function useSessionWorkspace() {
     setStepIndex(-1)
     setCaption('')
     setPendingStep(null)
-  }, [clearTimers])
+  }, [clearTimers, record])
 
   // Opening a section from the rail always lands on its top level, so clear any
   // project a previous deep-link had focused.
   const openSection = useCallback((s: SectionId) => {
+    record({ kind: 'section', section: s, projectId: null, scheduleId: null })
     setActiveSection(s)
     setFocusProjectId(null)
     setFocusScheduleId(null)
-  }, [])
+  }, [record])
 
-  // Deep-link from a session into its home project: open the Projects section
-  // with that project already expanded to its detail page.
+  // Open a project's detail page. Reached three ways — a session's "In ‹Project›"
+  // breadcrumb, a relation deep-link, or a click in the Projects list — and all
+  // route through here, so the detail target is one source of truth (focusProjectId)
+  // and every entry is recorded in history for back.
   const openProject = useCallback((projectId: string) => {
+    record({ kind: 'section', section: 'projects', projectId, scheduleId: null })
     setActiveSection('projects')
     setFocusProjectId(projectId)
     setFocusScheduleId(null)
-  }, [])
+  }, [record])
 
-  // Deep-link from a scheduled run session back to its routine: open the
-  // Scheduled section with that routine already expanded to its detail.
+  // Open a routine's detail page. Reached from a run session's breadcrumb, a
+  // project's routine row, or the Scheduled list — all through here (see openProject).
   const openSchedule = useCallback((scheduleId: string) => {
+    record({ kind: 'section', section: 'scheduled', projectId: null, scheduleId })
     setActiveSection('scheduled')
     setFocusScheduleId(scheduleId)
     setFocusProjectId(null)
-  }, [])
+  }, [record])
+
+  // ── Back: pop the history stack and restore that page ─────────────────────
+  // Dynamic, not structural — returns to wherever you came *from*. The fallback
+  // (empty stack on a detail page) is the section's own list, so back is never a
+  // dead end. `backTo` is the destination, surfaced so the button can name it.
+  const applyLocation = useCallback((loc: NavLocation) => {
+    if (loc.kind === 'session') {
+      selectSession(loc.sessionId)
+    } else {
+      setActiveSection(loc.section)
+      setFocusProjectId(loc.projectId)
+      setFocusScheduleId(loc.scheduleId)
+    }
+  }, [selectSession])
+
+  const goBack = useCallback(() => {
+    const h = historyRef.current
+    if (h.length === 0) {
+      // Nothing recorded — fall back to the current section's list (drop a detail).
+      if (sectionRef.current && (focusProjectRef.current || focusScheduleRef.current)) {
+        setFocusProjectId(null)
+        setFocusScheduleId(null)
+      }
+      return
+    }
+    const prev = h[h.length - 1]
+    setHistory(h.slice(0, -1))
+    // Restore without recording — applyLocation may route through selectSession,
+    // which would otherwise push the page we're leaving back onto the stack.
+    restoring.current = true
+    applyLocation(prev)
+    restoring.current = false
+  }, [applyLocation])
+
+  // The destination back will return to — the stack's top, or (empty stack on a
+  // detail page) that section's list. Null when there's nowhere to go back to.
+  const backTo = useMemo<NavLocation | null>(() => {
+    if (history.length > 0) return history[history.length - 1]
+    if (activeSection && (focusProjectId || focusScheduleId))
+      return { kind: 'section', section: activeSection, projectId: null, scheduleId: null }
+    return null
+  }, [history, activeSection, focusProjectId, focusScheduleId])
 
   // ── Recents row-menu edits (pin / rename / archive / delete) ──────────────
   // List-level mutations; the sidebar reflects them through the live session
@@ -687,6 +784,8 @@ export function useSessionWorkspace() {
     openSection,
     openProject,
     openSchedule,
+    goBack,
+    backTo,
     pinSession,
     renameSession,
     archiveSession,

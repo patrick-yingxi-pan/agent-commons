@@ -63,6 +63,7 @@ import { ConnectorDetailBody } from './ConnectorPanel'
 import { AddContextButton } from './AddContextButton'
 import { AddTrigger } from './AddTrigger'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
+import { resolveBackLabel, type NavLocation } from '../lib/nav'
 import { Chip } from './Chip'
 import { RowMenu, type RowMenuItem } from './RowMenu'
 import { ClaudeMark } from './ClaudeMark'
@@ -112,48 +113,55 @@ export function SectionView({
   section,
   onOpenSession,
   onNewSession,
+  onOpenProject,
+  onOpenSchedule,
+  onBack,
+  backTo,
   railCollapsed = false,
-  initialProjectId = null,
-  initialScheduleId = null,
+  focusProjectId = null,
+  focusScheduleId = null,
 }: {
   section: SectionId
   onOpenSession: (id: string) => void
   onNewSession: () => void
+  /** Open a project / routine detail through the controller, so every entry is one
+   *  source of truth (the focus id below) and is recorded in navigation history. */
+  onOpenProject: (id: string) => void
+  onOpenSchedule: (id: string) => void
+  /** Pop navigation history (the dynamic "back"), and where it leads — so a detail
+   *  back button returns to where you came from and can name that destination. */
+  onBack: () => void
+  backTo: NavLocation | null
   /** When the left rail is collapsed, a floating expand toggle sits in the
    *  top-left of this panel; inset the content so it clears that button rather
    *  than rendering underneath it. */
   railCollapsed?: boolean
-  /** When opened via a session's "In ‹Project›" breadcrumb, the project to show
-   *  in detail straight away (null = the project list). */
-  initialProjectId?: string | null
-  /** When opened via a run session's "Scheduled run of ‹routine›" breadcrumb,
-   *  the routine to open in detail straight away (null = the schedule list). */
-  initialScheduleId?: string | null
+  /** The project / routine detail to show (null = the section list). The single
+   *  source of truth for which detail is open — driven by the controller whether
+   *  reached by a breadcrumb, a deep-link, or a list-card click. */
+  focusProjectId?: string | null
+  focusScheduleId?: string | null
 }) {
   const body =
     section === 'projects' ? (
-      // Key on the deep-link target (focusProjectId). The "In ‹Project›"
-      // breadcrumb sets it and remounts straight into that project's detail;
-      // clicking the rail's Projects item clears it, so coming back to the rail
-      // from a breadcrumb remounts to the list rather than the deep-linked
-      // project. (A drill-down opened by clicking a card is local to the section
-      // and stays put.)
       <ProjectsSection
-        key={initialProjectId ?? 'projects-list'}
+        projectId={focusProjectId}
+        onOpenProject={onOpenProject}
+        onBack={onBack}
+        backTo={backTo}
         onOpenSession={onOpenSession}
         onNewSession={onNewSession}
-        initialProjectId={initialProjectId}
       />
     ) : section === 'artifacts' ? (
       <ArtifactsSection />
     ) : section === 'contexts' ? (
       <ContextsSection />
     ) : section === 'scheduled' ? (
-      // Key on the deep-link target so a run session's breadcrumb remounts
-      // straight into that routine's detail (mirrors Projects above).
       <ScheduledSection
-        key={initialScheduleId ?? 'scheduled-list'}
-        initialOpenId={initialScheduleId}
+        scheduleId={focusScheduleId}
+        onOpenSchedule={onOpenSchedule}
+        onBack={onBack}
+        backTo={backTo}
         onOpenSession={onOpenSession}
       />
     ) : (
@@ -164,18 +172,47 @@ export function SectionView({
   )
 }
 
+/** The dynamic back button — returns to the previous page in navigation history
+ *  (not a fixed structural parent) and names that destination, resolving the live
+ *  project / routine name. Shared by the detail pages so the cue is identical. */
+function BackButton({ to, onBack }: { to: NavLocation | null; onBack: () => void }) {
+  const projects = useRelations().allProjects()
+  const schedules = useSchedules().data ?? []
+  const label = resolveBackLabel(to, {
+    project: Object.fromEntries(projects.map((p) => [p.id, p.name])),
+    schedule: Object.fromEntries(schedules.map((s) => [s.id, s.name])),
+  })
+  return (
+    <button
+      onClick={onBack}
+      title={`Back to ${label}`}
+      className="mb-4 inline-flex max-w-full items-center gap-1.5 text-[13px] font-medium text-ink-soft transition hover:text-ink"
+    >
+      <ArrowLeft size={15} className="shrink-0" />
+      <span className="truncate">{label}</span>
+    </button>
+  )
+}
+
 /* ─────────────────────────── Projects ─────────────────────────── */
 
 function ProjectsSection({
+  projectId,
+  onOpenProject,
+  onBack,
+  backTo,
   onOpenSession,
   onNewSession,
-  initialProjectId,
 }: {
+  /** Which project detail to show (null = the list) — the controlled source of
+   *  truth, set by the controller however the detail was reached. */
+  projectId: string | null
+  onOpenProject: (id: string) => void
+  onBack: () => void
+  backTo: NavLocation | null
   onOpenSession: (id: string) => void
   onNewSession: () => void
-  initialProjectId: string | null
 }) {
-  const [openId, setOpenId] = useState<string | null>(initialProjectId)
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState('Last updated')
   const [creating, setCreating] = useState(false)
@@ -189,18 +226,19 @@ function ProjectsSection({
   // sessionless create-project op (optimistic + persisted + broadcast), then open
   // the new project — it's already in `projects` via the optimistic graph patch.
   const createProject = (name: string, description: string) => {
-    const projectId = uniqueProjectId(name, new Set(projects.map((p) => p.id)))
-    rel.applyOp({ kind: 'create-project', projectId, projectName: name, projectDescription: description })
+    const id = uniqueProjectId(name, new Set(projects.map((p) => p.id)))
+    rel.applyOp({ kind: 'create-project', projectId: id, projectName: name, projectDescription: description })
     setCreating(false)
-    setOpenId(projectId)
+    onOpenProject(id)
   }
 
-  const open = openId ? (projects.find((p) => p.id === openId) ?? null) : null
+  const open = projectId ? (projects.find((p) => p.id === projectId) ?? null) : null
   if (open)
     return (
       <ProjectDetail
         project={open}
-        onBack={() => setOpenId(null)}
+        onBack={onBack}
+        backTo={backTo}
         onOpenSession={onOpenSession}
         onNewSession={onNewSession}
       />
@@ -236,7 +274,7 @@ function ProjectsSection({
               key={p.id}
               project={p}
               sessionCount={rel.sessionsForProject(p.id).length}
-              onOpen={() => setOpenId(p.id)}
+              onOpen={() => onOpenProject(p.id)}
             />
           ))}
         </div>
@@ -407,11 +445,13 @@ const CONTEXT_ICON: Record<ProjectContext['kind'], typeof Folder> = {
 function ProjectDetail({
   project,
   onBack,
+  backTo,
   onOpenSession,
   onNewSession,
 }: {
   project: Project
   onBack: () => void
+  backTo: NavLocation | null
   onOpenSession: (id: string) => void
   onNewSession: () => void
 }) {
@@ -482,13 +522,7 @@ function ProjectDetail({
 
   return (
     <Page>
-      <button
-        onClick={onBack}
-        className="mb-4 inline-flex items-center gap-1.5 text-[13px] font-medium text-ink-soft transition hover:text-ink"
-      >
-        <ArrowLeft size={15} />
-        Projects
-      </button>
+      <BackButton to={backTo} onBack={onBack} />
 
       <header className="mb-6 flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -1750,13 +1784,10 @@ function ContextDetail({
 
   return (
     <Page>
-      <button
-        onClick={onBack}
-        className="mb-4 inline-flex items-center gap-1.5 text-[13px] font-medium text-ink-soft transition hover:text-ink"
-      >
-        <ArrowLeft size={15} />
-        Contexts
-      </button>
+      {/* The Contexts detail is only ever reached from the Contexts list, so back
+          is always that list — a fixed location handed to the shared BackButton so
+          all three detail pages share one cue. */}
+      <BackButton to={{ kind: 'section', section: 'contexts', projectId: null, scheduleId: null }} onBack={onBack} />
 
       <header className="mb-6 flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
@@ -2120,10 +2151,18 @@ function taskPill(task: ScheduledTask): { tone: 'ok' | 'warn' | 'bad' | 'neutral
 }
 
 function ScheduledSection({
-  initialOpenId = null,
+  scheduleId,
+  onOpenSchedule,
+  onBack,
+  backTo,
   onOpenSession,
 }: {
-  initialOpenId?: string | null
+  /** Which routine detail to show (null = the list) — the controlled source of
+   *  truth, set by the controller however the detail was reached. */
+  scheduleId: string | null
+  onOpenSchedule: (id: string) => void
+  onBack: () => void
+  backTo: NavLocation | null
   /** Open a run's session (the run-history rows + the rail both land here). */
   onOpenSession: (id: string) => void
 }) {
@@ -2135,7 +2174,6 @@ function ScheduledSection({
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('All')
   const [folded, setFolded] = useState<Set<'active' | 'paused'>>(new Set())
-  const [openId, setOpenId] = useState<string | null>(initialOpenId)
   // Ids with a "Run now" in flight — drives the button spinner until the run's
   // run.finished event lands (cleared on a timer as a safety net).
   const [running, setRunning] = useState<Set<string>>(new Set())
@@ -2166,7 +2204,7 @@ function ScheduledSection({
 
   const addFromTemplate = async (tpl: ScheduleTemplate) => {
     const task = await addScheduleFromSeed(tpl.seed)
-    setOpenId(task.id)
+    onOpenSchedule(task.id)
   }
 
   const foldGroup = (g: 'active' | 'paused') =>
@@ -2177,19 +2215,20 @@ function ScheduledSection({
     })
 
   // Clicking a row drills into the task's workflow + run history.
-  const open = openId ? (items.find((t) => t.id === openId) ?? null) : null
+  const open = scheduleId ? (items.find((t) => t.id === scheduleId) ?? null) : null
   if (open)
     return (
       <ScheduledDetail
         task={open}
         running={running.has(open.id)}
-        onBack={() => setOpenId(null)}
+        onBack={onBack}
+        backTo={backTo}
         onToggleEnabled={() => toggleEnabled(open.id)}
         onRunNow={() => runNow(open.id)}
         onOpenSession={onOpenSession}
         onRemove={() => {
           remove(open.id)
-          setOpenId(null)
+          onBack()
         }}
       />
     )
@@ -2251,7 +2290,7 @@ function ScheduledSection({
                         task={t}
                         first={i === 0}
                         running={running.has(t.id)}
-                        onOpen={() => setOpenId(t.id)}
+                        onOpen={() => onOpenSchedule(t.id)}
                         onToggle={() => toggleEnabled(t.id)}
                         onRunNow={() => runNow(t.id)}
                         onRemove={() => remove(t.id)}
@@ -2479,6 +2518,7 @@ function ScheduledDetail({
   task,
   running,
   onBack,
+  backTo,
   onToggleEnabled,
   onRunNow,
   onOpenSession,
@@ -2487,6 +2527,7 @@ function ScheduledDetail({
   task: ScheduledTask
   running: boolean
   onBack: () => void
+  backTo: NavLocation | null
   onToggleEnabled: () => void
   onRunNow: () => void
   /** Open a run's session — the run-history rows link here, same destination as
@@ -2508,13 +2549,7 @@ function ScheduledDetail({
 
   return (
     <Page>
-      <button
-        onClick={onBack}
-        className="mb-4 inline-flex items-center gap-1.5 text-[13px] font-medium text-ink-soft transition hover:text-ink"
-      >
-        <ArrowLeft size={15} />
-        Scheduled
-      </button>
+      <BackButton to={backTo} onBack={onBack} />
 
       <header className="mb-6 flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
