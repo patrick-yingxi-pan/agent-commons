@@ -83,6 +83,18 @@ test('updateSchedule returns undefined for an unknown routine id (the 404 path)'
   assert.equal(store.updateSchedule('s-does-not-exist', { name: 'x' }), undefined)
 })
 
+test('updateSchedule replaces the delivery and steps when those fields are patched', () => {
+  const task = store.listSchedules()[0]
+  const delivery = { tool: { id: 'slack', label: 'Slack', tone: 'connector' as const }, target: '#new-channel' }
+  const steps = [{ id: 'sx', action: 'A single new step', tool: { id: 'claude', label: 'Claude', tone: 'claude' as const } }]
+  const updated = store.updateSchedule(task.id, { delivery, steps })
+  assert.ok(updated)
+  assert.deepEqual(updated.delivery, delivery, 'delivery replaced wholesale')
+  assert.equal(updated.steps.length, 1, 'steps replaced wholesale')
+  assert.equal(updated.steps[0].action, 'A single new step')
+  assert.equal(updated.runs.length, task.runs.length, 'run history is still untouched')
+})
+
 test('relations: the project-detail ops mutate the canonical graph + broadcast relation.applied', () => {
   const project = store.listProjects()[0]
   const seedLabel = store.relationGraph().projectContexts[project.id][0].label

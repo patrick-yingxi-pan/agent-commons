@@ -2401,19 +2401,10 @@ function ScheduledDetail({
   onOpenSession: (id: string) => void
   onRemove: () => void
 }) {
-  // The notify-on-failure setting is now a persisted routine field (absent = on,
-  // the prior default). Editing the routine name is a per-action entity edit.
-  const notifyOnFail = task.notifyOnFailure ?? true
+  // Editing the routine name is a per-action entity edit; the delivery + notify
+  // settings live in DeliveryPanel below.
   const [editingName, setEditingName] = useState(false)
   const [nameDraft, setNameDraft] = useState(task.name)
-  const rel = useRelations()
-  // Standing-approved recurring effects: an AI "save X each run" / "open a
-  // session each run" edit overrides where this schedule delivers, and the
-  // pre-approval means it runs unprompted.
-  const savedArtifact = rel.scheduleArtifactFor(task.id)
-  const sessionTarget = rel.scheduleSessionFor(task.id)
-  const deliveryTarget = savedArtifact ?? sessionTarget ?? task.delivery.target
-  const preApproved = !!(savedArtifact || sessionTarget)
 
   // The rail reflects the freshest run (a live "Run now" overrides it with an
   // in-flight state until the new run resolves). Inspecting an *older* run is now
@@ -2522,33 +2513,7 @@ function ScheduledDetail({
         <aside className="w-full shrink-0 space-y-4 lg:w-72">
           <SchedulePanel task={task} />
 
-          <SidePanel title="Delivers to" icon={<SendHorizontal size={14} />}>
-            <div className="flex items-center gap-2">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-panel-2">
-                <DeliveryIcon size={15} className={toneChip(task.delivery.tool.tone).color} />
-              </span>
-              <div className="min-w-0">
-                <div className="truncate text-[13px] font-medium text-ink">{deliveryTarget}</div>
-                <div className="truncate text-[11px] text-ink-faint">{task.delivery.tool.label}</div>
-              </div>
-            </div>
-            {preApproved && (
-              <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700">
-                <Check size={11} />
-                Pre-approved · runs unprompted
-              </div>
-            )}
-            {!preApproved && task.delivery.note && (
-              <p className="mt-2 text-[12px] leading-relaxed text-ink-soft">{task.delivery.note}</p>
-            )}
-            <label className="mt-3 flex items-center justify-between gap-2 border-t border-line pt-3">
-              <span className="flex items-center gap-1.5 text-[12px] text-ink-soft">
-                <Bell size={13} />
-                Notify me on failure
-              </span>
-              <Toggle on={notifyOnFail} onToggle={() => void updateSchedule(task.id, { notifyOnFailure: !notifyOnFail })} />
-            </label>
-          </SidePanel>
+          <DeliveryPanel task={task} />
 
           <ContextToolsPanel task={task} />
 
@@ -2904,8 +2869,18 @@ function StepsEditor({ task, onClose }: { task: ScheduledTask; onClose: () => vo
   )
 }
 
-/** The per-step tool picker popover — the STEP_TOOLS catalog, tinted by tone. */
-function StepToolPicker({ onPick, onClose }: { onPick: (tool: StepTool) => void; onClose: () => void }) {
+/** A tool picker popover — by default the whole STEP_TOOLS catalog (the step
+ *  editor), or a caller-narrowed list (e.g. the Context-&-tools panel offers only
+ *  connectors not already present). Tinted by tone. */
+function StepToolPicker({
+  onPick,
+  onClose,
+  tools = STEP_TOOLS,
+}: {
+  onPick: (tool: StepTool) => void
+  onClose: () => void
+  tools?: StepTool[]
+}) {
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
@@ -2927,7 +2902,10 @@ function StepToolPicker({ onPick, onClose }: { onPick: (tool: StepTool) => void;
       aria-label="Pick a tool"
       className="absolute left-0 top-full z-30 mt-1 max-h-[240px] w-[200px] overflow-y-auto rounded-xl border border-line-strong bg-surface p-1 shadow-xl"
     >
-      {STEP_TOOLS.map((t) => (
+      {tools.length === 0 && (
+        <div className="px-2 py-3 text-center text-[12px] text-ink-faint">Every tool is already here.</div>
+      )}
+      {tools.map((t) => (
         <button
           key={t.id}
           onClick={() => onPick(t)}
@@ -3045,28 +3023,182 @@ function RunRow({
 /** The distinct connectors / tools the workflow touches (the pure-reasoning Claude
  *  steps are omitted), each with its auth status — so a "Needs auth" tool explains
  *  at a glance why a run might fail. */
+/** The "Delivers to" panel — where each run's output lands. The base destination
+ *  (tool + target) is an entity field, editable here via updateSchedule({delivery}).
+ *  A STANDING relation override (set-schedule-artifact / -session) wins on display
+ *  and is shown read-only with its pre-approved badge — that's a separate relation
+ *  surface (the consent boundary), so the base editor steps aside when one is set.
+ *  The notify-on-failure toggle (also a routine field) lives here too. */
+function DeliveryPanel({ task }: { task: ScheduledTask }) {
+  const rel = useRelations()
+  const override = rel.scheduleArtifactFor(task.id) ?? rel.scheduleSessionFor(task.id)
+  const preApproved = !!override
+  const notifyOnFail = task.notifyOnFailure ?? true
+
+  const [editing, setEditing] = useState(false)
+  const [tool, setTool] = useState<StepTool>(task.delivery.tool)
+  const [target, setTarget] = useState(task.delivery.target)
+  const [picking, setPicking] = useState(false)
+
+  const startEdit = () => {
+    setTool(task.delivery.tool)
+    setTarget(task.delivery.target)
+    setEditing(true)
+  }
+  const save = () => {
+    const t = target.trim()
+    if (t) void updateSchedule(task.id, { delivery: { tool, target: t, note: task.delivery.note } })
+    setEditing(false)
+  }
+
+  const DeliveryIcon = stepToolIcon(task.delivery.tool.id)
+  const displayTarget = override ?? task.delivery.target
+
+  return (
+    <SidePanel title="Delivers to" icon={<SendHorizontal size={14} />}>
+      {editing ? (
+        <div>
+          <div className="relative inline-block">
+            <button
+              onClick={() => setPicking((p) => !p)}
+              aria-haspopup="dialog"
+              aria-expanded={picking}
+              className="inline-flex items-center gap-1 rounded-md bg-surface px-1.5 py-0.5 text-[11px] font-medium text-ink ring-1 ring-line-strong transition hover:ring-accent"
+            >
+              <ToolGlyph tool={tool} size={12} />
+              {tool.label}
+              <ChevronDown size={11} className="text-ink-faint" />
+            </button>
+            {picking && (
+              <StepToolPicker
+                onPick={(t) => {
+                  setTool(t)
+                  setPicking(false)
+                }}
+                onClose={() => setPicking(false)}
+              />
+            )}
+          </div>
+          <input
+            value={target}
+            onChange={(e) => setTarget(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setEditing(false)
+              if (e.key === 'Enter') save()
+            }}
+            placeholder="Where each run delivers…"
+            aria-label="Delivery target"
+            className="mt-1.5 w-full rounded-md border border-line bg-surface px-2 py-1.5 text-[13px] text-ink outline-none transition placeholder:text-ink-faint focus:border-accent"
+          />
+          <div className="mt-2 flex items-center justify-end gap-2">
+            <button onClick={() => setEditing(false)} className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:text-ink">
+              Cancel
+            </button>
+            <button
+              onClick={save}
+              className="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas shadow-sm transition hover:opacity-90"
+            >
+              <Check size={13} />
+              Save
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center gap-2">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-panel-2">
+              <DeliveryIcon size={15} className={toneChip(task.delivery.tool.tone).color} />
+            </span>
+            <div className="min-w-0">
+              <div className="truncate text-[13px] font-medium text-ink">{displayTarget}</div>
+              <div className="truncate text-[11px] text-ink-faint">{task.delivery.tool.label}</div>
+            </div>
+          </div>
+          {preApproved ? (
+            <>
+              <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700">
+                <Check size={11} />
+                Pre-approved · runs unprompted
+              </div>
+              <p className="mt-1.5 text-[11px] leading-relaxed text-ink-faint">
+                A standing approval routes delivery here each run — it overrides the base destination.
+              </p>
+            </>
+          ) : (
+            <>
+              {task.delivery.note && <p className="mt-2 text-[12px] leading-relaxed text-ink-soft">{task.delivery.note}</p>}
+              <button
+                onClick={startEdit}
+                className="mt-2 inline-flex items-center gap-1 text-[12px] font-medium text-ink-faint transition hover:text-ink"
+              >
+                <Pencil size={12} />
+                Edit destination
+              </button>
+            </>
+          )}
+        </>
+      )}
+      <label className="mt-3 flex items-center justify-between gap-2 border-t border-line pt-3">
+        <span className="flex items-center gap-1.5 text-[12px] text-ink-soft">
+          <Bell size={13} />
+          Notify me on failure
+        </span>
+        <Toggle on={notifyOnFail} onToggle={() => void updateSchedule(task.id, { notifyOnFailure: !notifyOnFail })} />
+      </label>
+    </SidePanel>
+  )
+}
+
+/** The "Context & tools" panel — the connectors a routine's runs lean on (its
+ *  steps + delivery + any standing-added extras), and an "Add tool" that approves
+ *  a new one for every run. Adding is the `schedule-add-tool` STANDING relation op
+ *  (a recurring effect, approved once) — the cross-entity surface, distinct from
+ *  the routine's own fields. */
 function ContextToolsPanel({ task }: { task: ScheduledTask }) {
   const rel = useRelations()
+  const [picking, setPicking] = useState(false)
   const seen = new Set<string>()
   const tools: StepTool[] = []
-  // Steps + delivery, plus any tool-context an AI "let it use X each run" edit
-  // added (those are standing-approved, so they belong in the run's toolbox).
+  // Steps + delivery, plus any tool-context a "let it use X each run" edit added
+  // (standing-approved, so they belong in the run's toolbox).
   for (const t of [...task.steps.map((s) => s.tool), task.delivery.tool, ...rel.scheduleExtraToolsFor(task.id)]) {
     if (t.tone === 'claude' || t.tone === 'web' || seen.has(t.id)) continue
     seen.add(t.id)
     tools.push(t)
   }
-  if (tools.length === 0) return null
+  // Offer only connectors not already present (claude/web aren't context tools).
+  const addable = STEP_TOOLS.filter((t) => t.tone !== 'claude' && t.tone !== 'web' && !seen.has(t.id))
+  const addTool = (tool: StepTool) => {
+    rel.applyOp({ kind: 'schedule-add-tool', scheduleId: task.id, scheduleName: task.name, cadence: task.cadence, tool })
+    setPicking(false)
+  }
+
   return (
     <SidePanel title="Context & tools" icon={<Plug size={14} />}>
-      <div className="space-y-2">
-        {tools.map((t) => (
-          <div key={t.id} className="flex items-center gap-2">
-            <ToolGlyph tool={t} size={15} />
-            <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{t.label}</span>
-            <StatusPill tone={t.needsAuth ? 'warn' : 'ok'} label={t.needsAuth ? 'Needs auth' : 'Connected'} />
-          </div>
-        ))}
+      {tools.length === 0 ? (
+        <p className="text-[12px] text-ink-faint">No connectors yet.</p>
+      ) : (
+        <div className="space-y-2">
+          {tools.map((t) => (
+            <div key={t.id} className="flex items-center gap-2">
+              <ToolGlyph tool={t} size={15} />
+              <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{t.label}</span>
+              <StatusPill tone={t.needsAuth ? 'warn' : 'ok'} label={t.needsAuth ? 'Needs auth' : 'Connected'} />
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="relative mt-2.5 border-t border-line pt-2.5">
+        <button
+          onClick={() => setPicking((p) => !p)}
+          aria-haspopup="dialog"
+          aria-expanded={picking}
+          className="inline-flex items-center gap-1 text-[12px] font-medium text-ink-faint transition hover:text-ink"
+        >
+          <Plus size={12} />
+          Add tool
+        </button>
+        {picking && <StepToolPicker tools={addable} onPick={addTool} onClose={() => setPicking(false)} />}
       </div>
     </SidePanel>
   )

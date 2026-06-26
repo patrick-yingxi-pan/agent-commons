@@ -234,6 +234,30 @@ test("standing schedule ops record a standing approval keyed by opKey (the daemo
   assert.equal(g.standingApprovals[opKey(op)], true, 'the op is marked as a standing approval')
 })
 
+test('schedule-add-tool appends a tool to the routine toolbox once (dedup by id) and marks it standing', () => {
+  const tool = { id: 'github', label: 'GitHub', tone: 'connector' as const }
+  const op = { kind: 'schedule-add-tool' as const, scheduleId: 's-1', scheduleName: 'Triage', cadence: 'Every 2 hours', tool }
+  let g = applyGraphOp(emptyGraph(), op, mintIds())
+  assert.deepEqual(g.scheduleExtraTools['s-1'], [tool], 'the tool joins the routine’s standing toolbox')
+  assert.equal(g.standingApprovals[opKey(op)], true, 'using a tool each run is a standing approval')
+  // Re-adding the same tool id is a no-op (the Context-&-tools picker also filters it out).
+  g = applyGraphOp(g, { ...op, tool: { ...tool, label: 'GitHub (again)' } }, mintIds())
+  assert.equal(g.scheduleExtraTools['s-1'].length, 1, 'a tool already in the toolbox is not duplicated')
+})
+
+test('describeOp(schedule-add-tool) reads as a standing, context-schedule edit', () => {
+  const d = describeOp({
+    kind: 'schedule-add-tool',
+    scheduleId: 's-1',
+    scheduleName: 'Triage',
+    cadence: 'Every 2 hours',
+    tool: { id: 'slack', label: 'Slack', tone: 'connector' },
+  })
+  assert.match(d.text, /Slack/)
+  assert.equal(d.approval, 'standing')
+  assert.equal(d.relationId, 'context-schedule')
+})
+
 test('id-derivation invariants are stable and agree across calls (both backends derive the same ids)', () => {
   assert.equal(slug('Insights Dashboard!'), 'insights-dashboard')
   assert.equal(slug('Insights Dashboard!'), slug('insights dashboard'), 'slug is case/punctuation-insensitive + deterministic')
