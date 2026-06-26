@@ -352,8 +352,16 @@ export function describeOp(op: RelationOp): OpDescription {
 }
 
 /** A new artifact materialised from a `save-artifact` op. The store mints the id
- *  and stamps it; everything else comes from the draft + the session. */
-export function artifactFromDraft(draft: ArtifactDraft, id: string, sourceTitle: string, projectId: string): ArtifactItem {
+ *  and stamps the edit time (`editedAt`); everything else comes from the draft +
+ *  the session. The caller injects `editedAt` (the server its own clock, the
+ *  client an optimistic one replaced on reconcile) so the reducer stays pure. */
+export function artifactFromDraft(
+  draft: ArtifactDraft,
+  id: string,
+  sourceTitle: string,
+  projectId: string,
+  editedAt: number,
+): ArtifactItem {
   return {
     id,
     name: draft.name,
@@ -362,7 +370,6 @@ export function artifactFromDraft(draft: ArtifactDraft, id: string, sourceTitle:
     source: sourceTitle,
     projectId,
     excerpt: draft.excerpt,
-    edited: 'just now',
-    tag: 'Cowork',
+    editedAt,
   }
 }

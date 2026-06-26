@@ -49,11 +49,16 @@ export function seedGraph(
  *  `attach-context` op isn't a graph edit (it attaches to the live session), so
  *  it leaves the graph unchanged here; the caller handles that side effect.
  *  `mintArtifactId` lets the server mint a stable id while the client uses a
- *  temporary one (replaced when the server's authoritative graph comes back). */
+ *  temporary one (replaced when the server's authoritative graph comes back).
+ *  `now` (epoch ms) stamps the edit time of a freshly-saved artifact — injected,
+ *  not read here, so the reducer stays pure; callers pass `Date.now()` and tests
+ *  a fixed value (the default 0 is a deterministic sentinel for the ops that
+ *  don't mint an artifact). */
 export function applyGraphOp(
   graph: RelationGraph,
   op: RelationOp,
   mintArtifactId: () => string,
+  now: number = 0,
 ): RelationGraph {
   switch (op.kind) {
     case 'file-session':
@@ -100,7 +105,7 @@ export function applyGraphOp(
       const pid = op.projectId ?? ''
       // A user-created artifact (no session) cites a neutral source rather than a
       // conversation title; an AI save-out passes the real session title.
-      const item = artifactFromDraft(op.artifact, id, op.sessionTitle ?? 'Created here', pid)
+      const item = artifactFromDraft(op.artifact, id, op.sessionTitle ?? 'Created here', pid, now)
       return {
         ...graph,
         extraArtifacts: [item, ...graph.extraArtifacts],

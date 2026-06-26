@@ -290,11 +290,11 @@ function applyStandingEffects(task: ScheduledTask, sessionId: string): void {
     graph = {
       ...graph,
       extraArtifacts: graph.extraArtifacts.map((a) =>
-        a.id === existing.id ? { ...a, edited: 'just now', meta: `Saved by ${task.name}` } : a,
+        a.id === existing.id ? { ...a, editedAt: Date.now(), meta: `Saved by ${task.name}` } : a,
       ),
     }
   } else {
-    graph = applyGraphOp(graph, op, mintArtifactId)
+    graph = applyGraphOp(graph, op, mintArtifactId, Date.now())
   }
   emit({ type: 'relation.applied', op, by: 'standing' })
 }
@@ -737,7 +737,7 @@ export const store = {
    *  graph edit, so it's a no-op here. */
   applyRelationOp(op: RelationOp): RelationGraph {
     if (op.kind !== 'attach-context') {
-      graph = applyGraphOp(graph, op, mintArtifactId)
+      graph = applyGraphOp(graph, op, mintArtifactId, Date.now())
     }
     emit({ type: 'relation.applied', op, by: 'user' })
     persist()

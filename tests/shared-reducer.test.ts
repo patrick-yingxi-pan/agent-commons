@@ -146,6 +146,20 @@ test('a sessionless save-artifact with no project lands Unfiled (no artifactProj
   assert.deepEqual(g.artifactProject, {}, 'no project key is written when no project is chosen')
 })
 
+test('save-artifact stamps editedAt from the injected clock (the seam that makes "Edited …" real, not a frozen string)', () => {
+  const NOW = 1_700_000_000_000
+  const g = applyGraphOp(
+    emptyGraph(),
+    { kind: 'save-artifact', artifact: { name: 'Brief', kind: 'doc', meta: 'm' }, sessionId: 's1', sessionTitle: 'S', projectId: 'p1' },
+    mintIds(),
+    NOW,
+  )
+  // The reducer reads the time from its caller (server clock canonically, an
+  // optimistic one on the client) rather than calling Date.now() itself, so it
+  // stays pure and deterministic — this pins that the stamp is the injected value.
+  assert.equal(g.extraArtifacts[0].editedAt, NOW, 'the new artifact carries the caller’s timestamp')
+})
+
 test('refile-artifact assigns, reassigns, then unfiles an artifact (null → the Unfiled bucket)', () => {
   let g = emptyGraph()
   g = applyGraphOp(g, { kind: 'refile-artifact', artifactId: 'a1', artifactName: 'A', projectId: 'p1', projectName: 'P1' }, mintIds())

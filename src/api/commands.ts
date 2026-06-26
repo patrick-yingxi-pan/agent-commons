@@ -129,7 +129,7 @@ let optSeq = 0
  *  is a live-session effect, not a graph edit, and is handled by the caller. */
 export async function applyRelationOp(op: RelationOp): Promise<void> {
   mutate<RelationGraph>(keys.relations, (g) =>
-    applyGraphOp(g ?? emptyGraph(), op, () => `${OPTIMISTIC_ID_PREFIX}${(optSeq += 1)}`),
+    applyGraphOp(g ?? emptyGraph(), op, () => `${OPTIMISTIC_ID_PREFIX}${(optSeq += 1)}`, Date.now()),
   )
   try {
     const body: ApplyOpRequest = { op }

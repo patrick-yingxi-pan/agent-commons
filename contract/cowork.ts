@@ -149,10 +149,9 @@ export interface ArtifactItem {
   projectId: string
   /** A one-line preview shown on the card and in the viewer. */
   excerpt?: string
-  /** Relative last-edited label, e.g. "4 hours ago". */
-  edited: string
-  /** The surface it came from — Cowork, Code, or Chat. */
-  tag: 'Cowork' | 'Code' | 'Chat'
+  /** When it was last edited (epoch ms). The UI renders a live "time ago" label
+   *  from it (src/lib/relativeTime) so the stamp advances instead of freezing. */
+  editedAt: number
 }
 
 export interface DispatchRun {

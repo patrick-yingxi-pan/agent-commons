@@ -64,6 +64,7 @@ import { AddContextButton } from './AddContextButton'
 import { AddTrigger } from './AddTrigger'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { resolveBackLabel, type NavLocation } from '../lib/nav'
+import { relativeTime } from '../lib/relativeTime'
 import { Chip } from './Chip'
 import { RowMenu, type RowMenuItem } from './RowMenu'
 import { ClaudeMark } from './ClaudeMark'
@@ -1276,12 +1277,9 @@ function ArtifactCard({
             from {source}
           </div>
         )}
-        <div className="mt-3 flex items-center gap-2">
-          <span className="rounded bg-panel-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-soft">
-            {artifact.tag}
-          </span>
+        <div className="mt-3">
           <span className="text-[11px] text-ink-faint">
-            {pending ? 'Saving…' : `Edited ${artifact.edited}`}
+            {pending ? 'Saving…' : `Edited ${relativeTime(artifact.editedAt)}`}
           </span>
         </div>
       </div>

@@ -16,6 +16,7 @@ import type { ArtifactItem } from '../data/cowork'
 import type { ArtifactContent, DocBlock } from '../types'
 import { useArtifactContent } from '../api'
 import { useFocusTrap } from '../lib/useFocusTrap'
+import { relativeTime } from '../lib/relativeTime'
 
 export const KIND_ICON: Record<ArtifactKind, LucideIcon> = {
   doc: FileText,
@@ -544,7 +545,7 @@ export function ArtifactViewer({
                 onAssign={onAssignProject}
               />
               <span>·</span>
-              <span>Edited {artifact.edited}</span>
+              <span>Edited {relativeTime(artifact.editedAt)}</span>
             </div>
           </div>
           <button
@@ -562,8 +563,7 @@ export function ArtifactViewer({
         </div>
 
         <div className="flex shrink-0 items-center gap-2 border-t border-line bg-panel px-5 py-2.5 text-[12px] text-ink-faint">
-          <span className="rounded bg-panel-2 px-2 py-0.5 font-medium text-ink-soft">{artifact.tag}</span>
-          <span className="ml-auto truncate">From {artifact.source}</span>
+          <span className="truncate">From {artifact.source}</span>
         </div>
       </div>
     </div>

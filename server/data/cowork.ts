@@ -38,6 +38,18 @@ export type {
  *  database; here the mock server holds it in memory and serves it over the API.
  *  The entity types are the shared wire shapes in contract/cowork.ts. */
 
+/** Seed timestamps are authored as an AGE (how long before now) and resolved to
+ *  an absolute epoch-ms at module load, so the mock always looks freshly aged on
+ *  boot and the UI's live relative-time labels (src/lib/relativeTime) advance
+ *  from there — instead of a frozen "4 hours ago" string that's wrong by tomorrow.
+ *  `BOOT` is captured once so every seed stamp shares one consistent "now". */
+const BOOT = Date.now()
+const MIN = 60_000
+const HOUR = 60 * MIN
+const DAY = 24 * HOUR
+/** An absolute epoch-ms timestamp `age` ms before module load. */
+const ago = (age: number) => BOOT - age
+
 export const PROJECTS: Project[] = [
   {
     id: 'p-insights',
@@ -555,8 +567,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
     source: 'Insights dashboard launch',
     projectId: 'p-insights',
     excerpt: 'Why Insights, who it’s for, and the launch plan — on one screen.',
-    edited: '4 hours ago',
-    tag: 'Cowork',
+    editedAt: ago(4 * HOUR),
   },
   {
     id: 'a2',
@@ -566,8 +577,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
     source: 'Insights dashboard launch',
     projectId: 'p-insights',
     excerpt: 'Filters, saved views, sharing, and the empty/error states.',
-    edited: 'yesterday',
-    tag: 'Cowork',
+    editedAt: ago(28 * HOUR),
   },
   {
     id: 'a3',
@@ -577,8 +587,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
     source: 'Insights dashboard launch',
     projectId: 'p-insights',
     excerpt: 'Insights is live behind a flag — here’s how to switch it on.',
-    edited: '4 hours ago',
-    tag: 'Cowork',
+    editedAt: ago(4 * HOUR),
   },
   {
     id: 'a4',
@@ -588,8 +597,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
     source: 'Insights dashboard launch',
     projectId: 'p-insights',
     excerpt: 'Marketing hero — the dashboard with the cohort chart in front.',
-    edited: 'yesterday',
-    tag: 'Cowork',
+    editedAt: ago(28 * HOUR),
   },
   {
     id: 'a5',
@@ -599,8 +607,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
     source: 'Dashboard query performance',
     projectId: 'p-insights',
     excerpt: 'p95 widget latency before/after the composite index (1.8s → 240ms).',
-    edited: 'Tue',
-    tag: 'Code',
+    editedAt: ago(2 * DAY),
   },
   // ── Growth experiments ───────────────────────────────────────────────────
   {
@@ -611,8 +618,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
     source: 'Onboarding A/B readout',
     projectId: 'p-growth',
     excerpt: 'Variant B lifted activation +6.2% (95% CI +2.1–10.3). Ship it.',
-    edited: '2 hours ago',
-    tag: 'Cowork',
+    editedAt: ago(2 * HOUR),
   },
   {
     id: 'a7',
@@ -622,8 +628,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
     source: 'Onboarding A/B readout',
     projectId: 'p-growth',
     excerpt: 'Signup → first-query → invite funnel, control vs. variant B.',
-    edited: '2 hours ago',
-    tag: 'Cowork',
+    editedAt: ago(2 * HOUR),
   },
   {
     id: 'a8',
@@ -633,8 +638,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
     source: 'Churn analysis · June',
     projectId: 'p-growth',
     excerpt: 'Monthly cohorts with churn %, expansion, and contraction.',
-    edited: 'Monday',
-    tag: 'Cowork',
+    editedAt: ago(3 * DAY),
   },
   {
     id: 'a9',
@@ -644,8 +648,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
     source: 'Churn analysis · June',
     projectId: 'p-growth',
     excerpt: 'Three drivers explain ~80% of June’s spike.',
-    edited: 'Monday',
-    tag: 'Cowork',
+    editedAt: ago(3 * DAY),
   },
   {
     id: 'a10',
@@ -655,8 +658,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
     source: 'Q3 board deck',
     projectId: 'p-growth',
     excerpt: 'Opens on net retention, then expansion, then the roadmap ask.',
-    edited: 'yesterday',
-    tag: 'Cowork',
+    editedAt: ago(28 * HOUR),
   },
   // ── Brand refresh ────────────────────────────────────────────────────────
   {
@@ -667,8 +669,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
     source: 'Brand voice guidelines',
     projectId: 'p-brand',
     excerpt: 'Warm, plain, confident — with do/don’t pairs and a banned-words list.',
-    edited: 'yesterday',
-    tag: 'Cowork',
+    editedAt: ago(28 * HOUR),
   },
   {
     id: 'a12',
@@ -678,8 +679,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
     source: 'Homepage rewrite',
     projectId: 'p-brand',
     excerpt: '“See what your product is actually doing” — hero, proof points, one CTA.',
-    edited: 'yesterday',
-    tag: 'Cowork',
+    editedAt: ago(28 * HOUR),
   },
   {
     id: 'a13',
@@ -689,8 +689,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
     source: 'Logo lockup feedback',
     projectId: 'p-brand',
     excerpt: 'The three wordmark lockups at display, body, and favicon sizes.',
-    edited: '2 days ago',
-    tag: 'Cowork',
+    editedAt: ago(2 * DAY),
   },
   {
     id: 'a14',
@@ -700,8 +699,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
     source: 'Brand voice guidelines',
     projectId: 'p-brand',
     excerpt: 'The 2026 palette mapped to semantic tokens (surface, ink, accent…).',
-    edited: '3 days ago',
-    tag: 'Cowork',
+    editedAt: ago(3 * DAY),
   },
   {
     id: 'a15',
@@ -711,8 +709,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
     source: 'Brand voice guidelines',
     projectId: 'p-brand',
     excerpt: 'Side-by-side do/don’t rewrites for support and marketing copy.',
-    edited: '3 days ago',
-    tag: 'Cowork',
+    editedAt: ago(3 * DAY),
   },
   // ── Platform hardening ───────────────────────────────────────────────────
   {
@@ -723,8 +720,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
     source: 'On-call runbook',
     projectId: 'p-infra',
     excerpt: 'First five minutes, escalation path, and the one-command rollback.',
-    edited: '3 days ago',
-    tag: 'Code',
+    editedAt: ago(3 * DAY),
   },
   {
     id: 'a17',
@@ -734,8 +730,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
     source: 'Rate limiting RFC',
     projectId: 'p-infra',
     excerpt: 'Token-bucket per API key; 429 with Retry-After and budget headers.',
-    edited: 'Wed',
-    tag: 'Code',
+    editedAt: ago(4 * DAY),
   },
   {
     id: 'a18',
@@ -745,8 +740,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
     source: 'Refactor auth middleware',
     projectId: 'p-infra',
     excerpt: 'Collapsed two token-refresh paths into one `refreshSession()`.',
-    edited: '3 days ago',
-    tag: 'Code',
+    editedAt: ago(3 * DAY),
   },
   {
     id: 'a19',
@@ -756,8 +750,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
     source: 'Refactor auth middleware',
     projectId: 'p-infra',
     excerpt: 'Cases for the unified refresh path: expiry, reuse, and revocation.',
-    edited: '3 days ago',
-    tag: 'Code',
+    editedAt: ago(3 * DAY),
   },
   {
     id: 'a20',
@@ -767,8 +760,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
     source: 'On-call runbook',
     projectId: 'p-infra',
     excerpt: 'SLOs and 30-day error-budget burn across auth, api, ingest, and web — ingest is over budget.',
-    edited: 'Wed',
-    tag: 'Code',
+    editedAt: ago(4 * DAY),
   },
 ]
 
