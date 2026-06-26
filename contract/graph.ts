@@ -87,7 +87,7 @@ export function applyGraphOp(
         id: op.projectId,
         name: op.projectName,
         description: op.projectDescription,
-        updated: 'just now',
+        updatedAt: now,
         instructions: '',
         scheduled: [],
         contexts: [],

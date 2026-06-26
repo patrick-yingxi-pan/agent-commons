@@ -55,7 +55,7 @@ export const PROJECTS: Project[] = [
     id: 'p-insights',
     name: 'Insights dashboard',
     description: 'The self-serve Insights dashboard — launch plan, assets, and the feature-flagged rollout.',
-    updated: 'now',
+    updatedAt: ago(0),
     instructions:
       'Write for PMs and execs: lead with the metric, then the mechanism. Keep launch copy to one screen. Ship behind the `insights_dashboard` flag on `/insights` until GA. When you make a claim, cite the Amplitude chart that backs it.',
     scheduled: [
@@ -76,7 +76,7 @@ export const PROJECTS: Project[] = [
     id: 'p-growth',
     name: 'Growth experiments',
     description: 'Activation A/Bs, the onboarding funnel, churn work, and the weekly growth readout.',
-    updated: '2h ago',
+    updatedAt: ago(2 * HOUR),
     instructions:
       'Every experiment needs a hypothesis, a primary metric, and a guardrail. Report lift with a 95% confidence interval — no ship call below 95% significance. Our north-star is weekly-active-teams, not MAU; frame results against it.',
     scheduled: [
@@ -94,7 +94,7 @@ export const PROJECTS: Project[] = [
     id: 'p-brand',
     name: 'Brand refresh',
     description: 'The 2026 brand refresh — voice guide, the new logo lockups, and a marketing-site pass.',
-    updated: 'Yesterday',
+    updatedAt: ago(28 * HOUR),
     instructions:
       'Voice is warm, plain, and confident — no hype words or exclamation marks. Sentence case for headings. Always use the new wordmark, never the retired logotype. Prefer em dashes over semicolons.',
     scheduled: [{ name: 'Weekly site-copy review', cadence: 'Fridays · 3:00 PM', enabled: false }],
@@ -109,7 +109,7 @@ export const PROJECTS: Project[] = [
     id: 'p-infra',
     name: 'Platform hardening',
     description: 'The platform team — auth refactor, API rate limits, and the on-call runbook.',
-    updated: '3d ago',
+    updatedAt: ago(3 * DAY),
     instructions:
       'Prefer the smallest diff that removes duplication. Every auth change ships with a test and links the on-call runbook in the PR. Roll out behind a flag and watch the Sentry error rate for 30 minutes before widening.',
     scheduled: [

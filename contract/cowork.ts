@@ -25,7 +25,9 @@ export interface Project {
   id: string
   name: string
   description: string
-  updated: string
+  /** When the project was last touched (epoch ms). The UI renders a live "time
+   *  ago" label from it (src/lib/relativeTime), like an artifact's editedAt. */
+  updatedAt: number
   /** Custom instructions Claude follows inside this project (right panel). */
   instructions: string
   /** Recurring runs scoped to this project (right panel). */

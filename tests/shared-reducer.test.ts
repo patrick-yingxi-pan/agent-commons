@@ -90,6 +90,17 @@ test('create-project uses op.projectId verbatim — the minter never influences 
   assert.equal(clientPatch.extraProjects[0].id, serverPatch.extraProjects[0].id)
 })
 
+test('create-project stamps updatedAt from the injected clock (a fresh project shows a live "Updated …", not a frozen string)', () => {
+  const NOW = 1_700_000_000_000
+  const g = applyGraphOp(
+    emptyGraph(),
+    { kind: 'create-project', projectId: 'p-fixed', projectName: 'X', projectDescription: 'd' },
+    mintIds(),
+    NOW,
+  )
+  assert.equal(g.extraProjects[0].updatedAt, NOW, 'the new project carries the caller’s timestamp')
+})
+
 test('describeOp(create-project): sessionless variant drops the file phrasing but keeps projectId for the deep-link', () => {
   const d = describeOp({ kind: 'create-project', projectId: 'p1', projectName: 'Empty', projectDescription: 'd' })
   assert.equal(d.text, 'Create the **Empty** project')

@@ -426,7 +426,7 @@ function ProjectCard({
         {project.description}
       </div>
       <div className="mt-auto flex items-center gap-2 pt-4 text-[12px] text-ink-faint">
-        <span>Updated {project.updated}</span>
+        <span>Updated {relativeTime(project.updatedAt)}</span>
         <span>·</span>
         <span>
           {sessionCount} session{sessionCount === 1 ? '' : 's'}
