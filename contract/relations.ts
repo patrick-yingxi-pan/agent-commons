@@ -134,6 +134,10 @@ export type RelationOp =
   | { kind: 'attach-context'; sessionTitle: string; connectorId: string; connectorLabel: string; connectorKind?: 'github' | 'connector' | 'mcp' }
   // Project ↔ Context — scope a context to a project.
   | { kind: 'scope-context'; projectId: string; projectName: string; context: ProjectContext }
+  // Project ↔ Context — remove a scoped context from a project (the inverse of scope-context).
+  | { kind: 'unscope-context'; projectId: string; projectName: string; contextLabel: string }
+  // Project — edit a project's custom instructions (the right-panel "Instructions" card).
+  | { kind: 'set-project-instructions'; projectId: string; projectName: string; instructions: string }
   // Project ↔ Schedule — link a recurring schedule to a project (null = unlink).
   | { kind: 'link-schedule-project'; scheduleId: string; scheduleName: string; projectId: string | null; projectName: string }
   // Artifact ↔ Context — record that an artifact derives from a context.
@@ -161,6 +165,10 @@ export function opKey(op: RelationOp): string {
       return `attach-context:${op.sessionTitle}:${op.connectorId}`
     case 'scope-context':
       return `scope-context:${op.projectId}:${op.context.label}`
+    case 'unscope-context':
+      return `unscope-context:${op.projectId}:${op.contextLabel}`
+    case 'set-project-instructions':
+      return `set-project-instructions:${op.projectId}`
     case 'link-schedule-project':
       return `link-schedule-project:${op.scheduleId}:${op.projectId ?? 'none'}`
     case 'set-artifact-source':
@@ -264,6 +272,24 @@ export function describeOp(op: RelationOp): OpDescription {
       return {
         text: `Scope **${op.context.label}** to **${op.projectName}**`,
         done: `Scoped to ${op.projectName}`,
+        section: 'projects',
+        projectId: op.projectId,
+        relationId: 'project-context',
+        approval: 'per-action',
+      }
+    case 'unscope-context':
+      return {
+        text: `Remove **${op.contextLabel}** from **${op.projectName}**`,
+        done: `Removed ${op.contextLabel}`,
+        section: 'projects',
+        projectId: op.projectId,
+        relationId: 'project-context',
+        approval: 'per-action',
+      }
+    case 'set-project-instructions':
+      return {
+        text: `Update the **${op.projectName}** project instructions`,
+        done: 'Instructions updated',
         section: 'projects',
         projectId: op.projectId,
         relationId: 'project-context',

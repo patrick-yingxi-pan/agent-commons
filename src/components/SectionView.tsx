@@ -24,6 +24,7 @@ import {
   MessageSquare,
   MinusCircle,
   PauseCircle,
+  Pencil,
   Play,
   PlayCircle,
   Plug,
@@ -38,12 +39,16 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react'
-import type { ArtifactKind, Connector, SectionId } from '../types'
+import type { AddedContext, ArtifactKind, Connector, SectionId } from '../types'
 import { SECTION_META } from '../lib/sections'
 import { FOLD_HEADER_CLASS } from '../lib/foldHeader'
 import { connectorIconFor } from '../lib/connectors'
 import { CHIP_TONES, type ChipTone } from '../lib/capabilities'
+import { addedToProjectContexts, contextsToConnectors, projectContextTone } from '../lib/projectContext'
 import { ConnectorDetailBody } from './ConnectorPanel'
+import { AddContextButton } from './AddContextButton'
+import { Chip } from './Chip'
+import { RowMenu, type RowMenuItem } from './RowMenu'
 import { ClaudeMark } from './ClaudeMark'
 import { SAVED_CONTEXTS, type SavedContext, type SavedContextKind } from '../data/savedContexts'
 import {
@@ -394,16 +399,67 @@ function ProjectDetail({
   const rel = useRelations()
   const convs = rel.sessionsForProject(project.id)
   const contexts = rel.contextsForProject(project.id)
-  // The project's recurring runs: its hand-authored cadence plus any global
-  // schedule the relation graph links here (deduped by name), so an AI
-  // "link schedule to project" edit shows up alongside the seeded ones.
-  const scheduled = [
-    ...project.scheduled,
-    ...rel
-      .schedulesForProject(project.id)
-      .filter((t) => !project.scheduled.some((s) => s.name === t.name))
-      .map((t) => ({ name: t.name, cadence: t.cadence, enabled: t.enabled })),
-  ]
+
+  // The project's recurring runs split two ways: the *real* routines the relation
+  // graph links here (full ScheduledTask — togglable, runnable, openable) and the
+  // hand-authored seed cadences that aren't backed by a real task (shown static).
+  const realSchedules = rel.schedulesForProject(project.id)
+  const realNames = new Set(realSchedules.map((t) => t.name))
+  const staticSchedules = project.scheduled.filter((s) => !realNames.has(s.name))
+  const hasSchedules = realSchedules.length > 0 || staticSchedules.length > 0
+
+  // "Run now" spinners — an id is in the set until its run resolves (cleared on a
+  // timer as a safety net), mirroring the Scheduled section's own controls.
+  const [running, setRunning] = useState<Set<string>>(new Set())
+  const timers = useRef<number[]>([])
+  useEffect(() => () => timers.current.forEach((t) => window.clearTimeout(t)), [])
+
+  const toggleEnabled = (id: string, enabled: boolean) => void toggleScheduleEnabled(id, !enabled)
+  const runNow = (id: string) => {
+    if (running.has(id)) return
+    setRunning((prev) => new Set(prev).add(id))
+    void runScheduleNow(id)
+    const timer = window.setTimeout(() => {
+      setRunning((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }, 2000)
+    timers.current.push(timer)
+  }
+
+  // ── Scheduled-run CRUD — all on existing primitives, no new backend op ──
+  // Create: mint a routine from a template (lands paused), link it to this project,
+  // then drill into its detail to edit cadence/steps (the Scheduled section's own
+  // "new schedule" path). Link/unlink move only the project↔schedule edge in the
+  // relation graph; delete destroys the routine globally.
+  const createSchedule = async (tpl: ScheduleTemplate) => {
+    const task = await addScheduleFromSeed(tpl.seed)
+    linkSchedule(task)
+    rel.navigate('scheduled', task.id)
+  }
+  const linkSchedule = (task: ScheduledTask) =>
+    rel.applyOp({ kind: 'link-schedule-project', scheduleId: task.id, scheduleName: task.name, projectId: project.id, projectName: project.name })
+  const unlinkSchedule = (task: ScheduledTask) =>
+    rel.applyOp({ kind: 'link-schedule-project', scheduleId: task.id, scheduleName: task.name, projectId: null, projectName: project.name })
+  const deleteSchedule = (id: string) => void removeSchedule(id)
+
+  // Remove a session from this project — the file-session op with a null project
+  // (the graph patch drops it from sessionsForProject, so the row disappears).
+  const unfileSession = (id: string, title: string) =>
+    rel.applyOp({ kind: 'file-session', sessionId: id, sessionTitle: title, projectId: null, projectName: project.name })
+
+  // Scope / unscope context — both server-owned relation edits. Adding reuses the
+  // session composer's full Add-context picker (mapping each AddedContext to the
+  // project's ProjectContext shape); removing splices it by label.
+  const addContext = (ctx: ProjectContext) =>
+    rel.applyOp({ kind: 'scope-context', projectId: project.id, projectName: project.name, context: ctx })
+  const removeContext = (label: string) =>
+    rel.applyOp({ kind: 'unscope-context', projectId: project.id, projectName: project.name, contextLabel: label })
+  const attachToProject = (ctx: AddedContext) => {
+    for (const pc of addedToProjectContexts(ctx)) addContext(pc)
+  }
 
   return (
     <Page>
@@ -434,20 +490,33 @@ function ProjectDetail({
           ) : (
             <div className="overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
               {convs.map((c, i) => (
-                <button
+                <div
                   key={c.id}
-                  onClick={() => onOpenSession(c.id)}
-                  className={`flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-panel-2/60 ${
+                  className={`group flex items-center transition hover:bg-panel-2/60 ${
                     i > 0 ? 'border-t border-line' : ''
                   }`}
                 >
-                  <MessageSquare size={16} className="shrink-0 text-ink-faint" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[14px] font-medium text-ink">{c.title}</div>
-                    <div className="truncate text-[12px] text-ink-faint">{c.preview}</div>
-                  </div>
-                  <span className="shrink-0 text-[11px] text-ink-faint">{c.updatedLabel}</span>
-                </button>
+                  <button
+                    onClick={() => onOpenSession(c.id)}
+                    className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left"
+                  >
+                    <MessageSquare size={16} className="shrink-0 text-ink-faint" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[14px] font-medium text-ink">{c.title}</div>
+                      <div className="truncate text-[12px] text-ink-faint">{c.preview}</div>
+                    </div>
+                    <span className="shrink-0 text-[11px] text-ink-faint">{c.updatedLabel}</span>
+                  </button>
+                  <Tooltip label="Remove from project">
+                    <button
+                      onClick={() => unfileSession(c.id, c.title)}
+                      aria-label={`Remove ${c.title} from ${project.name}`}
+                      className="mr-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-faint opacity-0 transition hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 group-hover:opacity-100"
+                    >
+                      <MinusCircle size={15} />
+                    </button>
+                  </Tooltip>
+                </div>
               ))}
             </div>
           )}
@@ -455,21 +524,27 @@ function ProjectDetail({
 
         {/* Right panel — instructions, scheduled runs, and attached context. */}
         <aside className="w-full shrink-0 space-y-4 lg:w-72">
-          <SidePanel title="Instructions" icon={<FileText size={14} />}>
-            {project.instructions ? (
-              <p className="text-[13px] leading-relaxed text-ink-soft">{project.instructions}</p>
-            ) : (
-              <p className="text-[12px] text-ink-faint">No custom instructions yet.</p>
-            )}
-          </SidePanel>
+          <ProjectInstructions project={project} />
 
           <SidePanel title="Scheduled" icon={<Clock size={14} />}>
-            {scheduled.length === 0 ? (
-              <p className="text-[12px] text-ink-faint">No scheduled runs.</p>
+            {!hasSchedules ? (
+              <p className="text-[12px] text-ink-faint">No scheduled runs yet.</p>
             ) : (
               <div className="space-y-2.5">
-                {scheduled.map((s, i) => (
-                  <div key={i} className="flex items-start gap-2.5">
+                {realSchedules.map((t) => (
+                  <ProjectScheduleRow
+                    key={t.id}
+                    task={t}
+                    running={running.has(t.id)}
+                    onToggle={() => toggleEnabled(t.id, t.enabled)}
+                    onRun={() => runNow(t.id)}
+                    onOpen={() => rel.navigate('scheduled', t.id)}
+                    onUnlink={() => unlinkSchedule(t)}
+                    onDelete={() => deleteSchedule(t.id)}
+                  />
+                ))}
+                {staticSchedules.map((s, i) => (
+                  <div key={`static-${i}`} className="flex items-start gap-2.5">
                     <span
                       className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
                         s.enabled ? 'bg-emerald-500' : 'bg-line-strong'
@@ -486,29 +561,326 @@ function ProjectDetail({
                 ))}
               </div>
             )}
+            <ProjectScheduleAdd
+              linkedIds={new Set(realSchedules.map((t) => t.id))}
+              onCreate={createSchedule}
+              onLink={linkSchedule}
+            />
           </SidePanel>
 
           <SidePanel title="Context" icon={<Folder size={14} />}>
             {contexts.length === 0 ? (
               <p className="text-[12px] text-ink-faint">No context attached yet.</p>
             ) : (
-            <div className="space-y-2">
-              {contexts.map((ctx, i) => {
-                const CIcon = CONTEXT_ICON[ctx.kind]
-                return (
-                  <div key={i} className="flex items-center gap-2.5">
-                    <CIcon size={15} className="shrink-0 text-ink-faint" />
-                    <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{ctx.label}</span>
-                    <span className="shrink-0 truncate text-[11px] text-ink-faint">{ctx.meta}</span>
-                  </div>
-                )
-              })}
-            </div>
+              <div className="flex flex-wrap gap-1.5">
+                {contexts.map((ctx, i) => (
+                  <ProjectContextChip key={`${ctx.label}-${i}`} ctx={ctx} onRemove={() => removeContext(ctx.label)} />
+                ))}
+              </div>
             )}
+            <div className="mt-2.5 flex items-center gap-1.5 border-t border-line pt-2.5">
+              <AddContextButton
+                onAttach={attachToProject}
+                connectors={contextsToConnectors(contexts)}
+                repos={[]}
+                attachments={[]}
+                workspaces={[]}
+              />
+              <span className="text-[12px] text-ink-faint">Add context</span>
+            </div>
           </SidePanel>
         </aside>
       </div>
     </Page>
+  )
+}
+
+/** The project's "Instructions" card — a static paragraph until you click Edit,
+ *  which swaps in a textarea. Saving applies a `set-project-instructions` op
+ *  (server-owned, persisted, broadcast); the read falls back to the project's
+ *  seed when no edit has been made. An empty save clears the instructions. */
+function ProjectInstructions({ project }: { project: Project }) {
+  const rel = useRelations()
+  const current = rel.instructionsForProject(project.id) ?? project.instructions
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(current)
+  const taRef = useRef<HTMLTextAreaElement>(null)
+
+  const startEdit = () => {
+    setDraft(current)
+    setEditing(true)
+  }
+  const save = () => {
+    rel.applyOp({
+      kind: 'set-project-instructions',
+      projectId: project.id,
+      projectName: project.name,
+      instructions: draft.trim(),
+    })
+    setEditing(false)
+  }
+
+  useEffect(() => {
+    if (editing) taRef.current?.focus()
+  }, [editing])
+
+  return (
+    <SidePanel title="Instructions" icon={<FileText size={14} />}>
+      {editing ? (
+        <div>
+          <textarea
+            ref={taRef}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setEditing(false)
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) save()
+            }}
+            rows={7}
+            placeholder="How should Claude work inside this project?"
+            className="w-full resize-none rounded-lg border border-line bg-surface px-2.5 py-2 text-[13px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-accent"
+          />
+          <div className="mt-2 flex items-center justify-end gap-2">
+            <button
+              onClick={() => setEditing(false)}
+              className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:text-ink"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={save}
+              className="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas shadow-sm transition hover:opacity-90"
+            >
+              <Check size={13} />
+              Save
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div>
+          {current ? (
+            <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-ink-soft">{current}</p>
+          ) : (
+            <p className="text-[12px] text-ink-faint">No custom instructions yet.</p>
+          )}
+          <button
+            onClick={startEdit}
+            className="mt-2.5 inline-flex items-center gap-1 text-[12px] font-medium text-ink-faint transition hover:text-ink"
+          >
+            <Pencil size={12} />
+            {current ? 'Edit' : 'Add instructions'}
+          </button>
+        </div>
+      )}
+    </SidePanel>
+  )
+}
+
+/** A real project routine in the Scheduled card — a click-through into the
+ *  routine's full detail, a Run-now with a spinner, a live enable toggle, and a
+ *  ⋯ menu for project membership (unlink) and deletion. The dot echoes its last
+ *  run's status, like the Scheduled section's own rows. */
+function ProjectScheduleRow({
+  task,
+  running,
+  onToggle,
+  onRun,
+  onOpen,
+  onUnlink,
+  onDelete,
+}: {
+  task: ScheduledTask
+  running: boolean
+  onToggle: () => void
+  onRun: () => void
+  onOpen: () => void
+  onUnlink: () => void
+  onDelete: () => void
+}) {
+  const dot =
+    task.lastStatus === 'ok' ? 'bg-emerald-500' : task.lastStatus === 'failed' ? 'bg-red-500' : 'bg-line-strong'
+  const menu: RowMenuItem[] = [
+    { kind: 'action', key: 'open', label: 'Open in Scheduled', icon: <ChevronRight size={14} />, onSelect: onOpen },
+    { kind: 'divider', key: 'd1' },
+    { kind: 'action', key: 'unlink', label: 'Remove from project', icon: <MinusCircle size={14} />, onSelect: onUnlink },
+    {
+      kind: 'action',
+      key: 'delete',
+      label: 'Delete routine',
+      icon: <Trash2 size={14} />,
+      danger: true,
+      confirm: `Delete “${task.name}”? This removes the routine everywhere, not just from this project.`,
+      onSelect: onDelete,
+    },
+  ]
+  return (
+    <div className="group flex items-center gap-1">
+      <button onClick={onOpen} className="flex min-w-0 flex-1 items-start gap-2.5 text-left" title="Open in Scheduled">
+        <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${task.enabled ? dot : 'bg-line-strong'}`} />
+        <div className="min-w-0">
+          <div className="truncate text-[13px] font-medium text-ink transition group-hover:text-accent-strong">
+            {task.name}
+          </div>
+          <div className="truncate text-[11px] text-ink-faint">
+            {task.cadence}
+            {task.enabled ? '' : ' · paused'}
+          </div>
+        </div>
+      </button>
+      <div className="flex shrink-0 items-center gap-0.5">
+        <Tooltip label="Run now">
+          <button
+            onClick={onRun}
+            aria-label={`Run ${task.name} now`}
+            className="flex h-6 w-6 items-center justify-center rounded-md text-ink-faint opacity-0 transition hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
+          >
+            {running ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+          </button>
+        </Tooltip>
+        <RowMenu ariaLabel={`Actions for ${task.name}`} items={menu} />
+        <Toggle on={task.enabled} onToggle={onToggle} />
+      </div>
+    </div>
+  )
+}
+
+/** A scoped context rendered as the session composer's Chip — the same tinted
+ *  pill, with a hover-revealed ✕ that unscopes it (mirroring the composer's
+ *  single-chip remove). The meta (branch, file count, …) surfaces as the hover
+ *  tooltip since the pill itself only shows the label. */
+function ProjectContextChip({ ctx, onRemove }: { ctx: ProjectContext; onRemove: () => void }) {
+  const CIcon = CONTEXT_ICON[ctx.kind]
+  return (
+    <div className="group/chip relative inline-flex">
+      <Chip icon={<CIcon size={12} />} tone={projectContextTone(ctx.kind)} active={false} hint={ctx.meta || ctx.label} onClick={() => {}}>
+        {ctx.label}
+      </Chip>
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`Remove ${ctx.label} from project`}
+        title="Remove from project"
+        className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-line-strong bg-surface text-ink-faint opacity-0 shadow-sm transition hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 group-hover/chip:opacity-100"
+      >
+        <X size={10} strokeWidth={2.5} />
+      </button>
+    </div>
+  )
+}
+
+/** The Scheduled card's create / link control — a "+ Add routine" trigger whose
+ *  popover offers a template to spin up a NEW routine (pre-linked to this project)
+ *  or an existing unlinked routine to LINK in. Both run on existing primitives:
+ *  create = addScheduleFromSeed → link-schedule-project; link = link-schedule-project. */
+function ProjectScheduleAdd({
+  linkedIds,
+  onCreate,
+  onLink,
+}: {
+  linkedIds: Set<string>
+  onCreate: (tpl: ScheduleTemplate) => void
+  onLink: (task: ScheduledTask) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const templates = useScheduleTemplates().data ?? []
+  const allSchedules = useSchedules().data ?? []
+  const linkable = allSchedules.filter((t) => !linkedIds.has(t.id))
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  return (
+    <div ref={ref} className="relative mt-2.5 border-t border-line pt-2.5">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        className="inline-flex items-center gap-1 text-[12px] font-medium text-ink-faint transition hover:text-ink"
+      >
+        <Plus size={13} />
+        Add routine
+      </button>
+
+      {open && (
+        <div
+          role="dialog"
+          aria-label="Add a scheduled routine"
+          className="absolute right-0 top-full z-30 mt-1.5 max-h-[360px] w-[300px] overflow-y-auto rounded-xl border border-line-strong bg-surface p-2 shadow-xl"
+        >
+          <p className="px-1.5 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+            New routine
+          </p>
+          {templates.map((tpl) => {
+            const lead = tpl.seed.steps[0]?.tool
+            const blank = tpl.category === 'Start from scratch'
+            return (
+              <button
+                key={tpl.name}
+                onClick={() => {
+                  onCreate(tpl)
+                  setOpen(false)
+                }}
+                className="group mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition hover:bg-panel-2"
+              >
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-ink-soft">
+                  {blank ? <Sparkles size={15} className="text-accent" /> : lead ? <ToolGlyph tool={lead} size={15} /> : <Clock size={15} />}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] font-medium text-ink">{tpl.name}</span>
+                  <span className="block truncate text-[11px] text-ink-faint">{tpl.preview}</span>
+                </span>
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent group-hover:text-white">
+                  <Plus size={13} />
+                </span>
+              </button>
+            )
+          })}
+          {linkable.length > 0 && (
+            <>
+              <p className="px-1.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+                Link existing
+              </p>
+              {linkable.map((t) => {
+                const lead = t.steps[0]?.tool ?? t.delivery.tool
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => {
+                      onLink(t)
+                      setOpen(false)
+                    }}
+                    className="group mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition hover:bg-panel-2"
+                  >
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-ink-soft">
+                      <ToolGlyph tool={lead} size={15} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-medium text-ink">{t.name}</span>
+                      <span className="block truncate text-[11px] text-ink-faint">{t.cadence}</span>
+                    </span>
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent group-hover:text-white">
+                      <Plus size={13} />
+                    </span>
+                  </button>
+                )
+              })}
+            </>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 

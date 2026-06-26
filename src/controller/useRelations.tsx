@@ -63,6 +63,8 @@ export interface RelationsValue {
   isStandingApproved: (key: string) => boolean
   // ── Project ↔ Context ──
   contextsForProject: (pid: string) => ProjectContext[]
+  // ── Project instructions (edited overlay; undefined = use the project's seed) ──
+  instructionsForProject: (pid: string) => string | undefined
   // ── Nav bridge (the card's "View in …" deep-link) ──
   navigate: (section: SectionId, projectId?: string) => void
 }
@@ -127,6 +129,7 @@ export function RelationsProvider({
       scheduleExtraToolsFor: (schedId) => graph.scheduleExtraTools[schedId] ?? [],
       isStandingApproved: (key) => !!graph.standingApprovals[key],
       contextsForProject: (pid) => graph.projectContexts[pid] ?? [],
+      instructionsForProject: (pid) => graph.projectInstructions?.[pid],
       navigate: (section, projectId) => navigate?.(section, projectId),
     }
   }, [projects, baseArtifacts, schedules, sessions, graph, applyOp, navigate])

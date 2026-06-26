@@ -165,6 +165,58 @@ test('describeOp(refile-artifact): assign keeps the project deep-link; unfile re
   assert.equal(unfile.projectId, undefined, 'no project to deep-link to when unfiled')
 })
 
+test('scope-context adds a context to a project once (dedup by label), unscope-context removes it', () => {
+  const ctx = { kind: 'connector' as const, label: 'Linear', meta: 'INS team' }
+  let g = applyGraphOp(emptyGraph(), { kind: 'scope-context', projectId: 'p1', projectName: 'P', context: ctx }, mintIds())
+  assert.deepEqual(g.projectContexts['p1'], [ctx], 'scoped to the project')
+  // Re-scoping the same label is a no-op (no duplicate row).
+  g = applyGraphOp(g, { kind: 'scope-context', projectId: 'p1', projectName: 'P', context: { ...ctx, meta: 'changed' } }, mintIds())
+  assert.equal(g.projectContexts['p1'].length, 1, 'a context with an existing label is not added twice')
+  // Unscope removes it by label.
+  g = applyGraphOp(g, { kind: 'unscope-context', projectId: 'p1', projectName: 'P', contextLabel: 'Linear' }, mintIds())
+  assert.deepEqual(g.projectContexts['p1'], [], 'unscope-context removes the context')
+})
+
+test('unscope-context on an absent context is a no-op (returns the same graph)', () => {
+  const g0 = { ...emptyGraph(), projectContexts: { p1: [{ kind: 'repo' as const, label: 'acme/web', meta: 'main' }] } }
+  const g1 = applyGraphOp(g0, { kind: 'unscope-context', projectId: 'p1', projectName: 'P', contextLabel: 'not-there' }, mintIds())
+  assert.equal(g1, g0, 'no matching label → the graph is returned unchanged')
+})
+
+test('set-project-instructions overlays the project instructions; an empty string clears them', () => {
+  let g = applyGraphOp(
+    emptyGraph(),
+    { kind: 'set-project-instructions', projectId: 'p1', projectName: 'P', instructions: 'Lead with the metric.' },
+    mintIds(),
+  )
+  assert.equal(g.projectInstructions['p1'], 'Lead with the metric.', 'instructions overlaid for the project')
+  g = applyGraphOp(g, { kind: 'set-project-instructions', projectId: 'p1', projectName: 'P', instructions: '' }, mintIds())
+  assert.equal(g.projectInstructions['p1'], '', 'an empty string is a real value — it clears the instructions')
+})
+
+test('describeOp(unscope-context / set-project-instructions): project-scoped, per-action, with the project deep-link', () => {
+  const un = describeOp({ kind: 'unscope-context', projectId: 'p1', projectName: 'Insights', contextLabel: 'Linear' })
+  assert.equal(un.text, 'Remove **Linear** from **Insights**')
+  assert.equal(un.section, 'projects')
+  assert.equal(un.projectId, 'p1')
+  assert.equal(un.approval, 'per-action')
+  const si = describeOp({ kind: 'set-project-instructions', projectId: 'p1', projectName: 'Insights', instructions: 'x' })
+  assert.equal(si.text, 'Update the **Insights** project instructions')
+  assert.equal(si.projectId, 'p1', 'projectId drives the "View in projects" deep-link')
+})
+
+test('opKey is stable + distinct for the project-context ops (per-project, per-label)', () => {
+  assert.equal(
+    opKey({ kind: 'set-project-instructions', projectId: 'p1', projectName: 'P', instructions: 'a' }),
+    'set-project-instructions:p1',
+    'instructions key is per-project (a re-edit overwrites, never stacks)',
+  )
+  assert.equal(
+    opKey({ kind: 'unscope-context', projectId: 'p1', projectName: 'P', contextLabel: 'Linear' }),
+    'unscope-context:p1:Linear',
+  )
+})
+
 test("attach-context is a no-op on the graph (it's a live-session effect, applied by the caller)", () => {
   const g0 = emptyGraph()
   const g1 = applyGraphOp(

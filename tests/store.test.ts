@@ -56,3 +56,52 @@ test('registry: native mode seeds the co-located agent with fs/terminal/process'
   assert.ok(local.capabilities.some((c) => c.type === 'fs.read'))
   assert.ok(local.capabilities.some((c) => c.type === 'terminal'))
 })
+
+test('relations: the graph seeds a project’s scoped contexts from its seed data', () => {
+  const project = store.listProjects()[0]
+  const seeded = store.relationGraph().projectContexts[project.id]
+  assert.ok(Array.isArray(seeded) && seeded.length > 0, 'a seed project carries its scoped contexts in the graph')
+})
+
+test('relations: the project-detail ops mutate the canonical graph + broadcast relation.applied', () => {
+  const project = store.listProjects()[0]
+  const seedLabel = store.relationGraph().projectContexts[project.id][0].label
+
+  const ops: string[] = []
+  const off = store.subscribe((e) => {
+    if (e.type === 'relation.applied') ops.push(e.op.kind)
+  })
+
+  // Scope a fresh context, then unscope the seeded one — both reflect in the graph.
+  store.applyRelationOp({
+    kind: 'scope-context',
+    projectId: project.id,
+    projectName: project.name,
+    context: { kind: 'connector', label: 'Test connector', meta: 'added by a test' },
+  })
+  store.applyRelationOp({
+    kind: 'unscope-context',
+    projectId: project.id,
+    projectName: project.name,
+    contextLabel: seedLabel,
+  })
+  // Edit the instructions — overlaid in the new graph slice.
+  store.applyRelationOp({
+    kind: 'set-project-instructions',
+    projectId: project.id,
+    projectName: project.name,
+    instructions: 'Lead with the metric, then the mechanism.',
+  })
+  off()
+
+  const after = store.relationGraph()
+  const labels = after.projectContexts[project.id].map((c) => c.label)
+  assert.ok(labels.includes('Test connector'), 'scope-context added the context')
+  assert.ok(!labels.includes(seedLabel), 'unscope-context removed the seeded context')
+  assert.equal(
+    after.projectInstructions[project.id],
+    'Lead with the metric, then the mechanism.',
+    'set-project-instructions overlaid the instructions',
+  )
+  assert.deepEqual(ops, ['scope-context', 'unscope-context', 'set-project-instructions'], 'each canonical write broadcast relation.applied')
+})

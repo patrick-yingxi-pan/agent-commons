@@ -99,6 +99,8 @@ export interface RelationGraph {
   scheduleProject: Record<string, string | null>
   /** project id → its scoped contexts. */
   projectContexts: Record<string, import('./cowork.ts').ProjectContext[]>
+  /** project id → its edited custom instructions (overrides the seed). */
+  projectInstructions: Record<string, string>
   /** artifact id → the context label it derives from. */
   artifactSource: Record<string, string>
   /** schedule id → the artifact name it now saves each run. */

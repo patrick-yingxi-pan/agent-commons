@@ -113,10 +113,16 @@ export default function App() {
     (c: Connector) => handleAddContext({ kind: c.kind === 'mcp' ? 'mcp' : 'connector', connector: c }),
     [handleAddContext],
   )
+  // The relations "View in …" deep-link. The second arg is an entity id whose
+  // meaning depends on the section: a project to expand, or a schedule to open.
   const navigateToSection = useCallback(
-    (section: SectionId, projectId?: string) =>
-      section === 'projects' && projectId ? openProject(projectId) : openSection(section),
-    [openProject, openSection],
+    (section: SectionId, id?: string) =>
+      section === 'projects' && id
+        ? openProject(id)
+        : section === 'scheduled' && id
+          ? openSchedule(id)
+          : openSection(section),
+    [openProject, openSchedule, openSection],
   )
 
   return (

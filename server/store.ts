@@ -42,6 +42,7 @@ import type {
 } from '../contract/index.ts'
 import {
   applyGraphOp,
+  emptyGraph,
   entryById,
   recentEntries,
   runSessionId,
@@ -234,7 +235,9 @@ function rehydrate(s: PersistedState): void {
     }
   }
   recents = s.recents
-  graph = s.graph
+  // Merge over an empty graph so a snapshot written before a slice existed (e.g.
+  // projectInstructions) gains it as an empty map rather than `undefined`.
+  graph = { ...emptyGraph(), ...s.graph }
   // Restore saved-context auth status (default to the seed for a pre-field snapshot).
   if (s.savedContexts) savedCtxs.splice(0, savedCtxs.length, ...s.savedContexts)
   sessionContextBindings.clear()

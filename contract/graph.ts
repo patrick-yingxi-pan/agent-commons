@@ -15,6 +15,7 @@ export function emptyGraph(): RelationGraph {
     artifactProject: {},
     scheduleProject: {},
     projectContexts: {},
+    projectInstructions: {},
     artifactSource: {},
     scheduleArtifact: {},
     scheduleSession: {},
@@ -116,6 +117,27 @@ export function applyGraphOp(
         projectContexts: { ...graph.projectContexts, [op.projectId]: [...cur, op.context] },
       }
     }
+    case 'unscope-context': {
+      // The inverse of scope-context: drop the context (matched by label) from the
+      // project's scoped set. Seed contexts live here too (seedGraph copies them in),
+      // so this removes a seeded or an added one alike. A no-op if it's already gone.
+      const cur = graph.projectContexts[op.projectId] ?? []
+      if (!cur.some((c) => c.label === op.contextLabel)) return graph
+      return {
+        ...graph,
+        projectContexts: {
+          ...graph.projectContexts,
+          [op.projectId]: cur.filter((c) => c.label !== op.contextLabel),
+        },
+      }
+    }
+    case 'set-project-instructions':
+      // Overlay the project's instructions (read with a fallback to the seed). An
+      // empty string is a real value here — it clears the instructions back to none.
+      return {
+        ...graph,
+        projectInstructions: { ...graph.projectInstructions, [op.projectId]: op.instructions },
+      }
     case 'link-schedule-project':
       return { ...graph, scheduleProject: { ...graph.scheduleProject, [op.scheduleId]: op.projectId } }
     case 'set-artifact-source':

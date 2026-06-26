@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import {
   Check,
   ChevronLeft,
@@ -81,11 +81,32 @@ export function AddContextButton({
   // "More" flyout. Recomputed on open and on window resize.
   const [maxRecentRows, setMaxRecentRows] = useState(8)
   const wrapRef = useRef<HTMLDivElement>(null)
+  // The popover opens left-aligned from the button, but the button can sit near a
+  // right edge (e.g. the project side panel), where a 340px popover would overflow.
+  // `shiftX` nudges it back fully on-screen — measured once on open. The host need
+  // not know its own position; the popover self-corrects in any layout.
+  const popRef = useRef<HTMLDivElement>(null)
+  const [shiftX, setShiftX] = useState(0)
 
   const close = () => {
     setOpen(false)
     setType(null)
+    setShiftX(0)
   }
+
+  useLayoutEffect(() => {
+    if (!open) return
+    const el = popRef.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    const M = 8
+    // r reflects the current shiftX (0 on first pass); correct the right overflow,
+    // then guard the left edge so a very narrow viewport can't push it off-left.
+    let dx = 0
+    if (r.right > window.innerWidth - M) dx = window.innerWidth - M - r.right
+    if (r.left + dx < M) dx = M - r.left
+    if (dx !== 0) setShiftX((s) => s + dx)
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -137,8 +158,10 @@ export function AddContextButton({
 
       {open && (
         <div
+          ref={popRef}
           role="dialog"
           aria-label="Add context"
+          style={{ transform: `translateX(${shiftX}px)` }}
           className="absolute bottom-full left-0 z-20 mb-2 w-[340px] overflow-hidden rounded-xl border border-line-strong bg-surface shadow-xl"
         >
           {activeType === null ? (

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   Check,
-  ChevronDown,
   CornerDownLeft,
   FileText,
   FolderGit2,
@@ -22,13 +21,14 @@ import type {
 } from '../types'
 import { ModelEffortControl } from './ModelEffortControl'
 import { AddContextButton } from './AddContextButton'
+import { Chip } from './Chip'
 import { PermissionModeControl } from './PermissionModeControl'
 import { AudioInputControl } from './AudioInputControl'
 import { UsageControl } from './UsageControl'
 import { HostsControl } from './HostsControl'
 import { GITHUB_CONNECTOR_ID, connectorIconFor } from '../lib/connectors'
 import { getDecision, setDecision } from '../lib/prefs'
-import { CHIP_TONES, type ChipTone } from '../lib/capabilities'
+import { type ChipTone } from '../lib/capabilities'
 import { sameFocus } from '../lib/focus'
 
 const SKIP_CONFIRM_KEY = 'claude-ui.composer.skipDeleteConfirm.v2'
@@ -695,48 +695,3 @@ function RemoveConfirm({
   )
 }
 
-function Chip({
-  icon,
-  tone,
-  active,
-  count,
-  expandable,
-  open,
-  hint,
-  onClick,
-  children,
-}: {
-  icon: ReactNode
-  tone: ChipTone
-  active: boolean
-  count?: number
-  expandable?: boolean
-  open?: boolean
-  /** Overrides the default hover tooltip — used to clarify what a bare count
-   *  means (e.g. the workspace chip counts folders, not items). */
-  hint?: string
-  onClick: () => void
-  children: ReactNode
-}) {
-  // One source of truth for the per-context-type chip palette (see lib/capabilities).
-  const { tint, color } = CHIP_TONES[tone]
-  const toneClass = `${tint} ${color}`
-  return (
-    <button
-      onClick={onClick}
-      title={hint ?? (expandable ? `${children} (${count})` : 'Open in sidebar')}
-      aria-haspopup={expandable ? 'menu' : undefined}
-      aria-expanded={expandable ? open : undefined}
-      className={`inline-flex max-w-[220px] items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition ${toneClass} ${
-        active ? 'ring-1 ring-accent' : 'ring-1 ring-transparent hover:ring-line-strong'
-      }`}
-    >
-      {icon}
-      <span className="truncate">{children}</span>
-      {count != null && <span className="tabular-nums opacity-60">· {count}</span>}
-      {expandable && (
-        <ChevronDown size={11} className={`opacity-70 transition ${open ? 'rotate-180' : ''}`} />
-      )}
-    </button>
-  )
-}
