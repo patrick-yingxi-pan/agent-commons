@@ -165,6 +165,16 @@ the mock?
 - **No "before" view.** The prototype deliberately does *not* reproduce today's
   three-tab UI. The motivation lives in the docs and the in-app tour captions, and
   reviewers can diff against the live app — so don't build a side-by-side "before".
+- **Form follows function — parallel controls share one styled primitive.**
+  Logically / structurally similar elements must *look* the same: same role ⇒ same
+  look, so the UI reads as one system and the cue can't drift between copy-pasted
+  copies. When you find two controls doing the same job rendered differently, unify
+  them onto a single shared component/token rather than hand-restyling one to match.
+  Embodied by `src/lib/inlineAction.ts` + `src/components/AddTrigger.tsx` (every
+  "+ Add ‹thing›" picker-opener) and `src/lib/foldHeader.ts` (every foldable section
+  header); each shared cue is locked by a test that fails if a component re-hardcodes
+  it (`tests/addTrigger.test.ts`, `tests/foldHeader.test.ts`). Add new shared tokens
+  the same way — one source of truth, asserted by a test.
 - **The dev server binds IPv4** (`server.host: '127.0.0.1'` in `vite.config.ts`).
   On some hosts `localhost` resolves to `::1` only, which a browser/preview hitting
   `127.0.0.1` can't reach. Keep the explicit bind (the API proxy targets it too).
