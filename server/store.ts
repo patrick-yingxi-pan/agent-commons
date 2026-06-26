@@ -543,14 +543,15 @@ export const store = {
       id: `d-new-${(dispatchSeq += 1)}`,
       title,
       status: 'running',
-      when: 'just now',
+      startedAt: Date.now(),
       detail: detail?.trim() || 'Working on it…',
     }
     dispatch.unshift(run)
     emit({ type: 'dispatch.changed' })
     setTimeout(() => {
+      // startedAt is the start time — it doesn't change as the run settles; the UI
+      // re-derives "started 4 minutes ago" → "4 minutes ago" from it live.
       run.status = 'done'
-      run.when = 'moments ago'
       emit({ type: 'dispatch.changed' })
     }, RUN_STEP_MS * 4)
     return run
@@ -630,12 +631,10 @@ export const store = {
     const run: ScheduledRun = {
       id: `run-live-${(runSeq += 1)}`,
       status: 'running',
-      when: 'Just now',
-      absolute: 'moments ago',
       duration: '—',
       reachedStep: 0,
       summary: 'Running on demand…',
-      at: 0,
+      at: Date.now(),
     }
     task.runs = [run, ...task.runs]
     const sessionId = runSessionId(task.id, run.id)

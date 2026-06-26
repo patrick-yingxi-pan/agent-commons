@@ -2,6 +2,7 @@ import { CalendarClock, Check, ChevronRight } from 'lucide-react'
 import { PanelShell } from './PanelShell'
 import { useSchedules } from '../api'
 import { runSessionId } from '../../contract/ids.ts'
+import { relativeTime } from '../lib/relativeTime'
 import type { ScheduledRun } from '../types'
 
 /** ── The scheduled-run session's right panel ──────────────────────────────────
@@ -62,9 +63,9 @@ export function RunsPanel({
               >
                 <RunDot status={run.status} />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13px] font-medium text-ink">{run.when}</div>
+                  <div className="truncate text-[13px] font-medium text-ink">{relativeTime(run.at)}</div>
                   <div className="truncate text-[11px] text-ink-faint">
-                    {run.absolute} · {Math.min(run.reachedStep, steps)}/{steps}
+                    {Math.min(run.reachedStep, steps)}/{steps} step{steps === 1 ? '' : 's'}
                   </div>
                 </div>
                 {isActive && <Check size={14} className="shrink-0 text-accent" />}

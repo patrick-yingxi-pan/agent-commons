@@ -2145,7 +2145,7 @@ function taskPill(task: ScheduledTask): { tone: 'ok' | 'warn' | 'bad' | 'neutral
   if (!task.enabled) return { tone: 'neutral', label: 'Paused' }
   if (task.lastStatus === 'failed') return { tone: 'bad', label: 'Failed' }
   const last = task.runs[0]
-  return { tone: 'ok', label: last ? `Ran ${last.absolute}` : 'Active' }
+  return { tone: 'ok', label: last ? `Ran ${relativeTime(last.at)}` : 'Active' }
 }
 
 function ScheduledSection({
@@ -2352,7 +2352,7 @@ function ScheduledRow({
 
         <div className="hidden shrink-0 pr-1 text-right md:block">
           <div className="text-[12px] text-ink-soft">next {task.next}</div>
-          <div className="text-[11px] text-ink-faint">{lastRun ? `ran ${lastRun.absolute}` : 'no runs yet'}</div>
+          <div className="text-[11px] text-ink-faint">{lastRun ? `ran ${relativeTime(lastRun.at)}` : 'no runs yet'}</div>
         </div>
       </button>
 
@@ -3129,9 +3129,7 @@ function RunRow({
       <RunStatusIcon status={run.status} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
-          <span className="text-[13px] font-medium text-ink">
-            {run.when} <span className="font-normal text-ink-faint">· {run.absolute}</span>
-          </span>
+          <span className="text-[13px] font-medium text-ink">{relativeTime(run.at)}</span>
           {run.duration !== '—' && <span className="shrink-0 text-[11px] text-ink-faint">ran in {run.duration}</span>}
         </div>
         <p className={`mt-0.5 text-[12px] ${run.status === 'failed' ? 'text-red-600' : 'text-ink-soft'}`}>

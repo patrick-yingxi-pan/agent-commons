@@ -29,9 +29,12 @@ import type {
  *  store re-seeds), so an incompatible older file can't crash a newer build.
  *  v2: the "time ago" stamps moved from frozen display strings to absolute epoch-ms
  *  timestamps (artifact.editedAt, project.updatedAt, savedContext.lastUsedAt) and
- *  session.updatedLabel was dropped — a v1 snapshot's shapes are incompatible, so
- *  it's discarded and the store re-seeds with live timestamps. */
-export const STORE_VERSION = 2
+ *  session.updatedLabel was dropped.
+ *  v3: ScheduledRun followed suit — `when`/`absolute` strings dropped and `at`
+ *  changed from minutes-ago to an absolute epoch-ms; a v2 snapshot's runs would
+ *  render as "Jan 1 1970", so it's discarded and the store re-seeds.
+ *  A snapshot whose version is below the current one is incompatible → re-seed. */
+export const STORE_VERSION = 3
 
 /** The persisted shape — the store's mutable, UI-owned state. Maps are stored as
  *  entry arrays (JSON has no Map). The id counters ride along so minted ids don't

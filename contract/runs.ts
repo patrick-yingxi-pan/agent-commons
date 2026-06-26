@@ -33,7 +33,7 @@ function connectorsFor(task: ScheduledTask): Connector[] {
  *  a run without one falls back to a recap generated from its steps + summary.
  *  The run's own when/duration are stamped in either way. */
 export function buildRunSession(task: ScheduledTask, run: ScheduledRun): Session {
-  const stamp = run.duration && run.duration !== '—' ? `${run.when} · ran in ${run.duration}` : run.when
+  const stamp = run.duration && run.duration !== '—' ? `ran in ${run.duration}` : 'just now'
   let recap: string
   if (run.status === 'failed') {
     // Name the step it stopped at, so a failed run reads as a specific incident.
@@ -51,7 +51,7 @@ export function buildRunSession(task: ScheduledTask, run: ScheduledRun): Session
   }
   return {
     id: runSessionId(task.id, run.id),
-    title: `${task.name} · ${run.when}`,
+    title: task.name,
     caps: ['chat'],
     preview: run.summary,
     connectors: connectorsFor(task),
@@ -69,7 +69,7 @@ export function recentEntries(schedules: ScheduledTask[]): RunSessionEntry[] {
   return schedules
     .filter((t) => t.enabled)
     .flatMap((t) => t.runs.slice(0, 2).map((run) => ({ task: t, run, session: buildRunSession(t, run) })))
-    .sort((a, b) => a.run.at - b.run.at)
+    .sort((a, b) => b.run.at - a.run.at)
     .slice(0, 8)
 }
 

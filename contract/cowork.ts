@@ -75,13 +75,12 @@ export interface ScheduledDelivery {
 export interface ScheduledRun {
   id: string
   status: 'ok' | 'failed' | 'running' | 'skipped'
-  when: string
-  absolute: string
   duration: string
   reachedStep: number
   summary: string
-  /** Minutes-ago, for ordering runs newest-first *across* routines in the left
-   *  rail's "recent runs" list. Smaller = more recent. */
+  /** When the run executed (epoch ms). Backs both the live "time ago" label
+   *  (src/lib/relativeTime) and the newest-first ordering of the left rail's
+   *  "recent runs" across routines. Larger = more recent. */
   at: number
   /** The output this specific run produced — the body of its session thread, so
    *  two runs of the same routine read as distinct history (the briefing it
