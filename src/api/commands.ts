@@ -23,6 +23,7 @@ import {
   type ReplyStreamEvent,
   type RunSessionEntry,
   type SavedContextsSnapshot,
+  type CreateDispatchRequest,
   type ScheduledTask,
   type SendMessageRequest,
   type SetConnectorStatusRequest,
@@ -184,6 +185,14 @@ export async function removeSchedule(id: string): Promise<void> {
   await apiDelete(paths.schedule(id))
   invalidate(keys.schedules)
   invalidate(keys.recentRuns)
+}
+
+/** Kick off a one-off dispatch (a single on-demand agent run). The server mints it
+ *  'running' and flips it to 'done' a beat later, broadcasting dispatch.changed each
+ *  time; we also nudge the feed so it shows immediately. */
+export async function createDispatch(title: string, detail?: string): Promise<void> {
+  await apiPost(paths.dispatch, { title, detail } satisfies CreateDispatchRequest)
+  invalidate(keys.dispatch)
 }
 
 /** Resolve a run session from the recent-runs feed cache — the controller uses

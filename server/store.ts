@@ -95,6 +95,12 @@ const mintArtifactId = () => `art-live-${++artifactSeq}`
 const schedules: ScheduledTask[] = JSON.parse(JSON.stringify(SCHEDULED_TASKS))
 let runSeq = 0
 let scheduleSeq = 0
+
+// A mutable copy of the dispatch feed — "New dispatch" prepends a one-off run that
+// finishes a beat later. Transient (a one-off agent run), so it's NOT persisted —
+// like the live agent registry, it rebuilds from seed on restart.
+const dispatch: DispatchRun[] = JSON.parse(JSON.stringify(DISPATCH_RUNS))
+let dispatchSeq = 0
 // Monotonic counters for server-minted session + message ids. The conversation is
 // now server-owned (a sent turn persists; a draft materializes into a real session
 // on first send), so the backend mints these — the client no longer fabricates them.
@@ -530,7 +536,27 @@ export const store = {
   // ── Dispatch ──
   /** The agent-run feed shown in the Dispatch section. */
   listDispatch(): DispatchRun[] {
-    return DISPATCH_RUNS
+    return dispatch
+  },
+  /** Kick off a one-off dispatch (a single on-demand agent run). It lands
+   *  'running', broadcasts, then finishes 'done' a beat later (the mock stand-in
+   *  for a real agent run) and broadcasts again. Returns the run. */
+  addDispatch(title: string, detail?: string): DispatchRun {
+    const run: DispatchRun = {
+      id: `d-new-${(dispatchSeq += 1)}`,
+      title,
+      status: 'running',
+      when: 'just now',
+      detail: detail?.trim() || 'Working on it…',
+    }
+    dispatch.unshift(run)
+    emit({ type: 'dispatch.changed' })
+    setTimeout(() => {
+      run.status = 'done'
+      run.when = 'moments ago'
+      emit({ type: 'dispatch.changed' })
+    }, RUN_STEP_MS * 4)
+    return run
   },
 
   // ── Contexts (the set-up ones, on the Contexts page) ──

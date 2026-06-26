@@ -82,6 +82,12 @@ export interface PushRecentRequest {
   id: string
 }
 
+/** Body of `POST /v1/dispatch` — kick off a one-off agent run (the Dispatch tab). */
+export interface CreateDispatchRequest {
+  title: string
+  detail?: string
+}
+
 /** Body of `PATCH /v1/schedules/:id` — a partial patch of a routine's own
  *  (entity-intrinsic) fields. Cross-entity bindings (deliver to an artifact /
  *  session, add a tool) are NOT here — those are standing relation ops applied via

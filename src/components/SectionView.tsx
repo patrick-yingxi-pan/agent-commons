@@ -84,6 +84,7 @@ import {
 } from '../data/cowork'
 import {
   addScheduleFromSeed,
+  createDispatch,
   isOptimisticId,
   removeSchedule,
   runScheduleNow,
@@ -1928,6 +1929,7 @@ function StatusPill({ tone, label }: { tone: 'ok' | 'warn' | 'bad' | 'neutral'; 
 
 function GenericSection({ section }: { section: SectionId }) {
   const meta = SECTION_META[section]
+  const [creating, setCreating] = useState(false)
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-3xl px-6 py-6">
@@ -1943,9 +1945,9 @@ function GenericSection({ section }: { section: SectionId }) {
             </div>
             <p className="mt-1 text-sm text-ink-soft">{meta.subtitle}</p>
           </div>
-          {section !== 'customize' && (
-            <PrimaryButton icon={<Plus size={15} />}>
-              {section === 'dispatch' ? 'New dispatch' : 'Upload'}
+          {section === 'dispatch' && (
+            <PrimaryButton icon={<Plus size={15} />} onClick={() => setCreating(true)}>
+              New dispatch
             </PrimaryButton>
           )}
         </header>
@@ -1953,7 +1955,104 @@ function GenericSection({ section }: { section: SectionId }) {
         {section === 'dispatch' && <DispatchView />}
         {section === 'customize' && <CustomizeView />}
       </div>
+      {creating && <NewDispatchDialog onClose={() => setCreating(false)} />}
     </div>
+  )
+}
+
+/** The "New dispatch" form — a one-off agentic task: a required title + an optional
+ *  detail. Dispatching kicks off a run that lands in the feed 'running' and finishes
+ *  a beat later. Mirrors NewProjectDialog's modal idiom. */
+function NewDispatchDialog({ onClose }: { onClose: () => void }) {
+  const [title, setTitle] = useState('')
+  const [detail, setDetail] = useState('')
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const titleRef = useRef<HTMLInputElement>(null)
+  useFocusTrap(dialogRef, onClose, { initialFocus: titleRef })
+
+  const canCreate = title.trim().length > 0
+  const submit = () => {
+    if (!canCreate) return
+    void createDispatch(title.trim(), detail.trim() || undefined)
+    onClose()
+  }
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex justify-center px-4 pt-[14vh]"
+      onMouseDown={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="New dispatch"
+    >
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" />
+      <div
+        ref={dialogRef}
+        onMouseDown={(e) => e.stopPropagation()}
+        className="relative flex h-fit w-[460px] max-w-full flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong"
+      >
+        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+          <div className="flex items-center gap-2">
+            <SendHorizontal size={18} className="text-cap-workspace" />
+            <span className="text-[15px] font-semibold text-ink">New dispatch</span>
+          </div>
+          <button
+            onClick={onClose}
+            title="Close"
+            aria-label="Close"
+            className="-mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="space-y-4 p-5">
+          <label className="block">
+            <span className="mb-1.5 block text-[12px] font-medium text-ink-soft">Task</span>
+            <input
+              ref={titleRef}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submit()
+              }}
+              placeholder="e.g. Triage today’s new support tickets"
+              className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-[14px] text-ink outline-none transition placeholder:text-ink-faint focus:border-accent"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-[12px] font-medium text-ink-soft">
+              Detail <span className="font-normal text-ink-faint">(optional)</span>
+            </span>
+            <textarea
+              value={detail}
+              onChange={(e) => setDetail(e.target.value)}
+              rows={3}
+              placeholder="What it should do, and where to deliver the result."
+              className="w-full resize-none rounded-lg border border-line bg-surface px-3 py-2 text-[14px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-accent"
+            />
+          </label>
+        </div>
+
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line bg-panel px-5 py-3">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-line-strong bg-surface px-3.5 py-1.5 text-[13px] font-medium text-ink-soft shadow-sm transition hover:border-accent hover:text-ink"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={submit}
+            disabled={!canCreate}
+            className="flex items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <SendHorizontal size={15} />
+            Dispatch
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   )
 }
 

@@ -79,6 +79,11 @@ function route(e: ServerEvent): void {
     case 'reservation.changed':
       invalidate(keys.resourceStatus(e.resourceId))
       break
+    // The Dispatch feed changed — a one-off run was kicked off or finished. Re-read
+    // the small feed so it appears and flips running → done live.
+    case 'dispatch.changed':
+      invalidate(keys.dispatch)
+      break
     default:
       break
   }

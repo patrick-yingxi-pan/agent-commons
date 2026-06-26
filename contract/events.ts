@@ -146,6 +146,12 @@ export interface ReservationChangedEvent {
   resourceId: string
 }
 
+/** The Dispatch feed changed — a one-off dispatch was kicked off, or one finished.
+ *  The feed is small, so the client just re-reads it whole. */
+export interface DispatchChangedEvent {
+  type: 'dispatch.changed'
+}
+
 /** Sent once when an SSE channel opens, so the client can confirm liveness. */
 export interface HelloEvent {
   type: 'hello'
@@ -173,6 +179,7 @@ export type ServerEvent =
   | AgentCapabilitiesChangedEvent
   | AgentEffectEvent
   | ReservationChangedEvent
+  | DispatchChangedEvent
 
 export type ServerEventType = ServerEvent['type']
 

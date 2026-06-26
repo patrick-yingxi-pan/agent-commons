@@ -4,6 +4,7 @@
 import type {
   ApplyOpRequest,
   AttachContextRequest,
+  CreateDispatchRequest,
   PushRecentRequest,
   RegisterAgentRequest,
   SendMessageRequest,
@@ -411,6 +412,12 @@ export function buildRouter(): Router {
   // ── Dispatch ──────────────────────────────────────────────────────────────
   r.get('/dispatch', ({ res }) => {
     sendJson(res, store.listDispatch())
+  })
+  // Kick off a one-off dispatch (lands 'running', finishes 'done' a beat later).
+  r.post('/dispatch', async ({ res, body }) => {
+    const { title, detail } = await body<CreateDispatchRequest>()
+    if (!title || !title.trim()) return sendError(res, 'bad_request', 'title is required')
+    sendJson(res, store.addDispatch(title.trim(), detail))
   })
 
   // ── Contexts (set-up) + connector detail ──────────────────────────────────
