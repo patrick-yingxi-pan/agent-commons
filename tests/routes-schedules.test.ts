@@ -27,12 +27,20 @@ test('PATCH /schedules/:id merges only the provided fields (id, runs, and the re
   assert.equal(after.json.find((t: { id: string }) => t.id === task.id).name, 'Renamed via PATCH')
 })
 
-test('PATCH /schedules/:id still flips enabled (the original toggle path keeps working)', async () => {
+test('PATCH /schedules/:id sets enabled to the explicit value (the toggle path keeps working)', async () => {
   const list = await call('GET', '/schedules')
   const task = list.json[0]
   const res = await call('PATCH', `/schedules/${task.id}`, { enabled: !task.enabled })
   assert.equal(res.status, 200)
   assert.equal(res.json.enabled, !task.enabled)
+})
+
+test('PATCH /schedules/:id with no enabled key leaves enabled unchanged (no implicit toggle)', async () => {
+  const list = await call('GET', '/schedules')
+  const task = list.json[0]
+  const res = await call('PATCH', `/schedules/${task.id}`, { name: task.name })
+  assert.equal(res.status, 200)
+  assert.equal(res.json.enabled, task.enabled, 'a patch without `enabled` never flips it — the UI sends the resolved value')
 })
 
 test('PATCH /schedules/:id 404s for an unknown routine', async () => {

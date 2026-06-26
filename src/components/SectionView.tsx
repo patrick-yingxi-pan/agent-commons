@@ -2053,7 +2053,9 @@ function ScheduledSection({
 
   const toggleEnabled = (id: string) => {
     const t = items.find((x) => x.id === id)
-    void toggleScheduleEnabled(id, t ? !t.enabled : undefined)
+    // The toggle is always rendered from `items`, so `t` is present; guard rather
+    // than send an unresolved state (the server applies an explicit value only).
+    if (t) void toggleScheduleEnabled(id, !t.enabled)
   }
   const remove = (id: string) => void removeSchedule(id)
 

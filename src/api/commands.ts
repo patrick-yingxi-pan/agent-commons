@@ -150,8 +150,10 @@ export async function runScheduleNow(id: string): Promise<void> {
   invalidate(keys.schedules)
 }
 
-/** Set a routine's enabled state (omit to toggle server-side). */
-export async function toggleScheduleEnabled(id: string, enabled?: boolean): Promise<void> {
+/** Set a routine's enabled state. The caller passes the resolved value — the
+ *  server applies the patch field verbatim (it doesn't infer a toggle), so the UI
+ *  reads the current state and sends its negation. */
+export async function toggleScheduleEnabled(id: string, enabled: boolean): Promise<void> {
   await apiPatch(paths.schedule(id), { enabled } satisfies UpdateScheduleRequest)
   invalidate(keys.schedules)
   invalidate(keys.recentRuns)
