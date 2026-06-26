@@ -17,6 +17,7 @@ import {
   Server,
 } from 'lucide-react'
 import type { AddedContext, Attachment, Connector, Repo, Workspace } from '../types'
+import { AddTrigger } from './AddTrigger'
 import { gradientFor } from '../lib/thumbs'
 import { GITHUB_CONNECTOR, GITHUB_CONNECTOR_ID } from '../lib/connectors'
 import { repoIdForLabel } from '../data/liveSession'
@@ -65,6 +66,8 @@ export function AddContextButton({
   repos,
   attachments,
   workspaces,
+  variant = 'icon',
+  label = 'Add context',
 }: {
   onAttach: (ctx: AddedContext) => void
   /** The thread's currently-attached context — drives which rows show "Added"
@@ -73,6 +76,12 @@ export function AddContextButton({
   repos: Repo[]
   attachments: Attachment[]
   workspaces: Workspace[]
+  /** The trigger's shape. 'icon' (default) is the composer's 32×32 plus button;
+   *  'inline' is the shared "+ Add context" text trigger (AddTrigger), so on a
+   *  surface that sits beside an "Add routine"-style control the two match. */
+  variant?: 'icon' | 'inline'
+  /** The inline trigger's label (icon variant is icon-only). */
+  label?: string
 }) {
   const [open, setOpen] = useState(false)
   const [type, setType] = useState<TypeId | null>(null)
@@ -141,20 +150,31 @@ export function AddContextButton({
 
   const activeType = type ? CONTEXT_TYPES.find((t) => t.id === type)! : null
 
+  const toggle = () => (open ? close() : setOpen(true))
+
   return (
     <div ref={wrapRef} className="relative">
-      <button
-        onClick={() => (open ? close() : setOpen(true))}
-        className={`flex h-8 w-8 items-center justify-center rounded-lg transition ${
-          open ? 'bg-panel-2 text-ink' : 'text-ink-soft hover:bg-panel-2 hover:text-ink'
-        }`}
-        title="Add context — files, folders, repos, connectors, MCP servers"
-        aria-label="Add context"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-      >
-        <Plus size={18} />
-      </button>
+      {variant === 'inline' ? (
+        <AddTrigger
+          label={label}
+          open={open}
+          onClick={toggle}
+          title="Add context — files, folders, repos, connectors, MCP servers"
+        />
+      ) : (
+        <button
+          onClick={toggle}
+          className={`flex h-8 w-8 items-center justify-center rounded-lg transition ${
+            open ? 'bg-panel-2 text-ink' : 'text-ink-soft hover:bg-panel-2 hover:text-ink'
+          }`}
+          title="Add context — files, folders, repos, connectors, MCP servers"
+          aria-label="Add context"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+        >
+          <Plus size={18} />
+        </button>
+      )}
 
       {open && (
         <div

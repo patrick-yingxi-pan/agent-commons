@@ -61,6 +61,8 @@ import { STEP_TOOLS } from '../lib/stepTools'
 import { cleanSteps, moveStep, removeStep } from '../lib/steps'
 import { ConnectorDetailBody } from './ConnectorPanel'
 import { AddContextButton } from './AddContextButton'
+import { AddTrigger } from './AddTrigger'
+import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { Chip } from './Chip'
 import { RowMenu, type RowMenuItem } from './RowMenu'
 import { ClaudeMark } from './ClaudeMark'
@@ -595,15 +597,15 @@ function ProjectDetail({
                 ))}
               </div>
             )}
-            <div className="mt-2.5 flex items-center gap-1.5 border-t border-line pt-2.5">
+            <div className="mt-2.5 border-t border-line pt-2.5">
               <AddContextButton
+                variant="inline"
                 onAttach={attachToProject}
                 connectors={contextsToConnectors(contexts)}
                 repos={[]}
                 attachments={[]}
                 workspaces={[]}
               />
-              <span className="text-[12px] text-ink-faint">Add context</span>
             </div>
           </SidePanel>
         </aside>
@@ -680,10 +682,7 @@ function ProjectInstructions({ project }: { project: Project }) {
           ) : (
             <p className="text-[12px] text-ink-faint">No custom instructions yet.</p>
           )}
-          <button
-            onClick={startEdit}
-            className="mt-2.5 inline-flex items-center gap-1 text-[12px] font-medium text-ink-faint transition hover:text-ink"
-          >
+          <button onClick={startEdit} className={`mt-2.5 ${INLINE_ACTION_CLASS}`}>
             <Pencil size={12} />
             {current ? 'Edit' : 'Add instructions'}
           </button>
@@ -820,15 +819,7 @@ function ProjectScheduleAdd({
 
   return (
     <div ref={ref} className="relative mt-2.5 border-t border-line pt-2.5">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        className="inline-flex items-center gap-1 text-[12px] font-medium text-ink-faint transition hover:text-ink"
-      >
-        <Plus size={13} />
-        Add routine
-      </button>
+      <AddTrigger label="Add routine" open={open} onClick={() => setOpen((o) => !o)} />
 
       {open && (
         <div
@@ -3229,10 +3220,7 @@ function DeliveryPanel({ task }: { task: ScheduledTask }) {
           ) : (
             <>
               {task.delivery.note && <p className="mt-2 text-[12px] leading-relaxed text-ink-soft">{task.delivery.note}</p>}
-              <button
-                onClick={startEdit}
-                className="mt-2 inline-flex items-center gap-1 text-[12px] font-medium text-ink-faint transition hover:text-ink"
-              >
+              <button onClick={startEdit} className={`mt-2 ${INLINE_ACTION_CLASS}`}>
                 <Pencil size={12} />
                 Edit destination
               </button>
@@ -3291,15 +3279,7 @@ function ContextToolsPanel({ task }: { task: ScheduledTask }) {
         </div>
       )}
       <div className="relative mt-2.5 border-t border-line pt-2.5">
-        <button
-          onClick={() => setPicking((p) => !p)}
-          aria-haspopup="dialog"
-          aria-expanded={picking}
-          className="inline-flex items-center gap-1 text-[12px] font-medium text-ink-faint transition hover:text-ink"
-        >
-          <Plus size={12} />
-          Add tool
-        </button>
+        <AddTrigger label="Add tool" open={picking} onClick={() => setPicking((p) => !p)} />
         {picking && <StepToolPicker tools={addable} onPick={addTool} onClose={() => setPicking(false)} />}
       </div>
     </SidePanel>
@@ -3357,7 +3337,7 @@ function SchedulePanel({ task }: { task: ScheduledTask }) {
           onClick={() => setEditing((v) => !v)}
           aria-haspopup="dialog"
           aria-expanded={editing}
-          className="inline-flex items-center gap-1 text-[12px] font-medium text-ink-faint transition hover:text-ink"
+          className={INLINE_ACTION_CLASS}
         >
           <Pencil size={12} />
           Edit schedule
