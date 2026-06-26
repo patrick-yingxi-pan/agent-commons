@@ -33,6 +33,7 @@ test('runSchedule steps the rail (run.progress 1..N), then finishes ok', async (
 
   const run = store.runSchedule(task.id)
   assert.equal(run?.status, 'running', 'a run mints as running')
+  assert.ok(Number.isFinite(run?.at), 'a live run carries a real epoch-ms `at`, not 0/undefined')
   await done
 
   assert.deepEqual(

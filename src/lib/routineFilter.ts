@@ -71,10 +71,11 @@ function projectOf(task: ScheduledTask, ctx: RoutineFilterContext): string | nul
   return ctx.projectIdOfTask(task.id) ?? task.projectId ?? null
 }
 
-/** A routine's recency = its freshest run's minutes-ago (`at`, smaller = newer).
- *  Routines that have never run sort last. */
+/** A routine's recency = its freshest run's timestamp (`at`, absolute epoch-ms,
+ *  larger = newer). Routines that have never run sort last (−∞, below any real
+ *  run under the descending recency sort below). */
 function freshestAt(task: ScheduledTask): number {
-  return task.runs[0]?.at ?? Number.POSITIVE_INFINITY
+  return task.runs[0]?.at ?? Number.NEGATIVE_INFINITY
 }
 
 /** Apply a filter to a routine list: narrow → sort → group. Always returns
@@ -92,7 +93,7 @@ export function filterRoutines(
   })
 
   if (f.sortBy === 'alpha') rows.sort((a, b) => a.name.localeCompare(b.name))
-  else rows.sort((a, b) => freshestAt(a) - freshestAt(b))
+  else rows.sort((a, b) => freshestAt(b) - freshestAt(a))
 
   return { groups: groupRows(rows, f.groupBy, ctx), total: rows.length }
 }

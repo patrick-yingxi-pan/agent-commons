@@ -17,6 +17,9 @@ test('POST /dispatch kicks off a one-off run — lands running, newest-first in 
   assert.equal(res.json.status, 'running', 'a dispatch lands running')
   assert.equal(res.json.title, 'Triage tickets')
   assert.ok(res.json.id.startsWith('d-new-'), 'server-minted id')
+  // The "time ago" stamp is a real timestamp, not a frozen string — server/ isn't
+  // typechecked, so this guards the field whose construction once regressed.
+  assert.ok(Number.isFinite(res.json.startedAt), 'startedAt is a real epoch-ms timestamp')
 
   const after = await call('GET', '/dispatch')
   assert.equal(after.json.length, beforeCount + 1, 'prepended to the feed')
