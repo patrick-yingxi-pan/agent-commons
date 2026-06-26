@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  ArrowUpRight,
   Box,
   Check,
   ChevronDown,
@@ -500,6 +501,7 @@ export function ArtifactViewer({
   projects,
   currentProjectId,
   onAssignProject,
+  onOpenSource,
   onClose,
 }: {
   artifact: ArtifactItem
@@ -508,6 +510,10 @@ export function ArtifactViewer({
   currentProjectId: string
   /** Assign to a project, or unfile (null). */
   onAssignProject: (projectId: string | null) => void
+  /** Open the conversation that produced this artifact. Absent when `source`
+   *  doesn't resolve to a known session (a created/sourceless artifact), so the
+   *  provenance stays a plain label rather than a dead link. */
+  onOpenSource?: () => void
   onClose: () => void
 }) {
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -563,7 +569,21 @@ export function ArtifactViewer({
         </div>
 
         <div className="flex shrink-0 items-center gap-2 border-t border-line bg-panel px-5 py-2.5 text-[12px] text-ink-faint">
-          <span className="truncate">From {artifact.source}</span>
+          {onOpenSource ? (
+            <button
+              onClick={onOpenSource}
+              title={`Open ${artifact.source}`}
+              className="group inline-flex max-w-full items-center gap-1 truncate transition hover:text-ink"
+            >
+              From{' '}
+              <span className="truncate font-medium text-ink-soft underline decoration-line-strong decoration-from-font underline-offset-2 group-hover:text-ink">
+                {artifact.source}
+              </span>
+              <ArrowUpRight size={12} className="shrink-0 opacity-60 transition group-hover:opacity-100" />
+            </button>
+          ) : (
+            <span className="truncate">From {artifact.source}</span>
+          )}
         </div>
       </div>
     </div>

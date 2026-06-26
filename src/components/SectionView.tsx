@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import {
   AlertCircle,
@@ -100,6 +100,7 @@ import {
   useSavedContexts,
   useScheduleTemplates,
   useSchedules,
+  useSessions,
 } from '../api'
 import { ArtifactThumb, ArtifactViewer, KIND_ICON, KIND_LABEL } from './artifactPreview'
 import { useFocusTrap } from '../lib/useFocusTrap'
@@ -154,7 +155,7 @@ export function SectionView({
         onNewSession={onNewSession}
       />
     ) : section === 'artifacts' ? (
-      <ArtifactsSection />
+      <ArtifactsSection onOpenSession={onOpenSession} />
     ) : section === 'contexts' ? (
       <ContextsSection />
     ) : section === 'scheduled' ? (
@@ -803,7 +804,7 @@ function ProjectContextChip({ ctx, onRemove }: { ctx: ProjectContext; onRemove: 
   const CIcon = CONTEXT_ICON[ctx.kind]
   return (
     <div className="group/chip relative inline-flex">
-      <Chip icon={<CIcon size={12} />} tone={projectContextTone(ctx.kind)} active={false} hint={ctx.meta || ctx.label} onClick={() => {}}>
+      <Chip icon={<CIcon size={12} />} tone={projectContextTone(ctx.kind)} active={false} hint={ctx.meta || ctx.label}>
         {ctx.label}
       </Chip>
       <button
@@ -931,7 +932,7 @@ function ProjectScheduleAdd({
 
 const ARTIFACT_FILTERS = ['All', 'Documents', 'Images', 'Sheets', 'Slides', 'Emails']
 
-function ArtifactsSection() {
+function ArtifactsSection({ onOpenSession }: { onOpenSession: (id: string) => void }) {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('All')
   const [openId, setOpenId] = useState<string | null>(null)
@@ -939,6 +940,16 @@ function ArtifactsSection() {
   const [creating, setCreating] = useState(false)
   const rel = useRelations()
   const projects = rel.allProjects()
+  const sessions = useSessions().data ?? []
+  // Resolve an artifact's `source` (the conversation that produced it, stored as a
+  // title — artifacts carry no session id) to a real session, so "From ‹conversation›"
+  // can navigate there. A created/sourceless artifact ("Created here") or a source
+  // that isn't a known conversation simply has no match and stays a plain label.
+  const sessionIdByTitle = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const s of sessions) if (!m.has(s.title)) m.set(s.title, s.id)
+    return m
+  }, [sessions])
 
   const foldGroup = (id: string) =>
     setFolded((prev) => {
@@ -1072,6 +1083,10 @@ function ArtifactsSection() {
           projects={projects}
           currentProjectId={rel.artifactProjectId(openArtifact)}
           onAssignProject={(projectId) => assignProject(openArtifact, projectId)}
+          onOpenSource={(() => {
+            const sid = sessionIdByTitle.get(openArtifact.source)
+            return sid ? () => { onOpenSession(sid); setOpenId(null) } : undefined
+          })()}
           onClose={() => setOpenId(null)}
         />
       )}
