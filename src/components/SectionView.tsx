@@ -56,6 +56,7 @@ import {
   parseCadence,
 } from '../lib/cadence'
 import { EFFORTS, MODELS, composeModelLabel, parseModelLabel, type Effort, type ModelId } from '../lib/models'
+import { loadModelPrefs, saveModelPrefs, type ModelPrefs } from '../lib/modelPrefs'
 import { STEP_TOOLS } from '../lib/stepTools'
 import { cleanSteps, moveStep, removeStep } from '../lib/steps'
 import { ConnectorDetailBody } from './ConnectorPanel'
@@ -3636,28 +3637,139 @@ function DispatchView() {
 function CustomizeView() {
   return (
     <div className="space-y-3">
-      <Card title="Appearance" desc="Match the system theme, or pick light or dark.">
+      <Card title="Appearance" desc="This prototype ships in a single light theme by design.">
         <div className="flex gap-1.5">
-          {['System', 'Light', 'Dark'].map((opt, i) => (
-            <span
-              key={opt}
-              className={`rounded-lg px-3 py-1 text-[12px] font-medium ${
-                i === 0 ? 'bg-accent text-white' : 'bg-panel-2 text-ink-soft'
-              }`}
-            >
-              {opt}
-            </span>
-          ))}
+          {(['Light', 'System', 'Dark'] as const).map((opt) => {
+            const active = opt === 'Light'
+            return (
+              <span
+                key={opt}
+                title={active ? undefined : 'Light theme only in this prototype'}
+                aria-disabled={!active}
+                className={`rounded-lg px-3 py-1 text-[12px] font-medium ${
+                  active ? 'bg-accent text-white' : 'cursor-not-allowed bg-panel-2/50 text-ink-faint line-through'
+                }`}
+              >
+                {opt}
+              </span>
+            )
+          })}
         </div>
       </Card>
-      <Card title="Default model" desc="What new sessions start with.">
-        <span className="rounded-lg bg-panel-2 px-3 py-1 text-[12px] font-medium text-ink">
-          Claude Opus 4.8 · High
-        </span>
-      </Card>
-      <ToggleCard title="Weekly digest" desc="A Monday summary of everything you shipped." defaultOn />
-      <ToggleCard title="Suggest scheduled tasks" desc="Spot repeat work and offer to automate it." />
+      <DefaultModelCard />
+      <ToggleCard
+        title="Weekly digest"
+        desc="A Monday summary of everything you shipped."
+        defaultOn
+        storageKey="claude-ui.customize.weeklyDigest"
+      />
+      <ToggleCard
+        title="Suggest scheduled tasks"
+        desc="Spot repeat work and offer to automate it."
+        storageKey="claude-ui.customize.suggestScheduled"
+      />
     </div>
+  )
+}
+
+/** The "Default model" setting — reads & writes the SAME persisted preference the
+ *  composer's model control uses (lib/modelPrefs), so changing it here changes what
+ *  new sessions start with. A pill that opens the shared model + effort menu. */
+function DefaultModelCard() {
+  const [prefs, setPrefs] = useState<ModelPrefs>(loadModelPrefs)
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const commit = (next: ModelPrefs) => {
+    setPrefs(next)
+    saveModelPrefs(next)
+  }
+  const pickModel = (modelId: ModelId) => {
+    const isOpus = MODELS.find((m) => m.id === modelId)?.isOpus
+    commit({ ...prefs, modelId, ...(isOpus ? {} : { fast: false }) })
+  }
+  const pickEffort = (effort: Effort) => commit({ ...prefs, effort })
+
+  return (
+    <Card title="Default model" desc="What new sessions and the composer start with.">
+      <div ref={ref} className="relative">
+        <button
+          onClick={() => setOpen((o) => !o)}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          className="group inline-flex items-center gap-1.5 rounded-lg bg-panel-2 px-3 py-1 text-[12px] font-medium text-ink ring-1 ring-transparent transition hover:ring-line-strong"
+        >
+          <ClaudeMark size={13} />
+          <span>{composeModelLabel(prefs.modelId, prefs.effort)}</span>
+          <ChevronDown size={12} className="text-ink-faint transition group-hover:text-ink-soft" />
+        </button>
+        {open && (
+          <div
+            role="dialog"
+            aria-label="Default model and effort"
+            className="absolute right-0 top-full z-30 mt-1.5 w-[280px] rounded-xl border border-line-strong bg-surface p-2 shadow-xl"
+          >
+            <div className="px-1.5 pb-1 pt-0.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Model</div>
+            {MODELS.map((m) => {
+              const on = m.id === prefs.modelId
+              return (
+                <button
+                  key={m.id}
+                  onClick={() => pickModel(m.id)}
+                  className={`flex w-full items-start gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition ${
+                    on ? 'bg-panel-2' : 'hover:bg-panel-2/60'
+                  }`}
+                >
+                  <span
+                    className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                      on ? 'border-accent bg-accent text-white' : 'border-line-strong'
+                    }`}
+                  >
+                    {on && <Check size={11} strokeWidth={3} />}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-[13px] font-medium text-ink">{m.name}</span>
+                    <span className="block text-[11px] leading-snug text-ink-faint">{m.blurb}</span>
+                  </span>
+                </button>
+              )
+            })}
+            <div className="my-1.5 border-t border-line" />
+            <div className="px-1.5 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Effort</div>
+            <div className="flex gap-1 rounded-lg bg-panel-2 p-0.5">
+              {EFFORTS.map((e) => {
+                const on = e.id === prefs.effort
+                return (
+                  <button
+                    key={e.id}
+                    onClick={() => pickEffort(e.id)}
+                    className={`flex-1 rounded-md px-1 py-1 text-[12px] font-medium transition ${
+                      on ? 'bg-surface text-ink shadow-sm ring-1 ring-line-strong' : 'text-ink-soft hover:text-ink'
+                    }`}
+                  >
+                    {e.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    </Card>
   )
 }
 
@@ -3868,11 +3980,44 @@ function Card({ title, desc, children }: { title: string; desc: string; children
   )
 }
 
-function ToggleCard({ title, desc, defaultOn = false }: { title: string; desc: string; defaultOn?: boolean }) {
-  const [on, setOn] = useState(defaultOn)
+/** A labeled card with a Toggle. When `storageKey` is given the setting persists to
+ *  localStorage (a sticky client preference, like the model default) instead of
+ *  resetting each visit. */
+function ToggleCard({
+  title,
+  desc,
+  defaultOn = false,
+  storageKey,
+}: {
+  title: string
+  desc: string
+  defaultOn?: boolean
+  storageKey?: string
+}) {
+  const [on, setOn] = useState(() => {
+    if (!storageKey) return defaultOn
+    try {
+      const v = localStorage.getItem(storageKey)
+      return v == null ? defaultOn : v === '1'
+    } catch {
+      return defaultOn
+    }
+  })
+  const toggle = () =>
+    setOn((v) => {
+      const next = !v
+      if (storageKey) {
+        try {
+          localStorage.setItem(storageKey, next ? '1' : '0')
+        } catch {
+          /* ignore quota / privacy-mode errors */
+        }
+      }
+      return next
+    })
   return (
     <Card title={title} desc={desc}>
-      <Toggle on={on} onToggle={() => setOn((v) => !v)} />
+      <Toggle on={on} onToggle={toggle} />
     </Card>
   )
 }

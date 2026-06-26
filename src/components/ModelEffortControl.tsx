@@ -1,28 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Check, ChevronDown, Workflow, Zap } from 'lucide-react'
-import { EFFORTS, MODELS, type Effort, type ModelId } from '../lib/models'
+import { EFFORTS, MODELS } from '../lib/models'
+import { loadModelPrefs, saveModelPrefs, type ModelPrefs } from '../lib/modelPrefs'
 
-/** The full composer config. Persisted so the user's last choice becomes the
- *  default next time — no adaptive guessing, just a sticky manual setting. */
-type Config = {
-  modelId: ModelId
-  effort: Effort
-  ultracode: boolean
-  fast: boolean
-}
-
-const DEFAULT_CONFIG: Config = { modelId: 'opus', effort: 'high', ultracode: false, fast: false }
-const STORAGE_KEY = 'claude-ui.composer.modelEffort.v1'
-
-function loadConfig(): Config {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return DEFAULT_CONFIG
-    return { ...DEFAULT_CONFIG, ...(JSON.parse(raw) as Partial<Config>) }
-  } catch {
-    return DEFAULT_CONFIG
-  }
-}
+/** The composer's model/effort config — the shared "default model" preference
+ *  (lib/modelPrefs), so the Customize page edits the same setting. */
+type Config = ModelPrefs
 
 /** An orthogonal on/off mode (Ultracode, Fast output) — visually distinct from
  *  the effort ladder to signal it's a different axis, combinable with any level. */
@@ -72,7 +55,7 @@ function ToggleRow({
 
 export function ModelEffortControl() {
   const [open, setOpen] = useState(false)
-  const [config, setConfig] = useState<Config>(loadConfig)
+  const [config, setConfig] = useState<Config>(loadModelPrefs)
   const wrapRef = useRef<HTMLDivElement>(null)
 
   const { modelId, effort, ultracode, fast } = config
@@ -81,13 +64,9 @@ export function ModelEffortControl() {
   const model = MODELS.find((m) => m.id === modelId)!
   const effortMeta = EFFORTS.find((e) => e.id === effort)!
 
-  // Remember the last-used config as the default.
+  // Remember the last-used config as the default (shared with the Customize page).
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(config))
-    } catch {
-      /* ignore quota / privacy-mode errors */
-    }
+    saveModelPrefs(config)
   }, [config])
 
   // Close on outside click / Escape.
