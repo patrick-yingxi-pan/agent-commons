@@ -18,7 +18,6 @@ const sample = {
       id: 's1',
       title: 'Hi',
       caps: ['chat'],
-      updatedLabel: 'now',
       preview: 'p',
       messages: [{ id: 'm', role: 'user', content: 'x' }],
     },

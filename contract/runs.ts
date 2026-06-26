@@ -53,7 +53,6 @@ export function buildRunSession(task: ScheduledTask, run: ScheduledRun): Session
     id: runSessionId(task.id, run.id),
     title: `${task.name} · ${run.when}`,
     caps: ['chat'],
-    updatedLabel: run.absolute,
     preview: run.summary,
     connectors: connectorsFor(task),
     scheduledRunOf: { taskId: task.id, taskName: task.name },

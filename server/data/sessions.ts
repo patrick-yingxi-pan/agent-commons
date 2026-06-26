@@ -1,9 +1,10 @@
 import type { Session } from '../../contract/entities.ts'
 
-/** Concrete timestamps backing the sidebar's sort + "Last activity" filter.
- *  Anchored to process start so the seed's relative `updatedLabel`s ("2h ago",
- *  "Yesterday", …) stay roughly truthful while the server runs. `ago(ms)` is a
- *  point in the past; HOUR/DAY keep the call sites readable. */
+/** Concrete timestamps backing the sidebar's sort + "Last activity" filter AND
+ *  the live "time ago" label (src/lib/relativeTime). Anchored to process start so
+ *  the seed's relative ages ("2h ago", "Yesterday", …) stay truthful and keep
+ *  advancing while the server runs. `ago(ms)` is a point in the past; HOUR/DAY
+ *  keep the call sites readable. */
 const NOW = Date.now()
 const HOUR = 3_600_000
 const DAY = 24 * HOUR
@@ -20,7 +21,6 @@ export const SESSIONS: Session[] = [
     id: 'insights-launch',
     title: 'Insights dashboard launch',
     caps: ['chat', 'workspace', 'repo'],
-    updatedLabel: 'now',
     preview: 'Strategy → one-pager & email → feature flag and route. Guided demo.',
     status: 'active',
     environment: 'local',
@@ -32,7 +32,6 @@ export const SESSIONS: Session[] = [
     id: 'auth-refactor',
     title: 'Refactor auth middleware',
     caps: ['chat', 'repo'],
-    updatedLabel: '2h ago',
     preview: 'Collapse the two token-refresh paths into one.',
     status: 'active',
     environment: 'local',
@@ -78,7 +77,6 @@ export const SESSIONS: Session[] = [
     id: 'onboarding-ab',
     title: 'Onboarding A/B readout',
     caps: ['chat', 'workspace'],
-    updatedLabel: '2h ago',
     preview: 'Variant B lifted activation +6.2% — ship it.',
     status: 'active',
     environment: 'local',
@@ -106,7 +104,6 @@ export const SESSIONS: Session[] = [
     id: 'board-deck',
     title: 'Q3 board deck',
     caps: ['chat', 'workspace'],
-    updatedLabel: 'Yesterday',
     preview: 'Narrative + 14 slides from the metrics review.',
     status: 'active',
     environment: 'local',
@@ -135,7 +132,6 @@ export const SESSIONS: Session[] = [
     id: 'churn-analysis',
     title: 'Churn analysis · June',
     caps: ['chat', 'workspace'],
-    updatedLabel: 'Mon',
     preview: 'Cohort export + the three drivers behind the spike.',
     status: 'active',
     environment: 'local',
@@ -163,7 +159,6 @@ export const SESSIONS: Session[] = [
     id: 'brand-voice',
     title: 'Brand voice guidelines',
     caps: ['chat', 'workspace'],
-    updatedLabel: 'Yesterday',
     preview: 'Warm, plain, confident — with do/don’t examples.',
     status: 'active',
     environment: 'local',
@@ -191,7 +186,6 @@ export const SESSIONS: Session[] = [
     id: 'insights-empty-states',
     title: 'Insights empty & error states',
     caps: ['chat', 'workspace'],
-    updatedLabel: '5h ago',
     preview: 'Zero-data, loading, and error states for the dashboard.',
     status: 'active',
     environment: 'local',
@@ -220,7 +214,6 @@ export const SESSIONS: Session[] = [
     id: 'dashboard-perf',
     title: 'Dashboard query performance',
     caps: ['chat', 'workspace'],
-    updatedLabel: 'Tue',
     preview: 'p95 widget latency 1.8s → 240ms with one index.',
     status: 'active',
     environment: 'local',
@@ -245,7 +238,6 @@ export const SESSIONS: Session[] = [
     id: 'homepage-rewrite',
     title: 'Homepage rewrite',
     caps: ['chat', 'workspace'],
-    updatedLabel: 'Yesterday',
     preview: 'New hero, three proof points, one CTA.',
     status: 'active',
     environment: 'local',
@@ -270,7 +262,6 @@ export const SESSIONS: Session[] = [
     id: 'logo-feedback',
     title: 'Logo lockup feedback',
     caps: ['chat'],
-    updatedLabel: '2d ago',
     preview: 'Which wordmark lockup holds up at favicon size?',
     status: 'archived',
     environment: 'local',
@@ -294,7 +285,6 @@ export const SESSIONS: Session[] = [
     id: 'rate-limits',
     title: 'Rate limiting RFC',
     caps: ['chat', 'workspace'],
-    updatedLabel: 'Wed',
     preview: 'Token-bucket per API key; 429 with Retry-After.',
     status: 'active',
     environment: 'local',
@@ -319,7 +309,6 @@ export const SESSIONS: Session[] = [
     id: 'oncall-runbook',
     title: 'On-call runbook',
     caps: ['chat', 'workspace'],
-    updatedLabel: '3d ago',
     preview: 'First five minutes, escalation, and the rollback.',
     status: 'active',
     environment: 'local',
@@ -347,7 +336,6 @@ export const SESSIONS: Session[] = [
     id: 'vector-db',
     title: 'Vector databases, explained',
     caps: ['chat'],
-    updatedLabel: 'Mon',
     preview: 'Plain chat — no workspace, no repo.',
     status: 'archived',
     environment: 'local',

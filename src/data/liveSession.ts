@@ -36,7 +36,6 @@ export const DRAFT_SESSION: Session = {
   id: DRAFT_ID,
   title: 'New session',
   caps: ['chat'],
-  updatedLabel: 'now',
   preview: '',
 }
 

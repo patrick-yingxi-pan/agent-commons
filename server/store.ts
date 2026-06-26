@@ -382,7 +382,6 @@ export const store = {
       id: s.id,
       title: s.title,
       caps: s.caps,
-      updatedLabel: s.updatedLabel,
       preview: s.preview,
       isDemo: s.isDemo,
       // Sidebar filter/sort backing — cheap scalars, safe to ship in the list rows.
@@ -442,7 +441,6 @@ export const store = {
       id: `sess-${(sessionSeq += 1)}`,
       title: titleFrom(firstMessage),
       caps: ['chat'],
-      updatedLabel: 'now',
       preview: (firstMessage ?? '').slice(0, 120),
       messages: [],
       status: 'active',
@@ -466,7 +464,6 @@ export const store = {
     if (!session) return undefined
     session.messages = [...(session.messages ?? []), message]
     session.preview = message.content.slice(0, 120)
-    session.updatedLabel = 'now'
     session.updatedAt = Date.now()
     emit({ type: 'session.updated', session })
     persist()

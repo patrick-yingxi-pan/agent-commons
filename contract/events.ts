@@ -99,7 +99,7 @@ export interface ConnectorStatusEvent {
   id: string
   status: 'connected' | 'needs-auth'
 }
-/** A session's persisted summary changed (title, preview, updatedLabel) — e.g.
+/** A session's persisted summary changed (title, preview, updatedAt) — e.g.
  *  after a turn — so list rows refresh without a full refetch. */
 export interface SessionUpdatedEvent {
   type: 'session.updated'

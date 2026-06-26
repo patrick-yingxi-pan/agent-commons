@@ -159,7 +159,6 @@ export interface Session {
   id: string
   title: string
   caps: Capability[]
-  updatedLabel: string
   preview: string
   /** Whether this conversation is the scripted, step-through demo. */
   isDemo?: boolean
@@ -190,9 +189,9 @@ export interface Session {
    *  `remote` are reserved for when those backends exist.
    *  TODO(env): populate `cloud` / `remote` once those environments ship. */
   environment?: 'local' | 'cloud' | 'remote'
-  /** Sortable activity timestamps (epoch ms). `updatedAt` backs recency sort and
-   *  the "Last activity" filter; `createdAt` backs the "Created time" sort.
-   *  `updatedLabel` stays the human-facing display string. */
+  /** Sortable activity timestamps (epoch ms). `updatedAt` backs recency sort, the
+   *  "Last activity" filter, AND the human-facing "time ago" label (rendered live
+   *  via src/lib/relativeTime); `createdAt` backs the "Created time" sort. */
   updatedAt?: number
   createdAt?: number
 }

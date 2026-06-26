@@ -559,7 +559,7 @@ function ProjectDetail({
                       <div className="truncate text-[14px] font-medium text-ink">{c.title}</div>
                       <div className="truncate text-[12px] text-ink-faint">{c.preview}</div>
                     </div>
-                    <span className="shrink-0 text-[11px] text-ink-faint">{c.updatedLabel}</span>
+                    <span className="shrink-0 text-[11px] text-ink-faint">{relativeTime(c.updatedAt)}</span>
                   </button>
                   <Tooltip label="Remove from project">
                     <button

@@ -20,10 +20,11 @@ const DAY = 24 * HOUR
  *  the year once it's a different calendar year). A future timestamp (clock skew,
  *  an optimistic stamp racing the server) reads as "just now" rather than a
  *  negative age. */
-export function relativeTime(thenMs: number, nowMs: number = Date.now()): string {
-  // A missing / non-finite stamp (e.g. a record persisted under an older schema,
-  // before this field existed) gets an honest fallback rather than "undefined NaN".
-  if (!Number.isFinite(thenMs)) return 'recently'
+export function relativeTime(thenMs: number | null | undefined, nowMs: number = Date.now()): string {
+  // A missing / non-finite stamp (an optional `updatedAt`, or a record persisted
+  // under an older schema before the field existed) gets an honest fallback
+  // rather than "undefined NaN".
+  if (typeof thenMs !== 'number' || !Number.isFinite(thenMs)) return 'recently'
   const diff = nowMs - thenMs
   if (diff < 45 * SEC) return 'just now'
   if (diff < 45 * MIN) {
