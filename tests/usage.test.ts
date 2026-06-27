@@ -3,8 +3,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createUsageMeter, estimateTokens, formatTokens, CONTEXT_WINDOW } from '../server/usage.ts'
-import { contextBreakdown, CONTEXT_BASELINE } from '../contract/index.ts'
+import { contextBreakdown, withLiveMessages, type ContextParts } from '../contract/index.ts'
+import { TOOL_DEFINITIONS } from '../server/model/tools.ts'
 import { store } from '../server/store.ts'
+
+const PARTS: ContextParts = { messageTokens: 200_000, systemToolsTokens: 1_780, systemPromptTokens: 100 }
 
 test('estimateTokens / formatTokens: rough token math + human labels', () => {
   assert.equal(estimateTokens(''), 0)
@@ -18,59 +21,70 @@ test('estimateTokens / formatTokens: rough token math + human labels', () => {
 test('the meter accumulates real token usage into the rolling windows', () => {
   let t = 1_000_000
   const meter = createUsageMeter(() => t)
-  const before = meter.snapshot(0)
+  const before = meter.planLimits()[0].pct
   meter.record(100_000, 50_000) // 150k tokens this turn
-  const after = meter.snapshot(0)
-  // The 5-hour ring (limits[0]) rose; the plan windows are independent of context.
-  assert.ok(after.limits[0].pct >= before.limits[0].pct)
-  // An empty thread's context is just the fixed config baseline, unchanged by a turn.
-  assert.equal(before.context.segments.find((s) => s.id === 'messages')?.rawTokens, 0)
+  const after = meter.planLimits()[0].pct
+  assert.ok(after >= before, 'the 5-hour ring rose with consumption')
 })
 
 test('a window resets once its span elapses (the consumption clears)', () => {
   let t = 0
   const meter = createUsageMeter(() => t)
   meter.record(600_000, 0) // push the 5-hour window up
-  const hot = meter.snapshot(0).limits[0].pct
+  const hot = meter.planLimits()[0].pct
   t += 6 * 3_600_000 // jump past the 5-hour boundary
-  const cooled = meter.snapshot(0).limits[0].pct
+  const cooled = meter.planLimits()[0].pct
   assert.ok(cooled < hot, 'the 5-hour window reset after its span elapsed')
 })
 
-test('contextBreakdown: Messages is live, config is the baseline, the rest is Free space', () => {
-  const ctx = contextBreakdown(200_000)
-  // Messages reflects the passed token count; total is the window.
-  assert.equal(ctx.segments.find((s) => s.id === 'messages')?.rawTokens, 200_000)
+test('contextBreakdown: Messages is live, the loaded categories sum to used, the rest is Free space', () => {
+  const ctx = contextBreakdown(PARTS)
+  assert.equal(ctx.segments.find((s) => s.id === 'messages')?.rawTokens, PARTS.messageTokens)
   assert.equal(ctx.total, formatTokens(CONTEXT_WINDOW))
-  // used = messages + the fixed config baseline.
   const loaded = ctx.segments.filter((s) => !s.deferred && s.id !== 'free')
   const usedRaw = loaded.reduce((n, s) => n + s.rawTokens, 0)
-  assert.equal(usedRaw, 200_000 + CONTEXT_BASELINE)
-  // Free space fills the remainder; the loaded + free segments tile the window.
   const free = ctx.segments.find((s) => s.id === 'free')!
-  assert.equal(usedRaw + free.rawTokens, CONTEXT_WINDOW)
-  // Deferred categories are listed but uncounted (no pct).
+  assert.equal(usedRaw + free.rawTokens, CONTEXT_WINDOW, 'loaded + free tile the window')
+  // Deferred categories are listed but uncounted (no pct → renders '—').
   const deferred = ctx.segments.filter((s) => s.deferred)
   assert.ok(deferred.length > 0 && deferred.every((s) => s.pct === undefined))
+  // The eagerly-injected tools are a LOADED category, never a deferred one.
+  assert.ok(!ctx.segments.some((s) => s.deferred && s.id.startsWith('systemTools')))
 })
 
-test('an empty thread still shows the config baseline (Free space < 100%)', () => {
-  const ctx = contextBreakdown(0)
-  const free = ctx.segments.find((s) => s.id === 'free')!
-  assert.ok((free.pct ?? 0) < 100 && (free.pct ?? 0) > 0)
-  assert.ok(ctx.pct >= 1, 'the fixed config occupies a little of the window')
+test('System tools + System prompt are the real eager request sizes (not seed)', () => {
+  const parts: ContextParts = { messageTokens: 0, systemToolsTokens: 1_780, systemPromptTokens: 100 }
+  const ctx = contextBreakdown(parts)
+  assert.equal(ctx.segments.find((s) => s.id === 'systemTools')?.rawTokens, 1_780)
+  assert.equal(ctx.segments.find((s) => s.id === 'systemPrompt')?.rawTokens, 100)
+})
+
+test('store: the System tools category is the real tool-schema size, eager (loaded)', () => {
+  const realToolTokens = estimateTokens(JSON.stringify(TOOL_DEFINITIONS))
+  const seg = store.usage('insights-launch').context.segments.find((s) => s.id === 'systemTools')!
+  assert.equal(seg.rawTokens, realToolTokens, 'System tools reflects the actual TOOL_DEFINITIONS the backend sends')
+  assert.ok(!seg.deferred, 'tools are injected eagerly, so the category is loaded')
+  assert.ok(seg.rawTokens > 0)
+})
+
+test('withLiveMessages overlays a live Messages count, keeping the real categories', () => {
+  const server = contextBreakdown({ messageTokens: 50, systemToolsTokens: 1_780, systemPromptTokens: 100 })
+  const live = withLiveMessages(server, 9_000)
+  assert.equal(live.segments.find((s) => s.id === 'messages')?.rawTokens, 9_000)
+  // The real system-tools size is preserved through the overlay.
+  assert.equal(live.segments.find((s) => s.id === 'systemTools')?.rawTokens, 1_780)
+  // Free space shrank by the added messages.
+  const f0 = server.segments.find((s) => s.id === 'free')!.rawTokens
+  const f1 = live.segments.find((s) => s.id === 'free')!.rawTokens
+  assert.equal(f0 - f1, 9_000 - 50)
 })
 
 test('store.usage(session) reflects the open thread; a longer thread shows more context', () => {
-  const empty = store.usage().context.pct // no session → baseline only
-  // A seeded session with messages should read at least the baseline.
-  const sessions = store.listSessions?.() ?? []
-  const withMsgs = sessions.find((s) => (s.messages?.length ?? 0) > 0)
+  const empty = store.usage().context.pct
+  const withMsgs = (store.listSessions?.() ?? []).find((s) => (s.messages?.length ?? 0) > 0)
   if (withMsgs) {
-    const ctx = store.usage(withMsgs.id).context.pct
-    assert.ok(ctx >= empty, 'a thread with messages reads ≥ the empty baseline')
+    assert.ok(store.usage(withMsgs.id).context.pct >= empty, 'a thread with messages reads ≥ the empty baseline')
   }
-  // The gauge shape holds for the session-aware call too.
   const u = store.usage('insights-launch')
   assert.ok(u.context && Array.isArray(u.limits))
 })

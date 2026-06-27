@@ -96,47 +96,39 @@ export function formatTokens(n: number): string {
  *  `Messages` is the one live, real category, computed from the open thread. The
  *  fixed sum here is the empty-thread baseline (what a brand-new chat already
  *  occupies). */
-const CONTEXT_CONFIG: ReadonlyArray<Omit<ContextSegment, 'tokens' | 'pct'>> = [
-  { id: 'skills', label: 'Skills', rawTokens: 12_500, tone: 'skills' },
-  { id: 'memory', label: 'Memory files', rawTokens: 7_200, tone: 'memory', count: 4 },
-  { id: 'systemTools', label: 'System tools', rawTokens: 4_800, tone: 'systemTools' },
-  { id: 'systemPrompt', label: 'System prompt', rawTokens: 3_300, tone: 'systemPrompt' },
-  { id: 'agents', label: 'Custom agents', rawTokens: 2_000, tone: 'agents', count: 6 },
-]
-/** Deferred categories — available but loaded on demand, so not counted against
- *  the window (rendered with a '—'). */
-const CONTEXT_DEFERRED: ReadonlyArray<Omit<ContextSegment, 'tokens' | 'pct'>> = [
-  { id: 'mcp', label: 'MCP tools', rawTokens: 22_500, tone: 'mcp', deferred: true, count: 75 },
-  { id: 'systemToolsDeferred', label: 'System tools (deferred)', rawTokens: 12_700, tone: 'systemTools', deferred: true },
-]
+type SegmentSpec = Omit<ContextSegment, 'tokens' | 'pct'>
 
-/** The fixed (non-message) context an empty thread already occupies — the sum of
- *  the loaded config categories. */
-export const CONTEXT_BASELINE = CONTEXT_CONFIG.reduce((n, s) => n + s.rawTokens, 0)
+// Seed (representative) loaded categories — the prototype doesn't wire skills,
+// memory files, or subagents into the model call, so these are seed composition
+// (the same "mock by design" basis as projects/artifacts). The REAL loaded
+// categories (Messages, System tools, System prompt) are passed in, computed from
+// the actual request the backend makes.
+const SEED_SKILLS: SegmentSpec = { id: 'skills', label: 'Skills', rawTokens: 12_500, tone: 'skills' }
+const SEED_MEMORY: SegmentSpec = { id: 'memory', label: 'Memory files', rawTokens: 7_200, tone: 'memory', count: 4 }
+const SEED_AGENTS: SegmentSpec = { id: 'agents', label: 'Custom agents', rawTokens: 2_000, tone: 'agents', count: 6 }
+/** Deferred categories — available but loaded on demand, so uncounted (rendered
+ *  with a '—'). The backend's *own* tools are NOT here: they're injected eagerly
+ *  (`generate.ts` sends `tools: TOOL_DEFINITIONS` every request), so they're a
+ *  loaded category. This is a seed example — the prototype offers MCP servers as
+ *  context but doesn't yet stream their tools into the model call. */
+const SEED_DEFERRED: SegmentSpec[] = [{ id: 'mcp', label: 'MCP tools', rawTokens: 22_500, tone: 'mcp', deferred: true, count: 75 }]
 
-const seg = (s: Omit<ContextSegment, 'tokens' | 'pct'>, pct?: number): ContextSegment => ({
+const seg = (s: SegmentSpec, pct?: number): ContextSegment => ({
   ...s,
   tokens: formatTokens(s.rawTokens),
   ...(pct === undefined ? {} : { pct }),
 })
 const pctOf = (raw: number) => Math.round((raw / CONTEXT_WINDOW) * 1000) / 10
 
-/** The full context-window breakdown for a thread whose messages total
- *  `messageTokens` — the live figure the composer computes from the open thread,
- *  or the server from a persisted one. Messages + the loaded config make up
- *  `used`; the rest is Free space; deferred categories are listed but uncounted. */
-export function contextBreakdown(messageTokens: number): ContextUsage {
-  const messages = Math.max(0, messageTokens)
-  const loaded: ContextSegment[] = [
-    seg({ id: 'messages', label: 'Messages', rawTokens: messages, tone: 'messages' }, pctOf(messages)),
-    ...CONTEXT_CONFIG.map((s) => seg(s, pctOf(s.rawTokens))),
-  ]
+/** Close out a breakdown from its loaded categories: append Free space + the
+ *  deferred rows, and compute the used/total/pct header. */
+function finalize(loaded: SegmentSpec[]): ContextUsage {
   const usedTokens = loaded.reduce((n, s) => n + s.rawTokens, 0)
   const free = Math.max(0, CONTEXT_WINDOW - usedTokens)
   const segments: ContextSegment[] = [
-    ...loaded,
+    ...loaded.map((s) => seg(s, pctOf(s.rawTokens))),
     seg({ id: 'free', label: 'Free space', rawTokens: free, tone: 'free' }, pctOf(free)),
-    ...CONTEXT_DEFERRED.map((s) => seg(s)), // no pct → renders '—'
+    ...SEED_DEFERRED.map((s) => seg(s)), // no pct → renders '—'
   ]
   return {
     used: formatTokens(usedTokens),
@@ -144,4 +136,44 @@ export function contextBreakdown(messageTokens: number): ContextUsage {
     pct: Math.min(100, Math.round((usedTokens / CONTEXT_WINDOW) * 100)),
     segments,
   }
+}
+
+/** The real loaded categories computed from the actual request the backend sends:
+ *  the conversation, the eagerly-injected tool schema, and the system prompt. */
+export interface ContextParts {
+  /** Messages — the conversation (real: live on the client, persisted on the server). */
+  messageTokens: number
+  /** System tools — the resource-manipulation tool schema sent on every request,
+   *  eagerly (real; `JSON.stringify(TOOL_DEFINITIONS)` in server/model/tools.ts). */
+  systemToolsTokens: number
+  /** System prompt — the framing the backend sends each request (real). */
+  systemPromptTokens: number
+}
+
+/** The full context-window breakdown for a turn. Messages + the loaded categories
+ *  (the real eager tool schema + system prompt, plus the seed workspace config)
+ *  make up `used`; the rest is Free space; deferred categories are uncounted. */
+export function contextBreakdown(parts: ContextParts): ContextUsage {
+  return finalize([
+    { id: 'messages', label: 'Messages', rawTokens: Math.max(0, parts.messageTokens), tone: 'messages' },
+    SEED_SKILLS,
+    SEED_MEMORY,
+    { id: 'systemTools', label: 'System tools', rawTokens: parts.systemToolsTokens, tone: 'systemTools' },
+    { id: 'systemPrompt', label: 'System prompt', rawTokens: parts.systemPromptTokens, tone: 'systemPrompt' },
+    SEED_AGENTS,
+  ])
+}
+
+/** Re-derive a breakdown with a live Messages count, keeping every other (real)
+ *  category from the server's snapshot. The composer calls this so the Messages
+ *  row + Free space track the open thread in real time, without re-sending the
+ *  server-owned tool/prompt sizes. */
+export function withLiveMessages(context: ContextUsage, messageTokens: number): ContextUsage {
+  const loaded: SegmentSpec[] = context.segments
+    .filter((s) => !s.deferred && s.id !== 'free')
+    .map(({ id, label, rawTokens, tone, count, deferred }) =>
+      id === 'messages' ? { id, label, rawTokens: Math.max(0, messageTokens), tone, count, deferred } : { id, label, rawTokens, tone, count, deferred },
+    )
+  // No segments yet (first paint before the snapshot loads) — nothing to derive.
+  return loaded.length ? finalize(loaded) : context
 }

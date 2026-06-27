@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { ArrowRight, ChevronRight } from 'lucide-react'
 import { useUsage } from '../api'
-import { contextBreakdown, type ContextSegment, type ContextTone, type UsageSnapshot } from '../../contract/index.ts'
+import { withLiveMessages, type ContextSegment, type ContextTone, type UsageSnapshot } from '../../contract/index.ts'
 
 /* Shown until the server's usage snapshot loads — a zeroed gauge rather than a
    flash of a missing icon. The real figures arrive from `GET /v1/usage`, after
@@ -51,8 +51,11 @@ export function UsageControl({ sessionId, messageTokens }: { sessionId?: string;
   // Server-owned: the UI just caches the snapshot. EMPTY_USAGE covers the first
   // paint before the fetch resolves. The live breakdown overrides the snapshot's.
   const snapshot = useUsage(sessionId).data ?? EMPTY_USAGE
+  // The server owns the real category sizes (system tools, system prompt, …); the
+  // composer overlays the live Messages count so the breakdown tracks the open
+  // thread without re-sending those server-owned figures.
   const usage: UsageSnapshot =
-    messageTokens === undefined ? snapshot : { ...snapshot, context: contextBreakdown(messageTokens) }
+    messageTokens === undefined ? snapshot : { ...snapshot, context: withLiveMessages(snapshot.context, messageTokens) }
 
   useEffect(() => {
     if (!open) return

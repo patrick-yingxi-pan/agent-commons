@@ -61,6 +61,9 @@ import { SAVED_CONTEXTS, CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from './da
 import { connectorDetail } from './data/connectorDetails.ts'
 import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
 import { createUsageMeter, estimateTokens } from './usage.ts'
+import { contextBreakdown } from '../contract/index.ts'
+import { TOOL_DEFINITIONS } from './model/tools.ts'
+import { systemPrompt } from './generate.ts'
 import { AgentRegistry } from './registry.ts'
 import { AgentJournal } from './journal.ts'
 import { ResourceGuardian } from './guardian.ts'
@@ -112,6 +115,10 @@ let messageSeq = 0
 // computed per session in store.usage. Not persisted — usage windows are a live,
 // rolling meter, reseeded on restart (mock semantics).
 const usageMeter = createUsageMeter(() => Date.now())
+// The real token weight of the resource-manipulation tool schema the backend
+// declares on every request (server/model/tools.ts) — injected eagerly, so it's a
+// loaded context category, not a deferred one. Static, so computed once.
+const SYSTEM_TOOLS_TOKENS = estimateTokens(JSON.stringify(TOOL_DEFINITIONS))
 
 // Per-user recents — one non-evicting MRU id list per context type. Connectors /
 // MCP seed from the connected accounts (their quick list shows every set-up
@@ -609,7 +616,13 @@ export const store = {
     let messageTokens = 0
     const session = sessionId ? SESSIONS.find((s) => s.id === sessionId) : undefined
     for (const m of session?.messages ?? []) messageTokens += estimateTokens(m.content)
-    return usageMeter.snapshot(messageTokens)
+    // System tools + system prompt are computed from the *actual* request the
+    // backend sends — both injected eagerly — so they're real loaded categories.
+    const systemPromptTokens = estimateTokens(systemPrompt({ id: sessionId ?? '', title: session?.title ?? '', isDemo: session?.isDemo }))
+    return {
+      context: contextBreakdown({ messageTokens, systemToolsTokens: SYSTEM_TOOLS_TOKENS, systemPromptTokens }),
+      limits: usageMeter.planLimits(),
+    }
   },
 
   // ── Schedule templates (the "New schedule" starters) ──

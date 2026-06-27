@@ -66,7 +66,7 @@ export interface ReplyResult {
 /** The system prompt the backend sends — the same framing a real Claude reads.
  *  It describes the tool interface and the consent rule (a tool call *proposes*;
  *  the user confirms before anything is applied). */
-function systemPrompt(session: ReplySession): string {
+export function systemPrompt(session: ReplySession): string {
   return [
     'You are Claude in the Unified Workspace prototype — one adaptive thread that unifies chat, workspace, and code.',
     'When the user asks to produce documents, change code, or organize their work, manipulate the workspace by calling the provided tools.',

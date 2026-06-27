@@ -15,8 +15,7 @@
  *  Token counts are an estimate (≈ 4 chars/token — the standard rough rule); a
  *  real backend would meter exactly. The clock is injected so the windows' reset
  *  logic is unit-testable. */
-import type { UsageSnapshot } from '../contract/index.ts'
-import { contextBreakdown } from '../contract/index.ts'
+import type { UsageWindow } from '../contract/index.ts'
 // Re-export the shared metering helpers the store also uses, so its import site
 // stays `./usage.ts` (the meter's home) even though the math lives in the contract.
 export { CONTEXT_WINDOW, estimateTokens, formatTokens } from '../contract/index.ts'
@@ -48,9 +47,9 @@ function formatReset(w: LimitWindow): string {
 export interface UsageMeter {
   /** Record one turn's real token usage against every rolling window. */
   record(inputTokens: number, outputTokens: number): void
-  /** The gauge snapshot: the context breakdown for a thread of `messageTokens`
-   *  size + the live plan windows. */
-  snapshot(messageTokens: number): UsageSnapshot
+  /** The live plan-limit windows (5-hour, weekly, …). The store pairs these with
+   *  the context breakdown to assemble the gauge snapshot. */
+  planLimits(): UsageWindow[]
 }
 
 /** Build the plan-usage meter. `now` is injected so tests can drive the reset
@@ -81,16 +80,13 @@ export function createUsageMeter(now: () => number): UsageMeter {
       roll(now())
       for (const w of windows) w.consumed += tokens
     },
-    snapshot(messageTokens) {
+    planLimits() {
       roll(now())
-      return {
-        context: contextBreakdown(messageTokens),
-        limits: [
-          { label: fiveHour.label, reset: formatReset(fiveHour), pct: pct(fiveHour) },
-          { label: weekly.label, reset: formatReset(weekly), pct: pct(weekly) },
-          { label: 'Sonnet only', reset: '', pct: 0 },
-        ],
-      }
+      return [
+        { label: fiveHour.label, reset: formatReset(fiveHour), pct: pct(fiveHour) },
+        { label: weekly.label, reset: formatReset(weekly), pct: pct(weekly) },
+        { label: 'Sonnet only', reset: '', pct: 0 },
+      ]
     },
   }
 }
