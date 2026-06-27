@@ -132,7 +132,13 @@ function handleMessages(req: import('node:http').IncomingMessage, res: import('n
 
     const model = body.model ?? 'claude-opus-4-8'
     const messages = body.messages ?? []
-    const inputTokens = JSON.stringify(messages).length >> 2 // rough
+    // `input_tokens`, in the Messages-API sense, is the WHOLE prompt the model
+    // reads: the `system` prompt + the `tools` schema + the `messages` array —
+    // three distinct inputs, summed. (The earlier version counted only `messages`,
+    // dropping the system prompt + tools entirely.) Rough estimate, ≈ 4 chars/token.
+    const promptChars =
+      JSON.stringify(body.system ?? '').length + JSON.stringify(body.tools ?? []).length + JSON.stringify(messages).length
+    const inputTokens = promptChars >> 2
     const id = nextMessageId()
     const tools = toolUseBlocks(messages)
 

@@ -69,6 +69,16 @@ test('an unmatched message returns plain text (no tools)', async () => {
   assert.ok(json.content[0].text.length > 0)
 })
 
+test('input_tokens counts the whole prompt — system + tools + messages, not just messages', async () => {
+  const msg = { role: 'user', content: 'what is a vector database?' }
+  const system = 'You are Claude with a deliberately long system prompt so its weight is visible in the token count.'
+  const tools = [{ name: 'demo_tool', description: 'x'.repeat(600), input_schema: { type: 'object', properties: {}, required: [] } }]
+  const messagesOnly = (await post({ stream: false, messages: [msg] })).json.usage.input_tokens
+  const withSystemAndTools = (await post({ stream: false, system, tools, messages: [msg] })).json.usage.input_tokens
+  // The system prompt + tools are distinct inputs that must be counted too.
+  assert.ok(withSystemAndTools > messagesOnly, 'system + tools add to input_tokens, not just messages')
+})
+
 test('GET /health is ok', async () => {
   const res = await fetch(`${base}/health`)
   const json = await res.json()
