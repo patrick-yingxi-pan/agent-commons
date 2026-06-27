@@ -14,6 +14,10 @@
 > *(Renamed from `local-access-and-portability.md`: that exploration converged on
 > the broker model below, of which "loopback companion" is just the co-located
 > special case.)*
+>
+> *(Forward pointer: [`agent-commons.md`](agent-commons.md) D6 renames this doc's
+> **"native agent"** to **Runner**, freeing "agent" for a user-created worker. That
+> rename is forward-looking vocabulary — this doc's text is left unchanged.)*
 
 ## Thesis
 

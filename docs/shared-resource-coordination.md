@@ -11,6 +11,10 @@
 > It extends the D-series of that doc (D1–D4) with a candidate **D5 — the
 > resource-guardian principle**. Read the broker doc first; this picks up where its
 > branch discussion stops.
+>
+> *(Forward pointer: [`agent-commons.md`](agent-commons.md) carries D5 into a
+> multi-tenant model (D6–D13), where this note's hardest open residue —
+> multi-principal negotiation, item 3 below — becomes the **default** case.)*
 
 ## The problem, in its general form
 
