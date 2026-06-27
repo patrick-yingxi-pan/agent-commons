@@ -100,6 +100,7 @@ import {
   createCommission,
   useAgents,
   useCommissions,
+  useCommissionAuthority,
   useDispatchRuns,
   useProviders,
   useSavedContexts,
@@ -952,18 +953,28 @@ function ContributorsPanel({ project }: { project: Project }) {
   )
 }
 
-/** One Contributor row — the Agent's label + what the commission carries onto the
- *  Project (its own scoped grant, or the Agent's by inheritance — D8/D12). */
+/** One Contributor row — the Agent's label + its **effective, Project-clamped reach**
+ *  (D12): the connectors this Contributor can actually touch on the Project, which is
+ *  its granted authority intersected with what the Project admits — never the owner's
+ *  ambient set. Default-deny: an Agent granted everything still reaches only the
+ *  Project's connectors. */
 function ContributorRow({ commission, agentLabel }: { commission: Commission; agentLabel: string }) {
-  const scoped = !!commission.authority || !!commission.grant
+  const reach = useCommissionAuthority(commission.id).data
+  // Post-clamp the connectors are always a concrete set (the Project admits a concrete
+  // list); show them as the visible isolation boundary.
+  const connectors = reach?.connectors ?? []
+  const reachLabel =
+    reach === undefined
+      ? 'Resolving reach…'
+      : connectors.length === 0
+        ? 'Reaches no connectors on this project'
+        : `Reaches ${connectors.join(' · ')}`
   return (
     <div className="flex items-start gap-2.5">
       <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
       <div className="min-w-0">
         <div className="text-[13px] font-medium text-ink">{agentLabel}</div>
-        <div className="text-[11px] text-ink-faint">
-          {scoped ? 'Scoped grant on this project' : "Inherits the agent's grant"}
-        </div>
+        <div className="text-[11px] text-ink-faint">{reachLabel}</div>
       </div>
     </div>
   )

@@ -257,6 +257,14 @@ export function buildRouter(): Router {
     if (!commission) return sendError(res, 'not_found', `No commission '${params.id}'`)
     sendJson(res, commission)
   })
+  // The commission's *effective* authority (D12): the agent's granted ceiling clamped
+  // to what the Project admits — what the Contributor actually reaches, never the
+  // owner's ambient set. Derived server-side (the single source); the UI shows it.
+  r.get('/commissions/:id/authority', ({ res, params }) => {
+    const authority = store.commissionAuthority(params.id)
+    if (!authority) return sendError(res, 'not_found', `No commission '${params.id}'`)
+    sendJson(res, authority)
+  })
   r.post('/commissions', async ({ res, body }) => {
     const input = await body<CreateCommissionRequest>()
     if (!input?.agentId || !input?.projectId) {

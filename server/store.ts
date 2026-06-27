@@ -62,8 +62,8 @@ import { connectorDetail } from './data/connectorDetails.ts'
 import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
 import { createUsageMeter, estimateTokens, mintBudget } from './usage.ts'
 import { mintAuthority } from './authority.ts'
-import { contextBreakdown } from '../contract/index.ts'
-import type { Agent, Commission, ModelProvider, SystemPromptEntry } from '../contract/index.ts'
+import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority } from '../contract/index.ts'
+import type { Agent, Authority, Commission, ModelProvider, SystemPromptEntry } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
@@ -616,6 +616,38 @@ export const store = {
     const commission: Commission = { ...input, id: `commission-${(commissionSeq += 1)}` }
     COMMISSIONS.set(commission.id, commission)
     return commission
+  },
+
+  /** The **effective authority** a Contributor carries onto its Project (D12,
+   *  docs/agent-commons.md): the agent's granted authority (commission ?? agent ??
+   *  provider — the D8 ceiling) **clamped** to what the Project admits
+   *  (`projectAdmittedAuthority`). So a commissioned Agent sees the *Project's*
+   *  connectors / scopes, never its owner's ambient set — default-deny on anything the
+   *  Project doesn't admit, even for an Agent granted everything. Undefined for an
+   *  unknown commission. */
+  commissionAuthority(commissionId: string): Authority | undefined {
+    const commission = COMMISSIONS.get(commissionId)
+    if (!commission) return undefined
+    const agent = WORKER_AGENTS.get(commission.agentId)
+    if (!agent) return undefined
+    const provider = resolveProvider(agent.providerId)
+    // The ceiling: the most authority this Contributor could hold (the D8 cascade).
+    const granted = commission.authority ?? agent.authority ?? provider.authority ?? {}
+    const project = PROJECTS.find((p) => p.id === commission.projectId)
+    // The wall: clamp the ceiling to what the Project exposes. Fail **closed** — a
+    // commission whose Project is somehow gone admits no data (the route validates the
+    // Project at mint, so this is defensive, but a security boundary must not fail open).
+    const admitted = project ? projectAdmittedAuthority(project.contexts) : { connectors: [], scopes: [] }
+    return intersectAuthority(granted, admitted)
+  },
+  /** The D12 mediation check, lifted from *(session, context)* to *(Project,
+   *  commission, context)*: whether a Contributor may reach `target` on `dimension`.
+   *  True iff the commission's **effective** (Project-clamped) authority admits it — so
+   *  the owner's ambient connectors, absent from the Project, are unreachable. A
+   *  missing commission reaches nothing. */
+  commissionCanReach(commissionId: string, dimension: 'tools' | 'connectors' | 'scopes', target: string): boolean {
+    const effective = this.commissionAuthority(commissionId)
+    return effective ? authorityAdmits(effective, dimension, target) : false
   },
 
   /** Append a message to a session's thread — the write that makes "send" real.

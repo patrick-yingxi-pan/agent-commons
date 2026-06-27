@@ -18,8 +18,9 @@
 > selection-time fit warning), **authority attenuation** (7 — the D8 *primary* face:
 > tools/connectors/scopes, *provider ⊇ agent* at the funnel), and the **`Commission`**
 > (8 — D7/D13, the leaf funnel *commission ⊆ agent ⊆ provider*, with a Project's
-> Contributor list + a commission picker). Still forward: cross-user isolation (D12)
-> and multi-principal coordination (D11).
+> Contributor list + a commission picker), and **cross-user isolation** (9 — D12, a
+> Contributor's authority clamped to what its Project admits, default-deny). Still
+> forward: multi-principal coordination (D11).
 > Outside what's built the prototype is still the *degenerate N=1 case* (one user, no
 > commissions).
 >
@@ -866,7 +867,18 @@ session↔context binding, mediation handle, and single-resource escrow).
   contributing. The UI only ever creates *inheriting* commissions, so the server funnel's
   attenuation is never bypassed. typecheck + 305 tests green; verified live (seeded
   Contributor renders, picker filters, a new commission persists + the list refreshes).
-- **What remains forward**: **cross-user isolation** (D12 — a commissioned Agent sees the
-  Project's authority, not its owner's ambient set), and **multi-principal coordination**
-  at the Guardian (D11). Outside what's built the prototype is still the degenerate N=1
-  case: one user.
+- **Slice 9 — cross-user isolation (D12). ✅ Built.** `contract/authority.ts` adds the
+  pure `intersectAuthority` (the **clamp**) + `authorityAdmits` (membership);
+  `contract/isolation.ts` adds `projectAdmittedAuthority` (a Project gates *data* —
+  connectors from its connector contexts, scopes from its folder/repo contexts — not
+  tools). `store.commissionAuthority(id)` returns a Contributor's **effective** reach —
+  its granted ceiling (commission ?? agent ?? provider) *clamped* to what the Project
+  admits — and `commissionCanReach(id, dim, target)` is the lifted *(Project, commission,
+  context)* mediation check. **Default-deny is structural**: the admitted set is always a
+  concrete list, so an Agent granted everything still reaches only the Project's
+  connectors; a missing Project fails *closed*. Exposed at `GET /commissions/:id/authority`;
+  the Contributor row shows the reach ("Reaches Linear · Figma" — not all connectors).
+  typecheck + 310 tests green; verified live.
+- **What remains forward**: **multi-principal coordination** at the Guardian (D11 — the
+  promoted residue: arbitrating *different users'* Contributors on one Project). Outside
+  what's built the prototype is still the degenerate N=1 case: one user.

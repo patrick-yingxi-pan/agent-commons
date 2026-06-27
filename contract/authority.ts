@@ -57,3 +57,40 @@ export function overAuthority(parent: Authority, child: Authority): AuthorityVio
   }
   return null
 }
+
+/** The intersection of two grants on one dimension. An unrestricted side ('*' or
+ *  absent) lets the *other* side govern; two concrete sets intersect; both
+ *  unrestricted stays unrestricted (`undefined`). This is the **clamp** D12 uses to
+ *  bound a commissioned Agent to a Project's admitted set: `intersect(agent, project)`
+ *  with the agent unrestricted yields exactly the Project's set — default-deny on
+ *  anything the Project doesn't admit, regardless of what the Agent was granted. */
+function intersectDimension(x: string[] | undefined, y: string[] | undefined): string[] | undefined {
+  const xAll = unrestricted(x)
+  const yAll = unrestricted(y)
+  if (xAll && yAll) return undefined // both unrestricted → still unrestricted
+  if (xAll) return y
+  if (yAll) return x
+  const ys = new Set(y)
+  return x!.filter((v) => ys.has(v))
+}
+
+/** The pairwise intersection of two authority grants — `a ∩ b` on every dimension.
+ *  Pure + shared (D12): the effective authority a commissioned Agent carries onto a
+ *  Project is `intersectAuthority(what-the-agent-was-granted, what-the-Project-admits)`. */
+export function intersectAuthority(a: Authority, b: Authority): Authority {
+  const result: Authority = {}
+  for (const dim of DIMENSIONS) {
+    const v = intersectDimension(a[dim], b[dim])
+    if (v !== undefined) result[dim] = v
+  }
+  return result
+}
+
+/** Whether a grant admits a specific `target` on one dimension — `true` when the grant
+ *  is unrestricted there ('*' / absent) or explicitly lists the target. The membership
+ *  side of the D12 mediation check: an effect's target is allowed iff the commission's
+ *  *effective* (Project-clamped) authority admits it. */
+export function authorityAdmits(authority: Authority, dimension: AuthorityViolation['dimension'], target: string): boolean {
+  const grant = authority[dimension]
+  return unrestricted(grant) || grant!.includes(target)
+}

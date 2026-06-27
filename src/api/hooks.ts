@@ -9,6 +9,7 @@ import { keys, paths } from './keys.ts'
 import type {
   Runner,
   Agent,
+  Authority,
   Commission,
   CapabilityEffect,
   ArtifactContentLibrary,
@@ -69,6 +70,13 @@ export function useAgents(): QueryState<Agent[]> {
  *  (docs/agent-commons.md, D7/D13). Keyed per project. */
 export function useCommissions(projectId?: string): QueryState<Commission[]> {
   return useQuery(keys.commissions(projectId), () => apiGet<Commission[]>(paths.commissions(projectId)))
+}
+
+/** A commission's effective, Project-clamped authority (docs/agent-commons.md, D12) —
+ *  what the Contributor actually reaches on its Project, never the owner's ambient set.
+ *  Derived server-side; the Contributor row shows it. */
+export function useCommissionAuthority(id: string): QueryState<Authority> {
+  return useQuery(keys.commissionAuthority(id), () => apiGet<Authority>(paths.commissionAuthority(id)))
 }
 
 /** A runner's authoritative effect log (the server's projection of it). Updates
