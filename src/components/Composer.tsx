@@ -26,6 +26,7 @@ import { PermissionModeControl } from './PermissionModeControl'
 import { AudioInputControl } from './AudioInputControl'
 import { UsageControl } from './UsageControl'
 import { HostsControl } from './HostsControl'
+import { ProvidersControl } from './ProvidersControl'
 import { GITHUB_CONNECTOR_ID, connectorIconFor } from '../lib/connectors'
 import { getDecision, setDecision } from '../lib/prefs'
 import { type ChipTone } from '../lib/capabilities'
@@ -368,6 +369,7 @@ export function Composer({
           </div>
           <div className="flex items-center gap-1.5">
             <ModelEffortControl />
+            <ProvidersControl />
             <HostsControl />
             <UsageControl sessionId={sessionId} messageTokens={messageTokens} />
           </div>

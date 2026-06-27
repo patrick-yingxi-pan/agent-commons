@@ -194,6 +194,24 @@ export function buildRouter(): Router {
     sendJson(res, { projected, cursor: store.journal.cursor(params.id) })
   })
 
+  // ── Model providers (the cognition source — docs/agent-commons.md, D9) ──────
+  // The registered cognition sources an Agent's `providerId` binds — account-scoped
+  // and referenceable by id, like a Runner, never attached per-thread. Read-only on
+  // the wire for now (one seeded instance; minting is the `store.createProvider`
+  // funnel, exercised by tests). The server-only credential/model config never
+  // crosses this boundary.
+  r.get('/providers', ({ res }) => {
+    sendJson(res, store.listProviders())
+  })
+  r.get('/providers/:id', ({ res, params }) => {
+    // `listProviders().find`, not `store.getProvider` — the latter falls back to the
+    // default for an unknown id (the resolve-for-a-turn contract), which would mask a
+    // 404 here. The wire read must distinguish "no such provider".
+    const provider = store.listProviders().find((p) => p.id === params.id)
+    if (!provider) return sendError(res, 'not_found', `No provider '${params.id}'`)
+    sendJson(res, provider)
+  })
+
   // ── Resource guardians + reservations (D5) ────────────────────────────────
   // Per shared resource (a context element id), a reservation ledger enforcing a
   // capacity invariant — the escrow that lets the broker refuse a second session's
@@ -359,6 +377,10 @@ export function buildRouter(): Router {
     // The worker Agent driving this Conversation (docs/agent-commons.md, D6) —
     // resolves to the seeded default until users create their own.
     const agent = store.getAgent(known?.agentId)
+    // The model this turn runs on is the Agent's Model provider's (D9) — the default
+    // provider declares none, so this resolves to `undefined` and generation uses its
+    // env-configured default. Multi-provider just makes this a non-default id.
+    const model = store.providerModel(agent.providerId)
     // `ephemeral` (the guided tour) generates the full model + tool round-trip
     // but persists nothing, so the tour can replay against the demo session
     // without accumulating duplicate turns. Persist otherwise — the conversation
@@ -396,6 +418,7 @@ export function buildRouter(): Router {
           },
         },
         ac.signal,
+        model,
       )
       // Meter the real tokens this turn consumed (even ephemeral tour turns —
       // they hit the model too), so the composer's plan-usage rings reflect use.

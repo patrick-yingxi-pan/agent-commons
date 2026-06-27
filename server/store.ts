@@ -62,7 +62,8 @@ import { connectorDetail } from './data/connectorDetails.ts'
 import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
 import { createUsageMeter, estimateTokens, mintBudget } from './usage.ts'
 import { contextBreakdown } from '../contract/index.ts'
-import type { Agent } from '../contract/index.ts'
+import type { Agent, ModelProvider } from '../contract/index.ts'
+import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, type ProviderConfig } from './data/providers.ts'
 import { TOOL_DEFINITIONS } from './model/tools.ts'
 import { systemPrompt } from './generate.ts'
 import { RunnerRegistry } from './registry.ts'
@@ -127,6 +128,16 @@ const SYSTEM_TOOLS_TOKENS = estimateTokens(JSON.stringify(TOOL_DEFINITIONS))
 const WORKER_AGENTS = new Map<string, Agent>([[DEFAULT_AGENT.id, DEFAULT_AGENT]])
 const resolveAgent = (id?: string): Agent => WORKER_AGENTS.get(id ?? '') ?? DEFAULT_AGENT
 let workerAgentSeq = 0
+
+// The registered Model providers (docs/agent-commons.md, D9) — the cognition source
+// each Agent binds. One seeded for now (the degenerate N=1 case), wrapping the single
+// implicit Anthropic client. The contract `ModelProvider` is paired with its
+// server-only `ProviderConfig` (credentials / concrete model id) by id — the config
+// never leaves the server, mirroring how `Capabilities` hides the key.
+const MODEL_PROVIDERS = new Map<string, ModelProvider>([[DEFAULT_PROVIDER.id, DEFAULT_PROVIDER]])
+const PROVIDER_CONFIGS = new Map<string, ProviderConfig>([[DEFAULT_PROVIDER.id, DEFAULT_PROVIDER_CONFIG]])
+const resolveProvider = (id?: string): ModelProvider => MODEL_PROVIDERS.get(id ?? '') ?? DEFAULT_PROVIDER
+let providerSeq = 0
 
 // Per-user recents — one non-evicting MRU id list per context type. Connectors /
 // MCP seed from the connected accounts (their quick list shows every set-up
@@ -486,15 +497,47 @@ export const store = {
     return resolveAgent(id)
   },
   /** Mint a worker Agent through the D8 creation funnel (docs/agent-commons.md): an
-   *  over-budget grant is rejected here (`mintBudget`), so the *agent ⊆ plan*
-   *  invariant holds by construction. The single seam where an Agent's budget is
+   *  over-budget grant is rejected here (`mintBudget`), so the *agent ⊆ provider*
+   *  invariant holds by construction. The cascade parent is the Agent's **provider
+   *  plan** (D9 — the provider is the cascade root), falling back to the account plan
+   *  for a provider that declares none. The single seam where an Agent's budget is
    *  validated — there is no other way to introduce one. (In-memory for now, like
    *  the runner registry; persistence arrives with the management UI.) */
   createAgent(input: Omit<Agent, 'id'>): Agent {
-    if (input.budget) mintBudget(usageMeter.planCeilings(), input.budget)
+    if (input.budget) {
+      const provider = resolveProvider(input.providerId)
+      mintBudget(provider.plan?.windows ?? usageMeter.planCeilings(), input.budget)
+    }
     const agent: Agent = { ...input, id: `agent-${(workerAgentSeq += 1)}` }
     WORKER_AGENTS.set(agent.id, agent)
     return agent
+  },
+
+  // ── Model providers (the cognition source — docs/agent-commons.md, D9) ──
+  /** The registered Model providers — the degenerate N=1 set for now. */
+  listProviders(): ModelProvider[] {
+    return [...MODEL_PROVIDERS.values()]
+  },
+  /** Resolve an Agent's Model provider; unset/unknown falls back to the seeded
+   *  default. */
+  getProvider(id?: string): ModelProvider {
+    return resolveProvider(id)
+  },
+  /** The concrete model id a turn on this provider runs against — server-only
+   *  config, never on the contract. Undefined = inherit `generate.ts`'s env default
+   *  (the default provider), so `ANTHROPIC_MODEL` stays the one source for it. */
+  providerModel(id?: string): string | undefined {
+    return (PROVIDER_CONFIGS.get(id ?? '') ?? DEFAULT_PROVIDER_CONFIG).model
+  },
+  /** Mint a Model provider through the D8 funnel: its plan must attenuate the account
+   *  plan (`planCeilings`), so the cascade root can never exceed the subscription it
+   *  sits under. The single seam a provider plan is validated. */
+  createProvider(input: Omit<ModelProvider, 'id'>, config: ProviderConfig = {}): ModelProvider {
+    if (input.plan) mintBudget(usageMeter.planCeilings(), input.plan)
+    const provider: ModelProvider = { ...input, id: `provider-${(providerSeq += 1)}` }
+    MODEL_PROVIDERS.set(provider.id, provider)
+    PROVIDER_CONFIGS.set(provider.id, config)
+    return provider
   },
 
   /** Append a message to a session's thread — the write that makes "send" real.

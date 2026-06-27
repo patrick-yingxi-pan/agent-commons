@@ -15,6 +15,7 @@ import type {
   Connector,
   ConnectorDetail,
   DispatchRun,
+  ModelProvider,
   Project,
   RecentsSnapshot,
   RelationGraph,
@@ -40,6 +41,12 @@ export function useCapabilities(): QueryState<Capabilities> {
  *  (the `runner.*` ambient events invalidate this). */
 export function useRunners(): QueryState<Runner[]> {
   return useQuery(keys.runners, () => apiGet<Runner[]>(paths.runners))
+}
+
+/** The registered Model providers (docs/agent-commons.md, D9) — the cognition
+ *  sources an Agent binds. Account-scoped, referenceable by id; one seeded for now. */
+export function useProviders(): QueryState<ModelProvider[]> {
+  return useQuery(keys.providers, () => apiGet<ModelProvider[]>(paths.providers))
 }
 
 /** A runner's authoritative effect log (the server's projection of it). Updates

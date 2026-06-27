@@ -9,14 +9,14 @@
 > "Decision" here means *settled within this exploration's design space* — **not**
 > "implemented in the prototype." The prototype's actually-shipped, locked-in
 > decisions live in [`../AGENTS.md`](../AGENTS.md) → "Design decisions (locked in)";
-> nothing here overrides those. **The "smallest first slice" plan (below) is built;
-> the multi-tenant surface above it is not.** Built: the **D6 rename** (1a/1b — the
-> host-bound type is `Runner` in code, wire and all), a seeded worker `Agent` per
-> Conversation (2), the **D8 budget funnel** (3), and one **guarded Project** (4).
-> Still forward: a model-provider registry, a system-prompt library, `Commission`s,
-> cross-user attenuation/isolation, and multi-principal coordination. The prototype is
-> otherwise the *degenerate N=1 case* of everything below (one implicit model client,
-> one user, no commissions).
+> nothing here overrides those. **The "smallest first slice" plan (below) is built,
+> and the multi-tenant surface above it is now being built out (slices 5+).** Built:
+> the **D6 rename** (1a/1b — the host-bound type is `Runner` in code, wire and all),
+> a seeded worker `Agent` per Conversation (2), the **D8 budget funnel** (3), one
+> **guarded Project** (4), and the **Model-provider registry** (5 — the cascade root
+> is now a first-class node). Still forward: a system-prompt library, `Commission`s,
+> cross-user attenuation/isolation, and multi-principal coordination. Outside what's
+> built the prototype is still the *degenerate N=1 case* (one user, no commissions).
 >
 > **This doc renames the broker doc's "native agent" to "Runner"** (decision D6).
 > Slice 1a has applied the **TypeScript half** of that rename in code — the `Agent`
@@ -803,10 +803,20 @@ session↔context binding, mediation handle, and single-resource escrow).
   (CALM). Single-principal on one path today; multi-principal arbitration at the guardian
   (D11's promoted residue) and wiring a real external effect through it are forward.
   typecheck + 278 tests green.
-- **The "smallest first slice" plan (slices 1–4) is complete.** What remains forward is
-  the multi-tenant surface: the **Model-provider registry** (so the provider plan becomes
-  a first-class cascade node), the **system-prompt library** (D10), the **`Commission`**
-  (the agent→Project assignment + its grant tier, D7/D13), **cross-user authority
-  attenuation + isolation** (D8/D12), and **multi-principal coordination** at the
-  Guardian (D11). Outside slices 1–4 the prototype is still the degenerate N=1 case: one
-  implicit client, one user, no commissions.
+- **Slice 5 — the Model-provider registry (D9). ✅ Built.** `contract/providers.ts`
+  defines `ModelProvider { id, label, modelFamily, effortLevels, plan? }` (the
+  credential / concrete-model config is a *server-only* `ProviderConfig`, never on the
+  contract — mirroring how `Capabilities` hides the key). One provider is seeded
+  (`server/data/providers.ts`, `provider-anthropic`), wrapping today's single implicit
+  client. The provider plan is now the **cascade root**: `store.createProvider` is the
+  funnel validating *provider ⊆ account plan*, and `store.createAgent` validates *agent
+  ⊆ provider plan* (falling back to the account plan for a provider that declares none).
+  `generate.ts` takes the turn's model from the provider (`store.providerModel`); the
+  default provider declares none, so the env default still governs. Read on the wire via
+  `GET /providers`; the composer's `ProvidersControl` shows the registry (the same
+  ambient-gauge primitive as `HostsControl`). typecheck + 284 tests green.
+- **What remains forward** is the rest of the multi-tenant surface: the **system-prompt
+  library** (D10), the **`Commission`** (the agent→Project assignment + its grant tier,
+  D7/D13), **cross-user authority attenuation + isolation** (D8/D12), and
+  **multi-principal coordination** at the Guardian (D11). Outside what's built the
+  prototype is still the degenerate N=1 case: one user, no commissions.

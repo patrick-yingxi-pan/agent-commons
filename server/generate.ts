@@ -13,6 +13,10 @@ import type { Agent, EscalationProposal, Message, RelationOp } from '../contract
 import { TOOL_DEFINITIONS, executeTool, type ToolContext } from './model/tools.ts'
 import { chunkText } from './model/replies.ts'
 
+/** The default provider's model (docs/agent-commons.md, D9): used when a turn's
+ *  Agent resolves to a provider that declares no concrete model of its own — so the
+ *  env override stays the single source for the default model. Other providers carry
+ *  their own model id (server-only config), passed in as `generateReply`'s `model`. */
 const MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-8'
 
 /** One door to the model — built lazily from the env so the endpoint can be set
@@ -88,6 +92,7 @@ export async function generateReply(
   text: string,
   handlers: ReplyHandlers,
   signal?: AbortSignal,
+  model: string = MODEL,
 ): Promise<ReplyResult> {
   const ctx: ToolContext = { session: { id: session.id, title: session.title } }
   const system = systemPrompt(session, agent)
@@ -111,7 +116,7 @@ export async function generateReply(
   try {
     // ── Turn 1: the model may answer with tool calls ─────────────────────────
     const stream1 = client().messages.stream(
-      { model: MODEL, max_tokens: 1024, system, tools, messages: [{ role: 'user', content: userContent }] },
+      { model, max_tokens: 1024, system, tools, messages: [{ role: 'user', content: userContent }] },
       { signal },
     )
     stream1.on('streamEvent', (event) => {
@@ -143,7 +148,7 @@ export async function generateReply(
     // ── Turn 2: feed the results back, stream the final prose ────────────────
     const stream2 = client().messages.stream(
       {
-        model: MODEL,
+        model,
         max_tokens: 1024,
         system,
         tools,
