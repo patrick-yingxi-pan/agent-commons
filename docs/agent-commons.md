@@ -15,9 +15,10 @@
 > a seeded worker `Agent` per Conversation (2), the **D8 budget funnel** (3 — token
 > face), one **guarded Project** (4), the **Model-provider registry** (5 — the cascade
 > root is now a first-class node), the **system-prompt library** (6 — D10, with the
-> selection-time fit warning), and **authority attenuation** (7 — the D8 *primary*
-> face: tools/connectors/scopes, *provider ⊇ agent* at the funnel). Still forward:
-> `Commission`s, cross-user attenuation/isolation, and multi-principal coordination.
+> selection-time fit warning), **authority attenuation** (7 — the D8 *primary* face:
+> tools/connectors/scopes, *provider ⊇ agent* at the funnel), and the **`Commission`
+> backend** (8 — D7/D13, the leaf funnel *commission ⊆ agent ⊆ provider*). Still
+> forward: the Commission UI, cross-user isolation (D12), and multi-principal coordination.
 > Outside what's built the prototype is still the *degenerate N=1 case* (one user, no
 > commissions).
 >
@@ -841,9 +842,22 @@ session↔context binding, mediation handle, and single-resource escrow).
   mint. `ProvidersControl` shows each provider's grant. Object-capability semantics: a
   child can only ever tighten, never widen (no confused-deputy escalation). typecheck +
   294 tests green; verified live.
-- **What remains forward** is the rest of the multi-tenant surface: the **`Commission`**
-  (the agent→Project assignment + its grant tier, D7/D13 — carrying both a token sub-budget
-  and an authority subset), **cross-user isolation** (D12 — a commissioned Agent sees the
-  Project's authority, not its owner's ambient set), and **multi-principal coordination**
-  at the Guardian (D11). Outside what's built the prototype is still the degenerate N=1
-  case: one user, no commissions.
+- **Slice 8 — the Commission backend (D7/D13). ✅ Built (backend; UI deferred).**
+  `contract/commission.ts` defines `Commission { id, agentId, projectId, authority?,
+  grant?, reservationId? }` + `CreateCommissionRequest`. `store.createCommission` is the
+  **leaf** of the cascade — it attenuates the commission's grant + authority against the
+  *Agent's* effective grants (which inherit the provider when unset), so *commission ⊆
+  agent ⊆ provider* holds and a Commission can never carry authority the Agent never held
+  (the D12 confused-deputy wall). `listCommissions(projectId)` is the Contributor view;
+  one commission is seeded onto the guarded `p-insights`. Routes: `GET /commissions[?project=]`,
+  `GET /commissions/:id`, `POST /commissions` (over-grant → 400, unknown agent/project →
+  404). typecheck + 299 tests green; verified live via the API. *Known limitation:* the
+  token-face parent is a single tier, not a per-window merge, so a commission tightening
+  an Agent's *inherited* window is over-rejected (safe; unreachable with current full-window
+  seeds — fix spans the slice-3 agent funnel). The **client + UI** (a commission flow + a
+  Project's Contributor list) are deferred to land on the consolidated tree after the
+  in-flight `useDismissable` consolidation.
+- **What remains forward**: the **Commission UI** (commission flow + Contributor list),
+  **cross-user isolation** (D12 — a commissioned Agent sees the Project's authority, not
+  its owner's ambient set), and **multi-principal coordination** at the Guardian (D11).
+  Outside what's built the prototype is still the degenerate N=1 case: one user.

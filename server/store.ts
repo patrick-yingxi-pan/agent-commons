@@ -63,9 +63,10 @@ import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
 import { createUsageMeter, estimateTokens, mintBudget } from './usage.ts'
 import { mintAuthority } from './authority.ts'
 import { contextBreakdown } from '../contract/index.ts'
-import type { Agent, ModelProvider, SystemPromptEntry } from '../contract/index.ts'
+import type { Agent, Commission, ModelProvider, SystemPromptEntry } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS } from './data/prompts.ts'
+import { SEED_COMMISSIONS } from './data/commissions.ts'
 import { TOOL_DEFINITIONS } from './model/tools.ts'
 import { systemPrompt } from './generate.ts'
 import { RunnerRegistry } from './registry.ts'
@@ -146,6 +147,12 @@ let providerSeq = 0
 // is the pure `promptFitWarning` (contract), surfaced in the picker at selection.
 const SYSTEM_PROMPT_LIB = new Map<string, SystemPromptEntry>(SYSTEM_PROMPTS.map((p) => [p.id, p]))
 let systemPromptSeq = 0
+
+// Commissions (docs/agent-commons.md, D7/D13) — the agent→Project assignments, the
+// leaf of the D8 cascade. Keyed by id; `listCommissions(projectId)` gives a Project's
+// Contributors. In-memory like the agent/provider registries (persistence is forward).
+const COMMISSIONS = new Map<string, Commission>(SEED_COMMISSIONS.map((c) => [c.id, c]))
+let commissionSeq = 0
 
 // Per-user recents — one non-evicting MRU id list per context type. Connectors /
 // MCP seed from the connected accounts (their quick list shows every set-up
@@ -566,6 +573,49 @@ export const store = {
     const entry: SystemPromptEntry = { ...input, id: `sp-new-${(systemPromptSeq += 1)}` }
     SYSTEM_PROMPT_LIB.set(entry.id, entry)
     return entry
+  },
+
+  // ── Commissions (the agent→Project assignment — docs/agent-commons.md, D7/D13) ──
+  /** A Project's Contributors (its commissions), or all commissions when no project
+   *  is given. The Contributor role is just an Agent that appears here for a Project. */
+  listCommissions(projectId?: string): Commission[] {
+    const all = [...COMMISSIONS.values()]
+    return projectId ? all.filter((c) => c.projectId === projectId) : all
+  },
+  /** Resolve one commission by id (undefined when unknown). */
+  getCommission(id: string): Commission | undefined {
+    return COMMISSIONS.get(id)
+  },
+  /** Mint a Commission through the **leaf** of the D8 funnel: its grant + authority must
+   *  attenuate the *Agent's* (which themselves inherit the provider when unset) — so
+   *  *commission ⊆ agent ⊆ provider* holds by construction, an over-grant is
+   *  unrepresentable at mint, and a Commission can never carry authority the Agent never
+   *  held (the confused-deputy wall, fatal where the commissioner is a stranger). The
+   *  caller must have validated the agent + project exist; this asserts the cascade.
+   *  In-memory for now, like the agent/provider registries.
+   *
+   *  Known limitation (token face): the parent is a *single* tier — the Agent's own
+   *  budget, else the provider plan, else the account plan — not a per-window merge of
+   *  the chain. So if an Agent declared a *partial* budget (only some windows), a
+   *  commission tightening an *inherited* window is rejected. It errs safe (over-reject,
+   *  never over-grant) and is unreachable today (every seed uses the full account window
+   *  set); a per-window effective-budget merge (which would also touch `createAgent`,
+   *  slice 3) is the proper fix when partial window sets are introduced. The unknown-agent
+   *  guard throws a plain `Error` on purpose — the route pre-validates, so reaching it
+   *  signals a bypassed-validation bug (a 500), not a client error. */
+  createCommission(input: Omit<Commission, 'id'>): Commission {
+    const agent = WORKER_AGENTS.get(input.agentId)
+    if (!agent) throw new Error(`createCommission: unknown agent '${input.agentId}'`)
+    const provider = resolveProvider(agent.providerId)
+    // Attenuate against the Agent's *effective* grants: an Agent that left a face unset
+    // inherits its provider's there, so that inherited ceiling is the parent.
+    if (input.authority) mintAuthority(agent.authority ?? provider.authority, input.authority)
+    if (input.grant) {
+      mintBudget(agent.budget?.windows ?? provider.plan?.windows ?? usageMeter.planCeilings(), input.grant)
+    }
+    const commission: Commission = { ...input, id: `commission-${(commissionSeq += 1)}` }
+    COMMISSIONS.set(commission.id, commission)
+    return commission
   },
 
   /** Append a message to a session's thread — the write that makes "send" real.

@@ -4,6 +4,7 @@
 import type {
   ApplyOpRequest,
   AttachContextRequest,
+  CreateCommissionRequest,
   CreateDispatchRequest,
   PushRecentRequest,
   RegisterRunnerRequest,
@@ -19,6 +20,8 @@ import { store } from '../store.ts'
 import { generateReply } from '../generate.ts'
 import { CapabilityError, runCapability, scopeMatches } from '../agent-runtime.ts'
 import { GuardianError } from '../guardian.ts'
+import { BudgetError } from '../usage.ts'
+import { AuthorityError } from '../authority.ts'
 import { isMonotonic } from '../../contract/index.ts'
 import type {
   CapabilityRequest,
@@ -223,6 +226,41 @@ export function buildRouter(): Router {
     const entry = store.getSystemPrompt(params.id)
     if (!entry) return sendError(res, 'not_found', `No system prompt '${params.id}'`)
     sendJson(res, entry)
+  })
+
+  // ── Commissions (the agent→Project assignment — docs/agent-commons.md, D7/D13) ──
+  // A Project's Contributors. `GET /commissions?project=<id>` filters to one Project.
+  // `POST` mints through the leaf of the D8 cascade (commission ⊆ agent ⊆ provider):
+  // an over-grant on either face is a 400 (an impossible grant was named), an unknown
+  // agent / project a 404.
+  r.get('/commissions', ({ res, url }) => {
+    sendJson(res, store.listCommissions(url.searchParams.get('project') ?? undefined))
+  })
+  r.get('/commissions/:id', ({ res, params }) => {
+    const commission = store.getCommission(params.id)
+    if (!commission) return sendError(res, 'not_found', `No commission '${params.id}'`)
+    sendJson(res, commission)
+  })
+  r.post('/commissions', async ({ res, body }) => {
+    const input = await body<CreateCommissionRequest>()
+    if (!input?.agentId || !input?.projectId) {
+      return sendError(res, 'bad_request', 'agentId and projectId are required')
+    }
+    if (!store.listAgents().some((a) => a.id === input.agentId)) {
+      return sendError(res, 'not_found', `No agent '${input.agentId}'`)
+    }
+    if (!store.listProjects().some((p) => p.id === input.projectId)) {
+      return sendError(res, 'not_found', `No project '${input.projectId}'`)
+    }
+    try {
+      sendJson(res, store.createCommission(input))
+    } catch (err) {
+      // An over-grant on either cascade face — the request named an impossible grant.
+      if (err instanceof BudgetError || err instanceof AuthorityError) {
+        return sendError(res, 'bad_request', err.message)
+      }
+      throw err
+    }
   })
 
   // ── Resource guardians + reservations (D5) ────────────────────────────────
