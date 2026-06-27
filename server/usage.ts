@@ -15,7 +15,8 @@
  *  Token counts are an estimate (≈ 4 chars/token — the standard rough rule); a
  *  real backend would meter exactly. The clock is injected so the windows' reset
  *  logic is unit-testable. */
-import type { UsageWindow } from '../contract/index.ts'
+import type { Budget, BudgetWindow, UsageWindow } from '../contract/index.ts'
+import { overBudgetWindow } from '../contract/index.ts'
 // Re-export the shared metering helpers the store also uses, so its import site
 // stays `./usage.ts` (the meter's home) even though the math lives in the contract.
 export { CONTEXT_WINDOW, estimateTokens, formatTokens } from '../contract/index.ts'
@@ -50,6 +51,9 @@ export interface UsageMeter {
   /** The live plan-limit windows (5-hour, weekly, …). The store pairs these with
    *  the context breakdown to assemble the gauge snapshot. */
   planLimits(): UsageWindow[]
+  /** The plan's per-window token ceilings — the *root* of the D8 budget cascade
+   *  (an Agent budget / Commission grant must attenuate these). */
+  planCeilings(): BudgetWindow[]
 }
 
 /** Build the plan-usage meter. `now` is injected so tests can drive the reset
@@ -88,5 +92,34 @@ export function createUsageMeter(now: () => number): UsageMeter {
         { label: 'Sonnet only', reset: '', pct: 0 },
       ]
     },
+    planCeilings() {
+      return [
+        { label: fiveHour.label, ceiling: fiveHour.ceiling },
+        { label: weekly.label, ceiling: weekly.ceiling },
+      ]
+    },
   }
+}
+
+/** Raised by the budget creation funnel when a requested grant exceeds its parent —
+ *  a 400-class error (the request named an impossible budget). */
+export class BudgetError extends Error {
+  readonly code: 'budget_exceeded'
+  constructor(message: string) {
+    super(message)
+    this.code = 'budget_exceeded'
+    this.name = 'BudgetError'
+  }
+}
+
+/** The D8 creation funnel (token-quota face): assert a requested budget is a subset
+ *  of the parent ceilings, rejecting an over-grant so it is unrepresentable at mint.
+ *  Returns the budget unchanged when valid. The subset math is `overBudgetWindow`
+ *  (contract) — shared with any future client-side pre-validation. */
+export function mintBudget(parent: BudgetWindow[], requested: Budget): Budget {
+  const over = overBudgetWindow(parent, requested)
+  if (over) {
+    throw new BudgetError(`budget for '${over.label}' (${over.ceiling}) exceeds the parent ceiling`)
+  }
+  return requested
 }

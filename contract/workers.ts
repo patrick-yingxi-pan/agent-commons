@@ -10,6 +10,8 @@
  *  management, model providers, and budgets are later slices; `providerId` and a
  *  budget are deliberately absent until the slices that enforce them land. */
 
+import type { Budget } from './budget.ts'
+
 export interface Agent {
   id: string
   /** Human label, shown wherever an Agent is chosen. */
@@ -28,4 +30,8 @@ export interface Agent {
    *  provider registry lands (a later slice); the degenerate Agent omits it and
    *  uses the single implicit client. */
   providerId?: string
+  /** An optional token budget — tighter than the provider plan (the D8 cascade).
+   *  Validated at the creation funnel (`store.createAgent`); unset = no Agent-level
+   *  cap beyond the plan. Authority attenuation is a later slice. */
+  budget?: Budget
 }

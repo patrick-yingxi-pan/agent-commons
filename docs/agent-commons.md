@@ -725,9 +725,11 @@ The first slice falls out of the grounding and touches no behavior:
    Runner, a `Session.agentId` binding, one seeded `DEFAULT_AGENT` wrapping today's
    single client (the degenerate N=1 case), threaded through generation + metering.
    `providerId`/budget and a management registry are later slices.
-3. **Make the meter enforce, at one funnel.** Add ceilings + `min(parent, child)` to a
-   two-tier cascade (provider → agent) with creation-time rejection — the spine of D8,
-   on the existing meter, before any Commission exists.
+3. **Make the meter enforce, at one funnel. ✅ Done.** `contract/budget.ts` (the pure
+   subset check) + the meter's `planCeilings()` (cascade root) + the `store.createAgent`
+   funnel that rejects an over-plan Agent budget at mint — the spine of D8 (token-quota
+   face; provider → agent), before any Commission. Authority attenuation + spend-time
+   enforcement are later.
 4. **Register a Project as a `resourceId`.** Give one `Project` a `guardianId` and route
    a single non-monotonic Project effect through the existing guardian — exercises D11 on
    one path, single-principal, before multi-user.
@@ -783,6 +785,14 @@ session↔context binding, mediation handle, and single-resource escrow).
   is load-bearing — it drives the system prompt + tool allowlist in `server/generate.ts`
   and the system-prompt metering in `store.usage`. typecheck + 268 tests green. No
   management UI/registry yet (one Agent); `providerId` + budget arrive with their slices.
-- **Still forward.** The Model-provider registry, the system-prompt library, the
-  `Commission`, and the Project-level Guardian are unbuilt. Outside slices 1–2 the
+- **Slice 3 — the budget cascade, creation funnel (D8, token face). ✅ Built.**
+  `contract/budget.ts` defines `Budget`/`BudgetWindow` + the pure `overBudgetWindow`
+  subset check; the meter exposes `planCeilings()` (the cascade root); `store.createAgent`
+  is the single funnel that validates an Agent's budget ⊆ the plan via `mintBudget`,
+  rejecting an over-grant with `BudgetError` — so an over-budget Agent is unrepresentable
+  at mint. Token quota only (authority attenuation is a later slice); enforced at
+  creation, not per-turn (D8's choice). typecheck + 274 tests green.
+- **Still forward.** The Model-provider registry (and so the *provider* plan as a
+  first-class node), the system-prompt library, the `Commission` (and its grant tier of
+  the cascade), and the Project-level Guardian are unbuilt. Outside slices 1–3 the
   prototype remains the degenerate N=1 case: one implicit client, one inert `Project`.

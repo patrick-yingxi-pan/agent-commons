@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import { store } from '../server/store.ts'
 import { DEFAULT_AGENT } from '../server/data/workers.ts'
 import { TOOL_NAMES } from '../server/model/tools.ts'
-import { estimateTokens } from '../server/usage.ts'
+import { estimateTokens, BudgetError } from '../server/usage.ts'
 
 test('the default Agent carries the whole tool catalog and a non-empty prompt', () => {
   assert.deepEqual(DEFAULT_AGENT.tools, TOOL_NAMES)
@@ -32,4 +32,29 @@ test('usage meters the resolved Agent system prompt (the binding is load-bearing
   const s = store.createSession('measure my prompt')
   const seg = store.usage(s.id).context.segments.find((x) => x.id === 'systemPrompt')!
   assert.equal(seg.rawTokens, estimateTokens(DEFAULT_AGENT.systemPrompt))
+})
+
+test('createAgent mints a within-plan budget through the funnel, rejects an over-plan one', () => {
+  const capped = store.createAgent({
+    label: 'Capped',
+    systemPrompt: 'p',
+    tools: [],
+    instructions: '',
+    budget: { windows: [{ label: '5-hour limit', ceiling: 100_000 }] },
+  })
+  assert.ok(capped.id.startsWith('agent-'))
+  assert.equal(capped.budget?.windows[0].ceiling, 100_000)
+  assert.equal(store.getAgent(capped.id).id, capped.id)
+  // The funnel is the single seam that enforces agent ⊆ plan — an over-grant throws.
+  assert.throws(
+    () =>
+      store.createAgent({
+        label: 'Greedy',
+        systemPrompt: 'p',
+        tools: [],
+        instructions: '',
+        budget: { windows: [{ label: '5-hour limit', ceiling: 5_000_000 }] },
+      }),
+    BudgetError,
+  )
 })

@@ -60,7 +60,7 @@ import {
 import { SAVED_CONTEXTS, CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from './data/savedContexts.ts'
 import { connectorDetail } from './data/connectorDetails.ts'
 import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
-import { createUsageMeter, estimateTokens } from './usage.ts'
+import { createUsageMeter, estimateTokens, mintBudget } from './usage.ts'
 import { contextBreakdown } from '../contract/index.ts'
 import type { Agent } from '../contract/index.ts'
 import { TOOL_DEFINITIONS } from './model/tools.ts'
@@ -126,6 +126,7 @@ const SYSTEM_TOOLS_TOKENS = estimateTokens(JSON.stringify(TOOL_DEFINITIONS))
 // degenerate N=1 case. Every Conversation resolves to it until users create more.
 const WORKER_AGENTS = new Map<string, Agent>([[DEFAULT_AGENT.id, DEFAULT_AGENT]])
 const resolveAgent = (id?: string): Agent => WORKER_AGENTS.get(id ?? '') ?? DEFAULT_AGENT
+let workerAgentSeq = 0
 
 // Per-user recents — one non-evicting MRU id list per context type. Connectors /
 // MCP seed from the connected accounts (their quick list shows every set-up
@@ -483,6 +484,17 @@ export const store = {
    *  default. */
   getAgent(id?: string): Agent {
     return resolveAgent(id)
+  },
+  /** Mint a worker Agent through the D8 creation funnel (docs/agent-commons.md): an
+   *  over-budget grant is rejected here (`mintBudget`), so the *agent ⊆ plan*
+   *  invariant holds by construction. The single seam where an Agent's budget is
+   *  validated — there is no other way to introduce one. (In-memory for now, like
+   *  the runner registry; persistence arrives with the management UI.) */
+  createAgent(input: Omit<Agent, 'id'>): Agent {
+    if (input.budget) mintBudget(usageMeter.planCeilings(), input.budget)
+    const agent: Agent = { ...input, id: `agent-${(workerAgentSeq += 1)}` }
+    WORKER_AGENTS.set(agent.id, agent)
+    return agent
   },
 
   /** Append a message to a session's thread — the write that makes "send" real.
