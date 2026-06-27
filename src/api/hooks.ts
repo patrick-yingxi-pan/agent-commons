@@ -19,6 +19,7 @@ import type {
   ConnectorDetail,
   DispatchRun,
   ModelProvider,
+  ProjectSubGoal,
   SystemPromptEntry,
   Project,
   RecentsSnapshot,
@@ -77,6 +78,14 @@ export function useCommissions(projectId?: string): QueryState<Commission[]> {
  *  Derived server-side; the Contributor row shows it. */
 export function useCommissionAuthority(id: string): QueryState<Authority> {
   return useQuery(keys.commissionAuthority(id), () => apiGet<Authority>(paths.commissionAuthority(id)))
+}
+
+/** A Project's in-flight sub-goal reservations (docs/agent-commons.md, D11) — who's
+ *  handling what. The Coordination panel's read. */
+export function useProjectSubGoals(projectId: string): QueryState<ProjectSubGoal[]> {
+  return useQuery(keys.projectSubGoals(projectId), () =>
+    apiGet<ProjectSubGoal[]>(paths.projectSubGoals(projectId)),
+  )
 }
 
 /** A runner's authoritative effect log (the server's projection of it). Updates

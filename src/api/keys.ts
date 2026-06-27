@@ -14,6 +14,8 @@ export const keys = {
   commissions: (projectId?: string) => (projectId ? `commissions:${projectId}` : 'commissions'),
   /** A commission's effective (Project-clamped) authority — the D12 reach. */
   commissionAuthority: (id: string) => `commission-authority:${id}`,
+  /** A Project's in-flight sub-goal reservations (D11 coordination). */
+  projectSubGoals: (projectId: string) => `project-subgoals:${projectId}`,
   runners: 'agents',
   runnerEffects: (id: string) => `runner-effects:${id}`,
   resourceStatus: (key: string) => `resource:${key}`,
@@ -47,6 +49,7 @@ export const paths = {
     projectId ? `/commissions?project=${encodeURIComponent(projectId)}` : '/commissions',
   commission: (id: string) => `/commissions/${encodeURIComponent(id)}`,
   commissionAuthority: (id: string) => `/commissions/${encodeURIComponent(id)}/authority`,
+  projectSubGoals: (projectId: string) => `/projects/${encodeURIComponent(projectId)}/subgoals`,
   // The native-only endpoints (`/fs/pick`, `/fs/folders/:id`, `/git/repos/:id/diff`)
   // are intentionally absent here — no live UI flow calls them. They exist behind the
   // capability gate and are exercised by the contract via tests + `BACKEND=remote`

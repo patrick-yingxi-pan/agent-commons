@@ -6,6 +6,7 @@ import type {
   AttachContextRequest,
   CreateCommissionRequest,
   CreateDispatchRequest,
+  ReserveSubGoalRequest,
   PushRecentRequest,
   RegisterRunnerRequest,
   SendMessageRequest,
@@ -283,6 +284,27 @@ export function buildRouter(): Router {
       if (err instanceof BudgetError || err instanceof AuthorityError) {
         return sendError(res, 'bad_request', err.message)
       }
+      throw err
+    }
+  })
+
+  // ── Multi-principal coordination — sub-goal reservation (D11) ──────────────
+  // A guarded Project's in-flight sub-goals (who's handling what). `POST` claims one
+  // for a Contributor; a *different* Contributor claiming the *same* sub-goal conflicts
+  // (409 → re-reason). Release reuses POST /reservations/:id/release.
+  // NOTE (prototype): `holder` is client-supplied and release is unauthenticated — fine
+  // for this single-user mock, but a real deployment derives the holder from the
+  // authenticated principal and authorizes who may release a claim.
+  r.get('/projects/:id/subgoals', ({ res, params }) => {
+    sendJson(res, store.projectSubGoals(params.id))
+  })
+  r.post('/projects/:id/subgoals', async ({ res, params, body }) => {
+    const { holder, subGoal } = await body<ReserveSubGoalRequest>()
+    if (!holder || !subGoal) return sendError(res, 'bad_request', 'holder and subGoal are required')
+    try {
+      sendJson(res, store.reserveSubGoal(params.id, holder, subGoal))
+    } catch (err) {
+      if (err instanceof GuardianError) return sendError(res, err.code, err.message)
       throw err
     }
   })

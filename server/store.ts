@@ -63,7 +63,7 @@ import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
 import { createUsageMeter, estimateTokens, mintBudget } from './usage.ts'
 import { mintAuthority } from './authority.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority } from '../contract/index.ts'
-import type { Agent, Authority, Commission, ModelProvider, SystemPromptEntry } from '../contract/index.ts'
+import type { Agent, Authority, Commission, ModelProvider, ProjectSubGoal, Reservation, SystemPromptEntry } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
@@ -71,7 +71,7 @@ import { TOOL_DEFINITIONS } from './model/tools.ts'
 import { systemPrompt } from './generate.ts'
 import { RunnerRegistry } from './registry.ts'
 import { RunnerJournal } from './journal.ts'
-import { ResourceGuardian } from './guardian.ts'
+import { ResourceGuardian, GuardianError } from './guardian.ts'
 import { LOCAL_RUNNER_SEED } from './data/agents.ts'
 import { DEFAULT_AGENT } from './data/workers.ts'
 import { EMPTY_WORKSPACE, workspaceFromSeed } from './workspace.ts'
@@ -154,6 +154,14 @@ let systemPromptSeq = 0
 const COMMISSIONS = new Map<string, Commission>(SEED_COMMISSIONS.map((c) => [c.id, c]))
 let commissionSeq = 0
 
+// Resolve a sub-goal holder (D11) to a human label: a Contributor identity is a
+// commission id → its Agent's label; any other principal shows verbatim.
+function holderLabel(holder: string): string {
+  const commission = COMMISSIONS.get(holder)
+  if (!commission) return holder
+  return WORKER_AGENTS.get(commission.agentId)?.label ?? holder
+}
+
 // Per-user recents — one non-evicting MRU id list per context type. Connectors /
 // MCP seed from the connected accounts (their quick list shows every set-up
 // element); the file-like types from the catalog defaults. Server-owned so it's
@@ -231,6 +239,21 @@ const journal = new RunnerJournal(emit)
 // ledger enforcing a capacity invariant (D5). The escrow that lets the broker
 // refuse a second session's irreversible write up front. Emits `reservation.changed`.
 const guardian = new ResourceGuardian(emit)
+
+// A Project's sub-goal namespace (D11) lives under its guardian id:
+// `${guardianId}:${subGoal}`. Two Contributors on different sub-goals get distinct
+// resources (concurrent); the same sub-goal is one capacity-1 resource (mutual
+// exclusion → first-come wins, the second re-reasons).
+const subGoalKey = (guardianId: string, subGoal: string) => `${guardianId}:${subGoal}`
+
+// Seed one held sub-goal on the guarded Insights Project so the Coordination panel
+// demonstrates a Contributor holding a sub-goal — reserved by the seeded commission (a
+// Contributor). A *different* principal claiming the same sub-goal then conflicts. Long
+// TTL so the demo claim doesn't lapse at the 60s default mid-session. (Transient, like
+// the rest of the guardian ledger — rebuilt from this line on each boot.)
+guardian.reserve(subGoalKey('p-insights', 'auth-refactor'), 'commission-insights-default', {
+  ttlMs: 365 * 24 * 60 * 60 * 1000,
+})
 
 // ── Filesystem persistence ──────────────────────────────────────────────────
 // Off until the real server entrypoint calls `store.initPersistence()`; tests
@@ -825,8 +848,8 @@ export const store = {
    *  the lease. A concurrent effect by a *different* holder is refused
    *  (`GuardianError` 'conflict') — the escrow turning a second principal away up
    *  front. An unguarded Project (no `guardianId`) runs the effect directly
-   *  (coordination-free). Single-principal today; multi-principal arbitration at the
-   *  guardian is forward (D11's promoted residue). */
+   *  (coordination-free). This is the *coarse* (whole-Project) lock; `guardSubGoalEffect`
+   *  is the fine-grained, multi-principal form (D11). */
   guardProjectEffect<T>(projectId: string, holder: string, effect: () => T): T {
     const project = PROJECTS.find((p) => p.id === projectId)
     if (!project?.guardianId) return effect()
@@ -838,6 +861,58 @@ export const store = {
     } finally {
       guardian.release(reservation.id)
     }
+  },
+
+  // ── Multi-principal coordination — sub-goal reservation (D11) ──
+  /** Claim a **sub-goal** on a guarded Project for `holder` (a Contributor) — "I'm
+   *  handling the auth refactor": a held, TTL'd, reversible reservation keyed
+   *  `${guardianId}:${subGoal}`. Different sub-goals are distinct resources (Contributors
+   *  proceed concurrently); the *same* sub-goal is capacity-1, so a second *different*
+   *  holder is refused (`GuardianError` 'conflict') and re-reasons. Re-entrant for the
+   *  same holder. Throws if the Project isn't guarded. */
+  reserveSubGoal(projectId: string, holder: string, subGoal: string): Reservation {
+    const project = PROJECTS.find((p) => p.id === projectId)
+    if (!project?.guardianId) {
+      throw new GuardianError('conflict', `Project '${projectId}' is not a guarded resource`)
+    }
+    return guardian.reserve(subGoalKey(project.guardianId, subGoal), holder)
+  },
+  /** Release a sub-goal claim (free the lease so another Contributor may take it). */
+  releaseSubGoal(reservationId: string): Reservation {
+    return guardian.release(reservationId)
+  },
+  /** Run a non-monotonic Project effect under a **sub-goal** reservation (D11) — the
+   *  fine-grained form of `guardProjectEffect`: reserve → commit → release, but keyed to
+   *  one sub-goal, so two Contributors' effects on *different* sub-goals don't serialize
+   *  against each other. The consent gate is the serialization gate. */
+  guardSubGoalEffect<T>(projectId: string, holder: string, subGoal: string, effect: () => T): T {
+    const project = PROJECTS.find((p) => p.id === projectId)
+    if (!project?.guardianId) return effect()
+    const reservation = guardian.reserve(subGoalKey(project.guardianId, subGoal), holder)
+    try {
+      const result = effect()
+      guardian.commit(reservation.id)
+      return result
+    } finally {
+      guardian.release(reservation.id)
+    }
+  },
+  /** The sub-goals currently in flight on a Project — one entry per active Contributor
+   *  claim (held or committed), the Coordination panel's read. Enumerates the guardian's
+   *  resources under the Project's prefix; holders are resolved to their Agent label. */
+  projectSubGoals(projectId: string): ProjectSubGoal[] {
+    const project = PROJECTS.find((p) => p.id === projectId)
+    if (!project?.guardianId) return []
+    const prefix = `${project.guardianId}:`
+    const out: ProjectSubGoal[] = []
+    for (const key of guardian.resourceIds()) {
+      if (!key.startsWith(prefix)) continue
+      const subGoal = key.slice(prefix.length)
+      for (const r of guardian.status(key).active) {
+        out.push({ subGoal, holder: r.holder, holderLabel: holderLabel(r.holder), reservationId: r.id, status: r.status })
+      }
+    }
+    return out
   },
   /** The base artifacts (the relation graph carries any saved-out extras). */
   listArtifacts(): ArtifactItem[] {

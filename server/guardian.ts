@@ -159,4 +159,11 @@ export class ResourceGuardian {
     this.prune(res)
     return { resourceId, capacity: res.capacity, active: this.activeList(res).map((r) => ({ ...r })) }
   }
+
+  /** Every resource id the guardian currently tracks — so a caller can enumerate the
+   *  sub-goals under a Project's guardian prefix (D11). Includes resources whose
+   *  reservations have all lapsed/released; the caller filters by `status(...).active`. */
+  resourceIds(): string[] {
+    return [...this.resources.keys()]
+  }
 }

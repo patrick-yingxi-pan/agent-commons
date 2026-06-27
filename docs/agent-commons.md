@@ -9,20 +9,22 @@
 > "Decision" here means *settled within this exploration's design space* — **not**
 > "implemented in the prototype." The prototype's actually-shipped, locked-in
 > decisions live in [`../AGENTS.md`](../AGENTS.md) → "Design decisions (locked in)";
-> nothing here overrides those. **The "smallest first slice" plan (below) is built,
-> and the multi-tenant surface above it is now being built out (slices 5+).** Built:
-> the **D6 rename** (1a/1b — the host-bound type is `Runner` in code, wire and all),
-> a seeded worker `Agent` per Conversation (2), the **D8 budget funnel** (3 — token
+> nothing here overrides those. **The "smallest first slice" plan (below) is built, and
+> the multi-tenant surface above it (D6–D13) is now built out end to end (slices 1–10).**
+> Built: the **D6 rename** (1a/1b — the host-bound type is `Runner` in code, wire and
+> all), a seeded worker `Agent` per Conversation (2), the **D8 budget funnel** (3 — token
 > face), one **guarded Project** (4), the **Model-provider registry** (5 — the cascade
 > root is now a first-class node), the **system-prompt library** (6 — D10, with the
 > selection-time fit warning), **authority attenuation** (7 — the D8 *primary* face:
-> tools/connectors/scopes, *provider ⊇ agent* at the funnel), and the **`Commission`**
+> tools/connectors/scopes, *provider ⊇ agent* at the funnel), the **`Commission`**
 > (8 — D7/D13, the leaf funnel *commission ⊆ agent ⊆ provider*, with a Project's
-> Contributor list + a commission picker), and **cross-user isolation** (9 — D12, a
-> Contributor's authority clamped to what its Project admits, default-deny). Still
-> forward: multi-principal coordination (D11).
-> Outside what's built the prototype is still the *degenerate N=1 case* (one user, no
-> commissions).
+> Contributor list + a commission picker), **cross-user isolation** (9 — D12, a
+> Contributor's authority clamped to what its Project admits, default-deny), and
+> **multi-principal coordination** (10 — D11, sub-goal reservation at the Guardian:
+> different sub-goals concurrent, the same conflicts first-come). What remains is the
+> *open questions* below (incentives, cross-provider accounting, the arbitration policy),
+> not the mechanism — the prototype now exercises a working slice of every D6–D13
+> decision rather than the degenerate N=1 case.
 >
 > **This doc renames the broker doc's "native agent" to "Runner"** (decision D6).
 > Slice 1a has applied the **TypeScript half** of that rename in code — the `Agent`
@@ -879,6 +881,25 @@ session↔context binding, mediation handle, and single-resource escrow).
   connectors; a missing Project fails *closed*. Exposed at `GET /commissions/:id/authority`;
   the Contributor row shows the reach ("Reaches Linear · Figma" — not all connectors).
   typecheck + 310 tests green; verified live.
-- **What remains forward**: **multi-principal coordination** at the Guardian (D11 — the
-  promoted residue: arbitrating *different users'* Contributors on one Project). Outside
-  what's built the prototype is still the degenerate N=1 case: one user.
+- **Slice 10 — multi-principal coordination at the Guardian (D11). ✅ Built.**
+  `contract/coordination.ts` defines `ProjectSubGoal` + `ReserveSubGoalRequest`. A
+  Project's sub-goals live under its guardian prefix `${guardianId}:${subGoal}`, so
+  `store.reserveSubGoal` / `guardSubGoalEffect` give **fine-grained** coordination:
+  Contributors on *different* sub-goals proceed concurrently (distinct capacity-1
+  resources), while a *different* Contributor on the *same* sub-goal is refused
+  (`GuardianError` 'conflict' → 409) and re-reasons — "conflict is a question, not an
+  abort", arbitrated **first-come**. `guardian.resourceIds()` lets `projectSubGoals`
+  enumerate the in-flight claims (holders resolved to their Agent label). Exposed at
+  `GET`/`POST /projects/:id/subgoals` (release reuses the reservation route); the
+  Coordination panel lists in-flight sub-goals and claims new ones, surfacing a conflict
+  as a re-reason prompt. One sub-goal is seeded held. typecheck + 315 tests green;
+  verified live (two Contributors coexist on different sub-goals; the same conflicts).
+- **The multi-tenant surface (slices 1–10) is built.** Every D6–D13 decision is now
+  exercised by a working slice — the rename, the worker `Agent`, both faces of the D8
+  cascade (token + authority) across provider → agent → commission, the provider registry,
+  the prompt library, the Project guardian, cross-user isolation, and multi-principal
+  coordination. What stays open is the **Open questions** above — the *incentive* (why
+  donate metered compute), cross-provider accounting, the prompt-fit probe, multi-principal
+  *consent* (whose human confirms), the cross-user credential mechanism, and the
+  arbitration *policy* (D11 names first-come; auction/owner-priority stay open) — these are
+  design residue, not unbuilt mechanism.

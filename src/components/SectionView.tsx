@@ -98,9 +98,12 @@ import {
   toggleScheduleEnabled,
   updateSchedule,
   createCommission,
+  reserveSubGoal,
+  releaseSubGoal,
   useAgents,
   useCommissions,
   useCommissionAuthority,
+  useProjectSubGoals,
   useDispatchRuns,
   useProviders,
   useSavedContexts,
@@ -592,6 +595,8 @@ function ProjectDetail({
 
           <ContributorsPanel project={project} />
 
+          <CoordinationPanel project={project} />
+
           <SidePanel title="Scheduled" icon={<Clock size={14} />}>
             {!hasSchedules ? (
               <p className="text-[12px] text-ink-faint">No scheduled runs yet.</p>
@@ -1042,6 +1047,106 @@ function CommissionAdd({ projectId, available }: { projectId: string; available:
         </div>
       )}
     </div>
+  )
+}
+
+/** The demo principal a UI claim is made as — a *second* Contributor, distinct from
+ *  the seeded one, so claiming the seeded sub-goal demonstrates a multi-principal
+ *  conflict (D11). */
+const VIEWER_PRINCIPAL = 'you'
+
+/** The project's "Coordination" card (docs/agent-commons.md, D11) — the in-flight
+ *  sub-goals different Contributors are handling, reserved at the Project's Guardian.
+ *  Claiming a sub-goal already held by another Contributor is refused (409) and surfaced
+ *  as a re-reason prompt — "conflict is a question, not an abort". Only meaningful for a
+ *  guarded Project; an unguarded one reserves nothing. */
+function CoordinationPanel({ project }: { project: Project }) {
+  const subGoals = useProjectSubGoals(project.id).data ?? []
+  const guarded = !!project.guardianId
+  const [draft, setDraft] = useState('')
+  const [conflict, setConflict] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const claim = async () => {
+    const subGoal = draft.trim()
+    if (!subGoal || busy) return
+    setBusy(true)
+    setConflict(null)
+    try {
+      await reserveSubGoal(project.id, VIEWER_PRINCIPAL, subGoal)
+      setDraft('')
+    } catch {
+      // The guardian refused it — another Contributor holds this sub-goal. Conflict is a
+      // question, not an abort: prompt to pick a different one (D11).
+      setConflict(`"${subGoal}" is held by another Contributor — pick a different sub-goal.`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <SidePanel title="Coordination" icon={<GitBranch size={14} />}>
+      {!guarded ? (
+        <p className="text-[12px] text-ink-faint">This project isn’t a guarded resource.</p>
+      ) : (
+        <>
+          {subGoals.length === 0 ? (
+            <p className="text-[12px] text-ink-faint">No sub-goals in flight.</p>
+          ) : (
+            <div className="space-y-2.5">
+              {subGoals.map((s) => (
+                <div key={s.reservationId} className="group flex items-start gap-2.5">
+                  <span
+                    className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
+                      s.status === 'committed' ? 'bg-accent' : 'bg-emerald-500'
+                    }`}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-medium text-ink">{s.subGoal}</div>
+                    <div className="text-[11px] text-ink-faint">held by {s.holderLabel}</div>
+                  </div>
+                  <button
+                    onClick={() => void releaseSubGoal(s.reservationId, project.id)}
+                    aria-label={`Release ${s.subGoal}`}
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint opacity-0 transition hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 group-hover:opacity-100"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-2.5 border-t border-line pt-2.5">
+            <div className="flex items-center gap-1.5">
+              <input
+                value={draft}
+                onChange={(e) => {
+                  setDraft(e.target.value)
+                  setConflict(null)
+                }}
+                onKeyDown={(e) => e.key === 'Enter' && claim()}
+                placeholder="Claim a sub-goal…"
+                className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+              />
+              <button
+                onClick={claim}
+                disabled={busy || !draft.trim()}
+                className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-white transition enabled:hover:bg-accent/90 disabled:opacity-45"
+              >
+                Claim
+              </button>
+            </div>
+            {conflict && (
+              <p className="mt-1.5 flex items-start gap-1 text-[11px] leading-snug text-amber-700">
+                <AlertCircle size={12} className="mt-0.5 shrink-0" />
+                {conflict}
+              </p>
+            )}
+          </div>
+        </>
+      )}
+    </SidePanel>
   )
 }
 

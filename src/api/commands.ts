@@ -12,6 +12,7 @@ import {
   type CapabilityRequest,
   type Commission,
   type CreateCommissionRequest,
+  type ReserveSubGoalRequest,
   type ContextStatus,
   type ContextTypeId,
   type EffectReport,
@@ -209,6 +210,25 @@ export async function createCommission(input: CreateCommissionRequest): Promise<
   const commission = await apiPost<Commission>(paths.commissions(), input)
   invalidate(keys.commissions(input.projectId))
   return commission
+}
+
+/** Claim a sub-goal on a Project for a Contributor (docs/agent-commons.md, D11). The
+ *  guardian refuses a *different* holder on the *same* sub-goal (409 conflict) — the
+ *  caller surfaces that as a re-reason prompt. Refreshes the Project's coordination
+ *  panel on success. Rejects (so the caller can catch the 409). */
+export async function reserveSubGoal(projectId: string, holder: string, subGoal: string): Promise<Reservation> {
+  const reservation = await apiPost<Reservation>(paths.projectSubGoals(projectId), {
+    holder,
+    subGoal,
+  } satisfies ReserveSubGoalRequest)
+  invalidate(keys.projectSubGoals(projectId))
+  return reservation
+}
+
+/** Release a sub-goal claim, freeing it for another Contributor; refreshes the panel. */
+export async function releaseSubGoal(reservationId: string, projectId: string): Promise<void> {
+  await apiPost(paths.reservationRelease(reservationId))
+  invalidate(keys.projectSubGoals(projectId))
 }
 
 /** Resolve a run session from the recent-runs feed cache — the controller uses
