@@ -232,6 +232,13 @@ the mock?
   elements** as the session→resource conduit. Also forward-looking:
   [`docs/shared-resource-coordination.md`](docs/shared-resource-coordination.md).
 
+- **Context compaction (UI reference).** A captured UI pattern for *when the
+  context window fills* — the natural sequel to the context-window gauge in
+  `src/components/UsageControl.tsx`: warm first-person caption ("Compacting our
+  conversation so we can keep chatting…"), a determinate progress bar, and the
+  gauge's disc dropping back once space is freed. Design reference for later, not
+  built: [`docs/context-compaction.md`](docs/context-compaction.md).
+
 ## Repo map (detail in [`README.md`](README.md))
 
 ```
