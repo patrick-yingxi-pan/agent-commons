@@ -28,14 +28,13 @@ test('register: a new runner comes online, is listed, emits runner.connected', (
     reg.list().map((x) => x.id),
     ['a1'],
   )
-  assert.deepEqual(events, [{ type: 'agent.connected', runner: a }])
+  assert.deepEqual(events, [{ type: 'runner.connected', runner: a }])
 })
 
 test('register without an id mints a durable id', () => {
   const { reg } = harness()
   const a = reg.register({ label: 'X', host: 'h', capabilities: [] })
-  // The minted id prefix ('agent-') is serialized wire surface, deferred to step 1b.
-  assert.match(a.id, /^agent-/)
+  assert.match(a.id, /^runner-/)
 })
 
 test('idempotent re-register (online, unchanged caps) emits nothing further', () => {
@@ -56,7 +55,7 @@ test('re-register with changed caps emits runner.capabilities.changed', () => {
   })
   assert.deepEqual(
     events.map((e) => e.type),
-    ['agent.connected', 'agent.capabilities.changed'],
+    ['runner.connected', 'runner.capabilities.changed'],
   )
 })
 
@@ -66,7 +65,7 @@ test('setCapabilities emits only when the grant set actually changes', () => {
   reg.setCapabilities('a1', FS) // same set → silent
   assert.equal(events.length, 1)
   reg.setCapabilities('a1', []) // changed → event
-  assert.equal(events.at(-1)?.type, 'agent.capabilities.changed')
+  assert.equal(events.at(-1)?.type, 'runner.capabilities.changed')
   assert.deepEqual(reg.get('a1')?.capabilities, [])
 })
 
@@ -79,7 +78,7 @@ test('deregister marks offline (durable), emits runner.disconnected, keeps the r
     reg.list().map((x) => x.id),
     ['a1'],
   ) // identity persists
-  assert.deepEqual(events.at(-1), { type: 'agent.disconnected', agentId: 'a1' })
+  assert.deepEqual(events.at(-1), { type: 'runner.disconnected', runnerId: 'a1' })
   assert.equal(reg.deregister('a1'), false) // already offline → no-op
 })
 
@@ -91,7 +90,7 @@ test('heartbeat reconnects an offline runner and refreshes lastSeen', () => {
   const a = reg.heartbeat('a1')
   assert.equal(a?.status, 'online')
   assert.equal(a?.lastSeen, 1050)
-  assert.equal(events.at(-1)?.type, 'agent.connected')
+  assert.equal(events.at(-1)?.type, 'runner.connected')
 })
 
 test('lifecycle ops on an unknown id return undefined/false (no throw)', () => {

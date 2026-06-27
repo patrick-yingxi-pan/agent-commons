@@ -2,14 +2,14 @@
  *  The broker's live view of which runners are connected and what each can do on
  *  its host (see docs/capability-broker-architecture.md). This is the control
  *  plane's registry: runners enroll/reconnect, heartbeat, re-advertise grants, and
- *  disconnect; every change broadcasts an ambient `agent.*` event.
+ *  disconnect; every change broadcasts an ambient `runner.*` event.
  *
- *  Identity is **durable** (D4): a disconnect marks an runner `offline` but keeps
+ *  Identity is **durable** (D4): a disconnect marks a runner `offline` but keeps
  *  its record, so a reconnect re-binds to the same id and the user's references to
  *  it stay stable. The clock is injectable so tests are deterministic. */
 import type { Runner, RunnerCapability, CapabilityType, ServerEvent } from '../contract/index.ts'
 
-/** The data an runner supplies to enroll or reconnect. */
+/** The data a runner supplies to enroll or reconnect. */
 export interface RegisterInput {
   /** Omit to mint a new identity (first enrollment); supply a known id to reconnect. */
   id?: string
@@ -20,7 +20,7 @@ export interface RegisterInput {
 
 let mintSeq = 0
 function mintId(now: () => number): string {
-  return `agent-${(mintSeq += 1).toString(36)}-${now().toString(36)}`
+  return `runner-${(mintSeq += 1).toString(36)}-${now().toString(36)}`
 }
 
 /** Order-insensitive equality for capability sets, so a re-advertisement that
@@ -48,8 +48,8 @@ export class RunnerRegistry {
   }
 
   /** Enroll (no id) or reconnect (known id), advertising the current grant set.
-   *  A new identity or a return from offline emits `agent.connected`; a capability
-   *  change on an already-online runner emits `agent.capabilities.changed`; an
+   *  A new identity or a return from offline emits `runner.connected`; a capability
+   *  change on an already-online runner emits `runner.capabilities.changed`; an
    *  idempotent re-register (online, same grants) emits nothing. */
   register(input: RegisterInput): Runner {
     const id = input.id ?? mintId(this.now)
@@ -65,27 +65,27 @@ export class RunnerRegistry {
     this.runners.set(id, runner)
 
     if (!existing || existing.status === 'offline') {
-      this.emit({ type: 'agent.connected', runner })
+      this.emit({ type: 'runner.connected', runner })
     } else if (!sameCapabilities(existing.capabilities, input.capabilities)) {
-      this.emit({ type: 'agent.capabilities.changed', runner })
+      this.emit({ type: 'runner.capabilities.changed', runner })
     }
     return runner
   }
 
   /** Liveness ping — refresh `lastSeen`; a ping from an offline runner reconnects
-   *  it (emits `agent.connected`). Returns undefined for an unknown id. */
+   *  it (emits `runner.connected`). Returns undefined for an unknown id. */
   heartbeat(id: string): Runner | undefined {
     const runner = this.runners.get(id)
     if (!runner) return undefined
     runner.lastSeen = this.now()
     if (runner.status === 'offline') {
       runner.status = 'online'
-      this.emit({ type: 'agent.connected', runner })
+      this.emit({ type: 'runner.connected', runner })
     }
     return runner
   }
 
-  /** Re-advertise the grant set; emits `agent.capabilities.changed` only when it
+  /** Re-advertise the grant set; emits `runner.capabilities.changed` only when it
    *  actually changed. Returns undefined for an unknown id. */
   setCapabilities(id: string, capabilities: RunnerCapability[]): Runner | undefined {
     const runner = this.runners.get(id)
@@ -93,20 +93,20 @@ export class RunnerRegistry {
     if (!sameCapabilities(runner.capabilities, capabilities)) {
       runner.capabilities = capabilities
       runner.lastSeen = this.now()
-      this.emit({ type: 'agent.capabilities.changed', runner })
+      this.emit({ type: 'runner.capabilities.changed', runner })
     }
     return runner
   }
 
   /** Disconnect — the durable identity persists (marked offline) so a reconnect
-   *  re-binds. Emits `agent.disconnected`. Returns false if already offline or
+   *  re-binds. Emits `runner.disconnected`. Returns false if already offline or
    *  unknown (so the route can 404 a no-op). */
   deregister(id: string): boolean {
     const runner = this.runners.get(id)
     if (!runner || runner.status === 'offline') return false
     runner.status = 'offline'
     runner.lastSeen = this.now()
-    this.emit({ type: 'agent.disconnected', agentId: id })
+    this.emit({ type: 'runner.disconnected', runnerId: id })
     return true
   }
 

@@ -126,25 +126,25 @@ export interface SessionContextsChangedEvent {
  *  offline (its durable identity re-bound). Carries the full runner record so the
  *  registry cache can upsert it without a refetch. */
 export interface RunnerConnectedEvent {
-  type: 'agent.connected'
+  type: 'runner.connected'
   runner: Runner
 }
 /** A native runner disconnected. Its identity persists (marked offline) so a later
  *  reconnect re-binds; the UI shows it offline rather than dropping it. */
 export interface RunnerDisconnectedEvent {
-  type: 'agent.disconnected'
-  agentId: string
+  type: 'runner.disconnected'
+  runnerId: string
 }
 /** An online runner re-advertised its capabilities (a grant added or revoked). */
 export interface RunnerCapabilitiesChangedEvent {
-  type: 'agent.capabilities.changed'
+  type: 'runner.capabilities.changed'
   runner: Runner
 }
 /** A capability effect was projected into the server's record (D2) — from a
  *  relayed invoke or a synced outbox. Broadcast so every client's view of that
  *  runner's effect log converges without polling. */
 export interface RunnerEffectEvent {
-  type: 'agent.effect'
+  type: 'runner.effect'
   effect: CapabilityEffect
 }
 /** A resource's reservation ledger changed (D5) — a reservation was acquired,

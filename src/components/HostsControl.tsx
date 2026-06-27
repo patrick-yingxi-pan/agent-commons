@@ -18,7 +18,7 @@ const CAP_LABEL: Record<string, string> = {
  *  account (one per host) and the capabilities each advertises. Runners are a
  *  standing fabric, not attached contexts (D4) — so this sits beside the usage
  *  gauge, always present, never inside the Add-context menu. It reads the live
- *  registry (`GET /v1/agents`); the `agent.*` events keep it fresh. */
+ *  registry (`GET /v1/runners`); the `runner.*` events keep it fresh. */
 export function HostsControl() {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)

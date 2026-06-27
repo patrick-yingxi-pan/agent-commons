@@ -51,29 +51,29 @@ export function buildRouter(): Router {
   // The live set of connected runners (one per host) and the capabilities each
   // advertises. Runners enroll/reconnect via POST, keep alive via heartbeat,
   // re-advertise grants via PATCH, and disconnect via DELETE. Every change
-  // broadcasts an ambient `agent.*` event over `/events`. Reads here are the
+  // broadcasts an ambient `runner.*` event over `/events`. Reads here are the
   // generalization of `/capabilities` from one static backend to a live registry.
-  r.get('/agents', ({ res }) => {
+  r.get('/runners', ({ res }) => {
     sendJson(res, store.registry.list())
   })
-  r.get('/agents/:id', ({ res, params }) => {
+  r.get('/runners/:id', ({ res, params }) => {
     const runner = store.registry.get(params.id)
     if (!runner) return sendError(res, 'not_found', `No runner '${params.id}'`)
     sendJson(res, runner)
   })
-  r.post('/agents', async ({ res, body }) => {
+  r.post('/runners', async ({ res, body }) => {
     const input = await body<RegisterRunnerRequest>()
     if (!input?.label || !input?.host || !Array.isArray(input.capabilities)) {
       return sendError(res, 'bad_request', 'label, host, and capabilities are required')
     }
     sendJson(res, store.registry.register(input))
   })
-  r.post('/agents/:id/heartbeat', ({ res, params }) => {
+  r.post('/runners/:id/heartbeat', ({ res, params }) => {
     const runner = store.registry.heartbeat(params.id)
     if (!runner) return sendError(res, 'not_found', `No runner '${params.id}'`)
     sendJson(res, runner)
   })
-  r.patch('/agents/:id/capabilities', async ({ res, params, body }) => {
+  r.patch('/runners/:id/capabilities', async ({ res, params, body }) => {
     const { capabilities } = await body<SetRunnerCapabilitiesRequest>()
     if (!Array.isArray(capabilities)) {
       return sendError(res, 'bad_request', 'capabilities is required')
@@ -82,14 +82,14 @@ export function buildRouter(): Router {
     if (!runner) return sendError(res, 'not_found', `No runner '${params.id}'`)
     sendJson(res, runner)
   })
-  r.delete('/agents/:id', ({ res, params }) => {
+  r.delete('/runners/:id', ({ res, params }) => {
     if (!store.registry.deregister(params.id)) {
       return sendError(res, 'not_found', `No online runner '${params.id}'`)
     }
     sendJson(res, { ok: true })
   })
 
-  // Invoke a capability on an runner's host — the addressed + routed call. The
+  // Invoke a capability on a runner's host — the addressed + routed call. The
   // broker (here) resolves the runner and checks liveness; the runner runtime
   // enforces the scoped grant (D3) and fulfils. `capability_unavailable` when no
   // such online capability; `forbidden` when the target is outside the grant.
@@ -97,7 +97,7 @@ export function buildRouter(): Router {
   // Idempotent by `commandId` (D2): a retried call returns the recorded effect
   // without re-executing. On success the effect is recorded on the runner's
   // authoritative log and projected (the relay/online path), returning the effect.
-  r.post('/agents/:id/invoke', async ({ res, params, body }) => {
+  r.post('/runners/:id/invoke', async ({ res, params, body }) => {
     const runner = store.registry.get(params.id)
     if (!runner) return sendError(res, 'not_found', `No runner '${params.id}'`)
     const request = await body<CapabilityRequest>()
@@ -176,16 +176,16 @@ export function buildRouter(): Router {
 
   // The runner's authoritative effect log (read-through). `?since=<seq>` returns
   // only the tail after a sequence number — the audit/projection read (D2/D3).
-  r.get('/agents/:id/effects', ({ res, params, url }) => {
+  r.get('/runners/:id/effects', ({ res, params, url }) => {
     if (!store.registry.get(params.id)) return sendError(res, 'not_found', `No runner '${params.id}'`)
     const since = Number(url.searchParams.get('since') ?? 0) || 0
     sendJson(res, store.journal.log(params.id, since))
   })
 
-  // An runner replays its outbox — effects it executed out-of-band (via the
+  // A runner replays its outbox — effects it executed out-of-band (via the
   // co-located fast path, or while the server was unreachable). Merged idempotently
   // by commandId, then projected; returns what was newly projected + the cursor.
-  r.post('/agents/:id/sync', async ({ res, params, body }) => {
+  r.post('/runners/:id/sync', async ({ res, params, body }) => {
     if (!store.registry.get(params.id)) return sendError(res, 'not_found', `No runner '${params.id}'`)
     const { effects } = await body<SyncEffectsRequest>()
     if (!Array.isArray(effects)) return sendError(res, 'bad_request', 'effects is required')

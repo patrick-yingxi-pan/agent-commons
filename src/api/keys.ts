@@ -6,7 +6,7 @@ import type { Connector } from '../../contract/index.ts'
 export const keys = {
   capabilities: 'capabilities',
   runners: 'agents',
-  runnerEffects: (id: string) => `agent-effects:${id}`,
+  runnerEffects: (id: string) => `runner-effects:${id}`,
   resourceStatus: (key: string) => `resource:${key}`,
   sessions: 'sessions',
   session: (id: string) => `session:${id}`,
@@ -32,11 +32,11 @@ export const paths = {
   // are intentionally absent here — no live UI flow calls them. They exist behind the
   // capability gate and are exercised by the contract via tests + `BACKEND=remote`
   // (which 409s them); that gate, not a client caller, is what demonstrates portability.
-  runners: '/agents',
-  runner: (id: string) => `/agents/${encodeURIComponent(id)}`,
-  runnerInvoke: (id: string) => `/agents/${encodeURIComponent(id)}/invoke`,
-  runnerEffects: (id: string) => `/agents/${encodeURIComponent(id)}/effects`,
-  runnerSync: (id: string) => `/agents/${encodeURIComponent(id)}/sync`,
+  runners: '/runners',
+  runner: (id: string) => `/runners/${encodeURIComponent(id)}`,
+  runnerInvoke: (id: string) => `/runners/${encodeURIComponent(id)}/invoke`,
+  runnerEffects: (id: string) => `/runners/${encodeURIComponent(id)}/effects`,
+  runnerSync: (id: string) => `/runners/${encodeURIComponent(id)}/sync`,
   resource: (key: string) => `/resources/${encodeURIComponent(key)}`,
   resourceReserve: (key: string) => `/resources/${encodeURIComponent(key)}/reserve`,
   reservationCommit: (id: string) => `/reservations/${encodeURIComponent(id)}/commit`,

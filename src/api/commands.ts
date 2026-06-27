@@ -311,22 +311,22 @@ export function pushRecentId(type: ContextTypeId, id: string): void {
  *  the call rejects with `forbidden` / `capability_unavailable` accordingly.
  *  Returns the recorded effect; pass a stable `commandId` for idempotent retries. */
 export async function invokeCapability(
-  agentId: string,
+  runnerId: string,
   request: CapabilityRequest,
 ): Promise<CapabilityEffect> {
-  const effect = await apiPost<CapabilityEffect>(paths.runnerInvoke(agentId), request)
-  invalidate(keys.runnerEffects(agentId))
+  const effect = await apiPost<CapabilityEffect>(paths.runnerInvoke(runnerId), request)
+  invalidate(keys.runnerEffects(runnerId))
   return effect
 }
 
 /** Replay a runner's outbox to the server — effects it executed out-of-band (the
  *  co-located fast path, or while offline). Merged idempotently by commandId. */
 export async function syncRunnerEffects(
-  agentId: string,
+  runnerId: string,
   effects: EffectReport[],
 ): Promise<SyncEffectsResult> {
-  const result = await apiPost<SyncEffectsResult>(paths.runnerSync(agentId), { effects })
-  invalidate(keys.runnerEffects(agentId))
+  const result = await apiPost<SyncEffectsResult>(paths.runnerSync(runnerId), { effects })
+  invalidate(keys.runnerEffects(runnerId))
   return result
 }
 

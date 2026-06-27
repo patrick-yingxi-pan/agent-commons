@@ -12,8 +12,8 @@
 > nothing here overrides those. **Almost nothing in this doc is built.** Concretely:
 > there is no worker `Agent` type, no model-provider registry, no `Commission`, no
 > project-level guardian. The one exception is the **D6 rename**, slice 1a (below):
-> the host-bound type is now named `Runner` in code (its TypeScript identity; the
-> wire surface — `/agents` routes, `agent.*` events — is deferred to slice 1b). The
+> the host-bound type is now named `Runner` in code, wire and all (slice 1a was the
+> TypeScript identity; slice 1b renamed its `/runners` routes + `runner.*` events). The
 > prototype is otherwise the *degenerate N=1 case* of everything below (one implicit
 > Anthropic client, one inert `Project` node).
 >
@@ -21,9 +21,11 @@
 > Slice 1a has applied the **TypeScript half** of that rename in code — the `Agent`
 > interface and its cluster (`AgentCapability`, `RegisterAgentRequest`,
 > `AgentRegistry`, `AgentJournal`, `useAgents`, …) are now `Runner*`, and the
-> "native agent" code comments now read "runner". Still pending in **slice 1b**: the
-> wire surface (`/agents` routes, `agent.*` event names, the serialized `agentId`
-> field and `agent-` id prefix) and the broker doc's prose.
+> "native agent" code comments now read "runner". **Slice 1b** then renamed the wire
+> surface — `/runners` routes, `runner.*` event names, the `runnerId` field, the
+> `runner-` id prefix. Still pending (cosmetic): the host filenames
+> (`agent-runtime.ts`, `data/agents.ts`) and the broker doc's prose (mapped by its
+> "renames by reference" note).
 >
 > It extends the shared **D-series** (broker doc D1–D4; coordination doc D5) with
 > **D6–D13**. Read both prior docs first:
@@ -711,11 +713,12 @@ right way:
 
 The first slice falls out of the grounding and touches no behavior:
 
-1. **Vocabulary pass: `Agent → Runner`.** *Slice 1a (done):* rename the host-bound
-   interface + its TS cluster + the "native agent" code comments — the compiler-
-   checked half, leaving the wire protocol untouched. *Slice 1b (next):* the wire
-   surface (`/agents` routes, `agent.*` events, the `agentId` field + `agent-` id
-   prefix) and the broker doc prose. Frees the word for the worker `Agent` (step 2).
+1. **Vocabulary pass: `Agent → Runner`. ✅ Done (slices 1a + 1b).** 1a renamed the
+   host-bound interface + its TS cluster + the "native agent" comments (the compiler-
+   checked half); 1b renamed the wire surface (`/runners` routes, `runner.*` events,
+   the `runnerId` field, the `runner-` id prefix). Cosmetic remainder: the
+   `agent-runtime.ts` / `data/agents.ts` filenames and the broker doc prose. Freed the
+   bare word for the worker `Agent` (step 2).
 2. **Introduce the worker `Agent` type** beside the renamed Runner, with a
    `Session.agentId` binding — the degenerate case is one seeded Agent wrapping today's
    single client. Nothing multi-tenant yet.
@@ -756,12 +759,19 @@ session↔context binding, mediation handle, and single-resource escrow).
   type and its whole cluster are renamed to `Runner` across contract, server, client,
   and tests — `RunnerRegistry`, `RunnerJournal`, `RunnerCapability`,
   `RegisterRunnerRequest`, `useRunners` / `useRunnerEffects`, `RunnerRow`, and the
-  "native agent" code comments. The bare word `Agent` is now free for the worker type
-  (slices 1b/2). Regression-locked by typecheck + the existing registry / journal /
-  invoke / effects suites, which now exercise the `Runner*` names (263 tests green).
-  The serialized wire surface (`/agents` routes, `agent.*` event names, the `agentId`
-  field, the `agent-` id prefix) is **deliberately deferred to slice 1b**, so the
-  protocol is byte-for-byte unchanged and the running app is unaffected.
+  "native agent" code comments. Regression-locked by typecheck + the existing
+  registry / journal / invoke / effects suites, which now exercise the `Runner*` names
+  (263 tests green). The serialized wire surface was deferred to **slice 1b** (next).
+- **Slice 1b — the D6 rename (wire surface). ✅ Built.** The deferred wire is renamed
+  across code: `/agents`→`/runners` routes (+ the `keys`/`paths` builders and route
+  tests), the `agent.*`→`runner.*` SSE event names (contract discriminants, server
+  emitters, client router, tests), the serialized `agentId`→`runnerId` and
+  `agentSeq`→`runnerSeq` fields, the `agent-`→`runner-` id prefix (mint + `runner-local`
+  seed + assertions), and the `agent-effects:`→`runner-effects:` cache key. typecheck +
+  263 tests green; the wire is now internally consistent end to end. The bare word
+  `Agent` is fully free for the worker type (step 2). Cosmetic remainder (deferred):
+  the `agent-runtime.ts` / `data/agents.ts` filenames and the broker doc's prose
+  (covered by its "renames by reference" note).
 - **Still forward.** The worker `Agent` type, the Model-provider registry, the
   system-prompt library, the `Commission`, and the Project-level Guardian are all
   unbuilt. Outside slice 1a the prototype remains the degenerate N=1 case: one

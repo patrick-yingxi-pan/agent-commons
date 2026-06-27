@@ -37,16 +37,16 @@ export function useCapabilities(): QueryState<Capabilities> {
 
 /** The live registry of native runners (one per connected host) + the
  *  capabilities each advertises. Updates as runners connect/disconnect/re-grant
- *  (the `agent.*` ambient events invalidate this). */
+ *  (the `runner.*` ambient events invalidate this). */
 export function useRunners(): QueryState<Runner[]> {
   return useQuery(keys.runners, () => apiGet<Runner[]>(paths.runners))
 }
 
-/** An runner's authoritative effect log (the server's projection of it). Updates
- *  as effects project (`agent.effect` invalidates it). */
-export function useRunnerEffects(agentId: string): QueryState<CapabilityEffect[]> {
-  return useQuery(keys.runnerEffects(agentId), () =>
-    apiGet<CapabilityEffect[]>(paths.runnerEffects(agentId)),
+/** A runner's authoritative effect log (the server's projection of it). Updates
+ *  as effects project (`runner.effect` invalidates it). */
+export function useRunnerEffects(runnerId: string): QueryState<CapabilityEffect[]> {
+  return useQuery(keys.runnerEffects(runnerId), () =>
+    apiGet<CapabilityEffect[]>(paths.runnerEffects(runnerId)),
   )
 }
 

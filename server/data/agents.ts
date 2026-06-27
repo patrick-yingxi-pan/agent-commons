@@ -6,7 +6,7 @@
 import type { RegisterInput } from '../registry.ts'
 
 export const LOCAL_RUNNER_SEED: RegisterInput = {
-  id: 'agent-local',
+  id: 'runner-local',
   label: 'This Mac',
   host: 'localhost',
   capabilities: [

@@ -190,7 +190,7 @@ const registry = new RunnerRegistry(emit)
 if (NATIVE) registry.register(LOCAL_RUNNER_SEED)
 
 // The effect journal — each runner's authoritative log of its host's effects (D2)
-// + the server's projection of it. Emits `agent.effect` as effects project.
+// + the server's projection of it. Emits `runner.effect` as effects project.
 const journal = new RunnerJournal(emit)
 
 // The resource guardian — per shared resource (a context element), a reservation
@@ -317,7 +317,7 @@ export const store = {
 
   // ── Native-runner registry + effect journal ──
   /** The live registry of native runners + their advertised capabilities. The
-   *  runner routes read/mutate this; changes broadcast ambient `agent.*` events. */
+   *  runner routes read/mutate this; changes broadcast ambient `runner.*` events. */
   registry,
   /** Each runner's authoritative effect log + the server's projection of it (D2).
    *  The invoke route records + reconciles; the sync route merges an outbox. */

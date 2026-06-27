@@ -34,7 +34,7 @@ test('isGranted reflects advertised capability + scope', () => {
 
 test('runCapability fulfils fs.read within scope', () => {
   const r = runCapability(runner, { capability: 'fs.read', target: '~/projects/app/main.ts' })
-  assert.equal(r.agentId, 'a1')
+  assert.equal(r.runnerId, 'a1')
   assert.equal(r.capability, 'fs.read')
   assert.equal(r.target, '~/projects/app/main.ts')
   assert.match((r.output as { content: string }).content, /mock contents of/)

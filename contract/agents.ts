@@ -8,7 +8,7 @@
  *  This module is the contract — it is imported verbatim by both the UI and the
  *  server, so it stays framework- and Node-free. */
 
-/** The classes of native access an runner can offer. Extensible — a new kind of
+/** The classes of native access a runner can offer. Extensible — a new kind of
  *  capability is a new member here, advertised by runners that can fulfill it. */
 export type CapabilityType = 'fs.read' | 'fs.write' | 'terminal' | 'process'
 
@@ -50,7 +50,7 @@ export interface Runner {
   capabilities: RunnerCapability[]
 }
 
-/** Body of `POST /v1/agents` — an runner enrolls or reconnects. Omitting `id`
+/** Body of `POST /v1/runners` — a runner enrolls or reconnects. Omitting `id`
  *  mints a new durable identity (first enrollment); providing a known `id`
  *  reconnects to it (and re-advertises its capabilities). */
 export interface RegisterRunnerRequest {
@@ -60,13 +60,13 @@ export interface RegisterRunnerRequest {
   capabilities: RunnerCapability[]
 }
 
-/** Body of `PATCH /v1/agents/:id/capabilities` — re-advertise the grant set
+/** Body of `PATCH /v1/runners/:id/capabilities` — re-advertise the grant set
  *  (e.g. the user granted a new folder, or revoked one). */
 export interface SetRunnerCapabilitiesRequest {
   capabilities: RunnerCapability[]
 }
 
-/** Body of `POST /v1/agents/:id/invoke` — run a capability on that runner's host.
+/** Body of `POST /v1/runners/:id/invoke` — run a capability on that runner's host.
  *  This is the addressed-and-routed capability call: the broker routes it to the
  *  runner, which enforces that `target` is within one of its granted scopes (D3)
  *  before executing. `target` is the thing acted on (an fs path for `fs.*`, a
@@ -99,30 +99,30 @@ export interface CapabilityRequest {
 export interface CapabilityResult {
   capability: CapabilityType
   /** Which runner fulfilled it — the host the effect happened on. */
-  agentId: string
+  runnerId: string
   /** Echoed target, so a caller can correlate without tracking request state. */
   target: string
   output: unknown
 }
 
-/** A recorded capability effect — an entry in an runner's authoritative log (D2).
+/** A recorded capability effect — an entry in a runner's authoritative log (D2).
  *  The runner is the system of record for its host's effects; the server keeps a
- *  projection of these and clients converge on it. `agentSeq` is the runner's
+ *  projection of these and clients converge on it. `runnerSeq` is the runner's
  *  monotonic per-host ordering; `commandId` is the idempotency key + effect id. */
 export interface CapabilityEffect {
   commandId: string
-  agentId: string
+  runnerId: string
   capability: CapabilityType
   target: string
   output: unknown
   /** The runner's authoritative monotonic sequence on its host. */
-  agentSeq: number
+  runnerSeq: number
   /** Epoch-ms the runner executed it. */
   at: number
 }
 
-/** One effect an runner reports to the server out-of-band — the unit of the
- *  outbox replay (`POST /v1/agents/:id/sync`). The effect already happened on the
+/** One effect a runner reports to the server out-of-band — the unit of the
+ *  outbox replay (`POST /v1/runners/:id/sync`). The effect already happened on the
  *  host (via the co-located fast path, or while the server was unreachable); the
  *  runner now tees it up so the server's projection catches up. */
 export interface EffectReport {
@@ -133,7 +133,7 @@ export interface EffectReport {
   at?: number
 }
 
-/** Body of `POST /v1/agents/:id/sync` — an runner replays its outbox. Effects are
+/** Body of `POST /v1/runners/:id/sync` — a runner replays its outbox. Effects are
  *  merged idempotently by `commandId`, so re-sending an already-recorded effect
  *  is a no-op (the at-least-once delivery guarantee). */
 export interface SyncEffectsRequest {

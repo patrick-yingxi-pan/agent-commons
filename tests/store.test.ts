@@ -49,8 +49,8 @@ test('pushRecent prepends and broadcasts recents.changed', () => {
 
 test('registry: native mode seeds the co-located runner with fs/terminal/process', () => {
   const ids = store.registry.list().map((a) => a.id)
-  assert.ok(ids.includes('agent-local'))
-  const local = store.registry.get('agent-local')
+  assert.ok(ids.includes('runner-local'))
+  const local = store.registry.get('runner-local')
   assert.ok(local)
   assert.equal(local.status, 'online')
   assert.ok(local.capabilities.some((c) => c.type === 'fs.read'))

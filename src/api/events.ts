@@ -62,17 +62,17 @@ function route(e: ServerEvent): void {
     case 'recents.changed':
       invalidate(keys.recents)
       break
-    // The native-runner registry changed — an runner connected, disconnected, or
+    // The native-runner registry changed — a runner connected, disconnected, or
     // re-advertised its capabilities. Re-read the registry so affordances that
     // depend on a host's capabilities reflect it.
-    case 'agent.connected':
-    case 'agent.disconnected':
-    case 'agent.capabilities.changed':
+    case 'runner.connected':
+    case 'runner.disconnected':
+    case 'runner.capabilities.changed':
       invalidate(keys.runners)
       break
-    // An effect was projected into an runner's record — refresh that runner's log.
-    case 'agent.effect':
-      invalidate(keys.runnerEffects(e.effect.agentId))
+    // An effect was projected into a runner's record — refresh that runner's log.
+    case 'runner.effect':
+      invalidate(keys.runnerEffects(e.effect.runnerId))
       break
     // A resource's reservation ledger changed (acquired / committed / released /
     // capacity set) — re-read that resource's lock state.

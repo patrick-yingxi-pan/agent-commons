@@ -74,7 +74,7 @@ export function runCapability(runner: Runner, request: CapabilityRequest): Capab
   }
   return {
     capability: request.capability,
-    agentId: runner.id,
+    runnerId: runner.id,
     target: request.target,
     output: fulfil(request),
   }

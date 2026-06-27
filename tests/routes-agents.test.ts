@@ -5,65 +5,65 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { call } from './helpers/http.ts'
 
-test('GET /agents returns the seeded local runner', async () => {
-  const { status, json } = await call('GET', '/agents')
+test('GET /runners returns the seeded local runner', async () => {
+  const { status, json } = await call('GET', '/runners')
   assert.equal(status, 200)
   assert.ok(Array.isArray(json))
-  assert.ok(json.some((a: any) => a.id === 'agent-local'))
+  assert.ok(json.some((a: any) => a.id === 'runner-local'))
 })
 
-test('GET /agents/:id returns one runner; an unknown id 404s with the envelope', async () => {
-  const ok = await call('GET', '/agents/agent-local')
+test('GET /runners/:id returns one runner; an unknown id 404s with the envelope', async () => {
+  const ok = await call('GET', '/runners/runner-local')
   assert.equal(ok.status, 200)
-  assert.equal(ok.json.id, 'agent-local')
+  assert.equal(ok.json.id, 'runner-local')
 
-  const missing = await call('GET', '/agents/nope')
+  const missing = await call('GET', '/runners/nope')
   assert.equal(missing.status, 404)
   assert.equal(missing.json.error.code, 'not_found')
 })
 
-test('POST /agents enrolls a new runner; it then appears in the registry', async () => {
-  const reg = await call('POST', '/agents', {
-    id: 'agent-test-1',
+test('POST /runners enrolls a new runner; it then appears in the registry', async () => {
+  const reg = await call('POST', '/runners', {
+    id: 'runner-test-1',
     label: 'CI box',
     host: 'ci',
     capabilities: [{ type: 'terminal', scopes: ['*'] }],
   })
   assert.equal(reg.status, 200)
-  assert.equal(reg.json.id, 'agent-test-1')
+  assert.equal(reg.json.id, 'runner-test-1')
   assert.equal(reg.json.status, 'online')
 
-  const list = await call('GET', '/agents')
-  assert.ok(list.json.some((a: any) => a.id === 'agent-test-1'))
+  const list = await call('GET', '/runners')
+  assert.ok(list.json.some((a: any) => a.id === 'runner-test-1'))
 })
 
-test('POST /agents without the required fields is a 400', async () => {
-  const bad = await call('POST', '/agents', { host: 'x' })
+test('POST /runners without the required fields is a 400', async () => {
+  const bad = await call('POST', '/runners', { host: 'x' })
   assert.equal(bad.status, 400)
   assert.equal(bad.json.error.code, 'bad_request')
 })
 
 test('heartbeat → re-grant → deregister lifecycle over HTTP, identity persists', async () => {
-  await call('POST', '/agents', { id: 'agent-test-2', label: 'L', host: 'h', capabilities: [] })
+  await call('POST', '/runners', { id: 'runner-test-2', label: 'L', host: 'h', capabilities: [] })
 
-  const hb = await call('POST', '/agents/agent-test-2/heartbeat')
+  const hb = await call('POST', '/runners/runner-test-2/heartbeat')
   assert.equal(hb.status, 200)
 
-  const patch = await call('PATCH', '/agents/agent-test-2/capabilities', {
+  const patch = await call('PATCH', '/runners/runner-test-2/capabilities', {
     capabilities: [{ type: 'fs.read', scopes: ['~/x'] }],
   })
   assert.equal(patch.status, 200)
   assert.equal(patch.json.capabilities[0].type, 'fs.read')
 
-  const del = await call('DELETE', '/agents/agent-test-2')
+  const del = await call('DELETE', '/runners/runner-test-2')
   assert.equal(del.status, 200)
 
-  const after = await call('GET', '/agents/agent-test-2')
+  const after = await call('GET', '/runners/runner-test-2')
   assert.equal(after.status, 200)
   assert.equal(after.json.status, 'offline') // durable identity persists
 })
 
 test('DELETE on an unknown runner 404s', async () => {
-  const del = await call('DELETE', '/agents/never')
+  const del = await call('DELETE', '/runners/never')
   assert.equal(del.status, 404)
 })
