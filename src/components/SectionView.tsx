@@ -97,11 +97,14 @@ import {
   toggleScheduleEnabled,
   updateSchedule,
   useDispatchRuns,
+  useProviders,
   useSavedContexts,
   useScheduleTemplates,
   useSchedules,
   useSessions,
+  useSystemPrompts,
 } from '../api'
+import { promptFitWarning } from '../../contract/index.ts'
 import { ArtifactThumb, ArtifactViewer, KIND_ICON, KIND_LABEL } from './artifactPreview'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { useRelations } from '../controller/useRelations'
@@ -3685,6 +3688,7 @@ function CustomizeView() {
         </div>
       </Card>
       <DefaultModelCard />
+      <SystemPromptCard />
       <ToggleCard
         title="Weekly digest"
         desc="A Monday summary of everything you shipped."
@@ -3794,6 +3798,123 @@ function DefaultModelCard() {
                 )
               })}
             </div>
+          </div>
+        )}
+      </div>
+    </Card>
+  )
+}
+
+const SYSTEM_PROMPT_PREF_KEY = 'claude-ui.customize.systemPromptId'
+
+/** The "Agent system prompt" setting (docs/agent-commons.md, D10) — pick a reusable,
+ *  target-family-tagged prompt from the library for new Agents. The picker is where
+ *  D10's compatibility check lives: when the chosen prompt's authored-for family
+ *  differs from the account's provider model family, it shows a non-blocking downgrade
+ *  warning at selection time (`promptFitWarning`) rather than silently applying a
+ *  Claude-tuned prompt to an open model. Persists the choice like the default model. */
+function SystemPromptCard() {
+  const prompts = useSystemPrompts().data ?? []
+  const providers = useProviders().data ?? []
+  // The account's cognition source the prompt would run against — the seeded provider.
+  const provider = providers[0]
+  const providerFamily = provider?.modelFamily ?? 'claude'
+
+  const [selectedId, setSelectedId] = useState<string>(() => {
+    try {
+      return localStorage.getItem(SYSTEM_PROMPT_PREF_KEY) ?? 'sp-default'
+    } catch {
+      return 'sp-default'
+    }
+  })
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const pick = (id: string) => {
+    setSelectedId(id)
+    try {
+      localStorage.setItem(SYSTEM_PROMPT_PREF_KEY, id)
+    } catch {
+      /* ignore quota / privacy-mode errors */
+    }
+    setOpen(false)
+  }
+
+  const selected = prompts.find((p) => p.id === selectedId)
+  const selectedWarning = selected ? promptFitWarning(selected, providerFamily) : null
+
+  return (
+    <Card title="Agent system prompt" desc="The library prompt new Agents start from.">
+      <div ref={ref} className="relative">
+        <button
+          onClick={() => setOpen((o) => !o)}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          title={selectedWarning ?? undefined}
+          className="group inline-flex items-center gap-1.5 rounded-lg bg-panel-2 px-3 py-1 text-[12px] font-medium text-ink ring-1 ring-transparent transition hover:ring-line-strong"
+        >
+          {selectedWarning && <AlertCircle size={13} className="text-amber-600" />}
+          <span>{selected?.label ?? 'Choose a prompt'}</span>
+          <ChevronDown size={12} className="text-ink-faint transition group-hover:text-ink-soft" />
+        </button>
+        {open && (
+          <div
+            role="dialog"
+            aria-label="Agent system prompt"
+            className="absolute right-0 top-full z-30 mt-1.5 w-[320px] rounded-xl border border-line-strong bg-surface p-2 shadow-xl"
+          >
+            <div className="px-1.5 pb-1 pt-0.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+              System prompt · checked against {provider?.label ?? 'provider'}
+            </div>
+            {prompts.map((p) => {
+              const on = p.id === selectedId
+              const warning = promptFitWarning(p, providerFamily)
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => pick(p.id)}
+                  className={`flex w-full items-start gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition ${
+                    on ? 'bg-panel-2' : 'hover:bg-panel-2/60'
+                  }`}
+                >
+                  <span
+                    className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                      on ? 'border-accent bg-accent text-white' : 'border-line-strong'
+                    }`}
+                  >
+                    {on && <Check size={11} strokeWidth={3} />}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="block text-[13px] font-medium text-ink">{p.label}</span>
+                      <span className="shrink-0 rounded bg-panel-2 px-1.5 py-0.5 text-[10px] text-ink-faint">
+                        {p.targetFamily}
+                      </span>
+                    </span>
+                    {warning && (
+                      <span className="mt-1 flex items-start gap-1 text-[11px] leading-snug text-amber-700">
+                        <AlertCircle size={12} className="mt-0.5 shrink-0" />
+                        {warning}
+                      </span>
+                    )}
+                  </span>
+                </button>
+              )
+            })}
           </div>
         )}
       </div>

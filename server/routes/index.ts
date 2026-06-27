@@ -212,6 +212,19 @@ export function buildRouter(): Router {
     sendJson(res, provider)
   })
 
+  // ── System-prompt library (the cognition half — docs/agent-commons.md, D10) ──
+  // The reusable, target-family-tagged prompts a user picks for an Agent. Read-only
+  // on the wire; the (prompt × provider) fit warning is computed client-side from the
+  // shared pure `promptFitWarning`, surfaced in the picker at selection time.
+  r.get('/system-prompts', ({ res }) => {
+    sendJson(res, store.listSystemPrompts())
+  })
+  r.get('/system-prompts/:id', ({ res, params }) => {
+    const entry = store.getSystemPrompt(params.id)
+    if (!entry) return sendError(res, 'not_found', `No system prompt '${params.id}'`)
+    sendJson(res, entry)
+  })
+
   // ── Resource guardians + reservations (D5) ────────────────────────────────
   // Per shared resource (a context element id), a reservation ledger enforcing a
   // capacity invariant — the escrow that lets the broker refuse a second session's

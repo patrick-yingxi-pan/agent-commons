@@ -6,6 +6,7 @@ import type { Connector } from '../../contract/index.ts'
 export const keys = {
   capabilities: 'capabilities',
   providers: 'providers',
+  systemPrompts: 'system-prompts',
   runners: 'agents',
   runnerEffects: (id: string) => `runner-effects:${id}`,
   resourceStatus: (key: string) => `resource:${key}`,
@@ -31,6 +32,8 @@ export const paths = {
   capabilities: '/capabilities',
   providers: '/providers',
   provider: (id: string) => `/providers/${encodeURIComponent(id)}`,
+  systemPrompts: '/system-prompts',
+  systemPrompt: (id: string) => `/system-prompts/${encodeURIComponent(id)}`,
   // The native-only endpoints (`/fs/pick`, `/fs/folders/:id`, `/git/repos/:id/diff`)
   // are intentionally absent here — no live UI flow calls them. They exist behind the
   // capability gate and are exercised by the contract via tests + `BACKEND=remote`

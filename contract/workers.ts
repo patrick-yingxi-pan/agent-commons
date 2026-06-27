@@ -19,6 +19,11 @@ export interface Agent {
   /** The system prompt this Agent drives the model with — provider-optimized
    *  (docs/agent-commons.md, D10). The cognition half of the bundle. */
   systemPrompt: string
+  /** The system-prompt library entry this Agent was built from (D10), if any — the
+   *  provenance that lets a picker check the prompt's authored-for family against the
+   *  chosen provider's model family (`promptFitWarning`). Optional: an Agent may carry
+   *  a bespoke `systemPrompt` with no library entry behind it. */
+  systemPromptId?: string
   /** The tool names this Agent may call — a subset of the catalog
    *  (`server/model/tools.ts` `TOOL_NAMES`). The degenerate Agent carries them all;
    *  `[]` is a valid Agent that calls no tools. */

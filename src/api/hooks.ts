@@ -16,6 +16,7 @@ import type {
   ConnectorDetail,
   DispatchRun,
   ModelProvider,
+  SystemPromptEntry,
   Project,
   RecentsSnapshot,
   RelationGraph,
@@ -47,6 +48,13 @@ export function useRunners(): QueryState<Runner[]> {
  *  sources an Agent binds. Account-scoped, referenceable by id; one seeded for now. */
 export function useProviders(): QueryState<ModelProvider[]> {
   return useQuery(keys.providers, () => apiGet<ModelProvider[]>(paths.providers))
+}
+
+/** The system-prompt library (docs/agent-commons.md, D10) — reusable, target-family-
+ *  tagged prompts a user picks for an Agent. The picker checks each entry's family
+ *  against the chosen provider's via the shared `promptFitWarning`. */
+export function useSystemPrompts(): QueryState<SystemPromptEntry[]> {
+  return useQuery(keys.systemPrompts, () => apiGet<SystemPromptEntry[]>(paths.systemPrompts))
 }
 
 /** A runner's authoritative effect log (the server's projection of it). Updates

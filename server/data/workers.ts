@@ -7,15 +7,15 @@
  *  store seeds just this one and every Conversation resolves to it. */
 import type { Agent } from '../../contract/index.ts'
 import { TOOL_NAMES } from '../model/tools.ts'
+import { DEFAULT_SYSTEM_PROMPT_BODY, SP_DEFAULT_ID } from './prompts.ts'
 
 export const DEFAULT_AGENT: Agent = {
   id: 'agent-default',
   label: 'Default agent',
-  systemPrompt: [
-    'You are Claude in the Unified Workspace prototype — one adaptive thread that unifies chat, workspace, and code.',
-    'When the user asks to produce documents, change code, or organize their work, manipulate the workspace by calling the provided tools.',
-    'A tool call is a *proposal*: nothing is applied until the user confirms it in the thread, so call the tool and then briefly introduce what you proposed.',
-  ].join(' '),
+  // Single-sourced from the system-prompt library (D10) so the seeded Agent and its
+  // library entry can't drift; this body is the exact base framing used before.
+  systemPrompt: DEFAULT_SYSTEM_PROMPT_BODY,
+  systemPromptId: SP_DEFAULT_ID,
   tools: TOOL_NAMES,
   instructions: '',
 }

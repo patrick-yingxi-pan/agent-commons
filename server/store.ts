@@ -62,8 +62,9 @@ import { connectorDetail } from './data/connectorDetails.ts'
 import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
 import { createUsageMeter, estimateTokens, mintBudget } from './usage.ts'
 import { contextBreakdown } from '../contract/index.ts'
-import type { Agent, ModelProvider } from '../contract/index.ts'
+import type { Agent, ModelProvider, SystemPromptEntry } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, type ProviderConfig } from './data/providers.ts'
+import { SYSTEM_PROMPTS } from './data/prompts.ts'
 import { TOOL_DEFINITIONS } from './model/tools.ts'
 import { systemPrompt } from './generate.ts'
 import { RunnerRegistry } from './registry.ts'
@@ -138,6 +139,12 @@ const MODEL_PROVIDERS = new Map<string, ModelProvider>([[DEFAULT_PROVIDER.id, DE
 const PROVIDER_CONFIGS = new Map<string, ProviderConfig>([[DEFAULT_PROVIDER.id, DEFAULT_PROVIDER_CONFIG]])
 const resolveProvider = (id?: string): ModelProvider => MODEL_PROVIDERS.get(id ?? '') ?? DEFAULT_PROVIDER
 let providerSeq = 0
+
+// The system-prompt library (docs/agent-commons.md, D10) — reusable, target-family-
+// tagged prompts a user picks for an Agent. Seeded; the (prompt × provider) fit check
+// is the pure `promptFitWarning` (contract), surfaced in the picker at selection.
+const SYSTEM_PROMPT_LIB = new Map<string, SystemPromptEntry>(SYSTEM_PROMPTS.map((p) => [p.id, p]))
+let systemPromptSeq = 0
 
 // Per-user recents — one non-evicting MRU id list per context type. Connectors /
 // MCP seed from the connected accounts (their quick list shows every set-up
@@ -538,6 +545,25 @@ export const store = {
     MODEL_PROVIDERS.set(provider.id, provider)
     PROVIDER_CONFIGS.set(provider.id, config)
     return provider
+  },
+
+  // ── System-prompt library (docs/agent-commons.md, D10) ──
+  /** The reusable, target-family-tagged system prompts a user picks for an Agent. */
+  listSystemPrompts(): SystemPromptEntry[] {
+    return [...SYSTEM_PROMPT_LIB.values()]
+  },
+  /** Resolve one library entry by id (undefined when unknown — unlike provider/agent
+   *  there is no "default prompt to fall back to" at this seam; the caller decides). */
+  getSystemPrompt(id?: string): SystemPromptEntry | undefined {
+    return id ? SYSTEM_PROMPT_LIB.get(id) : undefined
+  },
+  /** Add a prompt to the library. A plain registry add (prompt text is not a
+   *  capability, so there is no attenuation funnel here — the fit *warning* is the
+   *  selection-time check, `promptFitWarning`, surfaced in the picker). */
+  createSystemPrompt(input: Omit<SystemPromptEntry, 'id'>): SystemPromptEntry {
+    const entry: SystemPromptEntry = { ...input, id: `sp-new-${(systemPromptSeq += 1)}` }
+    SYSTEM_PROMPT_LIB.set(entry.id, entry)
+    return entry
   },
 
   /** Append a message to a session's thread — the write that makes "send" real.

@@ -13,10 +13,11 @@
 > and the multi-tenant surface above it is now being built out (slices 5+).** Built:
 > the **D6 rename** (1a/1b — the host-bound type is `Runner` in code, wire and all),
 > a seeded worker `Agent` per Conversation (2), the **D8 budget funnel** (3), one
-> **guarded Project** (4), and the **Model-provider registry** (5 — the cascade root
-> is now a first-class node). Still forward: a system-prompt library, `Commission`s,
-> cross-user attenuation/isolation, and multi-principal coordination. Outside what's
-> built the prototype is still the *degenerate N=1 case* (one user, no commissions).
+> **guarded Project** (4), the **Model-provider registry** (5 — the cascade root is
+> now a first-class node), and the **system-prompt library** (6 — D10, with the
+> selection-time fit warning). Still forward: `Commission`s, cross-user
+> attenuation/isolation, and multi-principal coordination. Outside what's built the
+> prototype is still the *degenerate N=1 case* (one user, no commissions).
 >
 > **This doc renames the broker doc's "native agent" to "Runner"** (decision D6).
 > Slice 1a has applied the **TypeScript half** of that rename in code — the `Agent`
@@ -815,8 +816,19 @@ session↔context binding, mediation handle, and single-resource escrow).
   default provider declares none, so the env default still governs. Read on the wire via
   `GET /providers`; the composer's `ProvidersControl` shows the registry (the same
   ambient-gauge primitive as `HostsControl`). typecheck + 284 tests green.
-- **What remains forward** is the rest of the multi-tenant surface: the **system-prompt
-  library** (D10), the **`Commission`** (the agent→Project assignment + its grant tier,
-  D7/D13), **cross-user authority attenuation + isolation** (D8/D12), and
-  **multi-principal coordination** at the Guardian (D11). Outside what's built the
-  prototype is still the degenerate N=1 case: one user, no commissions.
+- **Slice 6 — the system-prompt library (D10). ✅ Built.** `contract/prompts.ts`
+  defines `SystemPromptEntry { id, label, body, targetFamily }` + the pure
+  `promptFitWarning` (the (prompt × provider) compatibility check, shared like
+  `overBudgetWindow`). The library is seeded (`server/data/prompts.ts`) and **owns the
+  canonical default prompt body** — the default Agent imports it (`Agent.systemPromptId`
+  → `sp-default`), so the seeded Agent and its entry can't drift. A seeded
+  open-weights-family entry makes the warning tangible. Read on the wire via
+  `GET /system-prompts`; the **fit warning is surfaced at selection time** in the
+  Customize page's "Agent system prompt" picker (`SystemPromptCard`) — non-blocking, the
+  amber downgrade note when a prompt's family ≠ the provider's. typecheck + 289 tests
+  green; verified live.
+- **What remains forward** is the rest of the multi-tenant surface: the **`Commission`**
+  (the agent→Project assignment + its grant tier, D7/D13), **cross-user authority
+  attenuation + isolation** (D8/D12), and **multi-principal coordination** at the
+  Guardian (D11). Outside what's built the prototype is still the degenerate N=1 case:
+  one user, no commissions.
