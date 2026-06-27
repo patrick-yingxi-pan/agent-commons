@@ -41,8 +41,9 @@ test('the dismissable consumers source their dismiss behaviour from the shared h
   // menus (which keep their own panel stopPropagation), and the Customize cards —
   // each must import and call the hook rather than re-derive the effect.
   const consumers = [
-    'src/components/HostsControl.tsx',
-    'src/components/ProvidersControl.tsx',
+    // Hosts + Providers get dismiss transitively via GaugePopover (the shared
+    // ambient-gauge shell), so the hook is sourced there, not in each gauge.
+    'src/components/GaugePopover.tsx',
     'src/components/ModelEffortControl.tsx',
     'src/components/UsageControl.tsx',
     'src/components/AudioInputControl.tsx',

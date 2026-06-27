@@ -1,7 +1,6 @@
-import { useState } from 'react'
 import { Cpu } from 'lucide-react'
 import { useProviders } from '../api'
-import { useDismissable } from '../lib/useDismissable'
+import { GaugePopover } from './GaugePopover'
 import { formatTokens } from '../../contract/index.ts'
 import type { Authority, ModelProvider } from '../../contract/index.ts'
 
@@ -20,54 +19,36 @@ function authorityLabel(a?: Authority): string {
  *  styled primitive — same role, same look). Reads the live registry
  *  (`GET /v1/providers`). */
 export function ProvidersControl() {
-  const [open, setOpen] = useState(false)
-  const wrapRef = useDismissable<HTMLDivElement>(open, () => setOpen(false))
   // Server-owned: the UI just caches the registry snapshot.
   const providers = useProviders().data ?? []
 
-  const title = `Model providers — ${providers.length} registered`
-
   return (
-    <div ref={wrapRef} className="relative">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        title={title}
-        aria-label={title}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        className={`flex h-7 items-center gap-1 rounded-lg px-1.5 transition ${
-          open ? 'bg-panel-2' : 'hover:bg-panel-2'
-        }`}
-      >
-        <Cpu size={15} className="text-ink-faint" />
-        <span className="text-[12px] tabular-nums text-ink-faint">{providers.length}</span>
-      </button>
+    <GaugePopover
+      icon={<Cpu size={15} className="text-ink-faint" />}
+      count={providers.length}
+      title={`Model providers — ${providers.length} registered`}
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-[12px] text-ink-faint">Model providers</span>
+        <span className="text-[12px] text-ink">{providers.length} registered</span>
+      </div>
 
-      {open && (
-        <div className="absolute bottom-full right-0 z-20 mb-2 w-[300px] rounded-xl border border-line-strong bg-surface p-3 shadow-xl">
-          <div className="flex items-center justify-between">
-            <span className="text-[12px] text-ink-faint">Model providers</span>
-            <span className="text-[12px] text-ink">{providers.length} registered</span>
-          </div>
-
-          <div className="mt-2.5 space-y-2.5">
-            {providers.length === 0 && (
-              <p className="text-[12px] leading-snug text-ink-faint">
-                No providers registered. A cognition source an Agent can run on appears here with
-                the effort levels and plan it offers.
-              </p>
-            )}
-            {providers.map((p) => (
-              <ProviderRow key={p.id} provider={p} />
-            ))}
-          </div>
-
-          <p className="mt-3 border-t border-line pt-2.5 text-[11px] leading-tight text-ink-faint">
-            An Agent's cognition source — referenced by id, never attached as context.
+      <div className="mt-2.5 space-y-2.5">
+        {providers.length === 0 && (
+          <p className="text-[12px] leading-snug text-ink-faint">
+            No providers registered. A cognition source an Agent can run on appears here with
+            the effort levels and plan it offers.
           </p>
-        </div>
-      )}
-    </div>
+        )}
+        {providers.map((p) => (
+          <ProviderRow key={p.id} provider={p} />
+        ))}
+      </div>
+
+      <p className="mt-3 border-t border-line pt-2.5 text-[11px] leading-tight text-ink-faint">
+        An Agent's cognition source — referenced by id, never attached as context.
+      </p>
+    </GaugePopover>
   )
 }
 

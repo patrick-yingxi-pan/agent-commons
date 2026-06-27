@@ -1,7 +1,6 @@
-import { useState } from 'react'
 import { Server } from 'lucide-react'
 import { useRunners } from '../api'
-import { useDismissable } from '../lib/useDismissable'
+import { GaugePopover } from './GaugePopover'
 import type { Runner } from '../../contract/index.ts'
 
 /* Online/offline dot. A durable runner that disconnected stays listed (D4) but
@@ -21,55 +20,37 @@ const CAP_LABEL: Record<string, string> = {
  *  gauge, always present, never inside the Add-context menu. It reads the live
  *  registry (`GET /v1/runners`); the `runner.*` events keep it fresh. */
 export function HostsControl() {
-  const [open, setOpen] = useState(false)
-  const wrapRef = useDismissable<HTMLDivElement>(open, () => setOpen(false))
   // Server-owned: the UI just caches the registry snapshot.
   const runners = useRunners().data ?? []
   const online = runners.filter((a) => a.status === 'online')
 
-  const title = `Hosts — ${online.length} connected`
-
   return (
-    <div ref={wrapRef} className="relative">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        title={title}
-        aria-label={title}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        className={`flex h-7 items-center gap-1 rounded-lg px-1.5 transition ${
-          open ? 'bg-panel-2' : 'hover:bg-panel-2'
-        }`}
-      >
-        <Server size={15} className="text-ink-faint" />
-        <span className="text-[12px] tabular-nums text-ink-faint">{online.length}</span>
-      </button>
+    <GaugePopover
+      icon={<Server size={15} className="text-ink-faint" />}
+      count={online.length}
+      title={`Hosts — ${online.length} connected`}
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-[12px] text-ink-faint">Connected hosts</span>
+        <span className="text-[12px] text-ink">{online.length} online</span>
+      </div>
 
-      {open && (
-        <div className="absolute bottom-full right-0 z-20 mb-2 w-[300px] rounded-xl border border-line-strong bg-surface p-3 shadow-xl">
-          <div className="flex items-center justify-between">
-            <span className="text-[12px] text-ink-faint">Connected hosts</span>
-            <span className="text-[12px] text-ink">{online.length} online</span>
-          </div>
-
-          <div className="mt-2.5 space-y-2.5">
-            {runners.length === 0 && (
-              <p className="text-[12px] leading-snug text-ink-faint">
-                No runners connected. A desktop helper running on a host appears here with the
-                capabilities it offers.
-              </p>
-            )}
-            {runners.map((a) => (
-              <RunnerRow key={a.id} runner={a} />
-            ))}
-          </div>
-
-          <p className="mt-3 border-t border-line pt-2.5 text-[11px] leading-tight text-ink-faint">
-            Hosts are where work can run — referenced by name, not attached as context.
+      <div className="mt-2.5 space-y-2.5">
+        {runners.length === 0 && (
+          <p className="text-[12px] leading-snug text-ink-faint">
+            No runners connected. A desktop helper running on a host appears here with the
+            capabilities it offers.
           </p>
-        </div>
-      )}
-    </div>
+        )}
+        {runners.map((a) => (
+          <RunnerRow key={a.id} runner={a} />
+        ))}
+      </div>
+
+      <p className="mt-3 border-t border-line pt-2.5 text-[11px] leading-tight text-ink-faint">
+        Hosts are where work can run — referenced by name, not attached as context.
+      </p>
+    </GaugePopover>
   )
 }
 
