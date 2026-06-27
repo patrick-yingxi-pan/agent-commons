@@ -29,6 +29,8 @@ import {
   createSession,
   deleteSession as deleteSessionCmd,
   detachContext,
+  invalidate,
+  keys,
   loadSession,
   patchSession,
   persistWorkspace,
@@ -379,6 +381,8 @@ export function useSessionWorkspace() {
             if (stale()) return
             setLive((l) => ({ ...l, messages: l.messages.map((m) => (m.id === message.id ? { ...m, ...message } : m)) }))
             setTyping(false)
+            // The turn consumed real tokens — refresh the usage gauge.
+            invalidate(keys.usage(DEMO_SESSION_ID))
             // Escalation beats stay busy until the consent prompt is resolved.
             if (!escalated) setBusy(false)
           },
@@ -543,6 +547,9 @@ export function useSessionWorkspace() {
           setLive((l) => ({ ...l, messages: l.messages.map((m) => (m.id === message.id ? message : m)) }))
           setTyping(false)
           setBusy(false)
+          // The turn consumed real tokens, and a persisted turn grew the thread's
+          // context — refresh the usage gauge for this session.
+          invalidate(keys.usage(sid))
         },
       }).catch(() => {
         if (stale()) return

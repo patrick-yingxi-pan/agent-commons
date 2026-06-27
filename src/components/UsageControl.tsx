@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { ArrowRight, ChevronRight } from 'lucide-react'
 import { useUsage } from '../api'
-import type { UsageSnapshot } from '../../contract/index.ts'
+import { contextUsage, type UsageSnapshot } from '../../contract/index.ts'
 
 /* Shown until the server's usage snapshot loads — a zeroed gauge rather than a
    flash of a missing icon. The real figures arrive from `GET /v1/usage`, after
@@ -23,13 +23,21 @@ function waterColor(pct: number): string {
 }
 
 /** Usage button: a three-ring water gauge (context · 5-hour · weekly) that
- *  opens a usage popup with the per-window detail. */
-export function UsageControl() {
+ *  opens a usage popup with the per-window detail.
+ *
+ *  The plan rings (5-hour, weekly) are the server's real meter, keyed to the open
+ *  session. The context disc is the *live* size of the open thread: when the
+ *  composer passes `contextTokens` (the baseline + the messages currently loaded),
+ *  the disc reflects it immediately — so it fills as you chat — overriding the
+ *  server's persisted-only context figure. */
+export function UsageControl({ sessionId, contextTokens }: { sessionId?: string; contextTokens?: number }) {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
   // Server-owned: the UI just caches the snapshot. EMPTY_USAGE covers the first
-  // paint before the fetch resolves.
-  const usage = useUsage().data ?? EMPTY_USAGE
+  // paint before the fetch resolves. The live context overrides the snapshot's.
+  const snapshot = useUsage(sessionId).data ?? EMPTY_USAGE
+  const usage: UsageSnapshot =
+    contextTokens === undefined ? snapshot : { ...snapshot, context: contextUsage(contextTokens) }
 
   useEffect(() => {
     if (!open) return

@@ -379,7 +379,7 @@ export function buildRouter(): Router {
 
     let messageId = ''
     try {
-      const message = await generateReply(
+      const { message, usage } = await generateReply(
         session,
         text ?? '',
         {
@@ -393,6 +393,9 @@ export function buildRouter(): Router {
         },
         ac.signal,
       )
+      // Meter the real tokens this turn consumed (even ephemeral tour turns —
+      // they hit the model too), so the composer's plan-usage rings reflect use.
+      store.recordUsage(usage.inputTokens, usage.outputTokens)
       if (message.relationActions?.length) {
         channel.send({
           type: 'message.relations',
@@ -463,8 +466,8 @@ export function buildRouter(): Router {
   })
 
   // ── Usage (composer gauge: context window + plan limit windows) ────────────
-  r.get('/usage', ({ res }) => {
-    sendJson(res, store.usage())
+  r.get('/usage', ({ res, url }) => {
+    sendJson(res, store.usage(url.searchParams.get('session') ?? undefined))
   })
 
   // ── Artifact bodies + schedule templates ──────────────────────────────────

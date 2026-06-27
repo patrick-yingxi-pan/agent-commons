@@ -42,7 +42,7 @@ function collect() {
 
 test('a workspace turn streams prose AND yields a workspace escalation (the tool ran)', async () => {
   const c = collect()
-  const msg = await generateReply(
+  const { message: msg } = await generateReply(
     session,
     'Yes — turn that into a one-pager and a launch email, plus a hero image. Pull from our brand kit and the last launch’s assets so it stays on-brand.',
     c.handlers,
@@ -56,7 +56,7 @@ test('a workspace turn streams prose AND yields a workspace escalation (the tool
 
 test('a relation-op turn yields the relation proposal (save-artifact)', async () => {
   const c = collect()
-  const msg = await generateReply(session, 'Save the recap of this as launch-recap.md and file it under the project.', c.handlers)
+  const { message: msg } = await generateReply(session, 'Save the recap of this as launch-recap.md and file it under the project.', c.handlers)
   assert.equal(msg.escalation, undefined)
   assert.ok(msg.relationActions && msg.relationActions[0].kind === 'save-artifact')
   assert.ok(c.text.length > 0)
@@ -64,15 +64,22 @@ test('a relation-op turn yields the relation proposal (save-artifact)', async ()
 
 test('a project turn yields a project escalation (create_project, unfiled for the tour)', async () => {
   const c = collect()
-  const msg = await generateReply(session, 'This is becoming a real effort. Can you give it a home of its own?', c.handlers)
+  const { message: msg } = await generateReply(session, 'This is becoming a real effort. Can you give it a home of its own?', c.handlers)
   assert.equal(msg.escalation?.kind, 'project')
   assert.ok(msg.escalation?.kind === 'project' && msg.escalation.fileSession === false)
 })
 
 test('a plain-chat turn yields prose only — no escalation, no relations', async () => {
   const c = collect()
-  const msg = await generateReply(session, 'We ship the new Insights dashboard next week. Help me think through the launch.', c.handlers)
+  const { message: msg } = await generateReply(session, 'We ship the new Insights dashboard next week. Help me think through the launch.', c.handlers)
   assert.equal(msg.escalation, undefined)
   assert.equal(msg.relationActions, undefined)
   assert.ok(msg.content.length > 0)
+})
+
+test('a turn reports the real token usage it consumed (fed to the meter)', async () => {
+  const c = collect()
+  const { usage } = await generateReply(session, 'We ship the new Insights dashboard next week. Help me think through the launch.', c.handlers)
+  assert.ok(usage.inputTokens > 0, 'input tokens metered')
+  assert.ok(usage.outputTokens > 0, 'output tokens metered')
 })

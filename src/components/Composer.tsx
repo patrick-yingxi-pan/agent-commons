@@ -73,6 +73,8 @@ export function Composer({
   onOpenContext,
   onRemoveContexts,
   onRemoveFolder,
+  sessionId,
+  contextTokens,
 }: {
   workspaces: Workspace[]
   repos: Repo[]
@@ -81,6 +83,11 @@ export function Composer({
   focus: PanelFocus | null
   /** Locks free-typing — used while the guided tour is auto-playing. */
   disabled?: boolean
+  /** The open session, so the usage gauge's plan rings track this thread. */
+  sessionId?: string
+  /** Live context size of the open thread (baseline + loaded messages), so the
+   *  usage gauge's context disc fills in real time as the conversation grows. */
+  contextTokens?: number
   onSend: (text: string) => void
   onAddContext: (ctx: AddedContext) => void
   onOpenContext: (focus: PanelFocus) => void
@@ -362,7 +369,7 @@ export function Composer({
           <div className="flex items-center gap-1.5">
             <ModelEffortControl />
             <HostsControl />
-            <UsageControl />
+            <UsageControl sessionId={sessionId} contextTokens={contextTokens} />
           </div>
         </div>
 

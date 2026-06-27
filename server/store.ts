@@ -60,7 +60,7 @@ import {
 import { SAVED_CONTEXTS, CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from './data/savedContexts.ts'
 import { connectorDetail } from './data/connectorDetails.ts'
 import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
-import { USAGE } from './data/usage.ts'
+import { createUsageMeter, estimateTokens, SYSTEM_BASELINE } from './usage.ts'
 import { AgentRegistry } from './registry.ts'
 import { AgentJournal } from './journal.ts'
 import { ResourceGuardian } from './guardian.ts'
@@ -106,6 +106,12 @@ let dispatchSeq = 0
 // on first send), so the backend mints these — the client no longer fabricates them.
 let sessionSeq = 0
 let messageSeq = 0
+
+// The plan-usage meter (5-hour / weekly windows). Accumulates the model's real
+// token usage from every turn (store.recordUsage); the context-window figure is
+// computed per session in store.usage. Not persisted — usage windows are a live,
+// rolling meter, reseeded on restart (mock semantics).
+const usageMeter = createUsageMeter(() => Date.now())
 
 // Per-user recents — one non-evicting MRU id list per context type. Connectors /
 // MCP seed from the connected accounts (their quick list shows every set-up
@@ -589,10 +595,21 @@ export const store = {
   },
 
   // ── Usage (the composer gauge: context window + plan limit windows) ──
-  /** The usage snapshot the composer gauge renders. Mock: a fixture; a real
-   *  backend reads the account's live meter + the open session's context fill. */
-  usage(): UsageSnapshot {
-    return USAGE
+  /** Record one turn's real token usage (from the model's Messages response)
+   *  against the rolling plan windows. Called by the message route after every
+   *  turn — including the tour's ephemeral ones, since they consume real tokens. */
+  recordUsage(inputTokens: number, outputTokens: number): void {
+    usageMeter.record(inputTokens, outputTokens)
+  },
+  /** The usage snapshot the composer gauge renders: the open session's real
+   *  context-window fill (system+tools baseline + an estimate of every message in
+   *  the thread) plus the live plan windows. `sessionId` selects which thread the
+   *  context figure reflects; omitted = baseline only. */
+  usage(sessionId?: string): UsageSnapshot {
+    let contextTokens = SYSTEM_BASELINE
+    const session = sessionId ? SESSIONS.find((s) => s.id === sessionId) : undefined
+    for (const m of session?.messages ?? []) contextTokens += estimateTokens(m.content)
+    return usageMeter.snapshot(contextTokens)
   },
 
   // ── Schedule templates (the "New schedule" starters) ──

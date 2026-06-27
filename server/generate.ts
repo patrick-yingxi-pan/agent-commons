@@ -50,6 +50,19 @@ export interface ReplyHandlers {
   onDelta: (text: string) => void
 }
 
+/** A turn's real token usage, summed across the tool-use loop's model calls — fed
+ *  to the usage meter so the composer gauge reflects actual consumption. */
+export interface TurnUsage {
+  inputTokens: number
+  outputTokens: number
+}
+
+/** The result of a turn: the assistant message plus the tokens it consumed. */
+export interface ReplyResult {
+  message: Message
+  usage: TurnUsage
+}
+
 /** The system prompt the backend sends — the same framing a real Claude reads.
  *  It describes the tool interface and the consent rule (a tool call *proposes*;
  *  the user confirms before anything is applied). */
@@ -74,13 +87,18 @@ export async function generateReply(
   text: string,
   handlers: ReplyHandlers,
   signal?: AbortSignal,
-): Promise<Message> {
+): Promise<ReplyResult> {
   const ctx: ToolContext = { session: { id: session.id, title: session.title } }
   const system = systemPrompt(session)
   const userContent = text.trim() || '(the user sent an empty message)'
 
   let assistantId = ''
   let fullText = ''
+  const usage: TurnUsage = { inputTokens: 0, outputTokens: 0 }
+  const addUsage = (u?: { input_tokens?: number; output_tokens?: number }) => {
+    usage.inputTokens += u?.input_tokens ?? 0
+    usage.outputTokens += u?.output_tokens ?? 0
+  }
   const onStartOnce = (id: string) => {
     if (assistantId) return
     assistantId = id
@@ -102,10 +120,11 @@ export async function generateReply(
     })
     const first = await stream1.finalMessage()
     onStartOnce(first.id) // safety net if message_start was missed
+    addUsage(first.usage)
 
     const toolUses = first.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
     if (toolUses.length === 0) {
-      return { id: assistantId, role: 'assistant', content: fullText }
+      return { message: { id: assistantId, role: 'assistant', content: fullText }, usage }
     }
 
     // ── Execute the tool calls — build the consent-gated proposals ───────────
@@ -137,14 +156,18 @@ export async function generateReply(
       fullText += delta
       handlers.onDelta(delta)
     })
-    await stream2.finalMessage()
+    const second = await stream2.finalMessage()
+    addUsage(second.usage)
 
     return {
-      id: assistantId,
-      role: 'assistant',
-      content: fullText,
-      relationActions: relationOps.length ? relationOps : undefined,
-      escalation,
+      message: {
+        id: assistantId,
+        role: 'assistant',
+        content: fullText,
+        relationActions: relationOps.length ? relationOps : undefined,
+        escalation,
+      },
+      usage,
     }
   } catch (err) {
     if (signal?.aborted) throw err // the client went away — let the route stop quietly
@@ -152,12 +175,13 @@ export async function generateReply(
   }
 }
 
-/** Streamed locally when the model endpoint can't be reached. */
-function fallbackReply(existingId: string, handlers: ReplyHandlers): Message {
+/** Streamed locally when the model endpoint can't be reached. No real tokens were
+ *  consumed, so the usage is zero. */
+function fallbackReply(existingId: string, handlers: ReplyHandlers): ReplyResult {
   const id = existingId || `msg_fallback_${Date.now().toString(36)}`
   if (!existingId) handlers.onStart(id)
   const content =
     'I couldn’t reach the model endpoint just now — in this prototype the backend streams replies from a local Anthropic-compatible mock server. Please try again in a moment.'
   for (const c of chunkText(content)) handlers.onDelta(c)
-  return { id, role: 'assistant', content }
+  return { message: { id, role: 'assistant', content }, usage: { inputTokens: 0, outputTokens: 0 } }
 }

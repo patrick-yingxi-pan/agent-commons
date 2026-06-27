@@ -92,9 +92,11 @@ export function useConnectorDetail(connector: Connector): QueryState<ConnectorDe
   )
 }
 
-/** The composer's usage snapshot (context window + plan limit windows). */
-export function useUsage(): QueryState<UsageSnapshot> {
-  return useQuery(keys.usage, () => apiGet<UsageSnapshot>(paths.usage))
+/** The composer's usage snapshot (context window + plan limit windows). Keyed to
+ *  the open session so the context-window figure reflects that thread; the plan
+ *  windows are account-global but ride along in the same snapshot. */
+export function useUsage(sessionId?: string): QueryState<UsageSnapshot> {
+  return useQuery(keys.usage(sessionId), () => apiGet<UsageSnapshot>(paths.usage(sessionId)))
 }
 
 /** The artifact-body library, keyed by file name. */

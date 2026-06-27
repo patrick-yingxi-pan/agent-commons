@@ -14,7 +14,8 @@ export const keys = {
   dispatch: 'dispatch',
   savedContexts: 'saved-contexts',
   connectorDetail: (id: string) => `connector-detail:${id}`,
-  usage: 'usage',
+  /** Keyed per session so the context-window figure tracks the open thread. */
+  usage: (sessionId?: string) => (sessionId ? `usage:${sessionId}` : 'usage'),
   artifactContent: 'artifact-content',
   scheduleTemplates: 'schedule-templates',
   projects: 'projects',
@@ -54,7 +55,7 @@ export const paths = {
     if (c.kind) q.set('kind', c.kind)
     return `/connectors/detail?${q.toString()}`
   },
-  usage: '/usage',
+  usage: (sessionId?: string) => (sessionId ? `/usage?session=${encodeURIComponent(sessionId)}` : '/usage'),
   artifactContent: '/artifact-content',
   scheduleTemplates: '/schedule-templates',
   projects: '/projects',

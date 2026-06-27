@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { CalendarClock, Folder, PanelLeft } from 'lucide-react'
 import { Sidebar } from './components/Sidebar'
@@ -15,6 +15,7 @@ import { TourPermissionPrompt } from './components/TourPermissionPrompt'
 import { ProposalBar } from './components/ProposalBar'
 import { SearchPanel } from './components/SearchPanel'
 import { useSessions, useServerEvents } from './api'
+import { SYSTEM_BASELINE, estimateTokens } from '../contract/index.ts'
 import { useSessionWorkspace } from './controller/useSessionWorkspace'
 import { useLayout } from './controller/useLayout'
 import { RelationsProvider, useRelations } from './controller/useRelations'
@@ -105,6 +106,14 @@ export default function App() {
   // A scheduled routine's run *is* a session — the backend tags it with the
   // routine it belongs to, which is what the run-switcher panel keys off.
   const isRunSession = !!activeSession.scheduledRunOf
+
+  // The live context-window size of the open thread — the fixed system+tools
+  // baseline plus every message currently loaded — so the composer's usage disc
+  // fills in real time as the conversation grows (the tour's turns included).
+  const contextTokens = useMemo(
+    () => SYSTEM_BASELINE + live.messages.reduce((n, m) => n + estimateTokens(m.content), 0),
+    [live.messages],
+  )
 
   // Bridges the relations store needs: attaching a context to the live session
   // (for the AI's `attach-context` op) and the "View in …" deep-link nav.
@@ -264,6 +273,8 @@ export default function App() {
                     </div>
 
                     <Composer
+                      sessionId={activeId}
+                      contextTokens={contextTokens}
                       workspaces={live.workspaces}
                       repos={live.repos}
                       connectors={live.connectors}
