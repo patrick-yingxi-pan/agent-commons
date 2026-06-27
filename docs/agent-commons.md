@@ -16,9 +16,10 @@
 > face), one **guarded Project** (4), the **Model-provider registry** (5 — the cascade
 > root is now a first-class node), the **system-prompt library** (6 — D10, with the
 > selection-time fit warning), **authority attenuation** (7 — the D8 *primary* face:
-> tools/connectors/scopes, *provider ⊇ agent* at the funnel), and the **`Commission`
-> backend** (8 — D7/D13, the leaf funnel *commission ⊆ agent ⊆ provider*). Still
-> forward: the Commission UI, cross-user isolation (D12), and multi-principal coordination.
+> tools/connectors/scopes, *provider ⊇ agent* at the funnel), and the **`Commission`**
+> (8 — D7/D13, the leaf funnel *commission ⊆ agent ⊆ provider*, with a Project's
+> Contributor list + a commission picker). Still forward: cross-user isolation (D12)
+> and multi-principal coordination (D11).
 > Outside what's built the prototype is still the *degenerate N=1 case* (one user, no
 > commissions).
 >
@@ -854,10 +855,18 @@ session↔context binding, mediation handle, and single-resource escrow).
   404). typecheck + 299 tests green; verified live via the API. *Known limitation:* the
   token-face parent is a single tier, not a per-window merge, so a commission tightening
   an Agent's *inherited* window is over-rejected (safe; unreachable with current full-window
-  seeds — fix spans the slice-3 agent funnel). The **client + UI** (a commission flow + a
-  Project's Contributor list) are deferred to land on the consolidated tree after the
-  in-flight `useDismissable` consolidation.
-- **What remains forward**: the **Commission UI** (commission flow + Contributor list),
-  **cross-user isolation** (D12 — a commissioned Agent sees the Project's authority, not
-  its owner's ambient set), and **multi-principal coordination** at the Guardian (D11).
-  Outside what's built the prototype is still the degenerate N=1 case: one user.
+  seeds — fix spans the slice-3 agent funnel).
+- **Slice 8 UI — the Contributor list + commission flow. ✅ Built.** A worker-Agent
+  read route (`GET /agents` — the bare word reclaimed from the host type by the D6
+  rename), `useAgents` / `useCommissions(projectId)` hooks, and a `createCommission`
+  command (POST → invalidate the Project's commission cache). The Project detail grows a
+  **Contributors** panel (`ContributorsPanel`): it lists the Project's commissions
+  (resolving each Agent's label) and offers a picker (`CommissionAdd`, the shared
+  inline-add primitive) that commissions an available Agent — filtering out those already
+  contributing. The UI only ever creates *inheriting* commissions, so the server funnel's
+  attenuation is never bypassed. typecheck + 305 tests green; verified live (seeded
+  Contributor renders, picker filters, a new commission persists + the list refreshes).
+- **What remains forward**: **cross-user isolation** (D12 — a commissioned Agent sees the
+  Project's authority, not its owner's ambient set), and **multi-principal coordination**
+  at the Guardian (D11). Outside what's built the prototype is still the degenerate N=1
+  case: one user.

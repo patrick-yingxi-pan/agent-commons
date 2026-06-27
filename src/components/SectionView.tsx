@@ -14,6 +14,7 @@ import {
   ChevronUp,
   Clock,
   Copy,
+  Cpu,
   FileText,
   Folder,
   FolderGit2,
@@ -96,6 +97,9 @@ import {
   setConnectorStatus,
   toggleScheduleEnabled,
   updateSchedule,
+  createCommission,
+  useAgents,
+  useCommissions,
   useDispatchRuns,
   useProviders,
   useSavedContexts,
@@ -104,7 +108,7 @@ import {
   useSessions,
   useSystemPrompts,
 } from '../api'
-import { promptFitWarning } from '../../contract/index.ts'
+import { promptFitWarning, type Agent, type Commission } from '../../contract/index.ts'
 import { ArtifactThumb, ArtifactViewer, KIND_ICON, KIND_LABEL } from './artifactPreview'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { useDismissable } from '../lib/useDismissable'
@@ -585,6 +589,8 @@ function ProjectDetail({
         <aside className="w-full shrink-0 space-y-4 lg:w-72">
           <ProjectInstructions project={project} />
 
+          <ContributorsPanel project={project} />
+
           <SidePanel title="Scheduled" icon={<Clock size={14} />}>
             {!hasSchedules ? (
               <p className="text-[12px] text-ink-faint">No scheduled runs yet.</p>
@@ -911,6 +917,116 @@ function ProjectScheduleAdd({
                 )
               })}
             </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** The project's "Contributors" card (docs/agent-commons.md, D7/D13) — the Agents
+ *  commissioned onto it. Reads the Project's commissions + the worker-Agent registry
+ *  (to resolve each Contributor's label), and offers a picker to commission another
+ *  Agent. A commission is the leaf of the D8 cascade; the server funnel rejects an
+ *  over-grant, so the picker only ever creates valid (inheriting) commissions here. */
+function ContributorsPanel({ project }: { project: Project }) {
+  const commissions = useCommissions(project.id).data ?? []
+  const agents = useAgents().data ?? []
+  const agentsById = new Map(agents.map((a) => [a.id, a]))
+  const commissionedIds = new Set(commissions.map((c) => c.agentId))
+  const available = agents.filter((a) => !commissionedIds.has(a.id))
+
+  return (
+    <SidePanel title="Contributors" icon={<Cpu size={14} />}>
+      {commissions.length === 0 ? (
+        <p className="text-[12px] text-ink-faint">No agents commissioned yet.</p>
+      ) : (
+        <div className="space-y-2.5">
+          {commissions.map((c) => (
+            <ContributorRow key={c.id} commission={c} agentLabel={agentsById.get(c.agentId)?.label ?? c.agentId} />
+          ))}
+        </div>
+      )}
+      <CommissionAdd projectId={project.id} available={available} />
+    </SidePanel>
+  )
+}
+
+/** One Contributor row — the Agent's label + what the commission carries onto the
+ *  Project (its own scoped grant, or the Agent's by inheritance — D8/D12). */
+function ContributorRow({ commission, agentLabel }: { commission: Commission; agentLabel: string }) {
+  const scoped = !!commission.authority || !!commission.grant
+  return (
+    <div className="flex items-start gap-2.5">
+      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+      <div className="min-w-0">
+        <div className="text-[13px] font-medium text-ink">{agentLabel}</div>
+        <div className="text-[11px] text-ink-faint">
+          {scoped ? 'Scoped grant on this project' : "Inherits the agent's grant"}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** The "Commission an agent" picker — the inline-add primitive (AddTrigger), listing
+ *  the Agents not already contributing. Picking one POSTs a commission (inheriting the
+ *  Agent's grant) and the panel refreshes via the commissions cache. */
+function CommissionAdd({ projectId, available }: { projectId: string; available: Agent[] }) {
+  const [open, setOpen] = useState(false)
+  const ref = useDismissable<HTMLDivElement>(open, () => setOpen(false))
+  const [pending, setPending] = useState<string | null>(null)
+
+  const commission = async (agent: Agent) => {
+    setPending(agent.id)
+    try {
+      await createCommission({ agentId: agent.id, projectId })
+      setOpen(false)
+    } catch {
+      // The server funnel rejects an over-grant / unknown id; the picker only ever
+      // creates *inheriting* commissions (no scoped grant), so this is unreachable
+      // today. Handle it anyway — keep the picker open so a retry is possible, and
+      // don't leak an unhandled rejection. (A scoped-commission UI would surface the
+      // error here.)
+    } finally {
+      setPending(null)
+    }
+  }
+
+  return (
+    <div ref={ref} className="relative mt-2.5 border-t border-line pt-2.5">
+      <AddTrigger label="Commission an agent" open={open} onClick={() => setOpen((o) => !o)} />
+
+      {open && (
+        <div
+          role="dialog"
+          aria-label="Commission an agent"
+          className="absolute right-0 top-full z-30 mt-1.5 w-[280px] rounded-xl border border-line-strong bg-surface p-2 shadow-xl"
+        >
+          {available.length === 0 ? (
+            <p className="px-1.5 py-1 text-[12px] text-ink-faint">Every agent is already a Contributor.</p>
+          ) : (
+            available.map((a) => (
+              <button
+                key={a.id}
+                onClick={() => commission(a)}
+                disabled={pending === a.id}
+                className="group mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition hover:bg-panel-2 disabled:opacity-50"
+              >
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-ink-soft">
+                  <Cpu size={15} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] font-medium text-ink">{a.label}</span>
+                  <span className="block truncate text-[11px] text-ink-faint">
+                    {a.tools.length} tool{a.tools.length === 1 ? '' : 's'}
+                  </span>
+                </span>
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent group-hover:text-white">
+                  <Plus size={13} />
+                </span>
+              </button>
+            ))
           )}
         </div>
       )}

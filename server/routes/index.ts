@@ -215,6 +215,22 @@ export function buildRouter(): Router {
     sendJson(res, provider)
   })
 
+  // ── Worker Agents (docs/agent-commons.md, D6) ──────────────────────────────
+  // The user-created workers — read-only on the wire (one seeded for now). `/agents`
+  // is the host-bound type's *former* route name, freed by the D6 rename (host is now
+  // `/runners`), so the bare word goes to the worker. The Contributor view + commission
+  // picker read this to resolve agent labels and offer agents to commission.
+  r.get('/agents', ({ res }) => {
+    sendJson(res, store.listAgents())
+  })
+  r.get('/agents/:id', ({ res, params }) => {
+    // Like providers: `listAgents().find`, not `getAgent` (which falls back to the
+    // default), so an unknown id is a real 404.
+    const agent = store.listAgents().find((a) => a.id === params.id)
+    if (!agent) return sendError(res, 'not_found', `No agent '${params.id}'`)
+    sendJson(res, agent)
+  })
+
   // ── System-prompt library (the cognition half — docs/agent-commons.md, D10) ──
   // The reusable, target-family-tagged prompts a user picks for an Agent. Read-only
   // on the wire; the (prompt × provider) fit warning is computed client-side from the

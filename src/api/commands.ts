@@ -10,6 +10,8 @@ import {
   type AttachContextRequest,
   type CapabilityEffect,
   type CapabilityRequest,
+  type Commission,
+  type CreateCommissionRequest,
   type ContextStatus,
   type ContextTypeId,
   type EffectReport,
@@ -198,6 +200,15 @@ export async function removeSchedule(id: string): Promise<void> {
 export async function createDispatch(title: string, detail?: string): Promise<void> {
   await apiPost(paths.dispatch, { title, detail } satisfies CreateDispatchRequest)
   invalidate(keys.dispatch)
+}
+
+/** Commission an Agent onto a Project (docs/agent-commons.md, D7/D13) — the leaf of
+ *  the D8 cascade. The server funnel rejects an over-grant (400) / unknown ids (404);
+ *  on success we refresh that Project's Contributor list. Returns the new commission. */
+export async function createCommission(input: CreateCommissionRequest): Promise<Commission> {
+  const commission = await apiPost<Commission>(paths.commissions(), input)
+  invalidate(keys.commissions(input.projectId))
+  return commission
 }
 
 /** Resolve a run session from the recent-runs feed cache — the controller uses

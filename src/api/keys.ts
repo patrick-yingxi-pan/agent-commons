@@ -7,6 +7,11 @@ export const keys = {
   capabilities: 'capabilities',
   providers: 'providers',
   systemPrompts: 'system-prompts',
+  /** Worker Agents (docs/agent-commons.md, D6). Distinct from `runners` below — whose
+   *  cache key is the legacy string 'agents' from before the D6 rename. */
+  workerAgents: 'worker-agents',
+  /** Commissions, keyed per project so a Project's Contributor list caches on its own. */
+  commissions: (projectId?: string) => (projectId ? `commissions:${projectId}` : 'commissions'),
   runners: 'agents',
   runnerEffects: (id: string) => `runner-effects:${id}`,
   resourceStatus: (key: string) => `resource:${key}`,
@@ -34,6 +39,11 @@ export const paths = {
   provider: (id: string) => `/providers/${encodeURIComponent(id)}`,
   systemPrompts: '/system-prompts',
   systemPrompt: (id: string) => `/system-prompts/${encodeURIComponent(id)}`,
+  agents: '/agents',
+  agent: (id: string) => `/agents/${encodeURIComponent(id)}`,
+  commissions: (projectId?: string) =>
+    projectId ? `/commissions?project=${encodeURIComponent(projectId)}` : '/commissions',
+  commission: (id: string) => `/commissions/${encodeURIComponent(id)}`,
   // The native-only endpoints (`/fs/pick`, `/fs/folders/:id`, `/git/repos/:id/diff`)
   // are intentionally absent here — no live UI flow calls them. They exist behind the
   // capability gate and are exercised by the contract via tests + `BACKEND=remote`

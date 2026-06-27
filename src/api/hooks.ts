@@ -8,6 +8,8 @@ import { apiGet } from './client.ts'
 import { keys, paths } from './keys.ts'
 import type {
   Runner,
+  Agent,
+  Commission,
   CapabilityEffect,
   ArtifactContentLibrary,
   ArtifactItem,
@@ -55,6 +57,18 @@ export function useProviders(): QueryState<ModelProvider[]> {
  *  against the chosen provider's via the shared `promptFitWarning`. */
 export function useSystemPrompts(): QueryState<SystemPromptEntry[]> {
   return useQuery(keys.systemPrompts, () => apiGet<SystemPromptEntry[]>(paths.systemPrompts))
+}
+
+/** The user-created worker Agents (docs/agent-commons.md, D6) — one seeded for now.
+ *  Powers the commission picker + resolves a Contributor's agent label. */
+export function useAgents(): QueryState<Agent[]> {
+  return useQuery(keys.workerAgents, () => apiGet<Agent[]>(paths.agents))
+}
+
+/** A Project's Contributors — the commissions assigning Agents onto it
+ *  (docs/agent-commons.md, D7/D13). Keyed per project. */
+export function useCommissions(projectId?: string): QueryState<Commission[]> {
+  return useQuery(keys.commissions(projectId), () => apiGet<Commission[]>(paths.commissions(projectId)))
 }
 
 /** A runner's authoritative effect log (the server's projection of it). Updates
