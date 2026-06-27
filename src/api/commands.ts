@@ -45,19 +45,24 @@ export interface SendHandlers {
   onDelta?: (messageId: string, text: string) => void
   /** A mid-turn relation proposal (render the confirm card). */
   onRelations?: (messageId: string, relationActions: Extract<ReplyStreamEvent, { type: 'message.relations' }>['relationActions']) => void
+  /** A mid-turn escalation proposal (open_workspace / connect_repo / create_project)
+   *  — render the consent prompt; apply on approval. */
+  onEscalation?: (messageId: string, escalation: Extract<ReplyStreamEvent, { type: 'message.escalation' }>['escalation']) => void
   /** The final, complete assistant message (authoritative). */
   onEnd?: (message: Extract<ReplyStreamEvent, { type: 'message.end' }>['message']) => void
 }
 
-/** Send a turn and stream the reply. Resolves when the stream ends. The optional
- *  AbortSignal lets the caller cancel an in-flight turn (e.g. on session switch). */
+/** Send a turn and stream the reply. Resolves when the stream ends. `signal`
+ *  cancels an in-flight turn (e.g. on session switch); `ephemeral` runs the full
+ *  model + tool round-trip without persisting the turn (the guided tour). */
 export async function sendMessage(
   sessionId: string,
   text: string,
   handlers: SendHandlers,
-  signal?: AbortSignal,
+  opts: { signal?: AbortSignal; ephemeral?: boolean } = {},
 ): Promise<void> {
-  const body: SendMessageRequest = { text }
+  const { signal, ephemeral } = opts
+  const body: SendMessageRequest = ephemeral ? { text, ephemeral: true } : { text }
   const res = await fetch(`${API_BASE}${paths.session(sessionId)}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -367,6 +372,9 @@ function dispatch(event: ReplyStreamEvent, h: SendHandlers): void {
       break
     case 'message.relations':
       h.onRelations?.(event.messageId, event.relationActions)
+      break
+    case 'message.escalation':
+      h.onEscalation?.(event.messageId, event.escalation)
       break
     case 'message.end':
       h.onEnd?.(event.message)

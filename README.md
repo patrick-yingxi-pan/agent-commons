@@ -92,10 +92,17 @@ the UI *didn't* request over one SSE stream (`GET /v1/events`) — a scheduled r
 firing, a standing approval acting, a connector's auth expiring — and an event
 router turns each into a cache patch. An assistant turn streams token-by-token
 from `POST /v1/sessions/:id/messages`. The backend gets that text the production
-way — it calls an Anthropic **Messages** endpoint through `@anthropic-ai/sdk` and
-relays the stream. In dev that endpoint is a local Anthropic-compatible mock
-(`server/model/`, `:8788`) holding the canned replies, so going live is just
-`ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` — the seam is already real.
+way — it calls an Anthropic **Messages** endpoint through `@anthropic-ai/sdk`
+**with a real tool interface** (`server/model/tools.ts`, one tool per resource
+manipulation) and runs the tool-use loop: the model answers with `tool_use`
+blocks, the backend executes each call into a consent-gated proposal (a relation
+card or a panel escalation), feeds the `tool_result`s back, and relays the final
+stream. In dev that endpoint is a local Anthropic-compatible mock
+(`server/model/`, `:8788`) that decides which tools to call by matching the
+message (fixed string for the guided tour, keyword otherwise) and wraps canned
+prose around them — so even the guided tour is a real round-trip. Going live is
+just `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` — the whole pipeline is already
+real, only the model is mocked.
 
 **Native vs remote, without env-sniffing.** `GET /v1/capabilities` tells the UI
 what *this* backend can do (`localFs`, `localGit`, `osPicker`, …). The UI gates
@@ -152,8 +159,11 @@ server/                   # the mock backend (Node 26 native TS; one dep: the SD
   index.ts                # http server: prefix routing, CORS, static dist/, daemon
   store.ts                # working state + event bus + the run daemon
   persist.ts              # filesystem persistence — snapshots UI state to .data/store.json
-  generate.ts             # the Anthropic Messages seam — streams the reply via the SDK
+  generate.ts             # the Anthropic Messages seam — declares the tools, runs the tool-use loop, streams the reply
   model/                  # the Anthropic-compatible mock model server (POST /v1/messages)
+    tools.ts              #   the resource-manipulation tool interface + executor (one tool per manipulation)
+    intents.ts            #   the mock's tool-decision logic (fixed-string tour table + keyword fallback)
+    replies.ts            #   the mock's canned prose ("weights")
   http/{router,respond,sse}.ts
   routes/index.ts         # the route table (one .get/.post per endpoint)
   data/                   # the seed data (sessions, cowork, contexts, …)

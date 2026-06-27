@@ -1,207 +1,117 @@
-import type { Artifact, Connector, DiffLine, FileNode, Message } from '../types'
-
-/** One beat of the guided demo: a user turn, Claude's reply, and whatever the
- *  reply reveals in the adaptive side panel. Playing these in order walks a
- *  single conversation from plain Chat → Cowork → Code, then Organize. */
+/** ── The guided tour, as narration + the messages it sends ──────────────────
+ *  The tour is no longer a client-side script of canned replies. Each beat is a
+ *  caption (narration shown in the caption bar) plus the *user message it sends*
+ *  — and that message really travels through the system: the controller posts it
+ *  to the backend, which calls the model (the mock Anthropic server) with the
+ *  tool interface, executes whatever tools it calls, and streams the reply +
+ *  proposals back. So every escalation and relation edit you see in the tour is a
+ *  real round-trip, not a fixture.
+ *
+ *  `userText` must match the mock's tour table verbatim (server/model/intents.ts
+ *  → `TOUR_TURNS`); a contract-boundary test locks the two together so they can't
+ *  drift. The arc: chat → workspace → repo → project, then an "organize" act with
+ *  one beat per remaining relation op — every resource manipulation, on the wire. */
 export interface DemoStep {
   id: string
-  /** Narrative shown in the caption bar while this step is on screen. */
+  /** Narrative shown in the caption bar while this beat is on screen. */
   caption: string
-  user: Message
-  assistant: Message
-  artifacts?: Artifact[]
-  files?: FileNode[]
-  diff?: DiffLine[]
-  terminal?: string[]
-  connectors?: Connector[]
-  /** For an escalating beat (`assistant.escalate` set), config for the inline
-   *  consent prompt shown before the escalation applies. A workspace beat lets
-   *  the user pick a cowork root from `rootChoices` (first = suggested default);
-   *  a repo beat asks to connect the service named in `connectors`; a project
-   *  beat names the `project` to create (and files this session into it), then
-   *  shows `visitCaption` once the tour lands you on that project's page. */
-  approval?: {
-    rootChoices?: string[]
-    project?: { id: string; name: string; description: string }
-    visitCaption?: string
-  }
+  /** The user message this beat sends through the system to the model. */
+  userText: string
 }
 
 export const DEMO_STEPS: DemoStep[] = [
   {
     id: 'step-chat',
     caption:
-      'It opens as an ordinary chat — no mode to choose, no tab to commit to before you know where the work goes.',
-    user: {
-      id: 'u1',
-      role: 'user',
-      content: 'We ship the new Insights dashboard next week. Help me think through the launch.',
-    },
-    assistant: {
-      id: 'a1',
-      role: 'assistant',
-      content:
-        "Let's anchor on three things first:\n\n• **Audience** — workspace admins on Team & Enterprise.\n• **Value prop** — “See what your team actually does with Claude, in one view.”\n• **Channels** — in-app banner, changelog, a short email to admins.\n\nWant me to draft the announcement assets next?",
-    },
+      'It opens as an ordinary chat — no mode to choose. This message is really sent: it travels to the backend, through the tool interface, to the model, and streams back.',
+    userText: 'We ship the new Insights dashboard next week. Help me think through the launch.',
   },
   {
     id: 'step-workspace',
     caption:
-      'The same thread grows a workspace — drafts plus the folders it pulled in, grouped by source; resize or close it like any panel. In today’s app you’d stop, switch to the Cowork tab, and re-explain from scratch.',
-    user: {
-      id: 'u2',
-      role: 'user',
-      content:
-        'Yes — turn that into a one-pager and a launch email, plus a hero image. Pull from our brand kit and the last launch’s assets so it stays on-brand.',
-    },
-    assistant: {
-      id: 'a2',
-      role: 'assistant',
-      escalate: 'workspace',
-      content:
-        "Opening a workspace and pulling in `brand-kit/` and `launch-assets/` for reference. First pass is on the right, grouped by source — the one-pager reuses the value prop above, the email is written for admins, and the hero picks up the brand-kit palette.",
-    },
-    artifacts: [
-      { id: 'art-onepager', name: 'insights-onepager.md', kind: 'doc', meta: 'draft · 1 page' },
-      { id: 'art-email', name: 'launch-email.md', kind: 'email', meta: 'draft · to: admins' },
-      { id: 'art-hero', name: 'insights-hero.png', kind: 'image', meta: '1600×900 · generated' },
-      {
-        id: 'art-voice-guide',
-        name: 'voice-guide.md',
-        kind: 'doc',
-        meta: 'reference',
-        source: { id: 'src-brand-kit', label: 'brand-kit/' },
-      },
-      {
-        id: 'art-wordmark',
-        name: 'wordmark-lockups.png',
-        kind: 'image',
-        meta: 'reference',
-        source: { id: 'src-brand-kit', label: 'brand-kit/' },
-      },
-      {
-        id: 'art-q1-email',
-        name: 'q1-launch-email.md',
-        kind: 'email',
-        meta: 'reused',
-        source: { id: 'src-launch-assets', label: 'launch-assets/' },
-      },
-    ],
-    approval: {
-      rootChoices: ['~/work/insights-dashboard-launch/', '~/projects/insights/', '~/Desktop/'],
-    },
+      'The same thread grows a workspace. Claude calls an `open_workspace` tool; the backend runs it and proposes the drafts + folders it pulled in. It opens only once you pick a folder — in today’s app you’d switch to the Cowork tab and re-explain from scratch.',
+    userText:
+      'Yes — turn that into a one-pager and a launch email, plus a hero image. Pull from our brand kit and the last launch’s assets so it stays on-brand.',
   },
   {
     id: 'step-repo',
     caption:
-      'Now it becomes a coding session — branch, diff, terminal — without ever leaving the conversation. This is the Code tab, inline.',
-    user: {
-      id: 'u3',
-      role: 'user',
-      content: 'Now put it behind a feature flag and add the dashboard route in our web app.',
-    },
-    assistant: {
-      id: 'a3',
-      role: 'assistant',
-      escalate: 'repo',
-      content:
-        "Connecting your repo and the GitHub connector. I branched `feat/insights-dashboard`, added the flag, and wired the route. Tests pass — diff’s on the right.",
-    },
-    connectors: [{ id: 'gh-mcp', label: 'GitHub', kind: 'github' }],
-    files: [
-      { path: 'web/src/routes/insights.tsx', status: 'added' },
-      { path: 'web/src/lib/flags.ts', status: 'modified' },
-      { path: 'web/src/nav/Sidebar.tsx', status: 'modified' },
-    ],
-    diff: [
-      { kind: 'hunk', text: 'web/src/lib/flags.ts' },
-      { kind: 'ctx', text: 'export const flags = {' },
-      { kind: 'ctx', text: '  billingV2: true,' },
-      { kind: 'add', text: '  insightsDashboard: true,' },
-      { kind: 'ctx', text: '  exportCsv: true,' },
-      { kind: 'ctx', text: '}' },
-    ],
-    terminal: [
-      '$ git checkout -b feat/insights-dashboard',
-      "Switched to a new branch 'feat/insights-dashboard'",
-      '$ npm test -- insights',
-      'PASS  web/src/routes/insights.test.tsx (3.1s)',
-      'Tests: 7 passed, 7 total',
-    ],
-  },
-  {
-    id: 'step-wrap',
-    caption:
-      'One surface. One history. Chat → Cowork → Code becomes a single continuum the work flows through — not three tabs you copy context between.',
-    user: { id: 'u4', role: 'user', content: 'Nice. Ship it.' },
-    assistant: {
-      id: 'a4',
-      role: 'assistant',
-      content:
-        'Done — PR opened and the launch assets are saved in the workspace, all linked to this thread. The strategy, the docs, and the code now live in one place.',
-    },
+      'Now it becomes a coding session — branch, diff, terminal — without leaving the conversation. A `connect_repo` tool call; approve to attach it. This is the Code tab, inline.',
+    userText: 'Now put it behind a feature flag and add the dashboard route in our web app.',
   },
   {
     id: 'step-project',
     caption:
-      'This has grown into a whole effort — so give it a home. Claude asks before it creates anything; approve, and it files this session into a new project and walks you to its page so you can see the change. Next brings you back.',
-    user: {
-      id: 'u-proj',
-      role: 'user',
-      content: 'This is becoming a real effort. Can you give it a home of its own?',
-    },
-    assistant: {
-      id: 'a-proj',
-      role: 'assistant',
-      escalate: 'project',
-      content:
-        "Good idea — I'll spin up an **Insights dashboard launch** project and file this session into it, so the strategy, the docs, and the code all sit under one roof. Approve below and I'll take you straight to it.",
-    },
-    approval: {
-      project: {
-        id: 'p-insights-launch',
-        name: 'Insights dashboard launch',
-        description:
-          'Everything for the Insights dashboard launch — the strategy thread, the one-pager and email, and the feature-flagged rollout.',
-      },
-      visitCaption:
-        'Here it is: a brand-new project with this session already filed inside. Same conversation — now it has a home, and everything it produces will collect here. Next heads back to the thread to wrap up.',
-    },
+      'This has grown into a whole effort — so give it a home. Claude calls `create_project`; approve, and a brand-new (empty) project is created and you’re walked to its page. Nothing is created until you confirm.',
+    userText: 'This is becoming a real effort. Can you give it a home of its own?',
   },
   {
-    id: 'step-organize',
+    id: 'step-file-session',
     caption:
-      'The last move: Claude proposes how to file what you just made — and you approve it, right here in the thread. One-off edits confirm each time; a recurring schedule is approved once, then runs unprompted.',
-    user: { id: 'u5', role: 'user', content: 'Perfect. Tidy this up — save the recap and keep me posted.' },
-    assistant: {
-      id: 'a5',
-      role: 'assistant',
-      content:
-        "Here's how I'd organize it. Confirm whatever you want — nothing changes until you do:",
-      relationActions: [
-        {
-          // The session was filed in the previous beat; here we collect the recap
-          // under that same new project and stand up a recurring digest.
-          kind: 'save-artifact',
-          artifact: {
-            name: 'launch-recap.md',
-            kind: 'doc',
-            meta: '1 page',
-            excerpt: 'What shipped, the flag, and the rollout plan — in one place.',
-          },
-          sessionId: 'insights-launch',
-          sessionTitle: 'Insights dashboard launch',
-          projectId: 'p-insights-launch',
-          projectName: 'Insights dashboard launch',
-        },
-        {
-          kind: 'set-schedule-artifact',
-          scheduleId: 's-issue-triage',
-          scheduleName: 'Triage new GitHub issues',
-          cadence: 'every 2 hours',
-          artifactName: 'triage-digest.md',
-        },
-      ],
-    },
+      'The project exists but is empty. Now Claude proposes filing *this very session* into it — the session ↔ project relation, edited with one confirm in the thread.',
+    userText: 'Now file this session into that new project.',
+  },
+  {
+    id: 'step-save-artifact',
+    caption:
+      'Save the recap as an artifact and file it under the project — the session ↔ artifact relation, proposed as a card, applied on your OK.',
+    userText: 'Save the recap of this as launch-recap.md and file it under the project.',
+  },
+  {
+    id: 'step-schedule-artifact',
+    caption:
+      'A standing approval: have a recurring schedule save a digest every run. Approved once, then it runs unprompted — the artifact ↔ schedule relation.',
+    userText: 'Have the “Triage new GitHub issues” schedule save a triage-digest.md every run.',
+  },
+  {
+    id: 'step-schedule-session',
+    caption: 'Another standing approval — have a schedule open a fresh session each run (the session ↔ schedule relation).',
+    userText: 'And have the “Daily AI news briefing” open a fresh session each run.',
+  },
+  {
+    id: 'step-schedule-tool',
+    caption: 'Add a tool a schedule reaches for each run — the context ↔ schedule relation.',
+    userText: 'Let that briefing use Slack each run too.',
+  },
+  {
+    id: 'step-link-schedule',
+    caption: 'Link that schedule to the project, so its cadence lives with it — the project ↔ schedule relation.',
+    userText: 'Link the “Triage new GitHub issues” schedule to the Insights dashboard launch project.',
+  },
+  {
+    id: 'step-attach-context',
+    caption: 'Attach a connector to this session — the same consent card, now for a context (the session ↔ context relation).',
+    userText: 'Attach Linear to this session.',
+  },
+  {
+    id: 'step-scope-context',
+    caption: 'Scope a context to the whole project, so every session in it inherits the connector — the project ↔ context relation.',
+    userText: 'Scope Figma to the Insights dashboard launch project.',
+  },
+  {
+    id: 'step-unscope-context',
+    caption: '…and take it back off again, just as easily. Every edit has its inverse.',
+    userText: 'Actually, drop Figma from the project again.',
+  },
+  {
+    id: 'step-artifact-source',
+    caption: 'Record where an artifact came from — the artifact ↔ context relation.',
+    userText: 'Note that insights-onepager.md derives from the brand-kit/ folder.',
+  },
+  {
+    id: 'step-refile-artifact',
+    caption: 'Move an existing artifact into the project — the project ↔ artifact relation.',
+    userText: 'Move query-perf.sheet into the Insights dashboard launch project.',
+  },
+  {
+    id: 'step-project-instructions',
+    caption: 'Set the project’s standing instructions — the guidance every session in it follows.',
+    userText: 'Set the project instructions: lead with the metric, then the mechanism; keep launch copy to one screen.',
+  },
+  {
+    id: 'step-wrap',
+    caption:
+      'Every relationship between your sessions, projects, artifacts, contexts, and schedules — each one Claude proposed by calling a tool, each one you confirmed, all in one thread. One surface. One history.',
+    userText: 'Perfect — that’s the whole thing organized. Thanks!',
   },
 ]

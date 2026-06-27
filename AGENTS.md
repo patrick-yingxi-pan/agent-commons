@@ -95,11 +95,22 @@ the mock?
 
 ## What's intentionally mock (don't file these as bugs)
 
-- **No real model — but the seam is real.** Replies are canned, yet the backend
-  reaches them the production way: `server/generate.ts` calls an **Anthropic
-  Messages endpoint through the official SDK** and streams it back. In dev that
-  endpoint is a local **Anthropic-compatible mock model server** (`server/model/`,
-  on `:8788`) holding the canned text. Point `ANTHROPIC_BASE_URL` at
+- **No real model — but the whole pipeline is real.** The mock model is the *only*
+  faked part of the system. Everything around it is production-shaped:
+  `server/generate.ts` calls an **Anthropic Messages endpoint through the official
+  SDK with a real tool interface** (`server/model/tools.ts` — one tool per
+  resource manipulation) and runs the **tool-use loop**: the model answers with
+  `tool_use` blocks, the backend *executes* each call (turning it into a
+  consent-gated proposal — a relation-edit card or an escalation), feeds the
+  `tool_result`s back, and streams the model's final prose. In dev the endpoint is
+  a local **Anthropic-compatible mock model server** (`server/model/`, on `:8788`)
+  that decides which tools to call by matching the message — by **fixed string**
+  for the guided tour's scripted beats, by **keyword pattern** otherwise
+  (`server/model/intents.ts`) — and wraps canned prose around them
+  (`server/model/replies.ts`). The **guided tour itself is a real round-trip**: its
+  messages travel UI → backend → model and back, so every escalation and relation
+  edit you see is the result of an actual tool call (the panels' content is the
+  tool's *output*, not a client fixture). Point `ANTHROPIC_BASE_URL` at
   `api.anthropic.com` + set `ANTHROPIC_API_KEY` to talk to the real API — no code
   change. (Don't file "the reply is canned" as a bug.)
 - **Seed data** lives in `server/data/` — sessions, projects, artifacts, repos,
@@ -178,17 +189,25 @@ the mock?
 - **The dev server binds IPv4** (`server.host: '127.0.0.1'` in `vite.config.ts`).
   On some hosts `localhost` resolves to `::1` only, which a browser/preview hitting
   `127.0.0.1` can't reach. Keep the explicit bind (the API proxy targets it too).
-- **Generation runs through a real Anthropic Messages API boundary** (not an
-  in-process fake). `server/generate.ts` `fetch`es an Anthropic-compatible endpoint
-  via `@anthropic-ai/sdk` — the one accepted server dependency. `server/model/` is
-  the dev mock of that endpoint: it holds the canned replies and speaks the Messages
-  wire format (JSON + streaming SSE). Going live is `ANTHROPIC_BASE_URL` +
-  `ANTHROPIC_API_KEY`, nothing more; model id `claude-opus-4-8`. The model owns the
-  *prose*; app-domain side-effects (relation proposals) are computed backend-side and
-  overlaid as `message.relations` — they are **not** part of the Messages API. This
-  follows the project's broader rule: build the real boundaries now (the frontend is
-  a cache of the backend; the backend is a client of the model), not prototype
-  shortcuts a production system would have to unwind.
+- **Generation runs through a real Anthropic Messages API boundary *with a real
+  tool interface*** (not an in-process fake). `server/generate.ts` calls an
+  Anthropic-compatible endpoint via `@anthropic-ai/sdk` — the one accepted server
+  dependency — declaring the resource-manipulation tools (`server/model/tools.ts`)
+  and running the **tool-use loop**: model → `tool_use` → backend executes →
+  `tool_result` → final prose. The resource manipulations are therefore the
+  model's *tool calls*, executed by the backend and surfaced as the consent-gated
+  proposals the UI confirms (`message.relations` for relation edits,
+  `message.escalation` for panel escalations) — they are part of the Messages API
+  tool-use protocol, **not** a backend keyword overlay. `server/model/` is the dev
+  mock of the endpoint: it *decides* which tools to call (matching the message by
+  fixed string / keyword, `intents.ts`) and wraps canned prose around them
+  (`replies.ts`), speaking the Messages wire format (JSON + streaming SSE,
+  including `tool_use` blocks). Going live is `ANTHROPIC_BASE_URL` +
+  `ANTHROPIC_API_KEY`, nothing more; model id `claude-opus-4-8`. This follows the
+  project's broader rule: build the real boundaries now (the frontend is a cache of
+  the backend; the backend is a client of the model; the model manipulates
+  resources through tools), not prototype shortcuts a production system would have
+  to unwind.
 
 ### Open exploration (forward-looking — a design log, not shipped behavior)
 

@@ -100,16 +100,58 @@ export interface Message {
   id: string
   role: 'user' | 'assistant'
   content: string
-  /** When set, replaying this message escalates the conversation: it attaches a
-   *  workspace or a repo and morphs the side panel, or (project) files the session
-   *  into a project it creates. This is the heart of the "one fluid continuum" demo. */
-  escalate?: 'workspace' | 'repo' | 'project'
+  /** An escalation Claude proposes for this turn — open a workspace, connect a
+   *  repo, or create a project. It is the *result of a model tool call* (the
+   *  backend executes `open_workspace` / `connect_repo` / `create_project` and
+   *  surfaces the proposal here), gated by an inline consent prompt: the panels
+   *  attach (or the project is created) only on the user's approval. This is the
+   *  heart of the "one fluid continuum" demo. */
+  escalation?: EscalationProposal
   /** Relation edits Claude proposes inline — rendered as a confirmation card
    *  under the message, applied to the relationship graph only on the user's OK.
-   *  Typed as `RelationOp[]` (contract/relations.ts); kept loose here to avoid a
-   *  type-import cycle from the shared entities module. */
+   *  Like `escalation`, these are the result of the backend executing the model's
+   *  relation-op tool calls (server/model/tools.ts). Typed as `RelationOp[]`
+   *  (contract/relations.ts); kept loose here to avoid a type-import cycle. */
   relationActions?: import('./relations.ts').RelationOp[]
 }
+
+/** A consent-gated escalation Claude proposes mid-turn — the structured result of
+ *  a panel-producing tool call. The backend builds it (the panel content comes
+ *  from a real tool execution, not a client fixture) and streams it as a
+ *  `message.escalation` event; the UI shows the matching permission prompt and
+ *  applies it only on approval (TourPermissionPrompt). Three kinds, one per
+ *  panel-escalation tool. */
+export type EscalationProposal =
+  | {
+      kind: 'workspace'
+      /** Display label for the workspace panel (derived from the chosen root). */
+      label?: string
+      /** Candidate cowork roots for the folder picker (first = suggested). */
+      rootChoices: string[]
+      /** The artifacts the workspace opens with, grouped by source. */
+      artifacts: Artifact[]
+    }
+  | {
+      kind: 'repo'
+      /** The connector the repo rides in on (GitHub) — what the prompt names. */
+      connectorLabel: string
+      remote: string
+      branch: string
+      files: FileNode[]
+      diff: DiffLine[]
+      terminal: string[]
+      /** Connectors attached alongside the repo (the GitHub connector). */
+      connectors: Connector[]
+    }
+  | {
+      kind: 'project'
+      project: { id: string; name: string; description: string }
+      /** Whether approving also files the current session into the new project
+       *  (vs. creating it empty, to be filed by a later step). */
+      fileSession?: boolean
+      /** Caption shown once the tour lands on the new project's page. */
+      visitCaption?: string
+    }
 
 export type ArtifactKind = 'doc' | 'email' | 'image' | 'slide' | 'sheet'
 

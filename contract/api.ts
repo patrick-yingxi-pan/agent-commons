@@ -44,6 +44,10 @@ export interface Capabilities {
  *  SSE stream of `ReplyStreamEvent`s, not a JSON body. */
 export interface SendMessageRequest {
   text: string
+  /** When true, generate the reply (the full model + tool round-trip) but do NOT
+   *  persist the turn — the guided tour uses this so it can replay against the
+   *  demo session without accumulating duplicate messages. Omitted = persist. */
+  ephemeral?: boolean
 }
 
 /** Body of `POST /v1/sessions` — materialize a new persisted session (the desktop

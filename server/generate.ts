@@ -1,29 +1,39 @@
-/** ── Reply generation — the Anthropic Messages API seam ─────────────────────
- *  The backend no longer writes the assistant's words itself. It calls an
- *  Anthropic Messages endpoint through the official SDK and streams the reply
- *  back — exactly the call a production backend makes. In development that
- *  endpoint is the local mock model server (server/model), which holds the canned
- *  replies; to go live you repoint `ANTHROPIC_BASE_URL` at `api.anthropic.com`
- *  and set `ANTHROPIC_API_KEY` — no code change.
- *
- *  The *prose* is the model's. The *structured side-effects* (relation proposals)
- *  stay here, app-side: in a fuller build they'd be the model's tool calls; in
- *  this mock they're keyword-matched and overlaid on the streamed text. */
+/** ── Reply generation — the Anthropic Messages API + tool-use seam ──────────
+ *  The backend no longer writes the assistant's words *or* keyword-matches its
+ *  side-effects. It calls an Anthropic Messages endpoint through the official SDK
+ *  with a real **tool interface** (server/model/tools.ts) and runs the tool-use
+ *  loop: the model answers with `tool_use` blocks, the backend *executes* each
+ *  call (turning it into a consent-gated proposal — a relation-edit card or an
+ *  escalation), feeds the `tool_result`s back, and streams the model's final
+ *  prose. Exactly the call a production backend makes; the only mock is the model
+ *  endpoint (dev: server/model on :8788). To go live, repoint `ANTHROPIC_BASE_URL`
+ *  at `api.anthropic.com` and set `ANTHROPIC_API_KEY` — no code change. */
 import Anthropic from '@anthropic-ai/sdk'
-import type { Message, RelationOp } from '../contract/index.ts'
-import { matchRelationOps } from './data/relationIntents.ts'
-import { SYSTEM_MARKERS, chunkText } from './model/replies.ts'
+import type { EscalationProposal, Message, RelationOp } from '../contract/index.ts'
+import { TOOL_DEFINITIONS, executeTool, type ToolContext } from './model/tools.ts'
+import { chunkText } from './model/replies.ts'
 
-const BASE_URL = process.env.ANTHROPIC_BASE_URL ?? `http://127.0.0.1:${process.env.MODEL_PORT ?? 8788}`
 const MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-8'
 
-/** One door to the model. Points at the mock model server by default; set
+/** One door to the model — built lazily from the env so the endpoint can be set
+ *  at runtime (the dev boot, or a test pointing at its own mock instance), and
+ *  memoized per base URL. Points at the mock model server by default; set
  *  `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` to talk to the real API instead. */
-const client = new Anthropic({
-  baseURL: BASE_URL,
-  apiKey: process.env.ANTHROPIC_API_KEY ?? 'mock-no-key-needed',
-  maxRetries: 1, // fail fast to the graceful fallback if the endpoint is down
-})
+let cached: { base: string; client: Anthropic } | undefined
+function client(): Anthropic {
+  const base = process.env.ANTHROPIC_BASE_URL ?? `http://127.0.0.1:${process.env.MODEL_PORT ?? 8788}`
+  if (!cached || cached.base !== base) {
+    cached = {
+      base,
+      client: new Anthropic({
+        baseURL: base,
+        apiKey: process.env.ANTHROPIC_API_KEY ?? 'mock-no-key-needed',
+        maxRetries: 1, // fail fast to the graceful fallback if the endpoint is down
+      }),
+    }
+  }
+  return cached.client
+}
 
 /** The bit of a session the reply depends on (resolved by the route). */
 export interface ReplySession {
@@ -40,71 +50,114 @@ export interface ReplyHandlers {
   onDelta: (text: string) => void
 }
 
-/** The app-domain structured side-effects for a turn — relation proposals. Not
- *  part of the Messages API; the route emits them as `message.relations`. */
-export function relationActionsFor(session: ReplySession, text: string): RelationOp[] {
-  return matchRelationOps(text, { id: session.id, title: session.title })
-}
-
-/** The system prompt the backend sends to the model — the same framing a real
- *  Claude would read. The marker phrases (shared with the mock via SYSTEM_MARKERS)
- *  let the mock pick the matching canned reply. */
-function systemPrompt(session: ReplySession, hasOps: boolean): string {
-  const parts = [
+/** The system prompt the backend sends — the same framing a real Claude reads.
+ *  It describes the tool interface and the consent rule (a tool call *proposes*;
+ *  the user confirms before anything is applied). */
+function systemPrompt(session: ReplySession): string {
+  return [
     'You are Claude in the Unified Workspace prototype — one adaptive thread that unifies chat, workspace, and code.',
+    'When the user asks to produce documents, change code, or organize their work, manipulate the workspace by calling the provided tools.',
+    'A tool call is a *proposal*: nothing is applied until the user confirms it in the thread, so call the tool and then briefly introduce what you proposed.',
+    session.isDemo ? 'This is the scripted demo session — keep replies brief.' : '',
   ]
-  if (session.isDemo) {
-    parts.push(`This is the ${SYSTEM_MARKERS.demo}; keep the reply brief and point the user to the guided tour.`)
-  }
-  if (hasOps) {
-    parts.push(
-      `The user is asking to ${SYSTEM_MARKERS.organize} — briefly introduce the edits you'll propose and make clear nothing changes until they confirm.`,
-    )
-  }
-  return parts.join(' ')
+    .filter(Boolean)
+    .join(' ')
 }
 
-/** Stream an assistant reply from the Anthropic Messages API. Fires the handlers
- *  as the model streams, and resolves with the complete message (with the
- *  app-domain relation proposals overlaid). Degrades to a local fallback message
- *  if the endpoint is unreachable, so the UI never hangs. */
+/** Stream an assistant reply through the Messages API tool-use loop. Fires the
+ *  handlers as the model streams, executes any tool calls, and resolves with the
+ *  complete message — its prose plus the consent-gated proposals (relation edits
+ *  and/or an escalation) the tool calls produced. Degrades to a local fallback
+ *  message if the endpoint is unreachable, so the UI never hangs. */
 export async function generateReply(
   session: ReplySession,
   text: string,
   handlers: ReplyHandlers,
   signal?: AbortSignal,
 ): Promise<Message> {
-  const ops = relationActionsFor(session, text)
+  const ctx: ToolContext = { session: { id: session.id, title: session.title } }
+  const system = systemPrompt(session)
+  const userContent = text.trim() || '(the user sent an empty message)'
+
+  let assistantId = ''
+  let fullText = ''
+  const onStartOnce = (id: string) => {
+    if (assistantId) return
+    assistantId = id
+    handlers.onStart(id)
+  }
+
   try {
-    const stream = client.messages.stream(
+    // ── Turn 1: the model may answer with tool calls ─────────────────────────
+    const stream1 = client().messages.stream(
+      { model: MODEL, max_tokens: 1024, system, tools: TOOL_DEFINITIONS, messages: [{ role: 'user', content: userContent }] },
+      { signal },
+    )
+    stream1.on('streamEvent', (event) => {
+      if (event.type === 'message_start') onStartOnce(event.message.id)
+    })
+    stream1.on('text', (delta) => {
+      fullText += delta
+      handlers.onDelta(delta)
+    })
+    const first = await stream1.finalMessage()
+    onStartOnce(first.id) // safety net if message_start was missed
+
+    const toolUses = first.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
+    if (toolUses.length === 0) {
+      return { id: assistantId, role: 'assistant', content: fullText }
+    }
+
+    // ── Execute the tool calls — build the consent-gated proposals ───────────
+    const relationOps: RelationOp[] = []
+    let escalation: EscalationProposal | undefined
+    const toolResults = toolUses.map((tu) => {
+      const effect = executeTool(tu.name, (tu.input ?? {}) as Record<string, unknown>, ctx)
+      if (effect.relationOps) relationOps.push(...effect.relationOps)
+      if (effect.escalation) escalation = effect.escalation
+      return { type: 'tool_result' as const, tool_use_id: tu.id, content: effect.summary }
+    })
+
+    // ── Turn 2: feed the results back, stream the final prose ────────────────
+    const stream2 = client().messages.stream(
       {
         model: MODEL,
         max_tokens: 1024,
-        system: systemPrompt(session, ops.length > 0),
-        messages: [{ role: 'user', content: text.trim() || '(the user sent an empty message)' }],
+        system,
+        tools: TOOL_DEFINITIONS,
+        messages: [
+          { role: 'user', content: userContent },
+          { role: 'assistant', content: first.content },
+          { role: 'user', content: toolResults },
+        ],
       },
       { signal },
     )
-    stream.on('streamEvent', (event) => {
-      if (event.type === 'message_start') handlers.onStart(event.message.id)
+    stream2.on('text', (delta) => {
+      fullText += delta
+      handlers.onDelta(delta)
     })
-    stream.on('text', (delta) => handlers.onDelta(delta))
+    await stream2.finalMessage()
 
-    const final = await stream.finalMessage()
-    const content = final.content.map((b) => (b.type === 'text' ? b.text : '')).join('')
-    return { id: final.id, role: 'assistant', content, relationActions: ops.length ? ops : undefined }
+    return {
+      id: assistantId,
+      role: 'assistant',
+      content: fullText,
+      relationActions: relationOps.length ? relationOps : undefined,
+      escalation,
+    }
   } catch (err) {
     if (signal?.aborted) throw err // the client went away — let the route stop quietly
-    return fallbackReply(ops, handlers)
+    return fallbackReply(assistantId, handlers)
   }
 }
 
 /** Streamed locally when the model endpoint can't be reached. */
-function fallbackReply(ops: RelationOp[], handlers: ReplyHandlers): Message {
-  const id = `msg_fallback_${Date.now().toString(36)}`
-  handlers.onStart(id)
+function fallbackReply(existingId: string, handlers: ReplyHandlers): Message {
+  const id = existingId || `msg_fallback_${Date.now().toString(36)}`
+  if (!existingId) handlers.onStart(id)
   const content =
     'I couldn’t reach the model endpoint just now — in this prototype the backend streams replies from a local Anthropic-compatible mock server. Please try again in a moment.'
   for (const c of chunkText(content)) handlers.onDelta(c)
-  return { id, role: 'assistant', content, relationActions: ops.length ? ops : undefined }
+  return { id, role: 'assistant', content }
 }

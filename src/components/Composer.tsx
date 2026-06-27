@@ -367,7 +367,7 @@ export function Composer({
         </div>
 
         <p className="mt-2 text-center text-[11px] text-ink-faint">
-          Prototype · the guided tour drives the escalation. Free-typed replies get a canned answer.
+          Prototype · the model is a local mock, but every turn — tour or free-typed — is a real round-trip through the tool interface.
         </p>
       </div>
     </div>

@@ -350,18 +350,22 @@ export function buildRouter(): Router {
   // We relay the model's text deltas, then append the app-domain relation
   // proposals as `message.relations` before `message.end`.
   r.post('/sessions/:id/messages', async ({ req, res, params, body }) => {
-    const { text } = await body<SendMessageRequest>()
+    const { text, ephemeral } = await body<SendMessageRequest>()
     // A draft / run session may not be persisted; reply with a generic shell.
     const known = store.getSession(params.id)
     const session = known
       ? { id: known.id, title: known.title, isDemo: known.isDemo }
       : { id: params.id, title: 'New session', isDemo: false }
+    // `ephemeral` (the guided tour) generates the full model + tool round-trip
+    // but persists nothing, so the tour can replay against the demo session
+    // without accumulating duplicate turns. Persist otherwise — the conversation
+    // is server-owned, so a sent turn survives a reload even if generation fails.
+    const persist = !!known && !ephemeral
 
-    // Persist the user's turn up front for a known session — the conversation is
-    // server-owned, so a sent message survives a reload even if generation fails.
-    // (Drafts are materialized via POST /sessions before they're sent to; run /
-    // unknown ids stay ephemeral — appendMessage no-ops for them.)
-    if (known) {
+    // Persist the user's turn up front. (Drafts are materialized via POST
+    // /sessions before they're sent to; run / unknown ids stay ephemeral —
+    // appendMessage no-ops for them.)
+    if (persist) {
       store.appendMessage(params.id, {
         id: store.mintMessageId('user'),
         role: 'user',
@@ -397,10 +401,21 @@ export function buildRouter(): Router {
           relationActions: message.relationActions,
         })
       }
+      // A panel escalation the model proposed via a tool call (open_workspace /
+      // connect_repo / create_project) — the UI shows the consent prompt and
+      // applies it only on approval.
+      if (message.escalation) {
+        channel.send({
+          type: 'message.escalation',
+          sessionId: session.id,
+          messageId: message.id,
+          escalation: message.escalation,
+        })
+      }
       // The model's reply text is canned (the mock model server) but its
       // *persistence* is real: record the assistant turn so the thread is the
-      // system of record, then close the stream.
-      if (known) store.appendMessage(params.id, message)
+      // system of record, then close the stream. The tour (ephemeral) skips this.
+      if (persist) store.appendMessage(params.id, message)
       channel.send({ type: 'message.end', sessionId: session.id, message })
     } catch {
       // Aborted (client closed) or a fatal error — nothing more to send.

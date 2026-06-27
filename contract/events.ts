@@ -15,7 +15,7 @@
  *
  *  Request/response is enough for plain reads and for *initiating* a command; it
  *  is not enough for anything on this list. */
-import type { Connector, Message, Session } from './entities.ts'
+import type { Connector, EscalationProposal, Message, Session } from './entities.ts'
 import type { ScheduledRun } from './cowork.ts'
 import type { RelationOp } from './relations.ts'
 import type { ContextTypeId, SessionContext } from './contexts.ts'
@@ -41,6 +41,15 @@ export interface MessageRelationsEvent {
   sessionId: string
   messageId: string
   relationActions: RelationOp[]
+}
+/** A mid-turn escalation proposal — the structured result of a panel-producing
+ *  tool call (open_workspace / connect_repo / create_project). The UI shows the
+ *  matching consent prompt and applies it only on approval. */
+export interface MessageEscalationEvent {
+  type: 'message.escalation'
+  sessionId: string
+  messageId: string
+  escalation: EscalationProposal
 }
 export interface MessageEndEvent {
   type: 'message.end'
@@ -165,6 +174,7 @@ export type ServerEvent =
   | MessageStartEvent
   | MessageDeltaEvent
   | MessageRelationsEvent
+  | MessageEscalationEvent
   | MessageEndEvent
   | RunStartedEvent
   | RunProgressEvent
@@ -189,4 +199,5 @@ export type ReplyStreamEvent =
   | MessageStartEvent
   | MessageDeltaEvent
   | MessageRelationsEvent
+  | MessageEscalationEvent
   | MessageEndEvent

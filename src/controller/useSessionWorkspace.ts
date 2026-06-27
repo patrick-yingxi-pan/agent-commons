@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { DEMO_STEPS, type DemoStep } from '../data/demo'
+import { DEMO_STEPS } from '../data/demo'
 import { DEMO_SESSION_ID, SESSIONS } from '../data/sessions'
 import {
   DRAFT_ID,
@@ -7,10 +7,8 @@ import {
   EMPTY_LIVE,
   WS_ID,
   addContextToLive,
-  branchFor,
   folderLabel,
   liveFromSession,
-  remoteFor,
   removeAttachmentFromLive,
   removeContextsFromLive,
   removeFolderFromLive,
@@ -41,6 +39,7 @@ import {
 import type {
   AddedContext,
   AttachContextRequest,
+  EscalationProposal,
   Message,
   PanelFocus,
   Repo,
@@ -48,6 +47,14 @@ import type {
   Session,
   TourPhase,
 } from '../types'
+
+/** A held escalation proposal — the result of the model's panel-producing tool
+ *  call (open_workspace / connect_repo / create_project), waiting on the inline
+ *  consent prompt. Carries the message it rode in on (for scrolling/anchoring). */
+interface PendingEscalation {
+  messageId: string
+  escalation: EscalationProposal
+}
 
 /** Map an attached `AddedContext` to the persistent binding(s) it should create —
  *  the *attachment of record* the effect-mediation path resolves against
@@ -117,10 +124,12 @@ export function useSessionWorkspace() {
   const [stepIndex, setStepIndex] = useState(-1)
   const [caption, setCaption] = useState('')
   const [busy, setBusy] = useState(false)
-  // An escalating beat (workspace / repo) holds here until the user consents:
-  // the beat's step waits in `pendingStep` while the inline consent prompt is
-  // shown, and the escalation applies only on approval. Null = nothing pending.
-  const [pendingStep, setPendingStep] = useState<DemoStep | null>(null)
+  // An escalating beat holds here until the user consents: the model's tool call
+  // produced an escalation proposal (streamed as `message.escalation`), and it
+  // applies only on approval. Null = nothing pending.
+  const [pendingEscalation, setPendingEscalation] = useState<PendingEscalation | null>(null)
+  const pendingEscalationRef = useRef(pendingEscalation)
+  pendingEscalationRef.current = pendingEscalation
   // Sessions materialized this client-session — a draft made real on its first
   // send (server-minted, so absent from the static seed mirror). The active-session
   // resolution and the sidebar consult this until the next reload reseeds from the API.
@@ -220,7 +229,7 @@ export function useSessionWorkspace() {
   // appears, so it isn't left below the fold.
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [live.messages, typing, pendingStep])
+  }, [live.messages, typing, pendingEscalation])
 
   const selectSession = useCallback(
     (id: string) => {
@@ -245,7 +254,7 @@ export function useSessionWorkspace() {
       // Auto-focus the session's strongest present context so its sidebar opens.
       setFocus(strongestFocus(nextLive))
       setPhase('idle')
-      setPendingStep(null)
+      setPendingEscalation(null)
       if (session.isDemo) {
         setStepIndex(-1)
         setCaption('')
@@ -268,50 +277,56 @@ export function useSessionWorkspace() {
     [clearTimers, record],
   )
 
-  // Apply a beat's escalation to the live session — attach the workspace (using
-  // the user-chosen root as its label) or the repo + its connector — and focus
-  // the newly attached context's sidebar. Split out of playStep so the guided
-  // tour can gate it behind the inline consent prompt: it runs only once the
-  // user approves (see approveEscalation), never automatically.
+  // Apply an approved escalation to the live session — attach the workspace
+  // (using the user-chosen root as its label) or the repo + its connector — and
+  // focus the newly attached context's sidebar. The panel *content* came from the
+  // backend (the tool's result), not a client fixture; this just lands it. Runs
+  // only once the user approves (see approveEscalation), never automatically.
   const applyEscalation = useCallback(
-    (step: DemoStep, workspaceRoot?: string) => {
+    (esc: EscalationProposal, workspaceRoot?: string) => {
       setLive((l) => {
         const next: Live = { ...l }
-        // Guard the id-keyed pushes so a replayed step can't duplicate a panel.
-        if (step.assistant.escalate === 'workspace' && !l.workspaces.some((w) => w.id === 'ws-demo')) {
+        // Guard the id-keyed pushes so a replayed beat can't duplicate a panel.
+        if (esc.kind === 'workspace' && !l.workspaces.some((w) => w.id === 'ws-demo')) {
           next.workspaces = [
             ...l.workspaces,
             {
               id: 'ws-demo',
               label: workspaceRoot ? folderLabel(workspaceRoot) : workspaceNameFor(activeSession),
-              artifacts: step.artifacts ?? [],
+              artifacts: esc.artifacts,
             },
           ]
         }
-        if (step.assistant.escalate === 'repo' && !l.repos.some((r) => r.id === 'repo-demo')) {
+        if (esc.kind === 'repo' && !l.repos.some((r) => r.id === 'repo-demo')) {
           next.repos = [
             ...l.repos,
             {
               id: 'repo-demo',
-              label: remoteFor(activeSession.id),
+              label: esc.remote,
               origin: 'github',
-              remote: remoteFor(activeSession.id),
-              branch: branchFor(activeSession.id),
-              files: step.files ?? [],
-              diff: step.diff ?? [],
-              terminal: step.terminal ?? [],
+              remote: esc.remote,
+              branch: esc.branch,
+              files: esc.files,
+              diff: esc.diff,
+              terminal: esc.terminal,
             },
           ]
+          next.connectors = esc.connectors.reduce(withConnector, l.connectors)
         }
-        if (step.connectors) next.connectors = step.connectors.reduce(withConnector, l.connectors)
         return next
       })
-      if (step.assistant.escalate === 'workspace') setFocus({ kind: 'workspace', id: 'ws-demo' })
-      if (step.assistant.escalate === 'repo') setFocus({ kind: 'repo', id: 'repo-demo' })
+      if (esc.kind === 'workspace') setFocus({ kind: 'workspace', id: 'ws-demo' })
+      if (esc.kind === 'repo') setFocus({ kind: 'repo', id: 'repo-demo' })
     },
     [activeSession],
   )
 
+  // Play one beat: send its user message through the *real* path — the backend
+  // calls the model with the tool interface, runs whatever tools it calls, and
+  // streams the reply + proposals back. The demo session sends `ephemeral` so the
+  // tour replays without persisting. Escalation beats hold here (busy stays true)
+  // on the inline consent prompt until approved; relation-edit beats render their
+  // confirm cards and release "Next" at message end.
   const playStep = useCallback(
     (index: number) => {
       const step = DEMO_STEPS[index]
@@ -324,62 +339,95 @@ export function useSessionWorkspace() {
       setStepIndex(index)
       setCaption(step.caption)
       setBusy(true)
-      setLive((l) => ({ ...l, messages: [...l.messages, step.user] }))
+      const myRun = runId.current
+      const userMsg: Message = { id: `u-tour-${index}-${Date.now()}`, role: 'user', content: step.userText }
+      setLive((l) => ({ ...l, messages: [...l.messages, userMsg] }))
       setTyping(true)
-      schedule(() => {
+      // Stale if the user navigated to a different session, or a re-select bumped
+      // runId (the project detour keeps activeId on the demo, so it stays live).
+      const stale = () => activeIdRef.current !== DEMO_SESSION_ID || runId.current !== myRun
+      let escalated = false
+      void sendMessage(
+        DEMO_SESSION_ID,
+        step.userText,
+        {
+          onStart: (_id, message) => {
+            if (stale()) return
+            setTyping(false)
+            setLive((l) => ({ ...l, messages: [...l.messages, message] }))
+          },
+          onDelta: (messageId, chunk) => {
+            if (stale()) return
+            setLive((l) => ({
+              ...l,
+              messages: l.messages.map((m) => (m.id === messageId ? { ...m, content: m.content + chunk } : m)),
+            }))
+          },
+          onRelations: (messageId, relationActions) => {
+            if (stale()) return
+            setLive((l) => ({
+              ...l,
+              messages: l.messages.map((m) => (m.id === messageId ? { ...m, relationActions } : m)),
+            }))
+          },
+          onEscalation: (_messageId, escalation) => {
+            if (stale()) return
+            escalated = true
+            setPendingEscalation({ messageId: _messageId, escalation })
+          },
+          onEnd: (message) => {
+            if (stale()) return
+            setLive((l) => ({ ...l, messages: l.messages.map((m) => (m.id === message.id ? { ...m, ...message } : m)) }))
+            setTyping(false)
+            // Escalation beats stay busy until the consent prompt is resolved.
+            if (!escalated) setBusy(false)
+          },
+        },
+        { ephemeral: true },
+      ).catch(() => {
+        if (stale()) return
         setTyping(false)
-        setLive((l) => ({ ...l, messages: [...l.messages, step.assistant] }))
-        // An escalating beat now asks first: append Claude's reply, then hold
-        // here on the inline consent prompt (busy stays true, so "Next" stays
-        // disabled) until the user approves. Non-escalating beats finish now.
-        if (step.assistant.escalate) {
-          setPendingStep(step)
-        } else {
-          setBusy(false)
-        }
-      }, 950)
+        setBusy(false)
+      })
     },
-    [schedule],
+    [],
   )
 
-  // Consent resolved: apply the held beat's escalation (with the chosen cowork
-  // root, for a workspace), clear the prompt, and release "Next". Deny is handled
-  // in the prompt itself (a recoverable "denied" view) and never reaches here, so
-  // the tour can't advance without access.
+  // Consent resolved: apply the held escalation (with the chosen cowork root, for
+  // a workspace), clear the prompt, and release "Next". Deny is handled in the
+  // prompt itself (a recoverable "denied" view) and never reaches here, so the
+  // tour can't advance without access.
   const approveEscalation = useCallback(
     (workspaceRoot?: string) => {
-      if (!pendingStep) return
-      if (pendingStep.assistant.escalate === 'project') {
-        // A project beat doesn't touch the live session — it creates a real
-        // project (a server-backed relation op) and files this session into it,
-        // then walks the user to the project's page so the change is visible.
-        // "Next" (still on the caption bar) plays the next beat, which clears the
-        // section and lands back in the thread.
-        const proj = pendingStep.approval?.project
-        if (proj) {
-          applyRelationOp({
-            kind: 'create-project',
-            projectId: proj.id,
-            projectName: proj.name,
-            projectDescription: proj.description,
-            sessionId: activeSession.id,
-            sessionTitle: activeSession.title,
-          })
-          // Same as openProject, inlined to avoid referencing that later const —
-          // recording the thread first so the project page's back returns to it.
-          record({ kind: 'section', section: 'projects', projectId: proj.id, scheduleId: null })
-          setActiveSection('projects')
-          setFocusProjectId(proj.id)
-          setFocusScheduleId(null)
-          if (pendingStep.approval?.visitCaption) setCaption(pendingStep.approval.visitCaption)
-        }
+      const pending = pendingEscalationRef.current
+      if (!pending) return
+      const esc = pending.escalation
+      if (esc.kind === 'project') {
+        // A project escalation creates a real project (a server-backed relation
+        // op), optionally filing this session into it, then walks the user to the
+        // project's page so the change is visible. "Next" (still on the caption
+        // bar) plays the next beat, which clears the section and lands back here.
+        applyRelationOp({
+          kind: 'create-project',
+          projectId: esc.project.id,
+          projectName: esc.project.name,
+          projectDescription: esc.project.description,
+          ...(esc.fileSession ? { sessionId: activeSession.id, sessionTitle: activeSession.title } : {}),
+        })
+        // Same as openProject, inlined to avoid referencing that later const —
+        // recording the thread first so the project page's back returns to it.
+        record({ kind: 'section', section: 'projects', projectId: esc.project.id, scheduleId: null })
+        setActiveSection('projects')
+        setFocusProjectId(esc.project.id)
+        setFocusScheduleId(null)
+        if (esc.visitCaption) setCaption(esc.visitCaption)
       } else {
-        applyEscalation(pendingStep, workspaceRoot)
+        applyEscalation(esc, workspaceRoot)
       }
-      setPendingStep(null)
+      setPendingEscalation(null)
       setBusy(false)
     },
-    [pendingStep, applyEscalation, activeSession, record],
+    [applyEscalation, activeSession, record],
   )
 
   // Resets step/caption too, so this doubles as a one-click "Replay" from the
@@ -389,7 +437,7 @@ export function useSessionWorkspace() {
     setLive(EMPTY_LIVE)
     setStepIndex(-1)
     setCaption('')
-    setPendingStep(null)
+    setPendingEscalation(null)
     setPhase('running')
     schedule(() => playStep(0), 200)
   }, [clearTimers, playStep, schedule])
@@ -414,11 +462,12 @@ export function useSessionWorkspace() {
     startTour()
   }, [selectSession, startTour])
 
-  // A turn now streams from the backend (POST /sessions/:id/messages), mirroring
-  // the real Messages API: we append the user message, then render the assistant
-  // reply token-by-token as it arrives. The honest behavior is unchanged but now
-  // lives server-side — an "organize" request streams back the matching
-  // relation-edit proposals; anything else gets a canned answer.
+  // A turn streams from the backend (POST /sessions/:id/messages) through the real
+  // Messages API tool-use loop: we append the user message, then render the
+  // assistant reply token-by-token as it arrives. The model (a local mock) decides
+  // which resource-manipulation tools to call; the backend executes them and
+  // streams back the consent-gated proposals (relation cards / escalations), so a
+  // free-typed "organize" request is as real a round-trip as the guided tour's.
   const handleSend = useCallback((text: string) => {
     const startId = activeIdRef.current
     // The send generation at dispatch time. Any session switch / re-select bumps
@@ -481,6 +530,13 @@ export function useSessionWorkspace() {
             ...l,
             messages: l.messages.map((m) => (m.id === messageId ? { ...m, relationActions } : m)),
           }))
+        },
+        // A free-typed turn can also call a panel-producing tool (e.g. "create a
+        // project") — surface the same consent prompt the tour uses; it applies
+        // only on approval.
+        onEscalation: (messageId, escalation) => {
+          if (stale()) return
+          setPendingEscalation({ messageId, escalation })
         },
         onEnd: (message) => {
           if (stale()) return
@@ -582,7 +638,7 @@ export function useSessionWorkspace() {
     setPhase('idle')
     setStepIndex(-1)
     setCaption('')
-    setPendingStep(null)
+    setPendingEscalation(null)
   }, [clearTimers, record])
 
   // Opening a section from the rail always lands on its top level, so clear any
@@ -743,16 +799,16 @@ export function useSessionWorkspace() {
   // pending plus what the prompt needs to render (a workspace beat's root
   // choices; a repo beat's service name). Null when nothing is pending.
   const pendingApproval = useMemo(() => {
-    if (!pendingStep) return null
-    const kind = pendingStep.assistant.escalate
-    if (kind === 'workspace') {
-      return { kind, rootChoices: pendingStep.approval?.rootChoices ?? ['~/'] } as const
+    if (!pendingEscalation) return null
+    const esc = pendingEscalation.escalation
+    if (esc.kind === 'workspace') {
+      return { kind: 'workspace', rootChoices: esc.rootChoices.length ? esc.rootChoices : ['~/'] } as const
     }
-    if (kind === 'project') {
-      return { kind, projectName: pendingStep.approval?.project?.name ?? 'New project' } as const
+    if (esc.kind === 'project') {
+      return { kind: 'project', projectName: esc.project.name } as const
     }
-    return { kind: 'repo', connectorLabel: pendingStep.connectors?.[0]?.label ?? 'GitHub' } as const
-  }, [pendingStep])
+    return { kind: 'repo', connectorLabel: esc.connectorLabel } as const
+  }, [pendingEscalation])
 
   return {
     // state
