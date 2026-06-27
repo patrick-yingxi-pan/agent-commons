@@ -53,7 +53,7 @@ Because the doc spans two altitudes, every claim is tagged:
 The whole point of Agent Commons is **[COMMONS]**, and it forces one thing to the
 front: the coordination doc parked "whose reservation wins, across *different
 users*" as its hardest open residue (its "honest residue" item 3,
-[`shared-resource-coordination.md:234`](shared-resource-coordination.md)). In a
+[`shared-resource-coordination.md`](shared-resource-coordination.md#the-honest-residue-genuinely-open)). In a
 single user's world that was an edge case. Here it is **the default operating
 regime** — Contributors are, by construction, different principals on one Project.
 
@@ -126,7 +126,7 @@ one-line synthesis: **an Agent binds a Runner to execute.** Settled sub-decision
 backs ordinary commissions invisibly; a power user brings their *own* self-hosted
 Runner only for the two things the broker doc's "irreducible residue" says require
 an on-host agent — the co-located fast path (D1) and execution against the user's
-real filesystem/toolchain ([`capability-broker-architecture.md:298`](capability-broker-architecture.md)).
+real filesystem/toolchain ([`capability-broker-architecture.md`](capability-broker-architecture.md#the-one-irreducible-residue)).
 
 **Why.** Agent Commons makes one account hold *many* user-created workers, so
 "agent" has to be the worker (the noun users will say) and the host server needs
@@ -141,7 +141,7 @@ work on a box" and matches the GitHub-Actions runner the hidden-by-default model
 modeled on. The two layers stay genuinely orthogonal — D4 already fixed hosts as
 *account-scoped, ambient, where work can physically happen* versus contexts as
 *thread-scoped, attached with consent, what you're working on*
-([`capability-broker-architecture.md:191`](capability-broker-architecture.md)).
+([`capability-broker-architecture.md`](capability-broker-architecture.md#d4--stable-ambient-agent-identity-referenceable-never-attached)).
 The Runner is the ambient *where*; the Context is the *what*; the Agent is the
 *who/how* — a configuration the user authored, above both.
 
@@ -152,7 +152,7 @@ code and the lexicon disagree and a reader must hold the mapping. We take the de
 now because shipping Agent Commons with "agent" overloaded would be worse — the
 worker is the user-facing noun and must win the bare word. Second cost: **hidden
 Runners blunt D2's offline-safety for most users** — D2's resilience is
-co-located-only ([`capability-broker-architecture.md:226`](capability-broker-architecture.md)),
+co-located-only ([`capability-broker-architecture.md`](capability-broker-architecture.md#availability--two-critical-paths-only-one-offline-safe)),
 so a default cloud Runner gives the typical user none of it; resilience becomes a
 thing you *opt into* by self-hosting, not a default.
 
@@ -244,7 +244,7 @@ not where the security lives. The qualitative form already exists in the prototy
 `AgentCapability.scopes` ([`../contract/agents.ts:29`](../contract/agents.ts))
 bounds an `fs.*` capability to granted roots (`['*']` = unrestricted), and the
 broker doc's policy-enforcement-point invariant
-([`capability-broker-architecture.md:292`](capability-broker-architecture.md);
+([`capability-broker-architecture.md`](capability-broker-architecture.md#invariants-locked-principles-not-open-forks);
 labeled `(D3)` in the contract at [`contract/agents.ts:71`](../contract/agents.ts))
 puts enforcement at the Runner, never the broker. `SessionContext.scope`
 ([`../contract/contexts.ts:71`](../contract/contexts.ts)) is the same shape at the
@@ -434,7 +434,7 @@ case**.
 many agents, a Commission turning an agent into a Contributor) — and that shape is
 sound. But GitHub's *coordination* shape rests on a **common ancestor**, a **merge**,
 and **reversibility**, exactly the shared-prefix assumption the coordination doc
-opens by demolishing ([`shared-resource-coordination.md:43`](shared-resource-coordination.md),
+opens by demolishing ([`shared-resource-coordination.md`](shared-resource-coordination.md#the-problem-in-its-general-form),
 "git versions the recipe, never the meal"). That holds for a Project's **mergeable
 surface** — `Project.instructions`, `contexts`, `sessionIds`
 ([`../contract/cowork.ts:24`](../contract/cowork.ts)), and the `RelationGraph` edits
@@ -442,7 +442,7 @@ surface** — `Project.instructions`, `contexts`, `sessionIds`
 config. It does **not** hold for the Project's **externally-effectful surface** — a
 connector firing an email, an MCP mutating a ticket, a charge: one timeline, often
 irreversible, no ancestor. *That* surface is the hard quadrant (the CALM table at
-[`shared-resource-coordination.md:83`](shared-resource-coordination.md)). So a Project
+[`shared-resource-coordination.md`](shared-resource-coordination.md#the-boundary-of-hard-is-monotonicity-not-reversibility)). So a Project
 is not GitHub-with-agents and it is not *wholly* hard-quadrant either; it has a
 hard-quadrant *surface*, and the Guardian serializes the irreversible writes on it.
 
@@ -466,16 +466,16 @@ This reframes "agent coordination": multiple Contributors thrashing on one Proje
 not a new scheduler, it is **sub-goal reservation** at the Guardian — "I'm handling
 the auth refactor" is a held, TTL'd, reversible reservation; a second Contributor
 reaching for it is refused (`409`, the existing invoke-path behavior,
-[`shared-resource-coordination.md:312`](shared-resource-coordination.md)) and
+[`shared-resource-coordination.md`](shared-resource-coordination.md#closing-the-gap--the-two-primitives-implementation-status)) and
 **re-reasons** — "conflict is a question, not an abort"
-([`shared-resource-coordination.md:162`](shared-resource-coordination.md)) becomes the
+([`shared-resource-coordination.md`](shared-resource-coordination.md#the-agentic-move-conflict-is-a-question-not-an-abort)) becomes the
 default inter-agent protocol. And the **consent gate is the serialization gate**
-([`shared-resource-coordination.md:181`](shared-resource-coordination.md)): the moment
+([`shared-resource-coordination.md`](shared-resource-coordination.md#the-agentic-move-conflict-is-a-question-not-an-abort)): the moment
 a Contributor's irreversible effect is confirmed is the moment its reservation is
 validated.
 
 This is where the coordination doc's multi-principal residue (its "honest residue"
-item 3, [`shared-resource-coordination.md:234`](shared-resource-coordination.md)) is
+item 3, [`shared-resource-coordination.md`](shared-resource-coordination.md#the-honest-residue-genuinely-open)) is
 forced to the front. In single-user multi-host, every Commission shared one principal,
 so it was an edge case. Agent Commons inverts that — agents from *different* users on
 one Project is the point — so **multi-principal contention at the Guardian is the
@@ -488,7 +488,7 @@ and a liveness dependency: on a popular Project, contention concentrates there, 
 sub-goal held by a stalled Contributor blocks others until its lease lapses (TTL
 tuning becomes load-bearing). We accept pessimistic, ahead-of-the-act coordination and
 its throughput ceiling as the unavoidable price of irreversibility (the pick-two,
-[`shared-resource-coordination.md:202`](shared-resource-coordination.md)). And
+[`shared-resource-coordination.md`](shared-resource-coordination.md#the-irreducible-core-a-pick-two)). And
 "coordination = reservation" only protects sub-goals the Project knew to make
 reservable; **unanticipated** semantic conflict between two Contributors still falls to
 compensation (coordination doc residue 1).
@@ -544,7 +544,7 @@ a proposed extension; today `server/guardian.ts` owns capacity only. And broker 
 convenience to the cross-user enforcement surface**: with the server reading plaintext
 it relays, it is the natural place to watch cross-user data flow. We are careful here —
 the single-tenant audit is "eventually-complete, not real-time-complete"
-([`capability-broker-architecture.md:137`](capability-broker-architecture.md)), and
+([`capability-broker-architecture.md`](capability-broker-architecture.md#d2--each-agent-is-the-system-of-record-for-its-own-host-option-b)), and
 *cross-user taint-tracking* ("did this effect move data from B's artifact toward A's
 connector?") is **strictly harder** than that audit, not free with it — it is itself
 open residue (Open Question 7), and attenuation, not audit, is the primary wall.
@@ -737,7 +737,7 @@ the repo conventions.
   Question 3) — D1 only co-locates the UI and the host server.
 - **Promotes the coordination doc's hardest residue to the center.** Multi-principal
   negotiation (its "honest residue" item 3,
-  [`shared-resource-coordination.md:234`](shared-resource-coordination.md)) is the
+  [`shared-resource-coordination.md`](shared-resource-coordination.md#the-honest-residue-genuinely-open)) is the
   default operating regime here, arbitrated only at a Project's Guardian.
 
 ## Implementation status (live)
