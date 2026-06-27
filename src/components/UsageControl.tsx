@@ -1,14 +1,28 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { ArrowRight, ChevronRight } from 'lucide-react'
 import { useUsage } from '../api'
-import { contextUsage, type UsageSnapshot } from '../../contract/index.ts'
+import { contextBreakdown, type ContextSegment, type ContextTone, type UsageSnapshot } from '../../contract/index.ts'
 
 /* Shown until the server's usage snapshot loads — a zeroed gauge rather than a
    flash of a missing icon. The real figures arrive from `GET /v1/usage`, after
    which the UI just caches them. */
 const EMPTY_USAGE: UsageSnapshot = {
-  context: { used: '—', total: '—', pct: 0 },
+  context: { used: '—', total: '—', pct: 0, segments: [] },
   limits: [],
+}
+
+/* The context-breakdown swatch palette — Messages darkest, the config categories
+   in descending blues, the deferred/free in greys. Matches the desktop app's
+   stacked context bar. */
+const TONE: Record<ContextTone, string> = {
+  messages: '#2f6fed',
+  skills: '#4f86cf',
+  memory: '#5e97da',
+  systemTools: '#79a8e6',
+  systemPrompt: '#9cc1f0',
+  agents: '#bcd7f7',
+  mcp: '#cfd0d6',
+  free: '#ececed',
 }
 
 /* Status fill colors, shared by the gauge arcs and the water-level disc.
@@ -26,18 +40,19 @@ function waterColor(pct: number): string {
  *  opens a usage popup with the per-window detail.
  *
  *  The plan rings (5-hour, weekly) are the server's real meter, keyed to the open
- *  session. The context disc is the *live* size of the open thread: when the
- *  composer passes `contextTokens` (the baseline + the messages currently loaded),
- *  the disc reflects it immediately — so it fills as you chat — overriding the
- *  server's persisted-only context figure. */
-export function UsageControl({ sessionId, contextTokens }: { sessionId?: string; contextTokens?: number }) {
+ *  session. The context disc + breakdown reflect the *live* open thread: when the
+ *  composer passes `messageTokens` (the size of the messages currently loaded),
+ *  the breakdown is recomputed immediately — so the Messages row + the disc fill
+ *  as you chat — overriding the server's persisted-only figure. */
+export function UsageControl({ sessionId, messageTokens }: { sessionId?: string; messageTokens?: number }) {
   const [open, setOpen] = useState(false)
+  const [expanded, setExpanded] = useState(true)
   const wrapRef = useRef<HTMLDivElement>(null)
   // Server-owned: the UI just caches the snapshot. EMPTY_USAGE covers the first
-  // paint before the fetch resolves. The live context overrides the snapshot's.
+  // paint before the fetch resolves. The live breakdown overrides the snapshot's.
   const snapshot = useUsage(sessionId).data ?? EMPTY_USAGE
   const usage: UsageSnapshot =
-    contextTokens === undefined ? snapshot : { ...snapshot, context: contextUsage(contextTokens) }
+    messageTokens === undefined ? snapshot : { ...snapshot, context: contextBreakdown(messageTokens) }
 
   useEffect(() => {
     if (!open) return
@@ -73,15 +88,29 @@ export function UsageControl({ sessionId, contextTokens }: { sessionId?: string;
       </button>
 
       {open && (
-        <div className="absolute bottom-full right-0 z-20 mb-2 w-[300px] rounded-xl border border-line-strong bg-surface p-3 shadow-xl">
-          <button className="flex w-full items-center justify-between text-left">
-            <span className="text-[12px] text-ink-faint">Context window</span>
-            <span className="flex items-center gap-1 text-[12px] text-ink">
+        <div className="absolute bottom-full right-0 z-20 mb-2 w-[340px] rounded-xl border border-line-strong bg-surface p-3 shadow-xl">
+          {/* Context window — a stacked breakdown of what's occupying it, toggled
+              open by the chevron. Messages is live; the rest is workspace config. */}
+          <button
+            onClick={() => setExpanded((e) => !e)}
+            aria-expanded={expanded}
+            className="flex w-full items-center justify-between text-left"
+          >
+            <span className="text-[13px] font-medium text-ink">Context window</span>
+            <span className="flex items-center gap-1 text-[12px] text-ink-soft">
               {usage.context.used} / {usage.context.total} ({usage.context.pct}%)
-              <ChevronRight size={13} className="text-ink-faint" />
+              <ChevronRight size={13} className={`text-ink-faint transition-transform ${expanded ? 'rotate-90' : ''}`} />
             </span>
           </button>
-          <Bar pct={usage.context.pct} className="mt-1.5" />
+          <StackedBar segments={usage.context.segments} className="mt-1.5" />
+
+          {expanded && usage.context.segments.length > 0 && (
+            <div className="mt-2.5 space-y-1.5">
+              {usage.context.segments.map((s) => (
+                <SegmentRow key={s.id} seg={s} />
+              ))}
+            </div>
+          )}
 
           <div className="my-2.5 border-t border-line" />
 
@@ -205,6 +234,43 @@ function Bar({ pct, className = '' }: { pct: number; className?: string }) {
         className="h-full rounded-full"
         style={{ width: `${pct}%`, background: waterColor(pct) }}
       />
+    </div>
+  )
+}
+
+/** The context window's stacked composition bar — one abutting block per loaded
+ *  category (Messages + config), trailing into Free space. Deferred categories
+ *  aren't counted against the window, so they're left out of the bar. */
+function StackedBar({ segments, className = '' }: { segments: ContextSegment[]; className?: string }) {
+  const bars = segments.filter((s) => !s.deferred)
+  return (
+    <div className={`flex h-2 w-full overflow-hidden rounded-full bg-line ${className}`}>
+      {bars.map((s) => (
+        <div key={s.id} style={{ width: `${s.pct ?? 0}%`, background: TONE[s.tone] }} title={`${s.label} · ${s.tokens}`} />
+      ))}
+    </div>
+  )
+}
+
+/** One breakdown row: a swatch, the category (with its item count, if a
+ *  collection), the token size, and the percent — or '—' for a deferred row,
+ *  which lists its item count there instead. */
+function SegmentRow({ seg }: { seg: ContextSegment }) {
+  const muted = seg.deferred || seg.tone === 'free'
+  return (
+    <div className="flex items-center gap-2 text-[12px]">
+      <span
+        className="h-2.5 w-2.5 shrink-0 rounded-[3px]"
+        style={{ background: TONE[seg.tone], opacity: seg.deferred ? 0.5 : 1 }}
+      />
+      <span className={`min-w-0 flex-1 truncate ${muted ? 'text-ink-faint' : 'text-ink'}`}>
+        {seg.label}
+        {seg.count !== undefined && !seg.deferred && <span className="text-ink-faint"> · {seg.count}</span>}
+      </span>
+      <span className="shrink-0 tabular-nums text-ink-faint">{seg.tokens}</span>
+      <span className="w-12 shrink-0 text-right tabular-nums text-ink-soft">
+        {seg.pct === undefined ? (seg.count !== undefined ? seg.count : '—') : `${seg.pct}%`}
+      </span>
     </div>
   )
 }

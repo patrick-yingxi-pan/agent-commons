@@ -60,7 +60,7 @@ import {
 import { SAVED_CONTEXTS, CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from './data/savedContexts.ts'
 import { connectorDetail } from './data/connectorDetails.ts'
 import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
-import { createUsageMeter, estimateTokens, SYSTEM_BASELINE } from './usage.ts'
+import { createUsageMeter, estimateTokens } from './usage.ts'
 import { AgentRegistry } from './registry.ts'
 import { AgentJournal } from './journal.ts'
 import { ResourceGuardian } from './guardian.ts'
@@ -606,10 +606,10 @@ export const store = {
    *  the thread) plus the live plan windows. `sessionId` selects which thread the
    *  context figure reflects; omitted = baseline only. */
   usage(sessionId?: string): UsageSnapshot {
-    let contextTokens = SYSTEM_BASELINE
+    let messageTokens = 0
     const session = sessionId ? SESSIONS.find((s) => s.id === sessionId) : undefined
-    for (const m of session?.messages ?? []) contextTokens += estimateTokens(m.content)
-    return usageMeter.snapshot(contextTokens)
+    for (const m of session?.messages ?? []) messageTokens += estimateTokens(m.content)
+    return usageMeter.snapshot(messageTokens)
   },
 
   // ── Schedule templates (the "New schedule" starters) ──

@@ -16,10 +16,10 @@
  *  real backend would meter exactly. The clock is injected so the windows' reset
  *  logic is unit-testable. */
 import type { UsageSnapshot } from '../contract/index.ts'
-import { contextUsage } from '../contract/index.ts'
+import { contextBreakdown } from '../contract/index.ts'
 // Re-export the shared metering helpers the store also uses, so its import site
 // stays `./usage.ts` (the meter's home) even though the math lives in the contract.
-export { CONTEXT_WINDOW, SYSTEM_BASELINE, estimateTokens, formatTokens } from '../contract/index.ts'
+export { CONTEXT_WINDOW, estimateTokens, formatTokens } from '../contract/index.ts'
 
 const HOUR = 3_600_000
 const DAY = 24 * HOUR
@@ -48,8 +48,9 @@ function formatReset(w: LimitWindow): string {
 export interface UsageMeter {
   /** Record one turn's real token usage against every rolling window. */
   record(inputTokens: number, outputTokens: number): void
-  /** The gauge snapshot: the given context fill + the live plan windows. */
-  snapshot(contextTokens: number): UsageSnapshot
+  /** The gauge snapshot: the context breakdown for a thread of `messageTokens`
+   *  size + the live plan windows. */
+  snapshot(messageTokens: number): UsageSnapshot
 }
 
 /** Build the plan-usage meter. `now` is injected so tests can drive the reset
@@ -80,10 +81,10 @@ export function createUsageMeter(now: () => number): UsageMeter {
       roll(now())
       for (const w of windows) w.consumed += tokens
     },
-    snapshot(contextTokens) {
+    snapshot(messageTokens) {
       roll(now())
       return {
-        context: contextUsage(contextTokens),
+        context: contextBreakdown(messageTokens),
         limits: [
           { label: fiveHour.label, reset: formatReset(fiveHour), pct: pct(fiveHour) },
           { label: weekly.label, reset: formatReset(weekly), pct: pct(weekly) },

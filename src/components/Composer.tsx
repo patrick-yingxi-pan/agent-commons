@@ -74,7 +74,7 @@ export function Composer({
   onRemoveContexts,
   onRemoveFolder,
   sessionId,
-  contextTokens,
+  messageTokens,
 }: {
   workspaces: Workspace[]
   repos: Repo[]
@@ -85,9 +85,9 @@ export function Composer({
   disabled?: boolean
   /** The open session, so the usage gauge's plan rings track this thread. */
   sessionId?: string
-  /** Live context size of the open thread (baseline + loaded messages), so the
-   *  usage gauge's context disc fills in real time as the conversation grows. */
-  contextTokens?: number
+  /** Live Messages token count of the open thread, so the usage gauge + its
+   *  context breakdown fill in real time as the conversation grows. */
+  messageTokens?: number
   onSend: (text: string) => void
   onAddContext: (ctx: AddedContext) => void
   onOpenContext: (focus: PanelFocus) => void
@@ -369,7 +369,7 @@ export function Composer({
           <div className="flex items-center gap-1.5">
             <ModelEffortControl />
             <HostsControl />
-            <UsageControl sessionId={sessionId} contextTokens={contextTokens} />
+            <UsageControl sessionId={sessionId} messageTokens={messageTokens} />
           </div>
         </div>
 

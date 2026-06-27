@@ -3,6 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createUsageMeter, estimateTokens, formatTokens, CONTEXT_WINDOW } from '../server/usage.ts'
+import { contextBreakdown, CONTEXT_BASELINE } from '../contract/index.ts'
 import { store } from '../server/store.ts'
 
 test('estimateTokens / formatTokens: rough token math + human labels', () => {
@@ -20,9 +21,10 @@ test('the meter accumulates real token usage into the rolling windows', () => {
   const before = meter.snapshot(0)
   meter.record(100_000, 50_000) // 150k tokens this turn
   const after = meter.snapshot(0)
-  // The 5-hour ring (limits[0]) rose; the context disc is 0 (no conversation).
+  // The 5-hour ring (limits[0]) rose; the plan windows are independent of context.
   assert.ok(after.limits[0].pct >= before.limits[0].pct)
-  assert.equal(after.context.pct, 0)
+  // An empty thread's context is just the fixed config baseline, unchanged by a turn.
+  assert.equal(before.context.segments.find((s) => s.id === 'messages')?.rawTokens, 0)
 })
 
 test('a window resets once its span elapses (the consumption clears)', () => {
@@ -35,12 +37,28 @@ test('a window resets once its span elapses (the consumption clears)', () => {
   assert.ok(cooled < hot, 'the 5-hour window reset after its span elapsed')
 })
 
-test('the context disc reflects the context window ceiling', () => {
-  let t = 0
-  const meter = createUsageMeter(() => t)
-  const snap = meter.snapshot(CONTEXT_WINDOW / 2)
-  assert.equal(snap.context.pct, 50)
-  assert.equal(snap.context.total, formatTokens(CONTEXT_WINDOW))
+test('contextBreakdown: Messages is live, config is the baseline, the rest is Free space', () => {
+  const ctx = contextBreakdown(200_000)
+  // Messages reflects the passed token count; total is the window.
+  assert.equal(ctx.segments.find((s) => s.id === 'messages')?.rawTokens, 200_000)
+  assert.equal(ctx.total, formatTokens(CONTEXT_WINDOW))
+  // used = messages + the fixed config baseline.
+  const loaded = ctx.segments.filter((s) => !s.deferred && s.id !== 'free')
+  const usedRaw = loaded.reduce((n, s) => n + s.rawTokens, 0)
+  assert.equal(usedRaw, 200_000 + CONTEXT_BASELINE)
+  // Free space fills the remainder; the loaded + free segments tile the window.
+  const free = ctx.segments.find((s) => s.id === 'free')!
+  assert.equal(usedRaw + free.rawTokens, CONTEXT_WINDOW)
+  // Deferred categories are listed but uncounted (no pct).
+  const deferred = ctx.segments.filter((s) => s.deferred)
+  assert.ok(deferred.length > 0 && deferred.every((s) => s.pct === undefined))
+})
+
+test('an empty thread still shows the config baseline (Free space < 100%)', () => {
+  const ctx = contextBreakdown(0)
+  const free = ctx.segments.find((s) => s.id === 'free')!
+  assert.ok((free.pct ?? 0) < 100 && (free.pct ?? 0) > 0)
+  assert.ok(ctx.pct >= 1, 'the fixed config occupies a little of the window')
 })
 
 test('store.usage(session) reflects the open thread; a longer thread shows more context', () => {
