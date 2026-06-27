@@ -305,28 +305,28 @@ export function pushRecentId(type: ContextTypeId, id: string): void {
 
 // ── Native capabilities ─────────────────────────────────────────────────────
 
-/** Invoke a capability on a connected agent's host — the addressed + routed call
- *  `(agent, capability, target)`. A write/effect command, not a read, so it goes
- *  here rather than through a hook; the agent enforces its scoped grant (D3) and
+/** Invoke a capability on a connected runner's host — the addressed + routed call
+ *  `(runner, capability, target)`. A write/effect command, not a read, so it goes
+ *  here rather than through a hook; the runner enforces its scoped grant (D3) and
  *  the call rejects with `forbidden` / `capability_unavailable` accordingly.
  *  Returns the recorded effect; pass a stable `commandId` for idempotent retries. */
 export async function invokeCapability(
   agentId: string,
   request: CapabilityRequest,
 ): Promise<CapabilityEffect> {
-  const effect = await apiPost<CapabilityEffect>(paths.agentInvoke(agentId), request)
-  invalidate(keys.agentEffects(agentId))
+  const effect = await apiPost<CapabilityEffect>(paths.runnerInvoke(agentId), request)
+  invalidate(keys.runnerEffects(agentId))
   return effect
 }
 
-/** Replay an agent's outbox to the server — effects it executed out-of-band (the
+/** Replay a runner's outbox to the server — effects it executed out-of-band (the
  *  co-located fast path, or while offline). Merged idempotently by commandId. */
-export async function syncAgentEffects(
+export async function syncRunnerEffects(
   agentId: string,
   effects: EffectReport[],
 ): Promise<SyncEffectsResult> {
-  const result = await apiPost<SyncEffectsResult>(paths.agentSync(agentId), { effects })
-  invalidate(keys.agentEffects(agentId))
+  const result = await apiPost<SyncEffectsResult>(paths.runnerSync(agentId), { effects })
+  invalidate(keys.runnerEffects(agentId))
   return result
 }
 

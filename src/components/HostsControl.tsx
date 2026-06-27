@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { Server } from 'lucide-react'
-import { useAgents } from '../api'
-import type { Agent } from '../../contract/index.ts'
+import { useRunners } from '../api'
+import type { Runner } from '../../contract/index.ts'
 
-/* Online/offline dot. A durable agent that disconnected stays listed (D4) but
+/* Online/offline dot. A durable runner that disconnected stays listed (D4) but
    dims to grey rather than vanishing. */
-const STATUS_COLOR: Record<Agent['status'], string> = { online: '#3fa34d', offline: '#9aa0a6' }
+const STATUS_COLOR: Record<Runner['status'], string> = { online: '#3fa34d', offline: '#9aa0a6' }
 
 const CAP_LABEL: Record<string, string> = {
   'fs.read': 'fs read',
@@ -14,8 +14,8 @@ const CAP_LABEL: Record<string, string> = {
   process: 'process',
 }
 
-/** Hosts button: an ambient indicator of the native agents connected to this
- *  account (one per host) and the capabilities each advertises. Agents are a
+/** Hosts button: an ambient indicator of the native runners connected to this
+ *  account (one per host) and the capabilities each advertises. Runners are a
  *  standing fabric, not attached contexts (D4) — so this sits beside the usage
  *  gauge, always present, never inside the Add-context menu. It reads the live
  *  registry (`GET /v1/agents`); the `agent.*` events keep it fresh. */
@@ -23,8 +23,8 @@ export function HostsControl() {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
   // Server-owned: the UI just caches the registry snapshot.
-  const agents = useAgents().data ?? []
-  const online = agents.filter((a) => a.status === 'online')
+  const runners = useRunners().data ?? []
+  const online = runners.filter((a) => a.status === 'online')
 
   useEffect(() => {
     if (!open) return
@@ -66,14 +66,14 @@ export function HostsControl() {
           </div>
 
           <div className="mt-2.5 space-y-2.5">
-            {agents.length === 0 && (
+            {runners.length === 0 && (
               <p className="text-[12px] leading-snug text-ink-faint">
-                No agents connected. A desktop helper running on a host appears here with the
+                No runners connected. A desktop helper running on a host appears here with the
                 capabilities it offers.
               </p>
             )}
-            {agents.map((a) => (
-              <AgentRow key={a.id} agent={a} />
+            {runners.map((a) => (
+              <RunnerRow key={a.id} runner={a} />
             ))}
           </div>
 
@@ -86,21 +86,21 @@ export function HostsControl() {
   )
 }
 
-function AgentRow({ agent }: { agent: Agent }) {
+function RunnerRow({ runner }: { runner: Runner }) {
   return (
     <div>
       <div className="flex items-center justify-between text-[12px]">
         <span className="flex items-center gap-1.5 text-ink">
           <span
             className="inline-block h-2 w-2 rounded-full"
-            style={{ background: STATUS_COLOR[agent.status] }}
+            style={{ background: STATUS_COLOR[runner.status] }}
           />
-          {agent.label}
+          {runner.label}
         </span>
-        <span className="text-ink-faint">{agent.host}</span>
+        <span className="text-ink-faint">{runner.host}</span>
       </div>
       <div className="mt-1 flex flex-wrap gap-1">
-        {agent.capabilities.map((c) => (
+        {runner.capabilities.map((c) => (
           <span
             key={c.type}
             className="rounded bg-panel-2 px-1.5 py-0.5 text-[10px] text-ink-faint"

@@ -19,7 +19,7 @@ import type { Connector, EscalationProposal, Message, Session } from './entities
 import type { ScheduledRun } from './cowork.ts'
 import type { RelationOp } from './relations.ts'
 import type { ContextTypeId, SessionContext } from './contexts.ts'
-import type { Agent, CapabilityEffect } from './agents.ts'
+import type { Runner, CapabilityEffect } from './agents.ts'
 
 /** ── Reply-stream events (one assistant turn) ── */
 export interface MessageStartEvent {
@@ -122,28 +122,28 @@ export interface SessionContextsChangedEvent {
   sessionId: string
   contexts: SessionContext[]
 }
-/** A native agent connected — a new enrollment, or a known agent returning from
- *  offline (its durable identity re-bound). Carries the full agent record so the
+/** A native runner connected — a new enrollment, or a known runner returning from
+ *  offline (its durable identity re-bound). Carries the full runner record so the
  *  registry cache can upsert it without a refetch. */
-export interface AgentConnectedEvent {
+export interface RunnerConnectedEvent {
   type: 'agent.connected'
-  agent: Agent
+  runner: Runner
 }
-/** A native agent disconnected. Its identity persists (marked offline) so a later
+/** A native runner disconnected. Its identity persists (marked offline) so a later
  *  reconnect re-binds; the UI shows it offline rather than dropping it. */
-export interface AgentDisconnectedEvent {
+export interface RunnerDisconnectedEvent {
   type: 'agent.disconnected'
   agentId: string
 }
-/** An online agent re-advertised its capabilities (a grant added or revoked). */
-export interface AgentCapabilitiesChangedEvent {
+/** An online runner re-advertised its capabilities (a grant added or revoked). */
+export interface RunnerCapabilitiesChangedEvent {
   type: 'agent.capabilities.changed'
-  agent: Agent
+  runner: Runner
 }
 /** A capability effect was projected into the server's record (D2) — from a
  *  relayed invoke or a synced outbox. Broadcast so every client's view of that
- *  agent's effect log converges without polling. */
-export interface AgentEffectEvent {
+ *  runner's effect log converges without polling. */
+export interface RunnerEffectEvent {
   type: 'agent.effect'
   effect: CapabilityEffect
 }
@@ -184,10 +184,10 @@ export type ServerEvent =
   | ConnectorStatusEvent
   | SessionUpdatedEvent
   | SessionContextsChangedEvent
-  | AgentConnectedEvent
-  | AgentDisconnectedEvent
-  | AgentCapabilitiesChangedEvent
-  | AgentEffectEvent
+  | RunnerConnectedEvent
+  | RunnerDisconnectedEvent
+  | RunnerCapabilitiesChangedEvent
+  | RunnerEffectEvent
   | ReservationChangedEvent
   | DispatchChangedEvent
 

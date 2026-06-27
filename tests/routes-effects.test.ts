@@ -64,8 +64,8 @@ test('effects?since returns only the tail after a sequence number', async () => 
   assert.ok(tail.json.some((e: any) => e.target === '~/projects/tail.ts'))
 })
 
-test('sync merges an agent outbox idempotently and reports the projected delta', async () => {
-  // Enroll a fresh agent so its log starts empty.
+test('sync merges an runner outbox idempotently and reports the projected delta', async () => {
+  // Enroll a fresh runner so its log starts empty.
   await call('POST', '/agents', {
     id: 'agent-sync-1',
     label: 'S',
@@ -100,7 +100,7 @@ test('sync merges an agent outbox idempotently and reports the projected delta',
   assert.equal(log.json.length, 3) // s1, s2, s3 — no duplicate
 })
 
-test('effects / sync on an unknown agent 404', async () => {
+test('effects / sync on an unknown runner 404', async () => {
   const read = await call('GET', '/agents/ghost/effects')
   assert.equal(read.status, 404)
   const sync = await call('POST', '/agents/ghost/sync', { effects: [] })

@@ -47,7 +47,7 @@ test('pushRecent prepends and broadcasts recents.changed', () => {
   assert.equal(got[0].ids[0], 'repo-zzz')
 })
 
-test('registry: native mode seeds the co-located agent with fs/terminal/process', () => {
+test('registry: native mode seeds the co-located runner with fs/terminal/process', () => {
   const ids = store.registry.list().map((a) => a.id)
   assert.ok(ids.includes('agent-local'))
   const local = store.registry.get('agent-local')

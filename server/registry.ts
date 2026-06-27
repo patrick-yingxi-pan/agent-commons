@@ -1,21 +1,21 @@
-/** ── The native-agent registry ─────────────────────────────────────────────
- *  The broker's live view of which agents are connected and what each can do on
+/** ── The native-runner registry ─────────────────────────────────────────────
+ *  The broker's live view of which runners are connected and what each can do on
  *  its host (see docs/capability-broker-architecture.md). This is the control
- *  plane's registry: agents enroll/reconnect, heartbeat, re-advertise grants, and
+ *  plane's registry: runners enroll/reconnect, heartbeat, re-advertise grants, and
  *  disconnect; every change broadcasts an ambient `agent.*` event.
  *
- *  Identity is **durable** (D4): a disconnect marks an agent `offline` but keeps
+ *  Identity is **durable** (D4): a disconnect marks an runner `offline` but keeps
  *  its record, so a reconnect re-binds to the same id and the user's references to
  *  it stay stable. The clock is injectable so tests are deterministic. */
-import type { Agent, AgentCapability, CapabilityType, ServerEvent } from '../contract/index.ts'
+import type { Runner, RunnerCapability, CapabilityType, ServerEvent } from '../contract/index.ts'
 
-/** The data an agent supplies to enroll or reconnect. */
+/** The data an runner supplies to enroll or reconnect. */
 export interface RegisterInput {
   /** Omit to mint a new identity (first enrollment); supply a known id to reconnect. */
   id?: string
   label: string
   host: string
-  capabilities: AgentCapability[]
+  capabilities: RunnerCapability[]
 }
 
 let mintSeq = 0
@@ -25,9 +25,9 @@ function mintId(now: () => number): string {
 
 /** Order-insensitive equality for capability sets, so a re-advertisement that
  *  didn't actually change anything stays silent (no spurious event). */
-function sameCapabilities(a: AgentCapability[], b: AgentCapability[]): boolean {
+function sameCapabilities(a: RunnerCapability[], b: RunnerCapability[]): boolean {
   if (a.length !== b.length) return false
-  const norm = (caps: AgentCapability[]) =>
+  const norm = (caps: RunnerCapability[]) =>
     caps
       .map((c) => `${c.type}:${[...c.scopes].sort().join(',')}`)
       .sort()
@@ -35,8 +35,8 @@ function sameCapabilities(a: AgentCapability[], b: AgentCapability[]): boolean {
   return norm(a) === norm(b)
 }
 
-export class AgentRegistry {
-  private readonly agents = new Map<string, Agent>()
+export class RunnerRegistry {
+  private readonly runners = new Map<string, Runner>()
   private readonly emit: (e: ServerEvent) => void
   private readonly now: () => number
 
@@ -49,12 +49,12 @@ export class AgentRegistry {
 
   /** Enroll (no id) or reconnect (known id), advertising the current grant set.
    *  A new identity or a return from offline emits `agent.connected`; a capability
-   *  change on an already-online agent emits `agent.capabilities.changed`; an
+   *  change on an already-online runner emits `agent.capabilities.changed`; an
    *  idempotent re-register (online, same grants) emits nothing. */
-  register(input: RegisterInput): Agent {
+  register(input: RegisterInput): Runner {
     const id = input.id ?? mintId(this.now)
-    const existing = this.agents.get(id)
-    const agent: Agent = {
+    const existing = this.runners.get(id)
+    const runner: Runner = {
       id,
       label: input.label,
       host: input.host,
@@ -62,66 +62,66 @@ export class AgentRegistry {
       lastSeen: this.now(),
       capabilities: input.capabilities,
     }
-    this.agents.set(id, agent)
+    this.runners.set(id, runner)
 
     if (!existing || existing.status === 'offline') {
-      this.emit({ type: 'agent.connected', agent })
+      this.emit({ type: 'agent.connected', runner })
     } else if (!sameCapabilities(existing.capabilities, input.capabilities)) {
-      this.emit({ type: 'agent.capabilities.changed', agent })
+      this.emit({ type: 'agent.capabilities.changed', runner })
     }
-    return agent
+    return runner
   }
 
-  /** Liveness ping — refresh `lastSeen`; a ping from an offline agent reconnects
+  /** Liveness ping — refresh `lastSeen`; a ping from an offline runner reconnects
    *  it (emits `agent.connected`). Returns undefined for an unknown id. */
-  heartbeat(id: string): Agent | undefined {
-    const agent = this.agents.get(id)
-    if (!agent) return undefined
-    agent.lastSeen = this.now()
-    if (agent.status === 'offline') {
-      agent.status = 'online'
-      this.emit({ type: 'agent.connected', agent })
+  heartbeat(id: string): Runner | undefined {
+    const runner = this.runners.get(id)
+    if (!runner) return undefined
+    runner.lastSeen = this.now()
+    if (runner.status === 'offline') {
+      runner.status = 'online'
+      this.emit({ type: 'agent.connected', runner })
     }
-    return agent
+    return runner
   }
 
   /** Re-advertise the grant set; emits `agent.capabilities.changed` only when it
    *  actually changed. Returns undefined for an unknown id. */
-  setCapabilities(id: string, capabilities: AgentCapability[]): Agent | undefined {
-    const agent = this.agents.get(id)
-    if (!agent) return undefined
-    if (!sameCapabilities(agent.capabilities, capabilities)) {
-      agent.capabilities = capabilities
-      agent.lastSeen = this.now()
-      this.emit({ type: 'agent.capabilities.changed', agent })
+  setCapabilities(id: string, capabilities: RunnerCapability[]): Runner | undefined {
+    const runner = this.runners.get(id)
+    if (!runner) return undefined
+    if (!sameCapabilities(runner.capabilities, capabilities)) {
+      runner.capabilities = capabilities
+      runner.lastSeen = this.now()
+      this.emit({ type: 'agent.capabilities.changed', runner })
     }
-    return agent
+    return runner
   }
 
   /** Disconnect — the durable identity persists (marked offline) so a reconnect
    *  re-binds. Emits `agent.disconnected`. Returns false if already offline or
    *  unknown (so the route can 404 a no-op). */
   deregister(id: string): boolean {
-    const agent = this.agents.get(id)
-    if (!agent || agent.status === 'offline') return false
-    agent.status = 'offline'
-    agent.lastSeen = this.now()
+    const runner = this.runners.get(id)
+    if (!runner || runner.status === 'offline') return false
+    runner.status = 'offline'
+    runner.lastSeen = this.now()
     this.emit({ type: 'agent.disconnected', agentId: id })
     return true
   }
 
-  get(id: string): Agent | undefined {
-    return this.agents.get(id)
+  get(id: string): Runner | undefined {
+    return this.runners.get(id)
   }
 
-  /** All known agents — online and durable-but-offline — in enrollment order. */
-  list(): Agent[] {
-    return [...this.agents.values()]
+  /** All known runners — online and durable-but-offline — in enrollment order. */
+  list(): Runner[] {
+    return [...this.runners.values()]
   }
 
-  /** The online agents that currently advertise a capability — the routing
+  /** The online runners that currently advertise a capability — the routing
    *  primitive the capability-addressing layer builds on. */
-  find(type: CapabilityType): Agent[] {
+  find(type: CapabilityType): Runner[] {
     return this.list().filter(
       (a) => a.status === 'online' && a.capabilities.some((c) => c.type === type),
     )

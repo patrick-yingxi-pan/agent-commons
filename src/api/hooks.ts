@@ -7,7 +7,7 @@ import { useQuery, type QueryState } from './cache.ts'
 import { apiGet } from './client.ts'
 import { keys, paths } from './keys.ts'
 import type {
-  Agent,
+  Runner,
   CapabilityEffect,
   ArtifactContentLibrary,
   ArtifactItem,
@@ -35,18 +35,18 @@ export function useCapabilities(): QueryState<Capabilities> {
   return useQuery(keys.capabilities, () => apiGet<Capabilities>(paths.capabilities))
 }
 
-/** The live registry of native agents (one per connected host) + the
- *  capabilities each advertises. Updates as agents connect/disconnect/re-grant
+/** The live registry of native runners (one per connected host) + the
+ *  capabilities each advertises. Updates as runners connect/disconnect/re-grant
  *  (the `agent.*` ambient events invalidate this). */
-export function useAgents(): QueryState<Agent[]> {
-  return useQuery(keys.agents, () => apiGet<Agent[]>(paths.agents))
+export function useRunners(): QueryState<Runner[]> {
+  return useQuery(keys.runners, () => apiGet<Runner[]>(paths.runners))
 }
 
-/** An agent's authoritative effect log (the server's projection of it). Updates
+/** An runner's authoritative effect log (the server's projection of it). Updates
  *  as effects project (`agent.effect` invalidates it). */
-export function useAgentEffects(agentId: string): QueryState<CapabilityEffect[]> {
-  return useQuery(keys.agentEffects(agentId), () =>
-    apiGet<CapabilityEffect[]>(paths.agentEffects(agentId)),
+export function useRunnerEffects(agentId: string): QueryState<CapabilityEffect[]> {
+  return useQuery(keys.runnerEffects(agentId), () =>
+    apiGet<CapabilityEffect[]>(paths.runnerEffects(agentId)),
   )
 }
 

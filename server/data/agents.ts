@@ -1,11 +1,11 @@
-/** Seed agents. In native/mock mode the backend behaves like a co-located
- *  sidecar, so we seed a single local agent — the "degenerate one-agent registry"
+/** Seed runners. In native/mock mode the backend behaves like a co-located
+ *  sidecar, so we seed a single local runner — the "degenerate one-runner registry"
  *  the static capabilities describe (see docs/capability-broker-architecture.md).
  *  A remote web server (`BACKEND=remote`) has no co-located host, so it seeds
  *  none, mirroring how the native routes report unavailable there. */
 import type { RegisterInput } from '../registry.ts'
 
-export const LOCAL_AGENT_SEED: RegisterInput = {
+export const LOCAL_RUNNER_SEED: RegisterInput = {
   id: 'agent-local',
   label: 'This Mac',
   host: 'localhost',

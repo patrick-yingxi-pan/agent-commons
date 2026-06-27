@@ -9,19 +9,21 @@
 > "Decision" here means *settled within this exploration's design space* — **not**
 > "implemented in the prototype." The prototype's actually-shipped, locked-in
 > decisions live in [`../AGENTS.md`](../AGENTS.md) → "Design decisions (locked in)";
-> nothing here overrides those. **Nothing in this doc is built.** Concretely: there
-> is no worker `Agent` type, no model-provider registry, no `Commission`, no
-> project-level guardian, and the host-bound type is still named `Agent` in code —
-> the prototype is the *degenerate N=1 case* of everything below (one implicit
+> nothing here overrides those. **Almost nothing in this doc is built.** Concretely:
+> there is no worker `Agent` type, no model-provider registry, no `Commission`, no
+> project-level guardian. The one exception is the **D6 rename**, slice 1a (below):
+> the host-bound type is now named `Runner` in code (its TypeScript identity; the
+> wire surface — `/agents` routes, `agent.*` events — is deferred to slice 1b). The
+> prototype is otherwise the *degenerate N=1 case* of everything below (one implicit
 > Anthropic client, one inert `Project` node).
 >
 > **This doc renames the broker doc's "native agent" to "Runner"** (decision D6).
-> That rename is, today, **vocabulary** — but not *doc-only*: the string "native
-> agent" appears in code comments (`contract/agents.ts:1,3,36`,
-> `contract/events.ts:125,132`, `server/store.ts:319`, `src/api/hooks.ts:38`,
-> `src/components/HostsControl.tsx:17`) as well as the broker doc's prose, so the
-> eventual migration touches those comments plus an `Agent → Runner` interface
-> rename — not just this file.
+> Slice 1a has applied the **TypeScript half** of that rename in code — the `Agent`
+> interface and its cluster (`AgentCapability`, `RegisterAgentRequest`,
+> `AgentRegistry`, `AgentJournal`, `useAgents`, …) are now `Runner*`, and the
+> "native agent" code comments now read "runner". Still pending in **slice 1b**: the
+> wire surface (`/agents` routes, `agent.*` event names, the serialized `agentId`
+> field and `agent-` id prefix) and the broker doc's prose.
 >
 > It extends the shared **D-series** (broker doc D1–D4; coordination doc D5) with
 > **D6–D13**. Read both prior docs first:
@@ -651,9 +653,9 @@ right way:
   ([`../server/generate.ts:16`,`:23`](../server/generate.ts)) driving every `Session`
   is one Agent on one Model provider, hard-wired. The worker `Agent` type and the
   provider registry are what D9/D7 add beside it.
-- **The host type is the Runner.** `Agent`/`AgentCapability`/`RegisterAgentRequest`
-  ([`../contract/agents.ts:39`](../contract/agents.ts)) is the host-bound server — the
-  Runner — pending the D6 rename (no code change today; vocabulary + comments).
+- **The host type is the Runner.** `Runner`/`RunnerCapability`/`RegisterRunnerRequest`
+  ([`../contract/agents.ts:39`](../contract/agents.ts)) is the host-bound server,
+  renamed from `Agent*` by slice 1a (D6); its wire surface is deferred to slice 1b.
 - **The Project is an inert node.** `Project` ([`../contract/cowork.ts:24`](../contract/cowork.ts))
   is a pure `RelationGraph` node ([`../contract/api.ts:117`](../contract/api.ts)) with
   no `guardianId`, no contributors, no invariant — D11 gives it a Guardian.
@@ -709,9 +711,11 @@ right way:
 
 The first slice falls out of the grounding and touches no behavior:
 
-1. **Vocabulary pass: `Agent → Runner`.** Rename the host-bound interface and the
-   "native agent" comments (the five files above) + the broker doc prose. Pure rename;
-   frees the word. Tests assert no `Agent` (worker) / `Runner` (host) collision remains.
+1. **Vocabulary pass: `Agent → Runner`.** *Slice 1a (done):* rename the host-bound
+   interface + its TS cluster + the "native agent" code comments — the compiler-
+   checked half, leaving the wire protocol untouched. *Slice 1b (next):* the wire
+   surface (`/agents` routes, `agent.*` events, the `agentId` field + `agent-` id
+   prefix) and the broker doc prose. Frees the word for the worker `Agent` (step 2).
 2. **Introduce the worker `Agent` type** beside the renamed Runner, with a
    `Session.agentId` binding — the degenerate case is one seeded Agent wrapping today's
    single client. Nothing multi-tenant yet.
@@ -744,10 +748,21 @@ the repo conventions.
 
 > What of this model is built in the repo now, vs. forward-looking.
 
-**Nothing in this doc is built.** Agent Commons is the forward layer *above* the slices
-the other two docs have shipped (the broker doc's registry/addressing/journal/UI; the
-coordination doc's session↔context binding, mediation handle, and single-resource
-escrow). The worker `Agent` type, the Model-provider registry, the system-prompt
-library, the `Commission`, the Project-level Guardian, and the `Agent → Runner` code
-rename are all unbuilt. The prototype remains the degenerate N=1 case: one implicit
-Anthropic client, one inert `Project` node, the host-bound type still named `Agent`.
+Agent Commons is the forward layer *above* the slices the other two docs have shipped
+(the broker doc's registry/addressing/journal/UI; the coordination doc's
+session↔context binding, mediation handle, and single-resource escrow).
+
+- **Slice 1a — the D6 rename (TypeScript identity). ✅ Built.** The host-bound `Agent`
+  type and its whole cluster are renamed to `Runner` across contract, server, client,
+  and tests — `RunnerRegistry`, `RunnerJournal`, `RunnerCapability`,
+  `RegisterRunnerRequest`, `useRunners` / `useRunnerEffects`, `RunnerRow`, and the
+  "native agent" code comments. The bare word `Agent` is now free for the worker type
+  (slices 1b/2). Regression-locked by typecheck + the existing registry / journal /
+  invoke / effects suites, which now exercise the `Runner*` names (263 tests green).
+  The serialized wire surface (`/agents` routes, `agent.*` event names, the `agentId`
+  field, the `agent-` id prefix) is **deliberately deferred to slice 1b**, so the
+  protocol is byte-for-byte unchanged and the running app is unaffected.
+- **Still forward.** The worker `Agent` type, the Model-provider registry, the
+  system-prompt library, the `Commission`, and the Project-level Guardian are all
+  unbuilt. Outside slice 1a the prototype remains the degenerate N=1 case: one
+  implicit Anthropic client, one inert `Project` node.

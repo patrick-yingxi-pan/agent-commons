@@ -8,7 +8,7 @@
  *  so a sent message / attached context / created session survives a restart. The
  *  seed is the *baseline*, written out on first boot; a later boot loads the
  *  snapshot. Tests leave persistence off and run purely in-memory. (Transient
- *  state — reservations, the live agent registry — is deliberately not persisted.)
+ *  state — reservations, the live runner registry — is deliberately not persisted.)
  *
  *  State is added to this store as each resource's reads/commands migrate; Phase 1
  *  carries sessions + the event bus, the spine everything else hangs off. */
@@ -64,10 +64,10 @@ import { createUsageMeter, estimateTokens } from './usage.ts'
 import { contextBreakdown } from '../contract/index.ts'
 import { TOOL_DEFINITIONS } from './model/tools.ts'
 import { systemPrompt } from './generate.ts'
-import { AgentRegistry } from './registry.ts'
-import { AgentJournal } from './journal.ts'
+import { RunnerRegistry } from './registry.ts'
+import { RunnerJournal } from './journal.ts'
 import { ResourceGuardian } from './guardian.ts'
-import { LOCAL_AGENT_SEED } from './data/agents.ts'
+import { LOCAL_RUNNER_SEED } from './data/agents.ts'
 import { EMPTY_WORKSPACE, workspaceFromSeed } from './workspace.ts'
 import { STORE_VERSION, loadState, saveState, type PersistedState } from './persist.ts'
 
@@ -101,7 +101,7 @@ let scheduleSeq = 0
 
 // A mutable copy of the dispatch feed — "New dispatch" prepends a one-off run that
 // finishes a beat later. Transient (a one-off agent run), so it's NOT persisted —
-// like the live agent registry, it rebuilds from seed on restart.
+// like the live runner registry, it rebuilds from seed on restart.
 const dispatch: DispatchRun[] = JSON.parse(JSON.stringify(DISPATCH_RUNS))
 let dispatchSeq = 0
 // Monotonic counters for server-minted session + message ids. The conversation is
@@ -183,15 +183,15 @@ function emit(e: ServerEvent): void {
   }
 }
 
-// The native-agent registry — the broker's live view of connected hosts. In
-// native/mock mode we seed the co-located agent (the one-agent registry the
+// The native-runner registry — the broker's live view of connected hosts. In
+// native/mock mode we seed the co-located runner (the one-runner registry the
 // static capabilities describe); a remote web server seeds none.
-const registry = new AgentRegistry(emit)
-if (NATIVE) registry.register(LOCAL_AGENT_SEED)
+const registry = new RunnerRegistry(emit)
+if (NATIVE) registry.register(LOCAL_RUNNER_SEED)
 
-// The effect journal — each agent's authoritative log of its host's effects (D2)
+// The effect journal — each runner's authoritative log of its host's effects (D2)
 // + the server's projection of it. Emits `agent.effect` as effects project.
-const journal = new AgentJournal(emit)
+const journal = new RunnerJournal(emit)
 
 // The resource guardian — per shared resource (a context element), a reservation
 // ledger enforcing a capacity invariant (D5). The escrow that lets the broker
@@ -202,8 +202,8 @@ const guardian = new ResourceGuardian(emit)
 // Off until the real server entrypoint calls `store.initPersistence()`; tests
 // drive the store in-memory. When on, every mutation snapshots the UI-owned state
 // and writes it atomically, so a sent message / attached context / created session
-// survives a restart. Reservations + the agent registry are intentionally NOT
-// persisted: they're live/transient (a stale lock or a phantom offline agent must
+// survives a restart. Reservations + the runner registry are intentionally NOT
+// persisted: they're live/transient (a stale lock or a phantom offline runner must
 // not outlive the process).
 let persistEnabled = false
 
@@ -315,11 +315,11 @@ function applyStandingEffects(task: ScheduledTask, sessionId: string): void {
 export const store = {
   epoch: EPOCH,
 
-  // ── Native-agent registry + effect journal ──
-  /** The live registry of native agents + their advertised capabilities. The
-   *  agent routes read/mutate this; changes broadcast ambient `agent.*` events. */
+  // ── Native-runner registry + effect journal ──
+  /** The live registry of native runners + their advertised capabilities. The
+   *  runner routes read/mutate this; changes broadcast ambient `agent.*` events. */
   registry,
-  /** Each agent's authoritative effect log + the server's projection of it (D2).
+  /** Each runner's authoritative effect log + the server's projection of it (D2).
    *  The invoke route records + reconciles; the sync route merges an outbox. */
   journal,
   /** Per-resource reservation ledgers enforcing a capacity invariant (D5). The

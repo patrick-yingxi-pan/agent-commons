@@ -1,24 +1,24 @@
 /** ── The effect journal (system of record, D2) ──────────────────────────────
- *  Each agent is the authoritative system of record for its own host's effects
+ *  Each runner is the authoritative system of record for its own host's effects
  *  (Option B). This models that log + the server's *projection* of it:
  *
- *   • `append` records an effect on an agent's authoritative log, idempotent by
+ *   • `append` records an effect on an runner's authoritative log, idempotent by
  *     `commandId` (the idempotency key). A re-append of a seen command returns the
  *     recorded effect without duplicating — the at-least-once delivery guarantee.
- *   • `agentSeq` is the agent's monotonic per-host ordering.
- *   • The **projection cursor** is how far the server has reconciled an agent's
+ *   • `agentSeq` is the runner's monotonic per-host ordering.
+ *   • The **projection cursor** is how far the server has reconciled an runner's
  *     log. A relayed invoke appends *and* reconciles (the common, online case). A
  *     fast-path or offline effect reaches the server later via `merge` (the outbox
  *     replay), then reconciles. Either way `agent.effect` is emitted as effects
  *     become projected, so every client converges on the server's record.
  *
- *  In the mock the agent runtime and this journal are co-located, so the journal
- *  *is* the agent's authoritative log; a real deployment runs the log inside the
- *  agent and this becomes the server's reconciled projection of it. The clock is
+ *  In the mock the runner runtime and this journal are co-located, so the journal
+ *  *is* the runner's authoritative log; a real deployment runs the log inside the
+ *  runner and this becomes the server's reconciled projection of it. The clock is
  *  injectable for deterministic tests. */
 import type { CapabilityEffect, EffectReport, ServerEvent } from '../contract/index.ts'
 
-interface AgentLog {
+interface RunnerLog {
   effects: CapabilityEffect[]
   byCommand: Map<string, CapabilityEffect>
   seq: number
@@ -38,8 +38,8 @@ function mintCommandId(now: () => number): string {
   return `cmd-${(mintSeq += 1).toString(36)}-${now().toString(36)}`
 }
 
-export class AgentJournal {
-  private readonly logs = new Map<string, AgentLog>()
+export class RunnerJournal {
+  private readonly logs = new Map<string, RunnerLog>()
   private readonly emit: (e: ServerEvent) => void
   private readonly now: () => number
 
@@ -48,7 +48,7 @@ export class AgentJournal {
     this.now = now
   }
 
-  private logFor(agentId: string): AgentLog {
+  private logFor(agentId: string): RunnerLog {
     let log = this.logs.get(agentId)
     if (!log) {
       log = { effects: [], byCommand: new Map(), seq: 0, cursor: 0 }
@@ -68,7 +68,7 @@ export class AgentJournal {
     return this.logs.get(agentId)?.byCommand.get(commandId)
   }
 
-  /** Append an effect to the agent's authoritative log, idempotent by commandId.
+  /** Append an effect to the runner's authoritative log, idempotent by commandId.
    *  Returns the effect (the prior one if the command was already recorded) and
    *  whether it was a duplicate. Does NOT advance the projection cursor. */
   append(agentId: string, input: EffectInput): { effect: CapabilityEffect; deduped: boolean } {
@@ -89,7 +89,7 @@ export class AgentJournal {
     return { effect, deduped: false }
   }
 
-  /** The agent's authoritative log (read-through), optionally the tail after a
+  /** The runner's authoritative log (read-through), optionally the tail after a
    *  sequence number. */
   log(agentId: string, sinceSeq = 0): CapabilityEffect[] {
     return (this.logs.get(agentId)?.effects ?? []).filter((e) => e.agentSeq > sinceSeq)
@@ -117,7 +117,7 @@ export class AgentJournal {
     return newly
   }
 
-  /** Merge a batch of effects an agent reports out-of-band (its outbox replay),
+  /** Merge a batch of effects an runner reports out-of-band (its outbox replay),
    *  idempotent by commandId. Returns the effects that were new (already-recorded
    *  ones are skipped). Does not project — the caller reconciles after. */
   merge(agentId: string, batch: EffectReport[]): CapabilityEffect[] {

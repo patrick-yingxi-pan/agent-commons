@@ -9,9 +9,9 @@
  *  exclusion).
  *
  *  Lives broker-side — the *resource* authority, beside mediation — distinct from
- *  the agent's host grant (D3). Mock fulfilment, real semantics: the same shape a
+ *  the runner's host grant (D3). Mock fulfilment, real semantics: the same shape a
  *  production guardian would enforce. The clock is injectable so TTL behaviour is
- *  testable (mirrors AgentRegistry / AgentJournal). */
+ *  testable (mirrors RunnerRegistry / RunnerJournal). */
 import type { Reservation, ResourceStatus, ServerEvent } from '../contract/index.ts'
 
 /** A reservation the guardian refused or couldn't find. `code` maps to the

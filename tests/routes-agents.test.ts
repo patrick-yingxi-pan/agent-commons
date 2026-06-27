@@ -1,18 +1,18 @@
-/** Integration tests for the agent routes, driven through the real `buildRouter()`
+/** Integration tests for the runner routes, driven through the real `buildRouter()`
  *  + store at the handler level (see tests/helpers/http.ts). Exercises routing,
  *  params, body parsing, the error envelope, and the durable-identity lifecycle. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { call } from './helpers/http.ts'
 
-test('GET /agents returns the seeded local agent', async () => {
+test('GET /agents returns the seeded local runner', async () => {
   const { status, json } = await call('GET', '/agents')
   assert.equal(status, 200)
   assert.ok(Array.isArray(json))
   assert.ok(json.some((a: any) => a.id === 'agent-local'))
 })
 
-test('GET /agents/:id returns one agent; an unknown id 404s with the envelope', async () => {
+test('GET /agents/:id returns one runner; an unknown id 404s with the envelope', async () => {
   const ok = await call('GET', '/agents/agent-local')
   assert.equal(ok.status, 200)
   assert.equal(ok.json.id, 'agent-local')
@@ -22,7 +22,7 @@ test('GET /agents/:id returns one agent; an unknown id 404s with the envelope', 
   assert.equal(missing.json.error.code, 'not_found')
 })
 
-test('POST /agents enrolls a new agent; it then appears in the registry', async () => {
+test('POST /agents enrolls a new runner; it then appears in the registry', async () => {
   const reg = await call('POST', '/agents', {
     id: 'agent-test-1',
     label: 'CI box',
@@ -63,7 +63,7 @@ test('heartbeat → re-grant → deregister lifecycle over HTTP, identity persis
   assert.equal(after.json.status, 'offline') // durable identity persists
 })
 
-test('DELETE on an unknown agent 404s', async () => {
+test('DELETE on an unknown runner 404s', async () => {
   const del = await call('DELETE', '/agents/never')
   assert.equal(del.status, 404)
 })

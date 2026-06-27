@@ -1,16 +1,16 @@
 /** Unit tests for the effect journal (server/journal.ts) — the system of record
- *  (D2): idempotency, per-agent monotonic ordering, the projection cursor +
+ *  (D2): idempotency, per-runner monotonic ordering, the projection cursor +
  *  reconcile, and the outbox merge. emit is captured so projection events are
  *  asserted deterministically. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { AgentJournal } from '../server/journal.ts'
+import { RunnerJournal } from '../server/journal.ts'
 import type { ServerEvent } from '../contract/index.ts'
 
 function harness() {
   const events: ServerEvent[] = []
   let clock = 5000
-  const journal = new AgentJournal(
+  const journal = new RunnerJournal(
     (e) => events.push(e),
     () => clock,
   )
@@ -24,7 +24,7 @@ const eff = (commandId: string, target = '~/p/x') => ({
   output: { ok: true },
 })
 
-test('append assigns a monotonic per-agent agentSeq and stamps the clock', () => {
+test('append assigns a monotonic per-runner agentSeq and stamps the clock', () => {
   const { journal } = harness()
   const a = journal.append('h1', eff('c1'))
   const b = journal.append('h1', eff('c2'))
@@ -44,7 +44,7 @@ test('append is idempotent by commandId — a retry returns the recorded effect'
   assert.equal(journal.log('h1').length, 1) // not duplicated
 })
 
-test('per-agent sequences are independent', () => {
+test('per-runner sequences are independent', () => {
   const { journal } = harness()
   journal.append('h1', eff('a'))
   journal.append('h2', eff('b'))
@@ -96,7 +96,7 @@ test('merge replays an outbox idempotently — already-recorded effects are skip
   journal.append('h1', eff('c1'))
   journal.reconcile('h1')
 
-  // The agent replays its outbox: c1 again (dup) + c2 (new, from a fast path).
+  // The runner replays its outbox: c1 again (dup) + c2 (new, from a fast path).
   const added = journal.merge('h1', [eff('c1'), eff('c2')])
   assert.deepEqual(
     added.map((e) => e.commandId),

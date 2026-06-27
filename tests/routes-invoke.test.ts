@@ -1,14 +1,14 @@
 /** Integration tests for the capability-invocation route, through the real
- *  router + store + agent runtime. Covers addressing, routing, the two
+ *  router + store + runner runtime. Covers addressing, routing, the two
  *  authorities — context mediation at the broker (D5) and the host grant in the
  *  runtime (D3) — and the offline / unknown / unsupported error paths. */
 import { test, before } from 'node:test'
 import assert from 'node:assert/strict'
 import { call } from './helpers/http.ts'
 
-// The seeded local agent grants fs.read/fs.write over ~/projects and terminal/process over *.
+// The seeded local runner grants fs.read/fs.write over ~/projects and terminal/process over *.
 // Every invoke now names a session + an attached context (the mediation handle): the broker
-// checks target ∈ context.scope, then the runtime checks the agent's host grant.
+// checks target ∈ context.scope, then the runtime checks the runner's host grant.
 before(async () => {
   // `ctx-any` (scope '*') passes mediation so tests can exercise the grant / liveness
   // paths; `ctx-projects` (scope ~/projects) exercises mediation itself.
@@ -52,7 +52,7 @@ test('invoke naming a context not attached to the session is 403 forbidden', asy
 })
 
 test('invoke inside the context but outside the host grant is 403 forbidden (grant, D3)', async () => {
-  // ctx-any (scope '*') passes mediation; /etc/passwd is outside the agent's fs grant.
+  // ctx-any (scope '*') passes mediation; /etc/passwd is outside the runner's fs grant.
   const { status, json } = await call('POST', '/agents/agent-local/invoke', {
     sessionId: 'inv',
     contextId: 'ctx-any',
@@ -63,7 +63,7 @@ test('invoke inside the context but outside the host grant is 403 forbidden (gra
   assert.equal(json.error.code, 'forbidden')
 })
 
-test('invoke a capability the agent does not advertise is 409 capability_unavailable', async () => {
+test('invoke a capability the runner does not advertise is 409 capability_unavailable', async () => {
   await call('POST', '/agents', {
     id: 'agent-term-only',
     label: 'T',
@@ -80,7 +80,7 @@ test('invoke a capability the agent does not advertise is 409 capability_unavail
   assert.equal(json.error.code, 'capability_unavailable')
 })
 
-test('invoke on an offline agent is 409 capability_unavailable', async () => {
+test('invoke on an offline runner is 409 capability_unavailable', async () => {
   await call('POST', '/agents', {
     id: 'agent-going-offline',
     label: 'O',
@@ -98,7 +98,7 @@ test('invoke on an offline agent is 409 capability_unavailable', async () => {
   assert.equal(json.error.code, 'capability_unavailable')
 })
 
-test('invoke on an unknown agent is 404', async () => {
+test('invoke on an unknown runner is 404', async () => {
   const { status, json } = await call('POST', '/agents/ghost/invoke', {
     sessionId: 'inv',
     contextId: 'ctx-any',

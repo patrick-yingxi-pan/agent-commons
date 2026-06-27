@@ -6,9 +6,9 @@ import type {
   AttachContextRequest,
   CreateDispatchRequest,
   PushRecentRequest,
-  RegisterAgentRequest,
+  RegisterRunnerRequest,
   SendMessageRequest,
-  SetAgentCapabilitiesRequest,
+  SetRunnerCapabilitiesRequest,
   SetConnectorStatusRequest,
   UpdateScheduleRequest,
 } from '../../contract/index.ts'
@@ -47,9 +47,9 @@ export function buildRouter(): Router {
     sendJson(res, store.capabilities())
   })
 
-  // ── Native-agent registry ─────────────────────────────────────────────────
-  // The live set of connected agents (one per host) and the capabilities each
-  // advertises. Agents enroll/reconnect via POST, keep alive via heartbeat,
+  // ── Native-runner registry ─────────────────────────────────────────────────
+  // The live set of connected runners (one per host) and the capabilities each
+  // advertises. Runners enroll/reconnect via POST, keep alive via heartbeat,
   // re-advertise grants via PATCH, and disconnect via DELETE. Every change
   // broadcasts an ambient `agent.*` event over `/events`. Reads here are the
   // generalization of `/capabilities` from one static backend to a live registry.
@@ -57,49 +57,49 @@ export function buildRouter(): Router {
     sendJson(res, store.registry.list())
   })
   r.get('/agents/:id', ({ res, params }) => {
-    const agent = store.registry.get(params.id)
-    if (!agent) return sendError(res, 'not_found', `No agent '${params.id}'`)
-    sendJson(res, agent)
+    const runner = store.registry.get(params.id)
+    if (!runner) return sendError(res, 'not_found', `No runner '${params.id}'`)
+    sendJson(res, runner)
   })
   r.post('/agents', async ({ res, body }) => {
-    const input = await body<RegisterAgentRequest>()
+    const input = await body<RegisterRunnerRequest>()
     if (!input?.label || !input?.host || !Array.isArray(input.capabilities)) {
       return sendError(res, 'bad_request', 'label, host, and capabilities are required')
     }
     sendJson(res, store.registry.register(input))
   })
   r.post('/agents/:id/heartbeat', ({ res, params }) => {
-    const agent = store.registry.heartbeat(params.id)
-    if (!agent) return sendError(res, 'not_found', `No agent '${params.id}'`)
-    sendJson(res, agent)
+    const runner = store.registry.heartbeat(params.id)
+    if (!runner) return sendError(res, 'not_found', `No runner '${params.id}'`)
+    sendJson(res, runner)
   })
   r.patch('/agents/:id/capabilities', async ({ res, params, body }) => {
-    const { capabilities } = await body<SetAgentCapabilitiesRequest>()
+    const { capabilities } = await body<SetRunnerCapabilitiesRequest>()
     if (!Array.isArray(capabilities)) {
       return sendError(res, 'bad_request', 'capabilities is required')
     }
-    const agent = store.registry.setCapabilities(params.id, capabilities)
-    if (!agent) return sendError(res, 'not_found', `No agent '${params.id}'`)
-    sendJson(res, agent)
+    const runner = store.registry.setCapabilities(params.id, capabilities)
+    if (!runner) return sendError(res, 'not_found', `No runner '${params.id}'`)
+    sendJson(res, runner)
   })
   r.delete('/agents/:id', ({ res, params }) => {
     if (!store.registry.deregister(params.id)) {
-      return sendError(res, 'not_found', `No online agent '${params.id}'`)
+      return sendError(res, 'not_found', `No online runner '${params.id}'`)
     }
     sendJson(res, { ok: true })
   })
 
-  // Invoke a capability on an agent's host — the addressed + routed call. The
-  // broker (here) resolves the agent and checks liveness; the agent runtime
+  // Invoke a capability on an runner's host — the addressed + routed call. The
+  // broker (here) resolves the runner and checks liveness; the runner runtime
   // enforces the scoped grant (D3) and fulfils. `capability_unavailable` when no
   // such online capability; `forbidden` when the target is outside the grant.
   //
   // Idempotent by `commandId` (D2): a retried call returns the recorded effect
-  // without re-executing. On success the effect is recorded on the agent's
+  // without re-executing. On success the effect is recorded on the runner's
   // authoritative log and projected (the relay/online path), returning the effect.
   r.post('/agents/:id/invoke', async ({ res, params, body }) => {
-    const agent = store.registry.get(params.id)
-    if (!agent) return sendError(res, 'not_found', `No agent '${params.id}'`)
+    const runner = store.registry.get(params.id)
+    if (!runner) return sendError(res, 'not_found', `No runner '${params.id}'`)
     const request = await body<CapabilityRequest>()
     if (!request?.capability || typeof request.target !== 'string') {
       return sendError(res, 'bad_request', 'capability and target are required')
@@ -109,14 +109,14 @@ export function buildRouter(): Router {
     }
     const commandId = request.commandId ?? store.journal.mintCommandId()
     // Idempotency: a retry of an already-recorded command replays the effect.
-    const prior = store.journal.find(agent.id, commandId)
+    const prior = store.journal.find(runner.id, commandId)
     if (prior) return sendJson(res, prior)
-    if (agent.status !== 'online') {
-      return sendError(res, 'capability_unavailable', `Agent '${agent.id}' is offline`)
+    if (runner.status !== 'online') {
+      return sendError(res, 'capability_unavailable', `Runner '${runner.id}' is offline`)
     }
     // Context mediation (D5): the effect must name a context attached to this
     // session and act within that context's scope — the reference-monitor check,
-    // enforced here at the broker (the resource authority), on top of the agent's
+    // enforced here at the broker (the resource authority), on top of the runner's
     // host grant (D3, enforced in the runtime). docs/shared-resource-coordination.md.
     const ctx = store.resolveSessionContext(request.sessionId, request.contextId)
     if (!ctx) {
@@ -156,14 +156,14 @@ export function buildRouter(): Router {
       acquiredHere = !heldBefore
     }
     try {
-      const result = runCapability(agent, request)
-      const { effect } = store.journal.append(agent.id, {
+      const result = runCapability(runner, request)
+      const { effect } = store.journal.append(runner.id, {
         commandId,
         capability: result.capability,
         target: result.target,
         output: result.output,
       })
-      store.journal.reconcile(agent.id) // relay path: project synchronously
+      store.journal.reconcile(runner.id) // relay path: project synchronously
       if (reservation) store.guardian.commit(reservation.id)
       sendJson(res, effect)
     } catch (err) {
@@ -174,19 +174,19 @@ export function buildRouter(): Router {
     }
   })
 
-  // The agent's authoritative effect log (read-through). `?since=<seq>` returns
+  // The runner's authoritative effect log (read-through). `?since=<seq>` returns
   // only the tail after a sequence number — the audit/projection read (D2/D3).
   r.get('/agents/:id/effects', ({ res, params, url }) => {
-    if (!store.registry.get(params.id)) return sendError(res, 'not_found', `No agent '${params.id}'`)
+    if (!store.registry.get(params.id)) return sendError(res, 'not_found', `No runner '${params.id}'`)
     const since = Number(url.searchParams.get('since') ?? 0) || 0
     sendJson(res, store.journal.log(params.id, since))
   })
 
-  // An agent replays its outbox — effects it executed out-of-band (via the
+  // An runner replays its outbox — effects it executed out-of-band (via the
   // co-located fast path, or while the server was unreachable). Merged idempotently
   // by commandId, then projected; returns what was newly projected + the cursor.
   r.post('/agents/:id/sync', async ({ res, params, body }) => {
-    if (!store.registry.get(params.id)) return sendError(res, 'not_found', `No agent '${params.id}'`)
+    if (!store.registry.get(params.id)) return sendError(res, 'not_found', `No runner '${params.id}'`)
     const { effects } = await body<SyncEffectsRequest>()
     if (!Array.isArray(effects)) return sendError(res, 'bad_request', 'effects is required')
     store.journal.merge(params.id, effects)
