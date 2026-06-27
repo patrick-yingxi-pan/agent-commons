@@ -37,6 +37,11 @@ export interface Project {
   /** Sessions that live in this project (main panel) — ids into the session
    *  catalog so each row opens the real thread. */
   sessionIds: string[]
+  /** When set, this Project is a *guarded shared resource* (docs/agent-commons.md,
+   *  D11): its non-monotonic effects serialize at a resource guardian keyed by this
+   *  id — the D5 guardian lifted from a context element to the Project. Unset =
+   *  unguarded (coordination-free). */
+  guardianId?: string
 }
 
 /** The hue of a workflow step's tool chip. Connector/MCP/repo/workspace map onto

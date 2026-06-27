@@ -53,6 +53,9 @@ const ago = (age: number) => BOOT - age
 export const PROJECTS: Project[] = [
   {
     id: 'p-insights',
+    // D11: one seeded *guarded* Project (docs/agent-commons.md) so the guardian path
+    // is exercised end to end — its non-monotonic effects serialize at this key.
+    guardianId: 'p-insights',
     name: 'Insights dashboard',
     description: 'The self-serve Insights dashboard — launch plan, assets, and the feature-flagged rollout.',
     updatedAt: ago(0),

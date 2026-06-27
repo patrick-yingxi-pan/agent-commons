@@ -665,6 +665,27 @@ export const store = {
   listProjects(): Project[] {
     return PROJECTS
   },
+  /** Route a non-monotonic Project effect through the Project's guardian (D11,
+   *  docs/agent-commons.md): a guarded Project is a shared resource, so its
+   *  irreversible effects serialize at its guardian. Reserves the Project's guardian
+   *  for `holder`, runs `effect` (the irreversible step) under a commit, then releases
+   *  the lease. A concurrent effect by a *different* holder is refused
+   *  (`GuardianError` 'conflict') — the escrow turning a second principal away up
+   *  front. An unguarded Project (no `guardianId`) runs the effect directly
+   *  (coordination-free). Single-principal today; multi-principal arbitration at the
+   *  guardian is forward (D11's promoted residue). */
+  guardProjectEffect<T>(projectId: string, holder: string, effect: () => T): T {
+    const project = PROJECTS.find((p) => p.id === projectId)
+    if (!project?.guardianId) return effect()
+    const reservation = guardian.reserve(project.guardianId, holder)
+    try {
+      const result = effect()
+      guardian.commit(reservation.id)
+      return result
+    } finally {
+      guardian.release(reservation.id)
+    }
+  },
   /** The base artifacts (the relation graph carries any saved-out extras). */
   listArtifacts(): ArtifactItem[] {
     return ALL_ARTIFACTS

@@ -9,14 +9,14 @@
 > "Decision" here means *settled within this exploration's design space* — **not**
 > "implemented in the prototype." The prototype's actually-shipped, locked-in
 > decisions live in [`../AGENTS.md`](../AGENTS.md) → "Design decisions (locked in)";
-> nothing here overrides those. **Almost nothing in this doc is built.** Concretely:
-> there is no model-provider registry, no `Commission`, no project-level guardian, and
-> no registry to manage more than one Agent. What is built: the **D6 rename** (slices
-> 1a/1b) and one seeded worker `Agent` driving every Conversation (slice 2):
-> the host-bound type is now named `Runner` in code, wire and all (slice 1a was the
-> TypeScript identity; slice 1b renamed its `/runners` routes + `runner.*` events). The
-> prototype is otherwise the *degenerate N=1 case* of everything below (one implicit
-> Anthropic client, one inert `Project` node).
+> nothing here overrides those. **The "smallest first slice" plan (below) is built;
+> the multi-tenant surface above it is not.** Built: the **D6 rename** (1a/1b — the
+> host-bound type is `Runner` in code, wire and all), a seeded worker `Agent` per
+> Conversation (2), the **D8 budget funnel** (3), and one **guarded Project** (4).
+> Still forward: a model-provider registry, a system-prompt library, `Commission`s,
+> cross-user attenuation/isolation, and multi-principal coordination. The prototype is
+> otherwise the *degenerate N=1 case* of everything below (one implicit model client,
+> one user, no commissions).
 >
 > **This doc renames the broker doc's "native agent" to "Runner"** (decision D6).
 > Slice 1a has applied the **TypeScript half** of that rename in code — the `Agent`
@@ -730,9 +730,11 @@ The first slice falls out of the grounding and touches no behavior:
    funnel that rejects an over-plan Agent budget at mint — the spine of D8 (token-quota
    face; provider → agent), before any Commission. Authority attenuation + spend-time
    enforcement are later.
-4. **Register a Project as a `resourceId`.** Give one `Project` a `guardianId` and route
-   a single non-monotonic Project effect through the existing guardian — exercises D11 on
-   one path, single-principal, before multi-user.
+4. **Register a Project as a `resourceId`. ✅ Done.** `Project.guardianId` marks a
+   guarded Project; `store.guardProjectEffect` routes a non-monotonic Project effect
+   through the existing `ResourceGuardian` (reserve → commit → release), refusing a
+   concurrent different principal. One seeded guarded Project (`p-insights`); single-
+   principal, before multi-user (D11's multi-principal arbitration is forward).
 
 Each ships with tests (`npm test`) and keeps `npm run typecheck` + `build` green, per
 the repo conventions.
@@ -792,7 +794,19 @@ session↔context binding, mediation handle, and single-resource escrow).
   rejecting an over-grant with `BudgetError` — so an over-budget Agent is unrepresentable
   at mint. Token quota only (authority attenuation is a later slice); enforced at
   creation, not per-turn (D8's choice). typecheck + 274 tests green.
-- **Still forward.** The Model-provider registry (and so the *provider* plan as a
-  first-class node), the system-prompt library, the `Commission` (and its grant tier of
-  the cascade), and the Project-level Guardian are unbuilt. Outside slices 1–3 the
-  prototype remains the degenerate N=1 case: one implicit client, one inert `Project`.
+- **Slice 4 — a Project as a guarded resource (D11). ✅ Built.** `Project.guardianId`
+  (contract/cowork.ts) marks a Project a shared resource; one seeded guarded Project
+  (`p-insights`, server/data/cowork.ts). `store.guardProjectEffect` is the seam that
+  routes a non-monotonic Project effect through the existing `ResourceGuardian` (D5) —
+  reserve → run → commit → release — refusing a concurrent *different* principal with
+  `GuardianError` 'conflict' (the escrow). Unguarded Projects stay coordination-free
+  (CALM). Single-principal on one path today; multi-principal arbitration at the guardian
+  (D11's promoted residue) and wiring a real external effect through it are forward.
+  typecheck + 278 tests green.
+- **The "smallest first slice" plan (slices 1–4) is complete.** What remains forward is
+  the multi-tenant surface: the **Model-provider registry** (so the provider plan becomes
+  a first-class cascade node), the **system-prompt library** (D10), the **`Commission`**
+  (the agent→Project assignment + its grant tier, D7/D13), **cross-user authority
+  attenuation + isolation** (D8/D12), and **multi-principal coordination** at the
+  Guardian (D11). Outside slices 1–4 the prototype is still the degenerate N=1 case: one
+  implicit client, one user, no commissions.
