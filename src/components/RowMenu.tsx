@@ -1,7 +1,8 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronRight, MoreVertical } from 'lucide-react'
 import type { Project } from '../types'
+import { useDismissable } from '../lib/useDismissable'
 import { FlyoutPanel, useFlyout } from './RecentOverflowList'
 
 /** ── A sidebar row's overflow ("⋮") menu ──────────────────────────────────────
@@ -46,7 +47,9 @@ export function RowMenu({ ariaLabel, items }: { ariaLabel: string; items: RowMen
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
   // A destructive item awaiting its second click (the inline confirm view).
   const [confirming, setConfirming] = useState<{ message: string; onSelect: () => void } | null>(null)
-  const triggerRef = useRef<HTMLButtonElement>(null)
+  // The menu panel is portaled and stops its own mousedown, so anchoring the
+  // dismiss ref to the trigger alone covers outside-click + Escape.
+  const triggerRef = useDismissable<HTMLButtonElement>(open, () => close())
 
   const close = () => {
     setOpen(false)
@@ -62,23 +65,6 @@ export function RowMenu({ ariaLabel, items }: { ariaLabel: string; items: RowMen
     const top =
       roomBelow >= POPOVER_EST_HEIGHT + M ? r.bottom + 6 : Math.max(M, r.top - POPOVER_EST_HEIGHT - 6)
     setPos({ left, top })
-  }, [open])
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (triggerRef.current?.contains(e.target as Node)) return
-      close()
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') close()
-    }
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
   }, [open])
 
   const run = (fn: () => void) => {

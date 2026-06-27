@@ -1,6 +1,7 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronRight, SlidersHorizontal } from 'lucide-react'
+import { useDismissable } from '../lib/useDismissable'
 import { FlyoutPanel, useFlyout } from './RecentOverflowList'
 
 /** ── A generic "Filter & sort" menu — the sliders button + its popover ────────
@@ -45,7 +46,10 @@ const POPOVER_EST_HEIGHT = 220
 
 export function FilterMenu({ ariaLabel, rows }: { ariaLabel: string; rows: FilterRowSpec[] }) {
   const [open, setOpen] = useState(false)
-  const triggerRef = useRef<HTMLButtonElement>(null)
+  // The popover panel + submenu flyouts are portaled and each stop their own
+  // mousedown, so anchoring the dismiss ref to the trigger alone is enough: any
+  // mousedown that isn't the trigger or those panels counts as "outside".
+  const triggerRef = useDismissable<HTMLButtonElement>(open, () => setOpen(false))
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
 
   // Anchor the popover to the sliders button: right edge aligned to the button
@@ -61,26 +65,6 @@ export function FilterMenu({ ariaLabel, rows }: { ariaLabel: string; rows: Filte
     const top =
       roomBelow >= POPOVER_EST_HEIGHT + M ? r.bottom + 6 : Math.max(M, r.top - POPOVER_EST_HEIGHT - 6)
     setPos({ left, top })
-  }, [open])
-
-  // Dismiss on outside click / Escape. The popover panel and submenu flyouts each
-  // stop their own mousedown, so this fires only for genuine outside clicks;
-  // clicks on the trigger are ignored here and handled by its onClick toggle.
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (triggerRef.current?.contains(e.target as Node)) return
-      setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
   }, [open])
 
   return (

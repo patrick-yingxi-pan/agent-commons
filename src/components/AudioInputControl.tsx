@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Check, ChevronDown, Mic } from 'lucide-react'
+import { useDismissable } from '../lib/useDismissable'
 
 const DEVICES = [
   'Default — System microphone',
@@ -15,21 +16,7 @@ export function AudioInputControl() {
   const [device, setDevice] = useState(0)
   const [hold, setHold] = useState(false)
   const [recording, setRecording] = useState(false)
-  const wrapRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
+  const wrapRef = useDismissable<HTMLDivElement>(open, () => setOpen(false))
 
   return (
     <div ref={wrapRef} className="relative flex items-center">

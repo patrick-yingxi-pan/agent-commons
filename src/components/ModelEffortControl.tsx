@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Check, ChevronDown, Workflow, Zap } from 'lucide-react'
 import { EFFORTS, MODELS } from '../lib/models'
 import { loadModelPrefs, saveModelPrefs, type ModelPrefs } from '../lib/modelPrefs'
+import { useDismissable } from '../lib/useDismissable'
 
 /** The composer's model/effort config — the shared "default model" preference
  *  (lib/modelPrefs), so the Customize page edits the same setting. */
@@ -56,7 +57,7 @@ function ToggleRow({
 export function ModelEffortControl() {
   const [open, setOpen] = useState(false)
   const [config, setConfig] = useState<Config>(loadModelPrefs)
-  const wrapRef = useRef<HTMLDivElement>(null)
+  const wrapRef = useDismissable<HTMLDivElement>(open, () => setOpen(false))
 
   const { modelId, effort, ultracode, fast } = config
   const update = (patch: Partial<Config>) => setConfig((c) => ({ ...c, ...patch }))
@@ -68,21 +69,6 @@ export function ModelEffortControl() {
   useEffect(() => {
     saveModelPrefs(config)
   }, [config])
-
-  // Close on outside click / Escape.
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
 
   return (
     <div ref={wrapRef} className="relative">

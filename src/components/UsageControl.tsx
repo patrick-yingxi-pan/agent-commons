@@ -1,6 +1,7 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useId, useState } from 'react'
 import { ArrowRight, ChevronRight } from 'lucide-react'
 import { useUsage } from '../api'
+import { useDismissable } from '../lib/useDismissable'
 import { withLiveMessages, type ContextSegment, type ContextTone, type UsageSnapshot } from '../../contract/index.ts'
 
 /* Shown until the server's usage snapshot loads — a zeroed gauge rather than a
@@ -47,7 +48,7 @@ function waterColor(pct: number): string {
 export function UsageControl({ sessionId, messageTokens }: { sessionId?: string; messageTokens?: number }) {
   const [open, setOpen] = useState(false)
   const [expanded, setExpanded] = useState(true)
-  const wrapRef = useRef<HTMLDivElement>(null)
+  const wrapRef = useDismissable<HTMLDivElement>(open, () => setOpen(false))
   // Server-owned: the UI just caches the snapshot. EMPTY_USAGE covers the first
   // paint before the fetch resolves. The live breakdown overrides the snapshot's.
   const snapshot = useUsage(sessionId).data ?? EMPTY_USAGE
@@ -56,20 +57,6 @@ export function UsageControl({ sessionId, messageTokens }: { sessionId?: string;
   // thread without re-sending those server-owned figures.
   const usage: UsageSnapshot =
     messageTokens === undefined ? snapshot : { ...snapshot, context: withLiveMessages(snapshot.context, messageTokens) }
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
 
   const title =
     `Usage — context ${usage.context.pct}%, ` +

@@ -23,6 +23,7 @@ import { GITHUB_CONNECTOR, GITHUB_CONNECTOR_ID } from '../lib/connectors'
 import { repoIdForLabel } from '../data/liveSession'
 import { getDecision, setDecision } from '../lib/prefs'
 import { useFocusTrap } from '../lib/useFocusTrap'
+import { useDismissable } from '../lib/useDismissable'
 import { useRecentIds } from '../lib/recents'
 import { RecentOverflowList, FlyoutPanel, useFlyout, type OverflowRow } from './RecentOverflowList'
 import {
@@ -89,7 +90,7 @@ export function AddContextButton({
   // so the list is "as long as the layout allows"; the rest folds into the
   // "More" flyout. Recomputed on open and on window resize.
   const [maxRecentRows, setMaxRecentRows] = useState(8)
-  const wrapRef = useRef<HTMLDivElement>(null)
+  const wrapRef = useDismissable<HTMLDivElement>(open, () => close())
   // The popover opens left-aligned from the button, but the button can sit near a
   // right edge (e.g. the project side panel), where a 340px popover would overflow.
   // `shiftX` nudges it back fully on-screen — measured once on open. The host need
@@ -115,20 +116,6 @@ export function AddContextButton({
     if (r.right > window.innerWidth - M) dx = window.innerWidth - M - r.right
     if (r.left + dx < M) dx = M - r.left
     if (dx !== 0) setShiftX((s) => s + dx)
-  }, [open])
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) close()
-    }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close()
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
   }, [open])
 
   // Size the inline recent list to the height available above the composer: the

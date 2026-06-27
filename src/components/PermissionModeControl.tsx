@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Check } from 'lucide-react'
+import { useDismissable } from '../lib/useDismissable'
 
 type ModeId = 'ask' | 'acceptEdits' | 'plan' | 'auto' | 'bypass'
 
@@ -25,28 +26,22 @@ const PILL_TONE: Record<ModeId, string> = {
 export function PermissionModeControl() {
   const [open, setOpen] = useState(false)
   const [modeId, setModeId] = useState<ModeId>(DEFAULT_MODE)
-  const wrapRef = useRef<HTMLDivElement>(null)
+  const wrapRef = useDismissable<HTMLDivElement>(open, () => setOpen(false))
   const mode = MODES.find((m) => m.id === modeId)!
 
+  // Single-key mode shortcuts while the menu is open (Escape + outside-click
+  // dismissal are handled by useDismissable above).
   useEffect(() => {
     if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
-    }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') return setOpen(false)
       const m = MODES.find((x) => x.key === e.key)
       if (m) {
         setModeId(m.id)
         setOpen(false)
       }
     }
-    document.addEventListener('mousedown', onDown)
     document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
+    return () => document.removeEventListener('keydown', onKey)
   }, [open])
 
   return (

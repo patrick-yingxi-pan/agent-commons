@@ -184,8 +184,12 @@ the mock?
   Embodied by `src/lib/inlineAction.ts` + `src/components/AddTrigger.tsx` (every
   "+ Add ‹thing›" picker-opener) and `src/lib/foldHeader.ts` (every foldable section
   header); each shared cue is locked by a test that fails if a component re-hardcodes
-  it (`tests/addTrigger.test.ts`, `tests/foldHeader.test.ts`). Add new shared tokens
-  the same way — one source of truth, asserted by a test.
+  it (`tests/addTrigger.test.ts`, `tests/foldHeader.test.ts`). The same rule governs
+  shared *behaviour*, not just styling: every popover / dropdown / menu dismisses on
+  outside-click + Escape through one hook, `src/lib/useDismissable.ts` (locked by
+  `tests/useDismissable.test.ts`, which fails if a component re-hardcodes the document
+  `mousedown` listener). Add new shared tokens / hooks the same way — one source of
+  truth, asserted by a test.
 - **The dev server binds IPv4** (`server.host: '127.0.0.1'` in `vite.config.ts`).
   On some hosts `localhost` resolves to `::1` only, which a browser/preview hitting
   `127.0.0.1` can't reach. Keep the explicit bind (the API proxy targets it too).

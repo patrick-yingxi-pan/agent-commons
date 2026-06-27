@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Server } from 'lucide-react'
 import { useRunners } from '../api'
+import { useDismissable } from '../lib/useDismissable'
 import type { Runner } from '../../contract/index.ts'
 
 /* Online/offline dot. A durable runner that disconnected stays listed (D4) but
@@ -21,24 +22,10 @@ const CAP_LABEL: Record<string, string> = {
  *  registry (`GET /v1/runners`); the `runner.*` events keep it fresh. */
 export function HostsControl() {
   const [open, setOpen] = useState(false)
-  const wrapRef = useRef<HTMLDivElement>(null)
+  const wrapRef = useDismissable<HTMLDivElement>(open, () => setOpen(false))
   // Server-owned: the UI just caches the registry snapshot.
   const runners = useRunners().data ?? []
   const online = runners.filter((a) => a.status === 'online')
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
 
   const title = `Hosts — ${online.length} connected`
 

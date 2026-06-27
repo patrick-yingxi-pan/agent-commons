@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Cpu } from 'lucide-react'
 import { useProviders } from '../api'
+import { useDismissable } from '../lib/useDismissable'
 import { formatTokens } from '../../contract/index.ts'
 import type { Authority, ModelProvider } from '../../contract/index.ts'
 
@@ -20,23 +21,9 @@ function authorityLabel(a?: Authority): string {
  *  (`GET /v1/providers`). */
 export function ProvidersControl() {
   const [open, setOpen] = useState(false)
-  const wrapRef = useRef<HTMLDivElement>(null)
+  const wrapRef = useDismissable<HTMLDivElement>(open, () => setOpen(false))
   // Server-owned: the UI just caches the registry snapshot.
   const providers = useProviders().data ?? []
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
 
   const title = `Model providers — ${providers.length} registered`
 

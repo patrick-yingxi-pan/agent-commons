@@ -107,6 +107,7 @@ import {
 import { promptFitWarning } from '../../contract/index.ts'
 import { ArtifactThumb, ArtifactViewer, KIND_ICON, KIND_LABEL } from './artifactPreview'
 import { useFocusTrap } from '../lib/useFocusTrap'
+import { useDismissable } from '../lib/useDismissable'
 import { useRelations } from '../controller/useRelations'
 import { runSessionId, slug } from '../../contract/ids.ts'
 
@@ -837,24 +838,10 @@ function ProjectScheduleAdd({
   onLink: (task: ScheduledTask) => void
 }) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
+  const ref = useDismissable<HTMLDivElement>(open, () => setOpen(false))
   const templates = useScheduleTemplates().data ?? []
   const allSchedules = useSchedules().data ?? []
   const linkable = allSchedules.filter((t) => !linkedIds.has(t.id))
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
 
   return (
     <div ref={ref} className="relative mt-2.5 border-t border-line pt-2.5">
@@ -1473,21 +1460,7 @@ function AddContextControl({
   onAdd: (ctx: SavedContext) => void
 }) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
+  const ref = useDismissable<HTMLDivElement>(open, () => setOpen(false))
 
   const groups = ADDABLE_GROUPS.map((g) => ({
     ...g,
@@ -2434,22 +2407,8 @@ function MiniPipeline({ task }: { task: ScheduledTask }) {
  *  into its detail, so the user lands on a populated workflow rather than a form. */
 function NewScheduleControl({ onAdd }: { onAdd: (tpl: ScheduleTemplate) => void }) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
+  const ref = useDismissable<HTMLDivElement>(open, () => setOpen(false))
   const templates = useScheduleTemplates().data ?? []
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
 
   // Group templates by category, preserving first-seen order.
   const cats: { label: string; items: ScheduleTemplate[] }[] = []
@@ -3025,19 +2984,9 @@ function StepToolPicker({
   onClose: () => void
   tools?: StepTool[]
 }) {
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
-    }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [onClose])
+  // Mounted only while open (the parent conditionally renders it), so the dismiss
+  // listeners should be live for its whole lifetime — pass open=true.
+  const ref = useDismissable<HTMLDivElement>(true, onClose)
 
   return (
     <div
@@ -3402,22 +3351,10 @@ function SchedulePanel({ task }: { task: ScheduledTask }) {
  *  with a live preview of the derived cadence + next-run. Apply writes the three
  *  derived fields via updateSchedule in one patch. */
 function CadenceEditor({ task, onClose }: { task: ScheduledTask; onClose: () => void }) {
-  const ref = useRef<HTMLDivElement>(null)
+  // Mounted only while open, so dismiss listeners live for its whole lifetime.
+  const ref = useDismissable<HTMLDivElement>(true, onClose)
   const [spec, setSpec] = useState<CadenceSpec>(() => parseCadence(task.cadence) ?? { freq: 'daily', time: '09:00' })
   const [tz, setTz] = useState(task.timezone ?? 'America/Los_Angeles')
-
-  useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
-    }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [onClose])
 
   const timed = TIMED_FREQS.includes(spec.freq)
   const preview = describeCadence(spec)
@@ -3554,23 +3491,11 @@ function ModelPanel({ task }: { task: ScheduledTask }) {
  *  composer's two-section layout (model radios + an effort ladder). Each pick
  *  applies live via updateSchedule({ model }); "Done" closes. */
 function ScheduleModelPicker({ task, onClose }: { task: ScheduledTask; onClose: () => void }) {
-  const ref = useRef<HTMLDivElement>(null)
+  // Mounted only while open, so dismiss listeners live for its whole lifetime.
+  const ref = useDismissable<HTMLDivElement>(true, onClose)
   const init = parseModelLabel(task.model)
   const [modelId, setModelId] = useState<ModelId>(init.modelId)
   const [effort, setEffort] = useState<Effort>(init.effort)
-
-  useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
-    }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [onClose])
 
   const pickModel = (id: ModelId) => {
     setModelId(id)
@@ -3710,21 +3635,7 @@ function CustomizeView() {
 function DefaultModelCard() {
   const [prefs, setPrefs] = useState<ModelPrefs>(loadModelPrefs)
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
+  const ref = useDismissable<HTMLDivElement>(open, () => setOpen(false))
 
   const commit = (next: ModelPrefs) => {
     setPrefs(next)
@@ -3828,21 +3739,7 @@ function SystemPromptCard() {
     }
   })
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
+  const ref = useDismissable<HTMLDivElement>(open, () => setOpen(false))
 
   const pick = (id: string) => {
     setSelectedId(id)
@@ -4022,16 +3919,7 @@ function Dropdown({
   onChange: (v: string) => void
 }) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
-  }, [open])
+  const ref = useDismissable<HTMLDivElement>(open, () => setOpen(false))
 
   return (
     <div ref={ref} className="relative">

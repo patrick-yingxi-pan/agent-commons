@@ -31,6 +31,7 @@ import { GITHUB_CONNECTOR_ID, connectorIconFor } from '../lib/connectors'
 import { getDecision, setDecision } from '../lib/prefs'
 import { type ChipTone } from '../lib/capabilities'
 import { sameFocus } from '../lib/focus'
+import { useDismissable } from '../lib/useDismissable'
 
 const SKIP_CONFIRM_KEY = 'claude-ui.composer.skipDeleteConfirm.v2'
 
@@ -444,30 +445,15 @@ function ChipGroup({
   const [confirmKey, setConfirmKey] = useState<string | null>(null)
   // Local "don't ask again" tick inside the confirmation prompt.
   const [dontAsk, setDontAsk] = useState(false)
-  const wrapRef = useRef<HTMLDivElement>(null)
   const anyActive = group.items.some((it) => sameFocus(focus, it.focus))
 
   // Dismiss the popup — or, for a single chip, its remove confirmation — on an
   // outside click or Escape.
-  const popoverOpen = open || confirmKey !== null
-  useEffect(() => {
-    if (!popoverOpen) return
-    const dismiss = () => {
-      setOpen(false)
-      setConfirmKey(null)
-      setDontAsk(false)
-    }
-    const onDown = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) dismiss()
-    }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && dismiss()
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [popoverOpen])
+  const wrapRef = useDismissable<HTMLDivElement>(open || confirmKey !== null, () => {
+    setOpen(false)
+    setConfirmKey(null)
+    setDontAsk(false)
+  })
 
   // Reset any pending confirmation whenever the popup closes.
   useEffect(() => {
