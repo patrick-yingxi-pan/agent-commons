@@ -62,12 +62,14 @@ import { connectorDetail } from './data/connectorDetails.ts'
 import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
 import { createUsageMeter, estimateTokens } from './usage.ts'
 import { contextBreakdown } from '../contract/index.ts'
+import type { Agent } from '../contract/index.ts'
 import { TOOL_DEFINITIONS } from './model/tools.ts'
 import { systemPrompt } from './generate.ts'
 import { RunnerRegistry } from './registry.ts'
 import { RunnerJournal } from './journal.ts'
 import { ResourceGuardian } from './guardian.ts'
 import { LOCAL_RUNNER_SEED } from './data/agents.ts'
+import { DEFAULT_AGENT } from './data/workers.ts'
 import { EMPTY_WORKSPACE, workspaceFromSeed } from './workspace.ts'
 import { STORE_VERSION, loadState, saveState, type PersistedState } from './persist.ts'
 
@@ -119,6 +121,11 @@ const usageMeter = createUsageMeter(() => Date.now())
 // declares on every request (server/model/tools.ts) — injected eagerly, so it's a
 // loaded context category, not a deferred one. Static, so computed once.
 const SYSTEM_TOOLS_TOKENS = estimateTokens(JSON.stringify(TOOL_DEFINITIONS))
+
+// The seeded worker Agents (docs/agent-commons.md, D6) — one for now, the
+// degenerate N=1 case. Every Conversation resolves to it until users create more.
+const WORKER_AGENTS = new Map<string, Agent>([[DEFAULT_AGENT.id, DEFAULT_AGENT]])
+const resolveAgent = (id?: string): Agent => WORKER_AGENTS.get(id ?? '') ?? DEFAULT_AGENT
 
 // Per-user recents — one non-evicting MRU id list per context type. Connectors /
 // MCP seed from the connected accounts (their quick list shows every set-up
@@ -454,6 +461,7 @@ export const store = {
       id: `sess-${(sessionSeq += 1)}`,
       title: titleFrom(firstMessage),
       caps: ['chat'],
+      agentId: DEFAULT_AGENT.id,
       preview: (firstMessage ?? '').slice(0, 120),
       messages: [],
       status: 'active',
@@ -465,6 +473,16 @@ export const store = {
     emit({ type: 'session.updated', session })
     persist()
     return session
+  },
+
+  /** The seeded worker Agents (docs/agent-commons.md, D6) — the degenerate N=1 set. */
+  listAgents(): Agent[] {
+    return [...WORKER_AGENTS.values()]
+  },
+  /** Resolve a Conversation's worker Agent; unset/unknown falls back to the seeded
+   *  default. */
+  getAgent(id?: string): Agent {
+    return resolveAgent(id)
   },
 
   /** Append a message to a session's thread — the write that makes "send" real.
@@ -618,7 +636,8 @@ export const store = {
     for (const m of session?.messages ?? []) messageTokens += estimateTokens(m.content)
     // System tools + system prompt are computed from the *actual* request the
     // backend sends — both injected eagerly — so they're real loaded categories.
-    const systemPromptTokens = estimateTokens(systemPrompt({ id: sessionId ?? '', title: session?.title ?? '', isDemo: session?.isDemo }))
+    const agent = resolveAgent(session?.agentId)
+    const systemPromptTokens = estimateTokens(systemPrompt({ id: sessionId ?? '', title: session?.title ?? '', isDemo: session?.isDemo }, agent))
     return {
       context: contextBreakdown({ messageTokens, systemToolsTokens: SYSTEM_TOOLS_TOKENS, systemPromptTokens }),
       limits: usageMeter.planLimits(),

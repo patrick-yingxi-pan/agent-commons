@@ -9,7 +9,7 @@
  *  endpoint (dev: server/model on :8788). To go live, repoint `ANTHROPIC_BASE_URL`
  *  at `api.anthropic.com` and set `ANTHROPIC_API_KEY` — no code change. */
 import Anthropic from '@anthropic-ai/sdk'
-import type { EscalationProposal, Message, RelationOp } from '../contract/index.ts'
+import type { Agent, EscalationProposal, Message, RelationOp } from '../contract/index.ts'
 import { TOOL_DEFINITIONS, executeTool, type ToolContext } from './model/tools.ts'
 import { chunkText } from './model/replies.ts'
 
@@ -63,14 +63,14 @@ export interface ReplyResult {
   usage: TurnUsage
 }
 
-/** The system prompt the backend sends — the same framing a real Claude reads.
- *  It describes the tool interface and the consent rule (a tool call *proposes*;
- *  the user confirms before anything is applied). */
-export function systemPrompt(session: ReplySession): string {
+/** The system prompt the backend sends — the worker Agent's prompt + its custom
+ *  instructions, with the demo clause layered on for the scripted session. The
+ *  Agent (docs/agent-commons.md, D6) carries the framing that used to be hard-coded
+ *  here; for the default Agent this reproduces the original prompt verbatim. */
+export function systemPrompt(session: ReplySession, agent: Agent): string {
   return [
-    'You are Claude in the Unified Workspace prototype — one adaptive thread that unifies chat, workspace, and code.',
-    'When the user asks to produce documents, change code, or organize their work, manipulate the workspace by calling the provided tools.',
-    'A tool call is a *proposal*: nothing is applied until the user confirms it in the thread, so call the tool and then briefly introduce what you proposed.',
+    agent.systemPrompt,
+    agent.instructions,
     session.isDemo ? 'This is the scripted demo session — keep replies brief.' : '',
   ]
     .filter(Boolean)
@@ -84,12 +84,15 @@ export function systemPrompt(session: ReplySession): string {
  *  message if the endpoint is unreachable, so the UI never hangs. */
 export async function generateReply(
   session: ReplySession,
+  agent: Agent,
   text: string,
   handlers: ReplyHandlers,
   signal?: AbortSignal,
 ): Promise<ReplyResult> {
   const ctx: ToolContext = { session: { id: session.id, title: session.title } }
-  const system = systemPrompt(session)
+  const system = systemPrompt(session, agent)
+  // The Agent's tool allowlist — a subset of the catalog (the default carries all).
+  const tools = TOOL_DEFINITIONS.filter((t) => agent.tools.includes(t.name))
   const userContent = text.trim() || '(the user sent an empty message)'
 
   let assistantId = ''
@@ -108,7 +111,7 @@ export async function generateReply(
   try {
     // ── Turn 1: the model may answer with tool calls ─────────────────────────
     const stream1 = client().messages.stream(
-      { model: MODEL, max_tokens: 1024, system, tools: TOOL_DEFINITIONS, messages: [{ role: 'user', content: userContent }] },
+      { model: MODEL, max_tokens: 1024, system, tools, messages: [{ role: 'user', content: userContent }] },
       { signal },
     )
     stream1.on('streamEvent', (event) => {
@@ -143,7 +146,7 @@ export async function generateReply(
         model: MODEL,
         max_tokens: 1024,
         system,
-        tools: TOOL_DEFINITIONS,
+        tools,
         messages: [
           { role: 'user', content: userContent },
           { role: 'assistant', content: first.content },

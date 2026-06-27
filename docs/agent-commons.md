@@ -10,8 +10,9 @@
 > "implemented in the prototype." The prototype's actually-shipped, locked-in
 > decisions live in [`../AGENTS.md`](../AGENTS.md) → "Design decisions (locked in)";
 > nothing here overrides those. **Almost nothing in this doc is built.** Concretely:
-> there is no worker `Agent` type, no model-provider registry, no `Commission`, no
-> project-level guardian. The one exception is the **D6 rename**, slice 1a (below):
+> there is no model-provider registry, no `Commission`, no project-level guardian, and
+> no registry to manage more than one Agent. What is built: the **D6 rename** (slices
+> 1a/1b) and one seeded worker `Agent` driving every Conversation (slice 2):
 > the host-bound type is now named `Runner` in code, wire and all (slice 1a was the
 > TypeScript identity; slice 1b renamed its `/runners` routes + `runner.*` events). The
 > prototype is otherwise the *degenerate N=1 case* of everything below (one implicit
@@ -719,9 +720,11 @@ The first slice falls out of the grounding and touches no behavior:
    the `runnerId` field, the `runner-` id prefix). Cosmetic remainder: the
    `agent-runtime.ts` / `data/agents.ts` filenames and the broker doc prose. Freed the
    bare word for the worker `Agent` (step 2).
-2. **Introduce the worker `Agent` type** beside the renamed Runner, with a
-   `Session.agentId` binding — the degenerate case is one seeded Agent wrapping today's
-   single client. Nothing multi-tenant yet.
+2. **Introduce the worker `Agent` type. ✅ Done.** `contract/workers.ts` `Agent`
+   `{ id, label, systemPrompt, tools, instructions, providerId? }` beside the renamed
+   Runner, a `Session.agentId` binding, one seeded `DEFAULT_AGENT` wrapping today's
+   single client (the degenerate N=1 case), threaded through generation + metering.
+   `providerId`/budget and a management registry are later slices.
 3. **Make the meter enforce, at one funnel.** Add ceilings + `min(parent, child)` to a
    two-tier cascade (provider → agent) with creation-time rejection — the spine of D8,
    on the existing meter, before any Commission exists.
@@ -772,7 +775,14 @@ session↔context binding, mediation handle, and single-resource escrow).
   `Agent` is fully free for the worker type (step 2). Cosmetic remainder (deferred):
   the `agent-runtime.ts` / `data/agents.ts` filenames and the broker doc's prose
   (covered by its "renames by reference" note).
-- **Still forward.** The worker `Agent` type, the Model-provider registry, the
-  system-prompt library, the `Commission`, and the Project-level Guardian are all
-  unbuilt. Outside slice 1a the prototype remains the degenerate N=1 case: one
-  implicit Anthropic client, one inert `Project` node.
+- **Slice 2 — the worker `Agent` type + `Session.agentId`. ✅ Built.** `contract/workers.ts`
+  defines `Agent { id, label, systemPrompt, tools, instructions, providerId? }`; one
+  `DEFAULT_AGENT` is seeded (`server/data/workers.ts`), wrapping today's single implicit
+  client with the original framing verbatim (so metering/behavior don't drift). Every
+  Conversation resolves to it via `Session.agentId` (`store.getAgent`), and that binding
+  is load-bearing — it drives the system prompt + tool allowlist in `server/generate.ts`
+  and the system-prompt metering in `store.usage`. typecheck + 268 tests green. No
+  management UI/registry yet (one Agent); `providerId` + budget arrive with their slices.
+- **Still forward.** The Model-provider registry, the system-prompt library, the
+  `Commission`, and the Project-level Guardian are unbuilt. Outside slices 1–2 the
+  prototype remains the degenerate N=1 case: one implicit client, one inert `Project`.

@@ -204,6 +204,9 @@ export interface Session {
   preview: string
   /** Whether this conversation is the scripted, step-through demo. */
   isDemo?: boolean
+  /** The worker Agent (docs/agent-commons.md, D6) driving this Conversation. Unset =
+   *  the seeded default Agent — the degenerate N=1 case. */
+  agentId?: string
   /** Canned content shown when a non-demo conversation is opened. */
   messages?: Message[]
   /** The live, server-owned workspace (runtime attaches persist here). Populated

@@ -356,6 +356,9 @@ export function buildRouter(): Router {
     const session = known
       ? { id: known.id, title: known.title, isDemo: known.isDemo }
       : { id: params.id, title: 'New session', isDemo: false }
+    // The worker Agent driving this Conversation (docs/agent-commons.md, D6) —
+    // resolves to the seeded default until users create their own.
+    const agent = store.getAgent(known?.agentId)
     // `ephemeral` (the guided tour) generates the full model + tool round-trip
     // but persists nothing, so the tour can replay against the demo session
     // without accumulating duplicate turns. Persist otherwise — the conversation
@@ -381,6 +384,7 @@ export function buildRouter(): Router {
     try {
       const { message, usage } = await generateReply(
         session,
+        agent,
         text ?? '',
         {
           onStart: (id) => {
