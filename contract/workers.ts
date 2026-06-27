@@ -11,6 +11,7 @@
  *  budget are deliberately absent until the slices that enforce them land. */
 
 import type { Budget } from './budget.ts'
+import type { Authority } from './authority.ts'
 
 export interface Agent {
   id: string
@@ -35,8 +36,13 @@ export interface Agent {
    *  provider registry lands (a later slice); the degenerate Agent omits it and
    *  uses the single implicit client. */
   providerId?: string
-  /** An optional token budget — tighter than the provider plan (the D8 cascade).
-   *  Validated at the creation funnel (`store.createAgent`); unset = no Agent-level
-   *  cap beyond the plan. Authority attenuation is a later slice. */
+  /** An optional token budget — tighter than the provider plan (the D8 cascade, token
+   *  face). Validated at the creation funnel (`store.createAgent`); unset = no
+   *  Agent-level cap beyond the plan. */
   budget?: Budget
+  /** An optional **authority** grant — a subset of the provider's (the D8 cascade's
+   *  primary face: tools / connectors / scopes). Validated at the same funnel
+   *  (`overAuthority`); unset = inherit the provider's authority. A Commission later
+   *  attenuates this further. */
+  authority?: Authority
 }

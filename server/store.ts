@@ -61,6 +61,7 @@ import { SAVED_CONTEXTS, CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from './da
 import { connectorDetail } from './data/connectorDetails.ts'
 import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
 import { createUsageMeter, estimateTokens, mintBudget } from './usage.ts'
+import { mintAuthority } from './authority.ts'
 import { contextBreakdown } from '../contract/index.ts'
 import type { Agent, ModelProvider, SystemPromptEntry } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, type ProviderConfig } from './data/providers.ts'
@@ -503,18 +504,19 @@ export const store = {
   getAgent(id?: string): Agent {
     return resolveAgent(id)
   },
-  /** Mint a worker Agent through the D8 creation funnel (docs/agent-commons.md): an
-   *  over-budget grant is rejected here (`mintBudget`), so the *agent ⊆ provider*
-   *  invariant holds by construction. The cascade parent is the Agent's **provider
-   *  plan** (D9 — the provider is the cascade root), falling back to the account plan
-   *  for a provider that declares none. The single seam where an Agent's budget is
-   *  validated — there is no other way to introduce one. (In-memory for now, like
-   *  the runner registry; persistence arrives with the management UI.) */
+  /** Mint a worker Agent through the D8 creation funnel (docs/agent-commons.md): both
+   *  faces of the cascade are enforced here against the Agent's **provider** (D9 — the
+   *  cascade root), so the *agent ⊆ provider* invariant holds by construction.
+   *  Authority (the primary face — tools / connectors / scopes) is checked with
+   *  `mintAuthority`; the token budget (the quota face) with `mintBudget` against the
+   *  provider plan, falling back to the account plan for a provider that declares none.
+   *  The single seam where an Agent's grants are validated — there is no other way to
+   *  introduce one. (In-memory for now, like the runner registry; persistence arrives
+   *  with the management UI.) */
   createAgent(input: Omit<Agent, 'id'>): Agent {
-    if (input.budget) {
-      const provider = resolveProvider(input.providerId)
-      mintBudget(provider.plan?.windows ?? usageMeter.planCeilings(), input.budget)
-    }
+    const provider = resolveProvider(input.providerId)
+    if (input.authority) mintAuthority(provider.authority, input.authority)
+    if (input.budget) mintBudget(provider.plan?.windows ?? usageMeter.planCeilings(), input.budget)
     const agent: Agent = { ...input, id: `agent-${(workerAgentSeq += 1)}` }
     WORKER_AGENTS.set(agent.id, agent)
     return agent

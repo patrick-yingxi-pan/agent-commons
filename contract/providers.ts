@@ -13,6 +13,7 @@
  *  single implicit Anthropic client — the degenerate N=1 case. Going multi-provider
  *  *multiplies* that real boundary rather than weakening it. */
 import type { Budget } from './budget.ts'
+import type { Authority } from './authority.ts'
 
 export interface ModelProvider {
   id: string
@@ -25,9 +26,14 @@ export interface ModelProvider {
    *  provider-local vocabulary, NOT a universal scale — "High" on one provider is
    *  not "High" on another (D9 trade-off); the UI shows each provider's own levels. */
   effortLevels: string[]
-  /** The provider plan — the **root** of the D8 attenuation cascade: an Agent's
-   *  budget (and a Commission's grant) must be a subset of it. Optional: a provider
-   *  with no declared plan imposes no token ceiling of its own (the account plan
-   *  still bounds it, enforced when the provider is minted). */
+  /** The provider plan — the **root** of the D8 attenuation cascade (token face): an
+   *  Agent's budget (and a Commission's grant) must be a subset of it. Optional: a
+   *  provider with no declared plan imposes no token ceiling of its own (the account
+   *  plan still bounds it, enforced when the provider is minted). */
   plan?: Budget
+  /** The provider's **authority** grant — the root of the D8 cascade's *primary*
+   *  (authority) face: which tools / connectors / scopes Agents on this provider may
+   *  reach. An Agent's authority must be a subset (`overAuthority`). Absent =
+   *  unrestricted. */
+  authority?: Authority
 }

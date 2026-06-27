@@ -12,12 +12,14 @@
 > nothing here overrides those. **The "smallest first slice" plan (below) is built,
 > and the multi-tenant surface above it is now being built out (slices 5+).** Built:
 > the **D6 rename** (1a/1b — the host-bound type is `Runner` in code, wire and all),
-> a seeded worker `Agent` per Conversation (2), the **D8 budget funnel** (3), one
-> **guarded Project** (4), the **Model-provider registry** (5 — the cascade root is
-> now a first-class node), and the **system-prompt library** (6 — D10, with the
-> selection-time fit warning). Still forward: `Commission`s, cross-user
-> attenuation/isolation, and multi-principal coordination. Outside what's built the
-> prototype is still the *degenerate N=1 case* (one user, no commissions).
+> a seeded worker `Agent` per Conversation (2), the **D8 budget funnel** (3 — token
+> face), one **guarded Project** (4), the **Model-provider registry** (5 — the cascade
+> root is now a first-class node), the **system-prompt library** (6 — D10, with the
+> selection-time fit warning), and **authority attenuation** (7 — the D8 *primary*
+> face: tools/connectors/scopes, *provider ⊇ agent* at the funnel). Still forward:
+> `Commission`s, cross-user attenuation/isolation, and multi-principal coordination.
+> Outside what's built the prototype is still the *degenerate N=1 case* (one user, no
+> commissions).
 >
 > **This doc renames the broker doc's "native agent" to "Runner"** (decision D6).
 > Slice 1a has applied the **TypeScript half** of that rename in code — the `Agent`
@@ -827,8 +829,21 @@ session↔context binding, mediation handle, and single-resource escrow).
   Customize page's "Agent system prompt" picker (`SystemPromptCard`) — non-blocking, the
   amber downgrade note when a prompt's family ≠ the provider's. typecheck + 289 tests
   green; verified live.
+- **Slice 7 — authority attenuation (D8, the primary face). ✅ Built.**
+  `contract/authority.ts` defines `Authority { tools?, connectors?, scopes? }` (absent /
+  `'*'` = unrestricted) + the pure `overAuthority` subset check — shared like
+  `overBudgetWindow`. `server/authority.ts` adds `AuthorityError` + the `mintAuthority`
+  funnel (the class lives in `server/`; the contract stays erasable). `ModelProvider`
+  and `Agent` carry an optional `authority`; the default provider grants everything
+  explicitly, so the seeded all-tools Agent is a valid attenuation. `store.createAgent`
+  now enforces **both** faces against the provider — authority (the dangerous axis) *and*
+  token budget — so neither can ride in ungated; an over-grant is unrepresentable at
+  mint. `ProvidersControl` shows each provider's grant. Object-capability semantics: a
+  child can only ever tighten, never widen (no confused-deputy escalation). typecheck +
+  294 tests green; verified live.
 - **What remains forward** is the rest of the multi-tenant surface: the **`Commission`**
-  (the agent→Project assignment + its grant tier, D7/D13), **cross-user authority
-  attenuation + isolation** (D8/D12), and **multi-principal coordination** at the
-  Guardian (D11). Outside what's built the prototype is still the degenerate N=1 case:
-  one user, no commissions.
+  (the agent→Project assignment + its grant tier, D7/D13 — carrying both a token sub-budget
+  and an authority subset), **cross-user isolation** (D12 — a commissioned Agent sees the
+  Project's authority, not its owner's ambient set), and **multi-principal coordination**
+  at the Guardian (D11). Outside what's built the prototype is still the degenerate N=1
+  case: one user, no commissions.

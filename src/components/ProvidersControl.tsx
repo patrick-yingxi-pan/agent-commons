@@ -2,7 +2,15 @@ import { useEffect, useRef, useState } from 'react'
 import { Cpu } from 'lucide-react'
 import { useProviders } from '../api'
 import { formatTokens } from '../../contract/index.ts'
-import type { ModelProvider } from '../../contract/index.ts'
+import type { Authority, ModelProvider } from '../../contract/index.ts'
+
+/** A one-line summary of an authority grant (D8) — "all X" when a dimension is
+ *  unrestricted (absent or '*'), else the count granted. */
+function authorityLabel(a?: Authority): string {
+  const dim = (grant: string[] | undefined, noun: string) =>
+    !grant || grant.includes('*') ? `all ${noun}` : grant.length ? `${grant.length} ${noun}` : `no ${noun}`
+  return `${dim(a?.tools, 'tools')} · ${dim(a?.connectors, 'connectors')} · ${dim(a?.scopes, 'scopes')}`
+}
 
 /** Providers button: an ambient indicator of the Model providers registered to this
  *  account (docs/agent-commons.md, D9) — the cognition sources an Agent binds. Like
@@ -95,7 +103,8 @@ function ProviderRow({ provider }: { provider: ModelProvider }) {
           </span>
         ))}
       </div>
-      <p className="mt-1 text-[10px] leading-tight text-ink-faint">{planLabel}</p>
+      <p className="mt-1 text-[10px] leading-tight text-ink-faint">Grants {authorityLabel(provider.authority)}</p>
+      <p className="mt-0.5 text-[10px] leading-tight text-ink-faint">{planLabel}</p>
     </div>
   )
 }

@@ -30,6 +30,11 @@ export const DEFAULT_PROVIDER: ModelProvider = {
   label: 'Anthropic',
   modelFamily: 'claude',
   effortLevels: ['Low', 'Medium', 'High'],
+  // The cascade root grants everything (D8, authority face) — so the seeded default
+  // Agent (which carries the whole tool catalog) is a valid attenuation of it, and an
+  // Agent or Commission can only ever tighten from here. Explicit '*' so the grant is
+  // visible in the UI rather than an implicit absence.
+  authority: { tools: ['*'], connectors: ['*'], scopes: ['*'] },
 }
 
 /** The default provider's server-only config. `model` unset → `generate.ts` uses its
