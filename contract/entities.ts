@@ -107,6 +107,10 @@ export interface Message {
   id: string
   role: 'user' | 'assistant'
   content: string
+  /** The worker Agent (D6/D16) that drove this turn — per-turn provenance, so authorship
+   *  and metering attribution survive a mid-thread hand-off (the Session↔Agent binding is
+   *  *current-driver*, not immutable). Absent on user turns and legacy messages. */
+  agentId?: string
   /** An escalation Claude proposes for this turn — open a workspace, connect a
    *  repo, or create a project. It is the *result of a model tool call* (the
    *  backend executes `open_workspace` / `connect_repo` / `create_project` and

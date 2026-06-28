@@ -768,8 +768,11 @@ export function buildRouter(): Router {
       // The model's reply text is canned (the mock model server) but its
       // *persistence* is real: record the assistant turn so the thread is the
       // system of record, then close the stream. The tour (ephemeral) skips this.
-      if (persist) store.appendMessage(params.id, message)
-      channel.send({ type: 'message.end', sessionId: session.id, message })
+      // D16 per-turn provenance: stamp the turn with the Agent that drove it, so authorship
+      // (and metering attribution) survive a mid-thread hand-off — the binding is current-driver.
+      const stamped = { ...message, agentId: agent.id }
+      if (persist) store.appendMessage(params.id, stamped)
+      channel.send({ type: 'message.end', sessionId: session.id, message: stamped })
     } catch {
       // Aborted (client closed) or a fatal error — nothing more to send.
     } finally {

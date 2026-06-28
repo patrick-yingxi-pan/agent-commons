@@ -6,6 +6,7 @@ import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Server } from 'node:http'
 import { startModelServer } from '../server/model/index.ts'
+import { store } from '../server/store.ts'
 import { call, callRaw } from './helpers/http.ts'
 
 let server: Server
@@ -44,4 +45,13 @@ test('ephemeral turns do not persist (the tour can replay) — message count is 
   await callRaw('POST', '/sessions/insights-launch/messages', { text: PROJECT_MSG, ephemeral: true })
   const after = (await call('GET', '/sessions/insights-launch')).json.messages?.length ?? 0
   assert.equal(after, before)
+})
+
+test('a persisted assistant turn is stamped with its driving Agent (D16 per-turn provenance)', async () => {
+  const s = store.createSession('start')
+  await callRaw('POST', `/sessions/${s.id}/messages`, { text: 'hello' }) // not ephemeral → persisted
+  const thread = (await call('GET', `/sessions/${s.id}`)).json.messages ?? []
+  const assistant = thread.find((m: { role: string; agentId?: string }) => m.role === 'assistant')
+  assert.ok(assistant, 'the assistant turn was persisted')
+  assert.equal(assistant.agentId, 'agent-default') // the default driver
 })

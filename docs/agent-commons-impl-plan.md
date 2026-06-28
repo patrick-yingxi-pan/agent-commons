@@ -143,9 +143,12 @@ seam now, mock only the model). Ordered safest/most-contained → most-speculati
   cascades a re-clamp to already-minted children (commissions/agents), so "unrepresentable
   over-grant" holds at runtime, not only at mint. **Tests.**
 
-- [ ] **4.5 D16 per-turn provenance (contract + store).** Stamp each persisted turn with its
-  driving Agent (the binding is *current-driver*, not immutable). Additive to the message/turn
-  shape; metering attributes per turn. **Tests.**
+- [x] **4.5 D16 per-turn provenance (contract + store).** `Message.agentId` stamps each
+  persisted assistant turn with its driving Agent (the binding is *current-driver*, not
+  immutable) — on both the persisted message and the `message.end` SSE. Additive/optional →
+  back-compat, no version bump. *(Per-owner metering attribution rides D13 forward — the
+  prototype's meter is account-global; the stamp is the handle for it.)* **Tested** (a persisted
+  turn carries `agentId`).
 
 - [ ] **4.6 D16 hand-off (op + confirm card).** A consent-gated hand-off that re-binds
   `Session.agentId` mid-thread (a `RelationOp` through the same card), each turn stamped (4.5).
