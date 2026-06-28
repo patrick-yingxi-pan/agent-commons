@@ -12,7 +12,11 @@
 > nothing here overrides those. **The "smallest first slice" plan (below) is built, the
 > multi-tenant surface above it (D6–D13) is built out end to end (slices 1–10), and that
 > surface is now user-manageable from a left-panel _Agents_ hub (slices 11–15): providers,
-> system prompts, worker agents, and commissions are all create/edit/delete from the UI.**
+> system prompts, worker agents, and commissions are all create/edit/delete from the UI.
+> Those four registries now **persist across a restart** (slice 16), and Claude can
+> **manage them conversationally** — proposing create-provider/-prompt/-agent and
+> (un)commission edits through the *same confirmation card* the relation edits use, gated
+> by user consent and executed by the same D8-funnel mutators (slice 17).**
 > Built: the **D6 rename** (1a/1b — the host-bound type is `Runner` in code, wire and
 > all), a seeded worker `Agent` per Conversation (2), the **D8 budget funnel** (3 — token
 > face), one **guarded Project** (4), the **Model-provider registry** (5 — the cascade
@@ -915,12 +919,34 @@ session↔context binding, mediation handle, and single-resource escrow).
   grouped by Project; delete cascade-releases the Contributor's sub-goals. Shared UI
   primitives (`FormDialog`, `FormField`, `TabToolbar`, `CardActions`, `CommonsCard`) keep
   the four tabs one system. typecheck + 341 tests + build green; every path verified live.
-  *In-memory still* — created entities live until a server restart (no cross-restart
-  persistence yet); that, and per-axis authority/budget editors beyond the connector
-  re-grant, are the remaining refinements.
-- **The multi-tenant surface (slices 1–10) is built, and managed (slices 11–15).** Every
-  D6–D13 decision is now exercised by a working slice *and* user-manageable from the
-  Agents hub — the rename, the worker `Agent`, both faces of the D8
+- **Slice 16 — persistence. ✅ Built.** The four registries (providers + their server-only
+  `ProviderConfig`, the prompt library, worker agents, commissions) and their id counters
+  joined the snapshot (`STORE_VERSION` 3 → 4; every mutator persists on its success path;
+  `rehydrate` restores via a shared `replaceMap`), so an entity created or edited through
+  the hub — or proposed by Claude and confirmed — now survives a restart like every other
+  UI-owned slice. The comprehensive-playground generator exercises all four, and
+  `snapshot.test.ts` asserts they (and the server-only model id) survive the real
+  boot→rehydrate path.
+- **Slice 17 — conversational management (LLM-driven, one shared gate). ✅ Built.** Claude
+  can now manage the Agent Commons concepts through the **same confirmation card** the
+  relation edits use, rather than a parallel mechanism. Five new `RelationOp` variants
+  (`create-provider` / `create-prompt` / `create-agent` / `commission-agent` /
+  `uncommission-agent`) ride the existing `message.relations` transport and render in
+  `RelationActionCard`; they edit registries, not the graph, so the pure reducer no-ops
+  them and `store.applyRelationOp` dispatches each to the slice 12–15 mutator (the D8
+  funnel + 409 guards). The mock model proposes them by keyword (`server/model/tools.ts`
+  + `intents.ts`), resolving the named provider/prompt/agent against the *live* registries
+  (so "commission the agent I just made" resolves); confirming refreshes the hub caches
+  via one shared `invalidateForCommonsOp`. Additive / relation moves only — registry
+  *deletes* stay a deliberate hub action, mirroring how Claude never proposes deleting a
+  project or artifact. typecheck + 362 tests + build green; both flows verified live
+  (free-typed create-agent, then commission that agent, each appearing in the hub with the
+  correct D12 reach). *Remaining refinement:* per-axis authority/budget editors beyond the
+  connector re-grant.
+- **The multi-tenant surface (slices 1–10) is built, managed (11–15), persisted (16), and
+  conversationally manageable (17).** Every D6–D13 decision is now exercised by a working
+  slice *and* user-manageable from the Agents hub — by hand or by asking Claude — the
+  rename, the worker `Agent`, both faces of the D8
   cascade (token + authority) across provider → agent → commission, the provider registry,
   the prompt library, the Project guardian, cross-user isolation, and multi-principal
   coordination. What stays open is the **Open questions** above — the *incentive* (why

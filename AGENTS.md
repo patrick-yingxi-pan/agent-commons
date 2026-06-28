@@ -85,6 +85,7 @@ mirrors `PROPOSAL.md` §5:
 | Progressive disclosure | The right panel is absent in chat and morphs (artifacts → code editor/diff/terminal) as context attaches. |
 | Unified history | The sidebar — one row per conversation; open "Refactor auth middleware" (chat+repo) vs "Vector databases, explained" (chat only) to see the panel adapt. |
 | Relations, edited with consent | The tour's **project-create** and **Organize** beats — Claude proposes relation edits as inline cards; nothing changes until you confirm. Standing approval (a schedule) is approved once, then runs unprompted. |
+| One gate for everything Claude changes | The **Agents** hub's concepts (model providers, prompts, worker agents, commissions) are managed two ways — by hand (the hub's dialogs) **and conversationally**: free-type "create a worker agent called X on Anthropic" or "commission X to the Insights dashboard project" and Claude proposes it through the *same* confirm card the relation edits use (`docs/agent-commons.md` slice 17). |
 | Portability (one UI, two backends) | `contract/` (types imported verbatim by both ends) + `GET /v1/capabilities` gating native-only endpoints; `BACKEND=remote` returns `409 capability_unavailable`. |
 
 **A good evaluation answers:** does collapsing the three tabs into one
@@ -119,7 +120,8 @@ the mock?
   `409 capability_unavailable` by design.
 - **Created state is persisted to the filesystem.** When the real server runs
   (`dev` / `start` / `server`), the UI-owned state — sent messages, created
-  sessions, attached context + its panels, schedules, recents, relation edits — is
+  sessions, attached context + its panels, schedules, recents, relation edits, and the
+  Agent Commons registries (providers, prompts, worker agents, commissions) — is
   snapshotted to `.data/store.json` on each mutation and rehydrated on boot
   (`server/persist.ts`), so it survives a restart. The simplest viable format (one
   JSON snapshot, atomic write); refine later. Transient state (reservations, the
