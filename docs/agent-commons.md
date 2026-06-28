@@ -35,9 +35,11 @@
 > **multi-principal coordination** (10 — D11, sub-goal reservation at the Guardian:
 > different sub-goals concurrent, the same conflicts first-come). The design dialogue then
 > settled the open questions too — D14–D16 plus the residue (consent, taint, prompt-fit,
-> monotonicity, economics, all resolved below) — leaving **only one piece of unbuilt
-> mechanism** (`commissionId` on `CapabilityRequest`, for effect-time D12 enforcement), not the
-> model; the prototype now exercises a working slice of every D6–D13 decision rather than the
+> monotonicity, economics, all resolved below) — and the one piece of unbuilt mechanism it
+> surfaced is now **built**: effect-time D12 enforcement (`commissionId` on
+> `CapabilityRequest`), the OQ4 Project-effect classifier + a guarded effect path, and the D14
+> **role** system end to end (`agent-commons-impl-plan.md`, Phases 1–3). The prototype now
+> exercises a working slice of every D6–D13 decision rather than the
 > degenerate N=1 case.
 >
 > **This doc renames the broker doc's "native agent" to "Runner"** (decision D6).
@@ -860,17 +862,17 @@ right way:
 2. ~~**Where the worker `Agent` type lives** + the binding lifecycle.~~ **Resolved.** The
    type lives in `contract/workers.ts` (slice 2); the binding is **hand-off-able by consent
    → D16** (per-turn provenance), not one Agent per Conversation for life.
-3. **The generalized handles** *(open — now a concrete task)*. Pin the two DTO shapes —
-   turn request `{ conversationId, agentId, providerId }` and capability request
-   `CapabilityRequest` `{ conversationId, contextId, commissionId, runnerId }`. The single
-   missing field, **`commissionId` on `CapabilityRequest`**, is what lets effect-time D12
-   enforcement key off the commission — the **one remaining piece of unbuilt mechanism**
-   (today the commission gate is mint-time only).
-4. **A monotonicity classifier for Project-level effects** *(approach settled → static type
-   table; a build task)*. Extend the `isMonotonic` pattern with a fixed table mapping each
-   Project effect type (connector-read vs send, MCP-query vs mutate, charge) to monotonic/not
-   — the non-host analog of the host classifier, keeping mergeable effects coordination-free
-   (CALM). The design fork is closed; implementing the table is a task, not a decision.
+3. ~~**The generalized handles.**~~ **Built (the `commissionId` half).** `commissionId` is
+   now on `CapabilityRequest`, and the invoke + Project-effect paths enforce the commission's
+   Project-clamped reach at effect time (fail-closed) — the D12 wall is load-bearing, not just
+   displayed (`agent-commons-impl-plan.md` Phase 1). The fuller DTO-shape pinning (turn request
+   `{ conversationId, agentId, providerId }`, runner-implicit capability request) rides D16,
+   forward.
+4. ~~**A monotonicity classifier for Project-level effects.**~~ **Built.**
+   `isProjectEffectMonotonic` (the non-host analog of `isMonotonic`) classifies connector /
+   MCP / charge effects; a non-monotonic Project effect now serializes on its sub-goal
+   reservation through the guarded `POST /projects/:id/effects` path, while monotonic effects
+   stay coordination-free (CALM). (`agent-commons-impl-plan.md` Phase 2.)
 5. ~~**Prompt-fit probing.**~~ **Resolved.** Accounting is **settled per-provider** (D9 — no
    normalized denominator); and the D10 **static target-family tag stays the fit signal** — no
    eval probe by default (it would cost a model call + eval infra at selection). A selection-time
@@ -1122,6 +1124,11 @@ session↔context binding, mediation handle, and single-resource escrow).
   + economics → D13 (intrinsic; reputation accrues to Agent *and* owner, linked; the Project owns
   donated artifacts), accounting → D9, credential mechanism → D15, taint → detective-audit-only,
   prompt-fit → static tag, monotonicity → a static type table, roles + role-ranked arbitration →
-  D14, hand-off → D16, shared-effect consent → actor-self-confirms (owner governs by role). What
-  remains is **no longer design residue but a single piece of unbuilt mechanism**: `commissionId`
-  on `CapabilityRequest`, for effect-time D12 enforcement.
+  D14, hand-off → D16, shared-effect consent → actor-self-confirms (owner governs by role). The
+  one piece of unbuilt mechanism the dialogue surfaced — `commissionId` on `CapabilityRequest`
+  for **effect-time D12 enforcement** — is now **built**, along with the OQ4 Project-effect
+  monotonicity classifier (a guarded effect path) and the D14 **role** system end to end
+  (lattice → commission field → enforcement → arbitration surfacing → UI → conversational
+  setting). See [`agent-commons-impl-plan.md`](agent-commons-impl-plan.md) (Phases 1–3) for the
+  decomposition. Still forward (Phase 4, unbuilt): D15 proxy, D16 hand-off, the D8 spend-time /
+  shrink gaps.

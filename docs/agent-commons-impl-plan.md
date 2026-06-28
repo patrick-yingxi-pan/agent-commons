@@ -1,5 +1,8 @@
 # Agent Commons — implementation plan (effect-time enforcement + roles)
 
+> **Status: Phases 1–3 complete ✅** (all 11 steps; typecheck + 385 tests + build green,
+> each step `/code-review`'d). Phase 4 is forward/unbuilt, pending confirmation.
+>
 > Derived from the settled design ([`agent-commons.md`](agent-commons.md), D6–D16).
 > This is the **plan-of-record** *and* the loop's checklist: each iteration does the
 > **next unchecked step only** — implement it with tests, run `/code-review` and fix
