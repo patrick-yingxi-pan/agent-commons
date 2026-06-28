@@ -34,9 +34,11 @@
 > Contributor's authority clamped to what its Project admits, default-deny), and
 > **multi-principal coordination** (10 — D11, sub-goal reservation at the Guardian:
 > different sub-goals concurrent, the same conflicts first-come). What remains is the
-> *open questions* below (incentives, cross-provider accounting, the arbitration policy),
-> not the mechanism — the prototype now exercises a working slice of every D6–D13
-> decision rather than the degenerate N=1 case.
+> residue of *open questions* below (the prompt-fit probe, a Project-effect monotonicity
+> classifier, multi-principal consent on a shared effect, cross-user taint audit) plus one
+> piece of unbuilt mechanism (`commissionId` on `CapabilityRequest`) — not the model, which
+> the design dialogue settled through D16; the prototype now exercises a working slice of
+> every D6–D13 decision rather than the degenerate N=1 case.
 >
 > **This doc renames the broker doc's "native agent" to "Runner"** (decision D6).
 > Slice 1a has applied the **TypeScript half** of that rename in code — the `Agent`
@@ -683,13 +685,16 @@ the lattice doesn't name must either widen a whole role or fall back to the per-
 so roles and explicit grants **coexist** rather than roles fully replacing grants. And forcing a
 role lattice walks back part of D13's "governance deliberately minimal" — we now force *more*
 built-in governance than the original single owner-role, accepting roles (not yet voting /
-moderation) into the forced mechanism. **Open sub-question (the one part not settled):** does a
-role gate *only permissions* (what an effect may touch), or *also arbitration* (when two
-Contributors reach for the same sub-goal, does a maintainer's reservation outrank a writer's at
-the Guardian, or is it still first-come among all who are *permitted*)? Permissions-only is the
-smaller change (roles ride the existing cascade; arbitration stays first-come); role-ranked
-arbitration answers OQ8 more completely but makes the Guardian's ledger role-aware. Recorded open
-pending that call.
+moderation) into the forced mechanism. **Settled (permissions + acquisition-priority):** a role
+gates **both** — permissions (the cascade above) **and** arbitration, but arbitration *only at
+acquisition*. When a sub-goal's lease is free or two Contributors contend for it at once, the
+**higher role wins the queue** (owner-priority); among **equal** roles it stays **first-come**
+(D11's default). A role **never preempts an in-flight hold**: a reservation under which an
+irreversible effect may already be committed cannot be revoked by a higher-role arrival — that
+would break "the consent gate *is* the serialization gate" and there is no un-firing an effect.
+So standing orders the *queue for a free lease*, never the *fate of work already underway*. This
+makes the Guardian's ledger **role-aware at acquisition time** (it compares contenders' Project
+roles) while leaving the serialization invariant intact. **Resolves OQ8.**
 
 **Rejected alternative.** Per-commission grants only (the slice-15 status quo, no roles).
 Rejected: it makes every Contributor's authority an opaque bespoke set, gives arbitration no
@@ -795,6 +800,10 @@ right driver changes, the very fragmentation the proposal exists to end.
 - **A Contributor's permissions are bounded by its project role.** Role (owner / maintainer
   / writer / reader) is a Project-side factor in the same min/⊆ cascade — it only tightens,
   never widens, what the Agent already holds (D14). **[COMMONS]**
+- **Standing orders the queue, never in-flight work.** A higher project role wins a *free or
+  contested* sub-goal lease (owner-priority); equal roles stay first-come — but no role ever
+  **preempts** a held reservation, since a lease under which an irreversible effect may be
+  committed cannot be revoked (D14, preserving the serialization invariant). **[COMMONS]**
 - **Cross-user access is agent-mediated, never a shared credential.** An Agent reaches
   another user's private resource only by asking that user's Agent, which acts under its own
   authority and consent; no credential or token crosses the user boundary (D15). **[COMMONS]**
@@ -863,11 +872,11 @@ right way:
    D15** (agent-to-agent: no credential crosses the boundary). Still open: cross-user
    **taint audit** — modeling "data moved from B's content toward A's connector" as a
    tracking problem the audit projection does not yet express.
-8. **Multi-principal arbitration policy** *(partly resolved → D14; sub-policy open)*. Roles
-   give a priority order — **owner-priority falls out of the lattice** (D14). Open: whether a
-   role gates *arbitration* (a maintainer's reservation outranks a writer's) or only
-   *permissions*, and the finer policy (auction / fairness) among equally-ranked,
-   equally-permitted Contributors.
+8. ~~**Multi-principal arbitration policy.**~~ **Resolved → D14.** Role-ranked **acquisition
+   priority**: the higher role wins a free or simultaneously-contested lease (owner-priority),
+   **first-come among equals** (D11's default), and **no preemption** of an in-flight,
+   possibly-effectful hold. The Guardian's ledger is role-aware at acquisition only; the
+   serialization invariant is untouched.
 
 ## If/when we build it — smallest first slice
 
@@ -1096,9 +1105,9 @@ session↔context binding, mediation handle, and single-resource escrow).
   the prompt library, the Project guardian, cross-user isolation, and multi-principal
   coordination. A later **design dialogue** then resolved most of the open questions
   (incentive → D13, accounting → D9, cross-user credential mechanism → D15, roles +
-  owner-priority arbitration → D14, agent hand-off → D16), leaving a **smaller residue**: the
+  role-ranked arbitration → D14, agent hand-off → D16), leaving a **smaller residue**: the
   prompt-fit eval probe, the Project-level monotonicity classifier, multi-principal *consent
-  on a shared effect* (whose human confirms), cross-user *taint* audit, and the finer
-  arbitration sub-policy below owner-priority — **plus the one piece of unbuilt mechanism the
-  dialogue surfaced**, `commissionId` on `CapabilityRequest` for effect-time D12 enforcement.
-  These are design residue (and one concrete task), not the broad open slate of before.
+  on a shared effect* (whose human confirms), and cross-user *taint* audit — **plus the one
+  piece of unbuilt mechanism the dialogue surfaced**, `commissionId` on `CapabilityRequest`
+  for effect-time D12 enforcement. These are design residue (and one concrete task), not the
+  broad open slate of before.
