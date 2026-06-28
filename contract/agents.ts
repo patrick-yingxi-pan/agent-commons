@@ -92,6 +92,12 @@ export interface CapabilityRequest {
   target: string
   args?: Record<string, unknown>
   commandId?: string
+  /** The Commission (D7/D12) that authorizes this effect on a shared Project — the
+   *  handle the broker keys **effect-time cross-user enforcement** on: the effect must
+   *  stay within the Contributor's Project-clamped reach, on top of the session+context
+   *  mediation above. Absent ⇒ the legacy single-tenant path (no commission to enforce),
+   *  unchanged. See docs/agent-commons.md (D12, OQ3). */
+  commissionId?: string
 }
 
 /** Result of a capability invocation. `output` is capability-specific (the runner

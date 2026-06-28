@@ -33,7 +33,7 @@ green before a step is done; UI steps verified in the running app.
 
 ## Phase 1 — Effect-time D12 enforcement (OQ3)
 
-- [ ] **1.1 Contract — `commissionId?` on `CapabilityRequest`.** Add optional
+- [x] **1.1 Contract — `commissionId?` on `CapabilityRequest`.** Add optional
   `commissionId?: string` to `CapabilityRequest` ([`contract/agents.ts:85`](agents.ts))
   with a doc comment: *the Commission that authorizes this effect; absent ⇒ the legacy
   single-tenant path, unchanged.* Erasable, additive, back-compat. **Lock:** `typecheck`
