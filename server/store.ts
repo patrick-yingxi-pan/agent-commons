@@ -65,7 +65,7 @@ import { mintAuthority } from './authority.ts'
 import { ConflictError } from './conflict.ts'
 import { scopeMatches } from './runner-runtime.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits } from '../contract/index.ts'
-import type { Agent, Authority, CapabilityType, Commission, CreateAgentRequest, ModelProvider, ProjectAction, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, Reservation, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest } from '../contract/index.ts'
+import type { Agent, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelProvider, ProjectAction, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, Reservation, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
@@ -1075,6 +1075,12 @@ export const store = {
    *  turn — including the tour's ephemeral ones, since they consume real tokens. */
   recordUsage(inputTokens: number, outputTokens: number): void {
     usageMeter.record(inputTokens, outputTokens)
+  },
+  /** Spend-time enforcement (D8): the plan window this Agent's effective budget has
+   *  exhausted (consumed ≥ its effective ceiling), or null. The message route refuses a
+   *  turn when this is non-null — the per-turn gate the mint-time funnel doesn't provide. */
+  overSpendLimit(budget?: Budget): { label: string; ceiling: number } | null {
+    return usageMeter.overLimit(budget)
   },
   /** The usage snapshot the composer gauge renders: the open session's real
    *  context-window fill (system+tools baseline + an estimate of every message in

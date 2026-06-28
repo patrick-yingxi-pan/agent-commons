@@ -35,6 +35,7 @@ const STATUS_FOR: Record<ApiErrorCode, number> = {
   forbidden: 403,
   conflict: 409,
   capability_unavailable: 409,
+  limit_exceeded: 429,
   internal: 500,
 }
 

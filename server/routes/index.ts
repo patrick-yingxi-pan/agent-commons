@@ -688,6 +688,13 @@ export function buildRouter(): Router {
     // provider declares none, so this resolves to `undefined` and generation uses its
     // env-configured default. Multi-provider just makes this a non-default id.
     const model = store.providerModel(agent.providerId)
+    // Spend-time enforcement (D8): once a plan window is exhausted for this Agent's
+    // effective budget, refuse the turn (429) until it resets — the per-turn gate the
+    // mint-time funnel doesn't give. Checked before persisting the user turn or streaming.
+    const over = store.overSpendLimit(agent.budget)
+    if (over) {
+      return sendError(res, 'limit_exceeded', `Plan limit reached for '${over.label}' — this turn is refused until the window resets.`)
+    }
     // `ephemeral` (the guided tour) generates the full model + tool round-trip
     // but persists nothing, so the tour can replay against the demo session
     // without accumulating duplicate turns. Persist otherwise — the conversation

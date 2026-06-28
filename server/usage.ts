@@ -54,6 +54,13 @@ export interface UsageMeter {
   /** The plan's per-window token ceilings — the *root* of the D8 budget cascade
    *  (an Agent budget / Commission grant must attenuate these). */
   planCeilings(): BudgetWindow[]
+  /** Spend-time enforcement (D8): the first window already **at or over** its effective
+   *  ceiling, or `null`. The effective ceiling is the plan window tightened by `budget`
+   *  (the resolved Agent's) when it caps that window. Once a window is exhausted the next
+   *  turn is refused until it resets — the per-turn gate the mint-time funnel doesn't give.
+   *  No *spend* mutation (it may roll an expired window forward, like `planLimits()`), so
+   *  it's safe to call before a turn. */
+  overLimit(budget?: Budget): { label: string; ceiling: number } | null
 }
 
 /** Build the plan-usage meter. `now` is injected so tests can drive the reset
@@ -97,6 +104,15 @@ export function createUsageMeter(now: () => number): UsageMeter {
         { label: fiveHour.label, ceiling: fiveHour.ceiling },
         { label: weekly.label, ceiling: weekly.ceiling },
       ]
+    },
+    overLimit(budget) {
+      roll(now())
+      for (const w of windows) {
+        const cap = budget?.windows.find((b) => b.label === w.label)?.ceiling
+        const ceiling = cap !== undefined ? Math.min(w.ceiling, cap) : w.ceiling
+        if (w.consumed >= ceiling) return { label: w.label, ceiling }
+      }
+      return null
     },
   }
 }

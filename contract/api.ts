@@ -158,4 +158,5 @@ export type ApiErrorCode =
   | 'forbidden'
   | 'conflict'
   | 'capability_unavailable'
+  | 'limit_exceeded'
   | 'internal'

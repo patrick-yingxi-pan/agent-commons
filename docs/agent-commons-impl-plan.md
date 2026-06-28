@@ -135,7 +135,7 @@ seam now, mock only the model). Ordered safest/most-contained → most-speculati
   (D12)** this dialog is built around — it needs the Agent's effective-window data the dialog
   lacks and is inert for the demo's inheriting agents; a separate control if wanted.
 
-- [ ] **4.3 D8 spend-time enforcement.** The usage meter **rejects** a turn that would exceed a
+- [x] **4.3 D8 spend-time enforcement.** The usage meter **rejects** a turn that would exceed a
   window ceiling (a per-turn gate in `server/generate.ts`, against the resolved Agent's budget
   → provider plan), not just accumulating. Closes D8's "spend-time" trade-off gap. **Tests.**
 

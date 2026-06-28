@@ -88,3 +88,24 @@ test('store.usage(session) reflects the open thread; a longer thread shows more 
   const u = store.usage('insights-launch')
   assert.ok(u.context && Array.isArray(u.limits))
 })
+
+test('usage meter overLimit: spend-time enforcement (D8)', () => {
+  let t = 1_000_000
+  const m = createUsageMeter(() => t)
+  // The fresh meter is seeded under both ceilings (852k/1.2M, 5.76M/24M) → no limit hit.
+  assert.equal(m.overLimit(), null)
+  // A tighter Agent budget already below the seeded 5-hour consumption (852k) is over now.
+  const tight = m.overLimit({ windows: [{ label: '5-hour limit', ceiling: 800_000 }] })
+  assert.equal(tight?.label, '5-hour limit')
+  assert.equal(tight?.ceiling, 800_000)
+  // Spending past the plan's 5-hour ceiling (1.2M) tips the plan itself over.
+  m.record(400_000, 0) // 852k + 400k = 1.252M ≥ 1.2M
+  assert.equal(m.overLimit()?.label, '5-hour limit')
+})
+
+test('store.overSpendLimit delegates to the meter (the route gate, D8)', () => {
+  // A budget below the already-consumed 5-hour total is over-limit immediately — robust to
+  // any prior recording (more spend only raises consumed). This is what the route gates on.
+  const over = store.overSpendLimit({ windows: [{ label: '5-hour limit', ceiling: 100_000 }] })
+  assert.equal(over?.label, '5-hour limit')
+})
