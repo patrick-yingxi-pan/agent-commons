@@ -89,7 +89,7 @@ green before a step is done; UI steps verified in the running app.
   (optional `role?`, `describeOp` naming it). **Tests:** `commission.test.ts` +
   `routes-relations-commons.test.ts`.
 
-- [ ] **3.3 Enforce role permissions.** Compose role with the D12 checks: a non-monotonic
+- [x] **3.3 Enforce role permissions.** Compose role with the D12 checks: a non-monotonic
   host invoke (Phase 1) and a non-monotonic Project effect (Phase 2) require the
   commission's role to `rolePermits(role, 'fire')`; sub-goal reserve requires `'reserve'`.
   A reader is refused 403. **Tests:** invoke + project-effect + subgoal route tests with a

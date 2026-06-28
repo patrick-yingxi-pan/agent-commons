@@ -64,8 +64,8 @@ import { createUsageMeter, estimateTokens, mintBudget } from './usage.ts'
 import { mintAuthority } from './authority.ts'
 import { ConflictError } from './conflict.ts'
 import { scopeMatches } from './agent-runtime.ts'
-import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic } from '../contract/index.ts'
-import type { Agent, Authority, CapabilityType, Commission, CreateAgentRequest, ModelProvider, ProjectEffectResult, ProjectEffectType, ProjectSubGoal, Reservation, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest } from '../contract/index.ts'
+import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits } from '../contract/index.ts'
+import type { Agent, Authority, CapabilityType, Commission, CreateAgentRequest, ModelProvider, ProjectAction, ProjectEffectResult, ProjectEffectType, ProjectSubGoal, Reservation, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
@@ -916,6 +916,15 @@ export const store = {
     if (!capability.startsWith('fs.')) return true // commission scopes bound file reach only
     if (unrestricted(effective.scopes)) return true // no file wall
     return effective.scopes!.some((root) => scopeMatches(root, target))
+  },
+  /** Does this Commission's **role** (D14) permit `action` on its Project? The role is the
+   *  permission baseline composed into the cascade alongside the D12 reach. **Unknown
+   *  commission ⇒ `false` (fail closed)**; an unset role defaults to `'writer'` (the
+   *  ordinary Contributor), so an old persisted commission still gates correctly. */
+  commissionRolePermits(commissionId: string, action: ProjectAction): boolean {
+    const commission = COMMISSIONS.get(commissionId)
+    if (!commission) return false
+    return rolePermits(commission.role ?? 'writer', action)
   },
 
   /** Append a message to a session's thread — the write that makes "send" real.

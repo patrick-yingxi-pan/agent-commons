@@ -4,6 +4,7 @@
  *  on its sub-goal reservation (D11); a monotonic effect runs coordination-free (CALM). */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { store } from '../server/store.ts'
 import { call } from './helpers/http.ts'
 
 const P = 'p-insights' // guarded; the seeded commission reaches Linear + Figma
@@ -52,6 +53,21 @@ test('a monotonic effect is coordination-free — runs even on a contended sub-g
   })
   assert.equal(r.status, 200)
   assert.equal(r.json.guarded, false)
+})
+
+test('a reader role cannot fire a non-monotonic effect, but can read (D14)', async () => {
+  const reader = store.createCommission({ agentId: 'agent-default', projectId: P, role: 'reader' })
+  // Reader within reach (Linear), but the role forbids firing a write → 403.
+  const write = await call('POST', `/projects/${P}/effects`, {
+    commissionId: reader.id, subGoal: 'sg-reader', type: 'connector.write', target: 'Linear',
+  })
+  assert.equal(write.status, 403)
+  assert.equal(write.json.error.code, 'forbidden')
+  // A monotonic read is permitted for a reader (coordination-free, no 'fire').
+  const read = await call('POST', `/projects/${P}/effects`, {
+    commissionId: reader.id, subGoal: 'sg-reader', type: 'connector.read', target: 'Linear',
+  })
+  assert.equal(read.status, 200)
 })
 
 test('a re-entrant effect on a sub-goal the Contributor holds keeps the hold (guardedRun)', async () => {

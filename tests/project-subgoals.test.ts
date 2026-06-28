@@ -72,6 +72,18 @@ test('routes: GET lists in-flight sub-goals; POST claims; a conflicting claim 40
   assert.equal(bad.status, 400)
 })
 
+test('a reader role may not reserve a sub-goal; a maintainer may (D14)', async () => {
+  const reader = store.createCommission({ agentId: 'agent-default', projectId: GUARDED, role: 'reader' })
+  const denied = await call('POST', `/projects/${GUARDED}/subgoals`, { holder: reader.id, subGoal: 'sg-reader-reserve' })
+  assert.equal(denied.status, 403)
+  assert.equal(denied.json.error.code, 'forbidden')
+  // The seeded Contributor is a maintainer — it may claim a fresh sub-goal.
+  const ok = await call('POST', `/projects/${GUARDED}/subgoals`, {
+    holder: 'commission-insights-default', subGoal: 'sg-maint-reserve',
+  })
+  assert.equal(ok.status, 200)
+})
+
 test('isProjectEffectMonotonic classifies the externally-effectful Project surface (OQ4)', () => {
   // Monotonic (observe / query) → coordination-free, bypasses the Guardian (CALM).
   assert.equal(isProjectEffectMonotonic('connector.read'), true)

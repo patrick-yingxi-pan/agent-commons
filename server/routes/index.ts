@@ -31,7 +31,7 @@ import { GuardianError } from '../guardian.ts'
 import { BudgetError } from '../usage.ts'
 import { AuthorityError } from '../authority.ts'
 import { ConflictError } from '../conflict.ts'
-import { isMonotonic, PROJECT_EFFECT_TYPES, PROJECT_ROLES } from '../../contract/index.ts'
+import { isMonotonic, isProjectEffectMonotonic, PROJECT_EFFECT_TYPES, PROJECT_ROLES } from '../../contract/index.ts'
 import type {
   CapabilityRequest,
   ProjectEffectRequest,
@@ -162,6 +162,15 @@ export function buildRouter(): Router {
         'forbidden',
         `Commission '${request.commissionId}' may not reach '${request.target}' on this Project`,
       )
+    }
+    // D14 role permission: firing an irreversible (non-monotonic) effect requires the
+    // commission's role to permit 'fire' — a reader may read, but not write/terminal/process.
+    if (
+      request.commissionId &&
+      !isMonotonic(request.capability) &&
+      !store.commissionRolePermits(request.commissionId, 'fire')
+    ) {
+      return sendError(res, 'forbidden', `Commission '${request.commissionId}' (role) may not fire this effect`)
     }
     // Resource guardian (D5): a non-monotonic effect must hold a reservation on the
     // resource (the context element). Monotonic effects (fs.read) are
@@ -468,6 +477,12 @@ export function buildRouter(): Router {
   r.post('/projects/:id/subgoals', async ({ res, params, body }) => {
     const { holder, subGoal } = await body<ReserveSubGoalRequest>()
     if (!holder || !subGoal) return sendError(res, 'bad_request', 'holder and subGoal are required')
+    // D14 role permission: when the holder is a Contributor (a known commission), reserving a
+    // sub-goal requires its role to permit 'reserve' — a reader may not claim work. A
+    // non-commission principal (no role) is ungated.
+    if (store.getCommission(holder) && !store.commissionRolePermits(holder, 'reserve')) {
+      return sendError(res, 'forbidden', `Contributor '${holder}' (role) may not reserve sub-goals`)
+    }
     try {
       sendJson(res, store.reserveSubGoal(params.id, holder, subGoal))
     } catch (err) {
@@ -491,6 +506,10 @@ export function buildRouter(): Router {
     const reaches = type.startsWith('connector.') || type.startsWith('mcp.')
     if (reaches && !store.commissionCanReach(commissionId, 'connectors', target)) {
       return sendError(res, 'forbidden', `Commission '${commissionId}' may not reach '${target}' on this Project`)
+    }
+    // D14 role permission: a non-monotonic Project effect requires the role to permit 'fire'.
+    if (!isProjectEffectMonotonic(type) && !store.commissionRolePermits(commissionId, 'fire')) {
+      return sendError(res, 'forbidden', `Commission '${commissionId}' (role) may not fire this effect`)
     }
     try {
       sendJson(res, store.runProjectEffect(params.id, commissionId, subGoal, type, target))

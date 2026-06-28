@@ -4,6 +4,7 @@
  *  runtime (D3) — and the offline / unknown / unsupported error paths. */
 import { test, before } from 'node:test'
 import assert from 'node:assert/strict'
+import { store } from '../server/store.ts'
 import { call } from './helpers/http.ts'
 
 // The seeded local runner grants fs.read/fs.write over ~/projects and terminal/process over *.
@@ -99,6 +100,30 @@ test('a commission-scoped invoke is walled to the Project-admitted file scopes (
     ...base, target: '~/code/other/secret.ts',
   })
   assert.equal(legacy.status, 200)
+})
+
+test('a reader commission may read but not fire a write on the invoke path (D14)', async () => {
+  const reader = store.createCommission({ agentId: 'agent-default', projectId: 'p-insights', role: 'reader' })
+  await call('POST', '/runners', {
+    id: 'runner-rw', label: 'RW', host: 'h',
+    capabilities: [{ type: 'fs.write', scopes: ['~/code'] }, { type: 'fs.read', scopes: ['~/code'] }],
+  })
+  await call('POST', '/sessions/role/contexts', { id: 'ctx-rw', type: 'folder', label: 'rw', scope: '~/code' })
+  const base = { sessionId: 'role', contextId: 'ctx-rw' }
+  const target = '~/code/insights-web/x.ts' // within the reader's Project-admitted scope
+
+  // Write (non-monotonic) → the role's missing 'fire' is the wall → 403.
+  const write = await call('POST', '/runners/runner-rw/invoke', {
+    ...base, capability: 'fs.write', target, args: { content: 'x' }, commissionId: reader.id,
+  })
+  assert.equal(write.status, 403)
+  assert.equal(write.json.error.code, 'forbidden')
+
+  // Read (monotonic) → 'fire' is not required → 200.
+  const read = await call('POST', '/runners/runner-rw/invoke', {
+    ...base, capability: 'fs.read', target, commissionId: reader.id,
+  })
+  assert.equal(read.status, 200)
 })
 
 test('invoke a capability the runner does not advertise is 409 capability_unavailable', async () => {
