@@ -63,7 +63,7 @@ green before a step is done; UI steps verified in the running app.
   writes/mutate/charge not) — the non-host analog of `isMonotonic`
   ([`contract/agents.ts:21`](agents.ts)). **Tests:** a table test (one assert per member).
 
-- [ ] **2.2 Server — a guarded Project-effect endpoint.** `POST /projects/:id/effects`
+- [x] **2.2 Server — a guarded Project-effect endpoint.** `POST /projects/:id/effects`
   taking `{ commissionId, subGoal, type, target }`: (a) **OQ3 connector face** — enforce
   `commissionCanReach(commissionId, 'connectors', target)` ⇒ 403 if denied; (b) **OQ4 +
   guardian** — if `projectEffectMonotonic(type)` is false, run the mock effect through

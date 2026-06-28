@@ -64,8 +64,8 @@ import { createUsageMeter, estimateTokens, mintBudget } from './usage.ts'
 import { mintAuthority } from './authority.ts'
 import { ConflictError } from './conflict.ts'
 import { scopeMatches } from './agent-runtime.ts'
-import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted } from '../contract/index.ts'
-import type { Agent, Authority, CapabilityType, Commission, CreateAgentRequest, ModelProvider, ProjectSubGoal, Reservation, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest } from '../contract/index.ts'
+import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic } from '../contract/index.ts'
+import type { Agent, Authority, CapabilityType, Commission, CreateAgentRequest, ModelProvider, ProjectEffectResult, ProjectEffectType, ProjectSubGoal, Reservation, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
@@ -247,6 +247,25 @@ const guardian = new ResourceGuardian(emit)
 // resources (concurrent); the same sub-goal is one capacity-1 resource (mutual
 // exclusion → first-come wins, the second re-reasons).
 const subGoalKey = (guardianId: string, subGoal: string) => `${guardianId}:${subGoal}`
+
+/** Run `effect` while holding `resourceKey` at the guardian, committing the irreversible
+ *  step — releasing **only what this call acquired**, so a holder that already held the
+ *  resource (a reservation kept across a consent gate, or a seeded hold) keeps it after.
+ *  `guardian.reserve` is re-entrant, so without this a re-entrant effect would free a
+ *  pre-existing hold. Mirrors the invoke route's `acquiredHere` care, shared so the two
+ *  guard methods can't drift. A concurrent *different* holder is refused before `effect`
+ *  runs (`reserve` throws `GuardianError` 'conflict'). */
+function guardedRun<T>(resourceKey: string, holder: string, effect: () => T): T {
+  const heldBefore = guardian.status(resourceKey).active.some((r) => r.holder === holder)
+  const reservation = guardian.reserve(resourceKey, holder)
+  try {
+    const result = effect()
+    guardian.commit(reservation.id)
+    return result
+  } finally {
+    if (!heldBefore) guardian.release(reservation.id)
+  }
+}
 
 // Seed one held sub-goal on the guarded Insights Project so the Coordination panel
 // demonstrates a Contributor holding a sub-goal — reserved by the seeded commission (a
@@ -1076,14 +1095,7 @@ export const store = {
   guardProjectEffect<T>(projectId: string, holder: string, effect: () => T): T {
     const project = PROJECTS.find((p) => p.id === projectId)
     if (!project?.guardianId) return effect()
-    const reservation = guardian.reserve(project.guardianId, holder)
-    try {
-      const result = effect()
-      guardian.commit(reservation.id)
-      return result
-    } finally {
-      guardian.release(reservation.id)
-    }
+    return guardedRun(project.guardianId, holder, effect)
   },
 
   // ── Multi-principal coordination — sub-goal reservation (D11) ──
@@ -1111,14 +1123,36 @@ export const store = {
   guardSubGoalEffect<T>(projectId: string, holder: string, subGoal: string, effect: () => T): T {
     const project = PROJECTS.find((p) => p.id === projectId)
     if (!project?.guardianId) return effect()
-    const reservation = guardian.reserve(subGoalKey(project.guardianId, subGoal), holder)
-    try {
-      const result = effect()
-      guardian.commit(reservation.id)
-      return result
-    } finally {
-      guardian.release(reservation.id)
-    }
+    return guardedRun(subGoalKey(project.guardianId, subGoal), holder, effect)
+  },
+  /** Fire a Contributor's externally-effectful action on a shared Project (D11/D12) — the
+   *  real path through the Guardian seam (the slice-4 "forward" effect, now wired). A
+   *  monotonic effect (observe / query) runs coordination-free; a non-monotonic one
+   *  (write / mutate / charge) is serialized on its sub-goal reservation, so a concurrent
+   *  *different* principal on the same sub-goal is refused (`GuardianError` 'conflict').
+   *  The connector/MCP reach (D12) is checked by the route before this runs. Mock
+   *  fulfilment; the seam is real. */
+  runProjectEffect(
+    projectId: string,
+    commissionId: string,
+    subGoal: string,
+    type: ProjectEffectType,
+    target: string,
+  ): ProjectEffectResult {
+    const monotonic = isProjectEffectMonotonic(type)
+    const project = PROJECTS.find((p) => p.id === projectId)
+    const guarded = !monotonic && !!project?.guardianId
+    const fulfil = (): ProjectEffectResult => ({
+      projectId,
+      commissionId,
+      type,
+      target,
+      guarded,
+      output: `${monotonic ? 'observed' : 'applied'} ${type} on '${target}'`,
+    })
+    // Non-monotonic ⇒ serialize on the sub-goal reservation (a no-op for an unguarded
+    // Project); monotonic ⇒ coordination-free (CALM).
+    return monotonic ? fulfil() : this.guardSubGoalEffect(projectId, commissionId, subGoal, fulfil)
   },
   /** The sub-goals currently in flight on a Project — one entry per active Contributor
    *  claim (held or committed), the Coordination panel's read. Enumerates the guardian's

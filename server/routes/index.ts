@@ -31,9 +31,10 @@ import { GuardianError } from '../guardian.ts'
 import { BudgetError } from '../usage.ts'
 import { AuthorityError } from '../authority.ts'
 import { ConflictError } from '../conflict.ts'
-import { isMonotonic } from '../../contract/index.ts'
+import { isMonotonic, PROJECT_EFFECT_TYPES } from '../../contract/index.ts'
 import type {
   CapabilityRequest,
+  ProjectEffectRequest,
   ReserveRequest,
   SetCapacityRequest,
   SyncEffectsRequest,
@@ -463,6 +464,30 @@ export function buildRouter(): Router {
     if (!holder || !subGoal) return sendError(res, 'bad_request', 'holder and subGoal are required')
     try {
       sendJson(res, store.reserveSubGoal(params.id, holder, subGoal))
+    } catch (err) {
+      if (err instanceof GuardianError) return sendError(res, err.code, err.message)
+      throw err
+    }
+  })
+  // A Contributor fires an externally-effectful action on a shared Project (D11/D12, OQ3+OQ4):
+  // the Commission's connector/MCP reach is the wall (D12), and a non-monotonic effect is
+  // serialized on its sub-goal reservation at the Guardian (D11) — the slice-4 "forward" effect
+  // now on a real path. Order: 400 fields → 404 project → 403 reach → run (409 on a concurrent
+  // different principal). A charge has no data-reach target, so it skips the reach check.
+  r.post('/projects/:id/effects', async ({ res, params, body }) => {
+    const { commissionId, subGoal, type, target } = await body<ProjectEffectRequest>()
+    if (!commissionId || !subGoal || typeof target !== 'string' || !PROJECT_EFFECT_TYPES.includes(type)) {
+      return sendError(res, 'bad_request', 'commissionId, subGoal, target, and a valid type are required')
+    }
+    if (!store.listProjects().some((p) => p.id === params.id)) {
+      return sendError(res, 'not_found', `No project '${params.id}'`)
+    }
+    const reaches = type.startsWith('connector.') || type.startsWith('mcp.')
+    if (reaches && !store.commissionCanReach(commissionId, 'connectors', target)) {
+      return sendError(res, 'forbidden', `Commission '${commissionId}' may not reach '${target}' on this Project`)
+    }
+    try {
+      sendJson(res, store.runProjectEffect(params.id, commissionId, subGoal, type, target))
     } catch (err) {
       if (err instanceof GuardianError) return sendError(res, err.code, err.message)
       throw err

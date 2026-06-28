@@ -13,13 +13,16 @@ import type { ReservationStatus } from './reservations.ts'
 /** The classes of **externally-effectful** Project action (D11/D12) — what a
  *  Contributor's effect on the shared Project does to the outside world. Distinct from
  *  the host `CapabilityType` (fs/terminal/process): these reach connectors, MCP servers,
- *  and billing — the Project-level effect axis the host classifier never covered. */
-export type ProjectEffectType =
-  | 'connector.read'
-  | 'connector.write'
-  | 'mcp.query'
-  | 'mcp.mutate'
-  | 'charge'
+ *  and billing — the Project-level effect axis the host classifier never covered. The
+ *  union derives from the runtime list so a route can validate an incoming `type`. */
+export const PROJECT_EFFECT_TYPES = [
+  'connector.read',
+  'connector.write',
+  'mcp.query',
+  'mcp.mutate',
+  'charge',
+] as const
+export type ProjectEffectType = (typeof PROJECT_EFFECT_TYPES)[number]
 
 /** Is a Project-level effect **monotonic** (CALM)? A monotonic effect only observes /
  *  queries — it adds no irreversible outside change another Contributor acted on, so it
@@ -30,6 +33,32 @@ export type ProjectEffectType =
  *  See docs/agent-commons.md (D11, OQ4). */
 export function isProjectEffectMonotonic(type: ProjectEffectType): boolean {
   return type === 'connector.read' || type === 'mcp.query'
+}
+
+/** Body of `POST /v1/projects/:id/effects` — a Contributor fires an externally-effectful
+ *  action on a shared Project. The server enforces the Commission's connector/MCP reach
+ *  (D12) and serializes a non-monotonic effect on its sub-goal reservation (D11). */
+export interface ProjectEffectRequest {
+  /** The Commission firing the effect — its Project-clamped reach is the D12 wall. */
+  commissionId: string
+  /** The sub-goal this effect belongs to — the reservation key (D11). */
+  subGoal: string
+  /** What the effect does to the outside world (decides monotonic vs guarded). */
+  type: ProjectEffectType
+  /** The connector / MCP id (or charge descriptor) the effect acts on. */
+  target: string
+}
+
+/** Result of a Project effect — mock fulfilment; the wire shape is real. */
+export interface ProjectEffectResult {
+  projectId: string
+  commissionId: string
+  type: ProjectEffectType
+  target: string
+  /** Whether the Guardian serialized this effect (non-monotonic on a guarded Project) or
+   *  it ran coordination-free (monotonic, or an unguarded Project). */
+  guarded: boolean
+  output: string
 }
 
 /** A sub-goal currently reserved on a Project — one in-flight Contributor claim. */
