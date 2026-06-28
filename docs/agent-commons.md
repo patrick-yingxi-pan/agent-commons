@@ -33,12 +33,12 @@
 > Contributor list + a commission picker), **cross-user isolation** (9 — D12, a
 > Contributor's authority clamped to what its Project admits, default-deny), and
 > **multi-principal coordination** (10 — D11, sub-goal reservation at the Guardian:
-> different sub-goals concurrent, the same conflicts first-come). What remains is the
-> residue of *open questions* below (the prompt-fit probe, a Project-effect monotonicity
-> classifier, multi-principal consent on a shared effect, cross-user taint audit) plus one
-> piece of unbuilt mechanism (`commissionId` on `CapabilityRequest`) — not the model, which
-> the design dialogue settled through D16; the prototype now exercises a working slice of
-> every D6–D13 decision rather than the degenerate N=1 case.
+> different sub-goals concurrent, the same conflicts first-come). The design dialogue then
+> settled the open questions too — D14–D16 plus the residue (consent, taint, prompt-fit,
+> monotonicity, economics, all resolved below) — leaving **only one piece of unbuilt
+> mechanism** (`commissionId` on `CapabilityRequest`, for effect-time D12 enforcement), not the
+> model; the prototype now exercises a working slice of every D6–D13 decision rather than the
+> degenerate N=1 case.
 >
 > **This doc renames the broker doc's "native agent" to "Runner"** (decision D6).
 > Slice 1a has applied the **TypeScript half** of that rename in code — the `Agent`
@@ -228,9 +228,11 @@ The honest seam — and the falsifiable bet: subsumption is a **lie** if making 
 `Session` multi-principal forces changes *inside* the conversation model (the
 morphing panel, the attach flow, the escalation gates). The grounding argues the new
 structure (worker Agent, Project Guardian, Commission) *wraps* `Session`/`Project`
-rather than reaching inside them — **but this is the central bet, and Open Question 6
-(whose human confirms a Contributor's irreversible effect) is exactly where it could
-fail.** We do not claim it is already proven.
+rather than reaching inside them — **the central bet, whose sharpest test was Open Question 6
+(whose human confirms a Contributor's irreversible effect). It is now resolved — the acting
+Contributor self-confirms, the owner governing up-front by role (D14/D16), with no change reaching
+inside the conversation model, which is the evidence the nesting holds.** We still do not claim it
+proven under adversarial multi-principal load.
 
 **Trade-off accepted.** One nested model carries a far larger conceptual surface
 than "one adaptive thread": a reader holds four actors (Conversation, Agent, Runner,
@@ -439,8 +441,8 @@ compatibility-follower path entirely.
 small tool-use conformance check against the chosen model before allowing the
 pairing. This is the genuinely strongest competitor: strictly more accurate than a
 static tag. Rejected as the *default* because it costs a model call at selection and
-real eval infra the prototype lacks; the tag is the cheap first line, with a probe a
-reasonable later upgrade (Open Question 5). (2) **Untagged free-text prompts** — a
+real eval infra the prototype lacks; the tag is the cheap first line, and a probe stays an
+*optional* later upgrade, not the default (Open Question 5, resolved: keep the tag). (2) **Untagged free-text prompts** — a
 reusable-snippet box with no metadata. Rejected: it delivers the "just pick one" UX
 precisely by *hiding* the degradation it causes. (3) **Auto-translate the prompt per
 family** — a rewriter that rephrases a Claude prompt for an open model on the fly.
@@ -490,7 +492,7 @@ not a reuse of it. There is also a classification gap: `isMonotonic`
 ([`../contract/agents.ts:21`](../contract/agents.ts)) classifies **host** capability
 types (`fs.read` monotonic; write/terminal/process not) — Project-level
 connector/MCP/charge effects have **no monotonicity classifier yet**, a new axis
-Agent Commons must add (Open Question 4).
+Agent Commons must add — settled as a **static type table** (Open Question 4, resolved).
 
 This reframes "agent coordination": multiple Contributors thrashing on one Project is
 not a new scheduler, it is **sub-goal reservation** at the Guardian — "I'm handling
@@ -577,7 +579,8 @@ the single-tenant audit is "eventually-complete, not real-time-complete"
 ([`capability-broker-architecture.md`](capability-broker-architecture.md#d2--each-agent-is-the-system-of-record-for-its-own-host-option-b)), and
 *cross-user taint-tracking* ("did this effect move data from B's artifact toward A's
 connector?") is **strictly harder** than that audit, not free with it — it is itself
-open residue (Open Question 7), and attenuation, not audit, is the primary wall.
+settled **detective-audit-only** (Open Question 7, resolved): no provenance taint engine —
+attenuation, not audit, is the primary wall, with audit a best-effort backstop.
 
 **Trade-off accepted.** A commissioned Agent is deliberately **less capable** on a
 shared Project than its owner is in their own workspace: it cannot reach the owner's
@@ -632,7 +635,10 @@ money enters" turns out narrower than first stated: a contributor's time always 
 price on GitHub; here the price is merely *explicit and metered*, which raises the bar
 without changing the **kind** of motivation. (Note "Contributor" = the *Agent*; the human
 is the *Agent owner* / *project owner* — the distinction matters for who is billed and who
-earns standing.)
+earns standing.) **Standing accrues to both, linked** — the Agent earns a worker track record
+*and* it aggregates to its owner, GitHub-style; and **artifacts produced by donated compute are
+owned by the Project**, the way a contribution becomes part of the repo (committing an Agent
+*donates* the output).
 
 **Trade-off accepted.** Owner-pays makes contribution a real out-of-pocket cost: the
 intrinsic motivation is the *same kind* open source already runs on, but the price is
@@ -794,9 +800,9 @@ right driver changes, the very fragmentation the proposal exists to end.
   other** — inherited from D5, now the *default* because Contributors are different
   principals. **[COMMONS]**
 - **The consent gate is the serialization gate** — confirming a Contributor's
-  irreversible effect is validating its reservation. (Inherited from D5; for access to a
-  *private* resource the owner's side confirms, D15; *whose* human confirms an irreversible
-  effect on a *shared* Project is the residual Open Question 6.)
+  irreversible effect is validating its reservation. (Inherited from D5; for a *private*
+  resource the owner's side confirms, D15; for a *shared* Project the **acting Contributor
+  self-confirms**, the owner having consented up-front via the role grant, D14 — OQ6 resolved.)
 - **A Contributor's permissions are bounded by its project role.** Role (owner / maintainer
   / writer / reader) is a Project-side factor in the same min/⊆ cascade — it only tightens,
   never widens, what the Agent already holds (D14). **[COMMONS]**
@@ -847,8 +853,10 @@ right way:
 
 1. ~~**The incentive.**~~ **Resolved → D13.** The incentive is *intrinsic* — people
    contribute because a Project is interesting / fun / worth building, as on GitHub; the
-   Commons runs on the same intrinsic motivation as open source. *(Still soft:* whether
-   reputation is Agent- or owner-scoped, and who owns artifacts from donated compute.)
+   Commons runs on the same intrinsic motivation as open source. **Sub-questions settled:**
+   reputation accrues to **both the Agent and its owner, linked** (a worker track record *and*
+   the accountable human, GitHub-style); artifacts produced by donated compute are **owned by
+   the Project** (committing an Agent *donates* the output).
 2. ~~**Where the worker `Agent` type lives** + the binding lifecycle.~~ **Resolved.** The
    type lives in `contract/workers.ts` (slice 2); the binding is **hand-off-able by consent
    → D16** (per-turn provenance), not one Agent per Conversation for life.
@@ -858,20 +866,27 @@ right way:
    missing field, **`commissionId` on `CapabilityRequest`**, is what lets effect-time D12
    enforcement key off the commission — the **one remaining piece of unbuilt mechanism**
    (today the commission gate is mint-time only).
-4. **A monotonicity classifier for Project-level effects** *(open)*. `isMonotonic` covers
-   host capabilities only; connector/MCP/charge effects need their own non-monotonic
-   classification to know what must hold a reservation.
-5. **Prompt-fit probing** *(accounting half resolved → D9; probe open)*. Cross-provider
-   accounting is **settled per-provider** (D9 — no normalized denominator). Still open:
-   whether the prompt-library tag (D10) is later backed by a selection-time eval probe.
-6. **Multi-principal consent** *(partly resolved → D15; residue open)*. Access to a
-   *private* resource is consented on its **owner's** side (D15). The residual question is
-   *whose* human confirms an irreversible effect on a **shared** Project — the contributing
-   user, the project owner, both? (D7's falsifiability bet.)
-7. ~~**Cross-user credential mechanism**~~ + taint audit. **Credential mechanism resolved →
-   D15** (agent-to-agent: no credential crosses the boundary). Still open: cross-user
-   **taint audit** — modeling "data moved from B's content toward A's connector" as a
-   tracking problem the audit projection does not yet express.
+4. **A monotonicity classifier for Project-level effects** *(approach settled → static type
+   table; a build task)*. Extend the `isMonotonic` pattern with a fixed table mapping each
+   Project effect type (connector-read vs send, MCP-query vs mutate, charge) to monotonic/not
+   — the non-host analog of the host classifier, keeping mergeable effects coordination-free
+   (CALM). The design fork is closed; implementing the table is a task, not a decision.
+5. ~~**Prompt-fit probing.**~~ **Resolved.** Accounting is **settled per-provider** (D9 — no
+   normalized denominator); and the D10 **static target-family tag stays the fit signal** — no
+   eval probe by default (it would cost a model call + eval infra at selection). A selection-time
+   conformance probe remains an *optional later upgrade*, not the default.
+6. ~~**Multi-principal consent.**~~ **Resolved.** Access to a *private* resource is consented
+   on its **owner's** side (D15). For an irreversible effect on a **shared** Project, the
+   **acting Contributor self-confirms** — the project owner's consent is expressed up-front by
+   the **role grant** (D14), the way a standing approval is approved once then runs unprompted,
+   not as a per-effect veto. (Whether that holds under adversarial multi-principal load stays the
+   live test of D7's nesting bet — settled in design, watched in practice.)
+7. ~~**Cross-user credential mechanism + taint audit.**~~ **Resolved.** The credential
+   mechanism is **agent-to-agent** (D15 — no secret crosses the boundary). The taint half is
+   settled **detective-audit-only**: attenuation (D12) + the proxy (D15) are the preventive
+   wall, and the server-side audit stays a best-effort backstop — **no provenance taint engine**
+   (it is strictly harder than the single-tenant audit; the prototype stays honest that audit is
+   backstop, not wall).
 8. ~~**Multi-principal arbitration policy.**~~ **Resolved → D14.** Role-ranked **acquisition
    priority**: the higher role wins a free or simultaneously-contested lease (owner-priority),
    **first-come among equals** (D11's default), and **no preemption** of an in-flight,
@@ -1103,11 +1118,10 @@ session↔context binding, mediation handle, and single-resource escrow).
   rename, the worker `Agent`, both faces of the D8
   cascade (token + authority) across provider → agent → commission, the provider registry,
   the prompt library, the Project guardian, cross-user isolation, and multi-principal
-  coordination. A later **design dialogue** then resolved most of the open questions
-  (incentive → D13, accounting → D9, cross-user credential mechanism → D15, roles +
-  role-ranked arbitration → D14, agent hand-off → D16), leaving a **smaller residue**: the
-  prompt-fit eval probe, the Project-level monotonicity classifier, multi-principal *consent
-  on a shared effect* (whose human confirms), and cross-user *taint* audit — **plus the one
-  piece of unbuilt mechanism the dialogue surfaced**, `commissionId` on `CapabilityRequest`
-  for effect-time D12 enforcement. These are design residue (and one concrete task), not the
-  broad open slate of before.
+  coordination. A later **design dialogue** then resolved **every open question** — incentive
+  + economics → D13 (intrinsic; reputation accrues to Agent *and* owner, linked; the Project owns
+  donated artifacts), accounting → D9, credential mechanism → D15, taint → detective-audit-only,
+  prompt-fit → static tag, monotonicity → a static type table, roles + role-ranked arbitration →
+  D14, hand-off → D16, shared-effect consent → actor-self-confirms (owner governs by role). What
+  remains is **no longer design residue but a single piece of unbuilt mechanism**: `commissionId`
+  on `CapabilityRequest`, for effect-time D12 enforcement.
