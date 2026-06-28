@@ -8,5 +8,7 @@ import type { Commission } from '../../contract/index.ts'
 import { DEFAULT_AGENT } from './workers.ts'
 
 export const SEED_COMMISSIONS: Commission[] = [
-  { id: 'commission-insights-default', agentId: DEFAULT_AGENT.id, projectId: 'p-insights' },
+  // The owner's default Agent — a maintainer (D14): full work permissions, and it
+  // outranks ordinary writers in acquisition-time arbitration.
+  { id: 'commission-insights-default', agentId: DEFAULT_AGENT.id, projectId: 'p-insights', role: 'maintainer' },
 ]

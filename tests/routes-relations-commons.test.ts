@@ -75,6 +75,21 @@ test('commission-agent op commissions through the leaf funnel; uncommission-agen
   assert.equal(store.getCommission(commission!.id), undefined, 'the commission is gone')
 })
 
+test('commission-agent op carries the project role (D14) onto the commission', async () => {
+  const agent = store.createAgent({ label: 'Role target', systemPrompt: 'p', tools: [], instructions: '' })
+  const commissioned = await apply({
+    kind: 'commission-agent',
+    agentId: agent.id,
+    agentLabel: agent.label,
+    projectId: 'p-insights',
+    projectName: 'Insights',
+    role: 'reader',
+  })
+  assert.equal(commissioned.status, 200)
+  const commission = store.listCommissions('p-insights').find((c) => c.agentId === agent.id)
+  assert.equal(commission?.role, 'reader')
+})
+
 test('uncommission-agent on an already-gone commission is a benign no-op (200)', async () => {
   const res = await apply({
     kind: 'uncommission-agent',

@@ -230,6 +230,18 @@ test('describeOp(unscope-context / set-project-instructions): project-scoped, pe
   assert.equal(si.projectId, 'p1', 'projectId drives the "View in projects" deep-link')
 })
 
+test('describeOp(commission-agent): names the project role (D14) only when set', () => {
+  const withRole = describeOp({
+    kind: 'commission-agent', agentId: 'a1', agentLabel: 'Scout', projectId: 'p1', projectName: 'Insights', role: 'reader',
+  })
+  assert.match(withRole.text, /as \*\*reader\*\*/)
+  assert.match(withRole.done, /as reader/)
+  const noRole = describeOp({
+    kind: 'commission-agent', agentId: 'a1', agentLabel: 'Scout', projectId: 'p1', projectName: 'Insights',
+  })
+  assert.doesNotMatch(noRole.text, / as /)
+})
+
 test('opKey is stable + distinct for the project-context ops (per-project, per-label)', () => {
   assert.equal(
     opKey({ kind: 'set-project-instructions', projectId: 'p1', projectName: 'P', instructions: 'a' }),

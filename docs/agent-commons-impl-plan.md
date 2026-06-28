@@ -82,7 +82,7 @@ green before a step is done; UI steps verified in the running app.
   ordering acquisition-priority, used by Step 3.4). New `contract/roles.ts`. **Tests:**
   baseline + rank + monotone-up-the-lattice.
 
-- [ ] **3.2 Commission carries a role.** Add `role?: ProjectRole` to `Commission`,
+- [x] **3.2 Commission carries a role.** Add `role?: ProjectRole` to `Commission`,
   `CreateCommissionRequest`, `UpdateCommissionRequest`
   ([`contract/commission.ts:15/35/42`](commission.ts)); default `'writer'` at the funnel
   (`store.createCommission`). Thread create/update + the `commission-agent` RelationOp

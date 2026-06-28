@@ -825,7 +825,8 @@ export const store = {
     if (input.grant) {
       mintBudget(agent.budget?.windows ?? provider.plan?.windows ?? usageMeter.planCeilings(), input.grant)
     }
-    const commission: Commission = { ...input, id: `commission-${(commissionSeq += 1)}` }
+    // Role is the D14 baseline; default to 'writer' (the ordinary Contributor) when unset.
+    const commission: Commission = { ...input, role: input.role ?? 'writer', id: `commission-${(commissionSeq += 1)}` }
     COMMISSIONS.set(commission.id, commission)
     persist()
     return commission
@@ -842,11 +843,13 @@ export const store = {
     const provider = resolveProvider(agent?.providerId)
     const authority = 'authority' in patch ? patch.authority : commission.authority
     const grant = 'grant' in patch ? patch.grant : commission.grant
+    // Role (D14) re-assignment: present ⇒ apply, absent ⇒ unchanged.
+    const role = patch.role ?? commission.role
     if (authority) mintAuthority(agent?.authority ?? provider.authority, authority)
     if (grant) {
       mintBudget(agent?.budget?.windows ?? provider.plan?.windows ?? usageMeter.planCeilings(), grant)
     }
-    const next: Commission = { ...commission, authority, grant, id: commission.id }
+    const next: Commission = { ...commission, role, authority, grant, id: commission.id }
     COMMISSIONS.set(id, next)
     persist()
     return next
@@ -1333,7 +1336,7 @@ export const store = {
         if (!WORKER_AGENTS.has(op.agentId)) {
           throw new ConflictError(`No agent '${op.agentId}' to commission — it may have been removed.`)
         }
-        this.createCommission({ agentId: op.agentId, projectId: op.projectId })
+        this.createCommission({ agentId: op.agentId, projectId: op.projectId, role: op.role })
         break
       case 'uncommission-agent':
         // Idempotent: a commission already gone (e.g. removed in the hub first) is a

@@ -114,3 +114,30 @@ test('POST /commissions mints (201); over-grant 400s; unknown agent/project 404s
   assert.equal(over.status, 400)
   assert.equal(over.json.error.code, 'bad_request')
 })
+
+test('a commission carries a project role (D14) — seeded maintainer, default writer, patchable', () => {
+  // The seed is an explicit maintainer.
+  assert.equal(store.getCommission('commission-insights-default')?.role, 'maintainer')
+  // An unset role defaults to 'writer' at the funnel.
+  const c = store.createCommission({ agentId: 'agent-default', projectId: 'p-insights' })
+  assert.equal(c.role, 'writer')
+  // An explicit role is carried through.
+  const r = store.createCommission({ agentId: 'agent-default', projectId: 'p-insights', role: 'reader' })
+  assert.equal(r.role, 'reader')
+  // updateCommission re-assigns the role; absent leaves it unchanged.
+  assert.equal(store.updateCommission(r.id, { role: 'owner' })?.role, 'owner')
+  assert.equal(store.updateCommission(r.id, {})?.role, 'owner')
+})
+
+test('the commission routes reject an unknown role (400)', async () => {
+  const badCreate = await call('POST', '/commissions', {
+    agentId: 'agent-default', projectId: 'p-insights', role: 'admin',
+  })
+  assert.equal(badCreate.status, 400)
+  const ok = await call('POST', '/commissions', {
+    agentId: 'agent-default', projectId: 'p-insights', role: 'reader',
+  })
+  assert.equal(ok.status, 200)
+  const badPatch = await call('PATCH', `/commissions/${ok.json.id}`, { role: 'superuser' })
+  assert.equal(badPatch.status, 400)
+})

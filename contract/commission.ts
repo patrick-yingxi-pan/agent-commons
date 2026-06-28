@@ -11,6 +11,7 @@
  *  can key its reservation ledger by `commissionId` (D11). */
 import type { Authority } from './authority.ts'
 import type { Budget } from './budget.ts'
+import type { ProjectRole } from './roles.ts'
 
 export interface Commission {
   id: string
@@ -18,6 +19,10 @@ export interface Commission {
   agentId: string
   /** The shared Project it contributes to. */
   projectId: string
+  /** The Contributor's **role** on the Project (D14) — owner / maintainer / writer /
+   *  reader: the permission baseline (`rolePermits`) and the arbitration rank
+   *  (`roleRank`). Absent ⇒ treated as the `'writer'` default. */
+  role?: ProjectRole
   /** The authority this Agent actually carries onto the Project — a subset of the
    *  Agent's (D8/D12), validated at the funnel. Absent = inherit the Agent's authority.
    *  The wall against one Contributor reaching another's accounts (D12). */
@@ -35,6 +40,8 @@ export interface Commission {
 export interface CreateCommissionRequest {
   agentId: string
   projectId: string
+  /** The role to grant (D14). Absent ⇒ the funnel defaults to `'writer'`. */
+  role?: ProjectRole
   authority?: Authority
   grant?: Budget
 }
@@ -43,6 +50,8 @@ export interface CreateCommissionRequest {
  *  onto the Project (D8/D12). Re-validated against the Agent's ceiling at the funnel.
  *  A present field is applied; an absent one is left unchanged. */
 export interface UpdateCommissionRequest {
+  /** Re-assign the Contributor's role (D14). Absent ⇒ unchanged. */
+  role?: ProjectRole
   authority?: Authority
   grant?: Budget
 }

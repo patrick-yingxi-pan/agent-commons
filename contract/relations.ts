@@ -10,6 +10,7 @@
  *  no data — just the model + its pure description helpers. */
 import type { ArtifactKind, SectionId } from './entities.ts'
 import type { ArtifactItem, ProjectContext, StepTool } from './cowork.ts'
+import type { ProjectRole } from './roles.ts'
 
 export type RelationEntity = 'session' | 'project' | 'artifact' | 'context' | 'schedule'
 
@@ -164,7 +165,7 @@ export type RelationOp =
   // D6 — create a worker Agent, optionally bound to a provider + a library prompt.
   | { kind: 'create-agent'; label: string; providerId?: string; providerLabel?: string; systemPromptId?: string; systemPromptLabel?: string; instructions?: string }
   // D7/D13 — commission an Agent onto a Project (the agent→Project leaf of the cascade).
-  | { kind: 'commission-agent'; agentId: string; agentLabel: string; projectId: string; projectName: string }
+  | { kind: 'commission-agent'; agentId: string; agentLabel: string; projectId: string; projectName: string; role?: ProjectRole }
   // D7 — un-commission: remove a Contributor (a commission) from its Project.
   | { kind: 'uncommission-agent'; commissionId: string; agentLabel: string; projectId: string; projectName: string }
 
@@ -404,14 +405,16 @@ export function describeOp(op: RelationOp): OpDescription {
         approval: 'per-action',
       }
     }
-    case 'commission-agent':
+    case 'commission-agent': {
+      const asRole = op.role ? ` as ${op.role}` : ''
       return {
-        text: `Commission **${op.agentLabel}** to **${op.projectName}**`,
-        done: `Commissioned ${op.agentLabel} to ${op.projectName}`,
+        text: `Commission **${op.agentLabel}** to **${op.projectName}**${op.role ? ` as **${op.role}**` : ''}`,
+        done: `Commissioned ${op.agentLabel} to ${op.projectName}${asRole}`,
         section: 'agents',
         relationId: 'agent-commission',
         approval: 'per-action',
       }
+    }
     case 'uncommission-agent':
       return {
         text: `Remove **${op.agentLabel}** from **${op.projectName}**`,

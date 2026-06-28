@@ -31,7 +31,7 @@ import { GuardianError } from '../guardian.ts'
 import { BudgetError } from '../usage.ts'
 import { AuthorityError } from '../authority.ts'
 import { ConflictError } from '../conflict.ts'
-import { isMonotonic, PROJECT_EFFECT_TYPES } from '../../contract/index.ts'
+import { isMonotonic, PROJECT_EFFECT_TYPES, PROJECT_ROLES } from '../../contract/index.ts'
 import type {
   CapabilityRequest,
   ProjectEffectRequest,
@@ -418,6 +418,9 @@ export function buildRouter(): Router {
     if (!store.listProjects().some((p) => p.id === input.projectId)) {
       return sendError(res, 'not_found', `No project '${input.projectId}'`)
     }
+    if (input.role && !PROJECT_ROLES.includes(input.role)) {
+      return sendError(res, 'bad_request', `Unknown role '${input.role}'`)
+    }
     try {
       sendJson(res, store.createCommission(input))
     } catch (err) {
@@ -433,6 +436,9 @@ export function buildRouter(): Router {
   // sub-goals. No protected default — a commission has no fallback role.
   r.patch('/commissions/:id', async ({ res, params, body }) => {
     const patch = await body<UpdateCommissionRequest>()
+    if (patch.role && !PROJECT_ROLES.includes(patch.role)) {
+      return sendError(res, 'bad_request', `Unknown role '${patch.role}'`)
+    }
     try {
       const commission = store.updateCommission(params.id, patch)
       if (!commission) return sendError(res, 'not_found', `No commission '${params.id}'`)
