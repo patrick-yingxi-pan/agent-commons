@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   BarChart3,
   Bell,
+  Bot,
   Box,
   Bug,
   Check,
@@ -112,7 +113,13 @@ import {
   useSessions,
   useSystemPrompts,
 } from '../api'
-import { promptFitWarning, type Agent, type Commission } from '../../contract/index.ts'
+import {
+  promptFitWarning,
+  type Agent,
+  type Commission,
+  type ModelProvider,
+} from '../../contract/index.ts'
+import { authorityLabel, providerPlanLabel } from '../lib/agentCommonsLabels'
 import { ArtifactThumb, ArtifactViewer, KIND_ICON, KIND_LABEL } from './artifactPreview'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { useDismissable } from '../lib/useDismissable'
@@ -170,6 +177,8 @@ export function SectionView({
       <ArtifactsSection onOpenSession={onOpenSession} />
     ) : section === 'contexts' ? (
       <ContextsSection />
+    ) : section === 'agents' ? (
+      <AgentCommonsSection />
     ) : section === 'scheduled' ? (
       <ScheduledSection
         scheduleId={focusScheduleId}
@@ -2171,6 +2180,247 @@ function StatusPill({ tone, label }: { tone: 'ok' | 'warn' | 'bad' | 'neutral'; 
 
 /* ───────────────────── Generic (scheduled / dispatch / customize) ───────────────────── */
 
+/* ─────────────────────────── Agents (Agent Commons) ─────────────────────────── */
+
+/** The Agents hub (docs/agent-commons.md) — one left-panel home for the multi-tenant
+ *  fabric: the worker Agents, the Model providers + system prompts they run on, and the
+ *  commissions placing them on Projects. Sub-tabs because the four concepts are
+ *  interdependent (an Agent binds a provider + prompt; a commission binds an Agent to a
+ *  Project), so they read as one surface rather than four nav rows. Slice 1 lists each
+ *  read-only; later slices add create / edit / delete per tab. */
+type CommonsTab = 'agents' | 'providers' | 'prompts' | 'commissions'
+
+const COMMONS_TABS: { id: CommonsTab; label: string }[] = [
+  { id: 'agents', label: 'Agents' },
+  { id: 'providers', label: 'Providers' },
+  { id: 'prompts', label: 'Prompts' },
+  { id: 'commissions', label: 'Commissions' },
+]
+
+function AgentCommonsSection() {
+  const [tab, setTab] = useState<CommonsTab>('agents')
+  return (
+    <Page>
+      <PageHeader title="Agents" />
+      <p className="-mt-2 mb-4 text-[13px] leading-relaxed text-ink-soft">
+        Your worker agents and the fabric they run on — the{' '}
+        <span className="font-medium text-ink">providers</span> that supply cognition, the{' '}
+        <span className="font-medium text-ink">prompts</span> they start from, and the{' '}
+        <span className="font-medium text-ink">commissions</span> placing them on projects.
+      </p>
+      <SubTabs tabs={COMMONS_TABS} active={tab} onChange={setTab} />
+      <div className="mt-5">
+        {tab === 'agents' && <AgentsTab />}
+        {tab === 'providers' && <ProvidersTab />}
+        {tab === 'prompts' && <PromptsTab />}
+        {tab === 'commissions' && <CommissionsTab />}
+      </div>
+    </Page>
+  )
+}
+
+/** A segmented control for a section's sub-views — the in-page sibling of the nav rail. */
+function SubTabs<T extends string>({
+  tabs,
+  active,
+  onChange,
+}: {
+  tabs: { id: T; label: string }[]
+  active: T
+  onChange: (id: T) => void
+}) {
+  return (
+    <div className="inline-flex items-center gap-1 rounded-lg border border-line bg-surface p-1 shadow-sm">
+      {tabs.map((t) => {
+        const on = t.id === active
+        return (
+          <button
+            key={t.id}
+            onClick={() => onChange(t.id)}
+            aria-pressed={on}
+            className={`rounded-md px-3 py-1 text-[13px] font-medium transition ${
+              on ? 'bg-ink text-canvas shadow-sm' : 'text-ink-soft hover:text-ink'
+            }`}
+          >
+            {t.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+/** The shared card shell + head for the Agents-hub lists — one icon-tile + title +
+ *  subtitle row (with optional trailing slot), so the four tabs read as one system
+ *  (form follows function). The body below the head is each card's own children. */
+function CommonsCard({ children }: { children: ReactNode }) {
+  return <div className="rounded-xl border border-line bg-surface p-4 shadow-sm">{children}</div>
+}
+
+function CommonsCardHead({
+  icon,
+  title,
+  subtitle,
+  trailing,
+}: {
+  icon: ReactNode
+  title: string
+  subtitle: ReactNode
+  trailing?: ReactNode
+}) {
+  return (
+    <div className="flex items-center gap-2.5">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-ink-soft">
+        {icon}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[14px] font-medium text-ink">{title}</div>
+        <div className="truncate text-[12px] text-ink-faint">{subtitle}</div>
+      </div>
+      {trailing}
+    </div>
+  )
+}
+
+/** Worker Agents (D6) — label, the provider it runs on, its tool count, and its
+ *  authority grant ceiling (D8). Read-only here; create / edit / delete land in a
+ *  later slice. */
+function AgentsTab() {
+  const agents = useAgents().data ?? []
+  const providers = useProviders().data ?? []
+  const providerLabel = (id?: string) => providers.find((p) => p.id === id)?.label ?? 'Default provider'
+  if (agents.length === 0) return <Empty>No agents yet.</Empty>
+  return (
+    <div className="space-y-3">
+      {agents.map((a) => (
+        <CommonsCard key={a.id}>
+          <CommonsCardHead
+            icon={<Bot size={16} />}
+            title={a.label}
+            subtitle={`Runs on ${providerLabel(a.providerId)} · ${a.tools.length} tool${a.tools.length === 1 ? '' : 's'}`}
+          />
+          <p className="mt-2 text-[12px] text-ink-soft">Authority: {authorityLabel(a.authority)}</p>
+        </CommonsCard>
+      ))}
+    </div>
+  )
+}
+
+/** Model providers (D9) — the cognition source an Agent binds: family, effort levels,
+ *  authority grant, and plan ceiling (the D8 cascade root). Mirrors the composer gauge's
+ *  rows in a fuller card. */
+function ProvidersTab() {
+  const providers = useProviders().data ?? []
+  if (providers.length === 0) return <Empty>No providers registered.</Empty>
+  return (
+    <div className="space-y-3">
+      {providers.map((p) => (
+        <ProviderCard key={p.id} provider={p} />
+      ))}
+    </div>
+  )
+}
+
+function ProviderCard({ provider }: { provider: ModelProvider }) {
+  return (
+    <CommonsCard>
+      <CommonsCardHead
+        icon={<Cpu size={16} />}
+        title={provider.label}
+        subtitle={provider.modelFamily}
+        trailing={
+          <div className="flex flex-wrap justify-end gap-1">
+            {provider.effortLevels.map((e) => (
+              <span key={e} className="rounded bg-panel-2 px-1.5 py-0.5 text-[10px] text-ink-faint">
+                {e}
+              </span>
+            ))}
+          </div>
+        }
+      />
+      <p className="mt-2 text-[12px] text-ink-soft">Grants {authorityLabel(provider.authority)}</p>
+      <p className="mt-0.5 text-[12px] text-ink-faint">{providerPlanLabel(provider)}</p>
+    </CommonsCard>
+  )
+}
+
+/** System prompts (D10) — the reusable, target-family-tagged prompts an Agent starts
+ *  from. Each shows its target family and a downgrade warning when it wouldn't fit the
+ *  default provider's family (the pure `promptFitWarning`). */
+function PromptsTab() {
+  const prompts = useSystemPrompts().data ?? []
+  const providers = useProviders().data ?? []
+  const providerFamily = providers[0]?.modelFamily ?? 'claude'
+  if (prompts.length === 0) return <Empty>No system prompts yet.</Empty>
+  return (
+    <div className="space-y-3">
+      {prompts.map((p) => {
+        const warning = promptFitWarning(p, providerFamily)
+        return (
+          <CommonsCard key={p.id}>
+            <CommonsCardHead
+              icon={<FileText size={16} />}
+              title={p.label}
+              subtitle={`Tuned for ${p.targetFamily}`}
+              trailing={
+                warning && (
+                  <span title={warning} className="shrink-0 text-amber-600">
+                    <AlertCircle size={15} />
+                  </span>
+                )
+              }
+            />
+            <p className="mt-2 line-clamp-2 text-[12px] text-ink-soft">{p.body}</p>
+          </CommonsCard>
+        )
+      })}
+    </div>
+  )
+}
+
+/** Commissions (D7/D13) — every agent→Project assignment across all Projects, grouped by
+ *  Project. Each row reuses the Contributor row, so it shows the same Project-clamped
+ *  reach (D12) the Project detail does. */
+function CommissionsTab() {
+  const commissions = useCommissions().data ?? []
+  const agents = useAgents().data ?? []
+  const agentsById = new Map(agents.map((a) => [a.id, a]))
+  const projects = useRelations().allProjects()
+  const projectName = (id: string) => projects.find((p) => p.id === id)?.name ?? id
+
+  if (commissions.length === 0) return <Empty>No commissions yet.</Empty>
+
+  const byProject = new Map<string, Commission[]>()
+  for (const c of commissions) {
+    const list = byProject.get(c.projectId)
+    if (list) list.push(c)
+    else byProject.set(c.projectId, [c])
+  }
+
+  return (
+    <div className="space-y-6">
+      {[...byProject.entries()].map(([projectId, list]) => (
+        <div key={projectId}>
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+            {projectName(projectId)}
+          </div>
+          <CommonsCard>
+            <div className="space-y-2.5">
+              {list.map((c) => (
+                <ContributorRow
+                  key={c.id}
+                  commission={c}
+                  agentLabel={agentsById.get(c.agentId)?.label ?? c.agentId}
+                />
+              ))}
+            </div>
+          </CommonsCard>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function GenericSection({ section }: { section: SectionId }) {
   const meta = SECTION_META[section]
   const [creating, setCreating] = useState(false)
@@ -4088,11 +4338,11 @@ function Page({ children }: { children: ReactNode }) {
   )
 }
 
-function PageHeader({ title, children }: { title: string; children: ReactNode }) {
+function PageHeader({ title, children }: { title: string; children?: ReactNode }) {
   return (
     <header className="mb-5 flex items-center justify-between gap-3">
       <h1 className="font-serif text-2xl font-semibold text-ink">{title}</h1>
-      <div className="flex shrink-0 items-center gap-2.5">{children}</div>
+      {children && <div className="flex shrink-0 items-center gap-2.5">{children}</div>}
     </header>
   )
 }

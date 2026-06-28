@@ -11,9 +11,9 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react'
-import type { SectionId } from '../types'
 import { describeOp, opKey, type RelationOp } from '../data/relations'
 import { useRelations } from '../controller/useRelations'
+import { SECTION_LABELS } from '../lib/nav'
 import { renderRich } from '../lib/rich'
 
 /** The lead glyph for an op, by the relationship it edits. */
@@ -28,15 +28,6 @@ const RELATION_ICON: Record<string, LucideIcon> = {
   'session-schedule': Repeat,
   'artifact-schedule': Repeat,
   'context-schedule': Repeat,
-}
-
-const SECTION_LABEL: Record<SectionId, string> = {
-  projects: 'Projects',
-  artifacts: 'Artifacts',
-  contexts: 'Contexts',
-  scheduled: 'Scheduled',
-  dispatch: 'Dispatch',
-  customize: 'Customize',
 }
 
 /** The inline confirmation prompt: Claude proposes one or more relation edits,
@@ -130,7 +121,7 @@ export function RelationActionCard({ ops }: { ops: RelationOp[] }) {
                   onClick={() => navigate(desc.section!, desc.projectId)}
                   className="ml-[34px] inline-flex w-fit items-center gap-1 text-[12px] font-medium text-accent-strong transition hover:gap-1.5"
                 >
-                  View in {SECTION_LABEL[desc.section]}
+                  View in {SECTION_LABELS[desc.section]}
                   <ArrowRight size={13} />
                 </button>
               )}

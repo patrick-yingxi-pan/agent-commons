@@ -1,16 +1,8 @@
 import { Cpu } from 'lucide-react'
 import { useProviders } from '../api'
 import { GaugePopover } from './GaugePopover'
-import { formatTokens } from '../../contract/index.ts'
-import type { Authority, ModelProvider } from '../../contract/index.ts'
-
-/** A one-line summary of an authority grant (D8) — "all X" when a dimension is
- *  unrestricted (absent or '*'), else the count granted. */
-function authorityLabel(a?: Authority): string {
-  const dim = (grant: string[] | undefined, noun: string) =>
-    !grant || grant.includes('*') ? `all ${noun}` : grant.length ? `${grant.length} ${noun}` : `no ${noun}`
-  return `${dim(a?.tools, 'tools')} · ${dim(a?.connectors, 'connectors')} · ${dim(a?.scopes, 'scopes')}`
-}
+import { authorityLabel, providerPlanLabel } from '../lib/agentCommonsLabels'
+import type { ModelProvider } from '../../contract/index.ts'
 
 /** Providers button: an ambient indicator of the Model providers registered to this
  *  account (docs/agent-commons.md, D9) — the cognition sources an Agent binds. Like
@@ -55,9 +47,7 @@ export function ProvidersControl() {
 function ProviderRow({ provider }: { provider: ModelProvider }) {
   // The plan is the cascade root (D8): an Agent's budget must attenuate it. The
   // seeded default declares none, inheriting the account plan.
-  const planLabel = provider.plan
-    ? provider.plan.windows.map((w) => `${formatTokens(w.ceiling)} ${w.label}`).join(' · ')
-    : 'Inherits account plan'
+  const planLabel = providerPlanLabel(provider)
   return (
     <div>
       <div className="flex items-center justify-between text-[12px]">

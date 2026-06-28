@@ -15,7 +15,14 @@ export type Capability = 'chat' | 'workspace' | 'repo'
 /** A cross-cutting tool in the sidebar nav — not a conversation, but a global
  *  surface (your projects, every artifact, scheduled runs, …). Opening one
  *  takes over the main area in place of the active thread. */
-export type SectionId = 'projects' | 'artifacts' | 'contexts' | 'scheduled' | 'dispatch' | 'customize'
+export type SectionId =
+  | 'projects'
+  | 'artifacts'
+  | 'contexts'
+  | 'agents'
+  | 'scheduled'
+  | 'dispatch'
+  | 'customize'
 
 /** The guided tour's lifecycle: idle (not started), running (stepping through),
  *  or done (finished, showing Replay). */
