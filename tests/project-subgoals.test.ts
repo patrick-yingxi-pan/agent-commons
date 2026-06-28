@@ -7,6 +7,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from '../server/store.ts'
 import { GuardianError } from '../server/guardian.ts'
+import { isProjectEffectMonotonic } from '../contract/index.ts'
 import { call } from './helpers/http.ts'
 
 const GUARDED = 'p-insights'
@@ -69,4 +70,14 @@ test('routes: GET lists in-flight sub-goals; POST claims; a conflicting claim 40
   // Missing fields → 400.
   const bad = await call('POST', `/projects/${GUARDED}/subgoals`, { holder: 'x' })
   assert.equal(bad.status, 400)
+})
+
+test('isProjectEffectMonotonic classifies the externally-effectful Project surface (OQ4)', () => {
+  // Monotonic (observe / query) → coordination-free, bypasses the Guardian (CALM).
+  assert.equal(isProjectEffectMonotonic('connector.read'), true)
+  assert.equal(isProjectEffectMonotonic('mcp.query'), true)
+  // Non-monotonic (irreversible outside change) → must hold a sub-goal reservation (D11's hard quadrant).
+  assert.equal(isProjectEffectMonotonic('connector.write'), false)
+  assert.equal(isProjectEffectMonotonic('mcp.mutate'), false)
+  assert.equal(isProjectEffectMonotonic('charge'), false)
 })

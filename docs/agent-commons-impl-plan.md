@@ -57,7 +57,7 @@ green before a step is done; UI steps verified in the running app.
 
 ## Phase 2 — Project-effect classifier (OQ4) + a guarded real effect
 
-- [ ] **2.1 Contract — `projectEffectMonotonic`.** Add `ProjectEffectType`
+- [x] **2.1 Contract — `isProjectEffectMonotonic`.** Add `ProjectEffectType`
   (`'connector.read' | 'connector.write' | 'mcp.query' | 'mcp.mutate' | 'charge'`) and a
   pure `projectEffectMonotonic(type): boolean` (reads/queries monotonic;
   writes/mutate/charge not) — the non-host analog of `isMonotonic`

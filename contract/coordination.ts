@@ -10,6 +10,28 @@
  *  semantics, now multi-principal). */
 import type { ReservationStatus } from './reservations.ts'
 
+/** The classes of **externally-effectful** Project action (D11/D12) — what a
+ *  Contributor's effect on the shared Project does to the outside world. Distinct from
+ *  the host `CapabilityType` (fs/terminal/process): these reach connectors, MCP servers,
+ *  and billing — the Project-level effect axis the host classifier never covered. */
+export type ProjectEffectType =
+  | 'connector.read'
+  | 'connector.write'
+  | 'mcp.query'
+  | 'mcp.mutate'
+  | 'charge'
+
+/** Is a Project-level effect **monotonic** (CALM)? A monotonic effect only observes /
+ *  queries — it adds no irreversible outside change another Contributor acted on, so it
+ *  is coordination-free and bypasses the Guardian. Non-monotonic effects (a connector
+ *  write, an MCP mutation, a charge) are the irreversible, one-timeline surface (D11's
+ *  hard quadrant) and must hold a sub-goal reservation. The Project-level analog of
+ *  `isMonotonic` (host capabilities) — the classifier OQ4 asked for, named to match it.
+ *  See docs/agent-commons.md (D11, OQ4). */
+export function isProjectEffectMonotonic(type: ProjectEffectType): boolean {
+  return type === 'connector.read' || type === 'mcp.query'
+}
+
 /** A sub-goal currently reserved on a Project — one in-flight Contributor claim. */
 export interface ProjectSubGoal {
   /** The sub-goal label (e.g. "auth-refactor"). */
