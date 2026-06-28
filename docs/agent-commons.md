@@ -21,8 +21,9 @@
 > — **D14** (a Contributor's permissions are set by its project role), **D15** (cross-user
 > access is agent-to-agent: an Agent proxies its owner's resources), **D16** (a
 > Conversation's Agent binding is hand-off-able by consent) — plus folding the **incentive**
-> (intrinsic, GitHub-style) into D13 and **per-provider accounting** into D9. Unlike
-> D6–D13, these are *design* decisions, **not** built mechanism.
+> (intrinsic, GitHub-style) into D13 and **per-provider accounting** into D9. These were design
+> decisions when first recorded; **D14–D16 are now built too** (impl-plan Phases 3–4) — roles
+> end to end, the agent-to-agent proxy, and mid-thread hand-off + per-turn provenance.
 > Built: the **D6 rename** (1a/1b — the host-bound type is `Runner` in code, wire and
 > all), a seeded worker `Agent` per Conversation (2), the **D8 budget funnel** (3 — token
 > face), one **guarded Project** (4), the **Model-provider registry** (5 — the cascade
@@ -1129,6 +1130,12 @@ session↔context binding, mediation handle, and single-resource escrow).
   for **effect-time D12 enforcement** — is now **built**, along with the OQ4 Project-effect
   monotonicity classifier (a guarded effect path) and the D14 **role** system end to end
   (lattice → commission field → enforcement → arbitration surfacing → UI → conversational
-  setting). See [`agent-commons-impl-plan.md`](agent-commons-impl-plan.md) (Phases 1–3) for the
-  decomposition. Still forward (Phase 4, unbuilt): D15 proxy, D16 hand-off, the D8 spend-time /
-  shrink gaps.
+  setting). **Phase 4 then built the rest:** the D6 filename rename, the per-axis commission
+  editor, **D8 closed end to end** (mint + spend-time enforcement + parent-shrink propagation),
+  **D16** (per-turn provenance + mid-thread hand-off through the confirmation card), and **D15**
+  (the agent-to-agent proxy — `accessChannel` + `POST /agents/:id/proxy`, where B's Agent acts
+  under its own authority and no credential crosses back). See
+  [`agent-commons-impl-plan.md`](agent-commons-impl-plan.md) for the full decomposition — every
+  planned design (D6–D16, OQ3/OQ4) is now built. The residue that remains is the genuinely
+  forward *design* questions (the incentive's soft sub-parts, the prompt-fit eval probe, the
+  cross-user taint audit, multi-principal consent on a shared effect), not unbuilt mechanism.
