@@ -135,6 +135,39 @@ function matchKeywords(text: string): ToolCall[] {
   const project = grab(/\b(?:project|under|into)\s+(?:the\s+)?["“]?([A-Za-z0-9 ][A-Za-z0-9 -]*?)["”]?(?:\s+project)?(?:[.,!]|$)/i)
   const hasSchedule = /\bschedul/.test(t)
 
+  // ── Agent Commons CRUD (D6/D9/D10/D7) ──────────────────────────────────────
+  // A faithful pattern match for the management requests Claude turns into the Agent
+  // Commons tools. Specific nouns (commission / worker agent / system prompt / model
+  // provider) keep these from colliding with the relation patterns below.
+  const wantsCreate = /\b(add|create|register|new|set up|make)\b/.test(t)
+  const toProject = grab(/\b(?:to|onto|from|off)\s+(?:the\s+)?["“]?([A-Za-z0-9][A-Za-z0-9 -]*?)["”]?(?:\s+project)?(?:[.,!]|$)/i)
+  const uncommissionAgent = grab(/\b(?:uncommission|un-commission)\s+(?:the\s+)?([A-Za-z0-9][A-Za-z0-9 -]*?)\s+(?:from|off)\b/i)
+  const commissionAgent = grab(/\b(?:commission|assign)\s+(?:the\s+)?([A-Za-z0-9][A-Za-z0-9 -]*?)\s+(?:to|onto)\b/i)
+  if (uncommissionAgent && toProject) {
+    calls.push({ name: 'uncommission_agent', input: { agent: uncommissionAgent, project: toProject } })
+  } else if (commissionAgent && toProject) {
+    calls.push({ name: 'commission_agent', input: { agent: commissionAgent, project: toProject } })
+  }
+  // Create a worker agent: "create a (worker) agent called X (on PROVIDER) (with the PROMPT prompt)".
+  if (!calls.length && wantsCreate && /\bagent\b/.test(t)) {
+    const label = grab(/\bagent\s+(?:called\s+|named\s+)?["“]?([A-Za-z0-9][A-Za-z0-9 -]*?)["”]?(?:\s+(?:on|with|that|using)\b|[.,!]|$)/i) ?? 'New agent'
+    const provider = grab(/\bon\s+(?:the\s+)?["“]?([A-Za-z0-9][A-Za-z0-9 -]*?)["”]?(?:\s+(?:with|provider|that|using)\b|[.,!]|$)/i)
+    const systemPrompt = grab(/\bwith\s+(?:the\s+)?["“]?([A-Za-z0-9][A-Za-z0-9 -]*?)["”]?\s+(?:system\s+)?prompt\b/i)
+    calls.push({ name: 'create_agent', input: { label, ...(provider ? { provider } : {}), ...(systemPrompt ? { system_prompt: systemPrompt } : {}) } })
+  }
+  // Add a system prompt: "add a system prompt called X (saying \"…\")".
+  if (!calls.length && wantsCreate && /\bprompt\b/.test(t)) {
+    const label = grab(/\bprompt\s+(?:called\s+|named\s+)?["“]?([A-Za-z0-9][A-Za-z0-9 -]*?)["”]?(?:\s+(?:for|that|saying|[.,!])|$)/i) ?? 'New prompt'
+    const body = grab(/(?:saying|that says|body)\s+["“]([^"”]+)["”]/i) ?? grab(/["“]([^"”]{8,})["”]/)
+    calls.push({ name: 'create_system_prompt', input: { label, ...(body ? { body } : {}) } })
+  }
+  // Register a model provider: "add a (model) provider called X (on the Y family)".
+  if (!calls.length && wantsCreate && /\bprovider\b/.test(t)) {
+    const label = grab(/\bprovider\s+(?:called\s+|named\s+)?["“]?([A-Za-z0-9][A-Za-z0-9 .-]*?)["”]?(?:\s+(?:on|for|that|using|[.,!])|$)/i) ?? 'New provider'
+    const family = grab(/\b(?:family|on the)\s+([A-Za-z][A-Za-z0-9 -]*?)(?:\s+family)?(?:[.,!]|$)/i)
+    calls.push({ name: 'create_provider', input: { label, ...(family ? { model_family: family } : {}) } })
+  }
+
   // ── Save a draft out of this session ──────────────────────────────────────
   if (/\bsave\b/.test(t) && /\b(artifact|draft|doc|note|recap|summary)\b/.test(t)) {
     const name = grab(/\bsave\b.*?\bas\s+([\w.-]+)/i) ?? 'session-recap.md'

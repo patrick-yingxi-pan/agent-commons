@@ -32,6 +32,17 @@ import type {
  *  of "this session". */
 export interface ToolContext {
   session: { id: string; title: string }
+  /** The live Agent Commons registries (docs/agent-commons.md, D6/D9/D10), supplied by
+   *  the route from the store. The Agent Commons CRUD tools resolve the model's named
+   *  provider / prompt / agent against *what currently exists* — including entities
+   *  created earlier in the same conversation — not just the seed. Absent in unit calls
+   *  that don't exercise those tools. */
+  commons?: {
+    providers: { id: string; label: string }[]
+    systemPrompts: { id: string; label: string }[]
+    agents: { id: string; label: string }[]
+    commissions: { id: string; agentId: string; projectId: string }[]
+  }
 }
 
 /** What executing one tool produces: the consent-gated side-effect(s) plus a
@@ -89,6 +100,16 @@ function resolveKind(v: unknown): ArtifactKind {
   return (ARTIFACT_KINDS as string[]).includes(k) ? (k as ArtifactKind) : 'doc'
 }
 
+// Resolve a named Agent Commons entity against the LIVE registry the route passed in
+// (ctx.commons). Exact label first, then a contains-match; undefined when nothing
+// matches (unlike the seed resolvers, which fall back to [0] — a wrong provider/agent
+// guess here would be worse than proposing nothing).
+function byLabel<T extends { label: string }>(list: T[] | undefined, name: string): T | undefined {
+  const n = name.trim().toLowerCase()
+  if (!n) return undefined
+  return list?.find((x) => x.label.toLowerCase() === n) ?? list?.find((x) => x.label.toLowerCase().includes(n))
+}
+
 // ── Escalation panel content — what a panel-producing tool *yields* ───────────
 // In reality the model decides "open a workspace / branch the repo"; the bytes
 // (the artifacts it drafts, the diff it writes, the terminal it ran) are the
@@ -138,8 +159,9 @@ const TOUR_PROJECT_VISIT_CAPTION =
   'Here it is: a brand-new project with this session already filed inside. Same conversation — now it has a home, and everything it produces will collect here. Next heads back to the thread to wrap up.'
 
 // ── The catalog ───────────────────────────────────────────────────────────────
-// One entry per resource manipulation. The 2 panel-escalation tools produce an
-// `escalation`; the 13 relation-op tools produce `relationOps`.
+// One entry per resource manipulation. The 3 panel-escalation tools produce an
+// `escalation`; the rest produce `relationOps` — the relationship edits plus the
+// Agent Commons CRUD ops (create provider / prompt / agent, (un)commission an agent).
 
 const TOOLS: ToolSpec[] = [
   // ── Panel escalations ──────────────────────────────────────────────────────
@@ -390,6 +412,111 @@ const TOOLS: ToolSpec[] = [
       const c = resolveConnector(str(input.tool))
       const tool: StepTool = { id: c.id, label: c.label, tone: 'connector' }
       return { relationOps: [{ kind: 'schedule-add-tool', scheduleId: s.id, scheduleName: s.name, cadence: s.cadence, tool }], summary: `Proposed letting ${s.name} use ${c.label} each run; awaiting confirmation.` }
+    },
+  },
+
+  // ── Agent Commons CRUD tools (docs/agent-commons.md, D6/D9/D10/D7) ───────────
+  // Claude managing the Agent Commons concepts through the SAME confirm-card gate.
+  // Each yields a RelationOp the user confirms; the canonical write then executes it
+  // through the store's registry mutator (the D8 funnel) — server/store.ts.
+  {
+    name: 'create_provider',
+    description:
+      'Register a new Model provider — a cognition source (a Messages-API integration) that worker Agents can run on. Use when the user asks to add or register a model provider. The user confirms before it is registered.',
+    properties: {
+      label: { type: 'string', description: 'The provider name, e.g. "Anthropic" or "Local Llama".' },
+      model_family: { type: 'string', description: 'The model family it resolves to, e.g. "claude", "gpt", "llama". Defaults to "claude".' },
+    },
+    required: ['label'],
+    build: (input) => {
+      const label = str(input.label, 'New provider').trim()
+      const modelFamily = str(input.model_family, 'claude').trim() || 'claude'
+      return { relationOps: [{ kind: 'create-provider', label, modelFamily }], summary: `Proposed registering the ${label} model provider; awaiting confirmation.` }
+    },
+  },
+  {
+    name: 'create_system_prompt',
+    description:
+      'Add a reusable system prompt to the library — a named, model-family-tagged prompt an Agent can be built from. Use when the user asks to save or add a system prompt. The user confirms before it is added.',
+    properties: {
+      label: { type: 'string', description: 'The prompt name, e.g. "Deep research".' },
+      body: { type: 'string', description: 'The prompt text the Agent drives the model with.' },
+      target_family: { type: 'string', description: 'The model family it was authored for, e.g. "claude". Defaults to "claude".' },
+    },
+    required: ['label', 'body'],
+    build: (input) => {
+      const label = str(input.label, 'New prompt').trim()
+      const body = str(input.body, 'You are a helpful assistant.')
+      const targetFamily = str(input.target_family, 'claude').trim() || 'claude'
+      return { relationOps: [{ kind: 'create-prompt', label, body, targetFamily }], summary: `Proposed adding ${label} to the system-prompt library; awaiting confirmation.` }
+    },
+  },
+  {
+    name: 'create_agent',
+    description:
+      'Create a worker Agent — a reusable bundle of a Model provider + a system prompt + instructions that drives conversations. Use when the user asks to create or set up a worker agent. The user confirms before it is created.',
+    properties: {
+      label: { type: 'string', description: 'The agent name, e.g. "Research scout".' },
+      provider: { type: 'string', description: 'The Model provider it runs on, e.g. "Anthropic". Optional — defaults to the account default.' },
+      system_prompt: { type: 'string', description: 'The library system prompt it uses, e.g. "Deep research". Optional.' },
+      instructions: { type: 'string', description: 'Custom instructions appended after the prompt. Optional.' },
+    },
+    required: ['label'],
+    build: (input, ctx) => {
+      const label = str(input.label, 'New agent').trim()
+      const provider = byLabel(ctx.commons?.providers, str(input.provider))
+      const prompt = byLabel(ctx.commons?.systemPrompts, str(input.system_prompt))
+      return {
+        relationOps: [
+          {
+            kind: 'create-agent',
+            label,
+            providerId: provider?.id,
+            providerLabel: provider?.label,
+            systemPromptId: prompt?.id,
+            systemPromptLabel: prompt?.label,
+            instructions: str(input.instructions) || undefined,
+          },
+        ],
+        summary: `Proposed creating the ${label} worker agent${provider ? ` on ${provider.label}` : ''}; awaiting confirmation.`,
+      }
+    },
+  },
+  {
+    name: 'commission_agent',
+    description:
+      'Commission a worker Agent onto a shared Project (assign it as a Contributor). Use when the user asks to commission, assign, or add a worker agent to a project. The user confirms before it is commissioned.',
+    properties: {
+      agent: { type: 'string', description: 'The worker Agent to commission, e.g. "Research scout".' },
+      project: { type: 'string', description: 'The Project to commission it onto, e.g. "Insights dashboard".' },
+    },
+    required: ['agent', 'project'],
+    build: (input, ctx) => {
+      const agent = byLabel(ctx.commons?.agents, str(input.agent))
+      const p = resolveProject(str(input.project))
+      if (!agent) {
+        return { summary: `No worker agent matching "${str(input.agent)}" — proposed nothing.` }
+      }
+      return { relationOps: [{ kind: 'commission-agent', agentId: agent.id, agentLabel: agent.label, projectId: p.id, projectName: p.name }], summary: `Proposed commissioning ${agent.label} to ${p.name}; awaiting confirmation.` }
+    },
+  },
+  {
+    name: 'uncommission_agent',
+    description:
+      'Remove a worker Agent (a Contributor) from a Project — un-commission it. Use when the user asks to remove or un-commission an agent from a project. The user confirms before it is removed.',
+    properties: {
+      agent: { type: 'string', description: 'The worker Agent to remove, e.g. "Research scout".' },
+      project: { type: 'string', description: 'The Project to remove it from.' },
+    },
+    required: ['agent', 'project'],
+    build: (input, ctx) => {
+      const agent = byLabel(ctx.commons?.agents, str(input.agent))
+      const p = resolveProject(str(input.project))
+      const commission = agent && (ctx.commons?.commissions ?? []).find((c) => c.agentId === agent.id && c.projectId === p.id)
+      if (!agent || !commission) {
+        return { summary: `No commission of "${str(input.agent)}" on ${p.name} to remove — proposed nothing.` }
+      }
+      return { relationOps: [{ kind: 'uncommission-agent', commissionId: commission.id, agentLabel: agent.label, projectId: p.id, projectName: p.name }], summary: `Proposed removing ${agent.label} from ${p.name}; awaiting confirmation.` }
     },
   },
 ]

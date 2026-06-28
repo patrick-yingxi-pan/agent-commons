@@ -48,6 +48,7 @@ import {
 import { API_BASE, apiDelete, apiGet, apiPatch, apiPost } from './client.ts'
 import { invalidate, mutate, peek, setData } from './cache.ts'
 import { keys, paths } from './keys.ts'
+import { invalidateForCommonsOp } from './commonsInvalidation.ts'
 import { OPTIMISTIC_ID_PREFIX } from './ids.ts'
 
 /** Callbacks for a streamed assistant turn. Each fires as its event arrives. */
@@ -153,6 +154,9 @@ export async function applyRelationOp(op: RelationOp): Promise<void> {
     const body: ApplyOpRequest = { op }
     const updated = await apiPost<RelationGraph>(paths.relationOps, body)
     setData(keys.relations, updated)
+    // An Agent Commons CRUD op edits a registry, not the graph (the patch above was a
+    // no-op for it) — refresh the registry caches the Agents hub reads.
+    invalidateForCommonsOp(op)
   } catch {
     // The POST failed — drop the optimistic patch by re-reading the server truth.
     invalidate(keys.relations)

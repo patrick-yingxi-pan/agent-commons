@@ -294,7 +294,7 @@ test('Agent Commons CRUD ops are graph no-ops (executed server-side via the regi
     { kind: 'create-prompt', label: 'Researcher', body: 'b', targetFamily: 'claude' },
     { kind: 'create-agent', label: 'Scout', providerId: 'provider-1', providerLabel: 'Acme LLM' },
     { kind: 'commission-agent', agentId: 'agent-1', agentLabel: 'Scout', projectId: 'p1', projectName: 'Insights' },
-    { kind: 'uncommission-agent', commissionId: 'commission-1', agentLabel: 'Scout', projectName: 'Insights' },
+    { kind: 'uncommission-agent', commissionId: 'commission-1', agentLabel: 'Scout', projectId: 'p1', projectName: 'Insights' },
   ]
   for (const op of ops) {
     assert.equal(applyGraphOp(g0, op, mintIds()), g0, `${op.kind} returns the input graph unchanged`)
@@ -328,7 +328,7 @@ test('describeOp(Agent Commons CRUD): per-action, lands in the Agents hub, reads
   const comm = describeOp({ kind: 'commission-agent', agentId: 'agent-1', agentLabel: 'Scout', projectId: 'p1', projectName: 'Insights' })
   assert.equal(comm.text, 'Commission **Scout** to **Insights**')
   assert.equal(comm.section, 'agents')
-  const un = describeOp({ kind: 'uncommission-agent', commissionId: 'commission-1', agentLabel: 'Scout', projectName: 'Insights' })
+  const un = describeOp({ kind: 'uncommission-agent', commissionId: 'commission-1', agentLabel: 'Scout', projectId: 'p1', projectName: 'Insights' })
   assert.equal(un.text, 'Remove **Scout** from **Insights**')
 })
 
@@ -341,7 +341,7 @@ test('opKey(Agent Commons CRUD) is stable + distinct (by label, or by the ids a 
     'commission-agent:agent-1:p1',
   )
   assert.equal(
-    opKey({ kind: 'uncommission-agent', commissionId: 'commission-9', agentLabel: 'Scout', projectName: 'Insights' }),
+    opKey({ kind: 'uncommission-agent', commissionId: 'commission-9', agentLabel: 'Scout', projectId: 'p1', projectName: 'Insights' }),
     'uncommission-agent:commission-9',
   )
 })

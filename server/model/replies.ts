@@ -11,6 +11,10 @@
 /** Second-turn prose, chosen by the tools that ran. The escalations get a
  *  specific line; the relation-op tools share the consent framing (the confirm
  *  cards carry the per-op detail, so the prose stays brief). */
+/** The Agent Commons CRUD tools (docs/agent-commons.md) — managed through the same
+ *  confirm-card gate, so they share one consent line distinct from the relation edits. */
+const COMMONS_TOOLS = ['create_provider', 'create_system_prompt', 'create_agent', 'commission_agent', 'uncommission_agent']
+
 export function finalReplyText(toolNames: string[]): string {
   if (toolNames.includes('open_workspace')) {
     return 'Opening a workspace and pulling in `brand-kit/` and `launch-assets/` for reference. First pass is on the right, grouped by source — the one-pager reuses the value prop above, the email is written for admins, and the hero picks up the brand-kit palette. Pick a folder to open it.'
@@ -20,6 +24,11 @@ export function finalReplyText(toolNames: string[]): string {
   }
   if (toolNames.includes('create_project')) {
     return "Good idea — I'll spin up an **Insights dashboard launch** project so the strategy, the docs, and the code all sit under one roof. Approve below and I'll take you straight to it."
+  }
+  // Agent Commons CRUD proposals (provider / prompt / agent / commission) — their own
+  // consent line; the card carries the detail, and nothing is created or assigned yet.
+  if (toolNames.some((n) => COMMONS_TOOLS.includes(n))) {
+    return "Here's the change to your Agent Commons setup — confirm below; nothing's created or assigned until you do."
   }
   // Relation-op proposals: one shared consent line. Nothing changes until the
   // user confirms the card(s) below.

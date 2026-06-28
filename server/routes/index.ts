@@ -659,6 +659,15 @@ export function buildRouter(): Router {
         },
         ac.signal,
         model,
+        // The live Agent Commons registries, so a confirmed "commission the agent I
+        // just made" / "create an agent on <provider>" resolves the names the model
+        // proposes against what currently exists (server/model/tools.ts).
+        {
+          providers: store.listProviders().map((p) => ({ id: p.id, label: p.label })),
+          systemPrompts: store.listSystemPrompts().map((p) => ({ id: p.id, label: p.label })),
+          agents: store.listAgents().map((a) => ({ id: a.id, label: a.label })),
+          commissions: store.listCommissions().map((c) => ({ id: c.id, agentId: c.agentId, projectId: c.projectId })),
+        },
       )
       // Meter the real tokens this turn consumed (even ephemeral tour turns —
       // they hit the model too), so the composer's plan-usage rings reflect use.

@@ -16,8 +16,8 @@ test('TOOL_DEFINITIONS: every tool has a name, description, and object input_sch
     assert.equal(t.input_schema.type, 'object')
     assert.ok(Array.isArray(t.input_schema.required))
   }
-  // The two escalations + the 13 relation-op kinds = 15 tools.
-  assert.equal(TOOL_NAMES.length, 15)
+  // The 3 escalations + 12 relation-op kinds + 5 Agent Commons CRUD tools = 20 tools.
+  assert.equal(TOOL_NAMES.length, 20)
 })
 
 test('open_workspace builds a workspace escalation with drafted artifacts', () => {
@@ -87,4 +87,80 @@ test('an unknown tool degrades gracefully (no throw, no effect)', () => {
   assert.equal(e.relationOps, undefined)
   assert.equal(e.escalation, undefined)
   assert.match(e.summary, /unknown/i)
+})
+
+// ── Agent Commons CRUD tools (D6/D9/D10/D7) — resolve the model's named provider /
+//    prompt / agent against the LIVE registries the route passes in (ctx.commons). ──
+const ctxCommons: ToolContext = {
+  session: ctx.session,
+  commons: {
+    providers: [{ id: 'provider-anthropic', label: 'Anthropic' }, { id: 'provider-9', label: 'Local Llama' }],
+    systemPrompts: [{ id: 'sp-1', label: 'Deep research' }],
+    agents: [{ id: 'agent-7', label: 'Scout' }, { id: 'agent-8', label: 'Loner' }],
+    commissions: [{ id: 'commission-3', agentId: 'agent-7', projectId: 'p-insights' }],
+  },
+}
+
+test('create_provider → a create-provider op carrying the label + family', () => {
+  const e = executeTool('create_provider', { label: 'Local Llama', model_family: 'llama' }, ctxCommons)
+  assert.equal(e.relationOps?.length, 1)
+  const op = e.relationOps![0]
+  assert.equal(op.kind, 'create-provider')
+  assert.equal((op as any).label, 'Local Llama')
+  assert.equal((op as any).modelFamily, 'llama')
+})
+
+test('create_system_prompt → a create-prompt op with body + default family', () => {
+  const e = executeTool('create_system_prompt', { label: 'Deep research', body: 'Cite primary sources.' }, ctxCommons)
+  const op = e.relationOps![0]
+  assert.equal(op.kind, 'create-prompt')
+  assert.equal((op as any).body, 'Cite primary sources.')
+  assert.equal((op as any).targetFamily, 'claude', 'family defaults to claude')
+})
+
+test('create_agent → a create-agent op binding the named provider + prompt (resolved live)', () => {
+  const e = executeTool('create_agent', { label: 'Scout', provider: 'Anthropic', system_prompt: 'Deep research', instructions: 'Stay terse.' }, ctxCommons)
+  const op = e.relationOps![0]
+  assert.equal(op.kind, 'create-agent')
+  assert.equal((op as any).providerId, 'provider-anthropic')
+  assert.equal((op as any).providerLabel, 'Anthropic')
+  assert.equal((op as any).systemPromptId, 'sp-1')
+  assert.equal((op as any).instructions, 'Stay terse.')
+})
+
+test('create_agent with no provider/prompt → an unbound agent op (no ids)', () => {
+  const e = executeTool('create_agent', { label: 'Solo' }, ctxCommons)
+  const op = e.relationOps![0]
+  assert.equal(op.kind, 'create-agent')
+  assert.equal((op as any).providerId, undefined)
+  assert.equal((op as any).systemPromptId, undefined)
+})
+
+test('commission_agent → a commission-agent op resolving the agent (live) + project (seed)', () => {
+  const e = executeTool('commission_agent', { agent: 'Scout', project: 'Insights dashboard' }, ctxCommons)
+  const op = e.relationOps![0]
+  assert.equal(op.kind, 'commission-agent')
+  assert.equal((op as any).agentId, 'agent-7')
+  assert.equal((op as any).projectId, 'p-insights')
+})
+
+test('commission_agent with an unknown agent proposes nothing (no op, just a summary)', () => {
+  const e = executeTool('commission_agent', { agent: 'Nobody', project: 'Insights dashboard' }, ctxCommons)
+  assert.equal(e.relationOps, undefined)
+  assert.match(e.summary, /no worker agent/i)
+})
+
+test('uncommission_agent → an uncommission-agent op resolving the live commission by (agent, project)', () => {
+  const e = executeTool('uncommission_agent', { agent: 'Scout', project: 'Insights dashboard' }, ctxCommons)
+  const op = e.relationOps![0]
+  assert.equal(op.kind, 'uncommission-agent')
+  assert.equal((op as any).commissionId, 'commission-3')
+  assert.equal((op as any).projectId, 'p-insights')
+})
+
+test('uncommission_agent for an agent with no commission on that project proposes nothing', () => {
+  // Loner is a known agent but holds no commission, so there's nothing to remove.
+  const e = executeTool('uncommission_agent', { agent: 'Loner', project: 'Insights dashboard' }, ctxCommons)
+  assert.equal(e.relationOps, undefined)
+  assert.match(e.summary, /to remove/i)
 })

@@ -93,8 +93,12 @@ export async function generateReply(
   handlers: ReplyHandlers,
   signal?: AbortSignal,
   model: string = MODEL,
+  commons?: ToolContext['commons'],
 ): Promise<ReplyResult> {
-  const ctx: ToolContext = { session: { id: session.id, title: session.title } }
+  // The live Agent Commons registries (supplied by the route) let the Agent Commons
+  // CRUD tools resolve the model's named provider / prompt / agent against what
+  // currently exists — so "commission the agent I just made" resolves.
+  const ctx: ToolContext = { session: { id: session.id, title: session.title }, commons }
   const system = systemPrompt(session, agent)
   // The Agent's tool allowlist — a subset of the catalog (the default carries all).
   const tools = TOOL_DEFINITIONS.filter((t) => agent.tools.includes(t.name))

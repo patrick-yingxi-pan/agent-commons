@@ -166,7 +166,7 @@ export type RelationOp =
   // D7/D13 — commission an Agent onto a Project (the agent→Project leaf of the cascade).
   | { kind: 'commission-agent'; agentId: string; agentLabel: string; projectId: string; projectName: string }
   // D7 — un-commission: remove a Contributor (a commission) from its Project.
-  | { kind: 'uncommission-agent'; commissionId: string; agentLabel: string; projectName: string }
+  | { kind: 'uncommission-agent'; commissionId: string; agentLabel: string; projectId: string; projectName: string }
 
 /** A stable key per op — used to mark standing approvals and to track a card
  *  row's confirmed state. */

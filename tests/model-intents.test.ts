@@ -17,9 +17,15 @@ test('every tour beat resolves to exactly the tool calls it scripts (fixed-strin
   }
 })
 
-test('the tour exercises ALL possible case manipulation — every tool appears in its traffic', () => {
+/** The Agent Commons CRUD tools (D6/D9/D10/D7) — Claude managing the multi-tenant
+ *  concepts. They're shown via free-typed requests, not the linear narrative tour
+ *  (which is the chat→workspace→repo→organize story), so they're excluded from the
+ *  tour-completeness invariant and covered by the keyword tests below instead. */
+const COMMONS_TOOLS = ['create_provider', 'create_system_prompt', 'create_agent', 'commission_agent', 'uncommission_agent']
+
+test('the tour exercises every relation/escalation tool (the Agent Commons CRUD tools are shown via free-typed requests)', () => {
   const used = new Set(TOUR_TURNS.flatMap((t) => t.calls.map((c) => c.name)))
-  const missing = TOOL_NAMES.filter((n) => !used.has(n))
+  const missing = TOOL_NAMES.filter((n) => !used.has(n) && !COMMONS_TOOLS.includes(n))
   assert.deepEqual(missing, [], `tools never exercised by the tour: ${missing.join(', ')}`)
 })
 
@@ -40,6 +46,38 @@ test('keyword fallback: free-typed organizing requests pick the right tools', ()
   assert.equal(matchIntents('attach Linear to this session').at(0)?.name, 'attach_context')
   assert.equal(matchIntents('file this under the Growth experiments project').at(0)?.name, 'file_session')
   assert.equal(matchIntents('create a project called Q3 Planning').at(0)?.name, 'create_project')
+})
+
+test('keyword fallback: Agent Commons management requests pick the right CRUD tools', () => {
+  assert.equal(matchIntents('Register a model provider called Local Llama on the llama family').at(0)?.name, 'create_provider')
+  assert.equal(matchIntents('Add a system prompt called Deep research').at(0)?.name, 'create_system_prompt')
+  assert.equal(
+    matchIntents('Create a worker agent called Research scout on Anthropic with the Deep research prompt').at(0)?.name,
+    'create_agent',
+  )
+  assert.equal(matchIntents('Commission Research scout to the Insights dashboard project').at(0)?.name, 'commission_agent')
+  assert.equal(matchIntents('Uncommission Research scout from the Insights dashboard project').at(0)?.name, 'uncommission_agent')
+})
+
+test('keyword fallback: create_agent carries the resolved provider + prompt names for the executor', () => {
+  const call = matchIntents('Create a worker agent called Scout on Anthropic with the Deep research prompt').at(0)
+  assert.equal(call?.name, 'create_agent')
+  assert.equal(call?.input.label, 'Scout')
+  assert.equal(call?.input.provider, 'Anthropic')
+  assert.equal(call?.input.system_prompt, 'Deep research')
+})
+
+test('every Agent Commons CRUD tool is exercised by a keyword pattern (none ships unexercised)', () => {
+  const exercised = new Set(
+    [
+      'Register a model provider called Local Llama',
+      'Add a system prompt called Deep research',
+      'Create a worker agent called Scout',
+      'Commission Scout to the Insights dashboard project',
+      'Uncommission Scout from the Insights dashboard project',
+    ].flatMap((m) => matchIntents(m).map((c) => c.name)),
+  )
+  for (const t of COMMONS_TOOLS) assert.ok(exercised.has(t), `${t} is exercised by a keyword pattern`)
 })
 
 test('an unrecognized message yields no tool calls (a plain-chat turn)', () => {

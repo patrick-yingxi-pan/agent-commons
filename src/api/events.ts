@@ -13,6 +13,7 @@ import { API_BASE } from './client.ts'
 import { resetAll } from './cache.ts'
 import { keys } from './keys.ts'
 import { invalidate } from './cache.ts'
+import { invalidateForCommonsOp } from './commonsInvalidation.ts'
 
 let source: EventSource | null = null
 let knownEpoch: string | null = null
@@ -49,9 +50,11 @@ function route(e: ServerEvent): void {
       invalidate(keys.schedules)
       break
     // A relation edit was applied (by another client, or this one's standing
-    // approval acting on a run) — re-read the graph.
+    // approval acting on a run) — re-read the graph. An Agent Commons CRUD op edits a
+    // registry, not the graph, so also refresh the registry caches the Agents hub reads.
     case 'relation.applied':
       invalidate(keys.relations)
+      invalidateForCommonsOp(e.op)
       break
     // A connector's auth/setup state changed (the Contexts page connect/disconnect,
     // here or on another client/device) — re-read the saved-contexts snapshot.

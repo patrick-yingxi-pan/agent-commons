@@ -1,13 +1,17 @@
 import { useState } from 'react'
 import {
   ArrowRight,
+  Bot,
   Check,
+  Cpu,
   FilePlus2,
   FolderInput,
   Link2,
   Plug,
   Repeat,
+  ScrollText,
   Sparkles,
+  UserPlus,
   X,
   type LucideIcon,
 } from 'lucide-react'
@@ -28,6 +32,11 @@ const RELATION_ICON: Record<string, LucideIcon> = {
   'session-schedule': Repeat,
   'artifact-schedule': Repeat,
   'context-schedule': Repeat,
+  // Agent Commons CRUD (D6/D9/D10/D7) — managed through the same card.
+  'agent-provider': Cpu,
+  'agent-prompt': ScrollText,
+  'agent-worker': Bot,
+  'agent-commission': UserPlus,
 }
 
 /** The inline confirmation prompt: Claude proposes one or more relation edits,
