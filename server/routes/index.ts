@@ -6,6 +6,8 @@ import type {
   AttachContextRequest,
   CreateCommissionRequest,
   CreateDispatchRequest,
+  CreateProviderRequest,
+  UpdateProviderRequest,
   ReserveSubGoalRequest,
   PushRecentRequest,
   RegisterRunnerRequest,
@@ -23,6 +25,7 @@ import { CapabilityError, runCapability, scopeMatches } from '../agent-runtime.t
 import { GuardianError } from '../guardian.ts'
 import { BudgetError } from '../usage.ts'
 import { AuthorityError } from '../authority.ts'
+import { ConflictError } from '../conflict.ts'
 import { isMonotonic } from '../../contract/index.ts'
 import type {
   CapabilityRequest,
@@ -200,10 +203,11 @@ export function buildRouter(): Router {
 
   // ── Model providers (the cognition source — docs/agent-commons.md, D9) ──────
   // The registered cognition sources an Agent's `providerId` binds — account-scoped
-  // and referenceable by id, like a Runner, never attached per-thread. Read-only on
-  // the wire for now (one seeded instance; minting is the `store.createProvider`
-  // funnel, exercised by tests). The server-only credential/model config never
-  // crosses this boundary.
+  // and referenceable by id, like a Runner, never attached per-thread. The Agents hub
+  // manages them (create / patch / delete); the server-only credential/model config
+  // never crosses this boundary. POST validates the plan against the account plan (the
+  // cascade root, D8) — an over-plan request is a 400; DELETE refuses the default or a
+  // provider an Agent still binds (409). In-memory for now (no cross-restart persistence).
   r.get('/providers', ({ res }) => {
     sendJson(res, store.listProviders())
   })
@@ -214,6 +218,40 @@ export function buildRouter(): Router {
     const provider = store.listProviders().find((p) => p.id === params.id)
     if (!provider) return sendError(res, 'not_found', `No provider '${params.id}'`)
     sendJson(res, provider)
+  })
+  r.post('/providers', async ({ res, body }) => {
+    const input = await body<CreateProviderRequest>()
+    if (!input?.label || !input?.modelFamily || !Array.isArray(input.effortLevels)) {
+      return sendError(res, 'bad_request', 'label, modelFamily, and effortLevels are required')
+    }
+    try {
+      sendJson(res, store.createProvider(input))
+    } catch (err) {
+      // An over-plan provider — the requested plan exceeds the account plan (the cascade root).
+      if (err instanceof BudgetError) return sendError(res, 'bad_request', err.message)
+      throw err
+    }
+  })
+  r.patch('/providers/:id', async ({ res, params, body }) => {
+    const patch = await body<UpdateProviderRequest>()
+    try {
+      const provider = store.updateProvider(params.id, patch)
+      if (!provider) return sendError(res, 'not_found', `No provider '${params.id}'`)
+      sendJson(res, provider)
+    } catch (err) {
+      if (err instanceof BudgetError) return sendError(res, 'bad_request', err.message)
+      throw err
+    }
+  })
+  r.delete('/providers/:id', ({ res, params }) => {
+    try {
+      if (!store.deleteProvider(params.id)) return sendError(res, 'not_found', `No provider '${params.id}'`)
+      sendJson(res, { ok: true })
+    } catch (err) {
+      // Protected (the default) or still bound by an Agent — a 409 to re-target.
+      if (err instanceof ConflictError) return sendError(res, err.code, err.message)
+      throw err
+    }
   })
 
   // ── Worker Agents (docs/agent-commons.md, D6) ──────────────────────────────

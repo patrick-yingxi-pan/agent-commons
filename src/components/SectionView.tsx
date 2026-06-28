@@ -99,6 +99,9 @@ import {
   toggleScheduleEnabled,
   updateSchedule,
   createCommission,
+  createProvider,
+  updateProvider,
+  deleteProvider,
   reserveSubGoal,
   releaseSubGoal,
   useAgents,
@@ -2254,7 +2257,151 @@ function SubTabs<T extends string>({
  *  subtitle row (with optional trailing slot), so the four tabs read as one system
  *  (form follows function). The body below the head is each card's own children. */
 function CommonsCard({ children }: { children: ReactNode }) {
-  return <div className="rounded-xl border border-line bg-surface p-4 shadow-sm">{children}</div>
+  return <div className="group rounded-xl border border-line bg-surface p-4 shadow-sm">{children}</div>
+}
+
+/** The shared input style for the hub's form dialogs — one source so every field reads
+ *  the same (form follows function). */
+const FORM_INPUT_CLASS =
+  'w-full rounded-lg border border-line bg-surface px-3 py-2 text-[14px] text-ink outline-none transition placeholder:text-ink-faint focus:border-accent'
+
+/** A right-aligned "New ‹thing›" toolbar above a hub list — the same affordance on
+ *  every tab. */
+function TabToolbar({ newLabel, onNew }: { newLabel: string; onNew: () => void }) {
+  return (
+    <div className="flex justify-end">
+      <PrimaryButton icon={<Plus size={15} />} onClick={onNew}>
+        {newLabel}
+      </PrimaryButton>
+    </div>
+  )
+}
+
+/** Hover-revealed edit / delete actions on a management card — the same idiom as the
+ *  Contexts rows. Shared so every hub card exposes the same cue. */
+function CardActions({ onEdit, onDelete }: { onEdit?: () => void; onDelete?: () => void }) {
+  return (
+    <div className="flex shrink-0 items-center gap-1 opacity-0 transition focus-within:opacity-100 group-hover:opacity-100">
+      {onEdit && (
+        <button
+          onClick={onEdit}
+          title="Edit"
+          aria-label="Edit"
+          className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink"
+        >
+          <Pencil size={14} />
+        </button>
+      )}
+      {onDelete && (
+        <button
+          onClick={onDelete}
+          title="Delete"
+          aria-label="Delete"
+          className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-removed-bg hover:text-removed"
+        >
+          <Trash2 size={14} />
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** A labeled form field for the hub dialogs. */
+function FormField({ label, optional, children }: { label: string; optional?: boolean; children: ReactNode }) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-[12px] font-medium text-ink-soft">
+        {label}
+        {optional && <span className="font-normal text-ink-faint"> (optional)</span>}
+      </span>
+      {children}
+    </label>
+  )
+}
+
+/** The shared create / edit modal shell for the Agents hub — portal + focus trap, a
+ *  titled header, a body of fields, an inline error slot, and a Cancel / submit footer.
+ *  One primitive so every concept's dialog looks and behaves identically (form follows
+ *  function); each dialog supplies only its own fields + submit handler. */
+function FormDialog({
+  title,
+  icon,
+  submitLabel,
+  canSubmit,
+  onSubmit,
+  onClose,
+  error,
+  children,
+}: {
+  title: string
+  icon: ReactNode
+  submitLabel: string
+  canSubmit: boolean
+  onSubmit: () => void
+  onClose: () => void
+  error?: string | null
+  children: ReactNode
+}) {
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useFocusTrap(dialogRef, onClose)
+  // Land focus on the first field, not the close button useFocusTrap would otherwise
+  // pick (this mount effect runs after the trap's, so it wins).
+  useEffect(() => {
+    dialogRef.current?.querySelector<HTMLElement>('input, textarea, select')?.focus()
+  }, [])
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex justify-center px-4 pt-[14vh]"
+      onMouseDown={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" />
+      <div
+        ref={dialogRef}
+        onMouseDown={(e) => e.stopPropagation()}
+        className="relative flex h-fit w-[460px] max-w-full flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong"
+      >
+        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+          <div className="flex items-center gap-2">
+            {icon}
+            <span className="text-[15px] font-semibold text-ink">{title}</span>
+          </div>
+          <button
+            onClick={onClose}
+            title="Close"
+            aria-label="Close"
+            className="-mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="space-y-4 p-5">
+          {children}
+          {error && <p className="text-[12px] text-removed">{error}</p>}
+        </div>
+
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line bg-panel px-5 py-3">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-line-strong bg-surface px-3.5 py-1.5 text-[13px] font-medium text-ink-soft shadow-sm transition hover:border-accent hover:text-ink"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onSubmit}
+            disabled={!canSubmit}
+            className="flex items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {submitLabel}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
 }
 
 function CommonsCardHead({
@@ -2311,36 +2458,120 @@ function AgentsTab() {
  *  rows in a fuller card. */
 function ProvidersTab() {
   const providers = useProviders().data ?? []
-  if (providers.length === 0) return <Empty>No providers registered.</Empty>
+  // null = no dialog; 'new' = create; a provider = edit that one.
+  const [editing, setEditing] = useState<ModelProvider | 'new' | null>(null)
   return (
     <div className="space-y-3">
-      {providers.map((p) => (
-        <ProviderCard key={p.id} provider={p} />
-      ))}
+      <TabToolbar newLabel="New provider" onNew={() => setEditing('new')} />
+      {providers.length === 0 ? (
+        <Empty>No providers registered.</Empty>
+      ) : (
+        providers.map((p) => <ProviderCard key={p.id} provider={p} onEdit={() => setEditing(p)} />)
+      )}
+      {editing && (
+        <ProviderDialog provider={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
+      )}
     </div>
   )
 }
 
-function ProviderCard({ provider }: { provider: ModelProvider }) {
+function ProviderCard({ provider, onEdit }: { provider: ModelProvider; onEdit: () => void }) {
+  const [error, setError] = useState<string | null>(null)
+  const del = async () => {
+    setError(null)
+    try {
+      await deleteProvider(provider.id)
+    } catch (e) {
+      // The server refuses the default / a still-bound provider (409) — show its reason.
+      setError(e instanceof Error ? e.message : 'Could not delete this provider.')
+    }
+  }
   return (
     <CommonsCard>
       <CommonsCardHead
         icon={<Cpu size={16} />}
         title={provider.label}
         subtitle={provider.modelFamily}
-        trailing={
-          <div className="flex flex-wrap justify-end gap-1">
-            {provider.effortLevels.map((e) => (
-              <span key={e} className="rounded bg-panel-2 px-1.5 py-0.5 text-[10px] text-ink-faint">
-                {e}
-              </span>
-            ))}
-          </div>
-        }
+        trailing={<CardActions onEdit={onEdit} onDelete={del} />}
       />
+      <div className="mt-2 flex flex-wrap gap-1">
+        {provider.effortLevels.map((e) => (
+          <span key={e} className="rounded bg-panel-2 px-1.5 py-0.5 text-[10px] text-ink-faint">
+            {e}
+          </span>
+        ))}
+      </div>
       <p className="mt-2 text-[12px] text-ink-soft">Grants {authorityLabel(provider.authority)}</p>
       <p className="mt-0.5 text-[12px] text-ink-faint">{providerPlanLabel(provider)}</p>
+      {error && <p className="mt-2 text-[12px] text-removed">{error}</p>}
     </CommonsCard>
+  )
+}
+
+/** Create / edit a Model provider. New providers register the standard effort vocabulary
+ *  and inherit the account plan + unrestricted authority (the advanced cascade fields
+ *  aren't exposed here yet); the model family is editable because it drives the D10
+ *  prompt-fit warning. */
+function ProviderDialog({ provider, onClose }: { provider: ModelProvider | null; onClose: () => void }) {
+  const [label, setLabel] = useState(provider?.label ?? '')
+  const [family, setFamily] = useState(provider?.modelFamily ?? 'claude')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const canSubmit = label.trim().length > 0 && family.trim().length > 0 && !busy
+
+  const submit = async () => {
+    if (!canSubmit) return
+    setBusy(true)
+    setError(null)
+    try {
+      if (provider) {
+        await updateProvider(provider.id, { label: label.trim(), modelFamily: family.trim() })
+      } else {
+        await createProvider({
+          label: label.trim(),
+          modelFamily: family.trim(),
+          effortLevels: ['Low', 'Medium', 'High'],
+        })
+      }
+      onClose()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save this provider.')
+      setBusy(false)
+    }
+  }
+
+  return (
+    <FormDialog
+      title={provider ? 'Edit provider' : 'New provider'}
+      icon={<Cpu size={18} className="text-ink-soft" />}
+      submitLabel={provider ? 'Save' : 'Create'}
+      canSubmit={canSubmit}
+      onSubmit={submit}
+      onClose={onClose}
+      error={error}
+    >
+      <FormField label="Name">
+        <input
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && submit()}
+          placeholder="e.g. Anthropic (prod)"
+          className={FORM_INPUT_CLASS}
+        />
+      </FormField>
+      <FormField label="Model family">
+        <input
+          value={family}
+          onChange={(e) => setFamily(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && submit()}
+          placeholder="claude"
+          className={FORM_INPUT_CLASS}
+        />
+        <span className="mt-1 block text-[11px] text-ink-faint">
+          A system prompt tuned for a different family shows a fit warning when picked.
+        </span>
+      </FormField>
+    </FormDialog>
   )
 }
 

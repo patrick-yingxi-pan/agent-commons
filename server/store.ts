@@ -62,6 +62,7 @@ import { connectorDetail } from './data/connectorDetails.ts'
 import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
 import { createUsageMeter, estimateTokens, mintBudget } from './usage.ts'
 import { mintAuthority } from './authority.ts'
+import { ConflictError } from './conflict.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority } from '../contract/index.ts'
 import type { Agent, Authority, Commission, ModelProvider, ProjectSubGoal, Reservation, SystemPromptEntry } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, type ProviderConfig } from './data/providers.ts'
@@ -577,6 +578,36 @@ export const store = {
     MODEL_PROVIDERS.set(provider.id, provider)
     PROVIDER_CONFIGS.set(provider.id, config)
     return provider
+  },
+  /** Patch a provider's own fields (label / family / effort levels / plan / authority).
+   *  Re-validates a changed plan against the account plan — the same cascade-root
+   *  invariant `createProvider` asserts. D8 is checked at each child's *own* creation,
+   *  so tightening a provider does NOT retro-invalidate Agents already minted under it
+   *  (no per-turn re-check — the documented model). Undefined when unknown (→ 404). */
+  updateProvider(id: string, patch: Partial<Omit<ModelProvider, 'id'>>): ModelProvider | undefined {
+    const current = MODEL_PROVIDERS.get(id)
+    if (!current) return undefined
+    if (patch.plan) mintBudget(usageMeter.planCeilings(), patch.plan)
+    const next: ModelProvider = { ...current, ...patch, id: current.id }
+    MODEL_PROVIDERS.set(id, next)
+    return next
+  },
+  /** Remove a provider. Refuses (ConflictError → 409) the seeded default — sessions
+   *  resolve to it — and any provider an Agent still binds, so the user repoints those
+   *  Agents first rather than silently orphaning them onto the fallback. False when
+   *  unknown (→ 404). In-memory, like the create funnel (no persistence yet). */
+  deleteProvider(id: string): boolean {
+    if (!MODEL_PROVIDERS.has(id)) return false
+    if (id === DEFAULT_PROVIDER.id) throw new ConflictError('The default provider can’t be removed.')
+    const bound = [...WORKER_AGENTS.values()].filter((a) => a.providerId === id)
+    if (bound.length > 0) {
+      throw new ConflictError(
+        `${bound.length} agent${bound.length === 1 ? '' : 's'} still ${bound.length === 1 ? 'runs' : 'run'} on this provider — repoint ${bound.length === 1 ? 'it' : 'them'} first.`,
+      )
+    }
+    MODEL_PROVIDERS.delete(id)
+    PROVIDER_CONFIGS.delete(id)
+    return true
   },
 
   // ── System-prompt library (docs/agent-commons.md, D10) ──

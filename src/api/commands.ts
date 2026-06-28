@@ -12,6 +12,9 @@ import {
   type CapabilityRequest,
   type Commission,
   type CreateCommissionRequest,
+  type CreateProviderRequest,
+  type ModelProvider,
+  type UpdateProviderRequest,
   type ReserveSubGoalRequest,
   type ContextStatus,
   type ContextTypeId,
@@ -210,6 +213,31 @@ export async function createCommission(input: CreateCommissionRequest): Promise<
   const commission = await apiPost<Commission>(paths.commissions(), input)
   invalidate(keys.commissions(input.projectId))
   return commission
+}
+
+// ── Model providers (the Agents hub — docs/agent-commons.md, D9) ─────────────
+
+/** Register a Model provider. The server validates the plan against the account plan
+ *  (the D8 cascade root) and rejects an over-plan request (bad_request); on success the
+ *  provider list refreshes. Returns the new provider. */
+export async function createProvider(input: CreateProviderRequest): Promise<ModelProvider> {
+  const provider = await apiPost<ModelProvider>(paths.providers, input)
+  invalidate(keys.providers)
+  return provider
+}
+
+/** Patch a provider's own fields; refreshes the provider list. */
+export async function updateProvider(id: string, patch: UpdateProviderRequest): Promise<ModelProvider> {
+  const provider = await apiPatch<ModelProvider>(paths.provider(id), patch)
+  invalidate(keys.providers)
+  return provider
+}
+
+/** Remove a provider. Rejects (so the caller can surface the message) when the server
+ *  refuses — the default provider, or one an Agent still binds (409 conflict). */
+export async function deleteProvider(id: string): Promise<void> {
+  await apiDelete(paths.provider(id))
+  invalidate(keys.providers)
 }
 
 /** Claim a sub-goal on a Project for a Contributor (docs/agent-commons.md, D11). The

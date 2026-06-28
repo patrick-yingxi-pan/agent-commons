@@ -37,3 +37,10 @@ export interface ModelProvider {
    *  unrestricted. */
   authority?: Authority
 }
+
+/** Register a provider (the server mints the id; credentials/model are server-only and
+ *  never on the wire — see the type note above). */
+export type CreateProviderRequest = Omit<ModelProvider, 'id'>
+
+/** Patch a provider's own fields. All optional — only the named fields change. */
+export type UpdateProviderRequest = Partial<Omit<ModelProvider, 'id'>>
