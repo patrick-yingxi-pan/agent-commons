@@ -3,6 +3,15 @@
  *  dependencies: just Node's child_process, with line-prefixed output and a
  *  clean shared shutdown. Run them separately with `npm run server` / `dev:ui`. */
 import { spawn } from 'node:child_process'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
+
+// Resolve Vite's CLI from wherever the package actually lives. In a git worktree
+// that shares the parent checkout's hoisted node_modules, a path hardcoded
+// relative to cwd ('node_modules/vite/bin/vite.js') doesn't exist — Node's
+// upward resolution finds the real one.
+const require = createRequire(import.meta.url)
+const VITE_BIN = join(dirname(require.resolve('vite/package.json')), 'bin/vite.js')
 
 const procs = []
 let shuttingDown = false
@@ -48,4 +57,4 @@ process.on('SIGTERM', () => shutdown(0))
 // 36 = cyan (backend), 35 = magenta (ui). The server gets PORT pinned so it
 // binds the mock port regardless of any inherited PORT (which targets the UI).
 run('server', 'node', ['--watch', 'server/index.ts'], '36', { PORT: MOCK_PORT })
-run('ui', 'node', ['node_modules/vite/bin/vite.js'], '35')
+run('ui', 'node', [VITE_BIN], '35')
