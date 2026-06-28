@@ -48,7 +48,7 @@ green before a step is done; UI steps verified in the running app.
   pure helper if it is route-local (form-follows-function). **Tests:** `isolation.test.ts`
   — allow inside a root, deny outside, deny unknown commission, allow when unrestricted.
 
-- [ ] **1.3 Invoke route — enforce.** In `/runners/:id/invoke`
+- [x] **1.3 Invoke route — enforce.** In `/runners/:id/invoke`
   ([`server/routes/index.ts:112`](../server/routes/index.ts)), when `commissionId` is
   present, after context mediation and before `runCapability` (~:170) refuse with
   `forbidden` (403) if `commissionAdmitsTarget` is false. Absent `commissionId` ⇒

@@ -63,6 +63,44 @@ test('invoke inside the context but outside the host grant is 403 forbidden (gra
   assert.equal(json.error.code, 'forbidden')
 })
 
+test('a commission-scoped invoke is walled to the Project-admitted file scopes (D12, OQ3)', async () => {
+  // A runner granting a broad root (~/code), so the *commission* — not the host grant or
+  // the context — is the wall under test. The seeded commission (default Agent on
+  // p-insights) admits only ~/code/insights-web (+ the repo root).
+  await call('POST', '/runners', {
+    id: 'runner-commissioned', label: 'C', host: 'h',
+    capabilities: [{ type: 'fs.read', scopes: ['~/code'] }],
+  })
+  await call('POST', '/sessions/cmsn/contexts', { id: 'ctx-code', type: 'folder', label: 'code', scope: '~/code' })
+  const base = { sessionId: 'cmsn', contextId: 'ctx-code', capability: 'fs.read' as const }
+  const id = 'commission-insights-default'
+
+  // Within the commission's Project-admitted scope → allowed (host grant + context + commission all pass).
+  const ok = await call('POST', '/runners/runner-commissioned/invoke', {
+    ...base, target: '~/code/insights-web/main.ts', commissionId: id,
+  })
+  assert.equal(ok.status, 200)
+
+  // Inside the host grant AND the context, but OUTSIDE the commission's Project scope → 403.
+  const denied = await call('POST', '/runners/runner-commissioned/invoke', {
+    ...base, target: '~/code/other/secret.ts', commissionId: id,
+  })
+  assert.equal(denied.status, 403)
+  assert.equal(denied.json.error.code, 'forbidden')
+
+  // An unknown commission reaches nothing — fail closed.
+  const unknown = await call('POST', '/runners/runner-commissioned/invoke', {
+    ...base, target: '~/code/insights-web/main.ts', commissionId: 'nope',
+  })
+  assert.equal(unknown.status, 403)
+
+  // Back-compat: the same out-of-Project target with NO commissionId is unwalled (legacy path).
+  const legacy = await call('POST', '/runners/runner-commissioned/invoke', {
+    ...base, target: '~/code/other/secret.ts',
+  })
+  assert.equal(legacy.status, 200)
+})
+
 test('invoke a capability the runner does not advertise is 409 capability_unavailable', async () => {
   await call('POST', '/runners', {
     id: 'runner-term-only',

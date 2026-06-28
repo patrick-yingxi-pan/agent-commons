@@ -145,6 +145,23 @@ export function buildRouter(): Router {
         `'${request.target}' is outside context '${ctx.id}' (scope '${ctx.scope}')`,
       )
     }
+    // Effect-time cross-user enforcement (D12, OQ3): when the effect is attributed to a
+    // Commission, it must *also* stay within that Contributor's Project-clamped reach —
+    // the owner's ambient scopes, absent from the Project, are unreachable here even when
+    // the context above would admit them. Refused before any reservation is acquired; an
+    // unknown commission fails closed. Absent `commissionId` ⇒ the legacy single-tenant path.
+    // (The commission is *attributed by the caller*, like the session+context handle above;
+    // binding it server-side from the session — so it can't be omitted to bypass — is forward.)
+    if (
+      request.commissionId &&
+      !store.commissionAdmitsTarget(request.commissionId, request.capability, request.target)
+    ) {
+      return sendError(
+        res,
+        'forbidden',
+        `Commission '${request.commissionId}' may not reach '${request.target}' on this Project`,
+      )
+    }
     // Resource guardian (D5): a non-monotonic effect must hold a reservation on the
     // resource (the context element). Monotonic effects (fs.read) are
     // coordination-free and skip it (CALM). `reserve` is re-entrant for this
