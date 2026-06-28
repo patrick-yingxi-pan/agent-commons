@@ -17,7 +17,7 @@ test('TOOL_DEFINITIONS: every tool has a name, description, and object input_sch
     assert.ok(Array.isArray(t.input_schema.required))
   }
   // The 3 escalations + 12 relation-op kinds + 5 Agent Commons CRUD tools = 20 tools.
-  assert.equal(TOOL_NAMES.length, 20)
+  assert.equal(TOOL_NAMES.length, 21)
 })
 
 test('open_workspace builds a workspace escalation with drafted artifacts', () => {
@@ -172,4 +172,17 @@ test('uncommission_agent for an agent with no commission on that project propose
   const e = executeTool('uncommission_agent', { agent: 'Loner', project: 'Insights dashboard' }, ctxCommons)
   assert.equal(e.relationOps, undefined)
   assert.match(e.summary, /to remove/i)
+})
+
+test('handoff_agent → a handoff-agent op re-binding the session to the resolved Agent (D16)', () => {
+  const e = executeTool('handoff_agent', { agent: 'Scout' }, ctxCommons)
+  const op = e.relationOps![0]
+  assert.equal(op.kind, 'handoff-agent')
+  assert.equal((op as any).sessionId, 'insights-launch') // from ctx.session
+  assert.equal((op as any).agentId, 'agent-7')
+})
+
+test('handoff_agent with an unknown agent proposes nothing', () => {
+  const e = executeTool('handoff_agent', { agent: 'Nobody' }, ctxCommons)
+  assert.equal(e.relationOps, undefined)
 })

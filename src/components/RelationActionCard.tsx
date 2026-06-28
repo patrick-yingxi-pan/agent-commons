@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import {
+  ArrowLeftRight,
   ArrowRight,
   Bot,
   Check,
@@ -37,6 +38,7 @@ const RELATION_ICON: Record<string, LucideIcon> = {
   'agent-prompt': ScrollText,
   'agent-worker': Bot,
   'agent-commission': UserPlus,
+  'session-agent': ArrowLeftRight, // D16 — hand a Conversation off to another Agent
 }
 
 /** The inline confirmation prompt: Claude proposes one or more relation edits,

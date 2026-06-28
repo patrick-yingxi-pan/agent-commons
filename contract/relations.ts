@@ -168,6 +168,8 @@ export type RelationOp =
   | { kind: 'commission-agent'; agentId: string; agentLabel: string; projectId: string; projectName: string; role?: ProjectRole }
   // D7 — un-commission: remove a Contributor (a commission) from its Project.
   | { kind: 'uncommission-agent'; commissionId: string; agentLabel: string; projectId: string; projectName: string }
+  // D16 — hand a Conversation off to a different worker Agent mid-thread (re-bind the driver).
+  | { kind: 'handoff-agent'; sessionId: string; sessionTitle: string; agentId: string; agentLabel: string }
 
 /** A stable key per op — used to mark standing approvals and to track a card
  *  row's confirmed state. */
@@ -209,6 +211,8 @@ export function opKey(op: RelationOp): string {
       return `commission-agent:${op.agentId}:${op.projectId}`
     case 'uncommission-agent':
       return `uncommission-agent:${op.commissionId}`
+    case 'handoff-agent':
+      return `handoff-agent:${op.sessionId}:${op.agentId}`
     default: {
       const _exhaustive: never = op
       return _exhaustive
@@ -421,6 +425,14 @@ export function describeOp(op: RelationOp): OpDescription {
         done: `Removed ${op.agentLabel} from ${op.projectName}`,
         section: 'agents',
         relationId: 'agent-commission',
+        approval: 'per-action',
+      }
+    case 'handoff-agent':
+      return {
+        text: `Hand **${op.sessionTitle}** off to **${op.agentLabel}**`,
+        done: `Handed ${op.sessionTitle} to ${op.agentLabel}`,
+        section: 'agents',
+        relationId: 'session-agent',
         approval: 'per-action',
       }
     default: {

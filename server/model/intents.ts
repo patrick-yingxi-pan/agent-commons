@@ -146,6 +146,9 @@ function matchKeywords(text: string): ToolCall[] {
   const asRole = grab(/\bas\s+(?:an?\s+)?(owner|maintainer|writer|reader)\b/i)
   const uncommissionAgent = grab(/\b(?:uncommission|un-commission)\s+(?:the\s+)?([A-Za-z0-9][A-Za-z0-9 -]*?)\s+(?:from|off)\b/i)
   const commissionAgent = grab(/\b(?:commission|assign)\s+(?:the\s+)?([A-Za-z0-9][A-Za-z0-9 -]*?)\s+(?:to|onto)\b/i)
+  // Hand-off (D16) — distinct verbs (hand / switch / pass … to X) from commission, so the
+  // two never collide; the agent label follows the (possibly lazy-skipped) "to".
+  const handoffAgent = grab(/\b(?:hand|switch|pass)\b.*?\bto\s+(?:the\s+)?([A-Za-z0-9][A-Za-z0-9 -]*?)(?:\s+agent)?(?:[.,!]|$)/i)
   if (uncommissionAgent && toProject) {
     calls.push({ name: 'uncommission_agent', input: { agent: uncommissionAgent, project: toProject } })
   } else if (commissionAgent && toProject) {
@@ -153,6 +156,8 @@ function matchKeywords(text: string): ToolCall[] {
       name: 'commission_agent',
       input: { agent: commissionAgent, project: toProject, ...(asRole ? { role: asRole.toLowerCase() } : {}) },
     })
+  } else if (handoffAgent) {
+    calls.push({ name: 'handoff_agent', input: { agent: handoffAgent } })
   }
   // Create a worker agent: "create a (worker) agent called X (on PROVIDER) (with the PROMPT prompt)".
   if (!calls.length && wantsCreate && /\bagent\b/.test(t)) {

@@ -15,6 +15,7 @@ import {
   slug,
   runSessionId,
   isRunSessionId,
+  type RelationOp,
 } from '../contract/index.ts'
 
 const mintIds = () => {
@@ -367,4 +368,15 @@ test('id-derivation invariants are stable and agree across calls (both backends 
   assert.equal(id, 'srun-task-1-run-9')
   assert.ok(isRunSessionId(id))
   assert.ok(!isRunSessionId('sess-3'))
+})
+
+test('handoff-agent (D16): a graph no-op the store applies; describeOp + opKey', () => {
+  const op: RelationOp = { kind: 'handoff-agent', sessionId: 's1', sessionTitle: 'Refactor auth', agentId: 'a7', agentLabel: 'Research Scout' }
+  // The pure reducer leaves the graph untouched — a Session↔Agent re-bind runs server-side.
+  assert.deepEqual(applyGraphOp(emptyGraph(), op, mintIds()), emptyGraph())
+  const d = describeOp(op)
+  assert.match(d.text, /Hand \*\*Refactor auth\*\* off to \*\*Research Scout\*\*/)
+  assert.equal(d.section, 'agents')
+  assert.equal(d.relationId, 'session-agent')
+  assert.equal(opKey(op), 'handoff-agent:s1:a7')
 })

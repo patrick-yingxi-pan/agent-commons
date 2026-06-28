@@ -532,6 +532,27 @@ const TOOLS: ToolSpec[] = [
       return { relationOps: [{ kind: 'uncommission-agent', commissionId: commission.id, agentLabel: agent.label, projectId: p.id, projectName: p.name }], summary: `Proposed removing ${agent.label} from ${p.name}; awaiting confirmation.` }
     },
   },
+  {
+    name: 'handoff_agent',
+    description:
+      'Hand the current conversation off to a different worker Agent — re-bind which Agent drives this thread (D16). Use when the user asks to hand off, switch, or pass the conversation to another agent. The user confirms before the hand-off.',
+    properties: {
+      agent: { type: 'string', description: 'The worker Agent to hand off to, e.g. "Research scout".' },
+    },
+    required: ['agent'],
+    build: (input, ctx) => {
+      const agent = byLabel(ctx.commons?.agents, str(input.agent))
+      if (!agent) {
+        return { summary: `No worker agent matching "${str(input.agent)}" — proposed nothing.` }
+      }
+      return {
+        relationOps: [
+          { kind: 'handoff-agent', sessionId: ctx.session.id, sessionTitle: ctx.session.title, agentId: agent.id, agentLabel: agent.label },
+        ],
+        summary: `Proposed handing this conversation to ${agent.label}; awaiting confirmation.`,
+      }
+    },
+  },
 ]
 
 const BY_NAME = new Map(TOOLS.map((t) => [t.name, t]))

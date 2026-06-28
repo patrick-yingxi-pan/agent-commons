@@ -21,7 +21,7 @@ test('every tour beat resolves to exactly the tool calls it scripts (fixed-strin
  *  concepts. They're shown via free-typed requests, not the linear narrative tour
  *  (which is the chat→workspace→repo→organize story), so they're excluded from the
  *  tour-completeness invariant and covered by the keyword tests below instead. */
-const COMMONS_TOOLS = ['create_provider', 'create_system_prompt', 'create_agent', 'commission_agent', 'uncommission_agent']
+const COMMONS_TOOLS = ['create_provider', 'create_system_prompt', 'create_agent', 'commission_agent', 'uncommission_agent', 'handoff_agent']
 
 test('the tour exercises every relation/escalation tool (the Agent Commons CRUD tools are shown via free-typed requests)', () => {
   const used = new Set(TOUR_TURNS.flatMap((t) => t.calls.map((c) => c.name)))
@@ -85,6 +85,7 @@ test('every Agent Commons CRUD tool is exercised by a keyword pattern (none ship
       'Create a worker agent called Scout',
       'Commission Scout to the Insights dashboard project',
       'Uncommission Scout from the Insights dashboard project',
+      'Hand this conversation off to Scout',
     ].flatMap((m) => matchIntents(m).map((c) => c.name)),
   )
   for (const t of COMMONS_TOOLS) assert.ok(exercised.has(t), `${t} is exercised by a keyword pattern`)
@@ -92,4 +93,11 @@ test('every Agent Commons CRUD tool is exercised by a keyword pattern (none ship
 
 test('an unrecognized message yields no tool calls (a plain-chat turn)', () => {
   assert.deepEqual(matchIntents('what is a vector database?'), [])
+})
+
+test('keyword fallback: a hand-off request (hand/switch/pass … to X) routes to handoff_agent (D16)', () => {
+  assert.equal(matchIntents('Hand this conversation off to Research scout').at(0)?.name, 'handoff_agent')
+  assert.equal(matchIntents('Switch to the Research scout agent').at(0)?.name, 'handoff_agent')
+  // It does not collide with commission (different verb + a project target).
+  assert.equal(matchIntents('Commission Research scout to the Insights dashboard project').at(0)?.name, 'commission_agent')
 })

@@ -150,7 +150,7 @@ seam now, mock only the model). Ordered safest/most-contained → most-speculati
   prototype's meter is account-global; the stamp is the handle for it.)* **Tested** (a persisted
   turn carries `agentId`).
 
-- [ ] **4.6 D16 hand-off (op + confirm card).** A consent-gated hand-off that re-binds
+- [x] **4.6 D16 hand-off (op + confirm card).** A consent-gated hand-off that re-binds
   `Session.agentId` mid-thread (a `RelationOp` through the same card), each turn stamped (4.5).
   **Tests** (+ card text).
 

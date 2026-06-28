@@ -979,6 +979,22 @@ export const store = {
     persist()
     return session
   },
+  /** Hand a Conversation off to a different worker Agent mid-thread (D16) — re-bind the
+   *  session's driver. Subsequent turns are driven by, and stamped with (Message.agentId),
+   *  the new Agent; the binding is *current-driver*, not immutable. Refuses an unknown
+   *  Agent (ConflictError → 409). */
+  setSessionAgent(sessionId: string, agentId: string): Session | undefined {
+    const session = SESSIONS.find((s) => s.id === sessionId)
+    if (!session) return undefined
+    if (!WORKER_AGENTS.has(agentId)) {
+      throw new ConflictError(`No agent '${agentId}' to hand off to — it may have been removed.`)
+    }
+    session.agentId = agentId
+    session.updatedAt = Date.now()
+    emit({ type: 'session.updated', session })
+    persist()
+    return session
+  },
 
   /** Edit a session's row-level fields from the sidebar's row menu — rename
    *  (title), pin/unpin, or archive/unarchive. Mutates in place and broadcasts
@@ -1401,6 +1417,9 @@ export const store = {
         // Idempotent: a commission already gone (e.g. removed in the hub first) is a
         // benign no-op, not an error — the Contributor is absent either way.
         this.deleteCommission(op.commissionId)
+        break
+      case 'handoff-agent':
+        this.setSessionAgent(op.sessionId, op.agentId) // D16: re-bind the Conversation's driver
         break
       case 'attach-context':
         break // a live-session effect, applied by the caller

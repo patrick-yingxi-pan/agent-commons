@@ -123,3 +123,14 @@ test('the default agent (always present) commissions fine through the op', async
   assert.equal(res.status, 200)
   assert.ok(store.listCommissions('p-insights').some((c) => c.agentId === DEFAULT_AGENT.id))
 })
+
+test('handoff-agent (D16) re-binds the session’s driving Agent; an unknown agent 409s', async () => {
+  const s = store.createSession('handoff target')
+  const a = store.createAgent({ label: 'Handoff Scout', systemPrompt: 'p', tools: [], instructions: '' })
+  const res = await apply({ kind: 'handoff-agent', sessionId: s.id, sessionTitle: s.title, agentId: a.id, agentLabel: a.label })
+  assert.equal(res.status, 200)
+  assert.equal(store.getSession(s.id)?.agentId, a.id) // the driver is re-bound mid-thread
+  // A hand-off to a removed / unknown agent is the 409 guard, not a 500.
+  const bad = await apply({ kind: 'handoff-agent', sessionId: s.id, sessionTitle: s.title, agentId: 'ghost', agentLabel: 'Ghost' })
+  assert.equal(bad.status, 409)
+})
