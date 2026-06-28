@@ -46,3 +46,22 @@ export interface Agent {
    *  attenuates this further. */
   authority?: Authority
 }
+
+/** Create an Agent from the management UI. The server resolves the `systemPrompt` *body*
+ *  from `systemPromptId` (the library entry), defaults `tools` to the full catalog when
+ *  omitted, and validates `authority`/`budget` against the provider (the D8 funnel). An
+ *  empty-string `providerId` / `systemPromptId` means "none / default". */
+export interface CreateAgentRequest {
+  label: string
+  providerId?: string
+  systemPromptId?: string
+  instructions?: string
+  tools?: string[]
+  authority?: Authority
+  budget?: Budget
+}
+
+/** Patch an Agent's fields. All optional — a present field (including an empty-string
+ *  `providerId` / `systemPromptId` meaning "clear to default") is applied; an absent one
+ *  is left unchanged. A changed provider re-validates authority/budget against it. */
+export type UpdateAgentRequest = Partial<CreateAgentRequest>

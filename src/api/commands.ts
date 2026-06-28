@@ -10,7 +10,10 @@ import {
   type AttachContextRequest,
   type CapabilityEffect,
   type CapabilityRequest,
+  type Agent,
   type Commission,
+  type CreateAgentRequest,
+  type UpdateAgentRequest,
   type CreateCommissionRequest,
   type CreateProviderRequest,
   type ModelProvider,
@@ -264,6 +267,31 @@ export async function updateSystemPrompt(id: string, patch: UpdateSystemPromptRe
 export async function deleteSystemPrompt(id: string): Promise<void> {
   await apiDelete(paths.systemPrompt(id))
   invalidate(keys.systemPrompts)
+}
+
+// ── Worker Agents (the Agents hub — docs/agent-commons.md, D6) ───────────────
+
+/** Create an Agent. The server resolves the prompt body, defaults tools, and validates
+ *  authority/budget against the provider (D8); an over-grant rejects (bad_request). */
+export async function createAgent(input: CreateAgentRequest): Promise<Agent> {
+  const agent = await apiPost<Agent>(paths.agents, input)
+  invalidate(keys.workerAgents)
+  return agent
+}
+
+/** Patch an Agent; refreshes the agent list (and any Contributor row that resolves its
+ *  label). */
+export async function updateAgent(id: string, patch: UpdateAgentRequest): Promise<Agent> {
+  const agent = await apiPatch<Agent>(paths.agent(id), patch)
+  invalidate(keys.workerAgents)
+  return agent
+}
+
+/** Remove an Agent. Rejects (so the caller can surface the message) when the server
+ *  refuses — the default agent, or one a Commission still assigns (409). */
+export async function deleteAgent(id: string): Promise<void> {
+  await apiDelete(paths.agent(id))
+  invalidate(keys.workerAgents)
 }
 
 /** Claim a sub-goal on a Project for a Contributor (docs/agent-commons.md, D11). The

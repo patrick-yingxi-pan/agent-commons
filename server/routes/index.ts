@@ -10,6 +10,8 @@ import type {
   UpdateProviderRequest,
   CreateSystemPromptRequest,
   UpdateSystemPromptRequest,
+  CreateAgentRequest,
+  UpdateAgentRequest,
   ReserveSubGoalRequest,
   PushRecentRequest,
   RegisterRunnerRequest,
@@ -257,10 +259,13 @@ export function buildRouter(): Router {
   })
 
   // ── Worker Agents (docs/agent-commons.md, D6) ──────────────────────────────
-  // The user-created workers — read-only on the wire (one seeded for now). `/agents`
-  // is the host-bound type's *former* route name, freed by the D6 rename (host is now
-  // `/runners`), so the bare word goes to the worker. The Contributor view + commission
-  // picker read this to resolve agent labels and offer agents to commission.
+  // The user-created workers. `/agents` is the host-bound type's *former* route name,
+  // freed by the D6 rename (host is now `/runners`), so the bare word goes to the worker.
+  // The Agents hub manages them (create / patch / delete); the Contributor view +
+  // commission picker read this to resolve labels and offer agents. POST resolves the
+  // prompt body from `systemPromptId` and defaults tools to the full catalog, then runs
+  // the D8 funnel (an over-grant is a 400); DELETE refuses the default or an Agent a
+  // Commission still assigns (409). In-memory for now.
   r.get('/agents', ({ res }) => {
     sendJson(res, store.listAgents())
   })
@@ -270,6 +275,58 @@ export function buildRouter(): Router {
     const agent = store.listAgents().find((a) => a.id === params.id)
     if (!agent) return sendError(res, 'not_found', `No agent '${params.id}'`)
     sendJson(res, agent)
+  })
+  // Validate the optional provider / prompt ids a create-or-patch names exist (a
+  // truthy id that resolves to nothing is a 404, not a silent fallback to the default).
+  // Returns an error message when invalid, else null.
+  const badAgentRef = (input: { providerId?: string; systemPromptId?: string }): string | null => {
+    if (input.providerId && !store.listProviders().some((p) => p.id === input.providerId)) {
+      return `No provider '${input.providerId}'`
+    }
+    if (input.systemPromptId && !store.getSystemPrompt(input.systemPromptId)) {
+      return `No system prompt '${input.systemPromptId}'`
+    }
+    return null
+  }
+  r.post('/agents', async ({ res, body }) => {
+    const input = await body<CreateAgentRequest>()
+    if (!input?.label) return sendError(res, 'bad_request', 'label is required')
+    const bad = badAgentRef(input)
+    if (bad) return sendError(res, 'not_found', bad)
+    try {
+      sendJson(res, store.createAgentFromRequest(input))
+    } catch (err) {
+      // An over-grant on either cascade face — the request named an impossible grant.
+      if (err instanceof BudgetError || err instanceof AuthorityError) {
+        return sendError(res, 'bad_request', err.message)
+      }
+      throw err
+    }
+  })
+  r.patch('/agents/:id', async ({ res, params, body }) => {
+    const patch = await body<UpdateAgentRequest>()
+    const bad = badAgentRef(patch)
+    if (bad) return sendError(res, 'not_found', bad)
+    try {
+      const agent = store.updateAgentFromRequest(params.id, patch)
+      if (!agent) return sendError(res, 'not_found', `No agent '${params.id}'`)
+      sendJson(res, agent)
+    } catch (err) {
+      if (err instanceof BudgetError || err instanceof AuthorityError) {
+        return sendError(res, 'bad_request', err.message)
+      }
+      throw err
+    }
+  })
+  r.delete('/agents/:id', ({ res, params }) => {
+    try {
+      if (!store.deleteAgent(params.id)) return sendError(res, 'not_found', `No agent '${params.id}'`)
+      sendJson(res, { ok: true })
+    } catch (err) {
+      // Protected (the default) or still assigned by a Commission — a 409 to re-target.
+      if (err instanceof ConflictError) return sendError(res, err.code, err.message)
+      throw err
+    }
   })
 
   // ── System-prompt library (the cognition half — docs/agent-commons.md, D10) ──

@@ -105,6 +105,9 @@ import {
   createSystemPrompt,
   updateSystemPrompt,
   deleteSystemPrompt,
+  createAgent,
+  updateAgent,
+  deleteAgent,
   reserveSubGoal,
   releaseSubGoal,
   useAgents,
@@ -2440,20 +2443,150 @@ function AgentsTab() {
   const agents = useAgents().data ?? []
   const providers = useProviders().data ?? []
   const providerLabel = (id?: string) => providers.find((p) => p.id === id)?.label ?? 'Default provider'
-  if (agents.length === 0) return <Empty>No agents yet.</Empty>
+  const [editing, setEditing] = useState<Agent | 'new' | null>(null)
   return (
     <div className="space-y-3">
-      {agents.map((a) => (
-        <CommonsCard key={a.id}>
-          <CommonsCardHead
-            icon={<Bot size={16} />}
-            title={a.label}
-            subtitle={`Runs on ${providerLabel(a.providerId)} · ${a.tools.length} tool${a.tools.length === 1 ? '' : 's'}`}
-          />
-          <p className="mt-2 text-[12px] text-ink-soft">Authority: {authorityLabel(a.authority)}</p>
-        </CommonsCard>
-      ))}
+      <TabToolbar newLabel="New agent" onNew={() => setEditing('new')} />
+      {agents.length === 0 ? (
+        <Empty>No agents yet.</Empty>
+      ) : (
+        agents.map((a) => (
+          <AgentCard key={a.id} agent={a} providerLabel={providerLabel(a.providerId)} onEdit={() => setEditing(a)} />
+        ))
+      )}
+      {editing && <AgentDialog agent={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
     </div>
+  )
+}
+
+function AgentCard({
+  agent,
+  providerLabel,
+  onEdit,
+}: {
+  agent: Agent
+  providerLabel: string
+  onEdit: () => void
+}) {
+  const [error, setError] = useState<string | null>(null)
+  const del = async () => {
+    setError(null)
+    try {
+      await deleteAgent(agent.id)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not delete this agent.')
+    }
+  }
+  return (
+    <CommonsCard>
+      <CommonsCardHead
+        icon={<Bot size={16} />}
+        title={agent.label}
+        subtitle={`Runs on ${providerLabel} · ${agent.tools.length} tool${agent.tools.length === 1 ? '' : 's'}`}
+        trailing={<CardActions onEdit={onEdit} onDelete={del} />}
+      />
+      <p className="mt-2 text-[12px] text-ink-soft">Authority: {authorityLabel(agent.authority)}</p>
+      {error && <p className="mt-2 text-[12px] text-removed">{error}</p>}
+    </CommonsCard>
+  )
+}
+
+/** Create / edit an Agent — the bundle that binds a Model provider (D9) to a system
+ *  prompt (D10). Both pickers default to the seeded provider / prompt; the prompt's fit
+ *  against the chosen provider's family is checked live (the same `promptFitWarning` the
+ *  Customize picker uses). New agents inherit the provider's authority + the full tool
+ *  catalog; per-axis authority editing is a later refinement. */
+function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => void }) {
+  const providers = useProviders().data ?? []
+  const prompts = useSystemPrompts().data ?? []
+  const [label, setLabel] = useState(agent?.label ?? '')
+  const [providerId, setProviderId] = useState(agent?.providerId ?? '')
+  const [promptId, setPromptId] = useState(agent?.systemPromptId ?? '')
+  const [instructions, setInstructions] = useState(agent?.instructions ?? '')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const canSubmit = label.trim().length > 0 && !busy
+
+  // Live fit warning: the chosen prompt's family vs the chosen provider's (the default
+  // provider's family when none is chosen — providers[0] is the seeded default).
+  const providerFamily = (providers.find((p) => p.id === providerId) ?? providers[0])?.modelFamily ?? 'claude'
+  const selectedPrompt = prompts.find((p) => p.id === promptId)
+  const warning = selectedPrompt ? promptFitWarning(selectedPrompt, providerFamily) : null
+
+  const submit = async () => {
+    if (!canSubmit) return
+    setBusy(true)
+    setError(null)
+    const fields = {
+      label: label.trim(),
+      providerId,
+      systemPromptId: promptId,
+      instructions: instructions.trim(),
+    }
+    try {
+      if (agent) await updateAgent(agent.id, fields)
+      else await createAgent(fields)
+      onClose()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save this agent.')
+      setBusy(false)
+    }
+  }
+
+  return (
+    <FormDialog
+      title={agent ? 'Edit agent' : 'New agent'}
+      icon={<Bot size={18} className="text-ink-soft" />}
+      submitLabel={agent ? 'Save' : 'Create'}
+      canSubmit={canSubmit}
+      onSubmit={submit}
+      onClose={onClose}
+      error={error}
+    >
+      <FormField label="Name">
+        <input
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && submit()}
+          placeholder="e.g. Code reviewer"
+          className={FORM_INPUT_CLASS}
+        />
+      </FormField>
+      <FormField label="Provider">
+        <select value={providerId} onChange={(e) => setProviderId(e.target.value)} className={FORM_INPUT_CLASS}>
+          <option value="">Default provider</option>
+          {providers.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+      </FormField>
+      <FormField label="System prompt">
+        <select value={promptId} onChange={(e) => setPromptId(e.target.value)} className={FORM_INPUT_CLASS}>
+          <option value="">Default prompt</option>
+          {prompts.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+        {warning && (
+          <span className="mt-1 flex items-center gap-1 text-[11px] text-amber-600">
+            <AlertCircle size={12} className="shrink-0" /> {warning}
+          </span>
+        )}
+      </FormField>
+      <FormField label="Instructions" optional>
+        <textarea
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value)}
+          rows={3}
+          placeholder="Custom instructions appended after the system prompt."
+          className={`${FORM_INPUT_CLASS} resize-none leading-relaxed`}
+        />
+      </FormField>
+    </FormDialog>
   )
 }
 

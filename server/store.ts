@@ -64,9 +64,9 @@ import { createUsageMeter, estimateTokens, mintBudget } from './usage.ts'
 import { mintAuthority } from './authority.ts'
 import { ConflictError } from './conflict.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority } from '../contract/index.ts'
-import type { Agent, Authority, Commission, ModelProvider, ProjectSubGoal, Reservation, SystemPromptEntry } from '../contract/index.ts'
+import type { Agent, Authority, Commission, CreateAgentRequest, ModelProvider, ProjectSubGoal, Reservation, SystemPromptEntry, UpdateAgentRequest } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, type ProviderConfig } from './data/providers.ts'
-import { SYSTEM_PROMPTS, SP_DEFAULT_ID } from './data/prompts.ts'
+import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
 import { TOOL_DEFINITIONS } from './model/tools.ts'
 import { systemPrompt } from './generate.ts'
@@ -551,6 +551,75 @@ export const store = {
     const agent: Agent = { ...input, id: `agent-${(workerAgentSeq += 1)}` }
     WORKER_AGENTS.set(agent.id, agent)
     return agent
+  },
+  /** Create an Agent from a management request: resolve the `systemPrompt` body from the
+   *  chosen library entry (D10), default the tool set to the full catalog (the default
+   *  Agent's), and run the same D8 funnel via `createAgent`. An empty-string provider /
+   *  prompt id means "none / default". The route validates that named ids exist first. */
+  createAgentFromRequest(input: CreateAgentRequest): Agent {
+    const entry = input.systemPromptId ? SYSTEM_PROMPT_LIB.get(input.systemPromptId) : undefined
+    return this.createAgent({
+      label: input.label,
+      systemPrompt: entry?.body ?? DEFAULT_SYSTEM_PROMPT_BODY,
+      systemPromptId: entry?.id,
+      providerId: input.providerId || undefined,
+      tools: input.tools ?? [...DEFAULT_AGENT.tools],
+      instructions: input.instructions ?? '',
+      authority: input.authority,
+      budget: input.budget,
+    })
+  },
+  /** Patch an Agent. A present field is applied (an empty-string provider / prompt id
+   *  clears it to the default); an absent one is left unchanged. Changing the prompt
+   *  re-resolves the body; changing the provider (or grants) re-validates authority /
+   *  budget against the resulting provider — the D8 funnel runs again, so a patch can't
+   *  smuggle an over-grant past it. Undefined when unknown (→ 404). */
+  updateAgentFromRequest(id: string, patch: UpdateAgentRequest): Agent | undefined {
+    const current = WORKER_AGENTS.get(id)
+    if (!current) return undefined
+    const providerId = 'providerId' in patch ? patch.providerId || undefined : current.providerId
+    let systemPrompt = current.systemPrompt
+    let systemPromptId = current.systemPromptId
+    if ('systemPromptId' in patch) {
+      const entry = patch.systemPromptId ? SYSTEM_PROMPT_LIB.get(patch.systemPromptId) : undefined
+      systemPromptId = entry?.id
+      systemPrompt = entry?.body ?? DEFAULT_SYSTEM_PROMPT_BODY
+    }
+    const authority = 'authority' in patch ? patch.authority : current.authority
+    const budget = 'budget' in patch ? patch.budget : current.budget
+    const provider = resolveProvider(providerId)
+    if (authority) mintAuthority(provider.authority, authority)
+    if (budget) mintBudget(provider.plan?.windows ?? usageMeter.planCeilings(), budget)
+    const next: Agent = {
+      ...current,
+      label: patch.label ?? current.label,
+      instructions: 'instructions' in patch ? patch.instructions ?? '' : current.instructions,
+      tools: patch.tools ?? current.tools,
+      providerId,
+      systemPrompt,
+      systemPromptId,
+      authority,
+      budget,
+      id: current.id,
+    }
+    WORKER_AGENTS.set(id, next)
+    return next
+  },
+  /** Remove an Agent. Refuses (ConflictError → 409) the seeded default — Conversations
+   *  resolve to it — and any Agent a Commission still assigns (it would orphan that
+   *  Contributor), so the user removes those commissions first. False when unknown
+   *  (→ 404). */
+  deleteAgent(id: string): boolean {
+    if (!WORKER_AGENTS.has(id)) return false
+    if (id === DEFAULT_AGENT.id) throw new ConflictError('The default agent can’t be removed.')
+    const commissioned = [...COMMISSIONS.values()].filter((c) => c.agentId === id)
+    if (commissioned.length > 0) {
+      throw new ConflictError(
+        `${commissioned.length} commission${commissioned.length === 1 ? '' : 's'} still ${commissioned.length === 1 ? 'assigns' : 'assign'} this agent — remove ${commissioned.length === 1 ? 'it' : 'them'} first.`,
+      )
+    }
+    WORKER_AGENTS.delete(id)
+    return true
   },
 
   // ── Model providers (the cognition source — docs/agent-commons.md, D9) ──
