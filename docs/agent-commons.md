@@ -17,6 +17,12 @@
 > **manage them conversationally** — proposing create-provider/-prompt/-agent and
 > (un)commission edits through the *same confirmation card* the relation edits use, gated
 > by user consent and executed by the same D8-funnel mutators (slice 17).**
+> A later **design dialogue** then resolved most of the open questions into settled choices
+> — **D14** (a Contributor's permissions are set by its project role), **D15** (cross-user
+> access is agent-to-agent: an Agent proxies its owner's resources), **D16** (a
+> Conversation's Agent binding is hand-off-able by consent) — plus folding the **incentive**
+> (intrinsic, GitHub-style) into D13 and **per-provider accounting** into D9. Unlike
+> D6–D13, these are *design* decisions, **not** built mechanism.
 > Built: the **D6 rename** (1a/1b — the host-bound type is `Runner` in code, wire and
 > all), a seeded worker `Agent` per Conversation (2), the **D8 budget funnel** (3 — token
 > face), one **guarded Project** (4), the **Model-provider registry** (5 — the cascade
@@ -129,6 +135,7 @@ prevent.
 | **Project** | A **shared goal** = a shared resource ([`../contract/cowork.ts:24`](../contract/cowork.ts)). Many Conversations, from many users, contribute to it. It gets a Guardian. |
 | **Commission** | The **act** of assigning an Agent to a Project, with an optional per-commission grant (tighter than the Agent's budget). The leaf of the cascade. |
 | **Contributor** | **A role, not a fifth entity** — the role an Agent plays once Commissioned onto a Project (the GitHub-contributor analog). |
+| **Role** | A Contributor's **permission tier** on a Project — owner / maintainer / writer / reader, GitHub-style — that sets the baseline its Commission's authority is clamped to (D14). Distinct from *Contributor* (the fact of being commissioned). |
 | **Guardian** | The **per-shared-resource authority** (D5): owns a Project's invariant + reservation ledger. Sessions/Agents coordinate *through* it, never with each other. |
 | **Budget** | The nested cascade *provider ⊇ agent ⊇ commission* — object-capability **attenuation** over **authority** (tools/connectors/scope) first, with token spend as the quota special-case. |
 
@@ -367,8 +374,10 @@ leaks: providers count tokens differently (the mock estimates ≈4 chars/token, 
 standard heuristic, same as `estimateTokens`), reset plan windows on independent
 cadences, and vary in tool-use fidelity (native `tool_use` vs. simulated vs. none).
 The cascade then has no single denominator for a *cross-provider* Agent budget, so we
-accept that an Agent's budget is **per-provider-scoped** (its cap is against its
-chosen provider's plan), deferring portable cross-provider accounting. Effort levels
+settle that an Agent's budget is **per-provider-scoped** — usage accounting is scoped
+*within* the Model provider, its cap measured against the chosen provider's plan, never
+normalized across providers (this **resolves OQ5's accounting half**; the prompt-fit
+probe stays open). Effort levels
 are a **provider-declared vocabulary**, not a universal scale, so "High" on one is
 not "High" on another — the UI shows each provider's own levels, not a normalized
 slider. ("backend" on `Capabilities` at [`../contract/api.ts:24`](../contract/api.ts)
@@ -582,25 +591,28 @@ legitimately needs. (1) **Project-owned shared credentials** — the Project hol
 own service credentials (GitHub-Actions-CI-injected-secret style: secrets are withheld
 from fork-PR workflows and supplied by the *trusting* party, never carried by the
 contributor) versus (2) **per-commission minted tokens** scoped to the Project. Both
-are viable; the doc leaves the choice open (Open Question 7) but **commits to the
-boundary**: whichever is used, the Agent sees the *Project's* authority, not its
+are viable, but **D15 now resolves the fork a third way** — neither (1) nor (2), but
+**agent-to-agent proxying**, where the requester never holds a U2 credential at all; the
+boundary commitment stands either way: the Agent sees the *Project's* authority, not its
 owner's ambient set. The genuinely *rejected* design is the weak baseline — run the
 Agent with the owner's ambient authority and rely on a system-prompt instruction to
 "not exfiltrate." Rejected because it inverts ocap discipline (authority you never
 granted can't be misused; authority you grant ambiently can) and makes one user's
 content a live attack surface on every other Contributor's accounts.
 
-### D13 — Economics and minimal governance: owner-pays is decidable; why anyone contributes is open
+### D13 — Economics and minimal governance: owner-pays is decidable; the incentive is intrinsic (GitHub-style)
 
 **Decision.** A commissioned Agent's compute is paid by the **Agent's owner**, not the
 Project: a Commission's usage draws against the owner's Model-provider plan through the
 cascade (D8), so committing an Agent to a public Project is **donating your own metered
 compute**. **Governance is deliberately minimal** — honoring "Commons" over "Republic"
-(D6's sibling naming decision), the only authority the mechanism *forces* is a Project
-**Guardian** (D11) plus a single **project-owner role** (who may commission; whose
-contribution is accepted). Richer governance — roles, voting, federated moderation —
-is explicitly out of scope. **Open and unsolved: *why* anyone donates metered compute
-to a public Commons.**
+(D6's sibling naming decision), the authority the mechanism *forces* is a Project
+**Guardian** (D11) plus a **role lattice** (**D14**; project-owner at its top — who may
+commission, whose contribution is accepted). *Roles* are in scope; richer governance —
+voting, federated moderation — stays out. **Resolved (design dialogue): the incentive is
+intrinsic** — people contribute because a Project is interesting / fun / worth building,
+exactly as on GitHub; the Commons runs on the same intrinsic motivation as open source,
+not a credits market (see *Why*).
 
 **Why.** The payer question falls out of the cascade. Given attenuation as the chosen
 authority model (D8), the tree descends from the *owner's* provider plan — there is no
@@ -609,18 +621,23 @@ consequence of the design, not a structural impossibility; a Project wallet *cou
 modeled, see rejected). A Commission **would be** a first-class entity (preferred over
 a `RelationGraph` edge precisely so the Guardian can key its ledger by `commissionId`,
 not `agentId`): roughly `{ id, agentId, projectId, authority (⊆ agent's), grant (token
-sub-budget), reservationId? }`. The incentive question is genuinely open and recorded
-as such to stay honest: open source runs on **human reputation and free keystrokes**,
-while agent labor burns **metered tokens against a real bill** — the analogy breaks
-exactly where money enters. Without an incentive the public Commons has a contribution
-model and **no contributors**. (Note "Contributor" = the *Agent*; the human is the
-*Agent owner* / *project owner* — the distinction matters for who is billed and who
+sub-budget), reservationId? }`. The incentive question resolves to **the GitHub
+answer**: open source already runs on intrinsic motivation — reputation, the pull of an
+interesting Project, reciprocity — *despite* costing contributors their unpaid time, so
+the Commons asks for the same intrinsic pull, with **metered tokens standing in for free
+keystrokes** as the cost a contributor absorbs. The fear that "the analogy breaks where
+money enters" turns out narrower than first stated: a contributor's time always had a
+price on GitHub; here the price is merely *explicit and metered*, which raises the bar
+without changing the **kind** of motivation. (Note "Contributor" = the *Agent*; the human
+is the *Agent owner* / *project owner* — the distinction matters for who is billed and who
 earns standing.)
 
-**Trade-off accepted.** Owner-pays makes contribution a real out-of-pocket cost, which
-predictably **starves** a public Commons of contributors until an incentive exists — we
-ship the *mechanism* (who pays, bounded how) and leave the *motivation* unbuilt rather
-than invent a credits economy speculatively. Owner-pays also *creates* an **abuse
+**Trade-off accepted.** Owner-pays makes contribution a real out-of-pocket cost: the
+intrinsic motivation is the *same kind* open source already runs on, but the price is
+**steeper — metered tokens, not free keystrokes** — so the contribution bar sits above
+GitHub's, and a public Commons may stay thinly populated until the pull of interesting
+Projects outweighs the metered cost. We ship the *mechanism* (who pays, bounded how) and
+rest the *motivation* on intrinsic interest rather than a speculative credits economy. Owner-pays also *creates* an **abuse
 surface** as a direct consequence of this decision: a malicious Project could commission
 many outsiders' Agents to burn their plans — so a per-commissioner cap at the Guardian
 is a cost we are accepting the need for, not merely an open detail. And scoping
@@ -635,9 +652,126 @@ commission can spend the Project's money). (We do *not* claim a Project wallet i
 "structurally unbounded" — it could be its own attenuation root, funded by whoever tops
 it up — the costs above are the real reasons.) Also rejected: **legislating the
 incentive now** (a token-credit market, platform-subsidized contribution) — the
-speculative over-build the docs' style forbids; recorded as Open Question 1 instead. And
-**a full governance layer** (voting, moderation council) — the "Republic" over-promise
-the naming decision already discarded.
+speculative over-build the docs' style forbids — the motivation is resolved *intrinsically*
+(above), not legislated. And **a full governance layer** (voting, moderation council) — the
+"Republic" over-promise the naming decision already discarded; **D14 adds roles, not
+politics.**
+
+### D14 — A Contributor's permissions are set by its project role (GitHub-style)
+
+**Decision.** A Project assigns each Contributor a **role** — owner / maintainer / writer /
+reader, the GitHub lattice — and the role sets that Contributor's **permission baseline** on
+the Project (what it may read, write, reserve, and fire). Role is a new, Project-side factor
+in the D8 cascade: a Commission's effective authority is **role-permissions ∩ agent-grant ∩
+provider-grant ∩ project-admitted-data** (D8 × D12), so a role can only ever *tighten*, never
+widen, what the Agent already holds. D13's single forced project-owner role becomes the top of
+this lattice. **[COMMONS]**
+
+**Why.** The GitHub analogy D11 borrowed for the Commons' *social* shape carries one more rung
+for free, and it pays off twice. (i) It gives D12's clamp a **named** baseline instead of an
+ad-hoc per-commission allowlist — "this Agent joined as a *reader*" is legible to a stranger
+reviewing a Project where "this Agent's connector set is {…}" is not. (ii) It hands OQ8
+(multi-principal arbitration) a priority order almost for free: a role lattice is a partial
+order, so **owner-priority** on a reservation conflict falls out of the roles rather than
+needing a separate auction or fairness mechanism. Role *composes with* — does not replace —
+the cascade: it is one more min/⊆ factor checked at the same single Commission funnel (D8), so
+it inherits "an over-grant is unrepresentable at mint." It is the natural generalization of the
+slice-15 per-commission re-grant: the grant becomes the *role's* default, overridable downward.
+
+**Trade-off accepted.** A fixed role vocabulary is **coarse**: a Project needing a permission
+the lattice doesn't name must either widen a whole role or fall back to the per-commission grant,
+so roles and explicit grants **coexist** rather than roles fully replacing grants. And forcing a
+role lattice walks back part of D13's "governance deliberately minimal" — we now force *more*
+built-in governance than the original single owner-role, accepting roles (not yet voting /
+moderation) into the forced mechanism. **Open sub-question (the one part not settled):** does a
+role gate *only permissions* (what an effect may touch), or *also arbitration* (when two
+Contributors reach for the same sub-goal, does a maintainer's reservation outrank a writer's at
+the Guardian, or is it still first-come among all who are *permitted*)? Permissions-only is the
+smaller change (roles ride the existing cascade; arbitration stays first-come); role-ranked
+arbitration answers OQ8 more completely but makes the Guardian's ledger role-aware. Recorded open
+pending that call.
+
+**Rejected alternative.** Per-commission grants only (the slice-15 status quo, no roles).
+Rejected: it makes every Contributor's authority an opaque bespoke set, gives arbitration no
+natural order (bare first-come for everyone regardless of standing), and loses the one-word
+legibility a public Commons needs to let an owner reason about who they admitted. The opposite
+over-reach — a full governance layer (voting, moderation councils) — stays rejected as in D13;
+**D14 adds roles, not politics.**
+
+### D15 — Cross-user access is agent-to-agent: an Agent proxies its owner's resources
+
+**Decision.** There is **no shared credential and no minted cross-user token.** When Agent *a1*
+(user U1) needs something behind a resource owned by user U2, it receives no U2 credential — it
+**sends a request to U2's Agent** *a2*, which performs the action under *its own* authority and
+U2's consent and returns only the result. The owning Agent **is** the object-capability that
+wraps its owner's private resources; cross-user data flow is therefore an explicit *a→a* message
+exchange, never a secret held across the user boundary. This resolves OQ7's "how does a Project
+get a connector it needs" with a **third** option beyond D12's two candidates — neither (1)
+Project-owned shared credentials nor (2) per-commission minted tokens, but **agent-as-proxy**.
+**[COMMONS]**
+
+**Why.** D12 drew the boundary (a commissioned Agent sees the *Project's* authority, never its
+owner's ambient set) but left the *mechanism* open. Agent-to-agent closes it with the strongest
+possible form of that wall: attenuation bounds the blast radius, but a proxy makes the credential
+**structurally unreachable** — *a1* cannot leak, nor be prompt-injected into using, a U2
+credential it never holds, because the only thing it holds is a *channel to a2*. This is textbook
+object-capability discipline (you reach a resource only via a reference to the object that
+mediates it; here the object is the owner's Agent), and it sharpens broker-D3's server-side audit
+into a watch over **messages between agents** — a far cleaner taint surface than tracking a
+borrowed secret. It also answers **OQ6** for private resources: access to U2's resource is gated
+on **U2's** side (*a2*, and for an irreversible effect U2's human), exactly as U1's side gates
+U1's own effects — no user is ever asked to confirm an effect on something they don't own.
+
+**Reconciliation with D5/D11 ("coordinate through the resource, never peer-to-peer").**
+Agent-to-agent is **not** the peer mesh D1/D5 reject, because it governs a *different channel*.
+D11's Guardian arbitrates contention on a **shared Project resource** (the commons) — that stays
+at the Guardian, never *a→a*. D15 governs access to **another user's private resource** (not
+shared, not in the commons), which has no Guardian because it has no shared invariant — only an
+owner. The two rules partition cleanly by what is shared: **shared ⇒ Guardian; private ⇒ the
+owner's Agent.** Neither admits a raw cross-user credential grab.
+
+**Trade-off accepted.** A proxy hop is **slower and less capable** than a direct credential:
+every cross-user access is a round-trip through *a2* (latency; *a2* must be reachable), and *a1*
+obtains only what *a2* is willing to *do and return*, not arbitrary access — friction by design.
+It **relocates** rather than removes trust: U1 must trust *a2*'s returned result, U2 must trust
+*a1*'s request is benign (prompt-injection now travels as an *a→a* message, which D3 audit
+watches but cannot prove safe), and *a2* becomes a liveness dependency for *a1*'s task.
+
+**Rejected alternative.** D12's two original candidates — (1) Project-owned shared credentials
+and (2) per-commission minted tokens — were both viable and left as the open fork. We reject them
+**as the cross-user mechanism** because each still places a *usable secret on the requesting side*
+of the boundary, the exact thing the proxy removes and the exact channel D12 exists to close. The
+weak baseline (owner's ambient authority + a "don't exfiltrate" instruction) stays rejected as in
+D12.
+
+### D16 — A Conversation's Agent binding is hand-off-able mid-thread, by consent
+
+**Decision.** `Session.agentId` is **not fixed for the Conversation's life**: the worker Agent
+driving a thread may be **handed off** to a different Agent mid-thread, as an **explicit,
+consent-gated event** (the same confirm-card shape as a relation edit). Each turn is **stamped
+with the Agent that drove it**, so authorship, metering (D13 owner-pays), and authority stay
+attributable across a hand-off — the binding names the *current driver*, backed by per-turn
+provenance, not one immutable author. **[INTERIOR]**
+
+**Why.** The proposal's spine is "escalate in place, nothing re-explained" (the guided tour's
+chat → workspace → repo). The next natural escalation is *who drives*: a generalist Agent opens a
+thread, it turns into repo work, and the user hands it to a specialized worker (different prompt,
+tools, a higher-effort provider) without starting over. Forbidding hand-off would force a **new
+Conversation at exactly the moment the proposal promises continuity** — the multi-tab
+fragmentation the whole thesis removes, reintroduced one level down. Making hand-off a
+consent-gated event keeps it inside "one gate for everything Claude changes"; per-turn stamping
+keeps owner-pays honest when two Agents (two owners) touched one thread.
+
+**Trade-off accepted.** The Conversation's "who" is **no longer constant**: billing attribution
+becomes per-turn rather than per-thread, and the contract must carry **turn-level provenance**
+(which Agent/owner drove each turn), not just a present-tense `Session.agentId`. System prompt,
+tool allowlist, and authority all change at the hand-off seam, so a thread's behavior can shift
+mid-conversation — power bought with the loss of a single stable identity.
+
+**Rejected alternative.** A fixed binding (one Agent per Conversation for life; switching workers
+= a new Conversation). Simpler attribution and a constant identity — but it breaks in-place
+escalation at the worker boundary and scatters one piece of work across Conversations whenever the
+right driver changes, the very fragmentation the proposal exists to end.
 
 ## Invariants (locked principles, not open forks)
 
@@ -655,8 +789,15 @@ the naming decision already discarded.
   other** — inherited from D5, now the *default* because Contributors are different
   principals. **[COMMONS]**
 - **The consent gate is the serialization gate** — confirming a Contributor's
-  irreversible effect is validating its reservation. (Inherited from D5; now
-  multi-principal: *whose* human confirms is Open Question 6.)
+  irreversible effect is validating its reservation. (Inherited from D5; for access to a
+  *private* resource the owner's side confirms, D15; *whose* human confirms an irreversible
+  effect on a *shared* Project is the residual Open Question 6.)
+- **A Contributor's permissions are bounded by its project role.** Role (owner / maintainer
+  / writer / reader) is a Project-side factor in the same min/⊆ cascade — it only tightens,
+  never widens, what the Agent already holds (D14). **[COMMONS]**
+- **Cross-user access is agent-mediated, never a shared credential.** An Agent reaches
+  another user's private resource only by asking that user's Agent, which acts under its own
+  authority and consent; no credential or token crosses the user boundary (D15). **[COMMONS]**
 - **Subsumption, tagged by altitude.** The unified conversation is one citizen's
   interior **[INTERIOR]**; Agent Commons composes many **[COMMONS]**. A claim that
   forces a change *inside* the conversation model would falsify the nesting.
@@ -691,38 +832,42 @@ right way:
   Project id as a legal `resourceId`, a Contributor holder, and a *budget* sibling
   invariant.
 
-## Open questions (not yet decided)
+## Open questions (and which the design dialogue resolved)
 
-1. **The incentive.** Why would anyone donate metered compute to a public Project?
-   (Reputation, shared output ownership, reciprocity are candidates; none settled. This
-   decides whether the Commons has any contributors at all.) And: is reputation
-   Agent-scoped, owner-scoped, or both? Who owns artifacts produced by donated compute?
-2. **Where the worker `Agent` type lives** in the contract — a new `contract/workers.ts`
-   versus beside the renamed Runner — and the minimal shape `{ providerId, systemPrompt,
-   tools, instructions, budget? }`, plus a `Session.agentId` binding (one Agent per
-   Conversation for life, or hand-off mid-thread?).
-3. **The generalized handles.** One target shape for the host-capability request
-   (`CapabilityRequest` → names `{ conversationId, contextId, commissionId, runnerId }`,
-   Runner implicit from where the resource lives and explicit to override) and the turn
-   request (names `{ conversationId, agentId, providerId }`) — which fields are implicit
-   vs. explicit.
-4. **A monotonicity classifier for Project-level effects.** `isMonotonic` covers host
-   capabilities only; connector/MCP/charge effects need their own non-monotonic
+> Numbers are kept stable (other sections cite them); resolved items are marked, not deleted.
+
+1. ~~**The incentive.**~~ **Resolved → D13.** The incentive is *intrinsic* — people
+   contribute because a Project is interesting / fun / worth building, as on GitHub; the
+   Commons runs on the same intrinsic motivation as open source. *(Still soft:* whether
+   reputation is Agent- or owner-scoped, and who owns artifacts from donated compute.)
+2. ~~**Where the worker `Agent` type lives** + the binding lifecycle.~~ **Resolved.** The
+   type lives in `contract/workers.ts` (slice 2); the binding is **hand-off-able by consent
+   → D16** (per-turn provenance), not one Agent per Conversation for life.
+3. **The generalized handles** *(open — now a concrete task)*. Pin the two DTO shapes —
+   turn request `{ conversationId, agentId, providerId }` and capability request
+   `CapabilityRequest` `{ conversationId, contextId, commissionId, runnerId }`. The single
+   missing field, **`commissionId` on `CapabilityRequest`**, is what lets effect-time D12
+   enforcement key off the commission — the **one remaining piece of unbuilt mechanism**
+   (today the commission gate is mint-time only).
+4. **A monotonicity classifier for Project-level effects** *(open)*. `isMonotonic` covers
+   host capabilities only; connector/MCP/charge effects need their own non-monotonic
    classification to know what must hold a reservation.
-5. **Cross-provider accounting + prompt-fit probing.** A common token denominator across
-   providers (deferred: per-provider-scoped for now); and whether the prompt-library tag
-   (D10) is later backed by a selection-time eval probe.
-6. **Multi-principal consent.** When a Contributor's irreversible effect on a shared
-   Project hits the Guardian's gate, *whose* human confirms — the contributing user, the
-   project owner, both? (The unresolved core of D7's falsifiability bet and the
-   multi-principal residue.)
-7. **Cross-user credential mechanism + taint audit.** Project-owned shared credentials
-   versus per-commission minted tokens (D12); and modeling "data moved from B's content
-   toward A's connector" as a taint-tracking problem the audit projection does not yet
-   express.
-8. **Multi-principal arbitration policy.** The coordination doc's residue, now the
-   default: first-come / owner-priority / auction / fairness — D11 names the Guardian as
-   *where* it lives but not *which*.
+5. **Prompt-fit probing** *(accounting half resolved → D9; probe open)*. Cross-provider
+   accounting is **settled per-provider** (D9 — no normalized denominator). Still open:
+   whether the prompt-library tag (D10) is later backed by a selection-time eval probe.
+6. **Multi-principal consent** *(partly resolved → D15; residue open)*. Access to a
+   *private* resource is consented on its **owner's** side (D15). The residual question is
+   *whose* human confirms an irreversible effect on a **shared** Project — the contributing
+   user, the project owner, both? (D7's falsifiability bet.)
+7. ~~**Cross-user credential mechanism**~~ + taint audit. **Credential mechanism resolved →
+   D15** (agent-to-agent: no credential crosses the boundary). Still open: cross-user
+   **taint audit** — modeling "data moved from B's content toward A's connector" as a
+   tracking problem the audit projection does not yet express.
+8. **Multi-principal arbitration policy** *(partly resolved → D14; sub-policy open)*. Roles
+   give a priority order — **owner-priority falls out of the lattice** (D14). Open: whether a
+   role gates *arbitration* (a maintainer's reservation outranks a writer's) or only
+   *permissions*, and the finer policy (auction / fairness) among equally-ranked,
+   equally-permitted Contributors.
 
 ## If/when we build it — smallest first slice
 
@@ -949,8 +1094,11 @@ session↔context binding, mediation handle, and single-resource escrow).
   rename, the worker `Agent`, both faces of the D8
   cascade (token + authority) across provider → agent → commission, the provider registry,
   the prompt library, the Project guardian, cross-user isolation, and multi-principal
-  coordination. What stays open is the **Open questions** above — the *incentive* (why
-  donate metered compute), cross-provider accounting, the prompt-fit probe, multi-principal
-  *consent* (whose human confirms), the cross-user credential mechanism, and the
-  arbitration *policy* (D11 names first-come; auction/owner-priority stay open) — these are
-  design residue, not unbuilt mechanism.
+  coordination. A later **design dialogue** then resolved most of the open questions
+  (incentive → D13, accounting → D9, cross-user credential mechanism → D15, roles +
+  owner-priority arbitration → D14, agent hand-off → D16), leaving a **smaller residue**: the
+  prompt-fit eval probe, the Project-level monotonicity classifier, multi-principal *consent
+  on a shared effect* (whose human confirms), cross-user *taint* audit, and the finer
+  arbitration sub-policy below owner-priority — **plus the one piece of unbuilt mechanism the
+  dialogue surfaced**, `commissionId` on `CapabilityRequest` for effect-time D12 enforcement.
+  These are design residue (and one concrete task), not the broad open slate of before.
