@@ -39,7 +39,7 @@ green before a step is done; UI steps verified in the running app.
   single-tenant path, unchanged.* Erasable, additive, back-compat. **Lock:** `typecheck`
   + `contract-boundaries.test.ts` green (the field is type-checked; behaviour lands in 1.3).
 
-- [ ] **1.2 Store — fail-closed scope admission.** Add
+- [x] **1.2 Store — fail-closed scope admission.** Add
   `store.commissionAdmitsTarget(commissionId, capability, target)` near
   [`commissionCanReach` (`server/store.ts:876`)](../server/store.ts): resolve
   `commissionAuthority` (the D12 clamp); **unknown commission ⇒ `false` (fail closed)**;

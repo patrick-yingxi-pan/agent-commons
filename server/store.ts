@@ -63,8 +63,9 @@ import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
 import { createUsageMeter, estimateTokens, mintBudget } from './usage.ts'
 import { mintAuthority } from './authority.ts'
 import { ConflictError } from './conflict.ts'
-import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority } from '../contract/index.ts'
-import type { Agent, Authority, Commission, CreateAgentRequest, ModelProvider, ProjectSubGoal, Reservation, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest } from '../contract/index.ts'
+import { scopeMatches } from './agent-runtime.ts'
+import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted } from '../contract/index.ts'
+import type { Agent, Authority, CapabilityType, Commission, CreateAgentRequest, ModelProvider, ProjectSubGoal, Reservation, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
@@ -876,6 +877,23 @@ export const store = {
   commissionCanReach(commissionId: string, dimension: 'tools' | 'connectors' | 'scopes', target: string): boolean {
     const effective = this.commissionAuthority(commissionId)
     return effective ? authorityAdmits(effective, dimension, target) : false
+  },
+  /** Effect-time D12 scope wall for the host invoke path (OQ3): may this Commission's
+   *  Contributor act on a filesystem `target`? The commission's **effective**
+   *  (Project-clamped) `scopes` bound its file reach — `projectAdmittedAuthority` derives
+   *  them from the Project's folder/repo contexts, so a path outside the Project's admitted
+   *  roots is unreachable even to an Agent granted everything. **Unknown commission ⇒
+   *  `false` (fail closed)** — a security boundary must not fail open. Unrestricted scopes
+   *  (`'*'` / absent) impose no file wall. A concrete set admits only a `target` within one
+   *  root (the same prefix boundary as context mediation, `scopeMatches`). A non-`fs.*`
+   *  capability carries no commission scope bound here — its command `target` isn't a path,
+   *  and the host grant (D3) + context mediation already bound it — so it passes. */
+  commissionAdmitsTarget(commissionId: string, capability: CapabilityType, target: string): boolean {
+    const effective = this.commissionAuthority(commissionId)
+    if (!effective) return false // fail closed: no commission ⇒ no reach
+    if (!capability.startsWith('fs.')) return true // commission scopes bound file reach only
+    if (unrestricted(effective.scopes)) return true // no file wall
+    return effective.scopes!.some((root) => scopeMatches(root, target))
   },
 
   /** Append a message to a session's thread — the write that makes "send" real.

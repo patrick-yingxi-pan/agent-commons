@@ -63,6 +63,24 @@ test('store.commissionAuthority clamps the default Agent to the Project it joins
   assert.equal(store.commissionAuthority('nope'), undefined)
 })
 
+test('store.commissionAdmitsTarget walls a Contributor to the Project-admitted file scopes (D12, OQ3)', () => {
+  // The seeded commission's effective scopes are p-insights' folder + repo roots
+  // (~/code/insights-web, patrick-yingxi-pan/web-app) — the default Agent is unrestricted,
+  // clamped to what the Project admits.
+  const id = 'commission-insights-default'
+  // Inside an admitted root → reachable (folder and repo alike).
+  assert.equal(store.commissionAdmitsTarget(id, 'fs.read', '~/code/insights-web/main.ts'), true)
+  assert.equal(store.commissionAdmitsTarget(id, 'fs.write', 'patrick-yingxi-pan/web-app/src/app.ts'), true)
+  // Outside every admitted root → denied, even for an Agent granted everything (default-deny).
+  assert.equal(store.commissionAdmitsTarget(id, 'fs.read', '~/secrets/keys.txt'), false)
+  // A sibling that merely shares a string prefix is NOT under the root (scopeMatches boundary).
+  assert.equal(store.commissionAdmitsTarget(id, 'fs.read', '~/code/insights-web-secret/x'), false)
+  // Unknown commission reaches nothing — fail closed.
+  assert.equal(store.commissionAdmitsTarget('nope', 'fs.read', '~/code/insights-web/main.ts'), false)
+  // A non-fs capability carries no commission scope bound here (host grant + context mediation cover it).
+  assert.equal(store.commissionAdmitsTarget(id, 'terminal', 'npm test'), true)
+})
+
 test('GET /commissions/:id/authority returns the effective reach; unknown 404s', async () => {
   const ok = await call('GET', '/commissions/commission-insights-default/authority')
   assert.equal(ok.status, 200)

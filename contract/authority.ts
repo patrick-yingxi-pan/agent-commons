@@ -33,8 +33,9 @@ export interface AuthorityViolation {
 
 const DIMENSIONS = ['tools', 'connectors', 'scopes'] as const
 
-/** Whether a parent grant covers everything on its dimension. */
-function unrestricted(grant?: string[]): boolean {
+/** Whether a grant covers everything on its dimension (`'*'` or absent) — the single
+ *  definition of "unrestricted", shared so the sentinel can't drift between callers. */
+export function unrestricted(grant?: string[]): boolean {
   return grant === undefined || grant.includes('*')
 }
 
