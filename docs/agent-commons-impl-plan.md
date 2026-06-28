@@ -102,7 +102,7 @@ green before a step is done; UI steps verified in the running app.
   an in-flight hold is ever performed (the D14 invariant). **Tests:** a test asserting the
   holder's role is reported on conflict.
 
-- [ ] **3.5 UI — role selector + display.** Add a role `<select>` to `CommissionDialog`
+- [x] **3.5 UI — role selector + display.** Add a role `<select>` to `CommissionDialog`
   ([`src/components/SectionView.tsx:982`](../src/components/SectionView.tsx)) and show the
   role on `ContributorRow` (:937); default writer. **Verify live** (role persists, shows).
 

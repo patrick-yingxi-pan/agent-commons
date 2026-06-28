@@ -127,9 +127,11 @@ import {
 import {
   promptFitWarning,
   projectAdmittedAuthority,
+  PROJECT_ROLES,
   type Agent,
   type Commission,
   type ModelProvider,
+  type ProjectRole,
   type SystemPromptEntry,
 } from '../../contract/index.ts'
 import { authorityLabel, providerPlanLabel } from '../lib/agentCommonsLabels'
@@ -963,7 +965,12 @@ function ContributorRow({ commission, agentLabel }: { commission: Commission; ag
     <div className="group flex items-start gap-2.5">
       <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
       <div className="min-w-0 flex-1">
-        <div className="text-[13px] font-medium text-ink">{agentLabel}</div>
+        <div className="flex items-center gap-1.5">
+          <span className="truncate text-[13px] font-medium text-ink">{agentLabel}</span>
+          <span className="shrink-0 rounded-full bg-ink/5 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-ink-soft">
+            {commission.role ?? 'writer'}
+          </span>
+        </div>
         <div className="text-[11px] text-ink-faint">{reachLabel}</div>
         {error && <div className="text-[11px] text-removed">{error}</div>}
       </div>
@@ -992,6 +999,7 @@ function CommissionDialog({
   const current = commission.authority?.connectors
   const startAll = !current || current.includes('*')
   const [selected, setSelected] = useState<Set<string>>(() => new Set(startAll ? admitted : current))
+  const [role, setRole] = useState<ProjectRole>(commission.role ?? 'writer')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -1010,7 +1018,7 @@ function CommissionDialog({
     // the server couldn't tell "clear" from "unchanged"). The reach is this set ∩ the
     // Project's admitted set; checking every box restores the full admitted reach.
     try {
-      await updateCommission(commission.id, commission.projectId, { authority: { connectors: [...selected] } })
+      await updateCommission(commission.id, commission.projectId, { role, authority: { connectors: [...selected] } })
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not update this contributor.')
@@ -1028,6 +1036,27 @@ function CommissionDialog({
       onClose={onClose}
       error={error}
     >
+      <div className="mb-3">
+        <label className="mb-1.5 block text-[12px] font-medium text-ink-soft" htmlFor="commission-role">
+          Project role
+        </label>
+        <select
+          id="commission-role"
+          value={role}
+          onChange={(e) => setRole(e.target.value as ProjectRole)}
+          className={FORM_INPUT_CLASS}
+        >
+          {PROJECT_ROLES.map((r) => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
+        </select>
+        <p className="mt-1.5 text-[11px] text-ink-faint">
+          The permission baseline (D14): a reader may read; writer &amp; maintainer may fire effects and
+          reserve sub-goals; owner may also commission others.
+        </p>
+      </div>
       <div>
         <span className="mb-1.5 block text-[12px] font-medium text-ink-soft">
           Connectors this contributor may reach
