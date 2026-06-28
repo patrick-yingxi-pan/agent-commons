@@ -376,7 +376,7 @@ leans the right way:
   set-capabilities DTOs); `server/registry.ts` (`AgentRegistry` —
   register / heartbeat / setCapabilities / deregister / find / list, durable
   offline identity per D4, ambient `agent.*` events, injectable clock); a
-  co-located agent seeded in native mode (`server/data/agents.ts`); the `/agents`
+  co-located agent seeded in native mode (`server/data/runners.ts`); the `/agents`
   routes; and the `useAgents` cache hook + `agent.*` event invalidation (keeping
   the frontend-as-cache invariant). Tests: registry (unit), store spine
   (regression), agent routes (integration). *Caught a real bug:* TS parameter
@@ -384,7 +384,7 @@ leans the right way:
   would have broken server boot.
 - **Slice 2 — capability addressing + routing. ✅ Built.**
   `POST /agents/:id/invoke` with a `(capability, target, args)` body. The broker
-  (route) resolves the agent + checks liveness; `server/agent-runtime.ts` — which
+  (route) resolves the agent + checks liveness; `server/runner-runtime.ts` — which
   conceptually runs *inside the agent* — enforces the scoped grant (D3:
   `scopeMatches` with path/command boundaries) and fulfils (mock, real-shaped
   output per capability). Error mapping: `not_found` (unknown agent),

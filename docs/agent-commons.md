@@ -48,9 +48,9 @@
 > `AgentRegistry`, `AgentJournal`, `useAgents`, …) are now `Runner*`, and the
 > "native agent" code comments now read "runner". **Slice 1b** then renamed the wire
 > surface — `/runners` routes, `runner.*` event names, the `runnerId` field, the
-> `runner-` id prefix. Still pending (cosmetic): the host filenames
-> (`agent-runtime.ts`, `data/agents.ts`) and the broker doc's prose (mapped by its
-> "renames by reference" note).
+> `runner-` id prefix. The host filenames are now `runner-runtime.ts` / `data/runners.ts`
+> too (impl-plan Phase 4.1); only the broker doc's "native agent" *prose* remains, mapped by
+> its "renames by reference" note.
 >
 > It extends the shared **D-series** (broker doc D1–D4; coordination doc D5) with
 > **D6–D13**. Read both prior docs first:
@@ -561,7 +561,7 @@ owner's real Gmail — an exfiltration channel opened by another user's content.
 defense is **attenuation, with audit as backstop, not wall**. The seams exist: the
 mediation funnel today checks `target ∈ context.scope` at the broker
 ([`server/routes/index.ts:129`](../server/routes/index.ts)) on top of the Runner's
-host grant ([`server/agent-runtime.ts:69`](../server/agent-runtime.ts)). Agent
+host grant ([`server/runner-runtime.ts:69`](../server/runner-runtime.ts)). Agent
 Commons **would lift** this from *(session, context)* to *(Project, commission,
 context)*: the in-scope set is the *Project's* admitted contexts, never the owner's
 `SessionWorkspace.connectors` ([`../contract/entities.ts:193`](../contract/entities.ts)).
@@ -902,9 +902,9 @@ The first slice falls out of the grounding and touches no behavior:
 1. **Vocabulary pass: `Agent → Runner`. ✅ Done (slices 1a + 1b).** 1a renamed the
    host-bound interface + its TS cluster + the "native agent" comments (the compiler-
    checked half); 1b renamed the wire surface (`/runners` routes, `runner.*` events,
-   the `runnerId` field, the `runner-` id prefix). Cosmetic remainder: the
-   `agent-runtime.ts` / `data/agents.ts` filenames and the broker doc prose. Freed the
-   bare word for the worker `Agent` (step 2).
+   the `runnerId` field, the `runner-` id prefix). Cosmetic remainder: the broker doc prose
+   (the `runner-runtime.ts` / `data/runners.ts` filenames were renamed later, Phase 4.1).
+   Freed the bare word for the worker `Agent` (step 2).
 2. **Introduce the worker `Agent` type. ✅ Done.** `contract/workers.ts` `Agent`
    `{ id, label, systemPrompt, tools, instructions, providerId? }` beside the renamed
    Runner, a `Session.agentId` binding, one seeded `DEFAULT_AGENT` wrapping today's
@@ -961,9 +961,9 @@ session↔context binding, mediation handle, and single-resource escrow).
   `agentSeq`→`runnerSeq` fields, the `agent-`→`runner-` id prefix (mint + `runner-local`
   seed + assertions), and the `agent-effects:`→`runner-effects:` cache key. typecheck +
   263 tests green; the wire is now internally consistent end to end. The bare word
-  `Agent` is fully free for the worker type (step 2). Cosmetic remainder (deferred):
-  the `agent-runtime.ts` / `data/agents.ts` filenames and the broker doc's prose
-  (covered by its "renames by reference" note).
+  `Agent` is fully free for the worker type (step 2). Cosmetic remainder: the broker doc's
+  prose (the `runner-runtime.ts` / `data/runners.ts` filenames were renamed later, Phase 4.1;
+  covered by its "renames by reference" note).
 - **Slice 2 — the worker `Agent` type + `Session.agentId`. ✅ Built.** `contract/workers.ts`
   defines `Agent { id, label, systemPrompt, tools, instructions, providerId? }`; one
   `DEFAULT_AGENT` is seeded (`server/data/workers.ts`), wrapping today's single implicit

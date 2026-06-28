@@ -122,7 +122,7 @@ green before a step is done; UI steps verified in the running app.
 Built as **real wire boundaries with mock fulfilment** (the project rule: build the real
 seam now, mock only the model). Ordered safest/most-contained → most-speculative.
 
-- [ ] **4.1 D6 filename rename (cosmetic debt).** `server/agent-runtime.ts` →
+- [x] **4.1 D6 filename rename (cosmetic debt).** `server/agent-runtime.ts` →
   `server/runner-runtime.ts`, `server/data/agents.ts` → `server/data/runners.ts`; update the
   ~4 import sites (store, routes, capabilities test). **Lock:** full suite green (no behavior
   change) — closes the last D6 remainder.

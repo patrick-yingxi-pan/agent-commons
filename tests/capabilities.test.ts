@@ -1,8 +1,8 @@
-/** Unit tests for the runner runtime (server/agent-runtime.ts) — scope matching,
+/** Unit tests for the runner runtime (server/runner-runtime.ts) — scope matching,
  *  grant enforcement (D3: the runner is the policy point), and mock fulfilment. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { CapabilityError, isGranted, runCapability, scopeMatches } from '../server/agent-runtime.ts'
+import { CapabilityError, isGranted, runCapability, scopeMatches } from '../server/runner-runtime.ts'
 import type { Runner } from '../contract/index.ts'
 
 const runner: Runner = {
