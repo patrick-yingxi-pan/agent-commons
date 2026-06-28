@@ -139,7 +139,7 @@ seam now, mock only the model). Ordered safest/most-contained → most-speculati
   window ceiling (a per-turn gate in `server/generate.ts`, against the resolved Agent's budget
   → provider plan), not just accumulating. Closes D8's "spend-time" trade-off gap. **Tests.**
 
-- [ ] **4.4 D8 parent-shrink propagation.** Narrowing a provider/agent (authority or budget)
+- [x] **4.4 D8 parent-shrink propagation.** Narrowing a provider/agent (authority or budget)
   cascades a re-clamp to already-minted children (commissions/agents), so "unrepresentable
   over-grant" holds at runtime, not only at mint. **Tests.**
 

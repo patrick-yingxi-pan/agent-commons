@@ -32,3 +32,16 @@ export function overBudgetWindow(parent: BudgetWindow[], child: Budget): BudgetW
   }
   return null
 }
+
+/** Re-clamp a child budget to (possibly newly-narrowed) parent windows — the **runtime
+ *  half of D8** for the quota face: each child window's ceiling is capped at its parent's
+ *  same-label window. A window the parent no longer has is left as-is (the labels are a
+ *  fixed plan vocabulary). Idempotent — a child already ⊆ parent is returned unchanged. */
+export function clampBudget(child: Budget, parent: BudgetWindow[]): Budget {
+  return {
+    windows: child.windows.map((w) => {
+      const p = parent.find((x) => x.label === w.label)
+      return p && w.ceiling > p.ceiling ? { ...w, ceiling: p.ceiling } : w
+    }),
+  }
+}

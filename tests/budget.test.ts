@@ -3,7 +3,7 @@
  *  that rejects an over-grant. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { overBudgetWindow, type Budget, type BudgetWindow } from '../contract/index.ts'
+import { overBudgetWindow, clampBudget, type Budget, type BudgetWindow } from '../contract/index.ts'
 import { createUsageMeter, mintBudget, BudgetError } from '../server/usage.ts'
 
 const PLAN: BudgetWindow[] = [
@@ -37,4 +37,12 @@ test('mintBudget passes a subset and rejects an over-grant', () => {
   assert.equal(mintBudget(PLAN, ok), ok)
   const over: Budget = { windows: [{ label: 'Weekly · all models', ceiling: 99_000_000 }] }
   assert.throws(() => mintBudget(PLAN, over), BudgetError)
+})
+
+test('clampBudget caps each child window at its narrowed parent (D8 runtime)', () => {
+  const child: Budget = { windows: [{ label: '5-hour limit', ceiling: 1_000_000 }, { label: 'Weekly · all models', ceiling: 5_000_000 }] }
+  const parent: BudgetWindow[] = [{ label: '5-hour limit', ceiling: 400_000 }, { label: 'Weekly · all models', ceiling: 9_000_000 }]
+  const out = clampBudget(child, parent)
+  assert.equal(out.windows.find((w) => w.label === '5-hour limit')?.ceiling, 400_000) // clamped down
+  assert.equal(out.windows.find((w) => w.label === 'Weekly · all models')?.ceiling, 5_000_000) // already under → kept
 })

@@ -95,3 +95,18 @@ export function authorityAdmits(authority: Authority, dimension: AuthorityViolat
   const grant = authority[dimension]
   return unrestricted(grant) || grant!.includes(target)
 }
+
+/** Re-clamp a child grant to a (possibly newly-narrowed) parent — the **runtime half of
+ *  D8**: after a parent shrinks, an already-minted child must not stay over-grant. Only the
+ *  dimensions the child sets **explicitly** are tightened (an inherited / unrestricted dim
+ *  already follows the parent down, so it is left alone); each explicit value the parent no
+ *  longer admits is dropped. Idempotent — a child already ⊆ parent is returned unchanged. */
+export function clampAuthority(child: Authority, parent: Authority): Authority {
+  const result: Authority = { ...child }
+  for (const dim of DIMENSIONS) {
+    const grant = child[dim]
+    if (unrestricted(grant)) continue // inherited / '*' — follows the parent, nothing to clamp
+    result[dim] = grant!.filter((v) => authorityAdmits(parent, dim, v))
+  }
+  return result
+}

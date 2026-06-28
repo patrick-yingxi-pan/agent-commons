@@ -64,7 +64,7 @@ import { createUsageMeter, estimateTokens, mintBudget } from './usage.ts'
 import { mintAuthority } from './authority.ts'
 import { ConflictError } from './conflict.ts'
 import { scopeMatches } from './runner-runtime.ts'
-import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits } from '../contract/index.ts'
+import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, clampAuthority, clampBudget } from '../contract/index.ts'
 import type { Agent, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelProvider, ProjectAction, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, Reservation, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
@@ -170,6 +170,33 @@ function holderLabel(holder: string): string {
 function holderRole(holder: string): ProjectRole | undefined {
   const commission = COMMISSIONS.get(holder)
   return commission ? commission.role ?? 'writer' : undefined
+}
+
+// Runtime half of D8 (parent-shrink propagation): after a parent narrows, re-clamp the
+// already-minted children so an over-grant can't outlive the shrink. Idempotent — a child
+// already within its parent is untouched; a child that *inherits* (unset grant) follows the
+// parent down on its own and needs no clamp.
+function reclampCommissionsOf(agent: Agent): void {
+  const provider = resolveProvider(agent.providerId)
+  const parentAuthority = agent.authority ?? provider.authority ?? {}
+  const parentWindows = agent.budget?.windows ?? provider.plan?.windows ?? usageMeter.planCeilings()
+  for (const c of COMMISSIONS.values()) {
+    if (c.agentId !== agent.id) continue
+    const authority = c.authority ? clampAuthority(c.authority, parentAuthority) : c.authority
+    const grant = c.grant ? clampBudget(c.grant, parentWindows) : c.grant
+    COMMISSIONS.set(c.id, { ...c, authority, grant })
+  }
+}
+function reclampAgentsOf(provider: ModelProvider): void {
+  const parentWindows = provider.plan?.windows ?? usageMeter.planCeilings()
+  for (const a of WORKER_AGENTS.values()) {
+    if (a.providerId !== provider.id) continue
+    const authority = a.authority ? clampAuthority(a.authority, provider.authority ?? {}) : a.authority
+    const budget = a.budget ? clampBudget(a.budget, parentWindows) : a.budget
+    const next: Agent = { ...a, authority, budget }
+    WORKER_AGENTS.set(a.id, next)
+    reclampCommissionsOf(next) // transitively re-clamp this agent's Contributors
+  }
 }
 
 // Per-user recents — one non-evicting MRU id list per context type. Connectors /
@@ -666,6 +693,7 @@ export const store = {
       id: current.id,
     }
     WORKER_AGENTS.set(id, next)
+    reclampCommissionsOf(next) // D8 runtime: a narrowed Agent re-clamps its Contributors' grants
     persist()
     return next
   },
@@ -725,6 +753,7 @@ export const store = {
     if (patch.plan) mintBudget(usageMeter.planCeilings(), patch.plan)
     const next: ModelProvider = { ...current, ...patch, id: current.id }
     MODEL_PROVIDERS.set(id, next)
+    reclampAgentsOf(next) // D8 runtime: a narrowed provider re-clamps its Agents (+ their commissions)
     persist()
     return next
   },

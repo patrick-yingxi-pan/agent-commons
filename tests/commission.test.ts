@@ -141,3 +141,26 @@ test('the commission routes reject an unknown role (400)', async () => {
   const badPatch = await call('PATCH', `/commissions/${ok.json.id}`, { role: 'superuser' })
   assert.equal(badPatch.status, 400)
 })
+
+test('narrowing a provider re-clamps its Agents and their commissions (D8 runtime propagation)', () => {
+  const p = store.createProvider({ label: 'Shrink P', modelFamily: 'x', effortLevels: ['Low'], authority: { tools: ['a', 'b', 'c'] } })
+  const a = store.createAgent({ label: 'Shrink A', systemPrompt: 's', tools: [], instructions: '', providerId: p.id, authority: { tools: ['a', 'b'] } })
+  const c = store.createCommission({ agentId: a.id, projectId: 'p-insights', authority: { tools: ['a', 'b'] } })
+  // Narrow the provider's tools to just ['a'] — the already-minted children must follow down.
+  store.updateProvider(p.id, { authority: { tools: ['a'] } })
+  assert.deepEqual(store.listAgents().find((x) => x.id === a.id)?.authority?.tools, ['a']) // Agent clamped
+  assert.deepEqual(store.getCommission(c.id)?.authority?.tools, ['a']) // commission clamped (transitive)
+})
+
+test('narrowing an Agent budget re-clamps its commissions grants (D8 runtime propagation)', () => {
+  const a = store.createAgent({
+    label: 'Budget A', systemPrompt: 's', tools: [], instructions: '',
+    budget: { windows: [{ label: '5-hour limit', ceiling: 1_000_000 }] },
+  })
+  const c = store.createCommission({
+    agentId: a.id, projectId: 'p-insights',
+    grant: { windows: [{ label: '5-hour limit', ceiling: 1_000_000 }] },
+  })
+  store.updateAgentFromRequest(a.id, { budget: { windows: [{ label: '5-hour limit', ceiling: 400_000 }] } })
+  assert.equal(store.getCommission(c.id)?.grant?.windows.find((w) => w.label === '5-hour limit')?.ceiling, 400_000)
+})

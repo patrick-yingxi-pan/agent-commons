@@ -5,7 +5,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from '../server/store.ts'
-import { overAuthority } from '../contract/index.ts'
+import { overAuthority, clampAuthority } from '../contract/index.ts'
 import { mintAuthority, AuthorityError } from '../server/authority.ts'
 import { DEFAULT_PROVIDER } from '../server/data/providers.ts'
 
@@ -79,4 +79,17 @@ test('createAgent enforces agent authority ⊆ provider authority at the funnel'
     authority: { tools: ['read'], connectors: ['github'] },
   })
   assert.deepEqual(ok.authority, { tools: ['read'], connectors: ['github'] })
+})
+
+test('clampAuthority tightens only explicit dims a narrowed parent no longer admits (D8 runtime)', () => {
+  // Explicit child, parent narrowed → dropped values removed.
+  assert.deepEqual(clampAuthority({ tools: ['a', 'b', 'c'] }, { tools: ['a', 'c'] }).tools, ['a', 'c'])
+  // Child already ⊆ parent → unchanged.
+  assert.deepEqual(clampAuthority({ tools: ['a'] }, { tools: ['a', 'b'] }).tools, ['a'])
+  // An inherited (unset) dim follows the parent — left alone, never materialized onto the child.
+  assert.equal(clampAuthority({ connectors: ['X'] }, { connectors: ['X'], tools: ['a'] }).tools, undefined)
+  // A '*' dim is unrestricted → inherits, untouched.
+  assert.deepEqual(clampAuthority({ tools: ['*'] }, { tools: ['a'] }).tools, ['*'])
+  // An unrestricted parent admits everything → child unchanged.
+  assert.deepEqual(clampAuthority({ connectors: ['X', 'Y'] }, {}).connectors, ['X', 'Y'])
 })
