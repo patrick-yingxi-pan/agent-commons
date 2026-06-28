@@ -8,6 +8,8 @@ import type {
   CreateDispatchRequest,
   CreateProviderRequest,
   UpdateProviderRequest,
+  CreateSystemPromptRequest,
+  UpdateSystemPromptRequest,
   ReserveSubGoalRequest,
   PushRecentRequest,
   RegisterRunnerRequest,
@@ -271,9 +273,11 @@ export function buildRouter(): Router {
   })
 
   // ── System-prompt library (the cognition half — docs/agent-commons.md, D10) ──
-  // The reusable, target-family-tagged prompts a user picks for an Agent. Read-only
-  // on the wire; the (prompt × provider) fit warning is computed client-side from the
-  // shared pure `promptFitWarning`, surfaced in the picker at selection time.
+  // The reusable, target-family-tagged prompts a user picks for an Agent. The Agents hub
+  // manages them (create / patch / delete); the (prompt × provider) fit warning is
+  // computed client-side from the shared pure `promptFitWarning`, surfaced at selection
+  // time. A plain registry (prompt text isn't a capability — no attenuation funnel);
+  // DELETE refuses the default or a prompt an Agent still references (409). In-memory.
   r.get('/system-prompts', ({ res }) => {
     sendJson(res, store.listSystemPrompts())
   })
@@ -281,6 +285,29 @@ export function buildRouter(): Router {
     const entry = store.getSystemPrompt(params.id)
     if (!entry) return sendError(res, 'not_found', `No system prompt '${params.id}'`)
     sendJson(res, entry)
+  })
+  r.post('/system-prompts', async ({ res, body }) => {
+    const input = await body<CreateSystemPromptRequest>()
+    if (!input?.label || !input?.body || !input?.targetFamily) {
+      return sendError(res, 'bad_request', 'label, body, and targetFamily are required')
+    }
+    sendJson(res, store.createSystemPrompt(input))
+  })
+  r.patch('/system-prompts/:id', async ({ res, params, body }) => {
+    const patch = await body<UpdateSystemPromptRequest>()
+    const entry = store.updateSystemPrompt(params.id, patch)
+    if (!entry) return sendError(res, 'not_found', `No system prompt '${params.id}'`)
+    sendJson(res, entry)
+  })
+  r.delete('/system-prompts/:id', ({ res, params }) => {
+    try {
+      if (!store.deleteSystemPrompt(params.id)) return sendError(res, 'not_found', `No system prompt '${params.id}'`)
+      sendJson(res, { ok: true })
+    } catch (err) {
+      // Protected (the default) or still referenced by an Agent — a 409 to re-target.
+      if (err instanceof ConflictError) return sendError(res, err.code, err.message)
+      throw err
+    }
   })
 
   // ── Commissions (the agent→Project assignment — docs/agent-commons.md, D7/D13) ──

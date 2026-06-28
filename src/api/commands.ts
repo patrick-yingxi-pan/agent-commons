@@ -15,6 +15,9 @@ import {
   type CreateProviderRequest,
   type ModelProvider,
   type UpdateProviderRequest,
+  type CreateSystemPromptRequest,
+  type SystemPromptEntry,
+  type UpdateSystemPromptRequest,
   type ReserveSubGoalRequest,
   type ContextStatus,
   type ContextTypeId,
@@ -238,6 +241,29 @@ export async function updateProvider(id: string, patch: UpdateProviderRequest): 
 export async function deleteProvider(id: string): Promise<void> {
   await apiDelete(paths.provider(id))
   invalidate(keys.providers)
+}
+
+// ── System-prompt library (the Agents hub — docs/agent-commons.md, D10) ──────
+
+/** Add a library prompt; refreshes the prompt list. */
+export async function createSystemPrompt(input: CreateSystemPromptRequest): Promise<SystemPromptEntry> {
+  const entry = await apiPost<SystemPromptEntry>(paths.systemPrompts, input)
+  invalidate(keys.systemPrompts)
+  return entry
+}
+
+/** Patch a library prompt's fields; refreshes the prompt list. */
+export async function updateSystemPrompt(id: string, patch: UpdateSystemPromptRequest): Promise<SystemPromptEntry> {
+  const entry = await apiPatch<SystemPromptEntry>(paths.systemPrompt(id), patch)
+  invalidate(keys.systemPrompts)
+  return entry
+}
+
+/** Remove a library prompt. Rejects (so the caller can surface the message) when the
+ *  server refuses — the default prompt, or one an Agent still references (409). */
+export async function deleteSystemPrompt(id: string): Promise<void> {
+  await apiDelete(paths.systemPrompt(id))
+  invalidate(keys.systemPrompts)
 }
 
 /** Claim a sub-goal on a Project for a Contributor (docs/agent-commons.md, D11). The

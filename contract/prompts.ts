@@ -32,3 +32,9 @@ export function promptFitWarning(entry: SystemPromptEntry, providerModelFamily: 
   if (entry.targetFamily === providerModelFamily) return null
   return `Authored for ${entry.targetFamily} models — may degrade on a ${providerModelFamily} provider.`
 }
+
+/** Add a library prompt (the server mints the id). */
+export type CreateSystemPromptRequest = Omit<SystemPromptEntry, 'id'>
+
+/** Patch a library prompt's fields. All optional — only the named fields change. */
+export type UpdateSystemPromptRequest = Partial<Omit<SystemPromptEntry, 'id'>>

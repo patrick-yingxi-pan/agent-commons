@@ -102,6 +102,9 @@ import {
   createProvider,
   updateProvider,
   deleteProvider,
+  createSystemPrompt,
+  updateSystemPrompt,
+  deleteSystemPrompt,
   reserveSubGoal,
   releaseSubGoal,
   useAgents,
@@ -121,6 +124,7 @@ import {
   type Agent,
   type Commission,
   type ModelProvider,
+  type SystemPromptEntry,
 } from '../../contract/index.ts'
 import { authorityLabel, providerPlanLabel } from '../lib/agentCommonsLabels'
 import { ArtifactThumb, ArtifactViewer, KIND_ICON, KIND_LABEL } from './artifactPreview'
@@ -2582,30 +2586,131 @@ function PromptsTab() {
   const prompts = useSystemPrompts().data ?? []
   const providers = useProviders().data ?? []
   const providerFamily = providers[0]?.modelFamily ?? 'claude'
-  if (prompts.length === 0) return <Empty>No system prompts yet.</Empty>
+  const [editing, setEditing] = useState<SystemPromptEntry | 'new' | null>(null)
   return (
     <div className="space-y-3">
-      {prompts.map((p) => {
-        const warning = promptFitWarning(p, providerFamily)
-        return (
-          <CommonsCard key={p.id}>
-            <CommonsCardHead
-              icon={<FileText size={16} />}
-              title={p.label}
-              subtitle={`Tuned for ${p.targetFamily}`}
-              trailing={
-                warning && (
-                  <span title={warning} className="shrink-0 text-amber-600">
-                    <AlertCircle size={15} />
-                  </span>
-                )
-              }
-            />
-            <p className="mt-2 line-clamp-2 text-[12px] text-ink-soft">{p.body}</p>
-          </CommonsCard>
-        )
-      })}
+      <TabToolbar newLabel="New prompt" onNew={() => setEditing('new')} />
+      {prompts.length === 0 ? (
+        <Empty>No system prompts yet.</Empty>
+      ) : (
+        prompts.map((p) => (
+          <LibraryPromptCard key={p.id} prompt={p} providerFamily={providerFamily} onEdit={() => setEditing(p)} />
+        ))
+      )}
+      {editing && <PromptDialog prompt={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
     </div>
+  )
+}
+
+function LibraryPromptCard({
+  prompt,
+  providerFamily,
+  onEdit,
+}: {
+  prompt: SystemPromptEntry
+  providerFamily: string
+  onEdit: () => void
+}) {
+  const [error, setError] = useState<string | null>(null)
+  const warning = promptFitWarning(prompt, providerFamily)
+  const del = async () => {
+    setError(null)
+    try {
+      await deleteSystemPrompt(prompt.id)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not delete this prompt.')
+    }
+  }
+  return (
+    <CommonsCard>
+      <CommonsCardHead
+        icon={<FileText size={16} />}
+        title={prompt.label}
+        subtitle={`Tuned for ${prompt.targetFamily}`}
+        trailing={
+          <div className="flex items-center gap-1.5">
+            {warning && (
+              <span title={warning} className="shrink-0 text-amber-600">
+                <AlertCircle size={15} />
+              </span>
+            )}
+            <CardActions onEdit={onEdit} onDelete={del} />
+          </div>
+        }
+      />
+      <p className="mt-2 line-clamp-2 text-[12px] text-ink-soft">{prompt.body}</p>
+      {error && <p className="mt-2 text-[12px] text-removed">{error}</p>}
+    </CommonsCard>
+  )
+}
+
+/** Create / edit a library system prompt. The model family drives the D10 fit warning;
+ *  the body is the text an Agent built from this entry drives the model with. */
+function PromptDialog({ prompt, onClose }: { prompt: SystemPromptEntry | null; onClose: () => void }) {
+  const [label, setLabel] = useState(prompt?.label ?? '')
+  const [family, setFamily] = useState(prompt?.targetFamily ?? 'claude')
+  const [bodyText, setBodyText] = useState(prompt?.body ?? '')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const canSubmit =
+    label.trim().length > 0 && family.trim().length > 0 && bodyText.trim().length > 0 && !busy
+
+  const submit = async () => {
+    if (!canSubmit) return
+    setBusy(true)
+    setError(null)
+    const fields = { label: label.trim(), targetFamily: family.trim(), body: bodyText.trim() }
+    try {
+      if (prompt) await updateSystemPrompt(prompt.id, fields)
+      else await createSystemPrompt(fields)
+      onClose()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save this prompt.')
+      setBusy(false)
+    }
+  }
+
+  return (
+    <FormDialog
+      title={prompt ? 'Edit prompt' : 'New prompt'}
+      icon={<FileText size={18} className="text-ink-soft" />}
+      submitLabel={prompt ? 'Save' : 'Create'}
+      canSubmit={canSubmit}
+      onSubmit={submit}
+      onClose={onClose}
+      error={error}
+    >
+      <FormField label="Name">
+        <input
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && submit()}
+          placeholder="e.g. Concise code reviewer"
+          className={FORM_INPUT_CLASS}
+        />
+      </FormField>
+      <FormField label="Model family">
+        <input
+          value={family}
+          onChange={(e) => setFamily(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && submit()}
+          placeholder="claude"
+          className={FORM_INPUT_CLASS}
+        />
+        <span className="mt-1 block text-[11px] text-ink-faint">
+          Picking this prompt on a provider of a different family shows a fit warning.
+        </span>
+      </FormField>
+      <FormField label="Prompt">
+        <textarea
+          value={bodyText}
+          onChange={(e) => setBodyText(e.target.value)}
+          rows={5}
+          placeholder="The system prompt an Agent drives the model with."
+          className={`${FORM_INPUT_CLASS} resize-none leading-relaxed`}
+        />
+      </FormField>
+    </FormDialog>
   )
 }
 

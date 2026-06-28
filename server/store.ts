@@ -66,7 +66,7 @@ import { ConflictError } from './conflict.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority } from '../contract/index.ts'
 import type { Agent, Authority, Commission, ModelProvider, ProjectSubGoal, Reservation, SystemPromptEntry } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, type ProviderConfig } from './data/providers.ts'
-import { SYSTEM_PROMPTS } from './data/prompts.ts'
+import { SYSTEM_PROMPTS, SP_DEFAULT_ID } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
 import { TOOL_DEFINITIONS } from './model/tools.ts'
 import { systemPrompt } from './generate.ts'
@@ -627,6 +627,32 @@ export const store = {
     const entry: SystemPromptEntry = { ...input, id: `sp-new-${(systemPromptSeq += 1)}` }
     SYSTEM_PROMPT_LIB.set(entry.id, entry)
     return entry
+  },
+  /** Patch a library prompt's fields (label / body / target family). A plain registry
+   *  edit — no attenuation funnel (prompt text isn't a capability). Undefined when
+   *  unknown (→ 404). */
+  updateSystemPrompt(id: string, patch: Partial<Omit<SystemPromptEntry, 'id'>>): SystemPromptEntry | undefined {
+    const current = SYSTEM_PROMPT_LIB.get(id)
+    if (!current) return undefined
+    const next: SystemPromptEntry = { ...current, ...patch, id: current.id }
+    SYSTEM_PROMPT_LIB.set(id, next)
+    return next
+  },
+  /** Remove a library prompt. Refuses (ConflictError → 409) the seeded default — the
+   *  default Agent's body is single-sourced from it — and any prompt an Agent still
+   *  references (`systemPromptId`), so the user repoints those Agents first. False when
+   *  unknown (→ 404). */
+  deleteSystemPrompt(id: string): boolean {
+    if (!SYSTEM_PROMPT_LIB.has(id)) return false
+    if (id === SP_DEFAULT_ID) throw new ConflictError('The default system prompt can’t be removed.')
+    const used = [...WORKER_AGENTS.values()].filter((a) => a.systemPromptId === id)
+    if (used.length > 0) {
+      throw new ConflictError(
+        `${used.length} agent${used.length === 1 ? '' : 's'} still ${used.length === 1 ? 'uses' : 'use'} this prompt — repoint ${used.length === 1 ? 'it' : 'them'} first.`,
+      )
+    }
+    SYSTEM_PROMPT_LIB.delete(id)
+    return true
   },
 
   // ── Commissions (the agent→Project assignment — docs/agent-commons.md, D7/D13) ──
