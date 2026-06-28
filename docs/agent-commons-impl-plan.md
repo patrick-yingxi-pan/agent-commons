@@ -1,9 +1,10 @@
 # Agent Commons — implementation plan (effect-time enforcement + roles)
 
-> **Status: Phases 1–3 complete ✅** (11 steps; typecheck + 385 tests + build green, each
-> step `/code-review`'d). **Phase 4 greenlit and underway** — finishing all planned designs
-> (D6 rename, per-axis editor, D8 gaps, D16 hand-off, D15 proxy) as real seams with mock
-> fulfilment, same one-step-per-iteration rhythm.
+> **Status: ALL PHASES COMPLETE ✅** (Phases 1–4; typecheck + 401 tests + build green, each
+> step `/code-review`'d). Every planned design from `agent-commons.md` (D6–D16, OQ3/OQ4) is now
+> built — effect-time D12 enforcement, the Project-effect classifier + guarded path, the full
+> D14 role system, the D6 rename, the per-axis editor, D8 closed end-to-end (mint + spend-time +
+> shrink), D16 hand-off + per-turn provenance, and the D15 agent-to-agent proxy.
 >
 > Derived from the settled design ([`agent-commons.md`](agent-commons.md), D6–D16).
 > This is the **plan-of-record** *and* the loop's checklist: each iteration does the
@@ -154,11 +155,13 @@ seam now, mock only the model). Ordered safest/most-contained → most-speculati
   `Session.agentId` mid-thread (a `RelationOp` through the same card), each turn stamped (4.5).
   **Tests** (+ card text).
 
-- [ ] **4.7 D15 agent-to-agent proxy (contract).** `ProxyRequest`/`ProxyResult`: cross-user
-  access to a *private* resource is a request **to the owner's Agent**, never a credential. The
-  wire shape of D15. **Tests** (pure-contract).
-
-- [ ] **4.8 D15 proxy route + mock fulfilment.** `POST` route routing a cross-user resource
-  request to the owner's Agent, which acts under **its own** authority + consent and returns
-  only the result — the requester holds no credential (the structural D12 wall). Mock
-  fulfilment; the seam is real. **Tests.**
+- [x] **4.7 + 4.8 D15 agent-to-agent proxy (contract + route).** *Delivered together — the
+  `contract-boundaries` test couples a `*Request` DTO to its route consumer, so the wire shape
+  and its route can't ship apart.* `contract/proxy.ts` defines `ProxyRequest`/`ProxyResult`
+  (structurally **no credential channel**) + `accessChannel` (the D15↔D11 partition: shared →
+  Guardian, private → agent-proxy). `POST /agents/:id/proxy` → `store.runAgentProxy`, where **B
+  acts under its *own* authority** (the requester's is never used) and returns only the result —
+  A holds no B credential (the structural D12 wall). *Consent is modeled as "B's authority admits
+  the target"; explicit owner-side human approval is forward (single-user prototype).* **Tests:**
+  pure-contract (`accessChannel`, the no-credential shape) + route (B denies what its own
+  authority excludes, regardless of A; 404/400).

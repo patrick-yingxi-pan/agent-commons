@@ -65,7 +65,7 @@ import { mintAuthority } from './authority.ts'
 import { ConflictError } from './conflict.ts'
 import { scopeMatches } from './runner-runtime.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, clampAuthority, clampBudget } from '../contract/index.ts'
-import type { Agent, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelProvider, ProjectAction, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, Reservation, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest } from '../contract/index.ts'
+import type { Agent, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelProvider, ProjectAction, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, ProxyRequest, ProxyResult, Reservation, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
@@ -1224,6 +1224,22 @@ export const store = {
     // Non-monotonic ⇒ serialize on the sub-goal reservation (a no-op for an unguarded
     // Project); monotonic ⇒ coordination-free (CALM).
     return monotonic ? fulfil() : this.guardSubGoalEffect(projectId, commissionId, subGoal, fulfil)
+  },
+  /** Agent-to-agent proxy (D15): A's Agent asks B's Agent (`toAgentId`) to act on B's private
+   *  resource. **B acts under its *own* authority** — the requester's authority is never used
+   *  and no credential crosses back; A receives only the result. Fulfils when B's authority
+   *  admits the connector/MCP target (a `charge` needs no reach), else denies (B's side lacks
+   *  the reach / declines). Mock fulfilment; the seam is real. Undefined for an unknown owner
+   *  Agent (→ 404). */
+  runAgentProxy(toAgentId: string, req: ProxyRequest): ProxyResult | undefined {
+    const to = WORKER_AGENTS.get(toAgentId)
+    if (!to) return undefined
+    const reaches = req.capability.startsWith('connector.') || req.capability.startsWith('mcp.')
+    const auth = to.authority ?? resolveProvider(to.providerId).authority ?? {}
+    if (reaches && !authorityAdmits(auth, 'connectors', req.target)) {
+      return { status: 'denied', actedBy: to.id, reason: `${to.label} may not reach '${req.target}'` }
+    }
+    return { status: 'fulfilled', actedBy: to.id, output: `${to.label} performed ${req.capability} on '${req.target}'` }
   },
   /** The sub-goals currently in flight on a Project — one entry per active Contributor
    *  claim (held or committed), the Coordination panel's read. Enumerates the guardian's

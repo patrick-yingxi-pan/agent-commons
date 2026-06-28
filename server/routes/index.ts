@@ -35,6 +35,7 @@ import { isMonotonic, isProjectEffectMonotonic, PROJECT_EFFECT_TYPES, PROJECT_RO
 import type {
   CapabilityRequest,
   ProjectEffectRequest,
+  ProxyRequest,
   ReserveRequest,
   SetCapacityRequest,
   SyncEffectsRequest,
@@ -355,6 +356,18 @@ export function buildRouter(): Router {
       if (err instanceof ConflictError) return sendError(res, err.code, err.message)
       throw err
     }
+  })
+  // Agent-to-agent proxy (D15): A's Agent (`fromAgentId`) asks B's Agent (`:id`) to act on B's
+  // private resource. B acts under *its own* authority and returns only the result — the
+  // requester never holds a B credential (the structural D12 wall). Mock fulfilment.
+  r.post('/agents/:id/proxy', async ({ res, params, body }) => {
+    const req = await body<ProxyRequest>()
+    if (!req?.fromAgentId || typeof req?.target !== 'string' || !PROJECT_EFFECT_TYPES.includes(req.capability)) {
+      return sendError(res, 'bad_request', 'fromAgentId, target, and a valid capability are required')
+    }
+    const result = store.runAgentProxy(params.id, req)
+    if (!result) return sendError(res, 'not_found', `No agent '${params.id}' to proxy through`)
+    sendJson(res, result)
   })
 
   // ── System-prompt library (the cognition half — docs/agent-commons.md, D10) ──
