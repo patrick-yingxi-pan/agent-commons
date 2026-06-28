@@ -65,7 +65,7 @@ import { mintAuthority } from './authority.ts'
 import { ConflictError } from './conflict.ts'
 import { scopeMatches } from './agent-runtime.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits } from '../contract/index.ts'
-import type { Agent, Authority, CapabilityType, Commission, CreateAgentRequest, ModelProvider, ProjectAction, ProjectEffectResult, ProjectEffectType, ProjectSubGoal, Reservation, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest } from '../contract/index.ts'
+import type { Agent, Authority, CapabilityType, Commission, CreateAgentRequest, ModelProvider, ProjectAction, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, Reservation, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
@@ -162,6 +162,14 @@ function holderLabel(holder: string): string {
   const commission = COMMISSIONS.get(holder)
   if (!commission) return holder
   return WORKER_AGENTS.get(commission.agentId)?.label ?? holder
+}
+
+// The holder's project role (D14), when the holder is a Contributor (a commission) — the
+// standing surfaced on a sub-goal. An unset role reads as the 'writer' default; a
+// non-commission principal has none (undefined).
+function holderRole(holder: string): ProjectRole | undefined {
+  const commission = COMMISSIONS.get(holder)
+  return commission ? commission.role ?? 'writer' : undefined
 }
 
 // Per-user recents — one non-evicting MRU id list per context type. Connectors /
@@ -1178,7 +1186,14 @@ export const store = {
       if (!key.startsWith(prefix)) continue
       const subGoal = key.slice(prefix.length)
       for (const r of guardian.status(key).active) {
-        out.push({ subGoal, holder: r.holder, holderLabel: holderLabel(r.holder), reservationId: r.id, status: r.status })
+        out.push({
+          subGoal,
+          holder: r.holder,
+          holderLabel: holderLabel(r.holder),
+          holderRole: holderRole(r.holder),
+          reservationId: r.id,
+          status: r.status,
+        })
       }
     }
     return out

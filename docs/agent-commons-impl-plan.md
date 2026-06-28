@@ -95,7 +95,7 @@ green before a step is done; UI steps verified in the running app.
   A reader is refused 403. **Tests:** invoke + project-effect + subgoal route tests with a
   reader commission.
 
-- [ ] **3.4 Acquisition-priority arbitration (no preemption).** On a sub-goal conflict,
+- [x] **3.4 Acquisition-priority arbitration (no preemption).** On a sub-goal conflict,
   surface the current holder's role (`projectSubGoals` / the 409 path) so standing is
   visible; **document** that acquisition-priority is a *no-op under the mock's synchronous,
   single-process model* (no true simultaneity to arbitrate) and that **no preemption** of

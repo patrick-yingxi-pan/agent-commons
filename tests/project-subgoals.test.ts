@@ -72,6 +72,21 @@ test('routes: GET lists in-flight sub-goals; POST claims; a conflicting claim 40
   assert.equal(bad.status, 400)
 })
 
+test('a sub-goal surfaces its holder’s role; a higher role does not preempt an in-flight hold (D14)', async () => {
+  // The seeded in-flight sub-goal is held by the maintainer Contributor — its role shows.
+  const seed = store.projectSubGoals(GUARDED).find((s) => s.subGoal === 'auth-refactor')
+  assert.equal(seed?.holderRole, 'maintainer')
+
+  // An owner (higher rank) cannot displace the maintainer's in-flight hold — acquisition
+  // priority never preempts; the contender is refused (409) and re-reasons.
+  const owner = store.createCommission({ agentId: 'agent-default', projectId: GUARDED, role: 'owner' })
+  const contend = await call('POST', `/projects/${GUARDED}/subgoals`, { holder: owner.id, subGoal: 'auth-refactor' })
+  assert.equal(contend.status, 409)
+  // The maintainer still holds it — no preemption.
+  const after = store.projectSubGoals(GUARDED).find((s) => s.subGoal === 'auth-refactor')
+  assert.equal(after?.holder, 'commission-insights-default')
+})
+
 test('a reader role may not reserve a sub-goal; a maintainer may (D14)', async () => {
   const reader = store.createCommission({ agentId: 'agent-default', projectId: GUARDED, role: 'reader' })
   const denied = await call('POST', `/projects/${GUARDED}/subgoals`, { holder: reader.id, subGoal: 'sg-reader-reserve' })

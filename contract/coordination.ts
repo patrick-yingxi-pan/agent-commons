@@ -6,9 +6,13 @@
  *  `${guardianId}:${subGoal}`. Two Contributors on *different* sub-goals proceed
  *  concurrently (distinct resources); a second Contributor reaching for the *same*
  *  sub-goal is refused (`conflict`/409) and **re-reasons** — "conflict is a question,
- *  not an abort". The arbitration policy is **first-come** (the escrow's capacity-1
- *  semantics, now multi-principal). */
+ *  not an abort". The arbitration policy is **first-come** among equals; a higher project
+ *  role (D14, `roleRank`) may win a *free or simultaneously-contested* lease, but **never
+ *  preempts an in-flight hold** — and under this synchronous single-process mock there is no
+ *  true simultaneity, so acquisition-priority is a no-op here (the rank is surfaced on the
+ *  sub-goal for a real, async arbiter). */
 import type { ReservationStatus } from './reservations.ts'
+import type { ProjectRole } from './roles.ts'
 
 /** The classes of **externally-effectful** Project action (D11/D12) — what a
  *  Contributor's effect on the shared Project does to the outside world. Distinct from
@@ -70,6 +74,11 @@ export interface ProjectSubGoal {
   /** The holder resolved to a human label (the Contributor's Agent label), or the
    *  holder id verbatim when it isn't a known commission. */
   holderLabel: string
+  /** The holder's **project role** (D14), when the holder is a Contributor — the standing
+   *  a contender is up against. Surfaced so acquisition-time arbitration *could* rank by it;
+   *  it never preempts this in-flight hold (a contender is refused, not the holder displaced).
+   *  Absent for a non-commission principal. */
+  holderRole?: ProjectRole
   /** The underlying reservation, so a holder can release its claim. */
   reservationId: string
   status: ReservationStatus
