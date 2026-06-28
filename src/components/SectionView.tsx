@@ -351,94 +351,43 @@ function NewProjectDialog({
 }) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const dialogRef = useRef<HTMLDivElement>(null)
-  const nameRef = useRef<HTMLInputElement>(null)
-
-  // Focus the name field on open, trap Tab within the dialog, close on Escape,
-  // restore focus on close.
-  useFocusTrap(dialogRef, onClose, { initialFocus: nameRef })
 
   const canCreate = name.trim().length > 0
   const submit = () => {
     if (canCreate) onCreate(name.trim(), description.trim())
   }
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex justify-center px-4 pt-[14vh]"
-      onMouseDown={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label="New project"
+  return (
+    <FormDialog
+      title="New project"
+      icon={<Box size={18} className="text-cap-workspace" />}
+      submitLabel="Create project"
+      submitIcon={<Plus size={15} />}
+      canSubmit={canCreate}
+      onSubmit={submit}
+      onClose={onClose}
     >
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" />
-      <div
-        ref={dialogRef}
-        onMouseDown={(e) => e.stopPropagation()}
-        className="relative flex h-fit w-[460px] max-w-full flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong"
-      >
-        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
-          <div className="flex items-center gap-2">
-            <Box size={18} className="text-cap-workspace" />
-            <span className="text-[15px] font-semibold text-ink">New project</span>
-          </div>
-          <button
-            onClick={onClose}
-            title="Close"
-            aria-label="Close"
-            className="-mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink"
-          >
-            <X size={16} />
-          </button>
-        </div>
-
-        <div className="space-y-4 p-5">
-          <label className="block">
-            <span className="mb-1.5 block text-[12px] font-medium text-ink-soft">Name</span>
-            <input
-              ref={nameRef}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') submit()
-              }}
-              placeholder="e.g. Insights dashboard"
-              className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-[14px] text-ink outline-none transition placeholder:text-ink-faint focus:border-accent"
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1.5 block text-[12px] font-medium text-ink-soft">
-              Description <span className="font-normal text-ink-faint">(optional)</span>
-            </span>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-              placeholder="What this project groups together."
-              className="w-full resize-none rounded-lg border border-line bg-surface px-3 py-2 text-[14px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-accent"
-            />
-          </label>
-        </div>
-
-        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line bg-panel px-5 py-3">
-          <button
-            onClick={onClose}
-            className="rounded-lg border border-line-strong bg-surface px-3.5 py-1.5 text-[13px] font-medium text-ink-soft shadow-sm transition hover:border-accent hover:text-ink"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={submit}
-            disabled={!canCreate}
-            className="flex items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Plus size={15} />
-            Create project
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body,
+      <FormField label="Name">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') submit()
+          }}
+          placeholder="e.g. Insights dashboard"
+          className={FORM_INPUT_CLASS}
+        />
+      </FormField>
+      <FormField label="Description" optional>
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={3}
+          placeholder="What this project groups together."
+          className={`${FORM_INPUT_CLASS} resize-none leading-relaxed`}
+        />
+      </FormField>
+    </FormDialog>
   )
 }
 
@@ -2433,6 +2382,7 @@ function FormDialog({
   title,
   icon,
   submitLabel,
+  submitIcon,
   canSubmit,
   onSubmit,
   onClose,
@@ -2442,6 +2392,7 @@ function FormDialog({
   title: string
   icon: ReactNode
   submitLabel: string
+  submitIcon?: ReactNode
   canSubmit: boolean
   onSubmit: () => void
   onClose: () => void
@@ -2501,6 +2452,7 @@ function FormDialog({
             disabled={!canSubmit}
             className="flex items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
+            {submitIcon}
             {submitLabel}
           </button>
         </div>
@@ -3024,13 +2976,10 @@ function GenericSection({ section }: { section: SectionId }) {
 
 /** The "New dispatch" form — a one-off agentic task: a required title + an optional
  *  detail. Dispatching kicks off a run that lands in the feed 'running' and finishes
- *  a beat later. Mirrors NewProjectDialog's modal idiom. */
+ *  a beat later. Built on the shared FormDialog primitive. */
 function NewDispatchDialog({ onClose }: { onClose: () => void }) {
   const [title, setTitle] = useState('')
   const [detail, setDetail] = useState('')
-  const dialogRef = useRef<HTMLDivElement>(null)
-  const titleRef = useRef<HTMLInputElement>(null)
-  useFocusTrap(dialogRef, onClose, { initialFocus: titleRef })
 
   const canCreate = title.trim().length > 0
   const submit = () => {
@@ -3039,82 +2988,37 @@ function NewDispatchDialog({ onClose }: { onClose: () => void }) {
     onClose()
   }
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex justify-center px-4 pt-[14vh]"
-      onMouseDown={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label="New dispatch"
+  return (
+    <FormDialog
+      title="New dispatch"
+      icon={<SendHorizontal size={18} className="text-cap-workspace" />}
+      submitLabel="Dispatch"
+      submitIcon={<SendHorizontal size={15} />}
+      canSubmit={canCreate}
+      onSubmit={submit}
+      onClose={onClose}
     >
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" />
-      <div
-        ref={dialogRef}
-        onMouseDown={(e) => e.stopPropagation()}
-        className="relative flex h-fit w-[460px] max-w-full flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong"
-      >
-        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
-          <div className="flex items-center gap-2">
-            <SendHorizontal size={18} className="text-cap-workspace" />
-            <span className="text-[15px] font-semibold text-ink">New dispatch</span>
-          </div>
-          <button
-            onClick={onClose}
-            title="Close"
-            aria-label="Close"
-            className="-mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink"
-          >
-            <X size={16} />
-          </button>
-        </div>
-
-        <div className="space-y-4 p-5">
-          <label className="block">
-            <span className="mb-1.5 block text-[12px] font-medium text-ink-soft">Task</span>
-            <input
-              ref={titleRef}
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') submit()
-              }}
-              placeholder="e.g. Triage today’s new support tickets"
-              className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-[14px] text-ink outline-none transition placeholder:text-ink-faint focus:border-accent"
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1.5 block text-[12px] font-medium text-ink-soft">
-              Detail <span className="font-normal text-ink-faint">(optional)</span>
-            </span>
-            <textarea
-              value={detail}
-              onChange={(e) => setDetail(e.target.value)}
-              rows={3}
-              placeholder="What it should do, and where to deliver the result."
-              className="w-full resize-none rounded-lg border border-line bg-surface px-3 py-2 text-[14px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-accent"
-            />
-          </label>
-        </div>
-
-        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line bg-panel px-5 py-3">
-          <button
-            onClick={onClose}
-            className="rounded-lg border border-line-strong bg-surface px-3.5 py-1.5 text-[13px] font-medium text-ink-soft shadow-sm transition hover:border-accent hover:text-ink"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={submit}
-            disabled={!canCreate}
-            className="flex items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <SendHorizontal size={15} />
-            Dispatch
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body,
+      <FormField label="Task">
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') submit()
+          }}
+          placeholder="e.g. Triage today’s new support tickets"
+          className={FORM_INPUT_CLASS}
+        />
+      </FormField>
+      <FormField label="Detail" optional>
+        <textarea
+          value={detail}
+          onChange={(e) => setDetail(e.target.value)}
+          rows={3}
+          placeholder="What it should do, and where to deliver the result."
+          className={`${FORM_INPUT_CLASS} resize-none leading-relaxed`}
+        />
+      </FormField>
+    </FormDialog>
   )
 }
 
