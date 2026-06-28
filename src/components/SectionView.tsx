@@ -982,10 +982,44 @@ function ContributorRow({ commission, agentLabel }: { commission: Commission; ag
   )
 }
 
-/** Re-grant a Contributor — narrow (or restore) which of the Project's admitted connectors
- *  it may reach (D12). The Project's admitted set is the wall: the checklist is bounded by
- *  it, and unchecking narrows the Contributor below it. All-checked ⇒ inherit (unset
- *  authority); a subset ⇒ a scoped connector grant. */
+/** One Project-admitted reach axis as a checklist (connectors or file scopes) — the shared
+ *  primitive behind both, so the two axes can't drift (same role ⇒ same look). */
+function AdmittedChecklist({
+  label,
+  admitted,
+  selected,
+  onToggle,
+  emptyText,
+}: {
+  label: string
+  admitted: string[]
+  selected: Set<string>
+  onToggle: (value: string) => void
+  emptyText: string
+}) {
+  return (
+    <div>
+      <span className="mb-1.5 block text-[12px] font-medium text-ink-soft">{label}</span>
+      {admitted.length === 0 ? (
+        <p className="text-[12px] text-ink-faint">{emptyText}</p>
+      ) : (
+        <div className="space-y-1.5">
+          {admitted.map((v) => (
+            <label key={v} className="flex items-center gap-2 text-[13px] text-ink">
+              <input type="checkbox" checked={selected.has(v)} onChange={() => onToggle(v)} />
+              {v}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Re-grant a Contributor — narrow (or restore) which of the Project's admitted **connectors
+ *  and file scopes** it may reach (D12). The Project's admitted set is the wall on each axis:
+ *  each checklist is bounded by it, and unchecking narrows the Contributor below it. The role
+ *  (D14) sets the permission baseline. All-checked ⇒ the full admitted reach. */
 function CommissionDialog({
   commission,
   project,
@@ -995,18 +1029,22 @@ function CommissionDialog({
   project: Project
   onClose: () => void
 }) {
-  const admitted = projectAdmittedAuthority(project.contexts).connectors ?? []
-  const current = commission.authority?.connectors
-  const startAll = !current || current.includes('*')
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(startAll ? admitted : current))
+  const admitted = projectAdmittedAuthority(project.contexts)
+  const admittedConnectors = admitted.connectors ?? []
+  const admittedScopes = admitted.scopes ?? []
+  // Start from the current grant, or the full admitted set when the grant is unset / '*'.
+  const startSet = (granted: string[] | undefined, all: string[]) =>
+    new Set(!granted || granted.includes('*') ? all : granted)
+  const [connectors, setConnectors] = useState<Set<string>>(() => startSet(commission.authority?.connectors, admittedConnectors))
+  const [scopes, setScopes] = useState<Set<string>>(() => startSet(commission.authority?.scopes, admittedScopes))
   const [role, setRole] = useState<ProjectRole>(commission.role ?? 'writer')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const toggle = (c: string) =>
-    setSelected((prev) => {
+  const toggle = (setFn: typeof setConnectors) => (v: string) =>
+    setFn((prev) => {
       const next = new Set(prev)
-      next.has(c) ? next.delete(c) : next.add(c)
+      next.has(v) ? next.delete(v) : next.add(v)
       return next
     })
 
@@ -1018,7 +1056,10 @@ function CommissionDialog({
     // the server couldn't tell "clear" from "unchanged"). The reach is this set ∩ the
     // Project's admitted set; checking every box restores the full admitted reach.
     try {
-      await updateCommission(commission.id, commission.projectId, { role, authority: { connectors: [...selected] } })
+      await updateCommission(commission.id, commission.projectId, {
+        role,
+        authority: { connectors: [...connectors], scopes: [...scopes] },
+      })
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not update this contributor.')
@@ -1057,23 +1098,22 @@ function CommissionDialog({
           reserve sub-goals; owner may also commission others.
         </p>
       </div>
-      <div>
-        <span className="mb-1.5 block text-[12px] font-medium text-ink-soft">
-          Connectors this contributor may reach
-        </span>
-        {admitted.length === 0 ? (
-          <p className="text-[12px] text-ink-faint">This project admits no connectors.</p>
-        ) : (
-          <div className="space-y-1.5">
-            {admitted.map((c) => (
-              <label key={c} className="flex items-center gap-2 text-[13px] text-ink">
-                <input type="checkbox" checked={selected.has(c)} onChange={() => toggle(c)} />
-                {c}
-              </label>
-            ))}
-          </div>
-        )}
-        <p className="mt-2 text-[11px] text-ink-faint">
+      <div className="space-y-3">
+        <AdmittedChecklist
+          label="Connectors this contributor may reach"
+          admitted={admittedConnectors}
+          selected={connectors}
+          onToggle={toggle(setConnectors)}
+          emptyText="This project admits no connectors."
+        />
+        <AdmittedChecklist
+          label="File scopes this contributor may reach"
+          admitted={admittedScopes}
+          selected={scopes}
+          onToggle={toggle(setScopes)}
+          emptyText="This project admits no folders or repos."
+        />
+        <p className="text-[11px] text-ink-faint">
           The Project’s admitted set is the wall (D12); unchecking narrows this Contributor’s reach below it.
         </p>
       </div>

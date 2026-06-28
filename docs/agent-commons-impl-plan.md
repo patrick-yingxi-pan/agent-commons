@@ -127,10 +127,13 @@ seam now, mock only the model). Ordered safest/most-contained → most-speculati
   ~4 import sites (store, routes, capabilities test). **Lock:** full suite green (no behavior
   change) — closes the last D6 remainder.
 
-- [ ] **4.2 Per-axis commission editor (UI).** Extend `CommissionDialog` beyond connectors: a
-  **scopes** checklist (the Project's admitted folder/repo roots) and a **token-budget** field
-  (a per-commission sub-budget ≤ the Agent's). Re-grant re-runs the leaf funnel (over-grant →
-  400). **Verify live**; the connector audit's "per-axis editor" note.
+- [x] **4.2 Per-axis commission editor (UI).** `CommissionDialog` now edits **both** Project-
+  reach axes — connectors **and file scopes** — via a shared `AdmittedChecklist` primitive (same
+  role ⇒ same look); re-grant sends both and the leaf funnel re-validates. Verified live (scopes
+  narrow + persist) + a node test that narrowing scopes tightens `commissionAdmitsTarget`.
+  *Budget deferred (rationale):* a token sub-budget is **agent-bounded (D8), not the Project wall
+  (D12)** this dialog is built around — it needs the Agent's effective-window data the dialog
+  lacks and is inert for the demo's inheriting agents; a separate control if wanted.
 
 - [ ] **4.3 D8 spend-time enforcement.** The usage meter **rejects** a turn that would exceed a
   window ceiling (a per-turn gate in `server/generate.ts`, against the resolved Agent's budget

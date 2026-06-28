@@ -81,6 +81,17 @@ test('store.commissionAdmitsTarget walls a Contributor to the Project-admitted f
   assert.equal(store.commissionAdmitsTarget(id, 'terminal', 'npm test'), true)
 })
 
+test('narrowing a commission’s scopes (the per-axis editor) tightens commissionAdmitsTarget (D12)', () => {
+  const c = store.createCommission({ agentId: 'agent-default', projectId: 'p-insights' })
+  // Full admitted reach: both of p-insights' folder/repo roots are reachable.
+  assert.equal(store.commissionAdmitsTarget(c.id, 'fs.read', '~/code/insights-web/x.ts'), true)
+  assert.equal(store.commissionAdmitsTarget(c.id, 'fs.read', 'patrick-yingxi-pan/web-app/y.ts'), true)
+  // Narrow to just the repo root (what the editor sends when ~/code/insights-web is unchecked).
+  store.updateCommission(c.id, { authority: { connectors: ['Linear', 'Figma'], scopes: ['patrick-yingxi-pan/web-app'] } })
+  assert.equal(store.commissionAdmitsTarget(c.id, 'fs.read', '~/code/insights-web/x.ts'), false) // dropped
+  assert.equal(store.commissionAdmitsTarget(c.id, 'fs.read', 'patrick-yingxi-pan/web-app/y.ts'), true) // kept
+})
+
 test('GET /commissions/:id/authority returns the effective reach; unknown 404s', async () => {
   const ok = await call('GET', '/commissions/commission-insights-default/authority')
   assert.equal(ok.status, 200)
