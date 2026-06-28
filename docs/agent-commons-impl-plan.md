@@ -75,11 +75,12 @@ green before a step is done; UI steps verified in the running app.
 
 ## Phase 3 — Project roles (D14)
 
-- [ ] **3.1 Contract — role + permission table.** Add `ProjectRole = 'owner' |
-  'maintainer' | 'writer' | 'reader'` and a pure `rolePermits(role, action)` with
-  action ∈ `'read' | 'write' | 'reserve' | 'fire' | 'commission' | 'configure'`
-  (reader: read; writer: +write/reserve/fire; maintainer: +manage subgoals; owner:
-  +commission/configure). New `contract/roles.ts`. **Tests:** a lattice table test.
+- [x] **3.1 Contract — role + permission table.** Added `ProjectRole` (owner ⊃ maintainer
+  ⊃ writer ⊃ reader) + pure `rolePermits(role, action)` over read/write/reserve/fire/
+  commission/configure (reader: read; **writer & maintainer: +write/reserve/fire — same
+  actions, per the D14 table**; owner: +commission/configure) and `roleRank` (the lattice
+  ordering acquisition-priority, used by Step 3.4). New `contract/roles.ts`. **Tests:**
+  baseline + rank + monotone-up-the-lattice.
 
 - [ ] **3.2 Commission carries a role.** Add `role?: ProjectRole` to `Commission`,
   `CreateCommissionRequest`, `UpdateCommissionRequest`
