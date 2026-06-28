@@ -1243,12 +1243,55 @@ export const store = {
   relationGraph(): RelationGraph {
     return graph
   },
-  /** Apply a confirmed relation op (the canonical write), broadcast it, and
-   *  return the updated graph. `attach-context` is a live-session effect, not a
-   *  graph edit, so it's a no-op here. */
+  /** Apply a confirmed relation op (the canonical write), broadcast it, and return the
+   *  (possibly unchanged) graph. Three kinds of op land here:
+   *   • An **Agent Commons CRUD** op (D6/D9/D10/D7) edits a *registry*, not the graph,
+   *     so it's executed through the same mutator the Agents hub uses (the D8 funnel +
+   *     the 409 guards) — Claude proposing it and the user confirming the card is just
+   *     another caller of that one seam. A stale reference (the agent was removed after
+   *     the proposal) is a `ConflictError` → 409.
+   *   • `attach-context` is a live-session effect, not a graph edit (the caller applies
+   *     it), so it's a graph no-op here.
+   *   • Every other op is a relationship-graph edit, applied by the pure reducer.
+   *  All three broadcast `relation.applied` and persist. */
   applyRelationOp(op: RelationOp): RelationGraph {
-    if (op.kind !== 'attach-context') {
-      graph = applyGraphOp(graph, op, mintArtifactId, Date.now())
+    switch (op.kind) {
+      case 'create-provider':
+        // A user-confirmed provider is a proper cascade root: grant everything (the
+        // account plan still bounds it), matching the seeded default's explicit '*'.
+        this.createProvider({
+          label: op.label,
+          modelFamily: op.modelFamily,
+          effortLevels: ['Low', 'Medium', 'High'],
+          authority: { tools: ['*'], connectors: ['*'], scopes: ['*'] },
+        })
+        break
+      case 'create-prompt':
+        this.createSystemPrompt({ label: op.label, body: op.body, targetFamily: op.targetFamily })
+        break
+      case 'create-agent':
+        this.createAgentFromRequest({
+          label: op.label,
+          providerId: op.providerId,
+          systemPromptId: op.systemPromptId,
+          instructions: op.instructions,
+        })
+        break
+      case 'commission-agent':
+        if (!WORKER_AGENTS.has(op.agentId)) {
+          throw new ConflictError(`No agent '${op.agentId}' to commission — it may have been removed.`)
+        }
+        this.createCommission({ agentId: op.agentId, projectId: op.projectId })
+        break
+      case 'uncommission-agent':
+        // Idempotent: a commission already gone (e.g. removed in the hub first) is a
+        // benign no-op, not an error — the Contributor is absent either way.
+        this.deleteCommission(op.commissionId)
+        break
+      case 'attach-context':
+        break // a live-session effect, applied by the caller
+      default:
+        graph = applyGraphOp(graph, op, mintArtifactId, Date.now())
     }
     emit({ type: 'relation.applied', op, by: 'user' })
     persist()

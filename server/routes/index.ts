@@ -803,7 +803,14 @@ export function buildRouter(): Router {
   r.post('/relations/ops', async ({ res, body }) => {
     const { op } = await body<ApplyOpRequest>()
     if (!op || typeof op.kind !== 'string') return sendError(res, 'bad_request', 'op is required')
-    sendJson(res, store.applyRelationOp(op))
+    try {
+      sendJson(res, store.applyRelationOp(op))
+    } catch (err) {
+      // An Agent Commons CRUD op (commission-agent) confirmed against a now-removed
+      // agent hits the same guard the hub's CRUD routes surface — a 409 to re-propose.
+      if (err instanceof ConflictError) return sendError(res, err.code, err.message)
+      throw err
+    }
   })
 
   return r
