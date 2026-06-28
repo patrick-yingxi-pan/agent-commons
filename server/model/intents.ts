@@ -140,13 +140,19 @@ function matchKeywords(text: string): ToolCall[] {
   // Commons tools. Specific nouns (commission / worker agent / system prompt / model
   // provider) keep these from colliding with the relation patterns below.
   const wantsCreate = /\b(add|create|register|new|set up|make)\b/.test(t)
-  const toProject = grab(/\b(?:to|onto|from|off)\s+(?:the\s+)?["“]?([A-Za-z0-9][A-Za-z0-9 -]*?)["”]?(?:\s+project)?(?:[.,!]|$)/i)
+  // The project name ends at a trailing "as <role>" clause (so "… to Insights as a reader"
+  // captures just "Insights"), as well as the prior "project" word / punctuation / end.
+  const toProject = grab(/\b(?:to|onto|from|off)\s+(?:the\s+)?["“]?([A-Za-z0-9][A-Za-z0-9 -]*?)["”]?(?:\s+project)?(?:\s+as\s+|[.,!]|$)/i)
+  const asRole = grab(/\bas\s+(?:an?\s+)?(owner|maintainer|writer|reader)\b/i)
   const uncommissionAgent = grab(/\b(?:uncommission|un-commission)\s+(?:the\s+)?([A-Za-z0-9][A-Za-z0-9 -]*?)\s+(?:from|off)\b/i)
   const commissionAgent = grab(/\b(?:commission|assign)\s+(?:the\s+)?([A-Za-z0-9][A-Za-z0-9 -]*?)\s+(?:to|onto)\b/i)
   if (uncommissionAgent && toProject) {
     calls.push({ name: 'uncommission_agent', input: { agent: uncommissionAgent, project: toProject } })
   } else if (commissionAgent && toProject) {
-    calls.push({ name: 'commission_agent', input: { agent: commissionAgent, project: toProject } })
+    calls.push({
+      name: 'commission_agent',
+      input: { agent: commissionAgent, project: toProject, ...(asRole ? { role: asRole.toLowerCase() } : {}) },
+    })
   }
   // Create a worker agent: "create a (worker) agent called X (on PROVIDER) (with the PROMPT prompt)".
   if (!calls.length && wantsCreate && /\bagent\b/.test(t)) {

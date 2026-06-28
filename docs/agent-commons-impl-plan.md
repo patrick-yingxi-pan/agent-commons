@@ -106,7 +106,7 @@ green before a step is done; UI steps verified in the running app.
   ([`src/components/SectionView.tsx:982`](../src/components/SectionView.tsx)) and show the
   role on `ContributorRow` (:937); default writer. **Verify live** (role persists, shows).
 
-- [ ] **3.6 Conversational role.** Let the model set a role when commissioning
+- [x] **3.6 Conversational role.** Let the model set a role when commissioning
   (`server/model/tools.ts` `commission_agent` + `intents.ts`) and surface it in the
   confirm card. **Tests:** `model-tools.test.ts` + `model-intents.test.ts`.
 

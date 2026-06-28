@@ -16,6 +16,7 @@
 import { ALL_ARTIFACTS, PROJECTS, SCHEDULED_TASKS } from '../data/cowork.ts'
 import { CONNECTOR_OPTIONS } from '../data/contextOptions.ts'
 import { slug } from '../../contract/ids.ts'
+import { PROJECT_ROLES } from '../../contract/index.ts'
 import type {
   Artifact,
   ArtifactKind,
@@ -24,6 +25,7 @@ import type {
   EscalationProposal,
   FileNode,
   ProjectContext,
+  ProjectRole,
   RelationOp,
   StepTool,
 } from '../../contract/index.ts'
@@ -489,6 +491,10 @@ const TOOLS: ToolSpec[] = [
     properties: {
       agent: { type: 'string', description: 'The worker Agent to commission, e.g. "Research scout".' },
       project: { type: 'string', description: 'The Project to commission it onto, e.g. "Insights dashboard".' },
+      role: {
+        type: 'string',
+        description: 'Optional project role (D14): owner, maintainer, writer, or reader. Defaults to writer.',
+      },
     },
     required: ['agent', 'project'],
     build: (input, ctx) => {
@@ -497,7 +503,14 @@ const TOOLS: ToolSpec[] = [
       if (!agent) {
         return { summary: `No worker agent matching "${str(input.agent)}" — proposed nothing.` }
       }
-      return { relationOps: [{ kind: 'commission-agent', agentId: agent.id, agentLabel: agent.label, projectId: p.id, projectName: p.name }], summary: `Proposed commissioning ${agent.label} to ${p.name}; awaiting confirmation.` }
+      const raw = str(input.role).toLowerCase()
+      const role = (PROJECT_ROLES as readonly string[]).includes(raw) ? (raw as ProjectRole) : undefined
+      return {
+        relationOps: [
+          { kind: 'commission-agent', agentId: agent.id, agentLabel: agent.label, projectId: p.id, projectName: p.name, ...(role ? { role } : {}) },
+        ],
+        summary: `Proposed commissioning ${agent.label} to ${p.name}${role ? ` as ${role}` : ''}; awaiting confirmation.`,
+      }
     },
   },
   {

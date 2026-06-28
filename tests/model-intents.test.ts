@@ -59,6 +59,16 @@ test('keyword fallback: Agent Commons management requests pick the right CRUD to
   assert.equal(matchIntents('Uncommission Research scout from the Insights dashboard project').at(0)?.name, 'uncommission_agent')
 })
 
+test('keyword fallback: a trailing "as <role>" clause sets the commission role without polluting the project', () => {
+  const call = matchIntents('Commission Research scout to Insights dashboard as a reader').at(0)
+  assert.equal(call?.name, 'commission_agent')
+  assert.equal((call?.input as any).role, 'reader')
+  // The project name stops before "as" — it isn't captured as "Insights dashboard as a reader".
+  assert.equal((call?.input as any).project, 'Insights dashboard')
+  // No role clause ⇒ no role on the input (server defaults to writer).
+  assert.equal((matchIntents('Commission Research scout to Insights dashboard').at(0)?.input as any).role, undefined)
+})
+
 test('keyword fallback: create_agent carries the resolved provider + prompt names for the executor', () => {
   const call = matchIntents('Create a worker agent called Scout on Anthropic with the Deep research prompt').at(0)
   assert.equal(call?.name, 'create_agent')
