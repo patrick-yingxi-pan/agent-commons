@@ -9,8 +9,10 @@
 > "Decision" here means *settled within this exploration's design space* — **not**
 > "implemented in the prototype." The prototype's actually-shipped, locked-in
 > decisions live in [`../AGENTS.md`](../AGENTS.md) → "Design decisions (locked in)";
-> nothing here overrides those. **The "smallest first slice" plan (below) is built, and
-> the multi-tenant surface above it (D6–D13) is now built out end to end (slices 1–10).**
+> nothing here overrides those. **The "smallest first slice" plan (below) is built, the
+> multi-tenant surface above it (D6–D13) is built out end to end (slices 1–10), and that
+> surface is now user-manageable from a left-panel _Agents_ hub (slices 11–15): providers,
+> system prompts, worker agents, and commissions are all create/edit/delete from the UI.**
 > Built: the **D6 rename** (1a/1b — the host-bound type is `Runner` in code, wire and
 > all), a seeded worker `Agent` per Conversation (2), the **D8 budget funnel** (3 — token
 > face), one **guarded Project** (4), the **Model-provider registry** (5 — the cascade
@@ -894,8 +896,31 @@ session↔context binding, mediation handle, and single-resource escrow).
   Coordination panel lists in-flight sub-goals and claims new ones, surfacing a conflict
   as a re-reason prompt. One sub-goal is seeded held. typecheck + 315 tests green;
   verified live (two Contributors coexist on different sub-goals; the same conflicts).
-- **The multi-tenant surface (slices 1–10) is built.** Every D6–D13 decision is now
-  exercised by a working slice — the rename, the worker `Agent`, both faces of the D8
+- **Slices 11–15 — the management UI (the _Agents_ hub). ✅ Built.** The forward concepts
+  were read-only on the wire (seeded N=1, minting was test-only); these slices make the
+  whole surface user-CRUD-able from one new left-panel section, sub-tabbed
+  **Agents · Providers · Prompts · Commissions** (`contract/entities.ts` `SectionId +=
+  'agents'`; the table-driven nav flows through `sections.tsx` / `nav.ts`). **11** is the
+  hub shell (read-only lists reusing the existing hooks). **12/13/14** expose the create
+  funnels and add patch/delete for **providers** (D9), **system prompts** (D10), and
+  **worker agents** (D6) — each `POST`/`PATCH`/`DELETE /…` with the D8 funnel re-run on
+  every write (an over-grant is a 400) and a `ConflictError` (409) guarding the protected
+  seed (the default provider/agent/prompt that sessions resolve to) and any still-referenced
+  node (a provider an Agent binds, a prompt an Agent uses, an Agent a Commission assigns).
+  The agent dialog binds a provider + a library prompt with the **live D10 fit warning**;
+  the server resolves the prompt body from `systemPromptId` and defaults tools to the
+  catalog. **15** completes the **Commission** (D7/D12): `PATCH`/`DELETE /commissions/:id`,
+  with a per-card re-grant editor bounded by the Project's admitted connectors (the D12
+  wall — unchecking narrows a Contributor's reach live) and a global Commissions view
+  grouped by Project; delete cascade-releases the Contributor's sub-goals. Shared UI
+  primitives (`FormDialog`, `FormField`, `TabToolbar`, `CardActions`, `CommonsCard`) keep
+  the four tabs one system. typecheck + 341 tests + build green; every path verified live.
+  *In-memory still* — created entities live until a server restart (no cross-restart
+  persistence yet); that, and per-axis authority/budget editors beyond the connector
+  re-grant, are the remaining refinements.
+- **The multi-tenant surface (slices 1–10) is built, and managed (slices 11–15).** Every
+  D6–D13 decision is now exercised by a working slice *and* user-manageable from the
+  Agents hub — the rename, the worker `Agent`, both faces of the D8
   cascade (token + authority) across provider → agent → commission, the provider registry,
   the prompt library, the Project guardian, cross-user isolation, and multi-principal
   coordination. What stays open is the **Open questions** above — the *incentive* (why
