@@ -1,7 +1,9 @@
 # Agent Commons — implementation plan (effect-time enforcement + roles)
 
-> **Status: Phases 1–3 complete ✅** (all 11 steps; typecheck + 385 tests + build green,
-> each step `/code-review`'d). Phase 4 is forward/unbuilt, pending confirmation.
+> **Status: Phases 1–3 complete ✅** (11 steps; typecheck + 385 tests + build green, each
+> step `/code-review`'d). **Phase 4 greenlit and underway** — finishing all planned designs
+> (D6 rename, per-axis editor, D8 gaps, D16 hand-off, D15 proxy) as real seams with mock
+> fulfilment, same one-step-per-iteration rhythm.
 >
 > Derived from the settled design ([`agent-commons.md`](agent-commons.md), D6–D16).
 > This is the **plan-of-record** *and* the loop's checklist: each iteration does the
@@ -115,10 +117,42 @@ green before a step is done; UI steps verified in the running app.
 
 ---
 
-## Phase 4 — Forward (NOT in this loop; confirm before building)
+## Phase 4 — the forward mechanisms (greenlit — finish all planned designs)
 
-- **D15** agent-to-agent proxy (cross-user private-resource access).
-- **D16** hand-off + per-turn provenance (`Session.agentId` → current-driver + turn stamps).
-- **D8** spend-time enforcement + parent-shrink propagation.
-- Per-axis commission editor (tools / scopes / budget beyond connectors).
-- **D6** filename rename (`agent-runtime.ts` / `data/agents.ts` → `runner-*`).
+Built as **real wire boundaries with mock fulfilment** (the project rule: build the real
+seam now, mock only the model). Ordered safest/most-contained → most-speculative.
+
+- [ ] **4.1 D6 filename rename (cosmetic debt).** `server/agent-runtime.ts` →
+  `server/runner-runtime.ts`, `server/data/agents.ts` → `server/data/runners.ts`; update the
+  ~4 import sites (store, routes, capabilities test). **Lock:** full suite green (no behavior
+  change) — closes the last D6 remainder.
+
+- [ ] **4.2 Per-axis commission editor (UI).** Extend `CommissionDialog` beyond connectors: a
+  **scopes** checklist (the Project's admitted folder/repo roots) and a **token-budget** field
+  (a per-commission sub-budget ≤ the Agent's). Re-grant re-runs the leaf funnel (over-grant →
+  400). **Verify live**; the connector audit's "per-axis editor" note.
+
+- [ ] **4.3 D8 spend-time enforcement.** The usage meter **rejects** a turn that would exceed a
+  window ceiling (a per-turn gate in `server/generate.ts`, against the resolved Agent's budget
+  → provider plan), not just accumulating. Closes D8's "spend-time" trade-off gap. **Tests.**
+
+- [ ] **4.4 D8 parent-shrink propagation.** Narrowing a provider/agent (authority or budget)
+  cascades a re-clamp to already-minted children (commissions/agents), so "unrepresentable
+  over-grant" holds at runtime, not only at mint. **Tests.**
+
+- [ ] **4.5 D16 per-turn provenance (contract + store).** Stamp each persisted turn with its
+  driving Agent (the binding is *current-driver*, not immutable). Additive to the message/turn
+  shape; metering attributes per turn. **Tests.**
+
+- [ ] **4.6 D16 hand-off (op + confirm card).** A consent-gated hand-off that re-binds
+  `Session.agentId` mid-thread (a `RelationOp` through the same card), each turn stamped (4.5).
+  **Tests** (+ card text).
+
+- [ ] **4.7 D15 agent-to-agent proxy (contract).** `ProxyRequest`/`ProxyResult`: cross-user
+  access to a *private* resource is a request **to the owner's Agent**, never a credential. The
+  wire shape of D15. **Tests** (pure-contract).
+
+- [ ] **4.8 D15 proxy route + mock fulfilment.** `POST` route routing a cross-user resource
+  request to the owner's Agent, which acts under **its own** authority + consent and returns
+  only the result — the requester holds no credential (the structural D12 wall). Mock
+  fulfilment; the seam is real. **Tests.**
