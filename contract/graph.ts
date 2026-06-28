@@ -168,6 +168,17 @@ export function applyGraphOp(
         standingApprovals: { ...graph.standingApprovals, [opKey(op)]: true },
       }
     }
+    // Agent Commons CRUD (create-provider / -prompt / -agent, (un)commission-agent) are
+    // registry mutations, not relationship-graph edits: the canonical write executes them
+    // through the store's registry mutators (the D8 funnels), so — like attach-context —
+    // they leave the graph unchanged here. (Listed explicitly to keep the switch
+    // exhaustive; the optimistic client path therefore correctly does nothing for them.)
+    case 'create-provider':
+    case 'create-prompt':
+    case 'create-agent':
+    case 'commission-agent':
+    case 'uncommission-agent':
+      return graph
     default: {
       const _exhaustive: never = op
       return _exhaustive

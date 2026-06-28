@@ -148,6 +148,25 @@ export type RelationOp =
   | { kind: 'set-schedule-artifact'; scheduleId: string; scheduleName: string; cadence: string; artifactName: string }
   // Context ↔ Schedule — add a tool/connector the schedule uses each run (standing).
   | { kind: 'schedule-add-tool'; scheduleId: string; scheduleName: string; cadence: string; tool: StepTool }
+  // ── Agent Commons CRUD (docs/agent-commons.md, D6/D9/D10/D7) ────────────────
+  //  Claude can manage the Agent Commons concepts through the SAME confirmation card
+  //  it uses for relation edits — the user's "keep one shared gating mechanism" steer.
+  //  These are NOT graph edits: they're executed server-side through the registry
+  //  mutators (the D8 attenuation funnels + the 409 guards), so they no-op in the pure
+  //  graph reducer (`applyGraphOp`). Each carries the fields the mutator needs plus the
+  //  display labels the card shows (the same id-plus-name pattern the edits above use).
+  //  Additive / relation moves only — registry *deletes* stay a deliberate hub action,
+  //  mirroring how Claude never proposes deleting a project or artifact.
+  // D9 — register a Model provider (the cognition source; the cascade root).
+  | { kind: 'create-provider'; label: string; modelFamily: string }
+  // D10 — add a reusable system prompt to the library.
+  | { kind: 'create-prompt'; label: string; body: string; targetFamily: string }
+  // D6 — create a worker Agent, optionally bound to a provider + a library prompt.
+  | { kind: 'create-agent'; label: string; providerId?: string; providerLabel?: string; systemPromptId?: string; systemPromptLabel?: string; instructions?: string }
+  // D7/D13 — commission an Agent onto a Project (the agent→Project leaf of the cascade).
+  | { kind: 'commission-agent'; agentId: string; agentLabel: string; projectId: string; projectName: string }
+  // D7 — un-commission: remove a Contributor (a commission) from its Project.
+  | { kind: 'uncommission-agent'; commissionId: string; agentLabel: string; projectName: string }
 
 /** A stable key per op — used to mark standing approvals and to track a card
  *  row's confirmed state. */
@@ -179,6 +198,16 @@ export function opKey(op: RelationOp): string {
       return `set-schedule-artifact:${op.scheduleId}:${op.artifactName}`
     case 'schedule-add-tool':
       return `schedule-add-tool:${op.scheduleId}:${op.tool.id}`
+    case 'create-provider':
+      return `create-provider:${op.label}`
+    case 'create-prompt':
+      return `create-prompt:${op.label}`
+    case 'create-agent':
+      return `create-agent:${op.label}`
+    case 'commission-agent':
+      return `commission-agent:${op.agentId}:${op.projectId}`
+    case 'uncommission-agent':
+      return `uncommission-agent:${op.commissionId}`
     default: {
       const _exhaustive: never = op
       return _exhaustive
@@ -198,6 +227,9 @@ export interface OpDescription {
   section: SectionId | null
   /** When `section` is a project view, the project to open. */
   projectId?: string
+  /** The card's lead-glyph / grouping key: a `RELATIONS` id for a relationship edit,
+   *  or a synthetic `agent-*` key for an Agent Commons CRUD op (which edits a registry,
+   *  not a relation between the five entities). Not required to be in `RELATIONS`. */
   relationId: string
   approval: Approval
 }
@@ -343,6 +375,50 @@ export function describeOp(op: RelationOp): OpDescription {
         section: 'scheduled',
         relationId: 'context-schedule',
         approval: 'standing',
+      }
+    // ── Agent Commons CRUD — each lands in the Agents hub ("View in Agents") ──
+    case 'create-provider':
+      return {
+        text: `Register the **${op.label}** model provider (${op.modelFamily})`,
+        done: `Registered ${op.label}`,
+        section: 'agents',
+        relationId: 'agent-provider',
+        approval: 'per-action',
+      }
+    case 'create-prompt':
+      return {
+        text: `Add **${op.label}** to the system-prompt library`,
+        done: `Added ${op.label}`,
+        section: 'agents',
+        relationId: 'agent-prompt',
+        approval: 'per-action',
+      }
+    case 'create-agent': {
+      const on = op.providerLabel ? ` on **${op.providerLabel}**` : ''
+      const withPrompt = op.systemPromptLabel ? ` with the **${op.systemPromptLabel}** prompt` : ''
+      return {
+        text: `Create the **${op.label}** worker agent${on}${withPrompt}`,
+        done: `Created ${op.label}`,
+        section: 'agents',
+        relationId: 'agent-worker',
+        approval: 'per-action',
+      }
+    }
+    case 'commission-agent':
+      return {
+        text: `Commission **${op.agentLabel}** to **${op.projectName}**`,
+        done: `Commissioned ${op.agentLabel} to ${op.projectName}`,
+        section: 'agents',
+        relationId: 'agent-commission',
+        approval: 'per-action',
+      }
+    case 'uncommission-agent':
+      return {
+        text: `Remove **${op.agentLabel}** from **${op.projectName}**`,
+        done: `Removed ${op.agentLabel} from ${op.projectName}`,
+        section: 'agents',
+        relationId: 'agent-commission',
+        approval: 'per-action',
       }
     default: {
       const _exhaustive: never = op

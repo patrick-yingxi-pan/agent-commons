@@ -283,6 +283,69 @@ test('describeOp(schedule-add-tool) reads as a standing, context-schedule edit',
   assert.equal(d.relationId, 'context-schedule')
 })
 
+// ── Agent Commons CRUD ops (D6/D9/D10/D7) — proposed by Claude, confirmed in the
+//    same card, executed server-side. The pure reducer must leave them as graph
+//    no-ops; describeOp/opKey give the card its sentence + identity. ──
+
+test('Agent Commons CRUD ops are graph no-ops (executed server-side via the registry mutators, not the reducer)', () => {
+  const g0 = { ...emptyGraph(), sessionProject: { s1: 'p1' } }
+  const ops: Parameters<typeof applyGraphOp>[1][] = [
+    { kind: 'create-provider', label: 'Acme LLM', modelFamily: 'claude' },
+    { kind: 'create-prompt', label: 'Researcher', body: 'b', targetFamily: 'claude' },
+    { kind: 'create-agent', label: 'Scout', providerId: 'provider-1', providerLabel: 'Acme LLM' },
+    { kind: 'commission-agent', agentId: 'agent-1', agentLabel: 'Scout', projectId: 'p1', projectName: 'Insights' },
+    { kind: 'uncommission-agent', commissionId: 'commission-1', agentLabel: 'Scout', projectName: 'Insights' },
+  ]
+  for (const op of ops) {
+    assert.equal(applyGraphOp(g0, op, mintIds()), g0, `${op.kind} returns the input graph unchanged`)
+  }
+})
+
+test('describeOp(Agent Commons CRUD): per-action, lands in the Agents hub, reads as a sentence', () => {
+  const prov = describeOp({ kind: 'create-provider', label: 'Acme LLM', modelFamily: 'claude' })
+  assert.equal(prov.text, 'Register the **Acme LLM** model provider (claude)')
+  assert.equal(prov.section, 'agents')
+  assert.equal(prov.approval, 'per-action')
+
+  assert.equal(
+    describeOp({ kind: 'create-prompt', label: 'Researcher', body: 'b', targetFamily: 'claude' }).text,
+    'Add **Researcher** to the system-prompt library',
+  )
+
+  // create-agent: the provider / prompt phrasing appears only when a label is carried.
+  const bare = describeOp({ kind: 'create-agent', label: 'Scout' })
+  assert.equal(bare.text, 'Create the **Scout** worker agent')
+  const bound = describeOp({
+    kind: 'create-agent',
+    label: 'Scout',
+    providerId: 'provider-1',
+    providerLabel: 'Acme LLM',
+    systemPromptId: 'sp-1',
+    systemPromptLabel: 'Researcher',
+  })
+  assert.equal(bound.text, 'Create the **Scout** worker agent on **Acme LLM** with the **Researcher** prompt')
+
+  const comm = describeOp({ kind: 'commission-agent', agentId: 'agent-1', agentLabel: 'Scout', projectId: 'p1', projectName: 'Insights' })
+  assert.equal(comm.text, 'Commission **Scout** to **Insights**')
+  assert.equal(comm.section, 'agents')
+  const un = describeOp({ kind: 'uncommission-agent', commissionId: 'commission-1', agentLabel: 'Scout', projectName: 'Insights' })
+  assert.equal(un.text, 'Remove **Scout** from **Insights**')
+})
+
+test('opKey(Agent Commons CRUD) is stable + distinct (by label, or by the ids a move touches)', () => {
+  assert.equal(opKey({ kind: 'create-provider', label: 'Acme LLM', modelFamily: 'claude' }), 'create-provider:Acme LLM')
+  assert.equal(opKey({ kind: 'create-prompt', label: 'Researcher', body: 'b', targetFamily: 'claude' }), 'create-prompt:Researcher')
+  assert.equal(opKey({ kind: 'create-agent', label: 'Scout' }), 'create-agent:Scout')
+  assert.equal(
+    opKey({ kind: 'commission-agent', agentId: 'agent-1', agentLabel: 'Scout', projectId: 'p1', projectName: 'Insights' }),
+    'commission-agent:agent-1:p1',
+  )
+  assert.equal(
+    opKey({ kind: 'uncommission-agent', commissionId: 'commission-9', agentLabel: 'Scout', projectName: 'Insights' }),
+    'uncommission-agent:commission-9',
+  )
+})
+
 test('id-derivation invariants are stable and agree across calls (both backends derive the same ids)', () => {
   assert.equal(slug('Insights Dashboard!'), 'insights-dashboard')
   assert.equal(slug('Insights Dashboard!'), slug('insights dashboard'), 'slug is case/punctuation-insensitive + deterministic')
