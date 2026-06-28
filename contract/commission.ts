@@ -38,3 +38,11 @@ export interface CreateCommissionRequest {
   authority?: Authority
   grant?: Budget
 }
+
+/** Re-grant a commission — narrow (or restore) the authority / sub-budget it carries
+ *  onto the Project (D8/D12). Re-validated against the Agent's ceiling at the funnel.
+ *  A present field is applied; an absent one is left unchanged. */
+export interface UpdateCommissionRequest {
+  authority?: Authority
+  grant?: Budget
+}

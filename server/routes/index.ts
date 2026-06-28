@@ -12,6 +12,7 @@ import type {
   UpdateSystemPromptRequest,
   CreateAgentRequest,
   UpdateAgentRequest,
+  UpdateCommissionRequest,
   ReserveSubGoalRequest,
   PushRecentRequest,
   RegisterRunnerRequest,
@@ -408,6 +409,26 @@ export function buildRouter(): Router {
       }
       throw err
     }
+  })
+  // Re-grant (narrow / restore a Contributor's authority) or un-commission. PATCH re-runs
+  // the leaf funnel, so an over-grant is a 400; DELETE cascade-releases the Contributor's
+  // sub-goals. No protected default — a commission has no fallback role.
+  r.patch('/commissions/:id', async ({ res, params, body }) => {
+    const patch = await body<UpdateCommissionRequest>()
+    try {
+      const commission = store.updateCommission(params.id, patch)
+      if (!commission) return sendError(res, 'not_found', `No commission '${params.id}'`)
+      sendJson(res, commission)
+    } catch (err) {
+      if (err instanceof BudgetError || err instanceof AuthorityError) {
+        return sendError(res, 'bad_request', err.message)
+      }
+      throw err
+    }
+  })
+  r.delete('/commissions/:id', ({ res, params }) => {
+    if (!store.deleteCommission(params.id)) return sendError(res, 'not_found', `No commission '${params.id}'`)
+    sendJson(res, { ok: true })
   })
 
   // ── Multi-principal coordination — sub-goal reservation (D11) ──────────────

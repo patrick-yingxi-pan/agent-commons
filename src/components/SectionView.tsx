@@ -108,6 +108,8 @@ import {
   createAgent,
   updateAgent,
   deleteAgent,
+  updateCommission,
+  deleteCommission,
   reserveSubGoal,
   releaseSubGoal,
   useAgents,
@@ -124,6 +126,7 @@ import {
 } from '../api'
 import {
   promptFitWarning,
+  projectAdmittedAuthority,
   type Agent,
   type Commission,
   type ModelProvider,
@@ -993,14 +996,110 @@ function ContributorRow({ commission, agentLabel }: { commission: Commission; ag
       : connectors.length === 0
         ? 'Reaches no connectors on this project'
         : `Reaches ${connectors.join(' · ')}`
+  // The Project backs the re-grant editor (its admitted connectors are the D12 wall).
+  const project = useRelations()
+    .allProjects()
+    .find((p) => p.id === commission.projectId)
+  const [editing, setEditing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const del = async () => {
+    setError(null)
+    try {
+      await deleteCommission(commission.id, commission.projectId)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not remove this contributor.')
+    }
+  }
   return (
-    <div className="flex items-start gap-2.5">
+    <div className="group flex items-start gap-2.5">
       <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <div className="text-[13px] font-medium text-ink">{agentLabel}</div>
         <div className="text-[11px] text-ink-faint">{reachLabel}</div>
+        {error && <div className="text-[11px] text-removed">{error}</div>}
       </div>
+      <CardActions onEdit={project ? () => setEditing(true) : undefined} onDelete={del} />
+      {editing && project && (
+        <CommissionDialog commission={commission} project={project} onClose={() => setEditing(false)} />
+      )}
     </div>
+  )
+}
+
+/** Re-grant a Contributor — narrow (or restore) which of the Project's admitted connectors
+ *  it may reach (D12). The Project's admitted set is the wall: the checklist is bounded by
+ *  it, and unchecking narrows the Contributor below it. All-checked ⇒ inherit (unset
+ *  authority); a subset ⇒ a scoped connector grant. */
+function CommissionDialog({
+  commission,
+  project,
+  onClose,
+}: {
+  commission: Commission
+  project: Project
+  onClose: () => void
+}) {
+  const admitted = projectAdmittedAuthority(project.contexts).connectors ?? []
+  const current = commission.authority?.connectors
+  const startAll = !current || current.includes('*')
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(startAll ? admitted : current))
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const toggle = (c: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev)
+      next.has(c) ? next.delete(c) : next.add(c)
+      return next
+    })
+
+  const submit = async () => {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    // Always send the explicit checked set (an `undefined` would be dropped by JSON, so
+    // the server couldn't tell "clear" from "unchanged"). The reach is this set ∩ the
+    // Project's admitted set; checking every box restores the full admitted reach.
+    try {
+      await updateCommission(commission.id, commission.projectId, { authority: { connectors: [...selected] } })
+      onClose()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not update this contributor.')
+      setBusy(false)
+    }
+  }
+
+  return (
+    <FormDialog
+      title="Edit contributor"
+      icon={<Cpu size={18} className="text-ink-soft" />}
+      submitLabel="Save"
+      canSubmit={!busy}
+      onSubmit={submit}
+      onClose={onClose}
+      error={error}
+    >
+      <div>
+        <span className="mb-1.5 block text-[12px] font-medium text-ink-soft">
+          Connectors this contributor may reach
+        </span>
+        {admitted.length === 0 ? (
+          <p className="text-[12px] text-ink-faint">This project admits no connectors.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {admitted.map((c) => (
+              <label key={c} className="flex items-center gap-2 text-[13px] text-ink">
+                <input type="checkbox" checked={selected.has(c)} onChange={() => toggle(c)} />
+                {c}
+              </label>
+            ))}
+          </div>
+        )}
+        <p className="mt-2 text-[11px] text-ink-faint">
+          The Project’s admitted set is the wall (D12); unchecking narrows this Contributor’s reach below it.
+        </p>
+      </div>
+    </FormDialog>
   )
 }
 

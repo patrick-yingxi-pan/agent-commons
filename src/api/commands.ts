@@ -15,6 +15,7 @@ import {
   type CreateAgentRequest,
   type UpdateAgentRequest,
   type CreateCommissionRequest,
+  type UpdateCommissionRequest,
   type CreateProviderRequest,
   type ModelProvider,
   type UpdateProviderRequest,
@@ -218,7 +219,31 @@ export async function createDispatch(title: string, detail?: string): Promise<vo
 export async function createCommission(input: CreateCommissionRequest): Promise<Commission> {
   const commission = await apiPost<Commission>(paths.commissions(), input)
   invalidate(keys.commissions(input.projectId))
+  invalidate(keys.commissions())
   return commission
+}
+
+/** Re-grant a commission (narrow / restore its Project-clamped reach, D12). Refreshes the
+ *  Project's Contributor list, the global list, and the commission's effective authority. */
+export async function updateCommission(
+  id: string,
+  projectId: string,
+  patch: UpdateCommissionRequest,
+): Promise<Commission> {
+  const commission = await apiPatch<Commission>(paths.commission(id), patch)
+  invalidate(keys.commissions(projectId))
+  invalidate(keys.commissions())
+  invalidate(keys.commissionAuthority(id))
+  return commission
+}
+
+/** Un-commission an Agent from a Project. Refreshes both Contributor lists and the
+ *  Project's coordination panel (a delete cascade-releases the Contributor's sub-goals). */
+export async function deleteCommission(id: string, projectId: string): Promise<void> {
+  await apiDelete(paths.commission(id))
+  invalidate(keys.commissions(projectId))
+  invalidate(keys.commissions())
+  invalidate(keys.projectSubGoals(projectId))
 }
 
 // ── Model providers (the Agents hub — docs/agent-commons.md, D9) ─────────────

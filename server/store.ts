@@ -64,7 +64,7 @@ import { createUsageMeter, estimateTokens, mintBudget } from './usage.ts'
 import { mintAuthority } from './authority.ts'
 import { ConflictError } from './conflict.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority } from '../contract/index.ts'
-import type { Agent, Authority, Commission, CreateAgentRequest, ModelProvider, ProjectSubGoal, Reservation, SystemPromptEntry, UpdateAgentRequest } from '../contract/index.ts'
+import type { Agent, Authority, Commission, CreateAgentRequest, ModelProvider, ProjectSubGoal, Reservation, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
@@ -765,6 +765,39 @@ export const store = {
     const commission: Commission = { ...input, id: `commission-${(commissionSeq += 1)}` }
     COMMISSIONS.set(commission.id, commission)
     return commission
+  },
+  /** Re-grant a commission — narrow (or restore) the authority / sub-budget it carries
+   *  onto the Project. Re-runs the same leaf funnel `createCommission` uses (attenuate
+   *  against the Agent's effective ceiling), so a patch can't smuggle a grant past the
+   *  Agent. A present field is applied; an absent one is left unchanged. Undefined when
+   *  unknown (→ 404). */
+  updateCommission(id: string, patch: UpdateCommissionRequest): Commission | undefined {
+    const commission = COMMISSIONS.get(id)
+    if (!commission) return undefined
+    const agent = WORKER_AGENTS.get(commission.agentId)
+    const provider = resolveProvider(agent?.providerId)
+    const authority = 'authority' in patch ? patch.authority : commission.authority
+    const grant = 'grant' in patch ? patch.grant : commission.grant
+    if (authority) mintAuthority(agent?.authority ?? provider.authority, authority)
+    if (grant) {
+      mintBudget(agent?.budget?.windows ?? provider.plan?.windows ?? usageMeter.planCeilings(), grant)
+    }
+    const next: Commission = { ...commission, authority, grant, id: commission.id }
+    COMMISSIONS.set(id, next)
+    return next
+  },
+  /** Un-commission an Agent from its Project. Cascade-releases any in-flight sub-goals
+   *  this Contributor held at the Guardian (freeing them for re-claim), so removing a
+   *  Contributor leaves no dangling reservation. False when unknown (→ 404). No protected
+   *  default — a commission has no fallback role to preserve (unlike a provider/agent). */
+  deleteCommission(id: string): boolean {
+    const commission = COMMISSIONS.get(id)
+    if (!commission) return false
+    this.projectSubGoals(commission.projectId)
+      .filter((s) => s.holder === id)
+      .forEach((s) => this.releaseSubGoal(s.reservationId))
+    COMMISSIONS.delete(id)
+    return true
   },
 
   /** The **effective authority** a Contributor carries onto its Project (D12,
