@@ -151,7 +151,7 @@ let systemPromptSeq = 0
 
 // Commissions (docs/agent-commons.md, D7/D13) — the agent→Project assignments, the
 // leaf of the D8 cascade. Keyed by id; `listCommissions(projectId)` gives a Project's
-// Contributors. In-memory like the agent/provider registries (persistence is forward).
+// Contributors. Persisted to disk like the agent/provider registries (see persist.ts).
 const COMMISSIONS = new Map<string, Commission>(SEED_COMMISSIONS.map((c) => [c.id, c]))
 let commissionSeq = 0
 
@@ -276,12 +276,23 @@ function snapshot(): PersistedState {
     recents,
     graph,
     savedContexts: savedCtxs,
+    // The Agent Commons registries (D6/D9/D10/D7) — provider configs ride alongside
+    // the providers so a restored one keeps its concrete model id.
+    providers: [...MODEL_PROVIDERS.entries()],
+    providerConfigs: [...PROVIDER_CONFIGS.entries()],
+    systemPrompts: [...SYSTEM_PROMPT_LIB.entries()],
+    agents: [...WORKER_AGENTS.entries()],
+    commissions: [...COMMISSIONS.entries()],
     seq: {
       session: sessionSeq,
       message: messageSeq,
       schedule: scheduleSeq,
       run: runSeq,
       artifact: artifactSeq,
+      provider: providerSeq,
+      systemPrompt: systemPromptSeq,
+      agent: workerAgentSeq,
+      commission: commissionSeq,
     },
   }
 }
@@ -322,11 +333,34 @@ function rehydrate(s: PersistedState): void {
   for (const [k, v] of s.bindings) sessionContextBindings.set(k, v)
   sessionWorkspaces.clear()
   for (const [k, v] of s.workspaces) sessionWorkspaces.set(k, v)
+  // The Agent Commons registries (D6/D9/D10/D7). Each is replaced only when the
+  // snapshot carries it, so a pre-v4-shaped snapshot keeps the seeded set rather
+  // than wiping it (defensive — a v4 snapshot always writes all five).
+  replaceMap(MODEL_PROVIDERS, s.providers)
+  replaceMap(PROVIDER_CONFIGS, s.providerConfigs)
+  replaceMap(SYSTEM_PROMPT_LIB, s.systemPrompts)
+  replaceMap(WORKER_AGENTS, s.agents)
+  replaceMap(COMMISSIONS, s.commissions)
   sessionSeq = s.seq.session
   messageSeq = s.seq.message
   scheduleSeq = s.seq.schedule
   runSeq = s.seq.run
   artifactSeq = s.seq.artifact
+  // The registry counters (default to the seed counter for a pre-v4 snapshot, so a
+  // post-boot mint still lands past the seeds).
+  providerSeq = s.seq.provider ?? providerSeq
+  systemPromptSeq = s.seq.systemPrompt ?? systemPromptSeq
+  workerAgentSeq = s.seq.agent ?? workerAgentSeq
+  commissionSeq = s.seq.commission ?? commissionSeq
+}
+
+/** Replace a registry Map's contents from a snapshot's entry array, in place. A
+ *  no-op when the snapshot omits the slice (a pre-v4 file), so the seeded set
+ *  survives rather than being wiped to empty. */
+function replaceMap<V>(map: Map<string, V>, entries?: [string, V][]): void {
+  if (!entries) return
+  map.clear()
+  for (const [k, v] of entries) map.set(k, v)
 }
 
 /** How fast a run relights its rail — one step per this interval, then a final
@@ -542,14 +576,15 @@ export const store = {
    *  `mintAuthority`; the token budget (the quota face) with `mintBudget` against the
    *  provider plan, falling back to the account plan for a provider that declares none.
    *  The single seam where an Agent's grants are validated — there is no other way to
-   *  introduce one. (In-memory for now, like the runner registry; persistence arrives
-   *  with the management UI.) */
+   *  introduce one. The mutated registry is snapshotted to disk (persist.ts), so a
+   *  created Agent survives a restart. */
   createAgent(input: Omit<Agent, 'id'>): Agent {
     const provider = resolveProvider(input.providerId)
     if (input.authority) mintAuthority(provider.authority, input.authority)
     if (input.budget) mintBudget(provider.plan?.windows ?? usageMeter.planCeilings(), input.budget)
     const agent: Agent = { ...input, id: `agent-${(workerAgentSeq += 1)}` }
     WORKER_AGENTS.set(agent.id, agent)
+    persist()
     return agent
   },
   /** Create an Agent from a management request: resolve the `systemPrompt` body from the
@@ -603,6 +638,7 @@ export const store = {
       id: current.id,
     }
     WORKER_AGENTS.set(id, next)
+    persist()
     return next
   },
   /** Remove an Agent. Refuses (ConflictError → 409) the seeded default — Conversations
@@ -619,6 +655,7 @@ export const store = {
       )
     }
     WORKER_AGENTS.delete(id)
+    persist()
     return true
   },
 
@@ -646,6 +683,7 @@ export const store = {
     const provider: ModelProvider = { ...input, id: `provider-${(providerSeq += 1)}` }
     MODEL_PROVIDERS.set(provider.id, provider)
     PROVIDER_CONFIGS.set(provider.id, config)
+    persist()
     return provider
   },
   /** Patch a provider's own fields (label / family / effort levels / plan / authority).
@@ -659,12 +697,13 @@ export const store = {
     if (patch.plan) mintBudget(usageMeter.planCeilings(), patch.plan)
     const next: ModelProvider = { ...current, ...patch, id: current.id }
     MODEL_PROVIDERS.set(id, next)
+    persist()
     return next
   },
   /** Remove a provider. Refuses (ConflictError → 409) the seeded default — sessions
    *  resolve to it — and any provider an Agent still binds, so the user repoints those
    *  Agents first rather than silently orphaning them onto the fallback. False when
-   *  unknown (→ 404). In-memory, like the create funnel (no persistence yet). */
+   *  unknown (→ 404). The removal is snapshotted to disk (persist.ts). */
   deleteProvider(id: string): boolean {
     if (!MODEL_PROVIDERS.has(id)) return false
     if (id === DEFAULT_PROVIDER.id) throw new ConflictError('The default provider can’t be removed.')
@@ -676,6 +715,7 @@ export const store = {
     }
     MODEL_PROVIDERS.delete(id)
     PROVIDER_CONFIGS.delete(id)
+    persist()
     return true
   },
 
@@ -695,6 +735,7 @@ export const store = {
   createSystemPrompt(input: Omit<SystemPromptEntry, 'id'>): SystemPromptEntry {
     const entry: SystemPromptEntry = { ...input, id: `sp-new-${(systemPromptSeq += 1)}` }
     SYSTEM_PROMPT_LIB.set(entry.id, entry)
+    persist()
     return entry
   },
   /** Patch a library prompt's fields (label / body / target family). A plain registry
@@ -705,6 +746,7 @@ export const store = {
     if (!current) return undefined
     const next: SystemPromptEntry = { ...current, ...patch, id: current.id }
     SYSTEM_PROMPT_LIB.set(id, next)
+    persist()
     return next
   },
   /** Remove a library prompt. Refuses (ConflictError → 409) the seeded default — the
@@ -721,6 +763,7 @@ export const store = {
       )
     }
     SYSTEM_PROMPT_LIB.delete(id)
+    persist()
     return true
   },
 
@@ -741,7 +784,7 @@ export const store = {
    *  unrepresentable at mint, and a Commission can never carry authority the Agent never
    *  held (the confused-deputy wall, fatal where the commissioner is a stranger). The
    *  caller must have validated the agent + project exist; this asserts the cascade.
-   *  In-memory for now, like the agent/provider registries.
+   *  Persisted to disk like the agent/provider registries (persist.ts).
    *
    *  Known limitation (token face): the parent is a *single* tier — the Agent's own
    *  budget, else the provider plan, else the account plan — not a per-window merge of
@@ -764,6 +807,7 @@ export const store = {
     }
     const commission: Commission = { ...input, id: `commission-${(commissionSeq += 1)}` }
     COMMISSIONS.set(commission.id, commission)
+    persist()
     return commission
   },
   /** Re-grant a commission — narrow (or restore) the authority / sub-budget it carries
@@ -784,6 +828,7 @@ export const store = {
     }
     const next: Commission = { ...commission, authority, grant, id: commission.id }
     COMMISSIONS.set(id, next)
+    persist()
     return next
   },
   /** Un-commission an Agent from its Project. Cascade-releases any in-flight sub-goals
@@ -797,6 +842,7 @@ export const store = {
       .filter((s) => s.holder === id)
       .forEach((s) => this.releaseSubGoal(s.reservationId))
     COMMISSIONS.delete(id)
+    persist()
     return true
   },
 

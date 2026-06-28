@@ -104,8 +104,30 @@ test('build produces a snapshot covering every persisted slice', async () => {
   assert.ok((s.savedContexts?.length ?? 0) > 0, 'saved contexts present (auth status flipped)')
   assert.ok(s.recents.repo.includes('repo-playground'), 'a recent was promoted')
 
+  // ── Agent Commons registries exercised (D6/D9/D10/D7) ──
+  assert.ok(
+    s.providers?.some(([, p]) => p.label === 'Playground provider'),
+    'createProvider → providers',
+  )
+  assert.ok(
+    s.providerConfigs?.some(([, c]) => c.model === 'claude-opus-4-8'),
+    'the provider config (server-only model id) rides along',
+  )
+  assert.ok(
+    s.systemPrompts?.some(([, p]) => p.label === 'Playground research prompt'),
+    'createSystemPrompt → systemPrompts',
+  )
+  assert.ok(
+    s.agents?.some(([, a]) => a.label === 'Playground research agent'),
+    'createAgentFromRequest → agents',
+  )
+  assert.ok(
+    s.commissions?.some(([, c]) => c.projectId === 'p-insights'),
+    'createCommission → commissions',
+  )
+
   // ── id counters all advanced (so post-restore mints never collide) ──
-  for (const k of ['session', 'message', 'schedule', 'run', 'artifact'] as const) {
+  for (const k of ['session', 'message', 'schedule', 'run', 'artifact', 'provider', 'systemPrompt', 'agent', 'commission'] as const) {
     assert.ok(s.seq[k] > 0, `seq.${k} advanced`)
   }
 })
@@ -132,4 +154,13 @@ test('the built snapshot boots through the real rehydrate path', async () => {
   const full = created && store.getSession(created.id)
   assert.ok(full && (full.messages?.length ?? 0) >= 2, 'getSession returns the rehydrated thread')
   assert.ok(full && (full.workspace?.repos.length ?? 0) > 0, 'getSession surfaces the rehydrated workspace')
+
+  // The Agent Commons registries survive the boot too (D6/D9/D10/D7).
+  const provider = store.listProviders().find((p) => p.label === 'Playground provider')
+  assert.ok(provider, 'the created provider survives a boot')
+  assert.equal(store.providerModel(provider?.id), 'claude-opus-4-8', 'its server-only config (model id) survives too')
+  assert.ok(store.listSystemPrompts().some((p) => p.label === 'Playground research prompt'), 'the created system prompt survives a boot')
+  const agent = store.listAgents().find((a) => a.label === 'Playground research agent')
+  assert.ok(agent && agent.providerId === provider?.id, 'the created agent (bound to the provider) survives a boot')
+  assert.ok(store.listCommissions('p-insights').some((c) => c.agentId === agent?.id), 'the created commission survives a boot')
 })

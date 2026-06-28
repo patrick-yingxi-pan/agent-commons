@@ -198,6 +198,32 @@ export async function buildComprehensive(): Promise<PersistedState> {
     context: { kind: 'repo', label: 'patrick-yingxi-pan/web-app', meta: 'feat/insights-dashboard' },
   })
 
+  // ── Agent Commons (D6/D9/D10/D7) ── a created Model provider (with its server-only
+  // config), a library system prompt, a worker Agent bound to both through the D8
+  // funnel, and a Commission onto a seed project — so all four registries (and their
+  // id counters) are exercised once, keeping persistence coverage comprehensive.
+  const provider = store.createProvider(
+    {
+      label: 'Playground provider',
+      modelFamily: 'claude',
+      effortLevels: ['Low', 'Medium', 'High'],
+      authority: { tools: ['*'], connectors: ['*'], scopes: ['*'] },
+    },
+    { model: 'claude-opus-4-8' },
+  )
+  const prompt = store.createSystemPrompt({
+    label: 'Playground research prompt',
+    body: 'You are a focused research assistant. Cite primary sources and stay terse.',
+    targetFamily: 'claude',
+  })
+  const playgroundAgent = store.createAgentFromRequest({
+    label: 'Playground research agent',
+    providerId: provider.id,
+    systemPromptId: prompt.id,
+    instructions: 'Prefer primary sources.',
+  })
+  store.createCommission({ agentId: playgroundAgent.id, projectId: 'p-insights' })
+
   // ── Schedules ── a created routine, linked to the project, carrying all three
   // standing approvals, then RUN once (awaited) so it delivers its standing
   // artifact and lands a completed live run.
@@ -316,6 +342,9 @@ async function cmdBuild(activate: boolean): Promise<void> {
   console.log(`    schedules           ${state.schedules.length} (incl. ${state.schedules.filter((s) => s.id.startsWith('s-new-')).length} created)`)
   console.log(`    standing approvals  ${Object.keys(g.standingApprovals).length}`)
   console.log(`    contexts flipped    ${(state.savedContexts ?? []).filter((c) => c.kind === 'connector').length} connectors present`)
+  console.log(
+    `    agent commons       ${(state.providers ?? []).length} providers / ${(state.systemPrompts ?? []).length} prompts / ${(state.agents ?? []).length} agents / ${(state.commissions ?? []).length} commissions`,
+  )
 
   if (activate) {
     const live = dataFilePath()

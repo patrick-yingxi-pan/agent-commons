@@ -16,6 +16,9 @@
 import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import type {
+  Agent,
+  Commission,
+  ModelProvider,
   RecentsSnapshot,
   RelationGraph,
   SavedContext,
@@ -23,7 +26,9 @@ import type {
   Session,
   SessionContext,
   SessionWorkspace,
+  SystemPromptEntry,
 } from '../contract/index.ts'
+import type { ProviderConfig } from './data/providers.ts'
 
 /** On-disk schema version. A snapshot whose version doesn't match is ignored (the
  *  store re-seeds), so an incompatible older file can't crash a newer build.
@@ -33,8 +38,13 @@ import type {
  *  v3: ScheduledRun followed suit — `when`/`absolute` strings dropped and `at`
  *  changed from minutes-ago to an absolute epoch-ms; a v2 snapshot's runs would
  *  render as "Jan 1 1970", so it's discarded and the store re-seeds.
+ *  v4: the Agent Commons registries (providers + their server-only configs, the
+ *  system-prompt library, worker agents, commissions) and their id counters joined
+ *  the snapshot, so an agent / provider / prompt / commission created or edited
+ *  through the Agents hub (or proposed by Claude and confirmed) survives a restart
+ *  rather than reverting to the seed; a v3 snapshot lacks them, so it's discarded.
  *  A snapshot whose version is below the current one is incompatible → re-seed. */
-export const STORE_VERSION = 3
+export const STORE_VERSION = 4
 
 /** The persisted shape — the store's mutable, UI-owned state. Maps are stored as
  *  entry arrays (JSON has no Map). The id counters ride along so minted ids don't
@@ -50,7 +60,27 @@ export interface PersistedState {
   /** Saved-context auth status (Contexts page connect/disconnect). Optional so a
    *  snapshot written before this field loads cleanly (the store defaults to seed). */
   savedContexts?: SavedContext[]
-  seq: { session: number; message: number; schedule: number; run: number; artifact: number }
+  /** The Agent Commons registries (docs/agent-commons.md, D6/D9/D10/D7) — stored as
+   *  Map entry arrays. Each is optional so a snapshot written before the slice existed
+   *  loads cleanly (rehydrate keeps the seed when absent). Providers ride with their
+   *  server-only `ProviderConfig` (the concrete model id), keyed in lock-step, so a
+   *  restored provider still resolves the model it was created with. */
+  providers?: [string, ModelProvider][]
+  providerConfigs?: [string, ProviderConfig][]
+  systemPrompts?: [string, SystemPromptEntry][]
+  agents?: [string, Agent][]
+  commissions?: [string, Commission][]
+  seq: {
+    session: number
+    message: number
+    schedule: number
+    run: number
+    artifact: number
+    provider: number
+    systemPrompt: number
+    agent: number
+    commission: number
+  }
 }
 
 /** Where the snapshot lives. Override with `DATA_FILE`; defaults to
