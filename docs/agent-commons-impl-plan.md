@@ -182,11 +182,14 @@ credit and the owner-pays *abuse cap*.
   shape; single-account ⇒ sum over the account's Agents). Erasable, additive. **Tests:** the
   aggregate sums; a fresh Agent reads 0.
 
-- [ ] **5.2 Store — credit a successful commissioned effect.** `store.recordContribution(agentId)`
-  fired at each cross-user success seam: `runProjectEffect` (store.ts, has `commissionId`→agent),
-  the host invoke route on commit (`server/routes/index.ts`, `request.commissionId`), and
-  `runAgentProxy` (the **acting** Agent earns it — B did the work). Monotonic, never decrements.
-  **Tests:** a guarded Project effect bumps the Contributor's count; a proxy bumps the actor's.
+- [x] **5.2 Store — credit a successful commissioned effect.** `store.recordContribution(commissionId)`
+  (resolves commission→Agent, fail-quiet) fired at the two **commissioned-Project** success seams:
+  `runProjectEffect`'s `fulfil` closure (the guarded path throws before it, so success-only) and the
+  host invoke route after commit (`request.commissionId`). Monotonic, never decrements. *The D15
+  proxy is deliberately excluded — it is private cross-user access, not a Project contribution; it
+  belongs to the Phase-6 audit, and crediting it would conflate the two channels.* **Tests:**
+  `reputation.test.ts` — a Project effect bumps the Contributor; a commissioned invoke bumps; a
+  legacy (no-commission) invoke credits nobody; an unknown commission is a fail-quiet no-op.
 
 - [ ] **5.3 Contract + store + route — per-commissioner abuse cap.** D13 names this as a cost it
   accepts ("a malicious Project could commission many outsiders' Agents to burn their plans"). Add

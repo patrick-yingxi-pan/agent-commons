@@ -1203,6 +1203,19 @@ export const store = {
    *  *different* principal on the same sub-goal is refused (`GuardianError` 'conflict').
    *  The connector/MCP reach (D12) is checked by the route before this runs. Mock
    *  fulfilment; the seam is real. */
+  /** Credit a successful **commissioned Project effect** to its Contributor's reputation
+   *  (docs/agent-commons.md, D13 / OQ1) — the GitHub-style worker track record. Monotonic:
+   *  it only ever increments, and only on success (a thrown guardian conflict never reaches
+   *  here). Resolves the commission to its Agent; an unknown commission/Agent is a no-op
+   *  (fail-quiet — reputation is a best-effort credit, never a gate). Persisted. */
+  recordContribution(commissionId: string): void {
+    const agentId = COMMISSIONS.get(commissionId)?.agentId
+    if (!agentId) return
+    const a = WORKER_AGENTS.get(agentId)
+    if (!a) return
+    WORKER_AGENTS.set(agentId, { ...a, contributions: (a.contributions ?? 0) + 1 })
+    persist()
+  },
   runProjectEffect(
     projectId: string,
     commissionId: string,
@@ -1213,14 +1226,19 @@ export const store = {
     const monotonic = isProjectEffectMonotonic(type)
     const project = PROJECTS.find((p) => p.id === projectId)
     const guarded = !monotonic && !!project?.guardianId
-    const fulfil = (): ProjectEffectResult => ({
-      projectId,
-      commissionId,
-      type,
-      target,
-      guarded,
-      output: `${monotonic ? 'observed' : 'applied'} ${type} on '${target}'`,
-    })
+    const fulfil = (): ProjectEffectResult => {
+      // Reach here only on a successful effect (the guarded path throws on conflict before
+      // calling `fulfil`), so this is the single credit point for the D13 track record.
+      this.recordContribution(commissionId)
+      return {
+        projectId,
+        commissionId,
+        type,
+        target,
+        guarded,
+        output: `${monotonic ? 'observed' : 'applied'} ${type} on '${target}'`,
+      }
+    }
     // Non-monotonic ⇒ serialize on the sub-goal reservation (a no-op for an unguarded
     // Project); monotonic ⇒ coordination-free (CALM).
     return monotonic ? fulfil() : this.guardSubGoalEffect(projectId, commissionId, subGoal, fulfil)

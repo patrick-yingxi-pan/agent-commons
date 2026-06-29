@@ -205,6 +205,9 @@ export function buildRouter(): Router {
       })
       store.journal.reconcile(runner.id) // relay path: project synchronously
       if (reservation) store.guardian.commit(reservation.id)
+      // D13 reputation: a successful *commissioned* host effect credits the Contributor's
+      // track record (a no-op for the legacy single-tenant path with no commissionId).
+      if (request.commissionId) store.recordContribution(request.commissionId)
       sendJson(res, effect)
     } catch (err) {
       // The effect failed — free the lock only if this invoke is what acquired it.
