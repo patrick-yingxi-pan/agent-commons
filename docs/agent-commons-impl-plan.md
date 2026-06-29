@@ -1,17 +1,17 @@
 # Agent Commons — implementation plan (effect-time enforcement + roles)
 
-> **Status: ALL PHASES COMPLETE ✅** (Phases 1–4; typecheck + 401 tests + build green, each
-> step `/code-review`'d). Every planned design from `agent-commons.md` (D6–D16, OQ3/OQ4) is now
-> built — effect-time D12 enforcement, the Project-effect classifier + guarded path, the full
-> D14 role system, the D6 rename, the per-axis editor, D8 closed end-to-end (mint + spend-time +
-> shrink), D16 hand-off + per-turn provenance, and the D15 agent-to-agent proxy.
+> **Status: Phases 1–4 COMPLETE ✅ · Phases 5–7 IN PROGRESS** (Phases 1–4: typecheck + 401
+> tests + build green, each step `/code-review`'d). Phases 1–4 built every planned *mechanism*
+> from `agent-commons.md` (D6–D16, OQ3/OQ4). **Phases 5–7** move the remaining open-question
+> *design residue* into implementation (greenlit "all three"): **D13 economics** (reputation +
+> the per-commissioner abuse cap), the **D15/OQ7 detective audit**, and the opt-in **D10/OQ5
+> prompt-fit probe**.
 >
-> Derived from the settled design ([`agent-commons.md`](agent-commons.md), D6–D16).
-> This is the **plan-of-record** *and* the loop's checklist: each iteration does the
+> Derived from the settled design ([`agent-commons.md`](agent-commons.md), D6–D16, Open
+> Questions). This is the **plan-of-record** *and* the loop's checklist: each iteration does the
 > **next unchecked step only** — implement it with tests, run `/code-review` and fix
 > every finding immediately, run `npm run typecheck` + `node --test` (and verify a UI
-> step live), commit + push to `main`, then tick the box. Stop at the end of Phase 3;
-> **do not start Phase 4** without explicit confirmation.
+> step live), commit + push to `main`, then tick the box.
 
 ## Goal & scope
 
@@ -165,3 +165,91 @@ seam now, mock only the model). Ordered safest/most-contained → most-speculati
   the target"; explicit owner-side human approval is forward (single-user prototype).* **Tests:**
   pure-contract (`accessChannel`, the no-credential shape) + route (B denies what its own
   authority excludes, regardless of A; 404/400).
+
+---
+
+## Phase 5 — D13 economics made real (OQ1's settled sub-parts)
+
+The incentive is intrinsic (resolved); its *mechanism* — reputation and the abuse cap — was
+unbuilt. Artifact Project-ownership is **already structural** (`ArtifactItem.projectId`,
+[`contract/cowork.ts:155`](../contract/cowork.ts)) — committing an Agent already donates a
+Project-owned artifact — so Phase 5 builds the two genuine gaps: the donation's *reputation*
+credit and the owner-pays *abuse cap*.
+
+- [ ] **5.1 Contract — reputation, linked.** Add `contributions?: number` to `Agent`
+  ([`contract/workers.ts`](../contract/workers.ts)) — a worker's monotonic track record — plus a
+  pure `ownerReputation(agents)` aggregate (the GitHub "accrues to both Agent and owner, linked"
+  shape; single-account ⇒ sum over the account's Agents). Erasable, additive. **Tests:** the
+  aggregate sums; a fresh Agent reads 0.
+
+- [ ] **5.2 Store — credit a successful commissioned effect.** `store.recordContribution(agentId)`
+  fired at each cross-user success seam: `runProjectEffect` (store.ts, has `commissionId`→agent),
+  the host invoke route on commit (`server/routes/index.ts`, `request.commissionId`), and
+  `runAgentProxy` (the **acting** Agent earns it — B did the work). Monotonic, never decrements.
+  **Tests:** a guarded Project effect bumps the Contributor's count; a proxy bumps the actor's.
+
+- [ ] **5.3 Contract + store + route — per-commissioner abuse cap.** D13 names this as a cost it
+  accepts ("a malicious Project could commission many outsiders' Agents to burn their plans"). Add
+  `Project.commissionCap?: number` (max active commissions the Guardian admits); enforce
+  **fail-closed at `store.createCommission`** — over-cap ⇒ refuse (`limit_exceeded` 429). Keyed at
+  the Project (its Guardian) since the prototype has no separate per-user identity; documented.
+  **Tests:** at-cap creation 429; under-cap 200; absent cap ⇒ unlimited (back-compat).
+
+- [ ] **5.4 UI — reputation chip + cap.** Show `contributions` on `ContributorRow`
+  ([`src/components/SectionView.tsx:~971`](../src/components/SectionView.tsx)) and the Agent card;
+  show a Project's `commissionCap` (used/limit) in the commissions view. **Verify live.**
+
+- [ ] **5.5 Conversational — manage the cap through the shared card.** A `set-commission-cap`
+  `RelationOp` + a `set_commission_cap` model tool + intent, surfaced through the **same**
+  `RelationActionCard` the other relation edits use (the "one gate, managed by hand *and*
+  conversationally" rule). **Tests:** `model-tools` + `model-intents` + reducer/relations.
+
+## Phase 6 — D15/OQ7 detective audit (the taint *backstop*)
+
+Settled **detective-audit-only — no provenance taint engine**: a server-side watch over the
+cross-user channels, best-effort backstop to the attenuation wall, not a guarantee.
+
+- [ ] **6.1 Contract — `AuditEntry`.** A pure record `{ id, channel: 'proxy'|'project-effect'|
+  'host-invoke', actorAgentId?, commissionId?, capability, target, outcome, at }` + a pure
+  builder/`summarizeAudit`. Not a `*Request` ⇒ no contract-boundaries coupling. **Tests:** the
+  builder shape; the channel union.
+
+- [ ] **6.2 Store — append-only log at the three channels.** An `auditLog: AuditEntry[]` slice +
+  `store.recordAudit(entry)` appended on every `runAgentProxy`, `runProjectEffect`, and
+  commissioned host invoke. Persist **additively** — optional `auditLog?` on `PersistedState`,
+  **no `STORE_VERSION` bump** (old snapshots load `?? []`; a bump would discard live data).
+  **Tests:** each channel appends exactly one entry with the right `channel`/`outcome`.
+
+- [ ] **6.3 Route + api hook — read the trail.** `GET /audit` (mirror `GET /agents`) + a
+  `useAuditLog` read hook through `src/api` (one door) + cache invalidation on a new
+  `audit.entry` SSE event. **Tests:** `GET /audit` returns the appended entries; a denied proxy
+  still logs an entry (detective = records attempts, not just successes).
+
+- [ ] **6.4 UI — an Audit surface in the Agents hub.** A read-only **Audit** tab beside
+  Agents/Providers/Prompts/Commissions ([`SectionView.tsx:~2318`](../src/components/SectionView.tsx)),
+  each row = channel · actor · capability · target · outcome. **Verify live.**
+
+## Phase 7 — D10/OQ5 prompt-fit probe (opt-in upgrade)
+
+The static target-family tag stays the **default** (`promptFitWarning`, unchanged); the probe is
+the *optional later upgrade* D10 named — strictly more accurate than the tag, opt-in because it
+costs a model call. Built as a real seam with **mock fulfilment** (the project rule).
+
+- [ ] **7.1 + 7.2 Contract + route — `ProbeRequest`/`ProbeResult` + the probe seam.** *Delivered
+  together (the `contract-boundaries` `*Request`↔route coupling).* `contract/probe.ts`:
+  `ProbeRequest { systemPromptId, providerId? }`, `ProbeResult { score, verdict, aspects, detail }`,
+  and a pure `probeScore(targetFamily, modelFamily)` (deterministic mock — family match ⇒ high; a
+  mismatch scores the tool-use / consent-gate degradation the tag only flags binary). `POST
+  /system-prompts/:id/probe` → `store.runProbe`, real-seam-shaped (a model tool-use conformance
+  check in prod; canned score in the mock). **Tests:** pure scorer (match vs mismatch) + route
+  (200 with a score, 404 unknown prompt, 400 bad body).
+
+- [ ] **7.3 UI — opt-in "Run fit probe".** A button beside the **static** warning in `AgentDialog`
+  ([`SectionView.tsx:~2694`](../src/components/SectionView.tsx)) and `PromptsTab` (~2886) that
+  runs the probe and shows the score/aspects — the tag stays the always-on default; the probe is
+  the on-demand deepening. **Verify live.**
+
+> **Not built — honest non-build.** OQ6 (multi-principal consent under *adversarial* load) is
+> settled in design and "*watched in practice*", not a mechanism: the actor-self-confirm + role-
+> grant-as-up-front-consent is already built (D14). The only buildable slice — making that consent
+> legible — is folded into 5.5's card text, not a phase.
