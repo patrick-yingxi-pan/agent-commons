@@ -1271,7 +1271,9 @@ export const store = {
    *  own clock), so callers pass only the effect facts. Best-effort backstop, never a gate:
    *  it records, it never refuses. Persisted. */
   recordAudit(entry: Omit<AuditEntry, 'id' | 'at'>): void {
-    auditLog.push({ ...entry, id: `audit-${(auditSeq += 1)}`, at: Date.now() })
+    const full: AuditEntry = { ...entry, id: `audit-${(auditSeq += 1)}`, at: Date.now() }
+    auditLog.push(full)
+    emit({ type: 'audit.entry', entry: full }) // refresh a watching Audit surface
     persist()
   },
   /** The audit trail, newest first — the Audit surface's read. */

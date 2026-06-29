@@ -309,6 +309,10 @@ export function buildRouter(): Router {
   r.get('/agents', ({ res }) => {
     sendJson(res, store.listAgents())
   })
+  // The detective audit trail (D15/OQ7) — newest first; the Audit hub's read.
+  r.get('/audit', ({ res }) => {
+    sendJson(res, store.listAuditLog())
+  })
   r.get('/agents/:id', ({ res, params }) => {
     // Like providers: `listAgents().find`, not `getAgent` (which falls back to the
     // default), so an unknown id is a real 404.

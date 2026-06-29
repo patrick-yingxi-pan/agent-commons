@@ -9,6 +9,7 @@ import { keys, paths } from './keys.ts'
 import type {
   Runner,
   Agent,
+  AuditEntry,
   Authority,
   Commission,
   CapabilityEffect,
@@ -183,4 +184,10 @@ export function useRecentRuns(): QueryState<RunSessionEntry[]> {
 /** The per-user recents snapshot (one MRU id list per context type). */
 export function useRecents(): QueryState<RecentsSnapshot> {
   return useQuery(keys.recents, () => apiGet<RecentsSnapshot>(paths.recents))
+}
+
+/** The detective audit trail (docs/agent-commons.md, D15/OQ7) — cross-user effects,
+ *  newest first; refreshed live on the `audit.entry` event. */
+export function useAuditLog(): QueryState<AuditEntry[]> {
+  return useQuery(keys.auditLog, () => apiGet<AuditEntry[]>(paths.audit))
 }

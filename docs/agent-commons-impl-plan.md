@@ -223,7 +223,7 @@ cross-user channels, best-effort backstop to the attenuation wall, not a guarant
   **no `STORE_VERSION` bump** (old snapshots load `?? []`; a bump would discard live data).
   **Tests:** each channel appends exactly one entry with the right `channel`/`outcome`.
 
-- [ ] **6.3 Route + api hook — read the trail.** `GET /audit` (mirror `GET /agents`) + a
+- [x] **6.3 Route + api hook — read the trail.** `GET /audit` (mirror `GET /agents`) + a
   `useAuditLog` read hook through `src/api` (one door) + cache invalidation on a new
   `audit.entry` SSE event. **Tests:** `GET /audit` returns the appended entries; a denied proxy
   still logs an entry (detective = records attempts, not just successes).

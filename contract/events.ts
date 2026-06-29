@@ -18,6 +18,7 @@
 import type { Connector, EscalationProposal, Message, Session } from './entities.ts'
 import type { ScheduledRun } from './cowork.ts'
 import type { RelationOp } from './relations.ts'
+import type { AuditEntry } from './audit.ts'
 import type { ContextTypeId, SessionContext } from './contexts.ts'
 import type { Runner, CapabilityEffect } from './agents.ts'
 
@@ -161,6 +162,14 @@ export interface DispatchChangedEvent {
   type: 'dispatch.changed'
 }
 
+/** A new entry landed in the detective audit trail (D15/OQ7) — a cross-user effect was
+ *  recorded (fulfilled or denied). Carries the entry so a watching client refreshes the
+ *  Audit surface. */
+export interface AuditEntryEvent {
+  type: 'audit.entry'
+  entry: AuditEntry
+}
+
 /** Sent once when an SSE channel opens, so the client can confirm liveness. */
 export interface HelloEvent {
   type: 'hello'
@@ -190,6 +199,7 @@ export type ServerEvent =
   | RunnerEffectEvent
   | ReservationChangedEvent
   | DispatchChangedEvent
+  | AuditEntryEvent
 
 export type ServerEventType = ServerEvent['type']
 

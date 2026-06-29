@@ -87,6 +87,11 @@ function route(e: ServerEvent): void {
     case 'dispatch.changed':
       invalidate(keys.dispatch)
       break
+    // A cross-user effect landed in the detective audit trail (D15/OQ7) — refresh the
+    // Audit surface so the watch updates live.
+    case 'audit.entry':
+      invalidate(keys.auditLog)
+      break
     default:
       break
   }

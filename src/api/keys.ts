@@ -35,6 +35,8 @@ export const keys = {
   relations: 'relations',
   recentRuns: 'runs-recent',
   recents: 'recents',
+  /** The detective audit trail (docs/agent-commons.md, D15/OQ7) — the cross-user effect log. */
+  auditLog: 'audit-log',
 }
 
 export const paths = {
@@ -90,4 +92,5 @@ export const paths = {
   recentRuns: '/runs/recent',
   recents: '/recents',
   recentsType: (type: string) => `/recents/${encodeURIComponent(type)}`,
+  audit: '/audit',
 }
