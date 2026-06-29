@@ -16,10 +16,15 @@ const VITE_BIN = join(dirname(require.resolve('vite/package.json')), 'bin/vite.j
 const procs = []
 let shuttingDown = false
 
-// The mock backend's port. Pin it (don't inherit PORT) so it can't collide with
-// the UI dev server's port when a host sets PORT for the UI (e.g. a preview
-// runner). The Vite proxy targets this same port.
-const MOCK_PORT = process.env.MOCK_PORT ?? '8787'
+// The UI dev-server port. A host (e.g. a preview runner) may assign one via PORT;
+// otherwise Vite's default (5173) applies.
+const UI_PORT = process.env.PORT
+// The mock backend's port — kept distinct from the UI port. An explicit MOCK_PORT
+// wins; otherwise derive it from the UI port (+1) when that was host-assigned, so
+// two dev stacks on different assigned ports don't both grab 8787 (and the backends
+// can't collide). Falls back to 8787 for a plain `npm run dev`. The Vite proxy
+// targets this same port (passed into the UI child below).
+const MOCK_PORT = process.env.MOCK_PORT ?? (UI_PORT ? String(Number(UI_PORT) + 1) : '8787')
 
 function run(name, command, args, color, env) {
   const p = spawn(command, args, { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] })
@@ -57,4 +62,6 @@ process.on('SIGTERM', () => shutdown(0))
 // 36 = cyan (backend), 35 = magenta (ui). The server gets PORT pinned so it
 // binds the mock port regardless of any inherited PORT (which targets the UI).
 run('server', 'node', ['--watch', 'server/index.ts'], '36', { PORT: MOCK_PORT })
-run('ui', 'node', [VITE_BIN], '35')
+// Pass MOCK_PORT through so the UI's Vite proxy (vite.config.ts) targets the same
+// backend port the server just bound — including the derived one above.
+run('ui', 'node', [VITE_BIN], '35', { MOCK_PORT })
