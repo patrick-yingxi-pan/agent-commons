@@ -114,6 +114,7 @@ import {
   reserveSubGoal,
   releaseSubGoal,
   useAgents,
+  useAuditLog,
   useCommissions,
   useCommissionAuthority,
   useProjectSubGoals,
@@ -129,7 +130,9 @@ import {
   promptFitWarning,
   projectAdmittedAuthority,
   PROJECT_ROLES,
+  AUDIT_CHANNEL_LABEL,
   type Agent,
+  type AuditEntry,
   type Commission,
   type ModelProvider,
   type ProjectRole,
@@ -2338,13 +2341,14 @@ function StatusPill({ tone, label }: { tone: 'ok' | 'warn' | 'bad' | 'neutral'; 
  *  interdependent (an Agent binds a provider + prompt; a commission binds an Agent to a
  *  Project), so they read as one surface rather than four nav rows. Slice 1 lists each
  *  read-only; later slices add create / edit / delete per tab. */
-type CommonsTab = 'agents' | 'providers' | 'prompts' | 'commissions'
+type CommonsTab = 'agents' | 'providers' | 'prompts' | 'commissions' | 'audit'
 
 const COMMONS_TABS: { id: CommonsTab; label: string }[] = [
   { id: 'agents', label: 'Agents' },
   { id: 'providers', label: 'Providers' },
   { id: 'prompts', label: 'Prompts' },
   { id: 'commissions', label: 'Commissions' },
+  { id: 'audit', label: 'Audit' },
 ]
 
 function AgentCommonsSection() {
@@ -2364,6 +2368,7 @@ function AgentCommonsSection() {
         {tab === 'providers' && <ProvidersTab />}
         {tab === 'prompts' && <PromptsTab />}
         {tab === 'commissions' && <CommissionsTab />}
+        {tab === 'audit' && <AuditTab />}
       </div>
     </Page>
   )
@@ -3051,6 +3056,61 @@ function CommissionsTab() {
         </div>
         )
       })}
+    </div>
+  )
+}
+
+/** The detective audit trail (docs/agent-commons.md, D15/OQ7) — a read-only watch over
+ *  cross-user effects (proxy / Project effect / commissioned host invoke), newest first,
+ *  recording denied attempts as well as fulfilled ones. Refreshes live on `audit.entry`.
+ *  The honest framing: a detective *backstop*, not the wall — attenuation (D12) is the wall. */
+function AuditTab() {
+  const entries = useAuditLog().data ?? []
+  const agents = useAgents().data ?? []
+  const labelFor = (id?: string) => (id ? (agents.find((a) => a.id === id)?.label ?? id) : undefined)
+  return (
+    <div className="space-y-3">
+      <p className="text-[12px] leading-relaxed text-ink-soft">
+        A server-side watch over <span className="font-medium text-ink">cross-user</span> effects — the
+        agent-to-agent proxy, Project effects, and commissioned host invokes — recorded whether allowed
+        or refused. A <span className="font-medium text-ink">detective backstop</span>, not the wall:
+        attenuation (D12) is what actually bounds reach.
+      </p>
+      {entries.length === 0 ? (
+        <Empty>No cross-user effects recorded yet.</Empty>
+      ) : (
+        <CommonsCard>
+          <div className="divide-y divide-ink/5">
+            {entries.map((e) => (
+              <AuditEntryRow key={e.id} entry={e} actor={labelFor(e.actorAgentId) ?? e.commissionId} />
+            ))}
+          </div>
+        </CommonsCard>
+      )}
+    </div>
+  )
+}
+
+function AuditEntryRow({ entry, actor }: { entry: AuditEntry; actor?: string }) {
+  const denied = entry.outcome === 'denied'
+  return (
+    <div className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0">
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${denied ? 'bg-removed' : 'bg-emerald-500'}`} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="shrink-0 rounded-full bg-ink/5 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-ink-soft">
+            {AUDIT_CHANNEL_LABEL[entry.channel]}
+          </span>
+          <span className={`shrink-0 text-[11px] font-medium ${denied ? 'text-removed' : 'text-emerald-700'}`}>
+            {denied ? 'denied' : 'fulfilled'}
+          </span>
+          <span className="truncate text-[13px] text-ink">
+            {entry.capability} on <span className="font-medium">{entry.target}</span>
+          </span>
+        </div>
+        {actor && <div className="text-[11px] text-ink-faint">by {actor}</div>}
+      </div>
+      <span className="shrink-0 text-[11px] text-ink-faint">{relativeTime(entry.at)}</span>
     </div>
   )
 }

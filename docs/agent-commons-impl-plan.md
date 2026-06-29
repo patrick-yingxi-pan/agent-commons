@@ -228,7 +228,7 @@ cross-user channels, best-effort backstop to the attenuation wall, not a guarant
   `audit.entry` SSE event. **Tests:** `GET /audit` returns the appended entries; a denied proxy
   still logs an entry (detective = records attempts, not just successes).
 
-- [ ] **6.4 UI — an Audit surface in the Agents hub.** A read-only **Audit** tab beside
+- [x] **6.4 UI — an Audit surface in the Agents hub.** A read-only **Audit** tab beside
   Agents/Providers/Prompts/Commissions ([`SectionView.tsx:~2318`](../src/components/SectionView.tsx)),
   each row = channel · actor · capability · target · outcome. **Verify live.**
 
