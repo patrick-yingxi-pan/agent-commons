@@ -4,6 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from '../server/store.ts'
+import { ownerReputation, type Agent } from '../contract/workers.ts'
 import { DEFAULT_AGENT } from '../server/data/workers.ts'
 import { TOOL_NAMES } from '../server/model/tools.ts'
 import { estimateTokens, BudgetError } from '../server/usage.ts'
@@ -47,6 +48,21 @@ test('GET /agents returns the worker-Agent registry; an unknown id 404s', async 
   const missing = await call('GET', '/agents/nope')
   assert.equal(missing.status, 404)
   assert.equal(missing.json.error.code, 'not_found')
+})
+
+test('D13 reputation: a fresh Agent reads 0; ownerReputation sums the account (linked)', () => {
+  // The per-Agent counter (OQ1): absent ⇒ 0, never negative.
+  const fresh = store.createAgent({ label: 'Newcomer', systemPrompt: 'p', tools: [], instructions: '' })
+  assert.equal(fresh.contributions ?? 0, 0, 'a worker that has not contributed reads 0')
+
+  // The owner aggregate is a pure fold — "accrues to both the Agent and its owner, linked".
+  const agents: Agent[] = [
+    { id: 'a', label: 'A', systemPrompt: 'p', tools: [], instructions: '', contributions: 3 },
+    { id: 'b', label: 'B', systemPrompt: 'p', tools: [], instructions: '', contributions: 5 },
+    { id: 'c', label: 'C', systemPrompt: 'p', tools: [], instructions: '' }, // no field ⇒ 0
+  ]
+  assert.equal(ownerReputation(agents), 8)
+  assert.equal(ownerReputation([]), 0)
 })
 
 test('createAgent mints a within-plan budget through the funnel, rejects an over-plan one', () => {

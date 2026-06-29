@@ -45,6 +45,20 @@ export interface Agent {
    *  (`overAuthority`); unset = inherit the provider's authority. A Commission later
    *  attenuates this further. */
   authority?: Authority
+  /** This Agent's **reputation** — a monotonic count of successful commissioned effects
+   *  it has performed on a shared Project (docs/agent-commons.md, D13 / OQ1). The
+   *  GitHub-style worker track record; it only ever increments (a contribution is never
+   *  un-donated) and aggregates to the owner via `ownerReputation` ("accrues to both the
+   *  Agent and its owner, linked"). Absent / `0` ⇒ a worker that has not yet contributed. */
+  contributions?: number
+}
+
+/** The owner-side aggregate of D13 reputation: standing "accrues to both the Agent and
+ *  its owner, linked." The prototype has a single account, so an owner's reputation is the
+ *  sum of its Agents' contributions — the accountable human's track record built from its
+ *  workers'. Pure (a fold over the registry), so it can't drift from the per-Agent counter. */
+export function ownerReputation(agents: readonly Agent[]): number {
+  return agents.reduce((sum, a) => sum + (a.contributions ?? 0), 0)
 }
 
 /** Create an Agent from the management UI. The server resolves the `systemPrompt` *body*

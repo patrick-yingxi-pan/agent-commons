@@ -176,7 +176,7 @@ unbuilt. Artifact Project-ownership is **already structural** (`ArtifactItem.pro
 Project-owned artifact — so Phase 5 builds the two genuine gaps: the donation's *reputation*
 credit and the owner-pays *abuse cap*.
 
-- [ ] **5.1 Contract — reputation, linked.** Add `contributions?: number` to `Agent`
+- [x] **5.1 Contract — reputation, linked.** Add `contributions?: number` to `Agent`
   ([`contract/workers.ts`](../contract/workers.ts)) — a worker's monotonic track record — plus a
   pure `ownerReputation(agents)` aggregate (the GitHub "accrues to both Agent and owner, linked"
   shape; single-account ⇒ sum over the account's Agents). Erasable, additive. **Tests:** the
