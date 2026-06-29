@@ -212,7 +212,7 @@ credit and the owner-pays *abuse cap*.
 Settled **detective-audit-only — no provenance taint engine**: a server-side watch over the
 cross-user channels, best-effort backstop to the attenuation wall, not a guarantee.
 
-- [ ] **6.1 Contract — `AuditEntry`.** A pure record `{ id, channel: 'proxy'|'project-effect'|
+- [x] **6.1 Contract — `AuditEntry`.** A pure record `{ id, channel: 'proxy'|'project-effect'|
   'host-invoke', actorAgentId?, commissionId?, capability, target, outcome, at }` + a pure
   builder/`summarizeAudit`. Not a `*Request` ⇒ no contract-boundaries coupling. **Tests:** the
   builder shape; the channel union.
