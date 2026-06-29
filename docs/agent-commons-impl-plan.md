@@ -198,7 +198,7 @@ credit and the owner-pays *abuse cap*.
   the Project (its Guardian) since the prototype has no separate per-user identity; documented.
   **Tests:** at-cap creation 429; under-cap 200; absent cap ⇒ unlimited (back-compat).
 
-- [ ] **5.4 UI — reputation chip + cap.** Show `contributions` on `ContributorRow`
+- [x] **5.4 UI — reputation chip + cap.** Show `contributions` on `ContributorRow`
   ([`src/components/SectionView.tsx:~971`](../src/components/SectionView.tsx)) and the Agent card;
   show a Project's `commissionCap` (used/limit) in the commissions view. **Verify live.**
 

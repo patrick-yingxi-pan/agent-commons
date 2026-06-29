@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import {
   AlertCircle,
   ArrowLeft,
+  Award,
   BarChart3,
   Bell,
   Bot,
@@ -922,7 +923,12 @@ function ContributorsPanel({ project }: { project: Project }) {
       ) : (
         <div className="space-y-2.5">
           {commissions.map((c) => (
-            <ContributorRow key={c.id} commission={c} agentLabel={agentsById.get(c.agentId)?.label ?? c.agentId} />
+            <ContributorRow
+              key={c.id}
+              commission={c}
+              agentLabel={agentsById.get(c.agentId)?.label ?? c.agentId}
+              contributions={agentsById.get(c.agentId)?.contributions}
+            />
           ))}
         </div>
       )}
@@ -936,7 +942,16 @@ function ContributorsPanel({ project }: { project: Project }) {
  *  its granted authority intersected with what the Project admits — never the owner's
  *  ambient set. Default-deny: an Agent granted everything still reaches only the
  *  Project's connectors. */
-function ContributorRow({ commission, agentLabel }: { commission: Commission; agentLabel: string }) {
+function ContributorRow({
+  commission,
+  agentLabel,
+  contributions,
+}: {
+  commission: Commission
+  agentLabel: string
+  /** The Contributor Agent's D13 reputation — successful commissioned effects (OQ1). */
+  contributions?: number
+}) {
   const reach = useCommissionAuthority(commission.id).data
   // Post-clamp the connectors are always a concrete set (the Project admits a concrete
   // list); show them as the visible isolation boundary.
@@ -970,6 +985,14 @@ function ContributorRow({ commission, agentLabel }: { commission: Commission; ag
           <span className="shrink-0 rounded-full bg-ink/5 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-ink-soft">
             {commission.role ?? 'writer'}
           </span>
+          {contributions ? (
+            <span
+              title={`${contributions} commissioned ${contributions === 1 ? 'contribution' : 'contributions'} on the Commons (D13)`}
+              className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-emerald-500/10 px-1.5 py-px text-[10px] font-medium text-emerald-700"
+            >
+              <Award size={9} /> {contributions}
+            </span>
+          ) : null}
         </div>
         <div className="text-[11px] text-ink-faint">{reachLabel}</div>
         {error && <div className="text-[11px] text-removed">{error}</div>}
@@ -2606,6 +2629,12 @@ function AgentCard({
         trailing={<CardActions onEdit={onEdit} onDelete={del} />}
       />
       <p className="mt-2 text-[12px] text-ink-soft">Authority: {authorityLabel(agent.authority)}</p>
+      {agent.contributions ? (
+        <p className="mt-1 inline-flex items-center gap-1 text-[12px] text-emerald-700">
+          <Award size={12} /> {agent.contributions} commissioned contribution
+          {agent.contributions === 1 ? '' : 's'} on the Commons (D13)
+        </p>
+      ) : null}
       {error && <p className="mt-2 text-[12px] text-removed">{error}</p>}
     </CommonsCard>
   )
@@ -2988,10 +3017,24 @@ function CommissionsTab() {
 
   return (
     <div className="space-y-6">
-      {[...byProject.entries()].map(([projectId, list]) => (
+      {[...byProject.entries()].map(([projectId, list]) => {
+        const cap = projects.find((p) => p.id === projectId)?.commissionCap
+        return (
         <div key={projectId}>
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-            {projectName(projectId)}
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+              {projectName(projectId)}
+            </span>
+            {cap !== undefined && (
+              <span
+                title={`Per-commissioner abuse cap (D13): ${list.length} of ${cap} commissions used`}
+                className={`shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium ${
+                  list.length >= cap ? 'bg-removed/10 text-removed' : 'bg-ink/5 text-ink-soft'
+                }`}
+              >
+                {list.length} / {cap} commissioned
+              </span>
+            )}
           </div>
           <CommonsCard>
             <div className="space-y-2.5">
@@ -3000,12 +3043,14 @@ function CommissionsTab() {
                   key={c.id}
                   commission={c}
                   agentLabel={agentsById.get(c.agentId)?.label ?? c.agentId}
+                  contributions={agentsById.get(c.agentId)?.contributions}
                 />
               ))}
             </div>
           </CommonsCard>
         </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
