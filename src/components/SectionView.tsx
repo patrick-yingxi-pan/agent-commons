@@ -43,7 +43,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react'
-import type { AddedContext, ArtifactKind, Connector, SectionId } from '../types'
+import type { AddedContext, ArtifactKind, Connector, SavedContext, SavedContextKind, SectionId } from '../types'
 import { SECTION_META } from '../lib/sections'
 import { FOLD_HEADER_CLASS } from '../lib/foldHeader'
 import { connectorIconFor } from '../lib/connectors'
@@ -71,7 +71,7 @@ import { relativeTime } from '../lib/relativeTime'
 import { Chip } from './Chip'
 import { RowMenu, type RowMenuItem } from './RowMenu'
 import { ClaudeMark } from './ClaudeMark'
-import { SAVED_CONTEXTS, type SavedContext, type SavedContextKind } from '../data/savedContexts'
+import { SAVED_CONTEXTS } from '../data/savedContexts'
 import {
   CONNECTOR_OPTIONS,
   GITHUB_REPO_OPTIONS,

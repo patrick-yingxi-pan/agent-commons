@@ -1,4 +1,4 @@
-import type { Connector } from '../../contract/entities.ts'
+import type { SavedContext } from '../../contract/contexts.ts'
 
 /** The reusable context the workspace already knows about — the things that take
  *  auth or manual setup (connectors, MCP servers) plus the repos you've attached
@@ -8,33 +8,12 @@ import type { Connector } from '../../contract/entities.ts'
  *
  *  Ids/labels mirror the Add-context catalogs (data/contextOptions.ts) so the
  *  page and the picker stay in sync: the connector/MCP ids match CONNECTOR_OPTIONS
- *  / MCP_OPTIONS, and the repo ids match the repo catalogs. */
-
-export type SavedContextKind = 'connector' | 'mcp' | 'repo'
-
-/** Setup/auth state. Connectors & MCP servers toggle between the two on the page;
- *  repos are always 'connected' — a GitHub repo's real dependency is the GitHub
- *  connector, surfaced separately via `dependsOnGitHub`. */
-export type ContextStatus = 'connected' | 'needs-auth'
-
-export interface SavedContext {
-  id: string
-  label: string
-  kind: SavedContextKind
-  status: ContextStatus
-  /** Account, scope, or path · branch — the row's one-line subtitle. */
-  detail: string
-  /** When it was last attached (epoch ms); `null` when never attached. The UI
-   *  renders a live "time ago" label from it (src/lib/relativeTime). */
-  lastUsedAt: number | null
-  /** How many sessions have attached this. */
-  sessions: number
-  /** Connectors only — drives the row icon (GitHub mark vs generic plug). */
-  connectorKind?: Connector['kind']
-  /** Repos only — how it's attached, and whether it leans on the GitHub connector. */
-  origin?: 'local' | 'github'
-  dependsOnGitHub?: boolean
-}
+ *  / MCP_OPTIONS, and the repo ids match the repo catalogs.
+ *
+ *  The row's *shape* — `SavedContext` (and its `SavedContextKind` / `ContextStatus`
+ *  members) — is the contract's, imported above and never re-declared here, so this
+ *  seed cannot drift from the wire type it has to satisfy. (`contract/contexts.ts`
+ *  is the single source of truth; see AGENTS.md "the contract is load-bearing".) */
 
 /** Seed "last used" stamps are authored as an AGE before module load and resolved
  *  to an absolute epoch-ms, so the Contexts page shows live, advancing "Last used

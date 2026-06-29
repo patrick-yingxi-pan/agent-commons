@@ -49,6 +49,31 @@ test('contract/ + server/ use only erasable TypeScript (no enum / namespace / pa
   assert.deepEqual(offenders, [], `non-erasable syntax breaks the type-stripping Node runtime: ${offenders.join('; ')}`)
 })
 
+// ── Seeds import contract types, never re-declare them ───────────────────────
+// The saved-context seed satisfies the wire type `SavedContext`; it must import
+// that shape from the contract, not mint a parallel copy. A hand-mirrored copy
+// silently drifted once already (the `lastUsed: string` → `lastUsedAt: number`
+// migration had to be applied in both places). This locks the single source of
+// truth so the duplicate can't creep back. (contract/contexts.ts is canonical.)
+test('the saved-context seed imports its row shape from the contract — never re-declares it', () => {
+  const seed = stripComments(read(join(ROOT, 'server', 'data', 'savedContexts.ts')))
+
+  assert.match(
+    seed,
+    /import\s+type\s+\{[^}]*\bSavedContext\b[^}]*\}\s+from\s+'[^']*contract\/contexts\.ts'/,
+    'server/data/savedContexts.ts must import SavedContext from the contract (the single source of truth)',
+  )
+
+  for (const name of ['SavedContext', 'SavedContextKind', 'ContextStatus']) {
+    assert.doesNotMatch(
+      seed,
+      new RegExp(String.raw`(?:export\s+)?(?:interface|type)\s+${name}\b`),
+      `server/data/savedContexts.ts re-declares the contract type "${name}" — import it from ` +
+        `contract/contexts.ts instead so the seed cannot drift from the wire type`,
+    )
+  }
+})
+
 // ── The SSE event boundary: every declared event is produced AND consumed ─────
 function declaredEvents() {
   const events = stripComments(read(join(ROOT, 'contract', 'events.ts')))
