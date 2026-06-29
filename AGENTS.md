@@ -30,6 +30,10 @@ The full argument is in [`PROPOSAL.md`](PROPOSAL.md); the engineering tour is in
    contract (desktop sidecar *or* remote web server, same wire types).
 4. Skim **`contract/`** — the shared types *are* the API; this is the portability
    claim made concrete.
+5. For the full requirements ledger, see **[`docs/spec/`](docs/spec/README.md)** —
+   the hierarchical spec (goal → pillars → leaf requirements), each requirement
+   traced to its implementation + locking test. It's the **conformance baseline**:
+   if you wonder "is X actually built or just mocked?", that's where to check.
 
 ## Quick start
 
@@ -185,6 +189,11 @@ the mock?
   exercise (it has no DOM) is verified in the running app and called out as such.
   This holds **across clones**: write the tests every time rather than leaning on a
   particular clone's existing coverage.
+- **Keep the spec ledger current.** When a feature lands, add its requirement row(s)
+  to the relevant **[`docs/spec/`](docs/spec/README.md)** pillar — statement,
+  implementation pointer, locking test, status — so the spec stays the system of
+  record for *what's built vs mocked*. `tests/spec-conformance.test.ts` fails if a
+  spec reference rots; the named locking tests are what prove the behavior.
 - **Run `npm run typecheck` and `node --test` before declaring a change done.**
   Verify UI changes in the running app, not just by reading code.
 - **Git:** this repo commits and pushes straight to `main` over HTTPS.

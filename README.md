@@ -35,8 +35,10 @@ without ever switching tabs:
 1. **Chat** — an ordinary message thread. No mode chosen up front.
 2. **→ Workspace** — the same thread grows a workspace; a panel slides in with a
    one-pager, a launch email, and a hero image. *(This is today's "Cowork".)*
-3. **→ Repo** — it becomes a coding session: a branch, a real diff, a passing
-   test run in the terminal. *(This is today's "Code".)*
+3. **→ Repo** — it becomes a coding session: a branch, a diff, and a passing
+   test run in the terminal (representative fixtures — repo content is mocked; see
+   [`docs/spec/11-mock-boundary.md`](docs/spec/11-mock-boundary.md)). *(This is
+   today's "Code".)*
 4. **→ Organize** — Claude proposes how to file what you just made (the session
    under a project, the drafts as artifacts, a schedule to keep a digest) as
    **inline confirmation cards**. Confirm one and it shows up in Projects /
