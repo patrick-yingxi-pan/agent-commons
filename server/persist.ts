@@ -70,6 +70,11 @@ export interface PersistedState {
   systemPrompts?: [string, SystemPromptEntry][]
   agents?: [string, Agent][]
   commissions?: [string, Commission][]
+  /** Per-Project D13 commission caps, as `[projectId, cap]` overlays onto the seed
+   *  Projects (which are otherwise re-seeded, not persisted). Optional so a snapshot
+   *  written before the field loads cleanly (no caps); only Projects with a cap set
+   *  appear. Keeps a conversationally-set cap (the shared confirm card) across a restart. */
+  commissionCaps?: [string, number][]
   seq: {
     session: number
     message: number

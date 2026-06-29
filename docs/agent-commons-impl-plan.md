@@ -191,7 +191,7 @@ credit and the owner-pays *abuse cap*.
   `reputation.test.ts` — a Project effect bumps the Contributor; a commissioned invoke bumps; a
   legacy (no-commission) invoke credits nobody; an unknown commission is a fail-quiet no-op.
 
-- [ ] **5.3 Contract + store + route — per-commissioner abuse cap.** D13 names this as a cost it
+- [x] **5.3 Contract + store + route — per-commissioner abuse cap.** D13 names this as a cost it
   accepts ("a malicious Project could commission many outsiders' Agents to burn their plans"). Add
   `Project.commissionCap?: number` (max active commissions the Guardian admits); enforce
   **fail-closed at `store.createCommission`** — over-cap ⇒ refuse (`limit_exceeded` 429). Keyed at

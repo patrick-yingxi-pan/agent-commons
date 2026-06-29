@@ -223,6 +223,9 @@ export async function buildComprehensive(): Promise<PersistedState> {
     instructions: 'Prefer primary sources.',
   })
   store.createCommission({ agentId: playgroundAgent.id, projectId: 'p-insights' })
+  // A D13 per-commissioner abuse cap on the (seed) insights project — generous enough not
+  // to block, exercising the commissionCaps persisted overlay ("every slice covered").
+  store.setCommissionCap('p-insights', 8)
 
   // ── Schedules ── a created routine, linked to the project, carrying all three
   // standing approvals, then RUN once (awaited) so it delivers its standing

@@ -63,6 +63,7 @@ import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
 import { createUsageMeter, estimateTokens, mintBudget } from './usage.ts'
 import { mintAuthority } from './authority.ts'
 import { ConflictError } from './conflict.ts'
+import { LimitError } from './limit.ts'
 import { scopeMatches } from './runner-runtime.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, clampAuthority, clampBudget } from '../contract/index.ts'
 import type { Agent, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelProvider, ProjectAction, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, ProxyRequest, ProxyResult, Reservation, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest } from '../contract/index.ts'
@@ -133,6 +134,12 @@ const SYSTEM_TOOLS_TOKENS = estimateTokens(JSON.stringify(TOOL_DEFINITIONS))
 const WORKER_AGENTS = new Map<string, Agent>([[DEFAULT_AGENT.id, DEFAULT_AGENT]])
 const resolveAgent = (id?: string): Agent => WORKER_AGENTS.get(id ?? '') ?? DEFAULT_AGENT
 let workerAgentSeq = 0
+
+/** Resolve a Project by id across both homes — the seeded set (`PROJECTS`) and the ones
+ *  created at runtime (`graph.extraProjects`). The single lookup behind the D13 cap so it
+ *  works regardless of where a Project came from. */
+const findProject = (id: string): Project | undefined =>
+  PROJECTS.find((p) => p.id === id) ?? graph.extraProjects.find((p) => p.id === id)
 
 // The registered Model providers (docs/agent-commons.md, D9) — the cognition source
 // each Agent binds. One seeded for now (the degenerate N=1 case), wrapping the single
@@ -338,6 +345,11 @@ function snapshot(): PersistedState {
     systemPrompts: [...SYSTEM_PROMPT_LIB.entries()],
     agents: [...WORKER_AGENTS.entries()],
     commissions: [...COMMISSIONS.entries()],
+    // D13 commission caps — only Projects that carry one (the seed Projects are otherwise
+    // not persisted); rehydrate re-applies them onto the matching seed Project.
+    commissionCaps: PROJECTS.filter((p) => p.commissionCap !== undefined).map(
+      (p) => [p.id, p.commissionCap!] as [string, number],
+    ),
     seq: {
       session: sessionSeq,
       message: messageSeq,
@@ -396,6 +408,15 @@ function rehydrate(s: PersistedState): void {
   replaceMap(SYSTEM_PROMPT_LIB, s.systemPrompts)
   replaceMap(WORKER_AGENTS, s.agents)
   replaceMap(COMMISSIONS, s.commissions)
+  // D13 commission caps overlay onto the (re-seeded) Projects: clear any seed cap, then
+  // re-apply the snapshot's, so a cap that was removed at runtime stays removed.
+  for (const p of PROJECTS) p.commissionCap = undefined
+  if (s.commissionCaps) {
+    for (const [id, cap] of s.commissionCaps) {
+      const p = PROJECTS.find((x) => x.id === id)
+      if (p) p.commissionCap = cap
+    }
+  }
   sessionSeq = s.seq.session
   messageSeq = s.seq.message
   scheduleSeq = s.seq.schedule
@@ -852,9 +873,38 @@ export const store = {
    *  slice 3) is the proper fix when partial window sets are introduced. The unknown-agent
    *  guard throws a plain `Error` on purpose — the route pre-validates, so reaching it
    *  signals a bypassed-validation bug (a 500), not a client error. */
+  /** Set (or clear, with `undefined`) a Project's D13 commission cap — the owner raising or
+   *  lifting the abuse ceiling. The single setter behind both the hub and the conversational
+   *  card (5.5). Undefined for an unknown Project (→ 404); persisted (survives a restart). */
+  setCommissionCap(projectId: string, cap?: number): Project | undefined {
+    // A created Project lives in the relation graph (`extraProjects`), a seeded one in
+    // PROJECTS — resolve from both so the cap works wherever the Project came from. A
+    // seed cap persists via the `commissionCaps` overlay; a created one via the `graph` slice.
+    const project = findProject(projectId)
+    if (!project) return undefined
+    project.commissionCap = cap
+    persist()
+    return project
+  },
+  /** How many active Commissions a Project currently holds — the count the D13 cap is
+   *  measured against (one Contributor = one Commission). The Coordination/abuse read. */
+  activeCommissionCount(projectId: string): number {
+    let n = 0
+    for (const c of COMMISSIONS.values()) if (c.projectId === projectId) n += 1
+    return n
+  },
   createCommission(input: Omit<Commission, 'id'>): Commission {
     const agent = WORKER_AGENTS.get(input.agentId)
     if (!agent) throw new Error(`createCommission: unknown agent '${input.agentId}'`)
+    // D13 per-commissioner abuse cap — fail-closed at the *single* funnel, so the route and
+    // the conversational (commission-agent op) path are both bounded. An at-cap Project
+    // refuses the new Commission until one is removed or the owner raises the cap.
+    const cap = findProject(input.projectId)?.commissionCap
+    if (cap !== undefined && this.activeCommissionCount(input.projectId) >= cap) {
+      throw new LimitError(
+        `Project '${input.projectId}' is at its commission cap (${cap}) — un-commission an Agent or raise the cap first.`,
+      )
+    }
     const provider = resolveProvider(agent.providerId)
     // Attenuate against the Agent's *effective* grants: an Agent that left a face unset
     // inherits its provider's there, so that inherited ceiling is the parent.

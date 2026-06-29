@@ -7,6 +7,7 @@ import assert from 'node:assert/strict'
 import { store } from '../server/store.ts'
 import { BudgetError } from '../server/usage.ts'
 import { AuthorityError } from '../server/authority.ts'
+import { LimitError } from '../server/limit.ts'
 import { call } from './helpers/http.ts'
 
 test('the seeded commission is present and queryable by project (the Contributor view)', () => {
@@ -140,6 +141,46 @@ test('the commission routes reject an unknown role (400)', async () => {
   assert.equal(ok.status, 200)
   const badPatch = await call('PATCH', `/commissions/${ok.json.id}`, { role: 'superuser' })
   assert.equal(badPatch.status, 400)
+})
+
+test('D13 commission cap: the funnel refuses past the cap; the route 429s (fail-closed)', async () => {
+  // p-brand is a seed Project no other test commissions on — isolated for the cap.
+  const projectId = 'p-brand'
+  assert.equal(store.activeCommissionCount(projectId), 0)
+  store.setCommissionCap(projectId, 1) // room for exactly one Contributor
+
+  // The first mints; a second at the *funnel* throws LimitError (covers both the route
+  // and the conversational commission-agent path, which share this funnel).
+  assert.ok(store.createCommission({ agentId: 'agent-default', projectId }).id.startsWith('commission-'))
+  assert.throws(() => store.createCommission({ agentId: 'agent-default', projectId }), LimitError)
+
+  // The route surfaces the over-cap attempt as 429 limit_exceeded.
+  const over = await call('POST', '/commissions', { agentId: 'agent-default', projectId })
+  assert.equal(over.status, 429)
+  assert.equal(over.json.error.code, 'limit_exceeded')
+
+  // The owner raises the cap → admits more; clearing it (undefined) is uncapped.
+  store.setCommissionCap(projectId, 3)
+  assert.equal((await call('POST', '/commissions', { agentId: 'agent-default', projectId })).status, 200)
+  store.setCommissionCap(projectId, undefined)
+  assert.equal((await call('POST', '/commissions', { agentId: 'agent-default', projectId })).status, 200)
+})
+
+test('D13 cap: a Project with no cap is unlimited (back-compat)', () => {
+  // p-growth carries no cap; commissions mint freely.
+  for (let i = 0; i < 5; i += 1) store.createCommission({ agentId: 'agent-default', projectId: 'p-growth' })
+  assert.ok(store.activeCommissionCount('p-growth') >= 5)
+})
+
+test('D13 cap works on a *created* Project too (findProject spans both homes)', () => {
+  store.applyRelationOp({
+    kind: 'create-project', projectId: 'p-capped-new', projectName: 'Capped New', projectDescription: 'd',
+  })
+  assert.equal(store.setCommissionCap('p-capped-new', 1)?.id, 'p-capped-new')
+  assert.ok(store.createCommission({ agentId: 'agent-default', projectId: 'p-capped-new' }).id.startsWith('commission-'))
+  assert.throws(() => store.createCommission({ agentId: 'agent-default', projectId: 'p-capped-new' }), LimitError)
+  // An unknown Project resolves to nothing — no cap to set.
+  assert.equal(store.setCommissionCap('p-ghost', 1), undefined)
 })
 
 test('narrowing a provider re-clamps its Agents and their commissions (D8 runtime propagation)', () => {

@@ -31,6 +31,7 @@ import { GuardianError } from '../guardian.ts'
 import { BudgetError } from '../usage.ts'
 import { AuthorityError } from '../authority.ts'
 import { ConflictError } from '../conflict.ts'
+import { LimitError } from '../limit.ts'
 import { isMonotonic, isProjectEffectMonotonic, PROJECT_EFFECT_TYPES, PROJECT_ROLES } from '../../contract/index.ts'
 import type {
   CapabilityRequest,
@@ -453,6 +454,8 @@ export function buildRouter(): Router {
       if (err instanceof BudgetError || err instanceof AuthorityError) {
         return sendError(res, 'bad_request', err.message)
       }
+      // The Project is at its D13 commission cap (fail-closed) → 429.
+      if (err instanceof LimitError) return sendError(res, err.code, err.message)
       throw err
     }
   })
@@ -911,6 +914,8 @@ export function buildRouter(): Router {
       // An Agent Commons CRUD op (commission-agent) confirmed against a now-removed
       // agent hits the same guard the hub's CRUD routes surface — a 409 to re-propose.
       if (err instanceof ConflictError) return sendError(res, err.code, err.message)
+      // A commission-agent op confirmed against an at-cap Project (D13) → 429.
+      if (err instanceof LimitError) return sendError(res, err.code, err.message)
       throw err
     }
   })

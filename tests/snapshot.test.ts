@@ -125,6 +125,10 @@ test('build produces a snapshot covering every persisted slice', async () => {
     s.commissions?.some(([, c]) => c.projectId === 'p-insights'),
     'createCommission → commissions',
   )
+  assert.ok(
+    s.commissionCaps?.some(([id, cap]) => id === 'p-insights' && cap === 8),
+    'setCommissionCap → commissionCaps overlay (D13)',
+  )
 
   // ── id counters all advanced (so post-restore mints never collide) ──
   for (const k of ['session', 'message', 'schedule', 'run', 'artifact', 'provider', 'systemPrompt', 'agent', 'commission'] as const) {
@@ -163,4 +167,5 @@ test('the built snapshot boots through the real rehydrate path', async () => {
   const agent = store.listAgents().find((a) => a.label === 'Playground research agent')
   assert.ok(agent && agent.providerId === provider?.id, 'the created agent (bound to the provider) survives a boot')
   assert.ok(store.listCommissions('p-insights').some((c) => c.agentId === agent?.id), 'the created commission survives a boot')
+  assert.equal(store.listProjects().find((p) => p.id === 'p-insights')?.commissionCap, 8, 'the D13 commission cap survives a boot')
 })

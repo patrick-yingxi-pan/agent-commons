@@ -42,6 +42,13 @@ export interface Project {
    *  id — the D5 guardian lifted from a context element to the Project. Unset =
    *  unguarded (coordination-free). */
   guardianId?: string
+  /** The **per-commissioner abuse cap** (docs/agent-commons.md, D13): the maximum number
+   *  of active Commissions this Project may hold. D13 names this as a cost owner-pays
+   *  accepts — "a malicious Project could commission many outsiders' Agents to burn their
+   *  plans" — so the Guardian refuses a new Commission past the cap (fail-closed,
+   *  `limit_exceeded`). The prototype has one account, so the cap is keyed at the Project
+   *  (its Guardian); a true per-*commissioner* identity is forward. Unset = uncapped. */
+  commissionCap?: number
 }
 
 /** The hue of a workflow step's tool chip. Connector/MCP/repo/workspace map onto
