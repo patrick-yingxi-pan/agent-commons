@@ -22,6 +22,8 @@ import {
   type CreateSystemPromptRequest,
   type SystemPromptEntry,
   type UpdateSystemPromptRequest,
+  type PromptProbeRequest,
+  type PromptProbeResult,
   type ReserveSubGoalRequest,
   type ContextStatus,
   type ContextTypeId,
@@ -282,6 +284,13 @@ export async function createSystemPrompt(input: CreateSystemPromptRequest): Prom
   const entry = await apiPost<SystemPromptEntry>(paths.systemPrompts, input)
   invalidate(keys.systemPrompts)
   return entry
+}
+
+/** Run the opt-in prompt-fit probe (docs/agent-commons.md, D10/OQ5) — the deeper, scored
+ *  upgrade beside the always-on static tag. An on-demand action (not a cached query), so it
+ *  returns the result directly for the picker to show; nothing to invalidate. */
+export async function probePrompt(id: string, providerId?: string): Promise<PromptProbeResult> {
+  return apiPost<PromptProbeResult>(paths.systemPromptProbe(id), { providerId } satisfies PromptProbeRequest)
 }
 
 /** Patch a library prompt's fields; refreshes the prompt list. */

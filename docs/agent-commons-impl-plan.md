@@ -247,7 +247,7 @@ costs a model call. Built as a real seam with **mock fulfilment** (the project r
   check in prod; canned score in the mock). **Tests:** pure scorer (match vs mismatch) + route
   (200 with a score, 404 unknown prompt, 400 bad body).
 
-- [ ] **7.3 UI — opt-in "Run fit probe".** A button beside the **static** warning in `AgentDialog`
+- [x] **7.3 UI — opt-in "Run fit probe".** A button beside the **static** warning in `AgentDialog`
   ([`SectionView.tsx:~2694`](../src/components/SectionView.tsx)) and `PromptsTab` (~2886) that
   runs the probe and shows the score/aspects — the tag stays the always-on default; the probe is
   the on-demand deepening. **Verify live.**

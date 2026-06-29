@@ -113,6 +113,7 @@ import {
   deleteCommission,
   reserveSubGoal,
   releaseSubGoal,
+  probePrompt,
   useAgents,
   useAuditLog,
   useCommissions,
@@ -136,6 +137,7 @@ import {
   type Commission,
   type ModelProvider,
   type ProjectRole,
+  type PromptProbeResult,
   type SystemPromptEntry,
 } from '../../contract/index.ts'
 import { authorityLabel, providerPlanLabel } from '../lib/agentCommonsLabels'
@@ -2659,6 +2661,10 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
   const [instructions, setInstructions] = useState(agent?.instructions ?? '')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // The opt-in prompt-fit probe (D10/OQ5) — null until the user runs it; reset when the
+  // pairing changes so a stale score never lingers.
+  const [probe, setProbe] = useState<PromptProbeResult | null>(null)
+  const [probing, setProbing] = useState(false)
   const canSubmit = label.trim().length > 0 && !busy
 
   // Live fit warning: the chosen prompt's family vs the chosen provider's (the default
@@ -2666,6 +2672,20 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
   const providerFamily = (providers.find((p) => p.id === providerId) ?? providers[0])?.modelFamily ?? 'claude'
   const selectedPrompt = prompts.find((p) => p.id === promptId)
   const warning = selectedPrompt ? promptFitWarning(selectedPrompt, providerFamily) : null
+  // Changing either side of the pairing invalidates a prior probe result.
+  const onPrompt = (id: string) => { setPromptId(id); setProbe(null) }
+  const onProvider = (id: string) => { setProviderId(id); setProbe(null) }
+  const runProbe = async () => {
+    if (!promptId) return
+    setProbing(true)
+    try {
+      setProbe(await probePrompt(promptId, providerId || undefined))
+    } catch {
+      setProbe(null)
+    } finally {
+      setProbing(false)
+    }
+  }
 
   const submit = async () => {
     if (!canSubmit) return
@@ -2707,7 +2727,7 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
         />
       </FormField>
       <FormField label="Provider">
-        <select value={providerId} onChange={(e) => setProviderId(e.target.value)} className={FORM_INPUT_CLASS}>
+        <select value={providerId} onChange={(e) => onProvider(e.target.value)} className={FORM_INPUT_CLASS}>
           <option value="">Default provider</option>
           {providers.map((p) => (
             <option key={p.id} value={p.id}>
@@ -2717,7 +2737,7 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
         </select>
       </FormField>
       <FormField label="System prompt">
-        <select value={promptId} onChange={(e) => setPromptId(e.target.value)} className={FORM_INPUT_CLASS}>
+        <select value={promptId} onChange={(e) => onPrompt(e.target.value)} className={FORM_INPUT_CLASS}>
           <option value="">Default prompt</option>
           {prompts.map((p) => (
             <option key={p.id} value={p.id}>
@@ -2730,6 +2750,21 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
             <AlertCircle size={12} className="shrink-0" /> {warning}
           </span>
         )}
+        {/* The opt-in probe (D10/OQ5) sits beside the always-on static tag above — the deeper,
+            scored upgrade, run on demand. Only meaningful for a real library prompt. */}
+        {selectedPrompt && (
+          <div className="mt-1.5 flex flex-col gap-1">
+            <button
+              type="button"
+              onClick={runProbe}
+              disabled={probing}
+              className="self-start text-[11px] font-medium text-ink-soft underline-offset-2 hover:text-ink hover:underline disabled:opacity-50"
+            >
+              {probing ? 'Probing…' : probe ? 'Re-run fit probe' : 'Run fit probe'}
+            </button>
+            {probe && <ProbeResultCard probe={probe} />}
+          </div>
+        )}
       </FormField>
       <FormField label="Instructions" optional>
         <textarea
@@ -2741,6 +2776,32 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
         />
       </FormField>
     </FormDialog>
+  )
+}
+
+const PROBE_VERDICT_COLOR: Record<PromptProbeResult['verdict'], string> = {
+  strong: 'text-emerald-700',
+  fair: 'text-amber-600',
+  weak: 'text-removed',
+}
+
+/** The opt-in probe's result (D10/OQ5) — a score + the per-aspect gradient the static tag
+ *  collapses into one binary signal. Shown only after the user runs the probe. */
+function ProbeResultCard({ probe }: { probe: PromptProbeResult }) {
+  return (
+    <div className="rounded-md border border-ink/10 bg-ink/[0.02] p-2 text-[11px]">
+      <div className={`font-medium ${PROBE_VERDICT_COLOR[probe.verdict]}`}>
+        {probe.verdict} fit · {probe.score}/100
+      </div>
+      <div className="mt-0.5 text-ink-soft">{probe.detail}</div>
+      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-ink-faint">
+        {probe.aspects.map((a) => (
+          <span key={a.name}>
+            {a.name} <span className="font-medium text-ink-soft">{a.score}</span>
+          </span>
+        ))}
+      </div>
+    </div>
   )
 }
 

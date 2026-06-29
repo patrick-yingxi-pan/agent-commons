@@ -45,6 +45,7 @@ export const paths = {
   provider: (id: string) => `/providers/${encodeURIComponent(id)}`,
   systemPrompts: '/system-prompts',
   systemPrompt: (id: string) => `/system-prompts/${encodeURIComponent(id)}`,
+  systemPromptProbe: (id: string) => `/system-prompts/${encodeURIComponent(id)}/probe`,
   agents: '/agents',
   agent: (id: string) => `/agents/${encodeURIComponent(id)}`,
   commissions: (projectId?: string) =>
