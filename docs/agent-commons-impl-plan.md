@@ -238,7 +238,7 @@ The static target-family tag stays the **default** (`promptFitWarning`, unchange
 the *optional later upgrade* D10 named — strictly more accurate than the tag, opt-in because it
 costs a model call. Built as a real seam with **mock fulfilment** (the project rule).
 
-- [ ] **7.1 + 7.2 Contract + route — `ProbeRequest`/`ProbeResult` + the probe seam.** *Delivered
+- [x] **7.1 + 7.2 Contract + route — `ProbeRequest`/`ProbeResult` + the probe seam.** *Delivered
   together (the `contract-boundaries` `*Request`↔route coupling).* `contract/probe.ts`:
   `ProbeRequest { systemPromptId, providerId? }`, `ProbeResult { score, verdict, aspects, detail }`,
   and a pure `probeScore(targetFamily, modelFamily)` (deterministic mock — family match ⇒ high; a

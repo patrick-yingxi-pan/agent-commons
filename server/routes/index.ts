@@ -36,6 +36,7 @@ import { isMonotonic, isProjectEffectMonotonic, PROJECT_EFFECT_TYPES, PROJECT_RO
 import type {
   CapabilityRequest,
   ProjectEffectRequest,
+  PromptProbeRequest,
   ProxyRequest,
   ReserveRequest,
   SetCapacityRequest,
@@ -405,6 +406,14 @@ export function buildRouter(): Router {
       return sendError(res, 'bad_request', 'label, body, and targetFamily are required')
     }
     sendJson(res, store.createSystemPrompt(input))
+  })
+  // The opt-in prompt-fit probe (D10/OQ5) — the deeper, scored upgrade beside the static
+  // tag. Scores the prompt against the chosen provider's model family (default if absent).
+  r.post('/system-prompts/:id/probe', async ({ res, params, body }) => {
+    const { providerId } = await body<PromptProbeRequest>()
+    const result = store.runProbe(params.id, providerId)
+    if (!result) return sendError(res, 'not_found', `No system prompt '${params.id}'`)
+    sendJson(res, result)
   })
   r.patch('/system-prompts/:id', async ({ res, params, body }) => {
     const patch = await body<UpdateSystemPromptRequest>()

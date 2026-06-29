@@ -65,8 +65,8 @@ import { mintAuthority } from './authority.ts'
 import { ConflictError } from './conflict.ts'
 import { LimitError } from './limit.ts'
 import { scopeMatches } from './runner-runtime.ts'
-import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, clampAuthority, clampBudget } from '../contract/index.ts'
-import type { Agent, AuditEntry, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelProvider, ProjectAction, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, ProxyRequest, ProxyResult, Reservation, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest } from '../contract/index.ts'
+import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, clampAuthority, clampBudget, probeScore } from '../contract/index.ts'
+import type { Agent, AuditEntry, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelProvider, ProjectAction, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProxyRequest, ProxyResult, Reservation, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
@@ -819,6 +819,17 @@ export const store = {
    *  there is no "default prompt to fall back to" at this seam; the caller decides). */
   getSystemPrompt(id?: string): SystemPromptEntry | undefined {
     return id ? SYSTEM_PROMPT_LIB.get(id) : undefined
+  },
+  /** The opt-in prompt-fit probe (docs/agent-commons.md, D10/OQ5) — the deeper, scored
+   *  upgrade beside the always-on static tag. Resolves the prompt's authored-for family
+   *  and the chosen provider's model family, then scores the pairing. **Mock fulfilment:**
+   *  a deterministic `probeScore`; a real probe would run a tool-use conformance check
+   *  against the provider's model here (the model seam). Undefined for an unknown prompt
+   *  (→ 404). */
+  runProbe(systemPromptId: string, providerId?: string): PromptProbeResult | undefined {
+    const prompt = SYSTEM_PROMPT_LIB.get(systemPromptId)
+    if (!prompt) return undefined
+    return probeScore(prompt.targetFamily, resolveProvider(providerId).modelFamily)
   },
   /** Add a prompt to the library. A plain registry add (prompt text is not a
    *  capability, so there is no attenuation funnel here — the fit *warning* is the
