@@ -4,6 +4,7 @@
  *  *catalog* item shapes — CONNECTOR_OPTIONS, FOLDER_OPTIONS, … — are added here
  *  when the picker's reads migrate.) */
 import type { Connector } from './entities.ts'
+import type { FsSource } from './fs.ts'
 
 export type ContextTypeId = 'files' | 'photos' | 'folder' | 'repo' | 'connector' | 'mcp'
 
@@ -69,4 +70,8 @@ export interface SessionContext {
    *  `folder` / `repo`, an account / scope for `connector` / `mcp`. `'*'` is
    *  unscoped. An effect routed through this context must fall within `scope`. */
   scope: string
+  /** Which filesystem source a `files` / `photos` / `folder` context came from —
+   *  the UI host, a runner, or the web backend's cloud storage (contract/fs.ts).
+   *  Lets effect mediation resolve the right host. Absent for non-fs contexts. */
+  source?: FsSource
 }

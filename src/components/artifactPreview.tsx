@@ -15,7 +15,8 @@ import {
 import type { ArtifactKind } from '../types'
 import type { ArtifactItem } from '../data/cowork'
 import type { ArtifactContent, DocBlock } from '../types'
-import { useArtifactContent } from '../api'
+import { useArtifactContent, useFsText, fsContentUrl } from '../api'
+import { PhotoThumb } from './PhotoThumb'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { useDismissable } from '../lib/useDismissable'
 import { relativeTime } from '../lib/relativeTime'
@@ -442,31 +443,74 @@ export function ArtifactBodyView({
   name,
   size,
   excerpt,
+  served,
 }: {
   kind: ArtifactKind
   name: string
   size: Size
   excerpt?: string
+  /** When the artifact comes from a served filesystem folder (cloud / runner), its
+   *  source + path, so the real file content is fetched + rendered (instead of the
+   *  name-keyed authored library). Absent for seeded artifacts and UI-host folders
+   *  (which fall back to the library / scaffold). */
+  served?: { sourceId: string; path: string }
 }) {
-  const content = useArtifactContent().data?.[name]
-  if (content) {
-    switch (content.type) {
+  const lib = useArtifactContent().data?.[name]
+  const isImage = kind === 'image'
+  // Real text for a served, non-image artifact (enabled-gated; rules of hooks).
+  const servedText = useFsText(served?.sourceId ?? '', served?.path ?? '', !!served && !isImage)
+  // Served real content wins over the authored library.
+  if (served) {
+    if (isImage) return <ServedImage url={fsContentUrl(served.sourceId, served.path)} name={name} size={size} />
+    if (servedText.data?.kind === 'text') return <ServedText text={servedText.data.text ?? ''} name={name} size={size} />
+    if (servedText.status === 'loading') {
+      return <div className="py-6 text-center text-[12px] text-ink-faint">Loading…</div>
+    }
+    // A served fetch that returned no text (binary / error) falls through to the scaffold.
+  }
+  if (lib) {
+    switch (lib.type) {
       case 'doc':
-        return <DocView doc={content} size={size} />
+        return <DocView doc={lib} size={size} />
       case 'sheet':
-        return <SheetView sheet={content} size={size} />
+        return <SheetView sheet={lib} size={size} />
       case 'slides':
-        return <SlidesView slides={content.slides} size={size} />
+        return <SlidesView slides={lib.slides} size={size} />
       case 'figure':
-        return <FigureView fig={content} name={name} size={size} />
+        return <FigureView fig={lib} name={name} size={size} />
       default: {
         // Exhaustiveness guard: a new ArtifactContent variant becomes a compile error here.
-        const _exhaustive: never = content
+        const _exhaustive: never = lib
         return _exhaustive
       }
     }
   }
   return <Scaffold kind={kind} name={name} size={size} excerpt={excerpt} />
+}
+
+/** Real text from a served file, rendered as a titled document body (the workspace
+ *  panel's compact view). CSV / code keep their raw shape via `whitespace-pre-wrap`. */
+function ServedText({ text, name, size }: { text: string; name: string; size: Size }) {
+  const t = DOC[size]
+  return (
+    <div className={t.gap}>
+      <div className={`${t.title} font-semibold text-ink`}>{titleFromName(name)}</div>
+      <pre className={`${t.p} ${t.lead} max-h-[420px] overflow-auto whitespace-pre-wrap font-sans text-ink-soft`}>
+        {text}
+      </pre>
+    </div>
+  )
+}
+
+/** A served image rendered from its real bytes (the shared photo primitive). */
+function ServedImage({ url, name, size }: { url: string; name: string; size: Size }) {
+  return (
+    <PhotoThumb
+      id={name}
+      src={url}
+      className={`w-full rounded-lg shadow-inner ${size === 'thumb' ? 'h-full' : 'aspect-video'}`}
+    />
+  )
 }
 
 /** A compact, kind-appropriate thumbnail for an artifact card — a faithful

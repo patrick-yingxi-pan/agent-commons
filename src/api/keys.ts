@@ -29,6 +29,12 @@ export const keys = {
   usage: (sessionId?: string) => (sessionId ? `usage:${sessionId}` : 'usage'),
   artifactContent: 'artifact-content',
   scheduleTemplates: 'schedule-templates',
+  // Served filesystem sources (Files / Photos / Folder — contract/fs.ts). Keyed per
+  // source / path so each catalog + folder scan + file body caches on its own.
+  fsSources: 'fs-sources',
+  fsCatalog: (source: string) => `fs-catalog:${source}`,
+  fsFolder: (source: string, path: string) => `fs-folder:${source}:${path}`,
+  fsText: (source: string, path: string) => `fs-text:${source}:${path}`,
   projects: 'projects',
   artifacts: 'artifacts',
   schedules: 'schedules',
@@ -83,6 +89,17 @@ export const paths = {
   usage: (sessionId?: string) => (sessionId ? `/usage?session=${encodeURIComponent(sessionId)}` : '/usage'),
   artifactContent: '/artifact-content',
   scheduleTemplates: '/schedule-templates',
+  // Served filesystem sources (contract/fs.ts). `fsContent` returns raw bytes (an
+  // image / binary), used directly as an `<img src>` — not via `apiGet` (which
+  // JSON-parses); resolve it to an absolute URL with `fsContentUrl` in client.ts.
+  fsSources: '/fs/sources',
+  fsCatalog: (source: string) => `/fs/catalog?source=${encodeURIComponent(source)}`,
+  fsFolder: (source: string, path: string) =>
+    `/fs/folder?source=${encodeURIComponent(source)}&path=${encodeURIComponent(path)}`,
+  fsText: (source: string, path: string) =>
+    `/fs/text?source=${encodeURIComponent(source)}&path=${encodeURIComponent(path)}`,
+  fsContent: (source: string, path: string) =>
+    `/fs/content?source=${encodeURIComponent(source)}&path=${encodeURIComponent(path)}`,
   projects: '/projects',
   artifacts: '/artifacts',
   schedules: '/schedules',

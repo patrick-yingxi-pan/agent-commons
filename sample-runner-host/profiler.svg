@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" width="320" height="200">
+  <rect width="320" height="200" fill="#fef2f2"/>
+  <g font-family="monospace" font-size="9" fill="#fff">
+    <rect x="16" y="24" width="288" height="16" fill="#f87171"/>
+    <text x="20" y="36">render() · 1.81s</text>
+    <rect x="32" y="44" width="180" height="16" fill="#fb923c"/>
+    <text x="36" y="56">funnelQuery() · 1.20s</text>
+    <rect x="48" y="64" width="120" height="16" fill="#fbbf24"/>
+    <text x="52" y="76">groupByCohort() · 0.81s</text>
+    <rect x="32" y="84" width="60" height="16" fill="#fb923c"/>
+    <text x="36" y="96">paint() · 0.32s</text>
+  </g>
+  <text x="160" y="186" font-family="sans-serif" font-size="11" fill="#b91c1c" text-anchor="middle">profiler.svg</text>
+</svg>

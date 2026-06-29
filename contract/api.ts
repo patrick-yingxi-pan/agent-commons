@@ -4,6 +4,7 @@
  *  local mock, a native sidecar, or a remote web server. */
 import type { RelationOp } from './relations.ts'
 import type { ContextStatus, ContextTypeId } from './contexts.ts'
+import type { FsSource } from './fs.ts'
 
 /** The API version segment. One UI, one contract version, three backends. */
 export const API_VERSION = 'v1'
@@ -65,6 +66,10 @@ export interface AttachContextRequest {
   type: ContextTypeId
   label: string
   scope?: string
+  /** The filesystem source a `files` / `photos` / `folder` context came from (the
+   *  UI host, a runner, or cloud storage — contract/fs.ts), recorded on the binding
+   *  so effect mediation can resolve the right host. Absent for non-fs contexts. */
+  source?: FsSource
 }
 
 /** Body of `PATCH /v1/saved-contexts/:id` — set a saved connector / MCP server's

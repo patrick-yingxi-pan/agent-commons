@@ -9,6 +9,7 @@ const STATUS_COLOR: Record<Runner['status'], string> = { online: '#3fa34d', offl
 
 const CAP_LABEL: Record<string, string> = {
   'fs.read': 'fs read',
+  'fs.list': 'fs list',
   'fs.write': 'fs write',
   terminal: 'terminal',
   process: 'process',

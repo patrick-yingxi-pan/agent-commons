@@ -22,7 +22,7 @@ import type {
   UpdateScheduleRequest,
 } from '../../contract/index.ts'
 import { Router } from '../http/router.ts'
-import { sendJson, sendError } from '../http/respond.ts'
+import { sendJson, sendError, sendBytes } from '../http/respond.ts'
 import { openSse } from '../http/sse.ts'
 import { store } from '../store.ts'
 import { generateReply } from '../generate.ts'
@@ -81,6 +81,13 @@ export function buildRouter(): Router {
     const input = await body<RegisterRunnerRequest>()
     if (!input?.label || !input?.host || !Array.isArray(input.capabilities)) {
       return sendError(res, 'bad_request', 'label, host, and capabilities are required')
+    }
+    // A client-supplied id becomes part of the runner source id (`runner:<id>`),
+    // which the served-fs recents key splits on `::` (contract/fs.ts fsRecentKey).
+    // Constrain it to a safe slug so it can't smuggle the delimiter (or other
+    // separators) and corrupt that parse. Minted ids already fit this shape.
+    if (input.id !== undefined && !/^[a-zA-Z0-9_-]+$/.test(input.id)) {
+      return sendError(res, 'bad_request', 'runner id must be alphanumeric with dashes/underscores only')
     }
     sendJson(res, store.registry.register(input))
   })
@@ -604,9 +611,51 @@ export function buildRouter(): Router {
     }
   })
 
+  // ── Served filesystem sources (Files / Photos / Folder — contract/fs.ts) ──────
+  // The three context types served from a REAL filesystem, addressed by `?source=`:
+  // `cloud` (the web backend's storage) and `runner:<id>` (a runner's host, proxied
+  // through the broker). UNGATED — they work on both backends (each reads its own
+  // disk), unlike the native arbitrary-path seam below. The `ui-host` source is
+  // client-side and is never served here. The bytes route backs `<img src>`.
+  r.get('/fs/sources', ({ res }) => {
+    sendJson(res, store.fsSources())
+  })
+  r.get('/fs/catalog', ({ res, url }) => {
+    const source = url.searchParams.get('source')
+    if (!source) return sendError(res, 'bad_request', 'source is required')
+    const catalog = store.fsCatalog(source)
+    if (!catalog) return sendError(res, 'not_found', `No filesystem source '${source}'`)
+    sendJson(res, catalog)
+  })
+  r.get('/fs/folder', ({ res, url }) => {
+    const source = url.searchParams.get('source')
+    const path = url.searchParams.get('path')
+    if (!source || !path) return sendError(res, 'bad_request', 'source and path are required')
+    const contents = store.fsFolder(source, path)
+    if (!contents) return sendError(res, 'not_found', `No folder '${path}' on source '${source}'`)
+    sendJson(res, contents)
+  })
+  r.get('/fs/text', ({ res, url }) => {
+    const source = url.searchParams.get('source')
+    const path = url.searchParams.get('path')
+    if (!source || !path) return sendError(res, 'bad_request', 'source and path are required')
+    const content = store.fsText(source, path)
+    if (!content) return sendError(res, 'not_found', `No file '${path}' on source '${source}'`)
+    sendJson(res, content)
+  })
+  r.get('/fs/content', ({ res, url }) => {
+    const source = url.searchParams.get('source')
+    const path = url.searchParams.get('path')
+    if (!source || !path) return sendError(res, 'bad_request', 'source and path are required')
+    const bytes = store.fsBytes(source, path)
+    if (!bytes) return sendError(res, 'not_found', `No file '${path}' on source '${source}'`)
+    sendBytes(res, bytes.bytes, bytes.contentType)
+  })
+
   // ── Native resources (a native sidecar fulfills these; a remote server 409s) ─
-  // The same endpoints exist in both backends — only the fulfilment differs. This
-  // is what lets ONE UI run as a native desktop app and as a web app unchanged.
+  // The arbitrary-path OS seam — distinct from the served sources above. The same
+  // endpoints exist in both backends — only the fulfilment differs. This is what
+  // lets ONE UI run as a native desktop app and as a web app unchanged.
   r.get('/fs/pick', ({ res, url }) => {
     if (!gate(res, 'osPicker')) return
     sendJson(res, store.fsPick(url.searchParams.get('kind') ?? 'folder'))
@@ -685,6 +734,7 @@ export function buildRouter(): Router {
       type: input.type,
       label: input.label,
       scope: input.scope ?? '*',
+      source: input.source,
     }))
   })
   r.delete('/sessions/:id/contexts/:contextId', ({ res, params }) => {

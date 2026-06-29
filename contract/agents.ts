@@ -9,17 +9,19 @@
  *  server, so it stays framework- and Node-free. */
 
 /** The classes of native access a runner can offer. Extensible — a new kind of
- *  capability is a new member here, advertised by runners that can fulfill it. */
-export type CapabilityType = 'fs.read' | 'fs.write' | 'terminal' | 'process'
+ *  capability is a new member here, advertised by runners that can fulfill it.
+ *  `fs.list` (directory scan) is the read-only discovery half of `fs.read`, used to
+ *  browse a runner's host before attaching (see contract/fs.ts). */
+export type CapabilityType = 'fs.read' | 'fs.list' | 'fs.write' | 'terminal' | 'process'
 
 /** Is a capability **monotonic** (CALM)? A monotonic effect only observes / adds —
  *  it never retracts a conclusion another session acted on, so it is
  *  coordination-free and bypasses the resource guardian (D5). Non-monotonic effects
- *  (those that mutate shared state) must hold a reservation. Conservatively, only
- *  `fs.read` is monotonic; writes / terminals / processes may mutate.
- *  See docs/shared-resource-coordination.md. */
+ *  (those that mutate shared state) must hold a reservation. The read-only
+ *  capabilities (`fs.read`, `fs.list`) are monotonic; writes / terminals /
+ *  processes may mutate. See docs/shared-resource-coordination.md. */
 export function isMonotonic(capability: CapabilityType): boolean {
-  return capability === 'fs.read'
+  return capability === 'fs.read' || capability === 'fs.list'
 }
 
 /** One advertised capability plus the grant that scopes it. `scopes` means: the

@@ -1,0 +1,6 @@
+metric,this week,last week,delta
+WAU,18420,17310,+6.4%
+Activation,71%,67%,+4pt
+p95 latency,240ms,1.81s,-87%
+NRR,114%,112%,+2pt
+Support tickets,128,191,-33%

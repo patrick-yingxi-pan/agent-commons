@@ -4,7 +4,7 @@
  *  updates when the server pushes a change. Hooks grow per resource as reads
  *  migrate; Phase 1 covers capabilities + sessions. */
 import { useQuery, type QueryState } from './cache.ts'
-import { apiGet } from './client.ts'
+import { apiGet, apiUrl } from './client.ts'
 import { keys, paths } from './keys.ts'
 import type {
   Runner,
@@ -19,6 +19,10 @@ import type {
   Connector,
   ConnectorDetail,
   DispatchRun,
+  FsCatalog,
+  FsFileContent,
+  FsFolderContents,
+  FsSource,
   ModelProvider,
   ProjectSubGoal,
   SystemPromptEntry,
@@ -149,6 +153,34 @@ export function useUsage(sessionId?: string): QueryState<UsageSnapshot> {
 /** The artifact-body library, keyed by file name. */
 export function useArtifactContent(): QueryState<ArtifactContentLibrary> {
   return useQuery(keys.artifactContent, () => apiGet<ArtifactContentLibrary>(paths.artifactContent))
+}
+
+/** The server-known filesystem sources for the picker's source switcher — the web
+ *  backend's cloud storage plus any fs-capable runner (contract/fs.ts). The client
+ *  prepends its own `ui-host` source. */
+export function useFsSources(): QueryState<FsSource[]> {
+  return useQuery(keys.fsSources, () => apiGet<FsSource[]>(paths.fsSources))
+}
+
+/** A served source's top-level catalog (files / photos / folders). `enabled` is
+ *  false for the client-side `ui-host` source (read in the browser, not here). */
+export function useFsCatalog(source: string, enabled = true): QueryState<FsCatalog> {
+  return useQuery(keys.fsCatalog(source), () => apiGet<FsCatalog>(paths.fsCatalog(source)), enabled)
+}
+
+/** The artifacts inside a served folder (the workspace view of an attached folder). */
+export function useFsFolder(source: string, path: string, enabled = true): QueryState<FsFolderContents> {
+  return useQuery(keys.fsFolder(source, path), () => apiGet<FsFolderContents>(paths.fsFolder(source, path)), enabled)
+}
+
+/** A served file's textual content (the editable preview). */
+export function useFsText(source: string, path: string, enabled = true): QueryState<FsFileContent> {
+  return useQuery(keys.fsText(source, path), () => apiGet<FsFileContent>(paths.fsText(source, path)), enabled)
+}
+
+/** Absolute URL for a served file's raw bytes (an image), to use as an `<img src>`. */
+export function fsContentUrl(source: string, path: string): string {
+  return apiUrl(paths.fsContent(source, path))
 }
 
 /** The "New schedule" starter templates. */

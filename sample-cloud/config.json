@@ -1,0 +1,12 @@
+{
+  "flags": {
+    "insightsDashboard": true,
+    "betaSearch": true,
+    "unifiedAuth": false
+  },
+  "limits": {
+    "requestsPerMinute": 600,
+    "uploadMb": 25
+  },
+  "region": "us-east-1"
+}

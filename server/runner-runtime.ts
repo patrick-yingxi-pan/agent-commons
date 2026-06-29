@@ -8,6 +8,8 @@
  *  Fulfilment is mock (deterministic, reviewable) but the wire shape is real —
  *  the same seam a production runner would implement against its host. */
 import type { Runner, CapabilityRequest, CapabilityResult } from '../contract/index.ts'
+import { fsReader } from './fs.ts'
+import { RUNNER_FS_ROOTS } from './data/runners.ts'
 
 /** A capability invocation that the runner refused or couldn't run. `code` maps to
  *  the contract error envelope so the route can surface it verbatim. */
@@ -36,11 +38,40 @@ export function isGranted(runner: Runner, capability: CapabilityRequest['capabil
   return !!cap && cap.scopes.some((s) => scopeMatches(s, target))
 }
 
-/** Mock fulfilment per capability — deterministic, real-shaped output. */
-function fulfil(request: CapabilityRequest): unknown {
+/** A seeded runner's logical `target` resolved to a real path under its on-disk
+ *  root: strip the matched scope prefix (`~/projects/…` → `…`) and read from the
+ *  runner's `RUNNER_FS_ROOTS` directory. `undefined` when the runner has no mapped
+ *  root (an ad-hoc runner that connected at runtime) — the caller falls back to a
+ *  deterministic mock so a real read isn't required to demo the wire shape. */
+function realFs(runner: Runner, capability: 'fs.read' | 'fs.list', target: string) {
+  const root = RUNNER_FS_ROOTS[runner.id]
+  if (!root) return undefined
+  const cap = runner.capabilities.find((c) => c.type === capability)
+  const scope = cap?.scopes.find((s) => scopeMatches(s, target))
+  // Express the target relative to the matched scope root (the runner's real dir).
+  const rel = !scope || scope === '*' ? target.replace(/^[~/]+/, '') : target.slice(scope.length).replace(/^\/+/, '')
+  return { reader: fsReader(root), rel }
+}
+
+/** Fulfilment per capability. Read-only fs (`fs.read` / `fs.list`) hits the real
+ *  filesystem under the runner's mapped root (deterministic mock fallback for an
+ *  unmapped runner); the rest stay mock — deterministic, real-shaped output. */
+function fulfil(runner: Runner, request: CapabilityRequest): unknown {
   switch (request.capability) {
-    case 'fs.read':
+    case 'fs.read': {
+      const fs = realFs(runner, 'fs.read', request.target)
+      const got = fs?.reader.readText(fs.rel)
+      if (got?.kind === 'text') return { encoding: 'utf-8', content: got.text ?? '' }
+      if (got?.kind === 'image' || got?.kind === 'binary') {
+        return { encoding: 'binary', contentType: got.contentType, note: 'use /fs/content for bytes' }
+      }
       return { encoding: 'utf-8', content: `// mock contents of ${request.target}\n` }
+    }
+    case 'fs.list': {
+      const fs = realFs(runner, 'fs.list', request.target)
+      const listed = fs ? (fs.rel ? fs.reader.folderContents(fs.rel) : { artifacts: fsRootEntries(fs.reader) }) : undefined
+      return { entries: listed?.artifacts?.map((a) => ({ name: a.name, kind: a.kind })) ?? [] }
+    }
     case 'fs.write': {
       const content = typeof request.args?.content === 'string' ? request.args.content : ''
       return { written: true, bytes: content.length, target: request.target }
@@ -52,6 +83,17 @@ function fulfil(request: CapabilityRequest): unknown {
     default:
       throw new CapabilityError('bad_request', `Unknown capability '${request.capability}'`)
   }
+}
+
+/** Top-level entries of a reader as `{name, kind}`-shaped artifacts (for `fs.list`
+ *  at the scope root, where there's no sub-folder path to scan). */
+function fsRootEntries(reader: ReturnType<typeof fsReader>) {
+  const { files, photos, folders } = reader.list()
+  return [
+    ...folders.map((d) => ({ name: d.name, kind: 'doc' as const })),
+    ...files.map((f) => ({ name: f.name, kind: f.kind })),
+    ...photos.map((p) => ({ name: p.name, kind: 'image' as const })),
+  ]
 }
 
 /** Run a capability on this runner's host. Enforces the grant first (D3), then
@@ -76,6 +118,6 @@ export function runCapability(runner: Runner, request: CapabilityRequest): Capab
     capability: request.capability,
     runnerId: runner.id,
     target: request.target,
-    output: fulfil(request),
+    output: fulfil(runner, request),
   }
 }

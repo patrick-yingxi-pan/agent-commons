@@ -43,6 +43,18 @@ test('POST /runners without the required fields is a 400', async () => {
   assert.equal(bad.json.error.code, 'bad_request')
 })
 
+test('POST /runners rejects an unsafe id (the runner source id must stay :: -free)', async () => {
+  // A `::` in the id would corrupt the served-fs recents key parse (contract/fs.ts).
+  const bad = await call('POST', '/runners', {
+    id: 'runner::evil',
+    label: 'L',
+    host: 'h',
+    capabilities: [],
+  })
+  assert.equal(bad.status, 400)
+  assert.equal(bad.json.error.code, 'bad_request')
+})
+
 test('heartbeat → re-grant → deregister lifecycle over HTTP, identity persists', async () => {
   await call('POST', '/runners', { id: 'runner-test-2', label: 'L', host: 'h', capabilities: [] })
 

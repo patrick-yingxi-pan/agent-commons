@@ -18,6 +18,15 @@
 > *(Forward pointer: [`agent-commons.md`](agent-commons.md) D6 renames this doc's
 > **"native agent"** to **Runner**, freeing "agent" for a user-created worker. That
 > rename is forward-looking vocabulary — this doc's text is left unchanged.)*
+>
+> *(Partially realized: the Add-context **Files / Photos / Folder** types are now
+> served from real filesystem sources, including a runner's host through the broker
+> — the seeded runner's `fs.read` / `fs.list` (the latter added for browse-before-
+> attach) read its mapped real directory, browsing goes through `/fs/*?source=runner:<id>`
+> with a bytes route proxying the runner, and a post-attach effect read runs through
+> the mediated, journaled `POST /runners/:id/invoke`. So the relay path + the
+> context-mediation seam below are exercised for real for fs reads. See
+> [`../AGENTS.md`](../AGENTS.md) "What's intentionally mock" and `contract/fs.ts`.)*
 
 ## Thesis
 

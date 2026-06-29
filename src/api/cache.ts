@@ -118,8 +118,10 @@ export function resetAll(): void {
 }
 
 /** Read a query reactively: triggers the fetch on first use, re-renders when the
- *  data changes (whether from the fetch or an SSE push). */
-export function useQuery<T>(key: string, fetcher: () => Promise<T>): QueryState<T> {
+ *  data changes (whether from the fetch or an SSE push). Pass `enabled: false` to
+ *  hold off the fetch (e.g. a source-keyed query whose source is client-side / not
+ *  yet chosen) — the hook still runs (rules of hooks), it just doesn't fetch. */
+export function useQuery<T>(key: string, fetcher: () => Promise<T>, enabled = true): QueryState<T> {
   const subscribe = useCallback(
     (cb: () => void) => {
       const e = getEntry(key)
@@ -133,9 +135,10 @@ export function useQuery<T>(key: string, fetcher: () => Promise<T>): QueryState<
   const getSnapshot = useCallback(() => getEntry(key).state as QueryState<T>, [key])
   const state = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
   useEffect(() => {
-    ensure(key, fetcher as () => Promise<unknown>)
-    // Re-run only when the key changes; the fetcher is keyed by the same inputs.
+    if (enabled) ensure(key, fetcher as () => Promise<unknown>)
+    // Re-run only when the key (or enablement) changes; the fetcher is keyed by the
+    // same inputs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key])
+  }, [key, enabled])
   return state
 }

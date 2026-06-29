@@ -22,6 +22,7 @@ import {
 import { sameFocus } from '../lib/focus'
 import { pushLocation, type NavLocation } from '../lib/nav'
 import { rememberAttached } from '../lib/contextShortcuts'
+import { parseFsRecentKey } from '../../contract/index'
 import { runSessionById } from '../data/scheduledRuns'
 import {
   applyRelationOp,
@@ -70,8 +71,13 @@ interface PendingEscalation {
  *  binding per attachment. */
 function bindingsFor(ctx: AddedContext): AttachContextRequest[] {
   switch (ctx.kind) {
-    case 'folder':
-      return [{ id: ctx.artifacts[0]?.source?.id ?? slug(ctx.label), type: 'folder', label: ctx.label, scope: ctx.label }]
+    case 'folder': {
+      // The folder key is source-qualified (`<source>::<path>`); its scope is the
+      // path within the source, and `source` records which host it came from.
+      const folderId = ctx.artifacts[0]?.source?.id ?? slug(ctx.label)
+      const scope = parseFsRecentKey(folderId)?.entryId ?? ctx.label
+      return [{ id: folderId, type: 'folder', label: ctx.label, scope, source: ctx.source }]
+    }
     case 'repo':
       return [{ id: repoIdForLabel(ctx.label), type: 'repo', label: ctx.label, scope: ctx.path ?? '*' }]
     case 'connector':
@@ -79,9 +85,21 @@ function bindingsFor(ctx: AddedContext): AttachContextRequest[] {
     case 'mcp':
       return [{ id: ctx.connector.id, type: 'mcp', label: ctx.connector.label, scope: '*' }]
     case 'files':
-      return ctx.attachments.map((a): AttachContextRequest => ({ id: a.id, type: 'files', label: a.label, scope: '*' }))
+      return ctx.attachments.map((a): AttachContextRequest => ({
+        id: a.id,
+        type: 'files',
+        label: a.label,
+        scope: parseFsRecentKey(a.id)?.entryId ?? '*',
+        source: a.source,
+      }))
     case 'photos':
-      return ctx.attachments.map((a): AttachContextRequest => ({ id: a.id, type: 'photos', label: a.label, scope: '*' }))
+      return ctx.attachments.map((a): AttachContextRequest => ({
+        id: a.id,
+        type: 'photos',
+        label: a.label,
+        scope: parseFsRecentKey(a.id)?.entryId ?? '*',
+        source: a.source,
+      }))
     default:
       return []
   }

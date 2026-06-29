@@ -53,10 +53,13 @@ import { SESSIONS, DEMO_SESSION_ID } from './data/sessions.ts'
 import { DISPATCH_RUNS, SCHEDULE_TEMPLATES, PROJECTS, ALL_ARTIFACTS, SCHEDULED_TASKS } from './data/cowork.ts'
 import {
   DEFAULT_RECENT_IDS,
-  FOLDER_OPTIONS,
   GITHUB_REPO_OPTIONS,
   LOCAL_REPO_OPTIONS,
 } from './data/contextOptions.ts'
+import { join } from 'node:path'
+import { fsReader, type FsReader } from './fs.ts'
+import type { FsCatalog, FsFileContent, FsFolderContents, FsSource } from '../contract/index.ts'
+import { fsRecentKey } from '../contract/index.ts'
 import { SAVED_CONTEXTS, CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from './data/savedContexts.ts'
 import { connectorDetail } from './data/connectorDetails.ts'
 import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
@@ -75,7 +78,7 @@ import { systemPrompt } from './generate.ts'
 import { RunnerRegistry } from './registry.ts'
 import { RunnerJournal } from './journal.ts'
 import { ResourceGuardian, GuardianError } from './guardian.ts'
-import { LOCAL_RUNNER_SEED } from './data/runners.ts'
+import { LOCAL_RUNNER_SEED, RUNNER_FS_ROOTS } from './data/runners.ts'
 import { DEFAULT_AGENT } from './data/workers.ts'
 import { EMPTY_WORKSPACE, workspaceFromSeed } from './workspace.ts'
 import { STORE_VERSION, loadState, saveState, type PersistedState } from './persist.ts'
@@ -92,6 +95,18 @@ const EPOCH = `e${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toSt
 // how the one UI runs in both scenarios without env-sniffing (it reads the flags).
 const BACKEND_MODE: 'mock' | 'remote' = process.env.BACKEND === 'remote' ? 'remote' : 'mock'
 const NATIVE = BACKEND_MODE !== 'remote'
+
+// ── Served filesystem sources (the Files / Photos / Folder context types) ──────
+// Those three types are served from a REAL filesystem (contract/fs.ts, server/fs.ts).
+// The web backend's own "cloud storage" is one source: a real directory it reads +
+// serves over /fs/* — the in-repo `sample-cloud/` by default (deterministic,
+// reviewable), env-overridable to a real path. Available on BOTH backends (it's the
+// only source on a bare remote web server). Runner-host sources are resolved in
+// `resolveFsReader` (the broker proxies each runner); the UI-host source is
+// client-side and never resolved here.
+const CLOUD_ROOT = process.env.CONTEXT_CLOUD_ROOT ?? join(process.cwd(), 'sample-cloud')
+const cloudReader = fsReader(CLOUD_ROOT)
+const CLOUD_SOURCE: FsSource = { id: 'cloud', kind: 'cloud', label: 'Cloud storage' }
 
 const listeners = new Set<Listener>()
 
@@ -214,10 +229,23 @@ function reclampAgentsOf(provider: ModelProvider): void {
 
 // Per-user recents — one non-evicting MRU id list per context type. Connectors /
 // MCP seed from the connected accounts (their quick list shows every set-up
-// element); the file-like types from the catalog defaults. Server-owned so it's
-// per-user and syncs across devices (the audit flagged it as domain, not UI).
+// element); files / photos / folder seed from the live cloud-storage scan
+// (source-qualified ids — see fsRecentKey) so the quick list isn't empty out of the
+// box; repo from the catalog defaults. Server-owned so it's per-user and syncs
+// across devices (the audit flagged it as domain, not UI).
 const CONTEXT_TYPES: ContextTypeId[] = ['files', 'photos', 'folder', 'repo', 'connector', 'mcp']
+// Seed the fs types from the cloud catalog (the always-present source), newest first.
+const seedFsRecents = (): { files: string[]; photos: string[]; folder: string[] } => {
+  const cat = cloudReader.list()
+  const key = (id: string) => fsRecentKey(CLOUD_SOURCE.id, id)
+  return {
+    files: cat.files.slice(0, 6).map((f) => key(f.id)),
+    photos: cat.photos.slice(0, 7).map((p) => key(p.id)),
+    folder: cat.folders.slice(0, 6).map((d) => key(d.id)),
+  }
+}
 let recents: RecentsSnapshot = (() => {
+  const fsSeed = seedFsRecents()
   const out = {} as RecentsSnapshot
   for (const t of CONTEXT_TYPES) {
     out[t] =
@@ -225,7 +253,9 @@ let recents: RecentsSnapshot = (() => {
         ? [...CONNECTED_CONNECTOR_IDS]
         : t === 'mcp'
           ? [...CONNECTED_MCP_IDS]
-          : [...DEFAULT_RECENT_IDS[t]]
+          : t === 'files' || t === 'photos' || t === 'folder'
+            ? fsSeed[t]
+            : [...DEFAULT_RECENT_IDS[t]]
   }
   return out
 })()
@@ -280,6 +310,40 @@ function emit(e: ServerEvent): void {
 // static capabilities describe); a remote web server seeds none.
 const registry = new RunnerRegistry(emit)
 if (NATIVE) registry.register(LOCAL_RUNNER_SEED)
+
+// Resolve a served filesystem source id (`?source=`) to its reader + descriptor.
+// `cloud` → the web backend's storage; `runner:<id>` → that online runner's host,
+// proxied through the broker (the in-process reader stands in for the on-host
+// runner reading its own disk). `ui-host` is client-side, so it never resolves
+// here; an unknown / offline / unmapped source → undefined (→ 404).
+function resolveFsReader(sourceId: string): { reader: FsReader; source: FsSource } | undefined {
+  if (sourceId === 'cloud') return { reader: cloudReader, source: CLOUD_SOURCE }
+  if (sourceId.startsWith('runner:')) {
+    const runnerId = sourceId.slice('runner:'.length)
+    const runner = registry.get(runnerId)
+    const root = RUNNER_FS_ROOTS[runnerId]
+    if (!runner || runner.status !== 'online' || !root) return undefined
+    return { reader: fsReader(root), source: { id: sourceId, kind: 'runner', label: runner.label, runnerId } }
+  }
+  return undefined
+}
+
+/** The server-known filesystem sources for the picker's source switcher — the web
+ *  backend's cloud storage, plus any online runner advertising fs access that the
+ *  broker can actually read (has a mapped root). The client prepends its own
+ *  `ui-host` source. */
+function fsSourceList(): FsSource[] {
+  const runnerSources = registry
+    .list()
+    .filter(
+      (r) =>
+        r.status === 'online' &&
+        RUNNER_FS_ROOTS[r.id] &&
+        r.capabilities.some((c) => c.type === 'fs.read' || c.type === 'fs.list'),
+    )
+    .map((r): FsSource => ({ id: `runner:${r.id}`, kind: 'runner', label: r.label, runnerId: r.id }))
+  return [CLOUD_SOURCE, ...runnerSources]
+}
 
 // The effect journal — each runner's authoritative log of its host's effects (D2)
 // + the server's projection of it. Emits `runner.effect` as effects project.
@@ -543,15 +607,43 @@ export const store = {
     return this.capabilities().features[feature]
   },
 
-  // ── Native resources (only a native sidecar fulfills these) ──
+  // ── Served filesystem sources (Files / Photos / Folder — contract/fs.ts) ──
+  /** The picker's source switcher list (cloud + any fs-capable runner). The client
+   *  prepends its own `ui-host` source. */
+  fsSources(): FsSource[] {
+    return fsSourceList()
+  },
+  /** A source's top-level catalog (files / photos / folders). Undefined for an
+   *  unknown / client-only source (→ 404/400 at the route). */
+  fsCatalog(sourceId: string): FsCatalog | undefined {
+    const r = resolveFsReader(sourceId)
+    if (!r) return undefined
+    const { files, photos, folders } = r.reader.list()
+    return { source: r.source, files, photos, folders }
+  },
+  /** Scan a folder under a source → its artifacts (what the workspace shows). */
+  fsFolder(sourceId: string, path: string): FsFolderContents | undefined {
+    return resolveFsReader(sourceId)?.reader.folderContents(path)
+  },
+  /** A file's textual content under a source (the editable preview). */
+  fsText(sourceId: string, path: string): FsFileContent | undefined {
+    return resolveFsReader(sourceId)?.reader.readText(path)
+  },
+  /** A file's raw bytes + content type under a source (image / binary serving). */
+  fsBytes(sourceId: string, path: string): { bytes: Uint8Array; contentType: string } | undefined {
+    return resolveFsReader(sourceId)?.reader.readBytes(path)
+  },
+
+  // ── Native resources (only a native sidecar fulfills these — the arbitrary-path
+  //    OS seam, distinct from the served sources above; gated, 409 on remote) ──
   /** OS file/photo/folder picker → the chosen path. */
   fsPick(kind: string): { path: string; kind: string } {
     return { path: kind === 'file' ? '~/Documents/launch-assets/gtm-brief.md' : '~/projects/insights-dashboard', kind }
   },
-  /** Scan a local folder → the artifacts it holds (what the workspace shows). */
-  scanFolder(id: string): { id: string; label: string; artifacts: Artifact[] } | undefined {
-    const f = FOLDER_OPTIONS.find((o) => o.id === id)
-    return f ? { id: f.id, label: f.label, artifacts: f.artifacts } : undefined
+  /** Scan a local folder → the artifacts it holds. Delegates to the cloud reader so
+   *  the dormant native route still returns real data after the fixture removal. */
+  scanFolder(id: string): FsFolderContents | undefined {
+    return cloudReader.folderContents(id)
   },
   /** Compute a local repo's working-tree diff (native git). */
   repoDiff(id: string): DiffLine[] | undefined {

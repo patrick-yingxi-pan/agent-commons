@@ -3,6 +3,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Cloud,
   FileText,
   FolderGit2,
   FolderOpen,
@@ -10,30 +11,44 @@ import {
   GitBranch,
   Github,
   Image as ImageIcon,
-  MoreHorizontal,
+  Laptop,
   Paperclip,
   Plug,
   Plus,
   Server,
 } from 'lucide-react'
-import type { AddedContext, Attachment, Connector, Repo, Workspace } from '../types'
+import type {
+  AddedContext,
+  Attachment,
+  Connector,
+  FsFileEntry,
+  FsFolderContents,
+  FsFolderEntry,
+  FsPhotoEntry,
+  FsSource,
+  Repo,
+  Workspace,
+} from '../types'
 import { AddTrigger } from './AddTrigger'
-import { gradientFor } from '../lib/thumbs'
+import { PhotoThumb } from './PhotoThumb'
 import { GITHUB_CONNECTOR, GITHUB_CONNECTOR_ID } from '../lib/connectors'
 import { repoIdForLabel } from '../data/liveSession'
 import { getDecision, setDecision } from '../lib/prefs'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { useDismissable } from '../lib/useDismissable'
 import { useRecentIds } from '../lib/recents'
-import { RecentOverflowList, FlyoutPanel, useFlyout, type OverflowRow } from './RecentOverflowList'
+import { UI_HOST_SOURCE, DEFAULT_FS_SOURCE_ID, useFsSourceList } from '../lib/fsSources'
+import { pickUiHostFiles, pickUiHostFolder, readDroppedFiles, type UiHostFile } from '../lib/uiHostFs'
+import { useFsCatalog, fsContentUrl } from '../api/hooks'
+import { apiGet } from '../api/client'
+import { paths } from '../api/keys'
+import { fsRecentKey, parseFsRecentKey } from '../../contract/index'
+import { RecentOverflowList, type OverflowRow } from './RecentOverflowList'
 import {
   CONNECTOR_OPTIONS,
-  FILE_OPTIONS,
-  FOLDER_OPTIONS,
   GITHUB_REPO_OPTIONS,
   LOCAL_REPO_OPTIONS,
   MCP_OPTIONS,
-  PHOTO_OPTIONS,
   type ContextTypeId,
 } from '../data/contextOptions'
 
@@ -263,15 +278,7 @@ function WorkflowBody({
   const addedFolderIds = workspaces.flatMap((w) => w.artifacts).flatMap((a) => (a.source ? [a.source.id] : []))
 
   if (type === 'folder') {
-    return (
-      <FolderPicker
-        maxRows={maxRows}
-        onAdd={onAttach}
-        onClose={onClose}
-        addedIds={addedFolderIds}
-        hasGitHubConnector={hasGitHubConnector}
-      />
-    )
+    return <FolderPicker maxRows={maxRows} onAdd={onAttach} onClose={onClose} addedIds={addedFolderIds} />
   }
   if (type === 'repo') {
     return (
@@ -333,7 +340,7 @@ function WorkflowBody({
   if (type === 'files') {
     return <FilesPicker maxRows={maxRows} onAdd={onAttach} onClose={onClose} addedIds={addedFileIds} />
   }
-  return <PhotosPicker maxRows={maxRows} onAdd={onAttach} onClose={onClose} addedIds={addedPhotoIds} />
+  return <PhotosPicker onAdd={onAttach} onClose={onClose} addedIds={addedPhotoIds} />
 }
 
 /* ------------------------------------------------------------------ Browse --
@@ -643,6 +650,198 @@ function MultiAddFooter({ count, onDone }: { count: number; onDone: () => void }
   )
 }
 
+/* ----------------------------------------------- served filesystem sources --
+   Files / Photos / Folder are served from a real filesystem (contract/fs.ts),
+   from three sources the picker switches between: This computer (read client-side,
+   lib/uiHostFs), Cloud storage (the web backend's own disk), and each connected
+   runner's host (proxied through the broker). The switcher + the served-catalog
+   panes below are shared by all three pickers. */
+
+const SOURCE_ICON: Record<FsSource['kind'], typeof Cloud> = {
+  'ui-host': Laptop,
+  cloud: Cloud,
+  runner: Server,
+}
+
+/** Human file size for a catalog row's meta. */
+function fmtSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/** The source switcher — This computer · Cloud storage · each runner. */
+function SourceSwitcher({
+  sources,
+  active,
+  onPick,
+}: {
+  sources: FsSource[]
+  active: string
+  onPick: (id: string) => void
+}) {
+  return (
+    <div className="mb-2 flex items-center gap-0.5 overflow-x-auto rounded-lg bg-panel-2 p-0.5">
+      {sources.map((s) => {
+        const Icon = SOURCE_ICON[s.kind]
+        const on = s.id === active
+        return (
+          <button
+            key={s.id}
+            onClick={() => onPick(s.id)}
+            title={s.label}
+            className={`flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition ${
+              on ? 'bg-surface text-ink shadow-sm' : 'text-ink-soft hover:text-ink'
+            }`}
+          >
+            <Icon size={13} />
+            {s.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+/** The "This computer" pane: pick / drop real files from the UI host. Each pick
+ *  attaches immediately (multi-add), its bytes held client-side for preview. */
+function UiHostDropZone({
+  accept,
+  label,
+  onPicked,
+}: {
+  accept: 'image' | 'any'
+  label: string
+  onPicked: (f: UiHostFile) => void
+}) {
+  const [drag, setDrag] = useState(false)
+  const take = (files: UiHostFile[]) => files.forEach(onPicked)
+  return (
+    <button
+      type="button"
+      onClick={async () => take(await pickUiHostFiles(accept))}
+      onDragOver={(e) => {
+        e.preventDefault()
+        setDrag(true)
+      }}
+      onDragLeave={() => setDrag(false)}
+      onDrop={async (e) => {
+        e.preventDefault()
+        setDrag(false)
+        take(await readDroppedFiles(e.dataTransfer.files))
+      }}
+      className={`flex w-full flex-col items-center justify-center rounded-lg border border-dashed px-3 py-6 text-center transition ${
+        drag ? 'border-accent bg-accent-tint' : 'border-line-strong hover:bg-panel-2'
+      }`}
+    >
+      {accept === 'image' ? (
+        <ImageIcon size={18} className="mb-1 text-ink-faint" />
+      ) : (
+        <Paperclip size={18} className="mb-1 text-ink-faint" />
+      )}
+      <span className="text-[12px] font-medium text-ink">{label}</span>
+      <span className="text-[11px] text-ink-faint">drag &amp; drop, or click to choose</span>
+    </button>
+  )
+}
+
+/** Empty / loading state for a served catalog pane. */
+function CatalogEmpty({ loading, label }: { loading: boolean; label: string }) {
+  return (
+    <div className="px-1 py-6 text-center text-[12px] text-ink-faint">
+      {loading ? 'Loading…' : `Nothing here yet — no ${label}.`}
+    </div>
+  )
+}
+
+/** Entry ids in `recentKeys` that belong to `sourceId` (the source-qualified MRU). */
+function recentEntryIds(recentKeys: readonly string[], sourceId: string): Set<string> {
+  return new Set(
+    recentKeys
+      .map(parseFsRecentKey)
+      .filter((k): k is { sourceId: string; entryId: string } => !!k && k.sourceId === sourceId)
+      .map((k) => k.entryId),
+  )
+}
+
+/** The served files of one source (cloud / runner), recents-ordered. */
+function ServedFiles({
+  source,
+  maxRows,
+  addedIds,
+  onAttach,
+}: {
+  source: FsSource
+  maxRows: number
+  addedIds: readonly string[]
+  onAttach: (e: FsFileEntry) => void
+}) {
+  const cat = useFsCatalog(source.id)
+  const recentKeys = useRecentIds('files')
+  const files = cat.data?.files ?? []
+  const recent = recentEntryIds(recentKeys, source.id)
+  const ordered = [...files.filter((f) => recent.has(f.id)), ...files.filter((f) => !recent.has(f.id))]
+  if (!files.length) return <CatalogEmpty loading={cat.status === 'loading'} label="files" />
+  return (
+    <RecentOverflowList
+      maxRows={maxRows}
+      moreLabel="More files"
+      rows={ordered.map((f) => ({
+        key: f.id,
+        node: (
+          <OptionRow
+            icon={<FileText size={16} />}
+            label={f.name}
+            meta={`${f.ext ? f.ext.toUpperCase() + ' · ' : ''}${fmtSize(f.size)}`}
+            added={addedIds.includes(fsRecentKey(source.id, f.id))}
+            onClick={() => onAttach(f)}
+          />
+        ),
+      }))}
+    />
+  )
+}
+
+/** The served photos of one source as a scrollable grid (real `<img>`). */
+function ServedPhotos({
+  source,
+  addedIds,
+  onAttach,
+}: {
+  source: FsSource
+  addedIds: readonly string[]
+  onAttach: (e: FsPhotoEntry) => void
+}) {
+  const cat = useFsCatalog(source.id)
+  const photos = cat.data?.photos ?? []
+  if (!photos.length) return <CatalogEmpty loading={cat.status === 'loading'} label="photos" />
+  return (
+    <div className="grid max-h-[210px] grid-cols-3 gap-1.5 overflow-y-auto px-1 pb-1">
+      {photos.map((p) => {
+        const added = addedIds.includes(fsRecentKey(source.id, p.id))
+        return (
+          <PhotoThumb
+            key={p.id}
+            id={p.id}
+            src={fsContentUrl(source.id, p.id)}
+            title={p.name}
+            onClick={added ? undefined : () => onAttach(p)}
+            className={`aspect-square rounded-lg ring-1 transition ${
+              added ? 'ring-2 ring-emerald-500' : 'ring-black/5 hover:opacity-80'
+            }`}
+          >
+            {added && (
+              <span className="absolute inset-0 flex items-center justify-center bg-black/35">
+                <Check size={18} className="text-white" strokeWidth={3} />
+              </span>
+            )}
+          </PhotoThumb>
+        )
+      })}
+    </div>
+  )
+}
+
 function FilesPicker({
   maxRows,
   onAdd,
@@ -654,173 +853,64 @@ function FilesPicker({
   onClose: () => void
   addedIds: readonly string[]
 }) {
-  const [browsing, setBrowsing] = useState(false)
-  const recentIds = useRecentIds('files')
-  const byId = new Map(FILE_OPTIONS.map((f) => [f.id, f]))
-  const recent = recentIds.map((id) => byId.get(id)).filter(Boolean) as (typeof FILE_OPTIONS)[number][]
-  // Browse lists what's neither recent nor already attached — so an attached
-  // file that's been evicted from recents can't reappear here to be added twice.
-  const rest = FILE_OPTIONS.filter((f) => !recentIds.includes(f.id) && !addedIds.includes(f.id))
+  const sources = useFsSourceList()
+  const [sourceId, setSourceId] = useState(DEFAULT_FS_SOURCE_ID)
+  const active = sources.find((s) => s.id === sourceId) ?? UI_HOST_SOURCE
 
-  // Attach without closing so several files can be added in one pass. The row
-  // flips to ✓ Added off the live attached state (addedIds); the attach funnel
-  // promotes the pick into Recent, which this list reads reactively.
-  const choose = (f: (typeof FILE_OPTIONS)[number]) => {
-    onAdd({ kind: 'files', attachments: [{ id: f.id, label: f.label, kind: 'file' }] })
-  }
+  const attachUiHost = (f: UiHostFile) =>
+    onAdd({
+      kind: 'files',
+      attachments: [
+        { id: fsRecentKey('ui-host', f.id), label: f.name, kind: f.kind, source: UI_HOST_SOURCE, previewText: f.text, previewUrl: f.url },
+      ],
+    })
+  const attachServed = (e: FsFileEntry) =>
+    onAdd({ kind: 'files', attachments: [{ id: fsRecentKey(active.id, e.id), label: e.name, kind: 'file', source: active }] })
 
   return (
     <div className="pb-1">
-      <button
-        onClick={() => setBrowsing(true)}
-        className="mb-2 flex w-full flex-col items-center justify-center rounded-lg border border-dashed border-line-strong px-3 py-4 text-center transition hover:bg-panel-2"
-      >
-        <Paperclip size={18} className="mb-1 text-ink-faint" />
-        <span className="text-[12px] font-medium text-ink">Drop files here</span>
-        <span className="text-[11px] text-ink-faint">or browse your files</span>
-      </button>
-      <p className="px-1 pb-1.5 text-[11px] text-ink-faint">Recent files</p>
-      <RecentOverflowList
-        maxRows={Math.max(2, maxRows - 2)}
-        moreLabel="More recent files"
-        rows={recent.map((f) => ({
-          key: f.id,
-          node: (
-            <OptionRow
-              icon={<FileText size={16} />}
-              label={f.label}
-              meta={f.meta}
-              added={addedIds.includes(f.id)}
-              onClick={() => choose(f)}
-            />
-          ),
-        }))}
-      />
-      <BrowseRow label="Browse files…" onClick={() => setBrowsing(true)} />
-      <MultiAddFooter count={addedIds.length} onDone={onClose} />
-      {browsing && (
-        <BrowseDialog
-          title="Open"
-          location={['~', 'Recent Files']}
-          groups={[
-            { items: rest.map((f) => ({ id: f.id, name: f.label, meta: f.meta, icon: <FileText size={15} /> })) },
-          ]}
-          onCancel={() => setBrowsing(false)}
-          onConfirm={(id) => {
-            setBrowsing(false)
-            const f = byId.get(id)
-            if (f) choose(f)
-          }}
-        />
+      <SourceSwitcher sources={sources} active={sourceId} onPick={setSourceId} />
+      {active.kind === 'ui-host' ? (
+        <UiHostDropZone accept="any" label="Add files from this computer" onPicked={attachUiHost} />
+      ) : (
+        <ServedFiles source={active} maxRows={Math.max(2, maxRows - 1)} addedIds={addedIds} onAttach={attachServed} />
       )}
+      <MultiAddFooter count={addedIds.length} onDone={onClose} />
     </div>
   )
 }
 
 function PhotosPicker({
-  maxRows,
   onAdd,
   onClose,
   addedIds,
 }: {
-  maxRows: number
   onAdd: (ctx: AddedContext) => void
   onClose: () => void
   addedIds: readonly string[]
 }) {
-  const [browsing, setBrowsing] = useState(false)
-  const recentIds = useRecentIds('photos')
-  const byId = new Map(PHOTO_OPTIONS.map((p) => [p.id, p]))
-  const recent = recentIds.map((id) => byId.get(id)).filter(Boolean) as (typeof PHOTO_OPTIONS)[number][]
-  // Browse lists what's neither recent nor already attached — so an attached
-  // photo can't reappear here to be added twice.
-  const rest = PHOTO_OPTIONS.filter((p) => !recentIds.includes(p.id) && !addedIds.includes(p.id))
-  const more = useFlyout()
-  const moreRef = useRef<HTMLButtonElement>(null)
+  const sources = useFsSourceList()
+  const [sourceId, setSourceId] = useState(DEFAULT_FS_SOURCE_ID)
+  const active = sources.find((s) => s.id === sourceId) ?? UI_HOST_SOURCE
 
-  // Attach without closing so several photos can be added in one pass. The
-  // thumbnail flips to a ✓ overlay off the live attached state (addedIds); the
-  // attach funnel promotes the pick into Recent, which this list reads reactively.
-  const choose = (p: (typeof PHOTO_OPTIONS)[number]) => {
-    onAdd({ kind: 'photos', attachments: [{ id: p.id, label: p.label, kind: 'photo' }] })
-  }
-
-  // One thumbnail, reused inline and in the "More" flyout grid so both render
-  // identically.
-  const thumb = (p: (typeof PHOTO_OPTIONS)[number]) => {
-    const isAdded = addedIds.includes(p.id)
-    return (
-      <button
-        key={p.id}
-        title={p.label}
-        aria-disabled={isAdded}
-        onClick={isAdded ? undefined : () => choose(p)}
-        className={`relative aspect-square rounded-lg transition ${gradientFor(p.id)} ${
-          isAdded ? 'ring-2 ring-emerald-500' : 'ring-1 ring-black/5 hover:opacity-80'
-        }`}
-      >
-        {isAdded && (
-          <span className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/35">
-            <Check size={18} className="text-white" strokeWidth={3} />
-          </span>
-        )}
-      </button>
-    )
-  }
-
-  // Same non-evicting overflow as the list pickers, in grid terms: show as many
-  // thumbnails as the height allows (≈4 per row), fold the rest into a "More"
-  // cell whose hover opens a scrollable flyout grid.
-  const cap = Math.max(7, maxRows * 2)
-  const overflow = recent.length > cap
-  const head = overflow ? recent.slice(0, cap - 1) : recent
-  const tail = overflow ? recent.slice(cap - 1) : []
+  const attachUiHost = (f: UiHostFile) =>
+    onAdd({
+      kind: 'photos',
+      attachments: [{ id: fsRecentKey('ui-host', f.id), label: f.name, kind: 'photo', source: UI_HOST_SOURCE, previewUrl: f.url, previewText: f.text }],
+    })
+  const attachServed = (e: FsPhotoEntry) =>
+    onAdd({ kind: 'photos', attachments: [{ id: fsRecentKey(active.id, e.id), label: e.name, kind: 'photo', source: active }] })
 
   return (
-    <Section label="Recent photos">
-      <div className="grid grid-cols-4 gap-1.5 px-1 pb-1">
-        {head.map(thumb)}
-        {overflow && (
-          <button
-            ref={moreRef}
-            title={`${tail.length} more`}
-            onMouseEnter={more.openNow}
-            onMouseLeave={more.closeSoon}
-            className="flex aspect-square flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-line-strong text-ink-faint transition hover:bg-panel-2 hover:text-ink"
-          >
-            <MoreHorizontal size={16} />
-            <span className="text-[10px] font-medium">{tail.length} more</span>
-          </button>
-        )}
-        <button
-          title="Browse photos…"
-          onClick={() => setBrowsing(true)}
-          className="flex aspect-square items-center justify-center rounded-lg border border-dashed border-line-strong text-ink-faint transition hover:bg-panel-2 hover:text-ink"
-        >
-          <FolderSearch size={16} />
-        </button>
-      </div>
-      {more.open && (
-        <FlyoutPanel anchor={moreRef.current} width={208} onEnter={more.openNow} onLeave={more.closeSoon}>
-          <div className="grid grid-cols-4 gap-1.5 p-1">{tail.map(thumb)}</div>
-        </FlyoutPanel>
+    <div className="pb-1">
+      <SourceSwitcher sources={sources} active={sourceId} onPick={setSourceId} />
+      {active.kind === 'ui-host' ? (
+        <UiHostDropZone accept="image" label="Add photos from this computer" onPicked={attachUiHost} />
+      ) : (
+        <ServedPhotos source={active} addedIds={addedIds} onAttach={attachServed} />
       )}
       <MultiAddFooter count={addedIds.length} onDone={onClose} />
-      {browsing && (
-        <BrowseDialog
-          title="Photo Library"
-          location={['Photo Library']}
-          layout="grid"
-          groups={[{ items: rest.map((p) => ({ id: p.id, name: p.label, thumb: gradientFor(p.id) })) }]}
-          onCancel={() => setBrowsing(false)}
-          onConfirm={(id) => {
-            setBrowsing(false)
-            const p = byId.get(id)
-            if (p) choose(p)
-          }}
-        />
-      )}
-    </Section>
+    </div>
   )
 }
 
@@ -1084,198 +1174,105 @@ function RepoPicker({
   )
 }
 
-type FolderOption = (typeof FOLDER_OPTIONS)[number]
+/** The served folders of one source, recents-ordered. Clicking one fetches its
+ *  contents and attaches it as a workspace (its artifacts tagged with the folder
+ *  as their source, carrying the fs source so the workspace can show real content). */
+function ServedFolders({
+  source,
+  maxRows,
+  addedIds,
+  onAttach,
+}: {
+  source: FsSource
+  maxRows: number
+  addedIds: readonly string[]
+  onAttach: (f: FsFolderEntry) => void
+}) {
+  const cat = useFsCatalog(source.id)
+  const recentKeys = useRecentIds('folder')
+  const folders = cat.data?.folders ?? []
+  const recent = recentEntryIds(recentKeys, source.id)
+  const ordered = [...folders.filter((f) => recent.has(f.path)), ...folders.filter((f) => !recent.has(f.path))]
+  if (!folders.length) return <CatalogEmpty loading={cat.status === 'loading'} label="folders" />
+  return (
+    <RecentOverflowList
+      maxRows={maxRows}
+      moreLabel="More folders"
+      rows={ordered.map((f) => ({
+        key: f.id,
+        node: (
+          <OptionRow
+            icon={<FolderOpen size={16} />}
+            label={f.name}
+            meta={`${f.fileCount} file${f.fileCount === 1 ? '' : 's'}`}
+            added={addedIds.includes(fsRecentKey(source.id, f.path))}
+            onClick={() => onAttach(f)}
+          />
+        ),
+      }))}
+    />
+  )
+}
 
-/** Folder picker. Attaching a folder normally just adds a workspace. When the
- *  folder is a git working tree it first offers to also attach it as a repo
- *  (code / diff / terminal); if that repo has a GitHub remote, it then chains
- *  the same "add the connector?" prompt the repo flow uses. Every prompt's
- *  Cancel aborts the whole attach, and each choice can be remembered. Recent
- *  folders show first; Browse reaches the rest, promoting them on attach. */
+/** Folder picker — source-aware. A served folder (cloud / runner) attaches as a
+ *  workspace of its real scanned artifacts; the UI-host source opens the OS folder
+ *  picker. (The old git-repo prompt is gone: served folders are plain workspaces;
+ *  attach a git repo through the Repository type instead.) */
 function FolderPicker({
   maxRows,
   onAdd,
   onClose,
   addedIds,
-  hasGitHubConnector,
 }: {
   maxRows: number
   onAdd: (ctx: AddedContext) => void
   onClose: () => void
-  /** Folder ids already in the shared workspace — rows for these read ✓ Added. */
+  /** Folder source-keys already in the shared workspace — rows for these read ✓ Added. */
   addedIds: readonly string[]
-  hasGitHubConnector: boolean
 }) {
-  const [stage, setStage] = useState<'list' | 'repo' | 'connector'>('list')
-  const [folder, setFolder] = useState<FolderOption | null>(null)
-  const [dontAsk, setDontAsk] = useState(false)
-  const [browsing, setBrowsing] = useState(false)
+  const sources = useFsSourceList()
+  const [sourceId, setSourceId] = useState(DEFAULT_FS_SOURCE_ID)
+  const active = sources.find((s) => s.id === sourceId) ?? UI_HOST_SOURCE
 
-  const recentIds = useRecentIds('folder')
-  const byId = new Map(FOLDER_OPTIONS.map((f) => [f.id, f]))
-  const recent = recentIds.map((id) => byId.get(id)).filter(Boolean) as FolderOption[]
-  // Browse lists what's neither recent nor already attached.
-  const rest = FOLDER_OPTIONS.filter((f) => !recentIds.includes(f.id) && !addedIds.includes(f.id))
-
-  const backToList = () => {
-    setStage('list')
-    setFolder(null)
+  // Attach a served folder: fetch its contents, tag each artifact with the folder
+  // (a source-qualified key so the workspace can fetch real content + de-dupe).
+  const attachServed = async (f: FsFolderEntry) => {
+    const src = { id: fsRecentKey(active.id, f.path), label: `${f.name}/` }
+    const contents = await apiGet<FsFolderContents>(paths.fsFolder(active.id, f.path)).catch(() => undefined)
+    const artifacts = (contents?.artifacts ?? []).map((a) => ({ ...a, source: src }))
+    onAdd({ kind: 'folder', label: f.name, artifacts, source: active })
   }
 
-  // Attach the folder as a workspace, tagging its artifacts with the folder as
-  // their source so the one shared workspace can group by folder (and so the
-  // attach funnel can recover the folder's id to promote it into Recent).
-  // Returns to the list (multi-add — no close). Runs on every path that actually
-  // attaches, so it's the single reset point.
-  const attachFolder = (f: FolderOption) => {
-    const source = { id: f.id, label: `${basename(f.label)}/` }
+  const attachUiHost = async () => {
+    const picked = await pickUiHostFolder()
+    if (!picked) return
+    const src = { id: fsRecentKey('ui-host', picked.name), label: `${picked.name}/` }
     onAdd({
       kind: 'folder',
-      label: f.label,
-      artifacts: f.artifacts.map((a) => ({ ...a, source })),
+      label: picked.name,
+      artifacts: picked.artifacts.map((a) => ({ ...a, source: src })),
+      source: UI_HOST_SOURCE,
     })
-    backToList()
-  }
-
-  const repoCtxFor = (f: FolderOption): RepoContext => ({
-    kind: 'repo',
-    origin: 'local',
-    label: basename(f.label),
-    path: f.label,
-    remote: f.repo?.remote,
-    branch: f.repo!.branch,
-    files: f.repo!.files,
-    diff: f.repo!.diff,
-    terminal: f.repo!.terminal,
-  })
-
-  // Attach the folder (workspace) and its repo — connector first when wanted, so
-  // focus lands on the repo. attachFolder handles the list reset.
-  const attachFolderAndRepo = (f: FolderOption, withConnector: boolean) => {
-    if (withConnector) onAdd({ kind: 'connector', connector: GITHUB_CONNECTOR })
-    attachFolder(f)
-    onAdd(repoCtxFor(f))
-  }
-
-  // The repo is being attached too — settle the GitHub connector question.
-  const proceedWithRepo = (f: FolderOption) => {
-    if (!f.repo?.remote || hasGitHubConnector) return attachFolderAndRepo(f, false)
-    const decision = getDecision('linkOnAttach')
-    if (decision === 'always') return attachFolderAndRepo(f, true)
-    if (decision === 'never') return attachFolderAndRepo(f, false)
-    setDontAsk(false)
-    setFolder(f)
-    setStage('connector')
-  }
-
-  const select = (f: FolderOption) => {
-    if (!f.repo) return attachFolder(f) // not a git folder → workspace only
-    const decision = getDecision('attachRepoOnFolder')
-    if (decision === 'never') return attachFolder(f)
-    if (decision === 'always') return proceedWithRepo(f)
-    setDontAsk(false)
-    setFolder(f)
-    setStage('repo')
-  }
-
-  if (stage === 'repo' && folder) {
-    return (
-      <AttachPromptCard
-        message={
-          <>
-            <span className="font-medium">{folder.label}</span> is a git repo (
-            <span className="font-medium">{folder.repo!.branch}</span>). Also attach it as a{' '}
-            <span className="font-medium">repository</span> — code, diff &amp; terminal?
-          </>
-        }
-        dontAsk={dontAsk}
-        onToggleDontAsk={() => setDontAsk((v) => !v)}
-        onCancel={backToList}
-        secondaryLabel="Just the folder"
-        onSecondary={() => {
-          if (dontAsk) setDecision('attachRepoOnFolder', 'never')
-          attachFolder(folder)
-        }}
-        primaryLabel="Folder + repo"
-        onPrimary={() => {
-          if (dontAsk) setDecision('attachRepoOnFolder', 'always')
-          proceedWithRepo(folder)
-        }}
-      />
-    )
-  }
-
-  if (stage === 'connector' && folder) {
-    return (
-      <AttachPromptCard
-        message={
-          <>
-            <span className="font-medium">{basename(folder.label)}</span> has a GitHub remote. Add the{' '}
-            <span className="font-medium">GitHub connector</span> too, so Claude can push and open PRs?
-          </>
-        }
-        dontAsk={dontAsk}
-        onToggleDontAsk={() => setDontAsk((v) => !v)}
-        onCancel={backToList}
-        secondaryLabel="Skip connector"
-        onSecondary={() => {
-          if (dontAsk) setDecision('linkOnAttach', 'never')
-          attachFolderAndRepo(folder, false)
-        }}
-        primaryLabel="Add connector"
-        onPrimary={() => {
-          if (dontAsk) setDecision('linkOnAttach', 'always')
-          attachFolderAndRepo(folder, true)
-        }}
-      />
-    )
   }
 
   return (
-    <>
-      <Section label="Recent folders">
-        <RecentOverflowList
-          maxRows={maxRows}
-          moreLabel="More recent folders"
-          rows={recent.map((f) => ({
-            key: f.id,
-            node: (
-              <OptionRow
-                icon={<FolderOpen size={16} />}
-                label={f.label}
-                meta={`${f.meta}${f.repo ? ' · git repo' : ''}`}
-                added={addedIds.includes(f.id)}
-                onClick={() => select(f)}
-              />
-            ),
-          }))}
-        />
-        <BrowseRow label="Browse folders…" onClick={() => setBrowsing(true)} />
-      </Section>
-      <MultiAddFooter count={addedIds.length} onDone={onClose} />
-      {browsing && (
-        <BrowseDialog
-          title="Open Folder"
-          location={['~', 'Folders']}
-          groups={[
-            {
-              items: rest.map((f) => ({
-                id: f.id,
-                name: basename(f.label),
-                meta: `${f.meta}${f.repo ? ' · git repo' : ''}`,
-                icon: <FolderOpen size={15} />,
-              })),
-            },
-          ]}
-          onCancel={() => setBrowsing(false)}
-          onConfirm={(id) => {
-            setBrowsing(false)
-            const f = byId.get(id)
-            if (f) select(f)
-          }}
-        />
+    <div className="pb-1">
+      <SourceSwitcher sources={sources} active={sourceId} onPick={setSourceId} />
+      {active.kind === 'ui-host' ? (
+        <button
+          type="button"
+          onClick={() => void attachUiHost()}
+          className="flex w-full flex-col items-center justify-center rounded-lg border border-dashed border-line-strong px-3 py-6 text-center transition hover:bg-panel-2"
+        >
+          <FolderOpen size={18} className="mb-1 text-ink-faint" />
+          <span className="text-[12px] font-medium text-ink">Choose a folder from this computer</span>
+          <span className="text-[11px] text-ink-faint">attaches its files as a workspace</span>
+        </button>
+      ) : (
+        <ServedFolders source={active} maxRows={Math.max(2, maxRows - 1)} addedIds={addedIds} onAttach={(f) => void attachServed(f)} />
       )}
-    </>
+      <MultiAddFooter count={addedIds.length} onDone={onClose} />
+    </div>
   )
 }
 

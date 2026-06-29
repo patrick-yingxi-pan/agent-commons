@@ -29,6 +29,17 @@ export function sendJson(res: ServerResponse, body: unknown, status = 200): void
   res.end(payload)
 }
 
+/** Stream raw bytes with a content type — for served image/binary content (a
+ *  `GET /fs/content` response, used directly as an `<img src>`). Mirrors the
+ *  static-asset byte path in server/index.ts: write the Buffer verbatim so binary
+ *  isn't corrupted by a UTF-8 round-trip. */
+export function sendBytes(res: ServerResponse, bytes: Uint8Array, contentType: string): void {
+  res.writeHead(200, { ...CORS_HEADERS, 'Content-Type': contentType })
+  // `end` accepts a string in the ambient types; the Buffer's bytes are written
+  // verbatim at runtime (same as the static-asset path). Cast through unknown.
+  res.end(bytes as unknown as string)
+}
+
 const STATUS_FOR: Record<ApiErrorCode, number> = {
   bad_request: 400,
   not_found: 404,

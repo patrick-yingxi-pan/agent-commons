@@ -1,9 +1,54 @@
 import { useEffect, useState } from 'react'
 import { Crop, FileText, Image as ImageIcon, PenLine, RotateCw, Sheet, Trash2 } from 'lucide-react'
 import type { Attachment, ArtifactKind } from '../types'
-import { gradientFor } from '../lib/thumbs'
 import { PanelShell } from './PanelShell'
+import { PhotoThumb } from './PhotoThumb'
 import { ArtifactBodyView } from './artifactPreview'
+import { useFsText, fsContentUrl } from '../api/hooks'
+import { parseFsRecentKey } from '../../contract/index'
+
+const IMG_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico']
+const isImageLabel = (label: string) => IMG_EXTS.includes(label.split('.').pop()?.toLowerCase() ?? '')
+
+/** The image URL for an attachment, or undefined (→ gradient fallback): a UI-host
+ *  pick's client object URL, or a served file's bytes endpoint (cloud / runner). */
+function attachmentImageUrl(att: Attachment): string | undefined {
+  if (att.source?.kind === 'ui-host') return att.previewUrl
+  const path = parseFsRecentKey(att.id)?.entryId
+  if (att.source && path) return fsContentUrl(att.source.id, path)
+  return undefined
+}
+
+interface AttachmentContent {
+  loading: boolean
+  editable: boolean
+  body: string
+  isImage: boolean
+  imageUrl?: string
+}
+
+/** Resolve an attachment's content from its source: a UI-host pick's client-held
+ *  bytes, a served file's real text/image (cloud / runner), or — for a legacy
+ *  seeded attachment with no source — the hand-authored fallback. One hook so every
+ *  attachment renders from a single source-aware path. */
+function useAttachmentContent(att: Attachment): AttachmentContent {
+  const isImage = att.kind === 'photo' || isImageLabel(att.label)
+  const imageUrl = attachmentImageUrl(att)
+  const path = parseFsRecentKey(att.id)?.entryId
+  const served = !!att.source && att.source.kind !== 'ui-host' && !!path && !isImage
+  // Called unconditionally (enabled-gated) to honor the rules of hooks.
+  const q = useFsText(att.source?.id ?? '', path ?? '', served)
+  if (isImage) return { loading: false, editable: false, body: '', isImage: true, imageUrl }
+  if (att.source?.kind === 'ui-host') {
+    return { loading: false, editable: att.previewText !== undefined, body: att.previewText ?? '', isImage: false }
+  }
+  if (served) {
+    const body = q.data?.kind === 'text' ? q.data.text ?? '' : ''
+    return { loading: q.status === 'loading', editable: q.data?.kind === 'text', body, isImage: false }
+  }
+  const info = fileInfo(att.label)
+  return { loading: false, editable: info.editable, body: info.content, isImage: false }
+}
 
 /** Right-side panel that displays a group of file or photo attachments and lets
  *  the user preview / edit / remove them. Opened by clicking a file/photo chip;
@@ -119,11 +164,13 @@ function PhotoBody({
     <div className="flex flex-1 flex-col overflow-y-auto">
       <div className="grid grid-cols-3 gap-1.5 p-2.5">
         {items.map((p) => (
-          <button
+          <PhotoThumb
             key={p.id}
-            onClick={() => onSelect(p.id)}
+            id={p.id}
+            src={attachmentImageUrl(p)}
             title={p.label}
-            className={`aspect-square rounded-lg ring-2 transition ${gradientFor(p.id)} ${
+            onClick={() => onSelect(p.id)}
+            className={`aspect-square rounded-lg ring-2 transition ${
               p.id === item.id ? 'ring-accent' : 'ring-transparent hover:ring-line-strong'
             }`}
           />
@@ -131,20 +178,20 @@ function PhotoBody({
       </div>
 
       <div className="border-t border-line p-3">
-        <div
-          className={`relative flex aspect-video w-full items-end overflow-hidden rounded-lg shadow-inner ${gradientFor(
-            item.id,
-          )}`}
+        <PhotoThumb
+          id={item.id}
+          src={attachmentImageUrl(item)}
+          className="flex aspect-video w-full items-end rounded-lg shadow-inner"
         >
-          <span className="m-2 rounded bg-black/30 px-1.5 py-0.5 text-[11px] font-medium text-white/95">
+          <span className="relative z-10 m-2 rounded bg-black/30 px-1.5 py-0.5 text-[11px] font-medium text-white/95">
             {item.label}
           </span>
           {applied.length > 0 && (
-            <span className="absolute right-2 top-2 rounded bg-white/85 px-1.5 py-0.5 text-[10px] font-semibold text-accent-strong">
+            <span className="absolute right-2 top-2 z-10 rounded bg-white/85 px-1.5 py-0.5 text-[10px] font-semibold text-accent-strong">
               Edited · {applied.join(', ')}
             </span>
           )}
-        </div>
+        </PhotoThumb>
 
         <div className="mt-2 flex gap-1">
           {PHOTO_TOOLS.map((t) => {
@@ -200,9 +247,9 @@ function FileBody({
   onSelect: (id: string) => void
   onRemove: (id: string) => void
 }) {
-  const info = fileInfo(item.label)
-  const saved = draft?.saved ?? info.content
-  const text = draft?.text ?? info.content
+  const content = useAttachmentContent(item)
+  const saved = draft?.saved ?? content.body
+  const text = draft?.text ?? content.body
   const dirty = text !== saved
 
   return (
@@ -238,7 +285,16 @@ function FileBody({
       </div>
 
       <div className="flex flex-1 flex-col overflow-y-auto border-t border-line bg-surface p-3">
-        {info.editable ? (
+        {content.isImage ? (
+          <>
+            <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-ink-faint">
+              Preview · {item.label}
+            </div>
+            <PhotoThumb id={item.id} src={content.imageUrl} className="aspect-video w-full rounded-lg shadow-inner" />
+          </>
+        ) : content.loading ? (
+          <div className="flex flex-1 items-center justify-center text-[12px] text-ink-faint">Loading…</div>
+        ) : content.editable ? (
           <>
             <div className="mb-1.5 flex items-center justify-between">
               <span className="text-[11px] font-medium uppercase tracking-wide text-ink-faint">
@@ -267,7 +323,7 @@ function FileBody({
             <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-ink-faint">
               Preview · {item.label}
             </div>
-            <ArtifactBodyView kind={previewKind(info.ext)} name={item.label} size="compact" />
+            <ArtifactBodyView kind={previewKind(item.label.split('.').pop()?.toLowerCase() ?? '')} name={item.label} size="compact" />
           </>
         )}
       </div>

@@ -35,14 +35,23 @@ function repoCatalogId(ctx: Extract<AddedContext, { kind: 'repo' }>): string | u
 export function rememberAttached(ctx: AddedContext) {
   switch (ctx.kind) {
     case 'files':
-      ctx.attachments.forEach((a) => pushRecent('files', a.id))
+      // Skip the UI-host source: its ids are session-only (the browser can't
+      // persist file handles across reloads), so a server recent would never
+      // re-resolve. Cloud / runner ids are source-qualified + stable, so they do.
+      ctx.attachments.forEach((a) => {
+        if (a.source?.kind !== 'ui-host') pushRecent('files', a.id)
+      })
       break
     case 'photos':
-      ctx.attachments.forEach((a) => pushRecent('photos', a.id))
+      ctx.attachments.forEach((a) => {
+        if (a.source?.kind !== 'ui-host') pushRecent('photos', a.id)
+      })
       break
     case 'folder': {
       // Every artifact is tagged with the folder as its source on attach, so the
-      // folder's catalog id rides along on the payload.
+      // folder's source-qualified id rides along on the payload. UI-host folders
+      // aren't promoted (session-only, like files/photos above).
+      if (ctx.source?.kind === 'ui-host') break
       const folderId = ctx.artifacts.find((a) => a.source)?.source?.id
       if (folderId) pushRecent('folder', folderId)
       break

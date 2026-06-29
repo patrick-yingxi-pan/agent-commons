@@ -1,0 +1,10 @@
+{
+  "table": "cohort_daily",
+  "columns": {
+    "cohort": "text",
+    "day": "date",
+    "users": "int",
+    "churn": "float"
+  },
+  "indexes": [["cohort", "day"]]
+}

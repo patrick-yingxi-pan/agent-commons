@@ -33,8 +33,15 @@ declare module 'node:http' {
 
 declare module 'node:fs' {
   export function readFileSync(path: string): { toString(): string } & Uint8Array
+  export function readFileSync(path: string, encoding: string): string
   export function existsSync(path: string): boolean
-  export function statSync(path: string): { isFile(): boolean; isDirectory(): boolean }
+  export function statSync(path: string): {
+    isFile(): boolean
+    isDirectory(): boolean
+    size: number
+    mtimeMs: number
+  }
+  export function readdirSync(path: string): string[]
   export function writeFileSync(path: string, data: string): void
   export function renameSync(oldPath: string, newPath: string): void
   export function mkdirSync(path: string, options?: { recursive?: boolean }): void
@@ -45,6 +52,8 @@ declare module 'node:path' {
   export function extname(p: string): string
   export function resolve(...parts: string[]): string
   export function dirname(p: string): string
+  export function basename(p: string, ext?: string): string
+  export function relative(from: string, to: string): string
   export const sep: string
 }
 

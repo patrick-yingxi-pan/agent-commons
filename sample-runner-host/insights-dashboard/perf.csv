@@ -1,0 +1,4 @@
+query,before,after
+funnel,1.81s,240ms
+retention,640ms,180ms
+overview,300ms,120ms

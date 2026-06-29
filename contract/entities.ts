@@ -41,6 +41,16 @@ export interface Attachment {
   id: string
   label: string
   kind: 'file' | 'photo'
+  /** Which filesystem source it came from — UI host, a runner, or cloud storage
+   *  (contract/fs.ts). Drives where its content is read from. Absent on legacy /
+   *  seeded attachments (treated as the default served source). */
+  source?: import('./fs.ts').FsSource
+  /** Client-held preview for a `ui-host` attachment whose bytes live in the browser
+   *  (never round-tripped to the server unless an effect uploads them): an object
+   *  URL for an image, or the text body for a text file. Absent for server-backed
+   *  sources (cloud / runner), whose content is fetched from `/fs/*`. */
+  previewUrl?: string
+  previewText?: string
 }
 
 /** A workspace (a folder attached as a Cowork-style surface). A conversation
@@ -76,7 +86,7 @@ export interface Repo {
 /** The payload produced by the "Add context" flow. Every attachable thing is
  *  just context the conversation gains — so one entry point covers them all. */
 export type AddedContext =
-  | { kind: 'folder'; label: string; artifacts: Artifact[] }
+  | { kind: 'folder'; label: string; artifacts: Artifact[]; source?: import('./fs.ts').FsSource }
   | {
       kind: 'repo'
       label: string

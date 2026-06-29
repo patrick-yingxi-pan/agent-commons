@@ -72,6 +72,9 @@ function route(e: ServerEvent): void {
     case 'runner.disconnected':
     case 'runner.capabilities.changed':
       invalidate(keys.runners)
+      // The Add-context source switcher derives its runner sources from the
+      // registry, so refresh it too (a connect/disconnect adds/removes a source).
+      invalidate(keys.fsSources)
       break
     // An effect was projected into a runner's record — refresh that runner's log.
     case 'runner.effect':

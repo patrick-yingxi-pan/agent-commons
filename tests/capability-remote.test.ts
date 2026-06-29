@@ -71,3 +71,19 @@ test('a remote backend 409s every native-only endpoint with capability_unavailab
     assert.equal(r.json.error.code, 'capability_unavailable', `${path} should report capability_unavailable`)
   }
 })
+
+test('the served cloud filesystem source works on a remote backend (it reads the web backend’s own storage)', async () => {
+  const { buildRouter } = await import('../server/routes/index.ts')
+  const call = caller(buildRouter())
+
+  // The cloud source is the web backend's own storage — served on both backends,
+  // unlike the native arbitrary-path seam above. (A remote backend seeds no runner,
+  // so the runner sources simply aren't present until one connects.)
+  const cat = await call('GET', '/fs/catalog?source=cloud')
+  assert.equal(cat.status, 200, 'the cloud catalog is served on a remote backend')
+  assert.ok(cat.json.files.length + cat.json.photos.length + cat.json.folders.length > 0)
+
+  const sources = await call('GET', '/fs/sources')
+  assert.ok(sources.json.some((s) => s.id === 'cloud'), 'cloud is listed')
+  assert.ok(!sources.json.some((s) => s.kind === 'runner'), 'no runner source on a bare remote backend')
+})

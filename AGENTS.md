@@ -116,8 +116,26 @@ the mock?
   change. (Don't file "the reply is canned" as a bug.)
 - **Seed data** lives in `server/data/` — sessions, projects, artifacts, repos,
   diffs, terminal output are fixtures, not live.
+- **Files / photos / folders are *really* served from a filesystem**, not fixtures.
+  The Add-context picker switches between three real sources (`contract/fs.ts`,
+  `server/fs.ts`): **This computer** (the UI host, read client-side via the browser
+  file APIs — the one source that can't go through the backend, since a web server
+  can't read your browser's disk), each connected **runner's host** (browsed +
+  read through the broker — real `fs.read` + the new `fs.list` capability, with a
+  bytes route proxying the runner for images), and the web backend's **cloud
+  storage** (a real directory it serves, available on both backends). Fulfilment is
+  real `fs` reads rooted at the committed, deterministic `sample-cloud/` and
+  `sample-runner-host/` trees (env-overridable: `CONTEXT_CLOUD_ROOT`,
+  `CONTEXT_RUNNER_ROOT`). Text files serve real text; images serve real bytes
+  (`<img>`, not gradients). *Don't file "the photos are gradients" — they're real
+  now; the gradient is only a load/fallback.* A UI-host pick's bytes stay in the
+  browser (the seam to upload them to the backend when an effect needs them is
+  noted in `src/lib/uiHostFs.ts`).
 - **Native ops are stubbed** behind capability flags; a remote backend returns
-  `409 capability_unavailable` by design.
+  `409 capability_unavailable` by design. This is the *arbitrary-path* OS seam
+  (`/fs/pick`, `/fs/folders/:id`, `/git/repos/:id/diff`, gated by `osPicker` /
+  `localFs` / `localGit`) — distinct from the served `/fs/*?source=` sources above,
+  which work on both backends.
 - **Created state is persisted to the filesystem.** When the real server runs
   (`dev` / `start` / `server`), the UI-owned state — sent messages, created
   sessions, attached context + its panels, schedules, recents, relation edits, and the

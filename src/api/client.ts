@@ -50,3 +50,8 @@ export const apiGet = <T>(path: string) => request<T>('GET', path)
 export const apiPost = <T>(path: string, body?: unknown) => request<T>('POST', path, body)
 export const apiPatch = <T>(path: string, body?: unknown) => request<T>('PATCH', path, body)
 export const apiDelete = <T>(path: string, body?: unknown) => request<T>('DELETE', path, body)
+
+/** Absolute URL for a raw-bytes endpoint (a served image / binary), to use as an
+ *  `<img src>` — the browser fetches it through the same proxy the API uses. Bytes
+ *  can't go through `apiGet`, which JSON-parses the response. */
+export const apiUrl = (path: string): string => `${API_BASE}${path}`

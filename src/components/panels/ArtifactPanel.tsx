@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, X } from 'lucide-react'
 import type { Artifact } from '../../types'
 import { ArtifactBodyView, KIND_ICON, KIND_LABEL } from '../artifactPreview'
 import { FOLD_HOVER } from '../../lib/foldHeader'
+import { parseFsRecentKey } from '../../../contract/index'
 
 export function ArtifactPanel({
   artifacts,
@@ -180,6 +181,13 @@ export function ArtifactPanel({
 }
 
 function ArtifactPreview({ artifact, onClose }: { artifact: Artifact; onClose: () => void }) {
+  // A folder artifact served from a real filesystem carries its source on
+  // `artifact.source.id` (`<source>::<folderPath>`) and its path on `artifact.id`,
+  // so its real content is fetched. UI-host folders + seeded artifacts have no
+  // served source and fall back to the authored library / scaffold.
+  const parsed = artifact.source ? parseFsRecentKey(artifact.source.id) : null
+  const served =
+    parsed && parsed.sourceId !== 'ui-host' ? { sourceId: parsed.sourceId, path: artifact.id } : undefined
   return (
     <div>
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -196,7 +204,7 @@ function ArtifactPreview({ artifact, onClose }: { artifact: Artifact; onClose: (
         </button>
       </div>
       <div className="mb-3 truncate text-sm font-semibold text-ink">{artifact.name}</div>
-      <ArtifactBodyView kind={artifact.kind} name={artifact.name} size="compact" />
+      <ArtifactBodyView kind={artifact.kind} name={artifact.name} size="compact" served={served} />
     </div>
   )
 }
