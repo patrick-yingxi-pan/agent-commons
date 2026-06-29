@@ -124,6 +124,16 @@ test('the default agent (always present) commissions fine through the op', async
   assert.ok(store.listCommissions('p-insights').some((c) => c.agentId === DEFAULT_AGENT.id))
 })
 
+test('set-commission-cap (D13) op sets the Project cap through the shared gate', async () => {
+  // p-infra is a seed Project untouched by other tests here.
+  const res = await apply({ kind: 'set-commission-cap', projectId: 'p-infra', projectName: 'Infra', cap: 4 })
+  assert.equal(res.status, 200)
+  assert.equal(store.listProjects().find((p) => p.id === 'p-infra')?.commissionCap, 4, 'the cap is set via the same card')
+  // Re-applying the op changes the cap (the owner adjusting the ceiling).
+  await apply({ kind: 'set-commission-cap', projectId: 'p-infra', projectName: 'Infra', cap: 9 })
+  assert.equal(store.listProjects().find((p) => p.id === 'p-infra')?.commissionCap, 9)
+})
+
 test('handoff-agent (D16) re-binds the session’s driving Agent; an unknown agent 409s', async () => {
   const s = store.createSession('handoff target')
   const a = store.createAgent({ label: 'Handoff Scout', systemPrompt: 'p', tools: [], instructions: '' })

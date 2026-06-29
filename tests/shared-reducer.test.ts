@@ -380,3 +380,14 @@ test('handoff-agent (D16): a graph no-op the store applies; describeOp + opKey',
   assert.equal(d.relationId, 'session-agent')
   assert.equal(opKey(op), 'handoff-agent:s1:a7')
 })
+
+test('set-commission-cap (D13): a graph no-op the store applies; describeOp + opKey', () => {
+  const op: RelationOp = { kind: 'set-commission-cap', projectId: 'p-insights', projectName: 'Insights dashboard', cap: 3 }
+  // The pure reducer leaves the graph untouched — the cap is a Project mutation run server-side.
+  assert.deepEqual(applyGraphOp(emptyGraph(), op, mintIds()), emptyGraph())
+  const d = describeOp(op)
+  assert.match(d.text, /Set \*\*Insights dashboard\*\*'s commission cap to \*\*3\*\*/)
+  assert.equal(d.section, 'agents')
+  assert.equal(d.relationId, 'agent-commission-cap')
+  assert.equal(opKey(op), 'set-commission-cap:p-insights:3')
+})

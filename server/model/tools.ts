@@ -553,6 +553,27 @@ const TOOLS: ToolSpec[] = [
       }
     },
   },
+  {
+    name: 'set_commission_cap',
+    description:
+      "Set a Project's per-commissioner abuse cap (D13) — the maximum number of active Contributors (Commissions) it admits. Use when the user asks to cap, limit, or set a maximum number of commissions / contributors / agents on a project. The user confirms before it is set.",
+    properties: {
+      project: { type: 'string', description: 'The Project to cap, e.g. "Insights dashboard".' },
+      cap: { type: 'number', description: 'The maximum number of active commissions — a non-negative integer.' },
+    },
+    required: ['project', 'cap'],
+    build: (input) => {
+      const p = resolveProject(str(input.project))
+      const n = Number(input.cap)
+      if (!Number.isInteger(n) || n < 0) {
+        return { summary: `"${String(input.cap)}" is not a valid commission cap (a non-negative integer) — proposed nothing.` }
+      }
+      return {
+        relationOps: [{ kind: 'set-commission-cap', projectId: p.id, projectName: p.name, cap: n }],
+        summary: `Proposed capping ${p.name} at ${n} commission${n === 1 ? '' : 's'}; awaiting confirmation.`,
+      }
+    },
+  },
 ]
 
 const BY_NAME = new Map(TOOLS.map((t) => [t.name, t]))

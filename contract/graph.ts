@@ -179,6 +179,7 @@ export function applyGraphOp(
     case 'commission-agent':
     case 'uncommission-agent':
     case 'handoff-agent': // a Session↔Agent re-bind (D16), executed by the store, not a graph edit
+    case 'set-commission-cap': // a Project D13 cap set, executed by the store, not a graph edit
       return graph
     default: {
       const _exhaustive: never = op

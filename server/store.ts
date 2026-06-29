@@ -1505,6 +1505,9 @@ export const store = {
       case 'handoff-agent':
         this.setSessionAgent(op.sessionId, op.agentId) // D16: re-bind the Conversation's driver
         break
+      case 'set-commission-cap':
+        this.setCommissionCap(op.projectId, op.cap) // D13: the owner's abuse ceiling, via the same card
+        break
       case 'attach-context':
         break // a live-session effect, applied by the caller
       default:

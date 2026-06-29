@@ -202,7 +202,7 @@ credit and the owner-pays *abuse cap*.
   ([`src/components/SectionView.tsx:~971`](../src/components/SectionView.tsx)) and the Agent card;
   show a Project's `commissionCap` (used/limit) in the commissions view. **Verify live.**
 
-- [ ] **5.5 Conversational — manage the cap through the shared card.** A `set-commission-cap`
+- [x] **5.5 Conversational — manage the cap through the shared card.** A `set-commission-cap`
   `RelationOp` + a `set_commission_cap` model tool + intent, surfaced through the **same**
   `RelationActionCard` the other relation edits use (the "one gate, managed by hand *and*
   conversationally" rule). **Tests:** `model-tools` + `model-intents` + reducer/relations.

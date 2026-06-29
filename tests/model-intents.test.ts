@@ -21,7 +21,7 @@ test('every tour beat resolves to exactly the tool calls it scripts (fixed-strin
  *  concepts. They're shown via free-typed requests, not the linear narrative tour
  *  (which is the chat→workspace→repo→organize story), so they're excluded from the
  *  tour-completeness invariant and covered by the keyword tests below instead. */
-const COMMONS_TOOLS = ['create_provider', 'create_system_prompt', 'create_agent', 'commission_agent', 'uncommission_agent', 'handoff_agent']
+const COMMONS_TOOLS = ['create_provider', 'create_system_prompt', 'create_agent', 'commission_agent', 'uncommission_agent', 'handoff_agent', 'set_commission_cap']
 
 test('the tour exercises every relation/escalation tool (the Agent Commons CRUD tools are shown via free-typed requests)', () => {
   const used = new Set(TOUR_TURNS.flatMap((t) => t.calls.map((c) => c.name)))
@@ -86,6 +86,7 @@ test('every Agent Commons CRUD tool is exercised by a keyword pattern (none ship
       'Commission Scout to the Insights dashboard project',
       'Uncommission Scout from the Insights dashboard project',
       'Hand this conversation off to Scout',
+      'Set the commission cap on Insights dashboard to 3',
     ].flatMap((m) => matchIntents(m).map((c) => c.name)),
   )
   for (const t of COMMONS_TOOLS) assert.ok(exercised.has(t), `${t} is exercised by a keyword pattern`)
@@ -99,5 +100,19 @@ test('keyword fallback: a hand-off request (hand/switch/pass … to X) routes to
   assert.equal(matchIntents('Hand this conversation off to Research scout').at(0)?.name, 'handoff_agent')
   assert.equal(matchIntents('Switch to the Research scout agent').at(0)?.name, 'handoff_agent')
   // It does not collide with commission (different verb + a project target).
+  assert.equal(matchIntents('Commission Research scout to the Insights dashboard project').at(0)?.name, 'commission_agent')
+})
+
+test('keyword fallback: a commission-cap request (D13) routes to set_commission_cap without colliding with commission', () => {
+  // Noun-first phrasing.
+  const c1 = matchIntents('Set the commission cap on Insights dashboard to 3').at(0)
+  assert.equal(c1?.name, 'set_commission_cap')
+  assert.equal((c1?.input as any).project, 'Insights dashboard')
+  assert.equal((c1?.input as any).cap, 3)
+  // Noun-last phrasing.
+  const c2 = matchIntents('Cap Insights dashboard at 2 commissions').at(0)
+  assert.equal(c2?.name, 'set_commission_cap')
+  assert.equal((c2?.input as any).cap, 2)
+  // A bare commission (no count) still routes to commission_agent — the cap never steals it.
   assert.equal(matchIntents('Commission Research scout to the Insights dashboard project').at(0)?.name, 'commission_agent')
 })

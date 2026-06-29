@@ -16,8 +16,9 @@ test('TOOL_DEFINITIONS: every tool has a name, description, and object input_sch
     assert.equal(t.input_schema.type, 'object')
     assert.ok(Array.isArray(t.input_schema.required))
   }
-  // The 3 escalations + 12 relation-op kinds + 5 Agent Commons CRUD tools = 20 tools.
-  assert.equal(TOOL_NAMES.length, 21)
+  // The 3 escalations + 12 relation-op kinds + Agent Commons CRUD tools (incl.
+  // hand-off + the D13 commission-cap setter).
+  assert.equal(TOOL_NAMES.length, 22)
 })
 
 test('open_workspace builds a workspace escalation with drafted artifacts', () => {
@@ -185,4 +186,22 @@ test('handoff_agent → a handoff-agent op re-binding the session to the resolve
 test('handoff_agent with an unknown agent proposes nothing', () => {
   const e = executeTool('handoff_agent', { agent: 'Nobody' }, ctxCommons)
   assert.equal(e.relationOps, undefined)
+})
+
+test('set_commission_cap → a set-commission-cap op resolving the project (seed) + the integer cap (D13)', () => {
+  const e = executeTool('set_commission_cap', { project: 'Insights dashboard', cap: 3 }, ctxCommons)
+  const op = e.relationOps![0]
+  assert.equal(op.kind, 'set-commission-cap')
+  assert.equal((op as any).projectId, 'p-insights')
+  assert.equal((op as any).cap, 3)
+  assert.match(e.summary, /capping Insights dashboard at 3/i)
+})
+
+test('set_commission_cap accepts a numeric string but rejects a non-integer / negative cap', () => {
+  assert.equal((executeTool('set_commission_cap', { project: 'Insights dashboard', cap: '5' }, ctxCommons).relationOps![0] as any).cap, 5)
+  for (const bad of [-1, 2.5, 'lots']) {
+    const e = executeTool('set_commission_cap', { project: 'Insights dashboard', cap: bad }, ctxCommons)
+    assert.equal(e.relationOps, undefined, `cap ${bad} proposes nothing`)
+    assert.match(e.summary, /not a valid commission cap/i)
+  }
 })

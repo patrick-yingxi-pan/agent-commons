@@ -170,6 +170,8 @@ export type RelationOp =
   | { kind: 'uncommission-agent'; commissionId: string; agentLabel: string; projectId: string; projectName: string }
   // D16 — hand a Conversation off to a different worker Agent mid-thread (re-bind the driver).
   | { kind: 'handoff-agent'; sessionId: string; sessionTitle: string; agentId: string; agentLabel: string }
+  // D13 — set a Project's per-commissioner abuse cap (the max active Commissions it admits).
+  | { kind: 'set-commission-cap'; projectId: string; projectName: string; cap: number }
 
 /** A stable key per op — used to mark standing approvals and to track a card
  *  row's confirmed state. */
@@ -213,6 +215,8 @@ export function opKey(op: RelationOp): string {
       return `uncommission-agent:${op.commissionId}`
     case 'handoff-agent':
       return `handoff-agent:${op.sessionId}:${op.agentId}`
+    case 'set-commission-cap':
+      return `set-commission-cap:${op.projectId}:${op.cap}`
     default: {
       const _exhaustive: never = op
       return _exhaustive
@@ -433,6 +437,14 @@ export function describeOp(op: RelationOp): OpDescription {
         done: `Handed ${op.sessionTitle} to ${op.agentLabel}`,
         section: 'agents',
         relationId: 'session-agent',
+        approval: 'per-action',
+      }
+    case 'set-commission-cap':
+      return {
+        text: `Set **${op.projectName}**'s commission cap to **${op.cap}**`,
+        done: `Set ${op.projectName}'s commission cap to ${op.cap}`,
+        section: 'agents',
+        relationId: 'agent-commission-cap',
         approval: 'per-action',
       }
     default: {

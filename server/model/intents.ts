@@ -149,7 +149,16 @@ function matchKeywords(text: string): ToolCall[] {
   // Hand-off (D16) — distinct verbs (hand / switch / pass … to X) from commission, so the
   // two never collide; the agent label follows the (possibly lazy-skipped) "to".
   const handoffAgent = grab(/\b(?:hand|switch|pass)\b.*?\bto\s+(?:the\s+)?([A-Za-z0-9][A-Za-z0-9 -]*?)(?:\s+agent)?(?:[.,!]|$)/i)
-  if (uncommissionAgent && toProject) {
+  // Set a commission cap (D13) — anchored on commission/contributor vocabulary + a number,
+  // so it never collides with the bare commission/hand-off patterns (which carry no count).
+  // Two shapes: noun-first ("commission cap on Insights to 3") and noun-last ("cap Insights
+  // at 3 commissions").
+  const capMatch =
+    text.match(/\b(?:commission|contributor)\s+(?:cap|limit|max(?:imum)?)\s+(?:on|for)\s+(?:the\s+)?["“]?([A-Za-z0-9][A-Za-z0-9 -]*?)["”]?\s+(?:to|at|=)\s+(\d+)/i) ??
+    text.match(/\b(?:cap|limit|set)\s+(?:the\s+)?["“]?([A-Za-z0-9][A-Za-z0-9 -]*?)["”]?\s+(?:to|at)\s+(\d+)\s+(?:commission|contributor)/i)
+  if (capMatch) {
+    calls.push({ name: 'set_commission_cap', input: { project: capMatch[1].trim(), cap: Number(capMatch[2]) } })
+  } else if (uncommissionAgent && toProject) {
     calls.push({ name: 'uncommission_agent', input: { agent: uncommissionAgent, project: toProject } })
   } else if (commissionAgent && toProject) {
     calls.push({

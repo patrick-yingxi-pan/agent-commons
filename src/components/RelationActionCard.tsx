@@ -7,6 +7,7 @@ import {
   Cpu,
   FilePlus2,
   FolderInput,
+  Gauge,
   Link2,
   Plug,
   Repeat,
@@ -39,6 +40,7 @@ const RELATION_ICON: Record<string, LucideIcon> = {
   'agent-worker': Bot,
   'agent-commission': UserPlus,
   'session-agent': ArrowLeftRight, // D16 — hand a Conversation off to another Agent
+  'agent-commission-cap': Gauge, // D13 — set a Project's per-commissioner abuse cap
 }
 
 /** The inline confirmation prompt: Claude proposes one or more relation edits,

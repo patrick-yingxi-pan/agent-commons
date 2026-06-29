@@ -26,6 +26,11 @@ export function invalidateForCommonsOp(op: RelationOp): void {
       invalidate(keys.commissions(op.projectId))
       invalidate(keys.commissions())
       break
+    case 'set-commission-cap':
+      // The D13 cap lives on the Project; refresh the projects list so the cap badge
+      // updates live (a seeded Project; a created one rides the relations cache above).
+      invalidate(keys.projects)
+      break
     default:
       break
   }
