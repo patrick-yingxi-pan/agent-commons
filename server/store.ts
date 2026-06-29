@@ -66,7 +66,7 @@ import { ConflictError } from './conflict.ts'
 import { LimitError } from './limit.ts'
 import { scopeMatches } from './runner-runtime.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, clampAuthority, clampBudget } from '../contract/index.ts'
-import type { Agent, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelProvider, ProjectAction, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, ProxyRequest, ProxyResult, Reservation, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest } from '../contract/index.ts'
+import type { Agent, AuditEntry, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelProvider, ProjectAction, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, ProxyRequest, ProxyResult, Reservation, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
@@ -113,6 +113,12 @@ let scheduleSeq = 0
 // like the live runner registry, it rebuilds from seed on restart.
 const dispatch: DispatchRun[] = JSON.parse(JSON.stringify(DISPATCH_RUNS))
 let dispatchSeq = 0
+// The detective audit trail (docs/agent-commons.md, D15/OQ7) — an append-only log of
+// effects on the cross-user channels (proxy / Project effect / commissioned host invoke),
+// recorded whether fulfilled or denied. Persisted (additive) so the watch survives a
+// restart. Unbounded in the prototype (the demo volume is tiny); production would rotate it.
+const auditLog: AuditEntry[] = []
+let auditSeq = 0
 // Monotonic counters for server-minted session + message ids. The conversation is
 // now server-owned (a sent turn persists; a draft materializes into a real session
 // on first send), so the backend mints these — the client no longer fabricates them.
@@ -350,6 +356,7 @@ function snapshot(): PersistedState {
     commissionCaps: PROJECTS.filter((p) => p.commissionCap !== undefined).map(
       (p) => [p.id, p.commissionCap!] as [string, number],
     ),
+    auditLog, // D15/OQ7 — the cross-user effect trail (append-only)
     seq: {
       session: sessionSeq,
       message: messageSeq,
@@ -360,6 +367,7 @@ function snapshot(): PersistedState {
       systemPrompt: systemPromptSeq,
       agent: workerAgentSeq,
       commission: commissionSeq,
+      audit: auditSeq,
     },
   }
 }
@@ -417,6 +425,8 @@ function rehydrate(s: PersistedState): void {
       if (p) p.commissionCap = cap
     }
   }
+  // D15/OQ7 audit trail — restore the append-only log (empty for a pre-field snapshot).
+  auditLog.splice(0, auditLog.length, ...(s.auditLog ?? []))
   sessionSeq = s.seq.session
   messageSeq = s.seq.message
   scheduleSeq = s.seq.schedule
@@ -428,6 +438,9 @@ function rehydrate(s: PersistedState): void {
   systemPromptSeq = s.seq.systemPrompt ?? systemPromptSeq
   workerAgentSeq = s.seq.agent ?? workerAgentSeq
   commissionSeq = s.seq.commission ?? commissionSeq
+  // Restore the audit counter past the persisted ids (fall back to the trail length so a
+  // pre-field snapshot's freshly minted ids never collide with restored ones).
+  auditSeq = s.seq.audit ?? auditLog.length
 }
 
 /** Replace a registry Map's contents from a snapshot's entry array, in place. A
@@ -1253,6 +1266,18 @@ export const store = {
    *  *different* principal on the same sub-goal is refused (`GuardianError` 'conflict').
    *  The connector/MCP reach (D12) is checked by the route before this runs. Mock
    *  fulfilment; the seam is real. */
+  /** Append an entry to the detective audit trail (docs/agent-commons.md, D15/OQ7) — the
+   *  server-side watch over cross-user effects. The store mints the id + stamps `at` (its
+   *  own clock), so callers pass only the effect facts. Best-effort backstop, never a gate:
+   *  it records, it never refuses. Persisted. */
+  recordAudit(entry: Omit<AuditEntry, 'id' | 'at'>): void {
+    auditLog.push({ ...entry, id: `audit-${(auditSeq += 1)}`, at: Date.now() })
+    persist()
+  },
+  /** The audit trail, newest first — the Audit surface's read. */
+  listAuditLog(): AuditEntry[] {
+    return [...auditLog].reverse()
+  },
   /** Credit a successful **commissioned Project effect** to its Contributor's reputation
    *  (docs/agent-commons.md, D13 / OQ1) — the GitHub-style worker track record. Monotonic:
    *  it only ever increments, and only on success (a thrown guardian conflict never reaches
@@ -1280,6 +1305,8 @@ export const store = {
       // Reach here only on a successful effect (the guarded path throws on conflict before
       // calling `fulfil`), so this is the single credit point for the D13 track record.
       this.recordContribution(commissionId)
+      // Detective audit (D15/OQ7): the fulfilled Project effect on the cross-user channel.
+      this.recordAudit({ channel: 'project-effect', commissionId, capability: type, target, outcome: 'fulfilled' })
       return {
         projectId,
         commissionId,
@@ -1305,8 +1332,12 @@ export const store = {
     const reaches = req.capability.startsWith('connector.') || req.capability.startsWith('mcp.')
     const auth = to.authority ?? resolveProvider(to.providerId).authority ?? {}
     if (reaches && !authorityAdmits(auth, 'connectors', req.target)) {
+      // Detective audit (D15): record the refused proxy too — a denied attempt is exactly
+      // what a watcher wants to see (the actor is B, who declined under its own authority).
+      this.recordAudit({ channel: 'proxy', actorAgentId: to.id, capability: req.capability, target: req.target, outcome: 'denied' })
       return { status: 'denied', actedBy: to.id, reason: `${to.label} may not reach '${req.target}'` }
     }
+    this.recordAudit({ channel: 'proxy', actorAgentId: to.id, capability: req.capability, target: req.target, outcome: 'fulfilled' })
     return { status: 'fulfilled', actedBy: to.id, output: `${to.label} performed ${req.capability} on '${req.target}'` }
   },
   /** The sub-goals currently in flight on a Project — one entry per active Contributor

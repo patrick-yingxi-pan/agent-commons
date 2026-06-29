@@ -159,6 +159,9 @@ export function buildRouter(): Router {
       request.commissionId &&
       !store.commissionAdmitsTarget(request.commissionId, request.capability, request.target)
     ) {
+      // Detective audit (D15/OQ7): the D12 isolation wall turned this commissioned effect
+      // away — the highest-value entry in the trail (a Contributor reaching past its Project).
+      store.recordAudit({ channel: 'host-invoke', commissionId: request.commissionId, capability: request.capability, target: request.target, outcome: 'denied' })
       return sendError(
         res,
         'forbidden',
@@ -172,6 +175,7 @@ export function buildRouter(): Router {
       !isMonotonic(request.capability) &&
       !store.commissionRolePermits(request.commissionId, 'fire')
     ) {
+      store.recordAudit({ channel: 'host-invoke', commissionId: request.commissionId, capability: request.capability, target: request.target, outcome: 'denied' })
       return sendError(res, 'forbidden', `Commission '${request.commissionId}' (role) may not fire this effect`)
     }
     // Resource guardian (D5): a non-monotonic effect must hold a reservation on the
@@ -206,9 +210,12 @@ export function buildRouter(): Router {
       })
       store.journal.reconcile(runner.id) // relay path: project synchronously
       if (reservation) store.guardian.commit(reservation.id)
-      // D13 reputation: a successful *commissioned* host effect credits the Contributor's
-      // track record (a no-op for the legacy single-tenant path with no commissionId).
-      if (request.commissionId) store.recordContribution(request.commissionId)
+      // D13 reputation + D15 audit: a successful *commissioned* host effect credits the
+      // Contributor and lands in the detective trail (both no-ops for the legacy path).
+      if (request.commissionId) {
+        store.recordContribution(request.commissionId)
+        store.recordAudit({ channel: 'host-invoke', commissionId: request.commissionId, capability: request.capability, target: request.target, outcome: 'fulfilled' })
+      }
       sendJson(res, effect)
     } catch (err) {
       // The effect failed — free the lock only if this invoke is what acquired it.
@@ -524,10 +531,13 @@ export function buildRouter(): Router {
     }
     const reaches = type.startsWith('connector.') || type.startsWith('mcp.')
     if (reaches && !store.commissionCanReach(commissionId, 'connectors', target)) {
+      // Detective audit (D15/OQ7): the D12 connector wall refused this Project effect.
+      store.recordAudit({ channel: 'project-effect', commissionId, capability: type, target, outcome: 'denied' })
       return sendError(res, 'forbidden', `Commission '${commissionId}' may not reach '${target}' on this Project`)
     }
     // D14 role permission: a non-monotonic Project effect requires the role to permit 'fire'.
     if (!isProjectEffectMonotonic(type) && !store.commissionRolePermits(commissionId, 'fire')) {
+      store.recordAudit({ channel: 'project-effect', commissionId, capability: type, target, outcome: 'denied' })
       return sendError(res, 'forbidden', `Commission '${commissionId}' (role) may not fire this effect`)
     }
     try {

@@ -17,6 +17,7 @@ import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from '
 import { join, dirname } from 'node:path'
 import type {
   Agent,
+  AuditEntry,
   Commission,
   ModelProvider,
   RecentsSnapshot,
@@ -75,6 +76,9 @@ export interface PersistedState {
    *  written before the field loads cleanly (no caps); only Projects with a cap set
    *  appear. Keeps a conversationally-set cap (the shared confirm card) across a restart. */
   commissionCaps?: [string, number][]
+  /** The detective audit trail (D15/OQ7). Optional so a pre-field snapshot loads cleanly
+   *  (an empty trail); append-only, so the watch survives a restart. */
+  auditLog?: AuditEntry[]
   seq: {
     session: number
     message: number
@@ -85,6 +89,8 @@ export interface PersistedState {
     systemPrompt: number
     agent: number
     commission: number
+    /** Optional so a pre-field snapshot loads (rehydrate falls back to the seed counter). */
+    audit?: number
   }
 }
 

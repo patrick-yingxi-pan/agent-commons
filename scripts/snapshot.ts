@@ -222,10 +222,13 @@ export async function buildComprehensive(): Promise<PersistedState> {
     systemPromptId: prompt.id,
     instructions: 'Prefer primary sources.',
   })
-  store.createCommission({ agentId: playgroundAgent.id, projectId: 'p-insights' })
+  const playgroundCommission = store.createCommission({ agentId: playgroundAgent.id, projectId: 'p-insights' })
   // A D13 per-commissioner abuse cap on the (seed) insights project — generous enough not
   // to block, exercising the commissionCaps persisted overlay ("every slice covered").
   store.setCommissionCap('p-insights', 8)
+  // Run a Project effect so the D15/OQ7 detective audit trail has an entry (and the
+  // Contributor earns a D13 contribution) — exercises the auditLog persisted slice.
+  store.runProjectEffect('p-insights', playgroundCommission.id, 'playground-sub', 'connector.read', 'Linear')
 
   // ── Schedules ── a created routine, linked to the project, carrying all three
   // standing approvals, then RUN once (awaited) so it delivers its standing

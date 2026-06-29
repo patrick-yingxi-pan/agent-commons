@@ -217,7 +217,7 @@ cross-user channels, best-effort backstop to the attenuation wall, not a guarant
   builder/`summarizeAudit`. Not a `*Request` ⇒ no contract-boundaries coupling. **Tests:** the
   builder shape; the channel union.
 
-- [ ] **6.2 Store — append-only log at the three channels.** An `auditLog: AuditEntry[]` slice +
+- [x] **6.2 Store — append-only log at the three channels.** An `auditLog: AuditEntry[]` slice +
   `store.recordAudit(entry)` appended on every `runAgentProxy`, `runProjectEffect`, and
   commissioned host invoke. Persist **additively** — optional `auditLog?` on `PersistedState`,
   **no `STORE_VERSION` bump** (old snapshots load `?? []`; a bump would discard live data).
