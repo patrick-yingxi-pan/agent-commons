@@ -36,11 +36,14 @@
 > **multi-principal coordination** (10 — D11, sub-goal reservation at the Guardian:
 > different sub-goals concurrent, the same conflicts first-come). The design dialogue then
 > settled the open questions too — D14–D16 plus the residue (consent, taint, prompt-fit,
-> monotonicity, economics, all resolved below) — and the one piece of unbuilt mechanism it
-> surfaced is now **built**: effect-time D12 enforcement (`commissionId` on
-> `CapabilityRequest`), the OQ4 Project-effect classifier + a guarded effect path, and the D14
-> **role** system end to end (`agent-commons-impl-plan.md`, Phases 1–3). The prototype now
-> exercises a working slice of every D6–D13 decision rather than the
+> monotonicity, economics, all resolved below) — and **every open question that resolves to a
+> mechanism is now built**: effect-time D12 enforcement (`commissionId`), the OQ4 classifier + a
+> guarded effect path, and the D14 **role** system (Phases 1–3); the D6 rename, D8 closed end to
+> end, D16 hand-off + provenance, and the D15 proxy (Phase 4); and the open-question residue itself
+> — **D13 economics** (reputation + the per-commissioner abuse cap), the **D15/OQ7 detective
+> audit**, and the opt-in **D10/OQ5 prompt-fit probe** (Phases 5–7, `agent-commons-impl-plan.md`).
+> The only forward residue is OQ6's adversarial multi-principal consent — a watch-item, not a
+> mechanism. The prototype now exercises a working slice of every D6–D16 decision rather than the
 > degenerate N=1 case.
 >
 > **This doc renames the broker doc's "native agent" to "Runner"** (decision D6).
@@ -854,12 +857,17 @@ right way:
 
 > Numbers are kept stable (other sections cite them); resolved items are marked, not deleted.
 
-1. ~~**The incentive.**~~ **Resolved → D13.** The incentive is *intrinsic* — people
-   contribute because a Project is interesting / fun / worth building, as on GitHub; the
-   Commons runs on the same intrinsic motivation as open source. **Sub-questions settled:**
-   reputation accrues to **both the Agent and its owner, linked** (a worker track record *and*
-   the accountable human, GitHub-style); artifacts produced by donated compute are **owned by
-   the Project** (committing an Agent *donates* the output).
+1. ~~**The incentive.**~~ **Resolved → D13; the mechanism is now Built.** The incentive is
+   *intrinsic* — people contribute because a Project is interesting / fun / worth building, as on
+   GitHub; the Commons runs on the same intrinsic motivation as open source. **Sub-questions
+   settled + built:** reputation accrues to **both the Agent and its owner, linked**
+   (`Agent.contributions` + the pure `ownerReputation` aggregate, credited on every successful
+   commissioned effect, surfaced on the Agent card + Contributor row — `agent-commons-impl-plan.md`
+   Phase 5); artifacts produced by donated compute are **owned by the Project** (already structural
+   via `ArtifactItem.projectId`). The owner-pays **abuse surface** D13 named is now a real
+   fail-closed wall: a **per-commissioner commission cap** (`Project.commissionCap`, refused at the
+   `createCommission` funnel → `limit_exceeded`), set by hand or **conversationally through the same
+   confirm card** (`set-commission-cap`).
 2. ~~**Where the worker `Agent` type lives** + the binding lifecycle.~~ **Resolved.** The
    type lives in `contract/workers.ts` (slice 2); the binding is **hand-off-able by consent
    → D16** (per-turn provenance), not one Agent per Conversation for life.
@@ -874,22 +882,29 @@ right way:
    MCP / charge effects; a non-monotonic Project effect now serializes on its sub-goal
    reservation through the guarded `POST /projects/:id/effects` path, while monotonic effects
    stay coordination-free (CALM). (`agent-commons-impl-plan.md` Phase 2.)
-5. ~~**Prompt-fit probing.**~~ **Resolved.** Accounting is **settled per-provider** (D9 — no
-   normalized denominator); and the D10 **static target-family tag stays the fit signal** — no
-   eval probe by default (it would cost a model call + eval infra at selection). A selection-time
-   conformance probe remains an *optional later upgrade*, not the default.
+5. ~~**Prompt-fit probing.**~~ **Resolved; the opt-in probe is now Built.** Accounting is
+   **settled per-provider** (D9 — no normalized denominator); and the D10 **static target-family
+   tag stays the always-on default** fit signal (`promptFitWarning`, unchanged). The selection-time
+   conformance probe — the *optional later upgrade* — is now built **as an explicit opt-in beside
+   the tag**: `POST /system-prompts/:id/probe` returns a scored verdict + a per-aspect gradient
+   (tool-use fidelity degrades first on a mismatch — the signal the binary tag can't express), run
+   on demand from a "Run fit probe" button (`agent-commons-impl-plan.md` Phase 7). Mock fulfilment
+   (a deterministic score); a real probe runs a model tool-use conformance check at the same seam.
 6. ~~**Multi-principal consent.**~~ **Resolved.** Access to a *private* resource is consented
    on its **owner's** side (D15). For an irreversible effect on a **shared** Project, the
    **acting Contributor self-confirms** — the project owner's consent is expressed up-front by
    the **role grant** (D14), the way a standing approval is approved once then runs unprompted,
    not as a per-effect veto. (Whether that holds under adversarial multi-principal load stays the
    live test of D7's nesting bet — settled in design, watched in practice.)
-7. ~~**Cross-user credential mechanism + taint audit.**~~ **Resolved.** The credential
-   mechanism is **agent-to-agent** (D15 — no secret crosses the boundary). The taint half is
-   settled **detective-audit-only**: attenuation (D12) + the proxy (D15) are the preventive
-   wall, and the server-side audit stays a best-effort backstop — **no provenance taint engine**
-   (it is strictly harder than the single-tenant audit; the prototype stays honest that audit is
-   backstop, not wall).
+7. ~~**Cross-user credential mechanism + taint audit.**~~ **Resolved; the audit is now Built.**
+   The credential mechanism is **agent-to-agent** (D15 — no secret crosses the boundary). The taint
+   half is settled **detective-audit-only**: attenuation (D12) + the proxy (D15) are the preventive
+   wall, and the server-side audit is a best-effort backstop — **no provenance taint engine**. That
+   backstop is now built: an append-only `AuditEntry` trail records every cross-user effect on all
+   three channels (proxy / Project effect / commissioned host invoke), **fulfilled *or* denied** (it
+   watches attempts), read at `GET /audit` and surfaced as a read-only **Audit** tab in the Agents
+   hub, refreshed live on an `audit.entry` event (`agent-commons-impl-plan.md` Phase 6). The hub
+   states the honest framing in situ: a detective backstop, **not the wall** — attenuation is.
 8. ~~**Multi-principal arbitration policy.**~~ **Resolved → D14.** Role-ranked **acquisition
    priority**: the higher role wins a free or simultaneously-contested lease (owner-priority),
    **first-come among equals** (D11's default), and **no preemption** of an in-flight,
@@ -1134,8 +1149,17 @@ session↔context binding, mediation handle, and single-resource escrow).
   editor, **D8 closed end to end** (mint + spend-time enforcement + parent-shrink propagation),
   **D16** (per-turn provenance + mid-thread hand-off through the confirmation card), and **D15**
   (the agent-to-agent proxy — `accessChannel` + `POST /agents/:id/proxy`, where B's Agent acts
-  under its own authority and no credential crosses back). See
-  [`agent-commons-impl-plan.md`](agent-commons-impl-plan.md) for the full decomposition — every
-  planned design (D6–D16, OQ3/OQ4) is now built. The residue that remains is the genuinely
-  forward *design* questions (the incentive's soft sub-parts, the prompt-fit eval probe, the
-  cross-user taint audit, multi-principal consent on a shared effect), not unbuilt mechanism.
+  under its own authority and no credential crosses back). **Phases 5–7 then moved the open-question
+  residue from design into mechanism:** **D13 economics** (Agent + linked-owner *reputation*,
+  credited on every commissioned effect; the per-commissioner *abuse cap* enforced fail-closed at
+  the commission funnel and managed conversationally through the shared confirm card), the
+  **D15/OQ7 detective audit** (an append-only cross-user effect trail — fulfilled *and* denied —
+  read at `GET /audit` and surfaced as the hub's **Audit** tab, live on `audit.entry`), and the
+  opt-in **D10/OQ5 prompt-fit probe** (`POST /system-prompts/:id/probe`: a scored verdict + a
+  per-aspect gradient beside the always-on static tag). See
+  [`agent-commons-impl-plan.md`](agent-commons-impl-plan.md) for the full decomposition — **every
+  open question that resolves to a mechanism is now built** (D6–D16, OQ1/OQ3/OQ4/OQ5/OQ7). The
+  only residue that remains is genuinely *forward design*, not mechanism: **OQ6's adversarial
+  multi-principal consent** — actor-self-confirm + role-grant-as-up-front-consent is built (D14),
+  but whether it holds under adversarial multi-principal load is settled in design and *watched in
+  practice*, not a thing to build.

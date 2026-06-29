@@ -1,11 +1,14 @@
 # Agent Commons — implementation plan (effect-time enforcement + roles)
 
-> **Status: Phases 1–4 COMPLETE ✅ · Phases 5–7 IN PROGRESS** (Phases 1–4: typecheck + 401
-> tests + build green, each step `/code-review`'d). Phases 1–4 built every planned *mechanism*
-> from `agent-commons.md` (D6–D16, OQ3/OQ4). **Phases 5–7** move the remaining open-question
+> **Status: ALL PHASES COMPLETE ✅** (Phases 1–7; typecheck + 425 tests + build green, each
+> step `/code-review`'d + UI steps verified live). Phases 1–4 built every planned *mechanism*
+> from `agent-commons.md` (D6–D16, OQ3/OQ4); **Phases 5–7** moved the remaining open-question
 > *design residue* into implementation (greenlit "all three"): **D13 economics** (reputation +
-> the per-commissioner abuse cap), the **D15/OQ7 detective audit**, and the opt-in **D10/OQ5
-> prompt-fit probe**.
+> the per-commissioner abuse cap, managed conversationally through the shared card), the
+> **D15/OQ7 detective audit** (an append-only cross-user effect trail + the Audit hub tab), and
+> the opt-in **D10/OQ5 prompt-fit probe** (a scored conformance upgrade beside the static tag).
+> Every open question that resolves to a *mechanism* is now built; the only genuinely-forward
+> residue is OQ6's adversarial multi-principal consent — a watch-item, not a mechanism.
 >
 > Derived from the settled design ([`agent-commons.md`](agent-commons.md), D6–D16, Open
 > Questions). This is the **plan-of-record** *and* the loop's checklist: each iteration does the
