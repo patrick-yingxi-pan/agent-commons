@@ -309,8 +309,10 @@ export default function App() {
                   {/* Below a wide window the panel overlays the thread as a drawer (FWD-3):
                       a scrim dims + dismisses the conversation behind it, and the panel
                       group is positioned absolutely so it doesn't squeeze the thread. On a
-                      wide window the wrapper is `contents`, leaving the panels as in-flow
-                      flex siblings (the original side-by-side layout). */}
+                      wide window the wrapper is a layout-neutral `flex shrink-0` group,
+                      keeping the panels as in-flow flex siblings of the thread (the original
+                      side-by-side layout) — each PanelShell is already `shrink-0` with its
+                      own width, so the extra wrapper changes nothing visually. */}
                   {panelOverlay && panelOpen && (
                     <div
                       className="absolute inset-0 z-20 bg-black/30"
