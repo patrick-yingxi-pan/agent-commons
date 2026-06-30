@@ -19,6 +19,22 @@ import { chunkText } from './model/replies.ts'
  *  their own model id (server-only config), passed in as `generateReply`'s `model`. */
 const MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-8'
 
+/** SDK transient-error retries (network blips / 429 / 5xx) — fail fast by default to
+ *  reach the graceful fallback. Override with `ANTHROPIC_MAX_RETRIES`. */
+const MODEL_MAX_RETRIES = Number(process.env.ANTHROPIC_MAX_RETRIES ?? 1)
+
+/** Combine the caller's abort (the client closed the connection) with a per-call
+ *  wall-clock timeout, so a stalled/hung model call can't wedge the turn — on expiry
+ *  the stream aborts and the turn degrades to the local fallback. The timeout trips the
+ *  combined signal but NOT the caller's, so the catch distinguishes them (timeout →
+ *  fallback, client-close → rethrow). `MODEL_TIMEOUT_MS` is read per call so it's
+ *  configurable at runtime (and in tests). */
+function withDeadline(signal?: AbortSignal): AbortSignal {
+  const timeoutMs = Number(process.env.MODEL_TIMEOUT_MS ?? 60_000)
+  const deadline = AbortSignal.timeout(timeoutMs)
+  return signal ? AbortSignal.any([signal, deadline]) : deadline
+}
+
 /** One door to the model — built lazily from the env so the endpoint can be set
  *  at runtime (the dev boot, or a test pointing at its own mock instance), and
  *  memoized per base URL. Points at the mock model server by default; set
@@ -32,7 +48,7 @@ function client(): Anthropic {
       client: new Anthropic({
         baseURL: base,
         apiKey: process.env.ANTHROPIC_API_KEY ?? 'mock-no-key-needed',
-        maxRetries: 1, // fail fast to the graceful fallback if the endpoint is down
+        maxRetries: MODEL_MAX_RETRIES, // fail fast to the graceful fallback if the endpoint is down
       }),
     }
   }
@@ -121,7 +137,7 @@ export async function generateReply(
     // ── Turn 1: the model may answer with tool calls ─────────────────────────
     const stream1 = client().messages.stream(
       { model, max_tokens: 1024, system, tools, messages: [{ role: 'user', content: userContent }] },
-      { signal },
+      { signal: withDeadline(signal) },
     )
     stream1.on('streamEvent', (event) => {
       if (event.type === 'message_start') onStartOnce(event.message.id)
@@ -162,7 +178,7 @@ export async function generateReply(
           { role: 'user', content: toolResults },
         ],
       },
-      { signal },
+      { signal: withDeadline(signal) },
     )
     stream2.on('text', (delta) => {
       fullText += delta
