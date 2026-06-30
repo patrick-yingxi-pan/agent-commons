@@ -55,18 +55,20 @@ it.
 | 6 | F6 | **Ops endpoints.** `GET /healthz` (liveness + epoch) and `GET /readyz` (readiness via a cheap store probe → 503 to drain on failure) for the autoscaled web tier behind a load balancer. Locked by `tests/ops.test.ts`. | ✅ built |
 | 5 | F3 | **Per-tenant rate limiting.** `server/ratelimit.ts` — a fixed-window `RateLimiter` (injectable clock) keyed by tenant (identity F2). Wired as a **router middleware** (new `Router.use()` hook) that bounds mutations per tenant per minute, replying 429 `limit_exceeded` + `Retry-After`. Opt-in via `RATE_LIMIT_PER_MIN` (read per request ⇒ off by default, suite unaffected); GETs never limited. Locked by `tests/ratelimit.test.ts` (limiter window/reset/per-key units; router off-by-default, 429+Retry-After when configured, GET-exempt). Also fixed the HTTP test helper to emit the request body on `end`-listener registration (robust to pre-handler `await`s like middleware). | ✅ built |
 | 4 | F3 PD14 | **Cursor pagination (keyed).** `contract` `Page<T>` + `server/pagination.ts` — a reusable pager whose cursor anchors to an item id (stable under appends: no skip/dupe across pages, unlike offset). Opt-in via `?limit[&cursor]`; without `limit` the full array is returned (the UI reads the array until it virtualizes, P1 PD36). Applied through one shared `sendList` helper to `GET /sessions`, `/audit`, `/dispatch`, `/artifacts` (form-follows-function — every paginated list reads/validates identically). Locked by `tests/pagination.test.ts` (pager walk + the keyed-stability-under-prepend property + lenient/empty/invalid cases; route back-compat, page-walk reassembly, invalid-limit 400, across all four endpoints). | ✅ built |
+| 9 | P5 | **Model round-trip timeout → graceful fallback.** `server/generate.ts` combines the caller's abort with a per-call `MODEL_TIMEOUT_MS` deadline (`AbortSignal.any`/`.timeout`), so a hung/slow endpoint can't wedge the turn — on expiry the stream aborts and the turn degrades to the local fallback (the timeout trips the combined signal, not the caller's, so it's distinguished from a client close). SDK retries configurable via `ANTHROPIC_MAX_RETRIES`. Locked by `tests/generate-timeout.test.ts` (points the SDK at a never-responding server, short timeout, asserts the fallback). | ✅ built |
+| 10 | F3 | **Conditional GET / ETag.** `server/http/respond.ts` `weakETag` + `sendJsonCached` — a weak validator (dependency-free FNV-1a) on cacheable reads; a matching `If-None-Match` returns 304 (empty body). Applied to `GET /capabilities` (stable per process) and `/relations` (changes only on a confirmed op). Locked by `tests/conditional-get.test.ts`. | ✅ built |
+| 11 | F5 / F2 PD9 | **Tenant-scoped audit trail.** `AuditEntry.tenantId` (contract); `recordAudit` stamps it (default = the local/personal tenant); `listAuditLog(tenantId)` filters; `GET /audit` scopes to `store.identity(...).tenant.id` — the RLS-equivalent boundary on the first entity (a tenant sees only its own trail). Locked by `tests/audit-tenant.test.ts`. | ✅ built |
+| 12 | F6 PD31 | **`/metrics` endpoint.** A counter middleware + `GET /metrics` in Prometheus text exposition: per-method request counts, process uptime, the store epoch as an info label (`sendText` helper). Rounds out the ops trio (healthz/readyz/metrics). Locked by `tests/metrics.test.ts`. | ✅ built |
 
 ### Up next (candidate order, not yet built)
 
-- **Identity & tenancy — slice 2** (F2) — entities become **tenant-scoped** at the
-  store layer (the RLS-equivalent boundary, PD9): a `tenantId` on rows + scoping
-  reads/writes, desktop being the N=1 case.
+- **Identity & tenancy — slice 2** (F2) — extend the tenant-scoping pattern (now
+  proven on the audit trail, step 11) to the rest of the entities at the store layer
+  (the RLS-equivalent boundary, PD9): a `tenantId` on rows + scoped reads/writes,
+  desktop being the N=1 case.
 - **UI consumes `/v1/me`** (F2 / P1 §4) — surface the account/tenant. *Deferred:
-  needs a placement/design decision (no account chip exists today) — flag for the owner
-  rather than invent UI autonomously.*
-- **UI consumes `/v1/me`** (F2 / P1 §4) — *deferred: needs a placement/design
-  decision (no account chip exists today) — flagged for the owner.*
-- **Identity & tenancy — slice 2** (F2) — tenant-scope entities at the store layer.
+  needs a placement/design decision (no account chip exists today) — flagged for the
+  owner rather than invent UI autonomously.*
 
 > Keep this table append-only and honest: a row is `✅ built` only when its locking
 > test passes. Partial work stays `🚧` with a note on what's missing.

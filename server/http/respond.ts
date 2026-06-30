@@ -40,6 +40,47 @@ export function sendBytes(res: ServerResponse, bytes: Uint8Array, contentType: s
   res.end(bytes as unknown as string)
 }
 
+/** A weak ETag validator derived from the serialized body — a fast,
+ *  non-cryptographic FNV-1a hash plus the byte length. Weak (`W/`) is the right
+ *  semantics: it validates the JSON *encoding* of a resource, not byte-for-byte
+ *  octet equality. Dependency-free (no `node:crypto`), good enough for cache revalidation. */
+export function weakETag(payload: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < payload.length; i++) {
+    h ^= payload.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return `W/"${(h >>> 0).toString(16)}-${payload.length.toString(16)}"`
+}
+
+/** Send JSON with an `ETag`, honouring `If-None-Match`: a matching validator returns
+ *  304 (empty body) so an unchanged resource isn't re-sent. For cacheable reads whose
+ *  body is stable within a process (`/capabilities`) or changes only on edits
+ *  (`/relations`). The correlation-id header (set earlier via `setHeader`) survives the
+ *  `writeHead` below, so a 304 is still traceable. */
+export function sendJsonCached(ctx: Ctx, body: unknown, status = 200): void {
+  const payload = JSON.stringify(body)
+  const etag = weakETag(payload)
+  if (headerValue(ctx.req.headers, 'if-none-match') === etag) {
+    ctx.res.writeHead(304, { ...CORS_HEADERS, ETag: etag })
+    ctx.res.end()
+    return
+  }
+  ctx.res.writeHead(status, {
+    ...CORS_HEADERS,
+    'Content-Type': 'application/json; charset=utf-8',
+    ETag: etag,
+  })
+  ctx.res.end(payload)
+}
+
+/** Send a plain-text body — for the Prometheus `/metrics` scrape (text exposition
+ *  format), which isn't JSON. */
+export function sendText(res: ServerResponse, text: string, contentType = 'text/plain; charset=utf-8'): void {
+  res.writeHead(200, { ...CORS_HEADERS, 'Content-Type': contentType })
+  res.end(text)
+}
+
 const STATUS_FOR: Record<ApiErrorCode, number> = {
   bad_request: 400,
   not_found: 404,
@@ -59,10 +100,10 @@ export function sendError(res: ServerResponse, code: ApiErrorCode, message: stri
  *  may deliver a repeated header as an array; this normalizes both to one string
  *  (or undefined). Shared by the idempotency + identity seams. */
 export function headerValue(
-  headers: Record<string, string | string[] | undefined>,
+  headers: Record<string, string | string[] | undefined> | undefined,
   name: string,
 ): string | undefined {
-  const v = headers[name.toLowerCase()]
+  const v = headers?.[name.toLowerCase()]
   return Array.isArray(v) ? v[0] : v
 }
 

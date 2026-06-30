@@ -22,7 +22,7 @@ import type {
   UpdateScheduleRequest,
 } from '../../contract/index.ts'
 import { Router } from '../http/router.ts'
-import { sendJson, sendError, sendBytes, headerValue, type Ctx } from '../http/respond.ts'
+import { sendJson, sendError, sendBytes, sendJsonCached, sendText, headerValue, type Ctx } from '../http/respond.ts'
 import { openSse } from '../http/sse.ts'
 import { store } from '../store.ts'
 import { IdempotencyCache, captureResponse, replayResponse } from '../idempotency.ts'
@@ -68,6 +68,19 @@ export function buildRouter(): Router {
   let requestSeq = 0
   r.use((ctx) => {
     ctx.res.setHeader('X-Request-Id', `req-${store.epoch}-${++requestSeq}`)
+    return true
+  })
+
+  // ── Request metrics (design F6 PD31 — observability) ────────────────────────
+  // A per-method counter over matched routes, exposed at `/metrics` in Prometheus
+  // text format alongside process uptime/epoch. Counted in middleware (the method is
+  // known pre-handler); router-boundary 404s aren't matched, so — like the correlation
+  // id — a production deployment would meter at the edge for full coverage.
+  const startedAt = Date.now()
+  const requestsByMethod = new Map<string, number>()
+  r.use((ctx) => {
+    const m = ctx.req.method ?? 'UNKNOWN'
+    requestsByMethod.set(m, (requestsByMethod.get(m) ?? 0) + 1)
     return true
   })
 
@@ -126,8 +139,8 @@ export function buildRouter(): Router {
   // What this backend variant can do. The default mock behaves like a native
   // sidecar (local-* true); `BACKEND=remote` makes it a remote web server
   // (local-* false). The UI adapts off these flags, never off env-sniffing.
-  r.get('/capabilities', ({ res }) => {
-    sendJson(res, store.capabilities())
+  r.get('/capabilities', (ctx) => {
+    sendJsonCached(ctx, store.capabilities())
   })
 
   // ── Identity (who's talking + which tenant — design F2) ─────────────────────
@@ -152,6 +165,23 @@ export function buildRouter(): Router {
     } catch {
       sendJson(res, { status: 'not_ready' }, 503)
     }
+  })
+  // `/metrics` — Prometheus text exposition (F6 PD31). Per-method request counts +
+  // process uptime + the store epoch (as an info label). A real deployment adds
+  // status-class + latency histograms metered at the edge.
+  r.get('/metrics', ({ res }) => {
+    const lines = [
+      '# HELP http_requests_total Matched-route requests by method.',
+      '# TYPE http_requests_total counter',
+      ...[...requestsByMethod].map(([m, n]) => `http_requests_total{method="${m}"} ${n}`),
+      '# HELP process_uptime_seconds Seconds since this router started.',
+      '# TYPE process_uptime_seconds gauge',
+      `process_uptime_seconds ${((Date.now() - startedAt) / 1000).toFixed(3)}`,
+      '# HELP store_epoch_info The store epoch (changes on reseed); always 1.',
+      '# TYPE store_epoch_info gauge',
+      `store_epoch_info{epoch="${store.epoch}"} 1`,
+    ]
+    sendText(res, lines.join('\n') + '\n')
   })
 
   // ── Native-runner registry ─────────────────────────────────────────────────
@@ -408,10 +438,12 @@ export function buildRouter(): Router {
   r.get('/agents', ({ res }) => {
     sendJson(res, store.listAgents())
   })
-  // The detective audit trail (D15/OQ7) — newest first; the Audit hub's read. The
-  // append-only log grows unbounded, so it takes opt-in cursor pagination too (F3 PD14).
-  r.get('/audit', ({ res, url }) => {
-    sendList(res, url, store.listAuditLog(), (e) => e.id)
+  // The detective audit trail (D15/OQ7) — newest first; the Audit hub's read. Scoped
+  // to the caller's tenant (F2/F5 — the RLS-equivalent boundary, PD9): a tenant only
+  // ever sees its own trail. The append-only log grows unbounded, so it takes opt-in
+  // cursor pagination too (F3 PD14).
+  r.get('/audit', ({ req, res, url }) => {
+    sendList(res, url, store.listAuditLog(store.identity(req.headers).tenant.id), (e) => e.id)
   })
   r.get('/agents/:id', ({ res, params }) => {
     // Like providers: `listAgents().find`, not `getAgent` (which falls back to the
@@ -1057,8 +1089,10 @@ export function buildRouter(): Router {
   r.get('/runs/recent', ({ res }) => {
     sendJson(res, store.recentRuns())
   })
-  r.get('/relations', ({ res }) => {
-    sendJson(res, store.relationGraph())
+  // ETag/If-None-Match (F3): the graph changes only on a confirmed op, so a 304 saves
+  // re-sending it on the client's frequent re-reads.
+  r.get('/relations', (ctx) => {
+    sendJsonCached(ctx, store.relationGraph())
   })
 
   // ── Recents (per-user shortcut lists) ──────────────────────────────────────

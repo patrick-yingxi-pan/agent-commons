@@ -60,7 +60,7 @@ import { join } from 'node:path'
 import { fsReader, type FsReader } from './fs.ts'
 import type { FsCatalog, FsFileContent, FsFolderContents, FsSource, Identity } from '../contract/index.ts'
 import { fsRecentKey } from '../contract/index.ts'
-import { resolveIdentity } from './identity.ts'
+import { resolveIdentity, LOCAL_IDENTITY } from './identity.ts'
 import { SAVED_CONTEXTS, CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from './data/savedContexts.ts'
 import { connectorDetail } from './data/connectorDetails.ts'
 import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
@@ -1383,15 +1383,23 @@ export const store = {
    *  server-side watch over cross-user effects. The store mints the id + stamps `at` (its
    *  own clock), so callers pass only the effect facts. Best-effort backstop, never a gate:
    *  it records, it never refuses. Persisted. */
-  recordAudit(entry: Omit<AuditEntry, 'id' | 'at'>): void {
-    const full: AuditEntry = { ...entry, id: `audit-${(auditSeq += 1)}`, at: Date.now() }
+  recordAudit(entry: Omit<AuditEntry, 'id' | 'at' | 'tenantId'> & { tenantId?: string }): void {
+    // The effect's tenant — defaults to the local/personal tenant (the single-tenant
+    // desktop case; a later slice resolves the commission's owning tenant on web).
+    const tenantId = entry.tenantId ?? LOCAL_IDENTITY.tenant.id
+    const full: AuditEntry = { ...entry, tenantId, id: `audit-${(auditSeq += 1)}`, at: Date.now() }
     auditLog.push(full)
     emit({ type: 'audit.entry', entry: full }) // refresh a watching Audit surface
     persist()
   },
-  /** The audit trail, newest first — the Audit surface's read. */
-  listAuditLog(): AuditEntry[] {
-    return [...auditLog].reverse()
+  /** The audit trail, newest first — the Audit surface's read. Scoped to `tenantId`
+   *  when given (F2/F5): a tenant sees only its own trail. A pre-tenancy persisted
+   *  entry (no `tenantId`) is treated as the local/personal tenant's. */
+  listAuditLog(tenantId?: string): AuditEntry[] {
+    const within = tenantId
+      ? auditLog.filter((e) => (e.tenantId ?? LOCAL_IDENTITY.tenant.id) === tenantId)
+      : auditLog
+    return [...within].reverse()
   },
   /** Credit a successful **commissioned Project effect** to its Contributor's reputation
    *  (docs/agent-commons.md, D13 / OQ1) — the GitHub-style worker track record. Monotonic:

@@ -17,6 +17,10 @@ export type AuditOutcome = 'fulfilled' | 'denied'
 
 export interface AuditEntry {
   id: string
+  /** The tenant the effect belongs to — the isolation boundary (F2/F5, PD9): the
+   *  audit read is scoped so a tenant only ever sees its own trail. On the desktop
+   *  single-user deployment this is always the one personal tenant. */
+  tenantId: string
   /** Which cross-user channel produced the effect (D15 proxy / Project effect / host). */
   channel: AuditChannel
   /** The Agent that performed the effect — the proxy's *acting* Agent (B), when known.

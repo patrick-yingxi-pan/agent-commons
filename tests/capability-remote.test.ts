@@ -39,7 +39,7 @@ function caller(router) {
         return ended
       },
     }
-    const req = { method, on: () => req }
+    const req = { method, headers: {}, on: () => req }
     await router.handle(req, res, new URL(`http://test${path}`))
     return { status, json: body ? JSON.parse(body) : undefined }
   }
