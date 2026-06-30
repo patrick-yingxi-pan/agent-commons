@@ -187,6 +187,29 @@ export function addContextToLive(l: Live, ctx: AddedContext): Live {
   }
 }
 
+/** The panel to open for a just-attached context, so you see what you added — the
+ *  shared rule for the manual attach funnel and the pre-attached entry shortcuts
+ *  (FWD-1). `live` is the post-attach state (a folder merges into the shared
+ *  workspace, so its id is read from there). Pure, so it's unit-tested directly. */
+export function focusForAdded(ctx: AddedContext, live: Live): PanelFocus | null {
+  switch (ctx.kind) {
+    case 'folder':
+      return { kind: 'workspace', id: live.workspaces[0]?.id ?? WS_ID }
+    case 'repo':
+      return { kind: 'repo', id: repoIdForLabel(ctx.label) }
+    case 'connector':
+    case 'mcp':
+      return { kind: 'connector', id: ctx.connector.id }
+    case 'files':
+    case 'photos': {
+      const first = ctx.attachments[0]
+      return first ? { kind: first.kind, id: first.id } : null
+    }
+    default:
+      return null
+  }
+}
+
 /** Remove one or more attached contexts in a single update (a repo + its orphaned
  *  GitHub connector, a connector + its dependent repos, or just a connector). */
 export function removeContextsFromLive(l: Live, focuses: PanelFocus[]): Live {

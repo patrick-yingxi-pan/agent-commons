@@ -87,7 +87,7 @@ satisfy today — kept here at L0 so they're visible, and enforced by
 `tests/spec-conformance.test.ts` (every `📝` requirement must appear in this list).
 Detail + anchors are in [pillar 10](10-forward-looking.md).
 
-- **FWD-1** `📝` — "New Code session" / "New Cowork project" shortcuts that start a thread with context pre-attached (PROPOSAL §7).
+- **FWD-1** `🟡` — pre-attached entry shortcuts (§7); the `newSession(seed)` seam + an `EmptyState` launcher are built, dedicated per-mode sidebar entries remain.
 - **FWD-2** `🟡` — the right panel's expansion remembered per-conversation (§7); auto-open is built, per-session memory isn't.
 - **FWD-3** `📝` — responsive panel rules / auto-collapse to a rail on small windows (§8).
 - **FWD-4** `🟡` — cross-device sync of the server-owned state (§10); the foundation is built, multi-device fan-out isn't.

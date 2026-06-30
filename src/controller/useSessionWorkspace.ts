@@ -7,6 +7,7 @@ import {
   EMPTY_LIVE,
   WS_ID,
   addContextToLive,
+  focusForAdded,
   folderLabel,
   liveFromSession,
   removeAttachmentFromLive,
@@ -113,29 +114,6 @@ function strongestFocus(l: Live): PanelFocus | null {
     : l.workspaces[0]
       ? { kind: 'workspace', id: l.workspaces[0].id }
       : null
-}
-
-/** The panel to open for a just-attached context, so you see what you added — the
- *  shared rule used by both the manual attach funnel and the pre-attached entry
- *  shortcuts (FWD-1). `live` is the post-attach state (a folder merges into the
- *  shared workspace, so its id is read from there). */
-function focusForAdded(ctx: AddedContext, live: Live): PanelFocus | null {
-  switch (ctx.kind) {
-    case 'folder':
-      return { kind: 'workspace', id: live.workspaces[0]?.id ?? WS_ID }
-    case 'repo':
-      return { kind: 'repo', id: repoIdForLabel(ctx.label) }
-    case 'connector':
-    case 'mcp':
-      return { kind: 'connector', id: ctx.connector.id }
-    case 'files':
-    case 'photos': {
-      const first = ctx.attachments[0]
-      return first ? { kind: first.kind, id: first.id } : null
-    }
-    default:
-      return null
-  }
 }
 
 /** ── Controller: the active session + its live workspace ───────────────────
@@ -290,6 +268,9 @@ export function useSessionWorkspace() {
       setBusy(false)
       setActiveSection(null)
       setActiveId(id)
+      // Switching sessions abandons any context staged on the (now-left) draft, so it
+      // can't later be flushed onto a different session's first send (FWD-1 pending buffer).
+      pendingDraftContexts.current = []
       const session =
         SESSIONS.find((c) => c.id === id) ??
         extraSessionsRef.current.find((s) => s.id === id) ??
@@ -552,7 +533,13 @@ export function useSessionWorkspace() {
           const seeded = pendingDraftContexts.current
           if (seeded.length) {
             for (const ctx of seeded) for (const b of bindingsFor(ctx)) void attachContext(sid, b).catch(() => {})
-            void persistWorkspace(sid, workspaceOf(liveRef.current)).catch(() => {})
+            // Build the panels from the SAME seeded contexts, not `liveRef.current` — a
+            // navigation while createSession was in flight would have replaced the live
+            // state, so reading the ref here could persist another session's panels onto
+            // `sid` (and desync them from the bindings written above). Deriving both faces
+            // from `seeded` keeps the persisted binding-of-record and panels in lock-step.
+            const seededLive = seeded.reduce((l, ctx) => addContextToLive(l, ctx), EMPTY_LIVE)
+            void persistWorkspace(sid, workspaceOf(seededLive)).catch(() => {})
             pendingDraftContexts.current = []
           }
           // Adopt the new id only if the user is still on the draft — don't yank
