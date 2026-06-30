@@ -57,46 +57,67 @@ test('migrateState discards when a step in the chain is missing (gap ⇒ reseed)
   assert.equal(migrateState(at(1), migrations, 3), null)
 })
 
-test('migrateState with the empty default registry behaves like discard-on-mismatch', () => {
+test('migrateState: current version passes through; a version with no migration path is discarded', () => {
   const current = at(STORE_VERSION)
   assert.equal(migrateState(current), current, 'current version passes straight through')
-  assert.equal(migrateState(at(STORE_VERSION - 1)), null, 'an old version with no registered migration is discarded')
+  // v3 would need a to:4 step, which doesn't exist (only v4→v5 is registered), so it's discarded.
+  assert.equal(migrateState(at(STORE_VERSION - 2)), null, 'a version with no registered path is discarded')
+})
+
+// ── The real registered migration (v4 → v5: backfill AuditEntry.tenantId) ─────
+/** A legacy v4 snapshot whose audit entry predates `tenantId` — what a store persisted
+ *  before the tenant-scoped-audit bump looks like on disk. */
+const legacyV4 = (): PersistedState =>
+  ({
+    ...at(STORE_VERSION - 1),
+    auditLog: [
+      { id: 'audit-legacy', channel: 'proxy', capability: 'connector.read', target: 'legacy', outcome: 'fulfilled', at: 1 },
+    ],
+  }) as unknown as PersistedState
+
+test('the v4→v5 migration backfills a tenant-less audit entry, preserving stamped ones', () => {
+  const v4 = {
+    ...at(STORE_VERSION - 1),
+    auditLog: [
+      { id: 'a-old', channel: 'proxy', capability: 'c', target: 't', outcome: 'fulfilled', at: 1 },
+      { id: 'a-new', tenantId: 'tenant-acme', channel: 'proxy', capability: 'c', target: 't', outcome: 'fulfilled', at: 2 },
+    ],
+  } as unknown as PersistedState
+  const out = migrateState(v4)
+  assert.ok(out)
+  assert.equal(out.version, STORE_VERSION)
+  assert.equal(out.auditLog?.[0]?.tenantId, 'tenant-personal', 'an unstamped entry is backfilled to the personal tenant')
+  assert.equal(out.auditLog?.[1]?.tenantId, 'tenant-acme', 'an already-stamped entry is left untouched')
+})
+
+test('the real registry includes the v4→v5 audit-tenant migration', () => {
+  assert.ok(DATA_MIGRATIONS.some((m) => m.to === STORE_VERSION), `a migration to v${STORE_VERSION} is registered`)
 })
 
 // Both backends route load() through migrateState (migrate.ts asserts this in prose),
-// so prove the upgrade-in-place path on BOTH — JSON is the default backend.
-test('the SQLite backend upgrades an older-version store via a registered migration', () => {
-  // Register a temporary migration into the *real* registry the backend uses, proving
-  // load() routes through migrateState. Restored in finally so the file stays clean.
-  const marker = (s: PersistedState): PersistedState => ({ ...s, seq: { ...s.seq, run: 99 } })
-  DATA_MIGRATIONS.push({ to: STORE_VERSION, migrate: marker })
-  try {
-    const db = new SqliteBackend(':memory:')
-    db.save(at(STORE_VERSION - 1)) // an older-version store on disk
-    const loaded = db.load()
-    assert.ok(loaded, 'the old store was upgraded, not discarded')
-    assert.equal(loaded.version, STORE_VERSION, 'upgraded to the current version')
-    assert.equal(loaded.seq.run, 99, 'the registered migration ran during load()')
-    db.close()
-  } finally {
-    DATA_MIGRATIONS.length = 0
-  }
+// so prove the real upgrade-in-place path on BOTH — JSON is the default backend.
+test('the SQLite backend upgrades a legacy (v4) store in place via the real migration', () => {
+  const db = new SqliteBackend(':memory:')
+  db.save(legacyV4())
+  const loaded = db.load()
+  assert.ok(loaded, 'the old store was upgraded, not discarded')
+  assert.equal(loaded.version, STORE_VERSION, 'upgraded to the current version')
+  assert.equal(loaded.auditLog?.[0]?.tenantId, 'tenant-personal', 'the v4→v5 migration backfilled the audit tenant')
+  db.close()
 })
 
-test('the JSON backend (default) upgrades an older-version store via a registered migration', () => {
+test('the JSON backend (default) upgrades a legacy (v4) store in place via the real migration', () => {
   const file = join(tmpdir(), `claude-ui-migrate-json-${process.pid}.json`)
   const prevDataFile = process.env.DATA_FILE
   process.env.DATA_FILE = file
-  DATA_MIGRATIONS.push({ to: STORE_VERSION, migrate: (s) => ({ ...s, seq: { ...s.seq, run: 77 } }) })
   try {
     const db = new JsonFileBackend()
-    db.save(at(STORE_VERSION - 1))
+    db.save(legacyV4())
     const loaded = db.load()
     assert.ok(loaded, 'the old store was upgraded, not discarded')
     assert.equal(loaded.version, STORE_VERSION, 'upgraded to the current version')
-    assert.equal(loaded.seq.run, 77, 'the registered migration ran during load()')
+    assert.equal(loaded.auditLog?.[0]?.tenantId, 'tenant-personal', 'audit tenant backfilled on the default backend')
   } finally {
-    DATA_MIGRATIONS.length = 0
     if (prevDataFile === undefined) delete process.env.DATA_FILE
     else process.env.DATA_FILE = prevDataFile
     try {

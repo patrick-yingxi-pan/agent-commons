@@ -1384,9 +1384,13 @@ export const store = {
    *  own clock), so callers pass only the effect facts. Best-effort backstop, never a gate:
    *  it records, it never refuses. Persisted. */
   recordAudit(entry: Omit<AuditEntry, 'id' | 'at' | 'tenantId'> & { tenantId?: string }): void {
-    // The effect's tenant — defaults to the local/personal tenant (the single-tenant
-    // desktop case; a later slice resolves the commission's owning tenant on web).
-    const tenantId = entry.tenantId ?? LOCAL_IDENTITY.tenant.id
+    // The effect's tenant — defaults to the *current backend's* resolved tenant, so the
+    // write and the tenant-scoped read (GET /audit) agree on BOTH deployments: the
+    // personal tenant on desktop, the web tenant on remote. (Defaulting to the personal
+    // tenant unconditionally would leave the remote Audit hub permanently empty, since
+    // its read scopes to the web tenant.) A later slice resolves the commission's owning
+    // tenant per effect; until then this keeps the hub populated under the default principal.
+    const tenantId = entry.tenantId ?? resolveIdentity(BACKEND_MODE).tenant.id
     const full: AuditEntry = { ...entry, tenantId, id: `audit-${(auditSeq += 1)}`, at: Date.now() }
     auditLog.push(full)
     emit({ type: 'audit.entry', entry: full }) // refresh a watching Audit surface

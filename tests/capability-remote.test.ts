@@ -72,6 +72,22 @@ test('a remote backend 409s every native-only endpoint with capability_unavailab
   }
 })
 
+test('the audit trail is visible on a remote backend (write tenant matches read tenant)', async () => {
+  const { store } = await import('../server/store.ts')
+  const { buildRouter } = await import('../server/routes/index.ts')
+  const call = caller(buildRouter())
+
+  // A production-style record (no explicit tenantId) must default to the SAME tenant the
+  // GET /audit read scopes to on this backend — otherwise the remote Audit hub is empty.
+  store.recordAudit({ channel: 'proxy', actorAgentId: 'agent-x', capability: 'connector.read', target: 'remote-audit-probe', outcome: 'fulfilled' })
+  const r = await call('GET', '/audit')
+  assert.equal(r.status, 200)
+  assert.ok(
+    r.json.some((e) => e.target === 'remote-audit-probe'),
+    'a recorded effect is visible to the same-tenant reader on the remote backend',
+  )
+})
+
 test('the served cloud filesystem source works on a remote backend (it reads the web backend’s own storage)', async () => {
   const { buildRouter } = await import('../server/routes/index.ts')
   const call = caller(buildRouter())

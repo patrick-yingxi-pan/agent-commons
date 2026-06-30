@@ -1,9 +1,9 @@
 /** Tenant-scoped audit trail (design F2/F5, PD9 — the RLS-equivalent boundary).
  *  recordAudit stamps the effect's tenant (defaulting to the local/personal tenant);
  *  listAuditLog(tenantId) returns only that tenant's entries, while an unscoped read
- *  sees all. Tested at the store level so it doesn't depend on the (mock, single-tenant)
- *  request path — the route filters by store.identity(...).tenant.id, exercised by the
- *  existing routes-audit suite. */
+ *  sees all. Tested at the store level here; the route-level boundary (GET /audit
+ *  scoping to store.identity(...).tenant.id) is proven on the remote, multi-tenant
+ *  backend in tests/capability-remote.test.ts. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from '../server/store.ts'

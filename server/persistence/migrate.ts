@@ -5,11 +5,10 @@
  *  instead of dropping it. Both persistence backends route their `load()` through
  *  `migrateState`, so the rule is identical across JSON and SQLite.
  *
- *  The registry is **empty today**: the historical v2/v3/v4 bumps changed shapes in
- *  ways that were intentionally discard-and-reseed, and no `>STORE_VERSION` exists.
- *  With an empty registry the behaviour is exactly as before (current version loads;
- *  anything else ⇒ null ⇒ reseed). On the *next* `STORE_VERSION` bump, append one
- *  `DataMigration` here and existing stores upgrade in place instead of resetting. */
+ *  The v2/v3/v4 historical bumps were intentionally discard-and-reseed (no path
+ *  registered, so those still reseed). The v5 bump is the first to migrate in place:
+ *  it backfills the `AuditEntry.tenantId` added for tenant-scoped audit (F5/PD9). On
+ *  the *next* `STORE_VERSION` bump, append one more `DataMigration` here. */
 import { STORE_VERSION, type PersistedState } from './format.ts'
 
 /** Transforms a snapshot from version `to - 1` to version `to`. The engine stamps
@@ -20,8 +19,23 @@ export interface DataMigration {
 }
 
 /** Ordered, forward-only migrations. APPEND ONLY — never edit a shipped migration
- *  (a deployed store may already have run it). One entry per `STORE_VERSION` step. */
-export const DATA_MIGRATIONS: DataMigration[] = []
+ *  (a deployed store may already have run it). One entry per `STORE_VERSION` step.
+ *  Migrations bake in literal values (not imports) so a frozen transform can't shift
+ *  if a constant elsewhere later changes. */
+export const DATA_MIGRATIONS: DataMigration[] = [
+  // v4 → v5: AuditEntry.tenantId became required (tenant-scoped audit, F5/PD9). Legacy
+  // entries predate tenancy = the single personal tenant, so stamp them 'tenant-personal'
+  // (the value of LOCAL_IDENTITY.tenant.id when this migration was written).
+  {
+    to: 5,
+    migrate: (state) => ({
+      ...state,
+      auditLog: state.auditLog?.map((e) =>
+        e.tenantId ? e : { ...e, tenantId: 'tenant-personal' },
+      ),
+    }),
+  },
+]
 
 /** Bring a loaded snapshot up to `target` (default `STORE_VERSION`), or return null
  *  when it can't be used — absent/garbage, newer than this build (no downgrade), or

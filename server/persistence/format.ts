@@ -38,11 +38,13 @@ import { join } from 'node:path'
  *  the snapshot, so an agent / provider / prompt / commission created or edited
  *  through the Agents hub (or proposed by Claude and confirmed) survives a restart
  *  rather than reverting to the seed; a v3 snapshot lacks them, so it's discarded.
- *  A snapshot whose version is below the current one is incompatible → re-seed.
- *  (Forward-only data migrations — design F1 PD6 / F6 PD28 — would replace this
- *  discard-and-reseed; until then both backends keep the version-mismatch ⇒ null
- *  rule, so they stay behaviourally identical.) */
-export const STORE_VERSION = 4
+ *  v5: `AuditEntry` gained a required `tenantId` (the audit trail is tenant-scoped,
+ *  F5/PD9). A v4 snapshot's audit entries predate the field, so a forward-only data
+ *  migration (`DATA_MIGRATIONS`, server/persistence/migrate.ts) backfills them to the
+ *  personal tenant on load — the first real migration, replacing discard-and-reseed for
+ *  this bump so a restored store keeps its audit history.
+ *  Older versions without a migration path remain discard-and-reseed. */
+export const STORE_VERSION = 5
 
 /** The persisted shape — the store's mutable, UI-owned state. Maps are stored as
  *  entry arrays (JSON has no Map). The id counters ride along so minted ids don't
