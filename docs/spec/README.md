@@ -89,5 +89,5 @@ Detail + anchors are in [pillar 10](10-forward-looking.md).
 
 - **FWD-1** `🟡` — pre-attached entry shortcuts (§7); the `newSession(seed)` seam + an `EmptyState` launcher are built, dedicated per-mode sidebar entries remain.
 - **FWD-2** `🟡` — the right panel's expansion remembered per-conversation (§7); per-session memory is built (localStorage), the server-side cross-device pref isn't.
-- **FWD-3** `📝` — responsive panel rules / auto-collapse to a rail on small windows (§8).
+- **FWD-3** `🟡` — responsive panel rules (§8); the panel overlays as a drawer below a wide window, the narrow icon-rail / left-rail drawer remain.
 - **FWD-4** `🟡` — cross-device sync of the server-owned state (§10); the foundation is built, multi-device fan-out isn't.

@@ -20,6 +20,7 @@ import { estimateTokens } from '../contract/index.ts'
 import { useSessionWorkspace } from './controller/useSessionWorkspace'
 import { useLayout } from './controller/useLayout'
 import { RelationsProvider, useRelations } from './controller/useRelations'
+import { useViewport } from './lib/viewport'
 import type { Live } from './data/liveSession'
 import type { AddedContext, Connector, SectionId, Session } from './types'
 
@@ -89,6 +90,12 @@ export default function App() {
   const { leftOpen, leftW, leftDragging, toggleLeft, openLeft, startResize, resize, endResize } =
     useLayout()
 
+  // Responsive panel ladder (FWD-3 / PD35): below a wide window the right panel would
+  // crush the conversation column, so it overlays as a drawer (with a scrim) instead of
+  // sitting side-by-side.
+  const tier = useViewport()
+  const panelOverlay = tier !== 'wide'
+
   // ⌘K / Ctrl+K opens the search palette from anywhere.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -109,6 +116,9 @@ export default function App() {
   // A scheduled routine's run *is* a session — the backend tags it with the
   // routine it belongs to, which is what the run-switcher panel keys off.
   const isRunSession = !!activeSession.scheduledRunOf
+  // Whether a right panel is currently showing (a focused context, or the run switcher)
+  // — drives the overlay scrim on small viewports (FWD-3).
+  const panelOpen = !!focus || (isRunSession && runsPanelOpen && !!activeSession.scheduledRunOf)
 
   // The live size of the open thread's Messages — so the composer's usage gauge
   // (and its context breakdown) fills in real time as the conversation grows (the
@@ -235,7 +245,7 @@ export default function App() {
                   />
                 )}
 
-                <div className="flex min-h-0 flex-1">
+                <div className="relative flex min-h-0 flex-1">
                   <section className="flex min-w-0 flex-1 flex-col">
                     <div className="flex-1 overflow-y-auto">
                       {live.messages.length === 0 && !typing ? (
@@ -296,6 +306,22 @@ export default function App() {
                     />
                   </section>
 
+                  {/* Below a wide window the panel overlays the thread as a drawer (FWD-3):
+                      a scrim dims + dismisses the conversation behind it, and the panel
+                      group is positioned absolutely so it doesn't squeeze the thread. On a
+                      wide window the wrapper is `contents`, leaving the panels as in-flow
+                      flex siblings (the original side-by-side layout). */}
+                  {panelOverlay && panelOpen && (
+                    <div
+                      className="absolute inset-0 z-20 bg-black/30"
+                      aria-hidden
+                      onClick={() => {
+                        closePanel()
+                        setRunsPanelOpen(false)
+                      }}
+                    />
+                  )}
+                  <div className={panelOverlay ? 'absolute inset-y-0 right-0 z-30 flex' : 'flex shrink-0'}>
                   {/* One focused-context sidebar at a time, chosen by the active chip.
                       One keyed WorkspacePanel serves both workspace and repo so the
                       body morphs when you switch between the two. */}
@@ -353,6 +379,7 @@ export default function App() {
                       />
                     )}
                   </AnimatePresence>
+                  </div>
                 </div>
               </>
             )}

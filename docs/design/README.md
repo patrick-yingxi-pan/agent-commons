@@ -81,7 +81,7 @@ answered. These are **`docs/spec/` requirement-status** markers (full legend in 
 |-----------|-----------|-------------------|
 | FWD-1 `🟡` | Pre-attached entry shortcuts (seam + launcher built; per-mode sidebar entries remain) | [P1](P1-adaptive-ui.md) (PD33) |
 | FWD-2 `🟡` | Per-conversation panel memory | [P1](P1-adaptive-ui.md) (PD34) |
-| FWD-3 `📝` | Responsive collapse-to-rail | [P1](P1-adaptive-ui.md) (PD35) |
+| FWD-3 `🟡` | Responsive ladder (panel→overlay drawer built; narrow icon-rail + left-rail drawer remain) | [P1](P1-adaptive-ui.md) (PD35) |
 | FWD-4 `🟡` | Cross-device sync | [F3](F3-contract-sync.md)/[F6](F6-persistence-ops.md) (PD13/PD34) |
 | MOCK-1 | The model | [P5](P5-model-tools.md) (PD51) |
 | MOCK-2 | Artifact content library | [P2](P2-context-filesystem.md) (PD42) |

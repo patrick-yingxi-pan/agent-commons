@@ -71,6 +71,8 @@ it.
 
 | 21 | P1 PD34 (FWD-2) | **Per-conversation panel memory.** `src/lib/panelPrefs.ts` remembers which right-panel a session had open (a `PanelFocus`, or `null` for explicitly closed) — restored in `selectSession` (and the async reconcile), written on the explicit panel actions (toggle / close / attach-opens-it). `strongestFocus` stays the default when there's no stored choice; the absent-vs-explicit-null distinction is the load-bearing bit. localStorage-backed (the design's documented fallback for a forthcoming server-side cross-device `ui_prefs`). Store logic locked by `tests/panelPrefs.test.ts`; UI-verified in-app (close → switch away/back → reload, panel stays closed, overriding the auto-open). | ✅ built (UI) |
 
+| 22 | P1 PD35 (FWD-3) | **Responsive panel ladder.** `src/lib/viewport.ts` `useViewport` reports a tier (wide ≥1024 / medium ≥640 / narrow); below wide the right panel **overlays the thread as a drawer + scrim** (`App.tsx` toggles the panel wrapper between an in-flow `flex shrink-0` and an `absolute` overlay, with a dismiss-on-click scrim) instead of crushing the conversation column. `PanelShell` is unchanged. `tierFor` boundaries locked by `tests/viewport.test.ts`; structural behavior UI-verified across 1280/800/375 (in-flow + no scrim at wide; absolute overlay + scrim + full-width thread at medium/narrow; scrim-click dismisses). Remaining: the narrow **icon-rail** + the **left-rail drawer** on narrow. | ✅ built (UI) |
+
 ### Up next (candidate order, not yet built)
 
 - **Identity & tenancy — slice 2** (F2) — extend the tenant-scoping pattern (now
