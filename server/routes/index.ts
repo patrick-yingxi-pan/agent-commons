@@ -26,6 +26,7 @@ import { sendJson, sendError, sendBytes, headerValue, type Ctx } from '../http/r
 import { openSse } from '../http/sse.ts'
 import { store } from '../store.ts'
 import { IdempotencyCache, captureResponse, replayResponse } from '../idempotency.ts'
+import { pageParams, paginate, MAX_PAGE_LIMIT } from '../pagination.ts'
 import { generateReply } from '../generate.ts'
 import { CapabilityError, runCapability, scopeMatches } from '../runner-runtime.ts'
 import { GuardianError } from '../guardian.ts'
@@ -349,9 +350,13 @@ export function buildRouter(): Router {
   r.get('/agents', ({ res }) => {
     sendJson(res, store.listAgents())
   })
-  // The detective audit trail (D15/OQ7) — newest first; the Audit hub's read.
-  r.get('/audit', ({ res }) => {
-    sendJson(res, store.listAuditLog())
+  // The detective audit trail (D15/OQ7) — newest first; the Audit hub's read. The
+  // append-only log grows unbounded, so it takes opt-in cursor pagination too (F3 PD14).
+  r.get('/audit', ({ res, url }) => {
+    const pp = pageParams(url)
+    if (pp === 'invalid') return sendError(res, 'bad_request', `limit must be an integer 1..${MAX_PAGE_LIMIT}`)
+    const entries = store.listAuditLog()
+    sendJson(res, pp ? paginate(entries, (e) => e.id, pp) : entries)
   })
   r.get('/agents/:id', ({ res, params }) => {
     // Like providers: `listAgents().find`, not `getAgent` (which falls back to the
@@ -720,8 +725,13 @@ export function buildRouter(): Router {
   })
 
   // ── Sessions ──────────────────────────────────────────────────────────────
-  r.get('/sessions', ({ res }) => {
-    sendJson(res, store.listSessions())
+  // Opt-in cursor pagination (F3 PD14): `?limit=N[&cursor=C]` returns a `Page<Session>`;
+  // without `limit`, the full array (the UI reads the array until it virtualizes, PD36).
+  r.get('/sessions', ({ res, url }) => {
+    const pp = pageParams(url)
+    if (pp === 'invalid') return sendError(res, 'bad_request', `limit must be an integer 1..${MAX_PAGE_LIMIT}`)
+    const sessions = store.listSessions()
+    sendJson(res, pp ? paginate(sessions, (s) => s.id, pp) : sessions)
   })
   r.get('/sessions/:id', ({ res, params }) => {
     // A scheduled run *is* a session — resolve `srun-*` ids to the synthesized run

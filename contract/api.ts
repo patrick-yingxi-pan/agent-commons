@@ -157,6 +157,18 @@ export interface RelationGraph {
 /** Recents — one non-evicting MRU id list per context type. */
 export type RecentsSnapshot = Record<ContextTypeId, string[]>
 
+/** A page of a list resource (design F3 PD14). Returned by a list endpoint when the
+ *  request opts into pagination with `?limit=N` (optionally `&cursor=C`); without
+ *  `limit`, those endpoints still return the full array (back-compat — the UI reads
+ *  the array until it virtualizes, P1 PD36). `nextCursor` is an opaque token to pass
+ *  back as `?cursor=` for the next page — null when the last page has been returned.
+ *  The cursor is **keyed** (anchored to an item id), so appends between pages don't
+ *  shift it (no skips/dupes of already-seen items). */
+export interface Page<T> {
+  items: T[]
+  nextCursor: string | null
+}
+
 /** The error envelope. Non-2xx responses carry this JSON body. */
 export interface ApiError {
   error: {

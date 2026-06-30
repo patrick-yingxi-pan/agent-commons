@@ -50,6 +50,7 @@ it.
 | 1 | F6 PD28 / PD32, F1 PD1 | **Persistence port + embedded SQLite backend.** `server/persistence/` — a `PersistenceBackend` port (`format.ts`), the original JSON snapshot behind it (`json.ts`), and a real relational store on core `node:sqlite` with forward-only migrations (`sqlite.ts`), driven off one `SLICE_KIND` manifest so it can't drift from `PersistedState`. `server/persist.ts` is now the facade; `PERSIST_BACKEND=sqlite` opts in (default stays JSON, so tests + desktop are unchanged). Locked by `tests/persist-backend.test.ts` (cross-backend round-trip, version/fresh-db → null, migration idempotency, uncategorized-slice guard) + a two-process store boot smoke. | ✅ built |
 | 2 | F2 PD8 / PD9 | **Identity & tenancy — slice 1 (the wire surface).** `contract/identity.ts` (`User` / `Tenant` / `TenantRole` / `Identity`); `server/identity.ts` resolves it — desktop/mock = a single local user in a `personal` tenant; the remote web server resolves a tenant-scoped principal from the auth seam (request headers stand in for verified OIDC claims, PD8; tenant scoping per PD9). `store.identity(headers)` + `GET /v1/me` (the account the UI labels itself with, P1 §4). Locked by `tests/identity.test.ts` (route + resolver: local invariance, web defaults, the header seam, role/tenant overrides, unknown-user fallback). | ✅ built |
 | 3 | F3 PD15 | **Idempotency keys for create-mutations.** `server/idempotency.ts` — a TTL cache + response capture/replay; an opt-in router wrapper replays the first response for a given (tenant, `Idempotency-Key`) so a retried create can't duplicate. Applied to `POST /sessions`, `/dispatch`, `/schedules`, `/relations/ops`; transparent without the header (every existing test unaffected); only 2xx is cached; keyed per tenant (slice 1). `IDEMPOTENCY_HEADER` documented in `contract/api.ts`; `headerValue()` shared in `respond.ts`. Locked by `tests/idempotency.test.ts` (same-key dedups to one effect + identical body, no-key is transparent, distinct keys don't collide, plus cache/capture/replay units). Concurrency + eviction limits documented in the module. | ✅ built |
+| 4 | F3 PD14 | **Cursor pagination (keyed).** `contract` `Page<T>` + `server/pagination.ts` — a reusable pager whose cursor anchors to an item id (stable under appends: no skip/dupe across pages, unlike offset). Opt-in via `?limit[&cursor]` on `GET /sessions` and `/audit`; without `limit` the full array is returned (the UI reads the array until it virtualizes, P1 PD36). Locked by `tests/pagination.test.ts` (pager walk + the keyed-stability-under-prepend property + lenient/empty/invalid cases; route back-compat, page-walk reassembly, invalid-limit 400). | ✅ built |
 
 ### Up next (candidate order, not yet built)
 
@@ -59,11 +60,11 @@ it.
 - **UI consumes `/v1/me`** (F2 / P1 §4) — surface the account/tenant. *Deferred:
   needs a placement/design decision (no account chip exists today) — flag for the owner
   rather than invent UI autonomously.*
-- **Cursor pagination** (F3 PD14) for the list endpoints, additive (opt-in `limit`/
-  `cursor`), testable on both backends.
 - **Forward-only *data* migrations** (F1 PD6) — replace the version-mismatch ⇒
   discard-and-reseed with real per-version data migrations on the SQLite backend, so a
   store upgrade preserves data. (The schema-migration runner is already in place.)
+- **Per-tenant rate limiting** (F3) — token-bucket keyed by tenant (slice 1),
+  returning `limit_exceeded` (429); opt-in via config so it's off by default.
 
 > Keep this table append-only and honest: a row is `✅ built` only when its locking
 > test passes. Partial work stays `🚧` with a note on what's missing.

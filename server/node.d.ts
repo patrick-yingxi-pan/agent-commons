@@ -83,3 +83,7 @@ declare const Buffer: {
 
 declare const __dirname: string
 declare const __filename: string
+
+/** Base64 codecs (Web/Node globals) — used to make pagination cursors opaque. */
+declare function btoa(data: string): string
+declare function atob(data: string): string
