@@ -49,15 +49,18 @@ it.
 |------|--------|-------------|--------|
 | 1 | F6 PD28 / PD32, F1 PD1 | **Persistence port + embedded SQLite backend.** `server/persistence/` — a `PersistenceBackend` port (`format.ts`), the original JSON snapshot behind it (`json.ts`), and a real relational store on core `node:sqlite` with forward-only migrations (`sqlite.ts`), driven off one `SLICE_KIND` manifest so it can't drift from `PersistedState`. `server/persist.ts` is now the facade; `PERSIST_BACKEND=sqlite` opts in (default stays JSON, so tests + desktop are unchanged). Locked by `tests/persist-backend.test.ts` (cross-backend round-trip, version/fresh-db → null, migration idempotency, uncategorized-slice guard) + a two-process store boot smoke. | ✅ built |
 | 2 | F2 PD8 / PD9 | **Identity & tenancy — slice 1 (the wire surface).** `contract/identity.ts` (`User` / `Tenant` / `TenantRole` / `Identity`); `server/identity.ts` resolves it — desktop/mock = a single local user in a `personal` tenant; the remote web server resolves a tenant-scoped principal from the auth seam (request headers stand in for verified OIDC claims, PD8; tenant scoping per PD9). `store.identity(headers)` + `GET /v1/me` (the account the UI labels itself with, P1 §4). Locked by `tests/identity.test.ts` (route + resolver: local invariance, web defaults, the header seam, role/tenant overrides, unknown-user fallback). | ✅ built |
+| 3 | F3 PD15 | **Idempotency keys for create-mutations.** `server/idempotency.ts` — a TTL cache + response capture/replay; an opt-in router wrapper replays the first response for a given (tenant, `Idempotency-Key`) so a retried create can't duplicate. Applied to `POST /sessions`, `/dispatch`, `/schedules`, `/relations/ops`; transparent without the header (every existing test unaffected); only 2xx is cached; keyed per tenant (slice 1). `IDEMPOTENCY_HEADER` documented in `contract/api.ts`; `headerValue()` shared in `respond.ts`. Locked by `tests/idempotency.test.ts` (same-key dedups to one effect + identical body, no-key is transparent, distinct keys don't collide, plus cache/capture/replay units). Concurrency + eviction limits documented in the module. | ✅ built |
 
 ### Up next (candidate order, not yet built)
 
-- **Identity & tenancy — slice 2** (F2) — the UI consumes `/v1/me` (account label /
-  org-aware affordances) and entities become **tenant-scoped** at the store layer (the
-  RLS-equivalent boundary, PD9): a `tenantId` on rows + scoping reads/writes, desktop
-  being the N=1 case.
-- **Error envelope + idempotency keys + pagination** (F3) — wire-protocol hardening
-  in the mock router, testable on both backends.
+- **Identity & tenancy — slice 2** (F2) — entities become **tenant-scoped** at the
+  store layer (the RLS-equivalent boundary, PD9): a `tenantId` on rows + scoping
+  reads/writes, desktop being the N=1 case.
+- **UI consumes `/v1/me`** (F2 / P1 §4) — surface the account/tenant. *Deferred:
+  needs a placement/design decision (no account chip exists today) — flag for the owner
+  rather than invent UI autonomously.*
+- **Cursor pagination** (F3 PD14) for the list endpoints, additive (opt-in `limit`/
+  `cursor`), testable on both backends.
 - **Forward-only *data* migrations** (F1 PD6) — replace the version-mismatch ⇒
   discard-and-reseed with real per-version data migrations on the SQLite backend, so a
   store upgrade preserves data. (The schema-migration runner is already in place.)

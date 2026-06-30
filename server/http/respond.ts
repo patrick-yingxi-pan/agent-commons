@@ -55,6 +55,17 @@ export function sendError(res: ServerResponse, code: ApiErrorCode, message: stri
   sendJson(res, body, STATUS_FOR[code])
 }
 
+/** Read a single request header value. Node lower-cases incoming header names and
+ *  may deliver a repeated header as an array; this normalizes both to one string
+ *  (or undefined). Shared by the idempotency + identity seams. */
+export function headerValue(
+  headers: Record<string, string | string[] | undefined>,
+  name: string,
+): string | undefined {
+  const v = headers[name.toLowerCase()]
+  return Array.isArray(v) ? v[0] : v
+}
+
 /** Max request body — guards against a client exhausting memory. The API only
  *  ever posts small JSON (a message, an op, an id), so 1 MB is generous. */
 const MAX_BODY_BYTES = 1024 * 1024

@@ -8,6 +8,14 @@ import type { FsSource } from './fs.ts'
 
 /** The API version segment. One UI, one contract version, three backends. */
 export const API_VERSION = 'v1'
+
+/** Opt-in request header for safe retries of create-mutations (design F3 PD15). A
+ *  client sets it to a unique value per logical operation; the backend records the
+ *  first response for that (tenant, key) and replays it on any retry, so a
+ *  double-submit or a retried-after-timeout request can't create a duplicate.
+ *  Honoured on the non-streaming create routes (`POST /sessions`, `/dispatch`,
+ *  `/schedules`, `/relations/ops`). */
+export const IDEMPOTENCY_HEADER = 'Idempotency-Key'
 /** The path the UI talks to. Dev: Vite proxies `/api` → the mock server. Native:
  *  the host injects an absolute `http://127.0.0.1:<port>`. Web: same-origin. */
 export const API_BASE_PATH = `/api/${API_VERSION}`

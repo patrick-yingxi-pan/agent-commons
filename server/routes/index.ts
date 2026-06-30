@@ -22,9 +22,10 @@ import type {
   UpdateScheduleRequest,
 } from '../../contract/index.ts'
 import { Router } from '../http/router.ts'
-import { sendJson, sendError, sendBytes } from '../http/respond.ts'
+import { sendJson, sendError, sendBytes, headerValue, type Ctx } from '../http/respond.ts'
 import { openSse } from '../http/sse.ts'
 import { store } from '../store.ts'
+import { IdempotencyCache, captureResponse, replayResponse } from '../idempotency.ts'
 import { generateReply } from '../generate.ts'
 import { CapabilityError, runCapability, scopeMatches } from '../runner-runtime.ts'
 import { GuardianError } from '../guardian.ts'
@@ -54,6 +55,29 @@ function gate(res: ServerResponse, feature: 'localFs' | 'localGit' | 'osPicker' 
 
 export function buildRouter(): Router {
   const r = new Router()
+
+  // ── Idempotency (design F3 PD15) ────────────────────────────────────────────
+  // Opt-in per route: a handler wrapped here replays the first response for a given
+  // (tenant, `Idempotency-Key`) instead of running twice, so a retried create can't
+  // duplicate. Transparent when the header is absent (the request runs normally),
+  // and only applied to non-streaming create-mutations — never the SSE reply route.
+  const idem = new IdempotencyCache()
+  const idempotent =
+    (handler: (ctx: Ctx) => void | Promise<void>) =>
+    async (ctx: Ctx): Promise<void> => {
+      const key = headerValue(ctx.req.headers, 'idempotency-key')
+      if (!key) return handler(ctx)
+      const cacheKey = `${store.identity(ctx.req.headers).tenant.id}:${key}`
+      const hit = idem.get(cacheKey)
+      if (hit) return replayResponse(ctx.res, hit)
+      const cap = captureResponse(ctx.res)
+      await handler({ ...ctx, res: cap.res })
+      // Cache only a SUCCESS (2xx). A non-2xx created no resource, so there's nothing
+      // to dedup — and caching it would trap a client who fixes a bad request and
+      // retries under the same key (they'd get the stale error). A failure simply re-runs.
+      const rec = cap.record()
+      if (rec && rec.status >= 200 && rec.status < 300) idem.put(cacheKey, rec)
+    }
 
   // ── Capabilities ────────────────────────────────────────────────────────
   // What this backend variant can do. The default mock behaves like a native
@@ -708,10 +732,10 @@ export function buildRouter(): Router {
   })
   // Materialize a new persisted session — a draft becomes real on its first send
   // (the client posts here, adopts the returned id, then streams the turn to it).
-  r.post('/sessions', async ({ res, body }) => {
+  r.post('/sessions', idempotent(async ({ res, body }) => {
     const { firstMessage } = await body<import('../../contract/index.ts').CreateSessionRequest>()
     sendJson(res, store.createSession(firstMessage))
-  })
+  }))
   // Edit a session's row fields (rename / pin / archive) from the sidebar menu.
   r.patch('/sessions/:id', async ({ res, params, body }) => {
     const patch = await body<{ title?: string; status?: 'active' | 'archived'; pinned?: boolean }>()
@@ -885,11 +909,11 @@ export function buildRouter(): Router {
     sendJson(res, store.listDispatch())
   })
   // Kick off a one-off dispatch (lands 'running', finishes 'done' a beat later).
-  r.post('/dispatch', async ({ res, body }) => {
+  r.post('/dispatch', idempotent(async ({ res, body }) => {
     const { title, detail } = await body<CreateDispatchRequest>()
     if (!title || !title.trim()) return sendError(res, 'bad_request', 'title is required')
     sendJson(res, store.addDispatch(title.trim(), detail))
-  })
+  }))
 
   // ── Contexts (set-up) + connector detail ──────────────────────────────────
   r.get('/saved-contexts', ({ res }) => {
@@ -957,11 +981,11 @@ export function buildRouter(): Router {
     sendJson(res, task)
   })
   // Add a routine from a template's seed (lands paused).
-  r.post('/schedules', async ({ res, body }) => {
+  r.post('/schedules', idempotent(async ({ res, body }) => {
     const { seed } = await body<{ seed?: Omit<import('../../contract/index.ts').ScheduledTask, 'id'> }>()
     if (!seed) return sendError(res, 'bad_request', 'seed is required')
     sendJson(res, store.addSchedule(seed))
-  })
+  }))
   // Remove a routine.
   r.delete('/schedules/:id', ({ res, params }) => {
     store.removeSchedule(params.id)
@@ -986,7 +1010,7 @@ export function buildRouter(): Router {
   })
   // Apply a confirmed relation edit — the privileged write (a standing op
   // authorizes the schedule daemon). Returns the updated graph + broadcasts it.
-  r.post('/relations/ops', async ({ res, body }) => {
+  r.post('/relations/ops', idempotent(async ({ res, body }) => {
     const { op } = await body<ApplyOpRequest>()
     if (!op || typeof op.kind !== 'string') return sendError(res, 'bad_request', 'op is required')
     try {
@@ -999,7 +1023,7 @@ export function buildRouter(): Router {
       if (err instanceof LimitError) return sendError(res, err.code, err.message)
       throw err
     }
-  })
+  }))
 
   return r
 }
