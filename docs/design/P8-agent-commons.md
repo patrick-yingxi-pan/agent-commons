@@ -60,10 +60,10 @@ Project is refused and audited (the highest-value signal).
 ### 2.5 Forward: cross-org sharing / marketplace
 
 Within a tenant by default. **Sharing agents/prompts across orgs** (a commons
-marketplace, cross-org commissions) is a forward extension — flagged `⚠ confirm`, as it
-expands the trust boundary (a stranger commissioner is exactly the confused-deputy case
-the cascade is built to survive, but cross-tenant data-sharing + billing need explicit
-product/legal decisions).
+marketplace, cross-org commissions) is **deferred — within-tenant only in v1**
+(confirmed, PD65): it expands the trust boundary (a stranger commissioner is exactly the
+confused-deputy case the cascade is built to survive, but cross-tenant data-sharing +
+billing need explicit product/legal decisions before it ships).
 
 ## 3. Failure modes & edge cases
 
