@@ -98,6 +98,15 @@ const EPOCH = `e${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toSt
 const BACKEND_MODE: 'mock' | 'remote' = process.env.BACKEND === 'remote' ? 'remote' : 'mock'
 const NATIVE = BACKEND_MODE !== 'remote'
 
+/** The tenant a tenant-scoped entity belongs to when it carries none — the backend's
+ *  default principal's tenant (personal on desktop/mock; the web tenant on remote). Used
+ *  to stamp created entities and to bucket seed/legacy rows so they're visible to the
+ *  default reader on BOTH backends (F2 / PD9). Threading the *request's* tenant into the
+ *  store mutators is a later slice; until then writes default here, matching the reads. */
+function defaultTenantId(): string {
+  return resolveIdentity(BACKEND_MODE).tenant.id
+}
+
 // ── Served filesystem sources (the Files / Photos / Folder context types) ──────
 // Those three types are served from a REAL filesystem (contract/fs.ts, server/fs.ts).
 // The web backend's own "cloud storage" is one source: a real directory it reads +
@@ -696,13 +705,20 @@ export const store = {
 
   // ── Sessions ──
   /** The lightweight list rows (no message bodies) for the sidebar/search. */
-  listSessions(): Session[] {
-    return SESSIONS.map((s) => ({
+  listSessions(tenantId?: string): Session[] {
+    // Tenant-scoped enumeration (F2 / PD9): a tenant lists only its own sessions. A
+    // seed/legacy session (no tenantId) belongs to the backend's default tenant, so it's
+    // visible to the default reader on both backends. No arg ⇒ unscoped (internal use).
+    const within = tenantId
+      ? SESSIONS.filter((s) => (s.tenantId ?? defaultTenantId()) === tenantId)
+      : SESSIONS
+    return within.map((s) => ({
       id: s.id,
       title: s.title,
       caps: s.caps,
       preview: s.preview,
       isDemo: s.isDemo,
+      tenantId: s.tenantId,
       // Sidebar filter/sort backing — cheap scalars, safe to ship in the list rows.
       status: s.status,
       environment: s.environment,
@@ -710,6 +726,12 @@ export const store = {
       createdAt: s.createdAt,
       pinned: s.pinned,
     }))
+  },
+  /** Whether a session is visible to `tenantId` — the route-level guard for reads by id,
+   *  so a tenant can't open another tenant's session by guessing its id. A seed/legacy or
+   *  synthesized (run) session with no tenantId belongs to the default tenant. */
+  sessionVisibleToTenant(session: Session, tenantId: string): boolean {
+    return (session.tenantId ?? defaultTenantId()) === tenantId
   },
   /** A full session by id — messages + the live, server-owned `workspace` (its
    *  panels). The workspace is materialized from the flat seed fields on first
@@ -754,13 +776,16 @@ export const store = {
    *  it's first sent to. `firstMessage` seeds the title (its first words) + preview.
    *  Added to the live list + broadcast (`session.updated`) so every sidebar shows
    *  it; created state is persisted to disk (see persist.ts). */
-  createSession(firstMessage?: string): Session {
+  createSession(firstMessage?: string, tenantId: string = defaultTenantId()): Session {
     const now = Date.now()
     const session: Session = {
       id: `sess-${(sessionSeq += 1)}`,
       title: titleFrom(firstMessage),
       caps: ['chat'],
       agentId: DEFAULT_AGENT.id,
+      // Stamp the creating tenant so the scoped list/read see it (F2 / PD9). The route
+      // passes the caller's tenant; absent that it's the backend's default tenant.
+      tenantId,
       preview: (firstMessage ?? '').slice(0, 120),
       messages: [],
       status: 'active',

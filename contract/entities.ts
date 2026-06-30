@@ -228,6 +228,10 @@ export interface Session {
   /** The worker Agent (docs/agent-commons.md, D6) driving this Conversation. Unset =
    *  the seeded default Agent — the degenerate N=1 case. */
   agentId?: string
+  /** The tenant this conversation belongs to — the isolation boundary on the web
+   *  (F2 / PD9): a tenant only ever lists/opens its own sessions. Unset on a seed or
+   *  synthesized (run) session ⇒ the backend's default tenant (personal on desktop). */
+  tenantId?: string
   /** Canned content shown when a non-demo conversation is opened. */
   messages?: Message[]
   /** The live, server-owned workspace (runtime attaches persist here). Populated

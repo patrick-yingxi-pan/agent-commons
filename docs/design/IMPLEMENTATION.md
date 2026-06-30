@@ -73,12 +73,14 @@ it.
 
 | 22 | P1 PD35 (FWD-3) | **Responsive panel ladder.** `src/lib/viewport.ts` `useViewport` reports a tier (wide ≥1024 / medium ≥640 / narrow); below wide the right panel **overlays the thread as a drawer + scrim** (`App.tsx` toggles the panel wrapper between an in-flow `flex shrink-0` and an `absolute` overlay, with a dismiss-on-click scrim) instead of crushing the conversation column. `PanelShell` is unchanged. `tierFor` boundaries locked by `tests/viewport.test.ts`; structural behavior UI-verified across 1280/800/375 (in-flow + no scrim at wide; absolute overlay + scrim + full-width thread at medium/narrow; scrim-click dismisses). Remaining: the narrow **icon-rail** + the **left-rail drawer** on narrow. | ✅ built (UI) |
 
+| 23 | F2 PD9 (identity slice 2) | **Tenant-scoped sessions.** Extends the tenant-scoping pattern (proven on the audit trail, step 15) to the most user-facing entity: `Session.tenantId` (contract); `createSession(msg, tenantId)` stamps the **caller's** tenant (threaded from `POST /sessions`); `listSessions(tenantId)` returns only that tenant's sessions; `GET /sessions/:id` 404s (not 403 — no existence leak) a cross-tenant id via `sessionVisibleToTenant`. A shared `defaultTenantId()` buckets seed/legacy/run rows (no `tenantId`) into the backend's default tenant, so the demo stays visible to the default reader on **both** backends; a foreign tenant sees an empty list (correct isolation). Additive + read-defaulted ⇒ no `STORE_VERSION` bump. Store logic locked by `tests/session-tenancy.test.ts`; the header-driven route boundary (list + read-by-id, 404-not-403) proven on the remote multi-tenant backend in `tests/capability-remote.test.ts`. Remaining: projects/artifacts/schedules + threading the request tenant into the other mutators. | ✅ built |
+
 ### Up next (candidate order, not yet built)
 
-- **Identity & tenancy — slice 2** (F2) — extend the tenant-scoping pattern (now
-  proven on the audit trail, step 11) to the rest of the entities at the store layer
-  (the RLS-equivalent boundary, PD9): a `tenantId` on rows + scoped reads/writes,
-  desktop being the N=1 case.
+- **Identity & tenancy — slice 3** (F2) — extend tenant-scoping from sessions (step 23)
+  to the remaining entities (projects, artifacts, schedules) and thread the request's
+  tenant into their store mutators (sessions/audit are done; the rest still default to
+  the backend tenant). Desktop stays the N=1 case.
 - **UI consumes `/v1/me`** (F2 / P1 §4) — surface the account/tenant. *Deferred:
   needs a placement/design decision (no account chip exists today) — flagged for the
   owner rather than invent UI autonomously.*

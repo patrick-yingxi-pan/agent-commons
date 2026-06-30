@@ -854,21 +854,28 @@ export function buildRouter(): Router {
   // ── Sessions ──────────────────────────────────────────────────────────────
   // Opt-in cursor pagination (F3 PD14): `?limit=N[&cursor=C]` returns a `Page<Session>`;
   // without `limit`, the full array (the UI reads the array until it virtualizes, PD36).
-  r.get('/sessions', ({ res, url }) => {
-    sendList(res, url, store.listSessions(), (s) => s.id)
+  // Scoped to the caller's tenant (F2/PD9 — the RLS-equivalent boundary): a tenant
+  // only ever lists its own sessions (seed/legacy rows belong to the default tenant).
+  r.get('/sessions', ({ req, res, url }) => {
+    sendList(res, url, store.listSessions(store.identity(req.headers).tenant.id), (s) => s.id)
   })
-  r.get('/sessions/:id', ({ res, params }) => {
+  r.get('/sessions/:id', ({ req, res, params }) => {
     // A scheduled run *is* a session — resolve `srun-*` ids to the synthesized run
     // session (which reflects the current, live runs).
     const session = store.getSession(params.id) ?? store.runSession(params.id)
     if (!session) return sendError(res, 'not_found', `No session '${params.id}'`)
+    // Tenant isolation (F2/PD9): another tenant's session is 404 even by direct id —
+    // a not-found (not 403) so existence doesn't leak across the boundary.
+    if (!store.sessionVisibleToTenant(session, store.identity(req.headers).tenant.id))
+      return sendError(res, 'not_found', `No session '${params.id}'`)
     sendJson(res, session)
   })
   // Materialize a new persisted session — a draft becomes real on its first send
   // (the client posts here, adopts the returned id, then streams the turn to it).
-  r.post('/sessions', idempotent(async ({ res, body }) => {
+  r.post('/sessions', idempotent(async ({ req, res, body }) => {
     const { firstMessage } = await body<import('../../contract/index.ts').CreateSessionRequest>()
-    sendJson(res, store.createSession(firstMessage))
+    // Stamp the creating tenant so the scoped list/read above see it (F2/PD9).
+    sendJson(res, store.createSession(firstMessage, store.identity(req.headers).tenant.id))
   }))
   // Edit a session's row fields (rename / pin / archive) from the sidebar menu.
   r.patch('/sessions/:id', async ({ res, params, body }) => {

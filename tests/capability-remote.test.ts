@@ -15,7 +15,7 @@ process.env.BACKEND = 'remote'
 /** Drive the given router at the handler level (mirrors tests/helpers/http.ts, but
  *  against a router we built ourselves so it picks up BACKEND=remote). */
 function caller(router) {
-  return async function call(method, path) {
+  return async function call(method, path, headers = {}) {
     let status = 0
     let body = ''
     let ended = false
@@ -39,7 +39,7 @@ function caller(router) {
         return ended
       },
     }
-    const req = { method, headers: {}, on: () => req }
+    const req = { method, headers, on: () => req }
     await router.handle(req, res, new URL(`http://test${path}`))
     return { status, json: body ? JSON.parse(body) : undefined }
   }
@@ -86,6 +86,33 @@ test('the audit trail is visible on a remote backend (write tenant matches read 
     r.json.some((e) => e.target === 'remote-audit-probe'),
     'a recorded effect is visible to the same-tenant reader on the remote backend',
   )
+})
+
+test('sessions are tenant-isolated on a remote backend (list + read-by-id, 404 not 403)', async () => {
+  const { store } = await import('../server/store.ts')
+  const { buildRouter } = await import('../server/routes/index.ts')
+  const call = caller(buildRouter())
+
+  // A session owned by tenant-zeta (the POST-body path is covered by the in-process suite;
+  // here the focus is the header-driven read boundary on the multi-tenant backend).
+  const zeta = store.createSession('zeta-only thread', 'tenant-zeta')
+
+  // The owning tenant lists + opens it.
+  const listZeta = await call('GET', '/sessions', { 'x-tenant-id': 'tenant-zeta' })
+  assert.equal(listZeta.status, 200)
+  assert.ok(listZeta.json.some((s) => s.id === zeta.id), 'tenant-zeta lists its own session')
+  const getZeta = await call('GET', `/sessions/${zeta.id}`, { 'x-tenant-id': 'tenant-zeta' })
+  assert.equal(getZeta.status, 200, 'tenant-zeta can open its own session by id')
+
+  // Another tenant neither lists it nor can open it — 404 (not 403) so existence can't leak.
+  const listOmega = await call('GET', '/sessions', { 'x-tenant-id': 'tenant-omega' })
+  assert.ok(!listOmega.json.some((s) => s.id === zeta.id), 'tenant-omega cannot see it in the list')
+  const getOmega = await call('GET', `/sessions/${zeta.id}`, { 'x-tenant-id': 'tenant-omega' })
+  assert.equal(getOmega.status, 404, 'a cross-tenant id is 404, not 403')
+
+  // The default (no-header) reader is the web tenant; seed sessions default to it and stay visible.
+  const listDefault = await call('GET', '/sessions')
+  assert.ok(listDefault.json.some((s) => s.isDemo), 'the default tenant still sees the seed demo')
 })
 
 test('the served cloud filesystem source works on a remote backend (it reads the web backend’s own storage)', async () => {
