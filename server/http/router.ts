@@ -6,6 +6,10 @@ import { type Ctx, readBody, sendError } from './respond.ts'
 
 type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE'
 type Handler = (ctx: Ctx) => void | Promise<void>
+/** Cross-cutting pre-handler step. Runs after a route matches, before its handler;
+ *  return false to short-circuit (the middleware has already written the response —
+ *  e.g. a 429 from rate limiting). */
+type Middleware = (ctx: Ctx) => boolean | Promise<boolean>
 
 interface Route {
   method: Method
@@ -15,6 +19,13 @@ interface Route {
 
 export class Router {
   private routes: Route[] = []
+  private middlewares: Middleware[] = []
+
+  /** Register a middleware run (in order) before any matched handler. */
+  use(mw: Middleware): this {
+    this.middlewares.push(mw)
+    return this
+  }
 
   add(method: Method, pattern: string, handler: Handler): this {
     this.routes.push({ method, segments: pattern.split('/').filter(Boolean), handler })
@@ -43,6 +54,9 @@ export class Router {
       if (!params) continue
       const ctx: Ctx = { req, res, params, url, body: () => readBody(req) }
       try {
+        for (const mw of this.middlewares) {
+          if (!(await mw(ctx))) return true // middleware handled the response (e.g. 429)
+        }
         await route.handler(ctx)
       } catch (err) {
         // Log the detail server-side; don't leak internals to the client.

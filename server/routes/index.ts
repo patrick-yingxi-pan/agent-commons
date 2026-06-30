@@ -27,6 +27,7 @@ import { openSse } from '../http/sse.ts'
 import { store } from '../store.ts'
 import { IdempotencyCache, captureResponse, replayResponse } from '../idempotency.ts'
 import { pageParams, paginate, MAX_PAGE_LIMIT } from '../pagination.ts'
+import { RateLimiter } from '../ratelimit.ts'
 import { generateReply } from '../generate.ts'
 import { CapabilityError, runCapability, scopeMatches } from '../runner-runtime.ts'
 import { GuardianError } from '../guardian.ts'
@@ -79,6 +80,23 @@ export function buildRouter(): Router {
       const rec = cap.record()
       if (rec && rec.status >= 200 && rec.status < 300) idem.put(cacheKey, rec)
     }
+
+  // ── Per-tenant rate limiting (design F3) ────────────────────────────────────
+  // Opt-in via `RATE_LIMIT_PER_MIN` (read per request, so unset ⇒ disabled and the
+  // existing suite is unaffected). Bounds *mutations* per tenant per minute; over the
+  // limit replies 429 `limit_exceeded` with `Retry-After`. GETs are never limited.
+  const limiter = new RateLimiter(60_000)
+  r.use((ctx) => {
+    const method = ctx.req.method
+    if (method !== 'POST' && method !== 'PATCH' && method !== 'DELETE') return true
+    const limit = Number(process.env.RATE_LIMIT_PER_MIN)
+    if (!Number.isInteger(limit) || limit < 1) return true // not configured ⇒ disabled
+    const result = limiter.check(store.identity(ctx.req.headers).tenant.id, limit)
+    if (result.allowed) return true
+    ctx.res.setHeader('Retry-After', String(Math.ceil(result.retryAfterMs / 1000)))
+    sendError(ctx.res, 'limit_exceeded', 'Rate limit exceeded — retry shortly.')
+    return false
+  })
 
   // ── Capabilities ────────────────────────────────────────────────────────
   // What this backend variant can do. The default mock behaves like a native
