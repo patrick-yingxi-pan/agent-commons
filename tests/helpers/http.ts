@@ -43,10 +43,11 @@ function makeRes() {
   }
 }
 
-function makeReq(method: string, bodyObj?: unknown) {
+function makeReq(method: string, bodyObj?: unknown, headers?: Record<string, string>) {
   const handlers: Record<string, (arg?: any) => void> = {}
   const req: any = {
     method,
+    headers: headers ?? {},
     on(ev: string, cb: (arg?: any) => void) {
       handlers[ev] = cb
       return req
@@ -63,8 +64,13 @@ function makeReq(method: string, bodyObj?: unknown) {
 
 /** Issue one request against the route table. `path` is under the API root
  *  (the version prefix is already stripped before routing in production). */
-export async function call(method: string, path: string, bodyObj?: unknown): Promise<CallResult> {
-  const req = makeReq(method, bodyObj)
+export async function call(
+  method: string,
+  path: string,
+  bodyObj?: unknown,
+  headers?: Record<string, string>,
+): Promise<CallResult> {
+  const req = makeReq(method, bodyObj, headers)
   const { res, result } = makeRes()
   await router.handle(req, res, new URL(`http://test${path}`))
   return result()

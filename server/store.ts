@@ -58,8 +58,9 @@ import {
 } from './data/contextOptions.ts'
 import { join } from 'node:path'
 import { fsReader, type FsReader } from './fs.ts'
-import type { FsCatalog, FsFileContent, FsFolderContents, FsSource } from '../contract/index.ts'
+import type { FsCatalog, FsFileContent, FsFolderContents, FsSource, Identity } from '../contract/index.ts'
 import { fsRecentKey } from '../contract/index.ts'
+import { resolveIdentity } from './identity.ts'
 import { SAVED_CONTEXTS, CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from './data/savedContexts.ts'
 import { connectorDetail } from './data/connectorDetails.ts'
 import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
@@ -605,6 +606,15 @@ export const store = {
    *  it to 409 with `capability_unavailable` on a remote server. */
   can(feature: 'localFs' | 'localGit' | 'osPicker' | 'clipboard'): boolean {
     return this.capabilities().features[feature]
+  },
+
+  // ── Identity & tenancy (who's talking, which tenant — design F2) ──
+  /** The current principal + tenant for a request (`GET /v1/me`). Desktop/mock is
+   *  the single local user; the remote web server resolves a tenant-scoped principal
+   *  from the auth seam (request headers stand in for verified IdP claims, F2). The
+   *  backend is the single source for which deployment this is. */
+  identity(headers?: Record<string, string | string[] | undefined>): Identity {
+    return resolveIdentity(BACKEND_MODE, headers)
   },
 
   // ── Served filesystem sources (Files / Photos / Folder — contract/fs.ts) ──

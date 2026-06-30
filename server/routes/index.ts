@@ -63,6 +63,14 @@ export function buildRouter(): Router {
     sendJson(res, store.capabilities())
   })
 
+  // ── Identity (who's talking + which tenant — design F2) ─────────────────────
+  // The current principal the UI labels the account with (design P1 §4). Desktop is
+  // the single local user; the remote web server resolves a tenant-scoped principal
+  // from the auth seam (request headers stand in for verified IdP claims).
+  r.get('/me', ({ req, res }) => {
+    sendJson(res, store.identity(req.headers))
+  })
+
   // ── Native-runner registry ─────────────────────────────────────────────────
   // The live set of connected runners (one per host) and the capabilities each
   // advertises. Runners enroll/reconnect via POST, keep alive via heartbeat,
