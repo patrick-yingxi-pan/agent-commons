@@ -69,6 +69,8 @@ it.
 
 | 20 | P1 PD33 (FWD-1) | **Pre-attached entry shortcuts.** `newSession(seed?)` takes an optional context seed; a fresh thread can land already-escalated with a repo/folder/connector pre-attached and its panel open — the old per-mode entries as shortcuts, not tabs (one code path, the same attach funnel). An `EmptyState` launcher ("Start with a repo, folder, or connector…") reuses the whole Add-context picker. Also fixed a real gap: contexts attached to a *draft* (pre-first-send) were lost on materialize — now held in `pendingDraftContexts` and persisted onto the real session on first send. UI-verified in the running app (controller hook isn't `node --test`-exercisable); typecheck + build clean. | ✅ built (UI) |
 
+| 21 | P1 PD34 (FWD-2) | **Per-conversation panel memory.** `src/lib/panelPrefs.ts` remembers which right-panel a session had open (a `PanelFocus`, or `null` for explicitly closed) — restored in `selectSession` (and the async reconcile), written on the explicit panel actions (toggle / close / attach-opens-it). `strongestFocus` stays the default when there's no stored choice; the absent-vs-explicit-null distinction is the load-bearing bit. localStorage-backed (the design's documented fallback for a forthcoming server-side cross-device `ui_prefs`). Store logic locked by `tests/panelPrefs.test.ts`; UI-verified in-app (close → switch away/back → reload, panel stays closed, overriding the auto-open). | ✅ built (UI) |
+
 ### Up next (candidate order, not yet built)
 
 - **Identity & tenancy — slice 2** (F2) — extend the tenant-scoping pattern (now

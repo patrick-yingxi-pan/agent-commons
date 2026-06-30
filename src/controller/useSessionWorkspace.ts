@@ -23,6 +23,7 @@ import {
 import { sameFocus } from '../lib/focus'
 import { pushLocation, type NavLocation } from '../lib/nav'
 import { rememberAttached } from '../lib/contextShortcuts'
+import { getPanelPref, setPanelPref } from '../lib/panelPrefs'
 import { parseFsRecentKey } from '../../contract/index'
 import { runSessionById } from '../data/scheduledRuns'
 import {
@@ -164,6 +165,10 @@ export function useSessionWorkspace() {
   // deps and must not close over a stale snapshot).
   const liveRef = useRef(live)
   liveRef.current = live
+  // Mirror of the open panel, so the toggle (focusContext) can compute the next panel
+  // without a stale closure and persist the per-session choice (FWD-2).
+  const focusRef = useRef(focus)
+  focusRef.current = focus
   // Mirror of the open session id, so a streaming reply that arrives after the
   // user switched sessions is ignored rather than landing in the wrong thread.
   const activeIdRef = useRef(activeId)
@@ -280,8 +285,14 @@ export function useSessionWorkspace() {
         DRAFT_SESSION
       const nextLive = liveFromSession(session)
       setLive(nextLive)
-      // Auto-focus the session's strongest present context so its sidebar opens.
-      setFocus(strongestFocus(nextLive))
+      // Restore the session's remembered panel (FWD-2 / PD34): a stored focus, or null
+      // (the user left it closed) — both honoured over the auto-open. With no stored
+      // choice, fall back to the strongest present context (the original behaviour).
+      const restoreFocus = (l: Live): PanelFocus | null => {
+        const pref = id === DRAFT_ID ? undefined : getPanelPref(id)
+        return pref !== undefined ? pref : strongestFocus(l)
+      }
+      setFocus(restoreFocus(nextLive))
       setPhase('idle')
       setPendingEscalation(null)
       if (session.isDemo) {
@@ -298,7 +309,7 @@ export function useSessionWorkspace() {
             if (runId.current !== myRun) return
             const reconciled = liveFromSession(s)
             setLive(reconciled)
-            setFocus(strongestFocus(reconciled))
+            setFocus(restoreFocus(reconciled))
           })
           .catch(() => {})
       }
@@ -647,15 +658,27 @@ export function useSessionWorkspace() {
     const next = addContextToLive(liveRef.current, ctx)
     setLive(next)
     persistLive(id, next)
-    // Open the newly attached context's sidebar so you see what you added.
+    // Open the newly attached context's sidebar so you see what you added — and remember
+    // it as this session's panel choice (FWD-2), so reopening restores it.
     const f = focusForAdded(ctx, next)
-    if (f) setFocus(f)
+    if (f) {
+      setFocus(f)
+      if (persistableSession(id)) setPanelPref(id, f)
+    }
   }, [persistableSession, persistLive])
 
-  // Clicking a chip toggles its sidebar.
-  const focusContext = useCallback((f: PanelFocus) => {
-    setFocus((cur) => (sameFocus(cur, f) ? null : f))
-  }, [])
+  // Clicking a chip toggles its sidebar — and remembers the choice for this session
+  // (FWD-2), so reopening the thread restores it. Persist only on this explicit toggle
+  // (and closePanel / attach), never via a generic focus watcher — a transient auto-close
+  // of a not-yet-loaded panel during a session load must not overwrite the stored choice.
+  const focusContext = useCallback(
+    (f: PanelFocus) => {
+      const next = sameFocus(focusRef.current, f) ? null : f
+      setFocus(next)
+      if (persistableSession(activeIdRef.current)) setPanelPref(activeIdRef.current, next)
+    },
+    [persistableSession],
+  )
 
   // "New session" opens a blank thread with the composer ready, like the desktop
   // app's "New chat" (not a jump to an existing session). With an optional context
@@ -857,7 +880,11 @@ export function useSessionWorkspace() {
   const focusedConnector =
     focus?.kind === 'connector' ? live.connectors.find((c) => c.id === focus.id) : undefined
 
-  const closePanel = useCallback(() => setFocus(null), [])
+  const closePanel = useCallback(() => {
+    setFocus(null)
+    // Remember the closed state for this session (FWD-2), so it stays closed on reopen.
+    if (persistableSession(activeIdRef.current)) setPanelPref(activeIdRef.current, null)
+  }, [persistableSession])
 
   // The view-facing shape of the held consent prompt: which escalation is
   // pending plus what the prompt needs to render (a workspace beat's root
