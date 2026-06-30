@@ -99,3 +99,15 @@ test('GET /audit supports the same opt-in pagination', async () => {
   assert.ok('items' in page && 'nextCursor' in page, 'envelope when paginated')
   assert.ok(page.items.length <= 1)
 })
+
+// ── The generalized list endpoints (same shared sendList helper) ──────────────
+for (const path of ['/dispatch', '/artifacts']) {
+  test(`GET ${path} is array-by-default and paginates opt-in`, async () => {
+    const arr = await call('GET', path)
+    assert.ok(Array.isArray(arr.json), `${path} unchanged array shape by default`)
+    const page = (await call('GET', `${path}?limit=1`)).json as Page<{ id: string }>
+    assert.ok('items' in page && 'nextCursor' in page, `${path} returns an envelope when paginated`)
+    assert.ok(page.items.length <= 1, `${path} respects the limit`)
+    assert.equal((await call('GET', `${path}?limit=0`)).status, 400, `${path} rejects an invalid limit`)
+  })
+}

@@ -109,6 +109,17 @@ export function buildRouter(): Router {
     return false
   })
 
+  // Send a list resource with opt-in cursor pagination (F3 PD14): `?limit[&cursor]`
+  // returns a `Page<T>`; without `limit`, the full array (back-compat). One helper so
+  // every paginated list endpoint reads + validates identically (form follows function).
+  const sendList = <T>(res: Ctx['res'], url: URL, items: T[], keyOf: (item: T) => string): void => {
+    const pp = pageParams(url)
+    if (pp === 'invalid') {
+      return sendError(res, 'bad_request', `limit must be an integer 1..${MAX_PAGE_LIMIT}`)
+    }
+    sendJson(res, pp ? paginate(items, keyOf, pp) : items)
+  }
+
   // ── Capabilities ────────────────────────────────────────────────────────
   // What this backend variant can do. The default mock behaves like a native
   // sidecar (local-* true); `BACKEND=remote` makes it a remote web server
@@ -398,10 +409,7 @@ export function buildRouter(): Router {
   // The detective audit trail (D15/OQ7) — newest first; the Audit hub's read. The
   // append-only log grows unbounded, so it takes opt-in cursor pagination too (F3 PD14).
   r.get('/audit', ({ res, url }) => {
-    const pp = pageParams(url)
-    if (pp === 'invalid') return sendError(res, 'bad_request', `limit must be an integer 1..${MAX_PAGE_LIMIT}`)
-    const entries = store.listAuditLog()
-    sendJson(res, pp ? paginate(entries, (e) => e.id, pp) : entries)
+    sendList(res, url, store.listAuditLog(), (e) => e.id)
   })
   r.get('/agents/:id', ({ res, params }) => {
     // Like providers: `listAgents().find`, not `getAgent` (which falls back to the
@@ -773,10 +781,7 @@ export function buildRouter(): Router {
   // Opt-in cursor pagination (F3 PD14): `?limit=N[&cursor=C]` returns a `Page<Session>`;
   // without `limit`, the full array (the UI reads the array until it virtualizes, PD36).
   r.get('/sessions', ({ res, url }) => {
-    const pp = pageParams(url)
-    if (pp === 'invalid') return sendError(res, 'bad_request', `limit must be an integer 1..${MAX_PAGE_LIMIT}`)
-    const sessions = store.listSessions()
-    sendJson(res, pp ? paginate(sessions, (s) => s.id, pp) : sessions)
+    sendList(res, url, store.listSessions(), (s) => s.id)
   })
   r.get('/sessions/:id', ({ res, params }) => {
     // A scheduled run *is* a session — resolve `srun-*` ids to the synthesized run
@@ -960,8 +965,8 @@ export function buildRouter(): Router {
   })
 
   // ── Dispatch ──────────────────────────────────────────────────────────────
-  r.get('/dispatch', ({ res }) => {
-    sendJson(res, store.listDispatch())
+  r.get('/dispatch', ({ res, url }) => {
+    sendList(res, url, store.listDispatch(), (d) => d.id)
   })
   // Kick off a one-off dispatch (lands 'running', finishes 'done' a beat later).
   r.post('/dispatch', idempotent(async ({ res, body }) => {
@@ -1014,8 +1019,8 @@ export function buildRouter(): Router {
   r.get('/projects', ({ res }) => {
     sendJson(res, store.listProjects())
   })
-  r.get('/artifacts', ({ res }) => {
-    sendJson(res, store.listArtifacts())
+  r.get('/artifacts', ({ res, url }) => {
+    sendList(res, url, store.listArtifacts(), (a) => a.id)
   })
   r.get('/schedules', ({ res }) => {
     sendJson(res, store.listSchedules())

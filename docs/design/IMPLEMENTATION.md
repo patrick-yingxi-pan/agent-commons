@@ -53,7 +53,7 @@ it.
 | 7 | F3 / obs | **Request correlation ids.** A first-registered router middleware stamps every response (including a short-circuited 429) with `X-Request-Id` — the seam logs/traces correlate on (F6 OpenTelemetry). Locked by `tests/ops.test.ts` (present + unique + present-on-error). | ✅ built |
 | 6 | F6 | **Ops endpoints.** `GET /healthz` (liveness + epoch) and `GET /readyz` (readiness via a cheap store probe → 503 to drain on failure) for the autoscaled web tier behind a load balancer. Locked by `tests/ops.test.ts`. | ✅ built |
 | 5 | F3 | **Per-tenant rate limiting.** `server/ratelimit.ts` — a fixed-window `RateLimiter` (injectable clock) keyed by tenant (identity F2). Wired as a **router middleware** (new `Router.use()` hook) that bounds mutations per tenant per minute, replying 429 `limit_exceeded` + `Retry-After`. Opt-in via `RATE_LIMIT_PER_MIN` (read per request ⇒ off by default, suite unaffected); GETs never limited. Locked by `tests/ratelimit.test.ts` (limiter window/reset/per-key units; router off-by-default, 429+Retry-After when configured, GET-exempt). Also fixed the HTTP test helper to emit the request body on `end`-listener registration (robust to pre-handler `await`s like middleware). | ✅ built |
-| 4 | F3 PD14 | **Cursor pagination (keyed).** `contract` `Page<T>` + `server/pagination.ts` — a reusable pager whose cursor anchors to an item id (stable under appends: no skip/dupe across pages, unlike offset). Opt-in via `?limit[&cursor]` on `GET /sessions` and `/audit`; without `limit` the full array is returned (the UI reads the array until it virtualizes, P1 PD36). Locked by `tests/pagination.test.ts` (pager walk + the keyed-stability-under-prepend property + lenient/empty/invalid cases; route back-compat, page-walk reassembly, invalid-limit 400). | ✅ built |
+| 4 | F3 PD14 | **Cursor pagination (keyed).** `contract` `Page<T>` + `server/pagination.ts` — a reusable pager whose cursor anchors to an item id (stable under appends: no skip/dupe across pages, unlike offset). Opt-in via `?limit[&cursor]`; without `limit` the full array is returned (the UI reads the array until it virtualizes, P1 PD36). Applied through one shared `sendList` helper to `GET /sessions`, `/audit`, `/dispatch`, `/artifacts` (form-follows-function — every paginated list reads/validates identically). Locked by `tests/pagination.test.ts` (pager walk + the keyed-stability-under-prepend property + lenient/empty/invalid cases; route back-compat, page-walk reassembly, invalid-limit 400, across all four endpoints). | ✅ built |
 
 ### Up next (candidate order, not yet built)
 
@@ -66,8 +66,9 @@ it.
 - **Forward-only *data* migrations** (F1 PD6) — replace the version-mismatch ⇒
   discard-and-reseed with real per-version data migrations on the SQLite backend, so a
   store upgrade preserves data. (The schema-migration runner is already in place.)
-- **Generalize cursor pagination** (F3 PD14) to the other unbounded list reads
-  (`/dispatch`, `/artifacts`, `/runs/recent`), opt-in, reusing the pager.
+- **UI consumes `/v1/me`** (F2 / P1 §4) — *deferred: needs a placement/design
+  decision (no account chip exists today) — flagged for the owner.*
+- **Identity & tenancy — slice 2** (F2) — tenant-scope entities at the store layer.
 
 > Keep this table append-only and honest: a row is `✅ built` only when its locking
 > test passes. Partial work stays `🚧` with a note on what's missing.
