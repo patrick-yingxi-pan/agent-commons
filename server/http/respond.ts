@@ -23,9 +23,23 @@ export const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 }
 
+/** Baseline security headers on every response (design F5). `nosniff` stops content-type
+ *  sniffing of API/JSON; `DENY` + `frame-ancestors 'none'` forbid framing the UI
+ *  (clickjacking); `no-referrer` avoids leaking URLs. Light-touch — a full CSP for the
+ *  app shell would be tuned in `server/index.ts` where the HTML is served. */
+export const SECURITY_HEADERS: Record<string, string> = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'no-referrer',
+  'Content-Security-Policy': "frame-ancestors 'none'",
+}
+
+/** Headers on every JSON/text/byte response: CORS + security. */
+const BASE_HEADERS: Record<string, string> = { ...CORS_HEADERS, ...SECURITY_HEADERS }
+
 export function sendJson(res: ServerResponse, body: unknown, status = 200): void {
   const payload = JSON.stringify(body)
-  res.writeHead(status, { ...CORS_HEADERS, 'Content-Type': 'application/json; charset=utf-8' })
+  res.writeHead(status, { ...BASE_HEADERS, 'Content-Type': 'application/json; charset=utf-8' })
   res.end(payload)
 }
 
@@ -34,7 +48,7 @@ export function sendJson(res: ServerResponse, body: unknown, status = 200): void
  *  static-asset byte path in server/index.ts: write the Buffer verbatim so binary
  *  isn't corrupted by a UTF-8 round-trip. */
 export function sendBytes(res: ServerResponse, bytes: Uint8Array, contentType: string): void {
-  res.writeHead(200, { ...CORS_HEADERS, 'Content-Type': contentType })
+  res.writeHead(200, { ...BASE_HEADERS, 'Content-Type': contentType })
   // `end` accepts a string in the ambient types; the Buffer's bytes are written
   // verbatim at runtime (same as the static-asset path). Cast through unknown.
   res.end(bytes as unknown as string)
@@ -62,12 +76,12 @@ export function sendJsonCached(ctx: Ctx, body: unknown, status = 200): void {
   const payload = JSON.stringify(body)
   const etag = weakETag(payload)
   if (headerValue(ctx.req.headers, 'if-none-match') === etag) {
-    ctx.res.writeHead(304, { ...CORS_HEADERS, ETag: etag })
+    ctx.res.writeHead(304, { ...BASE_HEADERS, ETag: etag })
     ctx.res.end()
     return
   }
   ctx.res.writeHead(status, {
-    ...CORS_HEADERS,
+    ...BASE_HEADERS,
     'Content-Type': 'application/json; charset=utf-8',
     ETag: etag,
   })
@@ -77,7 +91,7 @@ export function sendJsonCached(ctx: Ctx, body: unknown, status = 200): void {
 /** Send a plain-text body — for the Prometheus `/metrics` scrape (text exposition
  *  format), which isn't JSON. */
 export function sendText(res: ServerResponse, text: string, contentType = 'text/plain; charset=utf-8'): void {
-  res.writeHead(200, { ...CORS_HEADERS, 'Content-Type': contentType })
+  res.writeHead(200, { ...BASE_HEADERS, 'Content-Type': contentType })
   res.end(text)
 }
 

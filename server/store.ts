@@ -405,6 +405,10 @@ guardian.reserve(subGoalKey('p-insights', 'auth-refactor'), 'commission-insights
 // not outlive the process).
 let persistEnabled = false
 
+/** Draining latch (F6 graceful shutdown): set on SIGTERM so `/readyz` fails while the
+ *  process winds down. Transient — never persisted. */
+let draining = false
+
 /** Snapshot the mutable, UI-owned state for the on-disk format. */
 function snapshot(): PersistedState {
   return {
@@ -613,6 +617,18 @@ export const store = {
    *  it to 409 with `capability_unavailable` on a remote server. */
   can(feature: 'localFs' | 'localGit' | 'osPicker' | 'clipboard'): boolean {
     return this.capabilities().features[feature]
+  },
+
+  // ── Graceful shutdown (design F6 ops) ──
+  /** Enter draining: on SIGTERM the process flips this so `GET /readyz` starts
+   *  failing (503) and the load balancer stops sending new requests to this instance
+   *  while in-flight work finishes. A one-way latch (a draining instance is on its way
+   *  out). Liveness (`/healthz`) stays up so the orchestrator doesn't hard-kill it mid-drain. */
+  beginDraining(): void {
+    draining = true
+  },
+  isDraining(): boolean {
+    return draining
   },
 
   // ── Identity & tenancy (who's talking, which tenant — design F2) ──

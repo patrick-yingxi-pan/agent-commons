@@ -81,11 +81,17 @@ export function buildRouter(): Router {
   // correlate on (F6 OpenTelemetry). Registered FIRST so even a short-circuited
   // response (a 429 from rate limiting below) carries one. (Router-boundary 404s and
   // OPTIONS/static responses are emitted before routing — see server/index.ts — so a
-  // production deployment stamps at the edge to cover those too.) Per-process
-  // monotonic id; a real deployment would honour an inbound id from the trace context.
+  // production deployment stamps at the edge to cover those too.)
+  //
+  // Honour an inbound `X-Request-Id` for trace propagation, but ONLY when it's a safe
+  // bounded token — a client-supplied id flows into logs, so an unvalidated one is a
+  // log-injection / unbounded-cardinality vector. Otherwise mint a per-process id.
   let requestSeq = 0
+  const SAFE_REQUEST_ID = /^[A-Za-z0-9._-]{1,128}$/
   r.use((ctx) => {
-    ctx.res.setHeader('X-Request-Id', `req-${store.epoch}-${++requestSeq}`)
+    const inbound = headerValue(ctx.req.headers, 'x-request-id')
+    const id = inbound && SAFE_REQUEST_ID.test(inbound) ? inbound : `req-${store.epoch}-${++requestSeq}`
+    ctx.res.setHeader('X-Request-Id', id)
     return true
   })
 
@@ -177,6 +183,9 @@ export function buildRouter(): Router {
     sendJson(res, { status: 'ok', epoch: store.epoch })
   })
   r.get('/readyz', ({ res }) => {
+    // Draining (post-SIGTERM): report unready so the load balancer stops routing new
+    // traffic here while in-flight work finishes — but the process stays alive (/healthz ok).
+    if (store.isDraining()) return sendJson(res, { status: 'draining' }, 503)
     try {
       void store.listSessions().length // store responds ⇒ ready
       sendJson(res, { status: 'ready', backend: store.capabilities().backend })

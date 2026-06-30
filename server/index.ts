@@ -14,7 +14,7 @@ import { readFileSync, existsSync, statSync } from 'node:fs'
 import { join, extname, dirname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { API_BASE_PATH } from '../contract/index.ts'
-import { CORS_HEADERS, sendError } from './http/respond.ts'
+import { CORS_HEADERS, SECURITY_HEADERS, sendError } from './http/respond.ts'
 import { buildRouter } from './routes/index.ts'
 import { store, startRunDaemon } from './store.ts'
 import { startModelServer } from './model/index.ts'
@@ -86,7 +86,7 @@ function serveStatic(pathname: string, res: import('node:http').ServerResponse):
     filePath = join(DIST, 'index.html') // SPA fallback
   }
   const body = readFileSync(filePath)
-  res.writeHead(200, { 'Content-Type': MIME[extname(filePath)] ?? 'application/octet-stream' })
+  res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': MIME[extname(filePath)] ?? 'application/octet-stream' })
   // Send the Buffer's exact bytes. `body.toString()` would UTF-8-decode it, which
   // is lossy for binary assets (fonts, images, the favicon) — text assets survive
   // either way, but binaries would be corrupted, so write the Buffer verbatim.
@@ -106,9 +106,11 @@ server.listen(PORT, HOST, () => {
   if (usingMockModel && process.env.MODEL_INLINE !== '0') startModelServer()
   // The scheduled-run daemon: fires a run on a cadence and pushes it to clients.
   const stopDaemon = startRunDaemon()
-  // Clean shutdown (the dev --watch restart sends SIGTERM): stop the daemon's
-  // interval so it can't outlive the process / pile up across restarts.
+  // Clean shutdown (the dev --watch restart sends SIGTERM): begin draining so the load
+  // balancer's /readyz probe fails and stops routing new traffic here, then stop the
+  // daemon's interval so it can't outlive the process / pile up across restarts.
   const shutdown = () => {
+    store.beginDraining()
     stopDaemon()
     process.exit(0)
   }
