@@ -61,6 +61,7 @@ import { fsReader, type FsReader } from './fs.ts'
 import type { FsCatalog, FsFileContent, FsFolderContents, FsSource, Identity } from '../contract/index.ts'
 import { fsRecentKey } from '../contract/index.ts'
 import { resolveIdentity, LOCAL_IDENTITY } from './identity.ts'
+import { positiveNumberEnv } from './env.ts'
 import { SAVED_CONTEXTS, CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from './data/savedContexts.ts'
 import { connectorDetail } from './data/connectorDetails.ts'
 import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
@@ -310,7 +311,13 @@ function emit(e: ServerEvent): void {
 // native/mock mode we seed the co-located runner (the one-runner registry the
 // static capabilities describe); a remote web server seeds none.
 const registry = new RunnerRegistry(emit)
-if (NATIVE) registry.register(LOCAL_RUNNER_SEED)
+if (NATIVE) {
+  // The co-located sidecar: always reachable while this process is up, and it has no
+  // external heartbeat client, so pin it against liveness reaping (it would otherwise be
+  // swept after the TTL and the runner-host fs source would vanish).
+  registry.register(LOCAL_RUNNER_SEED)
+  registry.pin(LOCAL_RUNNER_SEED.id)
+}
 
 // Resolve a served filesystem source id (`?source=`) to its reader + descriptor.
 // `cloud` → the web backend's storage; `runner:<id>` → that online runner's host,
@@ -1688,16 +1695,13 @@ export const store = {
  *  (the ambient-push showcase). Returns a stop handle. In the real product this
  *  is a server-side cron executing the workflow against the Anthropic API. */
 /** How long a runner may go without a heartbeat before the control plane reaps it
- *  (F4 liveness). Validate-and-floor an override so an empty/garbage env var can't
- *  collapse it to 0/NaN. Two missed heartbeats at the daemon cadence by default. */
-const RUNNER_TTL_MS = (() => {
-  const n = Number(process.env.RUNNER_TTL_MS)
-  return Number.isFinite(n) && n > 0 ? n : 120_000
-})()
+ *  (F4 liveness). The pinned co-located seed is exempt; external runners must heartbeat.
+ *  ~Two missed heartbeats at the daemon cadence by default. */
+const RUNNER_TTL_MS = positiveNumberEnv(process.env.RUNNER_TTL_MS, 120_000)
 
 export function startRunDaemon(intervalMs = 45_000): () => void {
   const tick = () => {
-    store.registry.reapStale(RUNNER_TTL_MS) // drop runners that stopped heartbeating
+    store.registry.reapStale(RUNNER_TTL_MS) // drop external runners that stopped heartbeating
     const active = schedules.filter((t) => t.enabled)
     if (active.length === 0) return
     // Vary by the run counter rather than Math.random for reproducibility.

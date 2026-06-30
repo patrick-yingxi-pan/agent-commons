@@ -21,6 +21,7 @@ import type {
   SetConnectorStatusRequest,
   UpdateScheduleRequest,
 } from '../../contract/index.ts'
+import { timingSafeEqual } from 'node:crypto'
 import { Router } from '../http/router.ts'
 import { sendJson, sendError, sendBytes, sendJsonCached, sendText, headerValue, type Ctx } from '../http/respond.ts'
 import { openSse } from '../http/sse.ts'
@@ -45,7 +46,7 @@ import type {
   SetCapacityRequest,
   SyncEffectsRequest,
 } from '../../contract/index.ts'
-import type { ServerResponse } from 'node:http'
+import type { ServerResponse, IncomingMessage } from 'node:http'
 
 /** Gate a native route on a capability: 409 capability_unavailable when this
  *  backend (a remote web server) can't fulfill it. Returns whether to proceed. */
@@ -53,6 +54,23 @@ function gate(res: ServerResponse, feature: 'localFs' | 'localGit' | 'osPicker' 
   if (store.can(feature)) return true
   sendError(res, 'capability_unavailable', `'${feature}' needs the native backend; this is a remote web server.`)
   return false
+}
+
+/** Runner enrollment auth (F4): when `RUNNER_ENROLL_TOKEN` is set, every state-changing
+ *  runner-lifecycle call — enroll, reconnect (heartbeat), re-advertise, deregister — must
+ *  present it via `Authorization: Bearer <t>` (scheme case-insensitive) or `x-runner-token`.
+ *  The compare is constant-time so the secret isn't recoverable byte-by-byte via timing.
+ *  Unset ⇒ open enrollment (the loopback-sidecar default; the existing suite is unaffected).
+ *  This is the shared-secret stand-in for the mTLS/token runner identity a real broker uses. */
+function enrollmentAllowed(req: IncomingMessage): boolean {
+  const token = process.env.RUNNER_ENROLL_TOKEN
+  if (!token) return true
+  const authz = headerValue(req.headers, 'authorization')
+  const bearer = authz ? /^Bearer\s+(.+)$/i.exec(authz)?.[1] : undefined
+  const supplied = bearer || headerValue(req.headers, 'x-runner-token') || ''
+  const a = Buffer.from(supplied)
+  const b = Buffer.from(token)
+  return a.length === b.length && timingSafeEqual(a, b)
 }
 
 export function buildRouter(): Router {
@@ -205,18 +223,7 @@ export function buildRouter(): Router {
     sendJson(res, runner)
   })
   r.post('/runners', async ({ req, res, body }) => {
-    // Enrollment auth (F4): when `RUNNER_ENROLL_TOKEN` is set, a runner must present it
-    // (`Authorization: Bearer <token>` or `x-runner-token`) to enroll or reconnect — the
-    // shared-secret stand-in for the mTLS/token identity a production broker requires.
-    // Unset ⇒ open enrollment (the loopback-sidecar default; the existing suite is unaffected).
-    const enrollToken = process.env.RUNNER_ENROLL_TOKEN
-    if (enrollToken) {
-      const bearer = headerValue(req.headers, 'authorization')?.replace(/^Bearer /, '')
-      const supplied = bearer || headerValue(req.headers, 'x-runner-token')
-      if (supplied !== enrollToken) {
-        return sendError(res, 'forbidden', 'runner enrollment requires a valid token')
-      }
-    }
+    if (!enrollmentAllowed(req)) return sendError(res, 'forbidden', 'runner enrollment requires a valid token')
     const input = await body<RegisterRunnerRequest>()
     if (!input?.label || !input?.host || !Array.isArray(input.capabilities)) {
       return sendError(res, 'bad_request', 'label, host, and capabilities are required')
@@ -230,12 +237,17 @@ export function buildRouter(): Router {
     }
     sendJson(res, store.registry.register(input))
   })
-  r.post('/runners/:id/heartbeat', ({ res, params }) => {
+  // Heartbeat reconnects an offline runner (durable-identity re-bind), so it's gated by
+  // the same enrollment token as POST /runners — otherwise an unauthenticated caller could
+  // resurrect a reaped runner and defeat liveness reaping.
+  r.post('/runners/:id/heartbeat', ({ req, res, params }) => {
+    if (!enrollmentAllowed(req)) return sendError(res, 'forbidden', 'runner enrollment requires a valid token')
     const runner = store.registry.heartbeat(params.id)
     if (!runner) return sendError(res, 'not_found', `No runner '${params.id}'`)
     sendJson(res, runner)
   })
-  r.patch('/runners/:id/capabilities', async ({ res, params, body }) => {
+  r.patch('/runners/:id/capabilities', async ({ req, res, params, body }) => {
+    if (!enrollmentAllowed(req)) return sendError(res, 'forbidden', 'runner enrollment requires a valid token')
     const { capabilities } = await body<SetRunnerCapabilitiesRequest>()
     if (!Array.isArray(capabilities)) {
       return sendError(res, 'bad_request', 'capabilities is required')
@@ -244,7 +256,8 @@ export function buildRouter(): Router {
     if (!runner) return sendError(res, 'not_found', `No runner '${params.id}'`)
     sendJson(res, runner)
   })
-  r.delete('/runners/:id', ({ res, params }) => {
+  r.delete('/runners/:id', ({ req, res, params }) => {
+    if (!enrollmentAllowed(req)) return sendError(res, 'forbidden', 'runner enrollment requires a valid token')
     if (!store.registry.deregister(params.id)) {
       return sendError(res, 'not_found', `No online runner '${params.id}'`)
     }

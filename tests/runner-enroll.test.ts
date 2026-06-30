@@ -35,3 +35,36 @@ test('POST /runners requires a valid token when RUNNER_ENROLL_TOKEN is set', asy
     delete process.env.RUNNER_ENROLL_TOKEN
   }
 })
+
+test('reconnect + mutation routes are gated too (heartbeat/PATCH/DELETE) — reaping can’t be bypassed', async () => {
+  process.env.RUNNER_ENROLL_TOKEN = 'sek'
+  try {
+    const created = await call('POST', '/runners', { ...body, id: 'g1' }, { 'x-runner-token': 'sek' })
+    assert.equal(created.status, 200)
+
+    // Without the token these all 403 — a heartbeat reconnect must not bypass the gate.
+    assert.equal((await call('POST', '/runners/g1/heartbeat')).status, 403, 'heartbeat gated')
+    assert.equal((await call('PATCH', '/runners/g1/capabilities', { capabilities: [] })).status, 403, 'patch gated')
+    assert.equal((await call('DELETE', '/runners/g1')).status, 403, 'delete gated')
+
+    // With the token they succeed.
+    assert.equal((await call('POST', '/runners/g1/heartbeat', undefined, { 'x-runner-token': 'sek' })).status, 200)
+    assert.equal((await call('PATCH', '/runners/g1/capabilities', { capabilities: [] }, { 'x-runner-token': 'sek' })).status, 200)
+    assert.equal((await call('DELETE', '/runners/g1', undefined, { 'x-runner-token': 'sek' })).status, 200)
+  } finally {
+    delete process.env.RUNNER_ENROLL_TOKEN
+  }
+})
+
+test('a valid x-runner-token is honored even alongside a non-Bearer Authorization header; Bearer is case-insensitive', async () => {
+  process.env.RUNNER_ENROLL_TOKEN = 'sek'
+  try {
+    const coexist = await call('POST', '/runners', { ...body, id: 'g2' }, { authorization: 'Basic abc', 'x-runner-token': 'sek' })
+    assert.equal(coexist.status, 200, 'a non-Bearer Authorization must not shadow a valid x-runner-token')
+
+    const lower = await call('POST', '/runners', { ...body, id: 'g3' }, { authorization: 'bearer sek' })
+    assert.equal(lower.status, 200, 'the Bearer scheme is matched case-insensitively')
+  } finally {
+    delete process.env.RUNNER_ENROLL_TOKEN
+  }
+})

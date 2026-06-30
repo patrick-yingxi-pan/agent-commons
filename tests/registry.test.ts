@@ -116,6 +116,27 @@ test('reapStale marks runners past the TTL offline (durable), emits disconnect, 
   assert.equal(reg.find('fs.read').some((r) => r.id === 'a1'), false, 'reaped runner is no longer routed to')
 })
 
+test('reapStale uses a strict TTL boundary: age == ttl is kept, age == ttl+1 is reaped', () => {
+  const { reg, tick } = harness()
+  reg.register({ id: 'a1', label: 'L', host: 'h', capabilities: FS }) // lastSeen 1000
+  tick(120) // clock 1120, age == ttl
+  assert.deepEqual(reg.reapStale(120), [], 'exactly at the TTL is still alive (strict <)')
+  assert.equal(reg.get('a1')?.status, 'online')
+  tick(1) // clock 1121, age == ttl + 1
+  assert.deepEqual(reg.reapStale(120), ['a1'], 'one tick past the TTL is reaped')
+})
+
+test('pinned runners are exempt from reaping (the co-located sidecar seed)', () => {
+  const { reg, tick } = harness()
+  reg.register({ id: 'seed', label: 'Sidecar', host: 'localhost', capabilities: FS })
+  reg.register({ id: 'ext', label: 'External', host: 'h', capabilities: FS })
+  reg.pin('seed')
+  tick(10_000) // far past any TTL
+  assert.deepEqual(reg.reapStale(120), ['ext'], 'only the unpinned runner is reaped')
+  assert.equal(reg.get('seed')?.status, 'online', 'the pinned seed stays online')
+  assert.equal(reg.find('fs.read').some((r) => r.id === 'seed'), true, 'and remains routable')
+})
+
 test('reapStale is a no-op for an already-offline runner and for fresh runners', () => {
   const { reg, tick } = harness()
   reg.register({ id: 'a1', label: 'L', host: 'h', capabilities: FS })

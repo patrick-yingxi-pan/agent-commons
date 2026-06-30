@@ -67,6 +67,11 @@ declare module 'node:module' {
   export function createRequire(path: string | URL): (id: string) => unknown
 }
 
+declare module 'node:crypto' {
+  /** Constant-time buffer comparison (throws if lengths differ) — for secret compares. */
+  export function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean
+}
+
 declare const process: {
   env: Record<string, string | undefined>
   argv: string[]

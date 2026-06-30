@@ -37,6 +37,10 @@ function sameCapabilities(a: RunnerCapability[], b: RunnerCapability[]): boolean
 
 export class RunnerRegistry {
   private readonly runners = new Map<string, Runner>()
+  /** Runners exempt from liveness reaping — the always-up co-located sidecar seed,
+   *  which has no external heartbeat client but is reachable for the life of the
+   *  process. Server-side only (not on the contract `Runner`). */
+  private readonly pinned = new Set<string>()
   private readonly emit: (e: ServerEvent) => void
   private readonly now: () => number
 
@@ -120,6 +124,7 @@ export class RunnerRegistry {
     const cutoff = this.now() - ttlMs
     const reaped: string[] = []
     for (const runner of this.runners.values()) {
+      if (this.pinned.has(runner.id)) continue // the co-located sidecar never goes stale
       if (runner.status === 'online' && runner.lastSeen < cutoff) {
         runner.status = 'offline'
         this.emit({ type: 'runner.disconnected', runnerId: runner.id })
@@ -127,6 +132,11 @@ export class RunnerRegistry {
       }
     }
     return reaped
+  }
+
+  /** Exempt a runner from liveness reaping (the co-located sidecar seed). Idempotent. */
+  pin(id: string): void {
+    this.pinned.add(id)
   }
 
   get(id: string): Runner | undefined {

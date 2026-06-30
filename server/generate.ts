@@ -12,6 +12,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import type { Agent, EscalationProposal, Message, RelationOp } from '../contract/index.ts'
 import { TOOL_DEFINITIONS, executeTool, type ToolContext } from './model/tools.ts'
 import { chunkText } from './model/replies.ts'
+import { positiveNumberEnv, nonNegativeIntEnv } from './env.ts'
 
 /** The default provider's model (docs/agent-commons.md, D9): used when a turn's
  *  Agent resolves to a provider that declares no concrete model of its own — so the
@@ -20,12 +21,8 @@ import { chunkText } from './model/replies.ts'
 const MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-8'
 
 /** SDK transient-error retries (network blips / 429 / 5xx) — fail fast by default to
- *  reach the graceful fallback. Override with `ANTHROPIC_MAX_RETRIES`; a non-integer or
- *  negative value falls back to 1 (an empty/garbage env var must not disable retries). */
-const MODEL_MAX_RETRIES = (() => {
-  const n = Number(process.env.ANTHROPIC_MAX_RETRIES)
-  return Number.isInteger(n) && n >= 0 ? n : 1
-})()
+ *  reach the graceful fallback. Override with `ANTHROPIC_MAX_RETRIES` (non-negative int). */
+const MODEL_MAX_RETRIES = nonNegativeIntEnv(process.env.ANTHROPIC_MAX_RETRIES, 1)
 
 /** Combine the caller's abort (the client closed the connection) with a per-call
  *  wall-clock timeout, so a stalled/hung model call can't wedge the turn — on expiry
@@ -34,11 +31,10 @@ const MODEL_MAX_RETRIES = (() => {
  *  fallback, client-close → rethrow). `MODEL_TIMEOUT_MS` is read per call so it's
  *  configurable at runtime (and in tests). */
 function withDeadline(signal?: AbortSignal): AbortSignal {
-  // Validate-and-floor: an empty (`Number('')===0`) or non-numeric (`NaN`) env var must
-  // NOT collapse the budget to 0/NaN, which would abort instantly and silently degrade
-  // EVERY turn to the fallback. Only a finite positive value overrides the 60s default.
-  const n = Number(process.env.MODEL_TIMEOUT_MS)
-  const timeoutMs = Number.isFinite(n) && n > 0 ? n : 60_000
+  // `MODEL_TIMEOUT_MS` is read per call (runtime/test-configurable) and validate-and-floored
+  // so an empty/garbage value can't collapse the budget to 0/NaN — which would abort
+  // instantly and silently degrade EVERY turn to the fallback.
+  const timeoutMs = positiveNumberEnv(process.env.MODEL_TIMEOUT_MS, 60_000)
   const deadline = AbortSignal.timeout(timeoutMs)
   return signal ? AbortSignal.any([signal, deadline]) : deadline
 }
