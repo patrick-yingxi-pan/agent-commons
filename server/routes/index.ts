@@ -58,6 +58,17 @@ function gate(res: ServerResponse, feature: 'localFs' | 'localGit' | 'osPicker' 
 export function buildRouter(): Router {
   const r = new Router()
 
+  // ── Request correlation id (design F3 / observability) ──────────────────────
+  // Stamp every response with an `X-Request-Id` — the seam logs/traces correlate on
+  // (F6 OpenTelemetry). Registered FIRST so even a short-circuited response (a 429
+  // from rate limiting below) carries one. Per-process monotonic id; a real
+  // deployment would honour an inbound id from the edge/trace context.
+  let requestSeq = 0
+  r.use((ctx) => {
+    ctx.res.setHeader('X-Request-Id', `req-${store.epoch}-${++requestSeq}`)
+    return true
+  })
+
   // ── Idempotency (design F3 PD15) ────────────────────────────────────────────
   // Opt-in per route: a handler wrapped here replays the first response for a given
   // (tenant, `Idempotency-Key`) instead of running twice, so a retried create can't
@@ -112,6 +123,22 @@ export function buildRouter(): Router {
   // from the auth seam (request headers stand in for verified IdP claims).
   r.get('/me', ({ req, res }) => {
     sendJson(res, store.identity(req.headers))
+  })
+
+  // ── Ops: liveness + readiness (design F6 — the autoscaled web tier) ──────────
+  // `/healthz` — the process is up (load-balancer liveness). `/readyz` — the process
+  // can serve: a cheap store probe stands in for the DB-connectivity check a real
+  // deployment runs; a failure replies 503 so the LB drains this instance.
+  r.get('/healthz', ({ res }) => {
+    sendJson(res, { status: 'ok', epoch: store.epoch })
+  })
+  r.get('/readyz', ({ res }) => {
+    try {
+      void store.listSessions().length // store responds ⇒ ready
+      sendJson(res, { status: 'ready', backend: store.capabilities().backend })
+    } catch {
+      sendJson(res, { status: 'not_ready' }, 503)
+    }
   })
 
   // ── Native-runner registry ─────────────────────────────────────────────────
