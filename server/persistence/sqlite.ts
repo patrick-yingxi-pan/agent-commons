@@ -24,11 +24,11 @@ import { dirname } from 'node:path'
 import { createRequire } from 'node:module'
 import {
   SLICE_KIND,
-  STORE_VERSION,
   databaseFile,
   type PersistedState,
   type PersistenceBackend,
 } from './format.ts'
+import { migrateState } from './migrate.ts'
 
 // ── Minimal local typing for the `node:sqlite` surface we use ─────────────────
 // (the server hand-rolls its Node types in node.d.ts rather than pull in @types/node).
@@ -171,9 +171,9 @@ export class SqliteBackend implements PersistenceBackend {
         }
       }
 
-      const state = result as unknown as PersistedState
-      if (state.version !== STORE_VERSION) return null
-      return state
+      // Bring an older snapshot up to the current version (F1 PD6); a newer or
+      // un-migratable one ⇒ null ⇒ reseed.
+      return migrateState(result as unknown as PersistedState)
     } catch {
       return null
     }

@@ -10,20 +10,21 @@
  *  a test can repoint `DATA_FILE` between calls — preserving the original semantics. */
 import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { dataFile, STORE_VERSION, type PersistedState, type PersistenceBackend } from './format.ts'
+import { dataFile, type PersistedState, type PersistenceBackend } from './format.ts'
+import { migrateState } from './migrate.ts'
 
 export class JsonFileBackend implements PersistenceBackend {
   readonly name = 'json'
 
-  /** Read the snapshot, or null when there's no usable persisted state — absent,
-   *  unreadable, malformed, or a version mismatch — so the caller seeds fresh. */
+  /** Read the snapshot and bring it up to the current version, or null when there's
+   *  no usable persisted state — absent, unreadable, malformed, or un-migratable — so
+   *  the caller seeds fresh. (Forward-only data migrations: F1 PD6.) */
   load(): PersistedState | null {
     try {
       const file = dataFile()
       if (!existsSync(file)) return null
       const parsed = JSON.parse(readFileSync(file).toString()) as PersistedState
-      if (!parsed || parsed.version !== STORE_VERSION) return null
-      return parsed
+      return migrateState(parsed)
     } catch {
       return null
     }
