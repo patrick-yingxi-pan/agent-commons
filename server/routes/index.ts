@@ -59,10 +59,12 @@ export function buildRouter(): Router {
   const r = new Router()
 
   // ── Request correlation id (design F3 / observability) ──────────────────────
-  // Stamp every response with an `X-Request-Id` — the seam logs/traces correlate on
-  // (F6 OpenTelemetry). Registered FIRST so even a short-circuited response (a 429
-  // from rate limiting below) carries one. Per-process monotonic id; a real
-  // deployment would honour an inbound id from the edge/trace context.
+  // Stamp every matched-route response with an `X-Request-Id` — the seam logs/traces
+  // correlate on (F6 OpenTelemetry). Registered FIRST so even a short-circuited
+  // response (a 429 from rate limiting below) carries one. (Router-boundary 404s and
+  // OPTIONS/static responses are emitted before routing — see server/index.ts — so a
+  // production deployment stamps at the edge to cover those too.) Per-process
+  // monotonic id; a real deployment would honour an inbound id from the trace context.
   let requestSeq = 0
   r.use((ctx) => {
     ctx.res.setHeader('X-Request-Id', `req-${store.epoch}-${++requestSeq}`)

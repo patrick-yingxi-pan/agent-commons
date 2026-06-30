@@ -19,10 +19,14 @@ export class RateLimiter {
   readonly #windows = new Map<string, { count: number; resetAt: number }>()
   readonly #windowMs: number
   readonly #now: () => number
+  readonly #maxKeys: number
 
-  constructor(windowMs: number = 60_000, now: () => number = () => Date.now()) {
+  /** `maxKeys` hard-bounds how many distinct windows are tracked (memory guard);
+   *  default is generous for real tenants. Injectable, like the clock, for tests. */
+  constructor(windowMs: number = 60_000, now: () => number = () => Date.now(), maxKeys: number = 50_000) {
     this.#windowMs = windowMs
     this.#now = now
+    this.#maxKeys = maxKeys
   }
 
   /** Account one request against `key` under `limit`. A window starts on the first
@@ -34,6 +38,7 @@ export class RateLimiter {
     if (!w || w.resetAt <= t) {
       w = { count: 0, resetAt: t + this.#windowMs }
       this.#windows.set(key, w)
+      if (this.#windows.size > this.#maxKeys) this.#evict(t) // bound memory on a new key
     }
     if (w.count >= limit) {
       return { allowed: false, remaining: 0, retryAfterMs: w.resetAt - t }
@@ -42,8 +47,20 @@ export class RateLimiter {
     return { allowed: true, remaining: limit - w.count, retryAfterMs: 0 }
   }
 
-  /** Drop all windows (test isolation; also a cheap "reset the fleet" lever). */
-  reset(): void {
-    this.#windows.clear()
+  /** Keep the window map bounded. First sweep expired windows; if still over the cap
+   *  (a burst of distinct live keys — e.g. an attacker cycling `x-tenant-id` on the
+   *  remote backend), drop the oldest-inserted. Dropping a live window is harmless —
+   *  it just resets that key's count, and a unique-key flood never accrues a count
+   *  anyway. Without this, the abuse control would itself be an unbounded-memory sink. */
+  #evict(now: number): void {
+    for (const [k, w] of this.#windows) {
+      if (this.#windows.size <= this.#maxKeys) return
+      if (w.resetAt <= now) this.#windows.delete(k)
+    }
+    while (this.#windows.size > this.#maxKeys) {
+      const oldest = this.#windows.keys().next().value
+      if (oldest === undefined) return
+      this.#windows.delete(oldest)
+    }
   }
 }

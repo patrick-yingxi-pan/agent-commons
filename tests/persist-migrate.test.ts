@@ -3,8 +3,11 @@
  *  (an older-version store upgrades in place instead of being discarded). */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { migrateState, DATA_MIGRATIONS, type DataMigration } from '../server/persistence/migrate.ts'
-import { SqliteBackend } from '../server/persistence/index.ts'
+import { SqliteBackend, JsonFileBackend } from '../server/persistence/index.ts'
 import { STORE_VERSION, type PersistedState } from '../server/persist.ts'
 
 // A minimal valid snapshot at an arbitrary version (only the required slices).
@@ -60,6 +63,8 @@ test('migrateState with the empty default registry behaves like discard-on-misma
   assert.equal(migrateState(at(STORE_VERSION - 1)), null, 'an old version with no registered migration is discarded')
 })
 
+// Both backends route load() through migrateState (migrate.ts asserts this in prose),
+// so prove the upgrade-in-place path on BOTH — JSON is the default backend.
 test('the SQLite backend upgrades an older-version store via a registered migration', () => {
   // Register a temporary migration into the *real* registry the backend uses, proving
   // load() routes through migrateState. Restored in finally so the file stays clean.
@@ -75,5 +80,29 @@ test('the SQLite backend upgrades an older-version store via a registered migrat
     db.close()
   } finally {
     DATA_MIGRATIONS.length = 0
+  }
+})
+
+test('the JSON backend (default) upgrades an older-version store via a registered migration', () => {
+  const file = join(tmpdir(), `claude-ui-migrate-json-${process.pid}.json`)
+  const prevDataFile = process.env.DATA_FILE
+  process.env.DATA_FILE = file
+  DATA_MIGRATIONS.push({ to: STORE_VERSION, migrate: (s) => ({ ...s, seq: { ...s.seq, run: 77 } }) })
+  try {
+    const db = new JsonFileBackend()
+    db.save(at(STORE_VERSION - 1))
+    const loaded = db.load()
+    assert.ok(loaded, 'the old store was upgraded, not discarded')
+    assert.equal(loaded.version, STORE_VERSION, 'upgraded to the current version')
+    assert.equal(loaded.seq.run, 77, 'the registered migration ran during load()')
+  } finally {
+    DATA_MIGRATIONS.length = 0
+    if (prevDataFile === undefined) delete process.env.DATA_FILE
+    else process.env.DATA_FILE = prevDataFile
+    try {
+      rmSync(file)
+    } catch {
+      /* already gone */
+    }
   }
 })

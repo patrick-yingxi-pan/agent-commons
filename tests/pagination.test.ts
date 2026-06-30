@@ -97,17 +97,22 @@ test('GET /audit supports the same opt-in pagination', async () => {
   assert.ok(Array.isArray(arr.json), 'array by default')
   const page = (await call('GET', '/audit?limit=1')).json as Page<unknown>
   assert.ok('items' in page && 'nextCursor' in page, 'envelope when paginated')
-  assert.ok(page.items.length <= 1)
+  // The seed audit log is empty, so assert the *shape*, not a count.
+  assert.ok(Array.isArray(page.items), 'items is an array')
 })
 
 // ── The generalized list endpoints (same shared sendList helper) ──────────────
+// Both /dispatch and /artifacts are seeded with several items, so a `?limit=1` page
+// must contain *exactly* one item and signal more remain — `<= 1` would pass even on
+// a (buggy) empty page.
 for (const path of ['/dispatch', '/artifacts']) {
   test(`GET ${path} is array-by-default and paginates opt-in`, async () => {
-    const arr = await call('GET', path)
-    assert.ok(Array.isArray(arr.json), `${path} unchanged array shape by default`)
+    const full = (await call('GET', path)).json as { id: string }[]
+    assert.ok(Array.isArray(full) && full.length > 1, `${path} seed has more than one item`)
     const page = (await call('GET', `${path}?limit=1`)).json as Page<{ id: string }>
     assert.ok('items' in page && 'nextCursor' in page, `${path} returns an envelope when paginated`)
-    assert.ok(page.items.length <= 1, `${path} respects the limit`)
+    assert.equal(page.items.length, 1, `${path} returns exactly one item for limit=1`)
+    assert.ok(page.nextCursor, `${path} signals that more pages remain`)
     assert.equal((await call('GET', `${path}?limit=0`)).status, 400, `${path} rejects an invalid limit`)
   })
 }
