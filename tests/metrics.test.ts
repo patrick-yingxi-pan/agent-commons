@@ -19,6 +19,13 @@ test('GET /metrics exposes per-method counters, uptime, and the epoch in Prometh
   assert.match(res.body, /store_epoch_info\{epoch="[^"]+"\} 1/, 'the epoch is an info label')
 })
 
+test('GET /metrics includes runner status gauges (F4 registry)', async () => {
+  const res = await callRaw('GET', '/metrics')
+  assert.match(res.body, /# TYPE runners_total gauge/)
+  assert.match(res.body, /runners_total\{status="online"\} \d+/)
+  assert.match(res.body, /runners_total\{status="offline"\} \d+/)
+})
+
 test('the GET counter actually increments (not stuck at a constant)', async () => {
   const before = getCount((await callRaw('GET', '/metrics')).body)
   await call('GET', '/healthz')

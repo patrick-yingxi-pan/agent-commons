@@ -1515,6 +1515,12 @@ export const store = {
   runSchedule(id: string): ScheduledRun | undefined {
     const task = schedules.find((t) => t.id === id)
     if (!task) return undefined
+    // No overlapping runs of the same routine (P7): the daemon can tick again before a
+    // run finishes, so if one is already in flight, return it instead of starting a
+    // second. (A stale 'running' run from before a restart is swept to 'failed' on
+    // rehydrate, so it can't wedge the routine.)
+    const inFlight = task.runs.find((r) => r.status === 'running')
+    if (inFlight) return inFlight
     const run: ScheduledRun = {
       id: `run-live-${(runSeq += 1)}`,
       status: 'running',
@@ -1681,8 +1687,17 @@ export const store = {
  *  routine and broadcast it — so a connected UI sees runs appear with no request
  *  (the ambient-push showcase). Returns a stop handle. In the real product this
  *  is a server-side cron executing the workflow against the Anthropic API. */
+/** How long a runner may go without a heartbeat before the control plane reaps it
+ *  (F4 liveness). Validate-and-floor an override so an empty/garbage env var can't
+ *  collapse it to 0/NaN. Two missed heartbeats at the daemon cadence by default. */
+const RUNNER_TTL_MS = (() => {
+  const n = Number(process.env.RUNNER_TTL_MS)
+  return Number.isFinite(n) && n > 0 ? n : 120_000
+})()
+
 export function startRunDaemon(intervalMs = 45_000): () => void {
   const tick = () => {
+    store.registry.reapStale(RUNNER_TTL_MS) // drop runners that stopped heartbeating
     const active = schedules.filter((t) => t.enabled)
     if (active.length === 0) return
     // Vary by the run counter rather than Math.random for reproducibility.

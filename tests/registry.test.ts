@@ -100,6 +100,42 @@ test('lifecycle ops on an unknown id return undefined/false (no throw)', () => {
   assert.equal(reg.deregister('nope'), false)
 })
 
+test('reapStale marks runners past the TTL offline (durable), emits disconnect, returns ids', () => {
+  const { reg, events, tick } = harness()
+  reg.register({ id: 'a1', label: 'L', host: 'h', capabilities: FS }) // lastSeen 1000
+  tick(50)
+  reg.register({ id: 'a2', label: 'M', host: 'h', capabilities: FS }) // lastSeen 1050
+  tick(100) // clock 1150
+  // TTL 120: a1 (last 1000, age 150) is stale; a2 (last 1050, age 100) is fresh.
+  const reaped = reg.reapStale(120)
+  assert.deepEqual(reaped, ['a1'])
+  assert.equal(reg.get('a1')?.status, 'offline', 'stale runner reaped')
+  assert.equal(reg.get('a2')?.status, 'online', 'fresh runner kept')
+  assert.deepEqual(reg.list().map((x) => x.id), ['a1', 'a2'], 'identity persists (durable)')
+  assert.deepEqual(events.at(-1), { type: 'runner.disconnected', runnerId: 'a1' })
+  assert.equal(reg.find('fs.read').some((r) => r.id === 'a1'), false, 'reaped runner is no longer routed to')
+})
+
+test('reapStale is a no-op for an already-offline runner and for fresh runners', () => {
+  const { reg, tick } = harness()
+  reg.register({ id: 'a1', label: 'L', host: 'h', capabilities: FS })
+  reg.deregister('a1') // already offline
+  tick(10_000)
+  assert.deepEqual(reg.reapStale(1), [], 'an offline runner is not re-reaped')
+  reg.register({ id: 'a2', label: 'M', host: 'h', capabilities: FS })
+  assert.deepEqual(reg.reapStale(120), [], 'a just-seen runner is not reaped')
+})
+
+test('a heartbeat rescues a runner from the next reap (refreshes lastSeen)', () => {
+  const { reg, tick } = harness()
+  reg.register({ id: 'a1', label: 'L', host: 'h', capabilities: FS })
+  tick(100)
+  reg.heartbeat('a1') // lastSeen now 1100
+  tick(50) // clock 1150, age since heartbeat = 50
+  assert.deepEqual(reg.reapStale(120), [], 'recent heartbeat keeps it online')
+  assert.equal(reg.get('a1')?.status, 'online')
+})
+
 test('find returns only online runners advertising a capability', () => {
   const { reg } = harness()
   reg.register({ id: 'a1', label: 'L', host: 'h', capabilities: [{ type: 'terminal', scopes: ['*'] }] })

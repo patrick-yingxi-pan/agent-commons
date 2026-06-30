@@ -170,10 +170,16 @@ export function buildRouter(): Router {
   // process uptime + the store epoch (as an info label). A real deployment adds
   // status-class + latency histograms metered at the edge.
   r.get('/metrics', ({ res }) => {
+    const runners = store.registry.list()
+    const onlineRunners = runners.filter((rn) => rn.status === 'online').length
     const lines = [
       '# HELP http_requests_total Matched-route requests by method.',
       '# TYPE http_requests_total counter',
       ...[...requestsByMethod].map(([m, n]) => `http_requests_total{method="${m}"} ${n}`),
+      '# HELP runners_total Connected runners by status (F4 broker registry).',
+      '# TYPE runners_total gauge',
+      `runners_total{status="online"} ${onlineRunners}`,
+      `runners_total{status="offline"} ${runners.length - onlineRunners}`,
       '# HELP process_uptime_seconds Seconds since this router started.',
       '# TYPE process_uptime_seconds gauge',
       `process_uptime_seconds ${((Date.now() - startedAt) / 1000).toFixed(3)}`,
@@ -198,7 +204,19 @@ export function buildRouter(): Router {
     if (!runner) return sendError(res, 'not_found', `No runner '${params.id}'`)
     sendJson(res, runner)
   })
-  r.post('/runners', async ({ res, body }) => {
+  r.post('/runners', async ({ req, res, body }) => {
+    // Enrollment auth (F4): when `RUNNER_ENROLL_TOKEN` is set, a runner must present it
+    // (`Authorization: Bearer <token>` or `x-runner-token`) to enroll or reconnect — the
+    // shared-secret stand-in for the mTLS/token identity a production broker requires.
+    // Unset ⇒ open enrollment (the loopback-sidecar default; the existing suite is unaffected).
+    const enrollToken = process.env.RUNNER_ENROLL_TOKEN
+    if (enrollToken) {
+      const bearer = headerValue(req.headers, 'authorization')?.replace(/^Bearer /, '')
+      const supplied = bearer || headerValue(req.headers, 'x-runner-token')
+      if (supplied !== enrollToken) {
+        return sendError(res, 'forbidden', 'runner enrollment requires a valid token')
+      }
+    }
     const input = await body<RegisterRunnerRequest>()
     if (!input?.label || !input?.host || !Array.isArray(input.capabilities)) {
       return sendError(res, 'bad_request', 'label, host, and capabilities are required')

@@ -110,6 +110,25 @@ export class RunnerRegistry {
     return true
   }
 
+  /** Liveness reaping (F4): mark online runners whose last heartbeat is older than
+   *  `ttlMs` as offline — durable identity is kept (a later reconnect re-binds), so this
+   *  mirrors `deregister` for a runner that died without disconnecting. Emits
+   *  `runner.disconnected` per reaped runner and returns their ids. The control plane
+   *  calls this on a cadence; `find()` already filters to online, so routing stops
+   *  targeting a reaped runner immediately. */
+  reapStale(ttlMs: number): string[] {
+    const cutoff = this.now() - ttlMs
+    const reaped: string[] = []
+    for (const runner of this.runners.values()) {
+      if (runner.status === 'online' && runner.lastSeen < cutoff) {
+        runner.status = 'offline'
+        this.emit({ type: 'runner.disconnected', runnerId: runner.id })
+        reaped.push(runner.id)
+      }
+    }
+    return reaped
+  }
+
   get(id: string): Runner | undefined {
     return this.runners.get(id)
   }
