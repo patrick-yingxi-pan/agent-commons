@@ -512,6 +512,11 @@ export function useSessionWorkspace() {
   // free-typed "organize" request is as real a round-trip as the guided tour's.
   const handleSend = useCallback((text: string) => {
     const startId = activeIdRef.current
+    // The draft's panel choice at dispatch (captured synchronously, before the
+    // materialize await, so a mid-flight navigation can't make us read another
+    // session's focus). Carried onto the real session below so an explicitly-closed
+    // panel on a pre-attached draft (FWD-1) survives the draft→real transition (FWD-2).
+    const draftFocus = focusRef.current
     // The send generation at dispatch time. Any session switch / re-select bumps
     // runId (via clearTimers), which invalidates this stream — so a reconcile
     // triggered by re-selecting this same session mid-stream can't be clobbered by,
@@ -553,6 +558,10 @@ export function useSessionWorkspace() {
             void persistWorkspace(sid, workspaceOf(seededLive)).catch(() => {})
             pendingDraftContexts.current = []
           }
+          // Carry the draft's panel choice onto the now-real session (FWD-2): the draft
+          // couldn't persist a pref (no server id), so an explicitly-closed panel on a
+          // pre-attached draft would otherwise be re-opened by strongestFocus on reopen.
+          setPanelPref(sid, draftFocus)
           // Adopt the new id only if the user is still on the draft — don't yank
           // them back if they navigated away while it was materializing.
           if (activeIdRef.current === DRAFT_ID) {

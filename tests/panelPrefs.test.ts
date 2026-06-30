@@ -31,8 +31,11 @@ test('a stored focus round-trips; explicit null (closed) is distinct from unset'
   assert.equal(getPanelPref('s2'), undefined, 'a different session stays unset')
 })
 
-test('the choice persists in the backing store (survives a reload)', () => {
+test('a fresh module evaluation reads the persisted choice (survives a reload)', async () => {
   setPanelPref('s1', { kind: 'workspace', id: 'ws' } as PanelFocus)
-  // A reload re-reads from the same backing store — getPanelPref reads localStorage fresh.
-  assert.deepEqual(getPanelPref('s1'), { kind: 'workspace', id: 'ws' })
+  // A real reload = a brand-new module instance reading the SAME backing store. A
+  // cache-busting query forces a fresh evaluation; this would fail if a module-level
+  // cache were ever introduced (which a same-process re-read wouldn't catch).
+  const fresh = await import('../src/lib/panelPrefs.ts?reload=1')
+  assert.deepEqual(fresh.getPanelPref('s1'), { kind: 'workspace', id: 'ws' })
 })
