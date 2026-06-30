@@ -4,7 +4,7 @@
  *  carries our typed `ServerEvent`s as JSON `data:` frames. */
 import type { ServerResponse } from 'node:http'
 import type { ServerEvent } from '../../contract/index.ts'
-import { CORS_HEADERS } from './respond.ts'
+import { BASE_HEADERS } from './respond.ts'
 
 export interface SseChannel {
   send(event: ServerEvent): void
@@ -14,7 +14,7 @@ export interface SseChannel {
 /** Promote a response into an SSE channel. */
 export function openSse(res: ServerResponse): SseChannel {
   res.writeHead(200, {
-    ...CORS_HEADERS,
+    ...BASE_HEADERS, // CORS + security headers (nosniff is the meaningful one for a stream)
     'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache, no-transform',
     Connection: 'keep-alive',

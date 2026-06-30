@@ -18,6 +18,7 @@ import { CORS_HEADERS, SECURITY_HEADERS, sendError } from './http/respond.ts'
 import { buildRouter } from './routes/index.ts'
 import { store, startRunDaemon } from './store.ts'
 import { startModelServer } from './model/index.ts'
+import { positiveNumberEnv } from './env.ts'
 
 const PORT = Number(process.env.PORT ?? 8787)
 const HOST = process.env.HOST ?? '127.0.0.1'
@@ -106,13 +107,25 @@ server.listen(PORT, HOST, () => {
   if (usingMockModel && process.env.MODEL_INLINE !== '0') startModelServer()
   // The scheduled-run daemon: fires a run on a cadence and pushes it to clients.
   const stopDaemon = startRunDaemon()
-  // Clean shutdown (the dev --watch restart sends SIGTERM): begin draining so the load
-  // balancer's /readyz probe fails and stops routing new traffic here, then stop the
-  // daemon's interval so it can't outlive the process / pile up across restarts.
+  // Graceful shutdown (the dev --watch restart sends SIGTERM): begin draining so the load
+  // balancer's /readyz probe fails (stops routing new traffic here), then stop accepting
+  // new connections and let in-flight requests finish before exiting. A long-lived stream
+  // (SSE) would otherwise hold `close()` open forever, so force-close lingering connections
+  // shortly after, with a bounded hard-exit fallback. Exiting in the same tick (the old
+  // behaviour) made the drain unobservable and killed in-flight work.
+  const DRAIN_GRACE_MS = positiveNumberEnv(process.env.DRAIN_GRACE_MS, 5_000)
+  let shuttingDown = false
   const shutdown = () => {
+    if (shuttingDown) return
+    shuttingDown = true
     store.beginDraining()
     stopDaemon()
-    process.exit(0)
+    server.close(() => process.exit(0)) // exits once all connections have closed
+    // Let normal in-flight requests finish, then force-close lingering streams so close()
+    // can complete; a hard fallback guarantees exit even then. Both unref'd so they never
+    // keep the process alive on their own.
+    setTimeout(() => server.closeAllConnections?.(), 1_000).unref()
+    setTimeout(() => process.exit(0), DRAIN_GRACE_MS).unref()
   }
   process.on('SIGTERM', shutdown)
   process.on('SIGINT', shutdown)

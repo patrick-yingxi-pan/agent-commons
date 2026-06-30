@@ -17,7 +17,7 @@
  *   • The map holds each distinct key until its TTL (default 24h); a client spamming
  *     unique keys grows it unbounded within that window. Production caps/evicts. */
 import type { ServerResponse } from 'node:http'
-import { CORS_HEADERS } from './http/respond.ts'
+import { BASE_HEADERS } from './http/respond.ts'
 
 /** A recorded HTTP response, enough to replay it verbatim. */
 export interface CachedResponse {
@@ -106,7 +106,7 @@ export function captureResponse(real: ServerResponse): {
 /** Replay a recorded response onto a fresh `ServerResponse` (the retry path). */
 export function replayResponse(res: ServerResponse, rec: CachedResponse): void {
   res.writeHead(rec.status, {
-    ...CORS_HEADERS,
+    ...BASE_HEADERS,
     'Content-Type': rec.contentType,
     'Idempotency-Replayed': 'true',
   })

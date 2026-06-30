@@ -34,8 +34,9 @@ export const SECURITY_HEADERS: Record<string, string> = {
   'Content-Security-Policy': "frame-ancestors 'none'",
 }
 
-/** Headers on every JSON/text/byte response: CORS + security. */
-const BASE_HEADERS: Record<string, string> = { ...CORS_HEADERS, ...SECURITY_HEADERS }
+/** Headers on every buffered response: CORS + security. The one source of truth so a
+ *  new response sender (idempotency replay, SSE) can't silently drop the security set. */
+export const BASE_HEADERS: Record<string, string> = { ...CORS_HEADERS, ...SECURITY_HEADERS }
 
 export function sendJson(res: ServerResponse, body: unknown, status = 200): void {
   const payload = JSON.stringify(body)

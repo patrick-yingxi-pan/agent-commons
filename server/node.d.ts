@@ -25,6 +25,11 @@ declare module 'node:http' {
   export interface Server {
     listen(port: number, host: string, cb?: () => void): Server
     listen(port: number, cb?: () => void): Server
+    /** Stop accepting new connections; the callback fires once all are closed. */
+    close(cb?: (err?: Error) => void): Server
+    /** Force-close all active connections (Node 18.2+) — used to bound a drain so a
+     *  long-lived stream (SSE) can't hold the close() open indefinitely. */
+    closeAllConnections?(): void
   }
   export function createServer(
     handler: (req: IncomingMessage, res: ServerResponse) => void,
