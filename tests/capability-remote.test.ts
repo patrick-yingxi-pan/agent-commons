@@ -110,6 +110,15 @@ test('sessions are tenant-isolated on a remote backend (list + read-by-id, 404 n
   const getOmega = await call('GET', `/sessions/${zeta.id}`, { 'x-tenant-id': 'tenant-omega' })
   assert.equal(getOmega.status, 404, 'a cross-tenant id is 404, not 403')
 
+  // Write-side isolation: a foreign tenant can neither delete nor patch it (404, no effect).
+  // The guard short-circuits before the body is read, so these need no request body.
+  const delOmega = await call('DELETE', `/sessions/${zeta.id}`, { 'x-tenant-id': 'tenant-omega' })
+  assert.equal(delOmega.status, 404, 'a foreign tenant cannot delete the session')
+  const patchOmega = await call('PATCH', `/sessions/${zeta.id}`, { 'x-tenant-id': 'tenant-omega' })
+  assert.equal(patchOmega.status, 404, 'a foreign tenant cannot patch the session')
+  const survived = await call('GET', '/sessions', { 'x-tenant-id': 'tenant-zeta' })
+  assert.ok(survived.json.some((s) => s.id === zeta.id), 'the session survived the cross-tenant delete attempt')
+
   // The default (no-header) reader is the web tenant; seed sessions default to it and stay visible.
   const listDefault = await call('GET', '/sessions')
   assert.ok(listDefault.json.some((s) => s.isDemo), 'the default tenant still sees the seed demo')

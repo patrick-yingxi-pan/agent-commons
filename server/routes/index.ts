@@ -852,6 +852,21 @@ export function buildRouter(): Router {
   })
 
   // ── Sessions ──────────────────────────────────────────────────────────────
+  // The tenant boundary for an existing session addressed by id (F2/PD9), shared by
+  // every by-id session route so reads and writes are isolated alike. If the session
+  // exists but belongs to another tenant, 404 (not 403 — existence must not leak) and
+  // return true so the caller bails. Unknown / unpersisted (draft) ids fall through to
+  // each route's own not-found path; run/seed sessions (no tenantId) belong to the
+  // default tenant.
+  const denyForeignSession = (req: IncomingMessage, res: ServerResponse, id: string): boolean => {
+    const session = store.getSession(id) ?? store.runSession(id)
+    if (session && !store.sessionVisibleToTenant(session, store.identity(req.headers).tenant.id)) {
+      sendError(res, 'not_found', `No session '${id}'`)
+      return true
+    }
+    return false
+  }
+
   // Opt-in cursor pagination (F3 PD14): `?limit=N[&cursor=C]` returns a `Page<Session>`;
   // without `limit`, the full array (the UI reads the array until it virtualizes, PD36).
   // Scoped to the caller's tenant (F2/PD9 — the RLS-equivalent boundary): a tenant
@@ -860,14 +875,11 @@ export function buildRouter(): Router {
     sendList(res, url, store.listSessions(store.identity(req.headers).tenant.id), (s) => s.id)
   })
   r.get('/sessions/:id', ({ req, res, params }) => {
+    if (denyForeignSession(req, res, params.id)) return
     // A scheduled run *is* a session — resolve `srun-*` ids to the synthesized run
     // session (which reflects the current, live runs).
     const session = store.getSession(params.id) ?? store.runSession(params.id)
     if (!session) return sendError(res, 'not_found', `No session '${params.id}'`)
-    // Tenant isolation (F2/PD9): another tenant's session is 404 even by direct id —
-    // a not-found (not 403) so existence doesn't leak across the boundary.
-    if (!store.sessionVisibleToTenant(session, store.identity(req.headers).tenant.id))
-      return sendError(res, 'not_found', `No session '${params.id}'`)
     sendJson(res, session)
   })
   // Materialize a new persisted session — a draft becomes real on its first send
@@ -878,14 +890,16 @@ export function buildRouter(): Router {
     sendJson(res, store.createSession(firstMessage, store.identity(req.headers).tenant.id))
   }))
   // Edit a session's row fields (rename / pin / archive) from the sidebar menu.
-  r.patch('/sessions/:id', async ({ res, params, body }) => {
+  r.patch('/sessions/:id', async ({ req, res, params, body }) => {
+    if (denyForeignSession(req, res, params.id)) return
     const patch = await body<{ title?: string; status?: 'active' | 'archived'; pinned?: boolean }>()
     const session = store.patchSession(params.id, patch)
     if (!session) return sendError(res, 'not_found', `No session '${params.id}'`)
     sendJson(res, session)
   })
   // Delete a session (the row menu's "Delete").
-  r.delete('/sessions/:id', ({ res, params }) => {
+  r.delete('/sessions/:id', ({ req, res, params }) => {
+    if (denyForeignSession(req, res, params.id)) return
     if (!store.removeSession(params.id)) return sendError(res, 'not_found', `No session '${params.id}'`)
     sendJson(res, { ok: true })
   })
@@ -894,10 +908,12 @@ export function buildRouter(): Router {
   // docs/shared-resource-coordination.md). Persisted server-side so every effect a
   // session initiates can be mediated by *naming* an attached context (Tiers A–C).
   // Attach/detach broadcast `session.contexts.changed`.
-  r.get('/sessions/:id/contexts', ({ res, params }) => {
+  r.get('/sessions/:id/contexts', ({ req, res, params }) => {
+    if (denyForeignSession(req, res, params.id)) return
     sendJson(res, store.sessionContexts(params.id))
   })
-  r.post('/sessions/:id/contexts', async ({ res, params, body }) => {
+  r.post('/sessions/:id/contexts', async ({ req, res, params, body }) => {
+    if (denyForeignSession(req, res, params.id)) return
     const input = await body<AttachContextRequest>()
     if (!input?.id || !input?.type || !input?.label) {
       return sendError(res, 'bad_request', 'id, type, and label are required')
@@ -910,7 +926,8 @@ export function buildRouter(): Router {
       source: input.source,
     }))
   })
-  r.delete('/sessions/:id/contexts/:contextId', ({ res, params }) => {
+  r.delete('/sessions/:id/contexts/:contextId', ({ req, res, params }) => {
+    if (denyForeignSession(req, res, params.id)) return
     const next = store.detachContext(params.id, params.contextId)
     if (!next) return sendError(res, 'not_found', `No context '${params.contextId}' on session '${params.id}'`)
     sendJson(res, next)
@@ -921,7 +938,8 @@ export function buildRouter(): Router {
   // conversation does. The client write-throughs the merged panels it assembled
   // from the (server-owned) context catalogs; the server stores them as the system
   // of record and returns the full session. Broadcasts `session.updated`.
-  r.patch('/sessions/:id/workspace', async ({ res, params, body }) => {
+  r.patch('/sessions/:id/workspace', async ({ req, res, params, body }) => {
+    if (denyForeignSession(req, res, params.id)) return
     const ws = await body<import('../../contract/index.ts').SessionWorkspace>()
     if (!ws || !Array.isArray(ws.workspaces) || !Array.isArray(ws.repos) || !Array.isArray(ws.connectors) || !Array.isArray(ws.attachments)) {
       return sendError(res, 'bad_request', 'workspaces, repos, connectors, and attachments arrays are required')
@@ -940,6 +958,7 @@ export function buildRouter(): Router {
   // We relay the model's text deltas, then append the app-domain relation
   // proposals as `message.relations` before `message.end`.
   r.post('/sessions/:id/messages', async ({ req, res, params, body }) => {
+    if (denyForeignSession(req, res, params.id)) return
     const { text, ephemeral } = await body<SendMessageRequest>()
     // A draft / run session may not be persisted; reply with a generic shell.
     const known = store.getSession(params.id)
