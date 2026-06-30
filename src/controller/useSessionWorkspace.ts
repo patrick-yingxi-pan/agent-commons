@@ -115,6 +115,29 @@ function strongestFocus(l: Live): PanelFocus | null {
       : null
 }
 
+/** The panel to open for a just-attached context, so you see what you added — the
+ *  shared rule used by both the manual attach funnel and the pre-attached entry
+ *  shortcuts (FWD-1). `live` is the post-attach state (a folder merges into the
+ *  shared workspace, so its id is read from there). */
+function focusForAdded(ctx: AddedContext, live: Live): PanelFocus | null {
+  switch (ctx.kind) {
+    case 'folder':
+      return { kind: 'workspace', id: live.workspaces[0]?.id ?? WS_ID }
+    case 'repo':
+      return { kind: 'repo', id: repoIdForLabel(ctx.label) }
+    case 'connector':
+    case 'mcp':
+      return { kind: 'connector', id: ctx.connector.id }
+    case 'files':
+    case 'photos': {
+      const first = ctx.attachments[0]
+      return first ? { kind: first.kind, id: first.id } : null
+    }
+    default:
+      return null
+  }
+}
+
 /** ── Controller: the active session + its live workspace ───────────────────
  *  Owns all session, live-context, panel-focus, section, and guided-tour state,
  *  plus every handler the view binds to. App.tsx is a thin view over what this
@@ -186,6 +209,11 @@ export function useSessionWorkspace() {
   // coalesce into ONE session instead of racing to create two. Reset when a new
   // draft begins (newSession) or the materialization fails.
   const draftMaterializing = useRef<Promise<Session> | null>(null)
+  // Contexts attached while on the (not-yet-real) draft — a pre-attached entry
+  // shortcut (FWD-1) or a manual attach before the first send. The draft can't
+  // persist a binding (it has no server id yet), so these are held and flushed onto
+  // the real session the moment the draft materializes, so they survive a reload.
+  const pendingDraftContexts = useRef<AddedContext[]>([])
 
   const activeSession = useMemo(
     // A scheduled run opens its own synthesized session — resolve from the live
@@ -517,6 +545,16 @@ export function useSessionWorkspace() {
           const created = await pending
           sid = created.id
           setExtraSessions((prev) => (prev.some((s) => s.id === created.id) ? prev : [created, ...prev]))
+          // Flush any contexts pre-attached to the draft (a FWD-1 entry shortcut or a
+          // manual attach before first send) onto the now-real session: persist each
+          // binding-of-record and the assembled panels, so they survive a reload —
+          // the binding writes the draft deliberately skipped (persistableSession=false).
+          const seeded = pendingDraftContexts.current
+          if (seeded.length) {
+            for (const ctx of seeded) for (const b of bindingsFor(ctx)) void attachContext(sid, b).catch(() => {})
+            void persistWorkspace(sid, workspaceOf(liveRef.current)).catch(() => {})
+            pendingDraftContexts.current = []
+          }
           // Adopt the new id only if the user is still on the draft — don't yank
           // them back if they navigated away while it was materializing.
           if (activeIdRef.current === DRAFT_ID) {
@@ -616,29 +654,15 @@ export function useSessionWorkspace() {
     // Both gate on persistableSession so a draft/demo doesn't persist an orphan
     // binding the panel write (persistLive) deliberately skips.
     if (persistableSession(id)) for (const b of bindingsFor(ctx)) void attachContext(id, b).catch(() => {})
+    // A draft can't persist its binding yet (no server id) — hold it so it's flushed
+    // onto the real session when the draft materializes on first send (see handleSend).
+    else if (id === DRAFT_ID) pendingDraftContexts.current.push(ctx)
     const next = addContextToLive(liveRef.current, ctx)
     setLive(next)
     persistLive(id, next)
     // Open the newly attached context's sidebar so you see what you added.
-    switch (ctx.kind) {
-      case 'folder':
-        // Focus the (possibly pre-existing) shared workspace it merged into.
-        setFocus({ kind: 'workspace', id: next.workspaces[0]?.id ?? WS_ID })
-        break
-      case 'repo':
-        setFocus({ kind: 'repo', id: repoIdForLabel(ctx.label) })
-        break
-      case 'connector':
-      case 'mcp':
-        setFocus({ kind: 'connector', id: ctx.connector.id })
-        break
-      case 'files':
-      case 'photos': {
-        const first = ctx.attachments[0]
-        if (first) setFocus({ kind: first.kind, id: first.id })
-        break
-      }
-    }
+    const f = focusForAdded(ctx, next)
+    if (f) setFocus(f)
   }, [persistableSession, persistLive])
 
   // Clicking a chip toggles its sidebar.
@@ -647,8 +671,12 @@ export function useSessionWorkspace() {
   }, [])
 
   // "New session" opens a blank thread with the composer ready, like the desktop
-  // app's "New chat" (not a jump to an existing session).
-  const newSession = useCallback(() => {
+  // app's "New chat" (not a jump to an existing session). With an optional context
+  // `seed`, the thread lands already-escalated with that context pre-attached and its
+  // panel open — the old per-mode entry points ("New from repo / folder") survive as
+  // shortcuts, not tabs (FWD-1 / PD33). One code path, several launchers; the seed runs
+  // the same attach funnel (held in pendingDraftContexts, persisted on first send).
+  const newSession = useCallback((seed?: AddedContext) => {
     record({ kind: 'session', sessionId: DRAFT_ID, title: '' })
     clearTimers()
     setTyping(false)
@@ -658,13 +686,37 @@ export function useSessionWorkspace() {
     // A fresh draft must re-materialize on its first send — don't reuse the
     // previous draft's (now resolved) session.
     draftMaterializing.current = null
-    setLive(EMPTY_LIVE)
-    setFocus(null)
+    if (seed) {
+      rememberAttached(seed) // promote into the Add-context recents, like a manual attach
+      const seeded = addContextToLive(EMPTY_LIVE, seed)
+      setLive(seeded)
+      setFocus(focusForAdded(seed, seeded))
+      pendingDraftContexts.current = [seed]
+    } else {
+      setLive(EMPTY_LIVE)
+      setFocus(null)
+      pendingDraftContexts.current = []
+    }
     setPhase('idle')
     setStepIndex(-1)
     setCaption('')
     setPendingEscalation(null)
   }, [clearTimers, record])
+
+  // "New from repo / folder / connector…" — a per-mode entry point that starts a
+  // fresh chat with that context pre-attached (FWD-1 / PD33). Multi-add aware: if
+  // already on a fresh, empty draft, stack the context onto it (so several picks
+  // build one new thread) instead of resetting to yet another draft.
+  const newSessionWith = useCallback(
+    (ctx: AddedContext) => {
+      if (activeIdRef.current === DRAFT_ID && liveRef.current.messages.length === 0) {
+        handleAddContext(ctx)
+      } else {
+        newSession(ctx)
+      }
+    },
+    [handleAddContext, newSession],
+  )
 
   // Opening a section from the rail always lands on its top level, so clear any
   // project a previous deep-link had focused.
@@ -862,6 +914,7 @@ export function useSessionWorkspace() {
     // actions
     selectSession,
     newSession,
+    newSessionWith,
     openSection,
     openProject,
     openSchedule,

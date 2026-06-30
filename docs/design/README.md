@@ -79,7 +79,7 @@ answered. These are **`docs/spec/` requirement-status** markers (full legend in 
 
 | Spec item | What it is | Production design |
 |-----------|-----------|-------------------|
-| FWD-1 `📝` | Pre-attached entry shortcuts | [P1](P1-adaptive-ui.md) (PD33) |
+| FWD-1 `🟡` | Pre-attached entry shortcuts (seam + launcher built; per-mode sidebar entries remain) | [P1](P1-adaptive-ui.md) (PD33) |
 | FWD-2 `🟡` | Per-conversation panel memory | [P1](P1-adaptive-ui.md) (PD34) |
 | FWD-3 `📝` | Responsive collapse-to-rail | [P1](P1-adaptive-ui.md) (PD35) |
 | FWD-4 `🟡` | Cross-device sync | [F3](F3-contract-sync.md)/[F6](F6-persistence-ops.md) (PD13/PD34) |

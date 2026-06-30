@@ -14,12 +14,14 @@ import { IntroOverlay } from './components/IntroOverlay'
 import { TourPermissionPrompt } from './components/TourPermissionPrompt'
 import { ProposalBar } from './components/ProposalBar'
 import { SearchPanel } from './components/SearchPanel'
+import { AddContextButton } from './components/AddContextButton'
 import { useSessions, useServerEvents } from './api'
 import { estimateTokens } from '../contract/index.ts'
 import { useSessionWorkspace } from './controller/useSessionWorkspace'
 import { useLayout } from './controller/useLayout'
 import { RelationsProvider, useRelations } from './controller/useRelations'
-import type { Connector, SectionId, Session } from './types'
+import type { Live } from './data/liveSession'
+import type { AddedContext, Connector, SectionId, Session } from './types'
 
 /** The View: composes the product chrome from two controllers — the session +
  *  its live workspace, and the rail layout — holding only local view chrome
@@ -61,6 +63,7 @@ export default function App() {
     focusedConnector,
     selectSession,
     newSession,
+    newSessionWith,
     openSection,
     openProject,
     openSchedule,
@@ -191,7 +194,7 @@ export default function App() {
                 activeId={activeId}
                 activeSection={activeSection}
                 onSelect={selectSession}
-                onNewSession={newSession}
+                onNewSession={() => newSession()}
                 onOpenSection={openSection}
                 onOpenSchedule={openSchedule}
                 onPinSession={pinSession}
@@ -212,7 +215,7 @@ export default function App() {
               <SectionView
                 section={activeSection}
                 onOpenSession={selectSession}
-                onNewSession={newSession}
+                onNewSession={() => newSession()}
                 onOpenProject={openProject}
                 onOpenSchedule={openSchedule}
                 onBack={goBack}
@@ -236,7 +239,11 @@ export default function App() {
                   <section className="flex min-w-0 flex-1 flex-col">
                     <div className="flex-1 overflow-y-auto">
                       {live.messages.length === 0 && !typing ? (
-                        <EmptyState mode={isDemo ? 'demo' : isDraft ? 'draft' : 'empty'} />
+                        <EmptyState
+                          mode={isDemo ? 'demo' : isDraft ? 'draft' : 'empty'}
+                          live={live}
+                          onNewSessionWith={newSessionWith}
+                        />
                       ) : (
                         <div className={!leftOpen && (isDemo || isDraft) ? 'pb-4 pt-14' : 'py-4'}>
                           {live.messages.map((m) => (
@@ -436,7 +443,17 @@ function SessionTitleBar({
   )
 }
 
-function EmptyState({ mode }: { mode: 'demo' | 'draft' | 'empty' }) {
+function EmptyState({
+  mode,
+  live,
+  onNewSessionWith,
+}: {
+  mode: 'demo' | 'draft' | 'empty'
+  /** The draft's live context (drives the launcher's "Added" ticks). Draft mode only. */
+  live?: Live
+  /** Start a new chat with a context pre-attached (FWD-1). Draft mode only. */
+  onNewSessionWith?: (ctx: AddedContext) => void
+}) {
   if (mode === 'draft') {
     return (
       <div className="flex h-full flex-col items-center justify-center px-6 text-center">
@@ -446,6 +463,22 @@ function EmptyState({ mode }: { mode: 'demo' | 'draft' | 'empty' }) {
             Start typing below. Attach a folder, a repo, or a connector and this one session grows a
             workspace or a code panel as the work needs it — no tabs, no lost context.
           </p>
+          {live && onNewSessionWith && (
+            // Pre-attached entry shortcuts (FWD-1): start this thread already holding a
+            // repo / folder / connector — the old per-mode "New Code/Cowork" entries as
+            // shortcuts, not tabs. Reuses the one attach funnel + picker.
+            <div className="mt-4 flex justify-center">
+              <AddContextButton
+                variant="inline"
+                label="Start with a repo, folder, or connector…"
+                onAttach={onNewSessionWith}
+                connectors={live.connectors}
+                repos={live.repos}
+                attachments={live.attachments}
+                workspaces={live.workspaces}
+              />
+            </div>
+          )}
         </div>
       </div>
     )
