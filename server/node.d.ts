@@ -61,6 +61,12 @@ declare module 'node:url' {
   export function fileURLToPath(url: string | URL): string
 }
 
+declare module 'node:module' {
+  /** Returns a CommonJS `require` bound to `path` — used to load `node:sqlite`
+   *  lazily from ESM without an async dynamic import (see persistence/sqlite.ts). */
+  export function createRequire(path: string | URL): (id: string) => unknown
+}
+
 declare const process: {
   env: Record<string, string | undefined>
   argv: string[]

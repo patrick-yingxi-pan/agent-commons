@@ -8,9 +8,13 @@
 > work* — components, data models, protocols, sequence flows, failure modes, and the
 > decisions behind them.
 >
-> **We design, not build.** The prototype stays a prototype. These docs are at
-> engineering-design altitude (an eng team could build from them), with concrete
-> schemas/interfaces where load-bearing — not production code in this repo.
+> **We design, not build** *(superseded 2026-06-30)*. Originally these docs were a
+> paper blueprint and the prototype stayed a prototype. The owner has since chosen to
+> **implement the locked-in design in-repo**, incrementally and architecture-first —
+> see [`IMPLEMENTATION.md`](IMPLEMENTATION.md) for the reversal, the constraints that
+> still hold (few deps, framework-free contract, tests-with-every-step), and the
+> build status per `PD*` decision. These docs remain the blueprint; `IMPLEMENTATION.md`
+> tracks what's actually built.
 
 ## Target
 
