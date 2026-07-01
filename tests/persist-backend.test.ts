@@ -20,7 +20,11 @@ import { STORE_VERSION, type PersistedState } from '../server/persist.ts'
 const sample: PersistedState = {
   version: STORE_VERSION,
   sessions: [
-    { id: 's1', title: 'Hi', caps: ['chat'], preview: 'p', messages: [{ id: 'm', role: 'user', content: 'x' }] },
+    // s1 carries a tenantId — the F2/PD9 isolation key. The byte-for-byte round-trip
+    // assertions below therefore also prove tenantId survives persistence on BOTH
+    // backends; dropping it on save/load would silently make a created session default-
+    // tenant (cross-tenant visible) after a restart.
+    { id: 's1', title: 'Hi', caps: ['chat'], preview: 'p', tenantId: 'tenant-a', messages: [{ id: 'm', role: 'user', content: 'x' }] },
     { id: 's2', title: 'Bye', caps: ['chat'], preview: 'q', messages: [] },
   ] as unknown as PersistedState['sessions'],
   bindings: [['s1', [{ id: 'c1', type: 'repo', label: 'r', scope: '*' }]]] as unknown as PersistedState['bindings'],
@@ -64,7 +68,10 @@ function cleanup(file: string): void {
 test('SQLite backend round-trips the JSON-canonical snapshot exactly', () => {
   const db = new SqliteBackend(':memory:')
   db.save(sample)
-  assert.deepStrictEqual(db.load(), canonical, 'every slice kind survives save → load')
+  const loaded = db.load()
+  assert.deepStrictEqual(loaded, canonical, 'every slice kind survives save → load')
+  // Spell out the isolation-critical bit: a session's tenantId must survive the round-trip.
+  assert.equal(loaded?.sessions?.[0]?.tenantId, 'tenant-a', 'a session keeps its tenantId across persistence')
   db.close()
 })
 
