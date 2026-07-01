@@ -168,6 +168,48 @@ test('POST /sessions stamps the caller-resolved tenant on a remote backend (requ
   assert.equal(getOmega.status, 404, 'another tenant gets 404 opening it by id')
 })
 
+test('the connector-action confirm route is tenant-isolated (a foreign tenant cannot confirm/execute another’s write)', async () => {
+  const { store } = await import('../server/store.ts')
+  const { buildRouter } = await import('../server/routes/index.ts')
+  const call = caller(buildRouter())
+
+  // A tenant-zeta session carrying a PROPOSED connector write (P6 slice 1b) on an
+  // assistant message.
+  const s = store.createSession('zeta pending write', 'tenant-zeta')
+  store.appendMessage(s.id, {
+    id: 'm-zeta-write',
+    role: 'assistant',
+    content: '',
+    toolActivities: [
+      {
+        id: 'act-zeta',
+        tool: 'mcp__filesystem__write_file',
+        connector: 'MCP · filesystem',
+        connectorId: 'mcp-fs',
+        kind: 'action',
+        status: 'proposed',
+        summary: 'Proposed: write_file on MCP · filesystem — confirm to run.',
+      },
+    ],
+  })
+  const writeAudits = () => store.listAuditLog().filter((e) => e.capability === 'connector.write').length
+  const auditBefore = writeAudits()
+
+  // A foreign tenant cannot confirm it — 404 (not 403), no execution, no audit. This is
+  // the consent+audit gate the route's denyForeignSession guard exists to enforce.
+  const omega = await call('POST', `/sessions/${s.id}/tool-activities/act-zeta`, { 'x-tenant-id': 'tenant-omega' }, { decision: 'confirm' })
+  assert.equal(omega.status, 404, 'a foreign tenant gets 404 confirming another tenant’s pending write')
+  const afterOmega = store.getSession(s.id)?.messages?.find((m) => m.id === 'm-zeta-write')?.toolActivities?.[0]
+  assert.equal(afterOmega?.status, 'proposed', 'the write stayed proposed — the foreign tenant did not execute it')
+  assert.equal(writeAudits(), auditBefore, 'the blocked confirm recorded no connector.write audit')
+
+  // The owning tenant CAN confirm through the route — 200, executed + done + audited.
+  const zetaConfirm = await call('POST', `/sessions/${s.id}/tool-activities/act-zeta`, { 'x-tenant-id': 'tenant-zeta' }, { decision: 'confirm' })
+  assert.equal(zetaConfirm.status, 200, 'the owning tenant confirms through the route')
+  assert.equal(zetaConfirm.json.status, 'done', 'the write executed on the owner’s confirm')
+  assert.equal(writeAudits(), auditBefore + 1, 'the owner’s confirm recorded exactly one connector.write audit')
+})
+
 test('the served cloud filesystem source works on a remote backend (it reads the web backend’s own storage)', async () => {
   const { buildRouter } = await import('../server/routes/index.ts')
   const call = caller(buildRouter())
