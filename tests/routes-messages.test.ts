@@ -142,3 +142,10 @@ test('a persisted assistant turn is stamped with its driving Agent (D16 per-turn
   assert.ok(assistant, 'the assistant turn was persisted')
   assert.equal(assistant.agentId, 'agent-default') // the default driver
 })
+
+test('a completed turn counts an `ok` generation outcome (route → /metrics wiring, F6 PD31)', async () => {
+  const before = store.generationOutcomes().ok
+  const s = store.createSession('outcome wiring')
+  await callRaw('POST', `/sessions/${s.id}/messages`, { text: 'hello', ephemeral: true })
+  assert.equal(store.generationOutcomes().ok, before + 1, 'the route records the turn outcome the model reported')
+})

@@ -25,7 +25,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { Router } from '../http/router.ts'
 import { sendJson, sendError, sendBytes, sendJsonCached, sendText, headerValue, type Ctx } from '../http/respond.ts'
 import { openSse } from '../http/sse.ts'
-import { store } from '../store.ts'
+import { store, type GenerationOutcome } from '../store.ts'
 import { IdempotencyCache, captureResponse, replayResponse } from '../idempotency.ts'
 import { pageParams, paginate, MAX_PAGE_LIMIT } from '../pagination.ts'
 import { RateLimiter } from '../ratelimit.ts'
@@ -228,6 +228,7 @@ export function buildRouter(): Router {
   r.get('/metrics', ({ res }) => {
     const runners = store.registry.list()
     const onlineRunners = runners.filter((rn) => rn.status === 'online').length
+    const gen = store.generationOutcomes()
     const lines = [
       '# HELP http_requests_total Matched-route requests by method.',
       '# TYPE http_requests_total counter',
@@ -236,6 +237,9 @@ export function buildRouter(): Router {
       '# TYPE runners_total gauge',
       `runners_total{status="online"} ${onlineRunners}`,
       `runners_total{status="offline"} ${runners.length - onlineRunners}`,
+      '# HELP model_turns_total Generation turns by outcome (P5 reliability / F6 observability).',
+      '# TYPE model_turns_total counter',
+      ...Object.entries(gen).map(([outcome, n]) => `model_turns_total{outcome="${outcome}"} ${n}`),
       '# HELP process_uptime_seconds Seconds since this router started.',
       '# TYPE process_uptime_seconds gauge',
       `process_uptime_seconds ${((Date.now() - startedAt) / 1000).toFixed(3)}`,
@@ -1065,8 +1069,11 @@ export function buildRouter(): Router {
     req.on('close', () => ac.abort())
 
     let messageId = ''
+    // The turn's outcome, recorded exactly once in `finally` (F6 PD31) so a mid-stream send
+    // failure after a successful generation can't double-count. `error` until we know better.
+    let turnOutcome: GenerationOutcome = 'error'
     try {
-      const { message, usage } = await generateReply(
+      const { message, usage, outcome } = await generateReply(
         session,
         agent,
         text ?? '',
@@ -1101,6 +1108,8 @@ export function buildRouter(): Router {
       // Meter the real tokens this turn consumed (even ephemeral tour turns —
       // they hit the model too), so the composer's plan-usage rings reflect use.
       store.recordUsage(usage.inputTokens, usage.outputTokens, tenantId)
+      // The model reported `ok` or `fallback` (endpoint degraded); recorded once in `finally`.
+      turnOutcome = outcome
       if (message.relationActions?.length) {
         channel.send({
           type: 'message.relations',
@@ -1139,8 +1148,13 @@ export function buildRouter(): Router {
       if (persist) store.appendMessage(params.id, stamped)
       channel.send({ type: 'message.end', sessionId: session.id, message: stamped })
     } catch {
-      // Aborted (client closed) or a fatal error — nothing more to send.
+      // Aborted (client closed) or a fatal error — nothing more to send. Distinguish a client
+      // disconnect (expected) from a genuine turn error via the abort signal.
+      turnOutcome = ac.signal.aborted ? 'aborted' : 'error'
     } finally {
+      // Record the outcome exactly once (F6 PD31), so a degraded/dropped turn is visible in
+      // /metrics and a post-generation send failure can't double-count against a good turn.
+      store.recordGenerationOutcome(turnOutcome)
       channel.close()
     }
   })

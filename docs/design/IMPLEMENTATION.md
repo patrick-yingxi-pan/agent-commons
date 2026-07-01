@@ -95,6 +95,8 @@ it.
 
 | 33 | P5 MODEL-* / F2 PD9 | **Tenant-scoped usage metering + per-turn budget gate.** Extends the tenancy boundary into the **cost/budget** dimension — the last place it was still global. Before, a single `usageMeter` served every tenant, so on a multi-tenant backend one tenant's spend depleted a *shared* rolling window (429ing everyone through the pre-turn gate) and `GET /v1/usage` returned the **aggregate** cross-tenant spend. Now usage is metered **per tenant**: `createUsageMeter(now, seeded=true)` gains a `seeded` flag; the **default tenant** keeps the seeded demo meter (so the single-tenant mock gauge reads *identically* to before, and its constant ceilings stay the mint-time cascade root), while every other tenant gets a lazily-created **fresh** meter (starts at zero) via `meterFor(tenantId)`. `store.recordUsage/overSpendLimit/usage` take an **optional-last** `tenantId` (omitted ⇒ default, so existing callers/tests are unchanged) and route through `meterFor`; the `POST /sessions/:id/messages` route resolves the caller's tenant once and threads it into the gate, the post-turn record, **and** the commons IIFE (one `tenantId`, so the gate and the record can never use different meters); `GET /usage` scopes to the caller. Usage stays intentionally **transient** (not persisted); `tenantMeters` is an in-memory `Map` (a new tenant's meter is created on first touch). Locked by `tests/usage-tenancy.test.ts` (fresh-vs-seeded; one tenant exhausting its window doesn't 429 or move another's gauge; the Agent-budget effective-ceiling still tightens the gate per tenant) + `tests/capability-remote.test.ts` (route: a fresh tenant's `GET /usage` shows its own empty windows, isolated from the default's seeded baseline) — bite-proven (neuter `meterFor` → 3 fails, restore → green). 593 node tests pass; typecheck + build green. **Next (slice B):** commission-attributed budgets (a `commissionId` on the turn → the commission's `grant` gates it), and real (not estimate) token metering when live against the Anthropic API. | ✅ built |
 
+| 34 | P5 reliability / F6 PD31 | **Generation-outcome observability.** The generation path (`server/generate.ts`) runs on every turn but a **degraded turn was silent** — an operator couldn't see the model endpoint failing. Rather than hand-roll a retry/backoff wrapper (the `@anthropic-ai/sdk` **already** does exponential-backoff retries on transient errors — 429/5xx/network, respecting `retry-after` — and correctly *doesn't* retry terminal 4xx; and generate.ts already classifies timeout-vs-client-abort at line 229), this slice adds the missing **visibility**: `ReplyResult` gains an `outcome` (`ok` \| `fallback`); the message route records it (`store.recordGenerationOutcome`) after every turn, and in its catch distinguishes `aborted` (client closed — `ac.signal.aborted`) from `error` (fatal). A new `model_turns_total{outcome=…}` **counter** is exposed at `/metrics` (all four series present from the first scrape). Global ops metric (model-endpoint health, not per-tenant billing), transient like the request counters. Locked by `tests/generation-outcome.test.ts` (reachable → `ok`; unreachable endpoint → `fallback` + degraded reply, not a throw; store tally + `/metrics` series) + a route→store wiring assertion in `tests/routes-messages.test.ts`; the `fallback` outcome bite-proven. 597 node tests pass; typecheck + build green. **Note:** honest scoping — the recon's "add retry/backoff" was largely already covered by the SDK; the real gap was observability, which is what shipped. | ✅ built |
+
 ### F2 identity & tenancy — status
 
 The tenancy boundary (PD9) is now built + adversarially reviewed across every
@@ -113,19 +115,19 @@ is considered complete for the prototype.
 
 ### Up next (candidate order, not yet built)
 
-- **P5 — generation reliability (retry / backoff / error classification)** *(next)*. The
-  generation path (`server/generate.ts`) runs on **every turn** but is fail-fast:
-  `MODEL_MAX_RETRIES` defaults to 1 and there's no backoff wrapper distinguishing a
-  *transient* infra error (429/503/network — retry with backoff) from a *terminal* one
-  (model refusal / 4xx — fail fast to the graceful fallback). Highest-certainty,
-  self-contained reliability slice; improves the flaky-turn fallback the recon flagged.
+- **P7 — Dispatch / scheduler durability** *(next)*. One-off async runs + the schedule
+  daemon as real job infra (retries, idempotency, concurrency, observability). `POST
+  /dispatch` currently appends a mock run that flips running→done on a timer (no real work,
+  no failure/retry path); the schedule daemon is default-tenant. Next substantial
+  production-infra slice, and it unlocks commission-attributed budgets below (a
+  commissioned-execution path is where a Commission `grant` is enforced at runtime).
+- ~~**P5 — generation reliability**~~ *(done — build-log row 34)*. Shipped as generation-
+  outcome **observability** (`model_turns_total` in `/metrics`); the SDK already covers the
+  transient retry/backoff, so the real gap was visibility, not a retry layer.
 - **P5 — commission-attributed budgets** *(deferred — entangled with P7)*. Enforcing a
   Commission `grant` (the D8 leaf) at runtime needs a *commissioned-execution* path (an
   Agent acting on a Project as Contributor), which is the **P7 Dispatch** path, not a
   normal session turn. Build after P7 Dispatch exists so there's a turn to attribute.
-- **P7 — Dispatch / scheduler durability** — one-off async runs + the schedule daemon as
-  real job infra (retries, idempotency, concurrency). Unlocks commission-attributed
-  budgets above.
 - **Identity & tenancy — slice 3c** (F2, deferred) — the schedule axis (list-scoping +
   schedule-keyed graph joins). Low value (default-tenant daemon); build only if a
   multi-tenant schedule story becomes needed.

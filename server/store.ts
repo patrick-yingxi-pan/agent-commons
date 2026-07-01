@@ -175,6 +175,14 @@ const meterFor = (tenantId?: string): ReturnType<typeof createUsageMeter> => {
   }
   return m
 }
+
+// Generation-outcome counters (F6 PD31 observability): how each turn resolved — `ok` (the
+// model answered), `fallback` (endpoint unreachable/slow → the degraded local reply),
+// `aborted` (the client closed the connection mid-turn), `error` (a fatal turn error).
+// A global ops counter (model-endpoint health, not per-tenant billing), exposed at /metrics;
+// transient like the request counters (reset each boot), so not persisted.
+export type GenerationOutcome = 'ok' | 'fallback' | 'aborted' | 'error'
+const generationCounts = new Map<GenerationOutcome, number>()
 // The real token weight of the resource-manipulation tool schema the backend
 // declares on every request (server/model/tools.ts) — injected eagerly, so it's a
 // loaded context category, not a deferred one. Static, so computed once.
@@ -1495,6 +1503,21 @@ export const store = {
    *  turn — including the tour's ephemeral ones, since they consume real tokens. */
   recordUsage(inputTokens: number, outputTokens: number, tenantId?: string): void {
     meterFor(tenantId).record(inputTokens, outputTokens)
+  },
+  /** Count one turn's outcome (F6 PD31 observability). Called by the message route after
+   *  every turn so a degraded model path shows up in `/metrics` instead of being silent. */
+  recordGenerationOutcome(outcome: GenerationOutcome): void {
+    generationCounts.set(outcome, (generationCounts.get(outcome) ?? 0) + 1)
+  },
+  /** The generation-outcome tallies for `/metrics` — every known outcome present (0 until
+   *  seen) so the Prometheus series exist from the first scrape. */
+  generationOutcomes(): Record<GenerationOutcome, number> {
+    return {
+      ok: generationCounts.get('ok') ?? 0,
+      fallback: generationCounts.get('fallback') ?? 0,
+      aborted: generationCounts.get('aborted') ?? 0,
+      error: generationCounts.get('error') ?? 0,
+    }
   },
   /** Spend-time enforcement (D8): the plan window this Agent's effective budget has
    *  exhausted (consumed ≥ its effective ceiling), or null. The message route refuses a

@@ -86,6 +86,12 @@ export interface TurnUsage {
 export interface ReplyResult {
   message: Message
   usage: TurnUsage
+  /** How the turn resolved — `'ok'` when the model answered, `'fallback'` when the endpoint
+   *  was unreachable/slow and the local degraded reply was streamed instead. The route feeds
+   *  this to the generation-outcome metric (F6 PD31 observability) so a degraded model path is
+   *  visible in `/metrics`, not silent. (Client-abort / fatal outcomes are observed by the
+   *  route — generateReply rethrows those — so they're not represented here.) */
+  outcome: 'ok' | 'fallback'
 }
 
 /** The system prompt the backend sends — the worker Agent's prompt + its custom
@@ -164,7 +170,7 @@ export async function generateReply(
 
     const toolUses = first.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
     if (toolUses.length === 0) {
-      return { message: { id: assistantId, role: 'assistant', content: fullText }, usage }
+      return { message: { id: assistantId, role: 'assistant', content: fullText }, usage, outcome: 'ok' }
     }
 
     // ── Execute the tool calls — build the consent-gated proposals ───────────
@@ -224,6 +230,7 @@ export async function generateReply(
         toolActivities: toolActivities.length ? toolActivities : undefined,
       },
       usage,
+      outcome: 'ok',
     }
   } catch (err) {
     if (signal?.aborted) throw err // the client went away — let the route stop quietly
@@ -239,5 +246,5 @@ function fallbackReply(existingId: string, handlers: ReplyHandlers): ReplyResult
   const content =
     'I couldn’t reach the model endpoint just now — in this prototype the backend streams replies from a local Anthropic-compatible mock server. Please try again in a moment.'
   for (const c of chunkText(content)) handlers.onDelta(c)
-  return { message: { id, role: 'assistant', content }, usage: { inputTokens: 0, outputTokens: 0 } }
+  return { message: { id, role: 'assistant', content }, usage: { inputTokens: 0, outputTokens: 0 }, outcome: 'fallback' }
 }
