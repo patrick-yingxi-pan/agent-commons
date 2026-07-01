@@ -12,6 +12,7 @@ import { startModelServer } from '../server/model/index.ts'
 import { generateReply, type ReplySession } from '../server/generate.ts'
 import { DEFAULT_AGENT } from '../server/data/workers.ts'
 import { store } from '../server/store.ts'
+import { buildRouter } from '../server/routes/index.ts'
 import { callRaw } from './helpers/http.ts'
 
 let server: Server
@@ -63,4 +64,52 @@ test('the store tallies outcomes; /metrics exposes model_turns_total for every o
   for (const outcome of ['ok', 'fallback', 'aborted', 'error']) {
     assert.match(res.body, new RegExp(`model_turns_total\\{outcome="${outcome}"\\} \\d+`), `${outcome} series present`)
   }
+})
+
+test('a client disconnect mid-turn counts an `aborted` outcome (route catch classification)', async () => {
+  // The standard HTTP harness stubs req.on as a no-op, so it can't exercise the route's
+  // abort/error branch. Drive the router with a manual req that fires `close` the instant the
+  // route registers its handler — aborting the turn's AbortController BEFORE generateReply
+  // runs, so the turn deterministically takes the client-disconnect path (→ 'aborted').
+  const router = buildRouter()
+  const s = store.createSession('abort path')
+  const before = store.generationOutcomes().aborted
+
+  let ended = false
+  const res = {
+    writeHead: () => res,
+    setHeader: () => {},
+    write: () => true,
+    end: () => {
+      ended = true
+    },
+    flushHeaders: () => {},
+    on: () => {},
+    get writableEnded() {
+      return ended
+    },
+  }
+  const handlers: Record<string, (arg?: unknown) => void> = {}
+  let bodySent = false
+  const req = {
+    method: 'POST',
+    headers: {},
+    on(ev: string, cb: (arg?: unknown) => void) {
+      handlers[ev] = cb
+      if (ev === 'end' && !bodySent) {
+        bodySent = true
+        queueMicrotask(() => {
+          handlers.data?.(Buffer.from(JSON.stringify({ text: 'hi', ephemeral: true })))
+          handlers.end?.()
+        })
+      }
+      // Fire `close` synchronously on registration → ac.abort() runs before generateReply,
+      // forcing the deterministic aborted path (no race with the model stream).
+      if (ev === 'close') cb()
+      return req
+    },
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await router.handle(req as any, res as any, new URL(`http://test/sessions/${s.id}/messages`))
+  assert.equal(store.generationOutcomes().aborted, before + 1, 'a mid-turn client disconnect is counted as aborted')
 })
