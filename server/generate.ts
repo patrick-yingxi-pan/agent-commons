@@ -174,10 +174,17 @@ export async function generateReply(
     const toolResults = toolUses.map((tu) => {
       // A connector/MCP tool (P6) executes into a ToolActivity (mock result); anything
       // else is a built-in resource / relation / escalation tool.
-      const activity = runConnectorTool(tu.name, connectorBindings)
+      const activity = runConnectorTool(tu.name, connectorBindings, tu.id)
       if (activity) {
         toolActivities.push(activity)
-        return { type: 'tool_result' as const, tool_use_id: tu.id, content: activity.summary }
+        // A read already ran → feed its result back. An action is only PROPOSED (consent-
+        // gated), so tell the model it's pending, not done, so its prose doesn't claim the
+        // write happened.
+        const content =
+          activity.status === 'proposed'
+            ? 'Proposed to the user — awaiting their confirmation; not executed yet.'
+            : activity.summary
+        return { type: 'tool_result' as const, tool_use_id: tu.id, content }
       }
       const effect = executeTool(tu.name, (tu.input ?? {}) as Record<string, unknown>, ctx)
       if (effect.relationOps) relationOps.push(...effect.relationOps)

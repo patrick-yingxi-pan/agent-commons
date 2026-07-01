@@ -45,6 +45,7 @@ import {
   type Session,
   type SessionContext,
   type SessionWorkspace,
+  type ToolActivity,
   type UpdateScheduleRequest,
 } from '../../contract/index.ts'
 import { API_BASE, apiDelete, apiGet, apiPatch, apiPost } from './client.ts'
@@ -398,6 +399,21 @@ export async function deleteSession(id: string): Promise<void> {
   } catch {
     invalidate(keys.sessions)
   }
+}
+
+/** Confirm or decline a proposed connector ACTION (P6 §2.1, PD43) — the consent gate
+ *  for a connector/MCP write. A read runs at generation; an action only takes effect
+ *  here, on approval. Returns the updated activity (status `done` + mock result, or
+ *  `declined`); the server records an audit entry on confirm. Invalidates the session so
+ *  a later reopen reflects the persisted status. */
+export async function resolveToolActivity(
+  sessionId: string,
+  activityId: string,
+  decision: 'confirm' | 'decline',
+): Promise<ToolActivity> {
+  const activity = await apiPost<ToolActivity>(paths.toolActivity(sessionId, activityId), { decision })
+  invalidate(keys.session(sessionId))
+  return activity
 }
 
 // ── Session contexts (the attachment of record) ─────────────────────────────

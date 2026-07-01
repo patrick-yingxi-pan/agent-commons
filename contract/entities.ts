@@ -144,19 +144,29 @@ export interface Message {
 /** One connector/MCP tool call the model made this turn + its (mock) result — the
  *  observable end of P6's "a connected server's tools are added to the model's tool
  *  list": the backend derives tools from the attached connector/MCP contexts, the
- *  model calls one, the backend executes it (fixture result in this slice) and feeds
- *  the summary back. Surfaced as a compact card under the message. */
+ *  model calls one, the backend executes it (fixture result) and feeds the summary
+ *  back. Surfaced as a compact card under the message. A `read` runs immediately
+ *  (`status:'done'`); an `action` (a write — post, create, delete) is consent-gated
+ *  (`status:'proposed'`) and only runs when the user confirms (P6 §2.1, PD43). */
 export interface ToolActivity {
+  /** Stable id for the activity within its message — the handle the confirm/decline
+   *  action addresses (an action's status transition targets this). */
+  id: string
   /** The tool's wire name as declared to the model, e.g. `mcp__filesystem__read_file`
    *  or `connector__slack__list`. */
   tool: string
   /** The attached connector/MCP this tool came from — its label + id, for the card. */
   connector: string
   connectorId: string
-  /** Whether the call read data or took an action (both are mocked in this slice; a
-   *  real, consent-gated write is a follow-up — P6 §2.1). */
+  /** Whether the call read data or took an action (a write). A read needs no consent;
+   *  an action is gated. */
   kind: 'read' | 'action'
-  /** The one-line (mock) result fed back to the model and shown on the card. */
+  /** Lifecycle: `done` = executed (every read; an action after confirm); `proposed` =
+   *  an action awaiting the user's consent; `declined` = the user said no. Absent is
+   *  treated as `done` (back-compat with the read-only slice). */
+  status?: 'done' | 'proposed' | 'declined'
+  /** The one-line result (a done read/action) or proposed effect (a pending action),
+   *  shown on the card and — when done — fed back to the model. */
   summary: string
 }
 

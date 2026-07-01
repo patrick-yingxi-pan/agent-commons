@@ -1084,6 +1084,21 @@ export function buildRouter(): Router {
     }
   })
 
+  // Confirm / decline a proposed connector ACTION (P6 §2.1, PD43 — the consent gate for
+  // connector/MCP writes). A read ran at generation time; an action only takes effect
+  // here, on the user's approval, and is audited. Tenant-guarded like the other by-id
+  // session routes (a foreign tenant can't confirm another's pending write).
+  r.post('/sessions/:id/tool-activities/:activityId', async ({ req, res, params, body }) => {
+    if (denyForeignSession(req, res, params.id)) return
+    const { decision } = await body<{ decision: 'confirm' | 'decline' }>()
+    if (decision !== 'confirm' && decision !== 'decline') {
+      return sendError(res, 'bad_request', "decision must be 'confirm' or 'decline'")
+    }
+    const activity = store.resolveToolActivity(params.id, params.activityId, decision)
+    if (!activity) return sendError(res, 'not_found', `No tool activity '${params.activityId}' on session '${params.id}'`)
+    sendJson(res, activity)
+  })
+
   // ── Dispatch ──────────────────────────────────────────────────────────────
   r.get('/dispatch', ({ res, url }) => {
     sendList(res, url, store.listDispatch(), (d) => d.id)

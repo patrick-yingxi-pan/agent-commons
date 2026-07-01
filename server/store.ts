@@ -38,6 +38,7 @@ import type {
   Session,
   SessionContext,
   SessionWorkspace,
+  ToolActivity,
   UpdateScheduleRequest,
   UsageSnapshot,
 } from '../contract/index.ts'
@@ -64,6 +65,7 @@ import { resolveIdentity, LOCAL_IDENTITY } from './identity.ts'
 import { positiveNumberEnv } from './env.ts'
 import { SAVED_CONTEXTS, CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from './data/savedContexts.ts'
 import { connectorDetail } from './data/connectorDetails.ts'
+import { connectorActionResult } from './model/connectorTools.ts'
 import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
 import { createUsageMeter, estimateTokens, mintBudget } from './usage.ts'
 import { mintAuthority } from './authority.ts'
@@ -761,6 +763,39 @@ export const store = {
     const session = SESSIONS.find((s) => s.id === id)
     if (!session) return undefined
     return { ...session, workspace: this.sessionWorkspace(id) }
+  },
+  /** Confirm or decline a proposed connector *action* (P6 §2.1, PD43 — the consent gate
+   *  for connector/MCP writes). A read runs at generation time; an action is surfaced as
+   *  a `proposed` ToolActivity and only takes effect here, on the user's approval:
+   *  `confirm` flips it to `done` (with the mock result) and records an audit entry (the
+   *  consent → effect → audit trail); `decline` flips it to `declined`. Idempotent — a
+   *  non-proposed / already-resolved activity is returned unchanged. Returns the updated
+   *  activity, or undefined if the id isn't on the session. */
+  resolveToolActivity(sessionId: string, activityId: string, decision: 'confirm' | 'decline'): ToolActivity | undefined {
+    const session = SESSIONS.find((s) => s.id === sessionId)
+    if (!session?.messages) return undefined
+    for (const m of session.messages) {
+      const act = m.toolActivities?.find((a) => a.id === activityId)
+      if (!act) continue
+      if (act.kind !== 'action' || act.status !== 'proposed') return act // already resolved / not gated
+      if (decision === 'decline') {
+        act.status = 'declined'
+      } else {
+        act.status = 'done'
+        act.summary = connectorActionResult(act.tool, act.connector)
+        this.recordAudit({
+          tenantId: session.tenantId ?? defaultTenantId(),
+          channel: 'proxy',
+          capability: 'connector.write',
+          target: act.connector,
+          outcome: 'fulfilled',
+        })
+      }
+      persist()
+      emit({ type: 'session.updated', session })
+      return act
+    }
+    return undefined
   },
   demoSessionId: DEMO_SESSION_ID,
 

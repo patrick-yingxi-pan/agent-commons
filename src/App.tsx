@@ -257,7 +257,7 @@ export default function App() {
                       ) : (
                         <div className={!leftOpen && (isDemo || isDraft) ? 'pb-4 pt-14' : 'py-4'}>
                           {live.messages.map((m) => (
-                            <MessageRow key={m.id} message={m} />
+                            <MessageRow key={m.id} message={m} sessionId={activeId} />
                           ))}
                           <AnimatePresence>{typing && <TypingRow />}</AnimatePresence>
                           {/* The tour asks before it escalates: this consent prompt

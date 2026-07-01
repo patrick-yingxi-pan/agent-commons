@@ -114,11 +114,30 @@ export function deriveConnectorTools(contexts: SessionContext[]): DerivedConnect
   return { definitions, bindings }
 }
 
-/** Execute a connector tool call into a `ToolActivity`, or `undefined` when `name`
- *  isn't a derived connector tool (so the caller falls back to the built-in tools).
- *  The fulfilment is the mock result computed at derivation — no real side effect. */
-export function runConnectorTool(name: string, bindings: Map<string, ToolBinding>): ToolActivity | undefined {
+/** The bare tool name for display / prose — drop the `mcp__slug__` / `connector__slug__`
+ *  wire prefix that carries the connector routing. */
+export function shortToolName(tool: string): string {
+  const parts = tool.split('__')
+  return parts.length >= 3 ? parts.slice(2).join('__') : tool
+}
+
+/** Execute (read) or PROPOSE (action) a connector tool call into a `ToolActivity`, or
+ *  `undefined` when `name` isn't a derived connector tool (so the caller falls back to
+ *  the built-in tools). A read runs immediately (`status:'done'`, the fixture result);
+ *  an action (a write) is consent-gated (`status:'proposed'`) and only runs when the
+ *  user confirms (P6 §2.1, PD43) — so NO side effect happens here for an action. `id` is
+ *  the stable handle the later confirm/decline addresses. */
+export function runConnectorTool(name: string, bindings: Map<string, ToolBinding>, id: string): ToolActivity | undefined {
   const b = bindings.get(name)
   if (!b) return undefined
-  return { tool: name, connector: b.connectorLabel, connectorId: b.connectorId, kind: b.kind, summary: b.summary }
+  const base = { id, tool: name, connector: b.connectorLabel, connectorId: b.connectorId, kind: b.kind }
+  return b.kind === 'action'
+    ? { ...base, status: 'proposed', summary: `Proposed: ${shortToolName(name)} on ${b.connectorLabel} — confirm to run.` }
+    : { ...base, status: 'done', summary: b.summary }
+}
+
+/** The (mock) result a *confirmed* connector action reports — the server records this as
+ *  the activity's done summary + an audit entry when the user approves the proposal. */
+export function connectorActionResult(tool: string, connectorLabel: string): string {
+  return `(mock) ${shortToolName(tool)} completed on ${connectorLabel}.`
 }

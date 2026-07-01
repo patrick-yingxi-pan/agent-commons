@@ -67,14 +67,24 @@ test('matchConnectorTools only fires when the connector is named and tools are p
   assert.deepEqual(matchConnectorTools('write a file via filesystem', []), [], 'no connector tools declared ⇒ no call')
 })
 
-test('runConnectorTool executes a derived tool into a ToolActivity; unknown → undefined', () => {
+test('runConnectorTool runs a READ immediately (status done); unknown → undefined', () => {
   const { bindings } = deriveConnectorTools([slack])
-  const activity = runConnectorTool('connector__slack__list', bindings)
+  const activity = runConnectorTool('connector__slack__list', bindings, 'act-1')
   assert.ok(activity, 'a derived tool executes')
+  assert.equal(activity?.id, 'act-1')
   assert.equal(activity?.tool, 'connector__slack__list')
   assert.equal(activity?.connector, 'Slack')
   assert.equal(activity?.connectorId, 'conn-slack')
   assert.equal(activity?.kind, 'read')
+  assert.equal(activity?.status, 'done', 'a read runs immediately')
   assert.match(activity?.summary ?? '', /#launch/)
-  assert.equal(runConnectorTool('mcp__nope__x', bindings), undefined, 'an unknown name falls through')
+  assert.equal(runConnectorTool('mcp__nope__x', bindings, 'act-x'), undefined, 'an unknown name falls through')
+})
+
+test('runConnectorTool only PROPOSES a WRITE action (consent-gated, no side effect here)', () => {
+  const { bindings } = deriveConnectorTools([mcpFs])
+  const activity = runConnectorTool('mcp__filesystem__write_file', bindings, 'act-2')
+  assert.equal(activity?.kind, 'action')
+  assert.equal(activity?.status, 'proposed', 'a write is not executed — it awaits consent')
+  assert.match(activity?.summary ?? '', /Proposed:.*write_file/, 'the summary describes the proposed effect, not a result')
 })

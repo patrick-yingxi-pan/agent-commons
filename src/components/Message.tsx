@@ -5,7 +5,7 @@ import { ClaudeMark } from './ClaudeMark'
 import { RelationActionCard } from './RelationActionCard'
 import { ToolActivityCard } from './ToolActivityCard'
 
-export function MessageRow({ message }: { message: MessageT }) {
+export function MessageRow({ message, sessionId }: { message: MessageT; sessionId: string }) {
   const isUser = message.role === 'user'
   return (
     <motion.div
@@ -34,7 +34,7 @@ export function MessageRow({ message }: { message: MessageT }) {
             {renderRich(message.content)}
           </div>
           {message.toolActivities && message.toolActivities.length > 0 && (
-            <ToolActivityCard activities={message.toolActivities} />
+            <ToolActivityCard activities={message.toolActivities} sessionId={sessionId} />
           )}
           {message.relationActions && message.relationActions.length > 0 && (
             <RelationActionCard ops={message.relationActions} />
