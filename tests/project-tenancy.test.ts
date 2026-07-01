@@ -96,4 +96,10 @@ test('opDeniedForTenant refuses foreign-project targets, colliding create-projec
   const ghostScope = { kind: 'scope-context', projectId: 'ghost-xyz', projectName: 'x', context: { id: 'c', label: 'omega-secret', kind: 'connector' } }
   assert.equal(store.opDeniedForTenant(ghostScope, 'tenant-pb'), true, 'a non-default tenant cannot key a ghost-id project row')
   assert.equal(store.opDeniedForTenant(ghostScope, 'tenant-personal'), false, 'the default tenant may key rows in its own (default) namespace')
+
+  // The EMPTY-STRING projectId edge (a falsy value the truthy check missed): it's a real
+  // key that buckets to the default tenant on read, so a non-default tenant must be refused.
+  const emptyScope = { kind: 'scope-context', projectId: '', projectName: 'x', context: { id: 'c', label: 'omega-secret', kind: 'connector' } }
+  assert.equal(store.opDeniedForTenant(emptyScope, 'tenant-pb'), true, 'a non-default tenant cannot key an empty-string-id project row')
+  assert.equal(store.opDeniedForTenant(emptyScope, 'tenant-personal'), false, 'the default tenant owns the default (incl. empty-string) namespace')
 })

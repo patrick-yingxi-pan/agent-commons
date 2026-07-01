@@ -1848,7 +1848,12 @@ export const store = {
    *  artifact/schedule SUBJECT axes await slice 3b, when those entities gain a tenant.) */
   opDeniedForTenant(op: RelationOp, tenantId: string): boolean {
     const pid = (op as { projectId?: string | null }).projectId
-    if (pid) {
+    // `!= null`, not truthiness: an EMPTY-STRING projectId is still a real key on the write
+    // side and buckets to the default tenant on read (projectTenant('') ⇒ default), so it
+    // must run the ownership check too — a truthy `if (pid)` would skip '' and let a
+    // non-default tenant inject a ''-keyed row into the default view. The genuine unfile is
+    // `projectId: null`, which stays exempt here (handled by the subject-session check).
+    if (pid != null) {
       // An UNKNOWN project id is not un-owned: `projectGraphForTenant` buckets any row
       // keyed by an id with no Project object to the DEFAULT tenant (projectTenant ⇒
       // defaultTenantId()). So a non-default caller keying a project row (scope-context,
