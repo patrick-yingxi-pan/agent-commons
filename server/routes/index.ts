@@ -844,7 +844,13 @@ export function buildRouter(): Router {
   r.get('/events', ({ req, res }) => {
     const channel = openSse(res)
     channel.send({ type: 'hello', epoch: store.epoch })
-    const unsubscribe = store.subscribe((e) => channel.send(e))
+    // Tenant-filter the fan-out (F2/PD9): a subscriber only receives events for its own
+    // tenant, so another tenant's session pushes don't leak down this channel. The
+    // subscriber's tenant is resolved once, at subscribe time, from the request identity.
+    const tenantId = store.identity(req.headers).tenant.id
+    const unsubscribe = store.subscribe((e) => {
+      if (store.eventVisibleToTenant(e, tenantId)) channel.send(e)
+    })
     req.on('close', () => {
       unsubscribe()
       channel.close()

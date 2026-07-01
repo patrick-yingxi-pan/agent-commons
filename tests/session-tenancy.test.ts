@@ -42,6 +42,40 @@ test('createSession defaults to the backend tenant, matching the scoped read', (
   assert.ok(store.listSessions('tenant-personal').some((s) => s.id === created.id), 'lands in the default tenant')
 })
 
+test('eventVisibleToTenant gates the SSE fan-out — session/audit events are tenant-scoped, the rest global', () => {
+  const owned = store.createSession('event-owner thread', 'tenant-evt')
+
+  // session.updated carries the session → visible to its tenant, not another.
+  const updated = { type: 'session.updated', session: owned } as const
+  assert.equal(store.eventVisibleToTenant(updated, 'tenant-evt'), true)
+  assert.equal(store.eventVisibleToTenant(updated, 'tenant-other'), false)
+
+  // session.contexts.changed carries only the id → resolved via the session's tenant.
+  const ctxChanged = { type: 'session.contexts.changed', sessionId: owned.id, contexts: [] } as const
+  assert.equal(store.eventVisibleToTenant(ctxChanged, 'tenant-evt'), true)
+  assert.equal(store.eventVisibleToTenant(ctxChanged, 'tenant-other'), false)
+  // An unresolvable (ephemeral/removed) session id falls back to the default tenant.
+  const ctxUnknown = { type: 'session.contexts.changed', sessionId: 'gone', contexts: [] } as const
+  assert.equal(store.eventVisibleToTenant(ctxUnknown, 'tenant-personal'), true)
+  assert.equal(store.eventVisibleToTenant(ctxUnknown, 'tenant-other'), false)
+
+  // audit.entry carries the entry's own tenant.
+  const audit = { type: 'audit.entry', entry: { id: 'ae1', tenantId: 'tenant-evt', at: 1 } } as unknown as Parameters<typeof store.eventVisibleToTenant>[0]
+  assert.equal(store.eventVisibleToTenant(audit, 'tenant-evt'), true)
+  assert.equal(store.eventVisibleToTenant(audit, 'tenant-other'), false)
+
+  // Not-yet-tenant-scoped events (recents, dispatch, runners…) are global — any tenant.
+  const globalEvents = [
+    { type: 'recents.changed', contextType: 'files', ids: [] },
+    { type: 'dispatch.changed' },
+    { type: 'hello', epoch: 1 },
+  ] as unknown as Parameters<typeof store.eventVisibleToTenant>[0][]
+  for (const e of globalEvents) {
+    assert.equal(store.eventVisibleToTenant(e, 'tenant-evt'), true)
+    assert.equal(store.eventVisibleToTenant(e, 'tenant-other'), true)
+  }
+})
+
 test('sessionVisibleToTenant is the per-id read guard', () => {
   const owned = store.createSession('guarded thread', 'tenant-owner')
   assert.equal(store.sessionVisibleToTenant(owned, 'tenant-owner'), true, 'owner can open it')

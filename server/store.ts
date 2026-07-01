@@ -733,6 +733,27 @@ export const store = {
   sessionVisibleToTenant(session: Session, tenantId: string): boolean {
     return (session.tenantId ?? defaultTenantId()) === tenantId
   },
+  /** Whether an ambient event should be delivered to a subscriber of `tenantId` (F2/PD9 —
+   *  the push-side of the tenant boundary). The `/events` SSE fan-out is broadcast to
+   *  every open channel, so without this a subscriber would observe *other* tenants'
+   *  session pushes. Events that carry tenant-identifiable data are gated to the owning
+   *  tenant; the rest (runner registry, dispatch, recents, relations — not yet
+   *  tenant-scoped in this prototype) are global. A session that can't be resolved (an
+   *  ephemeral/just-removed id) falls back to the default tenant, matching the read side. */
+  eventVisibleToTenant(e: ServerEvent, tenantId: string): boolean {
+    switch (e.type) {
+      case 'session.updated':
+        return this.sessionVisibleToTenant(e.session, tenantId)
+      case 'session.contexts.changed': {
+        const s = SESSIONS.find((x) => x.id === e.sessionId)
+        return (s?.tenantId ?? defaultTenantId()) === tenantId
+      }
+      case 'audit.entry':
+        return (e.entry.tenantId ?? defaultTenantId()) === tenantId
+      default:
+        return true
+    }
+  },
   /** A full session by id — messages + the live, server-owned `workspace` (its
    *  panels). The workspace is materialized from the flat seed fields on first
    *  read, then reflects any attach/detach write-through. */
