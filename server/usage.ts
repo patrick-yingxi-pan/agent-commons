@@ -64,13 +64,16 @@ export interface UsageMeter {
 }
 
 /** Build the plan-usage meter. `now` is injected so tests can drive the reset
- *  boundaries deterministically. */
-export function createUsageMeter(now: () => number): UsageMeter {
+ *  boundaries deterministically. `seeded` (default true) starts the windows with a
+ *  plausible prior-usage baseline so the gauge reads like a real mid-period account —
+ *  right for the default tenant's demo. A *fresh* per-tenant meter (F2/PD9: usage is
+ *  metered per tenant, not globally) passes `seeded=false` so a new tenant starts at
+ *  zero consumption rather than inheriting the demo baseline. The ceilings are the same
+ *  either way — they're the plan, not the spend. */
+export function createUsageMeter(now: () => number, seeded = true): UsageMeter {
   const t0 = now()
-  // Seed: prior usage already consumed this period, so the gauge reads like a
-  // real account rather than an empty one — then real turns accumulate on top.
-  const fiveHour: LimitWindow = { label: '5-hour limit', ceiling: 1_200_000, consumed: 852_000, windowMs: 5 * HOUR, start: t0 }
-  const weekly: LimitWindow = { label: 'Weekly · all models', ceiling: 24_000_000, consumed: 5_760_000, windowMs: 7 * DAY, start: t0 }
+  const fiveHour: LimitWindow = { label: '5-hour limit', ceiling: 1_200_000, consumed: seeded ? 852_000 : 0, windowMs: 5 * HOUR, start: t0 }
+  const weekly: LimitWindow = { label: 'Weekly · all models', ceiling: 24_000_000, consumed: seeded ? 5_760_000 : 0, windowMs: 7 * DAY, start: t0 }
   const windows = [fiveHour, weekly]
 
   // Roll a window forward to the current period, zeroing its consumption, if its

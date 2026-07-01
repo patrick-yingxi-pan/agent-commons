@@ -157,7 +157,24 @@ let messageSeq = 0
 // token usage from every turn (store.recordUsage); the context-window figure is
 // computed per session in store.usage. Not persisted — usage windows are a live,
 // rolling meter, reseeded on restart (mock semantics).
+//
+// Usage is metered PER TENANT (F2/PD9): the default tenant owns the seeded demo meter
+// (`usageMeter`, so the gauge on the single-tenant mock reads exactly as before, and its
+// constant ceilings remain the mint-time cascade root); every other tenant gets its own
+// *fresh* meter, created lazily, so one tenant's spend can't deplete another's window or
+// leak into another's gauge. `meterFor(t)` resolves the right meter for a caller.
 const usageMeter = createUsageMeter(() => Date.now())
+const tenantMeters = new Map<string, ReturnType<typeof createUsageMeter>>()
+const meterFor = (tenantId?: string): ReturnType<typeof createUsageMeter> => {
+  const t = tenantId ?? defaultTenantId()
+  if (t === defaultTenantId()) return usageMeter
+  let m = tenantMeters.get(t)
+  if (!m) {
+    m = createUsageMeter(() => Date.now(), false) // a new tenant starts at zero consumption
+    tenantMeters.set(t, m)
+  }
+  return m
+}
 // The real token weight of the resource-manipulation tool schema the backend
 // declares on every request (server/model/tools.ts) — injected eagerly, so it's a
 // loaded context category, not a deferred one. Static, so computed once.
@@ -1476,14 +1493,16 @@ export const store = {
   /** Record one turn's real token usage (from the model's Messages response)
    *  against the rolling plan windows. Called by the message route after every
    *  turn — including the tour's ephemeral ones, since they consume real tokens. */
-  recordUsage(inputTokens: number, outputTokens: number): void {
-    usageMeter.record(inputTokens, outputTokens)
+  recordUsage(inputTokens: number, outputTokens: number, tenantId?: string): void {
+    meterFor(tenantId).record(inputTokens, outputTokens)
   },
   /** Spend-time enforcement (D8): the plan window this Agent's effective budget has
    *  exhausted (consumed ≥ its effective ceiling), or null. The message route refuses a
-   *  turn when this is non-null — the per-turn gate the mint-time funnel doesn't provide. */
-  overSpendLimit(budget?: Budget): { label: string; ceiling: number } | null {
-    return usageMeter.overLimit(budget)
+   *  turn when this is non-null — the per-turn gate the mint-time funnel doesn't provide.
+   *  Scoped to the caller's tenant (F2/PD9): one tenant exhausting its window doesn't 429
+   *  another. Omitted `tenantId` ⇒ the default tenant (the single-tenant mock, and tests). */
+  overSpendLimit(budget?: Budget, tenantId?: string): { label: string; ceiling: number } | null {
+    return meterFor(tenantId).overLimit(budget)
   },
   /** The usage snapshot the composer gauge renders: the open session's real
    *  context-window fill (system+tools baseline + an estimate of every message in
@@ -1523,7 +1542,7 @@ export const store = {
     persist()
     return session
   },
-  usage(sessionId?: string): UsageSnapshot {
+  usage(sessionId?: string, tenantId?: string): UsageSnapshot {
     let messageTokens = 0
     const session = sessionId ? SESSIONS.find((s) => s.id === sessionId) : undefined
     for (const m of session?.messages ?? []) messageTokens += estimateTokens(m.content)
@@ -1533,7 +1552,7 @@ export const store = {
     const systemPromptTokens = estimateTokens(systemPrompt({ id: sessionId ?? '', title: session?.title ?? '', isDemo: session?.isDemo }, agent))
     return {
       context: contextBreakdown({ messageTokens, systemToolsTokens: SYSTEM_TOOLS_TOKENS, systemPromptTokens }),
-      limits: usageMeter.planLimits(),
+      limits: meterFor(tenantId).planLimits(), // per-tenant plan windows (F2/PD9)
     }
   },
 

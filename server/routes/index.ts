@@ -1020,6 +1020,9 @@ export function buildRouter(): Router {
   // proposals as `message.relations` before `message.end`.
   r.post('/sessions/:id/messages', async ({ req, res, params, body }) => {
     if (denyForeignSession(req, res, params.id)) return
+    // The caller's tenant — usage is metered + budget-gated per tenant (F2/PD9), so one
+    // tenant's spend neither 429s nor shows up in another's gauge. Resolved once for the turn.
+    const tenantId = store.identity(req.headers).tenant.id
     const { text, ephemeral } = await body<SendMessageRequest>()
     // A draft / run session may not be persisted; reply with a generic shell.
     const known = store.getSession(params.id)
@@ -1036,7 +1039,7 @@ export function buildRouter(): Router {
     // Spend-time enforcement (D8): once a plan window is exhausted for this Agent's
     // effective budget, refuse the turn (429) until it resets — the per-turn gate the
     // mint-time funnel doesn't give. Checked before persisting the user turn or streaming.
-    const over = store.overSpendLimit(agent.budget)
+    const over = store.overSpendLimit(agent.budget, tenantId)
     if (over) {
       return sendError(res, 'limit_exceeded', `Plan limit reached for '${over.label}' — this turn is refused until the window resets.`)
     }
@@ -1083,12 +1086,11 @@ export function buildRouter(): Router {
         // proposes against what currently exists (server/model/tools.ts). Tenant-scoped
         // (F2/PD9): the model only resolves against the caller's own + the shared seeds.
         (() => {
-          const tid = store.identity(req.headers).tenant.id
           return {
-            providers: store.listProviders(tid).map((p) => ({ id: p.id, label: p.label })),
-            systemPrompts: store.listSystemPrompts(tid).map((p) => ({ id: p.id, label: p.label })),
-            agents: store.listAgents(tid).map((a) => ({ id: a.id, label: a.label })),
-            commissions: store.listCommissions(undefined, tid).map((c) => ({ id: c.id, agentId: c.agentId, projectId: c.projectId })),
+            providers: store.listProviders(tenantId).map((p) => ({ id: p.id, label: p.label })),
+            systemPrompts: store.listSystemPrompts(tenantId).map((p) => ({ id: p.id, label: p.label })),
+            agents: store.listAgents(tenantId).map((a) => ({ id: a.id, label: a.label })),
+            commissions: store.listCommissions(undefined, tenantId).map((c) => ({ id: c.id, agentId: c.agentId, projectId: c.projectId })),
           }
         })(),
         // P6: the session's attached connector/MCP contexts become callable tools for
@@ -1098,7 +1100,7 @@ export function buildRouter(): Router {
       )
       // Meter the real tokens this turn consumed (even ephemeral tour turns —
       // they hit the model too), so the composer's plan-usage rings reflect use.
-      store.recordUsage(usage.inputTokens, usage.outputTokens)
+      store.recordUsage(usage.inputTokens, usage.outputTokens, tenantId)
       if (message.relationActions?.length) {
         channel.send({
           type: 'message.relations',
@@ -1206,8 +1208,11 @@ export function buildRouter(): Router {
   })
 
   // ── Usage (composer gauge: context window + plan limit windows) ────────────
-  r.get('/usage', ({ res, url }) => {
-    sendJson(res, store.usage(url.searchParams.get('session') ?? undefined))
+  r.get('/usage', ({ req, res, url }) => {
+    // Per-tenant plan windows (F2/PD9): the gauge shows the caller's own usage, not a
+    // global aggregate. The context breakdown is session-scoped as before.
+    const tenantId = store.identity(req.headers).tenant.id
+    sendJson(res, store.usage(url.searchParams.get('session') ?? undefined, tenantId))
   })
 
   // ── Artifact bodies + schedule templates ──────────────────────────────────

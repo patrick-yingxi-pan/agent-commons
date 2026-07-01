@@ -400,6 +400,24 @@ test('relation ops with a foreign AGENT/COMMISSION subject are refused on a remo
   assert.ok(store.listCommissions(undefined, 'tenant-zeta').some((c) => c.id === commission.id), 'zeta’s commission survived the foreign uncommission')
 })
 
+test('the usage gauge is tenant-scoped on a remote backend (a fresh tenant sees its own empty windows)', async () => {
+  const { buildRouter } = await import('../server/routes/index.ts')
+  const call = caller(buildRouter())
+
+  // The default (no-header) principal is the web tenant that owns the seeded demo meter —
+  // its 5-hour window reads a real mid-period baseline.
+  const def = await call('GET', '/usage')
+  assert.equal(def.status, 200)
+  const defWin = def.json.limits.find((w) => w.label === '5-hour limit')
+  assert.ok(defWin && defWin.pct > 0, 'the default tenant’s gauge shows the seeded baseline')
+
+  // A different tenant sees its OWN (fresh) windows — not the default's aggregate.
+  const omega = await call('GET', '/usage', { 'x-tenant-id': 'tenant-omega' })
+  assert.equal(omega.status, 200)
+  const omegaWin = omega.json.limits.find((w) => w.label === '5-hour limit')
+  assert.ok(omegaWin && omegaWin.pct === 0, 'a fresh tenant’s gauge starts empty, isolated from the default')
+})
+
 test('the served cloud filesystem source works on a remote backend (it reads the web backend’s own storage)', async () => {
   const { buildRouter } = await import('../server/routes/index.ts')
   const call = caller(buildRouter())
