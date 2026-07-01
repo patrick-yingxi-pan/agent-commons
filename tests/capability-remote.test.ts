@@ -15,7 +15,7 @@ process.env.BACKEND = 'remote'
 /** Drive the given router at the handler level (mirrors tests/helpers/http.ts, but
  *  against a router we built ourselves so it picks up BACKEND=remote). */
 function caller(router) {
-  return async function call(method, path, headers = {}) {
+  return async function call(method, path, headers = {}, bodyObj) {
     let status = 0
     let body = ''
     let ended = false
@@ -39,7 +39,26 @@ function caller(router) {
         return ended
       },
     }
-    const req = { method, headers, on: () => req }
+    const handlers = {}
+    let emitted = false
+    const req = {
+      method,
+      headers,
+      on(ev, cb) {
+        handlers[ev] = cb
+        // Deliver a JSON body the way node's IncomingMessage would (mirrors
+        // tests/helpers/http.ts): emit `data` then `end` once the route attaches its
+        // `end` listener, so a handler that reads `body()` resolves.
+        if (ev === 'end' && !emitted) {
+          emitted = true
+          queueMicrotask(() => {
+            if (bodyObj !== undefined) handlers.data?.(Buffer.from(JSON.stringify(bodyObj)))
+            handlers.end?.()
+          })
+        }
+        return req
+      },
+    }
     await router.handle(req, res, new URL(`http://test${path}`))
     return { status, json: body ? JSON.parse(body) : undefined }
   }
@@ -93,8 +112,9 @@ test('sessions are tenant-isolated on a remote backend (list + read-by-id, 404 n
   const { buildRouter } = await import('../server/routes/index.ts')
   const call = caller(buildRouter())
 
-  // A session owned by tenant-zeta (the POST-body path is covered by the in-process suite;
-  // here the focus is the header-driven read boundary on the multi-tenant backend).
+  // A session owned by tenant-zeta, seeded directly through the store; here the focus is
+  // the header-driven READ boundary. The isolation-*establishing* write path (POST
+  // /sessions stamping the caller-resolved tenant) is proven by the next test.
   const zeta = store.createSession('zeta-only thread', 'tenant-zeta')
 
   // The owning tenant lists + opens it.
@@ -122,6 +142,30 @@ test('sessions are tenant-isolated on a remote backend (list + read-by-id, 404 n
   // The default (no-header) reader is the web tenant; seed sessions default to it and stay visible.
   const listDefault = await call('GET', '/sessions')
   assert.ok(listDefault.json.some((s) => s.isDemo), 'the default tenant still sees the seed demo')
+})
+
+test('POST /sessions stamps the caller-resolved tenant on a remote backend (request identity → scoped read)', async () => {
+  const { buildRouter } = await import('../server/routes/index.ts')
+  const call = caller(buildRouter())
+
+  // Create THROUGH the public route as tenant-zeta. The owner tenant is derived from the
+  // request identity (store.identity(headers)), NOT a client-supplied body field — this is
+  // the isolation-*establishing* link. (The in-process suite can't prove it: on the mock
+  // backend store.identity is hard-wired to tenant-personal regardless of headers, so it
+  // couldn't tell a correct stamp from a hardcoded/omitted one — only a multi-tenant
+  // backend driven through the route can.)
+  const created = await call('POST', '/sessions', { 'x-tenant-id': 'tenant-zeta' }, { firstMessage: 'created via the route' })
+  assert.equal(created.status, 200, 'the route creates the session')
+  const id = created.json.id
+  assert.ok(id, 'the route returns the new session id')
+
+  // Close the loop: request identity → stamped tenant → scoped read, via public routes only.
+  const listZeta = await call('GET', '/sessions', { 'x-tenant-id': 'tenant-zeta' })
+  assert.ok(listZeta.json.some((s) => s.id === id), 'the creating tenant lists its route-created session')
+  const listOmega = await call('GET', '/sessions', { 'x-tenant-id': 'tenant-omega' })
+  assert.ok(!listOmega.json.some((s) => s.id === id), 'another tenant cannot see it')
+  const getOmega = await call('GET', `/sessions/${id}`, { 'x-tenant-id': 'tenant-omega' })
+  assert.equal(getOmega.status, 404, 'another tenant gets 404 opening it by id')
 })
 
 test('the served cloud filesystem source works on a remote backend (it reads the web backend’s own storage)', async () => {
