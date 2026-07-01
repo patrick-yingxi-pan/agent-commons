@@ -229,6 +229,11 @@ export function buildRouter(): Router {
     const runners = store.registry.list()
     const onlineRunners = runners.filter((rn) => rn.status === 'online').length
     const gen = store.generationOutcomes()
+    // Dispatch runs by status — a GAUGE of the live feed (like runners_total), derived at
+    // scrape time, so a wave of failed one-off runs (P7) shows up in ops (F6 PD31). All three
+    // series are always present (0 until seen) so a dashboard can chart them from the start.
+    const runs = store.listDispatch()
+    const dispatchByStatus = (s: 'running' | 'done' | 'failed') => runs.filter((r) => r.status === s).length
     const lines = [
       '# HELP http_requests_total Matched-route requests by method.',
       '# TYPE http_requests_total counter',
@@ -240,6 +245,11 @@ export function buildRouter(): Router {
       '# HELP model_turns_total Generation turns by outcome (P5 reliability / F6 observability).',
       '# TYPE model_turns_total counter',
       ...Object.entries(gen).map(([outcome, n]) => `model_turns_total{outcome="${outcome}"} ${n}`),
+      '# HELP dispatch_runs Dispatch runs by status (P7 automation).',
+      '# TYPE dispatch_runs gauge',
+      `dispatch_runs{status="running"} ${dispatchByStatus('running')}`,
+      `dispatch_runs{status="done"} ${dispatchByStatus('done')}`,
+      `dispatch_runs{status="failed"} ${dispatchByStatus('failed')}`,
       '# HELP process_uptime_seconds Seconds since this router started.',
       '# TYPE process_uptime_seconds gauge',
       `process_uptime_seconds ${((Date.now() - startedAt) / 1000).toFixed(3)}`,

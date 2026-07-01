@@ -26,6 +26,16 @@ test('GET /metrics includes runner status gauges (F4 registry)', async () => {
   assert.match(res.body, /runners_total\{status="offline"\} \d+/)
 })
 
+test('GET /metrics includes dispatch run status gauges (P7 automation)', async () => {
+  const res = await callRaw('GET', '/metrics')
+  assert.match(res.body, /# TYPE dispatch_runs gauge/)
+  // All three series are always present; the seed feed exercises each (d1 running / d2 done /
+  // d3 failed), so every gauge reads ≥ 1 on a fresh store.
+  for (const status of ['running', 'done', 'failed']) {
+    assert.match(res.body, new RegExp(`dispatch_runs\\{status="${status}"\\} \\d+`), `${status} gauge present`)
+  }
+})
+
 test('the GET counter actually increments (not stuck at a constant)', async () => {
   const before = getCount((await callRaw('GET', '/metrics')).body)
   await call('GET', '/healthz')
