@@ -15,6 +15,9 @@ import type { Authority } from './authority.ts'
 
 export interface Agent {
   id: string
+  /** The tenant that created it (F2/PD9). Unset ⇒ a seeded/shared entry visible to every
+   *  tenant (the default toolkit is shared infra); a created one is private to its tenant. */
+  tenantId?: string
   /** Human label, shown wherever an Agent is chosen. */
   label: string
   /** The system prompt this Agent drives the model with — provider-optimized

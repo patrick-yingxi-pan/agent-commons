@@ -11,6 +11,9 @@
 
 export interface SystemPromptEntry {
   id: string
+  /** The tenant that created it (F2/PD9). Unset ⇒ a seeded/shared entry visible to every
+   *  tenant (the default toolkit is shared infra); a created one is private to its tenant. */
+  tenantId?: string
   /** Human label, shown in the picker. */
   label: string
   /** The prompt text an Agent drives the model with — the resolved `Agent.systemPrompt`

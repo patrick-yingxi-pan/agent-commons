@@ -184,6 +184,14 @@ const projectTenant = (projectId: string): string => findProject(projectId)?.ten
 const findArtifact = (id: string): ArtifactItem | undefined =>
   ALL_ARTIFACTS.find((a) => a.id === id) ?? graph.extraArtifacts.find((a) => a.id === id)
 
+/** Agent-Commons registry visibility (F2/PD9). Unlike CONTENT (sessions/projects/artifacts,
+ *  where a seed row belongs to the default tenant and is private to it), a registry entry is
+ *  INFRASTRUCTURE: a seeded/shared one (no `tenantId` — e.g. the default agent/provider/prompt
+ *  every tenant needs) is visible to ALL tenants, while a *created* one is private to its
+ *  tenant. No tenant arg ⇒ everything (internal callers / tests). */
+const registryVisible = <T extends { tenantId?: string }>(entry: T, tenantId?: string): boolean =>
+  tenantId === undefined || entry.tenantId === undefined || entry.tenantId === tenantId
+
 /** The tenant an artifact belongs to (F2/PD9) — seed/legacy or unknown ⇒ the default
  *  tenant (parallels `projectTenant`; independent of the artifact's project). */
 const artifactTenant = (artifactId: string): string => findArtifact(artifactId)?.tenantId ?? defaultTenantId()
@@ -911,8 +919,10 @@ export const store = {
   },
 
   /** The seeded worker Agents (docs/agent-commons.md, D6) — the degenerate N=1 set. */
-  listAgents(): Agent[] {
-    return [...WORKER_AGENTS.values()]
+  listAgents(tenantId?: string): Agent[] {
+    // Tenant-scoped (F2/PD9): the shared default agent (no tenantId) is visible to all; a
+    // created one only to its tenant. No arg ⇒ all (internal use, e.g. resolveAgent).
+    return [...WORKER_AGENTS.values()].filter((a) => registryVisible(a, tenantId))
   },
   /** Resolve a Conversation's worker Agent; unset/unknown falls back to the seeded
    *  default. */
@@ -928,11 +938,12 @@ export const store = {
    *  The single seam where an Agent's grants are validated — there is no other way to
    *  introduce one. The mutated registry is snapshotted to disk (persist.ts), so a
    *  created Agent survives a restart. */
-  createAgent(input: Omit<Agent, 'id'>): Agent {
+  createAgent(input: Omit<Agent, 'id'>, tenantId?: string): Agent {
     const provider = resolveProvider(input.providerId)
     if (input.authority) mintAuthority(provider.authority, input.authority)
     if (input.budget) mintBudget(provider.plan?.windows ?? usageMeter.planCeilings(), input.budget)
-    const agent: Agent = { ...input, id: `agent-${(workerAgentSeq += 1)}` }
+    // Stamp the creating tenant (F2/PD9) so listAgents(tenant) scopes it; unset ⇒ shared.
+    const agent: Agent = { ...input, id: `agent-${(workerAgentSeq += 1)}`, tenantId: tenantId ?? input.tenantId }
     WORKER_AGENTS.set(agent.id, agent)
     persist()
     return agent
@@ -941,7 +952,7 @@ export const store = {
    *  chosen library entry (D10), default the tool set to the full catalog (the default
    *  Agent's), and run the same D8 funnel via `createAgent`. An empty-string provider /
    *  prompt id means "none / default". The route validates that named ids exist first. */
-  createAgentFromRequest(input: CreateAgentRequest): Agent {
+  createAgentFromRequest(input: CreateAgentRequest, tenantId?: string): Agent {
     const entry = input.systemPromptId ? SYSTEM_PROMPT_LIB.get(input.systemPromptId) : undefined
     return this.createAgent({
       label: input.label,
@@ -952,7 +963,7 @@ export const store = {
       instructions: input.instructions ?? '',
       authority: input.authority,
       budget: input.budget,
-    })
+    }, tenantId)
   },
   /** Patch an Agent. A present field is applied (an empty-string provider / prompt id
    *  clears it to the default); an absent one is left unchanged. Changing the prompt
@@ -1011,9 +1022,10 @@ export const store = {
   },
 
   // ── Model providers (the cognition source — docs/agent-commons.md, D9) ──
-  /** The registered Model providers — the degenerate N=1 set for now. */
-  listProviders(): ModelProvider[] {
-    return [...MODEL_PROVIDERS.values()]
+  /** The registered Model providers, tenant-scoped (F2/PD9): the shared seeded provider(s)
+   *  are visible to all; a created one only to its tenant. No arg ⇒ all (internal use). */
+  listProviders(tenantId?: string): ModelProvider[] {
+    return [...MODEL_PROVIDERS.values()].filter((p) => registryVisible(p, tenantId))
   },
   /** Resolve an Agent's Model provider; unset/unknown falls back to the seeded
    *  default. */
@@ -1029,9 +1041,10 @@ export const store = {
   /** Mint a Model provider through the D8 funnel: its plan must attenuate the account
    *  plan (`planCeilings`), so the cascade root can never exceed the subscription it
    *  sits under. The single seam a provider plan is validated. */
-  createProvider(input: Omit<ModelProvider, 'id'>, config: ProviderConfig = {}): ModelProvider {
+  createProvider(input: Omit<ModelProvider, 'id'>, config: ProviderConfig = {}, tenantId?: string): ModelProvider {
     if (input.plan) mintBudget(usageMeter.planCeilings(), input.plan)
-    const provider: ModelProvider = { ...input, id: `provider-${(providerSeq += 1)}` }
+    // Stamp the creating tenant (F2/PD9) so listProviders(tenant) scopes it; unset ⇒ shared.
+    const provider: ModelProvider = { ...input, id: `provider-${(providerSeq += 1)}`, tenantId: tenantId ?? input.tenantId }
     MODEL_PROVIDERS.set(provider.id, provider)
     PROVIDER_CONFIGS.set(provider.id, config)
     persist()
@@ -1072,9 +1085,10 @@ export const store = {
   },
 
   // ── System-prompt library (docs/agent-commons.md, D10) ──
-  /** The reusable, target-family-tagged system prompts a user picks for an Agent. */
-  listSystemPrompts(): SystemPromptEntry[] {
-    return [...SYSTEM_PROMPT_LIB.values()]
+  /** The reusable, target-family-tagged system prompts a user picks for an Agent —
+   *  tenant-scoped (F2/PD9): shared seeds visible to all, a created one to its tenant. */
+  listSystemPrompts(tenantId?: string): SystemPromptEntry[] {
+    return [...SYSTEM_PROMPT_LIB.values()].filter((p) => registryVisible(p, tenantId))
   },
   /** Resolve one library entry by id (undefined when unknown — unlike provider/agent
    *  there is no "default prompt to fall back to" at this seam; the caller decides). */
@@ -1095,8 +1109,9 @@ export const store = {
   /** Add a prompt to the library. A plain registry add (prompt text is not a
    *  capability, so there is no attenuation funnel here — the fit *warning* is the
    *  selection-time check, `promptFitWarning`, surfaced in the picker). */
-  createSystemPrompt(input: Omit<SystemPromptEntry, 'id'>): SystemPromptEntry {
-    const entry: SystemPromptEntry = { ...input, id: `sp-new-${(systemPromptSeq += 1)}` }
+  createSystemPrompt(input: Omit<SystemPromptEntry, 'id'>, tenantId?: string): SystemPromptEntry {
+    // Stamp the creating tenant (F2/PD9) so listSystemPrompts(tenant) scopes it; unset ⇒ shared.
+    const entry: SystemPromptEntry = { ...input, id: `sp-new-${(systemPromptSeq += 1)}`, tenantId: tenantId ?? input.tenantId }
     SYSTEM_PROMPT_LIB.set(entry.id, entry)
     persist()
     return entry
@@ -1132,9 +1147,10 @@ export const store = {
 
   // ── Commissions (the agent→Project assignment — docs/agent-commons.md, D7/D13) ──
   /** A Project's Contributors (its commissions), or all commissions when no project
-   *  is given. The Contributor role is just an Agent that appears here for a Project. */
-  listCommissions(projectId?: string): Commission[] {
-    const all = [...COMMISSIONS.values()]
+   *  is given. The Contributor role is just an Agent that appears here for a Project.
+   *  Tenant-scoped (F2/PD9): shared seeds visible to all, a created one to its tenant. */
+  listCommissions(projectId?: string, tenantId?: string): Commission[] {
+    const all = [...COMMISSIONS.values()].filter((c) => registryVisible(c, tenantId))
     return projectId ? all.filter((c) => c.projectId === projectId) : all
   },
   /** Resolve one commission by id (undefined when unknown). */
@@ -1178,7 +1194,7 @@ export const store = {
     for (const c of COMMISSIONS.values()) if (c.projectId === projectId) n += 1
     return n
   },
-  createCommission(input: Omit<Commission, 'id'>): Commission {
+  createCommission(input: Omit<Commission, 'id'>, tenantId?: string): Commission {
     const agent = WORKER_AGENTS.get(input.agentId)
     if (!agent) throw new Error(`createCommission: unknown agent '${input.agentId}'`)
     // D13 per-commissioner abuse cap — fail-closed at the *single* funnel, so the route and
@@ -1198,7 +1214,8 @@ export const store = {
       mintBudget(agent.budget?.windows ?? provider.plan?.windows ?? usageMeter.planCeilings(), input.grant)
     }
     // Role is the D14 baseline; default to 'writer' (the ordinary Contributor) when unset.
-    const commission: Commission = { ...input, role: input.role ?? 'writer', id: `commission-${(commissionSeq += 1)}` }
+    // Stamp the creating tenant (F2/PD9) so listCommissions(…, tenant) scopes it; unset ⇒ shared.
+    const commission: Commission = { ...input, role: input.role ?? 'writer', id: `commission-${(commissionSeq += 1)}`, tenantId: tenantId ?? input.tenantId }
     COMMISSIONS.set(commission.id, commission)
     persist()
     return commission
@@ -1838,10 +1855,10 @@ export const store = {
           modelFamily: op.modelFamily,
           effortLevels: ['Low', 'Medium', 'High'],
           authority: { tools: ['*'], connectors: ['*'], scopes: ['*'] },
-        })
+        }, {}, tenantId)
         break
       case 'create-prompt':
-        this.createSystemPrompt({ label: op.label, body: op.body, targetFamily: op.targetFamily })
+        this.createSystemPrompt({ label: op.label, body: op.body, targetFamily: op.targetFamily }, tenantId)
         break
       case 'create-agent':
         this.createAgentFromRequest({
@@ -1849,13 +1866,13 @@ export const store = {
           providerId: op.providerId,
           systemPromptId: op.systemPromptId,
           instructions: op.instructions,
-        })
+        }, tenantId)
         break
       case 'commission-agent':
         if (!WORKER_AGENTS.has(op.agentId)) {
           throw new ConflictError(`No agent '${op.agentId}' to commission — it may have been removed.`)
         }
-        this.createCommission({ agentId: op.agentId, projectId: op.projectId, role: op.role })
+        this.createCommission({ agentId: op.agentId, projectId: op.projectId, role: op.role }, tenantId)
         break
       case 'uncommission-agent':
         // Idempotent: a commission already gone (e.g. removed in the hub first) is a

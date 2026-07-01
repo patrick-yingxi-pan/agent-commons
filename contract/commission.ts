@@ -15,6 +15,9 @@ import type { ProjectRole } from './roles.ts'
 
 export interface Commission {
   id: string
+  /** The tenant that created it (F2/PD9). Unset ⇒ a seeded/shared entry visible to every
+   *  tenant; a created one is private to its tenant. */
+  tenantId?: string
   /** The worker Agent commissioned. Its owner pays for the compute (D13). */
   agentId: string
   /** The shared Project it contributes to. */

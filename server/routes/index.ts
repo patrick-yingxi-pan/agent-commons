@@ -421,24 +421,25 @@ export function buildRouter(): Router {
   // never crosses this boundary. POST validates the plan against the account plan (the
   // cascade root, D8) — an over-plan request is a 400; DELETE refuses the default or a
   // provider an Agent still binds (409). In-memory for now (no cross-restart persistence).
-  r.get('/providers', ({ res }) => {
-    sendJson(res, store.listProviders())
+  // Tenant-scoped (F2/PD9): the shared seeded provider(s) plus the caller's own created ones.
+  r.get('/providers', ({ req, res }) => {
+    sendJson(res, store.listProviders(store.identity(req.headers).tenant.id))
   })
-  r.get('/providers/:id', ({ res, params }) => {
-    // `listProviders().find`, not `store.getProvider` — the latter falls back to the
+  r.get('/providers/:id', ({ req, res, params }) => {
+    // `listProviders(tenant).find`, not `store.getProvider` — the latter falls back to the
     // default for an unknown id (the resolve-for-a-turn contract), which would mask a
-    // 404 here. The wire read must distinguish "no such provider".
-    const provider = store.listProviders().find((p) => p.id === params.id)
+    // 404 here. The scoped read also makes another tenant's provider a 404 (no existence leak).
+    const provider = store.listProviders(store.identity(req.headers).tenant.id).find((p) => p.id === params.id)
     if (!provider) return sendError(res, 'not_found', `No provider '${params.id}'`)
     sendJson(res, provider)
   })
-  r.post('/providers', async ({ res, body }) => {
+  r.post('/providers', async ({ req, res, body }) => {
     const input = await body<CreateProviderRequest>()
     if (!input?.label || !input?.modelFamily || !Array.isArray(input.effortLevels)) {
       return sendError(res, 'bad_request', 'label, modelFamily, and effortLevels are required')
     }
     try {
-      sendJson(res, store.createProvider(input))
+      sendJson(res, store.createProvider(input, {}, store.identity(req.headers).tenant.id))
     } catch (err) {
       // An over-plan provider — the requested plan exceeds the account plan (the cascade root).
       if (err instanceof BudgetError) return sendError(res, 'bad_request', err.message)
@@ -475,8 +476,9 @@ export function buildRouter(): Router {
   // prompt body from `systemPromptId` and defaults tools to the full catalog, then runs
   // the D8 funnel (an over-grant is a 400); DELETE refuses the default or an Agent a
   // Commission still assigns (409). In-memory for now.
-  r.get('/agents', ({ res }) => {
-    sendJson(res, store.listAgents())
+  // Tenant-scoped (F2/PD9): the shared default agent plus the caller's own created ones.
+  r.get('/agents', ({ req, res }) => {
+    sendJson(res, store.listAgents(store.identity(req.headers).tenant.id))
   })
   // The detective audit trail (D15/OQ7) — newest first; the Audit hub's read. Scoped
   // to the caller's tenant (F2/F5 — the RLS-equivalent boundary, PD9): a tenant only
@@ -485,32 +487,33 @@ export function buildRouter(): Router {
   r.get('/audit', ({ req, res, url }) => {
     sendList(res, url, store.listAuditLog(store.identity(req.headers).tenant.id), (e) => e.id)
   })
-  r.get('/agents/:id', ({ res, params }) => {
-    // Like providers: `listAgents().find`, not `getAgent` (which falls back to the
-    // default), so an unknown id is a real 404.
-    const agent = store.listAgents().find((a) => a.id === params.id)
+  r.get('/agents/:id', ({ req, res, params }) => {
+    // Like providers: the scoped `listAgents(tenant).find`, not `getAgent` (which falls back
+    // to the default), so an unknown OR cross-tenant id is a real 404 (no existence leak).
+    const agent = store.listAgents(store.identity(req.headers).tenant.id).find((a) => a.id === params.id)
     if (!agent) return sendError(res, 'not_found', `No agent '${params.id}'`)
     sendJson(res, agent)
   })
-  // Validate the optional provider / prompt ids a create-or-patch names exist (a
-  // truthy id that resolves to nothing is a 404, not a silent fallback to the default).
-  // Returns an error message when invalid, else null.
-  const badAgentRef = (input: { providerId?: string; systemPromptId?: string }): string | null => {
-    if (input.providerId && !store.listProviders().some((p) => p.id === input.providerId)) {
+  // Validate the optional provider / prompt ids a create-or-patch names exist AND are the
+  // caller's to reference (scoped to the tenant, F2/PD9 — so an Agent can't be minted
+  // against another tenant's private provider/prompt). Returns an error message, else null.
+  const badAgentRef = (input: { providerId?: string; systemPromptId?: string }, tenantId: string): string | null => {
+    if (input.providerId && !store.listProviders(tenantId).some((p) => p.id === input.providerId)) {
       return `No provider '${input.providerId}'`
     }
-    if (input.systemPromptId && !store.getSystemPrompt(input.systemPromptId)) {
+    if (input.systemPromptId && !store.listSystemPrompts(tenantId).some((p) => p.id === input.systemPromptId)) {
       return `No system prompt '${input.systemPromptId}'`
     }
     return null
   }
-  r.post('/agents', async ({ res, body }) => {
+  r.post('/agents', async ({ req, res, body }) => {
     const input = await body<CreateAgentRequest>()
     if (!input?.label) return sendError(res, 'bad_request', 'label is required')
-    const bad = badAgentRef(input)
+    const tenantId = store.identity(req.headers).tenant.id
+    const bad = badAgentRef(input, tenantId)
     if (bad) return sendError(res, 'not_found', bad)
     try {
-      sendJson(res, store.createAgentFromRequest(input))
+      sendJson(res, store.createAgentFromRequest(input, tenantId))
     } catch (err) {
       // An over-grant on either cascade face — the request named an impossible grant.
       if (err instanceof BudgetError || err instanceof AuthorityError) {
@@ -519,9 +522,9 @@ export function buildRouter(): Router {
       throw err
     }
   })
-  r.patch('/agents/:id', async ({ res, params, body }) => {
+  r.patch('/agents/:id', async ({ req, res, params, body }) => {
     const patch = await body<UpdateAgentRequest>()
-    const bad = badAgentRef(patch)
+    const bad = badAgentRef(patch, store.identity(req.headers).tenant.id)
     if (bad) return sendError(res, 'not_found', bad)
     try {
       const agent = store.updateAgentFromRequest(params.id, patch)
@@ -563,20 +566,22 @@ export function buildRouter(): Router {
   // computed client-side from the shared pure `promptFitWarning`, surfaced at selection
   // time. A plain registry (prompt text isn't a capability — no attenuation funnel);
   // DELETE refuses the default or a prompt an Agent still references (409). In-memory.
-  r.get('/system-prompts', ({ res }) => {
-    sendJson(res, store.listSystemPrompts())
+  // Tenant-scoped (F2/PD9): the shared seeded prompts plus the caller's own created ones.
+  r.get('/system-prompts', ({ req, res }) => {
+    sendJson(res, store.listSystemPrompts(store.identity(req.headers).tenant.id))
   })
-  r.get('/system-prompts/:id', ({ res, params }) => {
-    const entry = store.getSystemPrompt(params.id)
+  r.get('/system-prompts/:id', ({ req, res, params }) => {
+    // Scoped list, so an unknown OR cross-tenant id is a real 404 (no existence leak).
+    const entry = store.listSystemPrompts(store.identity(req.headers).tenant.id).find((p) => p.id === params.id)
     if (!entry) return sendError(res, 'not_found', `No system prompt '${params.id}'`)
     sendJson(res, entry)
   })
-  r.post('/system-prompts', async ({ res, body }) => {
+  r.post('/system-prompts', async ({ req, res, body }) => {
     const input = await body<CreateSystemPromptRequest>()
     if (!input?.label || !input?.body || !input?.targetFamily) {
       return sendError(res, 'bad_request', 'label, body, and targetFamily are required')
     }
-    sendJson(res, store.createSystemPrompt(input))
+    sendJson(res, store.createSystemPrompt(input, store.identity(req.headers).tenant.id))
   })
   // The opt-in prompt-fit probe (D10/OQ5) — the deeper, scored upgrade beside the static
   // tag. Scores the prompt against the chosen provider's model family (default if absent).
@@ -608,11 +613,12 @@ export function buildRouter(): Router {
   // `POST` mints through the leaf of the D8 cascade (commission ⊆ agent ⊆ provider):
   // an over-grant on either face is a 400 (an impossible grant was named), an unknown
   // agent / project a 404.
-  r.get('/commissions', ({ res, url }) => {
-    sendJson(res, store.listCommissions(url.searchParams.get('project') ?? undefined))
+  // Tenant-scoped (F2/PD9): the caller's own commissions (plus any shared seed).
+  r.get('/commissions', ({ req, res, url }) => {
+    sendJson(res, store.listCommissions(url.searchParams.get('project') ?? undefined, store.identity(req.headers).tenant.id))
   })
-  r.get('/commissions/:id', ({ res, params }) => {
-    const commission = store.getCommission(params.id)
+  r.get('/commissions/:id', ({ req, res, params }) => {
+    const commission = store.listCommissions(undefined, store.identity(req.headers).tenant.id).find((c) => c.id === params.id)
     if (!commission) return sendError(res, 'not_found', `No commission '${params.id}'`)
     sendJson(res, commission)
   })
@@ -624,12 +630,15 @@ export function buildRouter(): Router {
     if (!authority) return sendError(res, 'not_found', `No commission '${params.id}'`)
     sendJson(res, authority)
   })
-  r.post('/commissions', async ({ res, body }) => {
+  r.post('/commissions', async ({ req, res, body }) => {
     const input = await body<CreateCommissionRequest>()
     if (!input?.agentId || !input?.projectId) {
       return sendError(res, 'bad_request', 'agentId and projectId are required')
     }
-    if (!store.listAgents().some((a) => a.id === input.agentId)) {
+    const tenantId = store.identity(req.headers).tenant.id
+    // Scoped: a tenant may only commission an agent it can see (its own or the shared default),
+    // not another tenant's private agent (F2/PD9).
+    if (!store.listAgents(tenantId).some((a) => a.id === input.agentId)) {
       return sendError(res, 'not_found', `No agent '${input.agentId}'`)
     }
     if (!store.listProjects().some((p) => p.id === input.projectId)) {
@@ -639,7 +648,7 @@ export function buildRouter(): Router {
       return sendError(res, 'bad_request', `Unknown role '${input.role}'`)
     }
     try {
-      sendJson(res, store.createCommission(input))
+      sendJson(res, store.createCommission(input, tenantId))
     } catch (err) {
       // An over-grant on either cascade face — the request named an impossible grant.
       if (err instanceof BudgetError || err instanceof AuthorityError) {
@@ -1025,13 +1034,17 @@ export function buildRouter(): Router {
         model,
         // The live Agent Commons registries, so a confirmed "commission the agent I
         // just made" / "create an agent on <provider>" resolves the names the model
-        // proposes against what currently exists (server/model/tools.ts).
-        {
-          providers: store.listProviders().map((p) => ({ id: p.id, label: p.label })),
-          systemPrompts: store.listSystemPrompts().map((p) => ({ id: p.id, label: p.label })),
-          agents: store.listAgents().map((a) => ({ id: a.id, label: a.label })),
-          commissions: store.listCommissions().map((c) => ({ id: c.id, agentId: c.agentId, projectId: c.projectId })),
-        },
+        // proposes against what currently exists (server/model/tools.ts). Tenant-scoped
+        // (F2/PD9): the model only resolves against the caller's own + the shared seeds.
+        (() => {
+          const tid = store.identity(req.headers).tenant.id
+          return {
+            providers: store.listProviders(tid).map((p) => ({ id: p.id, label: p.label })),
+            systemPrompts: store.listSystemPrompts(tid).map((p) => ({ id: p.id, label: p.label })),
+            agents: store.listAgents(tid).map((a) => ({ id: a.id, label: a.label })),
+            commissions: store.listCommissions(undefined, tid).map((c) => ({ id: c.id, agentId: c.agentId, projectId: c.projectId })),
+          }
+        })(),
         // P6: the session's attached connector/MCP contexts become callable tools for
         // this turn (server/model/connectorTools.ts derives them; non-connector
         // contexts are ignored). Only what's attached is reachable.

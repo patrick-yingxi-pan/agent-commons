@@ -253,6 +253,27 @@ test('project relations are tenant-isolated on a remote backend (projection + fo
   assert.ok(!('ghost-omega' in gDefault.json.projectContexts), 'the ghost row did not inject into the default tenant’s view')
 })
 
+test('Agent-Commons registries are tenant-scoped on a remote backend (created private, seed shared)', async () => {
+  const { buildRouter } = await import('../server/routes/index.ts')
+  const call = caller(buildRouter())
+
+  // tenant-zeta creates an agent through the route (stamped with its tenant).
+  const created = await call('POST', '/agents', { 'x-tenant-id': 'tenant-zeta' }, { label: 'Zeta agent' })
+  assert.equal(created.status, 200, 'the agent is created')
+  const id = created.json.id
+
+  const zeta = await call('GET', '/agents', { 'x-tenant-id': 'tenant-zeta' })
+  assert.ok(zeta.json.some((a) => a.id === id), 'the creating tenant lists its agent')
+  const omega = await call('GET', '/agents', { 'x-tenant-id': 'tenant-omega' })
+  assert.ok(!omega.json.some((a) => a.id === id), 'another tenant does not list it')
+  // …but the shared seeded default agent is visible to BOTH (infrastructure, not content).
+  assert.ok(zeta.json.some((a) => !a.tenantId) && omega.json.some((a) => !a.tenantId), 'the seeded default is shared')
+
+  // Cross-tenant get-by-id is 404 (no existence leak).
+  const getOmega = await call('GET', `/agents/${id}`, { 'x-tenant-id': 'tenant-omega' })
+  assert.equal(getOmega.status, 404, 'a cross-tenant agent id is 404')
+})
+
 test('the served cloud filesystem source works on a remote backend (it reads the web backend’s own storage)', async () => {
   const { buildRouter } = await import('../server/routes/index.ts')
   const call = caller(buildRouter())
