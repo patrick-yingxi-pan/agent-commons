@@ -19,6 +19,7 @@ import type {
   Connector,
   ConnectorDetail,
   DispatchRun,
+  Identity,
   FsCatalog,
   FsFileContent,
   FsFolderContents,
@@ -44,6 +45,13 @@ import type {
  *  a remote backend); a component may also read these flags to pre-hide one. */
 export function useCapabilities(): QueryState<Capabilities> {
   return useQuery(keys.capabilities, () => apiGet<Capabilities>(paths.capabilities))
+}
+
+/** Who's signed in + which tenant (design F2 / P1 §4). The UI labels the account chip
+ *  with this; the server stays the authorization gate. On the desktop/mock backend it's
+ *  the single local user ("You" · Personal); on the web it's the IdP principal + org. */
+export function useMe(): QueryState<Identity> {
+  return useQuery(keys.me, () => apiGet<Identity>(paths.me))
 }
 
 /** The live registry of native runners (one per connected host) + the

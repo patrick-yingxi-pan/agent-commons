@@ -101,6 +101,8 @@ it.
 
 | 36 | P7 automation / F6 PD31 | **Dispatch observability.** A `dispatch_runs{status="running\|done\|failed"}` **gauge** in `/metrics`, derived from the live feed at scrape time (like `runners_total`), so a wave of failed one-off runs is visible to ops — rounding out the durability of row 35. A gauge (current feed composition), not a counter, because the feed is a bounded stateful list; all three series always present. No store change (derived in the `/metrics` route). Locked by `tests/metrics.test.ts` (all three series present; the seed feed exercises each — d1 running / d2 done / d3 failed), bite-proven. 600 node tests pass; typecheck + build green. | ✅ built |
 
+| 37 | F2 / P1 §4 (identity in the UI) | **Account / tenant chip — the UI consumes `GET /v1/me`.** The identity endpoint existed (row 12 / PORT-8) but nothing surfaced it; the sidebar footer showed a **hardcoded** "Patrick Pan · Prototype workspace" fixture. Replaced it with a live `AccountChip` (`src/components/Sidebar.tsx`) reading a new `useMe()` hook (`src/api/hooks.ts`, `keys.me` / `paths.me`), so the footer renders the real principal + tenant — "You · Personal" on the desktop/mock backend, and the IdP principal + org (e.g. "Ada Lovelace · Acme, Inc.") on the web, where the same chip signals *which tenant* you're acting in. Moves the last account fixture out of the component and onto the backend (the repo's "frontend is a cache of the backend" rule). Loading fallback matches the mock's own `/v1/me` so the footer never flashes. Placement (footer chip) was the owner's call — surfaced via a product-fork question rather than invented. The `/v1/me` route is locked by `tests/identity.test.ts`; the chip render is verified in-app (accessibility snapshot: "Y / You / Personal"; `preview_inspect` confirms the `AccountChip` component + preserved styling; 0 console errors) — the `node --test` harness has no DOM. 600 node tests pass; typecheck + build green. | ✅ built |
+
 ### F2 identity & tenancy — status
 
 The tenancy boundary (PD9) is now built + adversarially reviewed across every
@@ -135,9 +137,8 @@ is considered complete for the prototype.
 - **Identity & tenancy — slice 3c** (F2, deferred) — the schedule axis (list-scoping +
   schedule-keyed graph joins). Low value (default-tenant daemon); build only if a
   multi-tenant schedule story becomes needed.
-- **UI consumes `/v1/me`** (F2 / P1 §4) — surface the account/tenant. *Deferred:
-  needs a placement/design decision (no account chip exists today) — flagged for the
-  owner rather than invent UI autonomously.*
+- ~~**UI consumes `/v1/me`**~~ *(done — build-log row 37 / ADAPT-10)*. The sidebar-footer
+  account chip now renders the live principal + tenant; placement was the owner's call.
 
 > Keep this table append-only and honest: a row is `✅ built` only when its locking
 > test passes. Partial work stays `🚧` with a note on what's missing.

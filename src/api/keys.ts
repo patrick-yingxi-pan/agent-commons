@@ -5,6 +5,8 @@ import type { Connector } from '../../contract/index.ts'
 
 export const keys = {
   capabilities: 'capabilities',
+  /** The current principal + tenant (design F2 / P1 §4 — "Identity from /v1/me"). */
+  me: 'me',
   providers: 'providers',
   systemPrompts: 'system-prompts',
   /** Worker Agents (docs/agent-commons.md, D6). Distinct from `runners` below — whose
@@ -47,6 +49,7 @@ export const keys = {
 
 export const paths = {
   capabilities: '/capabilities',
+  me: '/me',
   providers: '/providers',
   provider: (id: string) => `/providers/${encodeURIComponent(id)}`,
   systemPrompts: '/system-prompts',

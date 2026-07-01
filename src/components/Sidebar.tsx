@@ -23,7 +23,7 @@ import { ScheduledFilterMenu } from './ScheduledFilterMenu'
 import { RowMenu, projectMenuItems, type RowMenuItem } from './RowMenu'
 import { SECTION_META, SECTION_ORDER } from '../lib/sections'
 import { SIDEBAR_HOVER } from '../lib/sidebar'
-import { removeSchedule, runScheduleNow, toggleScheduleEnabled, useProjects, useSchedules } from '../api'
+import { removeSchedule, runScheduleNow, toggleScheduleEnabled, useMe, useProjects, useSchedules } from '../api'
 import { useRelations } from '../controller/useRelations'
 import { runSessionId } from '../../contract/ids.ts'
 import { getLayout, setLayout } from '../lib/uiPrefs'
@@ -356,18 +356,33 @@ export function Sidebar({
         )}
       </div>
 
-      <div className="border-t border-line px-3 py-2.5">
-        <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-sm font-semibold text-white">
-            P
-          </div>
-          <div className="leading-tight">
-            <div className="text-xs font-medium text-ink">Patrick Pan</div>
-            <div className="text-[11px] text-ink-faint">Prototype workspace</div>
-          </div>
+      <AccountChip />
+    </aside>
+  )
+}
+
+/** The account/tenant chip — surfaces `GET /v1/me` (design F2 / P1 §4: "Identity from
+ *  /v1/me"). On the desktop/mock backend it's the single local user ("You" · Personal);
+ *  on the web it's the IdP principal + their org, so the same chip signals *which tenant*
+ *  you're acting in. Falls back to the desktop identity while the fetch is in flight, so
+ *  the footer never flashes empty (those defaults match the mock's own /v1/me). */
+function AccountChip() {
+  const me = useMe().data
+  const name = me?.user.name ?? 'You'
+  const workspace = me?.tenant.name ?? 'Personal'
+  const initial = name.trim().charAt(0).toUpperCase() || 'Y'
+  return (
+    <div className="border-t border-line px-3 py-2.5">
+      <div className="flex items-center gap-2" title={me?.user.email}>
+        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-sm font-semibold text-white">
+          {initial}
+        </div>
+        <div className="leading-tight">
+          <div className="text-xs font-medium text-ink">{name}</div>
+          <div className="text-[11px] text-ink-faint">{workspace}</div>
         </div>
       </div>
-    </aside>
+    </div>
   )
 }
 
