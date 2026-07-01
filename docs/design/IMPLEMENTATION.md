@@ -118,17 +118,8 @@ is considered complete for the prototype.
   [`PLAN.md`](PLAN.md) (e.g. P5 model gateway / compaction / budget, P7 automation, or
   the F4 broker deepening). Re-assess the backlog with fresh context before choosing.
 - **UI consumes `/v1/me`** (F2 / P1 §4) — surface the account/tenant. *Deferred:
-  needs a placement/design decision (no account chip exists today).*
-- **UI consumes `/v1/me`** (F2 / P1 §4) — surface the account/tenant. *Deferred:
   needs a placement/design decision (no account chip exists today) — flagged for the
   owner rather than invent UI autonomously.*
-
-> **Loop note (session-limit window).** The account session limit blocks the
-> multi-agent adversarial review (resets 11pm Asia/Shanghai). Rather than accumulate
-> un-reviewed feature code on P6 (a security-sensitive pillar), the loop pauses new
-> builds and resumes when review capacity returns — at which point it runs the deferred
-> tenancy review, then P6 slice 1 with its review. Correctness work that stands on its
-> own tests (like the persist round-trip lock, row 23) still proceeds meanwhile.
 
 > Keep this table append-only and honest: a row is `✅ built` only when its locking
 > test passes. Partial work stays `🚧` with a note on what's missing.
