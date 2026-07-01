@@ -77,13 +77,37 @@ it.
 
 ### Up next (candidate order, not yet built)
 
+- **P6 slice 1 — expose an attached connector/MCP's tools to the model** (P6 §2.2,
+  PD57/PD58) — *direction 3, the next build.* Today `server/generate.ts` (≈L124)
+  assembles the Messages request's tool list from the **worker Agent's** static
+  allowlist only (`TOOL_DEFINITIONS.filter((t) => agent.tools.includes(t.name))`); a
+  connector/MCP attached to the *session* contributes nothing to what the model can
+  call. The slice: derive per-context tool definitions from an attached connector/MCP
+  `SessionContext` (fixture-backed detail → real tool *shape*: a read tool + gated
+  write tools, mirroring `server/data/connectorDetails.ts`), append them to `tools`
+  in `generate.ts`, and gate each by authority (PD24) + consent (PD43) exactly like
+  the built-in resource tools. Real, self-contained seam (no external OAuth/MCP
+  transport yet — that's a later slice); the dev mock won't *behaviorally* consume
+  them (it keyword-matches, `intents.ts`), so the locking test is **structural**: a
+  session with a connector context attached produces a Messages request whose tool
+  list includes that connector's tools, and detach removes them. Interacts with the
+  tool-use loop + consent model ⇒ **wants the adversarial review** (deferred while the
+  session limit is in effect).
 - **Identity & tenancy — slice 3** (F2) — extend tenant-scoping from sessions (step 23)
   to the remaining entities (projects, artifacts, schedules) and thread the request's
   tenant into their store mutators (sessions/audit are done; the rest still default to
-  the backend tenant). Desktop stays the N=1 case.
+  the backend tenant). Also **tenant-filter the SSE fan-out** (the gap noted in row 23).
+  Desktop stays the N=1 case.
 - **UI consumes `/v1/me`** (F2 / P1 §4) — surface the account/tenant. *Deferred:
   needs a placement/design decision (no account chip exists today) — flagged for the
   owner rather than invent UI autonomously.*
+
+> **Loop note (session-limit window).** The account session limit blocks the
+> multi-agent adversarial review (resets 11pm Asia/Shanghai). Rather than accumulate
+> un-reviewed feature code on P6 (a security-sensitive pillar), the loop pauses new
+> builds and resumes when review capacity returns — at which point it runs the deferred
+> tenancy review, then P6 slice 1 with its review. Correctness work that stands on its
+> own tests (like the persist round-trip lock, row 23) still proceeds meanwhile.
 
 > Keep this table append-only and honest: a row is `✅ built` only when its locking
 > test passes. Partial work stays `🚧` with a note on what's missing.
