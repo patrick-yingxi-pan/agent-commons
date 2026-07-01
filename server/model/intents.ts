@@ -241,3 +241,27 @@ export function matchIntents(userText: string): ToolCall[] {
   if (tour) return tour
   return matchKeywords(userText)
 }
+
+/** Match a free-typed message to one of the connector/MCP tools declared in *this*
+ *  request (derived by the backend from the session's attached contexts, P6). Unlike
+ *  the built-in catalog, these tools are per-session, so the mock reads them from the
+ *  request rather than a fixed table. It only fires when the message *names* the
+ *  connector (its slug appears) — never a guess — and among that connector's tools
+ *  prefers the one whose action words the message also mentions. Returns [] otherwise. */
+export function matchConnectorTools(userText: string, availableToolNames: string[]): ToolCall[] {
+  const connectorTools = availableToolNames.filter((n) => n.startsWith('mcp__') || n.startsWith('connector__'))
+  if (!connectorTools.length) return []
+  const t = userText.toLowerCase()
+  let best: { name: string; score: number } | undefined
+  for (const name of connectorTools) {
+    const parts = name.split('__')
+    const slug = (parts[1] ?? '').replace(/_/g, ' ')
+    const tool = (parts[2] ?? '').replace(/_/g, ' ')
+    if (!slug || !t.includes(slug)) continue // the connector must be named — no guessing
+    let score = 2
+    if (tool && t.includes(tool)) score += 2
+    else if (tool.split(' ').some((w) => w && t.includes(w))) score += 1
+    if (!best || score > best.score) best = { name, score }
+  }
+  return best ? [{ name: best.name, input: {} }] : []
+}

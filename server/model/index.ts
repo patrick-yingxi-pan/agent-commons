@@ -15,7 +15,7 @@
 import { createServer } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
-import { matchIntents } from './intents.ts'
+import { matchIntents, matchConnectorTools } from './intents.ts'
 import { finalReplyText, plainReplyText, chunkText } from './replies.ts'
 
 const MODEL_PORT = Number(process.env.MODEL_PORT ?? 8788)
@@ -91,12 +91,16 @@ function sse(res: import('node:http').ServerResponse, type: string, data: unknow
 }
 
 /** Decide what a turn returns: a list of `tool_use` blocks (first turn, message
- *  matched), or `null` to return text. */
-function toolUseBlocks(messages: ReqMessage[]): Array<{ id: string; name: string; input: unknown }> | null {
+ *  matched), or `null` to return text. Built-in catalog intents first; failing those,
+ *  a connector/MCP tool declared in *this* request (P6 — per-session tools the backend
+ *  derived from the attached contexts). */
+function toolUseBlocks(messages: ReqMessage[], availableToolNames: string[]): Array<{ id: string; name: string; input: unknown }> | null {
   if (isToolResultTurn(messages)) return null // second turn → prose
-  const calls = matchIntents(lastUserText(messages))
-  if (!calls.length) return null
-  return calls.map((c) => ({ id: nextToolId(), name: c.name, input: c.input }))
+  const text = lastUserText(messages)
+  const calls = matchIntents(text)
+  const all = calls.length ? calls : matchConnectorTools(text, availableToolNames)
+  if (!all.length) return null
+  return all.map((c) => ({ id: nextToolId(), name: c.name, input: c.input }))
 }
 
 /** The prose for a text turn (no tools, or the post-tool second turn). */
@@ -140,7 +144,8 @@ function handleMessages(req: import('node:http').IncomingMessage, res: import('n
       JSON.stringify(body.system ?? '').length + JSON.stringify(body.tools ?? []).length + JSON.stringify(messages).length
     const inputTokens = promptChars >> 2
     const id = nextMessageId()
-    const tools = toolUseBlocks(messages)
+    const availableToolNames = (body.tools ?? []).map((t) => t.name)
+    const tools = toolUseBlocks(messages, availableToolNames)
 
     // ── Non-streaming: one JSON Message (tool_use or text) ───────────────────
     if (!body.stream) {

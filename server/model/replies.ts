@@ -30,6 +30,11 @@ export function finalReplyText(toolNames: string[]): string {
   if (toolNames.some((n) => COMMONS_TOOLS.includes(n))) {
     return "Here's the change to your Agent Commons setup — confirm below; nothing's created or assigned until you do."
   }
+  // P6: connector / MCP tool calls — the (mock) result is already shown as activity
+  // above, and a read needs no consent, so the prose just references it.
+  if (toolNames.some((n) => n.startsWith('mcp__') || n.startsWith('connector__'))) {
+    return 'Done — I used the connected tools you attached; the results are shown above.'
+  }
   // Relation-op proposals: one shared consent line. Nothing changes until the
   // user confirms the card(s) below.
   return "Here's the edit I'd make — confirm below, nothing changes until you do."

@@ -75,24 +75,14 @@ it.
 
 | 23 | F2 PD9 (identity slice 2) | **Tenant-scoped sessions (read + write).** Extends the tenant-scoping pattern (proven on the audit trail, step 15) to the most user-facing entity: `Session.tenantId` (contract); `createSession(msg, tenantId)` stamps the **caller's** tenant (threaded from `POST /sessions`); `listSessions(tenantId)` returns only that tenant's sessions. **Every** by-id session route — `GET`/`PATCH`/`DELETE /sessions/:id`, the `…/contexts(/:contextId)` reads+writes, `…/workspace`, `…/messages` — goes through one shared `denyForeignSession` guard that 404s (not 403 — no existence leak) a cross-tenant id, so reads and writes are isolated alike (no rename/delete/post-to another tenant's session by guessing its id). A shared `defaultTenantId()` buckets seed/legacy/run rows (no `tenantId`) into the backend's default tenant, so the demo stays visible to the default reader on **both** backends; a foreign tenant sees an empty list (correct isolation). Additive + read-defaulted ⇒ no `STORE_VERSION` bump. Store logic locked by `tests/session-tenancy.test.ts`; the header-driven route boundary (list + read-by-id + write-by-id, all 404-not-403) proven on the remote multi-tenant backend in `tests/capability-remote.test.ts`; the persistence round-trip of `tenantId` (isolation-after-restart) locked on both backends in `tests/persist-backend.test.ts`. **Remaining:** projects/artifacts/schedules + threading the request tenant into their store mutators; and the **SSE event fan-out isn't tenant-filtered yet** — `emit('session.updated' / 'session.contexts.changed')` broadcasts to every open channel, so on a multi-tenant backend a subscriber can still observe another tenant's session push (the REST reads are scoped; the push channel is a follow-up, FWD-4 territory). | ✅ built |
 
+| 24 | P6 PD57/PD58 (slice 1) | **Expose an attached connector/MCP's tools to the model (observable round-trip).** Was: `server/generate.ts` built the Messages tool list from the worker Agent's static allowlist only, so a session-attached connector/MCP contributed nothing callable. Now a pure `server/model/connectorTools.ts` derives per-context tool definitions (MCP → one tool per advertised tool; connector → a `…__list` read tool) from the (fixture) `connectorDetail`, `generate.ts` appends them to the request and routes a `tool_use` for one through `runConnectorTool` (→ a `ToolActivity` with the mock result fed back), the messages route passes `store.sessionContexts(id)` in + emits a new `message.toolActivity` SSE event, and the client (`commands.ts` dispatch → controller → `ToolActivityCard`) renders it under the message. Authority is **structural** — only an *attached* context yields tools (a read needs no consent, so it's activity, not a proposal). The dev mock now calls a connector tool when the message **names** the connector (`matchConnectorTools`, reading the request's `tools`), so the round-trip is demonstrable. Also fixed a real draft race: pre-attached draft bindings are now **awaited** before the first send (else the turn out-races the attach and the tools aren't declared). Contract + derivation locked by `tests/connectorTools.test.ts`; the end-to-end SSE round-trip (+ the no-connector-⇒-no-activity negative) by `tests/routes-messages.test.ts`; boundary parity by `tests/contract-boundaries.test.ts`. UI-verified in-app (attach Google Drive → "list my google drive files" → the *Used connected tools* card shows the mock result, 0 console errors). **Remaining:** consent-gated *write* tools (a new proposal type); real OAuth/MCP transport (a later P6 slice). | ✅ built |
+
 ### Up next (candidate order, not yet built)
 
-- **P6 slice 1 — expose an attached connector/MCP's tools to the model** (P6 §2.2,
-  PD57/PD58) — *direction 3, the next build.* Today `server/generate.ts` (≈L124)
-  assembles the Messages request's tool list from the **worker Agent's** static
-  allowlist only (`TOOL_DEFINITIONS.filter((t) => agent.tools.includes(t.name))`); a
-  connector/MCP attached to the *session* contributes nothing to what the model can
-  call. The slice: derive per-context tool definitions from an attached connector/MCP
-  `SessionContext` (fixture-backed detail → real tool *shape*: a read tool + gated
-  write tools, mirroring `server/data/connectorDetails.ts`), append them to `tools`
-  in `generate.ts`, and gate each by authority (PD24) + consent (PD43) exactly like
-  the built-in resource tools. Real, self-contained seam (no external OAuth/MCP
-  transport yet — that's a later slice); the dev mock won't *behaviorally* consume
-  them (it keyword-matches, `intents.ts`), so the locking test is **structural**: a
-  session with a connector context attached produces a Messages request whose tool
-  list includes that connector's tools, and detach removes them. Interacts with the
-  tool-use loop + consent model ⇒ **wants the adversarial review** (deferred while the
-  session limit is in effect).
+- **P6 slice 1b — consent-gated connector writes + real transport** (P6 §2.1) — the
+  read seam (slice 1, step 24) exposes read tools that need no consent; a *write* (post
+  to Slack, create a Linear issue) needs a new consent-gated proposal type and, later,
+  real OAuth / MCP (stdio-via-runner / HTTP+SSE) transport replacing the fixture result.
 - **Identity & tenancy — slice 3** (F2) — extend tenant-scoping from sessions (step 23)
   to the remaining entities (projects, artifacts, schedules) and thread the request's
   tenant into their store mutators (sessions/audit are done; the rest still default to

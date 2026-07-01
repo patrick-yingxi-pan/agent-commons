@@ -1026,6 +1026,10 @@ export function buildRouter(): Router {
           agents: store.listAgents().map((a) => ({ id: a.id, label: a.label })),
           commissions: store.listCommissions().map((c) => ({ id: c.id, agentId: c.agentId, projectId: c.projectId })),
         },
+        // P6: the session's attached connector/MCP contexts become callable tools for
+        // this turn (server/model/connectorTools.ts derives them; non-connector
+        // contexts are ignored). Only what's attached is reachable.
+        store.sessionContexts(params.id),
       )
       // Meter the real tokens this turn consumed (even ephemeral tour turns —
       // they hit the model too), so the composer's plan-usage rings reflect use.
@@ -1047,6 +1051,16 @@ export function buildRouter(): Router {
           sessionId: session.id,
           messageId: message.id,
           escalation: message.escalation,
+        })
+      }
+      // P6: connector/MCP tools the model called this turn + their (mock) results —
+      // shown as activity under the message (a read needs no consent).
+      if (message.toolActivities?.length) {
+        channel.send({
+          type: 'message.toolActivity',
+          sessionId: session.id,
+          messageId: message.id,
+          toolActivities: message.toolActivities,
         })
       }
       // The model's reply text is canned (the mock model server) but its

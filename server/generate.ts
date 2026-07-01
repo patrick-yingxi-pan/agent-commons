@@ -9,8 +9,9 @@
  *  endpoint (dev: server/model on :8788). To go live, repoint `ANTHROPIC_BASE_URL`
  *  at `api.anthropic.com` and set `ANTHROPIC_API_KEY` — no code change. */
 import Anthropic from '@anthropic-ai/sdk'
-import type { Agent, EscalationProposal, Message, RelationOp } from '../contract/index.ts'
+import type { Agent, EscalationProposal, Message, RelationOp, SessionContext, ToolActivity } from '../contract/index.ts'
 import { TOOL_DEFINITIONS, executeTool, type ToolContext } from './model/tools.ts'
+import { deriveConnectorTools, runConnectorTool } from './model/connectorTools.ts'
 import { chunkText } from './model/replies.ts'
 import { positiveNumberEnv, nonNegativeIntEnv } from './env.ts'
 
@@ -114,6 +115,7 @@ export async function generateReply(
   signal?: AbortSignal,
   model: string = MODEL,
   commons?: ToolContext['commons'],
+  connectorContexts: SessionContext[] = [],
 ): Promise<ReplyResult> {
   // The live Agent Commons registries (supplied by the route) let the Agent Commons
   // CRUD tools resolve the model's named provider / prompt / agent against what
@@ -121,7 +123,13 @@ export async function generateReply(
   const ctx: ToolContext = { session: { id: session.id, title: session.title }, commons }
   const system = systemPrompt(session, agent)
   // The Agent's tool allowlist — a subset of the catalog (the default carries all).
-  const tools = TOOL_DEFINITIONS.filter((t) => agent.tools.includes(t.name))
+  const agentTools = TOOL_DEFINITIONS.filter((t) => agent.tools.includes(t.name))
+  // P6: an attached connector/MCP contributes callable tools too — derived from the
+  // session's context bindings (server/model/connectorTools.ts) and appended to the
+  // request. Only *attached* contexts yield tools, so the model can't reach one the
+  // user didn't add (authority is structural).
+  const { definitions: connectorDefs, bindings: connectorBindings } = deriveConnectorTools(connectorContexts)
+  const tools = [...agentTools, ...connectorDefs]
   const userContent = text.trim() || '(the user sent an empty message)'
 
   let assistantId = ''
@@ -161,8 +169,16 @@ export async function generateReply(
 
     // ── Execute the tool calls — build the consent-gated proposals ───────────
     const relationOps: RelationOp[] = []
+    const toolActivities: ToolActivity[] = []
     let escalation: EscalationProposal | undefined
     const toolResults = toolUses.map((tu) => {
+      // A connector/MCP tool (P6) executes into a ToolActivity (mock result); anything
+      // else is a built-in resource / relation / escalation tool.
+      const activity = runConnectorTool(tu.name, connectorBindings)
+      if (activity) {
+        toolActivities.push(activity)
+        return { type: 'tool_result' as const, tool_use_id: tu.id, content: activity.summary }
+      }
       const effect = executeTool(tu.name, (tu.input ?? {}) as Record<string, unknown>, ctx)
       if (effect.relationOps) relationOps.push(...effect.relationOps)
       if (effect.escalation) escalation = effect.escalation
@@ -198,6 +214,7 @@ export async function generateReply(
         content: fullText,
         relationActions: relationOps.length ? relationOps : undefined,
         escalation,
+        toolActivities: toolActivities.length ? toolActivities : undefined,
       },
       usage,
     }

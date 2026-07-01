@@ -15,7 +15,7 @@
  *
  *  Request/response is enough for plain reads and for *initiating* a command; it
  *  is not enough for anything on this list. */
-import type { Connector, EscalationProposal, Message, Session } from './entities.ts'
+import type { Connector, EscalationProposal, Message, Session, ToolActivity } from './entities.ts'
 import type { ScheduledRun } from './cowork.ts'
 import type { RelationOp } from './relations.ts'
 import type { AuditEntry } from './audit.ts'
@@ -51,6 +51,15 @@ export interface MessageEscalationEvent {
   sessionId: string
   messageId: string
   escalation: EscalationProposal
+}
+/** A mid-turn connector/MCP tool call + its (mock) result (P6). A read tool only
+ *  surfaced data, so this is *activity* shown under the message — not a consent
+ *  proposal like `message.escalation` / `message.relations`. */
+export interface MessageToolActivityEvent {
+  type: 'message.toolActivity'
+  sessionId: string
+  messageId: string
+  toolActivities: ToolActivity[]
 }
 export interface MessageEndEvent {
   type: 'message.end'
@@ -184,6 +193,7 @@ export type ServerEvent =
   | MessageDeltaEvent
   | MessageRelationsEvent
   | MessageEscalationEvent
+  | MessageToolActivityEvent
   | MessageEndEvent
   | RunStartedEvent
   | RunProgressEvent
@@ -210,4 +220,5 @@ export type ReplyStreamEvent =
   | MessageDeltaEvent
   | MessageRelationsEvent
   | MessageEscalationEvent
+  | MessageToolActivityEvent
   | MessageEndEvent

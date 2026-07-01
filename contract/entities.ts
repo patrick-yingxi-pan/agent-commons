@@ -134,6 +134,30 @@ export interface Message {
    *  relation-op tool calls (server/model/tools.ts). Typed as `RelationOp[]`
    *  (contract/relations.ts); kept loose here to avoid a type-import cycle. */
   relationActions?: import('./relations.ts').RelationOp[]
+  /** Connector / MCP tools the model called this turn, with the (mock) result fed
+   *  back to it (P6 — an attached connector/MCP contributes callable tools). Unlike
+   *  `escalation` / `relationActions`, a *read* result only surfaced data, so it needs
+   *  no consent — it's shown as activity under the message, not a proposal. */
+  toolActivities?: ToolActivity[]
+}
+
+/** One connector/MCP tool call the model made this turn + its (mock) result — the
+ *  observable end of P6's "a connected server's tools are added to the model's tool
+ *  list": the backend derives tools from the attached connector/MCP contexts, the
+ *  model calls one, the backend executes it (fixture result in this slice) and feeds
+ *  the summary back. Surfaced as a compact card under the message. */
+export interface ToolActivity {
+  /** The tool's wire name as declared to the model, e.g. `mcp__filesystem__read_file`
+   *  or `connector__slack__list`. */
+  tool: string
+  /** The attached connector/MCP this tool came from — its label + id, for the card. */
+  connector: string
+  connectorId: string
+  /** Whether the call read data or took an action (both are mocked in this slice; a
+   *  real, consent-gated write is a follow-up — P6 §2.1). */
+  kind: 'read' | 'action'
+  /** The one-line (mock) result fed back to the model and shown on the card. */
+  summary: string
 }
 
 /** A consent-gated escalation Claude proposes mid-turn — the structured result of

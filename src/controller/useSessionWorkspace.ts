@@ -410,6 +410,13 @@ export function useSessionWorkspace() {
               messages: l.messages.map((m) => (m.id === messageId ? { ...m, relationActions } : m)),
             }))
           },
+          onToolActivity: (messageId, toolActivities) => {
+            if (stale()) return
+            setLive((l) => ({
+              ...l,
+              messages: l.messages.map((m) => (m.id === messageId ? { ...m, toolActivities } : m)),
+            }))
+          },
           onEscalation: (_messageId, escalation) => {
             if (stale()) return
             escalated = true
@@ -548,7 +555,12 @@ export function useSessionWorkspace() {
           // the binding writes the draft deliberately skipped (persistableSession=false).
           const seeded = pendingDraftContexts.current
           if (seeded.length) {
-            for (const ctx of seeded) for (const b of bindingsFor(ctx)) void attachContext(sid, b).catch(() => {})
+            // Await the binding writes BEFORE the turn streams: generation derives an
+            // attached connector/MCP's tools from the session's server-side contexts
+            // (P6), so a pre-attached draft must have its bindings landed before the
+            // first send — otherwise the message races ahead and the tools aren't
+            // declared for that turn.
+            await Promise.all(seeded.flatMap((ctx) => bindingsFor(ctx).map((b) => attachContext(sid, b).catch(() => {}))))
             // Build the panels from the SAME seeded contexts, not `liveRef.current` — a
             // navigation while createSession was in flight would have replaced the live
             // state, so reading the ref here could persist another session's panels onto
@@ -596,6 +608,15 @@ export function useSessionWorkspace() {
           setLive((l) => ({
             ...l,
             messages: l.messages.map((m) => (m.id === messageId ? { ...m, relationActions } : m)),
+          }))
+        },
+        // A free-typed turn can also call an attached connector/MCP tool (P6) —
+        // surface the (mock) result as activity under the message; a read is not gated.
+        onToolActivity: (messageId, toolActivities) => {
+          if (stale()) return
+          setLive((l) => ({
+            ...l,
+            messages: l.messages.map((m) => (m.id === messageId ? { ...m, toolActivities } : m)),
           }))
         },
         // A free-typed turn can also call a panel-producing tool (e.g. "create a

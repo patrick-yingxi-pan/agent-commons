@@ -47,6 +47,26 @@ test('ephemeral turns do not persist (the tour can replay) — message count is 
   assert.equal(after, before)
 })
 
+test('an attached connector’s tools reach the model — a naming message drives a message.toolActivity round-trip (P6)', async () => {
+  const s = store.createSession('connector round-trip')
+  // Attach a Slack connector context — the backend derives its tools and declares them.
+  store.attachContext(s.id, { id: 'conn-slack', type: 'connector', label: 'Slack', scope: '*' })
+  const { status, body } = await callRaw('POST', `/sessions/${s.id}/messages`, { text: 'list my slack channels', ephemeral: true })
+  assert.equal(status, 200)
+  // The model called the derived connector tool; the backend executed it and streamed
+  // the activity + fed the (fixture) result back for the final prose.
+  assert.match(body, /"type":"message\.toolActivity"/, 'the tool-activity event is emitted')
+  assert.match(body, /connector__slack__list/, 'the derived connector tool was the one called')
+  assert.match(body, /#launch/, 'the fixture result rode back in the activity')
+  assert.match(body, /"type":"message\.end"/)
+})
+
+test('with no connector attached, a naming message drives no tool activity (authority is structural)', async () => {
+  const s = store.createSession('no connector attached')
+  const { body } = await callRaw('POST', `/sessions/${s.id}/messages`, { text: 'list my slack channels', ephemeral: true })
+  assert.doesNotMatch(body, /"type":"message\.toolActivity"/, 'no attached connector ⇒ no derived tool ⇒ nothing to call')
+})
+
 test('a persisted assistant turn is stamped with its driving Agent (D16 per-turn provenance)', async () => {
   const s = store.createSession('start')
   await callRaw('POST', `/sessions/${s.id}/messages`, { text: 'hello' }) // not ephemeral → persisted

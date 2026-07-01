@@ -64,6 +64,9 @@ export interface SendHandlers {
   /** A mid-turn escalation proposal (open_workspace / connect_repo / create_project)
    *  — render the consent prompt; apply on approval. */
   onEscalation?: (messageId: string, escalation: Extract<ReplyStreamEvent, { type: 'message.escalation' }>['escalation']) => void
+  /** Mid-turn connector/MCP tool activity (P6) — the tools the model called + their
+   *  (mock) results; render the activity card (a read needs no consent). */
+  onToolActivity?: (messageId: string, toolActivities: Extract<ReplyStreamEvent, { type: 'message.toolActivity' }>['toolActivities']) => void
   /** The final, complete assistant message (authoritative). */
   onEnd?: (message: Extract<ReplyStreamEvent, { type: 'message.end' }>['message']) => void
 }
@@ -526,6 +529,9 @@ function dispatch(event: ReplyStreamEvent, h: SendHandlers): void {
       break
     case 'message.escalation':
       h.onEscalation?.(event.messageId, event.escalation)
+      break
+    case 'message.toolActivity':
+      h.onToolActivity?.(event.messageId, event.toolActivities)
       break
     case 'message.end':
       h.onEnd?.(event.message)
