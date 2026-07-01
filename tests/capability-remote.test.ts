@@ -210,6 +210,30 @@ test('the connector-action confirm route is tenant-isolated (a foreign tenant ca
   assert.equal(writeAudits(), auditBefore + 1, 'the owner’s confirm recorded exactly one connector.write audit')
 })
 
+test('project relations are tenant-isolated on a remote backend (projection + foreign-target refusal)', async () => {
+  const { buildRouter } = await import('../server/routes/index.ts')
+  const call = caller(buildRouter())
+
+  // tenant-zeta creates a project THROUGH the route (op stamped with the caller's tenant).
+  const create = await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-zeta' }, {
+    op: { kind: 'create-project', projectId: 'proj-zeta', projectName: 'Zeta Only', projectDescription: '' },
+  })
+  assert.equal(create.status, 200, 'the create-project op applies')
+
+  // The projected graph: tenant-zeta sees it, tenant-omega does not.
+  const gZeta = await call('GET', '/relations', { 'x-tenant-id': 'tenant-zeta' })
+  assert.ok(gZeta.json.extraProjects.some((p) => p.id === 'proj-zeta'), 'the creating tenant sees its project')
+  const gOmega = await call('GET', '/relations', { 'x-tenant-id': 'tenant-omega' })
+  assert.ok(!gOmega.json.extraProjects.some((p) => p.id === 'proj-zeta'), 'another tenant does not see it')
+
+  // tenant-omega cannot file a session into tenant-zeta's project — 404 (existence-hiding),
+  // refused before the shared reducer runs.
+  const foreign = await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-omega' }, {
+    op: { kind: 'file-session', sessionId: 'sess-omega', sessionTitle: 'S', projectId: 'proj-zeta', projectName: 'Zeta Only' },
+  })
+  assert.equal(foreign.status, 404, 'a cross-tenant project target is refused 404')
+})
+
 test('the served cloud filesystem source works on a remote backend (it reads the web backend’s own storage)', async () => {
   const { buildRouter } = await import('../server/routes/index.ts')
   const call = caller(buildRouter())

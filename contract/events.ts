@@ -103,6 +103,11 @@ export interface RelationAppliedEvent {
   type: 'relation.applied'
   op: RelationOp
   by: 'user' | 'standing'
+  /** The tenant that applied the edit (F2/PD9) — the SSE fan-out delivers a relation
+   *  event only to its own tenant, so an edit (and the project/session/agent names its
+   *  op payload carries) never leaks cross-tenant. Unset ⇒ the backend's default tenant
+   *  (desktop / the mock backend's single tenant). */
+  tenantId?: string
 }
 /** A type's recents list changed (e.g. attached on another device/tab). */
 export interface RecentsChangedEvent {

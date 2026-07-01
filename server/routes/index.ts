@@ -1213,10 +1213,16 @@ export function buildRouter(): Router {
   r.post('/relations/ops', idempotent(async ({ req, res, body }) => {
     const { op } = await body<ApplyOpRequest>()
     if (!op || typeof op.kind !== 'string') return sendError(res, 'bad_request', 'op is required')
+    // Pass the caller's tenant so a created project is stamped with it (F2/PD9); the
+    // returned graph is projected to that tenant too (applyRelationOp handles both).
+    const tenantId = store.identity(req.headers).tenant.id
+    // Authorize the op's TARGET project: a tenant may only edit relations on a project it
+    // owns. Refuse a cross-tenant target 404 (existence-hiding) BEFORE the shared reducer
+    // runs, so a guessed id can't file/scope/refile into another tenant's project.
+    if (store.opTargetsForeignProject(op, tenantId)) {
+      return sendError(res, 'not_found', 'No such project')
+    }
     try {
-      // Pass the caller's tenant so a created project is stamped with it (F2/PD9); the
-      // returned graph is projected to that tenant too (applyRelationOp handles both).
-      const tenantId = store.identity(req.headers).tenant.id
       sendJson(res, store.applyRelationOp(op, tenantId))
     } catch (err) {
       // An Agent Commons CRUD op (commission-agent) confirmed against a now-removed

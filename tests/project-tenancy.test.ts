@@ -1,10 +1,14 @@
 /** Tenant-scoped projects via the relation graph (F2 / PD9 — identity slice 3a).
  *  Created projects live in `graph.extraProjects`; the shared reducer is tenant-agnostic,
  *  so the server stamps the creator's tenant on apply and `relationGraph(tenantId)`
- *  PROJECTS the graph to that tenant — filtering extraProjects + the project-keyed joins.
- *  Every seed project is the default tenant's, so the DEFAULT reader gets the full graph
- *  unchanged (backward-compatible); only a non-default tenant gets a filtered view. The
- *  broadcast is scoped too (relation.applied for a project op → that project's tenant). */
+ *  PROJECTS the graph to that tenant. Every seed project is the default tenant's, so the
+ *  DEFAULT reader gets the full graph unchanged (backward-compatible); only a non-default
+ *  tenant is filtered. The broadcast is gated on the acting tenant, and an op targeting a
+ *  project the caller doesn't own is refused (opTargetsForeignProject).
+ *
+ *  Order matters: the backward-compat identity test runs FIRST, while the store still
+ *  holds only default-tenant content; the isolation tests then introduce non-default
+ *  projects. The header-driven route boundary is proven in tests/capability-remote.test.ts. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from '../server/store.ts'
@@ -17,48 +21,66 @@ const mkCreate = (id, name, sessionId) => ({
   ...(sessionId ? { sessionId, sessionTitle: 'S' } : {}),
 })
 
+test('the default-tenant projection is the identity (full graph unchanged — backward-compatible)', () => {
+  // Runs first: the store holds only seed + this default-tenant project, all default.
+  store.applyRelationOp(mkCreate('proj-def', 'Default one', 'sess-def')) // no tenant ⇒ default
+  const full = store.relationGraph()
+  const def = store.relationGraph('tenant-personal') // the mock backend's default tenant
+  assert.deepEqual(def, full, 'the default projection equals the full graph')
+  assert.ok(def.extraProjects.some((p) => p.id === 'proj-def'), 'a default-created project is visible to the default reader')
+  assert.equal(def.sessionProject['sess-def'], 'proj-def', 'its session→project join too')
+})
+
 test('a created project is stamped with the caller tenant; relationGraph projects to it', () => {
   store.applyRelationOp(mkCreate('proj-a', 'Alpha', 'sess-a'), 'tenant-pa')
   store.applyRelationOp(mkCreate('proj-b', 'Beta', 'sess-b'), 'tenant-pb')
 
-  // Full graph (no tenant arg) has both, and the created projects carry their tenant.
   const full = store.relationGraph()
-  assert.ok(full.extraProjects.some((p) => p.id === 'proj-a') && full.extraProjects.some((p) => p.id === 'proj-b'))
   assert.equal(full.extraProjects.find((p) => p.id === 'proj-a').tenantId, 'tenant-pa', 'stamped with the caller tenant')
 
-  // tenant-pa sees only its project + its own project-keyed joins.
   const a = store.relationGraph('tenant-pa')
   assert.ok(a.extraProjects.some((p) => p.id === 'proj-a'), 'sees its own project')
-  assert.ok(!a.extraProjects.some((p) => p.id === 'proj-b'), 'does not see the other tenant’s project')
+  assert.ok(!a.extraProjects.some((p) => p.id === 'proj-b'), 'not the other tenant’s project')
   assert.equal(a.sessionProject['sess-a'], 'proj-a', 'its session→project join is present')
   assert.ok(!('sess-b' in a.sessionProject), 'the other tenant’s join is projected out')
-
-  const b = store.relationGraph('tenant-pb')
-  assert.ok(b.extraProjects.some((p) => p.id === 'proj-b') && !b.extraProjects.some((p) => p.id === 'proj-a'))
-  assert.ok(!('sess-a' in b.sessionProject))
+  // The default reader (now that non-default projects exist) does NOT see them.
+  const def = store.relationGraph('tenant-personal')
+  assert.ok(!def.extraProjects.some((p) => p.id === 'proj-a' || p.id === 'proj-b'), 'default reader excludes non-default projects')
 })
 
-test('the default-tenant reader sees the full graph (backward-compatible)', () => {
-  const full = store.relationGraph()
-  const def = store.relationGraph('tenant-personal') // the mock backend's default tenant
+test('relation.applied is gated on the ACTING tenant, incl. null-projectId unfile/unlink ops', () => {
+  // A create-project event stamped tenant-pa: visible to it, not another.
+  const created = { type: 'relation.applied', op: mkCreate('proj-a', 'Alpha'), by: 'user', tenantId: 'tenant-pa' }
+  assert.equal(store.eventVisibleToTenant(created, 'tenant-pa'), true)
+  assert.equal(store.eventVisibleToTenant(created, 'tenant-pb'), false)
 
-  // Every default-tenant (seed/legacy) project is visible to the default reader.
-  const defaultProjectIds = full.extraProjects
-    .filter((p) => (p.tenantId ?? 'tenant-personal') === 'tenant-personal')
-    .map((p) => p.id)
-  for (const id of defaultProjectIds) assert.ok(def.extraProjects.some((p) => p.id === id), `default reader keeps ${id}`)
+  // The review's HIGH: an UNFILE (projectId:null) still carries the project NAME. Gating on
+  // the stamped tenant (not the op) keeps it from leaking to a foreign tenant.
+  const unfile = {
+    type: 'relation.applied',
+    op: { kind: 'file-session', sessionId: 'sess-a', sessionTitle: 'S', projectId: null, projectName: 'AcmeSecretProject' },
+    by: 'user',
+    tenantId: 'tenant-pa',
+  }
+  assert.equal(store.eventVisibleToTenant(unfile, 'tenant-pa'), true, 'the acting tenant sees its own unfile')
+  assert.equal(store.eventVisibleToTenant(unfile, 'tenant-pb'), false, 'a foreign tenant does NOT — the project name is not leaked')
 
-  // …but a non-default tenant's created project is NOT in the default view.
-  assert.ok(!def.extraProjects.some((p) => p.id === 'proj-a'), 'default reader does not see tenant-pa’s project')
+  // An unstamped event (e.g. a legacy/standing emit) defaults to the default tenant.
+  const unstamped = { type: 'relation.applied', op: mkCreate('x', 'X'), by: 'standing' }
+  assert.equal(store.eventVisibleToTenant(unstamped, 'tenant-personal'), true)
+  assert.equal(store.eventVisibleToTenant(unstamped, 'tenant-pb'), false)
 })
 
-test('relation.applied for a project op is visible only to that project’s tenant', () => {
-  const projEvt = { type: 'relation.applied', op: mkCreate('proj-a', 'Alpha'), by: 'user' }
-  assert.equal(store.eventVisibleToTenant(projEvt, 'tenant-pa'), true, 'the owning tenant sees the project event')
-  assert.equal(store.eventVisibleToTenant(projEvt, 'tenant-pb'), false, 'another tenant does not')
-
-  // A projectless relation op is global (not project-scoped).
-  const globalEvt = { type: 'relation.applied', op: { kind: 'attach-context' }, by: 'user' }
-  assert.equal(store.eventVisibleToTenant(globalEvt, 'tenant-pa'), true)
-  assert.equal(store.eventVisibleToTenant(globalEvt, 'tenant-pb'), true)
+test('opTargetsForeignProject refuses an op aimed at a project the caller does not own', () => {
+  // proj-a is tenant-pa's (created above). A tenant-pb caller can't file into it.
+  const fileIntoA = { kind: 'file-session', sessionId: 's', sessionTitle: 'S', projectId: 'proj-a', projectName: 'Alpha' }
+  assert.equal(store.opTargetsForeignProject(fileIntoA, 'tenant-pb'), true, 'foreign target ⇒ refused')
+  assert.equal(store.opTargetsForeignProject(fileIntoA, 'tenant-pa'), false, 'the owner may target it')
+  // create-project (a new id) is exempt; a null-projectId (unfile) targets nothing.
+  assert.equal(store.opTargetsForeignProject(mkCreate('proj-new', 'New'), 'tenant-pb'), false, 'create-project is exempt')
+  assert.equal(
+    store.opTargetsForeignProject({ kind: 'file-session', sessionId: 's', sessionTitle: 'S', projectId: null, projectName: 'x' }, 'tenant-pb'),
+    false,
+    'an unfile targets no project',
+  )
 })

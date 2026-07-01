@@ -603,7 +603,9 @@ function applyStandingEffects(task: ScheduledTask, sessionId: string): void {
   } else {
     graph = applyGraphOp(graph, op, mintArtifactId, Date.now())
   }
-  emit({ type: 'relation.applied', op, by: 'standing' })
+  // A standing (schedule-driven) effect belongs to the default tenant in this prototype
+  // (schedules aren't tenant-scoped yet) — stamped explicitly so the SSE gate is unambiguous.
+  emit({ type: 'relation.applied', op, by: 'standing', tenantId: defaultTenantId() })
 }
 
 export const store = {
@@ -778,14 +780,13 @@ export const store = {
       }
       case 'audit.entry':
         return (e.entry.tenantId ?? defaultTenantId()) === tenantId
-      case 'relation.applied': {
-        // A project-scoped relation event (create-project, file-session, refile-artifact,
-        // link-schedule-project, …) is visible only to that project's tenant (F2/PD9) — so
-        // a created project doesn't leak via the broadcast even though the graph read is
-        // already projected. An op that touches no project is global.
-        const pid = (e.op as { projectId?: string }).projectId
-        return pid ? projectTenant(pid) === tenantId : true
-      }
+      case 'relation.applied':
+        // Gate on the tenant that APPLIED the edit — not the op payload. Keying off
+        // op.projectId leaked the unfile/unlink ops (projectId:null but carrying the
+        // project *name*), and the projectless ops (handoff / Agent-Commons CRUD) leaked
+        // their session/agent labels. A relation edit is the acting tenant's private
+        // action, so it's visible only to that tenant (F2/PD9). Unstamped ⇒ default.
+        return (e.tenantId ?? defaultTenantId()) === tenantId
       default:
         return true
     }
@@ -1825,11 +1826,23 @@ export const store = {
           if (created && created.tenantId === undefined) created.tenantId = tenantId ?? defaultTenantId()
         }
     }
-    emit({ type: 'relation.applied', op, by: 'user' })
+    // Stamp the acting tenant so the SSE fan-out delivers this only to that tenant (F2/PD9).
+    emit({ type: 'relation.applied', op, by: 'user', tenantId: tenantId ?? defaultTenantId() })
     persist()
     // Return the caller's projected view (F2/PD9) so the client's optimistic graph matches
     // what a subsequent GET /relations would return; no tenant ⇒ the full graph.
     return tenantId ? projectGraphForTenant(graph, tenantId) : graph
+  },
+  /** Whether a relation op targets a project the caller does NOT own (F2/PD9). The route
+   *  refuses such an op (404, existence-hiding) BEFORE the shared reducer applies it, so a
+   *  tenant can't file/scope/refile into another tenant's project by guessing its id. A
+   *  `create-project` introduces a NEW id (the reducer no-ops a collision), so it's exempt;
+   *  a null projectId (unfile/unlink) targets no project; seed projects are the default
+   *  tenant's, so the default caller passes. */
+  opTargetsForeignProject(op: RelationOp, tenantId: string): boolean {
+    if (op.kind === 'create-project') return false
+    const pid = (op as { projectId?: string | null }).projectId
+    return !!pid && !!findProject(pid) && projectTenant(pid) !== tenantId
   },
 }
 
