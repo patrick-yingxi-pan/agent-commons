@@ -1216,10 +1216,11 @@ export function buildRouter(): Router {
     // Pass the caller's tenant so a created project is stamped with it (F2/PD9); the
     // returned graph is projected to that tenant too (applyRelationOp handles both).
     const tenantId = store.identity(req.headers).tenant.id
-    // Authorize the op's TARGET project: a tenant may only edit relations on a project it
-    // owns. Refuse a cross-tenant target 404 (existence-hiding) BEFORE the shared reducer
-    // runs, so a guessed id can't file/scope/refile into another tenant's project.
-    if (store.opTargetsForeignProject(op, tenantId)) {
+    // Authorize the op against the caller's tenant (F2/PD9): its target project AND its
+    // subject session must both be the caller's. Refuse a cross-tenant op 404 (existence-
+    // hiding) BEFORE the shared reducer runs, so a guessed id can't file/scope/refile into —
+    // or unfile a session out of — another tenant's project.
+    if (store.opDeniedForTenant(op, tenantId)) {
       return sendError(res, 'not_found', 'No such project')
     }
     try {

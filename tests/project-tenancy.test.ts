@@ -71,16 +71,22 @@ test('relation.applied is gated on the ACTING tenant, incl. null-projectId unfil
   assert.equal(store.eventVisibleToTenant(unstamped, 'tenant-pb'), false)
 })
 
-test('opTargetsForeignProject refuses an op aimed at a project the caller does not own', () => {
+test('opDeniedForTenant refuses foreign-project targets, colliding create-project, and foreign-session subjects', () => {
   // proj-a is tenant-pa's (created above). A tenant-pb caller can't file into it.
   const fileIntoA = { kind: 'file-session', sessionId: 's', sessionTitle: 'S', projectId: 'proj-a', projectName: 'Alpha' }
-  assert.equal(store.opTargetsForeignProject(fileIntoA, 'tenant-pb'), true, 'foreign target ⇒ refused')
-  assert.equal(store.opTargetsForeignProject(fileIntoA, 'tenant-pa'), false, 'the owner may target it')
-  // create-project (a new id) is exempt; a null-projectId (unfile) targets nothing.
-  assert.equal(store.opTargetsForeignProject(mkCreate('proj-new', 'New'), 'tenant-pb'), false, 'create-project is exempt')
-  assert.equal(
-    store.opTargetsForeignProject({ kind: 'file-session', sessionId: 's', sessionTitle: 'S', projectId: null, projectName: 'x' }, 'tenant-pb'),
-    false,
-    'an unfile targets no project',
-  )
+  assert.equal(store.opDeniedForTenant(fileIntoA, 'tenant-pb'), true, 'foreign destination ⇒ refused')
+  assert.equal(store.opDeniedForTenant(fileIntoA, 'tenant-pa'), false, 'the owner may target it')
+
+  // A create-project COLLIDING with a foreign id is refused (NOT exempt) — the reducer's
+  // re-file path would otherwise inject the caller's session into the victim's project.
+  const collide = { kind: 'create-project', projectId: 'proj-a', projectName: 'x', projectDescription: '', sessionId: 'sx', sessionTitle: 'S' }
+  assert.equal(store.opDeniedForTenant(collide, 'tenant-pb'), true, 'colliding foreign create-project ⇒ refused')
+  // A create-project with a genuinely NEW id is allowed (resolves to no existing project).
+  assert.equal(store.opDeniedForTenant(mkCreate('proj-fresh', 'Fresh'), 'tenant-pb'), false, 'a brand-new id is allowed')
+
+  // Subject check: a tenant can't unfile (projectId:null) another tenant's SESSION.
+  const owned = store.createSession('pa owned session', 'tenant-pa')
+  const unfileForeign = { kind: 'file-session', sessionId: owned.id, sessionTitle: 'S', projectId: null, projectName: 'x' }
+  assert.equal(store.opDeniedForTenant(unfileForeign, 'tenant-pb'), true, 'unfiling a foreign session ⇒ refused')
+  assert.equal(store.opDeniedForTenant(unfileForeign, 'tenant-pa'), false, 'the session owner may unfile it')
 })

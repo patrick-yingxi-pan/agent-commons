@@ -232,6 +232,16 @@ test('project relations are tenant-isolated on a remote backend (projection + fo
     op: { kind: 'file-session', sessionId: 'sess-omega', sessionTitle: 'S', projectId: 'proj-zeta', projectName: 'Zeta Only' },
   })
   assert.equal(foreign.status, 404, 'a cross-tenant project target is refused 404')
+
+  // …nor via a create-project COLLIDING with zeta's id (the reducer's re-file path would
+  // otherwise inject omega's session into zeta's project) — refused 404, and zeta's graph
+  // never gains the omega join.
+  const collide = await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-omega' }, {
+    op: { kind: 'create-project', projectId: 'proj-zeta', projectName: 'Hijack', projectDescription: '', sessionId: 'sess-omega', sessionTitle: 'S' },
+  })
+  assert.equal(collide.status, 404, 'a colliding-id create-project is refused 404')
+  const gZeta2 = await call('GET', '/relations', { 'x-tenant-id': 'tenant-zeta' })
+  assert.ok(!('sess-omega' in gZeta2.json.sessionProject), 'omega’s session was NOT injected into zeta’s project')
 })
 
 test('the served cloud filesystem source works on a remote backend (it reads the web backend’s own storage)', async () => {

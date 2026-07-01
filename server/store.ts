@@ -1833,16 +1833,28 @@ export const store = {
     // what a subsequent GET /relations would return; no tenant ⇒ the full graph.
     return tenantId ? projectGraphForTenant(graph, tenantId) : graph
   },
-  /** Whether a relation op targets a project the caller does NOT own (F2/PD9). The route
-   *  refuses such an op (404, existence-hiding) BEFORE the shared reducer applies it, so a
-   *  tenant can't file/scope/refile into another tenant's project by guessing its id. A
-   *  `create-project` introduces a NEW id (the reducer no-ops a collision), so it's exempt;
-   *  a null projectId (unfile/unlink) targets no project; seed projects are the default
-   *  tenant's, so the default caller passes. */
-  opTargetsForeignProject(op: RelationOp, tenantId: string): boolean {
-    if (op.kind === 'create-project') return false
+  /** Whether a relation op must be REFUSED for `tenantId` (F2/PD9). The route rejects it
+   *  404 (existence-hiding) BEFORE the shared reducer applies it. Two independent checks —
+   *  a violation of EITHER denies:
+   *    • **Destination project** — an op whose (non-null) `projectId` names a project the
+   *      caller doesn't own. `create-project` is *not* exempt: a brand-new id resolves to no
+   *      project (allowed), but a create-project COLLIDING with a foreign id takes the
+   *      reducer's re-file path (contract/graph.ts) and would inject the caller's session
+   *      into the victim's project — so it must be refused like any other foreign target.
+   *    • **Subject session** — an op that moves a SESSION (`sessionId`) it doesn't own, e.g.
+   *      unfiling (`projectId:null`) another tenant's session. Sessions are tenant-scoped
+   *      (sessionVisibleToTenant); an unknown session has no owner to protect (allowed).
+   *  Seed projects/sessions are the default tenant's, so the default caller passes. (The
+   *  artifact/schedule SUBJECT axes await slice 3b, when those entities gain a tenant.) */
+  opDeniedForTenant(op: RelationOp, tenantId: string): boolean {
     const pid = (op as { projectId?: string | null }).projectId
-    return !!pid && !!findProject(pid) && projectTenant(pid) !== tenantId
+    if (pid && findProject(pid) && projectTenant(pid) !== tenantId) return true
+    const sid = (op as { sessionId?: string }).sessionId
+    if (sid) {
+      const session = SESSIONS.find((s) => s.id === sid)
+      if (session && !this.sessionVisibleToTenant(session, tenantId)) return true
+    }
+    return false
   },
 }
 
