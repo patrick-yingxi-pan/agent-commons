@@ -139,6 +139,12 @@ export interface Message {
    *  `escalation` / `relationActions`, a *read* result only surfaced data, so it needs
    *  no consent — it's shown as activity under the message, not a proposal. */
   toolActivities?: ToolActivity[]
+  /** When set, this is a **compaction summary** that replaced `compactedFrom` earlier
+   *  messages to free context space (P5 / BROKER-EXP-3). The UI renders it as a warm
+   *  divider ("Compacted N earlier messages so we can keep chatting"), and the usage
+   *  gauge drops back once it lands. Server-owned: the backend performs the compaction
+   *  and the token-count change (see `GET /v1/usage`). */
+  compactedFrom?: number
 }
 
 /** One connector/MCP tool call the model made this turn + its (mock) result — the
@@ -268,6 +274,12 @@ export interface Session {
   tenantId?: string
   /** Canned content shown when a non-demo conversation is opened. */
   messages?: Message[]
+  /** Messages archived by context compaction (P5 / BROKER-EXP-3): compaction moves the
+   *  older messages HERE (out of `messages`, so they no longer count toward the context
+   *  window) and leaves a compaction-summary marker in `messages`. Non-destructive — the
+   *  detail stays recoverable (the copy promises continuity) — and not shipped in the
+   *  lightweight list rows. */
+  compactedMessages?: Message[]
   /** The live, server-owned workspace (runtime attaches persist here). Populated
    *  by the backend on read; the flat seed fields below seed it. */
   workspace?: SessionWorkspace

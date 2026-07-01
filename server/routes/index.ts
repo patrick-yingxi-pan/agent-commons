@@ -1098,6 +1098,15 @@ export function buildRouter(): Router {
     if (!activity) return sendError(res, 'not_found', `No tool activity '${params.activityId}' on session '${params.id}'`)
     sendJson(res, activity)
   })
+  // Compact a session's context (P5 / BROKER-EXP-3) — server-owned; archives older
+  // messages behind a summary marker so the token count (and the usage gauge) drops back.
+  // Tenant-guarded like the other by-id session routes.
+  r.post('/sessions/:id/compact', ({ req, res, params }) => {
+    if (denyForeignSession(req, res, params.id)) return
+    const session = store.compactSession(params.id)
+    if (!session) return sendError(res, 'not_found', `No session '${params.id}'`)
+    sendJson(res, session)
+  })
 
   // ── Dispatch ──────────────────────────────────────────────────────────────
   r.get('/dispatch', ({ res, url }) => {

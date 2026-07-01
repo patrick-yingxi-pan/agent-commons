@@ -1466,6 +1466,35 @@ export const store = {
    *  context-window fill (system+tools baseline + an estimate of every message in
    *  the thread) plus the live plan windows. `sessionId` selects which thread the
    *  context figure reflects; omitted = baseline only. */
+  /** Compact a session's context (P5 / BROKER-EXP-3): move all but the last `KEEP_RECENT`
+   *  messages into the `compactedMessages` archive and leave a single small compaction-
+   *  summary marker in `messages`, so the session's token count — and the usage gauge's
+   *  context % — drops back, freeing space to keep chatting. Server-owned (the backend does
+   *  the token-count change; `GET /v1/usage` reflects it). Non-destructive: the archived
+   *  detail stays recoverable. A no-op (returns the session unchanged) when there's too
+   *  little to compact. Persists + broadcasts `session.updated` so the gauge drops back. */
+  compactSession(sessionId: string): Session | undefined {
+    const session = SESSIONS.find((s) => s.id === sessionId)
+    if (!session) return undefined
+    const msgs = session.messages ?? []
+    const KEEP_RECENT = 4
+    // Need at least a couple of older messages beyond the recent window to be worth it.
+    if (msgs.length <= KEEP_RECENT + 1) return session
+    const older = msgs.slice(0, msgs.length - KEEP_RECENT)
+    const recent = msgs.slice(msgs.length - KEEP_RECENT)
+    const summary: Message = {
+      id: this.mintMessageId('assistant'),
+      role: 'assistant',
+      content: `Compacted ${older.length} earlier messages so we can keep chatting — the gist is carried forward.`,
+      compactedFrom: older.length,
+    }
+    // Archive the older messages (out of the counted `messages`, still recoverable).
+    session.compactedMessages = [...(session.compactedMessages ?? []), ...older]
+    session.messages = [summary, ...recent]
+    emit({ type: 'session.updated', session })
+    persist()
+    return session
+  },
   usage(sessionId?: string): UsageSnapshot {
     let messageTokens = 0
     const session = sessionId ? SESSIONS.find((s) => s.id === sessionId) : undefined
