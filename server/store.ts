@@ -523,6 +523,7 @@ function snapshot(): PersistedState {
       (p) => [p.id, p.commissionCap!] as [string, number],
     ),
     auditLog, // D15/OQ7 — the cross-user effect trail (append-only)
+    dispatch, // P7 — one-off dispatch runs (a live run survives a restart)
     seq: {
       session: sessionSeq,
       message: messageSeq,
@@ -534,6 +535,7 @@ function snapshot(): PersistedState {
       agent: workerAgentSeq,
       commission: commissionSeq,
       audit: auditSeq,
+      dispatch: dispatchSeq,
     },
   }
 }
@@ -593,6 +595,18 @@ function rehydrate(s: PersistedState): void {
   }
   // D15/OQ7 audit trail — restore the append-only log (empty for a pre-field snapshot).
   auditLog.splice(0, auditLog.length, ...(s.auditLog ?? []))
+  // P7 dispatch runs — restore the feed (keep the seed for a pre-field snapshot). Same
+  // crash-recovery sweep as the schedule daemon: a LIVE-minted run ('d-new-*') left
+  // 'running' when the process died has no completing timer anymore, so it'd be stuck
+  // in-flight forever — settle it to 'failed'. Seed runs (d1/d2/d3), 'running' for visual
+  // variety, aren't live-minted, so they're left alone.
+  if (s.dispatch) dispatch.splice(0, dispatch.length, ...s.dispatch)
+  for (const run of dispatch) {
+    if (run.status === 'running' && run.id.startsWith('d-new-')) {
+      run.status = 'failed'
+      run.detail = 'Interrupted by a server restart'
+    }
+  }
   sessionSeq = s.seq.session
   messageSeq = s.seq.message
   scheduleSeq = s.seq.schedule
@@ -607,6 +621,8 @@ function rehydrate(s: PersistedState): void {
   // Restore the audit counter past the persisted ids (fall back to the trail length so a
   // pre-field snapshot's freshly minted ids never collide with restored ones).
   auditSeq = s.seq.audit ?? auditLog.length
+  // Dispatch counter (fall back to the seed counter for a pre-field snapshot).
+  dispatchSeq = s.seq.dispatch ?? dispatchSeq
 }
 
 /** Replace a registry Map's contents from a snapshot's entry array, in place. A
@@ -1446,7 +1462,10 @@ export const store = {
   },
   /** Kick off a one-off dispatch (a single on-demand agent run). It lands
    *  'running', broadcasts, then finishes 'done' a beat later (the mock stand-in
-   *  for a real agent run) and broadcasts again. Returns the run. */
+   *  for a real agent run) and broadcasts again. Persisted at both edges (P7), so a
+   *  live run survives a restart — and one caught mid-flight by a restart is swept to
+   *  'failed' on rehydrate (the completing timer doesn't survive the process). Returns
+   *  the run. */
   addDispatch(title: string, detail?: string): DispatchRun {
     const run: DispatchRun = {
       id: `d-new-${(dispatchSeq += 1)}`,
@@ -1457,11 +1476,14 @@ export const store = {
     }
     dispatch.unshift(run)
     emit({ type: 'dispatch.changed' })
+    persist()
     setTimeout(() => {
       // startedAt is the start time — it doesn't change as the run settles; the UI
       // re-derives "started 4 minutes ago" → "4 minutes ago" from it live.
+      if (run.status !== 'running') return // swept (e.g. after a restart) — don't resurrect it
       run.status = 'done'
       emit({ type: 'dispatch.changed' })
+      persist()
     }, RUN_STEP_MS * 4)
     return run
   },

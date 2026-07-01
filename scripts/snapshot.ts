@@ -264,6 +264,10 @@ export async function buildComprehensive(): Promise<PersistedState> {
   if (connected) store.setConnectorStatus(connected.id, 'needs-auth')
   if (needsAuth) store.setConnectorStatus(needsAuth.id, 'connected')
 
+  // ── Dispatch (P7) ── a one-off run, so the persisted dispatch feed is exercised. It
+  // settles to 'done' a beat later — during the schedule-run poll below — and re-persists.
+  store.addDispatch('Playground dispatch — refresh the digest', 'Pulling the latest metrics.')
+
   // Run the created routine and wait for it to finish (it steps one beat at a
   // time, then a final beat applies the standing-approved artifact save). Poll the
   // REAL run record for a terminal state rather than hard-coding the store's step

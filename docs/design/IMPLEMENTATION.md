@@ -97,6 +97,8 @@ it.
 
 | 34 | P5 reliability / F6 PD31 | **Generation-outcome observability.** The generation path (`server/generate.ts`) runs on every turn but a **degraded turn was silent** — an operator couldn't see the model endpoint failing. Rather than hand-roll a retry/backoff wrapper (the `@anthropic-ai/sdk` **already** does exponential-backoff retries on transient errors — 429/5xx/network, respecting `retry-after` — and correctly *doesn't* retry terminal 4xx; and generate.ts already classifies timeout-vs-client-abort at line 229), this slice adds the missing **visibility**: `ReplyResult` gains an `outcome` (`ok` \| `fallback`); the message route records it (`store.recordGenerationOutcome`) after every turn, and in its catch distinguishes `aborted` (client closed — `ac.signal.aborted`) from `error` (fatal). A new `model_turns_total{outcome=…}` **counter** is exposed at `/metrics` (all four series present from the first scrape). Global ops metric (model-endpoint health, not per-tenant billing), transient like the request counters. Locked by `tests/generation-outcome.test.ts` (reachable → `ok`; unreachable endpoint → `fallback` + degraded reply, not a throw; store tally + `/metrics` series) + a route→store wiring assertion in `tests/routes-messages.test.ts`; the `fallback` outcome bite-proven. 597 node tests pass; typecheck + build green. **Note:** honest scoping — the recon's "add retry/backoff" was largely already covered by the SDK; the real gap was observability, which is what shipped. | ✅ built |
 
+| 35 | P7 automation (Dispatch durability) | **Dispatch runs are durable.** The schedule daemon already had real durability (overlap guard, persistence, a stale-`running`→`failed` sweep on restart), but **dispatch had none** — `addDispatch` didn't persist, always finished `done`, and its contract's `'failed'` status was **unreachable**. Brought dispatch to parity with the schedule daemon: `dispatch` joined the snapshot as an **additive optional** slice (`PersistedState.dispatch?` + `seq.dispatch?` + `SLICE_KIND` — no `STORE_VERSION` bump, a pre-field snapshot loads cleanly keeping the seed feed); `addDispatch` now `persist()`s at both edges (create + completion) and the completion timer guards `if (run.status !== 'running') return` so it can't resurrect a swept run; and `rehydrate` sweeps any **live-minted** (`d-new-*`) run left `running` when the process died → `failed` ("Interrupted by a server restart"), leaving seed runs (`d1/d2/d3`, `running` for visual variety) alone — mirroring the daemon's `run-live-*` sweep. This is the crash-recovery path that makes the `'failed'` status reachable. The comprehensive playground (`scripts/snapshot.ts`) now exercises the dispatch slice, and the stale `PERSIST-2` claim ("dispatch is deliberately excluded") was corrected. Locked by `tests/dispatch-durability.test.ts` (live in-flight → swept to `failed`; a live `done` run survives verbatim; a seed run untouched — bite-proven) + the every-slice coverage invariant in `tests/snapshot.test.ts`. 599 node tests pass; typecheck + build green. **Remaining (P7):** a real failure-injection path (a dispatch that fails *during* the run, not only via restart), retries/backoff, concurrency limits, and dispatch outcome metrics in `/metrics`. | ✅ built |
+
 ### F2 identity & tenancy — status
 
 The tenancy boundary (PD9) is now built + adversarially reviewed across every
@@ -115,12 +117,12 @@ is considered complete for the prototype.
 
 ### Up next (candidate order, not yet built)
 
-- **P7 — Dispatch / scheduler durability** *(next)*. One-off async runs + the schedule
-  daemon as real job infra (retries, idempotency, concurrency, observability). `POST
-  /dispatch` currently appends a mock run that flips running→done on a timer (no real work,
-  no failure/retry path); the schedule daemon is default-tenant. Next substantial
-  production-infra slice, and it unlocks commission-attributed budgets below (a
-  commissioned-execution path is where a Commission `grant` is enforced at runtime).
+- **P7 — Dispatch: failure path + retries + observability** *(next; durability done — row 35)*.
+  Row 35 gave dispatch runs durability (persist + crash-recovery sweep → `failed`). Still
+  mock: a dispatch can only *fail* via a restart, never *during* a run; no retries/backoff,
+  no concurrency limit, and no dispatch outcome metric in `/metrics`. A failure-injection
+  seam + `dispatch_runs_total{status}` is the next increment. Still unlocks commission-
+  attributed budgets below (a commissioned-execution path is where a `grant` is enforced).
 - ~~**P5 — generation reliability**~~ *(done — build-log row 34)*. Shipped as generation-
   outcome **observability** (`model_turns_total` in `/metrics`); the SDK already covers the
   transient retry/backoff, so the real gap was visibility, not a retry layer.

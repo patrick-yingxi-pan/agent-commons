@@ -12,6 +12,7 @@ import type {
   Agent,
   AuditEntry,
   Commission,
+  DispatchRun,
   ModelProvider,
   RecentsSnapshot,
   RelationGraph,
@@ -43,7 +44,10 @@ import { join } from 'node:path'
  *  migration (`DATA_MIGRATIONS`, server/persistence/migrate.ts) backfills them to the
  *  personal tenant on load — the first real migration, replacing discard-and-reseed for
  *  this bump so a restored store keeps its audit history.
- *  Older versions without a migration path remain discard-and-reseed. */
+ *  Older versions without a migration path remain discard-and-reseed.
+ *  (Dispatch runs joined as an *additive optional* slice — `dispatch?` + `seq.dispatch?` —
+ *  so a v5 snapshot without them loads cleanly (rehydrate keeps the seed feed); no bump,
+ *  matching how `savedContexts?` / `auditLog?` were added.) */
 export const STORE_VERSION = 5
 
 /** The persisted shape — the store's mutable, UI-owned state. Maps are stored as
@@ -78,6 +82,10 @@ export interface PersistedState {
   /** The detective audit trail (D15/OQ7). Optional so a pre-field snapshot loads cleanly
    *  (an empty trail); append-only, so the watch survives a restart. */
   auditLog?: AuditEntry[]
+  /** One-off dispatch runs (P7). Optional so a pre-field snapshot loads cleanly (rehydrate
+   *  keeps the seed feed); a live run persists so it survives a restart, and a run left
+   *  `running` when the process died is swept to `failed` on rehydrate (crash recovery). */
+  dispatch?: DispatchRun[]
   seq: {
     session: number
     message: number
@@ -90,6 +98,9 @@ export interface PersistedState {
     commission: number
     /** Optional so a pre-field snapshot loads (rehydrate falls back to the seed counter). */
     audit?: number
+    /** Dispatch run id counter (P7). Optional so a pre-field snapshot loads (falls back to
+     *  the seed counter). */
+    dispatch?: number
   }
 }
 
@@ -117,6 +128,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   commissions: 'mapEntries',
   commissionCaps: 'mapEntries',
   auditLog: 'array',
+  dispatch: 'array',
   seq: 'singleton',
 }
 
