@@ -293,8 +293,10 @@ export default function App() {
 
                     {/* Compaction (P5): offered once the open thread is long enough to be
                         worth compacting; hides itself after (the thread is short again). Only
-                        a persisted, real session — a draft/demo has nothing durable to archive. */}
-                    {!isDemo && !isDraft && live.messages.length > 6 && (
+                        a persisted, real session — a draft/demo has nothing durable to archive —
+                        and only BETWEEN turns: compacting mid-stream would swap out live.messages
+                        and drop the still-streaming reply, so gate on !busy && !typing. */}
+                    {!isDemo && !isDraft && !busy && !typing && live.messages.length > 6 && (
                       <CompactionAffordance onCompact={compact} />
                     )}
 

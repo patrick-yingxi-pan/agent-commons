@@ -1482,14 +1482,19 @@ export const store = {
     if (msgs.length <= KEEP_RECENT + 1) return session
     const older = msgs.slice(0, msgs.length - KEEP_RECENT)
     const recent = msgs.slice(msgs.length - KEEP_RECENT)
+    // On a RE-compaction the older slice leads with the previous compaction marker (a
+    // synthetic summary, not real history): drop it — don't re-archive or count it — so the
+    // archive holds only real messages and the count doesn't inflate. The single new marker
+    // then carries the CUMULATIVE total archived, so there's always exactly one divider.
+    const olderReal = older.filter((m) => m.compactedFrom == null)
+    const archive = [...(session.compactedMessages ?? []), ...olderReal]
     const summary: Message = {
       id: this.mintMessageId('assistant'),
       role: 'assistant',
-      content: `Compacted ${older.length} earlier messages so we can keep chatting — the gist is carried forward.`,
-      compactedFrom: older.length,
+      content: `Compacted ${archive.length} earlier messages so we can keep chatting — the gist is carried forward.`,
+      compactedFrom: archive.length,
     }
-    // Archive the older messages (out of the counted `messages`, still recoverable).
-    session.compactedMessages = [...(session.compactedMessages ?? []), ...older]
+    session.compactedMessages = archive
     session.messages = [summary, ...recent]
     emit({ type: 'session.updated', session })
     persist()

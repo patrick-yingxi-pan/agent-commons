@@ -33,6 +33,33 @@ test('compactSession archives older messages behind a summary + drops the contex
   assert.ok(store.usage(s.id).context.pct < before, `context % dropped (${before} → ${store.usage(s.id).context.pct})`)
 })
 
+test('re-compaction stays single-marker + cumulative, without archiving the prior marker', () => {
+  const s = store.createSession('re-compaction thread')
+  const append = (n) => {
+    for (let i = 0; i < n; i++) {
+      const role = i % 2 ? 'assistant' : 'user'
+      store.appendMessage(s.id, { id: store.mintMessageId(role), role, content: `${BIG} #${i}` })
+    }
+  }
+  append(12)
+  store.compactSession(s.id) // → summary(8) + 4 recent; archive 8 real
+  const first = store.getSession(s.id)
+  assert.equal(first.messages.filter((m) => m.compactedFrom != null).length, 1, 'exactly one summary marker')
+  assert.equal(first.compactedMessages.length, 8, 'archived the 8 real older messages')
+
+  append(6) // thread grows past the recent window again
+  store.compactSession(s.id)
+  const second = store.getSession(s.id)
+  // Still exactly one marker (the prior one was dropped, not re-archived).
+  assert.equal(second.messages.filter((m) => m.compactedFrom != null).length, 1, 'still a single marker after re-compaction')
+  // The archive holds ONLY real messages (no synthetic summary markers leaked in).
+  assert.ok(!second.compactedMessages.some((m) => m.compactedFrom != null), 'no prior marker archived')
+  // Cumulative count = real messages archived across both rounds (8 + 6), not inflated by the marker.
+  const marker = second.messages.find((m) => m.compactedFrom != null)
+  assert.equal(marker.compactedFrom, second.compactedMessages.length, 'the marker count equals the real archive size')
+  assert.equal(marker.compactedFrom, 14, 'cumulative real-message count (8 + 6)')
+})
+
 test('compactSession is a no-op on a short session (nothing worth compacting)', () => {
   const s = store.createSession('short thread')
   store.appendMessage(s.id, { id: store.mintMessageId('user'), role: 'user', content: 'hi' })
