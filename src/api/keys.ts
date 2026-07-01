@@ -80,6 +80,7 @@ export const paths = {
   sessionWorkspace: (id: string) => `/sessions/${encodeURIComponent(id)}/workspace`,
   toolActivity: (id: string, activityId: string) =>
     `/sessions/${encodeURIComponent(id)}/tool-activities/${encodeURIComponent(activityId)}`,
+  sessionCompact: (id: string) => `/sessions/${encodeURIComponent(id)}/compact`,
   dispatch: '/dispatch',
   savedContexts: '/saved-contexts',
   savedContext: (id: string) => `/saved-contexts/${encodeURIComponent(id)}`,

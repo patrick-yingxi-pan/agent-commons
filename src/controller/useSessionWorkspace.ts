@@ -40,6 +40,7 @@ import {
   runSessionFromCache,
   runSessionFromSchedules,
   sendMessage,
+  compactSession,
 } from '../api'
 import type {
   AddedContext,
@@ -931,6 +932,23 @@ export function useSessionWorkspace() {
     return { kind: 'repo', connectorLabel: esc.connectorLabel } as const
   }, [pendingEscalation])
 
+  // Context compaction (P5 / BROKER-EXP-3): ask the backend (server-owned) to archive the
+  // older messages behind a summary marker, then swap our live messages to the returned
+  // (compacted) set so the open thread + the composer's live token overlay — and thus the
+  // usage gauge disc — drop back. Only a persisted, real session compacts (a draft/demo
+  // has nothing durable to archive).
+  const compact = useCallback(async () => {
+    const sid = activeIdRef.current
+    if (!persistableSession(sid)) return
+    try {
+      const updated = await compactSession(sid)
+      if (activeIdRef.current !== sid) return // navigated away mid-request
+      setLive((l) => ({ ...l, messages: updated.messages ?? [] }))
+    } catch {
+      /* leave the thread as-is; the user can retry */
+    }
+  }, [persistableSession])
+
   return {
     // state
     activeId,
@@ -969,6 +987,7 @@ export function useSessionWorkspace() {
     archiveSession,
     deleteSession,
     handleSend,
+    compact,
     handleAddContext,
     focusContext,
     removeContexts,

@@ -6,6 +6,26 @@ import { RelationActionCard } from './RelationActionCard'
 import { ToolActivityCard } from './ToolActivityCard'
 
 export function MessageRow({ message, sessionId }: { message: MessageT; sessionId: string }) {
+  // A compaction summary (P5) renders as a warm divider, not a chat bubble — the older
+  // messages it replaced were archived to free context space so we can keep chatting.
+  if (message.compactedFrom) {
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.28 }}
+        className="px-4 py-2"
+      >
+        <div className="mx-auto flex w-full max-w-3xl items-center gap-2.5 text-[12px] text-ink-faint">
+          <span className="h-px flex-1 bg-line" />
+          <span className="shrink-0">
+            Compacted {message.compactedFrom} earlier {message.compactedFrom === 1 ? 'message' : 'messages'} so we can keep chatting
+          </span>
+          <span className="h-px flex-1 bg-line" />
+        </div>
+      </motion.div>
+    )
+  }
   const isUser = message.role === 'user'
   return (
     <motion.div

@@ -4,6 +4,7 @@ import { CalendarClock, Folder, PanelLeft } from 'lucide-react'
 import { Sidebar } from './components/Sidebar'
 import { Composer } from './components/Composer'
 import { MessageRow, TypingRow } from './components/Message'
+import { CompactionAffordance } from './components/CompactionAffordance'
 import { CaptionBar } from './components/CaptionBar'
 import { WorkspacePanel } from './components/WorkspacePanel'
 import { RunsPanel } from './components/RunsPanel'
@@ -75,6 +76,7 @@ export default function App() {
     archiveSession,
     deleteSession,
     handleSend,
+    compact,
     handleAddContext,
     focusContext,
     removeContexts,
@@ -288,6 +290,13 @@ export default function App() {
                         </div>
                       )}
                     </div>
+
+                    {/* Compaction (P5): offered once the open thread is long enough to be
+                        worth compacting; hides itself after (the thread is short again). Only
+                        a persisted, real session — a draft/demo has nothing durable to archive. */}
+                    {!isDemo && !isDraft && live.messages.length > 6 && (
+                      <CompactionAffordance onCompact={compact} />
+                    )}
 
                     <Composer
                       sessionId={activeId}
