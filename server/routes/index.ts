@@ -1197,11 +1197,17 @@ export function buildRouter(): Router {
   r.get('/dispatch', ({ res, url }) => {
     sendList(res, url, store.listDispatch(), (d) => d.id)
   })
-  // Kick off a one-off dispatch (lands 'running', finishes 'done' a beat later).
+  // Kick off a one-off dispatch (lands 'running', finishes 'done' a beat later). Refuses a
+  // 429 when the in-flight cap (DISPATCH_MAX_CONCURRENT, P7) is reached, so the caller backs off.
   r.post('/dispatch', idempotent(async ({ res, body }) => {
     const { title, detail } = await body<CreateDispatchRequest>()
     if (!title || !title.trim()) return sendError(res, 'bad_request', 'title is required')
-    sendJson(res, store.addDispatch(title.trim(), detail))
+    try {
+      sendJson(res, store.addDispatch(title.trim(), detail))
+    } catch (err) {
+      if (err instanceof LimitError) return sendError(res, err.code, err.message)
+      throw err
+    }
   }))
 
   // ── Contexts (set-up) + connector detail ──────────────────────────────────

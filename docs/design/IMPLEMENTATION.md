@@ -103,6 +103,8 @@ it.
 
 | 37 | F2 / P1 §4 (identity in the UI) | **Account / tenant chip — the UI consumes `GET /v1/me`.** The identity endpoint existed (row 12 / PORT-8) but nothing surfaced it; the sidebar footer showed a **hardcoded** "Patrick Pan · Prototype workspace" fixture. Replaced it with a live `AccountChip` (`src/components/Sidebar.tsx`) reading a new `useMe()` hook (`src/api/hooks.ts`, `keys.me` / `paths.me`), so the footer renders the real principal + tenant — "You · Personal" on the desktop/mock backend, and the IdP principal + org (e.g. "Ada Lovelace · Acme, Inc.") on the web, where the same chip signals *which tenant* you're acting in. Moves the last account fixture out of the component and onto the backend (the repo's "frontend is a cache of the backend" rule). Loading fallback matches the mock's own `/v1/me` so the footer never flashes. Placement (footer chip) was the owner's call — surfaced via a product-fork question rather than invented. The `/v1/me` route is locked by `tests/identity.test.ts`; the chip render is verified in-app (accessibility snapshot: "Y / You / Personal"; `preview_inspect` confirms the `AccountChip` component + preserved styling; 0 console errors) — the `node --test` harness has no DOM. 600 node tests pass; typecheck + build green. | ✅ built |
 
+| 38 | P7 automation (Dispatch concurrency) | **Dispatch concurrency limiting** — the third leg of P7 (durability ✅ row 35, observability ✅ row 36, concurrency here). `addDispatch` now refuses a new run (`LimitError` → **429 `limit_exceeded`**, mapped in `POST /dispatch`) once the in-flight count hits `DISPATCH_MAX_CONCURRENT`, so unbounded one-off runs can't pile up. **Opt-in** (env read per call ⇒ off/unlimited by default, so the demo + existing dispatch tests are unaffected), mirroring the rate-limiter's shape. Counts only **live-minted** (`d-new-*`) `running` runs — the seed feed's permanent `running` fixture (`d1`) has no completing timer and must not consume a slot (else a cap of 1 wedges forever); same id-scoping as the durability sweep. This is *real* infra (the cap logic carries to production unchanged), not mock-gilding — distinct from a contrived in-run failure injection, which is left unbuilt. Locked by `tests/dispatch-concurrency.test.ts` (store guard over-cap → `limit_exceeded`; off-by-default → unlimited; route → 429, robust to baseline in-flight). 603 node tests pass; typecheck + build green. **Remaining (P7):** a real in-run failure path + retries/backoff — deferred as mock-gilding (no real work to fail in the mock). | ✅ built |
+
 ### F2 identity & tenancy — status
 
 The tenancy boundary (PD9) is now built + adversarially reviewed across every
@@ -121,12 +123,12 @@ is considered complete for the prototype.
 
 ### Up next (candidate order, not yet built)
 
-- **P7 — Dispatch: in-run failure path + retries + concurrency** *(durability + observability
-  done — rows 35–36)*. Rows 35–36 gave dispatch runs durability (persist + crash-recovery
-  sweep → `failed`) and a `dispatch_runs` gauge. Still mock: a dispatch can only *fail* via a
-  restart, never *during* a run; no retries/backoff; no concurrency limit. A failure-injection
-  seam is the next increment. Still unlocks commission-attributed budgets below (a
-  commissioned-execution path is where a `grant` is enforced).
+- ~~**P7 — Dispatch: durability + observability + concurrency**~~ *(done — rows 35–36, 38)*.
+  All three real legs are built. What remains is **mock-gilding, intentionally unbuilt**: a
+  dispatch can only *fail* via a restart (never *during* a run) and there are no retries/backoff
+  — both need real work to fail, which the mock doesn't have, so building them would fake a
+  failure with no production analog. (Commission-attributed budgets below still want a
+  commissioned-execution path, but that's a distinct, larger design.)
 - ~~**P5 — generation reliability**~~ *(done — build-log row 34)*. Shipped as generation-
   outcome **observability** (`model_turns_total` in `/metrics`); the SDK already covers the
   transient retry/backoff, so the real gap was visibility, not a retry layer.

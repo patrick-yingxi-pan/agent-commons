@@ -62,7 +62,7 @@ import { fsReader, type FsReader } from './fs.ts'
 import type { FsCatalog, FsFileContent, FsFolderContents, FsSource, Identity } from '../contract/index.ts'
 import { fsRecentKey } from '../contract/index.ts'
 import { resolveIdentity, LOCAL_IDENTITY } from './identity.ts'
-import { positiveNumberEnv } from './env.ts'
+import { positiveNumberEnv, nonNegativeIntEnv } from './env.ts'
 import { SAVED_CONTEXTS, CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from './data/savedContexts.ts'
 import { connectorDetail } from './data/connectorDetails.ts'
 import { connectorActionResult } from './model/connectorTools.ts'
@@ -1467,6 +1467,18 @@ export const store = {
    *  'failed' on rehydrate (the completing timer doesn't survive the process). Returns
    *  the run. */
   addDispatch(title: string, detail?: string): DispatchRun {
+    // Concurrency limit (P7): bound the in-flight one-off runs so unbounded dispatch can't
+    // pile up. Opt-in via `DISPATCH_MAX_CONCURRENT` (read per call ⇒ off by default, so the
+    // demo + existing tests are unaffected), mirroring the rate-limiter's opt-in shape. Count
+    // only LIVE-minted (`d-new-*`) running runs — the seed feed's permanent 'running' fixture
+    // (d1) has no completing timer and mustn't consume a slot (else a cap of 1 wedges forever).
+    const cap = nonNegativeIntEnv(process.env.DISPATCH_MAX_CONCURRENT, 0)
+    if (cap > 0) {
+      const inFlight = dispatch.filter((r) => r.status === 'running' && r.id.startsWith('d-new-')).length
+      if (inFlight >= cap) {
+        throw new LimitError(`dispatch concurrency limit reached (${cap} in flight) — retry once a run finishes`)
+      }
+    }
     const run: DispatchRun = {
       id: `d-new-${(dispatchSeq += 1)}`,
       title,
