@@ -318,6 +318,35 @@ test('Agent-Commons by-id MUTATIONS are tenant-isolated on a remote backend (for
   assert.equal(own.json.label, 'renamed by owner')
 })
 
+test('shared/seeded registry infra is read-by-all but written-by-owner on a remote backend (non-default tenant can’t mutate it)', async () => {
+  const { store } = await import('../server/store.ts')
+  const { buildRouter } = await import('../server/routes/index.ts')
+  const call = caller(buildRouter())
+
+  // The seeded default provider is SHARED infra (no tenantId) — visible to every tenant, but
+  // owned (writable) only by the default tenant. A non-default tenant seeing it in its list
+  // must still not be able to reconfigure it for everyone.
+  const shared = store.listProviders().find((p) => p.tenantId === undefined)
+  assert.ok(shared, 'there is a shared seeded provider')
+  const originalLabel = shared.label
+
+  // It IS visible to a non-default tenant (read model — infra).
+  const omegaList = await call('GET', '/providers', { 'x-tenant-id': 'tenant-omega' })
+  assert.ok(omegaList.json.some((p) => p.id === shared.id), 'the shared provider is visible to a non-default tenant')
+
+  // …but a non-default tenant cannot PATCH or DELETE it — 404 (existence-hiding), no effect.
+  const omegaPatch = await call('PATCH', `/providers/${shared.id}`, { 'x-tenant-id': 'tenant-omega' }, { label: 'hijack' })
+  assert.equal(omegaPatch.status, 404, 'a non-default tenant cannot PATCH shared infra')
+  const omegaDelete = await call('DELETE', `/providers/${shared.id}`, { 'x-tenant-id': 'tenant-omega' })
+  assert.equal(omegaDelete.status, 404, 'a non-default tenant cannot DELETE shared infra')
+  assert.equal(store.listProviders().find((p) => p.id === shared.id)?.label, originalLabel, 'the shared provider was not mutated')
+
+  // Positive control: the DEFAULT tenant (no header ⇒ the backend's owning tenant) gets PAST
+  // the write guard — DELETE reaches the protected-default check (409), not the 404 guard.
+  const ownerDelete = await call('DELETE', `/providers/${shared.id}`)
+  assert.equal(ownerDelete.status, 409, 'the owning (default) tenant reaches the protected-default guard, proving it owns shared infra')
+})
+
 test('registry by-id READS are tenant-isolated on a remote backend (prompt probe + commission authority → 404)', async () => {
   const { store } = await import('../server/store.ts')
   const { buildRouter } = await import('../server/routes/index.ts')

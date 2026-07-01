@@ -706,6 +706,12 @@ export const store = {
   identity(headers?: Record<string, string | string[] | undefined>): Identity {
     return resolveIdentity(BACKEND_MODE, headers)
   },
+  /** The backend's default tenant — the owner of *shared* infrastructure (seeded registry
+   *  entries with no `tenantId`, seed sessions/projects/artifacts). Used by the by-id write
+   *  guard so shared infra is READ by all tenants but WRITTEN only by its owner (F2/PD9). */
+  defaultTenantId(): string {
+    return defaultTenantId()
+  },
 
   // ── Served filesystem sources (Files / Photos / Folder — contract/fs.ts) ──
   /** The picker's source switcher list (cloud + any fs-capable runner). The client

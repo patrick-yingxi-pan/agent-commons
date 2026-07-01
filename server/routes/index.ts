@@ -159,12 +159,16 @@ export function buildRouter(): Router {
     sendJson(res, pp ? paginate(items, keyOf, pp) : items)
   }
 
-  // Refuse a by-id registry MUTATION on an entry the caller can't see (F2/PD9). Like the
-  // read guards, a private entry of another tenant is 404 (existence-hiding — never 403,
-  // which would confirm the id exists). `visible` is the caller's tenant-scoped list; if the
-  // id isn't in it, we send 404 and return true so the route bails before mutating. One
-  // helper so the write-guard and read-projection can't drift (structural-tenancy principle).
-  const denyForeignEntry = <T extends { id: string }>(
+  // Refuse a by-id registry MUTATION the caller isn't authorized to make (F2/PD9). A registry
+  // entry is INFRASTRUCTURE: read⊋write. It is READ by all tenants when *shared* (no
+  // `tenantId`), but WRITTEN only by its owner — a *private* entry by its creating tenant, a
+  // *shared* one by the default tenant that owns the seed infra. So the write set is stricter
+  // than the read projection `visible`: from the caller's visible list we additionally require
+  // ownership (own private, or shared-and-default). Anything else is 404 (existence-hiding —
+  // never 403, which would confirm the id / distinguish "not yours" from "shared, not yours").
+  // Backward-compatible on the single-tenant mock (caller is always the default ⇒ can write
+  // shared + its own); only a non-default remote tenant is tightened off shared infra.
+  const denyForeignEntry = <T extends { id: string; tenantId?: string }>(
     req: IncomingMessage,
     res: ServerResponse,
     id: string,
@@ -172,7 +176,12 @@ export function buildRouter(): Router {
     label: string,
   ): boolean => {
     const tenantId = store.identity(req.headers).tenant.id
-    if (!visible(tenantId).some((e) => e.id === id)) {
+    const entry = visible(tenantId).find((e) => e.id === id)
+    const writable =
+      entry !== undefined &&
+      (entry.tenantId === tenantId ||
+        (entry.tenantId === undefined && tenantId === store.defaultTenantId()))
+    if (!writable) {
       sendError(res, 'not_found', `No ${label} '${id}'`)
       return true
     }
