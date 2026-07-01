@@ -252,15 +252,22 @@ export function matchConnectorTools(userText: string, availableToolNames: string
   const connectorTools = availableToolNames.filter((n) => n.startsWith('mcp__') || n.startsWith('connector__'))
   if (!connectorTools.length) return []
   const t = userText.toLowerCase()
+  // Whole-word set of the message, so a tool-name word is matched on a boundary — e.g.
+  // `read_file`'s "file" does NOT spuriously match inside the slug "filesystem".
+  const textWords = new Set(t.split(/[^a-z0-9]+/).filter(Boolean))
   let best: { name: string; score: number } | undefined
   for (const name of connectorTools) {
     const parts = name.split('__')
     const slug = (parts[1] ?? '').replace(/_/g, ' ')
     const tool = (parts[2] ?? '').replace(/_/g, ' ')
     if (!slug || !t.includes(slug)) continue // the connector must be named — no guessing
-    let score = 2
-    if (tool && t.includes(tool)) score += 2
-    else if (tool.split(' ').some((w) => w && t.includes(w))) score += 1
+    // Rank by HOW MANY words of the tool name the message actually names (not a flat
+    // "some word matched"): a fuller match wins, so `write a file` picks write_file over
+    // read_file instead of collapsing to the first-declared tool — which would mislabel a
+    // write as a no-consent read. The slug gate is shared by all of a connector's tools,
+    // so the matched-word count is the real differentiator.
+    const hits = tool.split(' ').filter(Boolean).filter((w) => textWords.has(w)).length
+    const score = 2 + hits
     if (!best || score > best.score) best = { name, score }
   }
   return best ? [{ name: best.name, input: {} }] : []

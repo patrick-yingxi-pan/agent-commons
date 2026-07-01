@@ -7,6 +7,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { deriveConnectorTools, runConnectorTool, isConnectorContext } from '../server/model/connectorTools.ts'
+import { matchConnectorTools } from '../server/model/intents.ts'
 
 const mcpFs = { id: 'mcp-fs', type: 'mcp', label: 'MCP · filesystem', scope: '*' }
 const slack = { id: 'conn-slack', type: 'connector', label: 'Slack', scope: '*' }
@@ -46,6 +47,24 @@ test('non-connector contexts are ignored; multiple contexts compose', () => {
   assert.ok(!names.some((n) => n.includes('insights')), 'the folder yields no tools')
   assert.ok(names.includes('connector__slack__list'), 'the connector is present')
   assert.ok(names.includes('mcp__filesystem__read_file'), 'the MCP server is present')
+})
+
+test('matchConnectorTools ranks by matched tool-name words — a write picks write_file, not the first-declared read', () => {
+  // Reproduces the review finding: the filesystem MCP declares read_file first, so a flat
+  // "some word matched" score + first-declared tie-break collapsed every message to read_file
+  // (mislabeling a write as a no-consent read). The word-count fix must pick the right tool.
+  const fsTools = deriveConnectorTools([mcpFs]).definitions.map((d) => d.name)
+  assert.deepEqual(matchConnectorTools('write a file via filesystem', fsTools).map((c) => c.name), ['mcp__filesystem__write_file'])
+  assert.deepEqual(matchConnectorTools('read a file from filesystem', fsTools).map((c) => c.name), ['mcp__filesystem__read_file'])
+  // The slug "filesystem" contains "file", but whole-word matching must NOT let that score
+  // read_file for a list request — list_directory wins.
+  assert.deepEqual(matchConnectorTools('list the directory via filesystem', fsTools).map((c) => c.name), ['mcp__filesystem__list_directory'])
+})
+
+test('matchConnectorTools only fires when the connector is named and tools are present', () => {
+  const fsTools = deriveConnectorTools([mcpFs]).definitions.map((d) => d.name)
+  assert.deepEqual(matchConnectorTools('list my stuff', fsTools), [], 'connector not named ⇒ no call (no guessing)')
+  assert.deepEqual(matchConnectorTools('write a file via filesystem', []), [], 'no connector tools declared ⇒ no call')
 })
 
 test('runConnectorTool executes a derived tool into a ToolActivity; unknown → undefined', () => {

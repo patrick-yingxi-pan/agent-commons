@@ -67,6 +67,33 @@ test('with no connector attached, a naming message drives no tool activity (auth
   assert.doesNotMatch(body, /"type":"message\.toolActivity"/, 'no attached connector ⇒ no derived tool ⇒ nothing to call')
 })
 
+test('a multi-tool MCP server selects the RIGHT tool + kind over the wire (write → write_file/action)', async () => {
+  const s = store.createSession('mcp multi-tool')
+  store.attachContext(s.id, { id: 'mcp-fs', type: 'mcp', label: 'MCP · filesystem', scope: '*' })
+  const { body } = await callRaw('POST', `/sessions/${s.id}/messages`, { text: 'write a file via filesystem', ephemeral: true })
+  assert.match(body, /mcp__filesystem__write_file/, 'a write message selects write_file, not the first-declared read_file')
+  assert.match(body, /"kind":"action"/, 'a write is classified as an action, not a no-consent read')
+  assert.doesNotMatch(body, /mcp__filesystem__read_file/, 'read_file was not the one called')
+  assert.match(body, /used the connected tools/i, 'the second-turn prose references the connector activity')
+})
+
+test('an attached connector the message does NOT name drives no tool activity', async () => {
+  const s = store.createSession('connector attached but unnamed')
+  store.attachContext(s.id, { id: 'conn-slack', type: 'connector', label: 'Slack', scope: '*' })
+  const { body } = await callRaw('POST', `/sessions/${s.id}/messages`, { text: 'what should we ship next quarter?', ephemeral: true })
+  assert.doesNotMatch(body, /"type":"message\.toolActivity"/, 'naming no connector ⇒ no call, even with one attached')
+})
+
+test('a non-ephemeral connector turn persists its toolActivities (survives reload)', async () => {
+  const s = store.createSession('connector persistence')
+  store.attachContext(s.id, { id: 'conn-slack', type: 'connector', label: 'Slack', scope: '*' })
+  await callRaw('POST', `/sessions/${s.id}/messages`, { text: 'list my slack channels' }) // not ephemeral → persisted
+  const thread = (await call('GET', `/sessions/${s.id}`)).json.messages ?? []
+  const assistant = thread.find((m: { role: string; toolActivities?: unknown[] }) => m.role === 'assistant' && (m.toolActivities?.length ?? 0) > 0)
+  assert.ok(assistant, 'the persisted assistant turn carries its toolActivities')
+  assert.equal(assistant.toolActivities[0].tool, 'connector__slack__list')
+})
+
 test('a persisted assistant turn is stamped with its driving Agent (D16 per-turn provenance)', async () => {
   const s = store.createSession('start')
   await callRaw('POST', `/sessions/${s.id}/messages`, { text: 'hello' }) // not ephemeral → persisted
