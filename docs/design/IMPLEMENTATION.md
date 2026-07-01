@@ -113,12 +113,22 @@ is considered complete for the prototype.
 
 ### Up next (candidate order, not yet built)
 
+- **P5 — generation reliability (retry / backoff / error classification)** *(next)*. The
+  generation path (`server/generate.ts`) runs on **every turn** but is fail-fast:
+  `MODEL_MAX_RETRIES` defaults to 1 and there's no backoff wrapper distinguishing a
+  *transient* infra error (429/503/network — retry with backoff) from a *terminal* one
+  (model refusal / 4xx — fail fast to the graceful fallback). Highest-certainty,
+  self-contained reliability slice; improves the flaky-turn fallback the recon flagged.
+- **P5 — commission-attributed budgets** *(deferred — entangled with P7)*. Enforcing a
+  Commission `grant` (the D8 leaf) at runtime needs a *commissioned-execution* path (an
+  Agent acting on a Project as Contributor), which is the **P7 Dispatch** path, not a
+  normal session turn. Build after P7 Dispatch exists so there's a turn to attribute.
+- **P7 — Dispatch / scheduler durability** — one-off async runs + the schedule daemon as
+  real job infra (retries, idempotency, concurrency). Unlocks commission-attributed
+  budgets above.
 - **Identity & tenancy — slice 3c** (F2, deferred) — the schedule axis (list-scoping +
   schedule-keyed graph joins). Low value (default-tenant daemon); build only if a
   multi-tenant schedule story becomes needed.
-- **Next pillar** — pick the highest-value remaining production-infra slice from
-  [`PLAN.md`](PLAN.md) (e.g. P5 model gateway / compaction / budget, P7 automation, or
-  the F4 broker deepening). Re-assess the backlog with fresh context before choosing.
 - **UI consumes `/v1/me`** (F2 / P1 §4) — surface the account/tenant. *Deferred:
   needs a placement/design decision (no account chip exists today) — flagged for the
   owner rather than invent UI autonomously.*
