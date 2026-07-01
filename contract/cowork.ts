@@ -25,6 +25,11 @@ export interface Project {
   id: string
   name: string
   description: string
+  /** The tenant this project belongs to — the isolation boundary on the web (F2/PD9).
+   *  Unset on a seed/legacy project ⇒ the backend's default tenant (personal on desktop).
+   *  A created project is stamped with its creator's tenant; `relationGraph(tenantId)`
+   *  projects the graph so a tenant sees only its own created projects. */
+  tenantId?: string
   /** When the project was last touched (epoch ms). The UI renders a live "time
    *  ago" label from it (src/lib/relativeTime), like an artifact's editedAt. */
   updatedAt: number

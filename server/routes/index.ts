@@ -1193,7 +1193,10 @@ export function buildRouter(): Router {
   // ETag/If-None-Match (F3): the graph changes only on a confirmed op, so a 304 saves
   // re-sending it on the client's frequent re-reads.
   r.get('/relations', (ctx) => {
-    sendJsonCached(ctx, store.relationGraph())
+    // Projected to the caller's tenant (F2/PD9): a tenant sees only its own created
+    // projects + the joins referencing them. The default tenant's projection is the full
+    // graph, so desktop / the mock backend are unaffected.
+    sendJsonCached(ctx, store.relationGraph(store.identity(ctx.req.headers).tenant.id))
   })
 
   // ── Recents (per-user shortcut lists) ──────────────────────────────────────
@@ -1207,11 +1210,14 @@ export function buildRouter(): Router {
   })
   // Apply a confirmed relation edit — the privileged write (a standing op
   // authorizes the schedule daemon). Returns the updated graph + broadcasts it.
-  r.post('/relations/ops', idempotent(async ({ res, body }) => {
+  r.post('/relations/ops', idempotent(async ({ req, res, body }) => {
     const { op } = await body<ApplyOpRequest>()
     if (!op || typeof op.kind !== 'string') return sendError(res, 'bad_request', 'op is required')
     try {
-      sendJson(res, store.applyRelationOp(op))
+      // Pass the caller's tenant so a created project is stamped with it (F2/PD9); the
+      // returned graph is projected to that tenant too (applyRelationOp handles both).
+      const tenantId = store.identity(req.headers).tenant.id
+      sendJson(res, store.applyRelationOp(op, tenantId))
     } catch (err) {
       // An Agent Commons CRUD op (commission-agent) confirmed against a now-removed
       // agent hits the same guard the hub's CRUD routes surface — a 409 to re-propose.

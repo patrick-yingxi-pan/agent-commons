@@ -175,6 +175,32 @@ let workerAgentSeq = 0
 const findProject = (id: string): Project | undefined =>
   PROJECTS.find((p) => p.id === id) ?? graph.extraProjects.find((p) => p.id === id)
 
+/** The tenant a project belongs to (F2/PD9) — a seed/legacy or unknown project has no
+ *  `tenantId`, so it belongs to the backend's default tenant. */
+const projectTenant = (projectId: string): string => findProject(projectId)?.tenantId ?? defaultTenantId()
+
+/** Project the relation graph to a tenant's view (F2/PD9): a tenant sees only its own
+ *  created projects and the join rows that reference a project it can see. Every seed
+ *  project is the default tenant's, so the DEFAULT reader gets the full graph unchanged
+ *  (backward-compatible) — only a non-default (remote) tenant gets a filtered view.
+ *  Scopes the PROJECT axis; artifact/schedule-only joins are left intact (a later slice). */
+function projectGraphForTenant(g: RelationGraph, tenantId: string): RelationGraph {
+  const visible = (pid: string): boolean => projectTenant(pid) === tenantId
+  const byValue = (m: Record<string, string>): Record<string, string> =>
+    Object.fromEntries(Object.entries(m).filter(([, pid]) => visible(pid)))
+  const byKey = <V>(m: Record<string, V>): Record<string, V> =>
+    Object.fromEntries(Object.entries(m).filter(([pid]) => visible(pid)))
+  return {
+    ...g,
+    extraProjects: g.extraProjects.filter((p) => (p.tenantId ?? defaultTenantId()) === tenantId),
+    sessionProject: byValue(g.sessionProject),
+    artifactProject: byValue(g.artifactProject),
+    scheduleProject: byValue(g.scheduleProject),
+    projectContexts: byKey(g.projectContexts),
+    projectInstructions: byKey(g.projectInstructions),
+  }
+}
+
 // The registered Model providers (docs/agent-commons.md, D9) — the cognition source
 // each Agent binds. One seeded for now (the degenerate N=1 case), wrapping the single
 // implicit Anthropic client. The contract `ModelProvider` is paired with its
@@ -752,6 +778,14 @@ export const store = {
       }
       case 'audit.entry':
         return (e.entry.tenantId ?? defaultTenantId()) === tenantId
+      case 'relation.applied': {
+        // A project-scoped relation event (create-project, file-session, refile-artifact,
+        // link-schedule-project, …) is visible only to that project's tenant (F2/PD9) — so
+        // a created project doesn't leak via the broadcast even though the graph read is
+        // already projected. An op that touches no project is global.
+        const pid = (e.op as { projectId?: string }).projectId
+        return pid ? projectTenant(pid) === tenantId : true
+      }
       default:
         return true
     }
@@ -1722,8 +1756,11 @@ export const store = {
   },
 
   /** The current relationship graph (seed + applied edits). */
-  relationGraph(): RelationGraph {
-    return graph
+  relationGraph(tenantId?: string): RelationGraph {
+    // No tenant ⇒ the full graph (internal callers, tests). A tenant ⇒ its projected view
+    // (F2/PD9). The default tenant's projection equals the full graph (all seed rows are
+    // the default tenant's), so the route can always pass the caller's tenant safely.
+    return tenantId ? projectGraphForTenant(graph, tenantId) : graph
   },
   /** Apply a confirmed relation op (the canonical write), broadcast it, and return the
    *  (possibly unchanged) graph. Three kinds of op land here:
@@ -1736,7 +1773,7 @@ export const store = {
    *     it), so it's a graph no-op here.
    *   • Every other op is a relationship-graph edit, applied by the pure reducer.
    *  All three broadcast `relation.applied` and persist. */
-  applyRelationOp(op: RelationOp): RelationGraph {
+  applyRelationOp(op: RelationOp, tenantId?: string): RelationGraph {
     switch (op.kind) {
       case 'create-provider':
         // A user-confirmed provider is a proper cascade root: grant everything (the
@@ -1780,10 +1817,19 @@ export const store = {
         break // a live-session effect, applied by the caller
       default:
         graph = applyGraphOp(graph, op, mintArtifactId, Date.now())
+        // Stamp the creating tenant on a newly-created project so the graph projection
+        // (relationGraph(tenantId)) scopes it (F2/PD9). The shared reducer stays tenant-
+        // agnostic; the server (which knows the caller) owns the stamp.
+        if (op.kind === 'create-project') {
+          const created = graph.extraProjects.find((p) => p.id === op.projectId)
+          if (created && created.tenantId === undefined) created.tenantId = tenantId ?? defaultTenantId()
+        }
     }
     emit({ type: 'relation.applied', op, by: 'user' })
     persist()
-    return graph
+    // Return the caller's projected view (F2/PD9) so the client's optimistic graph matches
+    // what a subsequent GET /relations would return; no tenant ⇒ the full graph.
+    return tenantId ? projectGraphForTenant(graph, tenantId) : graph
   },
 }
 
