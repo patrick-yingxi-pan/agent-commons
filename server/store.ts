@@ -179,25 +179,41 @@ const findProject = (id: string): Project | undefined =>
  *  `tenantId`, so it belongs to the backend's default tenant. */
 const projectTenant = (projectId: string): string => findProject(projectId)?.tenantId ?? defaultTenantId()
 
+/** Resolve an artifact across both homes — seeded (`ALL_ARTIFACTS`) + created
+ *  (`graph.extraArtifacts`) — mirroring `findProject`. */
+const findArtifact = (id: string): ArtifactItem | undefined =>
+  ALL_ARTIFACTS.find((a) => a.id === id) ?? graph.extraArtifacts.find((a) => a.id === id)
+
+/** The tenant an artifact belongs to (F2/PD9) — seed/legacy or unknown ⇒ the default
+ *  tenant (parallels `projectTenant`; independent of the artifact's project). */
+const artifactTenant = (artifactId: string): string => findArtifact(artifactId)?.tenantId ?? defaultTenantId()
+
 /** Project the relation graph to a tenant's view (F2/PD9): a tenant sees only its own
- *  created projects and the join rows that reference a project it can see. Every seed
- *  project is the default tenant's, so the DEFAULT reader gets the full graph unchanged
- *  (backward-compatible) — only a non-default (remote) tenant gets a filtered view.
- *  Scopes the PROJECT axis; artifact/schedule-only joins are left intact (a later slice). */
+ *  created projects/artifacts and the join rows that reference an entity it can see. Every
+ *  seed project/artifact is the default tenant's, so the DEFAULT reader gets the full graph
+ *  unchanged (backward-compatible) — only a non-default (remote) tenant gets a filtered
+ *  view. Scopes the PROJECT + ARTIFACT axes; the schedule-only joins are left intact (a
+ *  later slice — schedules aren't tenant-scoped yet). */
 function projectGraphForTenant(g: RelationGraph, tenantId: string): RelationGraph {
-  const visible = (pid: string): boolean => projectTenant(pid) === tenantId
-  const byValue = (m: Record<string, string>): Record<string, string> =>
-    Object.fromEntries(Object.entries(m).filter(([, pid]) => visible(pid)))
-  const byKey = <V>(m: Record<string, V>): Record<string, V> =>
-    Object.fromEntries(Object.entries(m).filter(([pid]) => visible(pid)))
+  const projVisible = (pid: string): boolean => projectTenant(pid) === tenantId
+  const artVisible = (aid: string): boolean => artifactTenant(aid) === tenantId
+  const byProjValue = (m: Record<string, string>): Record<string, string> =>
+    Object.fromEntries(Object.entries(m).filter(([, pid]) => projVisible(pid)))
+  const byProjKey = <V>(m: Record<string, V>): Record<string, V> =>
+    Object.fromEntries(Object.entries(m).filter(([pid]) => projVisible(pid)))
+  const byArtKey = <V>(m: Record<string, V>): Record<string, V> =>
+    Object.fromEntries(Object.entries(m).filter(([aid]) => artVisible(aid)))
   return {
     ...g,
     extraProjects: g.extraProjects.filter((p) => (p.tenantId ?? defaultTenantId()) === tenantId),
-    sessionProject: byValue(g.sessionProject),
-    artifactProject: byValue(g.artifactProject),
-    scheduleProject: byValue(g.scheduleProject),
-    projectContexts: byKey(g.projectContexts),
-    projectInstructions: byKey(g.projectInstructions),
+    extraArtifacts: g.extraArtifacts.filter((a) => (a.tenantId ?? defaultTenantId()) === tenantId),
+    sessionProject: byProjValue(g.sessionProject),
+    // An artifact→project row needs BOTH the artifact and the project visible to the reader.
+    artifactProject: Object.fromEntries(Object.entries(g.artifactProject).filter(([aid, pid]) => artVisible(aid) && projVisible(pid))),
+    scheduleProject: byProjValue(g.scheduleProject),
+    projectContexts: byProjKey(g.projectContexts),
+    projectInstructions: byProjKey(g.projectInstructions),
+    artifactSource: byArtKey(g.artifactSource),
   }
 }
 
@@ -1824,6 +1840,11 @@ export const store = {
         if (op.kind === 'create-project') {
           const created = graph.extraProjects.find((p) => p.id === op.projectId)
           if (created && created.tenantId === undefined) created.tenantId = tenantId ?? defaultTenantId()
+        } else if (op.kind === 'save-artifact') {
+          // The reducer unshifts the new artifact to extraArtifacts[0] (its id is minted
+          // internally). Stamp the creating tenant so the projection scopes it (F2/PD9).
+          const created = graph.extraArtifacts[0]
+          if (created && created.tenantId === undefined) created.tenantId = tenantId ?? defaultTenantId()
         }
     }
     // Stamp the acting tenant so the SSE fan-out delivers this only to that tenant (F2/PD9).
@@ -1869,6 +1890,13 @@ export const store = {
         return true
       }
     }
+    // Subject ARTIFACT: an op that moves/edits an existing artifact (refile-artifact,
+    // set-artifact-source) it doesn't own. Like the project axis, an unknown/empty id
+    // buckets to the default tenant on read (artifactTenant), so `!= null` (not truthiness)
+    // — a non-default caller keying a ghost/'' artifact row is refused. (save-artifact
+    // MINTS a new id internally, carries no `artifactId`, so it's naturally exempt here.)
+    const aid = (op as { artifactId?: string }).artifactId
+    if (aid != null && artifactTenant(aid) !== tenantId) return true
     const sid = (op as { sessionId?: string }).sessionId
     if (sid) {
       const session = SESSIONS.find((s) => s.id === sid)

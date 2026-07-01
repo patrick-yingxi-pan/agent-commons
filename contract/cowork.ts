@@ -161,6 +161,12 @@ export interface ArtifactItem {
   name: string
   kind: ArtifactKind
   meta: string
+  /** The tenant this artifact belongs to — the isolation boundary on the web (F2/PD9).
+   *  Unset on a seed/legacy artifact ⇒ the backend's default tenant. A created artifact is
+   *  stamped with its creator's tenant; `relationGraph(tenantId)` projects the graph so a
+   *  tenant sees only its own created artifacts. (Independent of `projectId`, since an
+   *  artifact can be saved without a project.) */
+  tenantId?: string
   /** The conversation that produced it. */
   source: string
   /** The project it belongs to (groups the Artifacts gallery). */
