@@ -42,6 +42,24 @@ test('the default-tenant reader sees seed + default artifacts (backward-compatib
   for (const id of seedIds) assert.ok(def.extraArtifacts.some((a) => a.id === id))
 })
 
+test('a non-default tenant unfiling its OWN filed artifact keeps the unfiled sentinel in its view', () => {
+  // Regression: the artifactProject double-filter ran the '' unfiled sentinel through
+  // projVisible(''), which is false for a non-default tenant → the row was dropped → the
+  // client fell back to the artifact's original projectId and the unfile snapped back.
+  store.applyRelationOp({ kind: 'create-project', projectId: 'p-tt', projectName: 'PT', projectDescription: '' }, 'tenant-tt')
+  store.applyRelationOp(mkSave('filed.md', 'p-tt'), 'tenant-tt')
+  const filed = store.relationGraph('tenant-tt').extraArtifacts.find((a) => a.name === 'filed.md')
+  assert.equal(store.relationGraph('tenant-tt').artifactProject[filed.id], 'p-tt', 'starts filed under its project')
+
+  // Owner unfiles it (refile → projectId:null): the reducer writes artifactProject[id]=''.
+  store.applyRelationOp({ kind: 'refile-artifact', artifactId: filed.id, artifactName: 'filed.md', projectId: null, projectName: 'x' }, 'tenant-tt')
+  assert.equal(
+    store.relationGraph('tenant-tt').artifactProject[filed.id],
+    '',
+    'the unfiled sentinel survives the projection (does not drop → no snap-back)',
+  )
+})
+
 test('opDeniedForTenant refuses a foreign or ghost artifact subject', () => {
   const alpha = store.relationGraph().extraArtifacts.find((a) => a.name === 'alpha.md') // tenant-aa's
   const refile = { kind: 'refile-artifact', artifactId: alpha.id, artifactName: 'alpha.md', projectId: null, projectName: 'x' }

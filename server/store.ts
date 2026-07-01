@@ -208,8 +208,12 @@ function projectGraphForTenant(g: RelationGraph, tenantId: string): RelationGrap
     extraProjects: g.extraProjects.filter((p) => (p.tenantId ?? defaultTenantId()) === tenantId),
     extraArtifacts: g.extraArtifacts.filter((a) => (a.tenantId ?? defaultTenantId()) === tenantId),
     sessionProject: byProjValue(g.sessionProject),
-    // An artifact→project row needs BOTH the artifact and the project visible to the reader.
-    artifactProject: Object.fromEntries(Object.entries(g.artifactProject).filter(([aid, pid]) => artVisible(aid) && projVisible(pid))),
+    // An artifact→project row needs the artifact visible; the value is gated on project
+    // visibility ONLY when it's a real project id — `''` is the reducer's "unfiled"
+    // sentinel (refile → projectId:null), not a project, so it must survive for the owner
+    // (else the client resolves `artifactProject[id] ?? art.projectId` back to the original
+    // project and the unfile silently snaps back in a non-default tenant's own view).
+    artifactProject: Object.fromEntries(Object.entries(g.artifactProject).filter(([aid, pid]) => artVisible(aid) && (pid === '' || projVisible(pid)))),
     scheduleProject: byProjValue(g.scheduleProject),
     projectContexts: byProjKey(g.projectContexts),
     projectInstructions: byProjKey(g.projectInstructions),
