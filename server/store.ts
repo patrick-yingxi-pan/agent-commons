@@ -1848,7 +1848,22 @@ export const store = {
    *  artifact/schedule SUBJECT axes await slice 3b, when those entities gain a tenant.) */
   opDeniedForTenant(op: RelationOp, tenantId: string): boolean {
     const pid = (op as { projectId?: string | null }).projectId
-    if (pid && findProject(pid) && projectTenant(pid) !== tenantId) return true
+    if (pid) {
+      // An UNKNOWN project id is not un-owned: `projectGraphForTenant` buckets any row
+      // keyed by an id with no Project object to the DEFAULT tenant (projectTenant ⇒
+      // defaultTenantId()). So a non-default caller keying a project row (scope-context,
+      // set-project-instructions, file-session, …) under a guessed/ghost id would inject
+      // it into the default tenant's projection — refuse it. `create-project` is the sole
+      // exception: an unknown id there MINTS a fresh Project stamped with the caller, so a
+      // brand-new id is legitimately the caller's; only a COLLISION with an existing
+      // foreign project must be refused (findProject resolves it).
+      const owner = projectTenant(pid) // defaultTenantId() for an unknown id
+      if (op.kind === 'create-project') {
+        if (findProject(pid) && owner !== tenantId) return true
+      } else if (owner !== tenantId) {
+        return true
+      }
+    }
     const sid = (op as { sessionId?: string }).sessionId
     if (sid) {
       const session = SESSIONS.find((s) => s.id === sid)

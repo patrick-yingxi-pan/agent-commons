@@ -242,6 +242,15 @@ test('project relations are tenant-isolated on a remote backend (projection + fo
   assert.equal(collide.status, 404, 'a colliding-id create-project is refused 404')
   const gZeta2 = await call('GET', '/relations', { 'x-tenant-id': 'tenant-zeta' })
   assert.ok(!('sess-omega' in gZeta2.json.sessionProject), 'omega’s session was NOT injected into zeta’s project')
+
+  // …nor via a GHOST projectId: an id with no Project buckets to the DEFAULT tenant on read,
+  // so a non-default tenant keying a row under it would inject into the default view. Refused.
+  const ghost = await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-omega' }, {
+    op: { kind: 'scope-context', projectId: 'ghost-omega', projectName: 'x', context: { id: 'c', label: 'omega-secret', kind: 'connector' } },
+  })
+  assert.equal(ghost.status, 404, 'a ghost-projectId op from a non-default tenant is refused 404')
+  const gDefault = await call('GET', '/relations') // the default (web) principal
+  assert.ok(!('ghost-omega' in gDefault.json.projectContexts), 'the ghost row did not inject into the default tenant’s view')
 })
 
 test('the served cloud filesystem source works on a remote backend (it reads the web backend’s own storage)', async () => {

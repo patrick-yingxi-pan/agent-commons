@@ -89,4 +89,11 @@ test('opDeniedForTenant refuses foreign-project targets, colliding create-projec
   const unfileForeign = { kind: 'file-session', sessionId: owned.id, sessionTitle: 'S', projectId: null, projectName: 'x' }
   assert.equal(store.opDeniedForTenant(unfileForeign, 'tenant-pb'), true, 'unfiling a foreign session ⇒ refused')
   assert.equal(store.opDeniedForTenant(unfileForeign, 'tenant-pa'), false, 'the session owner may unfile it')
+
+  // An UNKNOWN/ghost projectId is NOT un-owned: the read projection buckets ghost-keyed
+  // rows to the DEFAULT tenant, so a non-default caller keying one would inject into the
+  // default view. Refuse it for a non-default tenant; the default tenant owns that namespace.
+  const ghostScope = { kind: 'scope-context', projectId: 'ghost-xyz', projectName: 'x', context: { id: 'c', label: 'omega-secret', kind: 'connector' } }
+  assert.equal(store.opDeniedForTenant(ghostScope, 'tenant-pb'), true, 'a non-default tenant cannot key a ghost-id project row')
+  assert.equal(store.opDeniedForTenant(ghostScope, 'tenant-personal'), false, 'the default tenant may key rows in its own (default) namespace')
 })
