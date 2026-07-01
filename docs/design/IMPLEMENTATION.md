@@ -85,14 +85,29 @@ it.
 
 | 28 | F2 PD9 (identity slice 3b) | **Tenant-scoped artifacts (relation graph).** Applies the exact structural pattern proven for projects (step 27), designed correct-first-try to avoid the 3a review saga: `ArtifactItem.tenantId` (contract); the server stamps the creator's tenant on `save-artifact` (the reducer unshifts the new item to `extraArtifacts[0]`); a shared `artifactTenant` predicate is used by **both** `projectGraphForTenant` (now filters `extraArtifacts` + `artifactSource`, and requires **both** artifact and project visible for an `artifactProject` row) **and** `opDeniedForTenant` (a subject check refusing `refile-artifact` / `set-artifact-source` on a foreign artifact — an unknown/empty `artifactId` buckets to the default tenant via `!= null`, closing the ghost/empty-string class up front). The `relation.applied` broadcast is already acting-tenant-gated (step 27), so artifact ops don't leak via SSE. Seed artifacts are the default tenant's ⇒ the default reader is unchanged (backward-compatible). Locked by `tests/artifact-tenancy.test.ts` (stamp + projection + default-reader + foreign/ghost subject refusal), proven to bite (neuter the filter/guard → 3 fails). **Review (1 MED) fixed** a correctness break: the `artifactProject` double-filter ran the `''` *unfiled* sentinel (refile → `projectId:null`) through `projVisible('')`, false for a non-default tenant → the row dropped → the client resolved `artifactProject[id] ?? art.projectId` back to the original project, so an owner's own unfile silently *snapped back* in its own view; now `''` survives (`pid === '' || projVisible(pid)`), locked + bite-proven. (The review did NOT flag `scheduleArtifact` — that's genuinely the deferred schedule axis.) 578 node tests pass; typecheck + build green. **Remaining (slice 3c):** the **schedule** axis — schedules aren't graph-created (they're a list via `POST /schedules` + the run daemon), so their tenancy is a distinct list-scoping shape (like sessions) plus the schedule-keyed joins (`scheduleArtifact`/`scheduleSession`/`scheduleExtraTools`); lower value (the daemon is default-tenant), scoped separately. | ✅ built |
 
+### F2 identity & tenancy — status
+
+The tenancy boundary (PD9) is now built + adversarially reviewed across every
+content-bearing entity: **sessions** (read + write + persistence + SSE push),
+**projects** (4-round-hardened graph projection + op-authorization), **artifacts**
+(same structural pattern), and the **audit** trail — with the write-guard and
+read-projection sharing one ownership predicate per axis so they cannot disagree.
+**Slice 3c (the schedule axis) is deliberately deferred:** schedules are a list
+(`POST /schedules`) driven by the **default-tenant run daemon**, so their isolation
+value is low and their shape is distinct (list-scoping, not the graph pattern); it
+is recorded here rather than built, in favour of higher-value pillars. The F2 core
+is considered complete for the prototype.
+
 ### Up next (candidate order, not yet built)
 
-- **Identity & tenancy — slice 3c** (F2) — the **schedule** axis: schedules are a list
-  (`POST /schedules` + the default-tenant run daemon), so their tenancy is a session-like
-  list-scoping plus the schedule-keyed graph joins. Lower value (daemon is default-tenant)
-  — a candidate to defer in favour of a pillar. Also: thread the request tenant into the
-  seed list reads (`/projects`, `/artifacts`) so a non-default tenant's seed view matches
-  its graph view.
+- **Identity & tenancy — slice 3c** (F2, deferred) — the schedule axis (list-scoping +
+  schedule-keyed graph joins). Low value (default-tenant daemon); build only if a
+  multi-tenant schedule story becomes needed.
+- **Next pillar** — pick the highest-value remaining production-infra slice from
+  [`PLAN.md`](PLAN.md) (e.g. P5 model gateway / compaction / budget, P7 automation, or
+  the F4 broker deepening). Re-assess the backlog with fresh context before choosing.
+- **UI consumes `/v1/me`** (F2 / P1 §4) — surface the account/tenant. *Deferred:
+  needs a placement/design decision (no account chip exists today).*
 - **UI consumes `/v1/me`** (F2 / P1 §4) — surface the account/tenant. *Deferred:
   needs a placement/design decision (no account chip exists today) — flagged for the
   owner rather than invent UI autonomously.*
