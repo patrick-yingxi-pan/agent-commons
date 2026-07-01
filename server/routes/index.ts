@@ -159,6 +159,26 @@ export function buildRouter(): Router {
     sendJson(res, pp ? paginate(items, keyOf, pp) : items)
   }
 
+  // Refuse a by-id registry MUTATION on an entry the caller can't see (F2/PD9). Like the
+  // read guards, a private entry of another tenant is 404 (existence-hiding — never 403,
+  // which would confirm the id exists). `visible` is the caller's tenant-scoped list; if the
+  // id isn't in it, we send 404 and return true so the route bails before mutating. One
+  // helper so the write-guard and read-projection can't drift (structural-tenancy principle).
+  const denyForeignEntry = <T extends { id: string }>(
+    req: IncomingMessage,
+    res: ServerResponse,
+    id: string,
+    visible: (tenantId: string) => T[],
+    label: string,
+  ): boolean => {
+    const tenantId = store.identity(req.headers).tenant.id
+    if (!visible(tenantId).some((e) => e.id === id)) {
+      sendError(res, 'not_found', `No ${label} '${id}'`)
+      return true
+    }
+    return false
+  }
+
   // ── Capabilities ────────────────────────────────────────────────────────
   // What this backend variant can do. The default mock behaves like a native
   // sidecar (local-* true); `BACKEND=remote` makes it a remote web server
@@ -446,7 +466,8 @@ export function buildRouter(): Router {
       throw err
     }
   })
-  r.patch('/providers/:id', async ({ res, params, body }) => {
+  r.patch('/providers/:id', async ({ req, res, params, body }) => {
+    if (denyForeignEntry(req, res, params.id, (t) => store.listProviders(t), 'provider')) return
     const patch = await body<UpdateProviderRequest>()
     try {
       const provider = store.updateProvider(params.id, patch)
@@ -457,7 +478,8 @@ export function buildRouter(): Router {
       throw err
     }
   })
-  r.delete('/providers/:id', ({ res, params }) => {
+  r.delete('/providers/:id', ({ req, res, params }) => {
+    if (denyForeignEntry(req, res, params.id, (t) => store.listProviders(t), 'provider')) return
     try {
       if (!store.deleteProvider(params.id)) return sendError(res, 'not_found', `No provider '${params.id}'`)
       sendJson(res, { ok: true })
@@ -523,6 +545,7 @@ export function buildRouter(): Router {
     }
   })
   r.patch('/agents/:id', async ({ req, res, params, body }) => {
+    if (denyForeignEntry(req, res, params.id, (t) => store.listAgents(t), 'agent')) return
     const patch = await body<UpdateAgentRequest>()
     const bad = badAgentRef(patch, store.identity(req.headers).tenant.id)
     if (bad) return sendError(res, 'not_found', bad)
@@ -537,7 +560,8 @@ export function buildRouter(): Router {
       throw err
     }
   })
-  r.delete('/agents/:id', ({ res, params }) => {
+  r.delete('/agents/:id', ({ req, res, params }) => {
+    if (denyForeignEntry(req, res, params.id, (t) => store.listAgents(t), 'agent')) return
     try {
       if (!store.deleteAgent(params.id)) return sendError(res, 'not_found', `No agent '${params.id}'`)
       sendJson(res, { ok: true })
@@ -585,19 +609,25 @@ export function buildRouter(): Router {
   })
   // The opt-in prompt-fit probe (D10/OQ5) — the deeper, scored upgrade beside the static
   // tag. Scores the prompt against the chosen provider's model family (default if absent).
-  r.post('/system-prompts/:id/probe', async ({ res, params, body }) => {
+  r.post('/system-prompts/:id/probe', async ({ req, res, params, body }) => {
+    // Tenant-scoped (F2/PD9): probing another tenant's PRIVATE prompt is a 404 (no leak).
+    if (!store.listSystemPrompts(store.identity(req.headers).tenant.id).some((p) => p.id === params.id)) {
+      return sendError(res, 'not_found', `No system prompt '${params.id}'`)
+    }
     const { providerId } = await body<PromptProbeRequest>()
     const result = store.runProbe(params.id, providerId)
     if (!result) return sendError(res, 'not_found', `No system prompt '${params.id}'`)
     sendJson(res, result)
   })
-  r.patch('/system-prompts/:id', async ({ res, params, body }) => {
+  r.patch('/system-prompts/:id', async ({ req, res, params, body }) => {
+    if (denyForeignEntry(req, res, params.id, (t) => store.listSystemPrompts(t), 'system prompt')) return
     const patch = await body<UpdateSystemPromptRequest>()
     const entry = store.updateSystemPrompt(params.id, patch)
     if (!entry) return sendError(res, 'not_found', `No system prompt '${params.id}'`)
     sendJson(res, entry)
   })
-  r.delete('/system-prompts/:id', ({ res, params }) => {
+  r.delete('/system-prompts/:id', ({ req, res, params }) => {
+    if (denyForeignEntry(req, res, params.id, (t) => store.listSystemPrompts(t), 'system prompt')) return
     try {
       if (!store.deleteSystemPrompt(params.id)) return sendError(res, 'not_found', `No system prompt '${params.id}'`)
       sendJson(res, { ok: true })
@@ -625,7 +655,12 @@ export function buildRouter(): Router {
   // The commission's *effective* authority (D12): the agent's granted ceiling clamped
   // to what the Project admits — what the Contributor actually reaches, never the
   // owner's ambient set. Derived server-side (the single source); the UI shows it.
-  r.get('/commissions/:id/authority', ({ res, params }) => {
+  r.get('/commissions/:id/authority', ({ req, res, params }) => {
+    // Tenant-scoped (F2/PD9) like the sibling by-id GET: a foreign commission is 404 (no
+    // leak of another tenant's Contributor's effective reach).
+    if (!store.listCommissions(undefined, store.identity(req.headers).tenant.id).some((c) => c.id === params.id)) {
+      return sendError(res, 'not_found', `No commission '${params.id}'`)
+    }
     const authority = store.commissionAuthority(params.id)
     if (!authority) return sendError(res, 'not_found', `No commission '${params.id}'`)
     sendJson(res, authority)
@@ -662,7 +697,8 @@ export function buildRouter(): Router {
   // Re-grant (narrow / restore a Contributor's authority) or un-commission. PATCH re-runs
   // the leaf funnel, so an over-grant is a 400; DELETE cascade-releases the Contributor's
   // sub-goals. No protected default — a commission has no fallback role.
-  r.patch('/commissions/:id', async ({ res, params, body }) => {
+  r.patch('/commissions/:id', async ({ req, res, params, body }) => {
+    if (denyForeignEntry(req, res, params.id, (t) => store.listCommissions(undefined, t), 'commission')) return
     const patch = await body<UpdateCommissionRequest>()
     if (patch.role && !PROJECT_ROLES.includes(patch.role)) {
       return sendError(res, 'bad_request', `Unknown role '${patch.role}'`)
@@ -678,7 +714,8 @@ export function buildRouter(): Router {
       throw err
     }
   })
-  r.delete('/commissions/:id', ({ res, params }) => {
+  r.delete('/commissions/:id', ({ req, res, params }) => {
+    if (denyForeignEntry(req, res, params.id, (t) => store.listCommissions(undefined, t), 'commission')) return
     if (!store.deleteCommission(params.id)) return sendError(res, 'not_found', `No commission '${params.id}'`)
     sendJson(res, { ok: true })
   })

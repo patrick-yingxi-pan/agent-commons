@@ -274,6 +274,103 @@ test('Agent-Commons registries are tenant-scoped on a remote backend (created pr
   assert.equal(getOmega.status, 404, 'a cross-tenant agent id is 404')
 })
 
+test('Agent-Commons by-id MUTATIONS are tenant-isolated on a remote backend (foreign PATCH/DELETE → 404, entry survives)', async () => {
+  const { store } = await import('../server/store.ts')
+  const { buildRouter } = await import('../server/routes/index.ts')
+  const call = caller(buildRouter())
+
+  // tenant-zeta owns one PRIVATE (created) entry of each registry family. Ids are sequential
+  // and guessable, so the by-id mutation routes must authorize the caller's tenant — not just
+  // exist-check — before writing. (Created directly through the store with an explicit tenant;
+  // the create path itself is covered by the sibling registries test.)
+  const prov = store.createProvider({ label: 'Zeta prov', modelFamily: 'claude', effortLevels: ['Low'] }, {}, 'tenant-zeta')
+  const agent = store.createAgent({ label: 'Zeta agent', systemPrompt: 'x', tools: [], instructions: '' }, 'tenant-zeta')
+  const prompt = store.createSystemPrompt({ label: 'Zeta prompt', body: 'b', targetFamily: 'claude' }, 'tenant-zeta')
+  const proj = store.listProjects()[0]
+  const commission = store.createCommission({ agentId: agent.id, projectId: proj.id }, 'tenant-zeta')
+
+  // Every by-id mutation from a FOREIGN tenant is 404 (existence-hiding), never a 403 that
+  // would confirm the id. The guard short-circuits before the body is read.
+  const cases = [
+    ['PATCH', `/providers/${prov.id}`, { label: 'hijack' }],
+    ['DELETE', `/providers/${prov.id}`, undefined],
+    ['PATCH', `/agents/${agent.id}`, { label: 'hijack' }],
+    ['DELETE', `/agents/${agent.id}`, undefined],
+    ['PATCH', `/system-prompts/${prompt.id}`, { label: 'hijack' }],
+    ['DELETE', `/system-prompts/${prompt.id}`, undefined],
+    ['PATCH', `/commissions/${commission.id}`, { role: 'reader' }],
+    ['DELETE', `/commissions/${commission.id}`, undefined],
+  ]
+  for (const [method, path, bodyObj] of cases) {
+    const r = await call(method, path, { 'x-tenant-id': 'tenant-omega' }, bodyObj)
+    assert.equal(r.status, 404, `a foreign ${method} ${path} must be 404`)
+  }
+
+  // Nothing was mutated or deleted — the owner still lists each entry, label intact.
+  assert.ok(store.listProviders('tenant-zeta').some((p) => p.id === prov.id && p.label === 'Zeta prov'), 'provider survived unchanged')
+  assert.ok(store.listAgents('tenant-zeta').some((a) => a.id === agent.id && a.label === 'Zeta agent'), 'agent survived unchanged')
+  assert.ok(store.listSystemPrompts('tenant-zeta').some((p) => p.id === prompt.id && p.label === 'Zeta prompt'), 'prompt survived unchanged')
+  assert.ok(store.listCommissions(undefined, 'tenant-zeta').some((c) => c.id === commission.id), 'commission survived')
+
+  // Positive control: the OWNING tenant patches its own agent through the same route.
+  const own = await call('PATCH', `/agents/${agent.id}`, { 'x-tenant-id': 'tenant-zeta' }, { label: 'renamed by owner' })
+  assert.equal(own.status, 200, 'the owner patches its own agent')
+  assert.equal(own.json.label, 'renamed by owner')
+})
+
+test('registry by-id READS are tenant-isolated on a remote backend (prompt probe + commission authority → 404)', async () => {
+  const { store } = await import('../server/store.ts')
+  const { buildRouter } = await import('../server/routes/index.ts')
+  const call = caller(buildRouter())
+
+  const prompt = store.createSystemPrompt({ label: 'Zeta prompt', body: 'b', targetFamily: 'claude' }, 'tenant-zeta')
+  const agent = store.createAgent({ label: 'Zeta agent', systemPrompt: 'x', tools: [], instructions: '' }, 'tenant-zeta')
+  const proj = store.listProjects()[0]
+  const commission = store.createCommission({ agentId: agent.id, projectId: proj.id }, 'tenant-zeta')
+
+  // Both by-id READS that derive from a private entry must scope to the caller: a foreign
+  // tenant probing zeta's prompt, or reading its commission's effective authority, is 404.
+  const providerId = store.listProviders('tenant-zeta')[0].id
+  const probeOmega = await call('POST', `/system-prompts/${prompt.id}/probe`, { 'x-tenant-id': 'tenant-omega' }, { providerId })
+  assert.equal(probeOmega.status, 404, 'a foreign tenant cannot probe another tenant’s prompt')
+  const authOmega = await call('GET', `/commissions/${commission.id}/authority`, { 'x-tenant-id': 'tenant-omega' })
+  assert.equal(authOmega.status, 404, 'a foreign tenant cannot read another tenant’s commission authority')
+
+  // Positive controls: the owner reads both.
+  const authZeta = await call('GET', `/commissions/${commission.id}/authority`, { 'x-tenant-id': 'tenant-zeta' })
+  assert.equal(authZeta.status, 200, 'the owner reads its own commission authority')
+})
+
+test('relation ops with a foreign AGENT/COMMISSION subject are refused on a remote backend (opDeniedForTenant axes)', async () => {
+  const { store } = await import('../server/store.ts')
+  const { buildRouter } = await import('../server/routes/index.ts')
+  const call = caller(buildRouter())
+
+  // tenant-zeta owns a private agent + a commission of it.
+  const agent = store.createAgent({ label: 'Zeta agent', systemPrompt: 'x', tools: [], instructions: '' }, 'tenant-zeta')
+  const seedProj = store.listProjects()[0]
+  const commission = store.createCommission({ agentId: agent.id, projectId: seedProj.id }, 'tenant-zeta')
+
+  // tenant-omega owns a project, so the op's PROJECT axis passes — isolating the subject axis.
+  const mk = await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-omega' }, {
+    op: { kind: 'create-project', projectId: 'proj-omega', projectName: 'Omega Only', projectDescription: '' },
+  })
+  assert.equal(mk.status, 200, 'omega creates its own project')
+
+  // Commissioning zeta's PRIVATE agent into omega's own project is refused by the AGENT axis.
+  const commOmega = await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-omega' }, {
+    op: { kind: 'commission-agent', agentId: agent.id, agentLabel: 'Zeta agent', projectId: 'proj-omega', projectName: 'Omega Only' },
+  })
+  assert.equal(commOmega.status, 404, 'a foreign agent subject is refused 404')
+
+  // Uncommissioning zeta's PRIVATE commission is refused by the COMMISSION axis.
+  const unOmega = await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-omega' }, {
+    op: { kind: 'uncommission-agent', commissionId: commission.id, agentLabel: 'Zeta agent', projectId: 'proj-omega', projectName: 'Omega Only' },
+  })
+  assert.equal(unOmega.status, 404, 'a foreign commission subject is refused 404')
+  assert.ok(store.listCommissions(undefined, 'tenant-zeta').some((c) => c.id === commission.id), 'zeta’s commission survived the foreign uncommission')
+})
+
 test('the served cloud filesystem source works on a remote backend (it reads the web backend’s own storage)', async () => {
   const { buildRouter } = await import('../server/routes/index.ts')
   const call = caller(buildRouter())

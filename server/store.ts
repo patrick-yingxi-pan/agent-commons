@@ -1957,6 +1957,22 @@ export const store = {
       const session = SESSIONS.find((s) => s.id === sid)
       if (session && !this.sessionVisibleToTenant(session, tenantId)) return true
     }
+    // Subject AGENT / COMMISSION (Agent-Commons registry axes, F2/PD9): a relation op that
+    // names an existing agent/commission the caller can't see (commission-agent, handoff-agent
+    // → agentId; uncommission-agent → commissionId) is refused — a tenant can't commission,
+    // hand a session off to, or uncommission another tenant's PRIVATE registry entry. A shared
+    // (seeded) entry is visible to all (registryVisible); an unknown id isn't a leak (registries
+    // have no read-projection), so only a KNOWN foreign entry is denied.
+    const opAgentId = (op as { agentId?: string }).agentId
+    if (opAgentId != null) {
+      const agent = WORKER_AGENTS.get(opAgentId)
+      if (agent && !registryVisible(agent, tenantId)) return true
+    }
+    const opCommissionId = (op as { commissionId?: string }).commissionId
+    if (opCommissionId != null) {
+      const commission = COMMISSIONS.get(opCommissionId)
+      if (commission && !registryVisible(commission, tenantId)) return true
+    }
     return false
   },
 }
