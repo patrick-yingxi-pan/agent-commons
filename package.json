@@ -14,6 +14,7 @@
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"tests/**/*.test.ts\"",
+    "e2e": "playwright test",
     "preview": "vite preview",
     "snapshot:save": "node scripts/snapshot.ts save",
     "snapshot:restore": "node scripts/snapshot.ts restore",
@@ -28,6 +29,7 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/vite": "^4.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

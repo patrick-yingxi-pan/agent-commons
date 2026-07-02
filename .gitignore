@@ -31,3 +31,9 @@ Thumbs.db
 
 # persisted mock-backend state (the filesystem store)
 .data/
+
+# Playwright E2E artifacts (the harness is checked in; its outputs are not)
+/test-results/
+/playwright-report/
+/blob-report/
+/.playwright/

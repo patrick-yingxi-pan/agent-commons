@@ -24,6 +24,7 @@ import {
   Github,
   Globe,
   Loader2,
+  Lock,
   Mail,
   MessageSquare,
   MinusCircle,
@@ -914,7 +915,51 @@ function ProjectScheduleAdd({
  *  (to resolve each Contributor's label), and offers a picker to commission another
  *  Agent. A commission is the leaf of the D8 cascade; the server funnel rejects an
  *  over-grant, so the picker only ever creates valid (inheriting) commissions here. */
+/** Cross-tenant share control (P8) — a Project's owner opens it to Contributors from OTHER
+ *  workspaces (tenants). Only CREATED Projects are shareable (the `share-project` op no-ops on a
+ *  seed id), so the toggle is offered only for those (ContributorsPanel gates it). Applies the
+ *  owner-only `share-project` relation op BY HAND — the same op the model proposes
+ *  conversationally (`share_project` tool), through the one relation-edit gate. A shared Project
+ *  accepts a different tenant's own agent as a Contributor (owner-pays), clamped to what the
+ *  Project admits; un-sharing revokes that cross-workspace effect access. */
+function ShareToggle({ project }: { project: Project }) {
+  const rel = useRelations()
+  const shared = project.shared === true
+  const toggle = () =>
+    rel.applyOp({ kind: 'share-project', projectId: project.id, projectName: project.name, shared: !shared })
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      aria-pressed={shared}
+      aria-label={shared ? 'Make project private' : 'Share project across workspaces'}
+      data-testid="share-toggle"
+      className="mb-3 flex w-full items-start gap-2.5 rounded-lg border border-line bg-ink/[0.02] px-2.5 py-2 text-left transition hover:border-ink/20"
+    >
+      <span className={`mt-0.5 shrink-0 ${shared ? 'text-emerald-600' : 'text-ink-faint'}`}>
+        {shared ? <Globe size={14} /> : <Lock size={14} />}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[12px] font-medium text-ink">
+          {shared ? 'Shared across workspaces' : 'Private to this workspace'}
+        </span>
+        <span className="block text-[11px] text-ink-faint">
+          {shared
+            ? 'Other workspaces can commission their own agents here (owner-pays).'
+            : 'Only this workspace can contribute. Share to accept cross-workspace agents.'}
+        </span>
+      </span>
+      <span
+        className={`mt-0.5 flex h-4 w-7 shrink-0 items-center rounded-full px-0.5 transition ${shared ? 'justify-end bg-emerald-500' : 'justify-start bg-ink/15'}`}
+      >
+        <span className="h-3 w-3 rounded-full bg-white shadow-sm" />
+      </span>
+    </button>
+  )
+}
+
 function ContributorsPanel({ project }: { project: Project }) {
+  const rel = useRelations()
   const commissions = useCommissions(project.id).data ?? []
   const agents = useAgents().data ?? []
   const agentsById = new Map(agents.map((a) => [a.id, a]))
@@ -923,6 +968,7 @@ function ContributorsPanel({ project }: { project: Project }) {
 
   return (
     <SidePanel title="Contributors" icon={<Cpu size={14} />}>
+      {rel.isCreatedProject(project.id) && <ShareToggle project={project} />}
       {commissions.length === 0 ? (
         <p className="text-[12px] text-ink-faint">No agents commissioned yet.</p>
       ) : (

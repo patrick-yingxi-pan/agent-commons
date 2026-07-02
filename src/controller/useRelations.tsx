@@ -45,6 +45,10 @@ export interface RelationsValue {
   // ── Projects ──
   /** The seed projects plus any created by a confirmed proposal (graph extras). */
   allProjects: () => Project[]
+  /** Whether a Project was CREATED at runtime (lives in the graph's extraProjects) rather than
+   *  seeded — only created Projects are shareable across tenants (P8; the `share-project` op
+   *  no-ops on a seed id), so the share control is offered only for these. */
+  isCreatedProject: (pid: string) => boolean
   // ── Session ↔ Project ──
   projectIdForSession: (sid: string) => string | null
   projectForSessionId: (sid: string) => Project | undefined
@@ -112,6 +116,7 @@ export function RelationsProvider({
     return {
       applyOp,
       allProjects: () => [...graph.extraProjects, ...projects],
+      isCreatedProject: (pid) => graph.extraProjects.some((p) => p.id === pid),
       projectIdForSession,
       projectForSessionId: (sid) => {
         const pid = projectIdForSession(sid)

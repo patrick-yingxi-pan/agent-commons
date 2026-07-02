@@ -55,10 +55,16 @@ Other scripts:
 ```bash
 npm run typecheck  # tsc --noEmit over UI + contract  ← run before declaring done
 npm run build      # production build to dist/
+npm run e2e        # Playwright browser E2E (boots the dev stack, headless) — DOM-level wiring
 npm run start      # one process: serve built UI + API (the deploy shape)
 npm run model      # the Anthropic-compatible mock model server, standalone (:8788)
 BACKEND=remote npm run server   # the remote-web-server variant (native ops 409)
 ```
+
+`npm run e2e` needs the browser once: `npx playwright install chromium`. It drives the
+**rendered UI** (the layer `node --test` can't — no DOM), against an isolated store
+(`DATA_FILE=.data/e2e-store.json`); `e2e/*.spec.ts`. The store/route suites lock the
+logic, the E2E locks the wiring.
 
 `npm run dev`/`start` boot the mock model server in-process, so one command is a
 complete stack. To run the backend against the **real** API instead of the mock,

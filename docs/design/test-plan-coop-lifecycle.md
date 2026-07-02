@@ -212,7 +212,19 @@ Ordered by severity for the cooperation lifecycle.
 
 ## 5. End-to-end UI plan — and the two prerequisites + the harness fork
 
-The cross-tenant lifecycle **cannot be driven through the running UI today**:
+> **STATUS (Phase 3, 2026-07-02) — harness + share UI BUILT.** The **Playwright**
+> harness is checked in (`playwright.config.ts`, `e2e/share-project.spec.ts`,
+> `npm run e2e`) and green — chromium installs + runs headless here. The **share
+> affordance** (prereq 1, by-hand) is built + E2E-locked (`ShareToggle`; E2E-1:
+> create → share → backend `shared:true`+`guardianId` → un-share reverses). Still
+> open: the **conversational** `share_project` tool (blocked on the mock model's
+> seed-only project resolution), the **dev tenant-switcher** (prereq 2) for a
+> cross-tenant browser E2E (E2E-2…E2E-6) — the cross-tenant *logic* is already
+> locked at the store+route layer, so this is a UI-wiring follow-on — and the
+> completion UI (Stage D, Phase 4).
+
+The cross-tenant lifecycle **could not be driven through the running UI** before
+Phase 3:
 
 - **No share UI.** `Project.shared` + the `share-project` op exist in the
   contract/reducer, but **no component renders a share toggle** and **no model
@@ -285,8 +297,12 @@ Each phase: implement → `npm run typecheck` + `node --test` → adversarial
   it may not self-elevate (B8), so no path currently promotes a cross-tenant
   contributor to maintainer/owner. An owner-driven cross-tenant grant path is a
   Phase 2 design item.
-- **Phase 3 — E2E UI.** Build the share affordance + dev tenant switch, then the
-  chosen harness + E2E-1…E2E-6.
+- **Phase 3 — E2E UI.** ✅ *Partly done:* the **share affordance** (by-hand
+  `ShareToggle`) + the **Playwright harness** are built and green (E2E-1). *Follow-on:*
+  the **dev tenant-switcher** to drive the cross-tenant scenarios (E2E-2…E2E-6) through
+  the UI, and the **conversational** `share_project` tool (needs created-project
+  resolution in the mock model). The cross-tenant *logic* is already locked at the
+  store+route layer, so these are wiring/coverage gaps, not logic gaps.
 - **Phase 4 — completion (Stage D).** Design first (a short design note answering
   D1's open questions), then build the status model + op + UI, then lock D1–D4.
 
