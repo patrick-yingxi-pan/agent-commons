@@ -72,7 +72,7 @@ import { mintAuthority } from './authority.ts'
 import { ConflictError } from './conflict.ts'
 import { LimitError } from './limit.ts'
 import { scopeMatches } from './runner-runtime.ts'
-import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, clampAuthority, clampBudget, probeScore } from '../contract/index.ts'
+import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, clampAuthority, clampBudget, probeScore } from '../contract/index.ts'
 import type { Agent, AuditEntry, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelProvider, ProjectAction, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProxyRequest, ProxyResult, Reservation, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
@@ -216,6 +216,25 @@ const findArtifact = (id: string): ArtifactItem | undefined =>
  *  tenant. No tenant arg ⇒ everything (internal callers / tests). */
 const registryVisible = <T extends { tenantId?: string }>(entry: T, tenantId?: string): boolean =>
   tenantId === undefined || entry.tenantId === undefined || entry.tenantId === tenantId
+
+/** P8 role self-assign clamp (B8): a Commission owned by a tenant that is NOT the Project's
+ *  owner may not hold a role above 'writer' — only the Project owner grants maintainer/owner.
+ *  Both the mint (`createCommission`) and the re-grant (`updateCommission`) run through THIS one
+ *  clamp, so a cross-tenant Contributor can't self-elevate via either path (join clamped, then
+ *  PATCH-to-owner would be the bypass). reader/writer pass through; owner/maintainer clamp to
+ *  writer. `owningTenant` undefined (internal/seed mint) ⇒ no clamp. An owner-driven cross-tenant
+ *  elevation path is a Phase 2 item (docs/design/test-plan-coop-lifecycle.md). */
+const clampContributorRole = (role: ProjectRole, owningTenant: string | undefined, projectId: string): ProjectRole => {
+  // Normalize an unknown/invalid role to the safe baseline first (defense in depth: POST
+  // /commissions 400s an invalid role, but the op path casts the JSON body unchecked, so a
+  // hand-crafted commission-agent op could carry e.g. 'superadmin' — which must never be stored,
+  // else roleRank(invalid) = PROJECT_ROLES.length outranks 'owner' and rolePermits throws on the
+  // absent ROLE_ACTIONS key. P8 review finding). Then apply the cross-tenant self-assign clamp.
+  const safe: ProjectRole = PROJECT_ROLES.includes(role) ? role : 'writer'
+  const projectOwner = findProject(projectId)?.tenantId ?? defaultTenantId()
+  if (owningTenant !== undefined && owningTenant !== projectOwner && roleRank(safe) > roleRank('writer')) return 'writer'
+  return safe
+}
 
 /** The tenant an artifact belongs to (F2/PD9) — seed/legacy or unknown ⇒ the default
  *  tenant (parallels `projectTenant`; independent of the artifact's project). */
@@ -1307,10 +1326,11 @@ export const store = {
   createCommission(input: Omit<Commission, 'id'>, tenantId?: string): Commission {
     const agent = WORKER_AGENTS.get(input.agentId)
     if (!agent) throw new Error(`createCommission: unknown agent '${input.agentId}'`)
+    const project = findProject(input.projectId)
     // D13 per-commissioner abuse cap — fail-closed at the *single* funnel, so the route and
     // the conversational (commission-agent op) path are both bounded. An at-cap Project
     // refuses the new Commission until one is removed or the owner raises the cap.
-    const cap = findProject(input.projectId)?.commissionCap
+    const cap = project?.commissionCap
     if (cap !== undefined && this.activeCommissionCount(input.projectId) >= cap) {
       throw new LimitError(
         `Project '${input.projectId}' is at its commission cap (${cap}) — un-commission an Agent or raise the cap first.`,
@@ -1323,9 +1343,13 @@ export const store = {
     if (input.grant) {
       mintBudget(agent.budget?.windows ?? provider.plan?.windows ?? usageMeter.planCeilings(), input.grant)
     }
-    // Role is the D14 baseline; default to 'writer' (the ordinary Contributor) when unset.
+    // Role is the D14 baseline; default to 'writer' when unset, then apply the P8 self-assign
+    // clamp (B8) keyed on the commission's OWNING tenant vs the Project owner (single-sourced
+    // with the re-grant path, so a cross-tenant joiner can't self-elevate on mint or via PATCH).
     // Stamp the creating tenant (F2/PD9) so listCommissions(…, tenant) scopes it; unset ⇒ shared.
-    const commission: Commission = { ...input, role: input.role ?? 'writer', id: `commission-${(commissionSeq += 1)}`, tenantId: tenantId ?? input.tenantId }
+    const owningTenant = tenantId ?? input.tenantId
+    const role = clampContributorRole(input.role ?? 'writer', owningTenant, input.projectId)
+    const commission: Commission = { ...input, role, id: `commission-${(commissionSeq += 1)}`, tenantId: owningTenant }
     COMMISSIONS.set(commission.id, commission)
     persist()
     return commission
@@ -1342,8 +1366,11 @@ export const store = {
     const provider = resolveProvider(agent?.providerId)
     const authority = 'authority' in patch ? patch.authority : commission.authority
     const grant = 'grant' in patch ? patch.grant : commission.grant
-    // Role (D14) re-assignment: present ⇒ apply, absent ⇒ unchanged.
-    const role = patch.role ?? commission.role
+    // Role (D14) re-assignment: present ⇒ apply, absent ⇒ unchanged — then re-run the P8
+    // self-assign clamp (B8) so a cross-tenant Contributor can't PATCH itself above 'writer'
+    // (denyForeignEntry lets it edit its OWN commission; the clamp is the wall). Same helper as
+    // the mint path, keyed on the commission's owning tenant vs the Project owner.
+    const role = clampContributorRole(patch.role ?? commission.role ?? 'writer', commission.tenantId, commission.projectId)
     if (authority) mintAuthority(agent?.authority ?? provider.authority, authority)
     if (grant) {
       mintBudget(agent?.budget?.windows ?? provider.plan?.windows ?? usageMeter.planCeilings(), grant)
@@ -1684,6 +1711,14 @@ export const store = {
   // ── Entity graph (Projects / Artifacts / Schedules + the relationship graph) ──
   listProjects(): Project[] {
     return PROJECTS
+  },
+  /** Resolve a Project across BOTH homes — seeded (`PROJECTS`) + created
+   *  (`graph.extraProjects`) — the authoritative existence check. `listProjects()`
+   *  returns seed projects only, so routes that must reach a *created* (shared)
+   *  Project (commissioning / cooperation) resolve through this instead (P8). Returns
+   *  the live object; callers must not send it verbatim cross-tenant (redact first). */
+  findProject(id: string): Project | undefined {
+    return findProject(id)
   },
   /** Route a non-monotonic Project effect through the Project's guardian (D11,
    *  docs/agent-commons.md): a guarded Project is a shared resource, so its
@@ -2093,6 +2128,13 @@ export const store = {
         // admits a Contributor without letting anyone conscript a foreign agent or write
         // other content into a foreign Project (file-session/scope/share-project stay owner-only).
         if (!(op.kind === 'commission-agent' && findProject(pid)?.shared === true)) return true
+        // Close the ghost-vs-foreign existence oracle (P8 review): on THIS cross-tenant path an
+        // UNKNOWN agent is denied here (uniform 404), matching the KNOWN-foreign denial the
+        // general agent-subject axis gives below — else a foreign caller could distinguish a real
+        // private agent (foreign ⇒ 404) from a ghost (would fall through to the 409 the
+        // same-tenant "agent removed" case gives). The same-tenant path (owner === tenantId) is
+        // untouched, so that helpful 409 is preserved for a caller's own removed agent.
+        if (!WORKER_AGENTS.get(op.agentId)) return true
       }
     }
     // Subject ARTIFACT: an op that moves/edits an existing artifact (refile-artifact,

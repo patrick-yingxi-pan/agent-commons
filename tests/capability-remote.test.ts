@@ -463,6 +463,106 @@ test('a shared Project admits a cross-tenant Contributor on a remote backend (P8
   assert.equal(refused.status, 404, 'a private project still refuses the cross-tenant commission (isolation intact)')
 })
 
+test('P8 BUG-1 — POST /commissions (direct REST) reaches a shared CREATED project cross-tenant, and 404s a private one', async () => {
+  const { buildRouter } = await import('../server/routes/index.ts')
+  const call = caller(buildRouter())
+
+  await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-zeta2' }, {
+    op: { kind: 'create-project', projectId: 'proj-rest-shared', projectName: 'RestShared', projectDescription: '' },
+  })
+  await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-zeta2' }, {
+    op: { kind: 'share-project', projectId: 'proj-rest-shared', projectName: 'RestShared', shared: true },
+  })
+  const created = await call('POST', '/agents', { 'x-tenant-id': 'tenant-omega2' }, { label: 'Omega2 worker' })
+  const omegaAgentId = created.json.id
+
+  // The DIRECT REST path (not the op path) onto the shared CREATED project — must succeed now
+  // (before BUG-1 it 404'd because the guard used seed-only `listProjects()`).
+  const commission = await call('POST', '/commissions', { 'x-tenant-id': 'tenant-omega2' }, {
+    agentId: omegaAgentId, projectId: 'proj-rest-shared',
+  })
+  assert.equal(commission.status, 200, 'POST /commissions reaches a shared created project cross-tenant (BUG-1 fixed)')
+
+  // A PRIVATE created project refuses the same direct REST commission (404, existence-hiding).
+  await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-zeta2' }, {
+    op: { kind: 'create-project', projectId: 'proj-rest-priv', projectName: 'RestPriv', projectDescription: '' },
+  })
+  const refused = await call('POST', '/commissions', { 'x-tenant-id': 'tenant-omega2' }, {
+    agentId: omegaAgentId, projectId: 'proj-rest-priv',
+  })
+  assert.equal(refused.status, 404, 'a private created project refuses the direct REST cross-tenant commission')
+})
+
+test('P8 BUG-5 — a shared Project exposes a foreign Contributor’s IDENTITY but not its effective REACH (who, not what-they-reach)', async () => {
+  const { buildRouter } = await import('../server/routes/index.ts')
+  const call = caller(buildRouter())
+
+  await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-owner5' }, {
+    op: { kind: 'create-project', projectId: 'proj-who', projectName: 'Who', projectDescription: '' },
+  })
+  await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-owner5' }, {
+    op: { kind: 'share-project', projectId: 'proj-who', projectName: 'Who', shared: true },
+  })
+  const created = await call('POST', '/agents', { 'x-tenant-id': 'tenant-contrib5' }, { label: 'Contrib5' })
+  const comm = await call('POST', '/commissions', { 'x-tenant-id': 'tenant-contrib5' }, { agentId: created.json.id, projectId: 'proj-who' })
+  assert.equal(comm.status, 200)
+  const commissionId = comm.json.id
+
+  // An uninvolved THIRD tenant can see WHO contributes (identity, redacted) …
+  const byId = await call('GET', `/commissions/${commissionId}`, { 'x-tenant-id': 'tenant-third5' })
+  assert.equal(byId.status, 200, 'a shared project’s contributor identity is public across tenants')
+  assert.equal(byId.json.authority, undefined, 'identity only — the D12 authority is redacted')
+  // … but NOT what it can reach: the effective D12 authority stays private to the commission owner.
+  const authority = await call('GET', `/commissions/${commissionId}/authority`, { 'x-tenant-id': 'tenant-third5' })
+  assert.equal(authority.status, 404, 'effective reach is not exposed cross-tenant (intended tighter redaction)')
+})
+
+test('P8 B8 — a cross-tenant self-commission cannot self-assign an elevated role over HTTP (clamped to writer)', async () => {
+  const { buildRouter } = await import('../server/routes/index.ts')
+  const call = caller(buildRouter())
+
+  await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-o8' }, {
+    op: { kind: 'create-project', projectId: 'proj-r8', projectName: 'R8', projectDescription: '' },
+  })
+  await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-o8' }, {
+    op: { kind: 'share-project', projectId: 'proj-r8', projectName: 'R8', shared: true },
+  })
+  const created = await call('POST', '/agents', { 'x-tenant-id': 'tenant-c8' }, { label: 'C8' })
+  const agentId = created.json.id
+  await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-c8' }, {
+    op: { kind: 'commission-agent', agentId, agentLabel: 'C8', projectId: 'proj-r8', projectName: 'R8', role: 'owner' },
+  })
+  const list = await call('GET', '/commissions?project=proj-r8', { 'x-tenant-id': 'tenant-c8' })
+  assert.equal(list.json.find((c) => c.agentId === agentId)?.role, 'writer', 'the self-assigned owner role is clamped to writer cross-tenant')
+})
+
+test('P8 review — commission-agent hides agent existence uniformly cross-tenant (ghost id → 404, not a 409 oracle), while the owner’s own removed-agent still 409s', async () => {
+  const { buildRouter } = await import('../server/routes/index.ts')
+  const call = caller(buildRouter())
+
+  await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-ownerG' }, {
+    op: { kind: 'create-project', projectId: 'proj-ghost', projectName: 'Ghost', projectDescription: '' },
+  })
+  await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-ownerG' }, {
+    op: { kind: 'share-project', projectId: 'proj-ghost', projectName: 'Ghost', shared: true },
+  })
+
+  // A FOREIGN tenant committing a NONEXISTENT agent onto the shared project gets 404 — matching
+  // the 404 a real foreign PRIVATE agent gets, so the two can't be distinguished (no existence
+  // oracle over the private-agent registry, which has no cross-tenant read projection).
+  const ghostForeign = await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-probeG' }, {
+    op: { kind: 'commission-agent', agentId: 'agent-does-not-exist', agentLabel: 'x', projectId: 'proj-ghost', projectName: 'Ghost' },
+  })
+  assert.equal(ghostForeign.status, 404, 'a ghost agent on the cross-tenant carve-out is a uniform 404, not a 409 oracle')
+
+  // Control: the OWNER (same tenant) committing an unknown agent id onto its OWN project still gets
+  // the helpful 409 (agent removed → re-propose) — the fix is scoped to the cross-tenant path.
+  const ghostOwner = await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-ownerG' }, {
+    op: { kind: 'commission-agent', agentId: 'agent-does-not-exist', agentLabel: 'x', projectId: 'proj-ghost', projectName: 'Ghost' },
+  })
+  assert.equal(ghostOwner.status, 409, 'the owner’s own removed-agent commission still returns 409 (preserved)')
+})
+
 test('the served cloud filesystem source works on a remote backend (it reads the web backend’s own storage)', async () => {
   const { buildRouter } = await import('../server/routes/index.ts')
   const call = caller(buildRouter())

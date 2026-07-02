@@ -682,8 +682,14 @@ export function buildRouter(): Router {
   // to what the Project admits — what the Contributor actually reaches, never the
   // owner's ambient set. Derived server-side (the single source); the UI shows it.
   r.get('/commissions/:id/authority', ({ req, res, params }) => {
-    // Tenant-scoped (F2/PD9) like the sibling by-id GET: a foreign commission is 404 (no
-    // leak of another tenant's Contributor's effective reach).
+    // Tenant-scoped (F2/PD9), and DELIBERATELY tighter than the sibling by-id GET: this uses
+    // the no-projectId `listCommissions` (own/seed only, `registryVisible`), so a foreign
+    // Contributor on a SHARED Project — which `GET /commissions/:id` and the list DO expose
+    // (redacted to identity) — is 404 here. That asymmetry is the intended posture, not an
+    // oversight (P8 BUG-5): a shared Project's contributor list is public *identity* ("who
+    // contributes"), but the D12 *effective reach* is private to the commission owner, exactly
+    // as `publicCommission` strips `authority`/`grant`. Effective reach never crosses the tenant
+    // boundary. Locked by tests/cross-tenant-cooperation + capability-remote (who-not-what).
     if (!store.listCommissions(undefined, store.identity(req.headers).tenant.id).some((c) => c.id === params.id)) {
       return sendError(res, 'not_found', `No commission '${params.id}'`)
     }
@@ -702,7 +708,15 @@ export function buildRouter(): Router {
     if (!store.listAgents(tenantId).some((a) => a.id === input.agentId)) {
       return sendError(res, 'not_found', `No agent '${input.agentId}'`)
     }
-    if (!store.listProjects().some((p) => p.id === input.projectId)) {
+    // Resolve the Project across both homes (seed + created) — a shared *created* Project must
+    // be reachable here, else this direct path 404s a legitimate cross-tenant commission the
+    // `commission-agent` op path (which uses `findProject`) accepts (P8 BUG-1). Cross-tenant
+    // authorization mirrors that op's carve-out: a non-owner may commission its own agent ONLY
+    // onto a SHARED Project; a private/foreign Project is hidden (404, not 403). The own-agent
+    // subject axis is already enforced by the `listAgents(tenant)` check above.
+    const project = store.findProject(input.projectId)
+    const projectOwner = project?.tenantId ?? store.defaultTenantId()
+    if (!project || (projectOwner !== tenantId && project.shared !== true)) {
       return sendError(res, 'not_found', `No project '${input.projectId}'`)
     }
     if (input.role && !PROJECT_ROLES.includes(input.role)) {

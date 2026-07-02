@@ -112,3 +112,115 @@ test('graph projection — a shared project is visible cross-tenant; a private o
   assert.ok(gB.extraProjects.some((p) => p.id === 'p-vis-shared' && p.shared), 'a non-owner sees the shared project (flagged shared)')
   assert.ok(!gB.extraProjects.some((p) => p.id === 'p-vis-private'), 'a non-owner does NOT see a private project')
 })
+
+// ── Phase 1 — membership hardening (docs/design/test-plan-coop-lifecycle.md) ──────────
+
+test('A7 — share-project on a SEED project id no-ops (seed Projects are not shareable in slice 1)', () => {
+  const seedId = store.listProjects()[0]?.id
+  assert.ok(seedId, 'there is a seed project to probe')
+  // The reducer's share-project case only touches extraProjects, so a seed id is a documented
+  // no-op — no throw, and the seed project stays not-shared. (Applied by the seed owner, the
+  // default tenant, so the owner-only guard isn't the thing under test here.)
+  store.applyRelationOp({ kind: 'share-project', projectId: seedId, projectName: 'x', shared: true }, store.defaultTenantId())
+  assert.notEqual(store.findProject(seedId)?.shared, true, 'a seed project stays not-shared (share-project no-ops on seed ids)')
+})
+
+test('A6 — un-sharing after a cross-tenant Contributor joined hides the project from non-owners; the foreign commission is orphaned (current behavior + open question)', () => {
+  store.applyRelationOp({ kind: 'create-project', projectId: 'p-unshare', projectName: 'Unshare', projectDescription: '' }, A)
+  store.applyRelationOp({ kind: 'share-project', projectId: 'p-unshare', projectName: 'Unshare', shared: true }, A)
+  const bAgent = store.createAgent({ label: 'B unshare worker', systemPrompt: 'x', tools: [], instructions: '' }, B)
+  store.applyRelationOp(commissionOp(bAgent.id, 'p-unshare'), B)
+  const bComm = store.listCommissions('p-unshare', B).find((c) => c.agentId === bAgent.id)
+  assert.ok(bComm, 'B joined the shared project')
+
+  // The owner un-shares (owner-only op).
+  store.applyRelationOp({ kind: 'share-project', projectId: 'p-unshare', projectName: 'Unshare', shared: false }, A)
+
+  // The project is no longer visible to the non-owner B in the graph projection.
+  assert.ok(!store.relationGraph(B).extraProjects.some((p) => p.id === 'p-unshare'), 'after un-share the non-owner no longer sees the project')
+  // B (the commission owner) still sees its OWN commission (registryVisible), …
+  assert.ok(store.listCommissions('p-unshare', B).some((c) => c.id === bComm.id), 'B still sees its own commission after un-share')
+  // … but it drops out of the project OWNER's list too (the shared-project public-list bypass is
+  // gone), even though the commission still EXISTS in the store — it is orphaned, not removed.
+  // Whether un-share should cascade-remove / freeze foreign commissions is the A6 open question
+  // (Phase 2/D design); this locks the current behavior so a future change is a conscious one.
+  assert.ok(!store.listCommissions('p-unshare', A).some((c) => c.id === bComm.id), 'the foreign Contributor drops out of the owner’s list after un-share (orphaned)')
+  assert.ok(store.getCommission(bComm.id), 'the orphaned commission still exists in the store (not removed)')
+})
+
+test('B7 — the D13 commission cap on a shared Project bounds Contributors ACROSS tenants (created project is uncapped until the owner sets a cap)', () => {
+  store.applyRelationOp({ kind: 'create-project', projectId: 'p-cap', projectName: 'Capped', projectDescription: '' }, A)
+  store.applyRelationOp({ kind: 'share-project', projectId: 'p-cap', projectName: 'Capped', shared: true }, A)
+  // A created Project has NO cap by default — uncapped until the owner sets one.
+  assert.equal(store.findProject('p-cap')?.commissionCap, undefined, 'a created project is uncapped by default')
+  store.setCommissionCap('p-cap', 1) // works on a created (extraProjects) project too
+  assert.equal(store.findProject('p-cap')?.commissionCap, 1, 'the owner can cap a created shared project')
+
+  // First cross-tenant Contributor (B) fills the single slot.
+  const bAgent = store.createAgent({ label: 'B cap worker', systemPrompt: 'x', tools: [], instructions: '' }, B)
+  store.applyRelationOp(commissionOp(bAgent.id, 'p-cap'), B)
+  assert.equal(store.activeCommissionCount('p-cap'), 1)
+
+  // A SECOND Contributor from a THIRD tenant is refused — the cap counts every tenant's
+  // commissions (D13 abuse control: a stranger can't flood a shared project).
+  const cAgent = store.createAgent({ label: 'C cap worker', systemPrompt: 'x', tools: [], instructions: '' }, 'tenant-C')
+  assert.throws(
+    () => store.applyRelationOp(commissionOp(cAgent.id, 'p-cap'), 'tenant-C'),
+    (e) => e instanceof Error && /cap/i.test(e.message),
+    'the shared project’s cap bounds contributors across tenants',
+  )
+  assert.equal(store.activeCommissionCount('p-cap'), 1, 'the over-cap cross-tenant commission did not land')
+})
+
+test('B8 — a cross-tenant self-commission cannot self-assign an elevated role (clamped to writer); reader passes; the owner keeps any role', () => {
+  store.applyRelationOp({ kind: 'create-project', projectId: 'p-role', projectName: 'Roles', projectDescription: '' }, A)
+  store.applyRelationOp({ kind: 'share-project', projectId: 'p-role', projectName: 'Roles', shared: true }, A)
+
+  // B commissions its OWN agent onto A's shared project REQUESTING 'owner' → clamped to 'writer'.
+  const bAgent = store.createAgent({ label: 'B role worker', systemPrompt: 'x', tools: [], instructions: '' }, B)
+  store.applyRelationOp({ kind: 'commission-agent', agentId: bAgent.id, agentLabel: 'w', projectId: 'p-role', projectName: 'Roles', role: 'owner' }, B)
+  assert.equal(store.listCommissions('p-role', B).find((c) => c.agentId === bAgent.id)?.role, 'writer', 'an elevated self-assigned role is clamped to writer for a cross-tenant joiner')
+
+  // A self-downgrade to 'reader' is honored (you may join as a reader).
+  const bReader = store.createAgent({ label: 'B reader', systemPrompt: 'x', tools: [], instructions: '' }, B)
+  store.applyRelationOp({ kind: 'commission-agent', agentId: bReader.id, agentLabel: 'w', projectId: 'p-role', projectName: 'Roles', role: 'reader' }, B)
+  assert.equal(store.listCommissions('p-role', B).find((c) => c.agentId === bReader.id)?.role, 'reader', 'a self-downgrade to reader is honored')
+
+  // Control: the OWNER commissioning its OWN agent as 'owner' onto its OWN project keeps 'owner'.
+  const aAgent = store.createAgent({ label: 'A owner worker', systemPrompt: 'x', tools: [], instructions: '' }, A)
+  store.applyRelationOp({ kind: 'commission-agent', agentId: aAgent.id, agentLabel: 'w', projectId: 'p-role', projectName: 'Roles', role: 'owner' }, A)
+  assert.equal(store.listCommissions('p-role', A).find((c) => c.agentId === aAgent.id)?.role, 'owner', 'the project owner may assign any role to its own contributor')
+})
+
+test('B8 (re-grant path) — a cross-tenant Contributor cannot self-elevate via updateCommission/PATCH either (the clamp is single-sourced)', () => {
+  store.applyRelationOp({ kind: 'create-project', projectId: 'p-role2', projectName: 'Roles2', projectDescription: '' }, A)
+  store.applyRelationOp({ kind: 'share-project', projectId: 'p-role2', projectName: 'Roles2', shared: true }, A)
+  const bAgent = store.createAgent({ label: 'B regrant worker', systemPrompt: 'x', tools: [], instructions: '' }, B)
+  store.applyRelationOp(commissionOp(bAgent.id, 'p-role2'), B)
+  const bComm = store.listCommissions('p-role2', B).find((c) => c.agentId === bAgent.id)
+  assert.equal(bComm?.role, 'writer', 'B joined as writer')
+
+  // B PATCHes its OWN commission trying to become 'owner' — denyForeignEntry lets it (it owns the
+  // commission), but the clamp holds on the re-grant path too, so no self-elevation.
+  assert.equal(store.updateCommission(bComm.id, { role: 'owner' })?.role, 'writer', 'a cross-tenant self-elevation via updateCommission is clamped to writer')
+
+  // Control: the OWNER elevating ITS OWN contributor via updateCommission is unaffected.
+  const aAgent = store.createAgent({ label: 'A regrant worker', systemPrompt: 'x', tools: [], instructions: '' }, A)
+  store.applyRelationOp({ kind: 'commission-agent', agentId: aAgent.id, agentLabel: 'w', projectId: 'p-role2', projectName: 'Roles2', role: 'writer' }, A)
+  const aComm = store.listCommissions('p-role2', A).find((c) => c.agentId === aAgent.id)
+  assert.ok(aComm, 'A has its own contributor')
+  assert.equal(store.updateCommission(aComm.id, { role: 'maintainer' })?.role, 'maintainer', 'the project owner may elevate its own contributor')
+})
+
+test('review fix — an INVALID role on the commission-agent op is normalized to writer (never stored verbatim, even on the caller’s own project)', () => {
+  store.applyRelationOp({ kind: 'create-project', projectId: 'p-badrole', projectName: 'BadRole', projectDescription: '' }, A)
+  const aAgent = store.createAgent({ label: 'A badrole worker', systemPrompt: 'x', tools: [], instructions: '' }, A)
+  // The op path casts the request JSON unchecked (unlike POST /commissions, which 400s an unknown
+  // role), so a hand-crafted op could carry 'superadmin' — roleRank(invalid)=4 would outrank owner
+  // and rolePermits would throw. The store normalizes it to the safe baseline.
+  store.applyRelationOp(
+    { kind: 'commission-agent', agentId: aAgent.id, agentLabel: 'w', projectId: 'p-badrole', projectName: 'BadRole', role: 'superadmin' } as unknown as RelationOp,
+    A,
+  )
+  assert.equal(store.listCommissions('p-badrole', A).find((c) => c.agentId === aAgent.id)?.role, 'writer', 'an invalid role is normalized to writer (no roleRank/rolePermits corruption)')
+})
