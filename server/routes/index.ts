@@ -188,7 +188,14 @@ export function buildRouter(): Router {
     return false
   }
 
-  // Authorize a caller to ACT AS a commission on a cooperation route (P8 Phase 2b). Two walls:
+  // Authorize a caller to ACT AS a commission on a cooperation route (P8 Phase 2b). Three walls:
+  //  (0) project-binding — the commission must be a Contributor on the project being ACTED ON
+  //      (`actedProjectId`, the URL `:id`), not merely some project the caller owns. Without this,
+  //      the shared-gate/reach/role below (which all read the COMMISSION's own project) protect the
+  //      wrong project: a caller could cite a self-owned commission on its OWN shared project to
+  //      fire effects / hold sub-goals on a DIFFERENT tenant's guarded project (cross-tenant DoS +
+  //      mis-attributed audit) — the Phase 2b review's HIGH. Omit `actedProjectId` for the invoke
+  //      route (context-mediated, no URL project — the commission's own project is the reference).
   //  (1) caller-identity — you may act only as a commission whose AGENT you own
   //      (`commissionOwnerTenant` === caller); else the client-supplied commissionId is forgeable
   //      and reputation / audit / the D12 reach would be attributed to a commission the caller
@@ -198,19 +205,31 @@ export function buildRouter(): Router {
   //      effect / sub-goal routes otherwise ignored the `shared` flag that POST /commissions and
   //      opDeniedForTenant enforce (P8 Phase 2a review — the un-share gap, test-plan A6).
   // A bare-string / unknown holder (not a commission) is UNGATED here — it carries no
-  // role/reputation/attribution (the sub-goal route admits non-commission principals). 403 when
-  // denied. Backward-compatible on the single-tenant mock (caller = the default tenant, whose seed
-  // commissions are default-owned on default-owned Projects ⇒ both walls pass).
-  const commissionActorDenied = (req: IncomingMessage, res: ServerResponse, holder: string): boolean => {
+  // role/reputation/attribution (the sub-goal route admits non-commission principals — the raw
+  // holder is a documented prototype limitation, routes NOTE). 403 when denied. Backward-compatible
+  // on the single-tenant mock (caller = the default tenant, whose seed commissions are default-owned
+  // Contributors on their own default-owned Projects ⇒ all walls pass).
+  const commissionActorDenied = (
+    req: IncomingMessage,
+    res: ServerResponse,
+    holder: string,
+    actedProjectId?: string,
+  ): boolean => {
     const owner = store.commissionOwnerTenant(holder)
     if (owner === undefined) return false // not a commission → a bare principal, ungated here
+    const commission = store.getCommission(holder)
+    // (0) The commission must belong to the project being acted on — else all the project-scoped
+    // checks below inspect the commission's OWN (attacker-controlled) project, not the URL project.
+    if (actedProjectId !== undefined && commission?.projectId !== actedProjectId) {
+      sendError(res, 'forbidden', `Commission '${holder}' is not a Contributor on this Project`)
+      return true
+    }
     const tenantId = store.identity(req.headers).tenant.id
     if (owner !== tenantId) {
       sendError(res, 'forbidden', `You may not act as commission '${holder}'`)
       return true
     }
-    const projectId = store.getCommission(holder)?.projectId
-    const project = projectId ? store.findProject(projectId) : undefined
+    const project = commission?.projectId ? store.findProject(commission.projectId) : undefined
     const projectOwner = project?.tenantId ?? store.defaultTenantId()
     if (owner !== projectOwner && project?.shared !== true) {
       sendError(res, 'forbidden', `Commission '${holder}' may not act on this Project (it is not shared)`)
@@ -811,10 +830,10 @@ export function buildRouter(): Router {
   r.post('/projects/:id/subgoals', async ({ req, res, params, body }) => {
     const { holder, subGoal } = await body<ReserveSubGoalRequest>()
     if (!holder || !subGoal) return sendError(res, 'bad_request', 'holder and subGoal are required')
-    // Caller-identity + shared-gate (P8 Phase 2b): when the holder is a Contributor (commission),
-    // you may reserve only as one whose agent you own, and cross-tenant only while shared. A
-    // bare-string holder is ungated (as below).
-    if (commissionActorDenied(req, res, holder)) return
+    // Project-binding + caller-identity + shared-gate (P8 Phase 2b): when the holder is a
+    // Contributor (commission), it must be one on THIS project, whose agent you own, and
+    // cross-tenant only while shared. A bare-string holder is ungated (as below).
+    if (commissionActorDenied(req, res, holder, params.id)) return
     // D14 role permission: when the holder is a Contributor (a known commission), reserving a
     // sub-goal requires its role to permit 'reserve' — a reader may not claim work. A
     // non-commission principal (no role) is ungated.
@@ -844,9 +863,9 @@ export function buildRouter(): Router {
     if (!store.findProject(params.id)) {
       return sendError(res, 'not_found', `No project '${params.id}'`)
     }
-    // Caller-identity + shared-gate (P8 Phase 2b): you may fire only as a commission whose agent
-    // you own, and a cross-tenant Contributor only while the Project is still shared.
-    if (commissionActorDenied(req, res, commissionId)) return
+    // Project-binding + caller-identity + shared-gate (P8 Phase 2b): the commission must be a
+    // Contributor on THIS project, whose agent you own, and (cross-tenant) only while it is shared.
+    if (commissionActorDenied(req, res, commissionId, params.id)) return
     // Owner-pays attribution (D13): a commissioned effect's audit lands in the AGENT owner's
     // trail (commissionOwnerTenant), not the caller/backend tenant — so on a shared Project a
     // cross-tenant Contributor's effects are accountable to the tenant that owns the agent.

@@ -123,7 +123,9 @@ Legend for **Now?**: ✅ lockable today · 🔧 needs a small fix first (see §4
 > `tests/cross-tenant-runtime.test.ts` + `tests/capability-remote.test.ts`:
 > **C1/C2/C3** guardian contention (D11), **C4** clamp (D12), **C5** roles (D14),
 > **C6** reputation (agent-scoped, credits the contributor), **C8** caller-identity
-> (act only as your own commission), **C10** the shared-gate (un-share revokes;
+> (act only as your own commission) + **project-binding** (a commission may act only on
+> the project it is a Contributor of — closes a Phase-2b-review-found cross-tenant guardian
+> DoS / mis-attribution), **C10** the shared-gate (un-share revokes;
 > omitted commissionId can't reach a cross-tenant shared effect), **C11** audit under
 > the agent owner's tenant (D13 owner-pays *attribution*), **C12** CALM monotonic
 > bypass. **C7 owner-pays *compute* metering is DEFERRED** (needs a commissioned-

@@ -570,6 +570,37 @@ test('P8 Phase 2b — effect-route authorization: own-commission fires; a foreig
   assert.equal(okA.status, 200, 'a same-tenant commission on a private project is unaffected by the shared-gate')
 })
 
+test('P8 Phase 2b review — project-binding: a self-owned commission cannot act on a DIFFERENT project (cross-tenant guardian DoS + mis-attribution closed)', async () => {
+  const { buildRouter } = await import('../server/routes/index.ts')
+  const call = caller(buildRouter())
+
+  // Victim creates + shares + scopes a project, then UN-shares it (guardianId is retained).
+  await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-vic' }, { op: { kind: 'create-project', projectId: 'proj-vic', projectName: 'Vic', projectDescription: '' } })
+  await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-vic' }, { op: { kind: 'share-project', projectId: 'proj-vic', projectName: 'Vic', shared: true } })
+  await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-vic' }, { op: { kind: 'scope-context', projectId: 'proj-vic', projectName: 'Vic', context: { kind: 'connector', label: 'Linear', meta: '' } } })
+  await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-vic' }, { op: { kind: 'share-project', projectId: 'proj-vic', projectName: 'Vic', shared: false } })
+
+  // Attacker creates its OWN project, scopes a connector, and commissions its own agent ON IT
+  // (so its commission's own project is attacker-controlled and shared-gate-passing).
+  await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-atk' }, { op: { kind: 'create-project', projectId: 'proj-atk', projectName: 'Atk', projectDescription: '' } })
+  await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-atk' }, { op: { kind: 'scope-context', projectId: 'proj-atk', projectName: 'Atk', context: { kind: 'connector', label: 'Linear', meta: '' } } })
+  const atkAgent = await call('POST', '/agents', { 'x-tenant-id': 'tenant-atk' }, { label: 'Atk worker' })
+  const atkComm = await call('POST', '/commissions', { 'x-tenant-id': 'tenant-atk' }, { agentId: atkAgent.json.id, projectId: 'proj-atk' })
+
+  // The exploit: attacker cites its OWN commission to fire an effect on the VICTIM's project.
+  // Blocked 403 — the commission is not a Contributor on proj-vic (project-binding).
+  const effect = await call('POST', '/projects/proj-vic/effects', { 'x-tenant-id': 'tenant-atk' }, { commissionId: atkComm.json.id, subGoal: 'sg-atk', type: 'connector.write', target: 'Linear' })
+  assert.equal(effect.status, 403, 'a self-owned commission cannot fire on a different tenant’s project')
+
+  // Same wall on the guardian-DoS vector: holding a sub-goal on the victim's guardian.
+  const reserve = await call('POST', '/projects/proj-vic/subgoals', { 'x-tenant-id': 'tenant-atk' }, { holder: atkComm.json.id, subGoal: 'sg-steal' })
+  assert.equal(reserve.status, 403, 'a self-owned commission cannot hold a sub-goal on a different project’s guardian')
+
+  // Control: the commission works on its OWN project (private, same-tenant) — binding passes.
+  const own = await call('POST', '/projects/proj-atk/effects', { 'x-tenant-id': 'tenant-atk' }, { commissionId: atkComm.json.id, subGoal: 'sg-own', type: 'connector.write', target: 'Linear' })
+  assert.equal(own.status, 200, 'the commission works on its own project')
+})
+
 test('P8 review — commission-agent hides agent existence uniformly cross-tenant (ghost id → 404, not a 409 oracle), while the owner’s own removed-agent still 409s', async () => {
   const { buildRouter } = await import('../server/routes/index.ts')
   const call = caller(buildRouter())
