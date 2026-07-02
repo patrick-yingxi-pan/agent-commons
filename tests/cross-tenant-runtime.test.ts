@@ -132,3 +132,32 @@ test('route — POST /projects/:id/effects reaches a shared CREATED project (was
   const missing = await call('POST', '/projects/p-nope/effects', { commissionId: comm.id, subGoal: 'sg1', type: 'connector.write', target: 'Linear' })
   assert.equal(missing.status, 404, 'an unknown project still 404s')
 })
+
+// ── Phase 2b — the authorization + accounting layer (review fixes folded in) ──────────
+
+test('review fix (fail-closed) — a shared Project with NO scoped contexts admits NOTHING (default-deny), not a stale static set', () => {
+  store.applyRelationOp({ kind: 'create-project', projectId: 'p-noctx', projectName: 'NoCtx', projectDescription: '' }, A)
+  store.applyRelationOp(shareOp('p-noctx'), A)
+  const bAgent = store.createAgent({ label: 'B noctx', systemPrompt: 'x', tools: [], instructions: '' }, B)
+  store.applyRelationOp(commissionOp(bAgent.id, 'p-noctx'), B)
+  const bComm = store.listCommissions('p-noctx', B).find((c) => c.agentId === bAgent.id)!
+  // No context scoped → the clamp admits nothing (fail-closed), even for an unrestricted agent.
+  assert.deepEqual(store.commissionAuthority(bComm.id)?.connectors, [], 'no scoped contexts → deny-all connectors')
+  assert.equal(store.commissionCanReach(bComm.id, 'connectors', 'Linear'), false, 'reaches nothing until the owner scopes a context')
+})
+
+test('BUG-6 — a cross-tenant effect audits under the AGENT owner’s tenant (owner-pays), not the project owner’s', () => {
+  store.applyRelationOp({ kind: 'create-project', projectId: 'p-audit', projectName: 'Audit', projectDescription: '' }, A)
+  store.applyRelationOp(shareOp('p-audit'), A)
+  store.applyRelationOp(scopeConnector('p-audit', 'Linear'), A)
+  const bAgent = store.createAgent({ label: 'B audit', systemPrompt: 'x', tools: [], instructions: '' }, B)
+  store.applyRelationOp(commissionOp(bAgent.id, 'p-audit'), B)
+  const bComm = store.listCommissions('p-audit', B).find((c) => c.agentId === bAgent.id)!
+
+  // Run a (monotonic) effect as B's commission — it records a fulfilled detective-audit entry.
+  store.runProjectEffect('p-audit', bComm.id, 'sg-audit', 'connector.read', 'Linear')
+
+  // The entry lands in B's (the AGENT owner's) trail, NOT A's (the PROJECT owner's) — D13 owner-pays.
+  assert.ok(store.listAuditLog(B).some((e) => e.channel === 'project-effect' && e.commissionId === bComm.id), 'the cross-tenant effect audits under the agent owner’s tenant')
+  assert.equal(store.listAuditLog(A).some((e) => e.channel === 'project-effect' && e.commissionId === bComm.id), false, 'it does NOT land in the project owner’s trail')
+})

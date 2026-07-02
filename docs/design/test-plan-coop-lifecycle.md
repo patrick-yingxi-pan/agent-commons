@@ -118,9 +118,20 @@ Legend for **Now?**: ✅ lockable today · 🔧 needs a small fix first (see §4
 
 ### Stage C — agents cooperate (the heart of the reviewer's question)
 
-> All of C is currently proven **single-tenant, on seed projects only**. To test
-> it cross-tenant, the bridge in §4 (BUG-2/3/4) must land first. The matrix below
-> is what to lock *after* the bridge.
+> **STATUS (Phase 2a+2b, 2026-07-02) — BUILT end to end.** The bridge (2a) + the
+> authorization/accounting layer (2b) landed. Locked cross-tenant by
+> `tests/cross-tenant-runtime.test.ts` + `tests/capability-remote.test.ts`:
+> **C1/C2/C3** guardian contention (D11), **C4** clamp (D12), **C5** roles (D14),
+> **C6** reputation (agent-scoped, credits the contributor), **C8** caller-identity
+> (act only as your own commission), **C10** the shared-gate (un-share revokes;
+> omitted commissionId can't reach a cross-tenant shared effect), **C11** audit under
+> the agent owner's tenant (D13 owner-pays *attribution*), **C12** CALM monotonic
+> bypass. **C7 owner-pays *compute* metering is DEFERRED** (needs a commissioned-
+> *generation* path — metering mock effects would be mock-gilding; the attribution
+> primitive is wired into audit + reputation instead). **C9 raw
+> `/reservations/:id/release|commit` authorization** is a remaining item (the
+> cooperation path is guarded via `/subgoals`; the low-level escrow route is a
+> follow-up). Original pre-build matrix kept below for provenance.
 
 | ID | Case | Layer | Now? | Notes |
 |----|------|-------|------|-------|

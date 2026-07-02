@@ -1416,7 +1416,12 @@ export const store = {
     // (P8 shared) carries its contexts only there, and even a seed Project's set is edited there
     // via scope/unscope, so the object's static `.contexts` can go stale. Fail **closed** — a
     // commission whose Project is gone admits no data (a security boundary must not fail open).
-    const contexts = project ? (graph.projectContexts[commission.projectId] ?? project.contexts) : undefined
+    // Fail **closed** at the fallback: if the graph has no recorded admitted set for this project
+    // (a created Project not yet scoped, or the rehydrate seam where a snapshot's projectContexts
+    // omits a seed id — P8 Phase 2a review), admit NOTHING rather than the object's frozen static
+    // `.contexts` (which would fail OPEN). A seed Project's live set is always in the graph
+    // (seedGraph copies it in + scope/unscope write the key), so this only bites the un-recorded case.
+    const contexts = project ? (graph.projectContexts[commission.projectId] ?? []) : undefined
     const admitted = contexts ? projectAdmittedAuthority(contexts) : { connectors: [], scopes: [] }
     return intersectAuthority(granted, admitted)
   },
@@ -1825,8 +1830,11 @@ export const store = {
       // Reach here only on a successful effect (the guarded path throws on conflict before
       // calling `fulfil`), so this is the single credit point for the D13 track record.
       this.recordContribution(commissionId)
-      // Detective audit (D15/OQ7): the fulfilled Project effect on the cross-user channel.
-      this.recordAudit({ channel: 'project-effect', commissionId, capability: type, target, outcome: 'fulfilled' })
+      // Detective audit (D15/OQ7): the fulfilled Project effect on the cross-user channel. Owner-
+      // pays attribution (D13) — stamped with the commission's AGENT owner (commissionOwnerTenant),
+      // so a cross-tenant Contributor's effect on a shared Project lands in the agent owner's trail,
+      // not the caller/backend tenant's.
+      this.recordAudit({ channel: 'project-effect', commissionId, capability: type, target, outcome: 'fulfilled', tenantId: this.commissionOwnerTenant(commissionId) })
       return {
         projectId,
         commissionId,

@@ -188,6 +188,37 @@ export function buildRouter(): Router {
     return false
   }
 
+  // Authorize a caller to ACT AS a commission on a cooperation route (P8 Phase 2b). Two walls:
+  //  (1) caller-identity — you may act only as a commission whose AGENT you own
+  //      (`commissionOwnerTenant` === caller); else the client-supplied commissionId is forgeable
+  //      and reputation / audit / the D12 reach would be attributed to a commission the caller
+  //      does not control (a confused-deputy across the tenant boundary).
+  //  (2) shared-gate — a CROSS-TENANT commission (agent owner ≠ Project owner) may act only while
+  //      its Project is still SHARED. Un-share revokes a foreign Contributor's effect access; the
+  //      effect / sub-goal routes otherwise ignored the `shared` flag that POST /commissions and
+  //      opDeniedForTenant enforce (P8 Phase 2a review — the un-share gap, test-plan A6).
+  // A bare-string / unknown holder (not a commission) is UNGATED here — it carries no
+  // role/reputation/attribution (the sub-goal route admits non-commission principals). 403 when
+  // denied. Backward-compatible on the single-tenant mock (caller = the default tenant, whose seed
+  // commissions are default-owned on default-owned Projects ⇒ both walls pass).
+  const commissionActorDenied = (req: IncomingMessage, res: ServerResponse, holder: string): boolean => {
+    const owner = store.commissionOwnerTenant(holder)
+    if (owner === undefined) return false // not a commission → a bare principal, ungated here
+    const tenantId = store.identity(req.headers).tenant.id
+    if (owner !== tenantId) {
+      sendError(res, 'forbidden', `You may not act as commission '${holder}'`)
+      return true
+    }
+    const projectId = store.getCommission(holder)?.projectId
+    const project = projectId ? store.findProject(projectId) : undefined
+    const projectOwner = project?.tenantId ?? store.defaultTenantId()
+    if (owner !== projectOwner && project?.shared !== true) {
+      sendError(res, 'forbidden', `Commission '${holder}' may not act on this Project (it is not shared)`)
+      return true
+    }
+    return false
+  }
+
   // ── Capabilities ────────────────────────────────────────────────────────
   // What this backend variant can do. The default mock behaves like a native
   // sidecar (local-* true); `BACKEND=remote` makes it a remote web server
@@ -324,7 +355,7 @@ export function buildRouter(): Router {
   // Idempotent by `commandId` (D2): a retried call returns the recorded effect
   // without re-executing. On success the effect is recorded on the runner's
   // authoritative log and projected (the relay/online path), returning the effect.
-  r.post('/runners/:id/invoke', async ({ res, params, body }) => {
+  r.post('/runners/:id/invoke', async ({ req, res, params, body }) => {
     const runner = store.registry.get(params.id)
     if (!runner) return sendError(res, 'not_found', `No runner '${params.id}'`)
     const request = await body<CapabilityRequest>()
@@ -367,13 +398,20 @@ export function buildRouter(): Router {
     // unknown commission fails closed. Absent `commissionId` ⇒ the legacy single-tenant path.
     // (The commission is *attributed by the caller*, like the session+context handle above;
     // binding it server-side from the session — so it can't be omitted to bypass — is forward.)
+    // Caller-identity + shared-gate (P8 Phase 2b): a commissioned host effect may be attributed
+    // only to a commission whose agent the caller owns, and a cross-tenant one only while its
+    // Project is shared — so the D12/reputation/audit attribution below can't be forged by citing
+    // another tenant's commissionId. (Absent commissionId ⇒ the legacy single-tenant path.)
+    if (request.commissionId && commissionActorDenied(req, res, request.commissionId)) return
+    // Owner-pays attribution (D13): a commissioned effect audits under the AGENT owner's tenant.
+    const auditTenant = request.commissionId ? store.commissionOwnerTenant(request.commissionId) : undefined
     if (
       request.commissionId &&
       !store.commissionAdmitsTarget(request.commissionId, request.capability, request.target)
     ) {
       // Detective audit (D15/OQ7): the D12 isolation wall turned this commissioned effect
       // away — the highest-value entry in the trail (a Contributor reaching past its Project).
-      store.recordAudit({ channel: 'host-invoke', commissionId: request.commissionId, capability: request.capability, target: request.target, outcome: 'denied' })
+      store.recordAudit({ channel: 'host-invoke', commissionId: request.commissionId, capability: request.capability, target: request.target, outcome: 'denied', tenantId: auditTenant })
       return sendError(
         res,
         'forbidden',
@@ -387,7 +425,7 @@ export function buildRouter(): Router {
       !isMonotonic(request.capability) &&
       !store.commissionRolePermits(request.commissionId, 'fire')
     ) {
-      store.recordAudit({ channel: 'host-invoke', commissionId: request.commissionId, capability: request.capability, target: request.target, outcome: 'denied' })
+      store.recordAudit({ channel: 'host-invoke', commissionId: request.commissionId, capability: request.capability, target: request.target, outcome: 'denied', tenantId: auditTenant })
       return sendError(res, 'forbidden', `Commission '${request.commissionId}' (role) may not fire this effect`)
     }
     // Resource guardian (D5): a non-monotonic effect must hold a reservation on the
@@ -426,7 +464,7 @@ export function buildRouter(): Router {
       // Contributor and lands in the detective trail (both no-ops for the legacy path).
       if (request.commissionId) {
         store.recordContribution(request.commissionId)
-        store.recordAudit({ channel: 'host-invoke', commissionId: request.commissionId, capability: request.capability, target: request.target, outcome: 'fulfilled' })
+        store.recordAudit({ channel: 'host-invoke', commissionId: request.commissionId, capability: request.capability, target: request.target, outcome: 'fulfilled', tenantId: auditTenant })
       }
       sendJson(res, effect)
     } catch (err) {
@@ -770,9 +808,13 @@ export function buildRouter(): Router {
   r.get('/projects/:id/subgoals', ({ res, params }) => {
     sendJson(res, store.projectSubGoals(params.id))
   })
-  r.post('/projects/:id/subgoals', async ({ res, params, body }) => {
+  r.post('/projects/:id/subgoals', async ({ req, res, params, body }) => {
     const { holder, subGoal } = await body<ReserveSubGoalRequest>()
     if (!holder || !subGoal) return sendError(res, 'bad_request', 'holder and subGoal are required')
+    // Caller-identity + shared-gate (P8 Phase 2b): when the holder is a Contributor (commission),
+    // you may reserve only as one whose agent you own, and cross-tenant only while shared. A
+    // bare-string holder is ungated (as below).
+    if (commissionActorDenied(req, res, holder)) return
     // D14 role permission: when the holder is a Contributor (a known commission), reserving a
     // sub-goal requires its role to permit 'reserve' — a reader may not claim work. A
     // non-commission principal (no role) is ungated.
@@ -789,9 +831,10 @@ export function buildRouter(): Router {
   // A Contributor fires an externally-effectful action on a shared Project (D11/D12, OQ3+OQ4):
   // the Commission's connector/MCP reach is the wall (D12), and a non-monotonic effect is
   // serialized on its sub-goal reservation at the Guardian (D11) — the slice-4 "forward" effect
-  // now on a real path. Order: 400 fields → 404 project → 403 reach → run (409 on a concurrent
-  // different principal). A charge has no data-reach target, so it skips the reach check.
-  r.post('/projects/:id/effects', async ({ res, params, body }) => {
+  // now on a real path. Order: 400 fields → 404 project → 403 actor (caller-identity + shared-gate)
+  // → 403 reach → 403 role → run (409 on a concurrent different principal). A charge has no
+  // data-reach target, so it skips the reach check.
+  r.post('/projects/:id/effects', async ({ req, res, params, body }) => {
     const { commissionId, subGoal, type, target } = await body<ProjectEffectRequest>()
     if (!commissionId || !subGoal || typeof target !== 'string' || !PROJECT_EFFECT_TYPES.includes(type)) {
       return sendError(res, 'bad_request', 'commissionId, subGoal, target, and a valid type are required')
@@ -801,15 +844,22 @@ export function buildRouter(): Router {
     if (!store.findProject(params.id)) {
       return sendError(res, 'not_found', `No project '${params.id}'`)
     }
+    // Caller-identity + shared-gate (P8 Phase 2b): you may fire only as a commission whose agent
+    // you own, and a cross-tenant Contributor only while the Project is still shared.
+    if (commissionActorDenied(req, res, commissionId)) return
+    // Owner-pays attribution (D13): a commissioned effect's audit lands in the AGENT owner's
+    // trail (commissionOwnerTenant), not the caller/backend tenant — so on a shared Project a
+    // cross-tenant Contributor's effects are accountable to the tenant that owns the agent.
+    const auditTenant = store.commissionOwnerTenant(commissionId)
     const reaches = type.startsWith('connector.') || type.startsWith('mcp.')
     if (reaches && !store.commissionCanReach(commissionId, 'connectors', target)) {
       // Detective audit (D15/OQ7): the D12 connector wall refused this Project effect.
-      store.recordAudit({ channel: 'project-effect', commissionId, capability: type, target, outcome: 'denied' })
+      store.recordAudit({ channel: 'project-effect', commissionId, capability: type, target, outcome: 'denied', tenantId: auditTenant })
       return sendError(res, 'forbidden', `Commission '${commissionId}' may not reach '${target}' on this Project`)
     }
     // D14 role permission: a non-monotonic Project effect requires the role to permit 'fire'.
     if (!isProjectEffectMonotonic(type) && !store.commissionRolePermits(commissionId, 'fire')) {
-      store.recordAudit({ channel: 'project-effect', commissionId, capability: type, target, outcome: 'denied' })
+      store.recordAudit({ channel: 'project-effect', commissionId, capability: type, target, outcome: 'denied', tenantId: auditTenant })
       return sendError(res, 'forbidden', `Commission '${commissionId}' (role) may not fire this effect`)
     }
     try {

@@ -536,6 +536,40 @@ test('P8 B8 — a cross-tenant self-commission cannot self-assign an elevated ro
   assert.equal(list.json.find((c) => c.agentId === agentId)?.role, 'writer', 'the self-assigned owner role is clamped to writer cross-tenant')
 })
 
+test('P8 Phase 2b — effect-route authorization: own-commission fires; a foreign caller cannot act as it; un-share revokes cross-tenant effects', async () => {
+  const { buildRouter } = await import('../server/routes/index.ts')
+  const call = caller(buildRouter())
+
+  // Owner A creates + shares a project, scopes a connector; B commissions its OWN agent onto it.
+  await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-eff-a' }, { op: { kind: 'create-project', projectId: 'proj-eff', projectName: 'Eff', projectDescription: '' } })
+  await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-eff-a' }, { op: { kind: 'share-project', projectId: 'proj-eff', projectName: 'Eff', shared: true } })
+  await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-eff-a' }, { op: { kind: 'scope-context', projectId: 'proj-eff', projectName: 'Eff', context: { kind: 'connector', label: 'Linear', meta: '' } } })
+  const bAgent = await call('POST', '/agents', { 'x-tenant-id': 'tenant-eff-b' }, { label: 'B eff worker' })
+  const commission = await call('POST', '/commissions', { 'x-tenant-id': 'tenant-eff-b' }, { agentId: bAgent.json.id, projectId: 'proj-eff' })
+  const commId = commission.json.id
+
+  // B fires an effect as ITS OWN commission on the shared project → allowed (writer, admitted Linear).
+  const okB = await call('POST', '/projects/proj-eff/effects', { 'x-tenant-id': 'tenant-eff-b' }, { commissionId: commId, subGoal: 'sg-b', type: 'connector.write', target: 'Linear' })
+  assert.equal(okB.status, 200, 'B fires an effect as its own commission on the shared project')
+
+  // A THIRD tenant citing B's commissionId → 403 (caller-identity: act only as your own commission).
+  const forge = await call('POST', '/projects/proj-eff/effects', { 'x-tenant-id': 'tenant-eff-c' }, { commissionId: commId, subGoal: 'sg-c', type: 'connector.write', target: 'Linear' })
+  assert.equal(forge.status, 403, 'a foreign tenant cannot forge-act as another tenant’s commission')
+
+  // Owner A UN-shares → B's effect is REVOKED (403); the effect route now honors the shared flag.
+  await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-eff-a' }, { op: { kind: 'share-project', projectId: 'proj-eff', projectName: 'Eff', shared: false } })
+  const revoked = await call('POST', '/projects/proj-eff/effects', { 'x-tenant-id': 'tenant-eff-b' }, { commissionId: commId, subGoal: 'sg-b2', type: 'connector.write', target: 'Linear' })
+  assert.equal(revoked.status, 403, 'after un-share, the cross-tenant Contributor’s effects are revoked')
+
+  // Control: a SAME-tenant commission on a PRIVATE project is unaffected by the shared-gate.
+  await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-eff-a' }, { op: { kind: 'create-project', projectId: 'proj-priv-eff', projectName: 'PrivEff', projectDescription: '' } })
+  await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-eff-a' }, { op: { kind: 'scope-context', projectId: 'proj-priv-eff', projectName: 'PrivEff', context: { kind: 'connector', label: 'Linear', meta: '' } } })
+  const aAgent = await call('POST', '/agents', { 'x-tenant-id': 'tenant-eff-a' }, { label: 'A eff worker' })
+  const aComm = await call('POST', '/commissions', { 'x-tenant-id': 'tenant-eff-a' }, { agentId: aAgent.json.id, projectId: 'proj-priv-eff' })
+  const okA = await call('POST', '/projects/proj-priv-eff/effects', { 'x-tenant-id': 'tenant-eff-a' }, { commissionId: aComm.json.id, subGoal: 'sg-a', type: 'connector.write', target: 'Linear' })
+  assert.equal(okA.status, 200, 'a same-tenant commission on a private project is unaffected by the shared-gate')
+})
+
 test('P8 review — commission-agent hides agent existence uniformly cross-tenant (ghost id → 404, not a 409 oracle), while the owner’s own removed-agent still 409s', async () => {
   const { buildRouter } = await import('../server/routes/index.ts')
   const call = caller(buildRouter())
