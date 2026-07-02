@@ -22,6 +22,12 @@ export interface Commission {
   agentId: string
   /** The shared Project it contributes to. */
   projectId: string
+  /** The commissioned Agent's display label, resolved by the SERVER on the **public
+   *  (cross-tenant) face** of a shared Project's Contributor (P8): a non-owner can't
+   *  resolve a foreign `agentId` against its own registry, and "who contributes" is
+   *  exactly what the shared list exposes. Identity only — never authority/grant.
+   *  Absent on a caller's own commissions (the UI resolves those locally). */
+  agentLabel?: string
   /** The Contributor's **role** on the Project (D14) — owner / maintainer / writer /
    *  reader: the permission baseline (`rolePermits`) and the arbitration rank
    *  (`roleRank`). Absent ⇒ treated as the `'writer'` default. */

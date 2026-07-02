@@ -62,9 +62,13 @@ BACKEND=remote npm run server   # the remote-web-server variant (native ops 409)
 ```
 
 `npm run e2e` needs the browser once: `npx playwright install chromium`. It drives the
-**rendered UI** (the layer `node --test` can't — no DOM), against an isolated store
-(`DATA_FILE=.data/e2e-store.json`); `e2e/*.spec.ts`. The store/route suites lock the
-logic, the E2E locks the wiring.
+**rendered UI** (the layer `node --test` can't — no DOM), booting its **own** stack on
+dedicated ports (UI 5183 / API 5184 — it never reuses a running dev server, whose mode
+and store can't be trusted) with an isolated store (`DATA_FILE=.data/e2e-store.json`),
+`BACKEND=remote` (so Playwright browser contexts impersonate **tenants** via the identity
+headers — `e2e/co-author-article.spec.ts` is the two-tenant multi-tenancy regression), and
+a pinned local `ANTHROPIC_BASE_URL` (an ambient one would stand the mock model down);
+`e2e/*.spec.ts`. The store/route suites lock the logic, the E2E locks the wiring.
 
 `npm run dev`/`start` boot the mock model server in-process, so one command is a
 complete stack. To run the backend against the **real** API instead of the mock,

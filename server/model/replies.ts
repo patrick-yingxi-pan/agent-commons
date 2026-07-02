@@ -52,6 +52,13 @@ export function plainReplyText(userText: string): string {
   if (t.includes('organized') || t.includes('that’s the whole thing') || t.includes("that's the whole thing")) {
     return 'Done — the strategy, the docs, the code, and the schedules now live under one project, all linked to this thread. One surface, one history.'
   }
+  // The co-authoring beat (the cross-tenant cooperation E2E): a user asks their
+  // commissioned agent to draft a section of the shared article. Only this PROSE is
+  // canned (the mock stands in for the model's words, as everywhere) — the cooperation
+  // itself (commission, sub-goal reservation, effect) runs through the real backend.
+  if (/\bdraft\b/.test(t) && /\barticle\b/.test(t)) {
+    return 'Here’s a draft for our shared article, **The Adaptive Workspace**:\n\n> One conversation that grows into a workspace beats three tabs that each start from zero. Context should attach to the thread — never the other way around.\n\nI’ve claimed this section at the project’s Guardian so we don’t collide with the other contributors — refine away.'
+  }
   return 'This is a static prototype — open the **Insights dashboard launch** session and play the guided tour to see the unified flow. You can also ask me to *save a draft as an artifact*, *file this under a project*, or *have a schedule save a digest*.'
 }
 

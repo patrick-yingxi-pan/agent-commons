@@ -116,3 +116,20 @@ test('keyword fallback: a commission-cap request (D13) routes to set_commission_
   // A bare commission (no count) still routes to commission_agent — the cap never steals it.
   assert.equal(matchIntents('Commission Research scout to the Insights dashboard project').at(0)?.name, 'commission_agent')
 })
+
+// ── The co-authoring beat (the cross-tenant E2E scenario) ─────────────────────
+// "Draft the … of our article" is a PLAIN-CHAT turn (no tool calls) whose canned
+// prose is the article draft — the one mock-side piece of the two-tenant
+// co-authoring E2E (e2e/co-author-article.spec.ts). Locks both halves so the
+// spec's chat beat can't silently rot: no spurious tool call, and the prose stays
+// recognizably the article draft.
+test('an article-draft request is a plain-chat turn whose canned prose is the shared-article draft', async () => {
+  const { plainReplyText } = await import('../server/model/replies.ts')
+  const msg = 'Draft the introduction of our co-authored article.'
+  assert.deepEqual(matchIntents(msg), [], 'drafting prose is not a resource manipulation — no tool calls')
+  const prose = plainReplyText(msg)
+  assert.match(prose, /The Adaptive Workspace/, 'the draft names the shared article')
+  assert.match(prose, /Guardian/, 'the draft narrates the coordination it stands on')
+  // The generic static-prototype pointer must NOT swallow the beat.
+  assert.doesNotMatch(prose, /static prototype/)
+})

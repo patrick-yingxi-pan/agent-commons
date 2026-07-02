@@ -261,6 +261,9 @@ const publicCommission = (c: Commission): Commission => ({
   id: c.id,
   tenantId: c.tenantId,
   agentId: c.agentId,
+  // Resolved at READ time (never stored, so it can't go stale on an agent rename): the
+  // Contributor's display label — WHO contributes is exactly what the public face is for.
+  agentLabel: WORKER_AGENTS.get(c.agentId)?.label,
   projectId: c.projectId,
   role: c.role,
 })

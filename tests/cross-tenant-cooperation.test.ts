@@ -94,6 +94,10 @@ test('redaction — a shared project’s Contributor list hides foreign authorit
   assert.equal(seenByC.authority, undefined, 'foreign authority is redacted')
   assert.equal(seenByC.grant, undefined, 'the foreign token grant is redacted')
   assert.equal(seenByC.agentId, aAgent.id, 'but the public identity (agent) is present')
+  // …and the public identity INCLUDES the server-resolved display label (a non-owner can't
+  // resolve a foreign agentId against its own registry — this is how the UI names WHO
+  // contributes without leaking WHAT they reach).
+  assert.equal(seenByC.agentLabel, 'A worker', 'the public face carries the server-resolved agent label')
   // by-id is consistent with the list: the foreign contributor is visible, redacted (not 404).
   const byId = store.commissionVisibleToTenant(comm.id, 'tenant-C')
   assert.ok(byId && byId.authority === undefined, 'by-id returns the redacted contributor, consistent with the list')

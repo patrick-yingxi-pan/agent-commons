@@ -977,7 +977,7 @@ function ContributorsPanel({ project }: { project: Project }) {
             <ContributorRow
               key={c.id}
               commission={c}
-              agentLabel={agentsById.get(c.agentId)?.label ?? c.agentId}
+              agentLabel={agentsById.get(c.agentId)?.label ?? c.agentLabel ?? c.agentId}
               contributions={agentsById.get(c.agentId)?.contributions}
             />
           ))}
@@ -1276,6 +1276,16 @@ function CoordinationPanel({ project }: { project: Project }) {
   const [draft, setDraft] = useState('')
   const [conflict, setConflict] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // Claim AS a principal you control: yourself, or one of YOUR agents commissioned on
+  // this Project (P8 cross-tenant cooperation: an agent's sub-goal claim is how it
+  // "works" here). A FOREIGN Contributor's agent never resolves in this tenant's
+  // registry, so it can't be picked — the same caller-identity wall the route enforces
+  // (`commissionActorDenied`), mirrored in the affordance.
+  const commissions = useCommissions(project.id).data ?? []
+  const agents = useAgents().data ?? []
+  const ownAgentById = new Map(agents.map((a) => [a.id, a]))
+  const ownCommissions = commissions.filter((c) => ownAgentById.has(c.agentId))
+  const [holder, setHolder] = useState(VIEWER_PRINCIPAL)
 
   const claim = async () => {
     const subGoal = draft.trim()
@@ -1283,7 +1293,9 @@ function CoordinationPanel({ project }: { project: Project }) {
     setBusy(true)
     setConflict(null)
     try {
-      await reserveSubGoal(project.id, VIEWER_PRINCIPAL, subGoal)
+      // An unknown (deleted) commission still selected falls back to claiming as yourself.
+      const as = holder === VIEWER_PRINCIPAL || ownCommissions.some((c) => c.id === holder) ? holder : VIEWER_PRINCIPAL
+      await reserveSubGoal(project.id, as, subGoal)
       setDraft('')
     } catch {
       // The guardian refused it — another Contributor holds this sub-goal. Conflict is a
@@ -1328,6 +1340,22 @@ function CoordinationPanel({ project }: { project: Project }) {
           )}
 
           <div className="mt-2.5 border-t border-line pt-2.5">
+            {ownCommissions.length > 0 && (
+              <select
+                value={holder}
+                onChange={(e) => setHolder(e.target.value)}
+                aria-label="Claim as"
+                data-testid="claim-as"
+                className="mb-1.5 w-full rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
+              >
+                <option value={VIEWER_PRINCIPAL}>Claim as: You</option>
+                {ownCommissions.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    Claim as: {ownAgentById.get(c.agentId)?.label ?? c.agentId}
+                  </option>
+                ))}
+              </select>
+            )}
             <div className="flex items-center gap-1.5">
               <input
                 value={draft}
@@ -3154,7 +3182,7 @@ function CommissionsTab() {
                 <ContributorRow
                   key={c.id}
                   commission={c}
-                  agentLabel={agentsById.get(c.agentId)?.label ?? c.agentId}
+                  agentLabel={agentsById.get(c.agentId)?.label ?? c.agentLabel ?? c.agentId}
                   contributions={agentsById.get(c.agentId)?.contributions}
                 />
               ))}
