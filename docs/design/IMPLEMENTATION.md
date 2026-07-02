@@ -105,6 +105,8 @@ it.
 
 | 38 | P7 automation (Dispatch concurrency) | **Dispatch concurrency limiting** — the third leg of P7 (durability ✅ row 35, observability ✅ row 36, concurrency here). `addDispatch` now refuses a new run (`LimitError` → **429 `limit_exceeded`**, mapped in `POST /dispatch`) once the in-flight count hits `DISPATCH_MAX_CONCURRENT`, so unbounded one-off runs can't pile up. **Opt-in** (env read per call ⇒ off/unlimited by default, so the demo + existing dispatch tests are unaffected), mirroring the rate-limiter's shape. Counts only **live-minted** (`d-new-*`) `running` runs — the seed feed's permanent `running` fixture (`d1`) has no completing timer and must not consume a slot (else a cap of 1 wedges forever); same id-scoping as the durability sweep. This is *real* infra (the cap logic carries to production unchanged), not mock-gilding — distinct from a contrived in-run failure injection, which is left unbuilt. Locked by `tests/dispatch-concurrency.test.ts` (store guard over-cap → `limit_exceeded`; off-by-default → unlimited; route → 429, robust to baseline in-flight). 603 node tests pass; typecheck + build green. **Remaining (P7):** a real in-run failure path + retries/backoff — deferred as mock-gilding (no real work to fail in the mock). | ✅ built |
 
+| 39 | P8 (Agent Commons at scale) slice 1 | **Cross-TENANT cooperation — the shared-Project primitive.** Prompted by a reviewer question ("did you test agents from *different users* cooperating on one task?"): the answer was no — worse, F2's isolation guards *actively refused* it (a cross-tenant `commission-agent` op was denied both ways; empirically confirmed). This slice lifts the existing per-Contributor cooperation (COMMONS-2 authority clamp, COMMONS-3 guardian, COMMONS-4 roles — all principal-level) across the F2 tenant boundary. **`Project.shared`** (contract) + a **`share-project`** relation op (owner-only, enforced by `opDeniedForTenant`) mark a Project shared; the graph projection then makes a shared Project visible to every tenant (its owner-scoped join rows stay private — no content leak). `opDeniedForTenant` gains **one narrow carve-out**: `commission-agent` onto a *shared* Project is allowed cross-tenant — but the **agent-subject axis still requires the agent be the caller's own**, so a tenant contributes its *own* agent (D13 owner-pays) and cannot conscript a foreign one, and every other cross-tenant project op (file-session/scope/share) stays owner-only. A shared Project's **Contributor list is public** across tenants (`listCommissions`), and **`commissionOwnerTenant`** attributes metering to the *agent* owner, not the Project owner (the D13 owner-pays seam). Locked by `tests/cross-tenant-cooperation.test.ts` (primitive works; isolation preserved on a private Project; no conscription; sharing owner-only; projection visibility) + `tests/capability-remote.test.ts` (the full flow over HTTP on the remote multi-tenant backend) — the carve-out bite-proven (disable it → the 2 cooperation tests fail, isolation tests stay green). 609 node tests pass; typecheck + build green. **Partial (P8 follow-ups):** runtime owner-pays *metering* (needs a commissioned-execution path), cross-tenant guardian coordination (D11 across tenants), role-gated cross-tenant *writes* (D14), and a share-project UI. | 🟡 built (slice 1) |
+
 ### F2 identity & tenancy — status
 
 The tenancy boundary (PD9) is now built + adversarially reviewed across every
@@ -137,12 +139,23 @@ is recorded here rather than built, in favour of higher-value pillars.
 >
 > So: intra-tenant multi-contributor cooperation ✅; the **cross-tenant intersection** (P8
 > "Agent Commons at scale") is the unbuilt gap. Earlier rows/notes that called the tenancy
-> boundary "fully closed" meant **isolation-closed** — corrected here. The P8 slice below
-> extends the *existing* cooperation machinery across the tenant boundary (it is not built
-> from scratch).
+> boundary "fully closed" meant **isolation-closed** — corrected here. The P8 slice (row 39)
+> extends the *existing* cooperation machinery across the tenant boundary (not from scratch):
+> **slice 1** — shared Projects + cross-tenant commission + owner-pays *attribution* — is now
+> built; runtime owner-pays *metering*, cross-tenant guardian, and role-gated cross-tenant
+> writes remain follow-ups.
 
 ### Up next (candidate order, not yet built)
 
+- **P8 — cross-tenant cooperation, slices 2+** *(slice 1 done — row 39 / COMMONS-6)*. The
+  shared-Project + cross-tenant-commission + owner-pays-*attribution* primitive is built.
+  Remaining, in rough order: (2) **runtime owner-pays metering** — meter a commissioned run
+  against `commissionOwnerTenant`, which needs a *commissioned-execution path* (a run driven
+  by a commission — the same path the "commission-attributed budgets" item below wants);
+  (3) **cross-tenant guardian coordination** (D11 reservations across tenants on a shared
+  Project); (4) **role-gated cross-tenant writes** (D14 — a Contributor writing to the shared
+  Project per its role, not just joining); (5) a **share-project UI**. Items 2 + the item
+  below converge on the execution path.
 - ~~**P7 — Dispatch: durability + observability + concurrency**~~ *(done — rows 35–36, 38)*.
   All three real legs are built. What remains is **mock-gilding, intentionally unbuilt**: a
   dispatch can only *fail* via a restart (never *during* a run) and there are no retries/backoff

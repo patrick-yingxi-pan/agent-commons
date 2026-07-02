@@ -418,6 +418,51 @@ test('the usage gauge is tenant-scoped on a remote backend (a fresh tenant sees 
   assert.ok(omegaWin && omegaWin.pct === 0, 'a fresh tenant’s gauge starts empty, isolated from the default')
 })
 
+test('a shared Project admits a cross-tenant Contributor on a remote backend (P8 cooperation), while a private one refuses it', async () => {
+  const { buildRouter } = await import('../server/routes/index.ts')
+  const call = caller(buildRouter())
+
+  // tenant-zeta creates a project and SHARES it (owner-only ops).
+  await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-zeta' }, {
+    op: { kind: 'create-project', projectId: 'proj-shared', projectName: 'Shared', projectDescription: '' },
+  })
+  const share = await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-zeta' }, {
+    op: { kind: 'share-project', projectId: 'proj-shared', projectName: 'Shared', shared: true },
+  })
+  assert.equal(share.status, 200, 'the owner shares its project')
+
+  // A non-owner cannot share it.
+  const foreignShare = await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-omega' }, {
+    op: { kind: 'share-project', projectId: 'proj-shared', projectName: 'Shared', shared: false },
+  })
+  assert.equal(foreignShare.status, 404, 'only the owner may (un)share a project')
+
+  // tenant-omega owns an agent (created through the route → stamped omega).
+  const created = await call('POST', '/agents', { 'x-tenant-id': 'tenant-omega' }, { label: 'Omega worker' })
+  const omegaAgentId = created.json.id
+
+  // omega commissions ITS OWN agent onto zeta's SHARED project — ALLOWED (200).
+  const commission = await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-omega' }, {
+    op: { kind: 'commission-agent', agentId: omegaAgentId, agentLabel: 'Omega worker', projectId: 'proj-shared', projectName: 'Shared' },
+  })
+  assert.equal(commission.status, 200, 'a cross-tenant commission onto a shared project succeeds')
+
+  // The shared Contributor list shows omega's commission to BOTH tenants (public contributors).
+  const listZeta = await call('GET', '/commissions?project=proj-shared', { 'x-tenant-id': 'tenant-zeta' })
+  assert.ok(listZeta.json.some((c) => c.agentId === omegaAgentId), 'the owner sees the cross-tenant Contributor')
+  const listOmega = await call('GET', '/commissions?project=proj-shared', { 'x-tenant-id': 'tenant-omega' })
+  assert.ok(listOmega.json.some((c) => c.agentId === omegaAgentId), 'the contributor sees its own commission')
+
+  // Isolation control: the SAME commission onto a PRIVATE zeta project is refused 404.
+  await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-zeta' }, {
+    op: { kind: 'create-project', projectId: 'proj-priv', projectName: 'Priv', projectDescription: '' },
+  })
+  const refused = await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-omega' }, {
+    op: { kind: 'commission-agent', agentId: omegaAgentId, agentLabel: 'Omega worker', projectId: 'proj-priv', projectName: 'Priv' },
+  })
+  assert.equal(refused.status, 404, 'a private project still refuses the cross-tenant commission (isolation intact)')
+})
+
 test('the served cloud filesystem source works on a remote backend (it reads the web backend’s own storage)', async () => {
   const { buildRouter } = await import('../server/routes/index.ts')
   const call = caller(buildRouter())

@@ -172,6 +172,8 @@ export type RelationOp =
   | { kind: 'handoff-agent'; sessionId: string; sessionTitle: string; agentId: string; agentLabel: string }
   // D13 — set a Project's per-commissioner abuse cap (the max active Commissions it admits).
   | { kind: 'set-commission-cap'; projectId: string; projectName: string; cap: number }
+  // P8 — mark a Project SHARED (open to cross-tenant Contributors) or private again. Owner-only.
+  | { kind: 'share-project'; projectId: string; projectName: string; shared: boolean }
 
 /** A stable key per op — used to mark standing approvals and to track a card
  *  row's confirmed state. */
@@ -217,6 +219,8 @@ export function opKey(op: RelationOp): string {
       return `handoff-agent:${op.sessionId}:${op.agentId}`
     case 'set-commission-cap':
       return `set-commission-cap:${op.projectId}:${op.cap}`
+    case 'share-project':
+      return `share-project:${op.projectId}:${op.shared}`
     default: {
       const _exhaustive: never = op
       return _exhaustive
@@ -445,6 +449,17 @@ export function describeOp(op: RelationOp): OpDescription {
         done: `Set ${op.projectName}'s commission cap to ${op.cap}`,
         section: 'agents',
         relationId: 'agent-commission-cap',
+        approval: 'per-action',
+      }
+    case 'share-project':
+      return {
+        text: op.shared
+          ? `Share **${op.projectName}** with other tenants`
+          : `Make **${op.projectName}** private again`,
+        done: op.shared ? `Shared ${op.projectName}` : `Made ${op.projectName} private`,
+        section: 'projects',
+        projectId: op.projectId,
+        relationId: 'project-shared',
         approval: 'per-action',
       }
     default: {

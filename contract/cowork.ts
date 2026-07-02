@@ -54,6 +54,15 @@ export interface Project {
    *  `limit_exceeded`). The prototype has one account, so the cap is keyed at the Project
    *  (its Guardian); a true per-*commissioner* identity is forward. Unset = uncapped. */
   commissionCap?: number
+  /** When true, this Project is a **shared workspace** across tenants (P8 — the Agent
+   *  Commons "many users' agents on one shared Project"). A shared Project is visible to
+   *  every tenant and open to cross-tenant **Contributors**: a *different* tenant may
+   *  commission its OWN agent onto it (D13 owner-pays — that tenant's agent, that tenant
+   *  pays), where a private Project refuses the cross-tenant commission (F2 isolation).
+   *  Unset ⇒ private to its owning `tenantId` (the default). The owner sets it via the
+   *  `share-project` relation op; each Contributor's authority is still clamped to the
+   *  Project's admitted set (D12) regardless of sharing. */
+  shared?: boolean
 }
 
 /** The hue of a workflow step's tool chip. Connector/MCP/repo/workspace map onto

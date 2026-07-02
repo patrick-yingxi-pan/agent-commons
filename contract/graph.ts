@@ -168,6 +168,17 @@ export function applyGraphOp(
         standingApprovals: { ...graph.standingApprovals, [opKey(op)]: true },
       }
     }
+    case 'share-project':
+      // P8 — flip a created Project's shared flag (owner-only; enforced by the store's
+      // opDeniedForTenant, which refuses a non-owner). A real graph edit (unlike the
+      // store-executed commons ops below). Only created Projects live in extraProjects, so
+      // this is a no-op for a seed id (seed Projects aren't shareable in this slice).
+      return {
+        ...graph,
+        extraProjects: graph.extraProjects.map((p) =>
+          p.id === op.projectId ? { ...p, shared: op.shared } : p,
+        ),
+      }
     // Agent Commons CRUD (create-provider / -prompt / -agent, (un)commission-agent) are
     // registry mutations, not relationship-graph edits: the canonical write executes them
     // through the store's registry mutators (the D8 funnels), so — like attach-context —

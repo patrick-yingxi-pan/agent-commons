@@ -238,7 +238,11 @@ function projectGraphForTenant(g: RelationGraph, tenantId: string): RelationGrap
     Object.fromEntries(Object.entries(m).filter(([aid]) => artVisible(aid)))
   return {
     ...g,
-    extraProjects: g.extraProjects.filter((p) => (p.tenantId ?? defaultTenantId()) === tenantId),
+    // A SHARED Project (P8) is visible to every tenant so a non-owner can see it exists and
+    // commission onto it. Its project-keyed JOIN rows below stay owner-scoped (projVisible),
+    // so a Contributor sees the shared Project's metadata but NOT the owner's sessions/
+    // contexts filed under it — the Contributor list travels via listCommissions instead.
+    extraProjects: g.extraProjects.filter((p) => (p.tenantId ?? defaultTenantId()) === tenantId || p.shared === true),
     extraArtifacts: g.extraArtifacts.filter((a) => (a.tenantId ?? defaultTenantId()) === tenantId),
     sessionProject: byProjValue(g.sessionProject),
     // An artifact→project row needs the artifact visible; the value is gated on project
@@ -1197,12 +1201,26 @@ export const store = {
    *  is given. The Contributor role is just an Agent that appears here for a Project.
    *  Tenant-scoped (F2/PD9): shared seeds visible to all, a created one to its tenant. */
   listCommissions(projectId?: string, tenantId?: string): Commission[] {
-    const all = [...COMMISSIONS.values()].filter((c) => registryVisible(c, tenantId))
+    // A SHARED Project's Contributor list is public across tenants (P8 — GitHub-style public
+    // contributors): every commission ON it is visible to any viewer, whichever tenant
+    // created it. Otherwise the usual registry scoping (own + shared-seed).
+    const onShared = projectId != null && findProject(projectId)?.shared === true
+    const all = [...COMMISSIONS.values()].filter((c) => onShared || registryVisible(c, tenantId))
     return projectId ? all.filter((c) => c.projectId === projectId) : all
   },
   /** Resolve one commission by id (undefined when unknown). */
   getCommission(id: string): Commission | undefined {
     return COMMISSIONS.get(id)
+  },
+  /** The tenant that PAYS for a commissioned run (D13 owner-pays): the tenant that owns the
+   *  commissioned Agent — NOT the Project's tenant. On a cross-tenant Contributor (P8) these
+   *  differ, so a commissioned run must meter against this tenant's usage, not the Project
+   *  owner's. This is the attribution primitive; wiring it into a live commissioned execution
+   *  is a later slice (there's no commissioned-run path yet). Undefined for an unknown id. */
+  commissionOwnerTenant(commissionId: string): string | undefined {
+    const c = COMMISSIONS.get(commissionId)
+    if (!c) return undefined
+    return WORKER_AGENTS.get(c.agentId)?.tenantId ?? c.tenantId ?? defaultTenantId()
   },
   /** Mint a Commission through the **leaf** of the D8 funnel: its grant + authority must
    *  attenuate the *Agent's* (which themselves inherit the provider when unset) — so
@@ -2024,7 +2042,12 @@ export const store = {
       if (op.kind === 'create-project') {
         if (findProject(pid) && owner !== tenantId) return true
       } else if (owner !== tenantId) {
-        return true
+        // P8 carve-out — the ONE cross-tenant project op allowed: commissioning your OWN
+        // agent onto a SHARED Project (the cooperation primitive, D13 owner-pays). The
+        // agent-subject axis below still requires the agent be the caller's own, so this
+        // admits a Contributor without letting anyone conscript a foreign agent or write
+        // other content into a foreign Project (file-session/scope/share-project stay owner-only).
+        if (!(op.kind === 'commission-agent' && findProject(pid)?.shared === true)) return true
       }
     }
     // Subject ARTIFACT: an op that moves/edits an existing artifact (refile-artifact,
