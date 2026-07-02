@@ -146,6 +146,51 @@ test('review fix (fail-closed) — a shared Project with NO scoped contexts admi
   assert.equal(store.commissionCanReach(bComm.id, 'connectors', 'Linear'), false, 'reaches nothing until the owner scopes a context')
 })
 
+test('Stage D (completion) — cross-tenant cooperation winds down: two tenants complete their sub-goals; the coordination empties; each is credited (D13) and leaves cleanly', () => {
+  // "Completion" here is the reviewer's sense: the TEMPORARY state at the END of cooperation —
+  // agents finishing a shared goal — not a permanent project status. It's the coordination
+  // lifecycle reaching done: each Contributor's sub-goal goes held → committed (the irreversible
+  // step recorded) → released, and the shared Project's in-flight set winds back to empty.
+  store.applyRelationOp({ kind: 'create-project', projectId: 'p-done', projectName: 'Done', projectDescription: '' }, A)
+  store.applyRelationOp(shareOp('p-done'), A)
+  store.applyRelationOp(scopeConnector('p-done', 'Linear'), A)
+  const bAgent = store.createAgent({ label: 'B done', systemPrompt: 'x', tools: [], instructions: '' }, B)
+  const cAgent = store.createAgent({ label: 'C done', systemPrompt: 'x', tools: [], instructions: '' }, C)
+  store.applyRelationOp(commissionOp(bAgent.id, 'p-done'), B)
+  store.applyRelationOp(commissionOp(cAgent.id, 'p-done'), C)
+  const bComm = store.listCommissions('p-done', B).find((c) => c.agentId === bAgent.id)!
+  const cComm = store.listCommissions('p-done', C).find((c) => c.agentId === cAgent.id)!
+  const rep = (agentId: string) => store.listAgents().find((a) => a.id === agentId)?.contributions ?? 0
+  const bRep0 = rep(bAgent.id)
+  const cRep0 = rep(cAgent.id)
+
+  // Mid-cooperation: each tenant's Contributor claims its own sub-goal (both in flight concurrently).
+  const rb = store.reserveSubGoal('p-done', bComm.id, 'goal-b')
+  const rc = store.reserveSubGoal('p-done', cComm.id, 'goal-c')
+  assert.equal(store.projectSubGoals('p-done').length, 2, 'both tenants are in flight mid-cooperation')
+
+  // Each does the (committing) work on its sub-goal — the irreversible step recorded + credited.
+  store.runProjectEffect('p-done', bComm.id, 'goal-b', 'connector.write', 'Linear')
+  store.runProjectEffect('p-done', cComm.id, 'goal-c', 'connector.write', 'Linear')
+
+  // …then releases it — the shared goal is done for that Contributor.
+  store.releaseSubGoal(rb.id)
+  store.releaseSubGoal(rc.id)
+
+  // Completion: the temporary in-flight state has wound down — cooperation is complete.
+  assert.equal(store.projectSubGoals('p-done').length, 0, 'after both release, the cooperation is complete (no sub-goals in flight)')
+
+  // Each Contributor's agent is credited for its completed work (D13 reputation), across tenants.
+  assert.equal(rep(bAgent.id), bRep0 + 1, 'B’s agent is credited for its completed sub-goal')
+  assert.equal(rep(cAgent.id), cRep0 + 1, 'C’s agent is credited for its completed sub-goal')
+
+  // Contributors leave cleanly at the end — un-commission leaves no dangling reservations.
+  store.deleteCommission(bComm.id)
+  store.deleteCommission(cComm.id)
+  assert.equal(store.listCommissions('p-done', A).length, 0, 'the Contributors have wound down')
+  assert.equal(store.projectSubGoals('p-done').length, 0, 'no dangling reservations after the wind-down')
+})
+
 test('BUG-6 — a cross-tenant effect audits under the AGENT owner’s tenant (owner-pays), not the project owner’s', () => {
   store.applyRelationOp({ kind: 'create-project', projectId: 'p-audit', projectName: 'Audit', projectDescription: '' }, A)
   store.applyRelationOp(shareOp('p-audit'), A)

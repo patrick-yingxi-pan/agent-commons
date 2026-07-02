@@ -152,12 +152,19 @@ Legend for **Now?**: ✅ lockable today · 🔧 needs a small fix first (see §4
 
 ### Stage D — completion / wind-down
 
-> **Entirely unbuilt and un-designed.** No `status`/`completedAt` on Project or
-> Commission (contract/cowork.ts:24, contract/commission.ts:16); no
-> complete/archive/close op or route; the docs define no terminal stage either
-> (agent-commons.md OQ1–OQ8 don't cover it). Closest primitives: reservation
-> commit/release (per-effect), un-commission (per-contributor, cascade-releases
-> holds), Session.status archive (wrong altitude).
+> **RESOLVED (Phase 4, 2026-07-02).** The owner clarified "completion" as *the
+> temporary state at the end of cooperation of agents achieving a common goal* — the
+> **coordination reaching done**, not a permanent project status/archival. That is the
+> existing D11 lifecycle: a sub-goal goes **held → committed → released**, and the
+> shared Project's in-flight set winds back to empty. So Stage D needs **no new status
+> model**; it needed the cross-tenant *completion lifecycle* locked — now done in
+> `tests/cross-tenant-runtime.test.ts` (two different-tenant Contributors each
+> commit + release their sub-goal → coordination empties → credited + un-commission
+> leaves no dangling holds). The Coordination panel's "No sub-goals in flight" already
+> renders the complete state.
+>
+> *(The heavier first-class "project archived/closed" status below was the pre-clarification
+> reading — kept for provenance; not what the owner meant, so not built.)*
 
 | ID | Case | Layer | Now? | Notes |
 |----|------|-------|------|-------|
