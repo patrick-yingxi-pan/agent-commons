@@ -221,6 +221,31 @@ const registryVisible = <T extends { tenantId?: string }>(entry: T, tenantId?: s
  *  tenant (parallels `projectTenant`; independent of the artifact's project). */
 const artifactTenant = (artifactId: string): string => findArtifact(artifactId)?.tenantId ?? defaultTenantId()
 
+/** The public face of a SHARED Project shown to a NON-owner (P8): identity + description
+ *  only. The owner-scoped membership fields are emptied so the frozen Project object can't
+ *  leak the owner's session ids / attached contexts / instructions across the tenant boundary
+ *  (the graph's join maps are already owner-scoped; this closes the object-field channel). */
+const publicSharedProject = (p: Project): Project => ({
+  ...p,
+  sessionIds: [],
+  contexts: [],
+  scheduled: [],
+  instructions: '',
+})
+
+/** The public face of a Commission on a SHARED Project shown to a NON-owner (P8): the
+ *  Contributor IDENTITY (agent / project / role) only. The D12 posture — `authority`, token
+ *  `grant`, `reservationId` — is stripped, mirroring what `GET /commissions/:id/authority`
+ *  deliberately refuses to leak: the public Contributor list is who-contributes, not the
+ *  private reach/budget of another tenant's agent. */
+const publicCommission = (c: Commission): Commission => ({
+  id: c.id,
+  tenantId: c.tenantId,
+  agentId: c.agentId,
+  projectId: c.projectId,
+  role: c.role,
+})
+
 /** Project the relation graph to a tenant's view (F2/PD9): a tenant sees only its own
  *  created projects/artifacts and the join rows that reference an entity it can see. Every
  *  seed project/artifact is the default tenant's, so the DEFAULT reader gets the full graph
@@ -239,10 +264,15 @@ function projectGraphForTenant(g: RelationGraph, tenantId: string): RelationGrap
   return {
     ...g,
     // A SHARED Project (P8) is visible to every tenant so a non-owner can see it exists and
-    // commission onto it. Its project-keyed JOIN rows below stay owner-scoped (projVisible),
-    // so a Contributor sees the shared Project's metadata but NOT the owner's sessions/
-    // contexts filed under it — the Contributor list travels via listCommissions instead.
-    extraProjects: g.extraProjects.filter((p) => (p.tenantId ?? defaultTenantId()) === tenantId || p.shared === true),
+    // commission onto it — but to a NON-owner it's REDACTED to public metadata: the join maps
+    // below are already owner-scoped (projVisible), and the Project object's own membership
+    // fields (`sessionIds`/`contexts`/`scheduled`/`instructions`) are stripped here too, else
+    // the frozen object leaks the owner's session ids + count across the tenant boundary. The
+    // owner keeps the full object.
+    extraProjects: g.extraProjects.flatMap((p) => {
+      if ((p.tenantId ?? defaultTenantId()) === tenantId) return [p]
+      return p.shared === true ? [publicSharedProject(p)] : []
+    }),
     extraArtifacts: g.extraArtifacts.filter((a) => (a.tenantId ?? defaultTenantId()) === tenantId),
     sessionProject: byProjValue(g.sessionProject),
     // An artifact→project row needs the artifact visible; the value is gated on project
@@ -1202,15 +1232,30 @@ export const store = {
    *  Tenant-scoped (F2/PD9): shared seeds visible to all, a created one to its tenant. */
   listCommissions(projectId?: string, tenantId?: string): Commission[] {
     // A SHARED Project's Contributor list is public across tenants (P8 — GitHub-style public
-    // contributors): every commission ON it is visible to any viewer, whichever tenant
-    // created it. Otherwise the usual registry scoping (own + shared-seed).
+    // contributors): every commission ON it is visible to any viewer, whichever tenant created
+    // it. Otherwise the usual registry scoping (own + shared-seed).
     const onShared = projectId != null && findProject(projectId)?.shared === true
-    const all = [...COMMISSIONS.values()].filter((c) => onShared || registryVisible(c, tenantId))
-    return projectId ? all.filter((c) => c.projectId === projectId) : all
+    const scoped = [...COMMISSIONS.values()]
+      .filter((c) => onShared || registryVisible(c, tenantId))
+      .filter((c) => (projectId ? c.projectId === projectId : true))
+    // A FOREIGN Contributor on a shared project is exposed as identity-only (redacted); the
+    // caller's own (registryVisible) — and internal callers with no tenant — keep full detail,
+    // so the D12 authority/grant posture never crosses the tenant boundary.
+    return scoped.map((c) => (registryVisible(c, tenantId) ? c : publicCommission(c)))
   },
-  /** Resolve one commission by id (undefined when unknown). */
+  /** Resolve one commission by id (undefined when unknown). Unredacted — internal callers only. */
   getCommission(id: string): Commission | undefined {
     return COMMISSIONS.get(id)
+  },
+  /** A commission visible to `tenantId` for the by-id route — its own/seed (full), or a
+   *  Contributor on a SHARED project (redacted to public identity), else undefined (404).
+   *  Keeps `GET /commissions/:id` consistent with the shared-project list rather than 404ing
+   *  a Contributor the list shows. */
+  commissionVisibleToTenant(id: string, tenantId?: string): Commission | undefined {
+    const c = COMMISSIONS.get(id)
+    if (!c) return undefined
+    if (registryVisible(c, tenantId)) return c
+    return findProject(c.projectId)?.shared === true ? publicCommission(c) : undefined
   },
   /** The tenant that PAYS for a commissioned run (D13 owner-pays): the tenant that owns the
    *  commissioned Agent — NOT the Project's tenant. On a cross-tenant Contributor (P8) these

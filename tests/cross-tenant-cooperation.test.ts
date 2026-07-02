@@ -61,6 +61,48 @@ test('sharing is owner-only — a non-owner cannot share another tenant’s proj
   )
 })
 
+test('redaction — a non-owner sees a shared project WITHOUT the owner’s session ids / contexts', () => {
+  // A creates a project with a FOUNDING session (the tour's create-from-session path), then shares it.
+  store.applyRelationOp({ kind: 'create-project', projectId: 'p-redact', projectName: 'Redact', projectDescription: '', sessionId: 'sess-A-secret', sessionTitle: 'A secret' }, A)
+  store.applyRelationOp({ kind: 'share-project', projectId: 'p-redact', projectName: 'Redact', shared: true }, A)
+
+  // The OWNER sees its own founding session on the project object.
+  assert.deepEqual(store.relationGraph(A).extraProjects.find((p) => p.id === 'p-redact')?.sessionIds, ['sess-A-secret'], 'the owner sees its own session ids')
+
+  // A NON-owner sees the shared project but its owner-scoped fields are stripped — no leak of
+  // A's session id or count across the tenant boundary.
+  const forB = store.relationGraph(B).extraProjects.find((p) => p.id === 'p-redact')
+  assert.ok(forB, 'the non-owner sees the shared project')
+  assert.deepEqual(forB.sessionIds, [], 'the owner’s session ids are stripped from the non-owner view')
+  assert.deepEqual(forB.contexts, [], 'the owner’s contexts are stripped too')
+})
+
+test('redaction — a shared project’s Contributor list hides foreign authority/grant (D12 posture stays private)', () => {
+  const aAgent = store.createAgent({ label: 'A worker', systemPrompt: 'x', tools: [], instructions: '' }, A)
+  store.applyRelationOp({ kind: 'create-project', projectId: 'p-redact2', projectName: 'R2', projectDescription: '' }, A)
+  store.applyRelationOp({ kind: 'share-project', projectId: 'p-redact2', projectName: 'R2', shared: true }, A)
+  // A commissions its own agent with a concrete authority + token grant (subset of the '*' default).
+  const comm = store.createCommission(
+    { agentId: aAgent.id, projectId: 'p-redact2', authority: { connectors: ['Linear'] }, grant: { windows: [{ label: '5-hour limit', ceiling: 1000 }] } },
+    A,
+  )
+  assert.ok(comm.authority && comm.grant, 'the created commission carries authority + grant')
+
+  // An uninvolved THIRD tenant viewing the shared Project's contributors sees IDENTITY ONLY.
+  const seenByC = store.listCommissions('p-redact2', 'tenant-C').find((c) => c.id === comm.id)
+  assert.ok(seenByC, 'the contributor is public on the shared project')
+  assert.equal(seenByC.authority, undefined, 'foreign authority is redacted')
+  assert.equal(seenByC.grant, undefined, 'the foreign token grant is redacted')
+  assert.equal(seenByC.agentId, aAgent.id, 'but the public identity (agent) is present')
+  // by-id is consistent with the list: the foreign contributor is visible, redacted (not 404).
+  const byId = store.commissionVisibleToTenant(comm.id, 'tenant-C')
+  assert.ok(byId && byId.authority === undefined, 'by-id returns the redacted contributor, consistent with the list')
+
+  // The OWNER still sees the full commission (authority + grant intact).
+  const seenByA = store.listCommissions('p-redact2', A).find((c) => c.id === comm.id)
+  assert.ok(seenByA?.authority && seenByA?.grant, 'the owner sees the full commission')
+})
+
 test('graph projection — a shared project is visible cross-tenant; a private one is not', () => {
   store.applyRelationOp({ kind: 'create-project', projectId: 'p-vis-shared', projectName: 'Vis shared', projectDescription: '' }, A)
   store.applyRelationOp({ kind: 'share-project', projectId: 'p-vis-shared', projectName: 'Vis shared', shared: true }, A)

@@ -671,7 +671,10 @@ export function buildRouter(): Router {
     sendJson(res, store.listCommissions(url.searchParams.get('project') ?? undefined, store.identity(req.headers).tenant.id))
   })
   r.get('/commissions/:id', ({ req, res, params }) => {
-    const commission = store.listCommissions(undefined, store.identity(req.headers).tenant.id).find((c) => c.id === params.id)
+    // Visible if it's the caller's own/seed (full) or a Contributor on a SHARED project
+    // (redacted to public identity) — consistent with the shared-project list (P8), rather
+    // than 404ing a Contributor the list shows.
+    const commission = store.commissionVisibleToTenant(params.id, store.identity(req.headers).tenant.id)
     if (!commission) return sendError(res, 'not_found', `No commission '${params.id}'`)
     sendJson(res, commission)
   })
