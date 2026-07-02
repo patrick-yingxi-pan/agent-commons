@@ -1410,11 +1410,14 @@ export const store = {
     const provider = resolveProvider(agent.providerId)
     // The ceiling: the most authority this Contributor could hold (the D8 cascade).
     const granted = commission.authority ?? agent.authority ?? provider.authority ?? {}
-    const project = PROJECTS.find((p) => p.id === commission.projectId)
-    // The wall: clamp the ceiling to what the Project exposes. Fail **closed** — a
-    // commission whose Project is somehow gone admits no data (the route validates the
-    // Project at mint, so this is defensive, but a security boundary must not fail open).
-    const admitted = project ? projectAdmittedAuthority(project.contexts) : { connectors: [], scopes: [] }
+    const project = findProject(commission.projectId) // seed + created (P8 shared Projects)
+    // The wall: clamp the ceiling to what the Project ADMITS. Read the admitted contexts from
+    // the relation graph's authoritative join map (`graph.projectContexts`) — a created Project
+    // (P8 shared) carries its contexts only there, and even a seed Project's set is edited there
+    // via scope/unscope, so the object's static `.contexts` can go stale. Fail **closed** — a
+    // commission whose Project is gone admits no data (a security boundary must not fail open).
+    const contexts = project ? (graph.projectContexts[commission.projectId] ?? project.contexts) : undefined
+    const admitted = contexts ? projectAdmittedAuthority(contexts) : { connectors: [], scopes: [] }
     return intersectAuthority(granted, admitted)
   },
   /** The D12 mediation check, lifted from *(session, context)* to *(Project,
@@ -1730,7 +1733,7 @@ export const store = {
    *  (coordination-free). This is the *coarse* (whole-Project) lock; `guardSubGoalEffect`
    *  is the fine-grained, multi-principal form (D11). */
   guardProjectEffect<T>(projectId: string, holder: string, effect: () => T): T {
-    const project = PROJECTS.find((p) => p.id === projectId)
+    const project = findProject(projectId) // seed + created (P8 shared Projects are guardable)
     if (!project?.guardianId) return effect()
     return guardedRun(project.guardianId, holder, effect)
   },
@@ -1743,7 +1746,7 @@ export const store = {
    *  holder is refused (`GuardianError` 'conflict') and re-reasons. Re-entrant for the
    *  same holder. Throws if the Project isn't guarded. */
   reserveSubGoal(projectId: string, holder: string, subGoal: string): Reservation {
-    const project = PROJECTS.find((p) => p.id === projectId)
+    const project = findProject(projectId) // seed + created (P8 shared Projects are guardable)
     if (!project?.guardianId) {
       throw new GuardianError('conflict', `Project '${projectId}' is not a guarded resource`)
     }
@@ -1758,7 +1761,7 @@ export const store = {
    *  one sub-goal, so two Contributors' effects on *different* sub-goals don't serialize
    *  against each other. The consent gate is the serialization gate. */
   guardSubGoalEffect<T>(projectId: string, holder: string, subGoal: string, effect: () => T): T {
-    const project = PROJECTS.find((p) => p.id === projectId)
+    const project = findProject(projectId) // seed + created (P8 shared Projects are guardable)
     if (!project?.guardianId) return effect()
     return guardedRun(subGoalKey(project.guardianId, subGoal), holder, effect)
   },
@@ -1816,7 +1819,7 @@ export const store = {
     target: string,
   ): ProjectEffectResult {
     const monotonic = isProjectEffectMonotonic(type)
-    const project = PROJECTS.find((p) => p.id === projectId)
+    const project = findProject(projectId) // seed + created (P8 shared Projects are guardable)
     const guarded = !monotonic && !!project?.guardianId
     const fulfil = (): ProjectEffectResult => {
       // Reach here only on a successful effect (the guarded path throws on conflict before
@@ -1861,7 +1864,7 @@ export const store = {
    *  claim (held or committed), the Coordination panel's read. Enumerates the guardian's
    *  resources under the Project's prefix; holders are resolved to their Agent label. */
   projectSubGoals(projectId: string): ProjectSubGoal[] {
-    const project = PROJECTS.find((p) => p.id === projectId)
+    const project = findProject(projectId) // seed + created (P8 shared Projects are guardable)
     if (!project?.guardianId) return []
     const prefix = `${project.guardianId}:`
     const out: ProjectSubGoal[] = []

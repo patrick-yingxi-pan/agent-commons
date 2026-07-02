@@ -796,7 +796,9 @@ export function buildRouter(): Router {
     if (!commissionId || !subGoal || typeof target !== 'string' || !PROJECT_EFFECT_TYPES.includes(type)) {
       return sendError(res, 'bad_request', 'commissionId, subGoal, target, and a valid type are required')
     }
-    if (!store.listProjects().some((p) => p.id === params.id)) {
+    // Resolve across both homes — a shared CREATED Project (P8) is guardable/cooperable now, so
+    // its effects must be reachable here (was seed-only `listProjects()`, which 404'd them).
+    if (!store.findProject(params.id)) {
       return sendError(res, 'not_found', `No project '${params.id}'`)
     }
     const reaches = type.startsWith('connector.') || type.startsWith('mcp.')

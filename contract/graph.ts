@@ -173,10 +173,17 @@ export function applyGraphOp(
       // opDeniedForTenant, which refuses a non-owner). A real graph edit (unlike the
       // store-executed commons ops below). Only created Projects live in extraProjects, so
       // this is a no-op for a seed id (seed Projects aren't shareable in this slice).
+      // Sharing turns the Project into a COORDINATED shared resource (D11): it gains a
+      // `guardianId` (= its own id, the seed convention) so cross-tenant Contributors
+      // serialize on its sub-goals and the D11 guardian / D12 clamp tier can reach it (the
+      // Phase-2 cooperation bridge). Kept on un-share so in-flight reservations aren't
+      // orphaned mid-flight; re-sharing reuses the same namespace.
       return {
         ...graph,
         extraProjects: graph.extraProjects.map((p) =>
-          p.id === op.projectId ? { ...p, shared: op.shared } : p,
+          p.id === op.projectId
+            ? { ...p, shared: op.shared, guardianId: op.shared ? (p.guardianId ?? op.projectId) : p.guardianId }
+            : p,
         ),
       }
     // Agent Commons CRUD (create-provider / -prompt / -agent, (un)commission-agent) are

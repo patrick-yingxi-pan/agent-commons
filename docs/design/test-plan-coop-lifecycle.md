@@ -37,6 +37,15 @@ tier uses `listProjects()`/`guardianId`, which is why cooperation doesn't.
 (membership) are lockable now; stage C (cooperation) needs a *bridge* build before
 it can be tested cross-tenant; stage D (completion) is unbuilt **and** undesigned.
 
+> **UPDATE (Phase 2a, 2026-07-02) — bridged.** Sharing a Project now assigns a
+> `guardianId`, all six cooperation methods + the effect route resolve via
+> `findProject`, and the D12 clamp reads the admitted set from the authoritative
+> `graph.projectContexts`. Membership and the cooperation runtime now **meet** for
+> the D11 guardian / D12 clamp / D14 roles tier — locked cross-tenant by
+> `tests/cross-tenant-runtime.test.ts` (C1–C5, C12). What remains for Stage C is the
+> **authorization + accounting** layer (Phase 2b: caller-identity on the effect
+> routes, owner-pays metering, audit tenant).
+
 ## 1. Lifecycle stages (the workflow, decomposed)
 
 ```
