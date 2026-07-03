@@ -24,6 +24,7 @@ import type {
   SystemPromptEntry,
 } from '../../contract/index.ts'
 import type { ProviderConfig } from '../data/providers.ts'
+import type { AccountUser, AccountTenant, Membership } from '../accounts.ts'
 import { join } from 'node:path'
 
 /** On-disk schema version. A snapshot whose version doesn't match is ignored (the
@@ -86,6 +87,14 @@ export interface PersistedState {
    *  keeps the seed feed); a live run persists so it survives a restart, and a run left
    *  `running` when the process died is swept to `failed` on rehydrate (crash recovery). */
   dispatch?: DispatchRun[]
+  /** The account registry (multi-account P7 — real onboarded accounts): users
+   *  (with their server-only scrypt credential), tenants/workspaces, and
+   *  memberships. Additive-optional like `dispatch` (a pre-P7 snapshot loads
+   *  cleanly; rehydrate keeps the seeds); the seeds are re-ensured on load so a
+   *  snapshot can never lose the dev-switcher directory. */
+  accountUsers?: [string, AccountUser][]
+  accountTenants?: [string, AccountTenant][]
+  memberships?: Membership[]
   seq: {
     session: number
     message: number
@@ -101,6 +110,9 @@ export interface PersistedState {
     /** Dispatch run id counter (P7). Optional so a pre-field snapshot loads (falls back to
      *  the seed counter). */
     dispatch?: number
+    /** Account registry counters (multi-account P7). Optional like the slices. */
+    user?: number
+    tenant?: number
   }
 }
 
@@ -129,6 +141,9 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   commissionCaps: 'mapEntries',
   auditLog: 'array',
   dispatch: 'array',
+  accountUsers: 'mapEntries',
+  accountTenants: 'mapEntries',
+  memberships: 'array',
   seq: 'singleton',
 }
 

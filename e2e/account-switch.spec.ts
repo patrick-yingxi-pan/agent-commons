@@ -103,14 +103,19 @@ test('a mid-generation account switch: the turn survives, the other tenant sees 
   expect(full.messages[1].content).toContain(REPLY_MARKER)
 })
 
-test('the switcher lists the seeded identities and a same-account pick is a no-op', async ({ page }) => {
+test('the menu splits real memberships from the seed directory; an active-workspace pick is a no-op', async ({ page }) => {
   await page.goto('/')
   await dismissIntro(page)
   await page.getByTestId('account-chip').click()
-  const options = page.getByTestId('account-option')
-  await expect(options).toHaveCount(3) // ada@acme, grace@acme, grace@tenant-beta
-  await expect(options.filter({ hasText: 'Ada Lovelace' })).toContainText('Active')
-  // Picking the already-active account closes the menu and changes nothing.
-  await options.filter({ hasText: 'Ada Lovelace' }).click()
+  // Your workspaces (P7): Ada's REAL memberships — acme only, marked Active.
+  const workspaces = page.getByTestId('workspace-option')
+  await expect(workspaces).toHaveCount(1)
+  await expect(workspaces.filter({ hasText: 'Acme' })).toContainText('Active')
+  // The dev seed directory shows OTHER principals only (no duplicate of self).
+  const seeds = page.getByTestId('account-option')
+  await expect(seeds).toHaveCount(2) // grace@acme, grace@tenant-beta
+  await expect(seeds.filter({ hasText: 'Ada' })).toHaveCount(0)
+  // Picking the already-active workspace closes the menu and changes nothing.
+  await workspaces.first().click()
   await expect(page.getByTestId('account-chip')).toContainText('Ada Lovelace')
 })

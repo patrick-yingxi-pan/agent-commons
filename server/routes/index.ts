@@ -27,6 +27,7 @@ import { timingSafeEqual } from 'node:crypto'
 import { Router } from '../http/router.ts'
 import { sendJson, sendError, sendBytes, sendJsonCached, sendText, headerValue, BASE_HEADERS, type Ctx } from '../http/respond.ts'
 import { SESSION_COOKIE, identityHeadersAllowed, sessionClearCookie, sessionSetCookie, signSession } from '../auth.ts'
+import { accounts } from '../accounts.ts'
 import { openSse } from '../http/sse.ts'
 import { store, type GenerationOutcome } from '../store.ts'
 import { IdempotencyCache, captureResponse, replayResponse } from '../idempotency.ts'
@@ -48,6 +49,9 @@ import type {
   ProjectEffectRequest,
   PromptProbeRequest,
   ProxyRequest,
+  SignUpRequest,
+  LoginRequest,
+  CreateWorkspaceRequest,
   ReserveRequest,
   SetCapacityRequest,
   SyncEffectsRequest,
@@ -297,16 +301,26 @@ export function buildRouter(): Router {
     }
     const { userId, tenantId } = await body<{ userId?: string; tenantId?: string }>()
     const backend = store.capabilities().backend
+    // Two mint paths, both directory-validated (role NEVER rides in the claims):
+    //   • a SEED pick from GET /v1/identities (the dev switcher), or
+    //   • a WORKSPACE re-mint (P7): the currently-authenticated user switching to
+    //     another tenant they hold a real membership in — how an onboarded
+    //     account moves between its workspaces (real accounts aren't in the
+    //     public directory; enumeration stays impossible).
     const row = listIdentities(backend).find((i) => i.userId === userId && i.tenantId === tenantId)
-    // Only directory identities are mintable — the credential can't name an
-    // account the seam wouldn't resolve (and role NEVER rides in the claims).
-    if (!row) {
-      return sendError(res, 'bad_request', 'Unknown identity — pick one of GET /v1/identities.')
+    let mint: { userId: string; tenantId: string } | null = row ? { userId: row.userId, tenantId: row.tenantId } : null
+    if (!mint && tenantId) {
+      const current = store.identity(req.headers)
+      const m = accounts.membership(current.user.id, tenantId)
+      if (m && (!userId || userId === current.user.id)) mint = { userId: current.user.id, tenantId }
     }
-    const token = signSession({ userId: row.userId, tenantId: row.tenantId, iat: Date.now() })
+    if (!mint) {
+      return sendError(res, 'bad_request', 'Unknown identity — pick one of GET /v1/identities, or a workspace you belong to.')
+    }
+    const token = signSession({ ...mint, iat: Date.now() })
     res.setHeader('Set-Cookie', sessionSetCookie(token))
     // Resolve through the same path every future request takes (cookie-first),
-    // not by trusting `row` — the response IS the seam's answer. The echo
+    // not by trusting the pick — the response IS the seam's answer. The echo
     // middleware stamped the PRE-mint identity (the request arrived as the old
     // account); this response is ABOUT the new one, so re-stamp for header/body
     // coherence — the client's tripwire asserts against the account it just picked.
@@ -317,6 +331,63 @@ export function buildRouter(): Router {
   r.delete('/auth/session', ({ res }) => {
     res.setHeader('Set-Cookie', sessionClearCookie())
     res.writeHead(204, BASE_HEADERS).end()
+  })
+
+  // ── Onboarding (multi-account P7 — real, persisted accounts) ────────────────
+  // Signup creates a user + their personal workspace in the ACCOUNT REGISTRY
+  // (server/accounts.ts — scrypt credential, persisted across restarts) and signs
+  // them in immediately (same P6 cookie; the response carries the resolved
+  // Identity and re-stamps the echo, exactly like a switch). Login verifies the
+  // credential constant-time; failure is ONE `unauthorized`, whatever the reason
+  // — the response must not leak whether the email exists.
+  const mintAndRespond = (req: IncomingMessage, res: ServerResponse, userId: string, tenantId: string) => {
+    const token = signSession({ userId, tenantId, iat: Date.now() })
+    res.setHeader('Set-Cookie', sessionSetCookie(token))
+    const minted = store.identity({ ...req.headers, cookie: `${SESSION_COOKIE}=${token}` })
+    res.setHeader('x-resolved-tenant', minted.tenant.id)
+    sendJson(res, minted)
+  }
+  const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  r.post('/auth/signup', async ({ req, res, body }) => {
+    const { name, email, password } = await body<SignUpRequest>()
+    if (!name?.trim()) return sendError(res, 'bad_request', 'A display name is required.')
+    if (!email || !EMAIL_SHAPE.test(email.trim())) return sendError(res, 'bad_request', 'A valid email is required.')
+    // Bounded above too: scrypt cost scales with input length, so an unbounded
+    // password is a cheap CPU-burn vector, not extra security.
+    if (!password || password.length < 8 || password.length > 128) {
+      return sendError(res, 'bad_request', 'Password must be 8–128 characters.')
+    }
+    const created = accounts.createUser(name, email, password)
+    if (!created) return sendError(res, 'conflict', 'An account with this email already exists — sign in instead.')
+    store.accountsMutated() // real accounts persist across restarts (P7)
+    mintAndRespond(req, res, created.user.id, created.tenant.id)
+  })
+  r.post('/auth/login', async ({ req, res, body }) => {
+    const { email, password } = await body<LoginRequest>()
+    // The same scrypt-cost bound as signup; no valid account exceeds it, so the
+    // refusal is a plain (uniform) 401, not a distinguishable 400.
+    const bounded = !!email && !!password && password.length <= 128
+    const user = bounded ? accounts.verifyPassword(email, password) : null
+    // One code for every failure mode — account existence must not leak.
+    if (!user) return sendError(res, 'unauthorized', 'Invalid email or password.')
+    const home = accounts.workspacesOf(user.id)[0]
+    if (!home) return sendError(res, 'unauthorized', 'Invalid email or password.')
+    mintAndRespond(req, res, user.id, home.tenant.id)
+  })
+
+  // The signed-in account's workspaces (the chip menu's switch targets) + create.
+  r.get('/me/workspaces', ({ req, res }) => {
+    const me = store.identity(req.headers)
+    sendJson(res, accounts.workspacesOf(me.user.id))
+  })
+  r.post('/workspaces', async ({ req, res, body }) => {
+    const { name } = await body<CreateWorkspaceRequest>()
+    if (!name?.trim()) return sendError(res, 'bad_request', 'A workspace name is required.')
+    const me = store.identity(req.headers)
+    const tenant = accounts.createWorkspace(me.user.id, name)
+    if (!tenant) return sendError(res, 'bad_request', 'No such user.')
+    store.accountsMutated()
+    sendJson(res, tenant, 201)
   })
 
   // ── Ops: liveness + readiness (design F6 — the autoscaled web tier) ──────────

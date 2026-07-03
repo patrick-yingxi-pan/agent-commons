@@ -87,6 +87,7 @@ import { DEFAULT_AGENT } from './data/workers.ts'
 import { EMPTY_WORKSPACE, workspaceFromSeed } from './workspace.ts'
 import { STORE_VERSION, loadState, saveState, type PersistedState } from './persist.ts'
 import { eventlog } from './eventlog.ts'
+import { accounts } from './accounts.ts'
 
 /** An ambient-event subscriber. `seq` is the event's global sequence number
  *  (server/eventlog.ts — the SSE `id:` field that makes the stream resumable);
@@ -565,6 +566,7 @@ let draining = false
 
 /** Snapshot the mutable, UI-owned state for the on-disk format. */
 function snapshot(): PersistedState {
+  const persistedAccounts = accounts.toPersisted()
   return {
     version: STORE_VERSION,
     sessions: SESSIONS,
@@ -588,6 +590,11 @@ function snapshot(): PersistedState {
     ),
     auditLog, // D15/OQ7 — the cross-user effect trail (append-only)
     dispatch, // P7 — one-off dispatch runs (a live run survives a restart)
+    // The account registry (multi-account P7): onboarded users (scrypt
+    // credential included — it must survive a restart), workspaces, memberships.
+    accountUsers: persistedAccounts.users,
+    accountTenants: persistedAccounts.tenants,
+    memberships: persistedAccounts.memberships,
     seq: {
       session: sessionSeq,
       message: messageSeq,
@@ -600,6 +607,8 @@ function snapshot(): PersistedState {
       commission: commissionSeq,
       audit: auditSeq,
       dispatch: dispatchSeq,
+      user: persistedAccounts.seq.user,
+      tenant: persistedAccounts.seq.tenant,
     },
   }
 }
@@ -671,6 +680,14 @@ function rehydrate(s: PersistedState): void {
       run.detail = 'Interrupted by a server restart'
     }
   }
+  // The account registry (multi-account P7): restore onboarded accounts (the
+  // seeds are re-ensured inside — a snapshot can't lose the switcher directory).
+  accounts.rehydrate({
+    users: s.accountUsers,
+    tenants: s.accountTenants,
+    memberships: s.memberships,
+    seq: { user: s.seq.user, tenant: s.seq.tenant },
+  })
   sessionSeq = s.seq.session
   messageSeq = s.seq.message
   scheduleSeq = s.seq.schedule
@@ -876,6 +893,13 @@ export const store = {
   },
   /** Publish a domain event to every open ambient SSE channel. */
   emit,
+
+  /** The account registry changed (a signup, a new workspace — multi-account
+   *  P7): persist, so real accounts survive a restart. The registry itself is a
+   *  singleton (server/accounts.ts); the store owns WHEN it hits disk. */
+  accountsMutated(): void {
+    persist()
+  },
 
   // ── Sessions ──
   /** The lightweight list rows (no message bodies) for the sidebar/search. */

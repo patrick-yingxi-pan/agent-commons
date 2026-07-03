@@ -12,6 +12,7 @@ import {
   activeAccount,
   accountGeneration,
   switchAccount,
+  refreshAccount,
   onAccountSwitch,
 } from '../src/api/account.ts'
 
@@ -55,6 +56,12 @@ test('switchAccount: bumps the generation, notifies subscribers, no-ops on the s
     assert.equal(activeAccount(), null, 'null = back to whatever the session/backend default resolves')
     assert.equal(accountGeneration(), gen0 + 3)
     assert.equal(notified, 3)
+
+    // refreshAccount bypasses the no-op guard: the SERVER session changed even
+    // though the belief didn't (the reload-then-sign-out case, P7).
+    refreshAccount(null)
+    assert.equal(accountGeneration(), gen0 + 4, 'a session-changing op always bumps')
+    assert.equal(notified, 4, '…and always notifies (the stream must re-bind to the new cookie)')
   } finally {
     off()
     switchAccount(null)

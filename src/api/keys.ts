@@ -9,6 +9,8 @@ export const keys = {
   me: 'me',
   /** The seeded accounts the dev switcher may act as (multi-account §5.6). */
   identities: 'identities',
+  /** The signed-in account's workspaces (P7 — the chip menu's switch targets). */
+  meWorkspaces: 'me-workspaces',
   providers: 'providers',
   systemPrompts: 'system-prompts',
   /** Worker Agents (docs/agent-commons.md, D6). Distinct from `runners` below — whose
@@ -55,6 +57,12 @@ export const paths = {
   identities: '/identities',
   /** Mint (POST) / clear (DELETE) the verified session cookie (multi-account P6). */
   authSession: '/auth/session',
+  /** Onboarding (P7): create a real, persisted account / sign one in. */
+  authSignup: '/auth/signup',
+  authLogin: '/auth/login',
+  /** The signed-in account's workspaces + workspace creation (P7). */
+  meWorkspaces: '/me/workspaces',
+  workspaces: '/workspaces',
   /** Reattach to a live server-owned turn (multi-account §5.2): replay after
    *  `after`, then the live tail. 404 once persisted (refetch the session). */
   turnStream: (id: string, turnId: string, after: number) =>

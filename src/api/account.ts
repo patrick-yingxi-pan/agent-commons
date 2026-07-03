@@ -45,6 +45,15 @@ export function accountGeneration(): number {
  *  Idempotent for a same-account no-op. */
 export function switchAccount(next: Account | null): void {
   if (account?.userId === next?.userId && account?.tenantId === next?.tenantId) return
+  refreshAccount(next)
+}
+
+/** Like switchAccount but WITHOUT the same-account no-op guard — for operations
+ *  that changed the SERVER-side session regardless of the client's belief. The
+ *  load-bearing case: sign-out after a page RELOAD, where the in-memory pick is
+ *  null (the cookie carried the identity) — `switchAccount(null)` would no-op
+ *  and the world would keep rendering the signed-out account from cache. */
+export function refreshAccount(next: Account | null): void {
   account = next
   generation += 1
   for (const fn of listeners) fn()

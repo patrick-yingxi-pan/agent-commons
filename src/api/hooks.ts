@@ -3,11 +3,11 @@
  *  `useSessions()` and gains: a real fetch, a loading/error state, and live
  *  updates when the server pushes a change. Hooks grow per resource as reads
  *  migrate; Phase 1 covers capabilities + sessions. */
-import { useQuery, resetAll, type QueryState } from './cache.ts'
-import { API_BASE, apiGet, apiUrl } from './client.ts'
+import { useQuery, resetAll, invalidate, peek, type QueryState } from './cache.ts'
+import { API_BASE, apiGet, apiPost, apiUrl } from './client.ts'
 import { keys, paths } from './keys.ts'
-import { switchAccount, accountGeneration, type Account } from './account.ts'
-import type { IdentitySummary } from '../../contract/index.ts'
+import { switchAccount, refreshAccount, accountGeneration, type Account } from './account.ts'
+import type { IdentitySummary, Tenant as TenantT, TenantRole as TenantRoleT } from '../../contract/index.ts'
 import type {
   Runner,
   Agent,
@@ -76,6 +76,56 @@ export function useIdentities(enabled: boolean): QueryState<IdentitySummary[]> {
  *    3. `resetAll` — every cached read refetches as the new account.
  *  A failed mint changes nothing (no partial switch); a same-account pick is a
  *  no-op. Passing null signs out (DELETE — back to the backend default). */
+/** The signed-in account's workspaces (P7) — the chip menu's real switch
+ *  targets, distinct from the seeded dev directory (`useIdentities`). */
+export function useMyWorkspaces(enabled = true): QueryState<Array<{ tenant: TenantT; role: TenantRoleT }>> {
+  return useQuery(keys.meWorkspaces, () => apiGet<Array<{ tenant: TenantT; role: TenantRoleT }>>(paths.meWorkspaces), enabled)
+}
+
+/** Onboarding (P7): both endpoints mint the session cookie server-side; on
+ *  success the caller ADOPTS it — same choreography tail as a switch (the mint
+ *  already happened, so only the client half runs: generation bump → stream
+ *  re-bind → cache reset). Raw fetches, deliberately outside client.ts's
+ *  wrapper: an auth transition is definitionally cross-identity and the
+ *  wrapper's echo tripwire would (correctly) flag its response. Failures
+ *  surface as the server's message (a 409 duplicate email, a 401 bad
+ *  credential) for the form to show. */
+async function authFlow(path: string, body: unknown): Promise<{ ok: true } | { ok: false; message: string }> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const json = await res.json().catch(() => undefined)
+  if (!res.ok) return { ok: false, message: json?.error?.message ?? `Failed (${res.status})` }
+  adoptMintedSession({ userId: json.user.id, tenantId: json.tenant.id })
+  return { ok: true }
+}
+
+export const signUp = (name: string, email: string, password: string) =>
+  authFlow(paths.authSignup, { name, email, password })
+export const signIn = (email: string, password: string) => authFlow(paths.authLogin, { email, password })
+
+/** Create an org workspace under the signed-in account and switch into it. */
+export async function createWorkspace(name: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    const tenant = await apiPost<TenantT>(paths.workspaces, { name })
+    invalidate(keys.meWorkspaces)
+    const me = peek<Identity>(keys.me)
+    await switchActiveAccount({ userId: me?.user.id ?? '', tenantId: tenant.id })
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : 'Failed to create workspace' }
+  }
+}
+
+/** The client half of a switch whose session the SERVER already minted (a
+ *  signup/login response set the cookie): record the pick and reset the world. */
+export function adoptMintedSession(next: Account): void {
+  switchAccount(next)
+  resetAll()
+}
+
 /** True while a switch's mint round-trip is in flight — a second pick is
  *  ignored rather than raced: interleaved `Set-Cookie` responses could land in
  *  either order, leaving the cookie and the client's belief disagreeing (the
@@ -106,9 +156,13 @@ async function performSwitch(next: Account | null): Promise<boolean> {
     return false
   }
   if (accountGeneration() !== before) return false // a concurrent switch won the race
-  switchAccount(next)
-  // A same-account pick is a no-op — don't blow the cache away for nothing.
-  if (accountGeneration() !== before) resetAll()
+  // The SERVER session changed (a mint or a sign-out landed) — always refresh,
+  // bypassing switchAccount's same-account no-op: after a page reload the
+  // in-memory pick is null while the cookie carries the identity, so a
+  // sign-out (null → null) would otherwise never reset the world. The UI's
+  // active-row guard is what prevents pointless same-account mints.
+  refreshAccount(next)
+  resetAll()
   return true
 }
 

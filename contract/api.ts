@@ -197,9 +197,35 @@ export interface ApiError {
 
 export type ApiErrorCode =
   | 'bad_request'
+  /** Sign-in failed (P7 onboarding): deliberately one code for "no such email"
+   *  and "wrong password" — the response must not leak account existence. */
+  | 'unauthorized'
   | 'not_found'
   | 'forbidden'
   | 'conflict'
   | 'capability_unavailable'
   | 'limit_exceeded'
   | 'internal'
+
+/** Body of `POST /v1/auth/signup` (P7 onboarding) — creates a real, persisted
+ *  account (user + their personal workspace) and signs it in (the response sets
+ *  the P6 session cookie and carries the resolved `Identity`). */
+export interface SignUpRequest {
+  name: string
+  email: string
+  /** Hashed server-side (scrypt); never stored or logged in the clear. */
+  password: string
+}
+
+/** Body of `POST /v1/auth/login` (P7) — sign in with a real account's
+ *  credential. Failure is a single `unauthorized`, whatever the reason. */
+export interface LoginRequest {
+  email: string
+  password: string
+}
+
+/** Body of `POST /v1/workspaces` (P7) — create an org workspace under the
+ *  signed-in account (the caller becomes its owner). Returns the `Tenant`. */
+export interface CreateWorkspaceRequest {
+  name: string
+}

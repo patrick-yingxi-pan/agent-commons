@@ -109,6 +109,7 @@ export function sendText(res: ServerResponse, text: string, contentType = 'text/
 
 const STATUS_FOR: Record<ApiErrorCode, number> = {
   bad_request: 400,
+  unauthorized: 401,
   not_found: 404,
   forbidden: 403,
   conflict: 409,

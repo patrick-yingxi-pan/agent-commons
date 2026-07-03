@@ -1,6 +1,9 @@
 # Multi-account UI — detailed design
 
-> **Status: BUILT (P0–P6, 2026-07-03)** — P5 (build log row 51) revised §5.6 by
+> **Status: BUILT (P0–P7, 2026-07-03)** — P7 (§11) added **real accounts**:
+> onboarding (signup/login, scrypt, constant-work failures), workspaces, and a
+> persisted account registry replacing the seeded constants.
+> Earlier phases: — P5 (build log row 51) revised §5.6 by
 > user direction: the switcher is **uniform across backends**, not remote-only.
 > Every backend honours the identity seam and advertises a directory; what
 > differs is what switches — the web's org principals vs the desktop's
@@ -406,3 +409,37 @@ What §9 promised, delivered — and what a deployment must still bring:
   horizontally needs sticky sessions (simplest) or shared pub/sub + a shared
   turn/event store (Redis-class). Recorded as a constraint rather than faked
   with a second in-process abstraction.
+
+## 11. Real accounts (P7 — built)
+
+P6 made the credential real; P7 made the accounts behind it real. The seeded
+directory became the **account registry** (`server/accounts.ts`): users,
+tenants/workspaces, and memberships as store-owned entities — seeds are now just
+rows marked `seeded` — persisted as additive snapshot slices (scrypt credential
+included) so onboarded accounts survive restarts.
+
+- **Onboarding**: `POST /v1/auth/signup` (name/email/password → user + personal
+  workspace, scrypt per-user salt, auto sign-in on the P6 cookie) and
+  `POST /v1/auth/login`. Login failure is **uniform in body AND timing** — an
+  unknown email burns the same scrypt as a wrong password (the equalized 401
+  would otherwise fall to a timing oracle). Passwords are bounded 8–128 (scrypt
+  cost scales with input; unbounded length is a CPU-burn vector, not security).
+- **Workspaces**: `POST /v1/workspaces` + `GET /v1/me/workspaces`; the
+  `/auth/session` mint gained a second path — re-mint into any tenant the caller
+  holds a REAL membership in (a foreign workspace refuses, so workspaces aren't
+  enumerable-by-switching). `/v1/identities` stays seeds-only: real accounts are
+  never enumerable — they sign in.
+- **Resolution tightened**: cookie claims resolve strictly against the registry
+  (user must exist, membership must hold); a stale credential resolves to
+  NOTHING and falls through. The dev header seam keeps its historical looseness
+  on purpose — that looseness is exactly what `IDENTITY_HEADERS=deny` turns off.
+- **UI**: the chip menu (`AccountMenu.tsx`) — your workspaces (re-mint picks),
+  the dev seed directory (self-rows elided), inline sign-in / create-account /
+  new-workspace forms, sign out. One reload edge is load-bearing and locked:
+  after a reload the in-memory pick is null while the cookie carries the
+  identity, so sign-out must bypass the same-account no-op (`refreshAccount`) —
+  the SERVER session changed even though the client's belief didn't.
+- **Named follow-ons (not half-built)**: org invites / joining another user's
+  workspace, email verification (also the mitigation for signup's inherent
+  409-reveals-existence tradeoff), password reset. An IdP deployment replaces
+  the credential endpoints; the registry is what carries over.
