@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { CalendarClock, Folder, PanelLeft } from 'lucide-react'
 import { Sidebar } from './components/Sidebar'
+import { AuthScreen } from './components/auth/AuthScreen'
+import { useAuthScreen } from './controller/useAuthScreen'
+import type { Capabilities, Identity } from '../contract/index.ts'
 import { Composer } from './components/Composer'
 import { MessageRow, TypingRow } from './components/Message'
 import { CompactionAffordance } from './components/CompactionAffordance'
@@ -17,7 +20,7 @@ import { TourPermissionPrompt } from './components/TourPermissionPrompt'
 import { ProposalBar } from './components/ProposalBar'
 import { SearchPanel } from './components/SearchPanel'
 import { AddContextButton } from './components/AddContextButton'
-import { useSessions, useServerEvents } from './api'
+import { useCapabilities, useMe, useSessions, useServerEvents } from './api'
 import { estimateTokens } from '../contract/index.ts'
 import { useSessionWorkspace } from './controller/useSessionWorkspace'
 import { useLayout } from './controller/useLayout'
@@ -26,13 +29,47 @@ import { useViewport } from './lib/viewport'
 import type { Live } from './data/liveSession'
 import type { AddedContext, Connector, SectionId, Session } from './types'
 
+/** The shell: decides WHICH top-level surface renders — the full-screen auth
+ *  flow (multi-account §12) or the workspace. The auth screen shows when the
+ *  backend's AUTH GATE applies (`features.authGate` + an identity that isn't a
+ *  verified session) or when the user opened it (sign in / create account /
+ *  add account / after sign-out — useAuthScreen). It REPLACES the workspace
+ *  frame — a dedicated onboarding surface, not a dialog over the product. */
+export default function App() {
+  const caps = useCapabilities().data
+  const me = useMe().data
+  const authView = useAuthScreen()
+  // Lifted ABOVE the surface switch: the intro must not replay every time the
+  // auth screen swaps the workspace out and back (e.g. "Add account…" mid-session).
+  const [showIntro, setShowIntro] = useState(true)
+  // An account switch resets the whole cache (useMe momentarily undefined) —
+  // hold the last known answers so the workspace doesn't unmount mid-switch.
+  const lastCaps = useRef<Capabilities | undefined>(undefined)
+  const lastMe = useRef<Identity | undefined>(undefined)
+  if (caps) lastCaps.current = caps
+  if (me) lastMe.current = me
+  const cap = caps ?? lastCaps.current
+  const ident = me ?? lastMe.current
+
+  // Boot: until the backend says who we are and whether the gate applies,
+  // render nothing rather than flash the wrong surface (one local round-trip).
+  if (!cap || !ident) return null
+
+  const gated = cap.features.authGate && ident.via !== 'session'
+  if (gated || authView) {
+    // Gated with no explicit view: land on the picker — it falls through to
+    // the sign-in form when no account is remembered on this browser.
+    return <AuthScreen view={authView ?? { kind: 'picker' }} gated={gated} />
+  }
+  return <Workspace showIntro={showIntro} onShowIntro={setShowIntro} />
+}
+
 /** The View: composes the product chrome from two controllers — the session +
  *  its live workspace, and the rail layout — holding only local view chrome
  *  (the intro overlay and the search palette toggle). All business logic lives
  *  in the controllers (controller/) and the model (data/). */
-export default function App() {
+function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro: (v: boolean) => void }) {
   const [searchOpen, setSearchOpen] = useState(false)
-  const [showIntro, setShowIntro] = useState(true)
   // A scheduled-run session's right panel (the run switcher) is open by default;
   // closing it is per-session, so switching threads re-opens it.
   const [runsPanelOpen, setRunsPanelOpen] = useState(true)
@@ -163,7 +200,7 @@ export default function App() {
               A dark band holding the concept label, "About this proposal", and
               the guided tour, so the product below can read like a real app. ===== */}
       <div className="shrink-0 bg-ink text-canvas">
-        <ProposalBar onAbout={() => setShowIntro(true)} />
+        <ProposalBar onAbout={() => onShowIntro(true)} />
         {/* The caption bar normally hides when a section is open — but during the
             running tour the create-project beat sends the user to the project page,
             so keep it visible there so "Next" can bring them back. */}
@@ -429,9 +466,9 @@ export default function App() {
           A plain conditional unmounts instantly; the entrance still animates. */}
       {showIntro && (
         <IntroOverlay
-          onClose={() => setShowIntro(false)}
+          onClose={() => onShowIntro(false)}
           onStartTour={() => {
-            setShowIntro(false)
+            onShowIntro(false)
             startDemoTour()
           }}
         />

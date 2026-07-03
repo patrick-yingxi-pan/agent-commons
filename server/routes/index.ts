@@ -26,7 +26,19 @@ import type {
 import { timingSafeEqual } from 'node:crypto'
 import { Router } from '../http/router.ts'
 import { sendJson, sendError, sendBytes, sendJsonCached, sendText, headerValue, BASE_HEADERS, type Ctx } from '../http/respond.ts'
-import { SESSION_COOKIE, identityHeadersAllowed, sessionClearCookie, sessionSetCookie, signSession } from '../auth.ts'
+import {
+  SESSION_COOKIE,
+  STACK_COOKIE,
+  identityHeadersAllowed,
+  parseCookies,
+  sessionClearCookie,
+  sessionSetCookie,
+  signSession,
+  stackSetCookie,
+  stackWith,
+  stackWithout,
+  verifyStack,
+} from '../auth.ts'
 import { accounts } from '../accounts.ts'
 import { openSse } from '../http/sse.ts'
 import { store, type GenerationOutcome } from '../store.ts'
@@ -45,6 +57,7 @@ import { ConflictError } from '../conflict.ts'
 import { LimitError } from '../limit.ts'
 import { isMonotonic, isProjectEffectMonotonic, PROJECT_EFFECT_TYPES, PROJECT_ROLES } from '../../contract/index.ts'
 import type {
+  AuthAccount,
   CapabilityRequest,
   ProjectEffectRequest,
   PromptProbeRequest,
@@ -295,18 +308,44 @@ export function buildRouter(): Router {
   // where the IdP callback lands — the wire shape is already right. DELETE signs
   // out. Both respond with what /me would now say, so the client can confirm the
   // switch from the same response (one round-trip, and it's server truth).
+  /** Mint the active session for (userId, tenantId) and answer with the resolved
+   *  Identity. Resolution goes through the same path every future request takes
+   *  (cookie-first), not by trusting the pick — the response IS the seam's
+   *  answer; the echo is re-stamped for header/body coherence (the request
+   *  arrived as the OLD account, the response is ABOUT the new one).
+   *
+   *  The account STACK (multi-account §12 — GitHub-style remembered accounts)
+   *  rides a second signed cookie: `join` ADDS this account (a real sign-in /
+   *  sign-up); otherwise only an account ALREADY remembered gets its entry
+   *  refreshed (last-active tenant, fresh iat) — a seed/dev pick never leaks
+   *  into the remembered-accounts list. */
+  const mintSession = (req: IncomingMessage, res: ServerResponse, userId: string, tenantId: string, join: boolean) => {
+    const token = signSession({ userId, tenantId, iat: Date.now() })
+    const stack = verifyStack(parseCookies(headerValue(req.headers, 'cookie'))[STACK_COOKIE])
+    const remembered = join || stack.some((e) => e.userId === userId)
+    const cookies = [sessionSetCookie(token)]
+    if (remembered) cookies.push(stackSetCookie(stackWith(stack, { userId, tenantId, iat: Date.now() })))
+    res.setHeader('Set-Cookie', cookies)
+    const minted = store.identity({ ...req.headers, cookie: `${SESSION_COOKIE}=${token}` })
+    res.setHeader('x-resolved-tenant', minted.tenant.id)
+    sendJson(res, minted)
+  }
   r.post('/auth/session', async ({ req, res, body }) => {
     if (!store.capabilities().features.identitySwitch) {
       return sendError(res, 'capability_unavailable', 'Account switching is disabled on this backend.')
     }
     const { userId, tenantId } = await body<{ userId?: string; tenantId?: string }>()
     const backend = store.capabilities().backend
-    // Two mint paths, both directory-validated (role NEVER rides in the claims):
-    //   • a SEED pick from GET /v1/identities (the dev switcher), or
+    // Three mint paths, all directory-validated (role NEVER rides in the claims):
+    //   • a SEED pick from GET /v1/identities (the dev switcher),
     //   • a WORKSPACE re-mint (P7): the currently-authenticated user switching to
     //     another tenant they hold a real membership in — how an onboarded
     //     account moves between its workspaces (real accounts aren't in the
-    //     public directory; enumeration stays impossible).
+    //     public directory; enumeration stays impossible), or
+    //   • an ACCOUNT-STACK pick (§12): a `userId` the signed stack cookie
+    //     remembers — an account that signed in on this browser switches back
+    //     WITHOUT re-entering its credential (GitHub-style). The registry still
+    //     validates the landing tenant; the stack only proves "signed in here".
     const row = listIdentities(backend).find((i) => i.userId === userId && i.tenantId === tenantId)
     let mint: { userId: string; tenantId: string } | null = row ? { userId: row.userId, tenantId: row.tenantId } : null
     if (!mint && tenantId) {
@@ -314,23 +353,58 @@ export function buildRouter(): Router {
       const m = accounts.membership(current.user.id, tenantId)
       if (m && (!userId || userId === current.user.id)) mint = { userId: current.user.id, tenantId }
     }
-    if (!mint) {
-      return sendError(res, 'bad_request', 'Unknown identity — pick one of GET /v1/identities, or a workspace you belong to.')
+    if (!mint && userId) {
+      const stack = verifyStack(parseCookies(headerValue(req.headers, 'cookie'))[STACK_COOKIE])
+      const entry = stack.find((e) => e.userId === userId)
+      if (entry) {
+        // The requested tenant if the membership holds, else where the account
+        // left off, else its first workspace — strictly registry-validated.
+        const valid = (t: string | undefined) => (t && accounts.membership(userId, t) ? t : undefined)
+        const target = valid(tenantId) ?? valid(entry.tenantId) ?? accounts.workspacesOf(userId)[0]?.tenant.id
+        if (target) mint = { userId, tenantId: target }
+      }
     }
-    const token = signSession({ ...mint, iat: Date.now() })
-    res.setHeader('Set-Cookie', sessionSetCookie(token))
-    // Resolve through the same path every future request takes (cookie-first),
-    // not by trusting the pick — the response IS the seam's answer. The echo
-    // middleware stamped the PRE-mint identity (the request arrived as the old
-    // account); this response is ABOUT the new one, so re-stamp for header/body
-    // coherence — the client's tripwire asserts against the account it just picked.
-    const minted = store.identity({ ...req.headers, cookie: `${SESSION_COOKIE}=${token}` })
-    res.setHeader('x-resolved-tenant', minted.tenant.id)
-    sendJson(res, minted)
+    if (!mint) {
+      return sendError(
+        res,
+        'bad_request',
+        'Unknown identity — pick one of GET /v1/identities, a workspace you belong to, or an account signed in on this browser.',
+      )
+    }
+    mintSession(req, res, mint.userId, mint.tenantId, false)
   })
-  r.delete('/auth/session', ({ res }) => {
-    res.setHeader('Set-Cookie', sessionClearCookie())
+  // DELETE signs the ACTIVE account out: the session cookie clears and that
+  // account's stack entry is forgotten — the OTHER remembered accounts stay
+  // (GitHub's "sign out of one account"; the client then offers the remaining
+  // accounts on its picker). `?all=1` forgets every remembered account too.
+  r.delete('/auth/session', ({ req, res, url }) => {
+    const stack = verifyStack(parseCookies(headerValue(req.headers, 'cookie'))[STACK_COOKIE])
+    const me = store.identity(req.headers)
+    const next = url.searchParams.get('all') ? [] : me.via === 'session' ? stackWithout(stack, me.user.id) : stack
+    res.setHeader('Set-Cookie', [sessionClearCookie(), stackSetCookie(next)])
     res.writeHead(204, BASE_HEADERS).end()
+  })
+  // The accounts signed in on THIS browser (§12) — the switcher's instant-hop
+  // rows, resolved STRICTLY against the registry at read time: a stale entry
+  // (deleted user) drops; a revoked last-active membership falls back to the
+  // account's first remaining workspace. Never enumerates anything the stack
+  // cookie doesn't already prove was signed in here.
+  r.get('/auth/accounts', ({ req, res }) => {
+    const entries = verifyStack(parseCookies(headerValue(req.headers, 'cookie'))[STACK_COOKIE])
+    const me = store.identity(req.headers)
+    const rows: AuthAccount[] = []
+    for (const e of entries) {
+      const home = accounts.workspacesOf(e.userId)[0]
+      const resolved = accounts.identityFor(e.userId, e.tenantId) ?? (home ? accounts.identityFor(e.userId, home.tenant.id) : null)
+      if (!resolved) continue
+      rows.push({
+        user: resolved.user,
+        tenant: resolved.tenant,
+        role: resolved.role,
+        current: me.via === 'session' && me.user.id === e.userId,
+      })
+    }
+    sendJson(res, rows)
   })
 
   // ── Onboarding (multi-account P7 — real, persisted accounts) ────────────────
@@ -339,14 +413,9 @@ export function buildRouter(): Router {
   // them in immediately (same P6 cookie; the response carries the resolved
   // Identity and re-stamps the echo, exactly like a switch). Login verifies the
   // credential constant-time; failure is ONE `unauthorized`, whatever the reason
-  // — the response must not leak whether the email exists.
-  const mintAndRespond = (req: IncomingMessage, res: ServerResponse, userId: string, tenantId: string) => {
-    const token = signSession({ userId, tenantId, iat: Date.now() })
-    res.setHeader('Set-Cookie', sessionSetCookie(token))
-    const minted = store.identity({ ...req.headers, cookie: `${SESSION_COOKIE}=${token}` })
-    res.setHeader('x-resolved-tenant', minted.tenant.id)
-    sendJson(res, minted)
-  }
+  // — the response must not leak whether the email exists. Both JOIN the account
+  // stack (§12): a credentialed sign-in is what makes an account "remembered on
+  // this browser" for the switcher's instant hops.
   const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
   r.post('/auth/signup', async ({ req, res, body }) => {
     const { name, email, password } = await body<SignUpRequest>()
@@ -360,7 +429,7 @@ export function buildRouter(): Router {
     const created = accounts.createUser(name, email, password)
     if (!created) return sendError(res, 'conflict', 'An account with this email already exists — sign in instead.')
     store.accountsMutated() // real accounts persist across restarts (P7)
-    mintAndRespond(req, res, created.user.id, created.tenant.id)
+    mintSession(req, res, created.user.id, created.tenant.id, true)
   })
   r.post('/auth/login', async ({ req, res, body }) => {
     const { email, password } = await body<LoginRequest>()
@@ -372,7 +441,7 @@ export function buildRouter(): Router {
     if (!user) return sendError(res, 'unauthorized', 'Invalid email or password.')
     const home = accounts.workspacesOf(user.id)[0]
     if (!home) return sendError(res, 'unauthorized', 'Invalid email or password.')
-    mintAndRespond(req, res, user.id, home.tenant.id)
+    mintSession(req, res, user.id, home.tenant.id, true)
   })
 
   // The signed-in account's workspaces (the chip menu's switch targets) + create.

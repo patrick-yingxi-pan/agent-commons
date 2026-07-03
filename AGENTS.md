@@ -68,7 +68,9 @@ and store can't be trusted) with an isolated store (`DATA_FILE=.data/e2e-store.j
 `BACKEND=remote` (so Playwright browser contexts impersonate **tenants** via the identity
 headers — `e2e/co-author-article.spec.ts` is the two-tenant multi-tenancy regression — and
 the in-app **account switcher** is live: `e2e/account-switch.spec.ts` locks the
-switch-mid-generation crux of `docs/design/multi-account-ui.md`), and
+switch-mid-generation crux of `docs/design/multi-account-ui.md`, and
+`e2e/auth-wizard.spec.ts` + `e2e/onboarding.spec.ts` lock its §12 front door —
+the full-screen sign-up wizard and the multi-account stack), and
 a pinned local `ANTHROPIC_BASE_URL` (an ambient one would stand the mock model down);
 `e2e/*.spec.ts`. The store/route suites lock the logic, the E2E locks the wiring.
 E2E spec gotchas: the app **opens on the demo session** (click "New session" before

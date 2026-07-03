@@ -53,6 +53,12 @@ export interface Capabilities {
      *  switcher on this flag — never on env sniffing; a deployment may turn
      *  it off, and `GET /v1/identities` 409s where it's false. */
     identitySwitch: boolean
+    /** The production onboarding posture (multi-account §12; `AUTH_GATE=require`):
+     *  when true the UI hard-gates the workspace behind the full-screen auth
+     *  flow until the identity is VERIFIED (`Identity.via === 'session'`). Off
+     *  by default so the demo still boots straight into the workspace on the
+     *  backend's default principal; the auth flow itself exists either way. */
+    authGate: boolean
   }
 }
 

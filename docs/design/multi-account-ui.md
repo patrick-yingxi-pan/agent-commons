@@ -1,6 +1,12 @@
 # Multi-account UI — detailed design
 
-> **Status: BUILT (P0–P7, 2026-07-03)** — P7 (§11) added **real accounts**:
+> **Status: BUILT (P0–P8, 2026-07-03)** — P8 (§12) added the **front door**: a
+> dedicated full-screen auth flow (GitHub-style sign-in + stepped sign-up
+> wizard + account picker, replacing the chip menu's inline forms), the
+> **account stack** (a second signed cookie remembering every credentialed
+> sign-in, so the switcher hops between accounts instantly), `Identity.via`
+> (signed-in as a wire fact), and the `AUTH_GATE=require` production posture.
+> P7 (§11) added **real accounts**:
 > onboarding (signup/login, scrypt, constant-work failures), workspaces, and a
 > persisted account registry replacing the seeded constants.
 > Earlier phases: — P5 (build log row 51) revised §5.6 by
@@ -443,3 +449,78 @@ included) so onboarded accounts survive restarts.
   workspace, email verification (also the mitigation for signup's inherent
   409-reveals-existence tradeoff), password reset. An IdP deployment replaces
   the credential endpoints; the registry is what carries over.
+
+## 12. The front door: full-screen auth flow + the account stack (P8 — built)
+
+P7 built real accounts but left onboarding living in a sidebar popover — a
+cramped inline form inside the product frame. P8 gives auth a **dedicated,
+GitHub-style surface** and makes "multiple accounts on one browser" real
+(instant switching, not re-typing passwords).
+
+- **The full-screen auth surface** (`src/components/auth/AuthScreen.tsx`)
+  REPLACES the workspace frame while open — App.tsx renders one surface or the
+  other, never a dialog over the product. Three views, navigable in place
+  (view state in `src/controller/useAuthScreen.ts`, an external store so any
+  component can open it without prop-drilling): **Sign in** (email/password),
+  **Create account** — a stepped wizard (details → password with a live rule
+  checklist mirroring the server's 8–128 bound → workspace, with an optional
+  team-workspace input) that submits ONE atomic signup at the end (abandoning
+  mid-wizard creates nothing), and **Choose an account** — the remembered-
+  accounts picker. The wizard's step machine + password rules + shared form
+  primitives are framework-free (`src/lib/authFlow.ts`) so `node --test` locks
+  them; the sidebar menu's one remaining inline form (New workspace — no
+  identity transition) wears the same primitives (form follows function).
+- **The account stack** — GitHub-style multi-account. A SECOND signed HttpOnly
+  cookie (`uw_accounts`, `server/auth.ts`) remembers every account that
+  **signed in with a credential** on this browser (seed/dev picks never join),
+  newest first, deduped by user, capped (`STACK_MAX`), per-entry TTL. Each
+  entry records the account's **last-active tenant**, refreshed on every mint,
+  so a switch back lands where the account left off. New surface:
+  - `GET /v1/auth/accounts` → `AuthAccount[]` — the stack resolved STRICTLY
+    against the registry at read time (deleted user drops; a revoked
+    last-active membership falls back to the account's first workspace);
+    `current` marks the active session's account. Never enumerates anything
+    the cookie doesn't already prove signed in here.
+  - `POST /v1/auth/session { userId }` — the third mint path: a bare userId
+    the verified stack remembers re-mints the ACTIVE session **without a
+    credential** (the stack cookie is the proof of prior sign-in; the registry
+    still validates the landing tenant). Unknown/unstacked userIds refuse.
+  - `DELETE /v1/auth/session` now also forgets the ACTIVE account's stack
+    entry (sign out of one account; the others stay — the client then offers
+    them on the picker); `?all=1` forgets everything.
+- **Signed-in is now a wire fact**: `Identity.via: 'session' | 'headers' |
+  'default'` stamps HOW the identity resolved. Only `'session'` reads as
+  signed in — the auth gate and the account menu branch on it, never on
+  heuristics. (The default principal still answers ungated requests; that's
+  the demo posture, below.)
+- **The auth gate** (`AUTH_GATE=require` → `capabilities.features.authGate`):
+  the production posture — the workspace never renders for an unverified
+  identity; App.tsx shows the auth surface (picker → sign-in fallthrough) with
+  the back-to-workspace escape withheld. OFF by default so the demo still
+  boots straight into the workspace on the backend's default principal; the
+  auth flow itself exists either way (chip menu → Sign in / Create account /
+  Add account, and sign-out lands on the picker). A real deployment would
+  additionally 401 unauthenticated API reads — named follow-on, same class as
+  the IdP swap (§10); the UI gate is the product shape, the server gate is
+  deployment hardening.
+- **Menu → switcher completion**: the chip menu grew an **Accounts** section
+  (the stack, instant hops via the bare-userId mint) + "Add account…" (opens
+  the full-screen sign-in titled "Add another account" — the current account
+  stays signed in). The inline sign-in/sign-up forms are GONE from the menu
+  (they open the dedicated surface); sign-out is shown only when
+  `via === 'session'`.
+- **One remount edge, fixed and locked**: the auth surface swapping the
+  workspace out and back remounts it, so the intro overlay's state lifted to
+  the App shell — "Add account…" mid-session must not replay the intro
+  (`e2e/auth-wizard.spec.ts` exercises the round-trip; the overlay check rides
+  the onboarding spec's flow).
+- **Locked by**: `tests/auth-stack.test.ts` (cookie primitives: round-trip,
+  tamper→[], per-entry expiry, dedupe/cap), `tests/auth-accounts.test.ts`
+  (stack over the wire: join on signup/login, strict resolution, hop-back
+  lands on last-active tenant, credential-less mint refused without the stack,
+  sign-out forgets one/all, seed picks never join, `via` on the wire, the
+  `authGate` flag), `tests/auth-flow.test.ts` (wizard step machine, password
+  checklist, server-mirror of the email shape, the shared-primitive lock),
+  `e2e/onboarding.spec.ts` (rewritten against the wizard) +
+  `e2e/auth-wizard.spec.ts` (two accounts stack → instant hops → sign-out →
+  picker → hop back).

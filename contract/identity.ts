@@ -37,4 +37,27 @@ export interface Identity {
    *  multi-tenant web. The UI may read this to hide org-only surfaces, but the
    *  server is the authorization gate (it returns tenant-scoped data regardless). */
   local: boolean
+  /** How this identity was resolved (multi-account §12) — a VERIFIED session
+   *  credential (`'session'`), the dev header seam (`'headers'`), or the
+   *  backend's default principal (`'default'`). Only `'session'` means "signed
+   *  in"; the auth gate and the account UI branch on it. Optional so a mock or
+   *  an older server may omit it (the UI then treats the identity as unsigned). */
+  via?: IdentityVia
+}
+
+/** The resolution path an `Identity` arrived by — see `Identity.via`. */
+export type IdentityVia = 'session' | 'headers' | 'default'
+
+/** One row of `GET /v1/auth/accounts` — an account that signed in on THIS
+ *  browser (carried by the signed account-stack cookie, multi-account §12), the
+ *  way GitHub remembers signed-in accounts for its switcher. `tenant` is the
+ *  account's LAST-ACTIVE workspace (a switch back lands where you left off).
+ *  Stale entries (deleted user, revoked membership) are dropped server-side,
+ *  never guessed. */
+export interface AuthAccount {
+  user: User
+  tenant: Tenant
+  role: TenantRole
+  /** True for the account the current session credential resolves to. */
+  current: boolean
 }

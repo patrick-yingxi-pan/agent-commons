@@ -802,6 +802,10 @@ export const store = {
         // directory (web: org principals; desktop: the local user's
         // workspaces). Still a flag, so a deployment can turn it off.
         identitySwitch: true,
+        // The production onboarding posture (multi-account §12): require a
+        // VERIFIED sign-in before the workspace renders. Read per call (like
+        // identityHeadersAllowed) so tests can toggle it without reloads.
+        authGate: process.env.AUTH_GATE === 'require',
         scheduledExecution: true, // a remote server can run schedules too
         streaming: true,
       },

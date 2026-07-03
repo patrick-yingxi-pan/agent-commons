@@ -7,7 +7,7 @@ import { useQuery, resetAll, invalidate, peek, type QueryState } from './cache.t
 import { API_BASE, apiGet, apiPost, apiUrl } from './client.ts'
 import { keys, paths } from './keys.ts'
 import { switchAccount, refreshAccount, accountGeneration, type Account } from './account.ts'
-import type { IdentitySummary, Tenant as TenantT, TenantRole as TenantRoleT } from '../../contract/index.ts'
+import type { AuthAccount, IdentitySummary, Tenant as TenantT, TenantRole as TenantRoleT } from '../../contract/index.ts'
 import type {
   Runner,
   Agent,
@@ -82,6 +82,14 @@ export function useMyWorkspaces(enabled = true): QueryState<Array<{ tenant: Tena
   return useQuery(keys.meWorkspaces, () => apiGet<Array<{ tenant: TenantT; role: TenantRoleT }>>(paths.meWorkspaces), enabled)
 }
 
+/** The accounts signed in on THIS browser (multi-account §12) — the switcher's
+ *  instant-hop rows and the auth screen's "Choose an account" picker,
+ *  GitHub-style. Server-resolved from the signed account-stack cookie; empty
+ *  until a real sign-in / sign-up happens here (seed/dev picks don't count). */
+export function useAuthAccounts(enabled = true): QueryState<AuthAccount[]> {
+  return useQuery(keys.authAccounts, () => apiGet<AuthAccount[]>(paths.authAccounts), enabled)
+}
+
 /** Onboarding (P7): both endpoints mint the session cookie server-side; on
  *  success the caller ADOPTS it — same choreography tail as a switch (the mint
  *  already happened, so only the client half runs: generation bump → stream
@@ -132,25 +140,51 @@ export function adoptMintedSession(next: Account): void {
  *  echo tripwire would catch it loudly, but not starting the race is better). */
 let switching = false
 
-export async function switchActiveAccount(next: Account | null): Promise<boolean> {
+export function switchActiveAccount(next: Account | null): Promise<boolean> {
+  return guardedSwitch(next)
+}
+
+/** Instant hop to an account REMEMBERED on this browser (§12): POST the bare
+ *  userId — the server validates it against the signed stack cookie and lands
+ *  it on its last-active workspace. No credential re-entry (GitHub-style); the
+ *  stack cookie is the proof it already signed in here. */
+export function switchToAccount(userId: string): Promise<boolean> {
+  return guardedSwitch({ userId })
+}
+
+/** Sign the ACTIVE account out (its stack entry is forgotten server-side; the
+ *  other remembered accounts stay). `all` forgets every remembered account. */
+export function signOut(all = false): Promise<boolean> {
+  return guardedSwitch(null, all ? '?all=1' : '')
+}
+
+async function guardedSwitch(body: { userId?: string; tenantId?: string } | null, query = ''): Promise<boolean> {
   if (switching) return false
   switching = true
   try {
-    return await performSwitch(next)
+    return await performSwitch(body, query)
   } finally {
     switching = false
   }
 }
 
-async function performSwitch(next: Account | null): Promise<boolean> {
+async function performSwitch(body: { userId?: string; tenantId?: string } | null, query: string): Promise<boolean> {
   const before = accountGeneration()
+  // The account the switch LANDED on — for a POST, read from the response's
+  // resolved Identity (server truth: a bare stack pick doesn't even know its
+  // landing tenant until the server answers); null for a sign-out.
+  let landed: Account | null = null
   try {
-    const res = await fetch(`${API_BASE}${paths.authSession}`, {
-      method: next ? 'POST' : 'DELETE',
-      headers: next ? { 'Content-Type': 'application/json' } : undefined,
-      body: next ? JSON.stringify(next) : undefined,
+    const res = await fetch(`${API_BASE}${paths.authSession}${query}`, {
+      method: body ? 'POST' : 'DELETE',
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
     })
     if (!res.ok && res.status !== 204) throw new Error(`auth/session ${res.status}`)
+    if (body) {
+      const me = (await res.json()) as Identity
+      landed = { userId: me.user.id, tenantId: me.tenant.id }
+    }
   } catch (err) {
     console.error('[account] switch failed — staying on the current account:', err)
     return false
@@ -161,7 +195,7 @@ async function performSwitch(next: Account | null): Promise<boolean> {
   // in-memory pick is null while the cookie carries the identity, so a
   // sign-out (null → null) would otherwise never reset the world. The UI's
   // active-row guard is what prevents pointless same-account mints.
-  refreshAccount(next)
+  refreshAccount(landed)
   resetAll()
   return true
 }

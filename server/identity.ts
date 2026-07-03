@@ -87,22 +87,31 @@ function localIdentityFromHeaders(tenantId?: string, roleOverride?: string): Ide
   return { user: LOCAL_IDENTITY.user, tenant, role, local: true }
 }
 
-/** The current identity for a request — see the module header for the order. */
+/** The current identity for a request — see the module header for the order.
+ *  Each result is STAMPED with how it resolved (`via`, multi-account §12): only
+ *  a verified credential reads as "signed in" — the auth gate and the account
+ *  UI branch on this, never on heuristics. */
 export function resolveIdentity(backend: Backend, headers?: Headers): Identity {
   const claims = verifySession(parseCookies(header(headers, 'cookie'))[SESSION_COOKIE])
   if (claims) {
     // STRICT: a verified credential must name a real user + membership. A stale
     // cookie (user deleted, membership revoked) falls through as if absent.
     const resolved = accounts.identityFor(claims.userId, claims.tenantId)
-    if (resolved) return resolved
+    if (resolved) return { ...resolved, via: 'session' }
   }
   if (identityHeadersAllowed()) {
     const userId = header(headers, 'x-user-id')
     const tenantId = header(headers, 'x-tenant-id')
     const role = header(headers, 'x-user-role')
-    return backend === 'remote' ? webIdentityFromHeaders(userId, tenantId, role) : localIdentityFromHeaders(tenantId, role)
+    // The dev seam is only "in play" when a header actually asserts something —
+    // a bare request still reads as the backend default.
+    if (userId !== undefined || tenantId !== undefined || role !== undefined) {
+      const viaHeaders =
+        backend === 'remote' ? webIdentityFromHeaders(userId, tenantId, role) : localIdentityFromHeaders(tenantId, role)
+      return { ...viaHeaders, via: 'headers' }
+    }
   }
-  return backend === 'remote' ? webIdentityFromHeaders() : LOCAL_IDENTITY
+  return { ...(backend === 'remote' ? webIdentityFromHeaders() : LOCAL_IDENTITY), via: 'default' }
 }
 
 /** The dev switcher's directory (`GET /v1/identities`, §5.6) — SEEDED registry

@@ -17,17 +17,19 @@ test('GET /me returns the local single-user identity on the desktop/mock backend
   assert.equal(me.role, 'owner')
   assert.equal(me.tenant.kind, 'personal')
   assert.equal(me.user.id, 'user-local')
-  assert.deepEqual(me, LOCAL_IDENTITY)
+  // No credential, no header assertion → the backend default, stamped as such
+  // (`via`, multi-account §12 — the auth gate branches on this, so it's locked).
+  assert.deepEqual(me, { ...LOCAL_IDENTITY, via: 'default' })
 })
 
 test('resolveIdentity: desktop/native defaults to the single local user; the USER never switches', () => {
-  assert.deepEqual(resolveIdentity('mock'), LOCAL_IDENTITY)
-  assert.deepEqual(resolveIdentity('native'), LOCAL_IDENTITY)
+  assert.deepEqual(resolveIdentity('mock'), { ...LOCAL_IDENTITY, via: 'default' })
+  assert.deepEqual(resolveIdentity('native'), { ...LOCAL_IDENTITY, via: 'default' })
   // Headers can't escalate a desktop session into a different PRINCIPAL — the
   // device owner is the only user the loopback sidecar trusts (x-user-id ignored).
-  assert.deepEqual(resolveIdentity('native', { 'x-user-id': 'user-grace' }), LOCAL_IDENTITY)
+  assert.deepEqual(resolveIdentity('native', { 'x-user-id': 'user-grace' }), { ...LOCAL_IDENTITY, via: 'headers' })
   // Naming the personal tenant explicitly is the same identity.
-  assert.deepEqual(resolveIdentity('native', { 'x-tenant-id': 'tenant-personal' }), LOCAL_IDENTITY)
+  assert.deepEqual(resolveIdentity('native', { 'x-tenant-id': 'tenant-personal' }), { ...LOCAL_IDENTITY, via: 'headers' })
 })
 
 test('resolveIdentity: the desktop WORKSPACE switches via x-tenant-id (multi-account §5.6, uniform)', () => {

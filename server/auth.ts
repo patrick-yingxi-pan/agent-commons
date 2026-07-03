@@ -114,6 +114,88 @@ export function sessionClearCookie(): string {
   return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`
 }
 
+/* ── The account stack (multi-account §12 — GitHub-style multi-account) ───────
+ * A SECOND signed HttpOnly cookie remembering every account that signed in on
+ * this browser, so the workspace switcher can hop between them instantly (a
+ * stack pick re-mints the ACTIVE session without a credential). Same trust
+ * construction as the session cookie — HMAC over public claims, per-entry
+ * expiry — and the registry stays the authority: a stack entry only ever mints
+ * what `accounts.identityFor` still resolves. Entries record the LAST-ACTIVE
+ * tenant so switching back lands where you left off. */
+
+export const STACK_COOKIE = 'uw_accounts'
+
+/** Newest first; a re-sign-in moves an account back to the front. Bounded so a
+ *  hostile client can't grow the cookie past header limits. */
+export const STACK_MAX = 8
+
+export interface StackEntry {
+  userId: string
+  /** The account's last-active tenant — where a switch back to it lands. */
+  tenantId: string
+  /** Issued/refreshed-at (epoch ms); entries age out on the session TTL. */
+  iat: number
+}
+
+/** entries → `base64url(json).base64url(hmac)` (same envelope as the session). */
+export function signStack(entries: StackEntry[]): string {
+  const payload = b64url(Buffer.from(JSON.stringify(entries), 'utf8'))
+  return `${payload}.${b64url(mac(payload))}`
+}
+
+/** Verify + decode the stack. `[]` on ANY defect (bad shape, bad signature) —
+ *  a broken stack degrades to "no remembered accounts", never to a guess.
+ *  Individually expired entries are dropped, valid siblings kept. */
+export function verifyStack(token: string | undefined): StackEntry[] {
+  if (!token) return []
+  const dot = token.lastIndexOf('.')
+  if (dot <= 0) return []
+  const payload = token.slice(0, dot)
+  let given: Buffer
+  try {
+    given = Buffer.from(token.slice(dot + 1), 'base64url')
+  } catch {
+    return []
+  }
+  const expected = mac(payload)
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return []
+  try {
+    const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(
+      (e): e is StackEntry =>
+        !!e &&
+        typeof e.userId === 'string' &&
+        typeof e.tenantId === 'string' &&
+        typeof e.iat === 'number' &&
+        Date.now() - e.iat <= MAX_AGE_S * 1000,
+    )
+  } catch {
+    return []
+  }
+}
+
+/** The stack with `entry` at the front — deduped by user (a re-sign-in or a
+ *  switch REFRESHES the account's entry: new tenant, new iat), capped. */
+export function stackWith(entries: StackEntry[], entry: StackEntry): StackEntry[] {
+  return [entry, ...entries.filter((e) => e.userId !== entry.userId)].slice(0, STACK_MAX)
+}
+
+/** The stack without `userId`'s entry (that account signed out here). */
+export function stackWithout(entries: StackEntry[], userId: string): StackEntry[] {
+  return entries.filter((e) => e.userId !== userId)
+}
+
+/** `Set-Cookie` for the stack — same posture as the session cookie. */
+export function stackSetCookie(entries: StackEntry[]): string {
+  if (entries.length === 0) return stackClearCookie()
+  return `${STACK_COOKIE}=${signStack(entries)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${MAX_AGE_S}`
+}
+
+export function stackClearCookie(): string {
+  return `${STACK_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`
+}
+
 /** Whether the legacy client-asserted identity seam (x-user-id/x-tenant-id
  *  headers, /events query params) is honoured. Default: allowed (dev, tests, the
  *  co-authoring E2E's per-context headers). `IDENTITY_HEADERS=deny` is the
