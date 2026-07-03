@@ -101,8 +101,13 @@ export async function sendMessage(
     signal,
   })
   if (!res.ok || !res.body) throw new Error(`send failed: ${res.status}`)
+  await readReplyStream(res.body, handlers)
+}
 
-  const reader = res.body.getReader()
+/** Drain a reply-stream SSE body, dispatching each typed event — shared by the
+ *  send and the reattach (they carry the same `ReplyStreamEvent` frames). */
+async function readReplyStream(body: ReadableStream<Uint8Array>, handlers: SendHandlers): Promise<void> {
+  const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
   for (;;) {
@@ -124,6 +129,37 @@ export async function sendMessage(
       dispatch(event, handlers)
     }
   }
+}
+
+/** Reattach to a turn already running server-side (multi-account §6.4/§6.5):
+ *  the stream replays buffered frames after `after` (0 = from the top), then
+ *  follows the live tail through the same `message.end` the original stream
+ *  carries. A 404 means the turn already persisted — refetch the session; the
+ *  record is the authority. Fetch-streamed (fetch CAN set headers; only
+ *  EventSource can't), so it joins the standard identity policy. */
+export async function reattachTurn(
+  sessionId: string,
+  turnId: string,
+  after: number,
+  handlers: SendHandlers,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}${paths.turnStream(sessionId, turnId, after)}`, {
+    headers: accountHeaders(activeAccount()),
+    signal,
+  })
+  if (res.status === 404) {
+    invalidate(keys.session(sessionId)) // finished while we were away — re-read the record
+    return
+  }
+  if (!res.ok || !res.body) throw new Error(`reattach failed: ${res.status}`)
+  await readReplyStream(res.body, handlers)
+}
+
+/** Deliberately stop a live turn (multi-account §5.2 — the explicit cancel, as
+ *  opposed to merely detaching a view). The partial persists server-side. */
+export async function cancelTurn(sessionId: string, turnId: string): Promise<void> {
+  await apiPost(paths.turnCancel(sessionId, turnId))
 }
 
 // ── Sessions (the conversation, server-owned) ───────────────────────────────

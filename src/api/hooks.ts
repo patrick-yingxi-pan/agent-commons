@@ -3,9 +3,11 @@
  *  `useSessions()` and gains: a real fetch, a loading/error state, and live
  *  updates when the server pushes a change. Hooks grow per resource as reads
  *  migrate; Phase 1 covers capabilities + sessions. */
-import { useQuery, type QueryState } from './cache.ts'
+import { useQuery, resetAll, type QueryState } from './cache.ts'
 import { apiGet, apiUrl } from './client.ts'
 import { keys, paths } from './keys.ts'
+import { switchAccount, accountGeneration, type Account } from './account.ts'
+import type { IdentitySummary } from '../../contract/index.ts'
 import type {
   Runner,
   Agent,
@@ -52,6 +54,25 @@ export function useCapabilities(): QueryState<Capabilities> {
  *  the single local user ("You" · Personal); on the web it's the IdP principal + org. */
 export function useMe(): QueryState<Identity> {
   return useQuery(keys.me, () => apiGet<Identity>(paths.me))
+}
+
+/** The seeded accounts the dev switcher may act as (multi-account §5.6). Gate on
+ *  `capabilities.identitySwitch` — the route 409s where the flag is false, so an
+ *  ungated read would just error-noise the console on the native backend. */
+export function useIdentities(enabled: boolean): QueryState<IdentitySummary[]> {
+  return useQuery(keys.identities, () => apiGet<IdentitySummary[]>(paths.identities), enabled)
+}
+
+/** Switch the active account AND reset the world (multi-account §6.1): the
+ *  account store bumps its generation and reopens the events stream (its own
+ *  subscriber), then every cached read drops and refetches under the new
+ *  identity — "frontend is a cache of the backend" is what makes a switch this
+ *  cheap. The one choreography the switcher UI calls. */
+export function switchActiveAccount(next: Account | null): void {
+  const before = accountGeneration()
+  switchAccount(next)
+  // A same-account pick is a no-op — don't blow the cache away for nothing.
+  if (accountGeneration() !== before) resetAll()
 }
 
 /** The live registry of native runners (one per connected host) + the

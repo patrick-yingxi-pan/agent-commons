@@ -39,6 +39,8 @@ import {
   persistWorkspace,
   runSessionFromCache,
   runSessionFromSchedules,
+  onAccountSwitch,
+  reattachTurn,
   sendMessage,
   compactSession,
 } from '../api'
@@ -267,6 +269,66 @@ export function useSessionWorkspace() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [live.messages, typing, pendingEscalation])
 
+  // Resume rendering a turn that's still generating server-side (multi-account
+  // §6.5, invariant I1's UI face): a client arriving mid-generation — reopened
+  // session, page reload, account switch-back — sees `Session.activeTurnId` on
+  // the reconciled read and REATTACHES instead of finding a silently stuck
+  // thread. Replays from seq 0: the reconciled live holds only persisted
+  // messages, so the assistant shell isn't present yet (the id-guard on
+  // message.start keeps a replayed shell from ever duplicating). Ends with the
+  // same authoritative message.end the original stream carries; a 404 means the
+  // turn persisted while we were away (reattachTurn refetches the session).
+  const reattachToTurn = useCallback((sid: string, turnId: string, myRun: number) => {
+    const stale = () => activeIdRef.current !== sid || runId.current !== myRun
+    setTyping(true)
+    setBusy(true)
+    void reattachTurn(sid, turnId, 0, {
+      onStart: (_id, message) => {
+        if (stale()) return
+        setTyping(false)
+        setLive((l) => (l.messages.some((m) => m.id === message.id) ? l : { ...l, messages: [...l.messages, message] }))
+      },
+      onDelta: (messageId, chunk) => {
+        if (stale()) return
+        setLive((l) => ({
+          ...l,
+          messages: l.messages.map((m) => (m.id === messageId ? { ...m, content: m.content + chunk } : m)),
+        }))
+      },
+      onRelations: (messageId, relationActions) => {
+        if (stale()) return
+        setLive((l) => ({
+          ...l,
+          messages: l.messages.map((m) => (m.id === messageId ? { ...m, relationActions } : m)),
+        }))
+      },
+      onToolActivity: (messageId, toolActivities) => {
+        if (stale()) return
+        setLive((l) => ({
+          ...l,
+          messages: l.messages.map((m) => (m.id === messageId ? { ...m, toolActivities } : m)),
+        }))
+      },
+      onEscalation: (messageId, escalation) => {
+        if (stale()) return
+        setPendingEscalation({ messageId, escalation })
+      },
+      onEnd: (message) => {
+        if (stale()) return
+        setLive((l) => ({ ...l, messages: l.messages.map((m) => (m.id === message.id ? message : m)) }))
+        invalidate(keys.usage(sid))
+      },
+    })
+      .catch(() => {})
+      .finally(() => {
+        // However the stream ended (message.end, 404→refetch, or a drop), the
+        // local streaming affordances stand down; the record is the authority.
+        if (stale()) return
+        setTyping(false)
+        setBusy(false)
+      })
+  }, [])
+
   const selectSession = useCallback(
     (id: string) => {
       // Record the page we're leaving so back can return to it (title irrelevant
@@ -315,12 +377,24 @@ export function useSessionWorkspace() {
             const reconciled = liveFromSession(s)
             setLive(reconciled)
             setFocus(restoreFocus(reconciled))
+            // A turn is still generating server-side (multi-account §6.5): the
+            // thread would otherwise sit silently on its user message. Resume
+            // rendering the stream — replayed from the top, then the live tail.
+            if (s.activeTurnId) reattachToTurn(id, s.activeTurnId, myRun)
           })
           .catch(() => {})
       }
     },
-    [clearTimers, record],
+    [clearTimers, record, reattachToTurn],
   )
+
+  // An account switch changes whose world this client renders (multi-account
+  // §6.1): the cache reset re-reads server state, but the OPEN THREAD is local
+  // controller state and must be dropped explicitly — the old active session may
+  // not even exist for the new account. Land on a fresh draft; selectSession's
+  // clearTimers bumps runId, so any in-flight local stream goes stale (the turn
+  // itself continues server-side — that's invariant I1's whole point).
+  useEffect(() => onAccountSwitch(() => selectSession(DRAFT_ID)), [selectSession])
 
   // Apply an approved escalation to the live session — attach the workspace
   // (using the user-chosen root as its label) or the repo + its connector — and

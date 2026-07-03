@@ -7,6 +7,8 @@ export const keys = {
   capabilities: 'capabilities',
   /** The current principal + tenant (design F2 / P1 §4 — "Identity from /v1/me"). */
   me: 'me',
+  /** The seeded accounts the dev switcher may act as (multi-account §5.6). */
+  identities: 'identities',
   providers: 'providers',
   systemPrompts: 'system-prompts',
   /** Worker Agents (docs/agent-commons.md, D6). Distinct from `runners` below — whose
@@ -50,6 +52,13 @@ export const keys = {
 export const paths = {
   capabilities: '/capabilities',
   me: '/me',
+  identities: '/identities',
+  /** Reattach to a live server-owned turn (multi-account §5.2): replay after
+   *  `after`, then the live tail. 404 once persisted (refetch the session). */
+  turnStream: (id: string, turnId: string, after: number) =>
+    `/sessions/${encodeURIComponent(id)}/turns/${encodeURIComponent(turnId)}/stream?after=${after}`,
+  turnCancel: (id: string, turnId: string) =>
+    `/sessions/${encodeURIComponent(id)}/turns/${encodeURIComponent(turnId)}/cancel`,
   providers: '/providers',
   provider: (id: string) => `/providers/${encodeURIComponent(id)}`,
   systemPrompts: '/system-prompts',

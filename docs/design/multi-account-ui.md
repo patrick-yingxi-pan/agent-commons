@@ -1,6 +1,14 @@
 # Multi-account UI — detailed design
 
-> **Status: design, not yet built.** Settled across a design dialogue (2026-07-03);
+> **Status: BUILT (P0–P4, 2026-07-03)** — spec rows SYNC-1…5 in
+> [`docs/spec/05-portable-contract.md`](../spec/05-portable-contract.md), build log
+> rows 46–50 in [`IMPLEMENTATION.md`](IMPLEMENTATION.md), locked by
+> `tests/turns|sse-replay|send-idempotency|account-guard|identities-*` +
+> `e2e/account-switch.spec.ts`. Two conscious deviations from §6.5: the **stop
+> button** is deferred (the composer has no streaming-state affordance at all yet;
+> the cancel route + `cancelTurn` command are built and locked — the button is a
+> UI follow-on), and the "generation was interrupted — retry" affordance is
+> likewise deferred with it. Settled across a design dialogue (2026-07-03);
 > recorded here per the repo rule that decisions live in files, not agent memory.
 > Builds on the F2 identity seam (`server/identity.ts`, PORT-8) and the P8
 > cross-tenant cooperation stack (COMMONS-6).

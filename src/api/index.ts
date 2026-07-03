@@ -4,6 +4,7 @@
  *  an event. Point `VITE_API_BASE` at a native sidecar or a remote server and the
  *  whole app moves — that's the portability the contract buys. */
 export * from './client.ts'
+export * from './account.ts'
 export * from './cache.ts'
 export * from './keys.ts'
 export * from './ids.ts'

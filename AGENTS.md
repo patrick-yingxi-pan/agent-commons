@@ -66,9 +66,14 @@ BACKEND=remote npm run server   # the remote-web-server variant (native ops 409)
 dedicated ports (UI 5183 / API 5184 — it never reuses a running dev server, whose mode
 and store can't be trusted) with an isolated store (`DATA_FILE=.data/e2e-store.json`),
 `BACKEND=remote` (so Playwright browser contexts impersonate **tenants** via the identity
-headers — `e2e/co-author-article.spec.ts` is the two-tenant multi-tenancy regression), and
+headers — `e2e/co-author-article.spec.ts` is the two-tenant multi-tenancy regression — and
+the in-app **account switcher** is live: `e2e/account-switch.spec.ts` locks the
+switch-mid-generation crux of `docs/design/multi-account-ui.md`), and
 a pinned local `ANTHROPIC_BASE_URL` (an ambient one would stand the mock model down);
 `e2e/*.spec.ts`. The store/route suites lock the logic, the E2E locks the wiring.
+E2E spec gotchas: the app **opens on the demo session** (click "New session" before
+sending, or the turn persists onto the demo thread), and the sidebar is an `<aside>`
+(role `complementary`) — only its nav buttons carry a `navigation` role.
 
 `npm run dev`/`start` boot the mock model server in-process, so one command is a
 complete stack. To run the backend against the **real** API instead of the mock,

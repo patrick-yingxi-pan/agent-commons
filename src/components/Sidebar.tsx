@@ -23,7 +23,18 @@ import { ScheduledFilterMenu } from './ScheduledFilterMenu'
 import { RowMenu, projectMenuItems, type RowMenuItem } from './RowMenu'
 import { SECTION_META, SECTION_ORDER } from '../lib/sections'
 import { SIDEBAR_HOVER } from '../lib/sidebar'
-import { removeSchedule, runScheduleNow, toggleScheduleEnabled, useMe, useProjects, useSchedules } from '../api'
+import {
+  removeSchedule,
+  runScheduleNow,
+  switchActiveAccount,
+  toggleScheduleEnabled,
+  useCapabilities,
+  useIdentities,
+  useMe,
+  useProjects,
+  useSchedules,
+} from '../api'
+import { useDismissable } from '../lib/useDismissable'
 import { useRelations } from '../controller/useRelations'
 import { runSessionId } from '../../contract/ids.ts'
 import { getLayout, setLayout } from '../lib/uiPrefs'
@@ -365,23 +376,76 @@ export function Sidebar({
  *  /v1/me"). On the desktop/mock backend it's the single local user ("You" · Personal);
  *  on the web it's the IdP principal + their org, so the same chip signals *which tenant*
  *  you're acting in. Falls back to the desktop identity while the fetch is in flight, so
- *  the footer never flashes empty (those defaults match the mock's own /v1/me). */
+ *  the footer never flashes empty (those defaults match the mock's own /v1/me).
+ *
+ *  On a backend that advertises `identitySwitch` (the remote dev stand-in for real
+ *  auth — multi-account design §5.6/§6.6), the chip becomes the ACCOUNT SWITCHER:
+ *  it lists `GET /v1/identities` and a pick switches the whole client in place
+ *  (`switchActiveAccount` — generation fence, stream re-bind, cache reset). The
+ *  chip's label stays driven by /v1/me — the server's word for who it heard, so a
+ *  successful switch is *visible truth*, not an optimistic client label. */
 function AccountChip() {
   const me = useMe().data
+  const switchable = useCapabilities().data?.features.identitySwitch === true
+  const identities = useIdentities(switchable).data ?? []
+  const [open, setOpen] = useState(false)
+  const menuRef = useDismissable<HTMLDivElement>(open, () => setOpen(false))
   const name = me?.user.name ?? 'You'
   const workspace = me?.tenant.name ?? 'Personal'
   const initial = name.trim().charAt(0).toUpperCase() || 'Y'
-  return (
-    <div className="border-t border-line px-3 py-2.5">
-      <div className="flex items-center gap-2" title={me?.user.email}>
-        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-sm font-semibold text-white">
-          {initial}
-        </div>
-        <div className="leading-tight">
-          <div className="text-xs font-medium text-ink">{name}</div>
-          <div className="text-[11px] text-ink-faint">{workspace}</div>
-        </div>
+  const identityRow = (
+    <div className="flex items-center gap-2" title={me?.user.email}>
+      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-sm font-semibold text-white">
+        {initial}
       </div>
+      <div className="leading-tight">
+        <div className="text-xs font-medium text-ink">{name}</div>
+        <div className="text-[11px] text-ink-faint">{workspace}</div>
+      </div>
+    </div>
+  )
+  if (!switchable) {
+    return <div className="border-t border-line px-3 py-2.5">{identityRow}</div>
+  }
+  return (
+    <div className="relative border-t border-line px-3 py-2.5" ref={menuRef}>
+      {open && (
+        <div className="absolute bottom-full left-2 right-2 z-20 mb-1 rounded-lg border border-line bg-panel p-1 shadow-lg">
+          <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-ink-faint">
+            Switch account
+          </div>
+          {identities.map((i) => {
+            const active = i.userId === me?.user.id && i.tenantId === me?.tenant.id
+            return (
+              <button
+                key={`${i.userId}:${i.tenantId}`}
+                data-testid="account-option"
+                onClick={() => {
+                  setOpen(false)
+                  if (!active) switchActiveAccount({ userId: i.userId, tenantId: i.tenantId })
+                }}
+                className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition ${
+                  active ? 'bg-panel-2 font-medium text-ink' : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
+                }`}
+              >
+                <span className="flex-1">
+                  {i.userLabel}
+                  <span className="ml-1 text-[10px] text-ink-faint">{i.tenantLabel}</span>
+                </span>
+                {active && <span className="text-[10px] text-ink-faint">Active</span>}
+              </button>
+            )
+          })}
+        </div>
+      )}
+      <button
+        data-testid="account-chip"
+        onClick={() => setOpen((o) => !o)}
+        className={`-mx-1 w-[calc(100%+0.5rem)] rounded-lg px-1 py-0.5 text-left transition ${SIDEBAR_HOVER}`}
+        aria-label="Switch account"
+      >
+        {identityRow}
+      </button>
     </div>
   )
 }
