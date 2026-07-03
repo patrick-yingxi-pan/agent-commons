@@ -85,7 +85,14 @@ export async function sendMessage(
   const body: SendMessageRequest = ephemeral ? { text, ephemeral: true } : { text }
   const res = await fetch(`${API_BASE}${paths.session(sessionId)}/messages`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      // One key per LOGICAL send (design §5.4, invariant I4): a transport retry
+      // of this call can never double-append the user turn or double-generate —
+      // the server dedupes by (session, key) and attaches the retry to the live
+      // turn (or replays the persisted result).
+      'Idempotency-Key': crypto.randomUUID(),
+    },
     body: JSON.stringify(body),
     signal,
   })

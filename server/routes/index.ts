@@ -1157,6 +1157,53 @@ export function buildRouter(): Router {
     // tenant's spend neither 429s nor shows up in another's gauge. Resolved once for the turn.
     const tenantId = store.identity(req.headers).tenant.id
     const { text, ephemeral } = await body<SendMessageRequest>()
+
+    // Idempotent send (design §5.4, invariant I4): a RETRY of the same logical
+    // send — same session + `Idempotency-Key` — must never double-append the user
+    // turn or start a second generation. Checked BEFORE the spend gate below:
+    // recognizing a retry consumes no new tokens, so it must not be 429able.
+    // Retransmission is attach/replay:
+    //   • the turn is still live → this response becomes another VIEW of it,
+    //     replaying from the top then following the live tail;
+    //   • the turn finished and persisted → replay the terminal `message.end`
+    //     with the recorded message (the record is the authority);
+    //   • the turn finished WITHOUT persisting (error/ephemeral) → fall through
+    //     and genuinely retry.
+    const idemKey = headerValue(req.headers, 'idempotency-key')
+    if (idemKey) {
+      const liveTurn = turns.byIdempotencyKey(params.id, idemKey)
+      if (liveTurn) {
+        const channel = openSse(res)
+        const sendFrame = (frame: TurnFrame) => {
+          channel.send(frame.event.type === 'message.delta' ? { ...frame.event, seq: frame.seq } : frame.event)
+        }
+        const att = turns.attach(liveTurn.id, 0, (frame) => {
+          if (frame) sendFrame(frame)
+          else channel.close()
+        })
+        if (att) {
+          for (const frame of att.replay) sendFrame(frame)
+          req.on('close', () => {
+            att.unsubscribe()
+            channel.close()
+          })
+          return
+        }
+        channel.close() // finished between lookup and attach — the client refetches
+        return
+      }
+      const doneMessageId = turns.completedByKey(params.id, idemKey)
+      if (doneMessageId) {
+        const recorded = (store.getSession(params.id)?.messages ?? []).find((m) => m.id === doneMessageId)
+        if (recorded) {
+          const channel = openSse(res)
+          channel.send({ type: 'message.end', sessionId: params.id, message: recorded })
+          channel.close()
+          return
+        }
+      }
+    }
+
     // A draft / run session may not be persisted; reply with a generic shell.
     const known = store.getSession(params.id)
     const session = known
@@ -1186,7 +1233,7 @@ export function buildRouter(): Router {
     // before anything is persisted, torn down in `finally`. One live turn per session
     // — a concurrent second send is refused, not silently interleaved.
     const ac = new AbortController()
-    const active = turns.start(params.id, () => ac.abort())
+    const active = turns.start(params.id, () => ac.abort(), idemKey)
     if (!active) {
       return sendError(res, 'conflict', 'A turn is already generating for this session — cancel it or wait for it to finish.')
     }
@@ -1306,7 +1353,10 @@ export function buildRouter(): Router {
       // D16 per-turn provenance: stamp the turn with the Agent that drove it, so authorship
       // (and metering attribution) survive a mid-thread hand-off — the binding is current-driver.
       const stamped = { ...message, agentId: agent.id }
-      if (persist) store.appendMessage(params.id, stamped)
+      if (persist) {
+        store.appendMessage(params.id, stamped)
+        turns.markPersisted(active.id, stamped.id) // gate for post-finish retry replay (§5.4)
+      }
       emit({ type: 'message.end', sessionId: session.id, message: stamped })
     } catch {
       // `aborted` = the explicit cancel route tripped `ac` (a viewer disconnect no
@@ -1316,7 +1366,10 @@ export function buildRouter(): Router {
       // partial as the assistant turn and close the stream with it as authoritative.
       if (ac.signal.aborted && messageId) {
         const partial: Message = { id: messageId, role: 'assistant', content: streamedText, agentId: agent.id }
-        if (persist) store.appendMessage(params.id, partial)
+        if (persist) {
+          store.appendMessage(params.id, partial)
+          turns.markPersisted(active.id, partial.id) // a cancelled partial is still the record
+        }
         emit({ type: 'message.end', sessionId: session.id, message: partial })
       }
     } finally {
