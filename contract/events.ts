@@ -26,6 +26,9 @@ import type { Runner, CapabilityEffect } from './agents.ts'
 export interface MessageStartEvent {
   type: 'message.start'
   sessionId: string
+  /** The server-owned turn this stream views (contract/turns.ts) — the handle
+   *  for cancel and reattach. Optional: absent from pre-turn-registry payloads. */
+  turnId?: string
   /** The shell of the assistant message; `content` fills in via deltas. */
   message: Message
 }
@@ -33,6 +36,10 @@ export interface MessageDeltaEvent {
   type: 'message.delta'
   sessionId: string
   messageId: string
+  /** Per-turn frame sequence (monotonic). A reattaching client passes the highest
+   *  seq it applied as `?after=` and dedupes any overlap — retransmission can
+   *  never double-apply text (invariant I4). Optional for the same reason. */
+  seq?: number
   /** Text appended to the message's content. */
   text: string
 }

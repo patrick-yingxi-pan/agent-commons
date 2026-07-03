@@ -178,7 +178,8 @@ const meterFor = (tenantId?: string): ReturnType<typeof createUsageMeter> => {
 
 // Generation-outcome counters (F6 PD31 observability): how each turn resolved — `ok` (the
 // model answered), `fallback` (endpoint unreachable/slow → the degraded local reply),
-// `aborted` (the client closed the connection mid-turn), `error` (a fatal turn error).
+// `aborted` (the turn was EXPLICITLY cancelled via the cancel route — a viewer disconnect
+// merely detaches the view and the turn completes; server/turns.ts), `error` (fatal error).
 // A global ops counter (model-endpoint health, not per-tenant billing), exposed at /metrics;
 // transient like the request counters (reset each boot), so not persisted.
 export type GenerationOutcome = 'ok' | 'fallback' | 'aborted' | 'error'

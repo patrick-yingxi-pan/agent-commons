@@ -196,7 +196,12 @@ function handleMessages(req: import('node:http').IncomingMessage, res: import('n
       return
     }
 
-    // A text turn: a brief "thinking" beat, then word-sized deltas.
+    // A text turn: a brief "thinking" beat, then word-sized deltas. A message
+    // containing "paced" stretches the delta cadence (`MODEL_PACE_MS`, default
+    // 150 ms) so tests can act deterministically *mid-generation* — e.g. switch
+    // accounts or cancel while the turn streams (design §5.7). Dev-mock-only knob;
+    // no contract change.
+    const paceMs = /\bpaced\b/i.test(lastUserText(messages)) ? Number(process.env.MODEL_PACE_MS) || 150 : 26
     const chunks = chunkText(replyText(messages))
     let i = 0
     const startBlock = () => {
@@ -210,7 +215,7 @@ function handleMessages(req: import('node:http').IncomingMessage, res: import('n
       if (i < chunks.length) {
         sse(res, 'content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: chunks[i] } })
         i += 1
-        setTimeout(tick, 26)
+        setTimeout(tick, paceMs)
       } else {
         sse(res, 'content_block_stop', { type: 'content_block_stop', index: 0 })
         sse(res, 'message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: chunks.length } })

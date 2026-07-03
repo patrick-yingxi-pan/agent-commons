@@ -25,11 +25,12 @@ const MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-8'
  *  reach the graceful fallback. Override with `ANTHROPIC_MAX_RETRIES` (non-negative int). */
 const MODEL_MAX_RETRIES = nonNegativeIntEnv(process.env.ANTHROPIC_MAX_RETRIES, 1)
 
-/** Combine the caller's abort (the client closed the connection) with a per-call
+/** Combine the caller's abort (an explicit turn cancel — the route's cancel route;
+ *  a viewer disconnect no longer aborts, see server/turns.ts) with a per-call
  *  wall-clock timeout, so a stalled/hung model call can't wedge the turn — on expiry
  *  the stream aborts and the turn degrades to the local fallback. The timeout trips the
  *  combined signal but NOT the caller's, so the catch distinguishes them (timeout →
- *  fallback, client-close → rethrow). `MODEL_TIMEOUT_MS` is read per call so it's
+ *  fallback, cancel → rethrow). `MODEL_TIMEOUT_MS` is read per call so it's
  *  configurable at runtime (and in tests). */
 function withDeadline(signal?: AbortSignal): AbortSignal {
   // `MODEL_TIMEOUT_MS` is read per call (runtime/test-configurable) and validate-and-floored
@@ -233,7 +234,7 @@ export async function generateReply(
       outcome: 'ok',
     }
   } catch (err) {
-    if (signal?.aborted) throw err // the client went away — let the route stop quietly
+    if (signal?.aborted) throw err // the turn was cancelled — let the route persist the partial
     return fallbackReply(assistantId, handlers)
   }
 }

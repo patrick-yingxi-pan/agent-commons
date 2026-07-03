@@ -144,6 +144,22 @@ test('sessions are tenant-isolated on a remote backend (list + read-by-id, 404 n
   assert.ok(listDefault.json.some((s) => s.isDemo), 'the default tenant still sees the seed demo')
 })
 
+test('the turn routes sit behind the same tenant wall (cancel + reattach are 404 cross-tenant)', async () => {
+  const { store } = await import('../server/store.ts')
+  const { buildRouter } = await import('../server/routes/index.ts')
+  const call = caller(buildRouter())
+
+  // The wall (denyForeignSession) runs BEFORE turn existence is consulted, so this
+  // needs no live generation: a foreign tenant gets 404 on both new routes — the
+  // same existence-must-not-leak posture as the other by-id session routes. The
+  // live-turn behavior of these routes is locked in tests/routes-turns.test.ts.
+  const zeta = store.createSession('zeta turn thread', 'tenant-zeta')
+  const cancel = await call('POST', `/sessions/${zeta.id}/turns/turn-1/cancel`, { 'x-tenant-id': 'tenant-omega' })
+  assert.equal(cancel.status, 404, 'a foreign tenant cannot cancel a turn on the session')
+  const reattach = await call('GET', `/sessions/${zeta.id}/turns/turn-1/stream?after=0`, { 'x-tenant-id': 'tenant-omega' })
+  assert.equal(reattach.status, 404, 'a foreign tenant cannot attach to a turn stream on the session')
+})
+
 test('POST /sessions stamps the caller-resolved tenant on a remote backend (request identity → scoped read)', async () => {
   const { buildRouter } = await import('../server/routes/index.ts')
   const call = caller(buildRouter())

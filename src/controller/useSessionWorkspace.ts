@@ -157,6 +157,10 @@ export function useSessionWorkspace() {
   // send (server-minted, so absent from the static seed mirror). The active-session
   // resolution and the sidebar consult this until the next reload reseeds from the API.
   const [extraSessions, setExtraSessions] = useState<Session[]>([])
+  // Free-typed sends run one-at-a-time through this chain: the backend enforces one
+  // live turn per session (server/turns.ts), so a rapid second send queues behind
+  // the first instead of being refused with 409 conflict.
+  const sendChain = useRef<Promise<void>>(Promise.resolve())
 
   // Timer bookkeeping so switching sessions cancels in-flight callbacks.
   const runId = useRef(0)
@@ -538,7 +542,12 @@ export function useSessionWorkspace() {
     // persisted session (the server mints its id + titles it from this message).
     // The reply then streams under that id and the backend persists the turn —
     // making "send" a real, durable operation rather than client-only state.
-    void (async () => {
+    //
+    // Sends are SERIALIZED through one chain: the backend enforces one live turn
+    // per session (server/turns.ts — a concurrent send is 409 conflict), so a
+    // rapid second message waits for the first turn to finish instead of being
+    // refused. The user message already rendered above, so nothing looks stuck.
+    sendChain.current = sendChain.current.then(async () => {
       let sid = startId
       if (sid === DRAFT_ID) {
         try {
@@ -641,7 +650,9 @@ export function useSessionWorkspace() {
         setTyping(false)
         setBusy(false)
       })
-    })()
+      // A rejection must never escape into the chain itself: a rejected chain would
+      // silently skip every subsequent send (`.then` on a rejected promise never runs).
+    }).catch(() => {})
   }, [])
 
   // Whether a session's server-owned writes (its panels AND its binding-of-record)

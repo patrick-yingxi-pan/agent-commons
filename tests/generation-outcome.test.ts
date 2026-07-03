@@ -1,10 +1,11 @@
 /** Generation-outcome observability (P5 reliability / F6 PD31). Every turn resolves to an
  *  outcome — `ok` (the model answered), `fallback` (endpoint unreachable/slow → the degraded
- *  local reply), `aborted` (client closed mid-turn), `error` (fatal turn error) — counted so a
- *  degraded model path is visible in `/metrics` rather than silent. generate.ts reports ok vs
- *  fallback; the route observes aborted/error. The @anthropic-ai/sdk already does the transient
- *  retry/backoff (429/5xx/network) — this slice adds the *visibility* that was missing, not a
- *  duplicate retry layer. */
+ *  local reply), `aborted` (the turn was EXPLICITLY cancelled — since server-owned turns,
+ *  design multi-account-ui.md §5.2, a viewer disconnect merely detaches and the turn completes),
+ *  `error` (fatal turn error) — counted so a degraded model path is visible in `/metrics`
+ *  rather than silent. generate.ts reports ok vs fallback; the route observes aborted/error.
+ *  The @anthropic-ai/sdk already does the transient retry/backoff (429/5xx/network) — this
+ *  slice adds the *visibility* that was missing, not a duplicate retry layer. */
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Server } from 'node:http'
@@ -66,14 +67,16 @@ test('the store tallies outcomes; /metrics exposes model_turns_total for every o
   }
 })
 
-test('a client disconnect mid-turn counts an `aborted` outcome (route catch classification)', async () => {
-  // The standard HTTP harness stubs req.on as a no-op, so it can't exercise the route's
-  // abort/error branch. Drive the router with a manual req that fires `close` the instant the
-  // route registers its handler — aborting the turn's AbortController BEFORE generateReply
-  // runs, so the turn deterministically takes the client-disconnect path (→ 'aborted').
+test('a client disconnect mid-turn is NOT an abort any more — the detached turn completes as ok (I1)', async () => {
+  // Pre-turn-registry, this exact setup (a req whose `close` fires the instant a handler
+  // registers) locked the OLD behavior: disconnect → ac.abort() → 'aborted'. Server-owned
+  // turns (server/turns.ts) removed the close→abort coupling, so the same dead viewer now
+  // yields a COMPLETED turn: outcome 'ok', aborted untouched. The full detach/cancel matrix
+  // lives in tests/routes-turns.test.ts; this test guards the metric's meaning.
   const router = buildRouter()
   const s = store.createSession('abort path')
   const before = store.generationOutcomes().aborted
+  const okBefore = store.generationOutcomes().ok
 
   let ended = false
   const res = {
@@ -103,13 +106,14 @@ test('a client disconnect mid-turn counts an `aborted` outcome (route catch clas
           handlers.end?.()
         })
       }
-      // Fire `close` synchronously on registration → ac.abort() runs before generateReply,
-      // forcing the deterministic aborted path (no race with the model stream).
+      // Fire `close` synchronously on registration — under the old coupling this aborted
+      // the turn before generateReply ran; today the send route registers no close handler.
       if (ev === 'close') cb()
       return req
     },
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await router.handle(req as any, res as any, new URL(`http://test/sessions/${s.id}/messages`))
-  assert.equal(store.generationOutcomes().aborted, before + 1, 'a mid-turn client disconnect is counted as aborted')
+  assert.equal(store.generationOutcomes().aborted, before, 'a mid-turn client disconnect is no longer counted as aborted')
+  assert.equal(store.generationOutcomes().ok, okBefore + 1, 'the detached turn ran to completion (ok)')
 })

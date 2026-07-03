@@ -4,6 +4,8 @@
 import type {
   ApplyOpRequest,
   AttachContextRequest,
+  Message,
+  ReplyStreamEvent,
   CreateCommissionRequest,
   CreateDispatchRequest,
   CreateProviderRequest,
@@ -30,6 +32,7 @@ import { IdempotencyCache, captureResponse, replayResponse } from '../idempotenc
 import { pageParams, paginate, MAX_PAGE_LIMIT } from '../pagination.ts'
 import { RateLimiter } from '../ratelimit.ts'
 import { generateReply } from '../generate.ts'
+import { turns, type TurnFrame } from '../turns.ts'
 import { CapabilityError, runCapability, scopeMatches } from '../runner-runtime.ts'
 import { GuardianError } from '../guardian.ts'
 import { BudgetError } from '../usage.ts'
@@ -1043,7 +1046,11 @@ export function buildRouter(): Router {
     // session (which reflects the current, live runs).
     const session = store.getSession(params.id) ?? store.runSession(params.id)
     if (!session) return sendError(res, 'not_found', `No session '${params.id}'`)
-    sendJson(res, session)
+    // Project the live turn (if any) onto the read — transient registry state,
+    // never persisted (contract/turns.ts): a client arriving mid-generation sees
+    // `activeTurnId` and reattaches instead of finding a silently stuck thread.
+    const live = turns.bySession(params.id)
+    sendJson(res, live ? { ...session, activeTurnId: live.id } : session)
   })
   // Materialize a new persisted session — a draft becomes real on its first send
   // (the client posts here, adopts the returned id, then streams the turn to it).
@@ -1151,22 +1158,53 @@ export function buildRouter(): Router {
     // is server-owned, so a sent turn survives a reload even if generation fails.
     const persist = !!known && !ephemeral
 
-    // Persist the user's turn up front. (Drafts are materialized via POST
-    // /sessions before they're sent to; run / unknown ids stay ephemeral —
-    // appendMessage no-ops for them.)
-    if (persist) {
-      store.appendMessage(params.id, {
-        id: store.mintMessageId('user'),
-        role: 'user',
-        content: text ?? '',
-      })
+    // The turn is a server-owned resource (contract/turns.ts, design I1): registered
+    // before anything is persisted, torn down in `finally`. One live turn per session
+    // — a concurrent second send is refused, not silently interleaved.
+    const ac = new AbortController()
+    const active = turns.start(params.id, () => ac.abort())
+    if (!active) {
+      return sendError(res, 'conflict', 'A turn is already generating for this session — cancel it or wait for it to finish.')
     }
 
-    const channel = openSse(res)
-    const ac = new AbortController()
-    req.on('close', () => ac.abort())
+    // Persist the user's turn up front. (Drafts are materialized via POST
+    // /sessions before they're sent to; run / unknown ids stay ephemeral —
+    // appendMessage no-ops for them.) Anything that throws between the turn
+    // registration above and the main try/finally below must release the registry
+    // entry on its way out — a leaked entry would refuse this session's sends
+    // (409) forever, since only `finish` clears the one-live-turn slot.
+    const channel = (() => {
+      try {
+        if (persist) {
+          store.appendMessage(params.id, {
+            id: store.mintMessageId('user'),
+            role: 'user',
+            content: text ?? '',
+          })
+        }
+        return openSse(res)
+      } catch (err) {
+        turns.finish(active.id)
+        throw err
+      }
+    })()
+    // Detach, don't abort (I1): a closed connection stops this *view* only — the
+    // turn runs on under generateReply's own wall-clock timeout, and its completion
+    // persists + broadcasts `session.updated` to the tenant's subscribers whether or
+    // not anyone is watching. `ac` is tripped only by the explicit cancel route (or
+    // never — the timeout uses its own signal), so `aborted` means "deliberately
+    // cancelled", not "the viewer went away". (`channel.send` no-ops once closed.)
 
     let messageId = ''
+    // Streamed text accumulated route-side, so an explicitly *cancelled* turn can
+    // persist the partial it already produced (design §7).
+    let streamedText = ''
+    // Tee every reply-stream frame into the registry (the reattach/replay buffer),
+    // stamping the frame seq onto deltas so a reattached viewer dedupes overlap (I4).
+    const emit = (e: ReplyStreamEvent) => {
+      const seq = turns.append(active.id, e)
+      channel.send(e.type === 'message.delta' && seq !== undefined ? { ...e, seq } : e)
+    }
     // The turn's outcome, recorded exactly once in `finally` (F6 PD31) so a mid-stream send
     // failure after a successful generation can't double-count. `error` until we know better.
     let turnOutcome: GenerationOutcome = 'error'
@@ -1178,10 +1216,11 @@ export function buildRouter(): Router {
         {
           onStart: (id) => {
             messageId = id
-            channel.send({ type: 'message.start', sessionId: session.id, message: { id, role: 'assistant', content: '' } })
+            emit({ type: 'message.start', sessionId: session.id, turnId: active.id, message: { id, role: 'assistant', content: '' } })
           },
           onDelta: (delta) => {
-            channel.send({ type: 'message.delta', sessionId: session.id, messageId, text: delta })
+            streamedText += delta
+            emit({ type: 'message.delta', sessionId: session.id, messageId, text: delta })
           },
         },
         ac.signal,
@@ -1209,7 +1248,7 @@ export function buildRouter(): Router {
       // The model reported `ok` or `fallback` (endpoint degraded); recorded once in `finally`.
       turnOutcome = outcome
       if (message.relationActions?.length) {
-        channel.send({
+        emit({
           type: 'message.relations',
           sessionId: session.id,
           messageId: message.id,
@@ -1220,7 +1259,7 @@ export function buildRouter(): Router {
       // connect_repo / create_project) — the UI shows the consent prompt and
       // applies it only on approval.
       if (message.escalation) {
-        channel.send({
+        emit({
           type: 'message.escalation',
           sessionId: session.id,
           messageId: message.id,
@@ -1230,7 +1269,7 @@ export function buildRouter(): Router {
       // P6: connector/MCP tools the model called this turn + their (mock) results —
       // shown as activity under the message (a read needs no consent).
       if (message.toolActivities?.length) {
-        channel.send({
+        emit({
           type: 'message.toolActivity',
           sessionId: session.id,
           messageId: message.id,
@@ -1244,17 +1283,71 @@ export function buildRouter(): Router {
       // (and metering attribution) survive a mid-thread hand-off — the binding is current-driver.
       const stamped = { ...message, agentId: agent.id }
       if (persist) store.appendMessage(params.id, stamped)
-      channel.send({ type: 'message.end', sessionId: session.id, message: stamped })
+      emit({ type: 'message.end', sessionId: session.id, message: stamped })
     } catch {
-      // Aborted (client closed) or a fatal error — nothing more to send. Distinguish a client
-      // disconnect (expected) from a genuine turn error via the abort signal.
+      // `aborted` = the explicit cancel route tripped `ac` (a viewer disconnect no
+      // longer aborts — design §5.2); anything else is a genuine turn error.
       turnOutcome = ac.signal.aborted ? 'aborted' : 'error'
+      // A cancel keeps what the turn already produced (design §7): persist the
+      // partial as the assistant turn and close the stream with it as authoritative.
+      if (ac.signal.aborted && messageId) {
+        const partial: Message = { id: messageId, role: 'assistant', content: streamedText, agentId: agent.id }
+        if (persist) store.appendMessage(params.id, partial)
+        emit({ type: 'message.end', sessionId: session.id, message: partial })
+      }
     } finally {
       // Record the outcome exactly once (F6 PD31), so a degraded/dropped turn is visible in
       // /metrics and a post-generation send failure can't double-count against a good turn.
       store.recordGenerationOutcome(turnOutcome)
+      // The turn is over (persisted / cancelled / errored): notify any reattached
+      // viewers and drop the registry entry — the persisted message is now the
+      // authority, and a late reattach 404s into a session refetch.
+      turns.finish(active.id)
       channel.close()
     }
+  })
+
+  // Cancel a live turn — the *deliberate* stop (design §5.2). Distinct from a viewer
+  // disconnect, which merely detaches the view; only this route (bar the model
+  // timeout) trips the turn's AbortController, so the `aborted` outcome metric now
+  // means "a user chose to stop". The partial persists (see the send route's catch).
+  r.post('/sessions/:id/turns/:turnId/cancel', ({ req, res, params }) => {
+    if (denyForeignSession(req, res, params.id)) return
+    const turn = turns.get(params.turnId)
+    if (!turn || turn.sessionId !== params.id) {
+      return sendError(res, 'not_found', `No live turn '${params.turnId}' on session '${params.id}'`)
+    }
+    turns.cancel(params.turnId)
+    sendJson(res, { ok: true })
+  })
+
+  // Reattach to a live turn (design §5.2, invariants I1/I3/I4): replay the buffered
+  // frames after `?after=<seq>`, then continue with the live tail, ending with the
+  // same `message.end` the original stream carries. 404 once the turn is gone —
+  // the persisted message is the authority and the client refetches the session.
+  r.get('/sessions/:id/turns/:turnId/stream', ({ req, res, params, url }) => {
+    if (denyForeignSession(req, res, params.id)) return
+    const turn = turns.get(params.turnId)
+    if (!turn || turn.sessionId !== params.id) {
+      return sendError(res, 'not_found', `No live turn '${params.turnId}' on session '${params.id}'`)
+    }
+    const after = Math.max(0, Number(url.searchParams.get('after')) || 0)
+    const channel = openSse(res)
+    // Deltas are re-stamped with their frame seq on the way out, so replayed and
+    // live frames carry the same dedupe key the original stream used.
+    const sendFrame = (frame: TurnFrame) => {
+      channel.send(frame.event.type === 'message.delta' ? { ...frame.event, seq: frame.seq } : frame.event)
+    }
+    const att = turns.attach(params.turnId, after, (frame) => {
+      if (frame) sendFrame(frame)
+      else channel.close() // the turn finished — `message.end` was the last frame
+    })
+    if (!att) return channel.close() // finished between the check and the attach
+    for (const frame of att.replay) sendFrame(frame)
+    req.on('close', () => {
+      att.unsubscribe()
+      channel.close()
+    })
   })
 
   // Confirm / decline a proposed connector ACTION (P6 §2.1, PD43 — the consent gate for

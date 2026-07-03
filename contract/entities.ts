@@ -272,6 +272,12 @@ export interface Session {
    *  (F2 / PD9): a tenant only ever lists/opens its own sessions. Unset on a seed or
    *  synthesized (run) session ⇒ the backend's default tenant (personal on desktop). */
   tenantId?: string
+  /** A generation turn currently running for this session (contract/turns.ts —
+   *  server-owned turns, invariant I1). Projected at read time from the transient
+   *  turn registry, never persisted: presence means "Claude is still writing",
+   *  even to a client that just arrived (reattach via
+   *  `GET /sessions/:id/turns/:turnId/stream?after=<seq>`). */
+  activeTurnId?: string
   /** Canned content shown when a non-demo conversation is opened. */
   messages?: Message[]
   /** Messages archived by context compaction (P5 / BROKER-EXP-3): compaction moves the
