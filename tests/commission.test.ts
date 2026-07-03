@@ -145,7 +145,10 @@ test('the commission routes reject an unknown role (400)', async () => {
 
 test('D13 commission cap: the funnel refuses past the cap; the route 429s (fail-closed)', async () => {
   // p-brand is a seed Project no other test commissions on — isolated for the cap.
+  // Since the demo-accounts split it belongs to tenant-northlight (Noor), so the
+  // route calls act AS that tenant (the owner) via the dev header seam.
   const projectId = 'p-brand'
+  const asOwner = { 'x-tenant-id': 'tenant-northlight' }
   assert.equal(store.activeCommissionCount(projectId), 0)
   store.setCommissionCap(projectId, 1) // room for exactly one Contributor
 
@@ -155,15 +158,15 @@ test('D13 commission cap: the funnel refuses past the cap; the route 429s (fail-
   assert.throws(() => store.createCommission({ agentId: 'agent-default', projectId }), LimitError)
 
   // The route surfaces the over-cap attempt as 429 limit_exceeded.
-  const over = await call('POST', '/commissions', { agentId: 'agent-default', projectId })
+  const over = await call('POST', '/commissions', { agentId: 'agent-default', projectId }, asOwner)
   assert.equal(over.status, 429)
   assert.equal(over.json.error.code, 'limit_exceeded')
 
   // The owner raises the cap → admits more; clearing it (undefined) is uncapped.
   store.setCommissionCap(projectId, 3)
-  assert.equal((await call('POST', '/commissions', { agentId: 'agent-default', projectId })).status, 200)
+  assert.equal((await call('POST', '/commissions', { agentId: 'agent-default', projectId }, asOwner)).status, 200)
   store.setCommissionCap(projectId, undefined)
-  assert.equal((await call('POST', '/commissions', { agentId: 'agent-default', projectId })).status, 200)
+  assert.equal((await call('POST', '/commissions', { agentId: 'agent-default', projectId }, asOwner)).status, 200)
 })
 
 test('D13 cap: a Project with no cap is unlimited (back-compat)', () => {

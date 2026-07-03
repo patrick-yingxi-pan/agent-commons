@@ -77,6 +77,7 @@ export const PROJECTS: Project[] = [
   },
   {
     id: 'p-growth',
+    tenantId: 'tenant-growthworks', // Maya — growth & experimentation
     name: 'Growth experiments',
     description: 'Activation A/Bs, the onboarding funnel, churn work, and the weekly growth readout.',
     updatedAt: ago(2 * HOUR),
@@ -95,6 +96,7 @@ export const PROJECTS: Project[] = [
   },
   {
     id: 'p-brand',
+    tenantId: 'tenant-northlight', // Noor — brand & marketing
     name: 'Brand refresh',
     description: 'The 2026 brand refresh — voice guide, the new logo lockups, and a marketing-site pass.',
     updatedAt: ago(28 * HOUR),
@@ -127,6 +129,53 @@ export const PROJECTS: Project[] = [
     ],
     sessionIds: ['auth-refactor', 'rate-limits', 'oncall-runbook'],
   },
+  {
+    id: 'p-beta',
+    tenantId: 'tenant-beta', // Grace — platform & reliability
+    name: 'Deploy pipeline',
+    description: 'Beta Platform’s deploy pipeline — canary stage, rollback gates, and incident follow-ups.',
+    updatedAt: ago(3 * HOUR),
+    instructions:
+      'Every pipeline change ships behind a dry run. Canary gates are defined in code, never hand-edited in the console. A postmortem lands within 48 hours of any SEV — blameless, five whys, one owner per action item.',
+    scheduled: [{ name: 'On-call error watch', cadence: 'Every 30 min', enabled: true }],
+    contexts: [
+      { kind: 'repo', label: 'beta-platform/deploy-tools', meta: 'main' },
+      { kind: 'connector', label: 'Sentry', meta: 'edge · prod' },
+      { kind: 'connector', label: 'PagerDuty', meta: 'Platform rotation' },
+    ],
+    sessionIds: ['deploy-canary', 'incident-cache'],
+  },
+  {
+    id: 'p-support',
+    tenantId: 'tenant-harbor', // Omar — support operations
+    name: 'Support operations',
+    description: 'Harbor Support’s queue — ticket themes, reply macros, and escalation follow-ups.',
+    updatedAt: ago(4 * HOUR),
+    instructions:
+      'Answer the customer’s actual question in the first sentence. Escalate anything reproducible as a bug with steps + workspace id. Credits follow the published policy — never improvise one in a reply.',
+    scheduled: [{ name: 'Support ticket themes', cadence: 'Daily · 6:00 PM', enabled: true }],
+    contexts: [
+      { kind: 'connector', label: 'Notion', meta: 'Support database' },
+      { kind: 'connector', label: 'Slack', meta: '#support-digest' },
+      { kind: 'doc', label: 'reply-macros.md', meta: '8 macros' },
+    ],
+    sessionIds: ['ticket-themes', 'macro-refresh'],
+  },
+  {
+    id: 'p-research',
+    tenantId: 'tenant-reislab', // Rei — research & learning
+    name: 'Reading log',
+    description: 'Papers, notes, and learning plans — a personal research trail.',
+    updatedAt: ago(7 * HOUR),
+    instructions:
+      'Notes over summaries: what surprised me, what I’d test, and the one figure worth keeping. Link the arXiv id. If a claim matters, find the ablation that supports it before citing it.',
+    scheduled: [{ name: 'Daily AI news briefing', cadence: 'Weekdays · 8:00 AM', enabled: true }],
+    contexts: [
+      { kind: 'folder', label: '~/papers', meta: '18 files' },
+      { kind: 'connector', label: 'Notion', meta: 'Reading log' },
+    ],
+    sessionIds: ['paper-notes'],
+  },
 ]
 
 /** A session's home project, if any. Sessions live in a single project (or
@@ -157,6 +206,7 @@ const TOOL = {
 export const SCHEDULED_TASKS: ScheduledTask[] = [
   {
     id: 's-ai-news',
+    tenantId: 'tenant-reislab', // Rei — research & learning
     name: 'Daily AI news briefing',
     cadence: 'Weekdays · 8:00 AM',
     next: 'Tomorrow, 8:00 AM',
@@ -174,7 +224,7 @@ export const SCHEDULED_TASKS: ScheduledTask[] = [
     delivery: { tool: TOOL.session, target: 'New session', note: 'A fresh briefing thread each morning' },
     model: 'Claude Opus 4.8 · High',
     timezone: 'America/Los_Angeles',
-    startedLabel: 'Started Feb 2026 · 96 runs',
+    startedLabel: 'Started Feb 2026',
     runs: [
       {
         id: 'r1', status: 'ok', duration: '18s', reachedStep: 3, at: ago(360 * MIN),
@@ -187,18 +237,6 @@ export const SCHEDULED_TASKS: ScheduledTask[] = [
         summary: 'Briefed 5 stories into a new session',
         detail:
           'Lead — OpenAI’s IPO filing + Astral acquisition dominate the cycle.\n• Google’s Gemini 3.5 Pro launch slips a week; Flash / Omni stay on track.\n• Anthropic export standoff unchanged — Fable 5 / Mythos 5 still dark abroad.\n• Nvidia opens RTX Spark pre-orders.\n• A new eval paper claims agentic-coding parity across the top three labs.',
-      },
-      {
-        id: 'r3', status: 'ok', duration: '17s', reachedStep: 3, at: ago(3240 * MIN),
-        summary: 'Briefed 7 stories into a new session',
-        detail:
-          'Lead — Fable 5 / Mythos 5 still offline globally; no timeline from Commerce.\n• OpenAI files its S-1 and reports it will acquire Astral.\n• Google ships Gemini 3.5 Flash and a new Omni model.\n• Nvidia details Vera Rubin specs + an “RTX Spark” dev box.\n• Meta’s Llama roadmap stays quiet — no fresh movement.\n• Two AI-safety rounds close (~$120M total).\n• EU AI Act guidance draft leaks.\nA policy + hardware day, light on launches.',
-      },
-      {
-        id: 'r4', status: 'ok', duration: '19s', reachedStep: 3, at: ago(4680 * MIN),
-        summary: 'Briefed 4 stories into a new session',
-        detail:
-          'Lead — the Jun 12 Commerce order takes effect: Anthropic’s Fable 5 / Mythos 5 pulled from sale outside the US while the review runs.\n• OpenAI confirms it has hired bankers for an IPO.\n• Nvidia teases “Vera Rubin” at its summer event.\n• Reuters: 10% of people now use AI chatbots for news weekly.\nThe export order is the thread to watch — it touches our model availability.',
       },
     ],
   },
@@ -221,7 +259,7 @@ export const SCHEDULED_TASKS: ScheduledTask[] = [
     delivery: { tool: TOOL.slack, target: '#eng-standup', note: 'A fresh digest each morning' },
     model: 'Claude Opus 4.8 · High',
     timezone: 'America/Los_Angeles',
-    startedLabel: 'Started Mar 2026 · 71 runs',
+    startedLabel: 'Started Mar 2026',
     projectId: 'p-infra',
     runs: [
       {
@@ -235,18 +273,6 @@ export const SCHEDULED_TASKS: ScheduledTask[] = [
         summary: 'Posted a 9-item digest to #eng-standup',
         detail:
           'Posted to #eng-standup — 9 items across 3 teams:\n• Platform — 4 shipped (auth refactor, rate-limit RFC merged); 1 blocked on review.\n• Web — 3 shipped (empty states, homepage hero).\n• Data — 1 shipped (cohort export).',
-      },
-      {
-        id: 'r3', status: 'ok', duration: '11s', reachedStep: 3, at: ago(3180 * MIN),
-        summary: 'Posted a 7-item digest to #eng-standup',
-        detail:
-          'Posted to #eng-standup — 7 items, nothing blocked:\n• Platform — 3 shipped; on-call runbook drafted.\n• Web — 2 shipped (dashboard-perf index).\n• Data — 2 in progress.',
-      },
-      {
-        id: 'r4', status: 'ok', duration: '13s', reachedStep: 3, at: ago(4620 * MIN),
-        summary: 'Posted a 12-item digest to #eng-standup',
-        detail:
-          'Posted to #eng-standup — a heavier Monday-after board, 12 items:\n• Platform — 5 shipped; 1 blocked (Sentry quota).\n• Web — 4 shipped.\n• Data — 3 shipped.',
       },
     ],
   },
@@ -269,7 +295,7 @@ export const SCHEDULED_TASKS: ScheduledTask[] = [
     delivery: { tool: TOOL.github, target: 'web-app · issues', note: 'Labels applied, replies left as drafts' },
     model: 'Claude Opus 4.8 · High',
     timezone: 'America/Los_Angeles',
-    startedLabel: 'Started May 2026 · 218 runs',
+    startedLabel: 'Started May 2026',
     projectId: 'p-insights',
     runs: [
       {
@@ -284,22 +310,11 @@ export const SCHEDULED_TASKS: ScheduledTask[] = [
         detail:
           'Triaged 7 issues:\n• 3 → bug, 2 → enhancement, 2 → question.\n• None urgent this batch.\nDrafted 3 replies (the reproducible bugs).',
       },
-      {
-        id: 'r3', status: 'ok', duration: '29s', reachedStep: 3, at: ago(240 * MIN),
-        summary: 'Labeled 4 issues, drafted 2 replies',
-        detail:
-          'Quiet batch — 4 new issues:\n• 2 → bug, 1 → docs, 1 → duplicate (closed with a link).\nDrafted 2 replies.',
-      },
-      {
-        id: 'r4', status: 'ok', duration: '40s', reachedStep: 3, at: ago(360 * MIN),
-        summary: 'Labeled 9 issues, drafted 5 replies',
-        detail:
-          'Triaged 9 issues from overnight:\n• 4 → bug, 3 → enhancement, 2 → question.\n• Flagged 1 urgent: a crash on mobile sign-in.\nDrafted 5 replies.',
-      },
     ],
   },
   {
     id: 's-support',
+    tenantId: 'tenant-harbor', // Omar — support operations
     name: 'Support ticket themes',
     cadence: 'Daily · 6:00 PM',
     next: 'Today, 6:00 PM',
@@ -318,36 +333,26 @@ export const SCHEDULED_TASKS: ScheduledTask[] = [
     delivery: { tool: TOOL.slack, target: '#support-digest' },
     model: 'Claude Sonnet 4.6 · Medium',
     timezone: 'America/Los_Angeles',
-    startedLabel: 'Started Apr 2026 · 73 runs',
+    startedLabel: 'Started Apr 2026',
+    projectId: 'p-support',
     runs: [
       {
         id: 'r1', status: 'ok', duration: '26s', reachedStep: 4, at: ago(1200 * MIN),
         summary: '5 themes from 38 tickets → #support-digest',
         detail:
-          'Top 5 themes from 38 tickets → #support-digest:\n1. Billing email bounces (annual plans) — 11\n2. Mobile sign-in regression — 8\n3. Export timeouts on big workspaces — 7\n4. Dashboard slowness — 7\n5. SSO setup questions — 5',
+          'Top 5 themes from 38 tickets → #support-digest:\n1. CSV import failures — 11\n2. Seat-billing confusion — 8\n3. Mobile login loops — 7\n4. Export timeouts — 7\n5. SSO setup questions — 5',
       },
       {
-        id: 'r2', status: 'ok', duration: '24s', reachedStep: 4, at: ago(2640 * MIN),
-        summary: '5 themes from 31 tickets → #support-digest',
-        detail:
-          'Top 5 themes from 31 tickets → #support-digest:\n1. Mobile sign-in regression — 9\n2. Billing email bounces — 7\n3. Export timeouts — 6\n4. Onboarding confusion — 5\n5. API rate-limit 429s — 4',
-      },
-      {
-        id: 'r3', status: 'failed', duration: '9s', reachedStep: 0, at: ago(4080 * MIN),
+        id: 'r2', status: 'failed', duration: '9s', reachedStep: 0, at: ago(2640 * MIN),
         summary: 'Stopped at step 1 — Notion rate limit',
         detail:
           'Notion’s API rate-limited the ticket pull (429, Retry-After 60s), so I couldn’t read the full set — and didn’t post a partial digest.\nIt usually clears within the minute; Run now to retry.',
-      },
-      {
-        id: 'r4', status: 'ok', duration: '27s', reachedStep: 4, at: ago(5520 * MIN),
-        summary: '4 themes from 22 tickets → #support-digest',
-        detail:
-          'Top 4 themes from 22 tickets → #support-digest:\n1. Billing email bounces — 7\n2. Export timeouts — 6\n3. Mobile sign-in — 5\n4. SSO questions — 4',
       },
     ],
   },
   {
     id: 's-oncall',
+    tenantId: 'tenant-beta', // Grace — platform & reliability
     name: 'On-call error watch',
     cadence: 'Every 30 min',
     next: 'in 18 min',
@@ -362,11 +367,11 @@ export const SCHEDULED_TASKS: ScheduledTask[] = [
       { id: 'st2', action: 'If spiking, summarize the top new error groups', tool: TOOL.claude },
       { id: 'st3', action: 'Email the on-call engineer — only when spiking', tool: TOOL.gmail },
     ],
-    delivery: { tool: TOOL.gmail, target: 'on-call@acme.com', note: 'Only emails when there’s a spike' },
+    delivery: { tool: TOOL.gmail, target: 'oncall@beta-platform.example', note: 'Only emails when there’s a spike' },
     model: 'Claude Haiku 4.5 · Low',
     timezone: 'America/Los_Angeles',
-    startedLabel: 'Started May 2026 · 1,440 runs',
-    projectId: 'p-infra',
+    startedLabel: 'Started May 2026',
+    projectId: 'p-beta',
     runs: [
       {
         id: 'r1', status: 'skipped', duration: '4s', reachedStep: 1, at: ago(12 * MIN),
@@ -374,30 +379,21 @@ export const SCHEDULED_TASKS: ScheduledTask[] = [
         detail: 'Error rate 0.4%/min, inside the 7-day baseline band. No spike, so I sent no email.',
       },
       {
-        id: 'r2', status: 'skipped', duration: '4s', reachedStep: 1, at: ago(42 * MIN),
-        summary: 'No spike — stayed quiet',
-        detail: 'Error rate flat against baseline. Nothing to report; no email.',
-      },
-      {
-        id: 'r3', status: 'ok', duration: '16s', reachedStep: 3, at: ago(60 * MIN),
-        summary: 'Spike caught — emailed on-call (auth errors +180%)',
+        id: 'r2', status: 'ok', duration: '16s', reachedStep: 3, at: ago(60 * MIN),
+        summary: 'Spike caught — emailed on-call (cache errors +160%)',
         detail:
-          'Auth errors spiked +180% over baseline — mostly 401s from the token-refresh path. I summarized the top 3 new Sentry groups and emailed on-call@acme.com.\nLikely tied to this morning’s Linear auth expiry.',
-      },
-      {
-        id: 'r4', status: 'skipped', duration: '3s', reachedStep: 1, at: ago(120 * MIN),
-        summary: 'No spike — stayed quiet',
-        detail: 'Within baseline. Stayed quiet.',
+          'Origin errors spiked +160% over baseline — the cache-stampede pattern again (hot key expiry at the top of the hour). I summarized the top 3 new Sentry groups and emailed oncall@beta-platform.example.',
       },
     ],
   },
   {
     id: 's-metrics',
+    tenantId: 'tenant-growthworks', // Maya — growth & experimentation
     name: 'Weekly metrics roll-up',
     cadence: 'Mondays · 7:00 AM',
     next: 'Mon, 7:00 AM',
-    enabled: false,
-    lastStatus: 'pending',
+    enabled: true,
+    lastStatus: 'ok',
     subtitle: 'Every Monday at 7:00 AM · saves metrics-rollup.md',
     trigger: 'every Monday at 7:00 AM',
     prompt:
@@ -411,7 +407,7 @@ export const SCHEDULED_TASKS: ScheduledTask[] = [
     delivery: { tool: TOOL.gdrive, target: 'metrics-rollup.md', note: 'Overwrites last week’s file' },
     model: 'Claude Opus 4.8 · High',
     timezone: 'America/Los_Angeles',
-    startedLabel: 'Paused · 14 runs',
+    startedLabel: 'Started Apr 2026',
     projectId: 'p-growth',
     runs: [
       {
@@ -426,10 +422,41 @@ export const SCHEDULED_TASKS: ScheduledTask[] = [
         detail:
           'Saved metrics-rollup.md. Movers vs the prior week:\n• Weekly-active-teams +1.1%\n• Activation +0.4%\n• Retention +0.3%\nA quieter week — no single number moved much.',
       },
+    ],
+  },
+  {
+    id: 's-site-copy',
+    tenantId: 'tenant-northlight', // Noor — brand & marketing
+    name: 'Weekly site-copy review',
+    cadence: 'Fridays · 3:00 PM',
+    next: 'Fri, 3:00 PM',
+    enabled: true,
+    lastStatus: 'ok',
+    subtitle: 'Every Friday at 3:00 PM · saves copy-review.md',
+    trigger: 'every Friday at 3:00 PM',
+    prompt:
+      'Every Friday afternoon, crawl the marketing site, flag copy that drifts from the brand voice guide (hype words, exclamation marks, retired logotype mentions), and save a short review with suggested rewrites.',
+    steps: [
+      { id: 'st1', action: 'Crawl the marketing site’s public pages', tool: TOOL.web },
+      { id: 'st2', action: 'Flag copy that drifts from the brand voice guide', tool: TOOL.claude },
+      { id: 'st3', action: 'Save copy-review.md with suggested rewrites', tool: TOOL.gdrive },
+    ],
+    delivery: { tool: TOOL.gdrive, target: 'copy-review.md', note: 'Overwrites last week’s review' },
+    model: 'Claude Sonnet 4.6 · Medium',
+    timezone: 'America/Los_Angeles',
+    startedLabel: 'Started Jun 2026',
+    projectId: 'p-brand',
+    runs: [
       {
-        id: 'r3', status: 'skipped', duration: '—', reachedStep: 0, at: ago(27360 * MIN),
-        summary: 'Skipped — paused for the holiday',
-        detail: 'The routine was paused for the holiday week, so no roll-up was written.',
+        id: 'r1', status: 'ok', duration: '48s', reachedStep: 3, at: ago(2880 * MIN),
+        summary: '6 drift flags across 4 pages → copy-review.md',
+        detail:
+          'Saved copy-review.md — 6 flags across 4 pages:\n• Pricing page: two hype words (“revolutionary”, “blazing”).\n• Careers page: exclamation marks in three headings.\n• Old logotype still referenced in the press kit footer.\nEach flag comes with a voice-guide-conformant rewrite.',
+      },
+      {
+        id: 'r2', status: 'ok', duration: '51s', reachedStep: 3, at: ago(12960 * MIN),
+        summary: '2 drift flags → copy-review.md',
+        detail: 'A clean week — only 2 flags (both on the new integrations page). Saved copy-review.md with rewrites.',
       },
     ],
   },
@@ -615,6 +642,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
   // ── Growth experiments ───────────────────────────────────────────────────
   {
     id: 'a6',
+    tenantId: 'tenant-growthworks',
     name: 'onboarding-ab-readout.md',
     kind: 'doc',
     meta: 'summary',
@@ -625,6 +653,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
   },
   {
     id: 'a7',
+    tenantId: 'tenant-growthworks',
     name: 'activation-funnel.png',
     kind: 'image',
     meta: '1200×700',
@@ -635,6 +664,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
   },
   {
     id: 'a8',
+    tenantId: 'tenant-growthworks',
     name: 'june-churn-cohorts.sheet',
     kind: 'sheet',
     meta: '2,481 rows',
@@ -645,6 +675,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
   },
   {
     id: 'a9',
+    tenantId: 'tenant-growthworks',
     name: 'churn-drivers.md',
     kind: 'doc',
     meta: 'summary',
@@ -655,6 +686,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
   },
   {
     id: 'a10',
+    tenantId: 'tenant-growthworks',
     name: 'q3-board-deck.slides',
     kind: 'slide',
     meta: '14 slides',
@@ -666,6 +698,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
   // ── Brand refresh ────────────────────────────────────────────────────────
   {
     id: 'a11',
+    tenantId: 'tenant-northlight',
     name: 'brand-voice-guide.md',
     kind: 'doc',
     meta: 'guide',
@@ -676,6 +709,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
   },
   {
     id: 'a12',
+    tenantId: 'tenant-northlight',
     name: 'homepage-copy.md',
     kind: 'doc',
     meta: 'hero + 3 sections',
@@ -686,6 +720,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
   },
   {
     id: 'a13',
+    tenantId: 'tenant-northlight',
     name: 'logo-lockups.png',
     kind: 'image',
     meta: '1600×900',
@@ -696,6 +731,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
   },
   {
     id: 'a14',
+    tenantId: 'tenant-northlight',
     name: 'color-tokens.sheet',
     kind: 'sheet',
     meta: '38 tokens',
@@ -706,6 +742,7 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
   },
   {
     id: 'a15',
+    tenantId: 'tenant-northlight',
     name: 'tone-dos-donts.md',
     kind: 'doc',
     meta: 'reference',
@@ -765,8 +802,79 @@ export const ALL_ARTIFACTS: ArtifactItem[] = [
     excerpt: 'SLOs and 30-day error-budget burn across auth, api, ingest, and web — ingest is over budget.',
     editedAt: ago(4 * DAY),
   },
+  // ── Beta Platform (Grace) ──────────────────────────────────────────────────
+  {
+    id: 'a21',
+    tenantId: 'tenant-beta',
+    name: 'cache-stampede-postmortem.md',
+    kind: 'doc',
+    meta: 'postmortem · draft',
+    source: 'Postmortem: cache stampede',
+    projectId: 'p-beta',
+    excerpt: 'Timeline, five whys, and the two fixes: TTL jitter and edge request coalescing.',
+    editedAt: ago(26 * HOUR),
+  },
+  {
+    id: 'a22',
+    tenantId: 'tenant-beta',
+    name: 'canary-gates.sheet',
+    kind: 'sheet',
+    meta: '3 gates',
+    source: 'Canary deploy pipeline',
+    projectId: 'p-beta',
+    excerpt: 'The rollback gates per stage — error rate, p95 latency, and saturations — with thresholds.',
+    editedAt: ago(3 * HOUR),
+  },
+  // ── Harbor Support (Omar) ──────────────────────────────────────────────────
+  {
+    id: 'a23',
+    tenantId: 'tenant-harbor',
+    name: 'ticket-themes.md',
+    kind: 'doc',
+    meta: '5 themes · wk 26',
+    source: 'Weekly ticket themes',
+    projectId: 'p-support',
+    excerpt: 'CSV import failures lead again (61); the mobile login loop is escalated as a bug.',
+    editedAt: ago(4 * HOUR),
+  },
+  {
+    id: 'a24',
+    tenantId: 'tenant-harbor',
+    name: 'reply-macros.md',
+    kind: 'doc',
+    meta: '8 macros · by queue',
+    source: 'Refresh reply macros',
+    projectId: 'p-support',
+    excerpt: 'The refreshed macro set — current pricing, import docs, and the two flagged for screenshots.',
+    editedAt: ago(25 * HOUR),
+  },
+  // ── Rei’s Lab (Rei) ────────────────────────────────────────────────────────
+  {
+    id: 'a25',
+    tenantId: 'tenant-reislab',
+    name: 'linear-attention-notes.md',
+    kind: 'doc',
+    meta: 'notes · apdx C',
+    source: 'Linear-attention paper notes',
+    projectId: 'p-research',
+    excerpt: 'Where the O(n) approximation bites: sharp local attention. The two ablations that matter.',
+    editedAt: ago(7 * HOUR),
+  },
+  {
+    id: 'a26',
+    tenantId: 'tenant-reislab',
+    name: 'rust-weekends.md',
+    kind: 'doc',
+    meta: '3-weekend plan',
+    source: 'Rust in three weekends',
+    projectId: 'p-research',
+    excerpt: 'Ownership by porting scripts, then a real CLI, then async — the borrow checker is the course.',
+    editedAt: ago(2 * DAY),
+  },
 ]
 
+// One-off runs, one per demo account (docs/demo-accounts.md) — the Dispatch
+// tab has something themed to show whoever is signed in.
 export const DISPATCH_RUNS: DispatchRun[] = [
   {
     id: 'd1',
@@ -776,7 +884,15 @@ export const DISPATCH_RUNS: DispatchRun[] = [
     detail: 'Labeling 17 open issues and drafting first replies.',
   },
   {
+    id: 'd1b',
+    title: 'Draft release notes from merged PRs',
+    status: 'done',
+    startedAt: ago(6 * HOUR),
+    detail: '21 PRs since v2.4 → grouped notes, breaking changes flagged.',
+  },
+  {
     id: 'd2',
+    tenantId: 'tenant-harbor',
     title: 'Summarize yesterday’s support tickets',
     status: 'done',
     startedAt: ago(1 * HOUR),
@@ -784,9 +900,34 @@ export const DISPATCH_RUNS: DispatchRun[] = [
   },
   {
     id: 'd3',
+    tenantId: 'tenant-growthworks',
     title: 'Refresh competitor pricing table',
     status: 'failed',
     startedAt: ago(3 * HOUR),
     detail: 'A source page changed layout — needs a selector update.',
+  },
+  {
+    id: 'd4',
+    tenantId: 'tenant-northlight',
+    title: 'Regenerate social share cards',
+    status: 'done',
+    startedAt: ago(2 * HOUR),
+    detail: '12 cards re-rendered with the new wordmark.',
+  },
+  {
+    id: 'd5',
+    tenantId: 'tenant-beta',
+    title: 'Rotate stale deploy keys',
+    status: 'done',
+    startedAt: ago(5 * HOUR),
+    detail: '3 keys rotated; the CI secret updated in place.',
+  },
+  {
+    id: 'd6',
+    tenantId: 'tenant-reislab',
+    title: 'Fetch this week’s arXiv batch',
+    status: 'done',
+    startedAt: ago(9 * HOUR),
+    detail: '14 new papers matched the attention/efficiency filter → reading list.',
   },
 ]

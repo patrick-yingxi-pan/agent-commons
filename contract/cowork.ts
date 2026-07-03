@@ -120,6 +120,11 @@ export interface ScheduledRun {
  *  delivers the result somewhere. */
 export interface ScheduledTask {
   id: string
+  /** The tenant this routine belongs to — the isolation boundary on the web
+   *  (F2/PD9). Unset on a legacy routine ⇒ the backend's default tenant; the
+   *  six demo accounts' seed routines are stamped (docs/demo-accounts.md).
+   *  `listSchedules(tenantId)` filters on it, like sessions. */
+  tenantId?: string
   name: string
   cadence: string
   next: string
@@ -189,6 +194,9 @@ export interface ArtifactItem {
 
 export interface DispatchRun {
   id: string
+  /** The tenant this one-off run belongs to (F2/PD9) — unset ⇒ the backend's
+   *  default tenant, mirroring sessions/routines. */
+  tenantId?: string
   title: string
   status: 'running' | 'done' | 'failed'
   /** When the run started (epoch ms). The UI renders a live "time ago" label —

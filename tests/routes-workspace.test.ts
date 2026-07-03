@@ -19,7 +19,9 @@ test('GET /sessions/:id materializes the workspace from the seed (repo + connect
 })
 
 test('a workspace-only seed session derives a workspace panel from its artifacts', async () => {
-  const { json } = await call('GET', '/sessions/onboarding-ab')
+  // onboarding-ab belongs to Maya (tenant-growthworks) since the demo-accounts
+  // split — read it as its own tenant through the dev header seam.
+  const { json } = await call('GET', '/sessions/onboarding-ab', undefined, { 'x-tenant-id': 'tenant-growthworks' })
   assert.equal(json.workspace.repos.length, 0)
   assert.equal(json.workspace.workspaces.length, 1)
   assert.equal(json.workspace.workspaces[0].artifacts.length, 2)

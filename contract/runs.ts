@@ -55,6 +55,9 @@ export function buildRunSession(task: ScheduledTask, run: ScheduledRun): Session
     caps: ['chat'],
     preview: run.summary,
     connectors: connectorsFor(task),
+    // A run's session belongs to its ROUTINE's tenant — a foreign account must
+    // not see (or open) another workspace's run history (F2/PD9).
+    ...(task.tenantId ? { tenantId: task.tenantId } : {}),
     scheduledRunOf: { taskId: task.id, taskName: task.name },
     messages: [
       { id: 'm1', role: 'user', content: `Scheduled run — ${task.trigger}.\n\n${task.prompt}` },

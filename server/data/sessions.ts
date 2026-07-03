@@ -15,7 +15,14 @@ const ago = (ms: number) => NOW - ms
  *  would be scattered across three separate tabs.
  *
  *  This is the backend's seed data: in the real product it would come from a
- *  database; here the mock server holds it in memory and serves it over the API. */
+ *  database; here the mock server holds it in memory and serves it over the API.
+ *
+ *  PER-ACCOUNT THEMING (docs/demo-accounts.md): each row belongs to one of the
+ *  six demo accounts via `tenantId` — unset means the backend's DEFAULT tenant
+ *  (Ada / Acme on the web, the local user's Personal on desktop), which holds
+ *  the flagship product+platform dataset the guided tour runs on. The other
+ *  five accounts each hold a small, distinct, themed world so the account
+ *  switcher demo has something real to switch BETWEEN. */
 export const SESSIONS: Session[] = [
   {
     id: 'insights-launch',
@@ -75,6 +82,7 @@ export const SESSIONS: Session[] = [
   },
   {
     id: 'onboarding-ab',
+    tenantId: 'tenant-growthworks', // Maya — growth & experimentation
     title: 'Onboarding A/B readout',
     caps: ['chat', 'workspace'],
     preview: 'Variant B lifted activation +6.2% — ship it.',
@@ -102,6 +110,7 @@ export const SESSIONS: Session[] = [
   },
   {
     id: 'board-deck',
+    tenantId: 'tenant-growthworks', // Maya
     title: 'Q3 board deck',
     caps: ['chat', 'workspace'],
     preview: 'Narrative + 14 slides from the metrics review.',
@@ -130,6 +139,7 @@ export const SESSIONS: Session[] = [
   },
   {
     id: 'churn-analysis',
+    tenantId: 'tenant-growthworks', // Maya
     title: 'Churn analysis · June',
     caps: ['chat', 'workspace'],
     preview: 'Cohort export + the three drivers behind the spike.',
@@ -157,6 +167,7 @@ export const SESSIONS: Session[] = [
   },
   {
     id: 'brand-voice',
+    tenantId: 'tenant-northlight', // Noor — brand & marketing
     title: 'Brand voice guidelines',
     caps: ['chat', 'workspace'],
     preview: 'Warm, plain, confident — with do/don’t examples.',
@@ -236,6 +247,7 @@ export const SESSIONS: Session[] = [
   },
   {
     id: 'homepage-rewrite',
+    tenantId: 'tenant-northlight', // Noor
     title: 'Homepage rewrite',
     caps: ['chat', 'workspace'],
     preview: 'New hero, three proof points, one CTA.',
@@ -260,6 +272,7 @@ export const SESSIONS: Session[] = [
   },
   {
     id: 'logo-feedback',
+    tenantId: 'tenant-northlight', // Noor
     title: 'Logo lockup feedback',
     caps: ['chat'],
     preview: 'Which wordmark lockup holds up at favicon size?',
@@ -334,6 +347,7 @@ export const SESSIONS: Session[] = [
   },
   {
     id: 'vector-db',
+    tenantId: 'tenant-reislab', // Rei — research & learning
     title: 'Vector databases, explained',
     caps: ['chat'],
     preview: 'Plain chat — no workspace, no repo.',
@@ -352,6 +366,190 @@ export const SESSIONS: Session[] = [
         role: 'assistant',
         content:
           'Think of it as an index, but instead of matching exact keys it matches *meaning*. You convert text to a vector (a list of numbers that captures meaning), then the database finds the nearest vectors — “closest meaning” instead of “equals”. The hard part it solves for you is doing that nearest-neighbour search fast over millions of vectors.',
+      },
+    ],
+  },
+
+  // ── Grace · Beta Platform (deploys, incidents, infrastructure) ─────────────
+  {
+    id: 'deploy-canary',
+    tenantId: 'tenant-beta',
+    title: 'Canary deploy pipeline',
+    caps: ['chat', 'repo'],
+    preview: '5% canary with auto-rollback on the error-rate gate.',
+    status: 'active',
+    environment: 'local',
+    updatedAt: ago(3 * HOUR),
+    createdAt: ago(4 * DAY),
+    connectors: [{ id: 'gh-mcp', label: 'GitHub', kind: 'github' }],
+    messages: [
+      {
+        id: 'm1',
+        role: 'user',
+        content: 'Add a canary stage to the deploy pipeline — 5% of traffic, auto-rollback if errors spike.',
+      },
+      {
+        id: 'm2',
+        role: 'assistant',
+        content:
+          'Added a canary stage: 5% traffic for 10 minutes, gated on the Sentry error rate (rollback above 2× baseline). The pipeline change and the gate config are in the diff; the dry run passed.',
+      },
+    ],
+    files: [
+      { path: 'deploy/pipeline.yaml', status: 'modified' },
+      { path: 'deploy/gates/error-rate.ts', status: 'added' },
+    ],
+    terminal: ['$ deployctl plan', 'stage canary: 5% · 10m · gate error-rate<2x', 'plan OK — 2 changes'],
+  },
+  {
+    id: 'incident-cache',
+    tenantId: 'tenant-beta',
+    title: 'Postmortem: cache stampede',
+    caps: ['chat', 'workspace'],
+    preview: 'TTL jitter + request coalescing; draft postmortem attached.',
+    status: 'active',
+    environment: 'local',
+    updatedAt: ago(DAY + 3 * HOUR),
+    createdAt: ago(3 * DAY),
+    messages: [
+      {
+        id: 'm1',
+        role: 'user',
+        content: 'Tuesday’s outage looked like a cache stampede. Write the postmortem and the fix plan.',
+      },
+      {
+        id: 'm2',
+        role: 'assistant',
+        content:
+          'It was: the hot key expired at the top of the hour and 40k requests hit the origin at once. Fix is TTL jitter (±10%) plus request coalescing at the edge. Draft postmortem with the timeline and both fixes is in the workspace.',
+      },
+    ],
+    artifacts: [{ id: 'ic1', name: 'cache-stampede-postmortem.md', kind: 'doc', meta: 'draft · 5 whys' }],
+  },
+  {
+    id: 'cluster-upgrade',
+    tenantId: 'tenant-beta',
+    title: 'Cluster upgrade window',
+    caps: ['chat'],
+    preview: 'Sunday 02:00 UTC, node pools rolled in thirds.',
+    status: 'archived',
+    environment: 'local',
+    updatedAt: ago(6 * DAY),
+    createdAt: ago(11 * DAY),
+    messages: [
+      { id: 'm1', role: 'user', content: 'When should we take the k8s 1.31 upgrade, and in what order?' },
+      {
+        id: 'm2',
+        role: 'assistant',
+        content:
+          'Sunday 02:00 UTC is the quietest window (11% of weekday peak). Roll the node pools in thirds — stateless first, then the queue workers, then the stateful set — with a 20-minute soak between thirds.',
+      },
+    ],
+  },
+
+  // ── Omar · Harbor Support (tickets, macros, escalations) ───────────────────
+  {
+    id: 'ticket-themes',
+    tenantId: 'tenant-harbor',
+    title: 'Weekly ticket themes',
+    caps: ['chat', 'workspace'],
+    preview: 'Top themes: CSV import, seat billing, mobile login.',
+    status: 'active',
+    environment: 'local',
+    updatedAt: ago(4 * HOUR),
+    createdAt: ago(6 * DAY),
+    messages: [
+      { id: 'm1', role: 'user', content: 'Cluster last week’s tickets into themes and rank them by volume.' },
+      {
+        id: 'm2',
+        role: 'assistant',
+        content:
+          '214 tickets → 5 themes. Top three: CSV import failures (61), seat-billing confusion (43), mobile login loops (38). The first two are docs-fixable; the login loop looks like a real bug — I drafted an escalation. Breakdown’s in the workspace.',
+      },
+    ],
+    artifacts: [{ id: 'tt1', name: 'ticket-themes.md', kind: 'doc', meta: '5 themes · wk 26' }],
+  },
+  {
+    id: 'macro-refresh',
+    tenantId: 'tenant-harbor',
+    title: 'Refresh reply macros',
+    caps: ['chat', 'workspace'],
+    preview: 'Rewrote the 8 stale macros; 3 retired.',
+    status: 'active',
+    environment: 'local',
+    updatedAt: ago(DAY + HOUR),
+    createdAt: ago(8 * DAY),
+    messages: [
+      { id: 'm1', role: 'user', content: 'Our reply macros are stale — half reference the old pricing page. Refresh them.' },
+      {
+        id: 'm2',
+        role: 'assistant',
+        content:
+          'Rewrote 8 macros against the current pricing and import docs, retired 3 that duplicate the new help-center articles, and flagged 2 that need a screenshot refresh. The full set is in the workspace, grouped by queue.',
+      },
+    ],
+    artifacts: [{ id: 'mr1', name: 'reply-macros.md', kind: 'doc', meta: '8 macros · by queue' }],
+  },
+  {
+    id: 'sev1-comms',
+    tenantId: 'tenant-harbor',
+    title: 'SEV-1 comms follow-up',
+    caps: ['chat'],
+    preview: 'Apology note + credit policy for affected workspaces.',
+    status: 'archived',
+    environment: 'local',
+    updatedAt: ago(5 * DAY),
+    createdAt: ago(5 * DAY),
+    messages: [
+      { id: 'm1', role: 'user', content: 'Draft the customer follow-up for Tuesday’s outage — honest, short, with the credit.' },
+      {
+        id: 'm2',
+        role: 'assistant',
+        content:
+          'Drafted: what broke (40 minutes of failed saves), what we did, and a 10% monthly credit applied automatically to affected workspaces — no claim form. Two sentences of apology, zero weasel words.',
+      },
+    ],
+  },
+
+  // ── Rei · Rei’s Lab (papers, learning, side projects) ──────────────────────
+  {
+    id: 'paper-notes',
+    tenantId: 'tenant-reislab',
+    title: 'Linear-attention paper notes',
+    caps: ['chat', 'workspace'],
+    preview: 'Where the O(n) approximations actually lose accuracy.',
+    status: 'active',
+    environment: 'local',
+    updatedAt: ago(7 * HOUR),
+    createdAt: ago(2 * DAY),
+    messages: [
+      { id: 'm1', role: 'user', content: 'Summarize the linear-attention paper — where does the approximation actually bite?' },
+      {
+        id: 'm2',
+        role: 'assistant',
+        content:
+          'The O(n) kernel trick holds up on long-range retrieval but loses ~2–4 points on tasks needing sharp local attention (code, math). The paper hides this in Appendix C — my notes pull it out, with the two ablations that matter.',
+      },
+    ],
+    artifacts: [{ id: 'pn1', name: 'linear-attention-notes.md', kind: 'doc', meta: 'notes · apdx C' }],
+  },
+  {
+    id: 'learn-rust',
+    tenantId: 'tenant-reislab',
+    title: 'Rust in three weekends',
+    caps: ['chat'],
+    preview: 'Ownership first, then a tiny CLI, then async.',
+    status: 'active',
+    environment: 'local',
+    updatedAt: ago(2 * DAY + 5 * HOUR),
+    createdAt: ago(9 * DAY),
+    messages: [
+      { id: 'm1', role: 'user', content: 'Plan me a three-weekend path into Rust. I know Python and some C.' },
+      {
+        id: 'm2',
+        role: 'assistant',
+        content:
+          'Weekend 1: ownership + borrowing by porting three small Python scripts. Weekend 2: a real CLI (clap + serde) you’ll actually use. Weekend 3: async with tokio — a tiny link checker. Fighting the borrow checker IS the course; don’t skip to unsafe.',
       },
     ],
   },

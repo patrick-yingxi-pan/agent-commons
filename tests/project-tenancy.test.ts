@@ -1,13 +1,15 @@
 /** Tenant-scoped projects via the relation graph (F2 / PD9 — identity slice 3a).
  *  Created projects live in `graph.extraProjects`; the shared reducer is tenant-agnostic,
  *  so the server stamps the creator's tenant on apply and `relationGraph(tenantId)`
- *  PROJECTS the graph to that tenant. Every seed project is the default tenant's, so the
- *  DEFAULT reader gets the full graph unchanged (backward-compatible); only a non-default
- *  tenant is filtered. The broadcast is gated on the acting tenant, and an op targeting a
- *  project the caller doesn't own is refused (opTargetsForeignProject).
+ *  PROJECTS the graph to that tenant. Since the demo-accounts split
+ *  (docs/demo-accounts.md) the SEED projects are themselves distributed across
+ *  tenants, so the default reader gets the default SLICE — its own seeds + its
+ *  created projects — never another account's. The broadcast is gated on the
+ *  acting tenant, and an op targeting a project the caller doesn't own is
+ *  refused (opTargetsForeignProject).
  *
- *  Order matters: the backward-compat identity test runs FIRST, while the store still
- *  holds only default-tenant content; the isolation tests then introduce non-default
+ *  Order matters: the default-slice test runs FIRST, while the store holds only
+ *  seed + default-tenant content; the isolation tests then introduce non-default
  *  projects. The header-driven route boundary is proven in tests/capability-remote.test.ts. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -21,14 +23,19 @@ const mkCreate = (id, name, sessionId) => ({
   ...(sessionId ? { sessionId, sessionTitle: 'S' } : {}),
 })
 
-test('the default-tenant projection is the identity (full graph unchanged — backward-compatible)', () => {
-  // Runs first: the store holds only seed + this default-tenant project, all default.
+test('the default-tenant projection is the default SLICE (its own seeds + creations, no other account’s)', () => {
+  // Runs first: the store holds only seed + this default-tenant project.
   store.applyRelationOp(mkCreate('proj-def', 'Default one', 'sess-def')) // no tenant ⇒ default
   const full = store.relationGraph()
   const def = store.relationGraph('tenant-personal') // the mock backend's default tenant
-  assert.deepEqual(def, full, 'the default projection equals the full graph')
   assert.ok(def.extraProjects.some((p) => p.id === 'proj-def'), 'a default-created project is visible to the default reader')
   assert.equal(def.sessionProject['sess-def'], 'proj-def', 'its session→project join too')
+  // The default tenant's SEED joins survive the projection verbatim…
+  assert.equal(def.artifactProject['a1'], full.artifactProject['a1'], 'a default seed artifact join stays (p-insights)')
+  assert.equal(def.artifactProject['a16'], full.artifactProject['a16'], 'and the platform ones (p-infra)')
+  // …while the other demo accounts' seed joins are projected OUT (F2/PD9).
+  assert.ok(!('a6' in def.artifactProject), "Maya's seed artifact joins are projected out (p-growth)")
+  assert.ok(!('a11' in def.artifactProject), "Noor's seed artifact joins are projected out (p-brand)")
 })
 
 test('a created project is stamped with the caller tenant; relationGraph projects to it', () => {

@@ -68,7 +68,7 @@ test('a mid-generation account switch: the turn survives, the other tenant sees 
   await page.reload()
   await dismissIntro(page)
   await expect(page.getByTestId('account-chip')).toContainText('Grace Hopper')
-  await expect(page.getByTestId('account-chip')).toContainText('tenant-beta')
+  await expect(page.getByTestId('account-chip')).toContainText('Beta Platform')
   await switchTo(page, 'Ada Lovelace', 'Ada Lovelace')
 
   // A FRESH draft — the app opens on the demo session, and a send there would
@@ -90,7 +90,7 @@ test('a mid-generation account switch: the turn survives, the other tenant sees 
   // detaches the view — the turn runs on server-side). Grace's stack entry
   // remembers tenant-beta (her last-active), so the hop lands there.
   await switchTo(page, 'Grace Hopper', 'Grace Hopper')
-  await expect(page.getByTestId('account-chip')).toContainText('tenant-beta')
+  await expect(page.getByTestId('account-chip')).toContainText('Beta Platform')
 
   // Tenant isolation across the switch: Grace's world holds none of Ada's
   // session — not in the sidebar, not as thread content.
@@ -146,14 +146,14 @@ test('the menu lists remembered accounts + real memberships (no dev directory); 
   const stack = page.getByTestId('account-stack-option')
   await expect(stack).toHaveCount(2)
   await expect(stack.filter({ hasText: 'Grace' })).toContainText('Active')
-  // Your workspaces: Grace's REAL memberships — acme + tenant-beta (active).
+  // Your workspaces: Grace's REAL memberships — Acme + Beta Platform (active).
   const workspaces = page.getByTestId('workspace-option')
   await expect(workspaces).toHaveCount(2)
-  await expect(workspaces.filter({ hasText: 'tenant-beta' })).toContainText('Active')
+  await expect(workspaces.filter({ hasText: 'Beta Platform' })).toContainText('Active')
   // The old "Switch identity (dev)" section is gone with the directory.
   await expect(page.getByTestId('account-option')).toHaveCount(0)
   // Picking the already-active workspace closes the menu and changes nothing.
-  await workspaces.filter({ hasText: 'tenant-beta' }).click()
+  await workspaces.filter({ hasText: 'Beta Platform' }).click()
   await expect(page.getByTestId('account-chip')).toContainText('Grace Hopper')
-  await expect(page.getByTestId('account-chip')).toContainText('tenant-beta')
+  await expect(page.getByTestId('account-chip')).toContainText('Beta Platform')
 })

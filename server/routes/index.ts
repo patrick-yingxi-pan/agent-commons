@@ -1666,16 +1666,16 @@ export function buildRouter(): Router {
   })
 
   // ── Dispatch ──────────────────────────────────────────────────────────────
-  r.get('/dispatch', ({ res, url }) => {
-    sendList(res, url, store.listDispatch(), (d) => d.id)
+  r.get('/dispatch', ({ req, res, url }) => {
+    sendList(res, url, store.listDispatch(store.identity(req.headers).tenant.id), (d) => d.id)
   })
   // Kick off a one-off dispatch (lands 'running', finishes 'done' a beat later). Refuses a
   // 429 when the in-flight cap (DISPATCH_MAX_CONCURRENT, P7) is reached, so the caller backs off.
-  r.post('/dispatch', idempotent(async ({ res, body }) => {
+  r.post('/dispatch', idempotent(async ({ req, res, body }) => {
     const { title, detail } = await body<CreateDispatchRequest>()
     if (!title || !title.trim()) return sendError(res, 'bad_request', 'title is required')
     try {
-      sendJson(res, store.addDispatch(title.trim(), detail))
+      sendJson(res, store.addDispatch(title.trim(), detail, store.identity(req.headers).tenant.id))
     } catch (err) {
       if (err instanceof LimitError) return sendError(res, err.code, err.message)
       throw err
@@ -1726,17 +1726,26 @@ export function buildRouter(): Router {
   })
 
   // ── Entity graph (Projects / Artifacts / Schedules) + the relationship graph ─
-  r.get('/projects', ({ res }) => {
-    sendJson(res, store.listProjects())
+  // All tenant-scoped (F2/PD9): the six demo accounts each seed their own themed
+  // slice (docs/demo-accounts.md), so every list answers as the caller's tenant.
+  r.get('/projects', ({ req, res }) => {
+    sendJson(res, store.listProjects(store.identity(req.headers).tenant.id))
   })
-  r.get('/artifacts', ({ res, url }) => {
-    sendList(res, url, store.listArtifacts(), (a) => a.id)
+  r.get('/artifacts', ({ req, res, url }) => {
+    sendList(res, url, store.listArtifacts(store.identity(req.headers).tenant.id), (a) => a.id)
   })
-  r.get('/schedules', ({ res }) => {
-    sendJson(res, store.listSchedules())
+  r.get('/schedules', ({ req, res }) => {
+    sendJson(res, store.listSchedules(store.identity(req.headers).tenant.id))
   })
+  /** The by-id schedule wall (mirrors denyForeignSession): a foreign tenant's
+   *  routine reads/mutates as 404 — indistinguishable from absent. */
+  const foreignSchedule = (req: IncomingMessage, id: string): boolean => {
+    const task = store.listSchedules().find((t) => t.id === id)
+    return !!task && !store.scheduleVisibleToTenant(task, store.identity(req.headers).tenant.id)
+  }
   // Run a routine now (server appends + broadcasts the run).
-  r.post('/schedules/:id/run', ({ res, params }) => {
+  r.post('/schedules/:id/run', ({ req, res, params }) => {
+    if (foreignSchedule(req, params.id)) return sendError(res, 'not_found', `No schedule '${params.id}'`)
     const run = store.runSchedule(params.id)
     if (!run) return sendError(res, 'not_found', `No schedule '${params.id}'`)
     sendJson(res, run)
@@ -1744,26 +1753,28 @@ export function buildRouter(): Router {
   // Patch a routine's own fields — enabled, name, prompt, cadence, model, … (the
   // entity edits behind the detail page). Cross-entity bindings (deliver to an
   // artifact/session, add a tool) go through POST /relations/ops instead.
-  r.patch('/schedules/:id', async ({ res, params, body }) => {
+  r.patch('/schedules/:id', async ({ req, res, params, body }) => {
+    if (foreignSchedule(req, params.id)) return sendError(res, 'not_found', `No schedule '${params.id}'`)
     const patch = await body<UpdateScheduleRequest>()
     const task = store.updateSchedule(params.id, patch)
     if (!task) return sendError(res, 'not_found', `No schedule '${params.id}'`)
     sendJson(res, task)
   })
-  // Add a routine from a template's seed (lands paused).
-  r.post('/schedules', idempotent(async ({ res, body }) => {
+  // Add a routine from a template's seed (lands paused, stamped with the caller's tenant).
+  r.post('/schedules', idempotent(async ({ req, res, body }) => {
     const { seed } = await body<{ seed?: Omit<import('../../contract/index.ts').ScheduledTask, 'id'> }>()
     if (!seed) return sendError(res, 'bad_request', 'seed is required')
-    sendJson(res, store.addSchedule(seed))
+    sendJson(res, store.addSchedule({ ...seed, tenantId: store.identity(req.headers).tenant.id }))
   }))
   // Remove a routine.
-  r.delete('/schedules/:id', ({ res, params }) => {
+  r.delete('/schedules/:id', ({ req, res, params }) => {
+    if (foreignSchedule(req, params.id)) return sendError(res, 'not_found', `No schedule '${params.id}'`)
     store.removeSchedule(params.id)
     sendJson(res, { ok: true })
   })
-  // The left rail's recent-runs feed (a single live source).
-  r.get('/runs/recent', ({ res }) => {
-    sendJson(res, store.recentRuns())
+  // The left rail's recent-runs feed (a single live source, the caller's routines only).
+  r.get('/runs/recent', ({ req, res }) => {
+    sendJson(res, store.recentRuns(store.identity(req.headers).tenant.id))
   })
   // ETag/If-None-Match (F3): the graph changes only on a confirmed op, so a 304 saves
   // re-sending it on the client's frequent re-reads.

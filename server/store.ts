@@ -114,6 +114,26 @@ function defaultTenantId(): string {
   return resolveIdentity(BACKEND_MODE).tenant.id
 }
 
+/** Whether an UNSTAMPED (seed/legacy) row is visible to `tenantId`. The untagged
+ *  seeds are the FLAGSHIP demo world (docs/demo-accounts.md): they belong to the
+ *  backend's default principal AND to Ada/Acme — the same seat's two faces (the
+ *  desktop's local user; the web's default principal) — so the tour's dataset
+ *  reads identically on both backends, and signing in as Ada on the desktop
+ *  shows the same flagship world instead of an empty one. This never widens
+ *  user data: every RUNTIME-created row is stamped with its creator's tenant at
+ *  creation, so only seed rows are ever unstamped. (Ownership checks for writes
+ *  still resolve to `defaultTenantId()` — visibility is the demo affordance,
+ *  authority stays strict.) */
+function seedVisibleTo(tenantId: string): boolean {
+  return tenantId === defaultTenantId() || tenantId === 'tenant-acme'
+}
+
+/** The tenant-visibility test every scoped read shares: a stamped row matches
+ *  exactly; an unstamped row follows the flagship rule above. */
+function rowVisibleTo(row: { tenantId?: string }, tenantId: string): boolean {
+  return row.tenantId ? row.tenantId === tenantId : seedVisibleTo(tenantId)
+}
+
 // ── Served filesystem sources (the Files / Photos / Folder context types) ──────
 // Those three types are served from a REAL filesystem (contract/fs.ts, server/fs.ts).
 // The web backend's own "cloud storage" is one source: a real directory it reads +
@@ -146,6 +166,12 @@ let scheduleSeq = 0
 // like the live runner registry, it rebuilds from seed on restart.
 const dispatch: DispatchRun[] = JSON.parse(JSON.stringify(DISPATCH_RUNS))
 let dispatchSeq = 0
+
+/** Pristine seed sessions, captured before any rehydrate mutates SESSIONS in
+ *  place — the reference `reconcileSeedTenancy` re-ensures rows/stamps from
+ *  (SCHEDULED_TASKS / DISPATCH_RUNS stay pristine on their own: `schedules` /
+ *  `dispatch` are deep copies, but `SESSIONS` is spliced directly). */
+const SEED_SESSIONS: readonly Session[] = JSON.parse(JSON.stringify(SESSIONS))
 // The detective audit trail (docs/agent-commons.md, D15/OQ7) — an append-only log of
 // effects on the cross-user channels (proxy / Project effect / commissioned host invoke),
 // recorded whether fulfilled or denied. Persisted (additive) so the watch survives a
@@ -275,14 +301,19 @@ const publicCommission = (c: Commission): Commission => ({
 })
 
 /** Project the relation graph to a tenant's view (F2/PD9): a tenant sees only its own
- *  created projects/artifacts and the join rows that reference an entity it can see. Every
- *  seed project/artifact is the default tenant's, so the DEFAULT reader gets the full graph
- *  unchanged (backward-compatible) — only a non-default (remote) tenant gets a filtered
- *  view. Scopes the PROJECT + ARTIFACT axes; the schedule-only joins are left intact (a
- *  later slice — schedules aren't tenant-scoped yet). */
+ *  projects/artifacts — seed rows themed per demo account (docs/demo-accounts.md) plus
+ *  its created ones — and the join rows that reference an entity it can see. Unstamped
+ *  seeds follow the flagship rule (`rowVisibleTo`). Scopes the PROJECT + ARTIFACT axes;
+ *  the schedule-only joins are left intact (schedule reads are scoped at the list). */
 function projectGraphForTenant(g: RelationGraph, tenantId: string): RelationGraph {
-  const projVisible = (pid: string): boolean => projectTenant(pid) === tenantId
-  const artVisible = (aid: string): boolean => artifactTenant(aid) === tenantId
+  const projVisible = (pid: string): boolean => {
+    const p = findProject(pid)
+    return p ? rowVisibleTo(p, tenantId) : seedVisibleTo(tenantId)
+  }
+  const artVisible = (aid: string): boolean => {
+    const a = findArtifact(aid)
+    return a ? rowVisibleTo(a, tenantId) : seedVisibleTo(tenantId)
+  }
   const byProjValue = (m: Record<string, string>): Record<string, string> =>
     Object.fromEntries(Object.entries(m).filter(([, pid]) => projVisible(pid)))
   const byProjKey = <V>(m: Record<string, V>): Record<string, V> =>
@@ -298,10 +329,10 @@ function projectGraphForTenant(g: RelationGraph, tenantId: string): RelationGrap
     // the frozen object leaks the owner's session ids + count across the tenant boundary. The
     // owner keeps the full object.
     extraProjects: g.extraProjects.flatMap((p) => {
-      if ((p.tenantId ?? defaultTenantId()) === tenantId) return [p]
+      if (rowVisibleTo(p, tenantId)) return [p]
       return p.shared === true ? [publicSharedProject(p)] : []
     }),
-    extraArtifacts: g.extraArtifacts.filter((a) => (a.tenantId ?? defaultTenantId()) === tenantId),
+    extraArtifacts: g.extraArtifacts.filter((a) => rowVisibleTo(a, tenantId)),
     sessionProject: byProjValue(g.sessionProject),
     // An artifact→project row needs the artifact visible; the value is gated on project
     // visibility ONLY when it's a real project id — `''` is the reducer's "unfiled"
@@ -680,6 +711,14 @@ function rehydrate(s: PersistedState): void {
       run.detail = 'Interrupted by a server restart'
     }
   }
+  // Seed reconciliation (the P9 rule — CODE seeds are authoritative): a snapshot
+  // written by an older build carries the OLD seed shape — rows without the demo
+  // accounts' tenant stamps, or missing rows a newer build added. Re-ensure every
+  // code-seed row exists and wears the code's tenant; everything else the
+  // snapshot says about a seed row (messages, appended runs, toggles) is kept.
+  reconcileSeedTenancy(SESSIONS, SEED_SESSIONS)
+  reconcileSeedTenancy(schedules, SCHEDULED_TASKS)
+  reconcileSeedTenancy(dispatch, DISPATCH_RUNS)
   // The account registry (multi-account P7): restore onboarded accounts (the
   // seeds are re-ensured inside — a snapshot can't lose the switcher directory).
   accounts.rehydrate({
@@ -704,6 +743,21 @@ function rehydrate(s: PersistedState): void {
   auditSeq = s.seq.audit ?? auditLog.length
   // Dispatch counter (fall back to the seed counter for a pre-field snapshot).
   dispatchSeq = s.seq.dispatch ?? dispatchSeq
+}
+
+/** Re-ensure the code's seed rows after a snapshot restore: a seed row missing
+ *  from the snapshot (added by a newer build) is re-added; a present one gets
+ *  the CODE's tenant stamp (tenancy is code-owned — the demo accounts' data
+ *  split must not be undone by a pre-split snapshot). Runtime rows and runtime
+ *  mutations to seed rows are untouched. Exported for its unit lock
+ *  (tests/demo-accounts.test.ts); rehydrate is the one runtime caller. */
+export function reconcileSeedTenancy<T extends { id: string; tenantId?: string }>(live: T[], seeds: readonly T[]): void {
+  for (const seed of seeds) {
+    const got = live.find((r) => r.id === seed.id)
+    if (!got) live.push(JSON.parse(JSON.stringify(seed)) as T)
+    else if (seed.tenantId) got.tenantId = seed.tenantId
+    else delete got.tenantId
+  }
 }
 
 /** Replace a registry Map's contents from a snapshot's entry array, in place. A
@@ -912,7 +966,7 @@ export const store = {
     // seed/legacy session (no tenantId) belongs to the backend's default tenant, so it's
     // visible to the default reader on both backends. No arg ⇒ unscoped (internal use).
     const within = tenantId
-      ? SESSIONS.filter((s) => (s.tenantId ?? defaultTenantId()) === tenantId)
+      ? SESSIONS.filter((s) => rowVisibleTo(s, tenantId))
       : SESSIONS
     return within.map((s) => ({
       id: s.id,
@@ -933,7 +987,7 @@ export const store = {
    *  so a tenant can't open another tenant's session by guessing its id. A seed/legacy or
    *  synthesized (run) session with no tenantId belongs to the default tenant. */
   sessionVisibleToTenant(session: Session, tenantId: string): boolean {
-    return (session.tenantId ?? defaultTenantId()) === tenantId
+    return rowVisibleTo(session, tenantId)
   },
   /** Whether an ambient event should be delivered to a subscriber of `tenantId` (F2/PD9 —
    *  the push-side of the tenant boundary). The `/events` SSE fan-out is broadcast to
@@ -948,7 +1002,7 @@ export const store = {
         return this.sessionVisibleToTenant(e.session, tenantId)
       case 'session.contexts.changed': {
         const s = SESSIONS.find((x) => x.id === e.sessionId)
-        return (s?.tenantId ?? defaultTenantId()) === tenantId
+        return s ? rowVisibleTo(s, tenantId) : seedVisibleTo(tenantId)
       }
       case 'audit.entry':
         return (e.entry.tenantId ?? defaultTenantId()) === tenantId
@@ -1598,9 +1652,12 @@ export const store = {
   },
 
   // ── Dispatch ──
-  /** The agent-run feed shown in the Dispatch section. */
-  listDispatch(): DispatchRun[] {
-    return dispatch
+  /** The agent-run feed shown in the Dispatch section — scoped to the caller's
+   *  tenant when given (F2/PD9; the six demo accounts each seed their own —
+   *  docs/demo-accounts.md). Unscoped for internal callers (metrics). */
+  listDispatch(tenantId?: string): DispatchRun[] {
+    if (!tenantId) return dispatch
+    return dispatch.filter((d) => rowVisibleTo(d, tenantId))
   },
   /** Kick off a one-off dispatch (a single on-demand agent run). It lands
    *  'running', broadcasts, then finishes 'done' a beat later (the mock stand-in
@@ -1608,7 +1665,7 @@ export const store = {
    *  live run survives a restart — and one caught mid-flight by a restart is swept to
    *  'failed' on rehydrate (the completing timer doesn't survive the process). Returns
    *  the run. */
-  addDispatch(title: string, detail?: string): DispatchRun {
+  addDispatch(title: string, detail?: string, tenantId?: string): DispatchRun {
     // Concurrency limit (P7): bound the in-flight one-off runs so unbounded dispatch can't
     // pile up. Opt-in via `DISPATCH_MAX_CONCURRENT` (read per call ⇒ off by default, so the
     // demo + existing tests are unaffected), mirroring the rate-limiter's opt-in shape. Count
@@ -1623,6 +1680,7 @@ export const store = {
     }
     const run: DispatchRun = {
       id: `d-new-${(dispatchSeq += 1)}`,
+      ...(tenantId ? { tenantId } : {}), // the creator's tenant (F2/PD9)
       title,
       status: 'running',
       startedAt: Date.now(),
@@ -1761,8 +1819,12 @@ export const store = {
   },
 
   // ── Entity graph (Projects / Artifacts / Schedules + the relationship graph) ──
-  listProjects(): Project[] {
-    return PROJECTS
+  /** Seed projects, scoped to the caller's tenant when given (F2/PD9 — each of
+   *  the six demo accounts holds its own themed set, docs/demo-accounts.md).
+   *  Created projects live in `graph.extraProjects` (see relationGraph). */
+  listProjects(tenantId?: string): Project[] {
+    if (!tenantId) return PROJECTS
+    return PROJECTS.filter((p) => rowVisibleTo(p, tenantId))
   },
   /** Resolve a Project across BOTH homes — seeded (`PROJECTS`) + created
    *  (`graph.extraProjects`) — the authoritative existence check. `listProjects()`
@@ -1936,18 +1998,30 @@ export const store = {
     }
     return out
   },
-  /** The base artifacts (the relation graph carries any saved-out extras). */
-  listArtifacts(): ArtifactItem[] {
-    return ALL_ARTIFACTS
+  /** The base artifacts (the relation graph carries any saved-out extras),
+   *  scoped to the caller's tenant when given (F2/PD9). */
+  listArtifacts(tenantId?: string): ArtifactItem[] {
+    if (!tenantId) return ALL_ARTIFACTS
+    return ALL_ARTIFACTS.filter((a) => rowVisibleTo(a, tenantId))
   },
-  listSchedules(): ScheduledTask[] {
-    return schedules
+  /** Routines, scoped to the caller's tenant when given (F2/PD9 — each demo
+   *  account seeds its own themed set). Unscoped for internal callers (the
+   *  daemon, run lookups by id). */
+  listSchedules(tenantId?: string): ScheduledTask[] {
+    if (!tenantId) return schedules
+    return schedules.filter((t) => rowVisibleTo(t, tenantId))
+  },
+  /** Whether a routine is visible to `tenantId` — the route-level guard for the
+   *  by-id reads/mutations, mirroring sessionVisibleToTenant. */
+  scheduleVisibleToTenant(task: ScheduledTask, tenantId: string): boolean {
+    return rowVisibleTo(task, tenantId)
   },
 
   // ── Scheduled runs (a single live feed; runs are server-owned) ──
-  /** The left rail's recent runs (newest-first, capped). */
-  recentRuns(): RunSessionEntry[] {
-    return recentEntries(schedules)
+  /** The left rail's recent runs (newest-first, capped) — the caller's tenant's
+   *  routines only when given (a run session belongs to its routine's tenant). */
+  recentRuns(tenantId?: string): RunSessionEntry[] {
+    return recentEntries(tenantId ? this.listSchedules(tenantId) : schedules)
   },
   /** The synthesized session for a run id (resolves `srun-*`). */
   runSession(id: string): Session | undefined {

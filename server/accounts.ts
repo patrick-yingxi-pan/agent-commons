@@ -61,9 +61,13 @@ export class AccountRegistry {
     this.seed()
   }
 
-  /** The seeds — exactly the directory the identity seam always accepted:
-   *  the desktop's local user with personal + work workspaces, and the web org
-   *  principals (plus grace's tenant-beta, the co-authoring E2E's "Bo"). */
+  /** The seeds — the desktop's local user with personal + work workspaces, and
+   *  the SIX demo accounts (docs/demo-accounts.md): each a themed principal
+   *  with a documented demo credential and its own workspace, so the
+   *  multi-account demo has genuinely distinguishable worlds to hop between.
+   *  Ada owns the default tenant (the tour's flagship dataset); Grace holds the
+   *  cross-tenant pair (Acme member + her own platform workspace — also the
+   *  co-authoring E2E's "Bo"); the other four each own one themed org. */
   seed(): void {
     this.users.clear()
     this.tenants.clear()
@@ -104,7 +108,49 @@ export class AccountRegistry {
     const acme: AccountTenant = { id: 'tenant-acme', name: 'Acme, Inc.', kind: 'org', seeded: true }
     put(ada, acme, 'owner')
     put(grace, acme, 'member')
-    put(grace, { id: 'tenant-beta', name: 'tenant-beta', kind: 'org', seeded: true }, 'member')
+    put(grace, { id: 'tenant-beta', name: 'Beta Platform', kind: 'org', seeded: true }, 'owner')
+    // The other four demo principals (docs/demo-accounts.md) — one themed org
+    // each, same precomputed-credential pattern as ada/grace above.
+    const maya: AccountUser = {
+      id: 'user-maya',
+      name: 'Maya Chen',
+      email: 'maya@growthworks.example',
+      seeded: true,
+      passwordSalt: '736565642d6d6179612d73616c742d30', // "maya-demo-password"
+      passwordHash:
+        '877fe51eef0e931f089009293d2ca3fa6b9556f6a55edb5b06148c3f7d1f86b9562595917ee21d430d0ceeffd6b7d24900ef8e33e2bbd47b224df802fa34f324',
+    }
+    put(maya, { id: 'tenant-growthworks', name: 'Growthworks', kind: 'org', seeded: true }, 'owner')
+    const noor: AccountUser = {
+      id: 'user-noor',
+      name: 'Noor Haddad',
+      email: 'noor@northlight.example',
+      seeded: true,
+      passwordSalt: '736565642d6e6f6f722d73616c742d30', // "noor-demo-password"
+      passwordHash:
+        '9503160c2d4679b8bfdc27167a3ccb2f0ecb73a2087095d8fd1a3b504500e692432aba369841719cf6f90798e4459421e9595a5b0d10565ddb0ec5a066c5a112',
+    }
+    put(noor, { id: 'tenant-northlight', name: 'Northlight Studio', kind: 'org', seeded: true }, 'owner')
+    const omar: AccountUser = {
+      id: 'user-omar',
+      name: 'Omar Diaz',
+      email: 'omar@harborsupport.example',
+      seeded: true,
+      passwordSalt: '736565642d6f6d61722d73616c742d30', // "omar-demo-password"
+      passwordHash:
+        '649b3db5310aded9715cfe8221591ec594d132c6a37949350cb43a34ea0b02c1602aa7bd0b5d09670a937fd8f612908b18984118567b37850ec8170a31b9973f',
+    }
+    put(omar, { id: 'tenant-harbor', name: 'Harbor Support', kind: 'org', seeded: true }, 'owner')
+    const rei: AccountUser = {
+      id: 'user-rei',
+      name: 'Rei Tanaka',
+      email: 'rei@reislab.example',
+      seeded: true,
+      passwordSalt: '736565642d7265692d73616c742d3030', // "rei-demo-password"
+      passwordHash:
+        '5ccd796b9b5fd9344f34f31628ad1510bf6dd82c06c88a5affc174caf3bdf5dcf1f685bbb585b99b97845a89a7a80176a6d187fae8c9f08fedc0393974b2ff18',
+    }
+    put(rei, { id: 'tenant-reislab', name: 'Rei’s Lab', kind: 'personal', seeded: true }, 'owner')
   }
 
   membership(userId: string, tenantId: string): Membership | undefined {

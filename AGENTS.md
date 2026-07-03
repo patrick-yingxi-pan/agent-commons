@@ -137,12 +137,13 @@ the mock?
   change. (Don't file "the reply is canned" as a bug.)
 - **Seed data** lives in `server/data/` — sessions, projects, artifacts, repos,
   diffs, terminal output are fixtures, not live.
-- **Seed accounts sign in with demo credentials** (multi-account §13 — the old
-  "Switch identity (dev)" enumeration directory is retired; nothing lists
-  identities). To demo multi-tenancy, sign in through the real flow as
-  **`ada@acme.example` / `ada-demo-password`** or **`grace@acme.example` /
-  `grace-demo-password`** (Grace also holds the `tenant-beta` membership) —
-  they then stack in the sidebar switcher like any account. The desktop's
+- **Six demo accounts, each a distinct themed world** — see
+  [`docs/demo-accounts.md`](docs/demo-accounts.md) for the roster (emails,
+  `<name>-demo-password` credentials, and what each contains). Sign in through
+  the real flow (multi-account §12/§13 — nothing enumerates identities); the
+  data standard (disjoint worlds, exhaustive-in-types, moderate scale) is
+  locked by `tests/demo-accounts.test.ts`. The untagged flagship seeds belong
+  to the backend default AND Ada/Acme (one seat, two faces). The desktop's
   local user has no credential on purpose (it never signs in).
 - **Files / photos / folders are *really* served from a filesystem**, not fixtures.
   The Add-context picker switches between three real sources (`contract/fs.ts`,
