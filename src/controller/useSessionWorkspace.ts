@@ -39,6 +39,7 @@ import {
   persistWorkspace,
   runSessionFromCache,
   runSessionFromSchedules,
+  cancelTurn,
   onAccountSwitch,
   reattachTurn,
   sendMessage,
@@ -149,6 +150,9 @@ export function useSessionWorkspace() {
   const [stepIndex, setStepIndex] = useState(-1)
   const [caption, setCaption] = useState('')
   const [busy, setBusy] = useState(false)
+  // The server-owned turn currently streaming into THIS client (multi-account
+  // P0/P6c) — the handle the stop button cancels with. Null between turns.
+  const [liveTurn, setLiveTurn] = useState<{ sessionId: string; turnId: string } | null>(null)
   // An escalating beat holds here until the user consents: the model's tool call
   // produced an escalation proposal (streamed as `message.escalation`), and it
   // applies only on approval. Null = nothing pending.
@@ -172,6 +176,8 @@ export function useSessionWorkspace() {
   // deps and must not close over a stale snapshot).
   const liveRef = useRef(live)
   liveRef.current = live
+  // handleSend, reachable from callbacks defined before it (retryInterrupted).
+  const handleSendRef = useRef<((text: string) => void) | null>(null)
   // Mirror of the open panel, so the toggle (focusContext) can compute the next panel
   // without a stale closure and persist the per-session choice (FWD-2).
   const focusRef = useRef(focus)
@@ -282,6 +288,7 @@ export function useSessionWorkspace() {
     const stale = () => activeIdRef.current !== sid || runId.current !== myRun
     setTyping(true)
     setBusy(true)
+    setLiveTurn({ sessionId: sid, turnId })
     void reattachTurn(sid, turnId, 0, {
       onStart: (_id, message) => {
         if (stale()) return
@@ -326,7 +333,32 @@ export function useSessionWorkspace() {
         if (stale()) return
         setTyping(false)
         setBusy(false)
+        setLiveTurn(null)
       })
+  }, [])
+
+  // The deliberate stop (design §5.2/§6.5): cancel the SERVER-owned turn — the
+  // partial persists and the open stream ends with its message.end, which is
+  // what clears busy/typing (the button doesn't fake the stop locally).
+  const stopTurn = useCallback(() => {
+    const t = liveTurn
+    if (t) void cancelTurn(t.sessionId, t.turnId).catch(() => {})
+  }, [liveTurn])
+
+  // A thread whose last word is the USER'S with nothing generating — the
+  // orphaned-turn state (server restarted mid-turn, or the send failed): offer
+  // a retry. Deliberately a FRESH send (the record stays honest — no rewriting
+  // history); scoped to real sessions (the demo/draft can't orphan a turn).
+  const interrupted =
+    !busy &&
+    !typing &&
+    activeId !== DRAFT_ID &&
+    !activeSession.isDemo &&
+    live.messages.length > 0 &&
+    live.messages[live.messages.length - 1].role === 'user'
+  const retryInterrupted = useCallback(() => {
+    const last = [...liveRef.current.messages].reverse().find((m) => m.role === 'user')
+    if (last?.content) handleSendRef.current?.(last.content)
   }, [])
 
   const selectSession = useCallback(
@@ -338,6 +370,7 @@ export function useSessionWorkspace() {
       const myRun = runId.current
       setTyping(false)
       setBusy(false)
+      setLiveTurn(null)
       setActiveSection(null)
       setActiveId(id)
       // Switching sessions abandons any context staged on the (now-left) draft, so it
@@ -675,9 +708,10 @@ export function useSessionWorkspace() {
       // re-selected this same session (which bumps runId and re-reconciles).
       const stale = () => activeIdRef.current !== sid || runId.current !== myRun
       await sendMessage(sid, text, {
-        onStart: (_id, message) => {
+        onStart: (_id, message, turnId) => {
           if (stale()) return
           setTyping(false)
+          if (turnId) setLiveTurn({ sessionId: sid, turnId })
           setLive((l) => ({ ...l, messages: [...l.messages, message] }))
         },
         onDelta: (messageId, chunk) => {
@@ -715,6 +749,7 @@ export function useSessionWorkspace() {
           setLive((l) => ({ ...l, messages: l.messages.map((m) => (m.id === message.id ? message : m)) }))
           setTyping(false)
           setBusy(false)
+          setLiveTurn(null)
           // The turn consumed real tokens, and a persisted turn grew the thread's
           // context — refresh the usage gauge for this session.
           invalidate(keys.usage(sid))
@@ -723,11 +758,13 @@ export function useSessionWorkspace() {
         if (stale()) return
         setTyping(false)
         setBusy(false)
+        setLiveTurn(null)
       })
       // A rejection must never escape into the chain itself: a rejected chain would
       // silently skip every subsequent send (`.then` on a rejected promise never runs).
     }).catch(() => {})
   }, [])
+  handleSendRef.current = handleSend
 
   // Whether a session's server-owned writes (its panels AND its binding-of-record)
   // should persist: a real, listed (or just-materialized) session that isn't the
@@ -1051,6 +1088,8 @@ export function useSessionWorkspace() {
     stepIndex,
     caption,
     busy,
+    liveTurn,
+    interrupted,
     totalSteps: DEMO_STEPS.length,
     pendingApproval,
     bottomRef,
@@ -1072,6 +1111,8 @@ export function useSessionWorkspace() {
     archiveSession,
     deleteSession,
     handleSend,
+    stopTurn,
+    retryInterrupted,
     compact,
     handleAddContext,
     focusContext,

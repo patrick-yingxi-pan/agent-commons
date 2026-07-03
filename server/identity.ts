@@ -24,6 +24,7 @@
  *  account menu); on the web the org directory's principals switch. With no
  *  override headers, each backend resolves exactly what it always did. */
 import type { Capabilities, Identity, Tenant, TenantRole, User } from '../contract/index.ts'
+import { SESSION_COOKIE, identityHeadersAllowed, parseCookies, verifySession } from './auth.ts'
 
 type Headers = Record<string, string | string[] | undefined>
 type Backend = Capabilities['backend']
@@ -56,17 +57,16 @@ function header(headers: Headers | undefined, name: string): string | undefined 
 const isRole = (v: string | undefined): v is TenantRole =>
   v === 'owner' || v === 'admin' || v === 'member'
 
-/** Resolve the web principal from the auth-claim seam (headers), defaulting to the
- *  first seeded user/tenant when unspecified. An unknown `x-user-id` falls back to
- *  the default user rather than 401 — the mock has no real auth flow to fail. */
-function resolveWebIdentity(headers?: Headers): Identity {
-  const userId = header(headers, 'x-user-id')
+/** Resolve a web principal from (userId, tenantId) selectors, defaulting to the
+ *  first seeded user/tenant when unspecified. An unknown user falls back to the
+ *  default rather than 401 — the mock has no real auth flow to fail.
+ *  `roleOverride` exists ONLY for the dev header seam; the verified-cookie path
+ *  never passes it — role always comes from the directory there. */
+function webIdentityFrom(userId?: string, tenantId?: string, roleOverride?: string): Identity {
   const user = WEB_USERS.find((u) => u.id === userId) ?? WEB_USERS[0]
-  const tenantId = header(headers, 'x-tenant-id')
   const tenant: Tenant =
     tenantId && tenantId !== WEB_TENANT.id ? { id: tenantId, name: tenantId, kind: 'org' } : WEB_TENANT
-  const requested = header(headers, 'x-user-role')
-  const role: TenantRole = isRole(requested) ? requested : WEB_ROLES[user.id] ?? 'member'
+  const role: TenantRole = isRole(roleOverride) ? roleOverride : WEB_ROLES[user.id] ?? 'member'
   return { user, tenant, role, local: false }
 }
 
@@ -74,27 +74,45 @@ function resolveWebIdentity(headers?: Headers): Identity {
  *  org (the desktop app's personal ↔ work account menu, in miniature). */
 const LOCAL_WORK_TENANT: Tenant = { id: 'tenant-work', name: 'Acme (work)', kind: 'org' }
 
-/** Resolve the desktop/mock principal. The USER never changes (the loopback
- *  sidecar trusts its one local user — `x-user-id` is deliberately ignored);
- *  `x-tenant-id` switches the WORKSPACE: absent/personal → the personal tenant
- *  (byte-identical to the pre-multi-account behavior), the seeded work org, or
- *  a synthesized org for an unknown id (mirroring the web seam). */
-function resolveLocalIdentity(headers?: Headers): Identity {
-  const tenantId = header(headers, 'x-tenant-id')
+/** Resolve the desktop/mock principal from a tenant selector. The USER never
+ *  changes (the loopback sidecar trusts its one local user — a userId selector is
+ *  deliberately ignored); the tenant switches the WORKSPACE: absent/personal →
+ *  the personal tenant (byte-identical to the pre-multi-account behavior), the
+ *  seeded work org, or a synthesized org for an unknown id (mirroring the web
+ *  seam). `roleOverride` is the dev header seam only, as on the web path. */
+function localIdentityFrom(tenantId?: string, roleOverride?: string): Identity {
   if (!tenantId || tenantId === LOCAL_IDENTITY.tenant.id) return LOCAL_IDENTITY
   const tenant: Tenant = tenantId === LOCAL_WORK_TENANT.id ? LOCAL_WORK_TENANT : { id: tenantId, name: tenantId, kind: 'org' }
-  const requested = header(headers, 'x-user-role')
   // In an org workspace the device owner is a member unless the seam says otherwise.
-  const role: TenantRole = isRole(requested) ? requested : 'member'
+  const role: TenantRole = isRole(roleOverride) ? roleOverride : 'member'
   return { user: LOCAL_IDENTITY.user, tenant, role, local: true }
 }
 
-/** The current identity for a request. `backend` comes from `Capabilities.backend`
- *  (the store owns it): the remote web server resolves a tenant-scoped principal
- *  from the org directory; the native sidecar / mock resolves the single local
- *  user in a switchable workspace. */
+/** The current identity for a request (multi-account P6 — verified first):
+ *    1. A VERIFIED session cookie (server/auth.ts) — the production path. Claims
+ *       carry only (userId, tenantId); role always resolves from the directory,
+ *       so a client can't self-elevate through the credential it holds.
+ *    2. The legacy header seam — dev/tests only, and only while
+ *       `IDENTITY_HEADERS` allows it (`deny` = production posture: client
+ *       assertions are ignored entirely).
+ *    3. The backend's default principal.
+ *  `backend` comes from `Capabilities.backend` (the store owns it): remote
+ *  resolves org principals; native/mock resolves the single local user in a
+ *  switchable workspace. */
 export function resolveIdentity(backend: Backend, headers?: Headers): Identity {
-  return backend === 'remote' ? resolveWebIdentity(headers) : resolveLocalIdentity(headers)
+  const claims = verifySession(parseCookies(header(headers, 'cookie'))[SESSION_COOKIE])
+  if (claims) {
+    return backend === 'remote'
+      ? webIdentityFrom(claims.userId, claims.tenantId)
+      : localIdentityFrom(claims.tenantId)
+  }
+  if (identityHeadersAllowed()) {
+    const userId = header(headers, 'x-user-id')
+    const tenantId = header(headers, 'x-tenant-id')
+    const role = header(headers, 'x-user-role')
+    return backend === 'remote' ? webIdentityFrom(userId, tenantId, role) : localIdentityFrom(tenantId, role)
+  }
+  return backend === 'remote' ? webIdentityFrom() : LOCAL_IDENTITY
 }
 
 /** The seeded accounts the switcher may act as (`GET /v1/identities`, §5.6) —

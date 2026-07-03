@@ -17,8 +17,17 @@ export interface Ctx {
 
 /** Permissive CORS — the dev UI is same-origin via the Vite proxy, but a native
  *  host or a separate dev port may hit the server cross-origin. */
+/** CORS origin policy (multi-account P6). The dev default stays `*` — the UI is
+ *  same-origin behind the Vite proxy / the production server, so the wildcard
+ *  only widens what OTHER origins may read, and dev convenience wins. A real
+ *  deployment sets `CORS_ORIGIN` to the app origin: cookies are credentials, and
+ *  browsers refuse `Access-Control-Allow-Origin: *` on credentialed cross-origin
+ *  requests — pinning the origin (+ Allow-Credentials) is the correct posture. */
+const CORS_ORIGIN = process.env.CORS_ORIGIN || '*'
+
 export const CORS_HEADERS: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': CORS_ORIGIN,
+  ...(CORS_ORIGIN !== '*' ? { 'Access-Control-Allow-Credentials': 'true', Vary: 'Origin' } : {}),
   'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, Idempotency-Key, x-user-id, x-tenant-id, x-user-role',
   // The identity-echo tripwire (multi-account §5.5) must be readable cross-origin.

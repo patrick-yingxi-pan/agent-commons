@@ -15,7 +15,7 @@ import { keys } from './keys.ts'
 import { invalidate } from './cache.ts'
 import { invalidateForCommonsOp } from './commonsInvalidation.ts'
 import { helloRequiresReset } from './streamPolicy.ts'
-import { activeAccount, accountQuery, onAccountSwitch } from './account.ts'
+import { activeAccount, onAccountSwitch } from './account.ts'
 
 let source: EventSource | null = null
 let knownEpoch: string | null = null
@@ -103,12 +103,11 @@ function route(e: ServerEvent): void {
 /** Open the ambient stream once (idempotent). Safe to call on every mount. */
 export function connectEvents(): void {
   if (source) return
-  // The stream binds identity at open (multi-account §5.5): EventSource can't
-  // set headers, so the active account rides as query params — the one route
-  // that accepts them. No override → bare URL, exactly as before.
-  const query = accountQuery(activeAccount())
-  const qs = query.length ? `?${new URLSearchParams(query).toString()}` : ''
-  source = new EventSource(`${API_BASE}/events${qs}`)
+  // The stream binds identity at open via the session COOKIE (P6): EventSource
+  // can't set headers, but it carries cookies natively — the very reason the
+  // credential is a cookie. (The server's ?user=&tenant= params are the legacy
+  // dev seam; this client no longer uses them.)
+  source = new EventSource(`${API_BASE}/events`)
   source.onmessage = (ev) => {
     try {
       const e = JSON.parse(ev.data) as ServerEvent

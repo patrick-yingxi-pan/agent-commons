@@ -5,6 +5,7 @@ import { Sidebar } from './components/Sidebar'
 import { Composer } from './components/Composer'
 import { MessageRow, TypingRow } from './components/Message'
 import { CompactionAffordance } from './components/CompactionAffordance'
+import { TurnControls } from './components/TurnControls'
 import { CaptionBar } from './components/CaptionBar'
 import { WorkspacePanel } from './components/WorkspacePanel'
 import { RunsPanel } from './components/RunsPanel'
@@ -57,6 +58,8 @@ export default function App() {
     stepIndex,
     caption,
     busy,
+    liveTurn,
+    interrupted,
     totalSteps,
     pendingApproval,
     bottomRef,
@@ -76,6 +79,8 @@ export default function App() {
     archiveSession,
     deleteSession,
     handleSend,
+    stopTurn,
+    retryInterrupted,
     compact,
     handleAddContext,
     focusContext,
@@ -298,6 +303,16 @@ export default function App() {
                         and drop the still-streaming reply, so gate on !busy && !typing. */}
                     {!isDemo && !isDraft && !busy && !typing && live.messages.length > 6 && (
                       <CompactionAffordance onCompact={compact} />
+                    )}
+
+                    {/* Live-turn affordances (multi-account §6.5): the deliberate stop
+                        while a turn streams; the fresh-send retry when a thread's last
+                        word is the user's with nothing generating (an orphaned turn). */}
+                    {busy && liveTurn && liveTurn.sessionId === activeId && (
+                      <TurnControls mode="streaming" onStop={stopTurn} onRetry={retryInterrupted} />
+                    )}
+                    {interrupted && (
+                      <TurnControls mode="interrupted" onStop={stopTurn} onRetry={retryInterrupted} />
                     )}
 
                     <Composer

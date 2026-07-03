@@ -1,13 +1,13 @@
 /** The client account layer's pure policy (multi-account design §6.1–6.2,
- *  invariant I5): identity headers/query derivation, the generation staleness
- *  fence, the identity-echo tripwire, and the switch choreography (generation
- *  bump + subscriber notification). src/api/account.ts is framework-free by
- *  design so this suite can lock it directly under node. */
+ *  invariant I5; P6: verified). Since P6 identity rides the HttpOnly session
+ *  cookie — there are no client-side identity injectors to test anymore. What
+ *  remains client-side, and what this locks: the generation staleness fence,
+ *  the identity-echo tripwire, and the switch choreography (generation bump +
+ *  subscriber notification). src/api/account.ts is framework-free by design so
+ *  this suite can lock it directly under node. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  accountHeaders,
-  accountQuery,
   shouldDropResponse,
   activeAccount,
   accountGeneration,
@@ -17,16 +17,6 @@ import {
 
 const ada = { userId: 'user-ada', tenantId: 'tenant-acme' }
 const bo = { userId: 'user-grace', tenantId: 'tenant-beta' }
-
-test('accountHeaders / accountQuery: identity rides only when an override is active', () => {
-  assert.deepEqual(accountHeaders(null), {}, 'no override → no headers (backend default, as before the layer)')
-  assert.deepEqual(accountHeaders(ada), { 'x-user-id': 'user-ada', 'x-tenant-id': 'tenant-acme' })
-  assert.deepEqual(accountQuery(null), [])
-  assert.deepEqual(accountQuery(bo), [
-    ['user', 'user-grace'],
-    ['tenant', 'tenant-beta'],
-  ])
-})
 
 test('shouldDropResponse: the truth table (generation fence first, then the echo tripwire)', () => {
   assert.deepEqual(shouldDropResponse(1, 1, ada, 'tenant-acme'), { drop: false }, 'same generation + matching echo: keep')
@@ -38,7 +28,7 @@ test('shouldDropResponse: the truth table (generation fence first, then the echo
   )
   assert.deepEqual(shouldDropResponse(1, 1, ada, 'tenant-beta'), { drop: true, reason: 'echo-mismatch' }, 'the server resolved a different tenant: drop LOUDLY')
   assert.deepEqual(shouldDropResponse(1, 1, ada, null), { drop: false }, 'no echo header (older server): generation still guards, nothing to assert')
-  assert.deepEqual(shouldDropResponse(1, 1, null, 'tenant-anything'), { drop: false }, 'no active override: the backend default is whatever the server says')
+  assert.deepEqual(shouldDropResponse(1, 1, null, 'tenant-anything'), { drop: false }, 'never switched: whatever the session cookie resolves IS the account')
 })
 
 test('switchAccount: bumps the generation, notifies subscribers, no-ops on the same account', () => {
@@ -53,7 +43,7 @@ test('switchAccount: bumps the generation, notifies subscribers, no-ops on the s
     assert.equal(accountGeneration(), gen0 + 1, 'a switch bumps the generation')
     assert.equal(notified, 1)
 
-    switchAccount({ ...ada }, )
+    switchAccount({ ...ada })
     assert.equal(accountGeneration(), gen0 + 1, 'switching to the SAME account is a no-op (no spurious cache reset)')
     assert.equal(notified, 1)
 
@@ -62,7 +52,7 @@ test('switchAccount: bumps the generation, notifies subscribers, no-ops on the s
     assert.equal(notified, 2)
 
     switchAccount(null)
-    assert.equal(activeAccount(), null, 'null restores the backend-default identity')
+    assert.equal(activeAccount(), null, 'null = back to whatever the session/backend default resolves')
     assert.equal(accountGeneration(), gen0 + 3)
     assert.equal(notified, 3)
   } finally {

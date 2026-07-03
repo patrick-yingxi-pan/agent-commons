@@ -4,7 +4,7 @@
  *  mock server); a native host can override it with `VITE_API_BASE`. Nothing else
  *  in the UI knows a URL — swap the backend by swapping this base. */
 import { API_BASE_PATH, type ApiError } from '../../contract/index.ts'
-import { activeAccount, accountGeneration, accountHeaders, shouldDropResponse } from './account.ts'
+import { activeAccount, accountGeneration, shouldDropResponse } from './account.ts'
 
 /** Where the API lives. Same-origin by default (the Vite proxy / the production
  *  server both mount it at `/api/v1`); a packaged desktop app injects an absolute
@@ -36,19 +36,17 @@ export class AccountSwitchedError extends Error {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  // Identity + staleness fence (multi-account §6.2): the active account rides as
-  // headers; the generation captured HERE decides, after the await, whether the
-  // world this response belongs to still exists.
+  // Staleness fence (multi-account §6.2): identity rides the session cookie
+  // (P6 — the browser attaches it; nothing to inject here); the generation
+  // captured HERE decides, after the await, whether the world this response
+  // belongs to still exists.
   const acct = activeAccount()
   const issuedGen = accountGeneration()
   let res: Response
   try {
     res = await fetch(`${API_BASE}${path}`, {
       method,
-      headers: {
-        ...accountHeaders(acct),
-        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      },
+      headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
       body: body !== undefined ? JSON.stringify(body) : undefined,
     })
   } catch (err) {

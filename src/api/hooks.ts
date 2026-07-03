@@ -4,7 +4,7 @@
  *  updates when the server pushes a change. Hooks grow per resource as reads
  *  migrate; Phase 1 covers capabilities + sessions. */
 import { useQuery, resetAll, type QueryState } from './cache.ts'
-import { apiGet, apiUrl } from './client.ts'
+import { API_BASE, apiGet, apiUrl } from './client.ts'
 import { keys, paths } from './keys.ts'
 import { switchAccount, accountGeneration, type Account } from './account.ts'
 import type { IdentitySummary } from '../../contract/index.ts'
@@ -63,16 +63,53 @@ export function useIdentities(enabled: boolean): QueryState<IdentitySummary[]> {
   return useQuery(keys.identities, () => apiGet<IdentitySummary[]>(paths.identities), enabled)
 }
 
-/** Switch the active account AND reset the world (multi-account §6.1): the
- *  account store bumps its generation and reopens the events stream (its own
- *  subscriber), then every cached read drops and refetches under the new
- *  identity — "frontend is a cache of the backend" is what makes a switch this
- *  cheap. The one choreography the switcher UI calls. */
-export function switchActiveAccount(next: Account | null): void {
+/** Switch the active account AND reset the world (multi-account §6.1; P6:
+ *  verified). Ordering is the whole design:
+ *    1. Mint the session server-side (`POST /v1/auth/session`) — the HttpOnly
+ *       cookie lands BEFORE any client state moves, so everything that reopens
+ *       next already rides the new identity. A raw fetch, deliberately outside
+ *       client.ts's wrapper: the transition request is definitionally
+ *       cross-identity, and the wrapper's echo tripwire would (correctly!)
+ *       flag its response.
+ *    2. Record the pick (`switchAccount`) — generation bump; events.ts reopens
+ *       its stream on the new cookie.
+ *    3. `resetAll` — every cached read refetches as the new account.
+ *  A failed mint changes nothing (no partial switch); a same-account pick is a
+ *  no-op. Passing null signs out (DELETE — back to the backend default). */
+/** True while a switch's mint round-trip is in flight — a second pick is
+ *  ignored rather than raced: interleaved `Set-Cookie` responses could land in
+ *  either order, leaving the cookie and the client's belief disagreeing (the
+ *  echo tripwire would catch it loudly, but not starting the race is better). */
+let switching = false
+
+export async function switchActiveAccount(next: Account | null): Promise<boolean> {
+  if (switching) return false
+  switching = true
+  try {
+    return await performSwitch(next)
+  } finally {
+    switching = false
+  }
+}
+
+async function performSwitch(next: Account | null): Promise<boolean> {
   const before = accountGeneration()
+  try {
+    const res = await fetch(`${API_BASE}${paths.authSession}`, {
+      method: next ? 'POST' : 'DELETE',
+      headers: next ? { 'Content-Type': 'application/json' } : undefined,
+      body: next ? JSON.stringify(next) : undefined,
+    })
+    if (!res.ok && res.status !== 204) throw new Error(`auth/session ${res.status}`)
+  } catch (err) {
+    console.error('[account] switch failed — staying on the current account:', err)
+    return false
+  }
+  if (accountGeneration() !== before) return false // a concurrent switch won the race
   switchAccount(next)
   // A same-account pick is a no-op — don't blow the cache away for nothing.
   if (accountGeneration() !== before) resetAll()
+  return true
 }
 
 /** The live registry of native runners (one per connected host) + the

@@ -25,7 +25,8 @@ import type {
 } from '../../contract/index.ts'
 import { timingSafeEqual } from 'node:crypto'
 import { Router } from '../http/router.ts'
-import { sendJson, sendError, sendBytes, sendJsonCached, sendText, headerValue, type Ctx } from '../http/respond.ts'
+import { sendJson, sendError, sendBytes, sendJsonCached, sendText, headerValue, BASE_HEADERS, type Ctx } from '../http/respond.ts'
+import { SESSION_COOKIE, identityHeadersAllowed, sessionClearCookie, sessionSetCookie, signSession } from '../auth.ts'
 import { openSse } from '../http/sse.ts'
 import { store, type GenerationOutcome } from '../store.ts'
 import { IdempotencyCache, captureResponse, replayResponse } from '../idempotency.ts'
@@ -280,6 +281,42 @@ export function buildRouter(): Router {
       return sendError(res, 'capability_unavailable', 'Account switching is disabled on this backend.')
     }
     sendJson(res, listIdentities(store.capabilities().backend))
+  })
+
+  // ── Verified sessions (multi-account P6 — the production identity seam) ─────
+  // POST validates a pick against the SAME directory the switcher lists and sets
+  // an HttpOnly cookie carrying an HMAC-signed token; identity resolution reads
+  // the cookie FIRST (server/identity.ts), so from here on the client's identity
+  // is server-issued, not client-asserted. In a real deployment this endpoint is
+  // where the IdP callback lands — the wire shape is already right. DELETE signs
+  // out. Both respond with what /me would now say, so the client can confirm the
+  // switch from the same response (one round-trip, and it's server truth).
+  r.post('/auth/session', async ({ req, res, body }) => {
+    if (!store.capabilities().features.identitySwitch) {
+      return sendError(res, 'capability_unavailable', 'Account switching is disabled on this backend.')
+    }
+    const { userId, tenantId } = await body<{ userId?: string; tenantId?: string }>()
+    const backend = store.capabilities().backend
+    const row = listIdentities(backend).find((i) => i.userId === userId && i.tenantId === tenantId)
+    // Only directory identities are mintable — the credential can't name an
+    // account the seam wouldn't resolve (and role NEVER rides in the claims).
+    if (!row) {
+      return sendError(res, 'bad_request', 'Unknown identity — pick one of GET /v1/identities.')
+    }
+    const token = signSession({ userId: row.userId, tenantId: row.tenantId, iat: Date.now() })
+    res.setHeader('Set-Cookie', sessionSetCookie(token))
+    // Resolve through the same path every future request takes (cookie-first),
+    // not by trusting `row` — the response IS the seam's answer. The echo
+    // middleware stamped the PRE-mint identity (the request arrived as the old
+    // account); this response is ABOUT the new one, so re-stamp for header/body
+    // coherence — the client's tripwire asserts against the account it just picked.
+    const minted = store.identity({ ...req.headers, cookie: `${SESSION_COOKIE}=${token}` })
+    res.setHeader('x-resolved-tenant', minted.tenant.id)
+    sendJson(res, minted)
+  })
+  r.delete('/auth/session', ({ res }) => {
+    res.setHeader('Set-Cookie', sessionClearCookie())
+    res.writeHead(204, BASE_HEADERS).end()
   })
 
   // ── Ops: liveness + readiness (design F6 — the autoscaled web tier) ──────────
@@ -1040,15 +1077,19 @@ export function buildRouter(): Router {
     // tenant, so another tenant's session pushes don't leak down this channel. The
     // subscriber's tenant is resolved once, at subscribe time, from the request identity.
     //
-    // `EventSource` can't set request headers, so THIS route (alone) also accepts
-    // the identity via query — `?user=&tenant=` — the same stand-in role the
-    // headers play (design §5.5; a production build replaces both with the auth
-    // cookie, which EventSource *does* carry). Query wins over headers here.
+    // The session COOKIE is the production identity for this stream (P6 —
+    // `EventSource` can't set headers, but it carries cookies; identity.ts reads
+    // the cookie first from the plain req.headers below). The `?user=&tenant=`
+    // query params are the LEGACY dev stand-in, honoured only while the header
+    // seam is (IDENTITY_HEADERS!=deny), same trust class; query wins over
+    // headers when allowed, the cookie beats both.
     const idHeaders: Record<string, string | string[] | undefined> = { ...req.headers }
-    const qUser = url.searchParams.get('user')
-    const qTenant = url.searchParams.get('tenant')
-    if (qUser) idHeaders['x-user-id'] = qUser
-    if (qTenant) idHeaders['x-tenant-id'] = qTenant
+    if (identityHeadersAllowed()) {
+      const qUser = url.searchParams.get('user')
+      const qTenant = url.searchParams.get('tenant')
+      if (qUser) idHeaders['x-user-id'] = qUser
+      if (qTenant) idHeaders['x-tenant-id'] = qTenant
+    }
     const identity = store.identity(idHeaders)
     const tenantId = identity.tenant.id
     // INVARIANT: no `await` may sit between the `since()` snapshot below and the

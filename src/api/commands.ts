@@ -49,7 +49,6 @@ import {
   type UpdateScheduleRequest,
 } from '../../contract/index.ts'
 import { API_BASE, apiDelete, apiGet, apiPatch, apiPost } from './client.ts'
-import { activeAccount, accountHeaders } from './account.ts'
 import { invalidate, mutate, peek, setData } from './cache.ts'
 import { keys, paths } from './keys.ts'
 import { invalidateForCommonsOp } from './commonsInvalidation.ts'
@@ -57,8 +56,10 @@ import { OPTIMISTIC_ID_PREFIX } from './ids.ts'
 
 /** Callbacks for a streamed assistant turn. Each fires as its event arrives. */
 export interface SendHandlers {
-  /** The (empty) assistant message shell — append it, then fill via deltas. */
-  onStart?: (messageId: string, message: Extract<ReplyStreamEvent, { type: 'message.start' }>['message']) => void
+  /** The (empty) assistant message shell — append it, then fill via deltas.
+   *  `turnId` is the server-owned turn handle (cancel / reattach); absent only
+   *  from pre-turn-registry servers. */
+  onStart?: (messageId: string, message: Extract<ReplyStreamEvent, { type: 'message.start' }>['message'], turnId?: string) => void
   /** A chunk of assistant text to append to the message. */
   onDelta?: (messageId: string, text: string) => void
   /** A mid-turn relation proposal (render the confirm card). */
@@ -87,9 +88,8 @@ export async function sendMessage(
   const res = await fetch(`${API_BASE}${paths.session(sessionId)}/messages`, {
     method: 'POST',
     headers: {
-      // The streamed send bypasses client.ts's wrapper (its body is SSE, not
-      // JSON), so it joins the SAME identity policy here (multi-account §6.4).
-      ...accountHeaders(activeAccount()),
+      // Identity rides the session cookie (P6) — the browser attaches it to
+      // this streamed fetch like any other request; nothing to inject.
       'Content-Type': 'application/json',
       // One key per LOGICAL send (design §5.4, invariant I4): a transport retry
       // of this call can never double-append the user turn or double-generate —
@@ -144,10 +144,7 @@ export async function reattachTurn(
   handlers: SendHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}${paths.turnStream(sessionId, turnId, after)}`, {
-    headers: accountHeaders(activeAccount()),
-    signal,
-  })
+  const res = await fetch(`${API_BASE}${paths.turnStream(sessionId, turnId, after)}`, { signal })
   if (res.status === 404) {
     invalidate(keys.session(sessionId)) // finished while we were away — re-read the record
     return
@@ -594,7 +591,7 @@ export async function setResourceCapacity(key: string, capacity: number): Promis
 function dispatch(event: ReplyStreamEvent, h: SendHandlers): void {
   switch (event.type) {
     case 'message.start':
-      h.onStart?.(event.message.id, event.message)
+      h.onStart?.(event.message.id, event.message, event.turnId)
       break
     case 'message.delta':
       h.onDelta?.(event.messageId, event.text)

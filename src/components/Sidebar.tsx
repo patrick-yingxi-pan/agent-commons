@@ -422,7 +422,7 @@ function AccountChip() {
                 data-testid="account-option"
                 onClick={() => {
                   setOpen(false)
-                  if (!active) switchActiveAccount({ userId: i.userId, tenantId: i.tenantId })
+                  if (!active) void switchActiveAccount({ userId: i.userId, tenantId: i.tenantId })
                 }}
                 className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition ${
                   active ? 'bg-panel-2 font-medium text-ink' : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`

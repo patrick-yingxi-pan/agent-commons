@@ -53,6 +53,8 @@ export const paths = {
   capabilities: '/capabilities',
   me: '/me',
   identities: '/identities',
+  /** Mint (POST) / clear (DELETE) the verified session cookie (multi-account P6). */
+  authSession: '/auth/session',
   /** Reattach to a live server-owned turn (multi-account §5.2): replay after
    *  `after`, then the live tail. 404 once persisted (refetch the session). */
   turnStream: (id: string, turnId: string, after: number) =>

@@ -1,0 +1,124 @@
+/** ── Verified sessions (multi-account P6 — the production identity seam) ─────
+ *  Replaces client-asserted identity with a SERVER-ISSUED credential: `POST
+ *  /v1/auth/session` validates a pick against the identity directory and sets an
+ *  HttpOnly cookie carrying an HMAC-signed token; `server/identity.ts` resolves
+ *  the cookie FIRST, and the legacy header/query seam survives only while
+ *  `IDENTITY_HEADERS` allows it (dev/tests; a production deployment sets
+ *  `IDENTITY_HEADERS=deny` and client-asserted identity is refused outright).
+ *
+ *  Why a cookie (not a bearer header): it rides automatically on every transport
+ *  the client uses — fetch, `EventSource` (which cannot set headers), and `<img>`
+ *  byte fetches — closing the two asymmetries the header seam had. HttpOnly keeps
+ *  it out of script reach; SameSite=Lax bounds cross-site sends.
+ *
+ *  The token is claims + HMAC, not an encrypted JWT: the claims aren't secret
+ *  (userId/tenantId), only UNFORGEABLE. In a real deployment the IdP's verified
+ *  token replaces `signSession` and this module shrinks to `verifySession` over
+ *  the IdP's public key — the resolution order in identity.ts is the part that
+ *  carries over unchanged. */
+import { createHmac, timingSafeEqual } from 'node:crypto'
+
+/** The signing secret. A real deployment MUST set `AUTH_SECRET`; the dev default
+ *  keeps `npm run dev` zero-config (and is obviously non-secret by its name). */
+const SECRET = process.env.AUTH_SECRET || 'dev-only-secret-do-not-deploy'
+
+/** The production posture must not run on the KNOWN dev secret: with
+ *  `IDENTITY_HEADERS=deny` the cookie is the only identity input, so a
+ *  forgeable cookie would be authentication theater. Refuse to boot instead —
+ *  a loud crash at deploy time beats a silent hole. (Exported so tests can
+ *  lock the rule without spawning a process.) */
+export function assertAuthConfig(env: Record<string, string | undefined> = process.env): void {
+  if (env.IDENTITY_HEADERS === 'deny' && !env.AUTH_SECRET) {
+    throw new Error(
+      'IDENTITY_HEADERS=deny (the production posture) requires AUTH_SECRET — refusing to run on the dev signing secret.',
+    )
+  }
+}
+assertAuthConfig()
+
+export const SESSION_COOKIE = 'uw_session'
+
+/** Session lifetime (seconds). Long enough for a demo day; short enough that a
+ *  leaked dev token ages out. Production tunes via env. */
+const MAX_AGE_S = (() => {
+  const n = Number(process.env.AUTH_SESSION_TTL_S)
+  return Number.isFinite(n) && n > 0 ? n : 7 * 24 * 3600
+})()
+
+export interface SessionClaims {
+  userId: string
+  tenantId: string
+  /** Issued-at (epoch ms) — lets `verifySession` expire old tokens. */
+  iat: number
+}
+
+const b64url = (buf: Buffer) => buf.toString('base64url')
+
+function mac(payload: string): Buffer {
+  return createHmac('sha256', SECRET).update(payload).digest()
+}
+
+/** claims → `base64url(json).base64url(hmac)` */
+export function signSession(claims: SessionClaims): string {
+  const payload = b64url(Buffer.from(JSON.stringify(claims), 'utf8'))
+  return `${payload}.${b64url(mac(payload))}`
+}
+
+/** Verify + decode a token. Null on ANY defect — bad shape, bad signature
+ *  (constant-time compare), malformed claims, or expiry. Never throws. */
+export function verifySession(token: string | undefined): SessionClaims | null {
+  if (!token) return null
+  const dot = token.lastIndexOf('.')
+  if (dot <= 0) return null
+  const payload = token.slice(0, dot)
+  let given: Buffer
+  try {
+    given = Buffer.from(token.slice(dot + 1), 'base64url')
+  } catch {
+    return null
+  }
+  const expected = mac(payload)
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null
+  try {
+    const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as SessionClaims
+    if (typeof claims.userId !== 'string' || typeof claims.tenantId !== 'string' || typeof claims.iat !== 'number') return null
+    if (Date.now() - claims.iat > MAX_AGE_S * 1000) return null
+    return claims
+  } catch {
+    return null
+  }
+}
+
+/** Parse a request's `Cookie` header (name=value; …) — only what we need. */
+export function parseCookies(header: string | undefined): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (!header) return out
+  for (const part of header.split(';')) {
+    const eq = part.indexOf('=')
+    if (eq <= 0) continue
+    out[part.slice(0, eq).trim()] = part.slice(eq + 1).trim()
+  }
+  return out
+}
+
+/** The `Set-Cookie` value that installs a session. HttpOnly (no script access),
+ *  SameSite=Lax (rides same-site navigations + all same-origin requests, not
+ *  cross-site POSTs), Path=/. `Secure` is added by the HTTPS edge in production —
+ *  the dev server is plain HTTP on loopback. */
+export function sessionSetCookie(token: string): string {
+  return `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${MAX_AGE_S}`
+}
+
+/** The `Set-Cookie` value that signs out (expires the cookie immediately). */
+export function sessionClearCookie(): string {
+  return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`
+}
+
+/** Whether the legacy client-asserted identity seam (x-user-id/x-tenant-id
+ *  headers, /events query params) is honoured. Default: allowed (dev, tests, the
+ *  co-authoring E2E's per-context headers). `IDENTITY_HEADERS=deny` is the
+ *  production posture: the signed cookie is then the ONLY identity input. Read
+ *  per call so tests can toggle it without module-reload gymnastics. */
+export function identityHeadersAllowed(): boolean {
+  return process.env.IDENTITY_HEADERS !== 'deny'
+}

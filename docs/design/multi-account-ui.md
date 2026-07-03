@@ -1,22 +1,25 @@
 # Multi-account UI — detailed design
 
-> **Status: BUILT (P0–P5, 2026-07-03)** — P5 (build log row 51) revised §5.6 by
+> **Status: BUILT (P0–P6, 2026-07-03)** — P5 (build log row 51) revised §5.6 by
 > user direction: the switcher is **uniform across backends**, not remote-only.
 > Every backend honours the identity seam and advertises a directory; what
 > differs is what switches — the web's org principals vs the desktop's
 > workspaces (the user is fixed on the desktop; only the tenant moves,
-> mirroring the desktop app's personal↔work account menu). Spec rows SYNC-1…5 in
+> mirroring the desktop app's personal↔work account menu). **P6 made the feature
+> production-ready** (§10 below): identity is now a **server-issued, HMAC-signed
+> HttpOnly session cookie** (`POST /v1/auth/session`; the client-asserted
+> header/query seam survives only behind `IDENTITY_HEADERS`, denied in the
+> production posture), and the two §6.5 deferrals — the **stop button** and the
+> **"generation was interrupted — retry"** affordance — are built
+> (`src/components/TurnControls.tsx`). Spec rows SYNC-1…6 in
 > [`docs/spec/05-portable-contract.md`](../spec/05-portable-contract.md), build log
-> rows 46–50 in [`IMPLEMENTATION.md`](IMPLEMENTATION.md), locked by
-> `tests/turns|sse-replay|send-idempotency|account-guard|identities-*` +
-> `e2e/account-switch.spec.ts`. Two conscious deviations from §6.5: the **stop
-> button** is deferred (the composer has no streaming-state affordance at all yet;
-> the cancel route + `cancelTurn` command are built and locked — the button is a
-> UI follow-on), and the "generation was interrupted — retry" affordance is
-> likewise deferred with it. Settled across a design dialogue (2026-07-03);
-> recorded here per the repo rule that decisions live in files, not agent memory.
-> Builds on the F2 identity seam (`server/identity.ts`, PORT-8) and the P8
-> cross-tenant cooperation stack (COMMONS-6).
+> rows 46–52 in [`IMPLEMENTATION.md`](IMPLEMENTATION.md), locked by
+> `tests/turns|sse-replay|send-idempotency|account-guard|identities-*|auth-session` +
+> `e2e/account-switch.spec.ts` + `e2e/turn-controls.spec.ts`. Settled across a
+> design dialogue (2026-07-03); recorded here per the repo rule that decisions
+> live in files, not agent memory. Builds on the F2 identity seam
+> (`server/identity.ts`, PORT-8) and the P8 cross-tenant cooperation stack
+> (COMMONS-6).
 
 ## 1. Goal
 
@@ -365,3 +368,41 @@ P1–P3 are each small and independent; P4 is UI + one spec file.
   consumer — strictly worse. If simultaneous accounts are ever wanted, open one
   `/v1/events` per account (H2 makes idle SSE cheap) and key the cache by
   account; that decision is deferred, not half-made.
+
+## 10. Production posture (P6 — built)
+
+What §9 promised, delivered — and what a deployment must still bring:
+
+- **Verified identity.** `POST /v1/auth/session` validates a pick against the
+  identity directory and sets an HttpOnly, SameSite=Lax cookie carrying an
+  HMAC-signed token (`server/auth.ts`); resolution is **cookie-first**
+  (`server/identity.ts`), role always from the directory (a credential can't
+  self-elevate), and the legacy header/query seam is honoured only while
+  `IDENTITY_HEADERS` ≠ `deny`. The cookie choice is load-bearing: it rides
+  fetch, `EventSource`, **and** `<img>` byte requests automatically — closing
+  the two asymmetries the header seam had. The switcher mints the session
+  FIRST, then bumps the generation / re-binds the stream / resets the cache, so
+  everything that reopens already rides the new identity; a failed mint changes
+  nothing.
+- **Production knobs (env):** `AUTH_SECRET` (required in production — the dev
+  default is deliberately named unusable), `AUTH_SESSION_TTL_S`,
+  `IDENTITY_HEADERS=deny` (refuse client-asserted identity),
+  `CORS_ORIGIN=<app origin>` (credentialed CORS needs a pinned origin +
+  `Allow-Credentials`; the dev default stays `*` behind the same-origin proxy).
+- **What a real deployment replaces, not removes:** `signSession` gives way to
+  the IdP's verified token (PD8) — `verifySession` becomes a public-key check
+  and `/v1/auth/session` becomes the IdP callback; the resolution order, the
+  echo tripwire, the generation fence, and the switcher choreography carry over
+  unchanged.
+- **Turn affordances (§6.5) complete.** The stop button cancels the SERVER-owned
+  turn (partial persists; the stream's own `message.end` stands the UI down) and
+  the interrupted-retry affordance surfaces an orphaned turn as a quiet inline
+  notice + fresh send — one shared component (`src/components/TurnControls.tsx`)
+  so the two states can't drift apart visually.
+- **Deployment constraint — single process.** The turn registry
+  (`server/turns.ts`), the ambient event ring (`server/eventlog.ts`), and the
+  SSE fan-out are **per-process, in-memory** — correct on one instance, which is
+  this prototype's honest boundary (same class as the mock model). Scaling
+  horizontally needs sticky sessions (simplest) or shared pub/sub + a shared
+  turn/event store (Redis-class). Recorded as a constraint rather than faked
+  with a second in-process abstraction.
