@@ -9,9 +9,8 @@
  *    • Your workspaces — the signed-in account's real memberships
  *      (`GET /v1/me/workspaces`); a pick re-mints the session for that tenant.
  *      Plus an inline "New workspace" form (`POST /v1/workspaces`).
- *    • Switch identity (dev) — the SEEDED directory (`GET /v1/identities`);
- *      real accounts never appear here (they sign in). Rows for the current
- *      user are elided (their workspaces section already covers them).
+ *      (The old "Switch identity (dev)" seeded directory retired in P9 — the
+ *      seeds now sign in with demo credentials like every other account.)
  *    • Sign in / Create account / Sign out — sign-in and sign-up open the
  *      DEDICATED full-screen flow (§12 — src/components/auth/AuthScreen.tsx);
  *      sign-out clears the session and lands on the account picker.
@@ -26,7 +25,6 @@ import {
   switchToAccount,
   useAuthAccounts,
   useCapabilities,
-  useIdentities,
   useMe,
   useMyWorkspaces,
 } from '../api'
@@ -102,12 +100,8 @@ function MenuBody({
   onClose: () => void
 }) {
   const workspaces = useMyWorkspaces().data ?? []
-  const identities = useIdentities(true).data ?? []
   const stacked = useAuthAccounts().data ?? []
   const signedIn = me?.via === 'session'
-  // The seed directory, minus the current user's rows — their real memberships
-  // above already cover those (no duplicate switch targets).
-  const seedRows = identities.filter((i) => i.userId !== me?.user.id)
   return (
     <>
       {stacked.length > 0 && (
@@ -165,26 +159,6 @@ function MenuBody({
       <Row testid="workspace-new" onClick={() => onMode('workspace')}>
         + New workspace…
       </Row>
-      {seedRows.length > 0 && (
-        <>
-          <SectionLabel>Switch identity (dev)</SectionLabel>
-          {seedRows.map((i) => (
-            <Row
-              key={`${i.userId}:${i.tenantId}`}
-              testid="account-option"
-              onClick={() => {
-                onClose()
-                void switchActiveAccount({ userId: i.userId, tenantId: i.tenantId })
-              }}
-            >
-              <span className="flex-1">
-                {i.userLabel}
-                <span className="ml-1 text-[10px] text-ink-faint">{i.tenantLabel}</span>
-              </span>
-            </Row>
-          ))}
-        </>
-      )}
       <SectionLabel>Account</SectionLabel>
       {!signedIn && (
         <>

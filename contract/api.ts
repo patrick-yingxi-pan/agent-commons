@@ -46,12 +46,13 @@ export interface Capabilities {
     scheduledExecution: boolean
     /** Stream assistant replies token-by-token (SSE). */
     streaming: boolean
-    /** The account switcher (multi-account design §5.6, revised): uniform
-     *  across backends — every backend honours the identity seam and
-     *  advertises a directory via `GET /v1/identities` (web: the seeded org
-     *  principals; desktop: the local user's workspaces). The UI gates the
-     *  switcher on this flag — never on env sniffing; a deployment may turn
-     *  it off, and `GET /v1/identities` 409s where it's false. */
+    /** The account switcher (multi-account design §5.6, revised; §13): whether
+     *  this backend supports switching the active session between identities —
+     *  workspace re-mints and account-stack hops via `POST /v1/auth/session`.
+     *  The UI gates the switcher menu on this flag — never on env sniffing; a
+     *  deployment may turn it off (the route 409s then). The old seeded
+     *  enumeration directory (`GET /v1/identities`) retired in P9: identities
+     *  are never enumerable — accounts sign in. */
     identitySwitch: boolean
     /** The production onboarding posture (multi-account §12; `AUTH_GATE=require`):
      *  when true the UI hard-gates the workspace behind the full-screen auth
@@ -60,17 +61,6 @@ export interface Capabilities {
      *  backend's default principal; the auth flow itself exists either way. */
     authGate: boolean
   }
-}
-
-/** One row of `GET /v1/identities` — a seeded account the client may act as
- *  (multi-account design §5.6). Deliberately NOT a user-registry API: it
- *  enumerates exactly what the backend's identity seam already accepts. */
-export interface IdentitySummary {
-  userId: string
-  userLabel: string
-  tenantId: string
-  tenantLabel: string
-  role: string
 }
 
 /** Body of `POST /v1/sessions/:id/messages` — send a turn. The response is an

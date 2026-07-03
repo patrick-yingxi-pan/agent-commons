@@ -100,19 +100,54 @@ test('sign-out forgets the ACTIVE account only; ?all=1 forgets everything', asyn
   assert.match(outAll.headers['set-cookie'], /uw_accounts=;/, 'the whole stack clears')
 })
 
-test('/auth/accounts resolves strictly: unknown users drop; a seed/dev pick never joins the stack', async () => {
+test('/auth/accounts resolves strictly: unknown users drop; a workspace re-mint never joins the stack', async () => {
   // A validly-signed stack naming a user the registry never had: dropped, not guessed.
   const forged = signStack([{ userId: 'user-never-existed', tenantId: 'tenant-x', iat: Date.now() }])
   const list = await call('GET', '/auth/accounts', undefined, { cookie: `uw_accounts=${forged}` })
   assert.deepEqual(list.json, [])
 
-  // A directory (seed) pick mints a session but does NOT join the stack — only
-  // credentialed sign-ins are "remembered on this browser".
-  const seed = await call('POST', '/auth/session', { userId: 'user-local', tenantId: 'tenant-work' })
-  assert.equal(seed.status, 200)
-  assert.equal(stackTok(seed), '', 'no stack cookie for a dev-directory pick')
-  const after = await call('GET', '/auth/accounts', undefined, { cookie: cookies(seed) })
+  // A workspace re-mint (here: the desktop default principal moving into its
+  // seeded work workspace — the membership path) mints a session but does NOT
+  // join the stack: only CREDENTIALED sign-ins are "remembered on this browser".
+  const remint = await call('POST', '/auth/session', { userId: 'user-local', tenantId: 'tenant-work' })
+  assert.equal(remint.status, 200)
+  assert.equal(stackTok(remint), '', 'no stack cookie for a credential-less re-mint')
+  const after = await call('GET', '/auth/accounts', undefined, { cookie: cookies(remint) })
   assert.deepEqual(after.json, [])
+})
+
+test('seeds sign in like everyone else (P9 — the enumeration directory is gone): demo credentials, stack, workspaces', async () => {
+  // The web principals carry DOCUMENTED demo credentials — the multi-tenancy
+  // demo now walks through the REAL flow instead of a dev directory pick.
+  const ada = await call('POST', '/auth/login', { email: 'ada@acme.example', password: 'ada-demo-password' })
+  assert.equal(ada.status, 200)
+  assert.equal(ada.json.user.id, 'user-ada')
+  assert.equal(ada.json.via, 'session', 'a seed sign-in is a verified session like any other')
+  assert.ok(stackTok(ada), 'and it joins the account stack like any other')
+
+  const grace = await call('POST', '/auth/login', { email: 'grace@acme.example', password: 'grace-demo-password' }, { cookie: cookies(ada) })
+  assert.equal(grace.status, 200)
+  assert.equal(grace.json.user.id, 'user-grace')
+
+  // Grace's cross-tenant membership (the co-authoring second tenant) is reached
+  // through HER workspaces — a membership re-mint, not an enumeration.
+  const workspaces = await call('GET', '/me/workspaces', undefined, { cookie: cookies(grace) })
+  assert.ok(
+    workspaces.json.some((w: { tenant: { id: string } }) => w.tenant.id === 'tenant-beta'),
+    'tenant-beta lists among her memberships',
+  )
+  const beta = await call('POST', '/auth/session', { tenantId: 'tenant-beta' }, { cookie: cookies(grace) })
+  assert.equal(beta.status, 200)
+  assert.equal(beta.json.tenant.id, 'tenant-beta')
+
+  // Both seeds now hop through the stack, credential-less — same as real accounts.
+  const back = await call('POST', '/auth/session', { userId: 'user-ada' }, { cookie: cookies(beta) })
+  assert.equal(back.status, 200)
+  assert.equal(back.json.user.id, 'user-ada')
+
+  // The desktop's device owner deliberately has NO credential — it never signs in.
+  const local = await call('POST', '/auth/login', { email: 'local@nowhere.example', password: 'anything-at-all' })
+  assert.equal(local.status, 401)
 })
 
 test('the authGate capability flag follows AUTH_GATE (off by default)', async (t) => {

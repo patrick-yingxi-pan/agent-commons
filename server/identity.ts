@@ -114,8 +114,3 @@ export function resolveIdentity(backend: Backend, headers?: Headers): Identity {
   return { ...(backend === 'remote' ? webIdentityFromHeaders() : LOCAL_IDENTITY), via: 'default' }
 }
 
-/** The dev switcher's directory (`GET /v1/identities`, §5.6) — SEEDED registry
- *  rows only; onboarded accounts are never enumerable (they sign in). */
-export function listIdentities(backend: Backend): Array<{ userId: string; userLabel: string; tenantId: string; tenantLabel: string; role: string }> {
-  return accounts.listSeedIdentities(backend)
-}

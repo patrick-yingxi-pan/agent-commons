@@ -48,7 +48,6 @@ import { RateLimiter } from '../ratelimit.ts'
 import { generateReply } from '../generate.ts'
 import { turns, type TurnFrame } from '../turns.ts'
 import { eventlog } from '../eventlog.ts'
-import { listIdentities } from '../identity.ts'
 import { CapabilityError, runCapability, scopeMatches } from '../runner-runtime.ts'
 import { GuardianError } from '../guardian.ts'
 import { BudgetError } from '../usage.ts'
@@ -288,19 +287,10 @@ export function buildRouter(): Router {
     sendJson(res, store.identity(req.headers))
   })
 
-  // The seeded accounts the switcher may act as (multi-account design §5.6,
-  // revised: uniform across backends — web lists the org principals, the
-  // desktop lists the local user's workspaces). Still capability-gated (not
-  // env-sniffed) so a deployment can turn the switcher off. Deliberately NOT a
-  // user registry — it enumerates exactly what the identity seam accepts.
-  r.get('/identities', ({ res }) => {
-    if (!store.capabilities().features.identitySwitch) {
-      return sendError(res, 'capability_unavailable', 'Account switching is disabled on this backend.')
-    }
-    sendJson(res, listIdentities(store.capabilities().backend))
-  })
-
   // ── Verified sessions (multi-account P6 — the production identity seam) ─────
+  // (P9: the dev enumeration directory — `GET /v1/identities` — is RETIRED.
+  // Seeds are reachable the same way as any account: sign in with their demo
+  // credential. Nothing on any backend enumerates identities anymore.)
   // POST validates a pick against the SAME directory the switcher lists and sets
   // an HttpOnly cookie carrying an HMAC-signed token; identity resolution reads
   // the cookie FIRST (server/identity.ts), so from here on the client's identity
@@ -335,20 +325,19 @@ export function buildRouter(): Router {
       return sendError(res, 'capability_unavailable', 'Account switching is disabled on this backend.')
     }
     const { userId, tenantId } = await body<{ userId?: string; tenantId?: string }>()
-    const backend = store.capabilities().backend
-    // Three mint paths, all directory-validated (role NEVER rides in the claims):
-    //   • a SEED pick from GET /v1/identities (the dev switcher),
-    //   • a WORKSPACE re-mint (P7): the currently-authenticated user switching to
-    //     another tenant they hold a real membership in — how an onboarded
-    //     account moves between its workspaces (real accounts aren't in the
-    //     public directory; enumeration stays impossible), or
+    // Two mint paths, both registry-validated (role NEVER rides in the claims):
+    //   • a WORKSPACE re-mint (P7): the currently-resolved user switching to
+    //     another tenant they hold a real membership in — how an account moves
+    //     between its workspaces (never a foreign one; enumeration stays
+    //     impossible), or
     //   • an ACCOUNT-STACK pick (§12): a `userId` the signed stack cookie
     //     remembers — an account that signed in on this browser switches back
     //     WITHOUT re-entering its credential (GitHub-style). The registry still
     //     validates the landing tenant; the stack only proves "signed in here".
-    const row = listIdentities(backend).find((i) => i.userId === userId && i.tenantId === tenantId)
-    let mint: { userId: string; tenantId: string } | null = row ? { userId: row.userId, tenantId: row.tenantId } : null
-    if (!mint && tenantId) {
+    // (The former SEED-pick path retired with the enumeration directory, P9 —
+    // a seed identity signs in with its demo credential like everyone else.)
+    let mint: { userId: string; tenantId: string } | null = null
+    if (tenantId) {
       const current = store.identity(req.headers)
       const m = accounts.membership(current.user.id, tenantId)
       if (m && (!userId || userId === current.user.id)) mint = { userId: current.user.id, tenantId }
@@ -368,7 +357,7 @@ export function buildRouter(): Router {
       return sendError(
         res,
         'bad_request',
-        'Unknown identity — pick one of GET /v1/identities, a workspace you belong to, or an account signed in on this browser.',
+        'Unknown identity — pick a workspace you belong to, or an account signed in on this browser.',
       )
     }
     mintSession(req, res, mint.userId, mint.tenantId, false)

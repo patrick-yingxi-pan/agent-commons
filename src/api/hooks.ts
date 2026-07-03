@@ -7,7 +7,7 @@ import { useQuery, resetAll, invalidate, peek, type QueryState } from './cache.t
 import { API_BASE, apiGet, apiPost, apiUrl } from './client.ts'
 import { keys, paths } from './keys.ts'
 import { switchAccount, refreshAccount, accountGeneration, type Account } from './account.ts'
-import type { AuthAccount, IdentitySummary, Tenant as TenantT, TenantRole as TenantRoleT } from '../../contract/index.ts'
+import type { AuthAccount, Tenant as TenantT, TenantRole as TenantRoleT } from '../../contract/index.ts'
 import type {
   Runner,
   Agent,
@@ -54,13 +54,6 @@ export function useCapabilities(): QueryState<Capabilities> {
  *  the single local user ("You" · Personal); on the web it's the IdP principal + org. */
 export function useMe(): QueryState<Identity> {
   return useQuery(keys.me, () => apiGet<Identity>(paths.me))
-}
-
-/** The seeded accounts the dev switcher may act as (multi-account §5.6). Gate on
- *  `capabilities.identitySwitch` — the route 409s where the flag is false, so an
- *  ungated read would just error-noise the console on the native backend. */
-export function useIdentities(enabled: boolean): QueryState<IdentitySummary[]> {
-  return useQuery(keys.identities, () => apiGet<IdentitySummary[]>(paths.identities), enabled)
 }
 
 /** Switch the active account AND reset the world (multi-account §6.1; P6:

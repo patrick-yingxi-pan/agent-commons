@@ -1,6 +1,11 @@
 # Multi-account UI — detailed design
 
-> **Status: BUILT (P0–P8, 2026-07-03)** — P8 (§12) added the **front door**: a
+> **Status: BUILT (P0–P9, 2026-07-04)** — P9 (§13, by user direction) **retired
+> the dev switcher directory**: `GET /v1/identities` and the chip menu's
+> "Switch identity (dev)" section are gone; seeds carry documented demo
+> credentials and go through the same sign-in + account stack as every real
+> account (§5.6's directory design is thereby historical).
+> P8 (§12) added the **front door**: a
 > dedicated full-screen auth flow (GitHub-style sign-in + stepped sign-up
 > wizard + account picker, replacing the chip menu's inline forms), the
 > **account stack** (a second signed cookie remembering every credentialed
@@ -23,7 +28,7 @@
 > (`src/components/TurnControls.tsx`). Spec rows SYNC-1…6 in
 > [`docs/spec/05-portable-contract.md`](../spec/05-portable-contract.md), build log
 > rows 46–52 in [`IMPLEMENTATION.md`](IMPLEMENTATION.md), locked by
-> `tests/turns|sse-replay|send-idempotency|account-guard|identities-*|auth-session` +
+> `tests/turns|sse-replay|send-idempotency|account-guard|identity-echo|auth-session` +
 > `e2e/account-switch.spec.ts` + `e2e/turn-controls.spec.ts`. Settled across a
 > design dialogue (2026-07-03); recorded here per the repo rule that decisions
 > live in files, not agent memory. Builds on the F2 identity seam
@@ -524,3 +529,37 @@ GitHub-style surface** and makes "multiple accounts on one browser" real
   `e2e/onboarding.spec.ts` (rewritten against the wizard) +
   `e2e/auth-wizard.spec.ts` (two accounts stack → instant hops → sign-out →
   picker → hop back).
+
+## 13. The dev directory retires (P9 — built)
+
+P8 made the mature path exist; P9 (by user direction) removed the immature one
+instead of keeping both. The reasoning: the seeded enumeration switcher
+("Switch identity (dev)", `GET /v1/identities`) was the *precursor* of real
+multi-account — once instant, credential-less switching exists for real
+accounts, a parallel directory that mints seeds by name is redundant surface
+area and a standing temptation to demo the wrong path.
+
+- **Removed**: the `/v1/identities` route (`404` now — locked as a tombstone on
+  both backends), `listSeedIdentities`/`listIdentities`, the SEED mint path on
+  `POST /v1/auth/session` (two paths remain: workspace membership re-mint +
+  account-stack pick), the `IdentitySummary` DTO, `useIdentities`, and the chip
+  menu's dev section. **No backend enumerates identities anymore** — the P7
+  promise ("real accounts are never enumerable") now holds for every account.
+- **Replaced by**: the seeded web principals carry **demo credentials** —
+  `ada@acme.example` / `ada-demo-password`, `grace@acme.example` /
+  `grace-demo-password` (documented in AGENTS.md; hashes are precomputed
+  constants with fixed salts so neither boot nor the test suite pays scrypt for
+  them). The multi-tenancy demo is now the REAL flow: sign in as Ada, add
+  Grace, hop through the stack; Grace reaches `tenant-beta` via her own
+  workspace memberships. The desktop `user-local` deliberately keeps NO
+  credential — the device owner never signs in; personal↔work switching rides
+  the membership re-mint, as before.
+- **Migrated, not deleted**: the identity-echo / stream-identity / fan-out
+  coverage that shared the old test file moved to `tests/identity-echo.test.ts`;
+  `e2e/account-switch.spec.ts` drives the stack rows (`page.request` sign-ins
+  share the browser context's cookie jar, so setup is API-fast and the
+  UI-driven switching stays the surface under test).
+- **Explicitly unchanged**: the request-level HEADER seam (`x-user-id`/…,
+  `IDENTITY_HEADERS=deny`) — that's the co-authoring E2E's and the route
+  suites' identity *injection* device, a different mechanism from the retired
+  UI *enumeration*; it was already production-gated and stays so.

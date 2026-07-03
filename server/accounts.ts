@@ -76,8 +76,31 @@ export class AccountRegistry {
     const local: AccountUser = { id: 'user-local', name: 'You', seeded: true }
     put(local, { id: 'tenant-personal', name: 'Personal', kind: 'personal', seeded: true }, 'owner')
     put(local, { id: 'tenant-work', name: 'Acme (work)', kind: 'org', seeded: true }, 'member')
-    const ada: AccountUser = { id: 'user-ada', name: 'Ada Lovelace', email: 'ada@acme.example', seeded: true }
-    const grace: AccountUser = { id: 'user-grace', name: 'Grace Hopper', email: 'grace@acme.example', seeded: true }
+    // The web principals carry DEMO CREDENTIALS (P9 — the dev enumeration
+    // directory retired): since multi-account went real, the only way to act
+    // as a seed is the same way as any account — sign in. The hashes are
+    // precomputed constants (fixed salts) so boot and every test process skip
+    // the scrypt cost; the passwords are documented in AGENTS.md ("What's
+    // intentionally mock"). The desktop's `user-local` stays credential-less
+    // on purpose — the loopback sidecar's device owner never signs in.
+    const ada: AccountUser = {
+      id: 'user-ada',
+      name: 'Ada Lovelace',
+      email: 'ada@acme.example',
+      seeded: true,
+      passwordSalt: '736565642d6164612d73616c742d3030', // "ada-demo-password"
+      passwordHash:
+        'facc8d801fae0c215ff760fc0bb972a64335ebed3bc7e6ca3365324916278130b671117e5ad909445eb302f374aa73b1d88b86463eb89c461e1b78565fc55aa7',
+    }
+    const grace: AccountUser = {
+      id: 'user-grace',
+      name: 'Grace Hopper',
+      email: 'grace@acme.example',
+      seeded: true,
+      passwordSalt: '736565642d67726163652d73616c742d', // "grace-demo-password"
+      passwordHash:
+        '16b1e455462e376846f1beceff05330d967adfb03b81725f8ce2b292239cf40971cb1b7a6f40222915f6cf2ab0c22d3d90d52103be4fb676fc38feaadd077dc1',
+    }
     const acme: AccountTenant = { id: 'tenant-acme', name: 'Acme, Inc.', kind: 'org', seeded: true }
     put(ada, acme, 'owner')
     put(grace, acme, 'member')
@@ -161,19 +184,6 @@ export class AccountRegistry {
       .filter((x): x is { tenant: Tenant; role: TenantRole } => !!x)
   }
 
-  /** The dev switcher's directory — SEEDED rows only (real accounts are never
-   *  enumerable; they sign in). Shape per backend as the seam always was: the
-   *  desktop lists the local user's workspaces, the web lists org principals. */
-  listSeedIdentities(backend: Backend): Array<{ userId: string; userLabel: string; tenantId: string; tenantLabel: string; role: string }> {
-    const rows = this.memberships.filter((m) => m.seeded)
-    const wanted = backend === 'remote' ? (m: Membership) => m.userId !== 'user-local' : (m: Membership) => m.userId === 'user-local'
-    return rows.filter(wanted).map((m) => {
-      const u = this.users.get(m.userId)!
-      const t = this.tenants.get(m.tenantId)!
-      return { userId: u.id, userLabel: u.name, tenantId: t.id, tenantLabel: t.name, role: m.role }
-    })
-  }
-
   // ── Persistence faces (additive slices; seeds re-ensured on rehydrate) ──────
 
   toPersisted(): { users: [string, AccountUser][]; tenants: [string, AccountTenant][]; memberships: Membership[]; seq: { user: number; tenant: number } } {
@@ -187,16 +197,19 @@ export class AccountRegistry {
 
   rehydrate(s: { users?: [string, AccountUser][]; tenants?: [string, AccountTenant][]; memberships?: Membership[]; seq?: { user?: number; tenant?: number } }): void {
     // Replace wholesale when the snapshot carries the slices, then re-ensure the
-    // seeds — a snapshot written by a build with different seeds must not lose
-    // the directory the dev switcher and tests rely on. `seed()` only fills gaps
-    // for users/tenants; memberships are re-added if missing.
+    // seeds. The CODE's seed rows stay authoritative over their snapshot echoes:
+    // a snapshot written by an older build carries the OLD seed shape (e.g.
+    // pre-P9 rows without the demo credentials), and letting it overwrite the
+    // fresh seeds would pin every clone to whatever build first persisted —
+    // so snapshot users/tenants only land on NON-seed ids. Memberships are
+    // re-added if missing.
     if (!s.users && !s.tenants && !s.memberships) return
     const snapshotUsers = new Map(s.users ?? [])
     const snapshotTenants = new Map(s.tenants ?? [])
     const snapshotMemberships = s.memberships ?? []
     this.seed() // baseline: the seeds
-    for (const [id, u] of snapshotUsers) this.users.set(id, u)
-    for (const [id, t] of snapshotTenants) this.tenants.set(id, t)
+    for (const [id, u] of snapshotUsers) if (!this.users.get(id)?.seeded) this.users.set(id, u)
+    for (const [id, t] of snapshotTenants) if (!this.tenants.get(id)?.seeded) this.tenants.set(id, t)
     for (const m of snapshotMemberships) {
       if (!this.membership(m.userId, m.tenantId)) this.memberships.push(m)
     }

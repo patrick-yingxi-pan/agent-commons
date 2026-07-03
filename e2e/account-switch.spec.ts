@@ -1,17 +1,18 @@
-/** Multi-account regression (design docs/design/multi-account-ui.md, P4):
+/** Multi-account regression (design docs/design/multi-account-ui.md, P4; P9:
+ *  migrated off the retired dev directory onto the REAL account stack — the
+ *  seeds sign in with their demo credentials like any account, then switch via
+ *  the remembered-accounts rows, credential-less):
  *  ONE browser, switching accounts IN PLACE via the sidebar chip — no page
  *  reload, no per-context identity headers (that's the co-author spec's device;
- *  here the client's own account layer carries identity). Locks the crux the
- *  design exists for (§1, invariant I1): a generation that is mid-stream when
- *  its viewer switches away CONTINUES server-side, routes to the right tenant,
- *  and is complete and coherent when the viewer switches back — plus tenant
- *  isolation across the switch (the other account sees none of it) and the
- *  chip's label being the SERVER's word for who it heard (/v1/me), not an
- *  optimistic client label.
+ *  here the session cookie carries identity). Locks the crux the design exists
+ *  for (§1, invariant I1): a generation that is mid-stream when its viewer
+ *  switches away CONTINUES server-side, routes to the right tenant, and is
+ *  complete and coherent when the viewer switches back — plus tenant isolation
+ *  across the switch (the other account sees none of it) and the chip's label
+ *  being the SERVER's word for who it heard (/v1/me), not an optimistic label.
  *
  *  Runs on the standard self-contained harness (playwright.config.ts): UI 5183 /
- *  API 5184, BACKEND=remote (identitySwitch advertised — the chip is a plain
- *  label on the mock backend), isolated store, pinned local mock model. The
+ *  API 5184, BACKEND=remote, isolated store, pinned local mock model. The
  *  message contains "paced" → the mock model streams slowly (~150 ms/word), so
  *  switching mid-generation is deterministic, not a race. */
 import { test, expect, type Page } from '@playwright/test'
@@ -25,11 +26,30 @@ async function dismissIntro(page: Page, timeout = 2_500) {
   await page.getByRole('button', { name: 'Explore on my own' }).click({ timeout }).catch(() => {})
 }
 
-/** Switch accounts via the chip; assert the switch by the chip's own label —
- *  which is /v1/me refetched under the new identity, i.e. server truth. */
+/** Sign the browser context in through the REAL endpoints (page.request shares
+ *  the context's cookie jar, so the Set-Cookie lands where the page reads it).
+ *  Ada and Grace are seeds with DOCUMENTED demo credentials (P9); Grace re-mints
+ *  into tenant-beta so her stack entry's last-active tenant is the second
+ *  tenant — the isolation counterpart to Ada's acme. */
+async function stackSeedAccounts(page: Page) {
+  const ada = await page.request.post('/api/v1/auth/login', {
+    data: { email: 'ada@acme.example', password: 'ada-demo-password' },
+  })
+  expect(ada.ok()).toBeTruthy()
+  const grace = await page.request.post('/api/v1/auth/login', {
+    data: { email: 'grace@acme.example', password: 'grace-demo-password' },
+  })
+  expect(grace.ok()).toBeTruthy()
+  const beta = await page.request.post('/api/v1/auth/session', { data: { tenantId: 'tenant-beta' } })
+  expect(beta.ok()).toBeTruthy()
+}
+
+/** Switch accounts via the chip's remembered-accounts rows (the stack —
+ *  credential-less); assert the switch by the chip's own label, which is
+ *  /v1/me refetched under the new identity, i.e. server truth. */
 async function switchTo(page: Page, optionText: string | RegExp, expectChip: string | RegExp) {
   await page.getByTestId('account-chip').click()
-  await page.getByTestId('account-option').filter({ hasText: optionText }).first().click()
+  await page.getByTestId('account-stack-option').filter({ hasText: optionText }).first().click()
   await expect(page.getByTestId('account-chip')).toContainText(expectChip, { timeout: 5_000 })
 }
 
@@ -41,6 +61,15 @@ test('a mid-generation account switch: the turn survives, the other tenant sees 
   // The default identity on the remote backend — server truth on the chip.
   await expect(page.getByTestId('account-chip')).toContainText('Ada Lovelace')
   await expect(page.getByTestId('account-chip')).toContainText('Acme')
+
+  // Sign both seeds in for real (they stack); land as Grace-in-beta, then hop
+  // to Ada through the stack — the surface under test from here on.
+  await stackSeedAccounts(page)
+  await page.reload()
+  await dismissIntro(page)
+  await expect(page.getByTestId('account-chip')).toContainText('Grace Hopper')
+  await expect(page.getByTestId('account-chip')).toContainText('tenant-beta')
+  await switchTo(page, 'Ada Lovelace', 'Ada Lovelace')
 
   // A FRESH draft — the app opens on the demo session, and a send there would
   // land in the demo thread instead of materializing a new session.
@@ -57,13 +86,14 @@ test('a mid-generation account switch: the turn survives, the other tenant sees 
     timeout: 10_000,
   })
 
-  // Switch to the other tenant WHILE the turn streams (invariant I1: this only
-  // detaches the view — the turn runs on server-side).
-  await switchTo(page, 'tenant-beta', 'tenant-beta')
-  await expect(page.getByTestId('account-chip')).toContainText('Grace Hopper')
+  // Switch to the other account WHILE the turn streams (invariant I1: this only
+  // detaches the view — the turn runs on server-side). Grace's stack entry
+  // remembers tenant-beta (her last-active), so the hop lands there.
+  await switchTo(page, 'Grace Hopper', 'Grace Hopper')
+  await expect(page.getByTestId('account-chip')).toContainText('tenant-beta')
 
-  // Tenant isolation across the switch: Bo's world holds none of Ada's session —
-  // not in the sidebar, not as thread content.
+  // Tenant isolation across the switch: Grace's world holds none of Ada's
+  // session — not in the sidebar, not as thread content.
   await expect(page.getByText(PACED_MESSAGE)).toHaveCount(0)
 
   // Give the paced turn time to finish server-side with NOBODY watching, then
@@ -103,19 +133,27 @@ test('a mid-generation account switch: the turn survives, the other tenant sees 
   expect(full.messages[1].content).toContain(REPLY_MARKER)
 })
 
-test('the menu splits real memberships from the seed directory; an active-workspace pick is a no-op', async ({ page }) => {
+test('the menu lists remembered accounts + real memberships (no dev directory); an active-workspace pick is a no-op', async ({ page }) => {
   await page.goto('/')
   await dismissIntro(page)
+  await stackSeedAccounts(page)
+  await page.reload()
+  await dismissIntro(page)
+  await expect(page.getByTestId('account-chip')).toContainText('Grace Hopper')
+
   await page.getByTestId('account-chip').click()
-  // Your workspaces (P7): Ada's REAL memberships — acme only, marked Active.
+  // Accounts (P9): the two credentialed sign-ins, newest active.
+  const stack = page.getByTestId('account-stack-option')
+  await expect(stack).toHaveCount(2)
+  await expect(stack.filter({ hasText: 'Grace' })).toContainText('Active')
+  // Your workspaces: Grace's REAL memberships — acme + tenant-beta (active).
   const workspaces = page.getByTestId('workspace-option')
-  await expect(workspaces).toHaveCount(1)
-  await expect(workspaces.filter({ hasText: 'Acme' })).toContainText('Active')
-  // The dev seed directory shows OTHER principals only (no duplicate of self).
-  const seeds = page.getByTestId('account-option')
-  await expect(seeds).toHaveCount(2) // grace@acme, grace@tenant-beta
-  await expect(seeds.filter({ hasText: 'Ada' })).toHaveCount(0)
+  await expect(workspaces).toHaveCount(2)
+  await expect(workspaces.filter({ hasText: 'tenant-beta' })).toContainText('Active')
+  // The old "Switch identity (dev)" section is gone with the directory.
+  await expect(page.getByTestId('account-option')).toHaveCount(0)
   // Picking the already-active workspace closes the menu and changes nothing.
-  await workspaces.first().click()
-  await expect(page.getByTestId('account-chip')).toContainText('Ada Lovelace')
+  await workspaces.filter({ hasText: 'tenant-beta' }).click()
+  await expect(page.getByTestId('account-chip')).toContainText('Grace Hopper')
+  await expect(page.getByTestId('account-chip')).toContainText('tenant-beta')
 })

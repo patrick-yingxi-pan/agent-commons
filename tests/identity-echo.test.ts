@@ -1,13 +1,12 @@
-/** The identity surface for the account switcher (multi-account design §5.5–5.6):
- *  `GET /v1/identities` lists the seeded accounts on the REMOTE backend and 409s
- *  elsewhere (capability-gated, not env-sniffed); `capabilities.identitySwitch`
- *  is the flag the UI gates on; every matched response carries the
- *  `x-resolved-tenant` echo; and `/v1/events` accepts query identity (the
- *  EventSource header stand-in), naming the resolved identity in its hello.
+/** The identity surface on the wire (multi-account design §5.5, invariant I5):
+ *  every matched response carries the `x-resolved-tenant` echo; `/v1/events`
+ *  accepts query identity (the EventSource header stand-in), names the
+ *  resolved identity in its hello, and scopes the live fan-out by it. Also the
+ *  P9 tombstone: the old dev enumeration directory (`GET /v1/identities`) is
+ *  GONE — identities are never enumerable; accounts sign in (the seeds carry
+ *  demo credentials for exactly that, locked in tests/auth-accounts.test.ts).
  *  Runs the router as the REMOTE variant (BACKEND is read once at store load →
- *  dynamic imports, like tests/capability-remote.test.ts). The default-backend
- *  face — the local user's WORKSPACE directory (uniform switcher, build log
- *  row 51) — lives in tests/identities-default.test.ts (its own process). */
+ *  dynamic imports, like tests/capability-remote.test.ts). */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
@@ -48,7 +47,7 @@ function caller(router: any) {
   }
 }
 
-test('GET /identities lists the seeded accounts on the remote backend; capabilities advertise the switch', async () => {
+test('the switch capability is advertised; the old enumeration directory is GONE (P9)', async () => {
   const { buildRouter } = await import('../server/routes/index.ts')
   const call = caller(buildRouter())
 
@@ -56,15 +55,12 @@ test('GET /identities lists the seeded accounts on the remote backend; capabilit
   assert.equal(caps.status, 200)
   assert.equal(caps.json().features.identitySwitch, true, 'the remote backend advertises the switcher')
 
+  // P9: `GET /v1/identities` retired with the dev switcher — no backend
+  // enumerates identities anymore (a seed signs in with its demo credential,
+  // like every other account). Unmatched at the router (status stays 0 in this
+  // handler-level harness; the entry server answers the real 404).
   const ids = await call('GET', '/identities')
-  assert.equal(ids.status, 200)
-  const list = ids.json() as Array<{ userId: string; tenantId: string; role: string; userLabel: string }>
-  assert.ok(list.length >= 3, 'the seeded directory is enumerated')
-  assert.ok(list.some((i) => i.userId === 'user-ada' && i.tenantId === 'tenant-acme' && i.role === 'owner'), 'the default owner is listed')
-  assert.ok(list.some((i) => i.userId === 'user-grace' && i.tenantId === 'tenant-beta'), 'the cross-tenant identity (the co-authoring E2E’s Bo) is listed')
-  for (const row of list) {
-    assert.ok(row.userId && row.userLabel && row.tenantId, 'every row is a complete, labelled identity')
-  }
+  assert.equal(ids.status, 0, 'no route matches — the enumeration surface no longer exists')
 })
 
 test('every matched response carries the x-resolved-tenant echo (invariant I5)', async () => {

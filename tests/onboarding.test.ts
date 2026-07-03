@@ -91,12 +91,17 @@ test('workspaces: create under your account, list your memberships, re-mint into
   assert.equal(foreign.status, 400)
 })
 
-test('the dev switcher directory NEVER lists onboarded accounts', async () => {
+test('identities are not enumerable — the dev directory route is GONE (P9)', async () => {
   await call('POST', '/auth/signup', { name: 'Secret Sam', email: 'sam@example.test', password: 'sams-password-11' })
+  // The old `GET /v1/identities` enumeration retired with the dev switcher —
+  // there is no route that lists accounts, seeded or real. At this handler-level
+  // harness an unmatched path leaves the response untouched (status 0); the
+  // entry server turns that into the real 404 (server/index.ts). What a client
+  // may see instead is `GET /v1/auth/accounts`, which only reflects its own
+  // stack cookie — locked in tests/auth-accounts.test.ts.
   const ids = await call('GET', '/identities')
-  assert.ok(!JSON.stringify(ids.json).includes('sam@example.test'), 'no email leak')
-  assert.ok(!JSON.stringify(ids.json).includes('Secret Sam'), 'real accounts are not enumerable — they sign in')
-  assert.ok((ids.json as any[]).every((i) => i.userId === 'user-local'), 'the mock directory stays the seeded workspaces')
+  assert.equal(ids.status, 0, 'no route matches — the enumeration surface no longer exists')
+  assert.equal(ids.json, undefined, 'and nothing leaks from the tombstone either')
 })
 
 test('a stale credential (user that no longer exists) resolves to NOTHING, not a guess', async () => {
@@ -125,4 +130,16 @@ test('the registry survives the persistence round-trip — credential and member
   const before = preP7.users.size
   preP7.rehydrate({})
   assert.equal(preP7.users.size, before, 'absent slices are a no-op — the seed directory stays')
+})
+
+test("a stale snapshot's seed rows never clobber the code's seeds (P9: the demo credentials survive)", () => {
+  // A snapshot written by an OLDER build persisted ada as she was then —
+  // credential-less. Rehydrating it must not strip the current build's demo
+  // credential: the code's seed rows are authoritative; snapshot rows only
+  // land on non-seed ids. (This is exactly how the e2e harness's persisted
+  // store from a pre-P9 run would otherwise break every seed sign-in.)
+  const staleAda = { id: 'user-ada', name: 'Ada Lovelace', email: 'ada@acme.example', seeded: true }
+  const reborn = new AccountRegistry()
+  reborn.rehydrate({ users: [['user-ada', staleAda]], tenants: [], memberships: [] })
+  assert.ok(reborn.verifyPassword('ada@acme.example', 'ada-demo-password'), 'the demo credential survives the stale echo')
 })

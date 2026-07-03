@@ -7,8 +7,6 @@ export const keys = {
   capabilities: 'capabilities',
   /** The current principal + tenant (design F2 / P1 §4 — "Identity from /v1/me"). */
   me: 'me',
-  /** The seeded accounts the dev switcher may act as (multi-account §5.6). */
-  identities: 'identities',
   /** The signed-in account's workspaces (P7 — the chip menu's switch targets). */
   meWorkspaces: 'me-workspaces',
   /** The accounts signed in on this browser (§12 — the switcher's instant hops). */
@@ -56,7 +54,6 @@ export const keys = {
 export const paths = {
   capabilities: '/capabilities',
   me: '/me',
-  identities: '/identities',
   /** Mint (POST) / clear (DELETE) the verified session cookie (multi-account P6). */
   authSession: '/auth/session',
   /** Onboarding (P7): create a real, persisted account / sign one in. */

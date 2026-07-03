@@ -62,9 +62,9 @@ test('the cookie IS the identity on later requests — and it beats client-asser
   assert.equal(contested.json.role, 'member', 'a role header cannot elevate a cookie session')
 })
 
-test('only directory identities are mintable', async () => {
+test('only registry memberships (or stack entries) are mintable', async () => {
   const alien = await call('POST', '/auth/session', { userId: 'user-local', tenantId: 'tenant-not-in-directory' })
-  assert.equal(alien.status, 400, 'the credential cannot name an account the switcher would not list')
+  assert.equal(alien.status, 400, 'no membership, no mint — workspaces are not enumerable-by-switching')
   const noBody = await call('POST', '/auth/session', {})
   assert.equal(noBody.status, 400)
 })
