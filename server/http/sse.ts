@@ -7,7 +7,11 @@ import type { ServerEvent } from '../../contract/index.ts'
 import { BASE_HEADERS } from './respond.ts'
 
 export interface SseChannel {
-  send(event: ServerEvent): void
+  /** Write one event frame. `id` (when given) becomes the SSE `id:` field — the
+   *  browser's `EventSource` remembers it and presents it as `Last-Event-ID` on
+   *  reconnect, which is what makes the ambient stream resumable (server/eventlog.ts).
+   *  Reply streams don't use it (their resumption is the per-turn `seq` payload). */
+  send(event: ServerEvent, id?: number): void
   close(): void
 }
 
@@ -24,9 +28,10 @@ export function openSse(res: ServerResponse): SseChannel {
   res.flushHeaders?.()
   let open = true
   return {
-    send(event) {
+    send(event, id) {
       if (!open || res.writableEnded) return
-      res.write(`data: ${JSON.stringify(event)}\n\n`)
+      const idLine = id === undefined ? '' : `id: ${id}\n`
+      res.write(`${idLine}data: ${JSON.stringify(event)}\n\n`)
     },
     close() {
       if (!open) return

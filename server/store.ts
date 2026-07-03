@@ -86,8 +86,12 @@ import { LOCAL_RUNNER_SEED, RUNNER_FS_ROOTS } from './data/runners.ts'
 import { DEFAULT_AGENT } from './data/workers.ts'
 import { EMPTY_WORKSPACE, workspaceFromSeed } from './workspace.ts'
 import { STORE_VERSION, loadState, saveState, type PersistedState } from './persist.ts'
+import { eventlog } from './eventlog.ts'
 
-type Listener = (e: ServerEvent) => void
+/** An ambient-event subscriber. `seq` is the event's global sequence number
+ *  (server/eventlog.ts — the SSE `id:` field that makes the stream resumable);
+ *  optional so existing single-arg subscribers stay valid. */
+type Listener = (e: ServerEvent, seq?: number) => void
 
 /** A monotonic-ish boot id. Math.random/Date are fine here (server side, not in
  *  the resumable-workflow sandbox); a fresh value each boot signals a reseed. */
@@ -443,11 +447,14 @@ function titleFrom(firstMessage?: string): string {
   return text.length > 48 ? `${text.slice(0, 48).trimEnd()}…` : text
 }
 
-/** Publish a domain event to every open ambient SSE channel. */
+/** Publish a domain event to every open ambient SSE channel. The single publish
+ *  point, so the event log stamps each event's global seq exactly once (the
+ *  resumable-stream backbone — server/eventlog.ts, design §5.3). */
 function emit(e: ServerEvent): void {
+  const seq = eventlog.record(e)
   for (const fn of listeners) {
     try {
-      fn(e)
+      fn(e, seq)
     } catch {
       /* a dead channel shouldn't break the others */
     }

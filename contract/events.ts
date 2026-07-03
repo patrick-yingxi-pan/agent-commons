@@ -197,6 +197,16 @@ export interface HelloEvent {
   /** Monotonic server boot id — a change means the server restarted (state was
    *  reseeded), so the client should refetch rather than trust its cache. */
   epoch: string
+  /** The stream's current position (the global event sequence — multi-account
+   *  design §5.3, invariant I3). Absent on pre-eventlog servers. */
+  seq?: number
+  /** True when the server replayed the events this subscriber missed (its
+   *  `Last-Event-ID` was still inside the ring buffer): the client's cache is
+   *  continuous and needs no reset. False/absent on a fresh subscribe OR when
+   *  the gap aged out of the buffer — a client that had a previous connection
+   *  must then drop its cache and refetch (loss is impossible: replayed or
+   *  fully resynced). */
+  resumed?: boolean
 }
 
 export type ServerEvent =

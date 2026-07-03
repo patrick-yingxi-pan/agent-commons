@@ -14,6 +14,7 @@ import { resetAll } from './cache.ts'
 import { keys } from './keys.ts'
 import { invalidate } from './cache.ts'
 import { invalidateForCommonsOp } from './commonsInvalidation.ts'
+import { helloRequiresReset } from './streamPolicy.ts'
 
 let source: EventSource | null = null
 let knownEpoch: string | null = null
@@ -22,9 +23,7 @@ let knownEpoch: string | null = null
 function route(e: ServerEvent): void {
   switch (e.type) {
     case 'hello': {
-      // A changed epoch means the server restarted and reseeded — drop the cache
-      // and refetch, rather than trusting now-stale data.
-      if (knownEpoch && knownEpoch !== e.epoch) resetAll()
+      if (helloRequiresReset(e, knownEpoch)) resetAll()
       knownEpoch = e.epoch
       break
     }

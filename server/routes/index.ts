@@ -33,6 +33,7 @@ import { pageParams, paginate, MAX_PAGE_LIMIT } from '../pagination.ts'
 import { RateLimiter } from '../ratelimit.ts'
 import { generateReply } from '../generate.ts'
 import { turns, type TurnFrame } from '../turns.ts'
+import { eventlog } from '../eventlog.ts'
 import { CapabilityError, runCapability, scopeMatches } from '../runner-runtime.ts'
 import { GuardianError } from '../guardian.ts'
 import { BudgetError } from '../usage.ts'
@@ -1001,15 +1002,38 @@ export function buildRouter(): Router {
   // One long-lived SSE channel per client; the server pushes scheduled-run,
   // relation, connector, and session events down it (Phase 3+). It opens with a
   // `hello` carrying the epoch so a client can detect a server reseed.
+  //
+  // RESUMABLE (multi-account design §5.3, invariant I3): every event is stamped
+  // with its global seq as the SSE `id:` field; a reconnecting EventSource
+  // presents `Last-Event-ID` and the gap is REPLAYED from the ring buffer —
+  // `hello.resumed: true`, no client cache reset. If the gap aged out (or the
+  // epoch changed), `hello.resumed: false` tells a returning client to drop its
+  // cache and refetch. Either way: no silent loss. Duplicates are harmless — the
+  // events are idempotent invalidation hints.
   r.get('/events', ({ req, res }) => {
     const channel = openSse(res)
-    channel.send({ type: 'hello', epoch: store.epoch })
     // Tenant-filter the fan-out (F2/PD9): a subscriber only receives events for its own
     // tenant, so another tenant's session pushes don't leak down this channel. The
     // subscriber's tenant is resolved once, at subscribe time, from the request identity.
     const tenantId = store.identity(req.headers).tenant.id
-    const unsubscribe = store.subscribe((e) => {
-      if (store.eventVisibleToTenant(e, tenantId)) channel.send(e)
+    // INVARIANT: no `await` may sit between the `since()` snapshot below and the
+    // `store.subscribe` that follows — the whole subscribe path runs in one
+    // synchronous slice, which is exactly what makes it gap-free (an event can't
+    // land between "replayed tail" and "live fan-out"). An await here would
+    // silently reintroduce the loss window this route exists to close.
+    const lastId = Number(headerValue(req.headers, 'last-event-id'))
+    const tail = Number.isFinite(lastId) && lastId >= 0 ? eventlog.since(lastId) : undefined
+    const resumed = tail?.complete ?? false
+    channel.send({ type: 'hello', epoch: store.epoch, seq: eventlog.seq(), resumed })
+    // Replay is visibility-filtered with the SAME gate as the live fan-out, so a
+    // reconnect can never widen what a tenant observes.
+    if (resumed && tail) {
+      for (const f of tail.events) {
+        if (store.eventVisibleToTenant(f.event, tenantId)) channel.send(f.event, f.seq)
+      }
+    }
+    const unsubscribe = store.subscribe((e, seq) => {
+      if (store.eventVisibleToTenant(e, tenantId)) channel.send(e, seq)
     })
     req.on('close', () => {
       unsubscribe()
