@@ -1,6 +1,11 @@
 # Multi-account UI — detailed design
 
-> **Status: BUILT (P0–P4, 2026-07-03)** — spec rows SYNC-1…5 in
+> **Status: BUILT (P0–P5, 2026-07-03)** — P5 (build log row 51) revised §5.6 by
+> user direction: the switcher is **uniform across backends**, not remote-only.
+> Every backend honours the identity seam and advertises a directory; what
+> differs is what switches — the web's org principals vs the desktop's
+> workspaces (the user is fixed on the desktop; only the tenant moves,
+> mirroring the desktop app's personal↔work account menu). Spec rows SYNC-1…5 in
 > [`docs/spec/05-portable-contract.md`](../spec/05-portable-contract.md), build log
 > rows 46–50 in [`IMPLEMENTATION.md`](IMPLEMENTATION.md), locked by
 > `tests/turns|sse-replay|send-idempotency|account-guard|identities-*` +

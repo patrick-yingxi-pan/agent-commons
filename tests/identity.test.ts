@@ -20,11 +20,28 @@ test('GET /me returns the local single-user identity on the desktop/mock backend
   assert.deepEqual(me, LOCAL_IDENTITY)
 })
 
-test('resolveIdentity: desktop/native backends are always the single local user', () => {
+test('resolveIdentity: desktop/native defaults to the single local user; the USER never switches', () => {
   assert.deepEqual(resolveIdentity('mock'), LOCAL_IDENTITY)
   assert.deepEqual(resolveIdentity('native'), LOCAL_IDENTITY)
-  // Headers can't escalate a desktop session into a different principal.
+  // Headers can't escalate a desktop session into a different PRINCIPAL — the
+  // device owner is the only user the loopback sidecar trusts (x-user-id ignored).
   assert.deepEqual(resolveIdentity('native', { 'x-user-id': 'user-grace' }), LOCAL_IDENTITY)
+  // Naming the personal tenant explicitly is the same identity.
+  assert.deepEqual(resolveIdentity('native', { 'x-tenant-id': 'tenant-personal' }), LOCAL_IDENTITY)
+})
+
+test('resolveIdentity: the desktop WORKSPACE switches via x-tenant-id (multi-account §5.6, uniform)', () => {
+  const work = resolveIdentity('mock', { 'x-tenant-id': 'tenant-work', 'x-user-id': 'user-grace' })
+  assert.equal(work.user.id, 'user-local', 'still the device owner — only the workspace moved')
+  assert.equal(work.tenant.id, 'tenant-work')
+  assert.equal(work.tenant.kind, 'org')
+  assert.equal(work.role, 'member', 'in an org workspace the owner default does not carry over')
+  assert.equal(work.local, true)
+  // Unknown workspace ids synthesize an org, mirroring the web seam.
+  const other = resolveIdentity('native', { 'x-tenant-id': 'tenant-globex' })
+  assert.equal(other.tenant.id, 'tenant-globex')
+  assert.equal(other.tenant.kind, 'org')
+  assert.equal(other.user.id, 'user-local')
 })
 
 test('resolveIdentity: the web backend resolves a tenant-scoped principal (defaults)', () => {

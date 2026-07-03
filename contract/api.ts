@@ -46,17 +46,19 @@ export interface Capabilities {
     scheduledExecution: boolean
     /** Stream assistant replies token-by-token (SSE). */
     streaming: boolean
-    /** The dev account switcher (multi-account design §5.6): true only on the
-     *  remote backend, whose header-seam identity makes "act as another seeded
-     *  account" meaningful. The UI gates the switcher on this flag — never on
-     *  env sniffing. `GET /v1/identities` 409s where this is false. */
+    /** The account switcher (multi-account design §5.6, revised): uniform
+     *  across backends — every backend honours the identity seam and
+     *  advertises a directory via `GET /v1/identities` (web: the seeded org
+     *  principals; desktop: the local user's workspaces). The UI gates the
+     *  switcher on this flag — never on env sniffing; a deployment may turn
+     *  it off, and `GET /v1/identities` 409s where it's false. */
     identitySwitch: boolean
   }
 }
 
-/** One row of `GET /v1/identities` — a seeded account the dev client may act as
+/** One row of `GET /v1/identities` — a seeded account the client may act as
  *  (multi-account design §5.6). Deliberately NOT a user-registry API: it
- *  enumerates exactly what the header identity seam already accepts. */
+ *  enumerates exactly what the backend's identity seam already accepts. */
 export interface IdentitySummary {
   userId: string
   userLabel: string

@@ -270,16 +270,16 @@ export function buildRouter(): Router {
     sendJson(res, store.identity(req.headers))
   })
 
-  // The seeded accounts the dev switcher may act as (multi-account design §5.6).
-  // Remote-only, like the switcher itself: on the native/mock backend identity is
-  // the single local user and this 409s (capability-gated, not env-sniffed).
-  // Deliberately NOT a user registry — it enumerates exactly what the header
-  // identity seam already accepts.
+  // The seeded accounts the switcher may act as (multi-account design §5.6,
+  // revised: uniform across backends — web lists the org principals, the
+  // desktop lists the local user's workspaces). Still capability-gated (not
+  // env-sniffed) so a deployment can turn the switcher off. Deliberately NOT a
+  // user registry — it enumerates exactly what the identity seam accepts.
   r.get('/identities', ({ res }) => {
     if (!store.capabilities().features.identitySwitch) {
-      return sendError(res, 'capability_unavailable', 'Account switching needs the remote backend; this backend has a single local identity.')
+      return sendError(res, 'capability_unavailable', 'Account switching is disabled on this backend.')
     }
-    sendJson(res, listIdentities())
+    sendJson(res, listIdentities(store.capabilities().backend))
   })
 
   // ── Ops: liveness + readiness (design F6 — the autoscaled web tier) ──────────

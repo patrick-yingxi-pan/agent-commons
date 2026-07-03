@@ -6,8 +6,8 @@
  *  EventSource header stand-in), naming the resolved identity in its hello.
  *  Runs the router as the REMOTE variant (BACKEND is read once at store load →
  *  dynamic imports, like tests/capability-remote.test.ts). The default-backend
- *  face — 409, flag false, echo = the local tenant — lives in
- *  tests/identities-default.test.ts (its own process, default BACKEND). */
+ *  face — the local user's WORKSPACE directory (uniform switcher, build log
+ *  row 51) — lives in tests/identities-default.test.ts (its own process). */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
