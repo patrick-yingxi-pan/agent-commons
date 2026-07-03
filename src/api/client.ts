@@ -4,6 +4,7 @@
  *  mock server); a native host can override it with `VITE_API_BASE`. Nothing else
  *  in the UI knows a URL — swap the backend by swapping this base. */
 import { API_BASE_PATH, type ApiError } from '../../contract/index.ts'
+import { activeAccount, accountGeneration, accountHeaders, shouldDropResponse } from './account.ts'
 
 /** Where the API lives. Same-origin by default (the Vite proxy / the production
  *  server both mount it at `/api/v1`); a packaged desktop app injects an absolute
@@ -24,17 +25,45 @@ export class ApiRequestError extends Error {
   }
 }
 
+/** A response abandoned because the active account changed while it was in
+ *  flight, or the server's identity echo mismatched (multi-account §6.2,
+ *  invariant I5). Callers treat it as silent abandonment, never as data. */
+export class AccountSwitchedError extends Error {
+  constructor(reason: string) {
+    super(`response dropped: ${reason}`)
+    this.name = 'AccountSwitchedError'
+  }
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  // Identity + staleness fence (multi-account §6.2): the active account rides as
+  // headers; the generation captured HERE decides, after the await, whether the
+  // world this response belongs to still exists.
+  const acct = activeAccount()
+  const issuedGen = accountGeneration()
   let res: Response
   try {
     res = await fetch(`${API_BASE}${path}`, {
       method,
-      headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+      headers: {
+        ...accountHeaders(acct),
+        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     })
   } catch (err) {
     // Network / server-down — surface a uniform shape so the UI can show "offline".
     throw new ApiRequestError('internal', err instanceof Error ? err.message : 'Network error', 0)
+  }
+  // I5 tripwire: a response from the previous account's world, or one whose
+  // server-resolved tenant disagrees with who we think we are, never reaches a
+  // cache. Echo mismatch is a routing BUG — make it loud.
+  const verdict = shouldDropResponse(issuedGen, accountGeneration(), acct, res.headers.get('x-resolved-tenant'))
+  if (verdict.drop) {
+    if (verdict.reason === 'echo-mismatch') {
+      console.error(`[api] identity echo mismatch: acting as tenant '${acct?.tenantId}' but the server resolved '${res.headers.get('x-resolved-tenant')}' — response dropped`)
+    }
+    throw new AccountSwitchedError(verdict.reason ?? 'switched')
   }
   if (res.status === 204) return undefined as T
   const text = await res.text()

@@ -20,7 +20,9 @@ export interface Ctx {
 export const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, Idempotency-Key, x-user-id, x-tenant-id, x-user-role',
+  // The identity-echo tripwire (multi-account §5.5) must be readable cross-origin.
+  'Access-Control-Expose-Headers': 'x-resolved-tenant, X-Request-Id, ETag',
 }
 
 /** Baseline security headers on every response (design F5). `nosniff` stops content-type

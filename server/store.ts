@@ -780,6 +780,9 @@ export const store = {
         localGit: NATIVE,
         osPicker: NATIVE,
         clipboard: NATIVE,
+        // The dev account switcher (multi-account §5.6): only the remote
+        // backend's header-seam identity makes switching meaningful.
+        identitySwitch: BACKEND_MODE === 'remote',
         scheduledExecution: true, // a remote server can run schedules too
         streaming: true,
       },

@@ -15,6 +15,7 @@ import { keys } from './keys.ts'
 import { invalidate } from './cache.ts'
 import { invalidateForCommonsOp } from './commonsInvalidation.ts'
 import { helloRequiresReset } from './streamPolicy.ts'
+import { activeAccount, accountQuery, onAccountSwitch } from './account.ts'
 
 let source: EventSource | null = null
 let knownEpoch: string | null = null
@@ -102,10 +103,28 @@ function route(e: ServerEvent): void {
 /** Open the ambient stream once (idempotent). Safe to call on every mount. */
 export function connectEvents(): void {
   if (source) return
-  source = new EventSource(`${API_BASE}/events`)
+  // The stream binds identity at open (multi-account §5.5): EventSource can't
+  // set headers, so the active account rides as query params — the one route
+  // that accepts them. No override → bare URL, exactly as before.
+  const query = accountQuery(activeAccount())
+  const qs = query.length ? `?${new URLSearchParams(query).toString()}` : ''
+  source = new EventSource(`${API_BASE}/events${qs}`)
   source.onmessage = (ev) => {
     try {
-      route(JSON.parse(ev.data) as ServerEvent)
+      const e = JSON.parse(ev.data) as ServerEvent
+      // I5 tripwire, SSE face: the hello names the identity the server resolved
+      // for this stream — a mismatch means events would invalidate the wrong
+      // account's cache. Kill the stream loudly; don't route a single frame.
+      if (e.type === 'hello' && e.identity) {
+        const acct = activeAccount()
+        if (acct && e.identity.tenantId !== acct.tenantId) {
+          console.error(`[events] identity echo mismatch: acting as tenant '${acct.tenantId}' but the stream resolved '${e.identity.tenantId}' — stream closed`)
+          source?.close()
+          source = null
+          return
+        }
+      }
+      route(e)
     } catch {
       /* ignore a malformed frame */
     }
@@ -120,6 +139,20 @@ export function connectEvents(): void {
     }
   }
 }
+
+// An account switch reopens the stream as the new identity (multi-account §6.3).
+// A RECONNECT keeps the browser's Last-Event-ID (same identity, resume); a SWITCH
+// must not — different identity, different visible stream — so the old source is
+// torn down (discarding its Last-Event-ID) and epoch tracking resets: the next
+// hello is treated as this identity's first (no false "continuity" reset, and no
+// carried-over assumptions). The cache reset itself is the switcher's job
+// (switchAccount → resetAll in the app layer); this module only re-binds the pipe.
+onAccountSwitch(() => {
+  source?.close()
+  source = null
+  knownEpoch = null
+  connectEvents()
+})
 
 /** Mount-time hook: ensure the app is subscribed to server pushes. */
 export function useServerEvents(): void {

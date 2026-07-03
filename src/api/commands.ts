@@ -49,6 +49,7 @@ import {
   type UpdateScheduleRequest,
 } from '../../contract/index.ts'
 import { API_BASE, apiDelete, apiGet, apiPatch, apiPost } from './client.ts'
+import { activeAccount, accountHeaders } from './account.ts'
 import { invalidate, mutate, peek, setData } from './cache.ts'
 import { keys, paths } from './keys.ts'
 import { invalidateForCommonsOp } from './commonsInvalidation.ts'
@@ -86,6 +87,9 @@ export async function sendMessage(
   const res = await fetch(`${API_BASE}${paths.session(sessionId)}/messages`, {
     method: 'POST',
     headers: {
+      // The streamed send bypasses client.ts's wrapper (its body is SSE, not
+      // JSON), so it joins the SAME identity policy here (multi-account §6.4).
+      ...accountHeaders(activeAccount()),
       'Content-Type': 'application/json',
       // One key per LOGICAL send (design §5.4, invariant I4): a transport retry
       // of this call can never double-append the user turn or double-generate —

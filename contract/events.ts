@@ -207,6 +207,12 @@ export interface HelloEvent {
    *  must then drop its cache and refetch (loss is impossible: replayed or
    *  fully resynced). */
   resumed?: boolean
+  /** The identity the server resolved for THIS stream (multi-account design
+   *  §5.5, invariant I5) — the SSE face of the `x-resolved-tenant` echo. The
+   *  client asserts it matches the account it believes it's acting as, turning
+   *  an identity-routing bug into a loud local error instead of silent
+   *  cross-account contamination. */
+  identity?: { userId: string; tenantId: string }
 }
 
 export type ServerEvent =

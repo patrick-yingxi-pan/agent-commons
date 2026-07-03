@@ -69,3 +69,20 @@ function resolveWebIdentity(headers?: Headers): Identity {
 export function resolveIdentity(backend: Backend, headers?: Headers): Identity {
   return backend === 'remote' ? resolveWebIdentity(headers) : LOCAL_IDENTITY
 }
+
+/** The seeded accounts the dev switcher may act as (`GET /v1/identities`,
+ *  multi-account design §5.6) — exactly the directory `resolveWebIdentity`
+ *  resolves against, plus the cross-tenant identity the P8 cooperation flows
+ *  exercise. Enumerates the header seam's accepted values; nothing more. */
+export function listIdentities(): Array<{ userId: string; userLabel: string; tenantId: string; tenantLabel: string; role: string }> {
+  const acme = WEB_USERS.map((u) => ({
+    userId: u.id,
+    userLabel: u.name,
+    tenantId: WEB_TENANT.id,
+    tenantLabel: WEB_TENANT.name,
+    role: WEB_ROLES[u.id] ?? 'member',
+  }))
+  // The second seeded tenant (the co-authoring E2E's "Bo"): grace acting under
+  // tenant-beta — the header seam synthesizes unknown tenant ids as orgs.
+  return [...acme, { userId: 'user-grace', userLabel: 'Grace Hopper', tenantId: 'tenant-beta', tenantLabel: 'tenant-beta', role: 'member' }]
+}

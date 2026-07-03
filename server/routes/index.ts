@@ -34,6 +34,7 @@ import { RateLimiter } from '../ratelimit.ts'
 import { generateReply } from '../generate.ts'
 import { turns, type TurnFrame } from '../turns.ts'
 import { eventlog } from '../eventlog.ts'
+import { listIdentities } from '../identity.ts'
 import { CapabilityError, runCapability, scopeMatches } from '../runner-runtime.ts'
 import { GuardianError } from '../guardian.ts'
 import { BudgetError } from '../usage.ts'
@@ -96,6 +97,17 @@ export function buildRouter(): Router {
     const inbound = headerValue(ctx.req.headers, 'x-request-id')
     const id = inbound && SAFE_REQUEST_ID.test(inbound) ? inbound : `req-${store.epoch}-${++requestSeq}`
     ctx.res.setHeader('X-Request-Id', id)
+    return true
+  })
+
+  // ── Identity echo (multi-account design §5.5, invariant I5) ─────────────────
+  // Every matched response names the tenant the server resolved for it. A pure
+  // tripwire: the client asserts it matches the account it believes it's acting
+  // as, so an identity-routing bug becomes a loud, local error instead of silent
+  // cross-account contamination. Costless on the native backend (always the one
+  // local tenant). Exposed to browsers via Access-Control-Expose-Headers.
+  r.use((ctx) => {
+    ctx.res.setHeader('x-resolved-tenant', store.identity(ctx.req.headers).tenant.id)
     return true
   })
 
@@ -256,6 +268,18 @@ export function buildRouter(): Router {
   // from the auth seam (request headers stand in for verified IdP claims).
   r.get('/me', ({ req, res }) => {
     sendJson(res, store.identity(req.headers))
+  })
+
+  // The seeded accounts the dev switcher may act as (multi-account design §5.6).
+  // Remote-only, like the switcher itself: on the native/mock backend identity is
+  // the single local user and this 409s (capability-gated, not env-sniffed).
+  // Deliberately NOT a user registry — it enumerates exactly what the header
+  // identity seam already accepts.
+  r.get('/identities', ({ res }) => {
+    if (!store.capabilities().features.identitySwitch) {
+      return sendError(res, 'capability_unavailable', 'Account switching needs the remote backend; this backend has a single local identity.')
+    }
+    sendJson(res, listIdentities())
   })
 
   // ── Ops: liveness + readiness (design F6 — the autoscaled web tier) ──────────
@@ -1010,12 +1034,23 @@ export function buildRouter(): Router {
   // epoch changed), `hello.resumed: false` tells a returning client to drop its
   // cache and refetch. Either way: no silent loss. Duplicates are harmless — the
   // events are idempotent invalidation hints.
-  r.get('/events', ({ req, res }) => {
+  r.get('/events', ({ req, res, url }) => {
     const channel = openSse(res)
     // Tenant-filter the fan-out (F2/PD9): a subscriber only receives events for its own
     // tenant, so another tenant's session pushes don't leak down this channel. The
     // subscriber's tenant is resolved once, at subscribe time, from the request identity.
-    const tenantId = store.identity(req.headers).tenant.id
+    //
+    // `EventSource` can't set request headers, so THIS route (alone) also accepts
+    // the identity via query — `?user=&tenant=` — the same stand-in role the
+    // headers play (design §5.5; a production build replaces both with the auth
+    // cookie, which EventSource *does* carry). Query wins over headers here.
+    const idHeaders: Record<string, string | string[] | undefined> = { ...req.headers }
+    const qUser = url.searchParams.get('user')
+    const qTenant = url.searchParams.get('tenant')
+    if (qUser) idHeaders['x-user-id'] = qUser
+    if (qTenant) idHeaders['x-tenant-id'] = qTenant
+    const identity = store.identity(idHeaders)
+    const tenantId = identity.tenant.id
     // INVARIANT: no `await` may sit between the `since()` snapshot below and the
     // `store.subscribe` that follows — the whole subscribe path runs in one
     // synchronous slice, which is exactly what makes it gap-free (an event can't
@@ -1024,7 +1059,16 @@ export function buildRouter(): Router {
     const lastId = Number(headerValue(req.headers, 'last-event-id'))
     const tail = Number.isFinite(lastId) && lastId >= 0 ? eventlog.since(lastId) : undefined
     const resumed = tail?.complete ?? false
-    channel.send({ type: 'hello', epoch: store.epoch, seq: eventlog.seq(), resumed })
+    // The hello carries the stream's resolved identity — the SSE face of the
+    // `x-resolved-tenant` echo (a browser can't read SSE response headers, so
+    // the tripwire rides in-band here).
+    channel.send({
+      type: 'hello',
+      epoch: store.epoch,
+      seq: eventlog.seq(),
+      resumed,
+      identity: { userId: identity.user.id, tenantId },
+    })
     // Replay is visibility-filtered with the SAME gate as the live fan-out, so a
     // reconnect can never widen what a tenant observes.
     if (resumed && tail) {
