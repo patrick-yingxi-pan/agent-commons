@@ -316,13 +316,15 @@ the mock?
   provider our backend *can't dial* (firewalled / key-less / no API) whose cognition
   is performed by an **AI session the user already runs** — reached by the session
   draining a mailbox we host at a one-time **rendezvous secret**, the cognition-plane
-  mirror of a Runner. Preserves "one protocol, zero providers" and inverts only the
-  transport (dial-out → rendezvous dial-in), so `generateReply` stays untouched behind
-  an in-process loopback Messages shim. The user-side is one MCP server driven by a
-  blocking `respond_and_wait` loop; v1 is prose-only (`toolUse:false`). Workflow-first
-  design, a second pass ruling the edge cases (the mailbox state machine, the turn
-  deadline as provider *data*, kill-switch rotate, the tour-launch gate), and the v2
-  checklist:
+  mirror of a Runner. Preserves "zero provider code" while inverting the transport
+  (dial-out → rendezvous dial-in) *honestly*: the messages route dispatches session
+  turns to a small `relayReply` sibling of `generateReply` (same handlers seam), so
+  the whole Messages stack stays byte-for-byte untouched — no loopback shim. The
+  user-side is one MCP server driven by a blocking `respond_and_wait` loop; v1 is
+  prose-only (`toolUse:false`). Workflow-first design, a second pass ruling the edge
+  cases, a third pass simplifying the machinery (a one-entry slot instead of a
+  mailbox state machine; binding = presenting the secret, no enrollment protocol;
+  kill-switch rotate; the outbound-injection wall), and the v2 checklist:
   [`docs/delegated-cognition-provider.md`](docs/delegated-cognition-provider.md).
 
 ## Repo map (detail in [`README.md`](README.md))
