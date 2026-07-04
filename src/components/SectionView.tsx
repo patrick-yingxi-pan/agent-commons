@@ -150,6 +150,7 @@ import { POPOVER_SURFACE } from '../lib/popover'
 import { usePopoverShift } from '../lib/usePopoverShift'
 import { useRelations } from '../controller/useRelations'
 import { runSessionId, slug } from '../../contract/ids.ts'
+import { HOVER_REVEAL, HOVER_CUE } from '../lib/hoverReveal'
 
 /** The main area when a cross-cutting tool (Projects, Artifacts, …) is open
  *  instead of a conversation. All content is mock — this is a clickable demo.
@@ -561,7 +562,7 @@ function ProjectDetail({
                     <button
                       onClick={() => unfileSession(c.id, c.title)}
                       aria-label={`Remove ${c.title} from ${project.name}`}
-                      className="mr-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-faint opacity-0 transition hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 group-hover:opacity-100"
+                      className={`mr-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 ${HOVER_REVEAL}`}
                     >
                       <MinusCircle size={15} />
                     </button>
@@ -783,7 +784,7 @@ function ProjectScheduleRow({
           <button
             onClick={onRun}
             aria-label={`Run ${task.name} now`}
-            className="flex h-6 w-6 items-center justify-center rounded-md text-ink-faint opacity-0 transition hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
+            className={`flex h-6 w-6 items-center justify-center rounded-md text-ink-faint hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${HOVER_REVEAL}`}
           >
             {running ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
           </button>
@@ -1337,7 +1338,7 @@ function CoordinationPanel({ project }: { project: Project }) {
                   <button
                     onClick={() => void releaseSubGoal(s.reservationId, project.id)}
                     aria-label={`Release ${s.subGoal}`}
-                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint opacity-0 transition hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 group-hover:opacity-100"
+                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 ${HOVER_REVEAL}`}
                   >
                     <X size={13} />
                   </button>
@@ -2193,14 +2194,18 @@ function ContextRow({
       </button>
 
       <div className="flex shrink-0 items-center gap-2 pr-4">
-        {ctx.kind === 'repo' ? (
-          <StatusPill tone="neutral" label={ctx.dependsOnGitHub ? 'via GitHub' : 'Local only'} />
-        ) : (
-          <StatusPill tone={connected ? 'ok' : 'warn'} label={connected ? 'Connected' : 'Needs auth'} />
-        )}
+        {/* Below sm the pill yields its width to the name column — the detail
+            view (and the connect/disconnect control itself) carries the status. */}
+        <span className="max-sm:hidden">
+          {ctx.kind === 'repo' ? (
+            <StatusPill tone="neutral" label={ctx.dependsOnGitHub ? 'via GitHub' : 'Local only'} />
+          ) : (
+            <StatusPill tone={connected ? 'ok' : 'warn'} label={connected ? 'Connected' : 'Needs auth'} />
+          )}
+        </span>
 
         {/* Hover-revealed actions — same idiom as the panel's per-folder delete. */}
-        <div className="flex items-center gap-1 opacity-0 transition focus-within:opacity-100 group-hover:opacity-100">
+        <div className={`flex items-center gap-1 focus-within:opacity-100 ${HOVER_REVEAL}`}>
           {ctx.kind !== 'repo' && (
             <Tooltip label={connected ? 'Disconnect' : 'Connect'}>
               <button
@@ -2518,7 +2523,7 @@ function TabToolbar({ newLabel, onNew }: { newLabel: string; onNew: () => void }
  *  Contexts rows. Shared so every hub card exposes the same cue. */
 function CardActions({ onEdit, onDelete }: { onEdit?: () => void; onDelete?: () => void }) {
   return (
-    <div className="flex shrink-0 items-center gap-1 opacity-0 transition focus-within:opacity-100 group-hover:opacity-100">
+    <div className={`flex shrink-0 items-center gap-1 focus-within:opacity-100 ${HOVER_REVEAL}`}>
       {onEdit && (
         <button
           onClick={onEdit}
@@ -3621,9 +3626,13 @@ function ScheduledRow({
       </button>
 
       <div className="flex shrink-0 items-center gap-2 pr-4">
-        <StatusPill tone={pill.tone} label={pill.label} />
+        {/* Below sm the pill yields its width to the name column — the icon's
+            status dot already carries ok/failed, and the detail has the rest. */}
+        <span className="max-sm:hidden">
+          <StatusPill tone={pill.tone} label={pill.label} />
+        </span>
 
-        <div className="flex items-center gap-1 opacity-0 transition focus-within:opacity-100 group-hover:opacity-100">
+        <div className={`flex items-center gap-1 focus-within:opacity-100 ${HOVER_REVEAL}`}>
           <Tooltip label="Run now">
             <button
               onClick={onRunNow}
@@ -3838,7 +3847,7 @@ function ScheduledDetail({
                   className="group flex min-w-0 items-center gap-1.5 rounded-md text-left transition hover:bg-panel-2/60"
                 >
                   <h1 className="truncate font-serif text-2xl font-semibold leading-tight text-ink">{task.name}</h1>
-                  <Pencil size={14} className="shrink-0 text-ink-faint opacity-0 transition group-hover:opacity-100" />
+                  <Pencil size={14} className={`shrink-0 text-ink-faint ${HOVER_CUE}`} />
                 </button>
               )}
               {running ? (
@@ -4384,7 +4393,7 @@ function RunRow({
       </div>
       <ChevronRight
         size={15}
-        className="mt-0.5 shrink-0 text-ink-faint opacity-0 transition group-hover:opacity-100"
+        className={`mt-0.5 shrink-0 text-ink-faint ${HOVER_CUE}`}
       />
     </button>
   )

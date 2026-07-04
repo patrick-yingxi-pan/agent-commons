@@ -6,6 +6,7 @@ import { PhotoThumb } from './PhotoThumb'
 import { ArtifactBodyView } from './artifactPreview'
 import { useFsText, fsContentUrl } from '../api/hooks'
 import { parseFsRecentKey } from '../../contract/index'
+import { HOVER_REVEAL } from '../lib/hoverReveal'
 
 const IMG_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico']
 const isImageLabel = (label: string) => IMG_EXTS.includes(label.split('.').pop()?.toLowerCase() ?? '')
@@ -275,7 +276,7 @@ function FileBody({
               <button
                 onClick={() => onRemove(f.id)}
                 title="Remove file"
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint opacity-0 transition hover:bg-panel-2 hover:text-removed group-hover:opacity-100"
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-panel-2 hover:text-removed ${HOVER_REVEAL}`}
               >
                 <Trash2 size={13} />
               </button>

@@ -109,6 +109,17 @@ test('extreme narrow (320×700): every composer popover stays inside the viewpor
     await page.keyboard.press('Escape')
     await expect(pop).not.toBeVisible()
   }
+
+  // Row identity survives 320px (UI-7): the Scheduled rows' trailing controls
+  // must not starve the flex-1 name column — the routine name renders at a
+  // readable width, not zero (the invisible-but-space-reserving hover cluster
+  // plus the status pill used to squeeze it out entirely).
+  await page.getByRole('button', { name: 'Expand sidebar' }).click()
+  await page.getByRole('navigation').getByRole('button', { name: /^Scheduled/ }).click()
+  const name = page.locator('main').getByText('Triage new GitHub issues').first()
+  await expect(name).toBeVisible()
+  const nameBox = (await name.boundingBox())!
+  expect(nameBox.width, 'routine name keeps readable width').toBeGreaterThan(60)
 })
 
 test('tablet (768×1024): the panel overlays the thread behind a scrim; the scrim click dismisses', async ({ page }) => {
@@ -141,6 +152,18 @@ test('landscape phone (844×390, short): compressed chrome, usable composer', as
 
   // The short variant sheds the composer's disclaimer line.
   await expect(page.getByText('the model is a local mock')).toBeHidden()
+
+  // Popovers taller than a landscape phone clamp their height and scroll
+  // instead of pinning top and running off the bottom (UI-1's height half —
+  // the /ui-review sweep found the usage popover at 456px in a 390px viewport).
+  await page.getByRole('button', { name: /^Usage/ }).click()
+  const pop = page.locator('[data-popover]')
+  await expect(pop).toBeVisible()
+  const box = (await pop.boundingBox())!
+  expect(box.y, 'popover clears the top edge').toBeGreaterThanOrEqual(7)
+  expect(box.y + box.height, 'popover clears the bottom edge').toBeLessThanOrEqual(390 - 7)
+  await page.keyboard.press('Escape')
+  await expect(pop).not.toBeVisible()
 
   // Thread + composer are both on screen and a send works.
   const message = `responsive landscape hello ${STAMP}`

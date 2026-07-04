@@ -5,6 +5,7 @@ import type { Project } from '../types'
 import { useDismissable } from '../lib/useDismissable'
 import { POPOVER_MARGIN, POPOVER_SURFACE, clampLeft } from '../lib/popover'
 import { FlyoutPanel, useFlyout } from './RecentOverflowList'
+import { HOVER_REVEAL } from '../lib/hoverReveal'
 
 /** ── A sidebar row's overflow ("⋮") menu ──────────────────────────────────────
  *  The small action menu hung off every Recents session and Scheduled routine
@@ -85,7 +86,7 @@ export function RowMenu({ ariaLabel, items }: { ariaLabel: string; items: RowMen
         aria-haspopup="menu"
         aria-expanded={open}
         data-open={open}
-        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint opacity-0 transition hover:bg-panel-2 hover:text-ink focus:opacity-100 focus:outline-none group-hover:opacity-100 data-[open=true]:bg-panel-2 data-[open=true]:text-ink data-[open=true]:opacity-100"
+        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-panel-2 hover:text-ink focus:opacity-100 focus:outline-none data-[open=true]:bg-panel-2 data-[open=true]:text-ink data-[open=true]:opacity-100 ${HOVER_REVEAL}`}
       >
         <MoreVertical size={15} />
       </button>

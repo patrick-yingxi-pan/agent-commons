@@ -34,6 +34,7 @@ import { sameFocus } from '../lib/focus'
 import { useDismissable } from '../lib/useDismissable'
 import { POPOVER_SURFACE } from '../lib/popover'
 import { usePopoverShift } from '../lib/usePopoverShift'
+import { HOVER_REVEAL } from '../lib/hoverReveal'
 
 const SKIP_CONFIRM_KEY = 'claude-ui.composer.skipDeleteConfirm.v2'
 
@@ -611,7 +612,7 @@ function ChipGroup({
                   type="button"
                   onClick={() => requestRemove(it)}
                   title="Remove from context"
-                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint opacity-0 transition hover:bg-removed-bg hover:text-removed focus:opacity-100 group-hover:opacity-100"
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-removed-bg hover:text-removed focus:opacity-100 ${HOVER_REVEAL}`}
                 >
                   <Trash2 size={13} />
                 </button>

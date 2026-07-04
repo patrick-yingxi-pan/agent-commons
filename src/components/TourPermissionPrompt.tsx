@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Check, Folder, FolderOpen, FolderPlus, Github, ShieldAlert } from 'lucide-react'
+import { HOVER_CUE } from '../lib/hoverReveal'
 
 /** ── The guided tour's consent gate ───────────────────────────────────────────
  *  Before the tour escalates a chat into a workspace — or connects a repo /
@@ -227,7 +228,7 @@ function FolderPicker({
                 Suggested
               </span>
             )}
-            <Check size={14} className="shrink-0 text-accent opacity-0 transition group-hover:opacity-100" />
+            <Check size={14} className={`shrink-0 text-accent ${HOVER_CUE}`} />
           </button>
         ))}
       </div>
