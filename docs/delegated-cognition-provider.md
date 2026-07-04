@@ -131,35 +131,50 @@ in preference order:
    `respond_and_wait` returns idle, immediately call it again"). This seam is where the loop
    can stall; make the sentinel + instruction explicit.
 
-**The concrete recipe (v1, as built).** The connector is
-`connector/relay-connector.ts` (`npm run connector`), a stdio MCP server; register
-it with whatever host runs the answering session. `RELAY_SECRET` is required (the
-process exits without it); `RELAY_URL` defaults to `http://127.0.0.1:8787/v1`.
+**The concrete recipe (as built).** The connector is
+`connector/relay-connector.ts` (`npm run connector`), a **generic** stdio MCP server —
+registered **once**, with no per-relay configuration:
 
-- **Claude Code:**
-  ```bash
-  claude mcp add session-relay \
-    --env RELAY_SECRET=rv_live_XXXX \
-    -- npm --prefix /path/to/this/repo run connector
-  ```
-- **Claude Desktop** (`claude_desktop_config.json`):
-  ```json
-  { "mcpServers": { "session-relay": {
-      "command": "npm",
-      "args": ["--prefix", "/path/to/this/repo", "run", "connector"],
-      "env": { "RELAY_SECRET": "rv_live_XXXX" } } } }
-  ```
+```bash
+# Claude Code (Claude Desktop: the same command/args in claude_desktop_config.json)
+claude mcp add session-relay -- npm --prefix /path/to/this/repo run connector
+```
 
-Then open a **fresh, dedicated session without dangerous tools** (the §7.9 wall) and
-paste the standing instruction:
+Serving a relay is then one typed sentence per session: open a **fresh, dedicated
+session without dangerous tools** (the §7.9 wall) and type the connect sentence the
+mint panel shows —
 
-> Call the `start` tool. Answer each relayed prompt it returns in prose, submit every
-> answer with `respond_and_wait` (passing the entryId it gave you), and when it returns
-> idle call `respond_and_wait` again immediately. Keep looping until it says superseded.
+> Connect to `http://127.0.0.1:8787/api/v1` with secret `rv_live_…` and start draining.
 
-The first poll that presents the secret *is* the binding — the provider's dot flips
-green in the Agents hub, no enrollment step. To test without a second AI session,
-drive the two wire calls by hand: `GET /relay/poll` with
+The model passes the URL + secret to `start`; the drain-loop standing instruction
+ships in the connector's MCP `initialize` `instructions` field, so nothing else needs
+pasting. Different sessions can type different URLs/secrets — one registration serves
+any number of relays (one per session; the blocking loop parks a session inside a
+single tool call).
+
+Two rules make the typed-credentials shape safe, both locked by
+`tests/relay-connector.test.ts` (spec MODEL-12):
+
+- **The first-call latch.** The first `start` that presents credentials binds the
+  connector process permanently; any later `start` with different credentials — the
+  move an injected relayed prompt would make to redirect the connector into an egress
+  channel — is refused without a single network request. The parameters are live only
+  in the user's opening message, before any outsider text has entered the session.
+  (`RELAY_URL`/`RELAY_SECRET` env vars still work as a *pre-latch* for the stricter
+  posture: the binding then exists before the session does.)
+- **The transcript trade-off, named.** Typed credentials land in that session's
+  transcript and context. Accepted because the secret is rotatable, single-provider,
+  and typed into a disposable drain session — the panel says to rotate it when the
+  session is retired.
+
+Host caveat: the latch lives in the connector *process*. Claude Code spawns MCP
+servers per session, so N sessions genuinely serve N relays from one registration; a
+host that shares one connector process across concurrent chats serializes to one
+relay per process (register a second name there).
+
+Binding on our side is unchanged: the first poll that presents the secret *is* the
+enrollment — the provider's dot flips green in the Agents hub. To test without a
+second AI session, drive the two wire calls by hand: `GET /relay/poll` with
 `Authorization: Bearer rv_live_…`, then `POST /relay/reply` with
 `{"entryId": "…", "completion": "…"}` (exactly what `tests/relay.test.ts` does).
 
@@ -462,7 +477,13 @@ layered and admittedly soft at the top:
    their behalf*;
 2. the one-time connect panel tells the user to run the drain loop in a **dedicated
    session without dangerous tools**, and says why;
-3. rotate-as-kill-switch (§7.5) is the incident response.
+3. the connector's **first-call latch** (§4.2) closes the parameter-shaped cousin of
+   this wall: since `start` takes typed credentials, an injected prompt could try to
+   *re*-`start` the connector at an attacker URL, turning the one permitted tool into
+   an egress channel — so the first credentials bind the process permanently and any
+   differing later ones are refused without a network request (hard, unlike 1 and 2:
+   enforced by the tool, not asked of the model);
+4. rotate-as-kill-switch (§7.5) is the incident response.
 
 Model compliance with (1) is best-effort — that is the accepted residue, recorded
 here the way §6.4 records inbound prose. The v2 `toolUse:true` work inherits this as

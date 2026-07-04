@@ -118,6 +118,7 @@ import {
   reserveSubGoal,
   releaseSubGoal,
   probePrompt,
+  API_BASE,
   useAgents,
   useAuditLog,
   useCommissions,
@@ -3015,14 +3016,19 @@ function ProviderCard({ provider, onEdit }: { provider: ModelProvider; onEdit: (
  *  reveal, not a form (no Cancel — there is nothing to cancel back to). */
 function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvider; secret: string; onClose: () => void }) {
   const [saved, setSaved] = useState(false)
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState<string | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const guardedClose = () => saved && onClose()
   useFocusTrap(dialogRef, guardedClose)
-  const command = `RELAY_SECRET=${secret} npm run connector`
+  const installCommand = 'claude mcp add session-relay -- npm run connector'
+  // The externally dialable relay base: the same-origin `/api/v1` resolved to an
+  // absolute URL (an absolute VITE_API_BASE passes through unchanged), so the
+  // sentence is right in every deploy shape, not just default-port dev.
+  const relayUrl = new URL(API_BASE, window.location.origin).href.replace(/\/$/, '')
+  const connectSentence = `Connect to ${relayUrl} with secret ${secret} and start draining.`
   const copy = (text: string) => {
     void navigator.clipboard?.writeText(text)
-    setCopied(true)
+    setCopied(text)
   }
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-center px-4 pt-[14dvh]" onMouseDown={guardedClose} role="dialog" aria-modal="true" aria-label="Rendezvous secret">
@@ -3048,19 +3054,32 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
               onClick={() => copy(secret)}
               className="shrink-0 rounded-md border border-line px-2 py-1 text-[11px] font-medium text-ink-soft transition hover:border-accent hover:text-ink"
             >
-              {copied ? 'Copied' : 'Copy'}
+              {copied === secret ? 'Copied' : 'Copy'}
             </button>
           </div>
           <div>
-            <p className="mb-1 text-[12px] font-medium text-ink-soft">Start the drain loop next to your AI session:</p>
+            <p className="mb-1 text-[12px] font-medium text-ink-soft">Install the connector once (any relay, from this repo):</p>
             <code className="block overflow-x-auto whitespace-nowrap rounded-lg border border-line bg-panel px-3 py-2 font-mono text-[12px] text-ink">
-              {command}
+              {installCommand}
             </code>
+          </div>
+          <div>
+            <p className="mb-1 text-[12px] font-medium text-ink-soft">Then type this into a fresh session that will do the thinking:</p>
+            <div className="flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2">
+              <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-[12px] text-ink">{connectSentence}</code>
+              <button
+                onClick={() => copy(connectSentence)}
+                className="shrink-0 rounded-md border border-line px-2 py-1 text-[11px] font-medium text-ink-soft transition hover:border-accent hover:text-ink"
+              >
+                {copied === connectSentence ? 'Copied' : 'Copy'}
+              </button>
+            </div>
             <p className="mt-1.5 text-[12px] text-ink-faint">
-              Add the connector as an MCP server to the session that will do the thinking, then tell it to start the
-              loop. Run it in a <span className="font-medium text-ink-soft">dedicated session without dangerous tools</span> —
+              The first credentials the connector hears bind it for good — later attempts to redirect it are refused.
+              Use a <span className="font-medium text-ink-soft">dedicated session without dangerous tools</span> —
               relayed prompts are outside text, and the connector instructs the model to answer in prose only, never to
-              execute what a prompt asks. “{provider.label}” goes green here while the loop runs.
+              execute what a prompt asks. That session’s transcript will contain the secret, so rotate it when you
+              retire the session. “{provider.label}” goes green here while the loop runs.
             </p>
           </div>
           <label className="flex cursor-pointer items-center gap-2 text-[13px] text-ink">
