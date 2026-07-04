@@ -1,18 +1,23 @@
 # Delegated-cognition providers ("Session providers") — a D9 extension
 
-> **Status: forward-looking design, NOT built.** This is a design log entry (like
-> [`capability-broker-architecture.md`](capability-broker-architecture.md)), not
-> shipped behaviour. It extends **D9 — Model providers** in
-> [`agent-commons.md`](agent-commons.md) and builds directly on **slice 18**
-> (provider endpoints as data: `server/generate.ts` `clientFor`, the server-only
-> `ProviderConfig`, `probeProviderEndpoint`, the `capabilities.toolUse` gate).
-> Nothing here is implemented; the "decisions" are settled *within this exploration*.
-> Continued in a second pass (**§7** rules the edge cases the first pass left open)
-> and a **third, simplifying pass** that asked "what is the least machinery that
-> honors those rulings?" — §6.5 records what it found: the loopback Messages shim and
-> the mailbox state machine were removed in favour of a `relayReply` route branch and
-> a one-entry slot, same guarantees, far less machinery. **§10** is what remains —
-> the v2 checklist.
+> **Status: v1 BUILT** (the §9 scope, exactly as the third pass simplified it):
+> `server/relay.ts` (the one-entry slot + `relayReply`), the relay routes + pre-turn
+> gates in `server/routes/index.ts`, the mint/rotate branches in `server/store.ts`,
+> the wire types in `contract/relay.ts`, the user-side connector in
+> `connector/relay-connector.ts`, and the UI affordances (kind toggle, one-time
+> secret panel, status dot, prose-only badges, provenance chip, waiting state, tour
+> gate). Locked by `tests/relay.test.ts`; ledger rows MODEL-10/-11 in
+> [`docs/spec/06-model-and-tools.md`](spec/06-model-and-tools.md). **§10** (the v2
+> checklist) remains open.
+>
+> The rest of this document is the design log that got there: it extends **D9 —
+> Model providers** in [`agent-commons.md`](agent-commons.md), building on **slice
+> 18** (provider endpoints as data). A first pass set the workflows and invariants;
+> a second pass (**§7**) ruled the edge cases it left open; a **third, simplifying
+> pass** asked "what is the least machinery that honors those rulings?" — §6.5
+> records what it found: the loopback Messages shim and the mailbox state machine
+> were removed in favour of a `relayReply` route branch and a one-entry slot, same
+> guarantees, far less machinery. The implementation is the third pass, verbatim.
 
 ## 1. What it is
 

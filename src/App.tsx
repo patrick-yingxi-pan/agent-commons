@@ -20,7 +20,7 @@ import { TourPermissionPrompt } from './components/TourPermissionPrompt'
 import { ProposalBar } from './components/ProposalBar'
 import { SearchPanel } from './components/SearchPanel'
 import { AddContextButton } from './components/AddContextButton'
-import { useCapabilities, useMe, useSessions, useServerEvents } from './api'
+import { useAgents, useCapabilities, useMe, useProviders, useSessions, useServerEvents } from './api'
 import { estimateTokens } from '../contract/index.ts'
 import { useSessionWorkspace } from './controller/useSessionWorkspace'
 import { useLayout } from './controller/useLayout'
@@ -99,6 +99,7 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
     busy,
     liveTurn,
     interrupted,
+    sendFailure,
     totalSteps,
     pendingApproval,
     bottomRef,
@@ -132,6 +133,36 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
     startDemoTour,
     approveEscalation,
   } = useSessionWorkspace()
+
+  // The delegated-cognition affordances (docs/delegated-cognition-provider.md):
+  // resolve a session's driver → provider kind (the client mirror of the server's
+  // resolution — an unset agentId means the seeded default Agent). Feeds the
+  // "Waiting on your session…" state (§7.8 — a relayed reply arrives whole, so the
+  // UI says who it's waiting on instead of faking a token stream) and the tour
+  // gate (§7.7 — the scripted tour depends on tool calls; forbid the playback,
+  // not the binding).
+  const agents = useAgents().data ?? []
+  const providers = useProviders().data ?? []
+  const sessionProviderKind = useCallback(
+    (agentId?: string) => {
+      const agent = agents.find((a) => a.id === (agentId ?? 'agent-default'))
+      return providers.find((p) => p.id === agent?.providerId)?.kind
+    },
+    [agents, providers],
+  )
+  // Resolve the active session's driver from the SERVER row when one exists (the
+  // useSessions cache refreshes on session.updated — a mid-thread hand-off lands
+  // there), falling back to the controller's local shell (drafts, run sessions).
+  const activeAgentId = sessions.find((s) => s.id === activeId)?.agentId ?? activeSession.agentId
+  const onRelay = sessionProviderKind(activeAgentId) === 'session'
+  const demoSession = sessions.find((s) => s.isDemo)
+  const tourBlocked =
+    sessionProviderKind(demoSession?.agentId) === 'session'
+      ? 'The tour can’t play: it depends on tool calls, and the demo’s Agent runs on a prose-only Session provider. Repoint that Agent to a tool-capable provider (Agents hub → edit) to play it.'
+      : null
+  const guardedStartTour = useCallback(() => {
+    if (!tourBlocked) startTour()
+  }, [tourBlocked, startTour])
 
   // Responsive layout ladder (FWD-3 / PD35): below a wide window the right panel
   // would crush the conversation column, so it overlays as a drawer (with a scrim)
@@ -226,9 +257,10 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
             totalSteps={totalSteps}
             caption={caption}
             busy={busy}
-            onStart={startTour}
+            blocked={tourBlocked}
+            onStart={guardedStartTour}
             onNext={nextStep}
-            onRestart={startTour}
+            onRestart={guardedStartTour}
           />
         )}
       </div>
@@ -365,7 +397,9 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
                           {live.messages.map((m) => (
                             <MessageRow key={m.id} message={m} sessionId={activeId} />
                           ))}
-                          <AnimatePresence>{typing && <TypingRow />}</AnimatePresence>
+                          <AnimatePresence>
+                            {typing && <TypingRow waitingOn={onRelay ? 'Waiting on your session…' : undefined} />}
+                          </AnimatePresence>
                           {/* The tour asks before it escalates: this consent prompt
                               gates attaching a workspace / repo (see the controller). */}
                           {pendingApproval && (
@@ -411,7 +445,7 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
                       <TurnControls mode="streaming" onStop={stopTurn} onRetry={retryInterrupted} />
                     )}
                     {interrupted && (
-                      <TurnControls mode="interrupted" onStop={stopTurn} onRetry={retryInterrupted} />
+                      <TurnControls mode="interrupted" reason={sendFailure} onStop={stopTurn} onRetry={retryInterrupted} />
                     )}
 
                     <Composer
@@ -423,6 +457,13 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
                       attachments={live.attachments}
                       focus={focus}
                       disabled={busy || (isDemo && phase === 'running')}
+                      disabledLabel={
+                        isDemo && phase === 'running'
+                          ? 'Playing the tour…'
+                          : onRelay
+                            ? 'Waiting on your session…'
+                            : undefined
+                      }
                       onSend={handleSend}
                       onAddContext={handleAddContext}
                       onOpenContext={focusContext}
@@ -544,7 +585,10 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
           onClose={() => onShowIntro(false)}
           onStartTour={() => {
             onShowIntro(false)
-            startDemoTour()
+            // Blocked playback (§7.7): still land on the demo session, where the
+            // caption bar explains why the tour won't start and names the remedy.
+            if (tourBlocked) selectSession(demoSession?.id ?? '')
+            else startDemoTour()
           }}
         />
       )}

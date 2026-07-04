@@ -81,6 +81,7 @@ import { TOOL_DEFINITIONS } from './model/tools.ts'
 import { systemPrompt } from './generate.ts'
 import { RunnerRegistry } from './registry.ts'
 import { RunnerJournal } from './journal.ts'
+import { RelayRuntime, hashRelaySecret, mintRelaySecret, relaySecretHint, sameSecretHash } from './relay.ts'
 import { ResourceGuardian, GuardianError } from './guardian.ts'
 import { LOCAL_RUNNER_SEED, RUNNER_FS_ROOTS } from './data/runners.ts'
 import { DEFAULT_AGENT } from './data/workers.ts'
@@ -543,6 +544,13 @@ function fsSourceList(): FsSource[] {
 // + the server's projection of it. Emits `runner.effect` as effects project.
 const journal = new RunnerJournal(emit)
 
+// The delegated-cognition relay runtime (docs/delegated-cognition-provider.md) —
+// the transient half of every `kind:'session'` provider: one-entry slot, parked
+// puller, socket-or-in-flight liveness. Durable identity is the provider row
+// (its secretHash); like the runner registry, this is deliberately NOT persisted.
+// Emits `relay.connected|disconnected` on liveness flips.
+const relay = new RelayRuntime(emit)
+
 // The resource guardian — per shared resource (a context element), a reservation
 // ledger enforcing a capacity invariant (D5). The escrow that lets the broker
 // refuse a second session's irreversible write up front. Emits `reservation.changed`.
@@ -826,6 +834,23 @@ export const store = {
    *  reservation routes drive it; the invoke route reserves/commits for
    *  non-monotonic effects so a second session can't write a held resource. */
   guardian,
+  /** The delegated-cognition relay runtime — Session providers' transient half
+   *  (slot / parked puller / liveness). The relay routes and the messages route's
+   *  pre-turn gate read it; `relayReply` drives turns through it. */
+  relay,
+
+  /** Resolve a presented rendezvous secret to its Session provider — the relay
+   *  routes' bearer wall. The presented secret is hashed once and compared
+   *  constant-time against each session config's stored hash; no match (or a
+   *  non-session provider) ⇒ undefined ⇒ 401. Binding is exactly this lookup:
+   *  there is no enrollment protocol to have forgotten after a restart (§7.3). */
+  relayProviderForSecret(secret: string): string | undefined {
+    const presented = hashRelaySecret(secret)
+    for (const [id, config] of PROVIDER_CONFIGS) {
+      if (config.kind === 'session' && config.secretHash && sameSecretHash(config.secretHash, presented)) return id
+    }
+    return undefined
+  },
 
   /** Turn on filesystem persistence and rehydrate from the last snapshot (if any).
    *  Called once by the real server entrypoint; tests leave it off and run
@@ -981,6 +1006,9 @@ export const store = {
       updatedAt: s.updatedAt,
       createdAt: s.createdAt,
       pinned: s.pinned,
+      // The driving Agent (D16 current-driver binding) — the client resolves it to a
+      // provider kind for the relay affordances ("Waiting on your session…", §7.8).
+      agentId: s.agentId,
     }))
   },
   /** Whether a session is visible to `tenantId` — the route-level guard for reads by id,
@@ -1013,6 +1041,14 @@ export const store = {
         // their session/agent labels. A relation edit is the acting tenant's private
         // action, so it's visible only to that tenant (F2/PD9). Unstamped ⇒ default.
         return (e.tenantId ?? defaultTenantId()) === tenantId
+      case 'relay.connected':
+      case 'relay.disconnected': {
+        // A Session provider is forced tenant-scoped (the mint wall), so its liveness
+        // flips are that tenant's private signal — another tenant must not observe
+        // when someone's delegated session comes and goes. Gate on the provider row.
+        const p = MODEL_PROVIDERS.get(e.providerId)
+        return (p?.tenantId ?? defaultTenantId()) === tenantId
+      }
       default:
         return true
     }
@@ -1221,9 +1257,13 @@ export const store = {
 
   // ── Model providers (the cognition source — docs/agent-commons.md, D9) ──
   /** The registered Model providers, tenant-scoped (F2/PD9): the shared seeded provider(s)
-   *  are visible to all; a created one only to its tenant. No arg ⇒ all (internal use). */
+   *  are visible to all; a created one only to its tenant. No arg ⇒ all (internal use).
+   *  A `kind:'session'` row is stamped with its computed `online` flag at read time —
+   *  the status dot; the flag is transient relay state, never stored. */
   listProviders(tenantId?: string): ModelProvider[] {
-    return [...MODEL_PROVIDERS.values()].filter((p) => registryVisible(p, tenantId))
+    return [...MODEL_PROVIDERS.values()]
+      .filter((p) => registryVisible(p, tenantId))
+      .map((p) => (p.kind === 'session' ? { ...p, online: relay.online(p.id) } : p))
   },
   /** Resolve an Agent's Model provider; unset/unknown falls back to the seeded
    *  default. */
@@ -1255,6 +1295,26 @@ export const store = {
     if (!validApiKeyEnv(config.apiKeyEnv)) {
       throw new ProviderProbeError(`A provider credential must reference a 'PROVIDER_*' env var, not '${config.apiKeyEnv}'.`)
     }
+    // The session-kind walls (docs/delegated-cognition-provider.md §6.3/§6.4), belt at
+    // the mint seam like the two above: a relay has nothing to dial (an endpoint config
+    // on it is a confusion, refused loudly), MUST carry `toolUse:false` explicitly (the
+    // unset default reads as tools-on — the dangerous inversion), carries the hashed
+    // secret it authenticates by, and is forced tenant-scoped (a shared relay would
+    // route one tenant's prompts to another tenant's session model).
+    if (config.kind === 'session') {
+      if (config.baseURL || config.apiKeyEnv) {
+        throw new ProviderProbeError('A Session provider has no endpoint to dial — it must not carry a baseURL or credential.')
+      }
+      if (config.capabilities?.toolUse !== false) {
+        throw new ProviderProbeError('A Session provider must be minted prose-only (capabilities.toolUse === false).')
+      }
+      if (!config.secretHash) {
+        throw new ProviderProbeError('A Session provider must carry the hash of its rendezvous secret.')
+      }
+      if (!(tenantId ?? input.tenantId)) {
+        throw new ProviderProbeError('A Session provider must be tenant-scoped — it can never be shared.')
+      }
+    }
     // Stamp the creating tenant (F2/PD9) so listProviders(tenant) scopes it; unset ⇒ shared.
     const provider: ModelProvider = { ...input, id: `provider-${(providerSeq += 1)}`, tenantId: tenantId ?? input.tenantId }
     MODEL_PROVIDERS.set(provider.id, provider)
@@ -1271,16 +1331,40 @@ export const store = {
     const current = MODEL_PROVIDERS.get(id)
     if (!current) return undefined
     if (patch.plan) mintBudget(usageMeter.planCeilings(), patch.plan)
-    const next: ModelProvider = { ...current, ...patch, id: current.id }
+    // The transport identity is fixed at mint, and the fingerprint/status are
+    // server-stamped: a PATCH may rename/re-plan a provider but never flip its
+    // kind or forge relay state.
+    const { kind: _kind, secretHint: _hint, online: _online, ...safe } = patch
+    const next: ModelProvider = { ...current, ...safe, id: current.id }
     MODEL_PROVIDERS.set(id, next)
     reclampAgentsOf(next) // D8 runtime: a narrowed provider re-clamps its Agents (+ their commissions)
     persist()
     return next
   },
+  /** Rotate a Session provider's rendezvous secret — the kill switch (§7.5),
+   *  immediate and total: the stored hash is replaced (no old-hash grace), the
+   *  relay retires on the spot (parked poll superseded, in-flight turn falls back
+   *  now, dot goes grey), and a connector holding the old secret meets 401 on its
+   *  next call. Returns the updated row + the NEW secret — shown once, like mint;
+   *  undefined for an unknown or non-session provider. */
+  rotateProviderSecret(id: string): { provider: ModelProvider; secret: string } | undefined {
+    const current = MODEL_PROVIDERS.get(id)
+    const config = PROVIDER_CONFIGS.get(id)
+    if (!current || config?.kind !== 'session') return undefined
+    const secret = mintRelaySecret()
+    PROVIDER_CONFIGS.set(id, { ...config, secretHash: hashRelaySecret(secret) })
+    const provider: ModelProvider = { ...current, secretHint: relaySecretHint(secret) }
+    MODEL_PROVIDERS.set(id, provider)
+    relay.retire(id)
+    persist()
+    return { provider, secret }
+  },
   /** Remove a provider. Refuses (ConflictError → 409) the seeded default — sessions
    *  resolve to it — and any provider an Agent still binds, so the user repoints those
    *  Agents first rather than silently orphaning them onto the fallback. False when
-   *  unknown (→ 404). The removal is snapshotted to disk (persist.ts). */
+   *  unknown (→ 404). The removal is snapshotted to disk (persist.ts). Deleting a
+   *  Session provider is rotate-without-a-successor (§7.5): the relay retires and the
+   *  secret dies with the config row — a held connector is 401 from here on. */
   deleteProvider(id: string): boolean {
     if (!MODEL_PROVIDERS.has(id)) return false
     if (id === DEFAULT_PROVIDER.id) throw new ConflictError('The default provider can’t be removed.')
@@ -1290,6 +1374,10 @@ export const store = {
         `${bound.length} agent${bound.length === 1 ? '' : 's'} still ${bound.length === 1 ? 'runs' : 'run'} on this provider — repoint ${bound.length === 1 ? 'it' : 'them'} first.`,
       )
     }
+    // Retire the relay BEFORE the rows drop: `relay.disconnected` is tenant-gated
+    // by looking up the provider row, so emitting after the delete would misroute
+    // the event to the default tenant instead of the owner.
+    if (PROVIDER_CONFIGS.get(id)?.kind === 'session') relay.retire(id)
     MODEL_PROVIDERS.delete(id)
     PROVIDER_CONFIGS.delete(id)
     persist()

@@ -345,6 +345,12 @@ export function useSessionWorkspace() {
     if (t) void cancelTurn(t.sessionId, t.turnId).catch(() => {})
   }, [liveTurn])
 
+  // Why the last send was refused/failed, when the server said so (the pre-persist
+  // gates: relay_offline / relay_busy / limit_exceeded carry user-facing copy —
+  // "Your session isn't answering — start its drain loop and retry"). Shown by the
+  // interrupted affordance in place of its generic line; cleared on the next send.
+  const [sendFailure, setSendFailure] = useState<string | null>(null)
+
   // A thread whose last word is the USER'S with nothing generating — the
   // orphaned-turn state (server restarted mid-turn, or the send failed): offer
   // a retry. Deliberately a FRESH send (the record stays honest — no rewriting
@@ -645,6 +651,7 @@ export function useSessionWorkspace() {
     setLive((l) => ({ ...l, messages: [...l.messages, userMsg] }))
     setTyping(true)
     setBusy(true)
+    setSendFailure(null) // a fresh send stands the previous refusal copy down
     // The turn runs async so an unsaved draft is first materialized into a real,
     // persisted session (the server mints its id + titles it from this message).
     // The reply then streams under that id and the backend persists the turn —
@@ -754,11 +761,14 @@ export function useSessionWorkspace() {
           // context — refresh the usage gauge for this session.
           invalidate(keys.usage(sid))
         },
-      }).catch(() => {
+      }).catch((err: unknown) => {
         if (stale()) return
         setTyping(false)
         setBusy(false)
         setLiveTurn(null)
+        // Keep the server's refusal copy (a gate's 503/429 message) for the
+        // interrupted affordance — distinct, actionable copy over a generic line.
+        setSendFailure(err instanceof Error && err.message ? err.message : null)
       })
       // A rejection must never escape into the chain itself: a rejected chain would
       // silently skip every subsequent send (`.then` on a rejected promise never runs).
@@ -1090,6 +1100,7 @@ export function useSessionWorkspace() {
     busy,
     liveTurn,
     interrupted,
+    sendFailure,
     totalSteps: DEMO_STEPS.length,
     pendingApproval,
     bottomRef,

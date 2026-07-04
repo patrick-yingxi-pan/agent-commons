@@ -10,6 +10,7 @@
     "dev:ui": "vite",
     "server": "node --watch server/index.ts",
     "model": "node server/model/index.ts",
+    "connector": "node connector/relay-connector.ts",
     "start": "node server/index.ts",
     "build": "vite build",
     "typecheck": "tsc --noEmit",

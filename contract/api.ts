@@ -199,8 +199,16 @@ export type ApiErrorCode =
   | 'not_found'
   | 'forbidden'
   | 'conflict'
+  /** 410 — a relay reply named an entry that is settled or gone (drained after
+   *  a deadline/cancel/rotate): acknowledged and discarded, never re-matched. */
+  | 'gone'
   | 'capability_unavailable'
   | 'limit_exceeded'
+  /** 503 — a turn on a Session provider refused BEFORE the user turn persists:
+   *  no drain loop is bound (`relay_offline`) or another turn is already
+   *  in-flight on the relay (`relay_busy`). Retry is free; nothing half-wrote. */
+  | 'relay_offline'
+  | 'relay_busy'
   | 'internal'
 
 /** Body of `POST /v1/auth/signup` (P7 onboarding) — creates a real, persisted

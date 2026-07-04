@@ -177,6 +177,22 @@ export interface ReservationChangedEvent {
   resourceId: string
 }
 
+/** A Session provider's drain loop bound — its connector presented the rendezvous
+ *  secret on a poll (binding IS presenting the secret; there is no enrollment
+ *  protocol — docs/delegated-cognition-provider.md §7.3). The provider's dot goes
+ *  green; the client re-reads the providers list for the computed `online` flag. */
+export interface RelayConnectedEvent {
+  type: 'relay.connected'
+  providerId: string
+}
+/** A Session provider went quiet — no parked poll and no in-flight turn for the
+ *  TTL (or its secret was rotated / the provider deleted). Dot goes grey; the
+ *  durable identity is the provider row, so a later poll re-binds the same id. */
+export interface RelayDisconnectedEvent {
+  type: 'relay.disconnected'
+  providerId: string
+}
+
 /** The Dispatch feed changed — a one-off dispatch was kicked off, or one finished.
  *  The feed is small, so the client just re-reads it whole. */
 export interface DispatchChangedEvent {
@@ -236,6 +252,8 @@ export type ServerEvent =
   | RunnerCapabilitiesChangedEvent
   | RunnerEffectEvent
   | ReservationChangedEvent
+  | RelayConnectedEvent
+  | RelayDisconnectedEvent
   | DispatchChangedEvent
   | AuditEntryEvent
 

@@ -80,6 +80,12 @@ function route(e: ServerEvent): void {
     case 'runner.effect':
       invalidate(keys.runnerEffects(e.effect.runnerId))
       break
+    // A Session provider's drain loop bound or went quiet — re-read the providers
+    // list so its computed `online` dot flips live (the relay mirror of runner.*).
+    case 'relay.connected':
+    case 'relay.disconnected':
+      invalidate(keys.providers)
+      break
     // A resource's reservation ledger changed (acquired / committed / released /
     // capacity set) — re-read that resource's lock state.
     case 'reservation.changed':

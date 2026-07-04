@@ -73,6 +73,7 @@ export function Composer({
   attachments,
   focus,
   disabled,
+  disabledLabel,
   onSend,
   onAddContext,
   onOpenContext,
@@ -86,8 +87,11 @@ export function Composer({
   connectors: Connector[]
   attachments: Attachment[]
   focus: PanelFocus | null
-  /** Locks free-typing — used while the guided tour is auto-playing. */
+  /** Locks free-typing — while the guided tour auto-plays, or a turn streams. */
   disabled?: boolean
+  /** Why it's locked, as the placeholder ("Playing the tour…", "Waiting on your
+   *  session…") — the caller knows the reason; a generic default covers the rest. */
+  disabledLabel?: string
   /** The open session, so the usage gauge's plan rings track this thread. */
   sessionId?: string
   /** Live Messages token count of the open thread, so the usage gauge + its
@@ -352,7 +356,7 @@ export function Composer({
                 submit()
               }
             }}
-            placeholder={disabled ? 'Playing the tour…' : 'Reply to Claude…'}
+            placeholder={disabled ? (disabledLabel ?? 'Claude is answering…') : 'Reply to Claude…'}
             className="max-h-[180px] min-w-0 flex-1 resize-none bg-transparent text-[15px] leading-relaxed text-ink outline-none placeholder:text-ink-faint disabled:cursor-not-allowed short:max-h-24"
           />
           {/* Soft keyboards have no Enter-to-send convention — hide the hint. */}

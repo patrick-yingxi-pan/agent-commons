@@ -14,17 +14,22 @@ import { CircleStop, RotateCcw } from 'lucide-react'
 
 export function TurnControls({
   mode,
+  reason,
   onStop,
   onRetry,
 }: {
   mode: 'streaming' | 'interrupted'
+  /** The server's own refusal copy when a send was refused at a pre-persist gate
+   *  (e.g. a Session provider's "Your session isn't answering — start its drain
+   *  loop and retry") — actionable copy over the generic line. */
+  reason?: string | null
   onStop: () => void
   onRetry: () => void
 }) {
   const streaming = mode === 'streaming'
   return (
     <div className="mb-2 flex items-center justify-center gap-2 text-[12px] text-ink-faint">
-      <span>{streaming ? 'Claude is writing…' : 'Generation was interrupted.'}</span>
+      <span>{streaming ? 'Claude is writing…' : (reason ?? 'Generation was interrupted.')}</span>
       <button
         onClick={streaming ? onStop : onRetry}
         className="flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-0.5 text-ink-soft transition hover:bg-panel-2 hover:text-ink"

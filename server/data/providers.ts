@@ -48,6 +48,16 @@ export interface ProviderConfig extends ProviderEndpointConfig {
    *  mint funnel whenever `baseURL` is set, so a config can't smuggle in an
    *  unverified endpoint. */
   capabilities?: ProviderCapabilities
+  /** Transport discriminant (docs/delegated-cognition-provider.md). Unset/'endpoint'
+   *  = dial-out Messages (`generateReply`); 'session' = the rendezvous relay — the
+   *  messages route dispatches to `relayReply` instead, and the mint branch stamps
+   *  `capabilities:{toolUse:false}` (inverting the dangerous unset-means-tools default). */
+  kind?: 'endpoint' | 'session'
+  /** Session kind only: SHA-256 hex of the rendezvous secret — at once the bearer
+   *  credential, the durable re-bind identity, and the restart-recovery key (§6.1).
+   *  Plaintext never persists; presented secrets are hashed and compared
+   *  constant-time. Rides the persisted `providerConfigs` slice like the rest. */
+  secretHash?: string
 }
 
 export const DEFAULT_PROVIDER_ID = 'provider-anthropic'

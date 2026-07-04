@@ -9,6 +9,7 @@ import type {
   CreateCommissionRequest,
   CreateDispatchRequest,
   CreateProviderRequest,
+  RelayReplyRequest,
   UpdateProviderRequest,
   CreateSystemPromptRequest,
   UpdateSystemPromptRequest,
@@ -46,6 +47,7 @@ import { IdempotencyCache, captureResponse, replayResponse } from '../idempotenc
 import { pageParams, paginate, MAX_PAGE_LIMIT } from '../pagination.ts'
 import { RateLimiter } from '../ratelimit.ts'
 import { generateReply, probeProviderEndpoint } from '../generate.ts'
+import { relayReply, mintRelaySecret, hashRelaySecret, relaySecretHint, type RelayOutcome } from '../relay.ts'
 import { ProviderProbeError, type ProviderConfig } from '../data/providers.ts'
 import { turns, type TurnFrame } from '../turns.ts'
 import { eventlog } from '../eventlog.ts'
@@ -733,13 +735,44 @@ export function buildRouter(): Router {
     if (!input?.label || !input?.modelFamily || !Array.isArray(input.effortLevels)) {
       return sendError(res, 'bad_request', 'label, modelFamily, and effortLevels are required')
     }
+    // A Session provider (docs/delegated-cognition-provider.md): nothing to dial, so no
+    // endpoint config and no conformance probe — instead the server mints the rendezvous
+    // secret here and answers with it EXACTLY ONCE (only its hash survives, on the
+    // server-only config). The mint stamps `toolUse:false` (prose-only — inverting the
+    // dangerous unset-means-tools default) and the caller's tenant (forced scoping; the
+    // store's mint wall re-asserts both).
+    if (input.kind === 'session') {
+      if (input.config) return sendError(res, 'bad_request', 'A Session provider has no endpoint — omit `config`.')
+      const secret = mintRelaySecret()
+      try {
+        const provider = store.createProvider(
+          {
+            label: input.label,
+            modelFamily: input.modelFamily,
+            effortLevels: input.effortLevels,
+            plan: input.plan,
+            authority: input.authority,
+            kind: 'session',
+            secretHint: relaySecretHint(secret),
+          },
+          { kind: 'session', capabilities: { toolUse: false }, secretHash: hashRelaySecret(secret) },
+          store.identity(req.headers).tenant.id,
+        )
+        return sendJson(res, { ...provider, secret })
+      } catch (err) {
+        if (err instanceof BudgetError || err instanceof ProviderProbeError) return sendError(res, 'bad_request', err.message)
+        throw err
+      }
+    }
     // The write-only endpoint half (D9): split off the request so it never lands on
     // the `ModelProvider` the registry stores and echoes — the read type stays free
     // of endpoint/credential shape. A config that brings its own endpoint is probed
     // for Messages-protocol conformance *before* the mint; the probe's capability
     // record travels with the config, satisfying the funnel's unverified-endpoint
     // guard. A probe failure is a 400 — a non-conformant provider is never registered.
-    const { config: endpoint, ...fields } = input
+    // (`kind`/`secretHint`/`online` are server-stamped relay fields — stripped, so an
+    // endpoint registration can't forge them.)
+    const { config: endpoint, kind: _kind, secretHint: _hint, online: _online, ...fields } = input
     // Pick the three known endpoint fields explicitly (strings only) — a raw spread
     // would let arbitrary unknown JSON ride into the persisted server-only config
     // (including a forged `capabilities` record).
@@ -786,6 +819,71 @@ export function buildRouter(): Router {
       if (err instanceof ConflictError) return sendError(res, err.code, err.message)
       throw err
     }
+  })
+  // Rotate a Session provider's rendezvous secret — the kill switch (§7.5). The old
+  // secret dies on the spot (a held connector meets 401; an in-flight turn falls back
+  // immediately); the response carries the NEW secret exactly once, like the mint.
+  r.post('/providers/:id/rotate', ({ req, res, params }) => {
+    if (denyForeignEntry(req, res, params.id, (t) => store.listProviders(t), 'provider')) return
+    const rotated = store.rotateProviderSecret(params.id)
+    if (!rotated) return sendError(res, 'conflict', 'Only a Session provider has a rendezvous secret to rotate.')
+    sendJson(res, { ...rotated.provider, secret: rotated.secret })
+  })
+
+  // ── The delegated-cognition relay (docs/delegated-cognition-provider.md) ────
+  // The two wire shapes a Session provider's user-side connector speaks. Auth is the
+  // rendezvous secret as a bearer token: hashed once, compared constant-time against
+  // each session config's stored hash (store.relayProviderForSecret). Presenting the
+  // secret IS the binding — no enrollment protocol, so a backend restart or laptop
+  // sleep re-binds by the next poll alone (§7.3). No tenant headers here: the secret
+  // maps to a provider row that is forced tenant-scoped at mint.
+  const relayAuth = (req: IncomingMessage, res: ServerResponse): string | undefined => {
+    const authz = headerValue(req.headers, 'authorization')
+    const secret = authz ? /^Bearer\s+(.+)$/i.exec(authz)?.[1] : undefined
+    const providerId = secret ? store.relayProviderForSecret(secret) : undefined
+    if (!providerId) {
+      sendError(res, 'unauthorized', 'Present a valid rendezvous secret as `Authorization: Bearer …`.')
+      return undefined
+    }
+    return providerId
+  }
+  // The connector's bounded long-poll: the pending prompt (now or when one arrives),
+  // `{idle:true}` after the window (re-call immediately — the §4.2 sentinel), or
+  // `{superseded:true}` when a newer poll preempted this one (newest wins) or the
+  // secret rotated away. A dropped socket unparks via `abandon`, so a zombie
+  // connection neither wedges the slot nor leaks the handler.
+  r.get('/relay/poll', async ({ req, res }) => {
+    const providerId = relayAuth(req, res)
+    if (!providerId) return
+    const { result, abandon } = store.relay.poll(providerId)
+    req.on('close', abandon)
+    const outcome = await result
+    // The long-poll's client may have vanished during the park (that's what
+    // `abandon` handles server-side) — writing to its dead response must not
+    // escape into the router (whose error path would write to it again).
+    try {
+      if (!res.writableEnded) sendJson(res, outcome)
+    } catch {
+      /* the connector disconnected mid-park — nothing left to tell it */
+    }
+  })
+  // The connector's answer, keyed to its entry (§7.1): the live entry settles the
+  // turn; anything else is 410 Gone — settled or gone, drop it and poll on. An
+  // explicit `error` (or an empty completion, normalised in relayReply) fails the
+  // turn to its fallback; a refusal from the far model is a *completion*.
+  r.post('/relay/reply', async ({ req, res, body }) => {
+    const providerId = relayAuth(req, res)
+    if (!providerId) return
+    const { entryId, completion, error } = await body<RelayReplyRequest>()
+    if (!entryId || typeof entryId !== 'string') return sendError(res, 'bad_request', 'entryId is required')
+    const outcome: RelayOutcome =
+      typeof error === 'string' && error
+        ? { kind: 'error', reason: error }
+        : { kind: 'completion', text: typeof completion === 'string' ? completion : '' }
+    if (store.relay.submit(providerId, entryId, outcome) === 'gone') {
+      return sendError(res, 'gone', 'That prompt is settled or gone — drop this answer and poll again.')
+    }
+    sendJson(res, { ok: true })
   })
 
   // ── Worker Agents (docs/agent-commons.md, D6) ──────────────────────────────
@@ -1455,6 +1553,20 @@ export function buildRouter(): Router {
     // probed capabilities), never provider-specific code. The default provider's
     // config is empty, so generation uses its env-configured defaults.
     const provider = store.providerConfig(agent.providerId)
+    // The relay pre-turn gate (docs/delegated-cognition-provider.md §7.2): a turn on a
+    // Session provider refuses BEFORE the user turn persists — the spend gate's shape —
+    // when no drain loop is bound (offline) or another turn already holds the relay's
+    // one-entry slot (busy). Nothing half-writes; retry is free; a dead relay never
+    // wedges a turn to the deadline.
+    if (provider.kind === 'session') {
+      const relayId = agent.providerId
+      if (!relayId || !store.relay.online(relayId)) {
+        return sendError(res, 'relay_offline', 'Your session isn’t answering — start its drain loop and retry.')
+      }
+      if (store.relay.busy(relayId)) {
+        return sendError(res, 'relay_busy', 'Your session is still answering another turn — retry when it finishes.')
+      }
+    }
     // Spend-time enforcement (D8): once a plan window is exhausted for this Agent's
     // effective budget, refuse the turn (429) until it resets — the per-turn gate the
     // mint-time funnel doesn't give. Checked before persisting the user turn or streaming.
@@ -1518,40 +1630,50 @@ export function buildRouter(): Router {
     // The turn's outcome, recorded exactly once in `finally` (F6 PD31) so a mid-stream send
     // failure after a successful generation can't double-count. `error` until we know better.
     let turnOutcome: GenerationOutcome = 'error'
+    // The streamed-reply seam both transports share (contract: ReplyHandlers in,
+    // ReplyResult out) — the route around the dispatch below is transport-blind.
+    const replyHandlers = {
+      onStart: (id: string) => {
+        messageId = id
+        emit({ type: 'message.start', sessionId: session.id, turnId: active.id, message: { id, role: 'assistant', content: '' } })
+      },
+      onDelta: (delta: string) => {
+        streamedText += delta
+        emit({ type: 'message.delta', sessionId: session.id, messageId, text: delta })
+      },
+    }
     try {
-      const { message, usage, outcome } = await generateReply(
-        session,
-        agent,
-        text ?? '',
-        {
-          onStart: (id) => {
-            messageId = id
-            emit({ type: 'message.start', sessionId: session.id, turnId: active.id, message: { id, role: 'assistant', content: '' } })
-          },
-          onDelta: (delta) => {
-            streamedText += delta
-            emit({ type: 'message.delta', sessionId: session.id, messageId, text: delta })
-          },
-        },
-        ac.signal,
-        provider,
-        // The live Agent Commons registries, so a confirmed "commission the agent I
-        // just made" / "create an agent on <provider>" resolves the names the model
-        // proposes against what currently exists (server/model/tools.ts). Tenant-scoped
-        // (F2/PD9): the model only resolves against the caller's own + the shared seeds.
-        (() => {
-          return {
-            providers: store.listProviders(tenantId).map((p) => ({ id: p.id, label: p.label })),
-            systemPrompts: store.listSystemPrompts(tenantId).map((p) => ({ id: p.id, label: p.label })),
-            agents: store.listAgents(tenantId).map((a) => ({ id: a.id, label: a.label })),
-            commissions: store.listCommissions(undefined, tenantId).map((c) => ({ id: c.id, agentId: c.agentId, projectId: c.projectId })),
-          }
-        })(),
-        // P6: the session's attached connector/MCP contexts become callable tools for
-        // this turn (server/model/connectorTools.ts derives them; non-connector
-        // contexts are ignored). Only what's attached is reachable.
-        store.sessionContexts(params.id),
-      )
+      // The transport dispatch (docs/delegated-cognition-provider.md §6.5): dial-out
+      // Messages (`generateReply`, N providers, zero provider code) vs the rendezvous
+      // relay (`relayReply` — the user's own session answers; prose-only, its own
+      // deadline, never `MODEL_TIMEOUT_MS`). One `if` where a loopback shim isn't.
+      const { message, usage, outcome } =
+        provider.kind === 'session'
+          ? await relayReply(session, agent, text ?? '', replyHandlers, ac.signal, store.relay, agent.providerId!)
+          : await generateReply(
+              session,
+              agent,
+              text ?? '',
+              replyHandlers,
+              ac.signal,
+              provider,
+              // The live Agent Commons registries, so a confirmed "commission the agent I
+              // just made" / "create an agent on <provider>" resolves the names the model
+              // proposes against what currently exists (server/model/tools.ts). Tenant-scoped
+              // (F2/PD9): the model only resolves against the caller's own + the shared seeds.
+              (() => {
+                return {
+                  providers: store.listProviders(tenantId).map((p) => ({ id: p.id, label: p.label })),
+                  systemPrompts: store.listSystemPrompts(tenantId).map((p) => ({ id: p.id, label: p.label })),
+                  agents: store.listAgents(tenantId).map((a) => ({ id: a.id, label: a.label })),
+                  commissions: store.listCommissions(undefined, tenantId).map((c) => ({ id: c.id, agentId: c.agentId, projectId: c.projectId })),
+                }
+              })(),
+              // P6: the session's attached connector/MCP contexts become callable tools for
+              // this turn (server/model/connectorTools.ts derives them; non-connector
+              // contexts are ignored). Only what's attached is reachable.
+              store.sessionContexts(params.id),
+            )
       // Meter the real tokens this turn consumed (even ephemeral tour turns —
       // they hit the model too), so the composer's plan-usage rings reflect use.
       store.recordUsage(usage.inputTokens, usage.outputTokens, tenantId)

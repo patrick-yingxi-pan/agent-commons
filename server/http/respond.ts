@@ -113,8 +113,11 @@ const STATUS_FOR: Record<ApiErrorCode, number> = {
   not_found: 404,
   forbidden: 403,
   conflict: 409,
+  gone: 410,
   capability_unavailable: 409,
   limit_exceeded: 429,
+  relay_offline: 503,
+  relay_busy: 503,
   internal: 500,
 }
 

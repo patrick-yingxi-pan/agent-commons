@@ -23,6 +23,7 @@ import {
   GitBranch,
   Github,
   Globe,
+  KeyRound,
   Loader2,
   Lock,
   Mail,
@@ -34,6 +35,7 @@ import {
   PlayCircle,
   Plug,
   Plus,
+  RefreshCw,
   Search,
   SendHorizontal,
   Server,
@@ -104,6 +106,7 @@ import {
   createProvider,
   updateProvider,
   deleteProvider,
+  rotateProvider,
   createSystemPrompt,
   updateSystemPrompt,
   deleteSystemPrompt,
@@ -136,6 +139,7 @@ import {
   type Agent,
   type AuditEntry,
   type Commission,
+  type CreatedProvider,
   type ModelProvider,
   type ProjectRole,
   type PromptProbeResult,
@@ -2819,10 +2823,19 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
           <option value="">Default provider</option>
           {providers.map((p) => (
             <option key={p.id} value={p.id}>
-              {p.label}
+              {/* The prose-only trade-off is visible at bind time (§4.6) — an <option>
+                  can't carry the badge, so the cue rides the label text. */}
+              {p.kind === 'session' ? `${p.label} · Session (prose-only)` : p.label}
             </option>
           ))}
         </select>
+        {providers.find((p) => p.id === providerId)?.kind === 'session' && (
+          <span className="mt-1 flex items-start gap-1 text-[11px] text-amber-600">
+            <AlertCircle size={12} className="mt-0.5 shrink-0" />
+            Prose-only: turns on this Agent will converse but can’t propose relation edits, escalations, or run tools.
+            The guided tour depends on tool calls — it won’t play while the demo’s Agent runs on a Session provider.
+          </span>
+        )}
       </FormField>
       <FormField label="System prompt">
         <select value={promptId} onChange={(e) => onPrompt(e.target.value)} className={FORM_INPUT_CLASS}>
@@ -2915,8 +2928,25 @@ function ProvidersTab() {
   )
 }
 
+/** The shared prose-only badge — a Session provider's limitation is *declared, not
+ *  discovered* (docs/delegated-cognition-provider.md §4.6), so the same cue rides the
+ *  provider card, the create panel, and the Agent picker's warning. */
+function ProseOnlyBadge() {
+  return (
+    <span
+      title="Turns on your session converse only; they can’t propose relation edits, escalations, or run tools — the relay carries plain text, not tool calls."
+      className="rounded bg-panel-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-soft"
+    >
+      Prose only
+    </span>
+  )
+}
+
 function ProviderCard({ provider, onEdit }: { provider: ModelProvider; onEdit: () => void }) {
   const [error, setError] = useState<string | null>(null)
+  // Rotate mints a fresh rendezvous secret (kill switch) — shown once via the panel.
+  const [rotated, setRotated] = useState<CreatedProvider | null>(null)
+  const isSession = provider.kind === 'session'
   const del = async () => {
     setError(null)
     try {
@@ -2926,38 +2956,152 @@ function ProviderCard({ provider, onEdit }: { provider: ModelProvider; onEdit: (
       setError(e instanceof Error ? e.message : 'Could not delete this provider.')
     }
   }
+  const rotate = async () => {
+    setError(null)
+    try {
+      setRotated(await rotateProvider(provider.id))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not rotate the secret.')
+    }
+  }
   return (
     <CommonsCard>
       <CommonsCardHead
         icon={<Cpu size={16} />}
         title={provider.label}
-        subtitle={provider.modelFamily}
+        subtitle={isSession ? 'Session · prose-only' : provider.modelFamily}
         trailing={<CardActions onEdit={onEdit} onDelete={del} />}
       />
-      <div className="mt-2 flex flex-wrap gap-1">
+      <div className="mt-2 flex flex-wrap items-center gap-1">
+        {isSession && (
+          <span className="flex items-center gap-1.5 rounded bg-panel-2 px-1.5 py-0.5 text-[10px] text-ink-faint">
+            <span className={`h-1.5 w-1.5 rounded-full ${provider.online ? 'bg-added' : 'bg-ink-faint/50'}`} />
+            {provider.online ? 'Session connected' : 'Offline — drain loop not running'}
+          </span>
+        )}
+        {isSession && <ProseOnlyBadge />}
         {provider.effortLevels.map((e) => (
           <span key={e} className="rounded bg-panel-2 px-1.5 py-0.5 text-[10px] text-ink-faint">
             {e}
           </span>
         ))}
       </div>
+      {isSession && (
+        <div className="mt-2 flex items-center gap-2 text-[12px] text-ink-soft">
+          <KeyRound size={12} className="shrink-0 text-ink-faint" />
+          {/* The masked fingerprint — the secret itself was shown once at mint and never again. */}
+          <span className="font-mono">rv_live_••••{provider.secretHint ?? '????'}</span>
+          <button
+            onClick={rotate}
+            className="ml-1 inline-flex items-center gap-1 rounded-md border border-line px-1.5 py-0.5 text-[11px] text-ink-soft transition hover:border-accent hover:text-ink"
+            title="Mint a fresh secret; the old one dies instantly (an in-flight relayed turn falls back)."
+          >
+            <RefreshCw size={11} />
+            Rotate
+          </button>
+        </div>
+      )}
       <p className="mt-2 text-[12px] text-ink-soft">Grants {authorityLabel(provider.authority)}</p>
       <p className="mt-0.5 text-[12px] text-ink-faint">{providerPlanLabel(provider)}</p>
       {error && <p className="mt-2 text-[12px] text-removed">{error}</p>}
+      {rotated?.secret && <RelaySecretPanel provider={rotated} secret={rotated.secret} onClose={() => setRotated(null)} />}
     </CommonsCard>
   )
 }
 
-/** Create / edit a Model provider. New providers register the standard effort vocabulary
- *  and inherit the account plan + unrestricted authority (the advanced cascade fields
- *  aren't exposed here yet); the model family is editable because it drives the D10
- *  prompt-fit warning. */
+/** The one-time rendezvous-secret reveal (mint and rotate). The secret is a password —
+ *  it exists nowhere but this panel (the server keeps only a hash) — so dismissal is
+ *  gated behind an explicit "I've saved it". Not the shared FormDialog: this is a
+ *  reveal, not a form (no Cancel — there is nothing to cancel back to). */
+function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvider; secret: string; onClose: () => void }) {
+  const [saved, setSaved] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const guardedClose = () => saved && onClose()
+  useFocusTrap(dialogRef, guardedClose)
+  const command = `RELAY_SECRET=${secret} npm run connector`
+  const copy = (text: string) => {
+    void navigator.clipboard?.writeText(text)
+    setCopied(true)
+  }
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex justify-center px-4 pt-[14dvh]" onMouseDown={guardedClose} role="dialog" aria-modal="true" aria-label="Rendezvous secret">
+      <div className={`${SCRIM_CLASS} backdrop-blur-[1px]`} />
+      <div
+        ref={dialogRef}
+        onMouseDown={(e) => e.stopPropagation()}
+        className="relative flex h-fit w-[520px] max-w-full flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong"
+      >
+        <div className="flex items-center gap-2 border-b border-line px-5 py-3.5">
+          <KeyRound size={18} className="text-ink-soft" />
+          <span className="text-[15px] font-semibold text-ink">Your session’s rendezvous secret</span>
+          <ProseOnlyBadge />
+        </div>
+        <div className="space-y-3 p-5">
+          <p className="text-[13px] text-ink-soft">
+            <span className="font-semibold text-ink">Shown once.</span> This is a password — anyone who has it can put
+            words in your assistant’s mouth. Only its fingerprint stays readable here.
+          </p>
+          <div className="flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2">
+            <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-[12px] text-ink">{secret}</code>
+            <button
+              onClick={() => copy(secret)}
+              className="shrink-0 rounded-md border border-line px-2 py-1 text-[11px] font-medium text-ink-soft transition hover:border-accent hover:text-ink"
+            >
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+          </div>
+          <div>
+            <p className="mb-1 text-[12px] font-medium text-ink-soft">Start the drain loop next to your AI session:</p>
+            <code className="block overflow-x-auto whitespace-nowrap rounded-lg border border-line bg-panel px-3 py-2 font-mono text-[12px] text-ink">
+              {command}
+            </code>
+            <p className="mt-1.5 text-[12px] text-ink-faint">
+              Add the connector as an MCP server to the session that will do the thinking, then tell it to start the
+              loop. Run it in a <span className="font-medium text-ink-soft">dedicated session without dangerous tools</span> —
+              relayed prompts are outside text, and the connector instructs the model to answer in prose only, never to
+              execute what a prompt asks. “{provider.label}” goes green here while the loop runs.
+            </p>
+          </div>
+          <label className="flex cursor-pointer items-center gap-2 text-[13px] text-ink">
+            <input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} />
+            I’ve saved the secret somewhere safe
+          </label>
+        </div>
+        <div className="flex shrink-0 items-center justify-end border-t border-line bg-panel px-5 py-3">
+          <button
+            onClick={onClose}
+            disabled={!saved}
+            className="rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+/** Create / edit a Model provider. New providers pick their transport up front —
+ *  an **API endpoint** we dial (slice 18) or **My AI session** (the delegated-cognition
+ *  relay: nothing to dial, so the form asks only for a label; effort levels stay the
+ *  standard vocabulary and are advisory on a session). New providers register the
+ *  standard effort vocabulary and inherit the account plan + unrestricted authority
+ *  (the advanced cascade fields aren't exposed here yet); the model family is editable
+ *  because it drives the D10 prompt-fit warning. Minting a session kind hands back the
+ *  one-time rendezvous secret, revealed via RelaySecretPanel before the dialog closes. */
 function ProviderDialog({ provider, onClose }: { provider: ModelProvider | null; onClose: () => void }) {
   const [label, setLabel] = useState(provider?.label ?? '')
   const [family, setFamily] = useState(provider?.modelFamily ?? 'claude')
+  const [kind, setKind] = useState<'endpoint' | 'session'>(provider?.kind ?? 'endpoint')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const canSubmit = label.trim().length > 0 && family.trim().length > 0 && !busy
+  // A freshly minted Session provider: hold the one-time secret panel open until
+  // the user confirms they saved it — only then does the dialog resolve.
+  const [minted, setMinted] = useState<CreatedProvider | null>(null)
+  const isSession = kind === 'session'
+  const canSubmit = label.trim().length > 0 && (isSession || family.trim().length > 0) && !busy
 
   const submit = async () => {
     if (!canSubmit) return
@@ -2966,19 +3110,30 @@ function ProviderDialog({ provider, onClose }: { provider: ModelProvider | null;
     try {
       if (provider) {
         await updateProvider(provider.id, { label: label.trim(), modelFamily: family.trim() })
+        onClose()
+      } else if (isSession) {
+        const created = await createProvider({
+          label: label.trim(),
+          modelFamily: 'claude', // advisory on a session — the far side picks its own model
+          effortLevels: ['Low', 'Medium', 'High'],
+          kind: 'session',
+        })
+        setMinted(created) // the one-time reveal takes over; onClose comes from its Done
       } else {
         await createProvider({
           label: label.trim(),
           modelFamily: family.trim(),
           effortLevels: ['Low', 'Medium', 'High'],
         })
+        onClose()
       }
-      onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save this provider.')
       setBusy(false)
     }
   }
+
+  if (minted?.secret) return <RelaySecretPanel provider={minted} secret={minted.secret} onClose={onClose} />
 
   return (
     <FormDialog
@@ -2990,27 +3145,62 @@ function ProviderDialog({ provider, onClose }: { provider: ModelProvider | null;
       onClose={onClose}
       error={error}
     >
+      {!provider && (
+        <FormField label="Kind">
+          {/* The transport toggle: dial-out endpoint vs the dialed-in session relay. */}
+          <div className="flex gap-1 rounded-lg border border-line bg-panel p-1">
+            {(
+              [
+                ['endpoint', 'API endpoint'],
+                ['session', 'My AI session'],
+              ] as const
+            ).map(([value, text]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setKind(value)}
+                className={`flex-1 rounded-md px-2 py-1 text-[12px] font-medium transition ${
+                  kind === value ? 'bg-surface text-ink shadow-sm ring-1 ring-line-strong' : 'text-ink-faint hover:text-ink-soft'
+                }`}
+              >
+                {text}
+              </button>
+            ))}
+          </div>
+          {isSession && (
+            <span className="mt-1.5 flex items-start gap-1.5 text-[11px] text-ink-faint">
+              <span className="mt-0.5 shrink-0">
+                <ProseOnlyBadge />
+              </span>
+              An AI session you already run does the thinking — nothing to dial, no key. You get a one-time rendezvous
+              secret and a drain loop to start; turns converse only (no relation cards, escalations, or tools).
+            </span>
+          )}
+        </FormField>
+      )}
       <FormField label="Name">
         <input
           value={label}
           onChange={(e) => setLabel(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && submit()}
-          placeholder="e.g. Anthropic (prod)"
+          placeholder={isSession ? 'e.g. My laptop’s Claude' : 'e.g. Anthropic (prod)'}
           className={FORM_INPUT_CLASS}
         />
       </FormField>
-      <FormField label="Model family">
-        <input
-          value={family}
-          onChange={(e) => setFamily(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && submit()}
-          placeholder="claude"
-          className={FORM_INPUT_CLASS}
-        />
-        <span className="mt-1 block text-[11px] text-ink-faint">
-          A system prompt tuned for a different family shows a fit warning when picked.
-        </span>
-      </FormField>
+      {!isSession && (
+        <FormField label="Model family">
+          <input
+            value={family}
+            onChange={(e) => setFamily(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && submit()}
+            placeholder="claude"
+            className={FORM_INPUT_CLASS}
+          />
+          <span className="mt-1 block text-[11px] text-ink-faint">
+            A system prompt tuned for a different family shows a fit warning when picked.
+          </span>
+        </FormField>
+      )}
     </FormDialog>
   )
 }

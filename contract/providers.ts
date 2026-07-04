@@ -18,8 +18,23 @@ import type { Authority } from './authority.ts'
 export interface ModelProvider {
   id: string
   /** The tenant that created it (F2/PD9). Unset ⇒ a seeded/shared entry visible to every
-   *  tenant (the default toolkit is shared infra); a created one is private to its tenant. */
+   *  tenant (the default toolkit is shared infra); a created one is private to its tenant.
+   *  A `kind:'session'` provider is always tenant-stamped (forced — a shared relay would
+   *  route one tenant's prompts to another tenant's session model). */
   tenantId?: string
+  /** How this provider's cognition is reached (docs/delegated-cognition-provider.md).
+   *  Unset/'endpoint' = a Messages endpoint the backend dials out to (slice 18);
+   *  'session' = a delegated AI session that dials IN — its connector drains prompts
+   *  at a rendezvous secret. Session providers are prose-only in v1 (no tool use, so
+   *  no relation-edit cards or escalations on their turns — declared, not discovered). */
+  kind?: 'endpoint' | 'session'
+  /** Session kind only: the tail of the rendezvous secret for the masked
+   *  `rv_live_••••3f9a` fingerprint. Never the secret (one-time-shown at mint/rotate). */
+  secretHint?: string
+  /** Session kind only, computed at read time (never stored): whether a drain loop is
+   *  currently bound — a parked poll or an in-flight turn (§7.3). The UI's status dot;
+   *  live flips arrive as `relay.connected|disconnected` events. */
+  online?: boolean
   /** Human label, shown wherever a provider is listed / chosen. */
   label: string
   /** The model family this provider resolves to (e.g. 'claude') — the typed
@@ -64,8 +79,15 @@ export interface ProviderEndpointConfig {
 
 /** Register a provider (the server mints the id). `config` is the write-only endpoint
  *  half — accepted here, verified by the registration probe, stored server-side, and
- *  never present on the `ModelProvider` reads. */
+ *  never present on the `ModelProvider` reads. `kind:'session'` takes no config at all
+ *  (there is nothing to dial): the server mints the rendezvous secret and answers with
+ *  it exactly once. `secretHint`/`online` are server-stamped — ignored on a request. */
 export type CreateProviderRequest = Omit<ModelProvider, 'id'> & { config?: ProviderEndpointConfig }
+
+/** `POST /providers` (and `/providers/:id/rotate`) response: the registered provider,
+ *  plus — for `kind:'session'` only — the **one-time rendezvous secret**. Shown once,
+ *  never readable again (only its hash persists server-side); treat it as a password. */
+export type CreatedProvider = ModelProvider & { secret?: string }
 
 /** Patch a provider's own fields. All optional — only the named fields change. */
 export type UpdateProviderRequest = Partial<Omit<ModelProvider, 'id'>>

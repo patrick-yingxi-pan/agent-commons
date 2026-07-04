@@ -17,6 +17,7 @@ import {
   type CreateCommissionRequest,
   type UpdateCommissionRequest,
   type CreateProviderRequest,
+  type CreatedProvider,
   type ModelProvider,
   type UpdateProviderRequest,
   type CreateSystemPromptRequest,
@@ -100,7 +101,14 @@ export async function sendMessage(
     body: JSON.stringify(body),
     signal,
   })
-  if (!res.ok || !res.body) throw new Error(`send failed: ${res.status}`)
+  if (!res.ok || !res.body) {
+    // Surface the server's own refusal copy (the pre-persist gates: a spend limit's
+    // 429, a Session provider's relay_offline / relay_busy 503) — those messages are
+    // written for the user ("Your session isn't answering — start its drain loop and
+    // retry"), so the thrown error carries them to the retry affordance.
+    const envelope = (await res.json().catch(() => null)) as { error?: { message?: string } } | null
+    throw new Error(envelope?.error?.message ?? `send failed: ${res.status}`)
+  }
   await readReplyStream(res.body, handlers)
 }
 
@@ -304,11 +312,21 @@ export async function deleteCommission(id: string, projectId: string): Promise<v
 
 /** Register a Model provider. The server validates the plan against the account plan
  *  (the D8 cascade root) and rejects an over-plan request (bad_request); on success the
- *  provider list refreshes. Returns the new provider. */
-export async function createProvider(input: CreateProviderRequest): Promise<ModelProvider> {
-  const provider = await apiPost<ModelProvider>(paths.providers, input)
+ *  provider list refreshes. Returns the new provider — for `kind:'session'` it carries
+ *  the ONE-TIME rendezvous `secret` (never readable again; the caller must show it). */
+export async function createProvider(input: CreateProviderRequest): Promise<CreatedProvider> {
+  const provider = await apiPost<CreatedProvider>(paths.providers, input)
   invalidate(keys.providers)
   return provider
+}
+
+/** Rotate a Session provider's rendezvous secret — the kill switch (the old secret dies
+ *  instantly; an in-flight relayed turn falls back). Returns the row + the NEW one-time
+ *  secret, shown once like the mint's. */
+export async function rotateProvider(id: string): Promise<CreatedProvider> {
+  const rotated = await apiPost<CreatedProvider>(`${paths.provider(id)}/rotate`, {})
+  invalidate(keys.providers)
+  return rotated
 }
 
 /** Patch a provider's own fields; refreshes the provider list. */

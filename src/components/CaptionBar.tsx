@@ -7,6 +7,7 @@ export function CaptionBar({
   totalSteps,
   caption,
   busy,
+  blocked,
   onStart,
   onNext,
   onRestart,
@@ -16,6 +17,10 @@ export function CaptionBar({
   totalSteps: number
   caption: string
   busy: boolean
+  /** Non-null forbids the playback (docs/delegated-cognition-provider.md §7.7 —
+   *  the scripted tour depends on tool calls, which a prose-only Session provider
+   *  can't make): the message states why and names the remedy; Play disables. */
+  blocked?: string | null
   onStart: () => void
   onNext: () => void
   onRestart: () => void
@@ -27,13 +32,18 @@ export function CaptionBar({
         <Sparkles size={15} className="shrink-0 text-accent" />
         <span className="flex-1 text-sm text-canvas/85">
           <span className="font-semibold text-canvas">Guided tour</span>
-          <span className="hidden sm:inline">
-            : watch one conversation flow from chat → workspace → code, with no tab switching.
-          </span>
+          {blocked ? (
+            <span>: {blocked}</span>
+          ) : (
+            <span className="hidden sm:inline">
+              : watch one conversation flow from chat → workspace → code, with no tab switching.
+            </span>
+          )}
         </span>
         <button
           onClick={onStart}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-accent-strong"
+          disabled={!!blocked}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Play size={14} />
           Play the tour

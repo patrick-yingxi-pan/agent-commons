@@ -75,6 +75,12 @@ declare module 'node:module' {
 declare module 'node:crypto' {
   /** Constant-time buffer comparison (throws if lengths differ) — for secret compares. */
   export function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean
+  /** Cryptographically random bytes — rendezvous-secret minting (server/relay.ts). */
+  export function randomBytes(size: number): { toString(encoding: string): string }
+  /** Streaming hash — SHA-256 of the rendezvous secret (only the hash persists). */
+  export function createHash(algorithm: string): {
+    update(data: string): { digest(encoding: string): string }
+  }
 }
 
 declare const process: {

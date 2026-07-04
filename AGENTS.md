@@ -312,20 +312,20 @@ the mock?
   gauge's disc dropping back once space is freed. Design reference for later, not
   built: [`docs/context-compaction.md`](docs/context-compaction.md).
 
-- **Delegated-cognition providers ("Session providers").** A D9 extension: a Model
-  provider our backend *can't dial* (firewalled / key-less / no API) whose cognition
-  is performed by an **AI session the user already runs** — reached by the session
-  draining a mailbox we host at a one-time **rendezvous secret**, the cognition-plane
-  mirror of a Runner. Preserves "zero provider code" while inverting the transport
-  (dial-out → rendezvous dial-in) *honestly*: the messages route dispatches session
-  turns to a small `relayReply` sibling of `generateReply` (same handlers seam), so
-  the whole Messages stack stays byte-for-byte untouched — no loopback shim. The
-  user-side is one MCP server driven by a blocking `respond_and_wait` loop; v1 is
-  prose-only (`toolUse:false`). Workflow-first design, a second pass ruling the edge
-  cases, a third pass simplifying the machinery (a one-entry slot instead of a
-  mailbox state machine; binding = presenting the secret, no enrollment protocol;
-  kill-switch rotate; the outbound-injection wall), and the v2 checklist:
-  [`docs/delegated-cognition-provider.md`](docs/delegated-cognition-provider.md).
+- **Delegated-cognition providers ("Session providers") — v1 now BUILT.** A D9
+  extension: a Model provider our backend *can't dial* (firewalled / key-less / no
+  API) whose cognition is performed by an **AI session the user already runs** —
+  reached by the session draining a one-entry mailbox we host at a one-time
+  **rendezvous secret**, the cognition-plane mirror of a Runner. Preserves "zero
+  provider code" while inverting the transport (dial-out → rendezvous dial-in)
+  *honestly*: the messages route dispatches session turns to a small `relayReply`
+  sibling of `generateReply` (same handlers seam, `server/relay.ts`), so the whole
+  Messages stack stays byte-for-byte untouched — no loopback shim. The user-side is
+  one MCP connector (`connector/relay-connector.ts`, `npm run connector`) driven by
+  a blocking `respond_and_wait` loop; v1 is prose-only (`toolUse:false`), locked by
+  `tests/relay.test.ts` (spec rows MODEL-10/-11). The design log — three passes,
+  ending in the simplification the implementation follows verbatim — and the v2
+  checklist: [`docs/delegated-cognition-provider.md`](docs/delegated-cognition-provider.md).
 
 ## Repo map (detail in [`README.md`](README.md))
 
