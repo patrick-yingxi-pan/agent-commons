@@ -320,7 +320,9 @@ the mock?
   transport (dial-out → rendezvous dial-in), so `generateReply` stays untouched behind
   an in-process loopback Messages shim. The user-side is one MCP server driven by a
   blocking `respond_and_wait` loop; v1 is prose-only (`toolUse:false`). Workflow-first
-  design + the open-items checklist:
+  design, a second pass ruling the edge cases (the mailbox state machine, the turn
+  deadline as provider *data*, kill-switch rotate, the tour-launch gate), and the v2
+  checklist:
   [`docs/delegated-cognition-provider.md`](docs/delegated-cognition-provider.md).
 
 ## Repo map (detail in [`README.md`](README.md))

@@ -7,7 +7,9 @@
 > (provider endpoints as data: `server/generate.ts` `clientFor`, the server-only
 > `ProviderConfig`, `probeProviderEndpoint`, the `capabilities.toolUse` gate).
 > Nothing here is implemented; the "decisions" are settled *within this exploration*.
-> Written to continue later — §9 is the open-items checklist.
+> Continued in a second pass: **§7** rules the edge cases the first pass left open
+> (and §6.5 records the correction that pass surfaced); **§10** is what remains — the
+> v2 checklist.
 
 ## 1. What it is
 
@@ -49,8 +51,10 @@ Slice 18's invariant is two invariants fused:
 
 - **Preserved — "the backend speaks one protocol and knows zero providers."** Cognition
   is still Messages-shaped; the backend still has no provider-specific code. `generateReply`,
-  the two-turn tool-use loop, `clientFor`, `withDeadline`, and `fallbackReply` stay
-  **byte-for-byte unchanged**.
+  the two-turn tool-use loop, `clientFor`, and `fallbackReply` stay **byte-for-byte
+  unchanged**; `withDeadline` bends in exactly one recorded place (§6.5) — it accepts the
+  turn deadline as an *argument*, so a provider's patience becomes provider **data**, still
+  zero provider-specific code.
 - **Inverted — the actor direction.** Every provider today is something the backend
   *dials out* to. This one is *dialed into*: cognition arrives by the source draining a
   queue we host. So this is a new provider **transport** (dial-out request/response vs.
@@ -161,9 +165,10 @@ or run tools, because the relay carries plain text, not tool calls.*
 - **The loopback Messages shim — the only new turn-path primitive** (`server/relay/` sibling of
   `server/model/`). A Session provider resolves to a `ProviderConfig` whose `baseURL` points at
   this in-process endpoint; `clientFor` already keys on `baseURL` and speaks only Messages, so
-  the whole generation loop is untouched. The shim flattens the request to a prompt, enqueues it,
-  long-polls the completion (its **own** longer keepalive-aware deadline, not the 60s
-  `MODEL_TIMEOUT_MS`), and streams it back as synthetic SSE via `chunkText`. The mailbox is thus
+  the whole generation loop is untouched. The shim carries the request over as a structured
+  **prompt document** (§7.4), enqueues it, long-polls the completion (resolving by the provider's
+  `turnTimeoutMs` minus a guard margin, so it always answers before the SDK-side deadline —
+  §6.5, §7.2), and streams it back as synthetic SSE via `chunkText`. The mailbox is thus
   **long-polled symmetrically** — our shim waits for the completion; the user's `respond_and_wait`
   waits for the prompt.
 - **A journal-shaped mailbox** (modeled on `server/journal.ts`: append/pending/reconcile +
@@ -171,9 +176,11 @@ or run tools, because the relay carries plain text, not tool calls.*
   Agents on one single-threaded session serialise rather than double-deliver) and **lease
   expiry/requeue** for the pulled-but-unanswered case.
 - **A pre-turn liveness gate** in the messages route, keyed on `kind:'session'` + the
-  `RelayRegistry` status, consulted *before* `generateReply` — offline → the fast distinct
-  fallback, so a dead relay never wedges a turn to the deadline. Session providers get a
-  relay-specific longer timeout and a distinct fallback message.
+  `RelayRegistry` status, consulted *before* `generateReply` — offline → a structured
+  `relay_offline` refusal (503) **before the user turn persists**, the same pre-persist shape
+  as the spend gate's 429, so a dead relay never wedges a turn to the deadline and nothing
+  half-written needs cleanup. A session provider's mid-turn patience is its `turnTimeoutMs`
+  (§7.2), not the shared 60s default.
 - **Security walls** (§6.4): bearer secret compared constant-time (`timingSafeEqual`, the
   `RUNNER_ENROLL_TOKEN` pattern) on every pull/submit; one-time-show; **only a hash persisted**
   (§6.1); masked-on-read; never-logged; tenant-scoped enqueue re-asserted at the shim; single
@@ -181,7 +188,7 @@ or run tools, because the relay carries plain text, not tool calls.*
 - **Provenance:** relayed completions are tagged **external/untrusted** in the D3 audit trail and
   carry a "via your delegated session" chip on the rendered reply.
 
-## 6. The four corrections that shaped this (the hardening residue)
+## 6. The five corrections that shaped this (the hardening residue)
 
 1. **Restart recovery via a hashed secret — not restart amnesia.** The naive design bricks on
    the first backend restart: the provider row persists but the in-memory liveness record and
@@ -211,8 +218,167 @@ or run tools, because the relay carries plain text, not tool calls.*
    adversarial by the same threat model that makes the URL a secret, so its output is untrusted
    content — rendered without elevated-authority affordance, audit-tagged, injection surface
    acknowledged.
+5. **The "longer shim deadline" was dead code — the clock was ours all along.** The first
+   pass gave the loopback shim "its own longer keepalive-aware deadline, not the 60s
+   `MODEL_TIMEOUT_MS`" — but `generateReply` wraps every SDK call in `withDeadline`
+   (`server/generate.ts`), and `AbortSignal.timeout` is wall-clock over the *whole stream*:
+   keepalives feed it nothing, so the loopback call dies at `MODEL_TIMEOUT_MS` no matter how
+   alive the shim believes the turn to be. Any shim deadline past that point could never fire
+   usefully. Fix in the slice-18 spirit — patience becomes provider **data**: a `turnTimeoutMs`
+   on the server-only `ProviderConfig`, stamped by the `kind:'session'` mint branch (default
+   120s, env-overridable), and accepted by `withDeadline` as an optional argument defaulting
+   to the env value. This is the one recorded bend in §3's "byte-for-byte unchanged"; the
+   shim's own mailbox deadline then *derives from the same number minus a guard margin*, so
+   the shim always resolves first — cleanly, through the Messages protocol — rather than the
+   SDK aborting mid-stream in a race with it (§7.2).
 
-## 7. Accepted trade-offs
+## 7. Second pass — the edge-case rulings
+
+The first pass ended with a checklist of "unresolved edge cases to specify
+before/while building". This pass rules each one, with the same discipline as §6:
+the decision **and** the rejected alternative, recorded. (What was resolved here has
+been removed from §10; only genuine v2 work remains there.)
+
+### 7.1 The mailbox is a state machine, and completions are keyed to entries
+
+`queued → leased → completed | tombstoned(cause)`. Everything else falls out of two
+moves:
+
+- **A completion names its entry.** A pull hands the connector `(entryId, prompt)`;
+  `respond_and_wait(answer)` carries the `entryId` back (the connector holds it across
+  the model's generation). A submit is only ever judged against *its own* entry — so
+  "the orphaned completion poisons the next pull" is structurally unrepresentable,
+  not policed. Rejected: implicit "current turn" addressing, which is exactly what
+  poisons.
+- **Submits are answered by state.** `leased` → accepted (completes the entry);
+  `completed` → the recorded ack replays (the journal's `commandId` dedupe pattern);
+  `tombstoned` → **410 Gone** — acknowledged and discarded, the connector drops the
+  answer and pulls on; unknown id → 404; bad secret → 401. A late answer to a turn
+  that already degraded to fallback is a 410, never a wrong-turn reply.
+- **Tombstone causes**, each terminal (capped FIFO, the turn registry's
+  completed-key pattern): `deadline` (the turn fell back), `cancelled` (the user
+  cancelled — `generateReply`'s abort closes the loopback request, the shim sees the
+  socket drop and tombstones), `offline` (the relay reaped mid-turn), `rotated`
+  (§7.5).
+- **Silence redelivers; an explicit error doesn't.** Lease expiry while the relay is
+  *online* means the puller went quiet mid-generation (crashed loop, killed
+  session): requeue the entry so a re-bound loop can pick it up, bounded by the turn
+  deadline — the one outer clock. An explicit error submit (§7.6) is an *answer*:
+  fail to fallback now, no redelivery.
+- **The turn slot cannot wedge — and needs no new release mechanism.** The messages
+  route already frees the one-live-turn slot in its `finally`; the only wedge risk
+  was `generateReply` not resolving. Every path above ends with the shim resolving —
+  a completion, or a Messages-protocol error the SDK throws into the existing
+  catch → `fallbackReply` — at latest by the turn deadline. And `relay.disconnected`
+  mid-turn **rejects the relay's queued + leased entries immediately**, so the
+  offline case resolves in milliseconds, not at the deadline.
+
+### 7.2 One clock, owned by us — the turn deadline is provider data
+
+The design restated from §6.5: a session provider's patience is `turnTimeoutMs` on
+the server-only `ProviderConfig` — stamped by the `kind:'session'` mint branch
+(default 120s, `positiveNumberEnv`-overridable like `MODEL_TIMEOUT_MS`), read by
+`withDeadline` as an argument defaulting to the env value. The mailbox entry's
+deadline is stamped at **enqueue** as `turnTimeoutMs − guard` (~1s), so the shim
+always resolves first, cleanly, and the SDK-side abort is the backstop that never
+fires in practice.
+
+**Fallback copy: distinct at the gate, standard in the catch.** The pre-turn gate
+refuses an offline relay *before the user turn persists* — the structured
+`relay_offline` (503) carrying §4.3's copy ("Your session isn't answering — start
+its drain loop and retry"), so nothing is half-written and a retry is free. Mid-turn
+degradations (deadline, offline-mid-turn) fall into the shared `fallbackReply`.
+Rejected: streaming the distinct copy as an assistant message (persists a canned
+turn into the thread for what is an infrastructure state), and threading provider
+kind into `fallbackReply` (more surface for one string covering the rarer case).
+
+### 7.3 Liveness bridges the generation gap; the newest binder wins
+
+While the far model *generates*, no socket is parked — the model left
+`respond_and_wait` holding a prompt and hasn't called back — so connection-as-liveness
+alone would reap the relay precisely when it's working hardest. Ruling: **online = a
+parked puller OR an unexpired lease**; the lease doubles as proof-of-life across the
+generation gap. The TTL only bridges the *idle re-poll* gap (the sub-second hop
+between an idle-sentinel return and the model's next call). Defaults, all
+env-overridable: poll window ~30s (`RELAY_POLL_MS`), `RELAY_TTL_MS` 90s,
+`RELAY_LEASE_MS` 60s (the generation allowance), session `turnTimeoutMs` 120s.
+Coherence (TTL > poll window; turn deadline ≥ lease, leaving room for one
+redelivery) is asserted at boot, not documented-only.
+
+**One parked puller; newest wins.** v1 admits a single parked long-poll per relay. A
+new pull presenting the valid secret **preempts** a parked one — the old poll
+returns a `superseded` sentinel and closes. The common case is a zombie socket from
+a slept laptop, and the secret holder is one principal, so the newcomer *is* the
+live loop. Rejected: 409-ing the newcomer, which lets a half-open TCP socket deny
+service until the OS notices. (This resolves the first pass's "two connectors on one
+URL is a race"; true *concurrent* multi-puller stays v2.)
+
+### 7.4 The prompt survives as a document, not a string
+
+The shim does not flatten the request to one string. The mailbox carries a **prompt
+document** — `{system, messages:[{role, text}]}`, the Messages request with each
+turn's content blocks flattened to text — and the connector renders it into the far
+session with explicit delimiters plus the standing instruction ("answer the prompt
+as given, then `respond_and_wait(answer)`"). v1's request shape makes this
+near-lossless: a prose-only turn is exactly `system` + one user turn (`toolUse:false`
+means no tool blocks exist to mangle, and `generateReply` sends single-turn requests
+today). The honest residue: **the far session double-wraps** — our `system` arrives
+as *content inside* a session that has its own system prompt, so it is framing by
+courtesy, not a real system turn. Named in §8 as an accepted trade-off; not fixable
+from our side of the rendezvous.
+
+### 7.5 Rotate is a kill switch
+
+You rotate because the secret may be loose; a grace window is exactly what a
+compromised holder would use. So rotate is **immediate and total**: the stored hash
+is replaced (constant-time compare against the new hash only — no old-hash grace),
+a parked puller's poll returns 401 on the spot, queued and leased entries tombstone
+(`rotated`), and any in-flight turn degrades through §7.1 in milliseconds, not at
+the deadline. Rejected: graceful rotate (drain in-flight work first). **Delete =
+rotate without a successor**, plus the registry removal and the existing
+agent-binding 409.
+
+### 7.6 A refusal is a reply; silence and errors are not
+
+- The far model **refuses**: the connector submits the refusal *as the completion*.
+  The user sees their own session's actual behaviour — the provenance chip ("via
+  your delegated session") explains whose words these are. A refusal is not an
+  error.
+- The connector hits a **hard error** (host failure, sampling denied): it submits an
+  explicit tagged error — `{error}` instead of `{completion}` — and the shim fails
+  the turn to fallback immediately. A deliberate answer doesn't redeliver (§7.1).
+- The completion is **empty/whitespace**: the shim normalises it to an error submit.
+  An empty assistant bubble helps no one; the fallback copy at least says what
+  happened.
+- **Silence** is the lease machinery's job: redeliver while online, deadline
+  otherwise.
+
+### 7.7 The tour: forbid the playback, not the binding
+
+The guided tour is scripted around tool-call escalations; on a prose-only provider
+its beats cannot land (the far session free-answers — the mock's fixed-string
+intents never fire). Ruling: binding the default Agent to a Session provider stays
+**allowed** — it's the user's registry — and the picker carries a specific warning
+line beside the prose-only badge ("the guided tour depends on this Agent's tool
+calls"); but the **tour launcher refuses to start** when the demo session's Agent
+resolves to a `kind:'session'` provider, with the remedy in the message (repoint the
+default Agent to a tool-capable provider). Rejected: silently pinning the tour's
+turns to the default provider (hides the misconfiguration and breaks "one provider
+resolution rule for every turn"), and playing the script knowingly gutted — the demo
+is the argument, and a gutted demo argues the opposite.
+
+### 7.8 No token streaming in v1 is structural — so the UI says who it's waiting on
+
+A tool call's argument is complete when the call is made: `respond_and_wait(answer)`
+cannot stream `answer`. So v1's whole-reply arrival is not a connector shortcut to
+fix later — it is the shape of the MCP loop; true streaming needs a v2 chunked
+submit (`entryId` + seq, relayed as deltas), now listed in §10. The v1 mitigation is
+honesty in the composer: a turn on a `kind:'session'` provider shows a distinct
+waiting state ("Waiting on your session…") instead of the token-streaming shimmer,
+driven by the public `kind` field — the same declared-not-discovered rule as the
+prose-only badge (§4.6).
+
+## 8. Accepted trade-offs
 
 - **Effort is advisory.** The far session picks its own model, so `effortLevels` are a label, not
   an enforced authority grant (the D9 attenuation half degrades at this boundary).
@@ -221,56 +387,55 @@ or run tools, because the relay carries plain text, not tool calls.*
   and the UI must not imply a hard cost bound.
 - **MCP is user-side convenience only.** The connection and our-side integration are any protocol;
   MCP is just how v1 enlists an existing session.
+- **Double-wrapped framing.** Our system prompt arrives as *content inside* a session that has
+  its own system prompt (§7.4) — framing by courtesy, not a real system turn.
+- **Whole-reply latency.** The reply lands all at once, however long the far session took
+  (§7.8) — the "Waiting on your session…" state, not token streaming, is the v1 experience.
 
-## 8. v1 scope (prose-only, `toolUse:false`)
+## 9. v1 scope (prose-only, `toolUse:false`)
 
 Thinnest shippable end-to-end: (1) the `kind` discriminant on `ProviderConfig` + the create-route
-branch; (2) `RelayRegistry` (durable id, online/offline, reapStale, connection-as-liveness); (3)
-the journal-shaped mailbox with single-binder lease + expiry/requeue; (4) the loopback Messages
-shim + relay-specific timeout; (5) the pre-turn liveness gate + distinct fallback; (6) the security
-walls (bearer, hashed-secret persistence, one-time-show, masked-on-read, tenant-scoped enqueue,
-invalidating DELETE/rotate); (7) the UI (kind toggle, one-time connect panel, offline dot,
-prose-only badge everywhere, provenance chip); (8) the shipped user-side MCP connector exposing
-`start` / `respond_and_wait`. No consent-gated proposals on a relay turn — that is the whole reason
-v1 is prose-only.
+branch; (2) `RelayRegistry` (durable id, online/offline, reapStale, lease-bridged
+connection-as-liveness — §7.3); (3) the journal-shaped mailbox as the §7.1 state machine
+(single parked puller with newest-wins preemption, entry-keyed submits, lease expiry/requeue,
+tombstones + 410); (4) the loopback Messages shim carrying the §7.4 prompt document, with
+`turnTimeoutMs` as provider data (§7.2); (5) the pre-turn liveness gate (`relay_offline` 503,
+refused before the user turn persists); (6) the security walls (bearer, hashed-secret
+persistence, one-time-show, masked-on-read, tenant-scoped enqueue, kill-switch DELETE/rotate —
+§7.5); (7) the UI (kind toggle, one-time connect panel, offline dot, prose-only badge
+everywhere, provenance chip, the "Waiting on your session…" state, the tour-launch gate —
+§7.7/§7.8); (8) the shipped user-side MCP connector exposing `start` / `respond_and_wait`
+(entry-keyed, refusal-is-a-reply, tagged-error submit — §7.6). No consent-gated proposals on a
+relay turn — that is the whole reason v1 is prose-only.
 
-## 9. Open items / unresolved (the "continue later" checklist)
+## 10. Open items (what remains — the v2 checklist)
 
-**Deferred to v2 (each a real feature, not polish):**
+The first pass's "unresolved edge cases" block is gone: every item in it is now ruled
+in §7 (lease/abort/slot-release → §7.1; stale submits → §7.1; degenerate completions
+→ §7.6; flattening fidelity → §7.4; rotate-mid-turn → §7.5; TTL-vs-deadline → §6.5 +
+§7.2/§7.3; the tour → §7.7; streaming → §7.8, deferred below). What remains is
+genuine v2 work, each a real feature, not polish:
+
 - **Structured tool-use over the mailbox** → `toolUse:true`. Needs a framed mailbox carrying
   `tool_use`/`tool_result` blocks end-to-end **and** enforced *relay-not-execute* discipline (the
   far session must relay our tool calls unexecuted, not fulfill `create_project`/`connect_repo`
   itself and claim success). This is the whole reason v1 is prose-only; it also collides with D3
   ("the co-located agent is not a model proxy") and must be reconciled.
+- **True token streaming** — a chunked `submit` (`entryId` + seq, relayed as SSE deltas as they
+  land). Structurally unavailable over the v1 MCP tool loop (§7.8), so it needs a connector-side
+  side-channel, not just a flag.
 - **Metered token ceilings** instead of the estimate (needs the far session to report real usage).
 - **Real effort→model binding** (today advisory).
-- **Multi-puller concurrency** beyond the single-binder lease when several connectors drain one
-  relay (also: forbid a second binder at connect time — two connectors on one URL is currently a
-  race).
+- **Multi-puller concurrency** — several connectors draining one relay *concurrently*. v1's rule
+  is one parked puller, newest-wins preemption (§7.3); concurrent pullers need lease-aware
+  fan-out and per-entry affinity.
 - **Horizontal scale.** The in-process shim + in-memory mailbox assume the drain long-poll and the
   turn's shim call hit the *same* process. A scaled web tier needs the mailbox in shared storage.
+- **Kind-aware fallback copy in the catch** — §7.2 keeps mid-turn degradations on the shared
+  `fallbackReply` string; if session providers prove common, revisit threading `kind` through for
+  a distinct mid-turn message.
 
-**Unresolved edge cases to specify before/while building:**
-- **Lease expiry + requeue** exact semantics; **in-flight-turn abort + one-live-turn-lock release**
-  when the relay reaps offline mid-turn (else the session's turn slot wedges — the "409 forever"
-  failure the messages route already warns about).
-- **Duplicate/stale `submit`** after the turn already timed out to fallback: `commandId` idempotency
-  makes the write a no-op, but the orphaned completion — dropped, or does it poison the next pull?
-- **Degenerate completions** — the far model refuses / returns empty / errors: stream an empty reply,
-  retry, or fallback?
-- **Message-flattening fidelity** — a real turn is system prompt + history + attached-context
-  `tool_result`s; flattening to one string can mangle what the far session sees. Specify how much
-  structure survives.
-- **Rotate-mid-turn** sequencing (old secret invalidates while a turn is enqueued/being drained).
-- **Heartbeat-TTL vs. relay-deadline** reconciliation so a slow-but-alive session isn't reaped
-  offline mid-generation (the connection-as-liveness model in §4.2 mostly resolves this — an actively
-  draining session holds the socket — but the interaction with a slow *single* turn needs a rule).
-- **Guided-tour dependency on tool-use** — the scripted tour relies on tool-call escalations/relation
-  edits; a Session provider on the default Agent would silently gut the demo. Forbid, or warn.
-- **Streaming fidelity** — synthesised SSE deltas from a single completion vs. true token streaming
-  (would need a streaming `submit`).
-
-## 10. Locking tests to write when built (ship-tests-with-every-feature)
+## 11. Locking tests to write when built (ship-tests-with-every-feature)
 
 Relay-registry lifecycle + reapStale (incl. connection-as-liveness); mailbox lease / idempotency /
 expiry-requeue; the loopback-shim round-trip (enqueue → pull → submit → streamed reply); the turn-path
@@ -280,7 +445,20 @@ handed a `tools` param); **tenant-scoped enqueue** (a completion never reaches a
 **hashed-secret restart recovery** (the connector re-binds after a simulated reboot from the held secret,
 and no plaintext secret is in the persisted snapshot).
 
-## 11. References
+From the §7 rulings, additionally: **entry-keyed anti-poisoning** (a stale submit can never complete a
+*different* entry; a tombstoned entry answers 410 and the next pull is clean); **offline-mid-turn
+promptness** (relay reaped mid-turn → the turn falls back in milliseconds and a follow-up send is *not*
+409 — the slot freed); **newest-wins preemption** (a second pull supersedes the parked one, which
+receives the `superseded` sentinel; no 409 to the newcomer); **lease-bridged liveness** (a relay with a
+leased entry and no parked socket is not reaped); **rotate-as-kill-switch** (parked poll 401s
+immediately; in-flight entries tombstone `rotated`; a subsequent old-secret submit is 401, not 410);
+**`turnTimeoutMs` as data** (stamped at session mint, honored by `withDeadline`, and the mailbox
+deadline lands before the SDK deadline); **degenerate completions** (a refusal streams as the reply; an
+explicit error submit and an empty completion both fall back without redelivery); the **pre-persist
+gate** (a `relay_offline` refusal leaves no user turn behind); and the **tour-launch gate** (playback
+refuses on a `kind:'session'` resolution with the repoint remedy in the message).
+
+## 12. References
 
 - **D9 — Model providers**, and slice 18 (endpoints as data): [`agent-commons.md`](agent-commons.md);
   `contract/providers.ts`, `server/data/providers.ts`, `server/generate.ts` (`clientFor`,
