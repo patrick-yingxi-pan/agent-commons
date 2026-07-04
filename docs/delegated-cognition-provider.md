@@ -131,6 +131,38 @@ in preference order:
    `respond_and_wait` returns idle, immediately call it again"). This seam is where the loop
    can stall; make the sentinel + instruction explicit.
 
+**The concrete recipe (v1, as built).** The connector is
+`connector/relay-connector.ts` (`npm run connector`), a stdio MCP server; register
+it with whatever host runs the answering session. `RELAY_SECRET` is required (the
+process exits without it); `RELAY_URL` defaults to `http://127.0.0.1:8787/v1`.
+
+- **Claude Code:**
+  ```bash
+  claude mcp add session-relay \
+    --env RELAY_SECRET=rv_live_XXXX \
+    -- npm --prefix /path/to/this/repo run connector
+  ```
+- **Claude Desktop** (`claude_desktop_config.json`):
+  ```json
+  { "mcpServers": { "session-relay": {
+      "command": "npm",
+      "args": ["--prefix", "/path/to/this/repo", "run", "connector"],
+      "env": { "RELAY_SECRET": "rv_live_XXXX" } } } }
+  ```
+
+Then open a **fresh, dedicated session without dangerous tools** (the §7.9 wall) and
+paste the standing instruction:
+
+> Call the `start` tool. Answer each relayed prompt it returns in prose, submit every
+> answer with `respond_and_wait` (passing the entryId it gave you), and when it returns
+> idle call `respond_and_wait` again immediately. Keep looping until it says superseded.
+
+The first poll that presents the secret *is* the binding — the provider's dot flips
+green in the Agents hub, no enrollment step. To test without a second AI session,
+drive the two wire calls by hand: `GET /relay/poll` with
+`Authorization: Bearer rv_live_…`, then `POST /relay/reply` with
+`{"entryId": "…", "completion": "…"}` (exactly what `tests/relay.test.ts` does).
+
 ### 4.3 Assign an Agent and run a turn
 Agents sub-tab → edit an Agent → Provider picker → the Session provider (the picker carries
 the "prose-only" badge inline, so the trade-off is visible at bind time). A turn then runs
