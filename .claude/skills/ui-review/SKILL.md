@@ -28,6 +28,15 @@ changed — memory produces plan-shaped checklists, which is how escapes happen.
 
 ## 2 · Sweep each cell mechanically
 
+**Start with the checked-in harness**: with the dev server running,
+`npm run ui:sweep` ([scripts/ui-sweep.mjs](../../../scripts/ui-sweep.mjs))
+drives the full surface × viewport matrix — every `aria-haspopup` trigger
+opened and measured, h-scroll and inert checks per cell, screenshots to
+`.data/ui-sweep/` — and exits nonzero on violations. It reports **skips
+loudly**; treat every skip as an unswept cell to cover by hand or by extending
+the script (then check the extension in). For cells the harness doesn't model
+(new surfaces, tour states), sweep manually per below.
+
 Run the app (`preview_start`, dev config — never `vite preview`) and per cell:
 
 - **Every invariant in [docs/ui-invariants.md](../../../docs/ui-invariants.md)**

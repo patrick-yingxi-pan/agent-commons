@@ -154,6 +154,16 @@ test('tablet (768×1024): the panel overlays the thread behind a scrim; the scri
   // the panel that overlays the scrim's right side.
   await scrim.click({ position: { x: 15, y: 400 } })
   await expect(panelClose).not.toBeVisible()
+
+  // Row metadata yields by CONTAINER width, not viewport width (UI-9): at a
+  // 768px viewport the rail leaves the Scheduled rows ~450px — `md:`-gated
+  // metadata used to show anyway, collapsing the name column to zero and
+  // painting the pipeline glyphs over its neighbors. The name stays readable.
+  await page.getByRole('navigation').getByRole('button', { name: /^Scheduled/ }).click()
+  const routineName = page.locator('main').getByText(/Standup digest|Triage new/).first()
+  await expect(routineName).toBeVisible()
+  const routineBox = (await routineName.boundingBox())!
+  expect(routineBox.width, 'routine name keeps readable width at tablet').toBeGreaterThan(60)
 })
 
 test('landscape phone (844×390, short): compressed chrome, usable composer', async ({ page }) => {

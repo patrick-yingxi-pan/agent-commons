@@ -3598,8 +3598,14 @@ function ScheduledRow({
     task.lastStatus === 'ok' ? 'bg-emerald-500' : task.lastStatus === 'failed' ? 'bg-red-500' : 'bg-line-strong'
 
   return (
+    // The row is a @container: its metadata is gated on the row's OWN width,
+    // not the viewport (UI-9, docs/ui-invariants.md) — at 768px the viewport
+    // is `md:` but the rail leaves this row ~450px, which can't afford what
+    // `md:` promises; the rail/panel resize the row independently of the
+    // window. Fixed-width blocks yield in order (next-run info, then the
+    // pill) so the flex-1 name column — the row's identity — never collapses.
     <div
-      className={`group flex items-center gap-3 transition hover:bg-panel-2/50 ${
+      className={`group @container flex items-center gap-3 transition hover:bg-panel-2/50 ${
         first ? '' : 'border-t border-line'
       }`}
     >
@@ -3611,24 +3617,24 @@ function ScheduledRow({
           <span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-surface ${dot}`} />
         </span>
 
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 overflow-hidden">
           <div className="truncate text-[14px] font-medium text-ink">{task.name}</div>
           <MiniPipeline task={task} />
-          <div className="truncate text-[12px] text-ink-faint sm:hidden">
+          <div className="truncate text-[12px] text-ink-faint @2xl:hidden">
             {task.steps.length} step{task.steps.length === 1 ? '' : 's'} · {task.subtitle}
           </div>
         </div>
 
-        <div className="hidden shrink-0 pr-1 text-right md:block">
+        <div className="hidden shrink-0 pr-1 text-right @2xl:block">
           <div className="text-[12px] text-ink-soft">next {task.next}</div>
           <div className="text-[11px] text-ink-faint">{lastRun ? `ran ${relativeTime(lastRun.at)}` : 'no runs yet'}</div>
         </div>
       </button>
 
       <div className="flex shrink-0 items-center gap-2 pr-4">
-        {/* Below sm the pill yields its width to the name column — the icon's
-            status dot already carries ok/failed, and the detail has the rest. */}
-        <span className="max-sm:hidden">
+        {/* In a tight row the pill yields its width to the name column — the
+            icon's status dot already carries ok/failed, the detail the rest. */}
+        <span className="hidden @sm:block">
           <StatusPill tone={pill.tone} label={pill.label} />
         </span>
 
@@ -3665,7 +3671,7 @@ function MiniPipeline({ task }: { task: ScheduledTask }) {
   const shown = tools.length > 4 ? tools.slice(0, 3) : tools
   const overflow = tools.length - shown.length
   return (
-    <div className="mt-1 hidden items-center gap-1 sm:flex">
+    <div className="mt-1 hidden items-center gap-1 @sm:flex">
       {shown.map((t, i) => (
         <span key={i} className="flex items-center gap-1">
           {i > 0 && <ChevronRight size={11} className="text-ink-faint" />}

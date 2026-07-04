@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test \"tests/**/*.test.ts\"",
     "e2e": "playwright test",
+    "ui:sweep": "node scripts/ui-sweep.mjs",
     "preview": "vite preview",
     "snapshot:save": "node scripts/snapshot.ts save",
     "snapshot:restore": "node scripts/snapshot.ts restore",
