@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Check, ChevronDown, Mic } from 'lucide-react'
 import { useDismissable } from '../lib/useDismissable'
+import { POPOVER_SURFACE } from '../lib/popover'
+import { usePopoverShift } from '../lib/usePopoverShift'
 
 const DEVICES = [
   'Default — System microphone',
@@ -17,6 +19,7 @@ export function AudioInputControl() {
   const [hold, setHold] = useState(false)
   const [recording, setRecording] = useState(false)
   const wrapRef = useDismissable<HTMLDivElement>(open, () => setOpen(false))
+  const popRef = usePopoverShift<HTMLDivElement>(open)
 
   return (
     <div ref={wrapRef} className="relative flex items-center">
@@ -46,9 +49,10 @@ export function AudioInputControl() {
 
       {open && (
         <div
+          ref={popRef}
           role="menu"
           aria-label="Microphone"
-          className="absolute bottom-full left-0 z-20 mb-2 w-[300px] overflow-hidden rounded-xl border border-line-strong bg-surface p-1.5 shadow-xl"
+          className={`absolute bottom-full left-0 z-20 mb-2 w-[300px] overflow-hidden p-1.5 ${POPOVER_SURFACE}`}
         >
           <div className="px-1.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
             Microphone

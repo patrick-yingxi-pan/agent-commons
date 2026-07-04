@@ -3,6 +3,8 @@ import { Check, ChevronDown, Workflow, Zap } from 'lucide-react'
 import { EFFORTS, MODELS } from '../lib/models'
 import { loadModelPrefs, saveModelPrefs, type ModelPrefs } from '../lib/modelPrefs'
 import { useDismissable } from '../lib/useDismissable'
+import { POPOVER_SURFACE } from '../lib/popover'
+import { usePopoverShift } from '../lib/usePopoverShift'
 
 /** The composer's model/effort config — the shared "default model" preference
  *  (lib/modelPrefs), so the Customize page edits the same setting. */
@@ -58,6 +60,7 @@ export function ModelEffortControl() {
   const [open, setOpen] = useState(false)
   const [config, setConfig] = useState<Config>(loadModelPrefs)
   const wrapRef = useDismissable<HTMLDivElement>(open, () => setOpen(false))
+  const popRef = usePopoverShift<HTMLDivElement>(open)
 
   const { modelId, effort, ultracode, fast } = config
   const update = (patch: Partial<Config>) => setConfig((c) => ({ ...c, ...patch }))
@@ -102,9 +105,10 @@ export function ModelEffortControl() {
 
       {open && (
         <div
+          ref={popRef}
           role="dialog"
           aria-label="Model and effort"
-          className="absolute bottom-full right-0 z-20 mb-2 w-[320px] overflow-hidden rounded-xl border border-line-strong bg-surface shadow-xl"
+          className={`absolute bottom-full right-0 z-20 mb-2 w-[320px] overflow-hidden ${POPOVER_SURFACE}`}
         >
           {/* Model */}
           <div className="px-2 pt-2">

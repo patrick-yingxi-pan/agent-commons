@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronRight, MoreHorizontal } from 'lucide-react'
+import { POPOVER_MARGIN, POPOVER_SURFACE, clampLeft } from '../lib/popover'
 
 /** ── Recent-list overflow, one shared mechanism for every Add-context type ────
  *  The recent / connected list never evicts (lib/recents.ts), so it can outgrow
@@ -50,10 +51,13 @@ export function FlyoutPanel({
   useLayoutEffect(() => {
     if (!anchor) return
     const r = anchor.getBoundingClientRect()
-    const M = 8
+    const M = POPOVER_MARGIN
     const GAP = 6
+    // Prefer opening rightward; flip to the left of the anchor near the edge,
+    // then let the shared clamp guarantee containment either way.
     let left = r.right + GAP
-    if (left + width > window.innerWidth - M) left = Math.max(M, r.left - width - GAP)
+    if (left + width > window.innerWidth - M) left = r.left - width - GAP
+    left = clampLeft(left, width, window.innerWidth)
     const top = Math.max(M, Math.min(r.top - 6, window.innerHeight - 140))
     const maxH = window.innerHeight - top - M
     setPos({ left, top, maxH })
@@ -70,7 +74,7 @@ export function FlyoutPanel({
       // an outside click and tear the whole popover down before the click lands.
       onMouseDown={(e) => e.stopPropagation()}
       style={{ position: 'fixed', left: pos.left, top: pos.top, width, maxHeight: pos.maxH }}
-      className="z-[70] overflow-y-auto overflow-x-hidden rounded-xl border border-line-strong bg-surface p-1 shadow-xl"
+      className={`z-[70] overflow-y-auto overflow-x-hidden p-1 ${POPOVER_SURFACE}`}
     >
       {children}
     </div>,

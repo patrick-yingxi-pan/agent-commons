@@ -32,6 +32,8 @@ import { getDecision, setDecision } from '../lib/prefs'
 import { type ChipTone } from '../lib/capabilities'
 import { sameFocus } from '../lib/focus'
 import { useDismissable } from '../lib/useDismissable'
+import { POPOVER_SURFACE } from '../lib/popover'
+import { usePopoverShift } from '../lib/usePopoverShift'
 
 const SKIP_CONFIRM_KEY = 'claude-ui.composer.skipDeleteConfirm.v2'
 
@@ -458,6 +460,9 @@ function ChipGroup({
     setConfirmKey(null)
     setDontAsk(false)
   })
+  // One popup shows at a time (the group menu, or the lone chip's confirm), so a
+  // single containment ref serves whichever surface is mounted.
+  const popRef = usePopoverShift<HTMLDivElement>(open || confirmKey !== null)
 
   // Reset any pending confirmation whenever the popup closes.
   useEffect(() => {
@@ -527,7 +532,7 @@ function ChipGroup({
         </div>
 
         {confirmKey === only.key && (
-          <div className="absolute bottom-full left-0 z-20 mb-1.5 w-[264px] rounded-xl border border-line-strong bg-surface p-1 shadow-xl">
+          <div ref={popRef} className={`absolute bottom-full left-0 z-20 mb-1.5 w-[264px] p-1 ${POPOVER_SURFACE}`}>
             <RemoveConfirm
               label={only.label}
               cascade={only.cascade}
@@ -559,9 +564,10 @@ function ChipGroup({
 
       {open && (
         <div
+          ref={popRef}
           role="menu"
           aria-label={group.label}
-          className="absolute bottom-full left-0 z-20 mb-1.5 max-h-72 w-[256px] overflow-auto rounded-xl border border-line-strong bg-surface p-1 shadow-xl"
+          className={`absolute bottom-full left-0 z-20 mb-1.5 max-h-72 w-[256px] overflow-auto p-1 ${POPOVER_SURFACE}`}
         >
           <div className="px-1.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
             {group.label}

@@ -241,15 +241,24 @@ the mock?
   Embodied by `src/lib/inlineAction.ts` + `src/components/AddTrigger.tsx` (every
   "+ Add ‹thing›" picker-opener) and `src/lib/foldHeader.ts` (every foldable section
   header) and `src/lib/scrim.ts` (every dimmed overlay backdrop — the tier scrims and
-  the dialog scrims alike); each shared cue is locked by a test that fails if a
-  component re-hardcodes
-  it (`tests/addTrigger.test.ts`, `tests/foldHeader.test.ts`, `tests/scrim.test.ts`).
+  the dialog scrims alike) and `src/lib/popover.ts` (every anchored popover surface —
+  chrome + the stay-inside-the-viewport containment, applied by
+  `src/lib/usePopoverShift.ts` / `clampLeft`); each shared cue is locked by a test
+  that fails if a component re-hardcodes it (`tests/addTrigger.test.ts`,
+  `tests/foldHeader.test.ts`, `tests/scrim.test.ts`, `tests/popover.test.ts`).
   The same rule governs
   shared *behaviour*, not just styling: every popover / dropdown / menu dismisses on
   outside-click + Escape through one hook, `src/lib/useDismissable.ts` (locked by
   `tests/useDismissable.test.ts`, which fails if a component re-hardcodes the document
   `mousedown` listener). Add new shared tokens / hooks the same way — one source of
-  truth, asserted by a test.
+  truth, asserted by a test. The primitives double as **enumeration handles for
+  review**: because every subject routes through one funnel, a single scan (or a
+  `data-*` stamp, e.g. `data-popover`) can visit all of them — see
+  [`docs/ui-invariants.md`](docs/ui-invariants.md), the earned ledger of
+  machine-checkable UI rules behind the `/ui-review` skill
+  (`.claude/skills/ui-review/SKILL.md`). After a UI change, review against that
+  ledger — sweep the surfaces × viewports the *diff* could affect, not the spots
+  you edited — and ratchet every confirmed escape into a new funnel + lock + row.
 - **The dev server binds IPv4** (`server.host: '127.0.0.1'` in `vite.config.ts`).
   On some hosts `localhost` resolves to `::1` only, which a browser/preview hitting
   `127.0.0.1` can't reach. Keep the explicit bind (the API proxy targets it too).

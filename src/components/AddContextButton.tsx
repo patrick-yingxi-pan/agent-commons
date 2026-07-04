@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   Check,
   ChevronLeft,
@@ -36,6 +36,8 @@ import { repoIdForLabel } from '../data/liveSession'
 import { getDecision, setDecision } from '../lib/prefs'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { useDismissable } from '../lib/useDismissable'
+import { POPOVER_SURFACE } from '../lib/popover'
+import { usePopoverShift } from '../lib/usePopoverShift'
 import { useRecentIds } from '../lib/recents'
 import { UI_HOST_SOURCE, DEFAULT_FS_SOURCE_ID, useFsSourceList } from '../lib/fsSources'
 import { pickUiHostFiles, pickUiHostFolder, readDroppedFiles, type UiHostFile } from '../lib/uiHostFs'
@@ -109,30 +111,14 @@ export function AddContextButton({
   const wrapRef = useDismissable<HTMLDivElement>(open, () => close())
   // The popover opens left-aligned from the button, but the button can sit near a
   // right edge (e.g. the project side panel), where a 340px popover would overflow.
-  // `shiftX` nudges it back fully on-screen — measured once on open. The host need
-  // not know its own position; the popover self-corrects in any layout.
-  const popRef = useRef<HTMLDivElement>(null)
-  const [shiftX, setShiftX] = useState(0)
+  // The shared containment hook nudges it back fully on-screen; the host need
+  // not know its own position — the popover self-corrects in any layout.
+  const popRef = usePopoverShift<HTMLDivElement>(open)
 
   const close = () => {
     setOpen(false)
     setType(null)
-    setShiftX(0)
   }
-
-  useLayoutEffect(() => {
-    if (!open) return
-    const el = popRef.current
-    if (!el) return
-    const r = el.getBoundingClientRect()
-    const M = 8
-    // r reflects the current shiftX (0 on first pass); correct the right overflow,
-    // then guard the left edge so a very narrow viewport can't push it off-left.
-    let dx = 0
-    if (r.right > window.innerWidth - M) dx = window.innerWidth - M - r.right
-    if (r.left + dx < M) dx = M - r.left
-    if (dx !== 0) setShiftX((s) => s + dx)
-  }, [open])
 
   // Size the inline recent list to the height available above the composer: the
   // popover opens upward from the button, so the button's top is how much room
@@ -184,8 +170,7 @@ export function AddContextButton({
           ref={popRef}
           role="dialog"
           aria-label="Add context"
-          style={{ transform: `translateX(${shiftX}px)` }}
-          className="absolute bottom-full left-0 z-20 mb-2 w-[340px] max-w-[calc(100vw-16px)] overflow-hidden rounded-xl border border-line-strong bg-surface shadow-xl"
+          className={`absolute bottom-full left-0 z-20 mb-2 w-[340px] overflow-hidden ${POPOVER_SURFACE}`}
         >
           {activeType === null ? (
             <div className="p-2">

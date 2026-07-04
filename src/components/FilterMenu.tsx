@@ -2,6 +2,7 @@ import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from 'rea
 import { createPortal } from 'react-dom'
 import { Check, ChevronRight, SlidersHorizontal } from 'lucide-react'
 import { useDismissable } from '../lib/useDismissable'
+import { POPOVER_MARGIN, POPOVER_SURFACE, clampLeft } from '../lib/popover'
 import { FlyoutPanel, useFlyout } from './RecentOverflowList'
 
 /** ── A generic "Filter & sort" menu — the sliders button + its popover ────────
@@ -59,8 +60,8 @@ export function FilterMenu({ ariaLabel, rows }: { ariaLabel: string; rows: Filte
   useLayoutEffect(() => {
     if (!open || !triggerRef.current) return
     const r = triggerRef.current.getBoundingClientRect()
-    const M = 8
-    const left = Math.max(M, Math.min(r.right - POPOVER_WIDTH, window.innerWidth - POPOVER_WIDTH - M))
+    const M = POPOVER_MARGIN
+    const left = clampLeft(r.right - POPOVER_WIDTH, POPOVER_WIDTH, window.innerWidth)
     const roomBelow = window.innerHeight - r.bottom
     const top =
       roomBelow >= POPOVER_EST_HEIGHT + M ? r.bottom + 6 : Math.max(M, r.top - POPOVER_EST_HEIGHT - 6)
@@ -90,7 +91,7 @@ export function FilterMenu({ ariaLabel, rows }: { ariaLabel: string; rows: Filte
             aria-label={ariaLabel}
             onMouseDown={(e) => e.stopPropagation()}
             style={{ position: 'fixed', left: pos.left, top: pos.top, width: POPOVER_WIDTH }}
-            className="z-[60] rounded-xl border border-line-strong bg-surface p-1 text-[13px] shadow-xl"
+            className={`z-[60] p-1 text-[13px] ${POPOVER_SURFACE}`}
           >
             {rows.map((row) => (
               <Fragment key={row.key}>

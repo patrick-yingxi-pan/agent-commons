@@ -74,3 +74,15 @@ test('the CSS short: variant and SHORT_MAX are the same breakpoint', () => {
     'src/index.css must define the short: variant at exactly SHORT_MAX',
   )
 })
+
+test('viewport-relative units are dvh, never vh/h-screen (UI-6, docs/ui-invariants.md)', async () => {
+  // iOS Safari's collapsing URL bar makes `vh` overshoot the visible viewport —
+  // a `vh`-positioned dialog or `h-screen` shell hides chrome behind it. The
+  // dynamic unit tracks the real viewport, so the rule is absolute: any new
+  // `NNvh` or `h-screen` in the UI fails here and switches to `dvh`.
+  const { concatSource } = await import('./helpers/source.ts')
+  const src = concatSource('src')
+  const plainVh = src.match(/\d+vh\b/g) ?? []
+  assert.deepEqual(plainVh, [], 'use dvh — vh overshoots under the iOS URL bar')
+  assert.ok(!/\bmin-h-screen|\bh-screen/.test(src), 'use h-dvh/min-h-dvh, not h-screen')
+})

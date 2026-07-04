@@ -80,6 +80,37 @@ test('phone (375×812): rail drawer over a scrim, full-viewport panel takeover, 
   expect(await noHorizontalScroll(page), 'no horizontal scroll after panel close').toBe(true)
 })
 
+test('extreme narrow (320×700): every composer popover stays inside the viewport', async ({ page }) => {
+  // The popover-containment invariant (docs/ui-invariants.md UI-1, src/lib/popover.ts)
+  // at the width where the composer popovers used to truncate. Every surface the
+  // shift hook manages stamps `data-popover` — the enumeration handle — so this
+  // asserts the *class* generically instead of hand-measuring one popover.
+  await page.setViewportSize({ width: 320, height: 700 })
+  await page.goto('/')
+  await dismissIntro(page)
+
+  const MARGIN = 7 // POPOVER_MARGIN with a 1px rounding allowance
+  const triggers = [
+    'Add context',
+    /^Permission mode/,
+    'Model and effort',
+    'Microphone settings',
+    /^Usage/,
+    /^Model providers/,
+    /^Hosts/,
+  ]
+  for (const name of triggers) {
+    await page.getByRole('button', { name }).first().click()
+    const pop = page.locator('[data-popover]')
+    await expect(pop, `${name} opens a managed popover`).toBeVisible()
+    const box = (await pop.boundingBox())!
+    expect(box.x, `${name} popover clears the left edge`).toBeGreaterThanOrEqual(MARGIN)
+    expect(box.x + box.width, `${name} popover clears the right edge`).toBeLessThanOrEqual(320 - MARGIN)
+    await page.keyboard.press('Escape')
+    await expect(pop).not.toBeVisible()
+  }
+})
+
 test('tablet (768×1024): the panel overlays the thread behind a scrim; the scrim click dismisses', async ({ page }) => {
   await page.setViewportSize({ width: 768, height: 1024 })
   await page.goto('/')

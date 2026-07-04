@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Check } from 'lucide-react'
 import { useDismissable } from '../lib/useDismissable'
+import { POPOVER_SURFACE } from '../lib/popover'
+import { usePopoverShift } from '../lib/usePopoverShift'
 
 type ModeId = 'ask' | 'acceptEdits' | 'plan' | 'auto' | 'bypass'
 
@@ -27,6 +29,7 @@ export function PermissionModeControl() {
   const [open, setOpen] = useState(false)
   const [modeId, setModeId] = useState<ModeId>(DEFAULT_MODE)
   const wrapRef = useDismissable<HTMLDivElement>(open, () => setOpen(false))
+  const popRef = usePopoverShift<HTMLDivElement>(open)
   const mode = MODES.find((m) => m.id === modeId)!
 
   // Single-key mode shortcuts while the menu is open (Escape + outside-click
@@ -59,9 +62,10 @@ export function PermissionModeControl() {
 
       {open && (
         <div
+          ref={popRef}
           role="menu"
           aria-label="Permission mode"
-          className="absolute bottom-full left-0 z-20 mb-2 w-[256px] overflow-hidden rounded-xl border border-line-strong bg-surface p-1.5 shadow-xl"
+          className={`absolute bottom-full left-0 z-20 mb-2 w-[256px] overflow-hidden p-1.5 ${POPOVER_SURFACE}`}
         >
           <div className="flex items-center justify-between px-1.5 py-1">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Mode</span>

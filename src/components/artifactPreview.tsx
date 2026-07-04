@@ -21,6 +21,8 @@ import { useFocusTrap } from '../lib/useFocusTrap'
 import { useDismissable } from '../lib/useDismissable'
 import { relativeTime } from '../lib/relativeTime'
 import { SCRIM_CLASS } from '../lib/scrim'
+import { POPOVER_SURFACE } from '../lib/popover'
+import { usePopoverShift } from '../lib/usePopoverShift'
 
 export const KIND_ICON: Record<ArtifactKind, LucideIcon> = {
   doc: FileText,
@@ -572,7 +574,7 @@ export function ArtifactViewer({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex justify-center px-4 pt-[8vh]"
+      className="fixed inset-0 z-50 flex justify-center px-4 pt-[8dvh]"
       onMouseDown={onClose}
       role="dialog"
       aria-modal="true"
@@ -582,7 +584,7 @@ export function ArtifactViewer({
       <div
         ref={dialogRef}
         onMouseDown={(e) => e.stopPropagation()}
-        className="relative flex max-h-[80vh] w-[680px] max-w-full flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong"
+        className="relative flex max-h-[80dvh] w-[680px] max-w-full flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong"
       >
         <div className="flex shrink-0 items-start gap-3 border-b border-line px-5 py-3.5">
           <Icon size={20} className="mt-0.5 shrink-0 text-cap-workspace" />
@@ -653,6 +655,7 @@ function ProjectAssignMenu({
   // closes the whole viewer on Escape — so opt out of Escape here (outside-click
   // only, as before) to avoid one Escape collapsing both layers.
   const ref = useDismissable<HTMLSpanElement>(open, () => setOpen(false), { escape: false })
+  const popRef = usePopoverShift<HTMLDivElement>(open)
 
   const current = projects.find((p) => p.id === currentProjectId)
 
@@ -671,8 +674,9 @@ function ProjectAssignMenu({
       </button>
       {open && (
         <div
+          ref={popRef}
           role="listbox"
-          className="absolute left-0 top-full z-40 mt-1 max-h-64 w-56 overflow-y-auto rounded-lg border border-line-strong bg-surface py-1 shadow-xl"
+          className={`absolute left-0 top-full z-40 mt-1 max-h-64 w-56 overflow-y-auto py-1 ${POPOVER_SURFACE}`}
         >
           <ProjectAssignRow
             label="No project"

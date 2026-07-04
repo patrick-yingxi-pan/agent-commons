@@ -146,6 +146,8 @@ import { ArtifactThumb, ArtifactViewer, KIND_ICON, KIND_LABEL } from './artifact
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { useDismissable } from '../lib/useDismissable'
 import { SCRIM_CLASS } from '../lib/scrim'
+import { POPOVER_SURFACE } from '../lib/popover'
+import { usePopoverShift } from '../lib/usePopoverShift'
 import { useRelations } from '../controller/useRelations'
 import { runSessionId, slug } from '../../contract/ids.ts'
 
@@ -832,6 +834,7 @@ function ProjectScheduleAdd({
 }) {
   const [open, setOpen] = useState(false)
   const ref = useDismissable<HTMLDivElement>(open, () => setOpen(false))
+  const popRef = usePopoverShift<HTMLDivElement>(open)
   const templates = useScheduleTemplates().data ?? []
   const allSchedules = useSchedules().data ?? []
   const linkable = allSchedules.filter((t) => !linkedIds.has(t.id))
@@ -842,9 +845,10 @@ function ProjectScheduleAdd({
 
       {open && (
         <div
+          ref={popRef}
           role="dialog"
           aria-label="Add a scheduled routine"
-          className="absolute right-0 top-full z-30 mt-1.5 max-h-[360px] w-[300px] overflow-y-auto rounded-xl border border-line-strong bg-surface p-2 shadow-xl"
+          className={`absolute right-0 top-full z-30 mt-1.5 max-h-[360px] w-[300px] overflow-y-auto p-2 ${POPOVER_SURFACE}`}
         >
           <p className="px-1.5 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
             New routine
@@ -1202,6 +1206,7 @@ function CommissionDialog({
 function CommissionAdd({ projectId, available }: { projectId: string; available: Agent[] }) {
   const [open, setOpen] = useState(false)
   const ref = useDismissable<HTMLDivElement>(open, () => setOpen(false))
+  const popRef = usePopoverShift<HTMLDivElement>(open)
   const [pending, setPending] = useState<string | null>(null)
 
   const commission = async (agent: Agent) => {
@@ -1226,9 +1231,10 @@ function CommissionAdd({ projectId, available }: { projectId: string; available:
 
       {open && (
         <div
+          ref={popRef}
           role="dialog"
           aria-label="Commission an agent"
-          className="absolute right-0 top-full z-30 mt-1.5 w-[280px] rounded-xl border border-line-strong bg-surface p-2 shadow-xl"
+          className={`absolute right-0 top-full z-30 mt-1.5 w-[280px] p-2 ${POPOVER_SURFACE}`}
         >
           {available.length === 0 ? (
             <p className="px-1.5 py-1 text-[12px] text-ink-faint">Every agent is already a Contributor.</p>
@@ -1590,7 +1596,7 @@ function NewArtifactDialog({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex justify-center px-4 pt-[12vh]"
+      className="fixed inset-0 z-50 flex justify-center px-4 pt-[12dvh]"
       onMouseDown={onClose}
       role="dialog"
       aria-modal="true"
@@ -1932,6 +1938,7 @@ function AddContextControl({
 }) {
   const [open, setOpen] = useState(false)
   const ref = useDismissable<HTMLDivElement>(open, () => setOpen(false))
+  const popRef = usePopoverShift<HTMLDivElement>(open)
 
   const groups = ADDABLE_GROUPS.map((g) => ({
     ...g,
@@ -1952,11 +1959,12 @@ function AddContextControl({
 
       {open && (
         <div
+          ref={popRef}
           role="dialog"
           aria-label="Add context"
-          className="absolute right-0 z-30 mt-2 w-[320px] overflow-hidden rounded-xl border border-line-strong bg-surface shadow-xl"
+          className={`absolute right-0 z-30 mt-2 w-[320px] overflow-hidden ${POPOVER_SURFACE}`}
         >
-          <div className="max-h-[min(60vh,420px)] overflow-y-auto p-2">
+          <div className="max-h-[min(60dvh,420px)] overflow-y-auto p-2">
             {groups.length === 0 ? (
               <div className="px-2 py-6 text-center text-[12px] text-ink-faint">
                 Everything’s set up — nothing new to add.
@@ -2582,7 +2590,7 @@ function FormDialog({
   }, [])
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex justify-center px-4 pt-[14vh]"
+      className="fixed inset-0 z-50 flex justify-center px-4 pt-[14dvh]"
       onMouseDown={onClose}
       role="dialog"
       aria-modal="true"
@@ -3673,6 +3681,7 @@ function MiniPipeline({ task }: { task: ScheduledTask }) {
 function NewScheduleControl({ onAdd }: { onAdd: (tpl: ScheduleTemplate) => void }) {
   const [open, setOpen] = useState(false)
   const ref = useDismissable<HTMLDivElement>(open, () => setOpen(false))
+  const popRef = usePopoverShift<HTMLDivElement>(open)
   const templates = useScheduleTemplates().data ?? []
 
   // Group templates by category, preserving first-seen order.
@@ -3700,11 +3709,12 @@ function NewScheduleControl({ onAdd }: { onAdd: (tpl: ScheduleTemplate) => void 
 
       {open && (
         <div
+          ref={popRef}
           role="dialog"
           aria-label="New schedule"
-          className="absolute right-0 z-30 mt-2 w-[340px] overflow-hidden rounded-xl border border-line-strong bg-surface shadow-xl"
+          className={`absolute right-0 z-30 mt-2 w-[340px] overflow-hidden ${POPOVER_SURFACE}`}
         >
-          <div className="max-h-[min(60vh,440px)] overflow-y-auto p-2">
+          <div className="max-h-[min(60dvh,440px)] overflow-y-auto p-2">
             {cats.map((c) => (
               <div key={c.label} className="pb-1">
                 <p className="px-1.5 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
@@ -4252,13 +4262,17 @@ function StepToolPicker({
   // Mounted only while open (the parent conditionally renders it), so the dismiss
   // listeners should be live for its whole lifetime — pass open=true.
   const ref = useDismissable<HTMLDivElement>(true, onClose)
+  const popRef = usePopoverShift<HTMLDivElement>(true)
 
   return (
     <div
-      ref={ref}
+      ref={(el) => {
+        ref.current = el
+        popRef.current = el
+      }}
       role="dialog"
       aria-label="Pick a tool"
-      className="absolute left-0 top-full z-30 mt-1 max-h-[240px] w-[200px] overflow-y-auto rounded-xl border border-line-strong bg-surface p-1 shadow-xl"
+      className={`absolute left-0 top-full z-30 mt-1 max-h-[240px] w-[200px] overflow-y-auto p-1 ${POPOVER_SURFACE}`}
     >
       {tools.length === 0 && (
         <div className="px-2 py-3 text-center text-[12px] text-ink-faint">Every tool is already here.</div>
@@ -4618,6 +4632,7 @@ function SchedulePanel({ task }: { task: ScheduledTask }) {
 function CadenceEditor({ task, onClose }: { task: ScheduledTask; onClose: () => void }) {
   // Mounted only while open, so dismiss listeners live for its whole lifetime.
   const ref = useDismissable<HTMLDivElement>(true, onClose)
+  const popRef = usePopoverShift<HTMLDivElement>(true)
   const [spec, setSpec] = useState<CadenceSpec>(() => parseCadence(task.cadence) ?? { freq: 'daily', time: '09:00' })
   const [tz, setTz] = useState(task.timezone ?? 'America/Los_Angeles')
 
@@ -4638,10 +4653,13 @@ function CadenceEditor({ task, onClose }: { task: ScheduledTask; onClose: () => 
 
   return (
     <div
-      ref={ref}
+      ref={(el) => {
+        ref.current = el
+        popRef.current = el
+      }}
       role="dialog"
       aria-label="Edit schedule"
-      className="absolute right-0 top-full z-30 mt-1.5 w-[280px] rounded-xl border border-line-strong bg-surface p-3 shadow-xl"
+      className={`absolute right-0 top-full z-30 mt-1.5 w-[280px] p-3 ${POPOVER_SURFACE}`}
     >
       <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Frequency</div>
       <div className="mt-1.5 grid grid-cols-2 gap-1">
@@ -4758,6 +4776,7 @@ function ModelPanel({ task }: { task: ScheduledTask }) {
 function ScheduleModelPicker({ task, onClose }: { task: ScheduledTask; onClose: () => void }) {
   // Mounted only while open, so dismiss listeners live for its whole lifetime.
   const ref = useDismissable<HTMLDivElement>(true, onClose)
+  const popRef = usePopoverShift<HTMLDivElement>(true)
   const init = parseModelLabel(task.model)
   const [modelId, setModelId] = useState<ModelId>(init.modelId)
   const [effort, setEffort] = useState<Effort>(init.effort)
@@ -4773,10 +4792,13 @@ function ScheduleModelPicker({ task, onClose }: { task: ScheduledTask; onClose: 
 
   return (
     <div
-      ref={ref}
+      ref={(el) => {
+        ref.current = el
+        popRef.current = el
+      }}
       role="dialog"
       aria-label="Model and effort"
-      className="absolute bottom-full right-0 z-30 mb-1.5 w-[280px] rounded-xl border border-line-strong bg-surface p-2 shadow-xl"
+      className={`absolute bottom-full right-0 z-30 mb-1.5 w-[280px] p-2 ${POPOVER_SURFACE}`}
     >
       <div className="px-1.5 pb-1 pt-0.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Model</div>
       {MODELS.map((m) => {
@@ -4901,6 +4923,7 @@ function DefaultModelCard() {
   const [prefs, setPrefs] = useState<ModelPrefs>(loadModelPrefs)
   const [open, setOpen] = useState(false)
   const ref = useDismissable<HTMLDivElement>(open, () => setOpen(false))
+  const popRef = usePopoverShift<HTMLDivElement>(open)
 
   const commit = (next: ModelPrefs) => {
     setPrefs(next)
@@ -4927,9 +4950,10 @@ function DefaultModelCard() {
         </button>
         {open && (
           <div
+            ref={popRef}
             role="dialog"
             aria-label="Default model and effort"
-            className="absolute right-0 top-full z-30 mt-1.5 w-[280px] rounded-xl border border-line-strong bg-surface p-2 shadow-xl"
+            className={`absolute right-0 top-full z-30 mt-1.5 w-[280px] p-2 ${POPOVER_SURFACE}`}
           >
             <div className="px-1.5 pb-1 pt-0.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Model</div>
             {MODELS.map((m) => {
@@ -5005,6 +5029,7 @@ function SystemPromptCard() {
   })
   const [open, setOpen] = useState(false)
   const ref = useDismissable<HTMLDivElement>(open, () => setOpen(false))
+  const popRef = usePopoverShift<HTMLDivElement>(open)
 
   const pick = (id: string) => {
     setSelectedId(id)
@@ -5035,9 +5060,10 @@ function SystemPromptCard() {
         </button>
         {open && (
           <div
+            ref={popRef}
             role="dialog"
             aria-label="Agent system prompt"
-            className="absolute right-0 top-full z-30 mt-1.5 w-[320px] rounded-xl border border-line-strong bg-surface p-2 shadow-xl"
+            className={`absolute right-0 top-full z-30 mt-1.5 w-[320px] p-2 ${POPOVER_SURFACE}`}
           >
             <div className="px-1.5 pb-1 pt-0.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
               System prompt · checked against {provider?.label ?? 'provider'}
@@ -5187,6 +5213,7 @@ function Dropdown({
 }) {
   const [open, setOpen] = useState(false)
   const ref = useDismissable<HTMLDivElement>(open, () => setOpen(false))
+  const popRef = usePopoverShift<HTMLDivElement>(open)
 
   return (
     <div ref={ref} className="relative">
@@ -5199,7 +5226,7 @@ function Dropdown({
         <ChevronDown size={14} className={`text-ink-faint transition ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div className="absolute right-0 z-20 mt-1 w-44 overflow-hidden rounded-lg border border-line bg-surface py-1 shadow-lg">
+        <div ref={popRef} className={`absolute right-0 z-20 mt-1 w-44 overflow-hidden py-1 ${POPOVER_SURFACE}`}>
           {options.map((opt) => (
             <button
               key={opt}

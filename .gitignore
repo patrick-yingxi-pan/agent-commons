@@ -22,7 +22,9 @@ pnpm-debug.log*
 .idea
 .DS_Store
 Thumbs.db
-.claude/
+# local agent state stays ignored, but repo-owned skills are shared decisions
+.claude/*
+!.claude/skills/
 
 # env
 .env

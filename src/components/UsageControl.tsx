@@ -2,6 +2,8 @@ import { useId, useState } from 'react'
 import { ArrowRight, ChevronRight } from 'lucide-react'
 import { useUsage } from '../api'
 import { useDismissable } from '../lib/useDismissable'
+import { POPOVER_SURFACE } from '../lib/popover'
+import { usePopoverShift } from '../lib/usePopoverShift'
 import { withLiveMessages, type ContextSegment, type ContextTone, type UsageSnapshot } from '../../contract/index.ts'
 
 /* Shown until the server's usage snapshot loads — a zeroed gauge rather than a
@@ -49,6 +51,7 @@ export function UsageControl({ sessionId, messageTokens }: { sessionId?: string;
   const [open, setOpen] = useState(false)
   const [expanded, setExpanded] = useState(true)
   const wrapRef = useDismissable<HTMLDivElement>(open, () => setOpen(false))
+  const popRef = usePopoverShift<HTMLDivElement>(open)
   // Server-owned: the UI just caches the snapshot. EMPTY_USAGE covers the first
   // paint before the fetch resolves. The live breakdown overrides the snapshot's.
   const snapshot = useUsage(sessionId).data ?? EMPTY_USAGE
@@ -78,7 +81,7 @@ export function UsageControl({ sessionId, messageTokens }: { sessionId?: string;
       </button>
 
       {open && (
-        <div className="absolute bottom-full right-0 z-20 mb-2 w-[340px] rounded-xl border border-line-strong bg-surface p-3 shadow-xl">
+        <div ref={popRef} className={`absolute bottom-full right-0 z-20 mb-2 w-[340px] p-3 ${POPOVER_SURFACE}`}>
           {/* Context window — a stacked breakdown of what's occupying it, toggled
               open by the chevron. Messages is live; the rest is workspace config. */}
           <button

@@ -1,5 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { useDismissable } from '../lib/useDismissable'
+import { POPOVER_SURFACE } from '../lib/popover'
+import { usePopoverShift } from '../lib/usePopoverShift'
 
 /** ── The ambient-gauge popover shell ─────────────────────────────────────────
  *  The composer-footer "account fabric" gauges — Hosts and Model providers — are the
@@ -29,6 +31,7 @@ export function GaugePopover({
 }) {
   const [open, setOpen] = useState(false)
   const wrapRef = useDismissable<HTMLDivElement>(open, () => setOpen(false))
+  const popRef = usePopoverShift<HTMLDivElement>(open)
 
   return (
     <div ref={wrapRef} className="relative">
@@ -47,7 +50,7 @@ export function GaugePopover({
       </button>
 
       {open && (
-        <div className="absolute bottom-full right-0 z-20 mb-2 w-[300px] rounded-xl border border-line-strong bg-surface p-3 shadow-xl">
+        <div ref={popRef} className={`absolute bottom-full right-0 z-20 mb-2 w-[300px] p-3 ${POPOVER_SURFACE}`}>
           {children}
         </div>
       )}
