@@ -41,9 +41,31 @@ export interface ModelProvider {
   authority?: Authority
 }
 
-/** Register a provider (the server mints the id; credentials/model are server-only and
- *  never on the wire — see the type note above). */
-export type CreateProviderRequest = Omit<ModelProvider, 'id'>
+/** The endpoint half of a registration — **write-only**: it may ride a create request
+ *  (that's how a user brings a provider's endpoint) but is never echoed on the read
+ *  type above. Integrating a provider is supplying *data*, not code: any endpoint
+ *  that speaks the Messages protocol (natively or behind a translating gateway) plugs
+ *  in here — the backend knows one protocol and zero providers. The credential is an
+ *  env-var *reference*, never a raw key, so neither the wire nor the persisted store
+ *  ever carries a secret. */
+export interface ProviderEndpointConfig {
+  /** The Messages-protocol endpoint this provider is served from. Unset = inherit the
+   *  ambient default endpoint (`ANTHROPIC_BASE_URL` / the dev mock). */
+  baseURL?: string
+  /** Name of the server-side env var holding this provider's API key. Must sit under
+   *  the `PROVIDER_` prefix — the reference and the endpoint are both caller-supplied,
+   *  so an unconstrained reference could point any server secret at an arbitrary URL;
+   *  the prefix wall is enforced server-side before any probe request leaves. */
+  apiKeyEnv?: string
+  /** The concrete model id a turn on this provider runs against. Unset = the env
+   *  default (`ANTHROPIC_MODEL`). */
+  model?: string
+}
+
+/** Register a provider (the server mints the id). `config` is the write-only endpoint
+ *  half — accepted here, verified by the registration probe, stored server-side, and
+ *  never present on the `ModelProvider` reads. */
+export type CreateProviderRequest = Omit<ModelProvider, 'id'> & { config?: ProviderEndpointConfig }
 
 /** Patch a provider's own fields. All optional — only the named fields change. */
 export type UpdateProviderRequest = Partial<Omit<ModelProvider, 'id'>>

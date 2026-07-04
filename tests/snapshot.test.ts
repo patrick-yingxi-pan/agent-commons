@@ -170,7 +170,7 @@ test('the built snapshot boots through the real rehydrate path', async () => {
   // The Agent Commons registries survive the boot too (D6/D9/D10/D7).
   const provider = store.listProviders().find((p) => p.label === 'Playground provider')
   assert.ok(provider, 'the created provider survives a boot')
-  assert.equal(store.providerModel(provider?.id), 'claude-opus-4-8', 'its server-only config (model id) survives too')
+  assert.equal(store.providerConfig(provider?.id).model, 'claude-opus-4-8', 'its server-only config (model id) survives too')
   assert.ok(store.listSystemPrompts().some((p) => p.label === 'Playground research prompt'), 'the created system prompt survives a boot')
   const agent = store.listAgents().find((a) => a.label === 'Playground research agent')
   assert.ok(agent && agent.providerId === provider?.id, 'the created agent (bound to the provider) survives a boot')

@@ -45,7 +45,8 @@ import { store, type GenerationOutcome } from '../store.ts'
 import { IdempotencyCache, captureResponse, replayResponse } from '../idempotency.ts'
 import { pageParams, paginate, MAX_PAGE_LIMIT } from '../pagination.ts'
 import { RateLimiter } from '../ratelimit.ts'
-import { generateReply } from '../generate.ts'
+import { generateReply, probeProviderEndpoint } from '../generate.ts'
+import { ProviderProbeError, type ProviderConfig } from '../data/providers.ts'
 import { turns, type TurnFrame } from '../turns.ts'
 import { eventlog } from '../eventlog.ts'
 import { CapabilityError, runCapability, scopeMatches } from '../runner-runtime.ts'
@@ -732,11 +733,34 @@ export function buildRouter(): Router {
     if (!input?.label || !input?.modelFamily || !Array.isArray(input.effortLevels)) {
       return sendError(res, 'bad_request', 'label, modelFamily, and effortLevels are required')
     }
+    // The write-only endpoint half (D9): split off the request so it never lands on
+    // the `ModelProvider` the registry stores and echoes — the read type stays free
+    // of endpoint/credential shape. A config that brings its own endpoint is probed
+    // for Messages-protocol conformance *before* the mint; the probe's capability
+    // record travels with the config, satisfying the funnel's unverified-endpoint
+    // guard. A probe failure is a 400 — a non-conformant provider is never registered.
+    const { config: endpoint, ...fields } = input
+    // Pick the three known endpoint fields explicitly (strings only) — a raw spread
+    // would let arbitrary unknown JSON ride into the persisted server-only config
+    // (including a forged `capabilities` record).
+    const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined)
+    const config: ProviderConfig = { baseURL: str(endpoint?.baseURL), apiKeyEnv: str(endpoint?.apiKeyEnv), model: str(endpoint?.model) }
+    if (config.baseURL) {
+      try {
+        config.capabilities = await probeProviderEndpoint(config)
+      } catch (err) {
+        if (err instanceof ProviderProbeError) return sendError(res, 'bad_request', err.message)
+        throw err
+      }
+    }
     try {
-      sendJson(res, store.createProvider(input, {}, store.identity(req.headers).tenant.id))
+      sendJson(res, store.createProvider(fields, config, store.identity(req.headers).tenant.id))
     } catch (err) {
       // An over-plan provider — the requested plan exceeds the account plan (the cascade root).
       if (err instanceof BudgetError) return sendError(res, 'bad_request', err.message)
+      // An out-of-policy credential reference the probe never saw (no endpoint to
+      // probe) — caught by the mint funnel's own wall.
+      if (err instanceof ProviderProbeError) return sendError(res, 'bad_request', err.message)
       throw err
     }
   })
@@ -1426,10 +1450,11 @@ export function buildRouter(): Router {
     // The worker Agent driving this Conversation (docs/agent-commons.md, D6) —
     // resolves to the seeded default until users create their own.
     const agent = store.getAgent(known?.agentId)
-    // The model this turn runs on is the Agent's Model provider's (D9) — the default
-    // provider declares none, so this resolves to `undefined` and generation uses its
-    // env-configured default. Multi-provider just makes this a non-default id.
-    const model = store.providerModel(agent.providerId)
+    // The endpoint + model this turn runs on is the Agent's Model provider's (D9) —
+    // resolved to server-only *data* (base URL, credential reference, model id,
+    // probed capabilities), never provider-specific code. The default provider's
+    // config is empty, so generation uses its env-configured defaults.
+    const provider = store.providerConfig(agent.providerId)
     // Spend-time enforcement (D8): once a plan window is exhausted for this Agent's
     // effective budget, refuse the turn (429) until it resets — the per-turn gate the
     // mint-time funnel doesn't give. Checked before persisting the user turn or streaming.
@@ -1509,7 +1534,7 @@ export function buildRouter(): Router {
           },
         },
         ac.signal,
-        model,
+        provider,
         // The live Agent Commons registries, so a confirmed "commission the agent I
         // just made" / "create an agent on <provider>" resolves the names the model
         // proposes against what currently exists (server/model/tools.ts). Tenant-scoped

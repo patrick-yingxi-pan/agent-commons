@@ -1130,6 +1130,38 @@ session↔context binding, mediation handle, and single-resource escrow).
   (free-typed create-agent, then commission that agent, each appearing in the hub with the
   correct D12 reach). *Remaining refinement:* per-axis authority/budget editors beyond the
   connector re-grant.
+- **Slice 18 — provider endpoints as data (D9 generalized: one protocol, zero providers). ✅
+  Built.** The general answer to "integrate any model provider without knowing its API/SDK":
+  the backend speaks exactly **one** wire protocol (the Messages API `generate.ts` already
+  speaks), and *integrating a provider means supplying an endpoint that speaks it* — config,
+  never backend code. Any translation for a heterogeneous provider lives **behind** the
+  endpoint (the provider's own compatible surface, or a translating gateway), where the
+  ecosystem maintains it — protocols are O(2) and stable, providers O(N) and growing, so
+  adapters attach to protocols. Mechanically: the server-only `ProviderConfig` grew the
+  endpoint half (`ProviderEndpointConfig` — `baseURL`, `apiKeyEnv` a credential *reference*
+  so no store snapshot ever holds a raw key — constrained to `PROVIDER_*` names at both the
+  probe and the mint, since reference + endpoint are both caller-supplied and an
+  unconstrained reference would exfiltrate any server secret to an arbitrary URL —
+  and `model`), accepted **write-only** on
+  `POST /providers` and never echoed on the `ModelProvider` reads; `generate.ts`'s single
+  memoized client became a per-`(endpoint, key)` client map (`clientFor`), the turn route
+  passing the Agent's provider's whole config instead of a bare model id. Registration
+  **probes** a brought endpoint with one tiny real Messages call (`probeProviderEndpoint`:
+  tools declared → accepted = native tool use; rejected-but-conversant = conformant without
+  tools; neither = `ProviderProbeError` → 400), and the mint funnel refuses an
+  endpoint-bearing config without a probed capability record — an *unverified endpoint* is
+  unrepresentable at mint, the same shape as a D8 over-grant. Generation then branches on
+  **capability, never provider identity**: a non-tool-use provider is sent no `tools` param
+  (its turns degrade to prose; the consent-gated proposals need a tool-use provider). The
+  flagship lock (`tests/provider-endpoint.test.ts`) registers a second provider against a
+  recording pass-through in front of the same mock endpoint and proves the turn arrives at
+  *that* endpoint carrying *its* model id and *its* referenced credential while a
+  default-config turn lands zero hits there — N=2 exercised, zero provider-specific backend
+  code: going multi-provider multiplies the real boundary exactly as D9 claimed. Deferred,
+  by design: the effort→params map on the config (no turn selects effort yet), patching a
+  provider's endpoint after mint (re-probe on change), surfacing the capability record in
+  the hub UI, and the Providers-hub create dialog growing endpoint fields (the wire accepts
+  them today).
 - **The multi-tenant surface (slices 1–10) is built, managed (11–15), persisted (16), and
   conversationally manageable (17).** Every D6–D13 decision is now exercised by a working
   slice *and* user-manageable from the Agents hub — by hand or by asking Claude — the

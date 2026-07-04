@@ -74,7 +74,7 @@ import { LimitError } from './limit.ts'
 import { scopeMatches } from './runner-runtime.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, clampAuthority, clampBudget, probeScore } from '../contract/index.ts'
 import type { Agent, AuditEntry, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelProvider, ProjectAction, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProxyRequest, ProxyResult, Reservation, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest } from '../contract/index.ts'
-import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, type ProviderConfig } from './data/providers.ts'
+import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
 import { TOOL_DEFINITIONS } from './model/tools.ts'
@@ -1230,17 +1230,31 @@ export const store = {
   getProvider(id?: string): ModelProvider {
     return resolveProvider(id)
   },
-  /** The concrete model id a turn on this provider runs against — server-only
-   *  config, never on the contract. Undefined = inherit `generate.ts`'s env default
-   *  (the default provider), so `ANTHROPIC_MODEL` stays the one source for it. */
-  providerModel(id?: string): string | undefined {
-    return (PROVIDER_CONFIGS.get(id ?? '') ?? DEFAULT_PROVIDER_CONFIG).model
+  /** The endpoint + model config a turn on this provider runs against — server-only,
+   *  never on the contract. Every field unset (the default provider) = inherit
+   *  `generate.ts`'s env defaults, so `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL` stay
+   *  the one source for them. */
+  providerConfig(id?: string): ProviderConfig {
+    return PROVIDER_CONFIGS.get(id ?? '') ?? DEFAULT_PROVIDER_CONFIG
   },
   /** Mint a Model provider through the D8 funnel: its plan must attenuate the account
    *  plan (`planCeilings`), so the cascade root can never exceed the subscription it
-   *  sits under. The single seam a provider plan is validated. */
+   *  sits under. The single seam a provider plan is validated — and the single seam a
+   *  config that brings its **own endpoint** must arrive already carrying the probed
+   *  capability record (`probeProviderEndpoint`, run by the route): an unverified
+   *  endpoint is unrepresentable in the registry, same shape as an over-grant. */
   createProvider(input: Omit<ModelProvider, 'id'>, config: ProviderConfig = {}, tenantId?: string): ModelProvider {
     if (input.plan) mintBudget(usageMeter.planCeilings(), input.plan)
+    if (config.baseURL && !config.capabilities) {
+      throw new ProviderProbeError('A provider endpoint must pass the conformance probe before it is registered.')
+    }
+    // The credential-exfiltration wall (see validApiKeyEnv): a config may only ever
+    // reference a PROVIDER_* env var, so no other server secret can be pointed at a
+    // caller-supplied endpoint. The probe checks this too (before any request leaves);
+    // this is the belt at the mint seam itself.
+    if (!validApiKeyEnv(config.apiKeyEnv)) {
+      throw new ProviderProbeError(`A provider credential must reference a 'PROVIDER_*' env var, not '${config.apiKeyEnv}'.`)
+    }
     // Stamp the creating tenant (F2/PD9) so listProviders(tenant) scopes it; unset ⇒ shared.
     const provider: ModelProvider = { ...input, id: `provider-${(providerSeq += 1)}`, tenantId: tenantId ?? input.tenantId }
     MODEL_PROVIDERS.set(provider.id, provider)

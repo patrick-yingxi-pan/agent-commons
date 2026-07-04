@@ -7,6 +7,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from '../server/store.ts'
 import { DEFAULT_PROVIDER_ID } from '../server/data/providers.ts'
+import { startModelServer } from '../server/model/index.ts'
 import { call } from './helpers/http.ts'
 
 test('POST creates a provider; GET lists it; PATCH edits its fields', async () => {
@@ -53,6 +54,85 @@ test('POST with an over-account plan is a 400 (the D8 cascade root)', async () =
   })
   assert.equal(over.status, 400)
   assert.equal(over.json.error.code, 'bad_request')
+})
+
+test('POST with an endpoint config probes it, mints, and never echoes the endpoint half', async () => {
+  // A live Messages-protocol endpoint for the registration probe to verify against.
+  const mock = startModelServer(0, '127.0.0.1')
+  await new Promise<void>((r) => mock.on('listening', () => r()))
+  const addr = mock.address()
+  const baseURL = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`
+  try {
+    const created = await call('POST', '/providers', {
+      label: 'Endpoint provider',
+      modelFamily: 'open',
+      effortLevels: ['Low'],
+      config: { baseURL, apiKeyEnv: 'PROVIDER_ENDPOINT_KEY', model: 'open-model-1' },
+    })
+    assert.equal(created.status, 200)
+    // The write-only config never lands on the read type — no endpoint/credential leak.
+    assert.equal(created.json.config, undefined)
+    assert.equal(created.json.baseURL, undefined)
+    assert.equal(created.json.apiKeyEnv, undefined)
+    const one = await call('GET', `/providers/${created.json.id}`)
+    assert.equal(one.json.config, undefined)
+    // Server-side, the endpoint half + the probed capability record landed intact.
+    const config = store.providerConfig(created.json.id)
+    assert.equal(config.baseURL, baseURL)
+    assert.equal(config.apiKeyEnv, 'PROVIDER_ENDPOINT_KEY')
+    assert.equal(config.model, 'open-model-1')
+    assert.deepEqual(config.capabilities, { toolUse: true })
+
+    // A forged capability record on the wire config is discarded — only the probe
+    // stamps capabilities (the route picks the three known fields explicitly).
+    const forged = await call('POST', '/providers', {
+      label: 'Forged capabilities',
+      modelFamily: 'open',
+      effortLevels: ['Low'],
+      config: { model: 'open-model-2', capabilities: { toolUse: true } },
+    })
+    assert.equal(forged.status, 200)
+    assert.equal(store.providerConfig(forged.json.id).capabilities, undefined)
+  } finally {
+    mock.close()
+  }
+})
+
+test('POST with a credential reference outside PROVIDER_* is a 400 — with or without an endpoint', async () => {
+  // With an endpoint: the probe's wall trips BEFORE any request leaves — nothing is
+  // sent to the caller-supplied URL carrying the referenced secret.
+  const probed = await call('POST', '/providers', {
+    label: 'Exfil via probe',
+    modelFamily: 'open',
+    effortLevels: ['Low'],
+    config: { baseURL: 'http://127.0.0.1:9', apiKeyEnv: 'ANTHROPIC_API_KEY' },
+  })
+  assert.equal(probed.status, 400)
+  assert.equal(probed.json.error.code, 'bad_request')
+  assert.match(probed.json.error.message, /PROVIDER_/)
+
+  // Without an endpoint: the mint funnel's own wall catches it.
+  const minted = await call('POST', '/providers', {
+    label: 'Exfil via mint',
+    modelFamily: 'open',
+    effortLevels: ['Low'],
+    config: { apiKeyEnv: 'ANTHROPIC_API_KEY' },
+  })
+  assert.equal(minted.status, 400)
+  assert.match(minted.json.error.message, /PROVIDER_/)
+})
+
+test('POST with a non-conformant endpoint is a 400 — the provider is never registered', async () => {
+  const countBefore = store.listProviders().length
+  const bad = await call('POST', '/providers', {
+    label: 'Dead endpoint',
+    modelFamily: 'open',
+    effortLevels: ['Low'],
+    config: { baseURL: 'http://127.0.0.1:9' },
+  })
+  assert.equal(bad.status, 400)
+  assert.equal(bad.json.error.code, 'bad_request')
+  assert.equal(store.listProviders().length, countBefore, 'nothing minted')
 })
 
 test('DELETE removes an unbound provider; a second DELETE 404s', async () => {

@@ -10,6 +10,7 @@
  *  at `api.anthropic.com` and set `ANTHROPIC_API_KEY` — no code change. */
 import Anthropic from '@anthropic-ai/sdk'
 import type { Agent, EscalationProposal, Message, RelationOp, SessionContext, ToolActivity } from '../contract/index.ts'
+import { ProviderProbeError, validApiKeyEnv, PROVIDER_KEY_ENV_PREFIX, type ProviderCapabilities, type ProviderConfig } from './data/providers.ts'
 import { TOOL_DEFINITIONS, executeTool, type ToolContext } from './model/tools.ts'
 import { deriveConnectorTools, runConnectorTool } from './model/connectorTools.ts'
 import { chunkText } from './model/replies.ts'
@@ -18,7 +19,7 @@ import { positiveNumberEnv, nonNegativeIntEnv } from './env.ts'
 /** The default provider's model (docs/agent-commons.md, D9): used when a turn's
  *  Agent resolves to a provider that declares no concrete model of its own — so the
  *  env override stays the single source for the default model. Other providers carry
- *  their own model id (server-only config), passed in as `generateReply`'s `model`. */
+ *  their own model id in the server-only `ProviderConfig` `generateReply` receives. */
 const MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-8'
 
 /** SDK transient-error retries (network blips / 429 / 5xx) — fail fast by default to
@@ -41,24 +42,87 @@ function withDeadline(signal?: AbortSignal): AbortSignal {
   return signal ? AbortSignal.any([signal, deadline]) : deadline
 }
 
-/** One door to the model — built lazily from the env so the endpoint can be set
- *  at runtime (the dev boot, or a test pointing at its own mock instance), and
- *  memoized per base URL. Points at the mock model server by default; set
- *  `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` to talk to the real API instead. */
-let cached: { base: string; client: Anthropic } | undefined
-function client(): Anthropic {
-  const base = process.env.ANTHROPIC_BASE_URL ?? `http://127.0.0.1:${process.env.MODEL_PORT ?? 8788}`
-  if (!cached || cached.base !== base) {
-    cached = {
-      base,
-      client: new Anthropic({
-        baseURL: base,
-        apiKey: process.env.ANTHROPIC_API_KEY ?? 'mock-no-key-needed',
-        maxRetries: MODEL_MAX_RETRIES, // fail fast to the graceful fallback if the endpoint is down
-      }),
+/** One door to the model — a provider resolves to `{ endpoint, credential, model }`
+ *  *data*, never provider-specific code: the backend speaks exactly one protocol (the
+ *  Messages API this SDK client carries) and any endpoint that answers it plugs in
+ *  (docs/agent-commons.md, D9). Built lazily from the config + env so the endpoint
+ *  can be set at runtime (the dev boot, or a test pointing at its own mock instance),
+ *  and memoized per `(baseURL, key)` pair — one client per distinct endpoint, so
+ *  providers on different endpoints coexist within a process. The map only ever holds
+ *  a handful of entries (one per registered endpoint / env variant), so it is not
+ *  evicted. A config with no endpoint of its own inherits the ambient default: the
+ *  mock model server, or `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` for the real API. */
+const clients = new Map<string, Anthropic>()
+function clientFor(config: ProviderConfig = {}): Anthropic {
+  const base = config.baseURL ?? process.env.ANTHROPIC_BASE_URL ?? `http://127.0.0.1:${process.env.MODEL_PORT ?? 8788}`
+  // The credential is resolved from the config's env-var *reference* (never a stored
+  // raw key). A declared-but-unset var falls through to the ambient key — against a
+  // real endpoint the registration probe then fails auth, so the mistake surfaces at
+  // mint, not silently at turn time.
+  const key = (config.apiKeyEnv ? process.env[config.apiKeyEnv] : undefined) ?? process.env.ANTHROPIC_API_KEY ?? 'mock-no-key-needed'
+  const cacheKey = `${base}\u0000${key}`
+  let client = clients.get(cacheKey)
+  if (!client) {
+    // Crude growth cap: probes of many distinct (possibly dead) endpoints would
+    // otherwise accumulate clients forever. Registered configs are few, so a rare
+    // full reset only costs re-construction, never correctness.
+    if (clients.size >= 64) clients.clear()
+    client = new Anthropic({
+      baseURL: base,
+      apiKey: key,
+      maxRetries: MODEL_MAX_RETRIES, // fail fast to the graceful fallback if the endpoint is down
+    })
+    clients.set(cacheKey, client)
+  }
+  return client
+}
+
+/** Registration-time conformance probe (docs/agent-commons.md, D9): one tiny real
+ *  Messages call against the config's endpoint, `tools` declared, to verify it speaks
+ *  the protocol and to learn its capability record. An endpoint that rejects the
+ *  `tools` param but answers a plain call is conformant-without-tool-use; one that
+ *  answers neither fails the probe (`ProviderProbeError`) — the route turns that into
+ *  a 400, so a non-conformant provider never reaches the mint funnel. */
+export async function probeProviderEndpoint(config: ProviderConfig): Promise<ProviderCapabilities> {
+  // The credential-reference wall, checked BEFORE any request leaves: the reference
+  // and the endpoint are both caller-supplied, so an unconstrained reference would
+  // exfiltrate any server env secret to an arbitrary URL (see `validApiKeyEnv`).
+  if (!validApiKeyEnv(config.apiKeyEnv)) {
+    throw new ProviderProbeError(`A provider credential must reference a '${PROVIDER_KEY_ENV_PREFIX}*' env var, not '${config.apiKeyEnv}'.`)
+  }
+  const probe = (withTools: boolean) =>
+    clientFor(config).messages.create(
+      {
+        model: config.model ?? MODEL,
+        max_tokens: 8,
+        messages: [{ role: 'user', content: 'Conformance check. Reply with one word.' }],
+        ...(withTools
+          ? { tools: [{ name: 'probe_noop', description: 'Conformance probe — never called.', input_schema: { type: 'object' as const, properties: {} } }] }
+          : {}),
+      },
+      { signal: AbortSignal.timeout(positiveNumberEnv(process.env.PROVIDER_PROBE_TIMEOUT_MS, 10_000)) },
+    )
+  try {
+    await probe(true)
+    return { toolUse: true }
+  } catch (err) {
+    // Only an endpoint that ANSWERED (an error carrying an HTTP status — e.g. it
+    // rejected the `tools` param) falls through to the no-tools probe. An
+    // unreachable / timed-out endpoint (connection error, abort — no status) fails
+    // outright: retrying it without tools could only misclassify a transient blip
+    // as a permanent "no tool use" capability.
+    if (!(err instanceof Anthropic.APIError) || typeof err.status !== 'number') {
+      const detail = err instanceof Error ? err.message : String(err)
+      throw new ProviderProbeError(`The endpoint could not be reached: ${detail}`)
+    }
+    try {
+      await probe(false)
+      return { toolUse: false }
+    } catch (err2) {
+      const detail = err2 instanceof Error ? err2.message : String(err2)
+      throw new ProviderProbeError(`The endpoint didn't answer the Messages protocol: ${detail}`)
     }
   }
-  return cached.client
 }
 
 /** The bit of a session the reply depends on (resolved by the route). */
@@ -120,10 +184,14 @@ export async function generateReply(
   text: string,
   handlers: ReplyHandlers,
   signal?: AbortSignal,
-  model: string = MODEL,
+  provider: ProviderConfig = {},
   commons?: ToolContext['commons'],
   connectorContexts: SessionContext[] = [],
 ): Promise<ReplyResult> {
+  // The turn's provider resolves to data — endpoint, credential reference, model id —
+  // through one protocol (see `clientFor`). An empty config is the default provider:
+  // ambient endpoint, env-default model.
+  const model = provider.model ?? MODEL
   // The live Agent Commons registries (supplied by the route) let the Agent Commons
   // CRUD tools resolve the model's named provider / prompt / agent against what
   // currently exists — so "commission the agent I just made" resolves.
@@ -136,7 +204,13 @@ export async function generateReply(
   // request. Only *attached* contexts yield tools, so the model can't reach one the
   // user didn't add (authority is structural).
   const { definitions: connectorDefs, bindings: connectorBindings } = deriveConnectorTools(connectorContexts)
-  const tools = [...agentTools, ...connectorDefs]
+  // Capability-gated, never identity-gated: a probed non-tool-use provider gets no
+  // `tools` param at all (a strict endpoint would reject it), so the tool-use loop —
+  // and with it the consent-gated proposals — degrades away for turns on it. An
+  // unprobed config (the default provider) is the ambient trusted endpoint: full tools.
+  const supportsTools = provider.capabilities?.toolUse !== false
+  const tools = supportsTools ? [...agentTools, ...connectorDefs] : []
+  const toolsParam = supportsTools ? { tools } : {}
   const userContent = text.trim() || '(the user sent an empty message)'
 
   let assistantId = ''
@@ -154,8 +228,8 @@ export async function generateReply(
 
   try {
     // ── Turn 1: the model may answer with tool calls ─────────────────────────
-    const stream1 = client().messages.stream(
-      { model, max_tokens: 1024, system, tools, messages: [{ role: 'user', content: userContent }] },
+    const stream1 = clientFor(provider).messages.stream(
+      { model, max_tokens: 1024, system, ...toolsParam, messages: [{ role: 'user', content: userContent }] },
       { signal: withDeadline(signal) },
     )
     stream1.on('streamEvent', (event) => {
@@ -200,12 +274,12 @@ export async function generateReply(
     })
 
     // ── Turn 2: feed the results back, stream the final prose ────────────────
-    const stream2 = client().messages.stream(
+    const stream2 = clientFor(provider).messages.stream(
       {
         model,
         max_tokens: 1024,
         system,
-        tools,
+        ...toolsParam,
         messages: [
           { role: 'user', content: userContent },
           { role: 'assistant', content: first.content },

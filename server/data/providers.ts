@@ -8,15 +8,46 @@
  *  Split, on purpose, into two halves: the contract `ModelProvider` (what the UI may
  *  see) and the server-only `ProviderConfig` (credentials / base-URL / concrete model
  *  id) — never exposed to the client, mirroring how `Capabilities` hides the key. */
-import type { ModelProvider } from '../../contract/index.ts'
+import type { ModelProvider, ProviderEndpointConfig } from '../../contract/index.ts'
 
-/** Server-side-only provider config: the concrete model id a turn runs against, and
- *  (in a real deployment) the credentials + base URL this provider authenticates
- *  with. NEVER part of the contract the UI imports. `model` unset = the provider
- *  inherits `generate.ts`'s env-configured default (`ANTHROPIC_MODEL`), the single
- *  source for the default provider's model. */
-export interface ProviderConfig {
-  model?: string
+/** What the registration probe learned about a provider's endpoint — the capability
+ *  record `generate.ts` branches on (never on provider identity). Today one axis:
+ *  whether the endpoint accepts the `tools` param (native tool use); a non-tool
+ *  provider still converses, but the tool-use loop — and so the consent-gated
+ *  proposals — degrades away for turns on it. Server-only, like the config. */
+export interface ProviderCapabilities {
+  toolUse: boolean
+}
+
+/** Thrown when a provider config fails verification: the endpoint doesn't answer the
+ *  registration-time conformance probe, the credential reference is out of policy
+ *  (`validApiKeyEnv`), or a config that declares an endpoint reaches the mint funnel
+ *  *without* a probed capability record. Either way the invariant holds: an
+ *  unverified config is unrepresentable in the registry. */
+export class ProviderProbeError extends Error {}
+
+/** Only env vars under this prefix may be referenced as a provider credential. The
+ *  reference is caller-supplied and its *value* is sent (as `x-api-key`) to the
+ *  caller-supplied endpoint — without the prefix wall, registering
+ *  `{ baseURL: <attacker>, apiKeyEnv: 'ANTHROPIC_API_KEY' }` would exfiltrate any
+ *  server secret to an arbitrary URL. Enforced at both funnels: the probe (before any
+ *  request leaves) and the mint. */
+export const PROVIDER_KEY_ENV_PREFIX = 'PROVIDER_'
+export function validApiKeyEnv(name: string | undefined): boolean {
+  return name === undefined || (name.startsWith(PROVIDER_KEY_ENV_PREFIX) && /^[A-Z][A-Z0-9_]*$/.test(name))
+}
+
+/** Server-side-only provider config: the write-only endpoint half of a registration
+ *  (`ProviderEndpointConfig` — base URL, env-var credential *reference*, concrete
+ *  model id) plus the probed capability record. NEVER part of the contract reads the
+ *  UI imports. All fields unset = the provider inherits `generate.ts`'s env-configured
+ *  defaults (`ANTHROPIC_BASE_URL` / `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL`), the
+ *  single source for the default provider's endpoint and model. */
+export interface ProviderConfig extends ProviderEndpointConfig {
+  /** Stamped by the registration probe (`probeProviderEndpoint`); required by the
+   *  mint funnel whenever `baseURL` is set, so a config can't smuggle in an
+   *  unverified endpoint. */
+  capabilities?: ProviderCapabilities
 }
 
 export const DEFAULT_PROVIDER_ID = 'provider-anthropic'

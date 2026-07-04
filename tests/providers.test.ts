@@ -4,7 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from '../server/store.ts'
-import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_ID } from '../server/data/providers.ts'
+import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_ID, ProviderProbeError } from '../server/data/providers.ts'
 import { BudgetError } from '../server/usage.ts'
 import { call } from './helpers/http.ts'
 
@@ -16,11 +16,12 @@ test('the default provider is seeded and resolvable; unset/unknown falls back to
   assert.ok(DEFAULT_PROVIDER.effortLevels.length > 0)
 })
 
-test('the default provider declares no model — generation inherits the env default', () => {
-  // `undefined` is the signal `generate.ts` uses its env-configured MODEL, keeping the
-  // env override the single source for the default provider's model.
-  assert.equal(store.providerModel(DEFAULT_PROVIDER_ID), undefined)
-  assert.equal(store.providerModel(), undefined)
+test('the default provider declares no endpoint or model — generation inherits the env defaults', () => {
+  // An all-unset config is the signal `generate.ts` uses its env-configured endpoint +
+  // MODEL, keeping the env overrides the single source for the default provider.
+  assert.equal(store.providerConfig(DEFAULT_PROVIDER_ID).model, undefined)
+  assert.equal(store.providerConfig().model, undefined)
+  assert.equal(store.providerConfig().baseURL, undefined)
 })
 
 test('createProvider mints a within-account-plan provider, rejects an over-plan one', () => {
@@ -46,12 +47,55 @@ test('createProvider mints a within-account-plan provider, rejects an over-plan 
   )
 })
 
-test('a provider config carries the model id (server-only), surfaced via providerModel', () => {
+test('a provider config carries the model id (server-only), surfaced via providerConfig', () => {
   const p = store.createProvider(
     { label: 'Custom model', modelFamily: 'claude', effortLevels: ['Medium'] },
     { model: 'claude-custom-test' },
   )
-  assert.equal(store.providerModel(p.id), 'claude-custom-test')
+  assert.equal(store.providerConfig(p.id).model, 'claude-custom-test')
+})
+
+test('the mint funnel refuses a config that brings an endpoint without a probed record', () => {
+  // The invariant mirrors the D8 over-grant: an *unverified* endpoint is
+  // unrepresentable in the registry. The route satisfies it by running
+  // `probeProviderEndpoint` and stamping `capabilities` before the mint.
+  assert.throws(
+    () =>
+      store.createProvider(
+        { label: 'Unprobed endpoint', modelFamily: 'open', effortLevels: ['Low'] },
+        { baseURL: 'http://127.0.0.1:9', model: 'anything' },
+      ),
+    ProviderProbeError,
+  )
+  // The same endpoint config carrying its probe record mints fine, and the whole
+  // config — endpoint, credential *reference*, capabilities — survives server-side.
+  const p = store.createProvider(
+    { label: 'Probed endpoint', modelFamily: 'open', effortLevels: ['Low'] },
+    { baseURL: 'http://127.0.0.1:9', apiKeyEnv: 'PROVIDER_PROBED_KEY', model: 'anything', capabilities: { toolUse: false } },
+  )
+  const config = store.providerConfig(p.id)
+  assert.equal(config.baseURL, 'http://127.0.0.1:9')
+  assert.equal(config.apiKeyEnv, 'PROVIDER_PROBED_KEY')
+  assert.deepEqual(config.capabilities, { toolUse: false })
+  // And none of the server-only endpoint half leaks onto the contract read type.
+  const onWire = store.listProviders().find((x) => x.id === p.id) as Record<string, unknown>
+  assert.equal(onWire.baseURL, undefined)
+  assert.equal(onWire.apiKeyEnv, undefined)
+  assert.equal(onWire.config, undefined)
+})
+
+test('the mint funnel refuses a credential reference outside the PROVIDER_ prefix', () => {
+  // The exfiltration wall: the reference and the endpoint are both caller-supplied,
+  // so an unconstrained reference could point any server secret (ANTHROPIC_API_KEY,
+  // cloud credentials, …) at an arbitrary URL. Only PROVIDER_* vars may be referenced.
+  assert.throws(
+    () =>
+      store.createProvider(
+        { label: 'Exfil attempt', modelFamily: 'open', effortLevels: ['Low'] },
+        { apiKeyEnv: 'ANTHROPIC_API_KEY' },
+      ),
+    ProviderProbeError,
+  )
 })
 
 test('createAgent validates the budget against its provider plan, not just the account', () => {
