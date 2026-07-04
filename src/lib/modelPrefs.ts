@@ -12,6 +12,11 @@ export interface ModelPrefs {
   /** Orthogonal modes — run as a multi-agent workflow / faster Opus streaming. */
   ultracode: boolean
   fast: boolean
+  /** A registered Model provider as the default for NEW sessions (the Customize
+   *  page's "Default model" picking from "Your models"). Unset = the built-in
+   *  trio above. A fresh draft starts on it (`session.providerId`), sanitized
+   *  against the live registry at send — a deleted provider degrades to default. */
+  defaultProviderId?: string
 }
 
 export const DEFAULT_MODEL_PREFS: ModelPrefs = { modelId: 'opus', effort: 'high', ultracode: false, fast: false }

@@ -80,6 +80,8 @@ export function Composer({
   onRemoveContexts,
   onRemoveFolder,
   sessionId,
+  providerId,
+  onSelectModelProvider,
   messageTokens,
 }: {
   workspaces: Workspace[]
@@ -94,6 +96,12 @@ export function Composer({
   disabledLabel?: string
   /** The open session, so the usage gauge's plan rings track this thread. */
   sessionId?: string
+  /** The session's model pick (`session.providerId`) — undefined = the built-in
+   *  Claude models (the default provider / the Agent's own). */
+  providerId?: string
+  /** Write the pick through (controller-owned: PATCH for a real session, held
+   *  locally for a draft until it materializes). Undefined clears to default. */
+  onSelectModelProvider?: (providerId?: string) => void
   /** Live Messages token count of the open thread, so the usage gauge + its
    *  context breakdown fill in real time as the conversation grows. */
   messageTokens?: number
@@ -379,7 +387,7 @@ export function Composer({
             <AudioInputControl />
           </div>
           <div className="flex items-center gap-1.5">
-            <ModelEffortControl />
+            <ModelEffortControl providerId={providerId} onSelectProvider={onSelectModelProvider} />
             <ProvidersControl />
             <HostsControl />
             <UsageControl sessionId={sessionId} messageTokens={messageTokens} />

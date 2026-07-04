@@ -109,7 +109,7 @@ mirrors `PROPOSAL.md` §5:
 | Progressive disclosure | The right panel is absent in chat and morphs (artifacts → code editor/diff/terminal) as context attaches. |
 | Unified history | The sidebar — one row per conversation; open "Refactor auth middleware" (chat+repo) vs "Vector databases, explained" (chat only) to see the panel adapt. |
 | Relations, edited with consent | The tour's **project-create** and **Organize** beats — Claude proposes relation edits as inline cards; nothing changes until you confirm. Standing approval (a schedule) is approved once, then runs unprompted. |
-| One gate for everything Claude changes | The **Agents** hub's concepts (model providers, prompts, worker agents, commissions) are managed two ways — by hand (the hub's dialogs) **and conversationally**: free-type "create a worker agent called X on Anthropic" or "commission X to the Insights dashboard project" and Claude proposes it through the *same* confirm card the relation edits use (`docs/agent-commons.md` slice 17). |
+| One gate for everything Claude changes | The Agent-Commons concepts (model providers — the **Models** rail section; worker agents, prompts, commissions — the **Agents** hub) are managed two ways — by hand (their dialogs) **and conversationally**: free-type "create a worker agent called X on Anthropic" or "commission X to the Insights dashboard project" and Claude proposes it through the *same* confirm card the relation edits use (`docs/agent-commons.md` slice 17). |
 | Portability (one UI, two backends) | `contract/` (types imported verbatim by both ends) + `GET /v1/capabilities` gating native-only endpoints; `BACKEND=remote` returns `409 capability_unavailable`. |
 
 **A good evaluation answers:** does collapsing the three tabs into one
@@ -259,6 +259,21 @@ the mock?
   (`.claude/skills/ui-review/SKILL.md`). After a UI change, review against that
   ledger — sweep the surfaces × viewports the *diff* could affect, not the spots
   you edited — and ratchet every confirmed escape into a new funnel + lock + row.
+- **Registries have one home and live points-of-use.** Every account-level registry
+  (Model providers → the **Models** rail section; worker agents / prompts /
+  commissions → the **Agents** hub; saved connectors & repos → **Contexts**) is
+  *managed* in exactly one surface, and every control that *offers* its entries —
+  the composer's model selector, a routine's model picker, Customize's default
+  model, the Agent dialog's provider picker — reads the **same live registry
+  through the api hooks**, never a hard-coded mirror. (The composer's model list
+  was once a frozen trio while providers lived in a hub tab — registering a model
+  didn't make it selectable; that class of drift is the target.) Embodied by
+  `src/components/ModelPickerMenu.tsx` (the one model list, all three pickers) and
+  locked by `tests/model-picker.test.ts`, which fails if a component re-hardcodes
+  the catalog outside the shared menu. When adding a picker for a registry concept,
+  drive it from the registry hook and route it through the shared menu — and if the
+  concept's entries are usable in sessions, make the registry a first-class rail
+  surface, not a sub-tab of the thing that consumes it.
 - **The dev server binds IPv4** (`server.host: '127.0.0.1'` in `vite.config.ts`).
   On some hosts `localhost` resolves to `::1` only, which a browser/preview hitting
   `127.0.0.1` can't reach. Keep the explicit bind (the API proxy targets it too).
@@ -321,9 +336,13 @@ the mock?
   *honestly*: the messages route dispatches session turns to a small `relayReply`
   sibling of `generateReply` (same handlers seam, `server/relay.ts`), so the whole
   Messages stack stays byte-for-byte untouched — no loopback shim. The user-side is
-  one MCP connector (`connector/relay-connector.ts`, `npm run connector`) driven by
+  one MCP connector (`connector/relay-connector.ts` — `npm run connector` from a
+  clone, or downloaded from the product itself: `GET /api/v1/connector` serves it
+  type-stripped as one self-contained `session-relay.mjs`, spec MODEL-14) driven by
   a blocking `respond_and_wait` loop; v1 is prose-only (`toolUse:false`), locked by
-  `tests/relay.test.ts` (spec rows MODEL-10/-11). The design log — three passes,
+  `tests/relay.test.ts` (spec rows MODEL-10/-11). Providers are first-class
+  **Models** (rail section + every model picker reads the live registry; a session's
+  pick routes its turns — spec MODEL-13). The design log — three passes,
   ending in the simplification the implementation follows verbatim — and the v2
   checklist: [`docs/delegated-cognition-provider.md`](docs/delegated-cognition-provider.md).
 

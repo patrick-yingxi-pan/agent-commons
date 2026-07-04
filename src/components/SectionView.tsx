@@ -61,8 +61,9 @@ import {
   nextRunLabel,
   parseCadence,
 } from '../lib/cadence'
-import { EFFORTS, MODELS, composeModelLabel, parseModelLabel, type Effort, type ModelId } from '../lib/models'
+import { composeModelLabel, parseModelChoice, providerModelOptions, type Effort, type ModelChoice, type ModelId } from '../lib/models'
 import { loadModelPrefs, saveModelPrefs, type ModelPrefs } from '../lib/modelPrefs'
+import { ModelPickerMenu } from './ModelPickerMenu'
 import { STEP_TOOLS } from '../lib/stepTools'
 import { cleanSteps, moveStep, removeStep } from '../lib/steps'
 import { ConnectorDetailBody } from './ConnectorPanel'
@@ -208,6 +209,8 @@ export function SectionView({
       <ArtifactsSection onOpenSession={onOpenSession} />
     ) : section === 'contexts' ? (
       <ContextsSection />
+    ) : section === 'models' ? (
+      <ModelsSection />
     ) : section === 'agents' ? (
       <AgentCommonsSection />
     ) : section === 'scheduled' ? (
@@ -2436,11 +2439,10 @@ function StatusPill({ tone, label }: { tone: 'ok' | 'warn' | 'bad' | 'neutral'; 
  *  interdependent (an Agent binds a provider + prompt; a commission binds an Agent to a
  *  Project), so they read as one surface rather than four nav rows. Slice 1 lists each
  *  read-only; later slices add create / edit / delete per tab. */
-type CommonsTab = 'agents' | 'providers' | 'prompts' | 'commissions' | 'audit'
+type CommonsTab = 'agents' | 'prompts' | 'commissions' | 'audit'
 
 const COMMONS_TABS: { id: CommonsTab; label: string }[] = [
   { id: 'agents', label: 'Agents' },
-  { id: 'providers', label: 'Providers' },
   { id: 'prompts', label: 'Prompts' },
   { id: 'commissions', label: 'Commissions' },
   { id: 'audit', label: 'Audit' },
@@ -2453,14 +2455,14 @@ function AgentCommonsSection() {
       <PageHeader title="Agents" />
       <p className="-mt-2 mb-4 text-[13px] leading-relaxed text-ink-soft">
         Your worker agents and the fabric they run on — the{' '}
-        <span className="font-medium text-ink">providers</span> that supply cognition, the{' '}
-        <span className="font-medium text-ink">prompts</span> they start from, and the{' '}
+        <span className="font-medium text-ink">prompts</span> they start from and the{' '}
         <span className="font-medium text-ink">commissions</span> placing them on projects.
+        The models that supply their cognition live in the sidebar’s{' '}
+        <span className="font-medium text-ink">Models</span> section.
       </p>
       <SubTabs tabs={COMMONS_TABS} active={tab} onChange={setTab} />
       <div className="mt-5">
         {tab === 'agents' && <AgentsTab />}
-        {tab === 'providers' && <ProvidersTab />}
         {tab === 'prompts' && <PromptsTab />}
         {tab === 'commissions' && <CommissionsTab />}
         {tab === 'audit' && <AuditTab />}
@@ -2910,22 +2912,37 @@ function ProbeResultCard({ probe }: { probe: PromptProbeResult }) {
 /** Model providers (D9) — the cognition source an Agent binds: family, effort levels,
  *  authority grant, and plan ceiling (the D8 cascade root). Mirrors the composer gauge's
  *  rows in a fuller card. */
-function ProvidersTab() {
+/** The Models section — the Model-provider registry (D9) as a first-class rail
+ *  surface. Every entry here is selectable as a model in any session's composer
+ *  (the selector reads this same registry), so registering a provider and using
+ *  it are two views of one concept: models are first-class citizens. */
+function ModelsSection() {
   const providers = useProviders().data ?? []
   // null = no dialog; 'new' = create; a provider = edit that one.
   const [editing, setEditing] = useState<ModelProvider | 'new' | null>(null)
   return (
-    <div className="space-y-3">
-      <TabToolbar newLabel="New provider" onNew={() => setEditing('new')} />
-      {providers.length === 0 ? (
-        <Empty>No providers registered.</Empty>
-      ) : (
-        providers.map((p) => <ProviderCard key={p.id} provider={p} onEdit={() => setEditing(p)} />)
-      )}
-      {editing && (
-        <ProviderDialog provider={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
-      )}
-    </div>
+    <Page>
+      <PageHeader title="Models" />
+      <p className="-mt-2 mb-4 text-[13px] leading-relaxed text-ink-soft">
+        Every model your sessions can run on. Each entry is a{' '}
+        <span className="font-medium text-ink">model provider</span> — the built-in Anthropic
+        one, a Messages endpoint you register, or a{' '}
+        <span className="font-medium text-ink">Session provider</span> answered by an AI
+        session you already run. All of them appear in the composer’s model selector, so a
+        model registered here is immediately usable in any conversation.
+      </p>
+      <div className="space-y-3">
+        <TabToolbar newLabel="New provider" onNew={() => setEditing('new')} />
+        {providers.length === 0 ? (
+          <Empty>No providers registered.</Empty>
+        ) : (
+          providers.map((p) => <ProviderCard key={p.id} provider={p} onEdit={() => setEditing(p)} />)
+        )}
+        {editing && (
+          <ProviderDialog provider={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
+        )}
+      </div>
+    </Page>
   )
 }
 
@@ -3020,11 +3037,15 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
   const dialogRef = useRef<HTMLDivElement>(null)
   const guardedClose = () => saved && onClose()
   useFocusTrap(dialogRef, guardedClose)
-  const installCommand = 'claude mcp add session-relay -- npm run connector'
   // The externally dialable relay base: the same-origin `/api/v1` resolved to an
-  // absolute URL (an absolute VITE_API_BASE passes through unchanged), so the
-  // sentence is right in every deploy shape, not just default-port dev.
+  // absolute URL (an absolute VITE_API_BASE passes through unchanged), so every
+  // command below is right in every deploy shape, not just default-port dev.
   const relayUrl = new URL(API_BASE, window.location.origin).href.replace(/\/$/, '')
+  // The public install (spec MODEL-14): the backend serves the connector itself as
+  // one self-contained plain-JS module, so a hosted user needs nothing from the
+  // repo — download the file, register it as an MCP server, done. Node ≥ 18.
+  const connectorUrl = `${relayUrl}/connector`
+  const installCommand = `curl -fsSL ${connectorUrl} -o ~/session-relay.mjs && claude mcp add session-relay -- node ~/session-relay.mjs`
   const connectSentence = `Connect to ${relayUrl} with secret ${secret} and start draining.`
   const copy = (text: string) => {
     void navigator.clipboard?.writeText(text)
@@ -3058,10 +3079,22 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
             </button>
           </div>
           <div>
-            <p className="mb-1 text-[12px] font-medium text-ink-soft">Install the connector once (any relay, from this repo):</p>
-            <code className="block overflow-x-auto whitespace-nowrap rounded-lg border border-line bg-panel px-3 py-2 font-mono text-[12px] text-ink">
-              {installCommand}
-            </code>
+            <p className="mb-1 text-[12px] font-medium text-ink-soft">
+              Install the connector once (any relay, any machine — served right here; needs Node 18+ and{' '}
+              <a href={connectorUrl} download="session-relay.mjs" className="font-medium text-accent hover:underline">
+                downloads directly
+              </a>{' '}
+              too):
+            </p>
+            <div className="flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2">
+              <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-[12px] text-ink">{installCommand}</code>
+              <button
+                onClick={() => copy(installCommand)}
+                className="shrink-0 rounded-md border border-line px-2 py-1 text-[11px] font-medium text-ink-soft transition hover:border-accent hover:text-ink"
+              >
+                {copied === installCommand ? 'Copied' : 'Copy'}
+              </button>
+            </div>
           </div>
           <div>
             <p className="mb-1 text-[12px] font-medium text-ink-soft">Then type this into a fresh session that will do the thinking:</p>
@@ -4994,24 +5027,41 @@ function ModelPanel({ task }: { task: ScheduledTask }) {
   )
 }
 
-/** The model + effort picker for a routine — reuses the shared catalog and the
- *  composer's two-section layout (model radios + an effort ladder). Each pick
- *  applies live via updateSchedule({ model }); "Done" closes. */
+/** The model + effort picker for a routine — the shared ModelPickerMenu (built-in
+ *  trio + the live provider registry), so a model registered in the Models section
+ *  is schedulable too. A built-in pick stores the composed label ("Claude Opus 4.8
+ *  · High"); a provider pick stores the provider's label — `parseModelChoice`
+ *  bridges both back. Each pick applies live via updateSchedule({ model }); "Done"
+ *  closes. (Runs are mock-synthesized, so the field is descriptive — the same
+ *  honesty boundary as the rest of Scheduled.) */
 function ScheduleModelPicker({ task, onClose }: { task: ScheduledTask; onClose: () => void }) {
   // Mounted only while open, so dismiss listeners live for its whole lifetime.
   const ref = useDismissable<HTMLDivElement>(true, onClose)
   const popRef = usePopoverShift<HTMLDivElement>(true)
-  const init = parseModelLabel(task.model)
-  const [modelId, setModelId] = useState<ModelId>(init.modelId)
-  const [effort, setEffort] = useState<Effort>(init.effort)
+  const registered = providerModelOptions(useProviders().data ?? [])
+  const init = parseModelChoice(task.model, registered)
+  // Two axes of state: the built-in radios keep their last model+effort even while
+  // a provider is picked over them, so switching back lands where the user left
+  // off (Opus · High only for a routine that never had a built-in pick).
+  const [builtin, setBuiltin] = useState<{ modelId: ModelId; effort: Effort }>(
+    init.kind === 'builtin' ? { modelId: init.modelId, effort: init.effort } : { modelId: 'opus', effort: 'high' },
+  )
+  const [providerPick, setProviderPick] = useState<string | undefined>(
+    init.kind === 'provider' ? init.providerId : undefined,
+  )
 
-  const pickModel = (id: ModelId) => {
-    setModelId(id)
-    void updateSchedule(task.id, { model: composeModelLabel(id, effort) })
-  }
-  const pickEffort = (e: Effort) => {
-    setEffort(e)
-    void updateSchedule(task.id, { model: composeModelLabel(modelId, e) })
+  const commit = (next: ModelChoice) => {
+    if (next.kind === 'provider') {
+      setProviderPick(next.providerId)
+    } else {
+      setProviderPick(undefined)
+      setBuiltin({ modelId: next.modelId, effort: next.effort })
+    }
+    const label =
+      next.kind === 'provider'
+        ? registered.find((o) => o.providerId === next.providerId)?.name ?? task.model
+        : composeModelLabel(next.modelId, next.effort)
+    void updateSchedule(task.id, { model: label })
   }
 
   return (
@@ -5022,52 +5072,17 @@ function ScheduleModelPicker({ task, onClose }: { task: ScheduledTask; onClose: 
       }}
       role="dialog"
       aria-label="Model and effort"
-      className={`absolute bottom-full right-0 z-30 mb-1.5 w-[280px] p-2 ${POPOVER_SURFACE}`}
+      className={`absolute bottom-full right-0 z-30 mb-1.5 w-[300px] overflow-hidden ${POPOVER_SURFACE}`}
     >
-      <div className="px-1.5 pb-1 pt-0.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Model</div>
-      {MODELS.map((m) => {
-        const on = m.id === modelId
-        return (
-          <button
-            key={m.id}
-            onClick={() => pickModel(m.id)}
-            className={`flex w-full items-start gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition ${
-              on ? 'bg-panel-2' : 'hover:bg-panel-2/60'
-            }`}
-          >
-            <span
-              className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
-                on ? 'border-accent bg-accent text-white' : 'border-line-strong'
-              }`}
-            >
-              {on && <Check size={11} strokeWidth={3} />}
-            </span>
-            <span className="min-w-0">
-              <span className="block text-[13px] font-medium text-ink">{m.name}</span>
-              <span className="block text-[11px] leading-snug text-ink-faint">{m.blurb}</span>
-            </span>
-          </button>
-        )
-      })}
-      <div className="my-1.5 border-t border-line" />
-      <div className="px-1.5 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Effort</div>
-      <div className="flex gap-1 rounded-lg bg-panel-2 p-0.5">
-        {EFFORTS.map((e) => {
-          const on = e.id === effort
-          return (
-            <button
-              key={e.id}
-              onClick={() => pickEffort(e.id)}
-              className={`flex-1 rounded-md px-1 py-1 text-[12px] font-medium transition ${
-                on ? 'bg-surface text-ink shadow-sm ring-1 ring-line-strong' : 'text-ink-soft hover:text-ink'
-              }`}
-            >
-              {e.label}
-            </button>
-          )
-        })}
-      </div>
-      <div className="mt-2 flex justify-end px-1">
+      <ModelPickerMenu
+        modelId={builtin.modelId}
+        effort={builtin.effort}
+        providerId={providerPick}
+        onPickModel={(m) => commit({ kind: 'builtin', modelId: m.id, effort: builtin.effort })}
+        onPickEffort={(e) => commit({ kind: 'builtin', modelId: builtin.modelId, effort: e })}
+        onPickProvider={(o) => commit({ kind: 'provider', providerId: o.providerId })}
+      />
+      <div className="flex justify-end px-3 pb-2">
         <button onClick={onClose} className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:text-ink">
           Done
         </button>
@@ -5142,22 +5157,25 @@ function CustomizeView() {
 
 /** The "Default model" setting — reads & writes the SAME persisted preference the
  *  composer's model control uses (lib/modelPrefs), so changing it here changes what
- *  new sessions start with. A pill that opens the shared model + effort menu. */
+ *  new sessions start with. The shared ModelPickerMenu, so a registered provider
+ *  is a valid default too (`defaultProviderId` — a fresh draft starts on it; a
+ *  later-deleted provider degrades back to the built-in default at send). */
 function DefaultModelCard() {
   const [prefs, setPrefs] = useState<ModelPrefs>(loadModelPrefs)
   const [open, setOpen] = useState(false)
   const ref = useDismissable<HTMLDivElement>(open, () => setOpen(false))
   const popRef = usePopoverShift<HTMLDivElement>(open)
+  const registered = providerModelOptions(useProviders().data ?? [])
+  // Stale-pref tolerance: a defaultProviderId whose provider is gone renders (and
+  // behaves) as the built-in default rather than a dangling name.
+  const pickedDefault = prefs.defaultProviderId
+    ? registered.find((o) => o.providerId === prefs.defaultProviderId)
+    : undefined
 
   const commit = (next: ModelPrefs) => {
     setPrefs(next)
     saveModelPrefs(next)
   }
-  const pickModel = (modelId: ModelId) => {
-    const isOpus = MODELS.find((m) => m.id === modelId)?.isOpus
-    commit({ ...prefs, modelId, ...(isOpus ? {} : { fast: false }) })
-  }
-  const pickEffort = (effort: Effort) => commit({ ...prefs, effort })
 
   return (
     <Card title="Default model" desc="What new sessions and the composer start with.">
@@ -5169,7 +5187,7 @@ function DefaultModelCard() {
           className="group inline-flex items-center gap-1.5 rounded-lg bg-panel-2 px-3 py-1 text-[12px] font-medium text-ink ring-1 ring-transparent transition hover:ring-line-strong"
         >
           <ClaudeMark size={13} />
-          <span>{composeModelLabel(prefs.modelId, prefs.effort)}</span>
+          <span>{pickedDefault ? pickedDefault.name : composeModelLabel(prefs.modelId, prefs.effort)}</span>
           <ChevronDown size={12} className="text-ink-faint transition group-hover:text-ink-soft" />
         </button>
         {open && (
@@ -5177,51 +5195,18 @@ function DefaultModelCard() {
             ref={popRef}
             role="dialog"
             aria-label="Default model and effort"
-            className={`absolute right-0 top-full z-30 mt-1.5 w-[280px] p-2 ${POPOVER_SURFACE}`}
+            className={`absolute right-0 top-full z-30 mt-1.5 w-[300px] overflow-hidden ${POPOVER_SURFACE}`}
           >
-            <div className="px-1.5 pb-1 pt-0.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Model</div>
-            {MODELS.map((m) => {
-              const on = m.id === prefs.modelId
-              return (
-                <button
-                  key={m.id}
-                  onClick={() => pickModel(m.id)}
-                  className={`flex w-full items-start gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition ${
-                    on ? 'bg-panel-2' : 'hover:bg-panel-2/60'
-                  }`}
-                >
-                  <span
-                    className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
-                      on ? 'border-accent bg-accent text-white' : 'border-line-strong'
-                    }`}
-                  >
-                    {on && <Check size={11} strokeWidth={3} />}
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-[13px] font-medium text-ink">{m.name}</span>
-                    <span className="block text-[11px] leading-snug text-ink-faint">{m.blurb}</span>
-                  </span>
-                </button>
-              )
-            })}
-            <div className="my-1.5 border-t border-line" />
-            <div className="px-1.5 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Effort</div>
-            <div className="flex gap-1 rounded-lg bg-panel-2 p-0.5">
-              {EFFORTS.map((e) => {
-                const on = e.id === prefs.effort
-                return (
-                  <button
-                    key={e.id}
-                    onClick={() => pickEffort(e.id)}
-                    className={`flex-1 rounded-md px-1 py-1 text-[12px] font-medium transition ${
-                      on ? 'bg-surface text-ink shadow-sm ring-1 ring-line-strong' : 'text-ink-soft hover:text-ink'
-                    }`}
-                  >
-                    {e.label}
-                  </button>
-                )
-              })}
-            </div>
+            <ModelPickerMenu
+              modelId={prefs.modelId}
+              effort={prefs.effort}
+              providerId={pickedDefault?.providerId}
+              onPickModel={(m) =>
+                commit({ ...prefs, modelId: m.id, ...(m.isOpus ? {} : { fast: false }), defaultProviderId: undefined })
+              }
+              onPickEffort={(e) => commit({ ...prefs, effort: e })}
+              onPickProvider={(o) => commit({ ...prefs, defaultProviderId: o.providerId })}
+            />
           </div>
         )}
       </div>

@@ -25,6 +25,9 @@ import type {
   UpdateScheduleRequest,
 } from '../../contract/index.ts'
 import { timingSafeEqual } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { stripTypeScriptTypes } from 'node:module'
+import { fileURLToPath } from 'node:url'
 import { Router } from '../http/router.ts'
 import { sendJson, sendError, sendBytes, sendJsonCached, sendText, headerValue, BASE_HEADERS, type Ctx } from '../http/respond.ts'
 import {
@@ -57,7 +60,7 @@ import { BudgetError } from '../usage.ts'
 import { AuthorityError } from '../authority.ts'
 import { ConflictError } from '../conflict.ts'
 import { LimitError } from '../limit.ts'
-import { isMonotonic, isProjectEffectMonotonic, PROJECT_EFFECT_TYPES, PROJECT_ROLES } from '../../contract/index.ts'
+import { DEFAULT_PROVIDER_ID, isMonotonic, isProjectEffectMonotonic, PROJECT_EFFECT_TYPES, PROJECT_ROLES } from '../../contract/index.ts'
 import type {
   AuthAccount,
   CapabilityRequest,
@@ -885,6 +888,23 @@ export function buildRouter(): Router {
     }
     sendJson(res, { ok: true })
   })
+  // The user-side connector itself, served as ONE self-contained plain-JS module —
+  // the public install path (docs/delegated-cognition-provider.md §4.2, spec
+  // MODEL-14). A hosted user can't run a repo script, so the backend serves the
+  // file the flow needs: the checked-in TypeScript source with its types erased at
+  // request time by the runtime's own stripper (`node:module.stripTypeScriptTypes`
+  // — no build step, no drift; the connector's only import is `import type`, which
+  // erases, so the output runs on any Node ≥ 18 with plain `node file.mjs`).
+  // Unauthenticated by design: the connector is a program, not a secret — the
+  // rendezvous secret it later presents is the credential. Both backends serve it.
+  let connectorJs: string | null = null
+  r.get('/connector', ({ res }) => {
+    connectorJs ??= stripTypeScriptTypes(
+      readFileSync(fileURLToPath(new URL('../../connector/relay-connector.ts', import.meta.url)), 'utf8'),
+    )
+    res.setHeader('Content-Disposition', 'attachment; filename="session-relay.mjs"')
+    sendText(res, connectorJs, 'text/javascript; charset=utf-8')
+  })
 
   // ── Worker Agents (docs/agent-commons.md, D6) ──────────────────────────────
   // The user-created workers. `/agents` is the host-bound type's *former* route name,
@@ -1414,15 +1434,42 @@ export function buildRouter(): Router {
   })
   // Materialize a new persisted session — a draft becomes real on its first send
   // (the client posts here, adopts the returned id, then streams the turn to it).
+  // A session's `providerId` (the composer's model pick) must name a provider the
+  // caller can see (own + shared seeds, F2/PD9) — same wall as an Agent's binding
+  // (`badAgentRef`), so a session can't be routed through another tenant's provider.
+  const badSessionProvider = (providerId: string | undefined, tenantId: string): string | null =>
+    providerId && !store.listProviders(tenantId).some((p) => p.id === providerId)
+      ? `No provider '${providerId}'`
+      : null
   r.post('/sessions', idempotent(async ({ req, res, body }) => {
-    const { firstMessage } = await body<import('../../contract/index.ts').CreateSessionRequest>()
+    const { firstMessage, providerId } = await body<import('../../contract/index.ts').CreateSessionRequest>()
     // Stamp the creating tenant so the scoped list/read above see it (F2/PD9).
-    sendJson(res, store.createSession(firstMessage, store.identity(req.headers).tenant.id))
+    const tenantId = store.identity(req.headers).tenant.id
+    const bad = badSessionProvider(providerId, tenantId)
+    if (bad) return sendError(res, 'not_found', bad)
+    sendJson(res, store.createSession(firstMessage, tenantId, providerId))
   }))
-  // Edit a session's row fields (rename / pin / archive) from the sidebar menu.
+  // Edit a session's row fields (rename / pin / archive / model pick) from the
+  // sidebar menu and the composer's model selector.
   r.patch('/sessions/:id', async ({ req, res, params, body }) => {
     if (denyForeignSession(req, res, params.id)) return
-    const patch = await body<{ title?: string; status?: 'active' | 'archived'; pinned?: boolean }>()
+    const patch = await body<{ title?: string; status?: 'active' | 'archived'; pinned?: boolean; providerId?: string }>()
+    // Empty string clears back to the Agent's provider — always a valid reference.
+    const callerTenant = store.identity(req.headers).tenant.id
+    const bad = badSessionProvider(patch?.providerId || undefined, callerTenant)
+    if (bad) return sendError(res, 'not_found', bad)
+    // A model pick is a ROUTING control, not display chrome — so unlike rename/pin
+    // it must also be valid for the session's OWNER: the flagship seeds are visible
+    // to two faces of one seat (the default principal and Ada/Acme), and without
+    // this wall one face could point the shared session at its private relay,
+    // silently egressing the other face's turns to a drain loop it never chose.
+    // Decision: visibility stays the demo affordance; routing follows ownership.
+    if (patch?.providerId) {
+      const owner = store.getSession(params.id)?.tenantId ?? store.identity().tenant.id
+      if (owner !== callerTenant && badSessionProvider(patch.providerId, owner)) {
+        return sendError(res, 'not_found', `No provider '${patch.providerId}'`)
+      }
+    }
     const session = store.patchSession(params.id, patch)
     if (!session) return sendError(res, 'not_found', `No session '${params.id}'`)
     sendJson(res, session)
@@ -1548,18 +1595,22 @@ export function buildRouter(): Router {
     // The worker Agent driving this Conversation (docs/agent-commons.md, D6) —
     // resolves to the seeded default until users create their own.
     const agent = store.getAgent(known?.agentId)
-    // The endpoint + model this turn runs on is the Agent's Model provider's (D9) —
-    // resolved to server-only *data* (base URL, credential reference, model id,
-    // probed capabilities), never provider-specific code. The default provider's
-    // config is empty, so generation uses its env-configured defaults.
-    const provider = store.providerConfig(agent.providerId)
+    // The endpoint + model this turn runs on: the session's own model pick (the
+    // composer's selector — `session.providerId`) when set, else the Agent's Model
+    // provider (D9). Resolved to server-only *data* (base URL, credential reference,
+    // model id, probed capabilities), never provider-specific code. The default
+    // provider's config is empty, so generation uses its env-configured defaults.
+    // Resolved explicitly to the seeded default when both are unset, so the per-turn
+    // provenance stamp below always names a real provider (never "implicit").
+    const turnProviderId = known?.providerId ?? agent.providerId ?? DEFAULT_PROVIDER_ID
+    const provider = store.providerConfig(turnProviderId)
     // The relay pre-turn gate (docs/delegated-cognition-provider.md §7.2): a turn on a
     // Session provider refuses BEFORE the user turn persists — the spend gate's shape —
     // when no drain loop is bound (offline) or another turn already holds the relay's
     // one-entry slot (busy). Nothing half-writes; retry is free; a dead relay never
     // wedges a turn to the deadline.
     if (provider.kind === 'session') {
-      const relayId = agent.providerId
+      const relayId = turnProviderId
       if (!relayId || !store.relay.online(relayId)) {
         return sendError(res, 'relay_offline', 'Your session isn’t answering — start its drain loop and retry.')
       }
@@ -1649,7 +1700,7 @@ export function buildRouter(): Router {
       // deadline, never `MODEL_TIMEOUT_MS`). One `if` where a loopback shim isn't.
       const { message, usage, outcome } =
         provider.kind === 'session'
-          ? await relayReply(session, agent, text ?? '', replyHandlers, ac.signal, store.relay, agent.providerId!)
+          ? await relayReply(session, agent, text ?? '', replyHandlers, ac.signal, store.relay, turnProviderId!)
           : await generateReply(
               session,
               agent,
@@ -1711,9 +1762,11 @@ export function buildRouter(): Router {
       // The model's reply text is canned (the mock model server) but its
       // *persistence* is real: record the assistant turn so the thread is the
       // system of record, then close the stream. The tour (ephemeral) skips this.
-      // D16 per-turn provenance: stamp the turn with the Agent that drove it, so authorship
-      // (and metering attribution) survive a mid-thread hand-off — the binding is current-driver.
-      const stamped = { ...message, agentId: agent.id }
+      // D16 per-turn provenance: stamp the turn with the Agent that drove it AND the
+      // provider that supplied the cognition (as resolved — session pick or agent's), so
+      // authorship, metering attribution, and the relayed-reply badge survive a
+      // mid-thread hand-off or model switch — the binding is current-driver.
+      const stamped = { ...message, agentId: agent.id, providerId: turnProviderId }
       if (persist) {
         store.appendMessage(params.id, stamped)
         turns.markPersisted(active.id, stamped.id) // gate for post-finish retry replay (§5.4)
@@ -1726,7 +1779,7 @@ export function buildRouter(): Router {
       // A cancel keeps what the turn already produced (design §7): persist the
       // partial as the assistant turn and close the stream with it as authoritative.
       if (ac.signal.aborted && messageId) {
-        const partial: Message = { id: messageId, role: 'assistant', content: streamedText, agentId: agent.id }
+        const partial: Message = { id: messageId, role: 'assistant', content: streamedText, agentId: agent.id, providerId: turnProviderId }
         if (persist) {
           store.appendMessage(params.id, partial)
           turns.markPersisted(active.id, partial.id) // a cancelled partial is still the record

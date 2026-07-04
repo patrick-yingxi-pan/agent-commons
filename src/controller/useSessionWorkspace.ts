@@ -24,6 +24,7 @@ import { sameFocus } from '../lib/focus'
 import { pushLocation, type NavLocation } from '../lib/nav'
 import { rememberAttached } from '../lib/contextShortcuts'
 import { getPanelPref, setPanelPref } from '../lib/panelPrefs'
+import { loadModelPrefs } from '../lib/modelPrefs'
 import { parseFsRecentKey } from '../../contract/index'
 import { runSessionById } from '../data/scheduledRuns'
 import {
@@ -34,6 +35,7 @@ import {
   detachContext,
   invalidate,
   keys,
+  peek,
   loadSession,
   patchSession,
   persistWorkspace,
@@ -50,6 +52,7 @@ import type {
   AttachContextRequest,
   EscalationProposal,
   Message,
+  ModelProvider,
   PanelFocus,
   Repo,
   SectionId,
@@ -210,6 +213,16 @@ export function useSessionWorkspace() {
   // persist a binding (it has no server id yet), so these are held and flushed onto
   // the real session the moment the draft materializes, so they survive a reload.
   const pendingDraftContexts = useRef<AddedContext[]>([])
+  // The draft's model pick (the composer's selector on a not-yet-real session) —
+  // same holding pattern as the contexts above: the draft can't PATCH a server row,
+  // so the pick rides the materialization (`createSession(text, providerId)`).
+  // Seeded from the Customize page's default (`defaultProviderId`), so "what new
+  // sessions start with" covers registered models too.
+  const [draftProviderId, setDraftProviderId] = useState<string | undefined>(
+    () => loadModelPrefs().defaultProviderId,
+  )
+  const draftProviderRef = useRef(draftProviderId)
+  draftProviderRef.current = draftProviderId
 
   const activeSession = useMemo(
     // A scheduled run opens its own synthesized session — resolve from the live
@@ -642,6 +655,17 @@ export function useSessionWorkspace() {
     // session's focus). Carried onto the real session below so an explicitly-closed
     // panel on a pre-attached draft (FWD-1) survives the draft→real transition (FWD-2).
     const draftFocus = focusRef.current
+    // The draft's model pick at dispatch (same synchronous capture as the focus
+    // above), sanitized against the live registry: a stale pick — e.g. a Customize
+    // default whose provider was deleted — degrades to the built-in default instead
+    // of failing the materialization (the server 404s an unknown providerId). The
+    // same sanitize guards the post-materialize flush below, so a rejected stale id
+    // can't sneak back in through the late-write path.
+    const sanitizePick = (id: string | undefined): string | undefined => {
+      const known = peek<ModelProvider[]>(keys.providers)
+      return id && (!known || known.some((p) => p.id === id)) ? id : undefined
+    }
+    const draftProvider = sanitizePick(draftProviderRef.current)
     // The send generation at dispatch time. Any session switch / re-select bumps
     // runId (via clearTimers), which invalidates this stream — so a reconcile
     // triggered by re-selecting this same session mid-stream can't be clobbered by,
@@ -668,7 +692,7 @@ export function useSessionWorkspace() {
           // Coalesce a rapid second send on the same fresh draft into the first
           // materialization (the composer isn't disabled while streaming), so two
           // quick messages land in ONE session rather than creating two.
-          const pending = draftMaterializing.current ?? createSession(text)
+          const pending = draftMaterializing.current ?? createSession(text, draftProvider)
           draftMaterializing.current = pending
           const created = await pending
           sid = created.id
@@ -698,6 +722,15 @@ export function useSessionWorkspace() {
           // couldn't persist a pref (no server id), so an explicitly-closed panel on a
           // pre-attached draft would otherwise be re-opened by strongestFocus on reopen.
           setPanelPref(sid, draftFocus)
+          // A model pick changed WHILE materializing (the composer stayed live) went to
+          // the draft slot after the capture above — flush it onto the real session,
+          // the same late-write treatment the pre-attached contexts get. Sanitized
+          // like the capture, so a stale pref the dispatch just dropped isn't
+          // re-PATCHed here (it would 404 on every fresh-draft send).
+          const latePick = sanitizePick(draftProviderRef.current)
+          if (latePick !== draftProvider) {
+            void patchSession(sid, { providerId: latePick ?? '' })
+          }
           // Adopt the new id only if the user is still on the draft — don't yank
           // them back if they navigated away while it was materializing.
           if (activeIdRef.current === DRAFT_ID) {
@@ -859,6 +892,9 @@ export function useSessionWorkspace() {
     // A fresh draft must re-materialize on its first send — don't reuse the
     // previous draft's (now resolved) session.
     draftMaterializing.current = null
+    // …and starts back on the preferred default model (a registered provider when
+    // Customize says so, else no pick — the built-in trio).
+    setDraftProviderId(loadModelPrefs().defaultProviderId)
     if (seed) {
       rememberAttached(seed) // promote into the Add-context recents, like a manual attach
       const seeded = addContextToLive(EMPTY_LIVE, seed)
@@ -975,6 +1011,14 @@ export function useSessionWorkspace() {
   }, [])
   const archiveSession = useCallback((id: string, archived: boolean) => {
     void patchSession(id, { status: archived ? 'archived' : 'active' })
+  }, [])
+  // The composer's model pick for the ACTIVE session. A real session PATCHes its
+  // server row (undefined → '' clears back to the Agent's provider — the registry's
+  // empty-string-means-default convention); a draft holds the pick locally and the
+  // materialization carries it (see handleSend). Next turn routes accordingly.
+  const selectModelProvider = useCallback((providerId?: string) => {
+    if (activeIdRef.current === DRAFT_ID) setDraftProviderId(providerId)
+    else void patchSession(activeIdRef.current, { providerId: providerId ?? '' })
   }, [])
   const deleteSession = useCallback(
     (id: string) => {
@@ -1121,6 +1165,9 @@ export function useSessionWorkspace() {
     renameSession,
     archiveSession,
     deleteSession,
+    // the composer's model pick (draft-held until materialization)
+    selectModelProvider,
+    draftProviderId,
     handleSend,
     stopTurn,
     retryInterrupted,

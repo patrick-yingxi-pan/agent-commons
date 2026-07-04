@@ -21,7 +21,7 @@ import { ProposalBar } from './components/ProposalBar'
 import { SearchPanel } from './components/SearchPanel'
 import { AddContextButton } from './components/AddContextButton'
 import { useAgents, useCapabilities, useMe, useProviders, useSessions, useServerEvents } from './api'
-import { estimateTokens } from '../contract/index.ts'
+import { DEFAULT_PROVIDER_ID, estimateTokens } from '../contract/index.ts'
 import { useSessionWorkspace } from './controller/useSessionWorkspace'
 import { useLayout } from './controller/useLayout'
 import { RelationsProvider, useRelations } from './controller/useRelations'
@@ -118,6 +118,8 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
     renameSession,
     archiveSession,
     deleteSession,
+    selectModelProvider,
+    draftProviderId,
     handleSend,
     stopTurn,
     retryInterrupted,
@@ -143,22 +145,39 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
   // not the binding).
   const agents = useAgents().data ?? []
   const providers = useProviders().data ?? []
+  // A session's provider resolves the way the server routes the turn: the session's
+  // own model pick (`providerId` — the composer selector) wins, else its Agent's.
   const sessionProviderKind = useCallback(
-    (agentId?: string) => {
-      const agent = agents.find((a) => a.id === (agentId ?? 'agent-default'))
-      return providers.find((p) => p.id === agent?.providerId)?.kind
+    (session?: { agentId?: string; providerId?: string }) => {
+      const agent = agents.find((a) => a.id === (session?.agentId ?? 'agent-default'))
+      const providerId = session?.providerId ?? agent?.providerId
+      return providers.find((p) => p.id === providerId)?.kind
     },
     [agents, providers],
   )
-  // Resolve the active session's driver from the SERVER row when one exists (the
-  // useSessions cache refreshes on session.updated — a mid-thread hand-off lands
-  // there), falling back to the controller's local shell (drafts, run sessions).
-  const activeAgentId = sessions.find((s) => s.id === activeId)?.agentId ?? activeSession.agentId
-  const onRelay = sessionProviderKind(activeAgentId) === 'session'
+  // Resolve the active session's driver + model pick from the SERVER row when one
+  // exists (the useSessions cache refreshes on session.updated — a hand-off or model
+  // switch lands there), falling back to the controller's local shell (drafts, run
+  // sessions) — and, on a draft, the not-yet-persisted pick held by the controller.
+  const activeRow = sessions.find((s) => s.id === activeId) ?? activeSession
+  const activeProviderId = isDraft ? draftProviderId : activeRow.providerId
+  // A model pick needs somewhere to live: a draft (held locally) or a real server
+  // row (PATCHed). A synthesized run session has neither — the selector's
+  // registered-models section is omitted there instead of silently no-oping.
+  const modelPickWritable = isDraft || sessions.some((s) => s.id === activeId)
+  const onRelay = sessionProviderKind({ agentId: activeRow.agentId, providerId: activeProviderId }) === 'session'
   const demoSession = sessions.find((s) => s.isDemo)
+  // The scripted tour depends on the DEFAULT provider (its beats are the mock
+  // model's fixed strings): any other resolved provider — a prose-only relay OR a
+  // registered endpoint whose replies won't match the script — blocks playback
+  // (§7.7: forbid the playback, not the binding).
+  const demoAgent = agents.find((a) => a.id === (demoSession?.agentId ?? 'agent-default'))
+  const demoProviderId = demoSession?.providerId ?? demoAgent?.providerId ?? DEFAULT_PROVIDER_ID
   const tourBlocked =
-    sessionProviderKind(demoSession?.agentId) === 'session'
-      ? 'The tour can’t play: it depends on tool calls, and the demo’s Agent runs on a prose-only Session provider. Repoint that Agent to a tool-capable provider (Agents hub → edit) to play it.'
+    demoProviderId !== DEFAULT_PROVIDER_ID
+      ? sessionProviderKind(demoSession) === 'session'
+        ? 'The tour can’t play: it depends on tool calls, and the demo runs on a prose-only Session provider. Pick the built-in model for it (the composer’s model selector) to play it.'
+        : 'The tour can’t play: its scripted beats need the built-in model, and the demo is picked onto a registered provider. Pick the built-in model for it (the composer’s model selector) to play it.'
       : null
   const guardedStartTour = useCallback(() => {
     if (!tourBlocked) startTour()
@@ -450,6 +469,8 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
 
                     <Composer
                       sessionId={activeId}
+                      providerId={activeProviderId}
+                      onSelectModelProvider={modelPickWritable ? selectModelProvider : undefined}
                       messageTokens={messageTokens}
                       workspaces={live.workspaces}
                       repos={live.repos}

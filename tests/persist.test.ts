@@ -19,6 +19,8 @@ const sample = {
       title: 'Hi',
       caps: ['chat'],
       preview: 'p',
+      // The composer's model pick rides the session row (session-model-pick.test.ts).
+      providerId: 'provider-x',
       messages: [{ id: 'm', role: 'user', content: 'x' }],
     },
   ],

@@ -75,7 +75,8 @@ Slice 18's invariant is two invariants fused:
 ## 4. User-visible workflows (the design is workflow-first)
 
 ### 4.1 Create a Session provider
-Agents hub → Providers sub-tab → New provider → **kind toggle: "API endpoint" (today) vs
+**Models** section (left rail — providers are first-class models there, and every entry
+is selectable in the composer's model selector) → New provider → **kind toggle: "API endpoint" (today) vs
 "My AI session" (new)**. The session form asks for nothing we'd dial (no base URL, no
 key) — just a label ("My laptop's Claude") and effort levels (marked *advisory*). On
 Create, a **one-time panel** shows: the **rendezvous secret** (shown once, Copy), the
@@ -132,13 +133,28 @@ in preference order:
    can stall; make the sentinel + instruction explicit.
 
 **The concrete recipe (as built).** The connector is
-`connector/relay-connector.ts` (`npm run connector`), a **generic** stdio MCP server —
-registered **once**, with no per-relay configuration:
+`connector/relay-connector.ts`, a **generic** stdio MCP server — registered **once**,
+with no per-relay configuration. Two install forms, same file:
 
-```bash
-# Claude Code (Claude Desktop: the same command/args in claude_desktop_config.json)
-claude mcp add session-relay -- npm --prefix /path/to/this/repo run connector
-```
+- **Public (no repo clone — spec MODEL-14).** The backend serves the connector
+  itself at `GET /api/v1/connector`: the checked-in TypeScript with its types erased
+  at request time (`node:module.stripTypeScriptTypes` — no build step, no drift), one
+  self-contained module whose only import was `import type`. The mint panel shows
+  this exact command with the deployment's real origin filled in (and a direct
+  download link). Needs any Node ≥ 18; unauthenticated by design — the connector is
+  a program, not a secret (the rendezvous secret it later presents is the credential):
+
+  ```bash
+  curl -fsSL https://<host>/api/v1/connector -o ~/session-relay.mjs
+  claude mcp add session-relay -- node ~/session-relay.mjs
+  # Claude Desktop: the same command/args in claude_desktop_config.json
+  ```
+
+- **From a clone (contributors).**
+
+  ```bash
+  claude mcp add session-relay -- npm --prefix /path/to/this/repo run connector
+  ```
 
 Serving a relay is then one typed sentence per session: open a **fresh, dedicated
 session without dangerous tools** (the §7.9 wall) and type the connect sentence the
@@ -173,19 +189,29 @@ host that shares one connector process across concurrent chats serializes to one
 relay per process (register a second name there).
 
 Binding on our side is unchanged: the first poll that presents the secret *is* the
-enrollment — the provider's dot flips green in the Agents hub. To test without a
+enrollment — the provider's dot flips green in the Models section and the composer's
+model selector. To test without a
 second AI session, drive the two wire calls by hand: `GET /relay/poll` with
 `Authorization: Bearer rv_live_…`, then `POST /relay/reply` with
 `{"entryId": "…", "completion": "…"}` (exactly what `tests/relay.test.ts` does).
 
-### 4.3 Assign an Agent and run a turn
-Agents sub-tab → edit an Agent → Provider picker → the Session provider (the picker carries
-the "prose-only" badge inline, so the trade-off is visible at bind time). A turn then runs
-*normally* — the composer streams the reply — with one difference: **no relation-edit cards,
-no escalations** (there is no tool-use on this provider). If the session is offline when the
-user sends, the turn **fails fast** with a distinct message — *"Your session isn't answering
-— start its drain loop and retry"* — never the generic "couldn't reach the endpoint", and
-never a 60-second hang.
+### 4.3 Route a conversation through it and run a turn
+Two ways, one resolution (`session.providerId ?? agent.providerId` — spec MODEL-13):
+
+- **Pick it as the model (the direct path).** The composer's model selector lists every
+  registered provider under "Your models" (with the liveness dot and prose-only cue);
+  picking one writes the SESSION's `providerId`, so a fresh conversation runs on the
+  Session provider with no Agent re-binding. This is per-session wiring, not a global
+  preference — other sessions are untouched.
+- **Bind an Agent to it (the standing path).** Agents hub → edit an Agent → Provider
+  picker → the Session provider (the picker carries the "prose-only" badge inline, so the
+  trade-off is visible at bind time). Every conversation that Agent drives then runs on it.
+
+A turn then runs *normally* — the composer streams the reply — with one difference: **no
+relation-edit cards, no escalations** (there is no tool-use on this provider). If the
+session is offline when the user sends, the turn **fails fast** with a distinct message —
+*"Your session isn't answering — start its drain loop and retry"* — never the generic
+"couldn't reach the endpoint", and never a 60-second hang.
 
 ### 4.4 Offline / reconnect / restart
 Laptop sleeps or the loop exhausts context → the held connection drops → the dot greys

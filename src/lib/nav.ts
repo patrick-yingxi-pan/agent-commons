@@ -22,6 +22,7 @@ export const SECTION_LABELS: Record<SectionId, string> = {
   projects: 'Projects',
   artifacts: 'Artifacts',
   contexts: 'Contexts',
+  models: 'Models',
   agents: 'Agents',
   scheduled: 'Scheduled',
   dispatch: 'Dispatch',

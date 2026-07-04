@@ -96,17 +96,21 @@ export async function callRaw(
   method: string,
   path: string,
   bodyObj?: unknown,
-): Promise<{ status: number; body: string }> {
+): Promise<{ status: number; body: string; headers: Record<string, string> }> {
   const req = makeReq(method, bodyObj)
   let status = 0
   let body = ''
   let ended = false
+  const headers: Record<string, string> = {}
   const res: any = {
-    writeHead(s: number) {
+    writeHead(s: number, hdrs?: Record<string, string>) {
       status = s
+      if (hdrs) for (const [k, v] of Object.entries(hdrs)) headers[k.toLowerCase()] = String(v)
       return res
     },
-    setHeader() {},
+    setHeader(name: string, value: string) {
+      headers[String(name).toLowerCase()] = String(value)
+    },
     write(chunk: string) {
       body += chunk
       return true
@@ -122,5 +126,5 @@ export async function callRaw(
     },
   }
   await router.handle(req, res, new URL(`http://test${path}`))
-  return { status, body }
+  return { status, body, headers }
 }

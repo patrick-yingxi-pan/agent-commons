@@ -78,6 +78,9 @@ export interface SendMessageRequest {
  *  seeds the session's title + preview. Returns the created `Session`. */
 export interface CreateSessionRequest {
   firstMessage?: string
+  /** The model picked in the draft's composer before first send — becomes the
+   *  session's `providerId`. Validated against the caller's visible providers. */
+  providerId?: string
 }
 
 /** Body of `POST /v1/sessions/:id/contexts` — attach a context to a session (the

@@ -7,19 +7,24 @@ import { ClaudeMark } from './ClaudeMark'
 import { RelationActionCard } from './RelationActionCard'
 import { ToolActivityCard } from './ToolActivityCard'
 
-/** Whether the Agent stamped on a message (D16 provenance) ran on a Session
- *  provider — the delegated-cognition relay. Those words came from the user's OWN
- *  session's model, not an endpoint we dialed, and the reply is marked as such
- *  (external/untrusted provenance, docs/delegated-cognition-provider.md §5). */
-function useIsRelayed(agentId?: string): boolean {
+/** Whether this turn's cognition came over a Session provider — the
+ *  delegated-cognition relay. Those words came from the user's OWN session's model,
+ *  not an endpoint we dialed, and the reply is marked as such (external/untrusted
+ *  provenance, docs/delegated-cognition-provider.md §5). Reads the per-turn
+ *  provider stamp (`message.providerId` — how the turn actually routed, session
+ *  pick included); legacy messages without one fall back to the driving Agent's
+ *  provider. */
+function useIsRelayed(message: MessageT): boolean {
   const agents = useAgents().data ?? []
   const providers = useProviders().data ?? []
-  const providerId = agentId ? agents.find((a) => a.id === agentId)?.providerId : undefined
+  const providerId =
+    message.providerId ??
+    (message.agentId ? agents.find((a) => a.id === message.agentId)?.providerId : undefined)
   return !!providerId && providers.find((p) => p.id === providerId)?.kind === 'session'
 }
 
 export function MessageRow({ message, sessionId }: { message: MessageT; sessionId: string }) {
-  const relayed = useIsRelayed(message.agentId)
+  const relayed = useIsRelayed(message)
   // A compaction summary (P5) renders as a warm divider, not a chat bubble — the older
   // messages it replaced were archived to free context space so we can keep chatting.
   if (message.compactedFrom) {

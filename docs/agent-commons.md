@@ -1091,7 +1091,10 @@ session↔context binding, mediation handle, and single-resource escrow).
   were read-only on the wire (seeded N=1, minting was test-only); these slices make the
   whole surface user-CRUD-able from one new left-panel section, sub-tabbed
   **Agents · Providers · Prompts · Commissions** (`contract/entities.ts` `SectionId +=
-  'agents'`; the table-driven nav flows through `sections.tsx` / `nav.ts`). **11** is the
+  'agents'`; the table-driven nav flows through `sections.tsx` / `nav.ts`).
+  *(Since superseded in one respect: providers were later promoted OUT of the hub to a
+  first-class **Models** rail section, and every model picker reads that registry live —
+  spec MODEL-13. The hub keeps Agents · Prompts · Commissions · Audit.)* **11** is the
   hub shell (read-only lists reusing the existing hooks). **12/13/14** expose the create
   funnels and add patch/delete for **providers** (D9), **system prompts** (D10), and
   **worker agents** (D6) — each `POST`/`PATCH`/`DELETE /…` with the D8 funnel re-run on

@@ -70,6 +70,10 @@ declare module 'node:module' {
   /** Returns a CommonJS `require` bound to `path` — used to load `node:sqlite`
    *  lazily from ESM without an async dynamic import (see persistence/sqlite.ts). */
   export function createRequire(path: string | URL): (id: string) => unknown
+  /** Erase TypeScript syntax from source (the runtime's own type stripper) — the
+   *  `GET /connector` route serves the checked-in connector TS as plain JS so a
+   *  public user can run it with any Node, no repo clone (spec MODEL-14). */
+  export function stripTypeScriptTypes(code: string, options?: { mode?: 'strip' | 'transform' }): string
 }
 
 declare module 'node:crypto' {

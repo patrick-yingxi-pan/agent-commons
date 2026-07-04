@@ -12,12 +12,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { createServer, type Server } from 'node:http'
-import type { AddressInfo } from 'node:net'
 import { API_BASE_PATH } from '../contract/index.ts'
+import { callTool, spawnConnector as spawnScript, startRelayStub, type Connector } from './helpers/connector.ts'
 
 const CONNECTOR = new URL('../connector/relay-connector.ts', import.meta.url).pathname
+const spawnConnector = (env: Record<string, string> = {}): Connector => spawnScript(CONNECTOR, env)
 
 test('the connector default URL matches where the backend actually mounts its API', () => {
   // Regression: the backend serves everything under API_BASE_PATH (`/api/v1`);
@@ -26,98 +25,8 @@ test('the connector default URL matches where the backend actually mounts its AP
   assert.match(source, new RegExp(`DEFAULT_URL = 'http://127\\.0\\.0\\.1:8787${API_BASE_PATH.replaceAll('/', '\\/')}'`))
 })
 
-/** A minimal relay backend: records every request, serves poll results from a
- *  queue (default idle) and accepts replies. */
-interface Seen {
-  method: string
-  path: string
-  auth: string | undefined
-  body: string
-}
-interface RelayStub {
-  url: string
-  seen: Seen[]
-  pollQueue: unknown[]
-  close: () => Promise<void>
-}
-
-async function startRelayStub(): Promise<RelayStub> {
-  const seen: Seen[] = []
-  const pollQueue: unknown[] = []
-  const server: Server = createServer((req, res) => {
-    let body = ''
-    req.on('data', (c) => (body += String(c)))
-    req.on('end', () => {
-      seen.push({ method: req.method ?? '', path: req.url ?? '', auth: req.headers.authorization, body })
-      res.setHeader('content-type', 'application/json')
-      if (req.url?.endsWith('/relay/poll')) res.end(JSON.stringify(pollQueue.shift() ?? { idle: true }))
-      else if (req.url?.endsWith('/relay/reply')) res.end(JSON.stringify({ ok: true }))
-      else {
-        res.statusCode = 404
-        res.end('{}')
-      }
-    })
-  })
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-  const { port } = server.address() as AddressInfo
-  return {
-    url: `http://127.0.0.1:${port}/v1`,
-    seen,
-    pollQueue,
-    close: () => new Promise((resolve) => server.close(() => resolve())),
-  }
-}
-
-/** Spawn the connector and speak newline-delimited JSON-RPC to it. */
-interface Connector {
-  rpc: (method: string, params?: unknown) => Promise<{ result?: { content?: { text: string }[]; instructions?: string }; error?: unknown }>
-  close: () => void
-}
-
-function spawnConnector(env: Record<string, string> = {}): Connector {
-  const cleanEnv: Record<string, string | undefined> = { ...process.env }
-  delete cleanEnv.RELAY_SECRET
-  delete cleanEnv.RELAY_URL
-  const child: ChildProcessWithoutNullStreams = spawn(process.execPath, [CONNECTOR], {
-    env: { ...cleanEnv, ...env },
-    stdio: ['pipe', 'pipe', 'pipe'],
-  })
-  child.stderr.resume() // drain the log lines
-  const pending = new Map<number, (message: never) => void>()
-  let buffer = ''
-  child.stdout.on('data', (chunk) => {
-    buffer += String(chunk)
-    let newline = buffer.indexOf('\n')
-    while (newline !== -1) {
-      const line = buffer.slice(0, newline).trim()
-      buffer = buffer.slice(newline + 1)
-      if (line) {
-        const message = JSON.parse(line) as { id?: number }
-        if (message.id !== undefined && pending.has(message.id)) {
-          const resolve = pending.get(message.id)!
-          pending.delete(message.id)
-          resolve(message as never)
-        }
-      }
-      newline = buffer.indexOf('\n')
-    }
-  })
-  let nextId = 1
-  return {
-    rpc: (method, params) =>
-      new Promise((resolve) => {
-        const id = nextId++
-        pending.set(id, resolve)
-        child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`)
-      }),
-    close: () => child.kill(),
-  }
-}
-
-const toolText = (reply: { result?: { content?: { text: string }[] } }): string => reply.result?.content?.[0]?.text ?? ''
-
-const callTool = (c: Connector, name: string, args?: Record<string, unknown>) =>
-  c.rpc('tools/call', { name, arguments: args }).then(toolText)
+// The relay stub + stdio JSON-RPC driver moved to helpers/connector.ts, shared
+// with tests/connector-serve.test.ts (which spawns the SERVED plain-JS form).
 
 test('the connector boots unbound and refuses to drain before the first start latches it', async () => {
   const stub = await startRelayStub()

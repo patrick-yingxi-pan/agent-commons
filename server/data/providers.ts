@@ -8,7 +8,7 @@
  *  Split, on purpose, into two halves: the contract `ModelProvider` (what the UI may
  *  see) and the server-only `ProviderConfig` (credentials / base-URL / concrete model
  *  id) — never exposed to the client, mirroring how `Capabilities` hides the key. */
-import type { ModelProvider, ProviderEndpointConfig } from '../../contract/index.ts'
+import { DEFAULT_PROVIDER_ID, type ModelProvider, type ProviderEndpointConfig } from '../../contract/index.ts'
 
 /** What the registration probe learned about a provider's endpoint — the capability
  *  record `generate.ts` branches on (never on provider identity). Today one axis:
@@ -60,7 +60,8 @@ export interface ProviderConfig extends ProviderEndpointConfig {
   secretHash?: string
 }
 
-export const DEFAULT_PROVIDER_ID = 'provider-anthropic'
+// The id itself now lives in the contract (the UI's model selector anchors on it).
+export { DEFAULT_PROVIDER_ID }
 
 /** The seeded default provider — the cognition source every Conversation uses until
  *  a user registers others. Its plan is left unset so it inherits the account plan

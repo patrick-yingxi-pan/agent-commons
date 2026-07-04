@@ -31,3 +31,32 @@ test('the section router renders the Agents hub', () => {
   assert.match(src, /section === 'agents'/, "SectionView handles section === 'agents'")
   assert.match(src, /<AgentCommonsSection\b/, 'SectionView renders AgentCommonsSection')
 })
+
+// ── The Models section (spec MODEL-13 — providers as first-class models) ───────
+
+test('the Models section has a navigation label', () => {
+  assert.ok('models' in SECTION_LABELS, 'nav SECTION_LABELS registers the Models section')
+  assert.equal(SECTION_LABELS.models, 'Models')
+})
+
+test('the SectionId union includes the Models section', () => {
+  const src = stripComments(read(join(ROOT, 'contract', 'entities.ts')))
+  assert.match(src, /SectionId =[\s\S]*?'models'/, "SectionId includes 'models'")
+})
+
+test('section metadata + order register the Models section', () => {
+  const src = stripComments(read(join(ROOT, 'src', 'lib', 'sections.tsx')))
+  assert.match(src, /\bmodels:\s*\{/, 'SECTION_META has a models entry')
+  assert.match(src, /SECTION_ORDER[\s\S]*?'models'/, "SECTION_ORDER lists 'models'")
+})
+
+test('the section router renders the Models section', () => {
+  const src = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  assert.match(src, /section === 'models'/, "SectionView handles section === 'models'")
+  assert.match(src, /<ModelsSection\b/, 'SectionView renders ModelsSection')
+})
+
+test('providers left the Agents hub for the Models section (no duplicate registry surface)', () => {
+  const src = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  assert.ok(!/id:\s*'providers'/.test(src), 'the Agents hub sub-tabs no longer include Providers')
+})

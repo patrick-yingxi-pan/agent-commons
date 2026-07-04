@@ -1,13 +1,18 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Check, ChevronDown, Workflow, Zap } from 'lucide-react'
-import { EFFORTS, MODELS } from '../lib/models'
+import { ChevronDown, Workflow, Zap } from 'lucide-react'
+import { EFFORTS, MODELS, providerModelOptions } from '../lib/models'
 import { loadModelPrefs, saveModelPrefs, type ModelPrefs } from '../lib/modelPrefs'
+import { useProviders } from '../api'
 import { useDismissable } from '../lib/useDismissable'
 import { POPOVER_SURFACE } from '../lib/popover'
 import { usePopoverShift } from '../lib/usePopoverShift'
+import { ModelPickerMenu, OnlineDot } from './ModelPickerMenu'
 
 /** The composer's model/effort config — the shared "default model" preference
- *  (lib/modelPrefs), so the Customize page edits the same setting. */
+ *  (lib/modelPrefs), so the Customize page edits the same setting. The MODEL list
+ *  itself renders through the shared ModelPickerMenu (built-in trio + the live
+ *  provider registry); what a pick MEANS here is session wiring — a provider row
+ *  writes `session.providerId` through `onSelectProvider`. */
 type Config = ModelPrefs
 
 /** An orthogonal on/off mode (Ultracode, Fast output) — visually distinct from
@@ -56,11 +61,23 @@ function ToggleRow({
   )
 }
 
-export function ModelEffortControl() {
+export function ModelEffortControl({
+  providerId,
+  onSelectProvider,
+}: {
+  /** The open session's model pick (`session.providerId`) — undefined = the
+   *  built-in Claude models (the default provider). */
+  providerId?: string
+  /** Write the pick through to the session (undefined clears to default). */
+  onSelectProvider?: (providerId?: string) => void
+}) {
   const [open, setOpen] = useState(false)
   const [config, setConfig] = useState<Config>(loadModelPrefs)
   const wrapRef = useDismissable<HTMLDivElement>(open, () => setOpen(false))
   const popRef = usePopoverShift<HTMLDivElement>(open)
+
+  const registered = providerModelOptions(useProviders().data ?? [])
+  const picked = providerId ? registered.find((o) => o.providerId === providerId) : undefined
 
   const { modelId, effort, ultracode, fast } = config
   const update = (patch: Partial<Config>) => setConfig((c) => ({ ...c, ...patch }))
@@ -87,18 +104,19 @@ export function ModelEffortControl() {
       >
         {/* Orthogonal modes, when on, show as icons to the left so the
             model/effort text stays put next to the usage button. */}
-        {ultracode && (
+        {!picked && ultracode && (
           <span title="Ultracode — multi-agent workflow" className="flex items-center text-accent">
             <Workflow size={14} />
           </span>
         )}
-        {fast && model.isOpus && (
+        {!picked && fast && model.isOpus && (
           <span title="Fast output" className="flex items-center text-accent">
             <Zap size={14} />
           </span>
         )}
-        <span className="text-ink">
-          {model.short} · {effortMeta.label}
+        {picked?.kind === 'session' && <OnlineDot online={picked.online} />}
+        <span className="max-w-[160px] truncate text-ink">
+          {picked ? picked.name : `${model.short} · ${effortMeta.label}`}
         </span>
         <ChevronDown size={13} className={`transition ${open ? 'rotate-180' : ''}`} />
       </button>
@@ -110,85 +128,39 @@ export function ModelEffortControl() {
           aria-label="Model and effort"
           className={`absolute bottom-full right-0 z-20 mb-2 w-[320px] overflow-hidden ${POPOVER_SURFACE}`}
         >
-          {/* Model */}
-          <div className="px-2 pt-2">
-            <div className="px-1.5 pb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-              Model
-            </div>
-            {MODELS.map((m) => {
-              const active = m.id === modelId
-              return (
-                <button
-                  key={m.id}
-                  onClick={() => update({ modelId: m.id, ...(m.isOpus ? {} : { fast: false }) })}
-                  className={`flex w-full items-start gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition ${
-                    active ? 'bg-panel-2' : 'hover:bg-panel-2/60'
-                  }`}
-                >
-                  <span
-                    className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
-                      active ? 'border-accent bg-accent text-white' : 'border-line-strong'
-                    }`}
-                  >
-                    {active && <Check size={11} strokeWidth={3} />}
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-[13px] font-medium text-ink">{m.name}</span>
-                    <span className="block text-[11px] leading-snug text-ink-faint">{m.blurb}</span>
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-
-          <div className="my-1.5 border-t border-line" />
-
-          {/* Effort — the continuum */}
-          <div className="px-3">
-            <div className="pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-              Effort
-            </div>
-            <div className="flex gap-1 rounded-lg bg-panel-2 p-0.5">
-              {EFFORTS.map((e) => {
-                const active = e.id === effort
-                return (
-                  <button
-                    key={e.id}
-                    onClick={() => update({ effort: e.id })}
-                    className={`flex-1 rounded-md px-1 py-1 text-[12px] font-medium transition ${
-                      active
-                        ? 'bg-surface text-ink shadow-sm ring-1 ring-line-strong'
-                        : 'text-ink-soft hover:text-ink'
-                    }`}
-                  >
-                    {e.label}
-                  </button>
-                )
-              })}
-            </div>
-            <p className="mt-1.5 text-[11px] leading-snug text-ink-soft">{effortMeta.blurb}</p>
-          </div>
-
-          <div className="my-1.5 border-t border-line" />
-
-          {/* Orthogonal modes — independent of the effort level above */}
-          <ToggleRow
-            icon={<Workflow size={15} />}
-            title="Ultracode"
-            subtitle="Run as a multi-agent workflow — combines with any effort"
-            hint="An orthogonal mode, independent of the effort level above. Ultracode changes how the turn runs — fanning it out into a multi-agent workflow — and can be combined with any effort level."
-            on={ultracode}
-            onToggle={() => update({ ultracode: !ultracode })}
-          />
-          <ToggleRow
-            icon={<Zap size={15} />}
-            title="Fast output"
-            subtitle={model.isOpus ? 'Opus, with faster streaming' : 'Available on Opus models'}
-            hint="An orthogonal mode, independent of the effort level above. Fast output speeds up Opus token streaming and can be combined with any effort level."
-            on={fast && model.isOpus}
-            disabled={!model.isOpus}
-            onToggle={() => update({ fast: !fast })}
-          />
+          <ModelPickerMenu
+            modelId={modelId}
+            effort={effort}
+            providerId={providerId}
+            onPickModel={(m) => {
+              update({ modelId: m.id, ...(m.isOpus ? {} : { fast: false }) })
+              // A Claude pick clears any provider override on the session.
+              if (providerId) onSelectProvider?.(undefined)
+            }}
+            onPickEffort={(e) => update({ effort: e })}
+            // No write-through (a synthesized run session) ⇒ no provider section.
+            onPickProvider={onSelectProvider && ((o) => onSelectProvider(o.providerId))}
+          >
+            <div className="border-t border-line" />
+            {/* Orthogonal modes — independent of the effort level above */}
+            <ToggleRow
+              icon={<Workflow size={15} />}
+              title="Ultracode"
+              subtitle="Run as a multi-agent workflow — combines with any effort"
+              hint="An orthogonal mode, independent of the effort level above. Ultracode changes how the turn runs — fanning it out into a multi-agent workflow — and can be combined with any effort level."
+              on={ultracode}
+              onToggle={() => update({ ultracode: !ultracode })}
+            />
+            <ToggleRow
+              icon={<Zap size={15} />}
+              title="Fast output"
+              subtitle={model.isOpus ? 'Opus, with faster streaming' : 'Available on Opus models'}
+              hint="An orthogonal mode, independent of the effort level above. Fast output speeds up Opus token streaming and can be combined with any effort level."
+              on={fast && model.isOpus}
+              disabled={!model.isOpus}
+              onToggle={() => update({ fast: !fast })}
+            />
+          </ModelPickerMenu>
         </div>
       )}
     </div>

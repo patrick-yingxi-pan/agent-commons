@@ -19,6 +19,7 @@ export type SectionId =
   | 'projects'
   | 'artifacts'
   | 'contexts'
+  | 'models'
   | 'agents'
   | 'scheduled'
   | 'dispatch'
@@ -121,6 +122,11 @@ export interface Message {
    *  and metering attribution survive a mid-thread hand-off (the Session↔Agent binding is
    *  *current-driver*, not immutable). Absent on user turns and legacy messages. */
   agentId?: string
+  /** The Model provider (D9) that supplied this turn's cognition — per-turn provenance,
+   *  resolved the way the turn actually routed (`session.providerId ?? agent's`). The
+   *  relayed-reply badge reads THIS, not the agent's current provider, so a later model
+   *  switch can't relabel old turns. Absent on user turns and legacy messages. */
+  providerId?: string
   /** An escalation Claude proposes for this turn — open a workspace, connect a
    *  repo, or create a project. It is the *result of a model tool call* (the
    *  backend executes `open_workspace` / `connect_repo` / `create_project` and
@@ -268,6 +274,13 @@ export interface Session {
   /** The worker Agent (docs/agent-commons.md, D6) driving this Conversation. Unset =
    *  the seeded default Agent — the degenerate N=1 case. */
   agentId?: string
+  /** The Model provider (D9) this conversation's turns run on — written by the
+   *  composer's model selector, so picking a model is a session-level act. When set
+   *  it overrides the driver Agent's provider for turns on THIS session (the Agent
+   *  keeps its prompt/authority/budget identity); unset = the Agent's own provider,
+   *  which defaults to the seeded Anthropic one. Validated against the caller's
+   *  visible providers at create/patch time. */
+  providerId?: string
   /** The tenant this conversation belongs to — the isolation boundary on the web
    *  (F2 / PD9): a tenant only ever lists/opens its own sessions. Unset on a seed or
    *  synthesized (run) session ⇒ the backend's default tenant (personal on desktop). */

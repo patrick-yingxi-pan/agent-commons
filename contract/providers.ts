@@ -15,6 +15,12 @@
 import type { Budget } from './budget.ts'
 import type { Authority } from './authority.ts'
 
+/** The seeded default provider's id — the degenerate N=1 anchor both sides
+ *  reference: the backend seeds it (server/data/providers.ts) and resolves unset
+ *  bindings to it; the UI's model selector renders its catalog as the built-in
+ *  Claude models (an unset session pick) rather than as a duplicate list entry. */
+export const DEFAULT_PROVIDER_ID = 'provider-anthropic'
+
 export interface ModelProvider {
   id: string
   /** The tenant that created it (F2/PD9). Unset ⇒ a seeded/shared entry visible to every

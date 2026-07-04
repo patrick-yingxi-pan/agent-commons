@@ -172,8 +172,8 @@ export async function cancelTurn(sessionId: string, turnId: string): Promise<voi
 /** Materialize a draft into a real persisted session on its first send. The
  *  server mints the id + titles it from the first message; we prime the caches so
  *  the controller can resolve the new session immediately and the sidebar shows it. */
-export async function createSession(firstMessage?: string): Promise<Session> {
-  const session = await apiPost<Session>(paths.sessions, { firstMessage })
+export async function createSession(firstMessage?: string, providerId?: string): Promise<Session> {
+  const session = await apiPost<Session>(paths.sessions, { firstMessage, providerId })
   setData(keys.session(session.id), session)
   invalidate(keys.sessions)
   return session
@@ -435,15 +435,18 @@ export function runSessionFromSchedules(id: string): Session | undefined {
 
 // ── Sessions (the sidebar row menu's edits) ─────────────────────────────────
 
-/** Patch a session's row fields — rename / pin / archive — from the row menu.
+/** Patch a session's row fields — rename / pin / archive, or the composer's model
+ *  pick (`providerId`; empty string clears back to the Agent's provider).
  *  Optimistically patches the cached list (the row updates instantly), then PATCHes;
  *  the server's `session.updated` event reconciles every client. */
 export async function patchSession(
   id: string,
-  patch: { title?: string; status?: 'active' | 'archived'; pinned?: boolean },
+  patch: { title?: string; status?: 'active' | 'archived'; pinned?: boolean; providerId?: string },
 ): Promise<void> {
+  // The optimistic row mirrors the server's clear semantics: '' deletes the pick.
+  const optimistic = patch.providerId === '' ? { ...patch, providerId: undefined } : patch
   mutate<Session[]>(keys.sessions, (list) =>
-    (list ?? []).map((s) => (s.id === id ? { ...s, ...patch } : s)),
+    (list ?? []).map((s) => (s.id === id ? { ...s, ...optimistic } : s)),
   )
   try {
     await apiPatch(paths.session(id), patch)

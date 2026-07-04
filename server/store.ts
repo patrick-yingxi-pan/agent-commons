@@ -1009,6 +1009,8 @@ export const store = {
       // The driving Agent (D16 current-driver binding) — the client resolves it to a
       // provider kind for the relay affordances ("Waiting on your session…", §7.8).
       agentId: s.agentId,
+      // The session's model pick (the composer selector reads its current value here).
+      providerId: s.providerId,
     }))
   },
   /** Whether a session is visible to `tenantId` — the route-level guard for reads by id,
@@ -1129,13 +1131,15 @@ export const store = {
    *  it's first sent to. `firstMessage` seeds the title (its first words) + preview.
    *  Added to the live list + broadcast (`session.updated`) so every sidebar shows
    *  it; created state is persisted to disk (see persist.ts). */
-  createSession(firstMessage?: string, tenantId: string = defaultTenantId()): Session {
+  createSession(firstMessage?: string, tenantId: string = defaultTenantId(), providerId?: string): Session {
     const now = Date.now()
     const session: Session = {
       id: `sess-${(sessionSeq += 1)}`,
       title: titleFrom(firstMessage),
       caps: ['chat'],
       agentId: DEFAULT_AGENT.id,
+      // The composer's model pick, when the draft made one (route-validated).
+      ...(providerId ? { providerId } : {}),
       // Stamp the creating tenant so the scoped list/read see it (F2 / PD9). The route
       // passes the caller's tenant; absent that it's the backend's default tenant.
       tenantId,
@@ -1378,6 +1382,14 @@ export const store = {
     // by looking up the provider row, so emitting after the delete would misroute
     // the event to the default tenant instead of the owner.
     if (PROVIDER_CONFIGS.get(id)?.kind === 'session') relay.retire(id)
+    // Clear any session-level model picks of this provider (the composer selector's
+    // `session.providerId`): unlike an Agent binding — which blocks the delete above —
+    // a pick is a lightweight per-session choice, so it falls back to the Agent's
+    // provider rather than wedging the delete. Broadcast so open selectors reconcile.
+    for (const s of SESSIONS.filter((s) => s.providerId === id)) {
+      delete s.providerId
+      emit({ type: 'session.updated', session: s })
+    }
     MODEL_PROVIDERS.delete(id)
     PROVIDER_CONFIGS.delete(id)
     persist()
@@ -1698,13 +1710,21 @@ export const store = {
    *  `session.updated` so every client's list refreshes. */
   patchSession(
     id: string,
-    patch: { title?: string; status?: 'active' | 'archived'; pinned?: boolean },
+    patch: { title?: string; status?: 'active' | 'archived'; pinned?: boolean; providerId?: string },
   ): Session | undefined {
     const session = SESSIONS.find((s) => s.id === id)
     if (!session) return undefined
     if (patch.title !== undefined) session.title = patch.title
     if (patch.status !== undefined) session.status = patch.status
     if (patch.pinned !== undefined) session.pinned = patch.pinned
+    // The composer's model pick. Any falsy value ('' — the registry convention for
+    // none/default — or a JSON null, which the route's validation skip lets through)
+    // clears back to the Agent's own provider; only a real id is ever stored, so the
+    // persisted row can't violate the wire type (`providerId?: string`).
+    if (patch.providerId !== undefined) {
+      if (patch.providerId) session.providerId = patch.providerId
+      else delete session.providerId
+    }
     emit({ type: 'session.updated', session })
     persist()
     return session
