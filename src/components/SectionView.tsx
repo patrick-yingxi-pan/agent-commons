@@ -145,6 +145,7 @@ import { authorityLabel, providerPlanLabel } from '../lib/agentCommonsLabels'
 import { ArtifactThumb, ArtifactViewer, KIND_ICON, KIND_LABEL } from './artifactPreview'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { useDismissable } from '../lib/useDismissable'
+import { SCRIM_CLASS } from '../lib/scrim'
 import { useRelations } from '../controller/useRelations'
 import { runSessionId, slug } from '../../contract/ids.ts'
 
@@ -1595,7 +1596,7 @@ function NewArtifactDialog({
       aria-modal="true"
       aria-label="New artifact"
     >
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" />
+      <div className={`${SCRIM_CLASS} backdrop-blur-[1px]`} />
       <div
         ref={dialogRef}
         onMouseDown={(e) => e.stopPropagation()}
@@ -2461,7 +2462,7 @@ function SubTabs<T extends string>({
   onChange: (id: T) => void
 }) {
   return (
-    <div className="inline-flex items-center gap-1 rounded-lg border border-line bg-surface p-1 shadow-sm">
+    <div className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-lg border border-line bg-surface p-1 shadow-sm">
       {tabs.map((t) => {
         const on = t.id === active
         return (
@@ -2587,7 +2588,7 @@ function FormDialog({
       aria-modal="true"
       aria-label={title}
     >
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" />
+      <div className={`${SCRIM_CLASS} backdrop-blur-[1px]`} />
       <div
         ref={dialogRef}
         onMouseDown={(e) => e.stopPropagation()}
@@ -5114,16 +5115,16 @@ function FoldGroupHeader({
 function Page({ children }: { children: ReactNode }) {
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-5xl px-6 py-6">{children}</div>
+      <div className="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6 sm:py-6">{children}</div>
     </div>
   )
 }
 
 function PageHeader({ title, children }: { title: string; children?: ReactNode }) {
   return (
-    <header className="mb-5 flex items-center justify-between gap-3">
+    <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
       <h1 className="font-serif text-2xl font-semibold text-ink">{title}</h1>
-      {children && <div className="flex shrink-0 items-center gap-2.5">{children}</div>}
+      {children && <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2.5">{children}</div>}
     </header>
   )
 }
@@ -5270,8 +5271,10 @@ function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
 
 function Card({ title, desc, children }: { title: string; desc: string; children: ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-xl border border-line bg-surface px-4 py-3 shadow-sm">
-      <div className="min-w-0">
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-xl border border-line bg-surface px-4 py-3 shadow-sm">
+      {/* The label keeps a readable basis; a control that can't fit beside it
+          wraps below instead of squeezing the text one word per line. */}
+      <div className="min-w-0 flex-1 basis-56">
         <div className="text-[14px] font-medium text-ink">{title}</div>
         <div className="text-[12px] text-ink-faint">{desc}</div>
       </div>

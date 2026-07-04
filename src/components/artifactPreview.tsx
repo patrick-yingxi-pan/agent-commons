@@ -20,6 +20,7 @@ import { PhotoThumb } from './PhotoThumb'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { useDismissable } from '../lib/useDismissable'
 import { relativeTime } from '../lib/relativeTime'
+import { SCRIM_CLASS } from '../lib/scrim'
 
 export const KIND_ICON: Record<ArtifactKind, LucideIcon> = {
   doc: FileText,
@@ -577,7 +578,7 @@ export function ArtifactViewer({
       aria-modal="true"
       aria-label={artifact.name}
     >
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" />
+      <div className={`${SCRIM_CLASS} backdrop-blur-[1px]`} />
       <div
         ref={dialogRef}
         onMouseDown={(e) => e.stopPropagation()}

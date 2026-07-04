@@ -23,11 +23,13 @@ export function CaptionBar({
   // Styled for the dark proposal band it lives in (light text, accent buttons).
   if (phase === 'idle') {
     return (
-      <div className="flex items-center gap-3 border-t border-white/10 px-4 py-2">
+      <div className="flex items-center gap-3 border-t border-white/10 px-4 py-2 short:py-1.5">
         <Sparkles size={15} className="shrink-0 text-accent" />
         <span className="flex-1 text-sm text-canvas/85">
-          <span className="font-semibold text-canvas">Guided tour:</span> watch one conversation flow
-          from chat → workspace → code, with no tab switching.
+          <span className="font-semibold text-canvas">Guided tour</span>
+          <span className="hidden sm:inline">
+            : watch one conversation flow from chat → workspace → code, with no tab switching.
+          </span>
         </span>
         <button
           onClick={onStart}
@@ -41,8 +43,10 @@ export function CaptionBar({
   }
 
   return (
-    <div className="flex items-center gap-3 border-t border-white/10 px-4 py-2">
-      <div className="flex shrink-0 items-center gap-1">
+    <div className="flex items-center gap-3 border-t border-white/10 px-4 py-2 short:py-1.5">
+      {/* The step dots crowd a phone-width band; the n/m counter carries the
+          same information there. */}
+      <div className="hidden shrink-0 items-center gap-1 sm:flex">
         {Array.from({ length: totalSteps }).map((_, i) => (
           <span
             key={i}
@@ -52,7 +56,7 @@ export function CaptionBar({
           />
         ))}
       </div>
-      <span className="flex-1 text-sm text-canvas/85">
+      <span className="line-clamp-2 flex-1 text-sm text-canvas/85 sm:line-clamp-none">
         <span className="mr-1.5 font-semibold text-accent">
           {Math.min(stepIndex + 1, totalSteps)}/{totalSteps}
         </span>

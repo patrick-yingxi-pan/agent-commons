@@ -39,6 +39,7 @@ import { useDismissable } from '../lib/useDismissable'
 import { useRecentIds } from '../lib/recents'
 import { UI_HOST_SOURCE, DEFAULT_FS_SOURCE_ID, useFsSourceList } from '../lib/fsSources'
 import { pickUiHostFiles, pickUiHostFolder, readDroppedFiles, type UiHostFile } from '../lib/uiHostFs'
+import { SCRIM_CLASS } from '../lib/scrim'
 import { useFsCatalog, fsContentUrl } from '../api/hooks'
 import { apiGet } from '../api/client'
 import { paths } from '../api/keys'
@@ -184,7 +185,7 @@ export function AddContextButton({
           role="dialog"
           aria-label="Add context"
           style={{ transform: `translateX(${shiftX}px)` }}
-          className="absolute bottom-full left-0 z-20 mb-2 w-[340px] overflow-hidden rounded-xl border border-line-strong bg-surface shadow-xl"
+          className="absolute bottom-full left-0 z-20 mb-2 w-[340px] max-w-[calc(100vw-16px)] overflow-hidden rounded-xl border border-line-strong bg-surface shadow-xl"
         >
           {activeType === null ? (
             <div className="p-2">
@@ -406,11 +407,11 @@ function BrowseDialog({
       aria-modal="true"
       aria-label={`${title} — browse`}
     >
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" />
+      <div className={`${SCRIM_CLASS} backdrop-blur-[1px]`} />
       <div
         ref={dialogRef}
         onMouseDown={(e) => e.stopPropagation()}
-        className="relative flex max-h-[72vh] w-[560px] max-w-[92vw] flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong"
+        className="relative flex max-h-[72dvh] w-[560px] max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong short:max-h-[85dvh]"
       >
         {/* Title bar — Finder-style traffic lights + centered title. */}
         <div className="relative flex h-9 shrink-0 items-center border-b border-line bg-panel-2 px-3">

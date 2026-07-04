@@ -48,7 +48,7 @@ export function IntroOverlay({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ type: 'spring', stiffness: 260, damping: 26 }}
         onClick={(e) => e.stopPropagation()}
-        className="relative w-full max-w-2xl overflow-hidden rounded-2xl border border-line bg-surface shadow-xl"
+        className="relative max-h-[92dvh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-line bg-surface shadow-xl"
       >
         <button
           onClick={onClose}
@@ -99,13 +99,13 @@ export function IntroOverlay({
             </Win>
           </div>
 
-          <div className="mt-4 flex items-center justify-center gap-2 rounded-xl border border-line bg-panel py-2.5 text-sm font-medium">
+          <div className="mt-4 flex items-center justify-center gap-2 rounded-xl border border-line bg-panel px-2 py-2.5 text-sm font-medium">
             <Stage icon={<MessagesSquare size={15} />} label="Chat" />
-            <ArrowRight size={15} className="text-ink-faint" />
+            <ArrowRight size={15} className="shrink-0 text-ink-faint" />
             <Stage icon={<PanelsTopLeft size={15} />} label="Workspace" />
-            <ArrowRight size={15} className="text-ink-faint" />
+            <ArrowRight size={15} className="shrink-0 text-ink-faint" />
             <Stage icon={<GitBranch size={15} />} label="Repo" />
-            <span className="ml-1 text-xs text-ink-faint">· one thread</span>
+            <span className="ml-1 text-xs text-ink-faint max-sm:hidden">· one thread</span>
           </div>
         </div>
 

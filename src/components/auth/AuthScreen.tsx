@@ -41,7 +41,7 @@ export function AuthScreen({ view, gated }: { view: AuthScreenView; gated: boole
   const [mode, setMode] = useState<AuthScreenView>(view)
   useEffect(() => setMode(view), [view])
   return (
-    <div data-testid="auth-screen" className="flex min-h-screen flex-col overflow-y-auto bg-canvas text-ink">
+    <div data-testid="auth-screen" className="flex min-h-dvh flex-col overflow-y-auto bg-canvas text-ink">
       <header className="flex flex-col items-center gap-3 pb-2 pt-14">
         <ClaudeMark size={40} />
       </header>

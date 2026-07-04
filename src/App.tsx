@@ -25,7 +25,8 @@ import { estimateTokens } from '../contract/index.ts'
 import { useSessionWorkspace } from './controller/useSessionWorkspace'
 import { useLayout } from './controller/useLayout'
 import { RelationsProvider, useRelations } from './controller/useRelations'
-import { useViewport } from './lib/viewport'
+import { railWidthCss, useViewport } from './lib/viewport'
+import { SCRIM_CLASS } from './lib/scrim'
 import type { Live } from './data/liveSession'
 import type { AddedContext, Connector, SectionId, Session } from './types'
 
@@ -131,14 +132,27 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
     approveEscalation,
   } = useSessionWorkspace()
 
-  const { leftOpen, leftW, leftDragging, toggleLeft, openLeft, startResize, resize, endResize } =
-    useLayout()
-
-  // Responsive panel ladder (FWD-3 / PD35): below a wide window the right panel would
-  // crush the conversation column, so it overlays as a drawer (with a scrim) instead of
-  // sitting side-by-side.
-  const tier = useViewport()
+  // Responsive layout ladder (FWD-3 / PD35): below a wide window the right panel
+  // would crush the conversation column, so it overlays as a drawer (with a scrim)
+  // instead of sitting side-by-side; on narrow (a phone) the left rail becomes an
+  // off-canvas drawer too and the right panel takes over the whole viewport.
+  const { tier } = useViewport()
   const panelOverlay = tier !== 'wide'
+  const railOverlay = tier === 'narrow'
+
+  const { leftOpen, leftW, leftDragging, toggleLeft, openLeft, closeLeft, startResize, resize, endResize } =
+    useLayout(tier)
+
+  // On narrow, picking anything from the rail drawer also dismisses it — the
+  // drawer covers the surface the pick navigates to.
+  const withRailClose = useCallback(
+    <A extends unknown[]>(fn: (...args: A) => void) =>
+      (...args: A) => {
+        fn(...args)
+        if (railOverlay) closeLeft()
+      },
+    [railOverlay, closeLeft],
+  )
 
   // ⌘K / Ctrl+K opens the search palette from anywhere.
   useEffect(() => {
@@ -195,7 +209,7 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
 
   return (
     <RelationsProvider attachConnector={attachConnector} navigate={navigateToSection}>
-    <div className="flex h-screen flex-col overflow-hidden bg-canvas text-ink">
+    <div className="flex h-dvh flex-col overflow-hidden bg-canvas text-ink">
       {/* ===== Proposal framing — the description, kept outside the product mock.
               A dark band holding the concept label, "About this proposal", and
               the guided tour, so the product below can read like a real app. ===== */}
@@ -227,36 +241,49 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
             onClick={openLeft}
             title="Expand sidebar"
             aria-label="Expand sidebar"
-            className="absolute left-2.5 top-2.5 z-30 flex h-8 w-8 items-center justify-center rounded-lg border border-line bg-surface text-ink-soft shadow-sm transition hover:bg-panel-2 hover:text-ink"
+            className={`absolute left-2.5 top-2.5 z-30 flex items-center justify-center rounded-lg border border-line bg-surface text-ink-soft shadow-sm transition hover:bg-panel-2 hover:text-ink ${
+              railOverlay ? 'h-10 w-10' : 'h-8 w-8'
+            }`}
           >
             <PanelLeft size={18} />
           </button>
         )}
 
+        {/* Narrow tier: the rail is an off-canvas drawer over the app — a scrim
+            behind it dims and dismisses (FWD-3). */}
+        {railOverlay && leftOpen && (
+          <div className={`${SCRIM_CLASS} z-30`} aria-hidden onClick={closeLeft} />
+        )}
+
         <div className="flex min-h-0 flex-1">
           {/* Left rail: collapsible (width → 0) and drag-resizable. The inner div
-              holds a fixed width so the content doesn't reflow while collapsing. */}
+              holds a fixed width so the content doesn't reflow while collapsing.
+              On narrow it leaves the flex flow and floats over the app; its width
+              clamp (railWidthCss) keeps a sliver of scrim tappable. */}
           <div
-            className={`relative h-full shrink-0 overflow-hidden ${
+            className={`${
+              railOverlay ? 'absolute inset-y-0 left-0 z-40' : 'relative shrink-0'
+            } h-full overflow-hidden ${
               leftDragging ? '' : 'transition-[width] duration-200 ease-out'
             } ${leftOpen ? '' : 'pointer-events-none'}`}
-            style={{ width: leftOpen ? leftW : 0 }}
+            style={{ width: leftOpen ? railWidthCss(tier, leftW) : 0 }}
           >
-            <div style={{ width: leftW }} className="h-full">
+            <div style={{ width: railWidthCss(tier, leftW) }} className="h-full">
               <Sidebar
                 sessions={sessions}
                 activeId={activeId}
                 activeSection={activeSection}
-                onSelect={selectSession}
-                onNewSession={() => newSession()}
-                onOpenSection={openSection}
-                onOpenSchedule={openSchedule}
+                onSelect={withRailClose(selectSession)}
+                onNewSession={withRailClose(() => newSession())}
+                onOpenSection={withRailClose(openSection)}
+                onOpenSchedule={withRailClose(openSchedule)}
                 onPinSession={pinSession}
                 onRenameSession={renameSession}
                 onArchiveSession={archiveSession}
                 onDeleteSession={deleteSession}
                 onToggleCollapse={toggleLeft}
-                onOpenSearch={() => setSearchOpen(true)}
+                onOpenSearch={withRailClose(() => setSearchOpen(true))}
+                resizable={!railOverlay}
                 onResizeStart={startResize}
                 onResize={resize}
                 onResizeEnd={endResize}
@@ -371,14 +398,16 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
 
                   {/* Below a wide window the panel overlays the thread as a drawer (FWD-3):
                       a scrim dims + dismisses the conversation behind it, and the panel
-                      group is positioned absolutely so it doesn't squeeze the thread. On a
-                      wide window the wrapper is a layout-neutral `flex shrink-0` group,
-                      keeping the panels as in-flow flex siblings of the thread (the original
-                      side-by-side layout) — each PanelShell is already `shrink-0` with its
-                      own width, so the extra wrapper changes nothing visually. */}
-                  {panelOverlay && panelOpen && (
+                      group is positioned absolutely so it doesn't squeeze the thread. On
+                      narrow the panel takes over the whole thread area (no scrim — nothing
+                      shows beside it; its close button dismisses). On a wide window the
+                      wrapper is a layout-neutral `flex shrink-0` group, keeping the panels
+                      as in-flow flex siblings of the thread (the original side-by-side
+                      layout) — each PanelShell is already `shrink-0` with its own width,
+                      so the extra wrapper changes nothing visually. */}
+                  {tier === 'medium' && panelOpen && (
                     <div
-                      className="absolute inset-0 z-20 bg-black/30"
+                      className={`${SCRIM_CLASS} z-20`}
                       aria-hidden
                       onClick={() => {
                         closePanel()
@@ -386,7 +415,18 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
                       }}
                     />
                   )}
-                  <div className={panelOverlay ? 'absolute inset-y-0 right-0 z-30 flex' : 'flex shrink-0'}>
+                  <div
+                    className={
+                      !panelOverlay
+                        ? 'flex shrink-0'
+                        : railOverlay
+                          ? // The takeover wrapper spans the whole thread even when no
+                            // panel is open (it must stay mounted for exit animations),
+                            // so it must not eat the thread's taps while empty.
+                            `absolute inset-0 z-30 flex ${panelOpen ? '' : 'pointer-events-none'}`
+                          : 'absolute inset-y-0 right-0 z-30 flex'
+                    }
+                  >
                   {/* One focused-context sidebar at a time, chosen by the active chip.
                       One keyed WorkspacePanel serves both workspace and repo so the
                       body morphs when you switch between the two. */}

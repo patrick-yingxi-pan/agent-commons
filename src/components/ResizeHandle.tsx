@@ -42,7 +42,7 @@ export function ResizeHandle({
       role="separator"
       aria-orientation="vertical"
       title="Drag to resize"
-      className={`group absolute inset-y-0 z-20 w-2 cursor-col-resize ${
+      className={`group absolute inset-y-0 z-20 w-2 cursor-col-resize touch-none ${
         side === 'left' ? 'left-0' : 'right-0'
       }`}
     >

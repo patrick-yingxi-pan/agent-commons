@@ -70,7 +70,10 @@ headers — `e2e/co-author-article.spec.ts` is the two-tenant multi-tenancy regr
 the in-app **account switcher** is live: `e2e/account-switch.spec.ts` locks the
 switch-mid-generation crux of `docs/design/multi-account-ui.md`, and
 `e2e/auth-wizard.spec.ts` + `e2e/onboarding.spec.ts` lock its §12 front door —
-the full-screen sign-up wizard and the multi-account stack), and
+the full-screen sign-up wizard and the multi-account stack —
+and `e2e/responsive.spec.ts` locks the viewport ladder at phone/tablet/landscape
+sizes: the narrow-tier rail drawer, the full-viewport panel takeover, and the
+`short:` chrome compression, spec ADAPT-11), and
 a pinned local `ANTHROPIC_BASE_URL` (an ambient one would stand the mock model down);
 `e2e/*.spec.ts`. The store/route suites lock the logic, the E2E locks the wiring.
 E2E spec gotchas: the app **opens on the demo session** (click "New session" before
@@ -237,8 +240,11 @@ the mock?
   them onto a single shared component/token rather than hand-restyling one to match.
   Embodied by `src/lib/inlineAction.ts` + `src/components/AddTrigger.tsx` (every
   "+ Add ‹thing›" picker-opener) and `src/lib/foldHeader.ts` (every foldable section
-  header); each shared cue is locked by a test that fails if a component re-hardcodes
-  it (`tests/addTrigger.test.ts`, `tests/foldHeader.test.ts`). The same rule governs
+  header) and `src/lib/scrim.ts` (every dimmed overlay backdrop — the tier scrims and
+  the dialog scrims alike); each shared cue is locked by a test that fails if a
+  component re-hardcodes
+  it (`tests/addTrigger.test.ts`, `tests/foldHeader.test.ts`, `tests/scrim.test.ts`).
+  The same rule governs
   shared *behaviour*, not just styling: every popover / dropdown / menu dismisses on
   outside-click + Escape through one hook, `src/lib/useDismissable.ts` (locked by
   `tests/useDismissable.test.ts`, which fails if a component re-hardcodes the document

@@ -12,6 +12,7 @@ import {
 import type { ArtifactKind, Session, SectionId } from '../types'
 import { SECTION_META, SECTION_ORDER } from '../lib/sections'
 import { useFocusTrap } from '../lib/useFocusTrap'
+import { SCRIM_CLASS } from '../lib/scrim'
 import { useArtifacts, useProjects, useSchedules } from '../api'
 
 const KIND_ICON: Record<ArtifactKind, LucideIcon> = {
@@ -164,17 +165,17 @@ export function SearchPanel({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex justify-center px-4 pt-[12vh]"
+      className="fixed inset-0 z-50 flex justify-center px-4 pt-[12dvh] short:pt-[6dvh]"
       onMouseDown={onClose}
       role="dialog"
       aria-modal="true"
       aria-label="Search"
     >
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" />
+      <div className={`${SCRIM_CLASS} backdrop-blur-[1px]`} />
       <div
         ref={dialogRef}
         onMouseDown={(e) => e.stopPropagation()}
-        className="relative flex max-h-[68vh] w-[580px] max-w-full flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong"
+        className="relative flex max-h-[68dvh] w-[580px] max-w-full flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong short:max-h-[85dvh]"
       >
         <div className="flex shrink-0 items-center gap-2.5 border-b border-line px-3.5">
           <Search size={17} className="shrink-0 text-ink-faint" />

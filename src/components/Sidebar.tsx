@@ -58,6 +58,7 @@ export function Sidebar({
   onDeleteSession,
   onToggleCollapse,
   onOpenSearch,
+  resizable = true,
   onResizeStart,
   onResize,
   onResizeEnd,
@@ -80,7 +81,9 @@ export function Sidebar({
   onToggleCollapse: () => void
   /** Open the floating search palette (the rail keeps only an icon). */
   onOpenSearch: () => void
-  /** Drag-to-resize wiring; the parent owns the width and clamps it. */
+  /** Drag-to-resize wiring; the parent owns the width and clamps it. On the
+   *  narrow tier the rail is a fixed-width drawer, so the handle is dropped. */
+  resizable?: boolean
   onResizeStart: () => void
   onResize: (clientX: number) => void
   onResizeEnd: () => void
@@ -174,7 +177,9 @@ export function Sidebar({
 
   return (
     <aside className="relative flex h-full w-full shrink-0 flex-col border-r border-line bg-sidebar">
-      <ResizeHandle side="right" onStart={onResizeStart} onMove={onResize} onEnd={onResizeEnd} />
+      {resizable && (
+        <ResizeHandle side="right" onStart={onResizeStart} onMove={onResize} onEnd={onResizeEnd} />
+      )}
       {/* Rail header — the collapse toggle sits at the top-left, with a search
           icon beside it; both on one line (no separate product top bar). Search
           opens a floating palette rather than filtering inline. */}

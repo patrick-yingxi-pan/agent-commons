@@ -33,19 +33,22 @@ across devices (the multi-device payoff of server-owned state, F3); `strongestFo
 remains the default when no stored choice exists. Falls back to `localStorage` on the
 desktop/offline.
 
-### 2.3 Responsive ladder (FWD-3)
+### 2.3 Responsive ladder (FWD-3) — **built (ADAPT-11)**
 
 A viewport-driven ladder replaces the fixed-width assumption (`PanelShell.tsx` clamps
-but never collapses):
+but never collapses). As built:
 
 | Width | Layout |
 |-------|--------|
 | **Wide** | Left rail + thread + right panel side-by-side (today's layout). |
-| **Medium** | Right panel **overlays** the thread (drawer) instead of squeezing it. |
-| **Narrow** | Right panel collapses to a **rail** (icon strip); tapping expands it as a full-width drawer; the left rail collapses too (already supported). |
+| **Medium** | Right panel **overlays** the thread behind a scrim instead of squeezing it. |
+| **Narrow** | Left rail becomes an **off-canvas drawer + scrim**; the right panel **takes over the full viewport**. (The icon-strip sketch here was superseded at build time — a 48–56px strip eats ~14% of a 375px screen; see PD35.) |
 
-Driven by a `useViewport` hook + CSS breakpoints (the prototype has zero media queries
-in `src/index.css` today). Panel width stays user-resizable within each tier.
+Driven by `useViewport` (`src/lib/viewport.ts`), which also reports an independent
+height axis — `short` (<480px), the CSS `short:` variant — that compresses fixed
+chrome for landscape phones. Panel width stays user-resizable within each tier
+(handles drop on narrow, where widths are fixed). Locked by `tests/viewport.test.ts`,
+`tests/scrim.test.ts`, `e2e/responsive.spec.ts`.
 
 ### 2.4 Accessibility
 

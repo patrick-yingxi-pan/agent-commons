@@ -6,7 +6,7 @@ import { Info, Lightbulb } from 'lucide-react'
  *  guided-tour strip renders right under this, sharing the same dark band. */
 export function ProposalBar({ onAbout }: { onAbout: () => void }) {
   return (
-    <div className="flex h-10 shrink-0 items-center gap-3 px-4">
+    <div className="flex h-10 shrink-0 items-center gap-3 px-4 short:h-9">
       <span className="flex min-w-0 items-center gap-2">
         <Lightbulb size={15} className="shrink-0 text-accent" />
         <span className="font-serif text-[14px] font-semibold tracking-tight text-canvas">
@@ -21,7 +21,7 @@ export function ProposalBar({ onAbout }: { onAbout: () => void }) {
         className="ml-auto flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-canvas/80 transition hover:bg-white/10 hover:text-canvas"
       >
         <Info size={15} />
-        About this proposal
+        <span className="hidden sm:inline">About this proposal</span>
       </button>
     </div>
   )

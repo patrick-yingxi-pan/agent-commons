@@ -303,7 +303,7 @@ export function Composer({
   }
 
   return (
-    <div className="px-4 pb-4 pt-1">
+    <div className="px-3 pb-3 pt-1 sm:px-4 sm:pb-4 short:pb-2">
       <div className="mx-auto w-full max-w-3xl">
         {/* Attached-context chips — one per type. A type with several items
             collapses into a counted chip whose popup lists them; clicking an
@@ -339,7 +339,9 @@ export function Composer({
             onChange={(e) => {
               setValue(e.target.value)
               e.target.style.height = 'auto'
-              e.target.style.height = Math.min(e.target.scrollHeight, 180) + 'px'
+              // A short viewport (landscape phone) can't give the box 180px.
+              const cap = window.innerHeight < 480 ? 96 : 180
+              e.target.style.height = Math.min(e.target.scrollHeight, cap) + 'px'
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -348,15 +350,16 @@ export function Composer({
               }
             }}
             placeholder={disabled ? 'Playing the tour…' : 'Reply to Claude…'}
-            className="max-h-[180px] min-w-0 flex-1 resize-none bg-transparent text-[15px] leading-relaxed text-ink outline-none placeholder:text-ink-faint disabled:cursor-not-allowed"
+            className="max-h-[180px] min-w-0 flex-1 resize-none bg-transparent text-[15px] leading-relaxed text-ink outline-none placeholder:text-ink-faint disabled:cursor-not-allowed short:max-h-24"
           />
-          <span className="shrink-0 self-end pb-0.5 text-ink-faint" title="Enter to send">
+          {/* Soft keyboards have no Enter-to-send convention — hide the hint. */}
+          <span className="hidden shrink-0 self-end pb-0.5 text-ink-faint sm:inline" title="Enter to send">
             <CornerDownLeft size={16} />
           </span>
         </div>
 
         {/* Controls under the box, split left / right */}
-        <div className="mt-2 flex items-center justify-between gap-2 px-0.5">
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 px-0.5">
           <div className="flex items-center gap-1">
             <PermissionModeControl />
             <AddContextButton
@@ -376,7 +379,8 @@ export function Composer({
           </div>
         </div>
 
-        <p className="mt-2 text-center text-[11px] text-ink-faint">
+        {/* The disclaimer is chrome a landscape phone can't afford. */}
+        <p className="mt-2 text-center text-[11px] text-ink-faint short:hidden">
           Prototype · the model is a local mock, but every turn — tour or free-typed — is a real round-trip through the tool interface.
         </p>
       </div>

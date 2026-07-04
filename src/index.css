@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* The height axis of the viewport ladder (FWD-3): `short:` compresses fixed
+   chrome on landscape phones. The 480 literal is SHORT_MAX in
+   src/lib/viewport.ts — tests/viewport.test.ts locks the two together. */
+@custom-variant short (@media (max-height: 480px));
+
 /* ---- Claude-flavoured light theme tokens ---------------------------------
    Exposed to Tailwind v4 as utilities, e.g. bg-canvas, text-ink, border-line.
    ------------------------------------------------------------------------- */
