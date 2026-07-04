@@ -312,6 +312,17 @@ the mock?
   gauge's disc dropping back once space is freed. Design reference for later, not
   built: [`docs/context-compaction.md`](docs/context-compaction.md).
 
+- **Delegated-cognition providers ("Session providers").** A D9 extension: a Model
+  provider our backend *can't dial* (firewalled / key-less / no API) whose cognition
+  is performed by an **AI session the user already runs** — reached by the session
+  draining a mailbox we host at a one-time **rendezvous secret**, the cognition-plane
+  mirror of a Runner. Preserves "one protocol, zero providers" and inverts only the
+  transport (dial-out → rendezvous dial-in), so `generateReply` stays untouched behind
+  an in-process loopback Messages shim. The user-side is one MCP server driven by a
+  blocking `respond_and_wait` loop; v1 is prose-only (`toolUse:false`). Workflow-first
+  design + the open-items checklist:
+  [`docs/delegated-cognition-provider.md`](docs/delegated-cognition-provider.md).
+
 ## Repo map (detail in [`README.md`](README.md))
 
 ```
