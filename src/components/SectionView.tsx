@@ -3257,9 +3257,10 @@ function GenericSection({ section }: { section: SectionId }) {
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-3xl px-6 py-6">
-        <header className="mb-5 flex items-start justify-between gap-3">
+        <header className="mb-5 flex items-start justify-between gap-3 max-sm:mb-3">
           <div>
-            <div className="flex items-center gap-2">
+            {/* Below sm the shell's NarrowBar already carries the section title. */}
+            <div className="flex items-center gap-2 max-sm:hidden">
               <h1 className="font-serif text-2xl font-semibold text-ink">{meta.label}</h1>
               {meta.beta && (
                 <span className="rounded-full bg-accent-tint px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent-strong">
@@ -3267,7 +3268,7 @@ function GenericSection({ section }: { section: SectionId }) {
                 </span>
               )}
             </div>
-            <p className="mt-1 text-sm text-ink-soft">{meta.subtitle}</p>
+            <p className="mt-1 text-sm text-ink-soft max-sm:mt-0">{meta.subtitle}</p>
           </div>
           {section === 'dispatch' && (
             <PrimaryButton icon={<Plus size={15} />} onClick={() => setCreating(true)}>
@@ -5122,8 +5123,10 @@ function Page({ children }: { children: ReactNode }) {
 
 function PageHeader({ title, children }: { title: string; children?: ReactNode }) {
   return (
-    <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
-      <h1 className="font-serif text-2xl font-semibold text-ink">{title}</h1>
+    <header className="mb-5 flex flex-wrap items-center justify-between gap-3 max-sm:mb-3">
+      {/* Below sm the shell's NarrowBar already carries the section title —
+          repeating it here would read twice on one screen. */}
+      <h1 className="font-serif text-2xl font-semibold text-ink max-sm:hidden">{title}</h1>
       {children && <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2.5">{children}</div>}
     </header>
   )

@@ -30,9 +30,15 @@ test('phone (375×812): rail drawer over a scrim, full-viewport panel takeover, 
   await page.goto('/')
   await dismissIntro(page)
 
-  // The rail starts closed on narrow — the floating reopen control is the door.
+  // The rail starts closed on narrow — the reopen control is the door, and it
+  // sits IN the layout (a header row), not floating over content: scrolling
+  // content must never slide underneath it. Floating would be position:absolute.
   const reopen = page.getByRole('button', { name: 'Expand sidebar' })
   await expect(reopen).toBeVisible()
+  expect(
+    await reopen.evaluate((el) => getComputedStyle(el).position),
+    'narrow rail toggle is in-flow, not floating',
+  ).toBe('static')
   expect(await noHorizontalScroll(page), 'no horizontal scroll on boot').toBe(true)
 
   // Open the drawer: the rail floats over the app with a scrim beside it, and

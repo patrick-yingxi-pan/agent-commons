@@ -27,6 +27,7 @@ import { useLayout } from './controller/useLayout'
 import { RelationsProvider, useRelations } from './controller/useRelations'
 import { railWidthCss, useViewport } from './lib/viewport'
 import { SCRIM_CLASS } from './lib/scrim'
+import { SECTION_META } from './lib/sections'
 import type { Live } from './data/liveSession'
 import type { AddedContext, Connector, SectionId, Session } from './types'
 
@@ -235,15 +236,17 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
       {/* ===== The proposed product — no top bar; the rail owns its toggle ===== */}
       <div className="relative flex min-h-0 flex-1 flex-col">
         {/* When the rail is collapsed its own toggle hides with it, so a floating
-            control re-opens it — in the same top-left spot the rail's toggle sits. */}
-        {!leftOpen && (
+            control re-opens it — in the same top-left spot the rail's toggle sits.
+            Wide/medium only: those layouts reserve its spot (the pl-14 title
+            indents). On narrow the toggle lives IN the layout instead — inline in
+            the session title bar or the NarrowBar — so scrolling content can
+            never slide underneath it. */}
+        {!leftOpen && !railOverlay && (
           <button
             onClick={openLeft}
             title="Expand sidebar"
             aria-label="Expand sidebar"
-            className={`absolute left-2.5 top-2.5 z-30 flex items-center justify-center rounded-lg border border-line bg-surface text-ink-soft shadow-sm transition hover:bg-panel-2 hover:text-ink ${
-              railOverlay ? 'h-10 w-10' : 'h-8 w-8'
-            }`}
+            className="absolute left-2.5 top-2.5 z-30 flex h-8 w-8 items-center justify-center rounded-lg border border-line bg-surface text-ink-soft shadow-sm transition hover:bg-panel-2 hover:text-ink"
           >
             <PanelLeft size={18} />
           </button>
@@ -292,6 +295,22 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
           </div>
 
           <main className="flex min-w-0 flex-1 flex-col">
+            {/* Narrow tier: surfaces without their own title bar (sections, the
+                demo, a draft) get a slim header row that HOUSES the rail toggle —
+                in-flow, so content scrolls under nothing. Regular sessions embed
+                the same toggle in their existing title bar instead. */}
+            {railOverlay && (activeSection || isDemo || isDraft) && (
+              <NarrowBar
+                title={
+                  activeSection
+                    ? SECTION_META[activeSection].label
+                    : isDraft
+                      ? 'New session'
+                      : activeSession.title
+                }
+                onOpenRail={openLeft}
+              />
+            )}
             {activeSection ? (
               <SectionView
                 section={activeSection}
@@ -301,7 +320,7 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
                 onOpenSchedule={openSchedule}
                 onBack={goBack}
                 backTo={backTo}
-                railCollapsed={!leftOpen}
+                railCollapsed={!leftOpen && !railOverlay}
                 focusProjectId={focusProjectId}
                 focusScheduleId={focusScheduleId}
               />
@@ -311,6 +330,7 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
                   <SessionTitleBar
                     session={activeSession}
                     leftOpen={leftOpen}
+                    leading={railOverlay ? <RailOpenButton onClick={openLeft} /> : undefined}
                     onOpenProject={openProject}
                     onOpenSchedule={openSchedule}
                   />
@@ -326,7 +346,7 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
                           onNewSessionWith={newSessionWith}
                         />
                       ) : (
-                        <div className={!leftOpen && (isDemo || isDraft) ? 'pb-4 pt-14' : 'py-4'}>
+                        <div className={!leftOpen && !railOverlay && (isDemo || isDraft) ? 'pb-4 pt-14' : 'py-4'}>
                           {live.messages.map((m) => (
                             <MessageRow key={m.id} message={m} sessionId={activeId} />
                           ))}
@@ -518,17 +538,49 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
   )
 }
 
+/** The narrow tier's in-flow rail toggle (ADAPT-11): the same affordance as the
+ *  floating reopen control, but it OCCUPIES layout — inline in a title bar or the
+ *  NarrowBar — so scrolling content can never slide underneath it. */
+function RailOpenButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      title="Expand sidebar"
+      aria-label="Expand sidebar"
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-soft transition hover:bg-panel-2 hover:text-ink"
+    >
+      <PanelLeft size={18} />
+    </button>
+  )
+}
+
+/** The slim header row narrow surfaces WITHOUT their own title bar wear (a
+ *  section page, the demo, a draft): rail toggle + where-am-I title. */
+function NarrowBar({ title, onOpenRail }: { title: string; onOpenRail: () => void }) {
+  return (
+    <div className="flex min-h-12 shrink-0 items-center gap-1.5 border-b border-line bg-canvas/80 py-1 pl-2 pr-4">
+      <RailOpenButton onClick={onOpenRail} />
+      <span className="min-w-0 truncate font-serif text-[15px] font-semibold text-ink">
+        {title}
+      </span>
+    </div>
+  )
+}
+
 /** The session title bar's home-project breadcrumb — reads the *live* relation
  *  graph (so an AI "file this session" edit updates it immediately) rather than
  *  the static seed. Lives below the provider so it can call useRelations. */
 function SessionTitleBar({
   session,
   leftOpen,
+  leading,
   onOpenProject,
   onOpenSchedule,
 }: {
   session: Session
   leftOpen: boolean
+  /** Narrow tier: the in-flow rail toggle, rendered at the bar's left. */
+  leading?: React.ReactNode
   onOpenProject: (id: string) => void
   onOpenSchedule: (id: string) => void
 }) {
@@ -540,11 +592,13 @@ function SessionTitleBar({
   const homeProject = runOf ? undefined : projectForSessionId(session.id)
   return (
     <div
-      className={`flex min-h-[52px] flex-col justify-center gap-0.5 border-b border-line bg-canvas/80 py-2 pr-4 ${
-        leftOpen ? 'pl-4' : 'pl-14'
+      className={`flex min-h-[52px] items-center gap-1.5 border-b border-line bg-canvas/80 py-2 pr-4 ${
+        leading ? 'pl-2' : leftOpen ? 'pl-4' : 'pl-14'
       }`}
     >
-      <span className="font-serif text-[15px] font-semibold leading-tight text-ink">
+      {leading}
+      <div className="flex min-w-0 flex-col justify-center gap-0.5">
+      <span className="truncate font-serif text-[15px] font-semibold leading-tight text-ink">
         {session.title}
       </span>
       {runOf && (
@@ -571,6 +625,7 @@ function SessionTitleBar({
           </span>
         </button>
       )}
+      </div>
     </div>
   )
 }
