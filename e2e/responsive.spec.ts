@@ -41,11 +41,18 @@ test('phone (375×812): rail drawer over a scrim, full-viewport panel takeover, 
   ).toBe('static')
   expect(await noHorizontalScroll(page), 'no horizontal scroll on boot').toBe(true)
 
+  // Closed, the drawer's buried controls must be OUT of the tab order and
+  // accessibility tree (UI-8): its width-0 clip hides pixels, not semantics.
+  await expect(page.locator('aside').locator('xpath=ancestor::*[@inert]')).toHaveCount(1)
+
   // Open the drawer: the rail floats over the app with a scrim beside it, and
   // the clamp leaves a tappable sliver (the rail can't cover the viewport).
   await reopen.click()
   const rail = page.locator('aside')
   await expect(rail).toBeVisible()
+  // …and now the COVERED side is what's inert: the drawer floats over the
+  // main region, so main leaves the tree while the drawer is up (UI-8).
+  await expect(page.locator('main[inert]')).toHaveCount(1)
   const railBox = (await rail.boundingBox())!
   expect(railBox.x, 'drawer flush left').toBe(0)
   expect(railBox.width, 'drawer leaves a scrim sliver').toBeLessThanOrEqual(375 - 56)
@@ -56,6 +63,7 @@ test('phone (375×812): rail drawer over a scrim, full-viewport panel takeover, 
   // session, and a send there would land in its thread.
   await page.getByRole('navigation').getByRole('button', { name: 'New session' }).click()
   await expect(reopen).toBeVisible()
+  await expect(page.locator('main[inert]')).toHaveCount(0)
 
   // The composer works at phone width; the turn round-trips.
   const message = `responsive phone hello ${STAMP}`
@@ -73,10 +81,13 @@ test('phone (375×812): rail drawer over a scrim, full-viewport panel takeover, 
   // The PanelShell root (its border-l + bg-panel chrome) spans the viewport.
   const panelBox = (await page.locator('div.border-l.bg-panel').first().boundingBox())!
   expect(panelBox.width, 'panel takes the full viewport width').toBeGreaterThanOrEqual(370)
+  // The takeover covers the thread — the covered thread is inert (UI-8).
+  await expect(page.locator('main section[inert]')).toHaveCount(1)
 
   // Close returns to the thread (composer visible again).
   await panelClose.click()
   await expect(page.getByPlaceholder('Reply to Claude…')).toBeVisible()
+  await expect(page.locator('main section[inert]')).toHaveCount(0)
   expect(await noHorizontalScroll(page), 'no horizontal scroll after panel close').toBe(true)
 })
 

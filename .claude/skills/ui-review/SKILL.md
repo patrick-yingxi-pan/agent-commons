@@ -50,7 +50,12 @@ before querying the result. `getBoundingClientRect()` serializes to `{}` —
 return plain fields. Playwright trusted clicks are the authoritative hit-tested
 signal; `preview_eval` dispatch bypasses hit-testing and can mask an
 element-intercepts-pointer bug, so anything interaction-critical gets an e2e
-assertion, not just a preview check.
+assertion, not just a preview check. When probing open/closed state of a
+collapsing container, measure the container that actually animates — clipped
+children report their full layout rect (rects ignore ancestor overflow clips),
+and Playwright counts clipped/occluded elements as "visible". Before trusting
+the sweep's verdicts, make its failures loud: a harness that silently catches a
+nav error reports a clean cell it never actually visited.
 
 ## 3 · Judge the residue
 

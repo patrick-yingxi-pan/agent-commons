@@ -264,6 +264,10 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
               On narrow it leaves the flex flow and floats over the app; its width
               clamp (railWidthCss) keeps a sliver of scrim tappable. */}
           <div
+            // Collapsed, the rail is clipped to width 0 but its content would
+            // otherwise stay in the tab order / accessibility tree (UI-8,
+            // docs/ui-invariants.md) — `inert` removes the buried controls.
+            inert={!leftOpen}
             className={`${
               railOverlay ? 'absolute inset-y-0 left-0 z-40' : 'relative shrink-0'
             } h-full overflow-hidden ${
@@ -294,7 +298,13 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
             </div>
           </div>
 
-          <main className="flex min-w-0 flex-1 flex-col">
+          <main
+            // While the narrow drawer floats over the app, everything it covers
+            // leaves the tab order / accessibility tree (UI-8) — the drawer and
+            // its scrim are siblings, so one attribute covers thread + panel.
+            inert={railOverlay && leftOpen}
+            className="flex min-w-0 flex-1 flex-col"
+          >
             {/* Narrow tier: surfaces without their own title bar (sections, the
                 demo, a draft) get a slim header row that HOUSES the rail toggle —
                 in-flow, so content scrolls under nothing. Regular sessions embed
@@ -337,7 +347,12 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
                 )}
 
                 <div className="relative flex min-h-0 flex-1">
-                  <section className="flex min-w-0 flex-1 flex-col">
+                  <section
+                    // While the panel overlays the thread (medium drawer or
+                    // narrow takeover), the covered thread is inert (UI-8).
+                    inert={panelOverlay && panelOpen}
+                    className="flex min-w-0 flex-1 flex-col"
+                  >
                     <div className="flex-1 overflow-y-auto">
                       {live.messages.length === 0 && !typing ? (
                         <EmptyState
