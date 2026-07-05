@@ -3045,7 +3045,16 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
   // one self-contained plain-JS module, so a hosted user needs nothing from the
   // repo — download the file, register it as an MCP server, done. Node ≥ 18.
   const connectorUrl = `${relayUrl}/connector`
-  const installCommand = `curl -fsSL ${connectorUrl} -o ~/session-relay.mjs && claude mcp add session-relay -- node ~/session-relay.mjs`
+  // Re-run-safe on purpose: `claude mcp add` refuses a name that already exists (no
+  // overwrite flag), so a second mint or a connector refresh would error mid-recipe.
+  // Each piece is deliberate: the temp-file + `mv` keeps a dropped download from
+  // truncating the file a working registration points at; the remove-first guard is
+  // silenced on BOTH streams (its not-found chatter isn't reliably on stderr) while
+  // the add stays audible; and `-s local` pins both sides to one scope, so the recipe
+  // can never hit the multi-scope disambiguation refusal or silently relocate an
+  // install the user made with `-s user`/`-s project`. Locked (all copies of the
+  // recipe, this string exactly) by tests/connector-serve.test.ts.
+  const installCommand = `curl -fsSL ${connectorUrl} -o ~/session-relay.mjs.tmp && mv ~/session-relay.mjs.tmp ~/session-relay.mjs && (claude mcp remove -s local session-relay >/dev/null 2>&1; claude mcp add -s local session-relay -- node ~/session-relay.mjs)`
   const connectSentence = `Connect to ${relayUrl} with secret ${secret} and start draining.`
   const copy = (text: string) => {
     void navigator.clipboard?.writeText(text)
@@ -3084,7 +3093,7 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
               <a href={connectorUrl} download="session-relay.mjs" className="font-medium text-accent hover:underline">
                 downloads directly
               </a>{' '}
-              too):
+              too). Already installed? Skip this — one install serves every relay; re-run only to update it:
             </p>
             <div className="flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2">
               <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-[12px] text-ink">{installCommand}</code>

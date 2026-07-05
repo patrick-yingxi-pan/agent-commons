@@ -145,15 +145,43 @@ with no per-relay configuration. Two install forms, same file:
   a program, not a secret (the rendezvous secret it later presents is the credential):
 
   ```bash
-  curl -fsSL https://<host>/api/v1/connector -o ~/session-relay.mjs
-  claude mcp add session-relay -- node ~/session-relay.mjs
-  # Claude Desktop: the same command/args in claude_desktop_config.json
+  curl -fsSL https://<host>/api/v1/connector -o ~/session-relay.mjs.tmp && \
+    mv ~/session-relay.mjs.tmp ~/session-relay.mjs && \
+    (claude mcp remove -s local session-relay >/dev/null 2>&1; \
+     claude mcp add -s local session-relay -- node ~/session-relay.mjs)
+  # bash/zsh. Claude Desktop / Windows: the same command/args in claude_desktop_config.json
   ```
 
-- **From a clone (contributors).**
+  The recipe is **re-run-safe by design** — `claude mcp add` refuses a name that
+  already exists (there is no overwrite flag), so a second mint, or refreshing the
+  connector after the deployment updates, would otherwise error mid-paste. Each
+  piece carries a reason:
+
+  - **Remove-first, silenced on both streams.** The guard makes blind copy-paste
+    idempotent; its "no server found" chatter (not reliably on stderr) is fully
+    suppressed so the *first* run doesn't look like it errored, while the `add`
+    stays audible — its success/failure line is the recipe's real outcome.
+  - **Both sides pinned `-s local`.** An unpinned `remove` refuses when the name
+    exists in two scopes (wedging the recipe back into the original bug) and
+    otherwise removes from *whatever* scope it finds — silently relocating an
+    install the user deliberately made with `-s user` or `-s project` onto local.
+    Pinned, the recipe manages only the local-scope entry and never touches the
+    others (a local entry shadows a user-scope one, so the add still lands).
+  - **Download to a temp file, `mv` on success.** `curl -o` writes in place, so a
+    dropped connection would truncate the file a *working* registration points
+    at; the rename keeps every failure mode on the safe side — bad download,
+    nothing changes.
+
+  (Already installed and current? The whole step is skippable — the connector is
+  generic, one registration serves every relay.)
+
+- **From a clone (contributors).** Same remove-first guard — this form hits the
+  identical "already exists" refusal on re-run (or when switching from the
+  downloaded form):
 
   ```bash
-  claude mcp add session-relay -- npm --prefix /path/to/this/repo run connector
+  (claude mcp remove -s local session-relay >/dev/null 2>&1; \
+   claude mcp add -s local session-relay -- npm --prefix /path/to/this/repo run connector)
   ```
 
 Serving a relay is then one typed sentence per session: open a **fresh, dedicated

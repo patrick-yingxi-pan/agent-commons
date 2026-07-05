@@ -8,7 +8,7 @@
  *  download-and-run flow a public user follows actually runs. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { writeFileSync, rmSync, mkdtempSync } from 'node:fs'
+import { readFileSync, writeFileSync, rmSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { call, callRaw } from './helpers/http.ts'
@@ -33,6 +33,46 @@ test('GET /connector serves a type-stripped, self-contained JS module with downl
   // Stable across requests (memoized once per boot — same file every download).
   const again = await fetchServedConnector()
   assert.equal(again.body, body)
+})
+
+test('every install recipe is re-run-safe: remove-first guard, scope-pinned, download gated', () => {
+  // `claude mcp add` refuses a name that already exists (no overwrite flag), so a
+  // recipe that only `add`s errors on the second mint / a connector refresh. Every
+  // copy of the recipe in the repo must therefore (a) pin BOTH sides to `-s local`
+  // (an unpinned remove wedges on multi-scope state and silently relocates a
+  // user-/project-scope install) and (b) guard each add with the fully-silenced
+  // remove (its not-found chatter isn't reliably on stderr). The panel's copyable
+  // command is additionally locked byte-exact: `curl -fsSL` makes an HTTP error a
+  // *failed* download, and the temp-file + `mv` keeps a dropped re-download from
+  // truncating the file a working registration points at.
+  const RECIPE_FILES = [
+    '../src/components/SectionView.tsx',
+    '../connector/relay-connector.ts',
+    '../docs/delegated-cognition-provider.md',
+    '../docs/spec/06-model-and-tools.md',
+  ]
+  const GUARD = '(claude mcp remove -s local session-relay >/dev/null 2>&1; claude mcp add -s local session-relay'
+  // An *invocation* names the server; prose mentions of the bare command don't count.
+  const INVOCATION = /claude mcp add(?: -s \S+)? session-relay/g
+  for (const file of RECIPE_FILES) {
+    const raw = readFileSync(new URL(file, import.meta.url), 'utf8')
+    // Unwrap block-comment prefixes and backslash line-continuations, collapse whitespace.
+    const text = raw.replace(/^\s*\*\s?/gm, '').replace(/\\\n/g, ' ').replace(/\s+/g, ' ')
+    const invocations = text.match(INVOCATION) ?? []
+    assert.ok(invocations.length > 0, `${file} lost its install recipe`)
+    for (const inv of invocations) {
+      assert.equal(inv, 'claude mcp add -s local session-relay', `${file}: install invocation not scope-pinned: '${inv}'`)
+    }
+    const guarded = text.split(GUARD).length - 1
+    assert.equal(guarded, invocations.length, `${file}: ${invocations.length - guarded} of ${invocations.length} install invocations lack the remove-first guard`)
+  }
+  const panel = readFileSync(new URL('../src/components/SectionView.tsx', import.meta.url), 'utf8')
+  assert.ok(
+    panel.includes(
+      'curl -fsSL ${connectorUrl} -o ~/session-relay.mjs.tmp && mv ~/session-relay.mjs.tmp ~/session-relay.mjs && (claude mcp remove -s local session-relay >/dev/null 2>&1; claude mcp add -s local session-relay -- node ~/session-relay.mjs)',
+    ),
+    'the panel installCommand drifted from the locked byte-exact shape',
+  )
 })
 
 test('the SERVED bytes run under plain node: latch, refuse a redirect, drain a round-trip', async () => {

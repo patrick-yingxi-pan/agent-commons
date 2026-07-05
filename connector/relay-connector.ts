@@ -10,12 +10,20 @@
  *  serves this file type-stripped at `GET /api/v1/connector` (spec MODEL-14), so
  *  keep it self-contained: type-only imports, no runtime dependency on the repo —
  *
- *      curl -fsSL https://<host>/api/v1/connector -o ~/session-relay.mjs
- *      claude mcp add session-relay -- node ~/session-relay.mjs
+ *      curl -fsSL https://<host>/api/v1/connector -o ~/session-relay.mjs.tmp && \
+ *        mv ~/session-relay.mjs.tmp ~/session-relay.mjs && \
+ *        (claude mcp remove -s local session-relay >/dev/null 2>&1; \
+ *         claude mcp add -s local session-relay -- node ~/session-relay.mjs)
  *
- *  and a contributor runs the source directly:
+ *  (re-run-safe by design — `claude mcp add` refuses an existing name, so both
+ *  forms remove first, silenced on both streams and pinned to `-s local` so the
+ *  recipe never relocates a user-/project-scope install; the temp-file + `mv`
+ *  keeps a dropped download from truncating a working install — see the doc §4.2)
  *
- *      claude mcp add session-relay -- npm run connector     # from this repo
+ *  and a contributor runs the source directly (from this repo):
+ *
+ *      (claude mcp remove -s local session-relay >/dev/null 2>&1; \
+ *       claude mcp add -s local session-relay -- npm run connector)
  *
  *  then, in each fresh dedicated session, type the connect sentence the mint
  *  panel shows — "Connect to <url> with secret rv_live_… and start draining" —
