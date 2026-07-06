@@ -2253,19 +2253,25 @@ export const store = {
    *  and authority / budget / provider are NOT created — the importing owner binds
    *  their own through the D8 funnel. The route owns the fetch + shape validation. */
   importAgentFromCard(card: { name: string; description?: string; skills?: { id?: string; name?: string }[] }, url: string, tenantId: string): Agent {
+    // Untrusted remote input: trim + cap what lands in the registry. The route's
+    // body cap bounds the total; these bound what the UI renders and the store
+    // persists (a ~250KB "name" inside a within-cap card is still hostile).
+    const name = card.name.trim().slice(0, 120)
     const skills = (Array.isArray(card.skills) ? card.skills : [])
       .map((s) => (typeof s?.name === 'string' && s.name) || (typeof s?.id === 'string' && s.id) || '')
       .filter(Boolean)
-    const description = typeof card.description === 'string' ? card.description.trim() : ''
+      .map((s) => s.slice(0, 80))
+      .slice(0, 12)
+    const description = (typeof card.description === 'string' ? card.description.trim() : '').slice(0, 2000)
     return this.createAgent(
       {
-        label: card.name,
+        label: name,
         systemPrompt: DEFAULT_SYSTEM_PROMPT_BODY,
         tools: [],
         instructions: [description, skills.length ? `Advertised skills (remote): ${skills.join(', ')}.` : '']
           .filter(Boolean)
           .join(' '),
-        importedFrom: { url, name: card.name },
+        importedFrom: { url, name },
       },
       tenantId,
     )

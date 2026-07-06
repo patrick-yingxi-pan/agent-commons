@@ -16,11 +16,11 @@ const A = 'tenant-import-A'
 const B = 'tenant-import-B'
 
 /** Serve one canned response; returns the base URL + a close handle. */
-function serve(payload: string, status = 200): Promise<{ url: string; close: () => Promise<void>; hits: () => number }> {
+function serve(payload: string, status = 200, headers: Record<string, string> = {}): Promise<{ url: string; close: () => Promise<void>; hits: () => number }> {
   let hits = 0
   const server: Server = createServer((_req, res) => {
     hits += 1
-    res.writeHead(status, { 'Content-Type': 'application/json' })
+    res.writeHead(status, { 'Content-Type': 'application/json', ...headers })
     res.end(payload)
   })
   return new Promise((resolve) => {
@@ -106,7 +106,45 @@ test('refusals: non-http url, unreachable host, and a payload that is not a card
     await upstream404.close()
   }
 
+  // An oversized body is cut off DURING the read (streamed cap), not buffered whole.
+  const huge = await serve('x'.repeat(300 * 1024))
+  try {
+    const res = await call('POST', '/agents/import-card', { url: `${huge.url}/x.json` }, { 'x-tenant-id': A })
+    assert.equal(res.status, 400)
+    assert.match(res.json.error.message, /too large/i)
+  } finally {
+    await huge.close()
+  }
+
+  // A redirect would hop the vetted URL to another host — refused, never followed.
+  const bounce = await serve('', 302, { Location: 'http://127.0.0.1:9/elsewhere.json' })
+  try {
+    const res = await call('POST', '/agents/import-card', { url: `${bounce.url}/x.json` }, { 'x-tenant-id': A })
+    assert.equal(res.status, 400)
+    assert.match(res.json.error.message, /Could not fetch/i)
+  } finally {
+    await bounce.close()
+  }
+
   assert.equal(store.listAgents(A).length, before, 'no refusal minted an agent')
+})
+
+test('untrusted card fields are trimmed and capped before landing in the registry', async () => {
+  const bloated = await serve(JSON.stringify({
+    name: `  ${'N'.repeat(500)}  `,
+    description: 'D'.repeat(9000),
+    skills: Array.from({ length: 40 }, (_, i) => ({ id: `skill-${i}`, name: 'S'.repeat(300) })),
+  }))
+  try {
+    const res = await call('POST', '/agents/import-card', { url: `${bloated.url}/card.json` }, { 'x-tenant-id': A })
+    assert.equal(res.status, 200)
+    assert.equal(res.json.label.length, 120, 'label trimmed + capped')
+    assert.equal(res.json.importedFrom.name, res.json.label, 'lineage carries the same capped name')
+    assert.ok(res.json.instructions.length < 4000, 'description + skills digest bounded')
+    assert.equal((res.json.instructions.match(/S{80}/g) ?? []).length, 12, 'at most 12 skills, each capped')
+  } finally {
+    await bloated.close()
+  }
 })
 
 test('the imported stub forks/edits like any local agent (it IS one — the definition landed)', async () => {

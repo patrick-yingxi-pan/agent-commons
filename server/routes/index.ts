@@ -1271,7 +1271,9 @@ export function buildRouter(): Router {
     }
     const shaped = rpc as A2aRpcRequest
     if (!shaped || typeof shaped !== 'object' || typeof shaped.method !== 'string') {
-      rpcError(ctx.res, null, A2A_ERROR.invalidRequest, 'Invalid JSON-RPC request: an object with a method is required')
+      // Echo the request id when it is readable (JSON-RPC: a client correlates on it).
+      const id = shaped && typeof shaped === 'object' && (typeof shaped.id === 'string' || typeof shaped.id === 'number') ? shaped.id : null
+      rpcError(ctx.res, id, A2A_ERROR.invalidRequest, 'Invalid JSON-RPC request: an object with a method is required')
       return undefined
     }
     return shaped
@@ -1344,6 +1346,27 @@ export function buildRouter(): Router {
   // cross-instance sibling of /agents/:id/fork; `importedFrom` lineage). The fetch
   // is bounded (http/https only, 5s timeout, size cap) — an SSRF-shaped primitive,
   // recorded in the design log; a production deployment adds an egress allowlist.
+  // Read at most `cap` bytes of a fetched body; undefined = over cap. Reading the
+  // stream chunk-by-chunk — instead of text()-then-measure — keeps a hostile or
+  // hijacked card host from ballooning server memory with an unbounded chunked body.
+  const MAX_CARD_BYTES = 256 * 1024
+  const readCapped = async (bodyStream: ReadableStream<Uint8Array> | null, cap: number): Promise<string | undefined> => {
+    if (!bodyStream) return ''
+    const reader = bodyStream.getReader()
+    const chunks: Uint8Array[] = []
+    let size = 0
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      size += value.length
+      if (size > cap) {
+        await reader.cancel()
+        return undefined
+      }
+      chunks.push(value)
+    }
+    return Buffer.concat(chunks).toString('utf8')
+  }
   r.post('/agents/import-card', async ({ req, res, body }) => {
     const { url: cardUrl } = await body<ImportAgentCardRequest>()
     if (typeof cardUrl !== 'string' || !/^https?:\/\//i.test(cardUrl)) {
@@ -1351,10 +1374,12 @@ export function buildRouter(): Router {
     }
     let card: unknown
     try {
-      const resp = await fetch(cardUrl, { signal: AbortSignal.timeout(5_000) })
+      // `redirect: 'error'`: a redirect could hop the vetted URL to another
+      // host/port — refuse it rather than widen the recorded SSRF-shaped surface.
+      const resp = await fetch(cardUrl, { signal: AbortSignal.timeout(5_000), redirect: 'error' })
       if (!resp.ok) return sendError(res, 'bad_request', `Card fetch failed: HTTP ${resp.status} from ${cardUrl}`)
-      const text = await resp.text()
-      if (text.length > 256 * 1024) return sendError(res, 'bad_request', 'Agent Card too large')
+      const text = await readCapped(resp.body, MAX_CARD_BYTES)
+      if (text === undefined) return sendError(res, 'bad_request', 'Agent Card too large')
       card = JSON.parse(text)
     } catch {
       return sendError(res, 'bad_request', `Could not fetch an Agent Card from ${cardUrl}`)

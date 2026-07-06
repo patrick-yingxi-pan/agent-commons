@@ -120,9 +120,11 @@ lineage, ready to be bound), and it exercises the real outbound HTTP path.
   dispatch is synchronous (D19's accepted trade-off), so there is nothing to
   stream yet.
 - The card import fetch is server-side and URL-driven — an SSRF-shaped primitive.
-  Bounded for the prototype (http/https only, 5s timeout, response size sanity
-  cap); a production deployment adds an egress allowlist. Recorded here so it
-  isn't rediscovered as a surprise.
+  Bounded for the prototype (http/https only, 5s timeout, **redirects refused** so
+  the fetched URL is exactly the vetted one, a **streamed 256KB read cap** so a
+  chunked body can't balloon memory, and the landed fields trimmed + capped before
+  they reach the registry); a production deployment adds an egress allowlist.
+  Recorded here so it isn't rediscovered as a surprise.
 
 ## Protocol posture (the one-line version)
 
