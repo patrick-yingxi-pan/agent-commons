@@ -23,6 +23,9 @@ test('no component re-hardcodes the byline or the shared marker', () => {
   assert.ok(!/\(you\)/.test(sectionView), 'SectionView must derive "(you)" via bylineLabel, not inline it')
   assert.ok(!sectionView.includes(SHARED_MARKER), 'SectionView must render the shared marker via <Byline>, not inline it')
   assert.ok(/bylineLabel|<Byline/.test(sectionView), 'SectionView routes owner labels through the funnel')
+  // The owner-door style is <OwnerLink>'s alone — the first review pass found the same
+  // underline classes hand-rolled three times before this funnel existed.
+  assert.ok(!sectionView.includes('decoration-line-strong'), 'the owner-door style lives in PublicFace (<OwnerLink>), never inline')
 
   const publicFace = src('../src/components/PublicFace.tsx')
   assert.ok(publicFace.includes("from '../lib/publicFace'"), 'the component imports the one label source')

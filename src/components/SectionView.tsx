@@ -72,7 +72,7 @@ import { AddContextButton } from './AddContextButton'
 import { AddTrigger } from './AddTrigger'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { bylineLabel } from '../lib/publicFace'
-import { Byline, CreditLine } from './PublicFace'
+import { Byline, CreditLine, OwnerLink } from './PublicFace'
 import { resolveBackLabel, type NavLocation } from '../lib/nav'
 import { relativeTime } from '../lib/relativeTime'
 import { Chip } from './Chip'
@@ -353,7 +353,8 @@ function ProjectsSection({
       <SearchBox value={query} onChange={setQuery} placeholder="Search projects…" />
       {mine.length === 0 ? (
         <Empty>
-          {query.trim() ? `No projects match “${query.trim()}”.` : 'No projects yet — create one to group related work.'}
+          {/* "of yours": a search may still match the Shared-with-you band below. */}
+          {query.trim() ? `No projects of yours match “${query.trim()}”.` : 'No projects yet — create one to group related work.'}
         </Empty>
       ) : (
         grid(mine)
@@ -3783,13 +3784,7 @@ function DiscoverTab() {
                   title={p.name}
                   subtitle={
                     <>
-                      <button
-                        onClick={() => setOwnerFilter(p.owner)}
-                        className="underline decoration-line-strong underline-offset-2 transition hover:text-ink"
-                        title="Show everything this workspace shares"
-                      >
-                        {bylineLabel(p.owner, p.own)}
-                      </button>
+                      <OwnerLink ownerName={p.owner} own={p.own} onClick={() => setOwnerFilter(p.owner)} />
                       {` · updated ${relativeTime(p.updatedAt)}`}
                     </>
                   }
@@ -3944,13 +3939,7 @@ function PublishedAgentCard({
         title={entry.label}
         subtitle={
           <>
-            <button
-              onClick={onOwnerClick}
-              className="underline decoration-line-strong underline-offset-2 transition hover:text-ink"
-              title="Show everything this workspace shares"
-            >
-              {bylineLabel(entry.owner, entry.own)}
-            </button>
+            <OwnerLink ownerName={entry.owner} own={entry.own} onClick={onOwnerClick} />
             {` · ${entry.tools.length} tool${entry.tools.length === 1 ? '' : 's'}`}
           </>
         }

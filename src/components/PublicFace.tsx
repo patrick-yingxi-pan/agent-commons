@@ -8,6 +8,36 @@
 import { Award, GitFork, Globe } from 'lucide-react'
 import { bylineLabel, SHARED_MARKER } from '../lib/publicFace'
 
+/** The one owner-door style — an underlined owner name that opens "everything this
+ *  workspace shares". Local to this module on purpose: consumers use <OwnerLink>,
+ *  never the class (the lock greps for strays). */
+const OWNER_LINK_CLASS = 'underline decoration-line-strong underline-offset-2 transition hover:text-ink'
+
+/** The clickable owner byline — the same door on a directory subtitle and inside
+ *  a Byline: click the owner to filter the commons down to that workspace. */
+export function OwnerLink({
+  ownerName,
+  own,
+  onClick,
+}: {
+  ownerName?: string
+  own?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation()
+        onClick()
+      }}
+      className={OWNER_LINK_CLASS}
+      title="Show everything this workspace shares"
+    >
+      {bylineLabel(ownerName, own)}
+    </button>
+  )
+}
+
 /** The shared-entity byline: Globe + "Shared · by X (you)". `onOwnerClick`
  *  (where given) makes the owner name a door — e.g. filter the directory down
  *  to that workspace's shares. */
@@ -20,25 +50,15 @@ export function Byline({
   own?: boolean
   onOwnerClick?: () => void
 }) {
-  const label = bylineLabel(ownerName, own)
   return (
     <span className="inline-flex items-center gap-1.5 text-[12px] text-ink-faint">
       <Globe size={12} className="shrink-0 text-emerald-600" />
       <span>
         {SHARED_MARKER}
         {onOwnerClick ? (
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onOwnerClick()
-            }}
-            className="underline decoration-line-strong underline-offset-2 transition hover:text-ink"
-            title="Show everything this workspace shares"
-          >
-            {label}
-          </button>
+          <OwnerLink ownerName={ownerName} own={own} onClick={onOwnerClick} />
         ) : (
-          label
+          bylineLabel(ownerName, own)
         )}
       </span>
     </span>
