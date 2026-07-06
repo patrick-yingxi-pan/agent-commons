@@ -21,6 +21,7 @@ import {
   Folder,
   FolderGit2,
   GitBranch,
+  GitFork,
   Github,
   Globe,
   KeyRound,
@@ -114,6 +115,8 @@ import {
   createAgent,
   updateAgent,
   deleteAgent,
+  forkAgent,
+  postOpenSubGoal,
   updateCommission,
   deleteCommission,
   reserveSubGoal,
@@ -121,9 +124,12 @@ import {
   probePrompt,
   API_BASE,
   useAgents,
+  useAgentDirectory,
   useAuditLog,
   useCommissions,
   useCommissionAuthority,
+  useOpenSubGoals,
+  useProjectDirectory,
   useProjectSubGoals,
   useDispatchRuns,
   useProviders,
@@ -137,12 +143,15 @@ import {
   promptFitWarning,
   projectAdmittedAuthority,
   PROJECT_ROLES,
+  PROJECT_EFFECT_TYPES,
   AUDIT_CHANNEL_LABEL,
   type Agent,
+  type AgentDirectoryEntry,
   type AuditEntry,
   type Commission,
   type CreatedProvider,
   type ModelProvider,
+  type ProjectEffectType,
   type ProjectRole,
   type PromptProbeResult,
   type SystemPromptEntry,
@@ -1050,6 +1059,14 @@ function ContributorRow({
           <span className="shrink-0 rounded-full bg-ink/5 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-ink-soft">
             {commission.role ?? 'writer'}
           </span>
+          {commission.standing && (
+            <span
+              title="Standing (D19): volunteers for this project’s open work — takes posted items unprompted, on its owner’s plan"
+              className="shrink-0 rounded-full bg-accent/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-accent"
+            >
+              standing
+            </span>
+          )}
           {contributions ? (
             <span
               title={`${contributions} commissioned ${contributions === 1 ? 'contribution' : 'contributions'} on the Commons (D13)`}
@@ -1126,6 +1143,7 @@ function CommissionDialog({
   const [connectors, setConnectors] = useState<Set<string>>(() => startSet(commission.authority?.connectors, admittedConnectors))
   const [scopes, setScopes] = useState<Set<string>>(() => startSet(commission.authority?.scopes, admittedScopes))
   const [role, setRole] = useState<ProjectRole>(commission.role ?? 'writer')
+  const [standing, setStanding] = useState(commission.standing === true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -1146,6 +1164,7 @@ function CommissionDialog({
     try {
       await updateCommission(commission.id, commission.projectId, {
         role,
+        standing,
         authority: { connectors: [...connectors], scopes: [...scopes] },
       })
       onClose()
@@ -1186,6 +1205,20 @@ function CommissionDialog({
           reserve sub-goals; owner may also commission others.
         </p>
       </div>
+      <label className="mb-3 flex items-start gap-2">
+        <input
+          type="checkbox"
+          checked={standing}
+          onChange={(e) => setStanding(e.target.checked)}
+          className="mt-0.5 h-3.5 w-3.5 accent-accent"
+        />
+        <span className="text-[12px] leading-snug text-ink-soft">
+          <span className="font-medium text-ink">Standing</span> — volunteer this agent for the
+          project’s open work: when a work item is posted it may take it{' '}
+          <span className="font-medium text-ink">unprompted</span>, spending your plan (owner-pays,
+          D19). Approved once, here — the same shape as a standing schedule approval.
+        </span>
+      </label>
       <div className="space-y-3">
         <AdmittedChecklist
           label="Connectors this contributor may reach"
@@ -1398,9 +1431,112 @@ function CoordinationPanel({ project }: { project: Project }) {
               </p>
             )}
           </div>
+
+          <OpenWorkList projectId={project.id} />
         </>
       )}
     </SidePanel>
+  )
+}
+
+/** The project's open-work backlog (docs/agent-commons.md, D19) — the issues-tray
+ *  analog inside the Coordination panel: posted items awaiting a taker, resolved items
+ *  with their credit line, and the post form. Posting dispatches synchronously to the
+ *  project's STANDING contributors (through the same role/reach/guardian walls as a
+ *  prompted effect); the returned item is already done when one took it. Live on
+ *  `openwork.changed`. */
+function OpenWorkList({ projectId }: { projectId: string }) {
+  const items = useOpenSubGoals(projectId).data ?? []
+  const [subGoal, setSubGoal] = useState('')
+  const [type, setType] = useState<ProjectEffectType>('charge')
+  const [target, setTarget] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const post = async () => {
+    if (busy || !subGoal.trim() || !target.trim()) return
+    setBusy(true)
+    setError(null)
+    try {
+      await postOpenSubGoal(projectId, { subGoal: subGoal.trim(), type, target: target.trim() })
+      setSubGoal('')
+      setTarget('')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not post this work item.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-2.5 border-t border-line pt-2.5">
+      <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+        Open work
+      </div>
+      {items.length === 0 ? (
+        <p className="text-[12px] text-ink-faint">
+          Nothing posted. Post a work item — a standing contributor may take it unprompted.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {items.map((o) => (
+            <div key={o.id} className="flex items-start gap-2.5">
+              <span
+                className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${o.status === 'done' ? 'bg-emerald-500' : 'bg-amber-500'}`}
+              />
+              <div className="min-w-0 flex-1">
+                <div className="text-[13px] font-medium text-ink">{o.subGoal}</div>
+                <div className="text-[11px] text-ink-faint">
+                  {o.type} → {o.target}
+                  {o.status === 'done'
+                    ? ` · done by ${o.resolvedByLabel ?? 'a contributor'}`
+                    : ` · posted by ${o.postedBy} — awaiting a taker`}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="mt-2 space-y-1.5">
+        <input
+          value={subGoal}
+          onChange={(e) => setSubGoal(e.target.value)}
+          placeholder="Post a work item (sub-goal)…"
+          aria-label="Work item sub-goal"
+          className="w-full rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+        />
+        <div className="flex items-center gap-1.5">
+          <select
+            value={type}
+            onChange={(e) => setType(e.target.value as ProjectEffectType)}
+            aria-label="Effect type"
+            className="rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
+          >
+            {PROJECT_EFFECT_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+          <input
+            value={target}
+            onChange={(e) => setTarget(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && post()}
+            placeholder="Target (connector / descriptor)…"
+            aria-label="Effect target"
+            className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+          />
+          <button
+            onClick={post}
+            disabled={busy || !subGoal.trim() || !target.trim()}
+            className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-white transition enabled:hover:bg-accent/90 disabled:opacity-45"
+          >
+            Post
+          </button>
+        </div>
+        {error && <p className="text-[11px] text-removed">{error}</p>}
+      </div>
+    </div>
   )
 }
 
@@ -2439,12 +2575,13 @@ function StatusPill({ tone, label }: { tone: 'ok' | 'warn' | 'bad' | 'neutral'; 
  *  interdependent (an Agent binds a provider + prompt; a commission binds an Agent to a
  *  Project), so they read as one surface rather than four nav rows. Slice 1 lists each
  *  read-only; later slices add create / edit / delete per tab. */
-type CommonsTab = 'agents' | 'prompts' | 'commissions' | 'audit'
+type CommonsTab = 'agents' | 'prompts' | 'commissions' | 'discover' | 'audit'
 
 const COMMONS_TABS: { id: CommonsTab; label: string }[] = [
   { id: 'agents', label: 'Agents' },
   { id: 'prompts', label: 'Prompts' },
   { id: 'commissions', label: 'Commissions' },
+  { id: 'discover', label: 'Discover' },
   { id: 'audit', label: 'Audit' },
 ]
 
@@ -2465,6 +2602,7 @@ function AgentCommonsSection() {
         {tab === 'agents' && <AgentsTab />}
         {tab === 'prompts' && <PromptsTab />}
         {tab === 'commissions' && <CommissionsTab />}
+        {tab === 'discover' && <DiscoverTab />}
         {tab === 'audit' && <AuditTab />}
       </div>
     </Page>
@@ -2714,6 +2852,7 @@ function AgentCard({
   onEdit: () => void
 }) {
   const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
   const del = async () => {
     setError(null)
     try {
@@ -2722,21 +2861,71 @@ function AgentCard({
       setError(e instanceof Error ? e.message : 'Could not delete this agent.')
     }
   }
+  // The D18 publish/unpublish act — an explicit toggle (a definition is published
+  // deliberately, never as a side-effect of an edit).
+  const togglePublish = async () => {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await updateAgent(agent.id, { published: !agent.published })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not change publishing.')
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
     <CommonsCard>
       <CommonsCardHead
         icon={<Bot size={16} />}
         title={agent.label}
         subtitle={`Runs on ${providerLabel} · ${agent.tools.length} tool${agent.tools.length === 1 ? '' : 's'}`}
-        trailing={<CardActions onEdit={onEdit} onDelete={del} />}
+        trailing={
+          <div className="flex shrink-0 items-center gap-1.5">
+            {agent.published && (
+              <span
+                title="Published to the directory (D18) — any account may fork this definition"
+                className="rounded-full bg-accent/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-accent"
+              >
+                Published
+              </span>
+            )}
+            <CardActions onEdit={onEdit} onDelete={del} />
+          </div>
+        }
       />
       <p className="mt-2 text-[12px] text-ink-soft">Authority: {authorityLabel(agent.authority)}</p>
+      {agent.forkedFrom && (
+        <p className="mt-1 inline-flex items-center gap-1 text-[12px] text-ink-faint">
+          <GitFork size={12} /> Forked from {agent.forkedFrom.label}
+        </p>
+      )}
       {agent.contributions ? (
         <p className="mt-1 inline-flex items-center gap-1 text-[12px] text-emerald-700">
           <Award size={12} /> {agent.contributions} commissioned contribution
           {agent.contributions === 1 ? '' : 's'} on the Commons (D13)
         </p>
       ) : null}
+      <div className="mt-2 flex items-center gap-3">
+        <button
+          onClick={togglePublish}
+          disabled={busy}
+          className={INLINE_ACTION_CLASS}
+          title={
+            agent.published
+              ? 'Remove this agent from the directory (copies already forked stay with their owners)'
+              : 'Share this agent’s definition (prompt · tools · instructions) in the directory — your model, authority, and budget are never shared (D18)'
+          }
+        >
+          {agent.published ? 'Unpublish' : 'Publish to directory'}
+        </button>
+        {(agent.forks ?? 0) > 0 && (
+          <span className="inline-flex items-center gap-1 text-[11px] text-ink-faint">
+            <GitFork size={11} /> forked {agent.forks} time{agent.forks === 1 ? '' : 's'}
+          </span>
+        )}
+      </div>
       {error && <p className="mt-2 text-[12px] text-removed">{error}</p>}
     </CommonsCard>
   )
@@ -3457,6 +3646,141 @@ function CommissionsTab() {
         )
       })}
     </div>
+  )
+}
+
+/** The discovery directory (docs/agent-commons.md, D17) — what other accounts made
+ *  public: shared Projects open to Contributors, and published Agent definitions any
+ *  account may fork (D18). Deliberately a searchable LIST, not a feed — the directory
+ *  never widens visibility (each entry is the row's existing public face), and ranking
+ *  is a policy this prototype doesn't take. One debounced-enough search box filters
+ *  both directories (substring on name/description, server-side). */
+function DiscoverTab() {
+  const [q, setQ] = useState('')
+  const query = q.trim() || undefined
+  const projects = useProjectDirectory(query).data ?? []
+  const agents = useAgentDirectory(query).data ?? []
+  return (
+    <div className="space-y-6">
+      <div className="relative">
+        <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint" />
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search shared projects and published agents…"
+          aria-label="Search the directory"
+          className={`${FORM_INPUT_CLASS} pl-8`}
+        />
+      </div>
+
+      <div>
+        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+          Shared projects
+        </div>
+        {projects.length === 0 ? (
+          <Empty>No shared projects{query ? ' match this search' : ' yet — share one from its project page'}.</Empty>
+        ) : (
+          <div className="space-y-3">
+            {projects.map((p) => (
+              <CommonsCard key={p.id}>
+                <CommonsCardHead
+                  icon={<SquareKanban size={16} />}
+                  title={p.name}
+                  subtitle={`by ${p.owner}${p.own ? ' (you)' : ''} · updated ${relativeTime(p.updatedAt)}`}
+                  trailing={
+                    p.openWorkCount > 0 ? (
+                      <span
+                        title={`${p.openWorkCount} open work item${p.openWorkCount === 1 ? '' : 's'} awaiting a taker (D19)`}
+                        className="shrink-0 rounded-full bg-amber-500/10 px-2 py-px text-[11px] font-medium text-amber-700"
+                      >
+                        {p.openWorkCount} open
+                      </span>
+                    ) : undefined
+                  }
+                />
+                {p.description && <p className="mt-2 text-[12px] text-ink-soft">{p.description}</p>}
+                <p className="mt-1.5 text-[11px] text-ink-faint">
+                  {p.contributorCount} contributor{p.contributorCount === 1 ? '' : 's'}
+                  {p.guarded ? ' · coordinated (guardian)' : ''} — commission one of your agents from its
+                  project page to join.
+                </p>
+              </CommonsCard>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+          Published agents
+        </div>
+        {agents.length === 0 ? (
+          <Empty>No published agents{query ? ' match this search' : ' yet — publish one from the Agents tab'}.</Empty>
+        ) : (
+          <div className="space-y-3">
+            {agents.map((a) => (
+              <PublishedAgentCard key={a.id} entry={a} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** One published Agent in the directory — the D18 public face: the definition (prompt /
+ *  tools / instructions) and the public track record, with the FORK act inline. What is
+ *  deliberately absent is any capability: authority, budget, and provider binding never
+ *  ride a directory entry, so there is nothing here to leak. */
+function PublishedAgentCard({ entry }: { entry: AgentDirectoryEntry }) {
+  const [busy, setBusy] = useState(false)
+  const [forked, setForked] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const fork = async () => {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await forkAgent(entry.id)
+      setForked(true)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not fork this agent.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <CommonsCard>
+      <CommonsCardHead
+        icon={<Bot size={16} />}
+        title={entry.label}
+        subtitle={`by ${entry.owner}${entry.own ? ' (you)' : ''} · ${entry.tools.length} tool${entry.tools.length === 1 ? '' : 's'}`}
+        trailing={
+          <button
+            onClick={fork}
+            disabled={busy || forked}
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-[12px] font-medium transition ${
+              forked ? 'text-emerald-700' : 'text-ink-soft hover:border-line-strong hover:text-ink'
+            } disabled:cursor-default`}
+          >
+            <GitFork size={13} /> {forked ? 'Forked ✓' : 'Fork'}
+          </button>
+        }
+      />
+      <p className="mt-2 line-clamp-2 text-[12px] text-ink-soft" title={entry.systemPrompt}>
+        {entry.systemPrompt}
+      </p>
+      <p className="mt-1.5 flex items-center gap-3 text-[11px] text-ink-faint">
+        <span className="inline-flex items-center gap-1">
+          <Award size={11} /> {entry.contributions} contribution{entry.contributions === 1 ? '' : 's'}
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <GitFork size={11} /> {entry.forks} fork{entry.forks === 1 ? '' : 's'}
+        </span>
+        <span>Forking copies the definition — you grant your own model &amp; authority (D18).</span>
+      </p>
+      {error && <p className="mt-2 text-[12px] text-removed">{error}</p>}
+    </CommonsCard>
   )
 }
 

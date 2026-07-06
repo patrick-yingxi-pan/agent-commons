@@ -268,6 +268,13 @@ export async function buildComprehensive(): Promise<PersistedState> {
   // settles to 'done' a beat later — during the schedule-run poll below — and re-persists.
   store.addDispatch('Playground dispatch — refresh the digest', 'Pulling the latest metrics.')
 
+  // ── Open work (D19) ── exercise the openSubGoals persisted slice in BOTH states:
+  // the standing playground Contributor takes a charge item (→ done, crediting D13),
+  // and a connector item the created project can't admit stays open (the backlog face).
+  store.updateCommission(playgroundCommission.id, { standing: true })
+  store.postOpenSubGoal('p-insights', { subGoal: 'playground-open-work', type: 'charge', target: 'budget:playground' }, store.defaultTenantId())
+  store.postOpenSubGoal('p-insights', { subGoal: 'playground-backlog', type: 'connector.write', target: 'no-such-connector' }, store.defaultTenantId())
+
   // Run the created routine and wait for it to finish (it steps one beat at a
   // time, then a final beat applies the standing-approved artifact save). Poll the
   // REAL run record for a terminal state rather than hard-coding the store's step

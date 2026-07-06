@@ -22,6 +22,11 @@ export const keys = {
   commissionAuthority: (id: string) => `commission-authority:${id}`,
   /** A Project's in-flight sub-goal reservations (D11 coordination). */
   projectSubGoals: (projectId: string) => `project-subgoals:${projectId}`,
+  /** A Project's open-work backlog (docs/agent-commons.md, D19). */
+  openSubGoals: (projectId: string) => `open-subgoals:${projectId}`,
+  /** The discovery directories (D17) — keyed per search so each query caches on its own. */
+  directoryProjects: (q?: string) => (q ? `directory-projects:${q}` : 'directory-projects'),
+  directoryAgents: (q?: string) => (q ? `directory-agents:${q}` : 'directory-agents'),
   runners: 'agents',
   runnerEffects: (id: string) => `runner-effects:${id}`,
   resourceStatus: (key: string) => `resource:${key}`,
@@ -82,6 +87,10 @@ export const paths = {
   commission: (id: string) => `/commissions/${encodeURIComponent(id)}`,
   commissionAuthority: (id: string) => `/commissions/${encodeURIComponent(id)}/authority`,
   projectSubGoals: (projectId: string) => `/projects/${encodeURIComponent(projectId)}/subgoals`,
+  openSubGoals: (projectId: string) => `/projects/${encodeURIComponent(projectId)}/open-subgoals`,
+  agentFork: (id: string) => `/agents/${encodeURIComponent(id)}/fork`,
+  directoryProjects: (q?: string) => (q ? `/directory/projects?q=${encodeURIComponent(q)}` : '/directory/projects'),
+  directoryAgents: (q?: string) => (q ? `/directory/agents?q=${encodeURIComponent(q)}` : '/directory/agents'),
   // The native-only endpoints (`/fs/pick`, `/fs/folders/:id`, `/git/repos/:id/diff`)
   // are intentionally absent here — no live UI flow calls them. They exist behind the
   // capability gate and are exercised by the contract via tests + `BACKEND=remote`

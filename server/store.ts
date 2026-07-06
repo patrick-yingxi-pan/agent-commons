@@ -73,7 +73,7 @@ import { ConflictError } from './conflict.ts'
 import { LimitError } from './limit.ts'
 import { scopeMatches } from './runner-runtime.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, clampAuthority, clampBudget, probeScore } from '../contract/index.ts'
-import type { Agent, AuditEntry, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelProvider, ProjectAction, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProxyRequest, ProxyResult, Reservation, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest } from '../contract/index.ts'
+import type { Agent, AgentDirectoryEntry, AuditEntry, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelProvider, OpenSubGoal, PostOpenSubGoalRequest, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProxyRequest, ProxyResult, Reservation, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
@@ -179,6 +179,13 @@ const SEED_SESSIONS: readonly Session[] = JSON.parse(JSON.stringify(SESSIONS))
 // restart. Unbounded in the prototype (the demo volume is tiny); production would rotate it.
 const auditLog: AuditEntry[] = []
 let auditSeq = 0
+
+// The Project open-work backlog (docs/agent-commons.md, D19) — posted work items, the
+// issues-tray analog. Persisted (additive, like `auditLog`) so an un-taken item survives
+// a restart; standing dispatch is synchronous at post time, so nothing in-flight ever
+// needs crash recovery — only the items themselves persist.
+const openSubGoals: OpenSubGoal[] = []
+let openSubGoalSeq = 0
 // Monotonic counters for server-minted session + message ids. The conversation is
 // now server-owned (a sent turn persists; a draft materializes into a real session
 // on first send), so the backend mints these — the client no longer fabricates them.
@@ -236,6 +243,11 @@ const findProject = (id: string): Project | undefined =>
 /** The tenant a project belongs to (F2/PD9) — a seed/legacy or unknown project has no
  *  `tenantId`, so it belongs to the backend's default tenant. */
 const projectTenant = (projectId: string): string => findProject(projectId)?.tenantId ?? defaultTenantId()
+
+/** A tenant's public display name (D17 — the directory's `owner` face and an open-work
+ *  item's `postedBy`). Resolves through the account registry; an unregistered id (a
+ *  test-minted tenant) falls back to the raw id, which is what such a test asserts on. */
+const tenantName = (tenantId: string): string => accounts.tenants.get(tenantId)?.name ?? tenantId
 
 /** Resolve an artifact across both homes — seeded (`ALL_ARTIFACTS`) + created
  *  (`graph.extraArtifacts`) — mirroring `findProject`. */
@@ -629,6 +641,7 @@ function snapshot(): PersistedState {
     ),
     auditLog, // D15/OQ7 — the cross-user effect trail (append-only)
     dispatch, // P7 — one-off dispatch runs (a live run survives a restart)
+    openSubGoals, // D19 — the Project open-work backlog (an un-taken item survives a restart)
     // The account registry (multi-account P7): onboarded users (scrypt
     // credential included — it must survive a restart), workspaces, memberships.
     accountUsers: persistedAccounts.users,
@@ -646,6 +659,7 @@ function snapshot(): PersistedState {
       commission: commissionSeq,
       audit: auditSeq,
       dispatch: dispatchSeq,
+      openSubGoal: openSubGoalSeq,
       user: persistedAccounts.seq.user,
       tenant: persistedAccounts.seq.tenant,
     },
@@ -751,6 +765,10 @@ function rehydrate(s: PersistedState): void {
   auditSeq = s.seq.audit ?? auditLog.length
   // Dispatch counter (fall back to the seed counter for a pre-field snapshot).
   dispatchSeq = s.seq.dispatch ?? dispatchSeq
+  // D19 open work — restore the backlog (empty for a pre-field snapshot); counter falls
+  // back to the backlog length so freshly minted ids never collide with restored ones.
+  openSubGoals.splice(0, openSubGoals.length, ...(s.openSubGoals ?? []))
+  openSubGoalSeq = s.seq.openSubGoal ?? openSubGoals.length
 }
 
 /** Re-ensure the code's seed rows after a snapshot restore: a seed row missing
@@ -1043,6 +1061,14 @@ export const store = {
         // their session/agent labels. A relation edit is the acting tenant's private
         // action, so it's visible only to that tenant (F2/PD9). Unstamped ⇒ default.
         return (e.tenantId ?? defaultTenantId()) === tenantId
+      case 'openwork.changed': {
+        // The backlog's visibility mirrors the Project's (D19/P8): everyone while it's
+        // shared, owner-only while private. The event carries only the project id, so
+        // there is nothing else to leak.
+        const p = findProject(e.projectId)
+        if (!p) return seedVisibleTo(tenantId)
+        return p.shared === true || rowVisibleTo(p, tenantId)
+      }
       case 'relay.connected':
       case 'relay.disconnected': {
         // A Session provider is forced tenant-scoped (the mint wall), so its liveness
@@ -1234,6 +1260,9 @@ export const store = {
       systemPromptId,
       authority,
       budget,
+      // The D18 publish/unpublish act — an explicit toggle on the patch path only
+      // (never a creation side-effect). Normalized: false stores as absent.
+      published: 'published' in patch ? (patch.published === true ? true : undefined) : current.published,
       id: current.id,
     }
     WORKER_AGENTS.set(id, next)
@@ -1561,7 +1590,10 @@ export const store = {
     // Stamp the creating tenant (F2/PD9) so listCommissions(…, tenant) scopes it; unset ⇒ shared.
     const owningTenant = tenantId ?? input.tenantId
     const role = clampContributorRole(input.role ?? 'writer', owningTenant, input.projectId)
-    const commission: Commission = { ...input, role, id: `commission-${(commissionSeq += 1)}`, tenantId: owningTenant }
+    // The D19 standing flag is the commission OWNER's consent to unprompted spend
+    // (owner-pays) — normalized so anything but `true` stores as absent.
+    const standing = input.standing === true ? true : undefined
+    const commission: Commission = { ...input, role, standing, id: `commission-${(commissionSeq += 1)}`, tenantId: owningTenant }
     COMMISSIONS.set(commission.id, commission)
     persist()
     return commission
@@ -1587,8 +1619,21 @@ export const store = {
     if (grant) {
       mintBudget(agent?.budget?.windows ?? provider.plan?.windows ?? usageMeter.planCeilings(), grant)
     }
-    const next: Commission = { ...commission, role, authority, grant, id: commission.id }
+    // The D19 standing flag: present ⇒ apply (normalized), absent ⇒ unchanged. A newly
+    // standing Contributor is offered the backlog's still-open items right away — the
+    // one re-dispatch moment the synchronous model gets for free.
+    const standing = 'standing' in patch ? (patch.standing === true ? true : undefined) : commission.standing
+    const next: Commission = { ...commission, role, authority, grant, standing, id: commission.id }
     COMMISSIONS.set(id, next)
+    if (standing && !commission.standing) {
+      let took = false
+      for (const item of openSubGoals) {
+        if (item.projectId === next.projectId && item.status === 'open') {
+          took = this.dispatchOpenSubGoal(item) || took
+        }
+      }
+      if (took) emit({ type: 'openwork.changed', projectId: next.projectId })
+    }
     persist()
     return next
   },
@@ -2120,6 +2165,149 @@ export const store = {
     }
     return out
   },
+  // ── Discovery directories (D17) · publishing/forking (D18) · open work (D19) ──
+  /** The shared-Project discovery directory (docs/agent-commons.md, D17): every Project
+   *  whose owner marked it shared, from ANY tenant, redacted to public metadata plus
+   *  aggregates that are themselves public acts (Contributor count, open work). Reuses
+   *  the P8 sharing flag as the single visibility source — the directory never widens
+   *  what sharing already exposed. `q` is a case-insensitive substring over
+   *  name/description; ranking is deliberately absent (D17). */
+  projectDirectory(tenantId: string, q?: string): ProjectDirectoryEntry[] {
+    const needle = (q ?? '').trim().toLowerCase()
+    // Only created Projects are shareable (the reducer's share-project touches
+    // extraProjects only — seed Projects no-op), so the directory enumerates there.
+    return graph.extraProjects
+      .filter((p) => p.shared === true)
+      .filter((p) => !needle || p.name.toLowerCase().includes(needle) || p.description.toLowerCase().includes(needle))
+      .map((p) => {
+        const owner = p.tenantId ?? defaultTenantId()
+        return {
+          id: p.id,
+          name: p.name,
+          description: p.description,
+          owner: tenantName(owner),
+          own: owner === tenantId,
+          guarded: !!p.guardianId,
+          contributorCount: this.activeCommissionCount(p.id),
+          openWorkCount: openSubGoals.filter((o) => o.projectId === p.id && o.status === 'open').length,
+          updatedAt: p.updatedAt,
+        }
+      })
+  },
+  /** The published-Agent discovery directory (D17/D18): every Agent whose owner set
+   *  `published`, from ANY tenant, exposed as its DEFINITION (label / prompt / tools /
+   *  instructions) + public track record. Authority / budget / provider binding are
+   *  structurally absent from the entry type — a capability never travels (D18). */
+  agentDirectory(tenantId: string, q?: string): AgentDirectoryEntry[] {
+    const needle = (q ?? '').trim().toLowerCase()
+    return [...WORKER_AGENTS.values()]
+      .filter((a) => a.published === true)
+      .filter((a) => !needle || a.label.toLowerCase().includes(needle) || a.instructions.toLowerCase().includes(needle))
+      .map((a) => ({
+        id: a.id,
+        label: a.label,
+        owner: tenantName(a.tenantId ?? defaultTenantId()),
+        own: (a.tenantId ?? defaultTenantId()) === tenantId,
+        systemPrompt: a.systemPrompt,
+        tools: [...a.tools],
+        instructions: a.instructions,
+        contributions: a.contributions ?? 0,
+        forks: a.forks ?? 0,
+      }))
+  },
+  /** Fork a published Agent's definition into the caller's tenant (D18). The copy is a
+   *  new PRIVATE Agent carrying the definition (label / prompt / tools / instructions)
+   *  with capability UNBOUND: authority and budget are dropped (the new owner re-grants
+   *  through their own D8 funnel), the provider / prompt bindings survive only when the
+   *  forker can see them (the shared seeds; a foreign private provider never crosses),
+   *  and the track record resets (a fork is a recipe, not a reputation transplant).
+   *  Lineage is stamped (`forkedFrom`) and the source's fork counter increments — the
+   *  public credit. Undefined (→ 404, no existence leak) for an unknown id or a foreign
+   *  Agent that isn't published; the caller's own Agents fork freely (duplicate). */
+  forkAgent(sourceId: string, tenantId: string): Agent | undefined {
+    const source = WORKER_AGENTS.get(sourceId)
+    if (!source || !(source.published === true || registryVisible(source, tenantId))) return undefined
+    const provider = source.providerId ? MODEL_PROVIDERS.get(source.providerId) : undefined
+    const prompt = source.systemPromptId ? SYSTEM_PROMPT_LIB.get(source.systemPromptId) : undefined
+    const fork = this.createAgent(
+      {
+        label: source.label,
+        systemPrompt: source.systemPrompt,
+        systemPromptId: prompt && registryVisible(prompt, tenantId) ? prompt.id : undefined,
+        tools: [...source.tools],
+        instructions: source.instructions,
+        providerId: provider && registryVisible(provider, tenantId) ? provider.id : undefined,
+        forkedFrom: { agentId: source.id, label: source.label },
+      },
+      tenantId,
+    )
+    WORKER_AGENTS.set(source.id, { ...source, forks: (source.forks ?? 0) + 1 })
+    persist()
+    return fork
+  },
+  /** A Project's open-work backlog (D19) — open items first (newest within each band). */
+  listOpenSubGoals(projectId: string): OpenSubGoal[] {
+    const items = openSubGoals.filter((o) => o.projectId === projectId)
+    const band = (o: OpenSubGoal) => (o.status === 'open' ? 0 : 1)
+    return [...items].sort((a, b) => band(a) - band(b) || b.postedAt - a.postedAt)
+  },
+  /** Post a work item onto a Project's backlog (D19) — the issues-tray act — then
+   *  dispatch it to the Project's standing Contributors synchronously. Returns the item
+   *  in its post-dispatch state: `done` when a standing Commission took it, `open` when
+   *  none could (it stays visible in the backlog). The route validates visibility. */
+  postOpenSubGoal(projectId: string, req: PostOpenSubGoalRequest, tenantId: string): OpenSubGoal {
+    const item: OpenSubGoal = {
+      id: `work-${(openSubGoalSeq += 1)}`,
+      projectId,
+      subGoal: req.subGoal,
+      type: req.type,
+      target: req.target,
+      note: req.note ?? '',
+      postedBy: tenantName(tenantId),
+      postedAt: Date.now(),
+      status: 'open',
+    }
+    openSubGoals.push(item)
+    this.dispatchOpenSubGoal(item)
+    emit({ type: 'openwork.changed', projectId })
+    persist()
+    return item
+  },
+  /** Standing dispatch (D19): offer an open item to the Project's `standing`
+   *  Commissions, in role-rank order (ties first-come by id), and let the FIRST one
+   *  that passes every wall take it. The walls are exactly the prompted path's — role
+   *  (D14, checked here as the route does), reach (D12), and the Guardian (D11) inside
+   *  `runProjectEffect`, which also credits (D13) and audits (D15). Dispatch adds a
+   *  trigger, zero authority. An item nothing can take stays `open` — the seam where a
+   *  real job queue would go. Synchronous and in-process by design (the trade-off D19
+   *  accepts); a `GuardianError` (someone already holds the sub-goal) skips to the next
+   *  candidate rather than failing the post. */
+  dispatchOpenSubGoal(item: OpenSubGoal): boolean {
+    if (item.status !== 'open') return false
+    const monotonic = isProjectEffectMonotonic(item.type)
+    const reaches = item.type.startsWith('connector.') || item.type.startsWith('mcp.')
+    const candidates = [...COMMISSIONS.values()]
+      .filter((c) => c.projectId === item.projectId && c.standing === true)
+      .sort((a, b) => roleRank(b.role ?? 'writer') - roleRank(a.role ?? 'writer') || a.id.localeCompare(b.id))
+    for (const c of candidates) {
+      if (!this.commissionRolePermits(c.id, 'reserve')) continue
+      if (!monotonic && !this.commissionRolePermits(c.id, 'fire')) continue
+      if (reaches && !this.commissionCanReach(c.id, 'connectors', item.target)) continue
+      try {
+        this.runProjectEffect(item.projectId, c.id, item.subGoal, item.type, item.target)
+      } catch (err) {
+        if (err instanceof GuardianError) continue // held by someone else — next volunteer
+        throw err
+      }
+      item.status = 'done'
+      item.resolvedBy = c.id
+      item.resolvedByLabel = WORKER_AGENTS.get(c.agentId)?.label ?? c.agentId
+      item.resolvedAt = Date.now()
+      return true
+    }
+    return false
+  },
+
   /** The base artifacts (the relation graph carries any saved-out extras),
    *  scoped to the caller's tenant when given (F2/PD9). */
   listArtifacts(tenantId?: string): ArtifactItem[] {

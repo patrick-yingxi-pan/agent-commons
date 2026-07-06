@@ -790,6 +790,112 @@ mid-conversation — power bought with the loss of a single stable identity.
 escalation at the worker boundary and scatters one piece of work across Conversations whenever the
 right driver changes, the very fragmentation the proposal exists to end.
 
+### D17 — Discovery is a directory, not a feed
+
+**Decision.** Shared Projects and published Agents are discoverable through **read-only,
+cross-tenant directory endpoints** (`GET /directory/projects`, `GET /directory/agents`): a
+searchable listing of every row whose owner made it public, each redacted to its **existing
+public face** (the P8 `publicSharedProject` redaction for Projects; the D18 published
+definition for Agents) plus aggregates that are themselves public acts — Contributor count,
+open work, contributions, forks. Search is a case-insensitive substring over name/description
+(a mechanism); *ranking* is deliberately absent. **[COMMONS]**
+
+**Why.** The platform's GitHub-shaped social layer (D13: intrinsic motivation, reputation)
+is inert if nothing is findable — P8 made shared Projects *visible* cross-tenant, but only to
+a tenant that already knew to look. A directory is the smallest mechanism that closes the
+loop: it invents **no new visibility** (it lists exactly what sharing/publishing already
+exposed, through the same redaction functions, so the wall can't fork), and it gives the
+"browse public Projects" gesture the earlier draft left open a concrete, testable shape.
+
+**Trade-off accepted.** A flat directory doesn't scale socially — no trending, no
+recommendations, no reputation-weighted ordering. At GitHub scale that's the product; here it
+would be an *editorial policy* wearing a mechanism's clothes. Accepting "boring list,
+substring search" keeps the slice honest and leaves ranking as data the directory already
+carries (counts, timestamps) for a later layer to order by.
+
+**Rejected alternative.** A social feed / trending surface (engagement-ranked discovery).
+Needs telemetry the platform doesn't collect and a ranking policy nobody has settled;
+worse, it couples *visibility* to *popularity*, which is a governance decision (D13
+territory), not a wire mechanism. A directory stays policy-free.
+
+### D18 — Publishing an Agent shares its definition, never its capability
+
+**Decision.** An Agent gains `published: boolean` (owner-set, default false). Publishing
+exposes the Agent's **definition** — label, system prompt, tools, instructions — plus its
+public track record (D13 `contributions`, fork count) in the agent directory. Any tenant may
+**fork** a published Agent (`POST /agents/:id/fork`): the definition is copied into the
+forker's tenant as a new private Agent with **authority, budget, and provider binding
+dropped** (re-bound by the new owner through the ordinary D8 funnel), `contributions` reset
+to zero, and lineage recorded (`forkedFrom`); the source's `forks` counter increments — the
+public credit. **[COMMONS]**
+
+**Why.** On GitHub the thing collaborated *on* is also the thing *shared* — that identity is
+where the ecosystem's compounding comes from. Agent Commons had the collaboration half
+(Commissions) but no shareable artifact: an Agent was a private registry row, so a good
+worker configuration died with its tenant. The definition is the natural unit — it is
+exactly the part that is *text* (prompt + tool names + instructions), carries no secret, and
+is what a stranger needs to reproduce the worker. Capability is exactly the part that must
+**not** transfer: authority and budget are grants *from the owner's provider plan* (D8), so
+copying them cross-tenant would either leak reach or bill the publisher for a stranger's
+agent (breaking D13 owner-pays). Fork-with-unbound-capability makes the safe outcome
+structural: a forked Agent can *do* nothing until its new owner grants it something of
+their own.
+
+**Trade-off accepted.** A published prompt is public IP — publishing is one-way in practice
+(un-publishing hides the row but can't recall copies), which is the same bargain as
+open-sourcing code. The track record does not transfer (a fork starts at zero
+contributions), so a fork is a recipe, not a réputation transplant — an anti-gaming choice
+that also means honest forks re-earn standing from scratch.
+
+**Rejected alternative.** Publishing as *hosted use* — others invoke your published Agent
+directly (an "app store" model). Rejected because every foreign turn would draw the
+publisher's provider plan (D13 inverted: publisher-pays-for-strangers), and the invoking
+tenant's data would flow through an agent whose authority the invoker can't see — both walls
+D8/D12 exist to hold. The proxy channel (D15) already covers "ask another user's agent to
+act"; publishing covers "become that agent yourself."
+
+### D19 — Open work: the Project backlog is what makes agents the initiators
+
+**Decision.** A Project gains **open sub-goals** — posted work items (`subGoal`, an intended
+effect `type` + `target`, an optional note), the issues-tray analog. Any tenant that can see
+the Project (owner, or anyone while it's shared) may post one. A Commission gains
+`standing: boolean` (set by the *commission's owner* — the agent's tenant): a standing
+Contributor volunteers to take open work **unprompted**. When an item is posted, the server
+dispatches it: standing Commissions on that Project are considered in role-rank order (ties
+first-come), the first whose **role permits** (D14) and whose **clamped reach admits** the
+effect (D12) claims the sub-goal through the Guardian (D11) and fires it through the *same*
+`runProjectEffect` path a human-driven turn uses — credit (D13), audit (D15), serialization
+(D11) all inherited. An item no standing Contributor can take **stays open** in the backlog,
+visible. **[COMMONS]**
+
+**Why.** Everything before this slice made agents excellent *instruments*: they act when a
+human sends a turn or a schedule fires. "A cooperation platform where agents are the main
+players" needs agents that *initiate* — and the platform already contains every wall the
+unprompted path needs (role, reach, guardian, credit, audit); what was missing was only the
+**trigger**. The backlog is the right trigger because it is also the missing GitHub
+primitive (issues): the same object that lets a *human* see what a Project needs lets a
+*standing agent* take it. Consent stays two-sided and up-front, both halves already in the
+model: the Project side consented via the role grant (D14's role-grant-as-consent, OQ6),
+and the spend side consents via the `standing` flag — the owner-pays tenant explicitly
+donating unprompted compute, the exact shape of the tour's standing-approval schedule.
+
+**Trade-off accepted.** Dispatch is **synchronous and in-process** (post → try standing
+Contributors → done or stays open): no retry queue, no re-dispatch when a new standing
+Commission arrives later, no background worker. An item posted before its taker exists sits
+open until *something* re-posts or a human claims it — accepted for the prototype (the seam
+where a real job queue goes is one function, `dispatchOpenSubGoal`). Auto-fired effects also
+mean an over-broad standing grant burns its owner's plan without a per-effect confirm; the
+mitigation is the flag's granularity (per-commission, per-project) plus the D13 abuse cap
+and audit trail, mirroring how standing schedule approvals already work.
+
+**Rejected alternative.** Agents *subscribing* to project events and deciding for themselves
+(poll or push into each agent's cognition loop). Strictly more agentic, but it moves the
+decision "may this effect fire?" from the server's walls into N model loops — every wall
+(role, reach, guardian) would have to be re-checked anyway when the agent acts, so the
+subscription buys latency and token spend without buying authority. Server-side dispatch
+keeps the walls where they already are; a cognition-loop taker can be layered on later as
+just another poster/claimant.
+
 ## Invariants (locked principles, not open forks)
 
 - **One role, one name.** Agent = worker; Runner = host; Model provider = cognition;
@@ -819,6 +925,17 @@ right driver changes, the very fragmentation the proposal exists to end.
 - **Cross-user access is agent-mediated, never a shared credential.** An Agent reaches
   another user's private resource only by asking that user's Agent, which acts under its own
   authority and consent; no credential or token crosses the user boundary (D15). **[COMMONS]**
+- **Discovery never widens visibility.** A directory lists only what sharing/publishing
+  already exposed, through the *same* redaction function the direct read uses — one wall,
+  two windows (D17). **[COMMONS]**
+- **A definition travels; a capability never does.** Publishing/forking moves prompt +
+  tools + instructions across the tenant boundary; authority, budget, and provider
+  binding are always re-granted by the receiving owner through their own D8 funnel
+  (D18). **[COMMONS]**
+- **The unprompted path passes every wall the prompted path passes.** Standing dispatch
+  adds a trigger, zero authority: role (D14), reach (D12), Guardian serialization (D11),
+  credit (D13), audit (D15) are the same code path a human-driven effect takes (D19).
+  **[COMMONS]**
 - **Subsumption, tagged by altitude.** The unified conversation is one citizen's
   interior **[INTERIOR]**; Agent Commons composes many **[COMMONS]**. A claim that
   forces a change *inside* the conversation model would falsify the nesting.
@@ -852,6 +969,38 @@ right way:
   ([`../contract/reservations.ts:17`,`:19`](../contract/reservations.ts)); D11 needs a
   Project id as a legal `resourceId`, a Contributor holder, and a *budget* sibling
   invariant.
+
+## Beyond one instance — federation (open exploration, NOT a decision)
+
+> Everything above composes many tenants on **one** platform. The "agent-version of GitHub"
+> framing eventually asks the next question: many *instances*. This section is a design log
+> entry only — no D-number, nothing here changes current behavior, and the prototype
+> deliberately does not build it.
+
+**The question.** Can a Commission cross an *instance* boundary — tenant A on server X
+commissioning its Agent onto a Project on server Y — the way email or ActivityPub federate?
+
+**What the current model already gets right for it.** Three walls generalize cleanly:
+(1) D15's agent-to-agent proxy is *already* a network shape — "ask the owning side to act
+under its own authority, receive only the result" needs no shared credential and therefore
+no shared identity provider. (2) D18 fork ships a *definition* (text) — trivially portable.
+(3) The Session-provider relay (delegated-cognition doc) proved the dial-in rendezvous
+pattern: a foreign principal participating through a one-time secret without inbound
+connectivity.
+
+**What breaks.** (a) **Identity**: `tenantId` is a local row; a federated Contributor needs
+a verifiable cross-instance name (DID-shaped, or instance-qualified like
+`ada@commons.example`) and the audit trail (D15) must record it un-forgeably. (b) **The
+Guardian's authority**: D11 works because one process owns the reservation ledger; a remote
+Contributor must accept the *Project instance's* Guardian as arbiter — workable (it's the
+resource's home), but the remote agent's owner-pays metering then depends on a foreign
+server's honesty about what was fired. (c) **The abuse cap and reputation** (D13) become
+cross-instance claims — a fork count asserted by a server you don't run is a rumor unless
+signed. The likely resolution shape is the same as everywhere else in this doc: **the
+resource's home instance is the system of record for the resource; the agent's home is the
+system of record for the agent; every cross-instance effect is a signed, audited message
+between the two** — but none of that is settled, and it stays out of the prototype until
+the single-instance social layer (D17–D19) has been lived with.
 
 ## Open questions (and which the design dialogue resolved)
 
@@ -1165,6 +1314,27 @@ session↔context binding, mediation handle, and single-resource escrow).
   provider's endpoint after mint (re-probe on change), surfacing the capability record in
   the hub UI, and the Providers-hub create dialog growing endpoint fields (the wire accepts
   them today).
+- **Slice 19 — the platform shell (D17–D19). ✅ Built.** The three decisions that turn the
+  cooperation kernel into a *discoverable* platform, each locked by its own suite:
+  **D17 discovery** — `GET /directory/projects` + `GET /directory/agents`
+  (`contract/directory.ts`), cross-tenant listings of exactly what sharing/publishing
+  already exposed (the same redaction functions; `?q=` substring, no ranking), surfaced as
+  the Agents hub's **Discover** tab (`tests/routes-directory.test.ts`).
+  **D18 publish/fork** — `Agent.published` (explicit owner PATCH act) puts the DEFINITION
+  in the directory; `POST /agents/:id/fork` copies it into the caller's tenant with
+  capability UNBOUND (authority/budget dropped, invisible provider/prompt bindings
+  cleared), lineage stamped (`forkedFrom`) and the source's `forks` credited; a foreign
+  unpublished Agent is 404 (`tests/agent-fork.test.ts`).
+  **D19 open work + standing dispatch** — the persisted Project backlog (`OpenSubGoal`,
+  the issues analog) plus `Commission.standing` (owner-pays consent to unprompted spend):
+  a posted item dispatches synchronously in role-rank order through the SAME walls as the
+  prompted path (role D14 / reach D12 / Guardian D11, then credit D13 + audit D15 inside
+  `runProjectEffect`); an untakeable item stays open; flipping a commission to standing
+  re-dispatches the backlog once; `openwork.changed` (visibility mirrors the Project's)
+  keeps the Coordination panel's **Open work** list live
+  (`tests/standing-dispatch.test.ts`, persistence in `tests/snapshot.test.ts`).
+  Spec rows COMMONS-7/8/9; federation stays exploration (BROKER-EXP-5, § Beyond one
+  instance). typecheck + full suite + build green; verified live.
 - **The multi-tenant surface (slices 1–10) is built, managed (11–15), persisted (16), and
   conversationally manageable (17).** Every D6–D13 decision is now exercised by a working
   slice *and* user-manageable from the Agents hub — by hand or by asking Claude — the

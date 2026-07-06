@@ -137,6 +137,14 @@ test('build produces a snapshot covering every persisted slice', async () => {
     s.dispatch?.some((d) => d.id.startsWith('d-new-')),
     'addDispatch → dispatch feed (P7)',
   )
+  assert.ok(
+    s.openSubGoals?.some((o) => o.status === 'done' && o.resolvedBy),
+    'postOpenSubGoal + standing dispatch → openSubGoals (D19, resolved state)',
+  )
+  assert.ok(
+    s.openSubGoals?.some((o) => o.status === 'open'),
+    'postOpenSubGoal → openSubGoals (D19, open/backlog state)',
+  )
 
   // ── id counters all advanced (so post-restore mints never collide) ──
   for (const k of ['session', 'message', 'schedule', 'run', 'artifact', 'provider', 'systemPrompt', 'agent', 'commission'] as const) {
@@ -178,4 +186,7 @@ test('the built snapshot boots through the real rehydrate path', async () => {
   assert.equal(store.listProjects().find((p) => p.id === 'p-insights')?.commissionCap, 8, 'the D13 commission cap survives a boot')
   assert.ok(store.listAuditLog().some((e) => e.channel === 'project-effect'), 'the D15 audit trail survives a boot')
   assert.ok(store.listDispatch().some((d) => d.id.startsWith('d-new-')), 'the P7 dispatch run survives a boot')
+  const backlog = store.listOpenSubGoals('p-insights')
+  assert.ok(backlog.some((o) => o.status === 'done' && o.resolvedByLabel), 'a resolved D19 work item survives a boot')
+  assert.ok(backlog.some((o) => o.status === 'open'), 'an open D19 work item survives a boot')
 })

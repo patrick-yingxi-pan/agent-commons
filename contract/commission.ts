@@ -42,6 +42,13 @@ export interface Commission {
   /** The Guardian reservation this Contributor holds on the Project (D11), if any —
    *  set when a sub-goal is reserved. Forward; unset for now. */
   reservationId?: string
+  /** **Standing** (docs/agent-commons.md, D19): this Contributor volunteers to take the
+   *  Project's open work UNPROMPTED — when an open sub-goal is posted, standing
+   *  Commissions are dispatched in role-rank order through the same guarded effect path
+   *  a human-driven turn uses. Set by the commission's OWNER (D13 owner-pays: it is
+   *  their compute being donated unprompted — the standing-approval consent shape).
+   *  Unset/false ⇒ acts only when driven (default). */
+  standing?: boolean
 }
 
 /** The POST body to commission an Agent onto a Project — everything but the
@@ -53,6 +60,8 @@ export interface CreateCommissionRequest {
   role?: ProjectRole
   authority?: Authority
   grant?: Budget
+  /** Volunteer for the Project's open work (D19). Absent ⇒ false. */
+  standing?: boolean
 }
 
 /** Re-grant a commission — narrow (or restore) the authority / sub-budget it carries
@@ -63,4 +72,6 @@ export interface UpdateCommissionRequest {
   role?: ProjectRole
   authority?: Authority
   grant?: Budget
+  /** Flip the D19 standing flag. Absent ⇒ unchanged. */
+  standing?: boolean
 }

@@ -23,6 +23,8 @@ import {
   type CreateSystemPromptRequest,
   type SystemPromptEntry,
   type UpdateSystemPromptRequest,
+  type OpenSubGoal,
+  type PostOpenSubGoalRequest,
   type PromptProbeRequest,
   type PromptProbeResult,
   type ReserveSubGoalRequest,
@@ -50,7 +52,7 @@ import {
   type UpdateScheduleRequest,
 } from '../../contract/index.ts'
 import { API_BASE, apiDelete, apiGet, apiPatch, apiPost } from './client.ts'
-import { invalidate, mutate, peek, setData } from './cache.ts'
+import { invalidate, invalidatePrefix, mutate, peek, setData } from './cache.ts'
 import { keys, paths } from './keys.ts'
 import { invalidateForCommonsOp } from './commonsInvalidation.ts'
 import { OPTIMISTIC_ID_PREFIX } from './ids.ts'
@@ -384,11 +386,37 @@ export async function createAgent(input: CreateAgentRequest): Promise<Agent> {
 }
 
 /** Patch an Agent; refreshes the agent list (and any Contributor row that resolves its
- *  label). */
+ *  label). A `published` flip (D18) also refreshes the agent directory — the row just
+ *  appeared in / vanished from it. */
 export async function updateAgent(id: string, patch: UpdateAgentRequest): Promise<Agent> {
   const agent = await apiPatch<Agent>(paths.agent(id), patch)
   invalidate(keys.workerAgents)
+  if ('published' in patch) invalidatePrefix(keys.directoryAgents())
   return agent
+}
+
+/** Fork a published Agent's definition into the caller's account (docs/agent-commons.md,
+ *  D18): a new private Agent with capability unbound (re-grant through your own funnel)
+ *  and lineage stamped. Refreshes the agent list (the fork appears) and the directory
+ *  (the source's fork counter moved). */
+export async function forkAgent(id: string): Promise<Agent> {
+  const fork = await apiPost<Agent>(paths.agentFork(id), {})
+  invalidate(keys.workerAgents)
+  invalidatePrefix(keys.directoryAgents())
+  return fork
+}
+
+/** Post a work item onto a Project's backlog (docs/agent-commons.md, D19) — the
+ *  issues-tray act. The server dispatches it to the Project's standing Contributors
+ *  synchronously; the returned item is already `done` when one took it. Refreshes the
+ *  backlog, the coordination panel, and the agent list (a taker earned a contribution). */
+export async function postOpenSubGoal(projectId: string, input: PostOpenSubGoalRequest): Promise<OpenSubGoal> {
+  const item = await apiPost<OpenSubGoal>(paths.openSubGoals(projectId), input)
+  invalidate(keys.openSubGoals(projectId))
+  invalidate(keys.projectSubGoals(projectId))
+  invalidate(keys.workerAgents)
+  invalidatePrefix(keys.directoryProjects())
+  return item
 }
 
 /** Remove an Agent. Rejects (so the caller can surface the message) when the server

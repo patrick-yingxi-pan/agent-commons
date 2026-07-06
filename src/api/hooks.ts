@@ -11,9 +11,12 @@ import type { AuthAccount, Tenant as TenantT, TenantRole as TenantRoleT } from '
 import type {
   Runner,
   Agent,
+  AgentDirectoryEntry,
   AuditEntry,
   Authority,
   Commission,
+  OpenSubGoal,
+  ProjectDirectoryEntry,
   CapabilityEffect,
   ArtifactContentLibrary,
   ArtifactItem,
@@ -238,6 +241,24 @@ export function useProjectSubGoals(projectId: string): QueryState<ProjectSubGoal
   return useQuery(keys.projectSubGoals(projectId), () =>
     apiGet<ProjectSubGoal[]>(paths.projectSubGoals(projectId)),
   )
+}
+
+/** A Project's open-work backlog (docs/agent-commons.md, D19) — posted items awaiting a
+ *  taker plus the resolved credit lines. Refreshed live on `openwork.changed`. */
+export function useOpenSubGoals(projectId: string): QueryState<OpenSubGoal[]> {
+  return useQuery(keys.openSubGoals(projectId), () => apiGet<OpenSubGoal[]>(paths.openSubGoals(projectId)))
+}
+
+/** The shared-Project discovery directory (docs/agent-commons.md, D17) — every Project
+ *  any tenant made public, redacted to its public face + public aggregates. */
+export function useProjectDirectory(q?: string): QueryState<ProjectDirectoryEntry[]> {
+  return useQuery(keys.directoryProjects(q), () => apiGet<ProjectDirectoryEntry[]>(paths.directoryProjects(q)))
+}
+
+/** The published-Agent discovery directory (D17/D18) — each entry a forkable DEFINITION
+ *  plus its public track record; capability never rides an entry. */
+export function useAgentDirectory(q?: string): QueryState<AgentDirectoryEntry[]> {
+  return useQuery(keys.directoryAgents(q), () => apiGet<AgentDirectoryEntry[]>(paths.directoryAgents(q)))
 }
 
 /** A runner's authoritative effect log (the server's projection of it). Updates

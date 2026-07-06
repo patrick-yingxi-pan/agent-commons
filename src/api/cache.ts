@@ -84,6 +84,15 @@ export function invalidate(key: string): void {
   if (e?.fetcher) run(key, e.fetcher)
 }
 
+/** Refetch every key under a prefix — for parameterized families where any variant
+ *  may be live (e.g. the D17 directory's per-search keys: `directory-projects` +
+ *  `directory-projects:<q>`). Same no-op semantics as `invalidate` per key. */
+export function invalidatePrefix(prefix: string): void {
+  for (const [key, e] of entries) {
+    if ((key === prefix || key.startsWith(`${prefix}:`)) && e.fetcher) run(key, e.fetcher)
+  }
+}
+
 /** Patch a key's cached data in place (used by the event router when a push
  *  carries the new value, so no refetch is needed). No-op if never queried. */
 export function mutate<T>(key: string, updater: (prev: T | undefined) => T): void {

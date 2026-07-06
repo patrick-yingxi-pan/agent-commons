@@ -207,6 +207,15 @@ export interface AuditEntryEvent {
   entry: AuditEntry
 }
 
+/** A Project's open-work backlog changed (docs/agent-commons.md, D19) — an item was
+ *  posted, or standing dispatch resolved one. Carries only the project id; watchers
+ *  re-read the backlog (and, on a resolve, the agents list for the D13 credit).
+ *  Visibility mirrors the Project's: everyone while shared, owner-only while private. */
+export interface OpenWorkChangedEvent {
+  type: 'openwork.changed'
+  projectId: string
+}
+
 /** Sent once when an SSE channel opens, so the client can confirm liveness. */
 export interface HelloEvent {
   type: 'hello'
@@ -256,6 +265,7 @@ export type ServerEvent =
   | RelayDisconnectedEvent
   | DispatchChangedEvent
   | AuditEntryEvent
+  | OpenWorkChangedEvent
 
 export type ServerEventType = ServerEvent['type']
 

@@ -17,6 +17,7 @@ import type {
   UpdateAgentRequest,
   UpdateCommissionRequest,
   ReserveSubGoalRequest,
+  PostOpenSubGoalRequest,
   PushRecentRequest,
   RegisterRunnerRequest,
   SendMessageRequest,
@@ -999,6 +1000,28 @@ export function buildRouter(): Router {
     if (!result) return sendError(res, 'not_found', `No agent '${params.id}' to proxy through`)
     sendJson(res, result)
   })
+  // Fork a published Agent's definition into the caller's tenant (D18): a new private
+  // Agent with capability UNBOUND (authority/budget dropped; provider/prompt bindings
+  // survive only if the forker can see them) + lineage stamped; the source's fork
+  // counter increments. An unknown id or a foreign UNPUBLISHED Agent is a 404
+  // (existence-hiding); the caller's own Agents fork freely (duplicate).
+  r.post('/agents/:id/fork', ({ req, res, params }) => {
+    const fork = store.forkAgent(params.id, store.identity(req.headers).tenant.id)
+    if (!fork) return sendError(res, 'not_found', `No agent '${params.id}'`)
+    sendJson(res, fork)
+  })
+
+  // ── Discovery directories (docs/agent-commons.md, D17) ─────────────────────
+  // Read-only, cross-tenant listings of what owners made public — shared Projects and
+  // published Agents — each entry its existing public face plus public aggregates.
+  // `?q=` is a case-insensitive substring over name/description; ranking is
+  // deliberately absent (D17: a directory, not a feed).
+  r.get('/directory/projects', ({ req, res, url }) => {
+    sendJson(res, store.projectDirectory(store.identity(req.headers).tenant.id, url.searchParams.get('q') ?? undefined))
+  })
+  r.get('/directory/agents', ({ req, res, url }) => {
+    sendJson(res, store.agentDirectory(store.identity(req.headers).tenant.id, url.searchParams.get('q') ?? undefined))
+  })
 
   // ── System-prompt library (the cognition half — docs/agent-commons.md, D10) ──
   // The reusable, target-family-tagged prompts a user picks for an Agent. The Agents hub
@@ -1183,6 +1206,33 @@ export function buildRouter(): Router {
       throw err
     }
   })
+  // ── Open work — the Project backlog (docs/agent-commons.md, D19) ───────────
+  // The issues-tray analog: posted work items carrying the effect they need. POST is
+  // the "open an issue" act — any tenant that can SEE the Project (owner, or anyone
+  // while shared) may post; the server then dispatches the item synchronously to the
+  // Project's `standing` Commissions (role-rank order) through the SAME walls the
+  // prompted effect path enforces (role D14 / reach D12 / Guardian D11 / credit D13 /
+  // audit D15). An item nothing can take stays open in the backlog. Visibility of the
+  // backlog mirrors the Project's (owner or shared ⇒ readable; else 404, no leak).
+  const projectHiddenFrom = (req: IncomingMessage, projectId: string): boolean => {
+    const project = store.findProject(projectId)
+    const owner = project?.tenantId ?? store.defaultTenantId()
+    const tenantId = store.identity(req.headers).tenant.id
+    return !project || (owner !== tenantId && project.shared !== true)
+  }
+  r.get('/projects/:id/open-subgoals', ({ req, res, params }) => {
+    if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+    sendJson(res, store.listOpenSubGoals(params.id))
+  })
+  r.post('/projects/:id/open-subgoals', async ({ req, res, params, body }) => {
+    const input = await body<PostOpenSubGoalRequest>()
+    if (!input?.subGoal?.trim() || typeof input?.target !== 'string' || !PROJECT_EFFECT_TYPES.includes(input.type)) {
+      return sendError(res, 'bad_request', 'subGoal, target, and a valid type are required')
+    }
+    if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+    sendJson(res, store.postOpenSubGoal(params.id, { ...input, subGoal: input.subGoal.trim() }, store.identity(req.headers).tenant.id))
+  })
+
   // A Contributor fires an externally-effectful action on a shared Project (D11/D12, OQ3+OQ4):
   // the Commission's connector/MCP reach is the wall (D12), and a non-monotonic effect is
   // serialized on its sub-goal reservation at the Guardian (D11) — the slice-4 "forward" effect

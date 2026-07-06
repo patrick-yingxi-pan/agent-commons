@@ -13,6 +13,7 @@ import type {
   AuditEntry,
   Commission,
   DispatchRun,
+  OpenSubGoal,
   ModelProvider,
   RecentsSnapshot,
   RelationGraph,
@@ -87,6 +88,11 @@ export interface PersistedState {
    *  keeps the seed feed); a live run persists so it survives a restart, and a run left
    *  `running` when the process died is swept to `failed` on rehydrate (crash recovery). */
   dispatch?: DispatchRun[]
+  /** The Project open-work backlog (docs/agent-commons.md, D19) — posted work items,
+   *  open and resolved. Additive-optional like `dispatch` (a pre-field snapshot loads
+   *  cleanly with an empty backlog). Dispatch itself is synchronous at post time, so
+   *  nothing in-flight ever needs recovering — only the items persist. */
+  openSubGoals?: OpenSubGoal[]
   /** The account registry (multi-account P7 — real onboarded accounts): users
    *  (with their server-only scrypt credential), tenants/workspaces, and
    *  memberships. Additive-optional like `dispatch` (a pre-P7 snapshot loads
@@ -110,6 +116,8 @@ export interface PersistedState {
     /** Dispatch run id counter (P7). Optional so a pre-field snapshot loads (falls back to
      *  the seed counter). */
     dispatch?: number
+    /** Open-work item id counter (D19). Optional like `dispatch`. */
+    openSubGoal?: number
     /** Account registry counters (multi-account P7). Optional like the slices. */
     user?: number
     tenant?: number
@@ -141,6 +149,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   commissionCaps: 'mapEntries',
   auditLog: 'array',
   dispatch: 'array',
+  openSubGoals: 'array',
   accountUsers: 'mapEntries',
   accountTenants: 'mapEntries',
   memberships: 'array',

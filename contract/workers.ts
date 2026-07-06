@@ -54,6 +54,17 @@ export interface Agent {
    *  un-donated) and aggregates to the owner via `ownerReputation` ("accrues to both the
    *  Agent and its owner, linked"). Absent / `0` ⇒ a worker that has not yet contributed. */
   contributions?: number
+  /** **Published** (docs/agent-commons.md, D18): the owner shares this Agent's
+   *  DEFINITION (label / prompt / tools / instructions) in the agent directory, where
+   *  any tenant may fork it. Publishing never shares capability — authority / budget /
+   *  provider binding stay private and never travel. Unset/false ⇒ private (default). */
+  published?: boolean
+  /** Fork lineage (D18): the published Agent this one was copied from, when forked.
+   *  The label is captured at fork time (the source may be renamed/unpublished later). */
+  forkedFrom?: { agentId: string; label: string }
+  /** How many times this Agent's published definition was forked (D18) — a public,
+   *  monotonic credit, like `contributions`. Absent/0 ⇒ never forked. */
+  forks?: number
 }
 
 /** The owner-side aggregate of D13 reputation: standing "accrues to both the Agent and
@@ -80,5 +91,8 @@ export interface CreateAgentRequest {
 
 /** Patch an Agent's fields. All optional — a present field (including an empty-string
  *  `providerId` / `systemPromptId` meaning "clear to default") is applied; an absent one
- *  is left unchanged. A changed provider re-validates authority/budget against it. */
-export type UpdateAgentRequest = Partial<CreateAgentRequest>
+ *  is left unchanged. A changed provider re-validates authority/budget against it.
+ *  `published` is the D18 publish/unpublish act — an explicit owner toggle, deliberately
+ *  NOT on `CreateAgentRequest` (a definition is published deliberately, never as a
+ *  side-effect of creation). */
+export type UpdateAgentRequest = Partial<CreateAgentRequest> & { published?: boolean }

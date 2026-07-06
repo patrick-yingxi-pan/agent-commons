@@ -12,7 +12,7 @@ import type { ServerEvent } from '../../contract/index.ts'
 import { API_BASE } from './client.ts'
 import { resetAll } from './cache.ts'
 import { keys } from './keys.ts'
-import { invalidate } from './cache.ts'
+import { invalidate, invalidatePrefix } from './cache.ts'
 import { invalidateForCommonsOp } from './commonsInvalidation.ts'
 import { helloRequiresReset } from './streamPolicy.ts'
 import { activeAccount, onAccountSwitch } from './account.ts'
@@ -100,6 +100,14 @@ function route(e: ServerEvent): void {
     // Audit surface so the watch updates live.
     case 'audit.entry':
       invalidate(keys.auditLog)
+      break
+    // A Project's open-work backlog changed (D19) — an item was posted or a standing
+    // Contributor took one. Re-read the backlog, the agent list (the taker's D13
+    // credit), and the project directory (its open-work count moved).
+    case 'openwork.changed':
+      invalidate(keys.openSubGoals(e.projectId))
+      invalidate(keys.workerAgents)
+      invalidatePrefix(keys.directoryProjects())
       break
     default:
       break
