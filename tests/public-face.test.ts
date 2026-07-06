@@ -1,0 +1,30 @@
+/** Lock: the public-face cues have ONE source (form follows function — AGENTS.md).
+ *  The owner byline ("by Ada Lab (you)") and the shared marker ("Shared · ") are
+ *  minted only in src/lib/publicFace.ts / src/components/PublicFace.tsx; a component
+ *  that re-hardcodes either re-opens the drift this funnel closed (the Discover
+ *  subtitles once templated their own `by ${owner} (you)` strings). Source-level
+ *  greps, like the other cue locks (tests/addTrigger.test.ts, tests/scrim.test.ts). */
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { bylineLabel, SHARED_MARKER } from '../src/lib/publicFace.ts'
+
+const src = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
+
+test('bylineLabel — the one owner label', () => {
+  assert.equal(bylineLabel('Ada Lab', false), 'by Ada Lab')
+  assert.equal(bylineLabel('Ada Lab', true), 'by Ada Lab (you)')
+  assert.equal(bylineLabel(undefined, undefined), 'by this workspace')
+})
+
+test('no component re-hardcodes the byline or the shared marker', () => {
+  const sectionView = src('../src/components/SectionView.tsx')
+  assert.ok(!/\(you\)/.test(sectionView), 'SectionView must derive "(you)" via bylineLabel, not inline it')
+  assert.ok(!sectionView.includes(SHARED_MARKER), 'SectionView must render the shared marker via <Byline>, not inline it')
+  assert.ok(/bylineLabel|<Byline/.test(sectionView), 'SectionView routes owner labels through the funnel')
+
+  const publicFace = src('../src/components/PublicFace.tsx')
+  assert.ok(publicFace.includes("from '../lib/publicFace'"), 'the component imports the one label source')
+  assert.ok(publicFace.includes('SHARED_MARKER'), 'the marker is referenced, not retyped')
+})

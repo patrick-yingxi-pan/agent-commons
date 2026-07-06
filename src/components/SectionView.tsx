@@ -71,6 +71,8 @@ import { ConnectorDetailBody } from './ConnectorPanel'
 import { AddContextButton } from './AddContextButton'
 import { AddTrigger } from './AddTrigger'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
+import { bylineLabel } from '../lib/publicFace'
+import { Byline, CreditLine } from './PublicFace'
 import { resolveBackLabel, type NavLocation } from '../lib/nav'
 import { relativeTime } from '../lib/relativeTime'
 import { Chip } from './Chip'
@@ -321,6 +323,24 @@ function ProjectsSection({
   )
   // "Last updated" keeps source order (already newest-first); "Name" sorts A→Z.
   const sorted = sort === 'Name' ? [...filtered].sort((a, b) => a.name.localeCompare(b.name)) : filtered
+  // Yours vs the commons (shared-surface UI model): a FOREIGN shared project is a
+  // different relationship — browsable, joinable, not yours — so it lists under its
+  // own band instead of interleaving indistinguishably with your projects.
+  const mine = sorted.filter((p) => p.own !== false)
+  const sharedWithYou = sorted.filter((p) => p.own === false)
+
+  const grid = (items: Project[]) => (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      {items.map((p) => (
+        <ProjectCard
+          key={p.id}
+          project={p}
+          sessionCount={rel.sessionsForProject(p.id).length}
+          onOpen={() => onOpenProject(p.id)}
+        />
+      ))}
+    </div>
+  )
 
   return (
     <Page>
@@ -331,20 +351,23 @@ function ProjectsSection({
         </PrimaryButton>
       </PageHeader>
       <SearchBox value={query} onChange={setQuery} placeholder="Search projects…" />
-      {sorted.length === 0 ? (
+      {mine.length === 0 ? (
         <Empty>
           {query.trim() ? `No projects match “${query.trim()}”.` : 'No projects yet — create one to group related work.'}
         </Empty>
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {sorted.map((p) => (
-            <ProjectCard
-              key={p.id}
-              project={p}
-              sessionCount={rel.sessionsForProject(p.id).length}
-              onOpen={() => onOpenProject(p.id)}
-            />
-          ))}
+        grid(mine)
+      )}
+      {sharedWithYou.length > 0 && (
+        <div className="mt-8">
+          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+            Shared with you
+          </div>
+          <p className="mb-3 text-[12px] text-ink-faint">
+            Projects other workspaces opened to the commons — visit one to commission your agent
+            or take open work.
+          </p>
+          {grid(sharedWithYou)}
         </div>
       )}
       {creating && <NewProjectDialog onCreate={createProject} onClose={() => setCreating(false)} />}
@@ -438,6 +461,11 @@ function ProjectCard({
       className="flex min-h-[150px] flex-col rounded-2xl border border-line bg-surface p-5 text-left shadow-sm transition hover:border-line-strong hover:shadow"
     >
       <div className="text-[15px] font-semibold text-ink">{project.name}</div>
+      {project.own === false && (
+        <div className="mt-1">
+          <Byline ownerName={project.ownerName} own={false} />
+        </div>
+      )}
       <div className="mt-2 line-clamp-2 text-[13px] leading-snug text-ink-soft">
         {project.description}
       </div>
@@ -537,6 +565,11 @@ function ProjectDetail({
     for (const pc of addedToProjectContexts(ctx)) addContext(pc)
   }
 
+  // The permission split (shared-surface UI model): this ONE page serves owner and
+  // visitor alike — what changes is which affordances exist, never the location.
+  // `own !== false` covers seeds/optimistic rows the projection hasn't stamped yet.
+  const own = project.own !== false
+
   return (
     <Page>
       <BackButton to={backTo} onBack={onBack} />
@@ -544,11 +577,18 @@ function ProjectDetail({
       <header className="mb-6 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="font-serif text-2xl font-semibold text-ink">{project.name}</h1>
+          {(project.shared === true || !own) && (
+            <div className="mt-1">
+              <Byline ownerName={project.ownerName} own={project.own} />
+            </div>
+          )}
           <p className="mt-1 text-sm text-ink-soft">{project.description}</p>
         </div>
-        <PrimaryButton icon={<Plus size={15} />} onClick={onNewSession}>
-          New session
-        </PrimaryButton>
+        {own && (
+          <PrimaryButton icon={<Plus size={15} />} onClick={onNewSession}>
+            New session
+          </PrimaryButton>
+        )}
       </header>
 
       <div className="flex flex-col gap-6 lg:flex-row">
@@ -556,7 +596,11 @@ function ProjectDetail({
         <div className="min-w-0 flex-1">
           <PanelLabel>Recent sessions</PanelLabel>
           {convs.length === 0 ? (
-            <Empty>No sessions in this project yet.</Empty>
+            <Empty>
+              {own
+                ? 'No sessions in this project yet.'
+                : 'The owner’s sessions are private — the shared surfaces are the panels on the right: commission your agent, claim a sub-goal, or take open work.'}
+            </Empty>
           ) : (
             <div className="overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
               {convs.map((c, i) => (
@@ -592,14 +636,18 @@ function ProjectDetail({
           )}
         </div>
 
-        {/* Right panel — instructions, scheduled runs, and attached context. */}
+        {/* Right panel — instructions, scheduled runs, and attached context. The
+            owner-only panels (instructions / scheduled / context) hide for a visitor
+            — their data is redacted by the projection anyway (P8) — while the
+            cooperation panels (Contributors, Coordination) ARE the visitor acts. */}
         <aside className="w-full shrink-0 space-y-4 lg:w-72">
-          <ProjectInstructions project={project} />
+          {own && <ProjectInstructions project={project} />}
 
           <ContributorsPanel project={project} />
 
           <CoordinationPanel project={project} />
 
+          {own && (
           <SidePanel title="Scheduled" icon={<Clock size={14} />}>
             {!hasSchedules ? (
               <p className="text-[12px] text-ink-faint">No scheduled runs yet.</p>
@@ -641,7 +689,9 @@ function ProjectDetail({
               onLink={linkSchedule}
             />
           </SidePanel>
+          )}
 
+          {own && (
           <SidePanel title="Context" icon={<Folder size={14} />}>
             {contexts.length === 0 ? (
               <p className="text-[12px] text-ink-faint">No context attached yet.</p>
@@ -663,6 +713,7 @@ function ProjectDetail({
               />
             </div>
           </SidePanel>
+          )}
         </aside>
       </div>
     </Page>
@@ -993,7 +1044,10 @@ function ContributorsPanel({ project }: { project: Project }) {
 
   return (
     <SidePanel title="Contributors" icon={<Cpu size={14} />}>
-      {rel.isCreatedProject(project.id) && <ShareToggle project={project} />}
+      {/* Owner-only (the permission split): `isCreatedProject` alone also matches a
+          FOREIGN shared project (it lives in extraProjects too), which used to show a
+          visitor the owner's share switch — a control the server would only refuse. */}
+      {rel.isCreatedProject(project.id) && project.own !== false && <ShareToggle project={project} />}
       {commissions.length === 0 ? (
         <p className="text-[12px] text-ink-faint">No agents commissioned yet.</p>
       ) : (
@@ -3679,10 +3733,18 @@ function CommissionsTab() {
  *  is a policy this prototype doesn't take. One debounced-enough search box filters
  *  both directories (substring on name/description, server-side). */
 function DiscoverTab() {
+  const rel = useRelations()
   const [q, setQ] = useState('')
+  const [ownerFilter, setOwnerFilter] = useState<string | null>(null)
   const query = q.trim() || undefined
-  const projects = useProjectDirectory(query).data ?? []
-  const agents = useAgentDirectory(query).data ?? []
+  const allProjects = useProjectDirectory(query).data ?? []
+  const allAgents = useAgentDirectory(query).data ?? []
+  // The owner filter is a lightweight PROFILE — "everything this workspace shares" —
+  // reached by clicking a byline. Client-side: presentation over the same directory
+  // read (D17's no-ranking mechanism untouched).
+  const projects = ownerFilter ? allProjects.filter((p) => p.owner === ownerFilter) : allProjects
+  const agents = ownerFilter ? allAgents.filter((a) => a.owner === ownerFilter) : allAgents
+  const [detail, setDetail] = useState<AgentDirectoryEntry | null>(null)
   return (
     <div className="space-y-6">
       <div className="relative">
@@ -3695,13 +3757,23 @@ function DiscoverTab() {
           className={`${FORM_INPUT_CLASS} pl-8`}
         />
       </div>
+      {ownerFilter && (
+        <div className="flex items-center gap-2 text-[12px] text-ink-soft">
+          <span>
+            Everything shared by <span className="font-medium text-ink">{ownerFilter}</span>
+          </span>
+          <button onClick={() => setOwnerFilter(null)} className={INLINE_ACTION_CLASS}>
+            Clear
+          </button>
+        </div>
+      )}
 
       <div>
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
           Shared projects
         </div>
         {projects.length === 0 ? (
-          <Empty>No shared projects{query ? ' match this search' : ' yet — share one from its project page'}.</Empty>
+          <Empty>No shared projects{query || ownerFilter ? ' match' : ' yet — share one from its project page'}.</Empty>
         ) : (
           <div className="space-y-3">
             {projects.map((p) => (
@@ -3709,7 +3781,18 @@ function DiscoverTab() {
                 <CommonsCardHead
                   icon={<SquareKanban size={16} />}
                   title={p.name}
-                  subtitle={`by ${p.owner}${p.own ? ' (you)' : ''} · updated ${relativeTime(p.updatedAt)}`}
+                  subtitle={
+                    <>
+                      <button
+                        onClick={() => setOwnerFilter(p.owner)}
+                        className="underline decoration-line-strong underline-offset-2 transition hover:text-ink"
+                        title="Show everything this workspace shares"
+                      >
+                        {bylineLabel(p.owner, p.own)}
+                      </button>
+                      {` · updated ${relativeTime(p.updatedAt)}`}
+                    </>
+                  }
                   trailing={
                     p.openWorkCount > 0 ? (
                       <span
@@ -3722,10 +3805,16 @@ function DiscoverTab() {
                   }
                 />
                 {p.description && <p className="mt-2 text-[12px] text-ink-soft">{p.description}</p>}
-                <p className="mt-1.5 text-[11px] text-ink-faint">
-                  {p.contributorCount} contributor{p.contributorCount === 1 ? '' : 's'}
-                  {p.guarded ? ' · coordinated (guardian)' : ''} — commission one of your agents from its
-                  project page to join.
+                <p className="mt-1.5 flex items-center gap-3 text-[11px] text-ink-faint">
+                  <span>
+                    {p.contributorCount} contributor{p.contributorCount === 1 ? '' : 's'}
+                    {p.guarded ? ' · coordinated (guardian)' : ''}
+                  </span>
+                  {/* The card is a DOOR: the shared project page (one page, owner and
+                      visitor alike) is where joining happens. */}
+                  <button onClick={() => rel.navigate('projects', p.id)} className={INLINE_ACTION_CLASS}>
+                    Open project
+                  </button>
                 </p>
               </CommonsCard>
             ))}
@@ -3738,17 +3827,23 @@ function DiscoverTab() {
           Published agents
         </div>
         {agents.length === 0 ? (
-          <Empty>No published agents{query ? ' match this search' : ' yet — publish one from the Agents tab'}.</Empty>
+          <Empty>No published agents{query || ownerFilter ? ' match' : ' yet — publish one from the Agents tab'}.</Empty>
         ) : (
           <div className="space-y-3">
             {agents.map((a) => (
-              <PublishedAgentCard key={a.id} entry={a} />
+              <PublishedAgentCard
+                key={a.id}
+                entry={a}
+                onView={() => setDetail(a)}
+                onOwnerClick={() => setOwnerFilter(a.owner)}
+              />
             ))}
           </div>
         )}
       </div>
 
       <ImportAgentCardForm />
+      {detail && <AgentDetailDialog entry={detail} onClose={() => setDetail(null)} />}
     </div>
   )
 }
@@ -3817,7 +3912,15 @@ function ImportAgentCardForm() {
  *  tools / instructions) and the public track record, with the FORK act inline. What is
  *  deliberately absent is any capability: authority, budget, and provider binding never
  *  ride a directory entry, so there is nothing here to leak. */
-function PublishedAgentCard({ entry }: { entry: AgentDirectoryEntry }) {
+function PublishedAgentCard({
+  entry,
+  onView,
+  onOwnerClick,
+}: {
+  entry: AgentDirectoryEntry
+  onView: () => void
+  onOwnerClick: () => void
+}) {
   const [busy, setBusy] = useState(false)
   const [forked, setForked] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -3839,7 +3942,18 @@ function PublishedAgentCard({ entry }: { entry: AgentDirectoryEntry }) {
       <CommonsCardHead
         icon={<Bot size={16} />}
         title={entry.label}
-        subtitle={`by ${entry.owner}${entry.own ? ' (you)' : ''} · ${entry.tools.length} tool${entry.tools.length === 1 ? '' : 's'}`}
+        subtitle={
+          <>
+            <button
+              onClick={onOwnerClick}
+              className="underline decoration-line-strong underline-offset-2 transition hover:text-ink"
+              title="Show everything this workspace shares"
+            >
+              {bylineLabel(entry.owner, entry.own)}
+            </button>
+            {` · ${entry.tools.length} tool${entry.tools.length === 1 ? '' : 's'}`}
+          </>
+        }
         trailing={
           <button
             onClick={fork}
@@ -3856,16 +3970,91 @@ function PublishedAgentCard({ entry }: { entry: AgentDirectoryEntry }) {
         {entry.systemPrompt}
       </p>
       <p className="mt-1.5 flex items-center gap-3 text-[11px] text-ink-faint">
-        <span className="inline-flex items-center gap-1">
-          <Award size={11} /> {entry.contributions} contribution{entry.contributions === 1 ? '' : 's'}
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <GitFork size={11} /> {entry.forks} fork{entry.forks === 1 ? '' : 's'}
-        </span>
-        <span>Forking copies the definition — you grant your own model &amp; authority (D18).</span>
+        <CreditLine contributions={entry.contributions} forks={entry.forks} />
+        {/* The card is a DOOR: the full public definition (and the A2A card link) lives
+            one click in, like a repo page behind a search result. */}
+        <button onClick={onView} className={INLINE_ACTION_CLASS}>
+          View definition
+        </button>
       </p>
       {error && <p className="mt-2 text-[12px] text-removed">{error}</p>}
     </CommonsCard>
+  )
+}
+
+/** The public detail of a published Agent — the entity page behind the directory card:
+ *  the FULL definition (prompt / instructions / tools — exactly the D18 public face,
+ *  nothing more), the public track record, and both doors out: Fork (the human act)
+ *  and the A2A card link (the same fact, machine-readable — D20). What is structurally
+ *  absent mirrors the wire: no authority, budget, or provider binding to show. */
+function AgentDetailDialog({ entry, onClose }: { entry: AgentDirectoryEntry; onClose: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const fork = async () => {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await forkAgent(entry.id)
+      onClose()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not fork this agent.')
+      setBusy(false)
+    }
+  }
+  return (
+    <FormDialog
+      title={entry.label}
+      icon={<Bot size={18} />}
+      submitLabel="Fork this definition"
+      submitIcon={<GitFork size={15} />}
+      canSubmit={!busy}
+      onSubmit={fork}
+      onClose={onClose}
+      error={error}
+    >
+      <p className="text-[12px] text-ink-faint">{bylineLabel(entry.owner, entry.own)}</p>
+      <FormField label="System prompt">
+        <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-panel-2 p-2.5 font-sans text-[12px] leading-relaxed text-ink-soft">
+          {entry.systemPrompt}
+        </pre>
+      </FormField>
+      {entry.instructions && (
+        <FormField label="Instructions">
+          <p className="max-h-24 overflow-y-auto rounded-lg border border-line bg-panel-2 p-2.5 text-[12px] leading-relaxed text-ink-soft">
+            {entry.instructions}
+          </p>
+        </FormField>
+      )}
+      <FormField label={`Tools (${entry.tools.length})`}>
+        <div className="flex flex-wrap gap-1.5">
+          {entry.tools.length === 0 ? (
+            <span className="text-[12px] text-ink-faint">No tools — a prose-only definition.</span>
+          ) : (
+            entry.tools.map((t) => (
+              <span key={t} className="rounded-md bg-panel-2 px-1.5 py-0.5 text-[11px] text-ink-soft">
+                {t}
+              </span>
+            ))
+          )}
+        </div>
+      </FormField>
+      <p className="flex items-center gap-3 text-[11px] text-ink-faint">
+        <CreditLine contributions={entry.contributions} forks={entry.forks} />
+        <a
+          href={a2aAgentCardUrl(entry.id)}
+          target="_blank"
+          rel="noreferrer"
+          className={INLINE_ACTION_CLASS}
+          title="This definition as a machine-readable A2A Agent Card (D20) — hand the URL to a foreign agent framework"
+        >
+          A2A card
+        </a>
+      </p>
+      <p className="text-[11px] text-ink-faint">
+        Forking copies the definition — you grant your own model &amp; authority (D18).
+      </p>
+    </FormDialog>
   )
 }
 

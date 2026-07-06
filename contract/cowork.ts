@@ -63,6 +63,16 @@ export interface Project {
    *  `share-project` relation op; each Contributor's authority is still clamped to the
    *  Project's admitted set (D12) regardless of sharing. */
   shared?: boolean
+  /** Projection-stamped public identity: the owning workspace's DISPLAY name — the same
+   *  public face the D17 directory shows ("by Ada Lab"), never a raw foreign tenant id.
+   *  Set by the server's per-tenant projection on every created Project it emits; unset
+   *  on seed rows (they are the viewer's own by construction). */
+  ownerName?: string
+  /** Viewer-relative, projection-stamped: whether the CALLER's tenant owns this row.
+   *  Drives the owner/visitor affordance split on the project page — owner-only controls
+   *  (share, instructions, contexts) render only when this isn't `false`. Unset (seed
+   *  rows, older snapshots) ⇒ treat as own. */
+  own?: boolean
 }
 
 /** The hue of a workflow step's tool chip. Connector/MCP/repo/workspace map onto

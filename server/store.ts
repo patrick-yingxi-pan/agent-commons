@@ -342,8 +342,14 @@ function projectGraphForTenant(g: RelationGraph, tenantId: string): RelationGrap
     // the frozen object leaks the owner's session ids + count across the tenant boundary. The
     // owner keeps the full object.
     extraProjects: g.extraProjects.flatMap((p) => {
-      if (rowVisibleTo(p, tenantId)) return [p]
-      return p.shared === true ? [publicSharedProject(p)] : []
+      // Stamp the public identity on every emitted row (the D17 posture, now on the
+      // projection too): `ownerName` is the workspace DISPLAY name; `own` is
+      // viewer-relative and drives the owner/visitor affordance split client-side. A
+      // foreign row also drops the raw `tenantId` — the display name is the public
+      // face; the raw id of a foreign tenant never crosses (mirrors the directory).
+      const ownerName = tenantName(p.tenantId ?? defaultTenantId())
+      if (rowVisibleTo(p, tenantId)) return [{ ...p, ownerName, own: true }]
+      return p.shared === true ? [{ ...publicSharedProject(p), ownerName, own: false, tenantId: undefined }] : []
     }),
     extraArtifacts: g.extraArtifacts.filter((a) => rowVisibleTo(a, tenantId)),
     sessionProject: byProjValue(g.sessionProject),

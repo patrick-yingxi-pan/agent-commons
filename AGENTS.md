@@ -276,6 +276,15 @@ the mock?
   drive it from the registry hook and route it through the shared menu — and if the
   concept's entries are usable in sessions, make the registry a first-class rail
   surface, not a sub-tab of the thing that consumes it.
+- **The entity page is the shared surface — capability shapes affordances, not
+  location.** A shared Project (and any future shared entity) has ONE canonical page
+  serving owner and visitor alike, GitHub-repo-style: what differs is which controls
+  exist (the projection's viewer-relative `own` flag is the gate), never where you go.
+  Directory cards (Discover) are *doors* into those pages, not parallel leaf surfaces;
+  ownership cues (byline, credit, shared marker) come from one primitive
+  (`src/lib/publicFace.ts` + `src/components/PublicFace.tsx`, invariant UI-10, spec
+  COMMONS-13). Don't add a visitor-variant page or an owner-only rendering of the same
+  entity — gate affordances on `own` inside the one page.
 - **The dev server binds IPv4** (`server.host: '127.0.0.1'` in `vite.config.ts`).
   On some hosts `localhost` resolves to `::1` only, which a browser/preview hitting
   `127.0.0.1` can't reach. Keep the explicit bind (the API proxy targets it too).

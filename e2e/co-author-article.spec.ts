@@ -175,6 +175,17 @@ test('two tenants each contribute an agent to co-author an article on one shared
   // resolve a foreign agentId; identity crosses the boundary, authority never does.
   await expect(bo.page.getByText(ADA_AGENT).first()).toBeVisible()
 
+  // The permission-aware shared surface: ONE project page for owner and visitor —
+  // capability shapes affordances, not location. Bo (a visitor) sees the public
+  // byline but NOT the owner's controls: no share switch (it once rendered here —
+  // the isCreatedProject-only gate matched foreign shared rows too), no instructions
+  // editor, no New session.
+  await expect(bo.page.getByText(/Shared · by /).first()).toBeVisible()
+  await expect(bo.page.getByRole('button', { name: /Make project private|Share project across workspaces/ })).toHaveCount(0)
+  // Scoped to main: the SIDEBAR's global "New session" is rightly always there;
+  // it's the project PAGE's owner-header button that must not render for a visitor.
+  await expect(bo.page.getByRole('main').getByRole('button', { name: 'New session' })).toHaveCount(0)
+
   await createAgent(bo.page, BO_AGENT)
   await openProject(bo.page, PROJECT)
   await commission(bo.page, BO_AGENT)
@@ -184,6 +195,8 @@ test('two tenants each contribute an agent to co-author an article on one shared
   await reloadApp(ada.page)
   await openProject(ada.page, PROJECT)
   await expect(ada.page.getByText(BO_AGENT).first()).toBeVisible()
+  // …and, as the OWNER on the same page, keeps the owner affordances the visitor lacks.
+  await expect(ada.page.getByRole('button', { name: 'Make project private' })).toBeVisible()
 
   // ── Stage C — the agents work: claim sections, conflict, write, get credited ────
   // Ada's agent claims the introduction (held AS the commission, so its write below
@@ -247,7 +260,10 @@ test('two tenants each contribute an agent to co-author an article on one shared
   await ada.page.keyboard.press('Enter')
   await expect(ada.page.getByText(/One conversation that grows into a workspace/)).toBeVisible({ timeout: 20_000 })
 
-  await bo.page.getByRole('main').getByRole('button', { name: 'New session' }).click()
+  // Bo is a VISITOR on this project page, so the header's New session is (correctly)
+  // absent for him — his drafting session is his own tenant-scoped chat, started from
+  // HIS sidebar like any other.
+  await bo.page.getByRole('complementary').getByRole('button', { name: 'New session' }).click()
   await bo.page.getByPlaceholder('Reply to Claude…').fill('Draft the conclusion of our co-authored article.')
   await bo.page.keyboard.press('Enter')
   await expect(bo.page.getByText(/One conversation that grows into a workspace/)).toBeVisible({ timeout: 20_000 })
