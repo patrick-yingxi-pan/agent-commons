@@ -12,10 +12,14 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { API_BASE_PATH } from '../contract/index.ts'
 import { callTool, spawnConnector as spawnScript, startRelayStub, type Connector } from './helpers/connector.ts'
 
-const CONNECTOR = new URL('../connector/relay-connector.ts', import.meta.url).pathname
+// fileURLToPath, not `.pathname`: on Windows the latter yields `/C:/…`, which fs/spawn
+// resolve against the CWD drive to a phantom `C:\C:\…` — the read ENOENTs and the
+// spawned connector dies at birth, leaving the stdio driver parked forever.
+const CONNECTOR = fileURLToPath(new URL('../connector/relay-connector.ts', import.meta.url))
 const spawnConnector = (env: Record<string, string> = {}): Connector => spawnScript(CONNECTOR, env)
 
 test('the connector default URL matches where the backend actually mounts its API', () => {

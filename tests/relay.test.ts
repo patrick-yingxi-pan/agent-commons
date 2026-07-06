@@ -393,7 +393,9 @@ test('a Session provider is tenant-scoped: invisible to another tenant, and its 
 
 test('the user-side connector ships the prose-only / never-execute standing instruction', async () => {
   const { readFileSync } = await import('node:fs')
-  const source = readFileSync(new URL('../connector/relay-connector.ts', import.meta.url).pathname, 'utf8') as string
+  const { fileURLToPath } = await import('node:url')
+  // fileURLToPath, not `.pathname` (Windows: `/C:/…` resolves to a phantom `C:\C:\…`).
+  const source = readFileSync(fileURLToPath(new URL('../connector/relay-connector.ts', import.meta.url)), 'utf8') as string
   assert.match(source, /prose only/i, 'the standing instruction names the prose-only wall')
   assert.match(source, /never execute/i, '…and the never-execute wall (outbound injection, §7.9)')
   assert.match(source, /respond_and_wait/, 'the blocking drain tool is the connector’s core')
