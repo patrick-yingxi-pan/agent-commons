@@ -116,6 +116,8 @@ import {
   updateAgent,
   deleteAgent,
   forkAgent,
+  importAgentCard,
+  a2aAgentCardUrl,
   postOpenSubGoal,
   updateCommission,
   deleteCommission,
@@ -1488,6 +1490,8 @@ function OpenWorkList({ projectId }: { projectId: string }) {
                 <div className="text-[13px] font-medium text-ink">{o.subGoal}</div>
                 <div className="text-[11px] text-ink-faint">
                   {o.type} → {o.target}
+                  {/* Provenance, not authority (D20): an A2A-posted item passed the same walls. */}
+                  {o.via === 'a2a' ? ' · via A2A' : ''}
                   {o.status === 'done'
                     ? ` · done by ${o.resolvedByLabel ?? 'a contributor'}`
                     : ` · posted by ${o.postedBy} — awaiting a taker`}
@@ -2901,6 +2905,14 @@ function AgentCard({
           <GitFork size={12} /> Forked from {agent.forkedFrom.label}
         </p>
       )}
+      {agent.importedFrom && (
+        <p
+          className="mt-1 inline-flex items-center gap-1 text-[12px] text-ink-faint"
+          title={agent.importedFrom.url}
+        >
+          <Globe size={12} /> Imported from {agent.importedFrom.name} (A2A card)
+        </p>
+      )}
       {agent.contributions ? (
         <p className="mt-1 inline-flex items-center gap-1 text-[12px] text-emerald-700">
           <Award size={12} /> {agent.contributions} commissioned contribution
@@ -2920,6 +2932,17 @@ function AgentCard({
         >
           {agent.published ? 'Unpublish' : 'Publish to directory'}
         </button>
+        {agent.published && (
+          <a
+            href={a2aAgentCardUrl(agent.id)}
+            target="_blank"
+            rel="noreferrer"
+            className={INLINE_ACTION_CLASS}
+            title="The machine-readable A2A Agent Card for this published definition (D20) — hand this URL to a foreign agent framework"
+          >
+            A2A card
+          </a>
+        )}
         {(agent.forks ?? 0) > 0 && (
           <span className="inline-flex items-center gap-1 text-[11px] text-ink-faint">
             <GitFork size={11} /> forked {agent.forks} time{agent.forks === 1 ? '' : 's'}
@@ -3724,6 +3747,68 @@ function DiscoverTab() {
           </div>
         )}
       </div>
+
+      <ImportAgentCardForm />
+    </div>
+  )
+}
+
+/** The outbound A2A half (docs/a2a-integration.md, D20): paste a remote instance's
+ *  Agent Card URL and the server fetches it into a private, UNBOUND definition-stub
+ *  agent with `importedFrom` lineage — fork-across-instances, and like a fork the
+ *  capability never travels: you bind your own model, authority, and budget. */
+function ImportAgentCardForm() {
+  const [url, setUrl] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [imported, setImported] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const importCard = async () => {
+    if (busy || !url.trim()) return
+    setBusy(true)
+    setError(null)
+    setImported(null)
+    try {
+      const agent = await importAgentCard(url.trim())
+      setImported(agent.label)
+      setUrl('')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not import this Agent Card.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div>
+      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+        Import from another instance
+      </div>
+      <div className="flex items-center gap-1.5">
+        <input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && importCard()}
+          placeholder="A2A Agent Card URL (…/a2a/agents/{id}/card)…"
+          aria-label="Agent Card URL"
+          className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+        />
+        <button
+          onClick={importCard}
+          disabled={busy || !url.trim()}
+          className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-white transition enabled:hover:bg-accent/90 disabled:opacity-45"
+        >
+          Import
+        </button>
+      </div>
+      <p className="mt-1.5 text-[11px] text-ink-faint">
+        The card&rsquo;s definition becomes a private agent with lineage — capability never travels
+        (D20): you bind your own model, authority, and budget.
+      </p>
+      {imported && (
+        <p className="mt-1 text-[12px] text-emerald-700">
+          Imported &ldquo;{imported}&rdquo; — find it in the Agents tab.
+        </p>
+      )}
+      {error && <p className="mt-1 text-[12px] text-removed">{error}</p>}
     </div>
   )
 }

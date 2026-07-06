@@ -52,6 +52,7 @@ import { pageParams, paginate, MAX_PAGE_LIMIT } from '../pagination.ts'
 import { RateLimiter } from '../ratelimit.ts'
 import { generateReply, probeProviderEndpoint } from '../generate.ts'
 import { relayReply, mintRelaySecret, hashRelaySecret, relaySecretHint, type RelayOutcome } from '../relay.ts'
+import { platformCard, agentCard, taskFromOpenSubGoal, rejectedAgentTask, rpcResult, rpcError } from '../a2a.ts'
 import { ProviderProbeError, type ProviderConfig } from '../data/providers.ts'
 import { turns, type TurnFrame } from '../turns.ts'
 import { eventlog } from '../eventlog.ts'
@@ -61,8 +62,14 @@ import { BudgetError } from '../usage.ts'
 import { AuthorityError } from '../authority.ts'
 import { ConflictError } from '../conflict.ts'
 import { LimitError } from '../limit.ts'
-import { DEFAULT_PROVIDER_ID, isMonotonic, isProjectEffectMonotonic, PROJECT_EFFECT_TYPES, PROJECT_ROLES } from '../../contract/index.ts'
+import { A2A_ERROR, DEFAULT_PROVIDER_ID, isMonotonic, isProjectEffectMonotonic, PROJECT_EFFECT_TYPES, PROJECT_ROLES } from '../../contract/index.ts'
 import type {
+  A2aDataPart,
+  A2aMessage,
+  A2aRpcRequest,
+  A2aTextPart,
+  ImportAgentCardRequest,
+  ProjectEffectType,
   AuthAccount,
   CapabilityRequest,
   ProjectEffectRequest,
@@ -1231,6 +1238,133 @@ export function buildRouter(): Router {
     }
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     sendJson(res, store.postOpenSubGoal(params.id, { ...input, subGoal: input.subGoal.trim() }, store.identity(req.headers).tenant.id))
+  })
+
+  // ── A2A: the protocol edge (docs/a2a-integration.md, D20) ──────────────────
+  // The platform-shell objects re-served in the Agent2Agent wire format — pure
+  // translation. Every handler lands on the SAME store reads/mutations behind the
+  // same walls as the native routes: `projectHiddenFrom` fronts the Project
+  // endpoint, the D17 directory redaction builds every card, `postOpenSubGoal`
+  // runs the D19 dispatch. JSON-RPC errors ride HTTP 200 with an `error` member
+  // (protocol convention); only a nonexistent ENDPOINT — an unknown/unpublished
+  // Agent's — is an HTTP 404, mirroring its card (existence-hiding as everywhere).
+  //
+  // The platform's own card. Also mounted at the conventional server-root
+  // `/.well-known/agent-card.json` (server/index.ts) on the deploy shape.
+  r.get('/a2a/card', ({ res, url }) => sendJson(res, platformCard(url.origin)))
+  // A published Agent's card, built from its DIRECTORY ENTRY — the same redaction
+  // function the D17 directory read uses, so a card can never expose a field the
+  // directory withholds. Unpublished or unknown ⇒ the identical 404.
+  r.get('/a2a/agents/:id/card', ({ req, res, params, url }) => {
+    const entry = store.agentDirectory(store.identity(req.headers).tenant.id).find((e) => e.id === params.id)
+    if (!entry) return sendError(res, 'not_found', `No agent '${params.id}'`)
+    sendJson(res, agentCard(entry, url.origin))
+  })
+  // Parse a JSON-RPC envelope; on failure the JSON-RPC error is already sent.
+  const readRpc = async (ctx: Ctx): Promise<A2aRpcRequest | undefined> => {
+    let rpc: unknown
+    try {
+      rpc = await ctx.body<unknown>()
+    } catch {
+      rpcError(ctx.res, null, A2A_ERROR.parse, 'Parse error')
+      return undefined
+    }
+    const shaped = rpc as A2aRpcRequest
+    if (!shaped || typeof shaped !== 'object' || typeof shaped.method !== 'string') {
+      rpcError(ctx.res, null, A2A_ERROR.invalidRequest, 'Invalid JSON-RPC request: an object with a method is required')
+      return undefined
+    }
+    return shaped
+  }
+  // Pull the v1 message shape out of `message/send` params: one text part (the
+  // sub-goal statement) + one data part (the effect descriptor).
+  const messageParts = (rpc: A2aRpcRequest): { subGoal?: string; data?: Record<string, unknown> } => {
+    const message = rpc.params?.message as A2aMessage | undefined
+    const parts = Array.isArray(message?.parts) ? message.parts : []
+    const text = parts.find((p) => p?.kind === 'text') as A2aTextPart | undefined
+    const data = parts.find((p) => p?.kind === 'data') as A2aDataPart | undefined
+    return {
+      subGoal: typeof text?.text === 'string' ? text.text.trim() : undefined,
+      data: data && typeof data.data === 'object' && data.data !== null ? data.data : undefined,
+    }
+  }
+  // A shared Project's A2A endpoint: `message/send` posts open work (D19 via D20);
+  // `tasks/get` re-reads the item's lifecycle (task id = item id). A Project the
+  // caller cannot see answers exactly like a nonexistent one (TaskNotFound).
+  r.post('/a2a/projects/:id', async (ctx) => {
+    const { req, res, params } = ctx
+    const rpc = await readRpc(ctx)
+    if (!rpc) return
+    const id = rpc.id ?? null
+    if (projectHiddenFrom(req, params.id)) {
+      return rpcError(res, id, A2A_ERROR.taskNotFound, `No Project '${params.id}'`)
+    }
+    if (rpc.method === 'message/send') {
+      const { subGoal, data } = messageParts(rpc)
+      const type = data?.type as ProjectEffectType | undefined
+      const target = data?.target
+      if (!subGoal || typeof target !== 'string' || !type || !PROJECT_EFFECT_TYPES.includes(type)) {
+        return rpcError(res, id, A2A_ERROR.invalidParams,
+          'message/send needs a text part (the sub-goal statement) and a data part {type, target, note?} with a valid effect type')
+      }
+      const note = typeof data?.note === 'string' ? data.note : undefined
+      const item = store.postOpenSubGoal(params.id, { subGoal, type, target, note }, store.identity(req.headers).tenant.id, 'a2a')
+      return rpcResult(res, id, taskFromOpenSubGoal(item))
+    }
+    if (rpc.method === 'tasks/get') {
+      const taskId = rpc.params?.id
+      const item = typeof taskId === 'string' ? store.listOpenSubGoals(params.id).find((o) => o.id === taskId) : undefined
+      if (!item) return rpcError(res, id, A2A_ERROR.taskNotFound, `No task '${typeof taskId === 'string' ? taskId : ''}'`)
+      return rpcResult(res, id, taskFromOpenSubGoal(item))
+    }
+    if (rpc.method === 'tasks/cancel') {
+      return rpcError(res, id, A2A_ERROR.taskNotCancelable, 'The backlog has no retract act yet; an open item stays visible until taken')
+    }
+    rpcError(res, id, A2A_ERROR.methodNotFound, `Unknown method '${rpc.method}'`)
+  })
+  // A published Agent's A2A endpoint: `message/send` is REFUSED with a
+  // spec-conformant `rejected` Task (D18 — a card advertises a definition; the
+  // endpoint never leases its owner's capability; fork-and-bind instead).
+  r.post('/a2a/agents/:id', async (ctx) => {
+    const { req, res, params, url } = ctx
+    const rpc = await readRpc(ctx)
+    if (!rpc) return
+    const id = rpc.id ?? null
+    if (!store.agentDirectory(store.identity(req.headers).tenant.id).some((e) => e.id === params.id)) {
+      return sendError(res, 'not_found', `No agent '${params.id}'`)
+    }
+    if (rpc.method === 'message/send') return rpcResult(res, id, rejectedAgentTask(params.id, url.origin))
+    if (rpc.method === 'tasks/get') {
+      return rpcError(res, id, A2A_ERROR.taskNotFound, 'This endpoint holds no tasks — it never accepts one (a capability never travels)')
+    }
+    rpcError(res, id, A2A_ERROR.methodNotFound, `Unknown method '${rpc.method}'`)
+  })
+  // The outbound half (the federation seed): fetch a REMOTE instance's Agent Card
+  // and mint a private, unbound definition-stub Agent from it (D20 — the
+  // cross-instance sibling of /agents/:id/fork; `importedFrom` lineage). The fetch
+  // is bounded (http/https only, 5s timeout, size cap) — an SSRF-shaped primitive,
+  // recorded in the design log; a production deployment adds an egress allowlist.
+  r.post('/agents/import-card', async ({ req, res, body }) => {
+    const { url: cardUrl } = await body<ImportAgentCardRequest>()
+    if (typeof cardUrl !== 'string' || !/^https?:\/\//i.test(cardUrl)) {
+      return sendError(res, 'bad_request', 'url must be an http(s) Agent Card URL')
+    }
+    let card: unknown
+    try {
+      const resp = await fetch(cardUrl, { signal: AbortSignal.timeout(5_000) })
+      if (!resp.ok) return sendError(res, 'bad_request', `Card fetch failed: HTTP ${resp.status} from ${cardUrl}`)
+      const text = await resp.text()
+      if (text.length > 256 * 1024) return sendError(res, 'bad_request', 'Agent Card too large')
+      card = JSON.parse(text)
+    } catch {
+      return sendError(res, 'bad_request', `Could not fetch an Agent Card from ${cardUrl}`)
+    }
+    const name = (card as { name?: unknown } | null)?.name
+    if (typeof name !== 'string' || !name.trim()) {
+      return sendError(res, 'bad_request', 'Not an Agent Card: a string `name` is required')
+    }
+    const shaped = card as { name: string; description?: string; skills?: { id?: string; name?: string }[] }
+    sendJson(res, store.importAgentFromCard(shaped, cardUrl, store.identity(req.headers).tenant.id))
   })
 
   // A Contributor fires an externally-effectful action on a shared Project (D11/D12, OQ3+OQ4):

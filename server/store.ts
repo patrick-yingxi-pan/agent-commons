@@ -2245,6 +2245,31 @@ export const store = {
     persist()
     return fork
   },
+  /** Mint a private Agent from a fetched remote A2A **Agent Card** (D20,
+   *  docs/a2a-integration.md) — the cross-INSTANCE sibling of `forkAgent`, with the
+   *  same capability posture: the card's definition (name / description / advertised
+   *  skills) becomes a definition STUB (default prompt body, no local tools — a
+   *  remote skill name maps to no catalog entry), `importedFrom` stamps the lineage,
+   *  and authority / budget / provider are NOT created — the importing owner binds
+   *  their own through the D8 funnel. The route owns the fetch + shape validation. */
+  importAgentFromCard(card: { name: string; description?: string; skills?: { id?: string; name?: string }[] }, url: string, tenantId: string): Agent {
+    const skills = (Array.isArray(card.skills) ? card.skills : [])
+      .map((s) => (typeof s?.name === 'string' && s.name) || (typeof s?.id === 'string' && s.id) || '')
+      .filter(Boolean)
+    const description = typeof card.description === 'string' ? card.description.trim() : ''
+    return this.createAgent(
+      {
+        label: card.name,
+        systemPrompt: DEFAULT_SYSTEM_PROMPT_BODY,
+        tools: [],
+        instructions: [description, skills.length ? `Advertised skills (remote): ${skills.join(', ')}.` : '']
+          .filter(Boolean)
+          .join(' '),
+        importedFrom: { url, name: card.name },
+      },
+      tenantId,
+    )
+  },
   /** A Project's open-work backlog (D19) — open items first (newest within each band). */
   listOpenSubGoals(projectId: string): OpenSubGoal[] {
     const items = openSubGoals.filter((o) => o.projectId === projectId)
@@ -2255,7 +2280,7 @@ export const store = {
    *  dispatch it to the Project's standing Contributors synchronously. Returns the item
    *  in its post-dispatch state: `done` when a standing Commission took it, `open` when
    *  none could (it stays visible in the backlog). The route validates visibility. */
-  postOpenSubGoal(projectId: string, req: PostOpenSubGoalRequest, tenantId: string): OpenSubGoal {
+  postOpenSubGoal(projectId: string, req: PostOpenSubGoalRequest, tenantId: string, via?: 'a2a'): OpenSubGoal {
     const item: OpenSubGoal = {
       id: `work-${(openSubGoalSeq += 1)}`,
       projectId,
@@ -2266,6 +2291,8 @@ export const store = {
       postedBy: tenantName(tenantId),
       postedAt: Date.now(),
       status: 'open',
+      // Provenance only (D20): an A2A-posted item passes the identical walls.
+      ...(via ? { via } : {}),
     }
     openSubGoals.push(item)
     this.dispatchOpenSubGoal(item)

@@ -66,6 +66,10 @@ export interface OpenSubGoal {
   postedAt: number
   /** `open` = awaiting a taker; `done` = a Contributor fired the effect. */
   status: 'open' | 'done'
+  /** How the item arrived: unset = the native route; `'a2a'` = posted by a foreign
+   *  agent through the A2A edge (D20). Provenance only — never an authority
+   *  distinction (both paths pass the identical walls). */
+  via?: 'a2a'
   /** The Commission that resolved it (D19 standing dispatch, or a later manual
    *  path) + its Agent's display label — the public credit line. */
   resolvedBy?: string

@@ -406,6 +406,21 @@ export async function forkAgent(id: string): Promise<Agent> {
   return fork
 }
 
+/** Import a remote A2A Agent Card as a private, unbound definition-stub Agent
+ *  (docs/a2a-integration.md, D20) — the cross-instance sibling of `forkAgent`.
+ *  The server does the fetch; failures surface as the server's message. */
+export async function importAgentCard(url: string): Promise<Agent> {
+  const agent = await apiPost<Agent>(paths.agentImportCard, { url })
+  invalidate(keys.workerAgents)
+  return agent
+}
+
+/** Absolute URL of a published Agent's A2A card (D20) — a public GET, linkable
+ *  from the UI so an owner can hand their agent's front door to a foreign peer. */
+export function a2aAgentCardUrl(id: string): string {
+  return `${API_BASE}${paths.a2aAgentCard(id)}`
+}
+
 /** Post a work item onto a Project's backlog (docs/agent-commons.md, D19) — the
  *  issues-tray act. The server dispatches it to the Project's standing Contributors
  *  synchronously; the returned item is already `done` when one took it. Refreshes the

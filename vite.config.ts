@@ -25,6 +25,9 @@ export default defineConfig({
       // The mock backend's default port (MOCK_PORT shifts it in lockstep with
       // scripts/dev.mjs, so the proxy follows the backend across instances).
       '/api': { target: `http://127.0.0.1:${process.env.MOCK_PORT || 8787}`, changeOrigin: true },
+      // The A2A well-known Agent Card (D20) lives at the server root by protocol
+      // convention — forward it so the dev origin serves it like the deploy shape.
+      '/.well-known': { target: `http://127.0.0.1:${process.env.MOCK_PORT || 8787}`, changeOrigin: true },
     },
   },
 })

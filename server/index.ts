@@ -14,7 +14,8 @@ import { readFileSync, existsSync, statSync } from 'node:fs'
 import { join, extname, dirname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { API_BASE_PATH } from '../contract/index.ts'
-import { CORS_HEADERS, SECURITY_HEADERS, sendError } from './http/respond.ts'
+import { CORS_HEADERS, SECURITY_HEADERS, sendError, sendJson } from './http/respond.ts'
+import { platformCard } from './a2a.ts'
 import { buildRouter } from './routes/index.ts'
 import { store, startRunDaemon } from './store.ts'
 import { startModelServer } from './model/index.ts'
@@ -51,6 +52,15 @@ const server = createServer(async (req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, CORS_HEADERS)
     res.end()
+    return
+  }
+
+  // The A2A discovery convention (docs/a2a-integration.md, D20): the platform's
+  // Agent Card at the well-known server-root path. The same card is served at
+  // `GET /api/v1/a2a/card` (the router home, which dev + tests exercise); this
+  // mount exists because foreign agents look here by convention.
+  if (url.pathname === '/.well-known/agent-card.json') {
+    sendJson(res, platformCard(url.origin))
     return
   }
 

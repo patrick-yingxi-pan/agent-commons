@@ -91,6 +91,11 @@ export const paths = {
   agentFork: (id: string) => `/agents/${encodeURIComponent(id)}/fork`,
   directoryProjects: (q?: string) => (q ? `/directory/projects?q=${encodeURIComponent(q)}` : '/directory/projects'),
   directoryAgents: (q?: string) => (q ? `/directory/agents?q=${encodeURIComponent(q)}` : '/directory/agents'),
+  /** The A2A edge (docs/a2a-integration.md, D20). `a2aAgentCard` is a public GET a
+   *  foreign agent (or a curious human) can open; `agentImportCard` is the outbound
+   *  fetch-a-remote-card mint. */
+  a2aAgentCard: (id: string) => `/a2a/agents/${encodeURIComponent(id)}/card`,
+  agentImportCard: '/agents/import-card',
   // The native-only endpoints (`/fs/pick`, `/fs/folders/:id`, `/git/repos/:id/diff`)
   // are intentionally absent here — no live UI flow calls them. They exist behind the
   // capability gate and are exercised by the contract via tests + `BACKEND=remote`

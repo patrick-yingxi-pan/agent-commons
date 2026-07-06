@@ -62,6 +62,10 @@ export interface Agent {
   /** Fork lineage (D18): the published Agent this one was copied from, when forked.
    *  The label is captured at fork time (the source may be renamed/unpublished later). */
   forkedFrom?: { agentId: string; label: string }
+  /** Import lineage (D20, docs/a2a-integration.md): the remote A2A Agent Card this
+   *  definition-stub was minted from — the cross-INSTANCE sibling of `forkedFrom`.
+   *  Like a fork, the import carries definition only; capability never travels. */
+  importedFrom?: { url: string; name: string }
   /** How many times this Agent's published definition was forked (D18) — a public,
    *  monotonic credit, like `contributions`. Absent/0 ⇒ never forked. */
   forks?: number

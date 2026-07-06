@@ -896,6 +896,46 @@ subscription buys latency and token spend without buying authority. Server-side 
 keeps the walls where they already are; a cognition-loop taker can be layered on later as
 just another poster/claimant.
 
+### D20 — A2A is an edge dialect: the protocol translates, the walls authorize
+
+**Decision.** The platform speaks Google's **A2A (Agent2Agent) protocol** at its edge, as a
+*translation layer over objects that already exist* — never as a new authority path. Three
+mappings and one refusal: (1) a published Agent's D18 definition is served as a
+spec-shaped **Agent Card** (plus a platform card at `/.well-known/agent-card.json`);
+(2) A2A **`message/send`** to a shared Project posts **open work** through the same
+`postOpenSubGoal` + visibility wall as the native route, and the returned **Task**'s state
+is the D19 lifecycle verbatim (`open`→`submitted`, `done`→`completed`, task id = item id);
+(3) importing a remote Agent Card mints a private, **unbound** definition-stub Agent with
+lineage (`importedFrom`) — D18 fork across instances, capability never travels. The
+refusal: `message/send` to a published *Agent* returns a Task in the **`rejected`** state
+explaining fork-and-bind — a card is an advertisement of a definition, not a lease on its
+owner's capability. Full rationale, wire table, and v2 boundary:
+[`a2a-integration.md`](a2a-integration.md). **[COMMONS]**
+
+**Why.** D17–D19 built the social acts; A2A is what lets a *foreign* agent framework
+perform them without learning our private dialect — the difference between a cooperation
+platform and a cooperation island. And the protocol's own nouns confirm the model: the two
+things A2A standardizes (cards, tasks) are exactly the two things the shell already made
+public (definitions, open work). **Protocol posture:** MCP is the *capability* plane
+(agent↔tools; the session-relay connector stays MCP); A2A is the *agent-peer* plane
+(agent↔agent front doors). Neither substitutes for the other.
+
+**Trade-off accepted.** v1 rides the dev identity seam (no A2A-side authentication), so
+`postedBy` on an A2A-posted item is only as strong as the mock backend's identity headers —
+accepted because the walls behind the endpoint never trusted the caller anyway (posting is
+the free act; spend happens only inside a standing Contributor's owner-consented walls).
+`tasks/cancel` and `message/stream` are declined honestly (no native retract act; dispatch
+is synchronous). The card-import fetch is an SSRF-shaped primitive, bounded (http/https
+only, timeout) and recorded.
+
+**Rejected alternative.** Adopting A2A *internally* (making `OpenSubGoal` an A2A Task).
+The contract types are the load-bearing shared vocabulary and carry semantics A2A lacks
+(Guardian sub-goal keys, role-rank dispatch, owner-pays attribution); wrapping at the edge
+keeps the contract sovereign and the young protocol swappable. Also rejected: mapping
+inbound `message/send` to a *session turn* — that would spend an owner's tokens on an
+unauthenticated caller's prompt, a consent shape that doesn't exist (open work is the safe
+landing zone precisely because posting is free and taking is owner-consented).
+
 ## Invariants (locked principles, not open forks)
 
 - **One role, one name.** Agent = worker; Runner = host; Model provider = cognition;
@@ -935,6 +975,10 @@ just another poster/claimant.
 - **The unprompted path passes every wall the prompted path passes.** Standing dispatch
   adds a trigger, zero authority: role (D14), reach (D12), Guardian serialization (D11),
   credit (D13), audit (D15) are the same code path a human-driven effect takes (D19).
+  **[COMMONS]**
+- **A protocol translates; it never authorizes.** Every foreign-dialect request (A2A
+  today) lands on the same store methods behind the same visibility checks and walls as
+  the native routes — the edge layer converts message shapes and nothing else (D20).
   **[COMMONS]**
 - **Subsumption, tagged by altitude.** The unified conversation is one citizen's
   interior **[INTERIOR]**; Agent Commons composes many **[COMMONS]**. A claim that
@@ -1335,6 +1379,19 @@ session↔context binding, mediation handle, and single-resource escrow).
   (`tests/standing-dispatch.test.ts`, persistence in `tests/snapshot.test.ts`).
   Spec rows COMMONS-7/8/9; federation stays exploration (BROKER-EXP-5, § Beyond one
   instance). typecheck + full suite + build green; verified live.
+- **Slice 20 — A2A at the edge (D20). ✅ Built.** The platform shell's objects re-served
+  in the Agent2Agent wire format, with zero new authority paths
+  ([`a2a-integration.md`](a2a-integration.md)): **cards** — `GET /a2a/card` (also
+  `/.well-known/agent-card.json` at the server root) + `GET /a2a/agents/:id/card`, the
+  D18 published definition as a spec-shaped Agent Card (unpublished/unknown = the same
+  404); **tasks** — `POST /a2a/projects/:id` JSON-RPC `message/send` posts open work
+  through the same `postOpenSubGoal` + visibility wall (Task id = item id;
+  `open`→`submitted`, `done`→`completed`; `tasks/get` re-reads; items stamped
+  `via:'a2a'`), and `message/send` to an *Agent* endpoint returns Task `rejected` (the
+  D18 wall spoken in protocol); **import** — `POST /agents/import-card` fetches a remote
+  card (http/https, 5s timeout) into a private unbound stub with `importedFrom` lineage,
+  surfaced in the Discover tab. Locked by `tests/a2a.test.ts` +
+  `tests/a2a-import.test.ts`; spec rows COMMONS-10/11/12.
 - **The multi-tenant surface (slices 1–10) is built, managed (11–15), persisted (16), and
   conversationally manageable (17).** Every D6–D13 decision is now exercised by a working
   slice *and* user-manageable from the Agents hub — by hand or by asking Claude — the
