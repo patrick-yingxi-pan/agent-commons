@@ -50,6 +50,12 @@ distance:
 | 8 | **PR checks** — automated signal on the change before merging | The D10 prompt-fit probe run against the PROPOSED prompt × the agent's provider family, surfaced as a check row in the review dialog (advisory, never gating — the owner's merge stays the only gate) | ✅ D27, COMMONS-20 |
 | 9 | **Contribution credit** — merged work shows on your public profile | A merged proposal lands in the proposer's D21 profile activity ("authored v3 of X"), derived from the changelogs the directory already serves — provenance surfaced, still not D13 reputation | ✅ D27, COMMONS-20 |
 
+### Wave 3 — identity at the edge
+
+| # | GitHub concept | Platform shape | Status |
+|---|---|---|---|
+| 10 | **Authentication** — GitHub knows who you are by construction; a cross-instance A2A caller's `postedBy` currently rides the unverifiable dev seam | **Peer credentials**: the instance mints a bearer token per foreign peer (one-time-shown, hashed at rest — the relay-secret pattern), advertised via the card's `securitySchemes`; a verified call stamps the item with the PEER's registered name; enforcement is opt-in by env (the runner-enrollment pattern) so the open demo keeps working | ✅ D28, COMMONS-21 |
+
 ## Rejected — looked at and deliberately not built
 
 - **Stars** — a vanity counter with no consent or capability semantics; the

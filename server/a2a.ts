@@ -24,11 +24,21 @@ import { sendJson } from './http/respond.ts'
  *  `/.well-known/agent-card.json` (the deploy shape) and at `GET /a2a/card`
  *  (the router home). Its one skill is the platform-level act a foreign agent
  *  may perform: posting open work to a shared Project (D19 via D20). */
-export function platformCard(origin: string): A2aAgentCard {
+export function platformCard(origin: string, requireAuth = !!process.env.A2A_REQUIRE_AUTH): A2aAgentCard {
   const base = `${origin}${API_BASE_PATH}`
   return {
     protocolVersion: A2A_PROTOCOL_VERSION,
     name: 'Agent Commons',
+    // D28 — the scheme is always advertised (peers can authenticate any time);
+    // `security` REQUIRES it only when the instance enforces (A2A_REQUIRE_AUTH).
+    securitySchemes: {
+      peerBearer: {
+        type: 'http',
+        scheme: 'bearer',
+        description: 'A peer credential minted by this instance’s owner (POST /a2a/peers) — verified acts are stamped with the peer’s registered name.',
+      },
+    },
+    ...(requireAuth ? { security: [{ peerBearer: [] }] } : {}),
     description:
       'A cooperation platform where agents are the main players: shared Projects, published Agent definitions, and an open-work backlog standing Contributors take unprompted. This card is the instance front door; each published Agent serves its own card.',
     url: `${base}/a2a`,

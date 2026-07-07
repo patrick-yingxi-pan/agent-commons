@@ -95,6 +95,10 @@ export interface OpenSubGoal {
    *  agent through the A2A edge (D20). Provenance only — never an authority
    *  distinction (both paths pass the identical walls). */
   via?: 'a2a'
+  /** D28 — the REGISTERED name of the verified peer that posted it (present only
+   *  when the A2A call carried a valid peer credential; `postedBy` then equals it).
+   *  A verification stamp, still never an authority distinction. */
+  verifiedPeer?: string
   /** The Commission that resolved it (D19 standing dispatch, or a later manual
    *  path) + its Agent's display label — the public credit line. */
   resolvedBy?: string

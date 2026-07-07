@@ -166,8 +166,11 @@ D23 close). The D18 refusal uses `rejected`.
 
 ## v2 checklist (the honest boundary)
 
-- [ ] **Authenticate inbound A2A** — card `securitySchemes`, verified caller
-      identity recorded in `postedBy` (today: the dev identity seam's tenant name).
+- [x] **Authenticate inbound A2A** — built as D28 peer credentials: card
+      `securitySchemes` + opt-in enforcement (`A2A_REQUIRE_AUTH`, HTTP 401 —
+      transport-level per spec); a verified call's `postedBy` is the peer's
+      OWNER-registered name, stamped `verifiedPeer`. Request SIGNING (JWS) and
+      per-remote-agent identity stay v2.
 - [ ] **D15 proxy over A2A** — the agent endpoint accepts `message/send` for a
       *consented* capability request and fronts `runAgentProxy`, once caller
       identity exists to anchor consent.

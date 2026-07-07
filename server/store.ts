@@ -86,7 +86,7 @@ import { ResourceGuardian, GuardianError } from './guardian.ts'
 import { LOCAL_RUNNER_SEED, RUNNER_FS_ROOTS } from './data/runners.ts'
 import { DEFAULT_AGENT } from './data/workers.ts'
 import { EMPTY_WORKSPACE, workspaceFromSeed } from './workspace.ts'
-import { STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification, type StoredAgentProposal } from './persist.ts'
+import { STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer } from './persist.ts'
 import { eventlog } from './eventlog.ts'
 import { accounts } from './accounts.ts'
 
@@ -218,6 +218,17 @@ let notificationSeq = 0
 
 // ── D25 — change proposals against published definitions, keyed by agent id ──
 const AGENT_PROPOSALS = new Map<string, StoredAgentProposal[]>()
+
+// ── D28 — registered A2A peers (verified identity at the edge) ───────────────
+const A2A_PEERS = new Map<string, StoredA2aPeer>()
+let a2aPeerSeq = 0
+
+/** Wire face of a peer: everything but the hash. */
+function publicPeer(p: StoredA2aPeer): A2aPeer {
+  const { tokenHash, ...pub } = p
+  void tokenHash
+  return pub
+}
 // Proposal bounds — a review queue, not a blob store (the D23 posture).
 const MAX_OPEN_PROPOSALS = 20
 const MAX_PROPOSAL_PROMPT_CHARS = 8000
@@ -770,6 +781,7 @@ function snapshot(): PersistedState {
     watches: [...watches.entries()].flatMap(([projectId, tenants]) => [...tenants].map((t) => [t, projectId] as [string, string])),
     notifications,
     agentProposals: [...AGENT_PROPOSALS.entries()], // D25 — the definition review queue
+    a2aPeers: [...A2A_PEERS.entries()], // D28 — verified-identity credentials (hashed)
     // The account registry (multi-account P7): onboarded users (scrypt
     // credential included — it must survive a restart), workspaces, memberships.
     accountUsers: persistedAccounts.users,
@@ -909,6 +921,8 @@ function rehydrate(s: PersistedState): void {
   notifications.splice(0, notifications.length, ...(s.notifications ?? []))
   notificationSeq = s.seq.notification ?? notifications.length
   replaceMap(AGENT_PROPOSALS, s.agentProposals) // D25 (no-op for a pre-field snapshot)
+  replaceMap(A2A_PEERS, s.a2aPeers) // D28 (no-op for a pre-field snapshot)
+  a2aPeerSeq = A2A_PEERS.size // ids are `peer-N`; size floors the counter safely past restores
 }
 
 /** Re-ensure the code's seed rows after a snapshot restore: a seed row missing
@@ -2760,7 +2774,7 @@ export const store = {
    *  dispatch it to the Project's standing Contributors synchronously. Returns the item
    *  in its post-dispatch state: `done` when a standing Commission took it, `open` when
    *  none could (it stays visible in the backlog). The route validates visibility. */
-  postOpenSubGoal(projectId: string, req: PostOpenSubGoalRequest, tenantId: string, via?: 'a2a'): OpenSubGoal {
+  postOpenSubGoal(projectId: string, req: PostOpenSubGoalRequest, tenantId: string, via?: 'a2a', verifiedPeer?: string): OpenSubGoal {
     const item: StoredOpenSubGoal = {
       id: `work-${(openSubGoalSeq += 1)}`,
       projectId,
@@ -2768,7 +2782,10 @@ export const store = {
       type: req.type,
       target: req.target,
       note: req.note ?? '',
-      postedBy: tenantName(tenantId),
+      // D28: a verified peer's REGISTERED name is the attribution (never the
+      // caller-supplied dev-seam headers); the stamp marks it verified.
+      postedBy: verifiedPeer ?? tenantName(tenantId),
+      ...(verifiedPeer ? { verifiedPeer } : {}),
       // The strict retract-authorization anchor — server-private (redacted on read).
       postedByTenant: tenantId,
       postedAt: Date.now(),
@@ -2843,7 +2860,7 @@ export const store = {
    *  Append-only, trimmed + capped (per comment and per item — a bound, not a forum).
    *  Returns the updated item; `'capped'` when the thread is full; undefined for an
    *  unknown item (→ 404). */
-  commentOnOpenSubGoal(projectId: string, itemId: string, body: string, tenantId: string): OpenSubGoal | 'capped' | undefined {
+  commentOnOpenSubGoal(projectId: string, itemId: string, body: string, tenantId: string, verifiedPeer?: string): OpenSubGoal | 'capped' | undefined {
     const item = openSubGoals.find((o) => o.id === itemId && o.projectId === projectId)
     if (!item) return undefined
     const comments = (item.comments ??= [])
@@ -2852,13 +2869,14 @@ export const store = {
       // Deterministic per-item id: comments are append-only (no delete act), so the
       // running count is stable — no new persisted sequence needed.
       id: `${item.id}-c${comments.length + 1}`,
-      author: tenantName(tenantId),
+      // D28: a verified peer's registered name attributes the comment.
+      author: verifiedPeer ?? tenantName(tenantId),
       body: body.trim().slice(0, MAX_WORK_ITEM_COMMENT_CHARS),
       at: Date.now(),
     })
     notifyTenants(workItemAudience(item), tenantId, {
       kind: 'work.commented',
-      actor: tenantName(tenantId),
+      actor: verifiedPeer ?? tenantName(tenantId),
       projectId,
       projectName: findProject(projectId)?.name ?? '',
       subGoal: item.subGoal,
@@ -2898,6 +2916,45 @@ export const store = {
     emit({ type: 'openwork.changed', projectId })
     persist()
     return publicOpenSubGoal(item)
+  },
+
+  // ── D28 — peer credentials (verified identity at the A2A edge) ──
+  /** Mint a peer credential: the token is returned ONCE; only its SHA-256 persists
+   *  (the relay-secret pattern). The registered NAME — chosen by the owner, not
+   *  self-declared by the remote — is what verified acts are stamped with. */
+  createA2aPeer(name: string): { peer: A2aPeer; token: string } {
+    const token = mintRelaySecret()
+    const peer: StoredA2aPeer = {
+      id: `peer-${(a2aPeerSeq += 1)}`,
+      name: name.trim().slice(0, 120),
+      createdAt: Date.now(),
+      secretHint: relaySecretHint(token),
+      tokenHash: hashRelaySecret(token),
+    }
+    A2A_PEERS.set(peer.id, peer)
+    persist()
+    return { peer: publicPeer(peer), token }
+  },
+  listA2aPeers(): A2aPeer[] {
+    return [...A2A_PEERS.values()].map(publicPeer)
+  },
+  /** Revocation IS deletion — the hash dies with the peer. */
+  deleteA2aPeer(id: string): boolean {
+    const had = A2A_PEERS.delete(id)
+    if (had) persist()
+    return had
+  },
+  /** Resolve an `Authorization: Bearer …` header to a registered peer (constant-
+   *  time hash compare). Undefined for absent/unknown credentials — the caller
+   *  decides whether that's fatal (`A2A_REQUIRE_AUTH`) or just unverified. */
+  resolveA2aPeer(authorization: string | undefined): A2aPeer | undefined {
+    const token = authorization?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim()
+    if (!token) return undefined
+    const hash = hashRelaySecret(token)
+    for (const p of A2A_PEERS.values()) {
+      if (sameSecretHash(p.tokenHash, hash)) return publicPeer(p)
+    }
+    return undefined
   },
 
   // ── D24 — watching + the notification inbox ──

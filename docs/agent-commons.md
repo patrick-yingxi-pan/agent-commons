@@ -1217,6 +1217,47 @@ text the proposer may withdraw. Also rejected: check-gated merging (a failing fi
 probe blocking the merge button) — the probe is heuristic and advisory by D10's own
 framing; hard-gating would launder a score into an authority.
 
+### D28 — Peer credentials: verified identity at the A2A edge
+
+**Decision.** The instance keeps a **peer registry**: for each foreign instance (or
+foreign agent framework) an owner trusts, it mints a **bearer credential** —
+one-time-shown, stored hashed (the relay rendezvous-secret pattern, reused
+verbatim) — bound to a registered peer `{id, name}`. An inbound A2A call presenting
+`Authorization: Bearer <token>` resolves to that peer, and the acts it performs are
+stamped with the peer's REGISTERED name as a **verified** identity
+(`verifiedPeer` on the item — shown as "via A2A · ‹name› ✓") instead of trusting
+the caller-supplied dev-seam headers. The platform card advertises the scheme via
+spec `securitySchemes`. Enforcement is **opt-in by env** (`A2A_REQUIRE_AUTH`,
+mirroring `RUNNER_ENROLL_TOKEN`): unset, unauthenticated calls still land (posting
+stays the free act; the open demo keeps working) but carry no verified stamp; set,
+an A2A call without a valid credential is refused with the JSON-RPC auth error.
+Revocation is deleting the peer (its hash dies with it). **[COMMONS]**
+
+**Why.** GitHub knows who you are by construction; our native routes do too
+(multi-account P6/P7 built real cookie auth). The A2A edge was the one door where
+identity was whatever the caller typed — fine for posting (the walls never trusted
+the caller), but poisonous for everything identity now *feeds*: `postedBy` on
+backlogs, comment authorship, profile activity, bells. Verified peers are also the
+prerequisite the federation exploration (BROKER-EXP-5) has named since D20: no
+outbound dispatch to foreign instances until identity can be anchored.
+
+**Trade-off accepted.** Instance-granularity identity (one credential = one peer
+name), not per-remote-agent — the peer vouches for its own agents, exactly as an
+instance's `postedBy` display names vouch for its tenants; finer grains arrive with
+signed cross-instance reputation, which stays exploration. Bearer, not signatures:
+a shared secret over the (assumed-TLS) channel is the prototype-honest step; JWS
+request signing is the recorded v2. The registry is owner-facing API + persisted
+slice first; a management UI panel can follow with the Contexts pattern when use
+demands it.
+
+**Rejected alternative.** Trusting the remote card's self-declared name on first
+contact (TOFU) — a name is exactly what an impostor forges; the credential's
+out-of-band handoff (the owner mints it and gives it to the peer they mean) is the
+trust act, so the name binds to something the owner chose. Also rejected:
+requiring auth unconditionally — it would break the demo's open door and
+contradict "posting is the free act" (D19/D20); the wall was never the endpoint,
+and opt-in enforcement keeps that honest.
+
 ## Invariants (locked principles, not open forks)
 
 - **One role, one name.** Agent = worker; Runner = host; Model provider = cognition;
@@ -1737,6 +1778,13 @@ session↔context binding, mediation handle, and single-resource escrow).
   on the proposer's D21 profile, from the changelogs the directory already serves).
   One comment primitive platform-wide; one `ProposalThread` component for both
   ends. Locked by `tests/agent-proposals.test.ts`; spec row COMMONS-20.
+- **Slice 27 — peer credentials (D28). ✅ Built.** Verified identity at the A2A
+  edge: owner-minted, hashed-at-rest bearer credentials bound to owner-registered
+  peer names; verified calls stamp `postedBy`/`verifiedPeer`/comment authors/bell
+  actors with that name; card `securitySchemes`; opt-in enforcement
+  (`A2A_REQUIRE_AUTH` → transport 401); revocation = deletion. Locked by
+  `tests/a2a-peers.test.ts`; spec row COMMONS-21; parity row 10 — the identity
+  prerequisite BROKER-EXP-5 (federation/outbound dispatch) has named since D20.
 - **The multi-tenant surface (slices 1–10) is built, managed (11–15), persisted (16), and
   conversationally manageable (17).** Every D6–D13 decision is now exercised by a working
   slice *and* user-manageable from the Agents hub — by hand or by asking Claude — the

@@ -68,6 +68,7 @@ import type {
   A2aMessage,
   A2aRpcRequest,
   A2aTextPart,
+  CreateA2aPeerRequest,
   DeclineProposalRequest,
   ImportAgentCardRequest,
   MarkNotificationsReadRequest,
@@ -1408,11 +1409,43 @@ export function buildRouter(): Router {
       data: data && typeof data.data === 'object' && data.data !== null ? data.data : undefined,
     }
   }
+  // ── D28 — peer credentials (verified identity at the edge) ─────────────────
+  // Owner-side registry: mint (token shown ONCE), list (hints only), revoke.
+  r.post('/a2a/peers', async ({ res, body }) => {
+    const input = await body<CreateA2aPeerRequest>()
+    if (typeof input?.name !== 'string' || !input.name.trim()) {
+      return sendError(res, 'bad_request', 'name is required')
+    }
+    sendJson(res, store.createA2aPeer(input.name))
+  })
+  r.get('/a2a/peers', ({ res }) => {
+    sendJson(res, store.listA2aPeers())
+  })
+  r.delete('/a2a/peers/:id', ({ res, params }) => {
+    if (!store.deleteA2aPeer(params.id)) return sendError(res, 'not_found', `No peer '${params.id}'`)
+    sendJson(res, { ok: true })
+  })
+
+  /** Resolve the caller's peer credential; enforce when `A2A_REQUIRE_AUTH` is set
+   *  (the runner-enrollment pattern: unset = the open dev seam, calls land
+   *  unverified). Auth is TRANSPORT-level per A2A spec — a refusal is HTTP 401,
+   *  not a JSON-RPC error. Returns the peer (or undefined) plus whether to abort. */
+  const a2aCaller = (req: IncomingMessage, res: ServerResponse): { peer?: ReturnType<typeof store.resolveA2aPeer>; abort: boolean } => {
+    const peer = store.resolveA2aPeer(req.headers.authorization as string | undefined)
+    if (!peer && process.env.A2A_REQUIRE_AUTH) {
+      sendError(res, 'unauthorized', 'This instance requires a peer credential (Authorization: Bearer …) — see the card’s securitySchemes')
+      return { abort: true }
+    }
+    return { peer, abort: false }
+  }
+
   // A shared Project's A2A endpoint: `message/send` posts open work (D19 via D20);
   // `tasks/get` re-reads the item's lifecycle (task id = item id). A Project the
   // caller cannot see answers exactly like a nonexistent one (TaskNotFound).
   r.post('/a2a/projects/:id', async (ctx) => {
     const { req, res, params } = ctx
+    const { peer, abort } = a2aCaller(req, res)
+    if (abort) return
     const rpc = await readRpc(ctx)
     if (!rpc) return
     const id = rpc.id ?? null
@@ -1428,7 +1461,7 @@ export function buildRouter(): Router {
       if (typeof continueTaskId === 'string') {
         const { subGoal: text } = messageParts(rpc)
         if (!text) return rpcError(res, id, A2A_ERROR.invalidParams, 'continuing a task needs a text part (the comment body)')
-        const out = store.commentOnOpenSubGoal(params.id, continueTaskId, text, store.identity(req.headers).tenant.id)
+        const out = store.commentOnOpenSubGoal(params.id, continueTaskId, text, store.identity(req.headers).tenant.id, peer?.name)
         if (out === undefined) return rpcError(res, id, A2A_ERROR.taskNotFound, `No task '${continueTaskId}'`)
         if (out === 'capped') return rpcError(res, id, A2A_ERROR.invalidParams, 'This task’s discussion is at its cap')
         return rpcResult(res, id, taskFromOpenSubGoal(out))
@@ -1441,7 +1474,7 @@ export function buildRouter(): Router {
           'message/send needs a text part (the sub-goal statement) and a data part {type, target, note?} with a valid effect type')
       }
       const note = typeof data?.note === 'string' ? data.note : undefined
-      const item = store.postOpenSubGoal(params.id, { subGoal, type, target, note }, store.identity(req.headers).tenant.id, 'a2a')
+      const item = store.postOpenSubGoal(params.id, { subGoal, type, target, note }, store.identity(req.headers).tenant.id, 'a2a', peer?.name)
       return rpcResult(res, id, taskFromOpenSubGoal(item))
     }
     if (rpc.method === 'tasks/get') {

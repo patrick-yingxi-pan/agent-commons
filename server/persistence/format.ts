@@ -11,6 +11,7 @@
 import type {
   Agent,
   AgentChangeProposal,
+  A2aPeer,
   AppNotification,
   AuditEntry,
   Commission,
@@ -67,6 +68,12 @@ export interface StoredAgentProposal extends AgentChangeProposal {
   proposedByTenant: string
 }
 
+/** A peer as STORED (D28) — the wire row plus the credential's SHA-256 (the
+ *  relay-secret pattern: the token is shown once at mint; only its hash persists). */
+export interface StoredA2aPeer extends A2aPeer {
+  tokenHash: string
+}
+
 /** The persisted shape — the store's mutable, UI-owned state. Maps are stored as
  *  entry arrays (JSON has no Map). The id counters ride along so minted ids don't
  *  collide with persisted ones after a restart. */
@@ -118,6 +125,8 @@ export interface PersistedState {
   /** Change proposals against published definitions (D25), keyed by target agent
    *  id. Additive-optional like `dispatch`. */
   agentProposals?: [string, StoredAgentProposal[]][]
+  /** Registered A2A peers (D28) — verified-identity credentials, hashed. */
+  a2aPeers?: [string, StoredA2aPeer][]
   /** The account registry (multi-account P7 — real onboarded accounts): users
    *  (with their server-only scrypt credential), tenants/workspaces, and
    *  memberships. Additive-optional like `dispatch` (a pre-P7 snapshot loads
@@ -180,6 +189,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   watches: 'array',
   notifications: 'array',
   agentProposals: 'mapEntries',
+  a2aPeers: 'mapEntries',
   accountUsers: 'mapEntries',
   accountTenants: 'mapEntries',
   memberships: 'array',

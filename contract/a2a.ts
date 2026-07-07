@@ -36,6 +36,12 @@ export interface A2aAgentCard {
   defaultInputModes: string[]
   defaultOutputModes: string[]
   skills: A2aAgentSkill[]
+  /** Spec `securitySchemes` (D28): how a peer authenticates — this platform
+   *  advertises HTTP bearer (peer credentials, minted owner-side). Optional:
+   *  absent when the instance runs the open dev seam. */
+  securitySchemes?: Record<string, { type: string; scheme?: string; description?: string }>
+  /** Which schemes are accepted (spec `security`) — names into securitySchemes. */
+  security?: Record<string, string[]>[]
   /** Public, non-spec extras: the D13/D18 track record (contributions, forks)
    *  and the published system prompt (already public via the directory). */
   metadata?: Record<string, unknown>
@@ -122,6 +128,33 @@ export const A2A_ERROR = {
   taskNotFound: -32001,
   taskNotCancelable: -32002,
 } as const
+
+/** ── D28 — peer credentials: verified identity at the edge ───────────────────
+ *  A registered foreign peer (instance / framework) the owner trusts: minted with
+ *  a one-time-shown bearer token (hashed at rest — the relay-secret pattern). An
+ *  inbound A2A call presenting it acts under the peer's REGISTERED name as a
+ *  verified identity. Enforcement is opt-in (`A2A_REQUIRE_AUTH`). */
+export interface A2aPeer {
+  id: string
+  /** The name the OWNER registered — what verified acts are stamped with (never
+   *  the peer's self-declared card name: a name is what an impostor forges). */
+  name: string
+  createdAt: number
+  /** The masked-fingerprint tail (`peer_live_••••3f9a`) — never the secret. */
+  secretHint: string
+}
+
+/** Body of `POST /a2a/peers`. */
+export interface CreateA2aPeerRequest {
+  name: string
+}
+
+/** The mint response — the ONE time the bearer token is shown. */
+export interface MintedA2aPeer {
+  peer: A2aPeer
+  /** Hand this to the foreign peer out-of-band; only its hash persists. */
+  token: string
+}
 
 /** Body of `POST /v1/agents/import-card` — the outbound half (federation seed):
  *  fetch a remote Agent Card and mint a private, UNBOUND definition-stub Agent

@@ -1791,8 +1791,9 @@ function WorkItemRow({
         </div>
         <div className="text-[11px] text-ink-faint">
           {o.type} → {o.target}
-          {/* Provenance, not authority (D20): an A2A-posted item passed the same walls. */}
-          {o.via === 'a2a' ? ' · via A2A' : ''}
+          {/* Provenance, not authority (D20): an A2A-posted item passed the same walls.
+              A verified peer credential (D28) upgrades the stamp with its registered name. */}
+          {o.via === 'a2a' ? (o.verifiedPeer ? ` · via A2A · ${o.verifiedPeer} ✓` : ' · via A2A') : ''}
           {o.status === 'done'
             ? ` · done by ${o.resolvedByLabel ?? 'a contributor'}`
             : o.status === 'retracted'
