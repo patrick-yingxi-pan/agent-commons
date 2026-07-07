@@ -4,6 +4,8 @@ import {
   ArrowRight,
   Bot,
   Check,
+  ChevronDown,
+  ChevronRight,
   Cpu,
   FilePlus2,
   FolderInput,
@@ -17,10 +19,12 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react'
-import { describeOp, opKey, type RelationOp } from '../data/relations'
+import { describeOp, opKey, relationContentPreview, type RelationContentPreview, type RelationOp } from '../data/relations'
 import { useRelations } from '../controller/useRelations'
 import { SECTION_LABELS } from '../lib/nav'
+import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { renderRich } from '../lib/rich'
+import { TextDiff } from './TextDiff'
 
 /** The lead glyph for an op, by the relationship it edits. */
 const RELATION_ICON: Record<string, LucideIcon> = {
@@ -48,7 +52,7 @@ const RELATION_ICON: Record<string, LucideIcon> = {
  *  Per-action edits confirm one-off; a recurring schedule's effect is a standing
  *  approval ("approve for all runs") that then executes unprompted. */
 export function RelationActionCard({ ops }: { ops: RelationOp[] }) {
-  const { applyOp, navigate, isStandingApproved } = useRelations()
+  const { applyOp, navigate, isStandingApproved, readmeForProject, instructionsForProject } = useRelations()
   const [done, setDone] = useState<Set<string>>(new Set())
   const [skipped, setSkipped] = useState<Set<string>>(new Set())
 
@@ -78,6 +82,9 @@ export function RelationActionCard({ ops }: { ops: RelationOp[] }) {
           const isDone = done.has(key) || (standing && isStandingApproved(key))
           const isSkipped = skipped.has(key)
           const cadence = 'cadence' in op ? op.cadence : ''
+          // S2 — for a content-bearing op (README / instructions / prompt / agent /
+          // project body), the actual text being written, so consent isn't given blind.
+          const preview = relationContentPreview(op, readmeForProject, instructionsForProject)
 
           return (
             <div key={key} className="flex flex-col gap-2 px-3 py-2.5">
@@ -110,6 +117,10 @@ export function RelationActionCard({ ops }: { ops: RelationOp[] }) {
                   )}
                 </div>
               </div>
+
+              {/* S2 — see the text you're approving BEFORE you approve it (default
+                  collapsed so the card stays scannable). */}
+              {preview && !isDone && !isSkipped && <ProposedBody preview={preview} />}
 
               {/* The confirmation controls — the prompt itself. */}
               {!isDone && !isSkipped && (
@@ -149,6 +160,23 @@ export function RelationActionCard({ ops }: { ops: RelationOp[] }) {
           )
         })}
       </div>
+    </div>
+  )
+}
+
+/** The default-collapsed disclosure that reveals the body a content-bearing op would
+ *  write (S2) — an old→new diff when there's a current value (README / instructions),
+ *  the proposed body alone for a create. Uses the shared TextDiff primitive so the diff
+ *  cue matches the change-proposal review. */
+function ProposedBody({ preview }: { preview: RelationContentPreview }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="pl-[34px]">
+      <button onClick={() => setOpen((v) => !v)} className={INLINE_ACTION_CLASS} aria-expanded={open}>
+        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        {open ? 'Hide' : 'Review'} {preview.label}
+      </button>
+      {open && <TextDiff current={preview.current} proposed={preview.proposed} />}
     </div>
   )
 }

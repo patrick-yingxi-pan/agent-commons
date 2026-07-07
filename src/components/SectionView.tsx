@@ -75,6 +75,7 @@ import { AddTrigger } from './AddTrigger'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { bylineLabel, profileTitle, PROFILE_TAGLINE } from '../lib/publicFace'
 import { Byline, CreditLine, OwnerLink } from './PublicFace'
+import { TextDiff } from './TextDiff'
 import { resolveBackLabel, type NavLocation } from '../lib/nav'
 import { usePendingFocus, useFocusFlash } from '../lib/focusContext'
 import { relativeTime } from '../lib/relativeTime'
@@ -3484,19 +3485,12 @@ function ProposalFieldDiff({
   return (
     <>
       {Object.entries(fields).map(([field, proposed]) => (
-        <div key={field} className="mt-2">
-          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
-            {PROPOSAL_FIELD_LABEL[field] ?? field}
-          </div>
-          <div className="grid grid-cols-2 gap-1.5">
-            <pre className="max-h-28 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-removed-bg/40 p-2 font-sans text-[11px] leading-snug text-ink-soft">
-              {current[field]}
-            </pre>
-            <pre className="max-h-28 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-emerald-500/5 p-2 font-sans text-[11px] leading-snug text-ink-soft">
-              {Array.isArray(proposed) ? proposed.join(', ') : proposed}
-            </pre>
-          </div>
-        </div>
+        <TextDiff
+          key={field}
+          label={PROPOSAL_FIELD_LABEL[field] ?? field}
+          current={current[field]}
+          proposed={Array.isArray(proposed) ? proposed.join(', ') : proposed}
+        />
       ))}
     </>
   )

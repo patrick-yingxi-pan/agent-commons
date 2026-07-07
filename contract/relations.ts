@@ -483,6 +483,40 @@ export function describeOp(op: RelationOp): OpDescription {
   }
 }
 
+/** The body a content-bearing consent op would write, for the card to show BEFORE you
+ *  approve it (surface-audit S2). A change shown as prose ("Update the README") hides
+ *  the actual text being written, so consent is given blind; this returns the proposed
+ *  body — and, for an edit to an existing value (README / instructions), the CURRENT
+ *  value so the card can render an old→new diff (`current` omitted ⇒ a create, shown as
+ *  the proposed body alone; never a diff faked against an empty column). Pure over the
+ *  op + two current-value resolvers (the UI passes `readmeForProject` /
+ *  `instructionsForProject`); every pure-ref op returns null (no body to preview). */
+export interface RelationContentPreview {
+  label: string
+  current?: string
+  proposed: string
+}
+export function relationContentPreview(
+  op: RelationOp,
+  currentReadme: (projectId: string) => string | undefined,
+  currentInstructions: (projectId: string) => string | undefined,
+): RelationContentPreview | null {
+  switch (op.kind) {
+    case 'set-project-readme':
+      return { label: 'README', current: currentReadme(op.projectId), proposed: op.readme }
+    case 'set-project-instructions':
+      return { label: 'Instructions', current: currentInstructions(op.projectId), proposed: op.instructions }
+    case 'create-prompt':
+      return { label: 'Prompt body', proposed: op.body }
+    case 'create-agent':
+      return op.instructions ? { label: 'Instructions', proposed: op.instructions } : null
+    case 'create-project':
+      return op.projectDescription ? { label: 'Description', proposed: op.projectDescription } : null
+    default:
+      return null
+  }
+}
+
 /** A new artifact materialised from a `save-artifact` op. The store mints the id
  *  and stamps the edit time (`editedAt`); everything else comes from the draft +
  *  the session. The caller injects `editedAt` (the server its own clock, the
