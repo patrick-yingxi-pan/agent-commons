@@ -1832,16 +1832,21 @@ function WorkItemRow({
         <div className={`text-[13px] font-medium ${o.status === 'retracted' ? 'text-ink-faint line-through' : 'text-ink'}`}>
           {o.subGoal}
         </div>
+        {/* S3 — the prose written to help a taker decide (server-stamped; empty for a
+            native post today, carried on A2A/seeded items). Revealed, not hidden. */}
+        {o.note && <p className="mt-0.5 text-[12px] leading-snug text-ink-soft">{o.note}</p>}
         <div className="text-[11px] text-ink-faint">
           {o.type} → {o.target}
           {/* Provenance, not authority (D20): an A2A-posted item passed the same walls.
               A verified peer credential (D28) upgrades the stamp with its registered name. */}
           {o.via === 'a2a' ? (o.verifiedPeer ? ` · via A2A · ${o.verifiedPeer} ✓` : ' · via A2A') : ''}
+          {/* S3 — the lifecycle is three timestamped transitions, not just a status
+              word: carry WHEN on the terminus (posted / done / retracted). */}
           {o.status === 'done'
-            ? ` · done by ${o.resolvedByLabel ?? 'a contributor'}`
+            ? ` · done by ${o.resolvedByLabel ?? 'a contributor'}${o.resolvedAt ? ` · ${relativeTime(o.resolvedAt)}` : ''}`
             : o.status === 'retracted'
-              ? ` · retracted by ${o.retractedBy ?? o.postedBy}`
-              : ` · posted by ${o.postedBy} — awaiting a taker`}
+              ? ` · retracted by ${o.retractedBy ?? o.postedBy}${o.retractedAt ? ` · ${relativeTime(o.retractedAt)}` : ''}`
+              : ` · posted by ${o.postedBy} · ${relativeTime(o.postedAt)} — awaiting a taker`}
         </div>
         <div className="mt-0.5 flex items-center gap-3 text-[11px]">
           <button onClick={() => setThreadOpen((v) => !v)} className={INLINE_ACTION_CLASS}>
