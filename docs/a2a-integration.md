@@ -146,6 +146,7 @@ GET  /api/v1/a2a/card                      → same card (router home; dev + tes
 GET  /api/v1/a2a/agents/:id/card           → published Agent's card (404: unpublished/unknown)
 POST /api/v1/a2a/agents/:id                → JSON-RPC; message/send ⇒ Task{rejected} (D18)
 POST /api/v1/a2a/projects/:id              → JSON-RPC; message/send ⇒ post open work ⇒ Task
+                                             message/send + taskId ⇒ comment (thread → history)
                                              tasks/get ⇒ Task (lifecycle re-read)
                                              tasks/cancel ⇒ retract (D23; poster/owner only)
 POST /api/v1/agents/import-card            → outbound card fetch ⇒ unbound imported Agent
@@ -175,9 +176,11 @@ D23 close). The D18 refusal uses `rejected`.
       (federation; blocked on signed identity + audit, see agent-commons.md).
 - [x] **`tasks/cancel`** — built with D23 (the backlog grew its retract act;
       A2A got it through the same store method, exactly as this row predicted).
-- [ ] **`message/send` to an EXISTING task appends a comment** — the D23 thread's
-      protocol face (today message/send is post-only; a follow-up message would
-      naturally land as a `WorkItemComment` under the caller's identity).
+- [x] **`message/send` to an EXISTING task appends a comment** — built with D27:
+      a message carrying `taskId` lands as a `WorkItemComment` through the same
+      store method + walls as the native comment route, and the thread rides back
+      as the Task's spec `history` (one comment = one message, author in
+      metadata).
 - [ ] **`message/stream`** — if/when dispatch stops being synchronous.
 - [ ] **Push notifications** — `openwork.changed` already exists as an SSE event;
       an A2A `pushNotificationConfig` could mirror it to remote posters.

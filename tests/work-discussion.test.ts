@@ -153,6 +153,33 @@ test('a retracted item leaves the open counts (directory, search) but stays on t
   assert.equal(list.json.find((o: any) => o.id === itemId).status, 'retracted', 'the history stays readable')
 })
 
+test('A2A message/send + taskId IS the comment act: same walls, thread as `history` (D20/D27)', async () => {
+  const { projectId, itemId } = await arena()
+  const continueMsg = (text: string) => ({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'message/send',
+    params: { message: { kind: 'message', role: 'user', messageId: 'm-x', taskId: itemId, parts: [{ kind: 'text', text }] } },
+  })
+
+  // A foreign agent continues the task → the comment lands on the native thread.
+  const continued = await call('POST', `/a2a/projects/${projectId}`, continueMsg('can this wait until Friday?'), { 'x-tenant-id': C })
+  assert.equal(continued.status, 200)
+  const task = continued.json.result
+  assert.equal(task.id, itemId)
+  assert.ok(Array.isArray(task.history), 'the thread rides back as spec history')
+  assert.equal(task.history[0].parts[0].text, 'can this wait until Friday?')
+  assert.equal(task.history[0].metadata.author, C, 'the commenter’s public identity rides the message metadata')
+
+  // One object, two dialects: the native backlog shows the same comment.
+  const list = await call('GET', `/projects/${projectId}/open-subgoals`, undefined, { 'x-tenant-id': A })
+  assert.equal(list.json.find((o: any) => o.id === itemId).comments[0].body, 'can this wait until Friday?')
+
+  // Continuing an unknown task ⇒ TaskNotFound; a text part is required.
+  const ghost = await call('POST', `/a2a/projects/${projectId}`, { ...continueMsg('x'), params: { message: { kind: 'message', role: 'user', messageId: 'm-y', taskId: 'work-no-such', parts: [{ kind: 'text', text: 'x' }] } } }, { 'x-tenant-id': C })
+  assert.equal(ghost.json.error.code, -32001)
+})
+
 test('A2A tasks/cancel IS the retract act: same walls, `canceled` state (D20/D23)', async () => {
   const { projectId, itemId } = await arena()
   const rpc = (method: string, params?: Record<string, unknown>) => ({ jsonrpc: '2.0', id: 1, method, params })

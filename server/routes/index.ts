@@ -1420,6 +1420,19 @@ export function buildRouter(): Router {
       return rpcError(res, id, A2A_ERROR.taskNotFound, `No Project '${params.id}'`)
     }
     if (rpc.method === 'message/send') {
+      // A message carrying `taskId` CONTINUES that task (per spec): for this
+      // platform, it appends to the work item's D23 discussion thread — the same
+      // store method as the native comment route, same walls (D27's protocol
+      // face). The thread rides back as the Task's `history`.
+      const continueTaskId = (rpc.params?.message as { taskId?: unknown } | undefined)?.taskId
+      if (typeof continueTaskId === 'string') {
+        const { subGoal: text } = messageParts(rpc)
+        if (!text) return rpcError(res, id, A2A_ERROR.invalidParams, 'continuing a task needs a text part (the comment body)')
+        const out = store.commentOnOpenSubGoal(params.id, continueTaskId, text, store.identity(req.headers).tenant.id)
+        if (out === undefined) return rpcError(res, id, A2A_ERROR.taskNotFound, `No task '${continueTaskId}'`)
+        if (out === 'capped') return rpcError(res, id, A2A_ERROR.invalidParams, 'This task’s discussion is at its cap')
+        return rpcResult(res, id, taskFromOpenSubGoal(out))
+      }
       const { subGoal, data } = messageParts(rpc)
       const type = data?.type as ProjectEffectType | undefined
       const target = data?.target

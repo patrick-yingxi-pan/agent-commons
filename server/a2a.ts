@@ -87,6 +87,20 @@ function agentMessage(text: string, contextId: string): A2aMessage {
  *  Contributor took it, the artifact carrying the D13 public credit line. */
 export function taskFromOpenSubGoal(item: OpenSubGoal): A2aTask {
   const meta = { subGoal: item.subGoal, type: item.type, target: item.target, postedBy: item.postedBy, ...(item.via ? { via: item.via } : {}) }
+  // The D23 thread as spec `history` (D27's protocol face): one comment = one
+  // message; the author's display name rides the metadata (a comment has no
+  // A2A role — every commenter is a peer, so `user` throughout).
+  const history: A2aMessage[] | undefined = item.comments?.length
+    ? item.comments.map((c) => ({
+        kind: 'message' as const,
+        role: 'user' as const,
+        messageId: c.id,
+        parts: [{ kind: 'text' as const, text: c.body }],
+        taskId: item.id,
+        contextId: item.projectId,
+        metadata: { author: c.author, at: c.at },
+      }))
+    : undefined
   if (item.status === 'done') {
     const credit: A2aPart[] = [
       { kind: 'text', text: `Done by ${item.resolvedByLabel ?? item.resolvedBy ?? 'a Contributor'}.` },
@@ -98,6 +112,7 @@ export function taskFromOpenSubGoal(item: OpenSubGoal): A2aTask {
       contextId: item.projectId,
       status: { state: 'completed', timestamp: new Date(item.resolvedAt ?? item.postedAt).toISOString() },
       artifacts: [{ artifactId: `${item.id}-credit`, name: 'credit', parts: credit }],
+      ...(history ? { history } : {}),
       metadata: meta,
     }
   }
@@ -112,6 +127,7 @@ export function taskFromOpenSubGoal(item: OpenSubGoal): A2aTask {
         timestamp: new Date(item.retractedAt ?? item.postedAt).toISOString(),
         message: agentMessage(`Retracted by ${item.retractedBy ?? item.postedBy} — closed unresolved.`, item.projectId),
       },
+      ...(history ? { history } : {}),
       metadata: meta,
     }
   }
@@ -124,6 +140,7 @@ export function taskFromOpenSubGoal(item: OpenSubGoal): A2aTask {
       timestamp: new Date(item.postedAt).toISOString(),
       message: agentMessage('Open — on the Project backlog, awaiting a standing Contributor whose role and reach admit it.', item.projectId),
     },
+    ...(history ? { history } : {}),
     metadata: meta,
   }
 }

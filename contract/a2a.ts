@@ -60,6 +60,8 @@ export interface A2aMessage {
   parts: A2aPart[]
   taskId?: string
   contextId?: string
+  /** Spec extras — this platform stamps a history message's comment author + time. */
+  metadata?: Record<string, unknown>
 }
 
 /** The Task states this edge emits — the honest image of the D19 lifecycle:
@@ -82,6 +84,10 @@ export interface A2aTask {
     message?: A2aMessage
   }
   artifacts?: { artifactId: string; name?: string; parts: A2aPart[] }[]
+  /** The task's message history — for this platform, the work item's D23
+   *  discussion thread (one comment = one message; the author display name rides
+   *  each message's metadata). Present when the item has comments. */
+  history?: A2aMessage[]
   metadata?: Record<string, unknown>
 }
 
