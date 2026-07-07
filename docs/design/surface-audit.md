@@ -86,9 +86,32 @@ can slot in early as low-risk wins.
   disproportionate to a detective-audit surface whose scope is deliberately minimal (no
   taint graph, no row restructure). The **Denied filter** — the row's real value — shipped.
 
-## Termination
+## Termination — MET (audit complete)
 
-The loop stops when every kept row (S1–S11) is ✅ **or** honestly reclassified (built /
+The loop stops when every kept row is ✅ **or** honestly reclassified (built /
 rejected-with-finding), and a fresh pass over the method surfaces no new genuine
-nature↔form mismatch that clears the bar. Re-open by adding a row with a concrete,
-backend-supported mismatch.
+nature↔form mismatch that clears the bar.
+
+**Reached.** Every row **S1–S13** is ✅; the deferred/rejected set is recorded with
+findings above. Termination was earned by **loop-until-dry**, not asserted: after the
+S1–S11 backlog shipped, three adversarial completeness passes ran —
+
+- **Pass 1** found **S12** (the changelog author was the last un-doored workspace byline) — shipped.
+- **Pass 2** found **S13** (the work-item poster / retractedBy / comment-author bylines were still dead labels — a gap S12 wrongly believed closed) — shipped.
+- **Pass 3** returned **empty** — zero candidates, nothing clears the bar. The audit is complete.
+
+The method's four families are now satisfied across the app: every **change** renders
+as a diff (S1/S2, shared `ProposalFieldDiff`/`TextDiff`); every **lifecycle** carries its
+timeline/timestamps rather than a bare state word (S3, S4/S12); every **relation** is a
+live ref link, not a dead label (S6, S7, S9, and the exhaustively-closed byline-parity
+theme S9/S12/S13 — every workspace-identity byline is a profile door via the shared
+`OwnerLink`, while `done by {agent}` correctly stays an agent label); and every **number
+that is a lineage** is expanded into its track record (S8 per-commission, S10 D13
+per-agent, P8-redacted). Shared primitives earned across the initiative: `TextDiff`,
+`ChangelogList`, `driverByline`, `artifactMetaIsSpecific`, `resolvedByCommission`,
+`useFocusFlash`, `SubTabs`, `OwnerLink` (+ `bare`).
+
+The **method itself is the durable deliverable** — a standing principle in
+[`AGENTS.md`](../../AGENTS.md) + [`surface-from-nature.md`](surface-from-nature.md) that
+governs all future UI work, not just these thirteen fixes. Re-open by adding a row with a
+concrete, backend-supported nature↔form mismatch that clears the bar.
