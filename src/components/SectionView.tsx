@@ -23,6 +23,8 @@ import {
   GitBranch,
   GitFork,
   Github,
+  GitMerge,
+  GitPullRequest,
   Globe,
   KeyRound,
   Loader2,
@@ -124,6 +126,9 @@ import {
   commentOnWorkItem,
   retractWorkItem,
   setProjectWatch,
+  proposeAgentChange,
+  resolveAgentProposal,
+  useAgentProposals,
   useMe,
   useWatchState,
   updateCommission,
@@ -156,6 +161,7 @@ import {
   PROJECT_EFFECT_TYPES,
   AUDIT_CHANNEL_LABEL,
   type Agent,
+  type AgentChangeProposal,
   type AgentDirectoryEntry,
   type AuditEntry,
   type OpenSubGoal,
@@ -3088,6 +3094,11 @@ function AgentCard({
 }) {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // D25 — the owner's review queue: fetched only for published definitions (the
+  // only ones that can receive proposals).
+  const proposals = useAgentProposals(agent.id, agent.published === true).data ?? []
+  const openProposals = proposals.filter((p) => p.status === 'open')
+  const [reviewing, setReviewing] = useState(false)
   const del = async () => {
     setError(null)
     try {
@@ -3123,7 +3134,7 @@ function AgentCard({
                 title="Published to the directory (D18) — any account may fork this definition"
                 className="rounded-full bg-accent/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-accent"
               >
-                Published
+                Published · v{agent.version ?? 1}
               </span>
             )}
             <CardActions onEdit={onEdit} onDelete={del} />
@@ -3179,9 +3190,147 @@ function AgentCard({
             <GitFork size={11} /> forked {agent.forks} time{agent.forks === 1 ? '' : 's'}
           </span>
         )}
+        {/* D25 — the review queue: proposals sent back by forkers/visitors. */}
+        {agent.published && proposals.length > 0 && (
+          <button
+            onClick={() => setReviewing(true)}
+            className={INLINE_ACTION_CLASS}
+            title="Review change proposals against this published definition (D25)"
+          >
+            {openProposals.length > 0
+              ? `Review ${openProposals.length} proposal${openProposals.length === 1 ? '' : 's'}`
+              : 'Proposal history'}
+          </button>
+        )}
       </div>
       {error && <p className="mt-2 text-[12px] text-removed">{error}</p>}
+      {reviewing && <ProposalsReviewDialog agent={agent} proposals={proposals} onClose={() => setReviewing(false)} />}
     </CommonsCard>
+  )
+}
+
+/** D25 — the owner's review queue: each proposal as a side-by-side (current vs
+ *  proposed, per changed field), with the stale flag and the two verdicts. Merging
+ *  applies the fields, bumps the version, and credits the proposer in the changelog. */
+function ProposalsReviewDialog({
+  agent,
+  proposals,
+  onClose,
+}: {
+  agent: Agent
+  proposals: AgentChangeProposal[]
+  onClose: () => void
+}) {
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useFocusTrap(dialogRef, onClose)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const currentVersion = agent.version ?? 1
+  const verdict = async (pid: string, action: 'merge' | 'decline') => {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await resolveAgentProposal(agent.id, pid, action)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not resolve this proposal.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const current: Record<string, string> = {
+    label: agent.label,
+    systemPrompt: agent.systemPrompt,
+    instructions: agent.instructions,
+    tools: agent.tools.join(', '),
+  }
+  const FIELD_LABEL: Record<string, string> = {
+    label: 'Label',
+    systemPrompt: 'System prompt',
+    instructions: 'Instructions',
+    tools: 'Tools',
+  }
+  return (
+    <div
+      className="fixed inset-0 z-50 flex justify-center px-4 pt-[10dvh] short:pt-[5dvh]"
+      onMouseDown={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Proposals — ${agent.label}`}
+    >
+      <div className={SCRIM_CLASS} />
+      <div
+        ref={dialogRef}
+        onMouseDown={(e) => e.stopPropagation()}
+        className="relative flex max-h-[76dvh] w-[640px] max-w-full flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong"
+      >
+        <div className="flex shrink-0 items-center gap-2.5 border-b border-line px-4 py-3">
+          <GitPullRequest size={16} className="shrink-0 text-ink-faint" />
+          <span className="flex-1 text-[14px] font-semibold text-ink">
+            Proposals — {agent.label} <span className="font-normal text-ink-faint">(v{currentVersion})</span>
+          </span>
+          <button onClick={onClose} aria-label="Close" className="text-ink-faint transition hover:text-ink">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+          {proposals.map((p) => (
+            <div key={p.id} className="rounded-xl border border-line p-3">
+              <div className="flex items-center gap-2 text-[12px]">
+                <span className="font-medium text-ink">{p.proposedBy}</span>
+                <span className="text-ink-faint">· {relativeTime(p.at)} · against v{p.baseVersion}</span>
+                {p.status === 'open' && p.baseVersion < currentVersion && (
+                  <span
+                    title="Authored against an older version — review with care (never auto-rebased)"
+                    className="rounded-full bg-amber-500/10 px-1.5 py-px text-[10px] font-medium text-amber-700"
+                  >
+                    stale
+                  </span>
+                )}
+                {p.status !== 'open' && (
+                  <span className="rounded-full bg-panel-2 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-ink-faint">
+                    {p.status}
+                  </span>
+                )}
+              </div>
+              {p.note && <p className="mt-1 text-[12px] text-ink-soft">{p.note}</p>}
+              {Object.entries(p.fields).map(([field, proposed]) => (
+                <div key={field} className="mt-2">
+                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
+                    {FIELD_LABEL[field] ?? field}
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <pre className="max-h-28 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-removed-bg/40 p-2 font-sans text-[11px] leading-snug text-ink-soft">
+                      {current[field]}
+                    </pre>
+                    <pre className="max-h-28 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-emerald-500/5 p-2 font-sans text-[11px] leading-snug text-ink-soft">
+                      {Array.isArray(proposed) ? proposed.join(', ') : proposed}
+                    </pre>
+                  </div>
+                </div>
+              ))}
+              {p.status === 'open' ? (
+                <div className="mt-2.5 flex items-center gap-2">
+                  <button
+                    onClick={() => void verdict(p.id, 'merge')}
+                    disabled={busy}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas transition enabled:hover:opacity-90 disabled:opacity-45"
+                  >
+                    <GitMerge size={13} /> Merge
+                  </button>
+                  <button onClick={() => void verdict(p.id, 'decline')} disabled={busy} className={INLINE_ACTION_CLASS}>
+                    Decline
+                  </button>
+                </div>
+              ) : p.responseNote ? (
+                <p className="mt-2 text-[11px] text-ink-faint">Owner’s note: {p.responseNote}</p>
+              ) : null}
+            </div>
+          ))}
+        </div>
+        {error && <p className="border-t border-line px-4 py-2 text-[12px] text-removed">{error}</p>}
+      </div>
+    </div>
   )
 }
 
@@ -4306,6 +4455,8 @@ function PublishedAgentCard({
 function AgentDetailDialog({ entry, onClose }: { entry: AgentDirectoryEntry; onClose: () => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // D25: the detail carries the propose-a-change door — one dialog, two modes.
+  const [proposing, setProposing] = useState(false)
   const fork = async () => {
     if (busy) return
     setBusy(true)
@@ -4318,6 +4469,9 @@ function AgentDetailDialog({ entry, onClose }: { entry: AgentDirectoryEntry; onC
       setBusy(false)
     }
   }
+  if (proposing) {
+    return <ProposeChangeDialog entry={entry} onBack={() => setProposing(false)} onClose={onClose} />
+  }
   return (
     <FormDialog
       title={entry.label}
@@ -4329,7 +4483,9 @@ function AgentDetailDialog({ entry, onClose }: { entry: AgentDirectoryEntry; onC
       onClose={onClose}
       error={error}
     >
-      <p className="text-[12px] text-ink-faint">{bylineLabel(entry.owner, entry.own)}</p>
+      <p className="text-[12px] text-ink-faint">
+        {bylineLabel(entry.owner, entry.own)} · v{entry.version}
+      </p>
       <FormField label="System prompt">
         <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-panel-2 p-2.5 font-sans text-[12px] leading-relaxed text-ink-soft">
           {entry.systemPrompt}
@@ -4355,6 +4511,18 @@ function AgentDetailDialog({ entry, onClose }: { entry: AgentDirectoryEntry; onC
           )}
         </div>
       </FormField>
+      {(entry.changelog?.length ?? 0) > 0 && (
+        <FormField label={`Changelog (${entry.changelog.length})`}>
+          <ul className="max-h-24 space-y-1 overflow-y-auto rounded-lg border border-line bg-panel-2 p-2.5 text-[11px] leading-snug text-ink-soft">
+            {[...entry.changelog].reverse().map((l) => (
+              <li key={l.version}>
+                <span className="font-medium text-ink">v{l.version}</span> · {l.author} · {l.note} ·{' '}
+                {relativeTime(l.at)}
+              </li>
+            ))}
+          </ul>
+        </FormField>
+      )}
       <p className="flex items-center gap-3 text-[11px] text-ink-faint">
         <CreditLine contributions={entry.contributions} forks={entry.forks} />
         <a
@@ -4366,10 +4534,99 @@ function AgentDetailDialog({ entry, onClose }: { entry: AgentDirectoryEntry; onC
         >
           A2A card
         </a>
+        {/* D25 — the fork's inverse: send an improvement BACK to the owner. */}
+        <button onClick={() => setProposing(true)} className={INLINE_ACTION_CLASS}>
+          Propose a change
+        </button>
       </p>
       <p className="text-[11px] text-ink-faint">
         Forking copies the definition — you grant your own model &amp; authority (D18).
       </p>
+    </FormDialog>
+  )
+}
+
+/** D25 — open a change proposal against a published definition (the PR analog).
+ *  FULL-FIELD: the form starts from the current definition; what you submit is the
+ *  proposed replacement, reviewed by the owner as a side-by-side. Only definition
+ *  fields exist here — capability is unrepresentable (the D18 wall). */
+function ProposeChangeDialog({
+  entry,
+  onBack,
+  onClose,
+}: {
+  entry: AgentDirectoryEntry
+  onBack: () => void
+  onClose: () => void
+}) {
+  const [prompt, setPrompt] = useState(entry.systemPrompt)
+  const [instructions, setInstructions] = useState(entry.instructions)
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const changed = prompt.trim() !== entry.systemPrompt || instructions.trim() !== entry.instructions
+  const submit = async () => {
+    if (busy || !changed) return
+    setBusy(true)
+    setError(null)
+    try {
+      await proposeAgentChange(entry.id, {
+        fields: {
+          ...(prompt.trim() !== entry.systemPrompt ? { systemPrompt: prompt } : {}),
+          ...(instructions.trim() !== entry.instructions ? { instructions } : {}),
+        },
+        note,
+      })
+      onClose()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not open this proposal.')
+      setBusy(false)
+    }
+  }
+  return (
+    <FormDialog
+      title={`Propose a change — ${entry.label}`}
+      icon={<Bot size={18} />}
+      submitLabel="Open proposal"
+      canSubmit={!busy && changed}
+      onSubmit={submit}
+      onClose={onClose}
+      error={error}
+    >
+      <p className="text-[12px] text-ink-faint">
+        Against v{entry.version} {bylineLabel(entry.owner, entry.own)} — the owner reviews and merges or
+        declines.{' '}
+        <button onClick={onBack} className={INLINE_ACTION_CLASS}>
+          Back to the definition
+        </button>
+      </p>
+      <FormField label="System prompt">
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          rows={6}
+          aria-label="Proposed system prompt"
+          className={`${FORM_INPUT_CLASS} resize-none font-mono text-[12px] leading-relaxed`}
+        />
+      </FormField>
+      <FormField label="Instructions" optional>
+        <textarea
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value)}
+          rows={3}
+          aria-label="Proposed instructions"
+          className={`${FORM_INPUT_CLASS} resize-none leading-relaxed`}
+        />
+      </FormField>
+      <FormField label="Why this change" optional>
+        <input
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="e.g. tightens the intro, drops the filler"
+          aria-label="Proposal note"
+          className={FORM_INPUT_CLASS}
+        />
+      </FormField>
     </FormDialog>
   )
 }

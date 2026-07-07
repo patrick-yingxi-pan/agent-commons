@@ -27,6 +27,8 @@ export const keys = {
   /** The discovery directories (D17) — keyed per search so each query caches on its own. */
   directoryProjects: (q?: string) => (q ? `directory-projects:${q}` : 'directory-projects'),
   directoryAgents: (q?: string) => (q ? `directory-agents:${q}` : 'directory-agents'),
+  /** A published definition's review queue (D25) — keyed per agent. */
+  agentProposals: (agentId: string) => `agent-proposals:${agentId}`,
   /** The caller's notification inbox (D24) + per-project watch state. */
   notifications: 'notifications',
   projectWatch: (projectId: string) => `project-watch:${projectId}`,
@@ -104,6 +106,12 @@ export const paths = {
   agentFork: (id: string) => `/agents/${encodeURIComponent(id)}/fork`,
   directoryProjects: (q?: string) => (q ? `/directory/projects?q=${encodeURIComponent(q)}` : '/directory/projects'),
   directoryAgents: (q?: string) => (q ? `/directory/agents?q=${encodeURIComponent(q)}` : '/directory/agents'),
+  /** Change proposals against a published definition (D25). */
+  agentProposals: (agentId: string) => `/agents/${encodeURIComponent(agentId)}/proposals`,
+  agentProposalMerge: (agentId: string, pid: string) =>
+    `/agents/${encodeURIComponent(agentId)}/proposals/${encodeURIComponent(pid)}/merge`,
+  agentProposalDecline: (agentId: string, pid: string) =>
+    `/agents/${encodeURIComponent(agentId)}/proposals/${encodeURIComponent(pid)}/decline`,
   /** The notification inbox + watch acts (D24). */
   notifications: '/notifications',
   notificationsRead: '/notifications/read',

@@ -15,6 +15,7 @@ import type {
   AuditEntry,
   Authority,
   Commission,
+  AgentChangeProposal,
   AppNotification,
   OpenSubGoal,
   OwnerProfile,
@@ -263,6 +264,12 @@ export function useProjectDirectory(q?: string): QueryState<ProjectDirectoryEntr
  *  plus its public track record; capability never rides an entry. */
 export function useAgentDirectory(q?: string): QueryState<AgentDirectoryEntry[]> {
   return useQuery(keys.directoryAgents(q), () => apiGet<AgentDirectoryEntry[]>(paths.directoryAgents(q)))
+}
+
+/** A published definition's review queue (D25): the owner sees every proposal, a
+ *  proposer their own. `enabled: false` holds the fetch until a dialog opens. */
+export function useAgentProposals(agentId: string, enabled = true): QueryState<AgentChangeProposal[]> {
+  return useQuery(keys.agentProposals(agentId), () => apiGet<AgentChangeProposal[]>(paths.agentProposals(agentId)), enabled)
 }
 
 /** The caller's notification inbox (D24), newest first — refreshed live by the

@@ -35,7 +35,9 @@ export default defineConfig({
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
-    command: 'npm run dev',
+    // Wipe the E2E store FIRST, then boot — a clean slate per run (see
+    // e2e/wipe-store.mjs for why this can't be globalSetup).
+    command: 'node e2e/wipe-store.mjs && npm run dev',
     url: 'http://127.0.0.1:5183',
     // Always boot our own stack: an "existing server" can't be trusted to carry this
     // config's BACKEND/DATA_FILE env (that's exactly how a run once polluted the dev

@@ -63,10 +63,14 @@ test('watch a shared project → the owner acts → the watcher’s bell rings, 
   const row = panel.getByRole('button', { name: new RegExp(ITEM) })
   await expect(row).toBeVisible()
 
-  // The row is a door: it opens the project page and the badge clears.
+  // The row is a door: it opens the project page and marks ITSELF read (other
+  // specs' rows may keep the global badge — assert the row's own dot, not the badge).
   await row.click()
   await expect(watcher.page.getByRole('heading', { name: PROJECT })).toBeVisible()
-  await expect(watcher.page.getByRole('complementary').getByLabel(/Notifications \(\d+ unread\)/)).toHaveCount(0)
+  await watcher.page.getByRole('complementary').getByLabel(/Notifications/).click()
+  await expect(
+    watcher.page.getByRole('dialog', { name: 'Notifications' }).getByRole('button', { name: new RegExp(ITEM) }).getByLabel('Unread'),
+  ).toHaveCount(0)
 
   await owner.context.close()
   await watcher.context.close()

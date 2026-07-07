@@ -1,0 +1,99 @@
+import { test, expect, type Browser, type Page } from '@playwright/test'
+
+/** D25 — the definition evolution loop, end to end through the rendered UI: the
+ *  owner publishes; a FOREIGN tenant opens the public detail, proposes a sharper
+ *  prompt; the owner's bell rings, the review queue shows the side-by-side, the
+ *  owner merges; the proposer's bell rings, and the public detail now serves v2
+ *  with the changelog crediting the PROPOSER. */
+
+const STAMP = Date.now().toString(36)
+const AGENT = `Evolving guide ${STAMP}`
+const NEW_PROMPT = `You are the sharper v2 guide ${STAMP}.`
+const NOTE = `tightens everything ${STAMP}`
+
+async function dismissIntro(page: Page, timeout = 2_500) {
+  await page
+    .getByRole('button', { name: 'Explore on my own' })
+    .click({ timeout })
+    .catch(() => {})
+}
+
+async function openApp(page: Page) {
+  await page.goto('/')
+  await dismissIntro(page, 5_000)
+}
+
+async function newUser(browser: Browser, headers?: Record<string, string>) {
+  const context = await browser.newContext(headers ? { extraHTTPHeaders: headers } : {})
+  const page = await context.newPage()
+  return { context, page }
+}
+
+test('propose → review side-by-side → merge: the definition evolves and credits the proposer', async ({ browser }) => {
+  test.setTimeout(120_000)
+  const owner = await newUser(browser)
+  const proposer = await newUser(browser, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
+
+  // Owner: create + publish through the API seam (publishing is locked elsewhere).
+  // The route resolves the prompt BODY from systemPromptId — the created agent
+  // carries the default toolkit body; the proposal will replace it.
+  const created = await owner.page.request.post('/api/v1/agents', {
+    data: { label: AGENT, tools: [], instructions: '' },
+  })
+  const agentId = ((await created.json()) as { id: string }).id
+  await owner.page.request.patch(`/api/v1/agents/${agentId}`, { data: { published: true } })
+
+  // Proposer: Discover → View definition → Propose a change.
+  await openApp(proposer.page)
+  await proposer.page.getByRole('navigation').getByRole('button', { name: 'Agents', exact: true }).click()
+  await proposer.page.getByRole('button', { name: 'Discover' }).click()
+  await expect(proposer.page.getByText(AGENT).first()).toBeVisible()
+  // Scope to the one card whose heading is this agent (other published cards exist).
+  await proposer.page
+    .locator('div')
+    .filter({ hasText: AGENT })
+    .getByRole('button', { name: 'View definition' })
+    .last()
+    .click()
+  await expect(proposer.page.getByRole('dialog').getByText('v1', { exact: false })).toBeVisible()
+  await proposer.page.getByRole('button', { name: 'Propose a change' }).click()
+  await proposer.page.getByLabel('Proposed system prompt').fill(NEW_PROMPT)
+  await proposer.page.getByLabel('Proposal note').fill(NOTE)
+  await proposer.page.getByRole('button', { name: 'Open proposal' }).click()
+
+  // Owner: the bell rings; the agent card offers the review; the diff shows both sides.
+  await openApp(owner.page)
+  await expect(owner.page.getByRole('complementary').getByLabel(/Notifications \(\d+ unread\)/)).toBeVisible({ timeout: 10_000 })
+  await owner.page.getByRole('navigation').getByRole('button', { name: 'Agents', exact: true }).click()
+  // Scope to THIS agent's card — reused e2e stores carry earlier runs' agents,
+  // whose own review buttons would otherwise collide in strict mode.
+  await owner.page
+    .locator('div')
+    .filter({ hasText: AGENT })
+    .getByRole('button', { name: 'Review 1 proposal', exact: true })
+    .last()
+    .click()
+  const review = owner.page.getByRole('dialog', { name: `Proposals — ${AGENT}` })
+  // The side-by-side: current (the default toolkit body) vs proposed.
+  await expect(review.getByText(/You are Claude in the Unified Workspace/).first()).toBeVisible()
+  await expect(review.getByText(NEW_PROMPT)).toBeVisible()
+  await expect(review.getByText(NOTE)).toBeVisible()
+  await review.getByRole('button', { name: 'Merge' }).click()
+  await expect(review.getByText('merged')).toBeVisible()
+  await owner.page.keyboard.press('Escape')
+
+  // The published card now says v2 (scoped: earlier runs' agents may also be v2).
+  await expect(
+    owner.page.locator('div').filter({ hasText: AGENT }).getByText('Published · v2').last(),
+  ).toBeVisible()
+  await expect(proposer.page.getByRole('complementary').getByLabel(/Notifications \(\d+ unread\)/)).toBeVisible({ timeout: 10_000 })
+  await proposer.page.getByRole('complementary').getByLabel(/Notifications/).click()
+  await expect(
+    proposer.page
+      .getByRole('dialog', { name: 'Notifications' })
+      .getByText(new RegExp(`merged your proposal into “${AGENT}”`)),
+  ).toBeVisible()
+
+  await owner.context.close()
+  await proposer.context.close()
+})

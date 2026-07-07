@@ -1637,6 +1637,17 @@ session↔context binding, mediation handle, and single-resource escrow).
   (`eventVisibleToTenant`, the audit pattern); rail bell + panel of doors; Watch
   toggle on shared project pages for owner and visitor alike. Locked by
   `tests/notifications.test.ts`; spec row COMMONS-17; parity ledger row 3.
+- **Slice 24 — definition evolution (D25). ✅ Built.** Versions (published edits +
+  merges bump; changelog is the public authorship record; forks record the version
+  taken), full-field **change proposals** behind the directory's wall (owner-sees-
+  all / proposer-sees-own review; verdicts owner-only by raw tenant id; the
+  proposer's tenant id is the stored anchor, stripped from every read), and the
+  **merge** (fields land, version bumps, the changelog credits the PROPOSER —
+  provenance, not D13 reputation; decline carries the owner's note; stale flagged,
+  never auto-rebased). D24 `proposal.*` bells both ways. UI: Propose-a-change on
+  the public detail; the owner's side-by-side review queue on the agent card.
+  Locked by `tests/agent-proposals.test.ts` + `e2e/definition-evolution.spec.ts`;
+  spec row COMMONS-18; parity rows 4/6.
 - **The multi-tenant surface (slices 1–10) is built, managed (11–15), persisted (16), and
   conversationally manageable (17).** Every D6–D13 decision is now exercised by a working
   slice *and* user-manageable from the Agents hub — by hand or by asking Claude — the

@@ -23,8 +23,10 @@ import {
   type CreateSystemPromptRequest,
   type SystemPromptEntry,
   type UpdateSystemPromptRequest,
+  type AgentChangeProposal,
   type AppNotification,
   type OpenSubGoal,
+  type ProposeAgentChangeRequest,
   type WatchState,
   type PostOpenSubGoalRequest,
   type PromptProbeRequest,
@@ -454,6 +456,26 @@ export async function retractWorkItem(projectId: string, itemId: string): Promis
   invalidatePrefix(keys.ownerProfile())
   invalidatePrefix(keys.search())
   return item
+}
+
+/** Open a change proposal against a published definition (D25). */
+export async function proposeAgentChange(agentId: string, req: ProposeAgentChangeRequest): Promise<AgentChangeProposal> {
+  const proposal = await apiPost<AgentChangeProposal>(paths.agentProposals(agentId), req)
+  invalidate(keys.agentProposals(agentId))
+  return proposal
+}
+
+/** The owner's verdict on a proposal (D25). A merge changes the PUBLISHED
+ *  definition, so the registry and its public faces refresh too. */
+export async function resolveAgentProposal(agentId: string, pid: string, action: 'merge' | 'decline', note?: string): Promise<AgentChangeProposal> {
+  const proposal = await apiPost<AgentChangeProposal>(
+    action === 'merge' ? paths.agentProposalMerge(agentId, pid) : paths.agentProposalDecline(agentId, pid),
+    action === 'decline' && note ? { note } : {},
+  )
+  invalidate(keys.agentProposals(agentId))
+  invalidate(keys.workerAgents)
+  invalidatePrefix(keys.directoryAgents())
+  return proposal
 }
 
 /** Watch / unwatch a Project (D24) — the bell subscription. */
