@@ -75,3 +75,59 @@ test('watch a shared project → the owner acts → the watcher’s bell rings, 
   await owner.context.close()
   await watcher.context.close()
 })
+
+test('a work.commented bell opens the project ON the item’s thread, auto-expanded to the comment (R4 focus)', async ({ browser }) => {
+  test.setTimeout(120_000)
+  const owner = await newUser(browser) // seeded default tenant
+  const visitor = await newUser(browser, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
+  const P = `Focus arena ${STAMP}`
+  const IT = `focus-me item ${STAMP}`
+  const CMT = `the anchored reply ${STAMP}`
+
+  // Owner: shared project + one open item (owner is poster ⇒ in the item's audience).
+  await openApp(owner.page)
+  await owner.page.getByRole('navigation').getByRole('button', { name: 'Projects', exact: true }).click()
+  await owner.page.getByRole('button', { name: 'New project' }).click()
+  await owner.page.getByPlaceholder('e.g. Insights dashboard').fill(P)
+  await owner.page.getByRole('button', { name: 'Create project' }).click()
+  const share = owner.page.getByTestId('share-toggle')
+  await share.click()
+  await expect(share).toHaveAttribute('aria-pressed', 'true')
+  await owner.page.getByPlaceholder('Post a work item (sub-goal)…').fill(IT)
+  await owner.page.getByLabel('Effect target').fill('budget:demo')
+  await owner.page.getByRole('button', { name: 'Post', exact: true }).click()
+  await expect(owner.page.getByText(IT)).toBeVisible()
+
+  // Visitor: opens the shared project and comments on the item → the OWNER's bell rings.
+  await openApp(visitor.page)
+  await visitor.page.getByRole('navigation').getByRole('button', { name: 'Projects', exact: true }).click()
+  await visitor.page.getByText(P).first().click()
+  await expect(visitor.page.getByRole('heading', { name: P })).toBeVisible()
+  await visitor.page.getByRole('button', { name: 'Comment', exact: true }).click()
+  await visitor.page.getByLabel(`Comment on ${IT}`).fill(CMT)
+  await visitor.page.getByLabel(`Comment on ${IT}`).press('Enter')
+  await expect(visitor.page.getByText(CMT)).toBeVisible()
+
+  // Owner navigates AWAY (to Agents) so the door's navigation + focus is unambiguous —
+  // the comment is nowhere on screen until the bell takes us there.
+  await owner.page.getByRole('navigation').getByRole('button', { name: 'Agents', exact: true }).click()
+  await expect(owner.page.getByRole('heading', { name: 'Agents' })).toBeVisible()
+  await expect(owner.page.getByText(CMT)).toHaveCount(0)
+
+  // The owner's bell rings the comment; clicking it is the door.
+  await expect(owner.page.getByRole('complementary').getByLabel(/Notifications \(\d+ unread\)/)).toBeVisible({ timeout: 10_000 })
+  await owner.page.getByRole('complementary').getByLabel(/Notifications/).click()
+  await owner.page
+    .getByRole('dialog', { name: 'Notifications' })
+    .getByRole('button', { name: new RegExp(`commented on .*${IT}`) })
+    .click()
+
+  // The door FOCUSES: the project page opens AND the item's thread is auto-expanded
+  // to the comment — no manual expand. (threadOpen defaults closed, so the comment
+  // being visible here can only be the R4 focus consumption.)
+  await expect(owner.page.getByRole('heading', { name: P })).toBeVisible()
+  await expect(owner.page.getByText(CMT)).toBeVisible()
+
+  await owner.context.close()
+  await visitor.context.close()
+})

@@ -76,6 +76,7 @@ import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { bylineLabel, profileTitle, PROFILE_TAGLINE } from '../lib/publicFace'
 import { Byline, CreditLine, OwnerLink } from './PublicFace'
 import { resolveBackLabel, type NavLocation } from '../lib/nav'
+import { usePendingFocus } from '../lib/focusContext'
 import { relativeTime } from '../lib/relativeTime'
 import { Chip } from './Chip'
 import { RowMenu, type RowMenuItem } from './RowMenu'
@@ -1769,6 +1770,37 @@ function WorkItemRow({
   const [error, setError] = useState<string | null>(null)
   const mayRetract = o.status === 'open' && (ownerCanModerate || o.postedBy === myName)
 
+  // Notification door (docs/notification-routing.md, R4): when a work.* / mentioned
+  // bell targets THIS item, scroll to it, flash a highlight, open its thread, and
+  // (if the bell was a comment) anchor that comment. Consumed once so Back / an
+  // unrelated re-render never re-fires the flash.
+  const { pending, consume } = usePendingFocus()
+  const isFocus = pending?.projectId === projectId && pending?.workItemId === o.id
+  const focusCommentId = isFocus ? pending?.commentId ?? null : null
+  const rowRef = useRef<HTMLDivElement>(null)
+  const [flash, setFlash] = useState(false)
+  const [anchorComment, setAnchorComment] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!isFocus) return
+    // A comment / mention bell points INTO the thread → open it and anchor the
+    // comment. A posted / resolved / retracted bell has nothing to read there, so
+    // it just scrolls + flashes the row (no noisy empty-composer reveal).
+    if (focusCommentId) {
+      setThreadOpen(true)
+      setAnchorComment(focusCommentId)
+    }
+    setFlash(true)
+    rowRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    consume() // fire once — clears the pending target
+  }, [isFocus, focusCommentId, consume])
+
+  useEffect(() => {
+    if (!flash) return
+    const t = setTimeout(() => setFlash(false), 1600)
+    return () => clearTimeout(t)
+  }, [flash])
+
   const send = async () => {
     if (busy || !draft.trim()) return
     setBusy(true)
@@ -1796,7 +1828,12 @@ function WorkItemRow({
   }
 
   return (
-    <div className="flex items-start gap-2.5">
+    <div
+      ref={rowRef}
+      className={`flex items-start gap-2.5 scroll-mt-6 rounded-lg -mx-2 px-2 py-1 transition-colors ${
+        flash ? 'bg-accent-tint ring-1 ring-accent/40' : 'ring-1 ring-transparent'
+      }`}
+    >
       <span
         className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
           o.status === 'done' ? 'bg-emerald-500' : o.status === 'retracted' ? 'bg-line-strong' : 'bg-amber-500'
@@ -1832,7 +1869,12 @@ function WorkItemRow({
         {threadOpen && (
           <div className="mt-1.5 space-y-1.5 border-l-2 border-line pl-2.5">
             {comments.map((c) => (
-              <div key={c.id} className="text-[12px] leading-snug text-ink-soft">
+              <div
+                key={c.id}
+                className={`rounded text-[12px] leading-snug text-ink-soft transition-colors ${
+                  c.id === anchorComment ? 'bg-accent-tint -mx-1 px-1' : ''
+                }`}
+              >
                 <span className="font-medium text-ink">{c.author}</span>
                 <span className="text-ink-faint"> · {relativeTime(c.at)}</span>
                 <div className="whitespace-pre-wrap">{renderCommentBody(c.body)}</div>

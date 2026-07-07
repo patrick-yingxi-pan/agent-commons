@@ -27,6 +27,7 @@ import { useSessionWorkspace } from './controller/useSessionWorkspace'
 import { useLayout } from './controller/useLayout'
 import { RelationsProvider, useRelations } from './controller/useRelations'
 import { railWidthCss, useViewport } from './lib/viewport'
+import { FocusContext } from './lib/focusContext'
 import { SCRIM_CLASS } from './lib/scrim'
 import { SECTION_META } from './lib/sections'
 import type { Live } from './data/liveSession'
@@ -91,6 +92,7 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
     focusProjectId,
     focusScheduleId,
     focusOwnerName,
+    pendingFocus,
     live,
     typing,
     focus,
@@ -120,6 +122,7 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
     openWorkItem,
     openProposal,
     openAgent,
+    consumeFocus,
     goBack,
     backTo,
     pinSession,
@@ -244,6 +247,11 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
     () => live.messages.reduce((n, m) => n + estimateTokens(m.content), 0),
     [live.messages],
   )
+
+  // A notification door's transient focus target, handed to the SectionView subtree
+  // by context (docs/notification-routing.md). Memoized so the value identity only
+  // changes when the target actually changes — not every App render.
+  const focusCtx = useMemo(() => ({ pending: pendingFocus, consume: consumeFocus }), [pendingFocus, consumeFocus])
 
   // Bridges the relations store needs: attaching a context to the live session
   // (for the AI's `attach-context` op) and the "View in …" deep-link nav.
@@ -385,19 +393,21 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
               />
             )}
             {activeSection ? (
-              <SectionView
-                section={activeSection}
-                onOpenSession={selectSession}
-                onNewSession={() => newSession()}
-                onOpenProject={openProject}
-                onOpenSchedule={openSchedule}
-                onBack={goBack}
-                backTo={backTo}
-                railCollapsed={!leftOpen && !railOverlay}
-                focusProjectId={focusProjectId}
-                focusScheduleId={focusScheduleId}
-                focusOwnerName={focusOwnerName}
-              />
+              <FocusContext.Provider value={focusCtx}>
+                <SectionView
+                  section={activeSection}
+                  onOpenSession={selectSession}
+                  onNewSession={() => newSession()}
+                  onOpenProject={openProject}
+                  onOpenSchedule={openSchedule}
+                  onBack={goBack}
+                  backTo={backTo}
+                  railCollapsed={!leftOpen && !railOverlay}
+                  focusProjectId={focusProjectId}
+                  focusScheduleId={focusScheduleId}
+                  focusOwnerName={focusOwnerName}
+                />
+              </FocusContext.Provider>
             ) : (
               <>
                 {!isDemo && !isDraft && (
