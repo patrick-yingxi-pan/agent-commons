@@ -113,9 +113,12 @@ lineage, ready to be bound), and it exercises the real outbound HTTP path.
   `securitySchemes` in the card and verify callers. Accepted: authentication is
   orthogonal to the mapping, and the walls behind the endpoint don't trust the
   caller anyway.
-- `tasks/cancel` is unsupported (`-32002 TaskNotCancelable`): the backlog has no
-  retract-item act yet in *any* dialect. When it grows one, A2A gets it for free
-  through the same store method.
+- ~~`tasks/cancel` is unsupported: the backlog has no retract-item act yet in *any*
+  dialect.~~ **Resolved as predicted (D23):** the backlog grew a native retract act
+  and A2A got it for free through the same store method — `tasks/cancel` now maps
+  to `retractOpenSubGoal` under the same authorization (poster or Project owner;
+  open items only), `retracted` → the spec's `canceled` state; a refused cancel is
+  `-32002 TaskNotCancelable`.
 - Streaming (`message/stream`) is declined in the card (`streaming: false`):
   dispatch is synchronous (D19's accepted trade-off), so there is nothing to
   stream yet.
@@ -144,18 +147,21 @@ GET  /api/v1/a2a/agents/:id/card           → published Agent's card (404: unpu
 POST /api/v1/a2a/agents/:id                → JSON-RPC; message/send ⇒ Task{rejected} (D18)
 POST /api/v1/a2a/projects/:id              → JSON-RPC; message/send ⇒ post open work ⇒ Task
                                              tasks/get ⇒ Task (lifecycle re-read)
+                                             tasks/cancel ⇒ retract (D23; poster/owner only)
 POST /api/v1/agents/import-card            → outbound card fetch ⇒ unbound imported Agent
 ```
 
 JSON-RPC error mapping: parse failure `-32700`; non-object / missing method
 `-32600`; unknown method `-32601`; malformed message parts `-32602`; unknown
 task, or a Project the caller cannot see (identical — existence-hiding),
-`-32001` TaskNotFound; `tasks/cancel` `-32002`. Errors ride HTTP 200 with a
-JSON-RPC `error` member, per protocol convention.
+`-32001` TaskNotFound; a REFUSED `tasks/cancel` (not the poster/owner, or the
+item already closed) `-32002`. Errors ride HTTP 200 with a JSON-RPC `error`
+member, per protocol convention.
 
 Task-state mapping (the honest subset): `open` → `submitted` (awaiting a taker —
 *not* `working`: nothing is executing), `done` → `completed` (artifact carries
-`resolvedByLabel`, the D13 public credit line). The D18 refusal uses `rejected`.
+`resolvedByLabel`, the D13 public credit line), `retracted` → `canceled` (the
+D23 close). The D18 refusal uses `rejected`.
 
 ## v2 checklist (the honest boundary)
 
@@ -167,7 +173,11 @@ Task-state mapping (the honest subset): `open` → `submitted` (awaiting a taker
 - [ ] **Outbound dispatch to imported agents** — a commissioned imported Agent
       taking open work forwards it as `message/send` to its home instance
       (federation; blocked on signed identity + audit, see agent-commons.md).
-- [ ] **`tasks/cancel`** — when the backlog grows a retract act natively.
+- [x] **`tasks/cancel`** — built with D23 (the backlog grew its retract act;
+      A2A got it through the same store method, exactly as this row predicted).
+- [ ] **`message/send` to an EXISTING task appends a comment** — the D23 thread's
+      protocol face (today message/send is post-only; a follow-up message would
+      naturally land as a `WorkItemComment` under the caller's identity).
 - [ ] **`message/stream`** — if/when dispatch stops being synchronous.
 - [ ] **Push notifications** — `openwork.changed` already exists as an SSE event;
       an A2A `pushNotificationConfig` could mirror it to remote posters.

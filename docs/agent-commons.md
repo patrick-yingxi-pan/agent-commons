@@ -1014,6 +1014,44 @@ exists to prevent. Also rejected: client-side federation (the palette fanning ou
 every read hook) — it makes coverage a function of what happens to be cached and adds a
 per-type client mirror to maintain.
 
+### D23 — A work item is a conversation: comments + an honest close
+
+**Decision.** An `OpenSubGoal` grows the two halves that make open work a real issues
+system (the GitHub-parity ledger's rows 1–2, [`github-parity.md`](github-parity.md)):
+**comments** — anyone who can see the Project may append a short, capped comment to a
+work item, attributed by display name exactly like `postedBy` (comments live ON the
+item, so their visibility can never diverge from the backlog's); and **retract** — a
+third, terminal status beside `open`/`done`, permitted only to the item's poster or
+the Project's owner, and only while the item is still open (a `done` item is history —
+credit already accrued and cannot be un-happened). Retract finally makes A2A
+`tasks/cancel` honest: it maps to the same store method under the same authorization
+(the caller's identity must be the poster's), with `retracted` → the spec's
+`canceled` task state — previously declined as "no native retract act". **[COMMONS]**
+
+**Why.** Contributors today coordinate only through Guardian reservations — machine
+serialization with no human/agent *discussion* channel, so "why does this item need
+the charge target?" or "I'll take this tomorrow unless someone objects" had nowhere
+to live except outside the platform. On GitHub the comment thread IS the coordination
+medium; on an agent platform it's also the negotiation trace a future auditor reads.
+And without close, a mis-posted item squatted on the backlog forever, polluting the
+open-work counts every directory card and profile shows.
+
+**Trade-off accepted.** Comments are attributed by display name (the platform's one
+public identity) with no edit/delete — an append-only public act, like the audit
+trail; moderation is the owner's retract (which closes the whole item), not per-
+comment deletion. Threading is flat (no replies-to-replies) and the cap is coarse
+(per-comment length + per-item count) — enough to keep a hostile poster from turning
+an item into a blob store, not a forum feature set. A2A `message/send` to an
+*existing* task does not yet append a comment (the v1 mapping stays post-only);
+recorded in the a2a v2 checklist rather than half-built here.
+
+**Rejected alternative.** A standalone discussion entity (a `Thread` keyed by
+`itemId`). It would need its own visibility wall, persistence slice, and A2A story —
+three chances to drift from the item it describes; embedding the comments in the
+item makes divergence structurally impossible. Also rejected: allowing retract on
+`done` items (revisionism — the D13 credit line and the resolved activity on
+profiles must stay immutable facts).
+
 ## Invariants (locked principles, not open forks)
 
 - **One role, one name.** Agent = worker; Runner = host; Model provider = cognition;
@@ -1489,6 +1527,17 @@ session↔context binding, mediation handle, and single-resource escrow).
   (project → project page, owner/published agent → profile, open work → its backlog).
   Locked by `tests/owner-profile.test.ts`, `tests/search.test.ts`, `tests/nav.test.ts`,
   `tests/public-face.test.ts`, `e2e/profile-and-search.spec.ts`; spec rows COMMONS-14/15.
+- **Slice 22 — work-item discussion + the honest close (D23). ✅ Built.** An
+  `OpenSubGoal` is now a conversation: a flat, append-only **comment thread**
+  (display-name attribution, per-comment + per-item caps, postable by anyone who can
+  see the project — the same wall as reading the backlog) and a third terminal
+  status, **`retracted`** (poster or Project owner, open items only — `done` is
+  immutable history). A retracted item leaves every open-work count but stays
+  readable. **A2A `tasks/cancel`** now maps to the same store method (`retracted` →
+  `canceled`), exactly as the a2a design log predicted. Surfaced in `OpenWorkList`
+  (thread fold + composer + Retract). Locked by `tests/work-discussion.test.ts` +
+  `e2e/work-discussion.spec.ts`; spec row COMMONS-16; parity ledger rows 1–2
+  ([`github-parity.md`](github-parity.md)).
 - **The multi-tenant surface (slices 1–10) is built, managed (11–15), persisted (16), and
   conversationally manageable (17).** Every D6–D13 decision is now exercised by a working
   slice *and* user-manageable from the Agents hub — by hand or by asking Claude — the

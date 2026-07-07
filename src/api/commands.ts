@@ -434,6 +434,26 @@ export async function postOpenSubGoal(projectId: string, input: PostOpenSubGoalR
   return item
 }
 
+/** Append a comment to a work item's discussion thread (D23). The thread rides
+ *  the item, so refreshing the backlog refreshes the conversation. */
+export async function commentOnWorkItem(projectId: string, itemId: string, body: string): Promise<OpenSubGoal> {
+  const item = await apiPost<OpenSubGoal>(paths.openSubGoalComments(projectId, itemId), { body })
+  invalidate(keys.openSubGoals(projectId))
+  return item
+}
+
+/** Retract a work item (D23) — poster or project owner, open items only (the
+ *  server enforces; a 403/409 surfaces as the thrown error). Open-work counts
+ *  ride directory cards and profiles, so refresh those families too. */
+export async function retractWorkItem(projectId: string, itemId: string): Promise<OpenSubGoal> {
+  const item = await apiPost<OpenSubGoal>(paths.openSubGoalRetract(projectId, itemId), {})
+  invalidate(keys.openSubGoals(projectId))
+  invalidatePrefix(keys.directoryProjects())
+  invalidatePrefix(keys.ownerProfile())
+  invalidatePrefix(keys.search())
+  return item
+}
+
 /** Remove an Agent. Rejects (so the caller can surface the message) when the server
  *  refuses — the default agent, or one a Commission still assigns (409). */
 export async function deleteAgent(id: string): Promise<void> {

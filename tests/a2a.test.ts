@@ -140,8 +140,10 @@ test('JSON-RPC error mapping: bad params, unknown method, uncancelable, invalid 
   assert.equal(badType.json.error.code, -32602, 'an unknown effect type')
   const unknown = await call('POST', `/a2a/projects/${id}`, rpc('tasks/resubscribe'), { 'x-tenant-id': A })
   assert.equal(unknown.json.error.code, -32601)
-  const cancel = await call('POST', `/a2a/projects/${id}`, rpc('tasks/cancel', { id: 'work-1' }), { 'x-tenant-id': A })
-  assert.equal(cancel.json.error.code, -32002, 'no native retract act yet — declined honestly')
+  // tasks/cancel is now the D23 retract act (tests/work-discussion.test.ts locks the
+  // lifecycle); at the error-mapping level, an UNKNOWN task id is TaskNotFound.
+  const cancel = await call('POST', `/a2a/projects/${id}`, rpc('tasks/cancel', { id: 'work-no-such' }), { 'x-tenant-id': A })
+  assert.equal(cancel.json.error.code, -32001, 'cancel of an unknown task ⇒ TaskNotFound')
   const shapeless = await call('POST', `/a2a/projects/${id}`, { hello: 'world' }, { 'x-tenant-id': A })
   assert.equal(shapeless.json.error.code, -32600, 'not a JSON-RPC request')
   assert.equal(shapeless.json.id, null, 'no readable id ⇒ null')

@@ -46,6 +46,18 @@ export interface AgentDirectoryEntry {
   forks: number
 }
 
+/** One comment on a work item (D23) — the flat discussion thread that makes open
+ *  work a coordination medium, not just a queue. Lives ON the item, so its
+ *  visibility can never diverge from the backlog's. Append-only (no edit/delete —
+ *  a public act, like the audit trail); attribution is the display name. */
+export interface WorkItemComment {
+  id: string
+  /** The commenting workspace's display name (public identity, like `postedBy`). */
+  author: string
+  body: string
+  at: number
+}
+
 /** ── Open work — the Project backlog (docs/agent-commons.md, D19) ────────────
  *  A posted work item: a sub-goal plus the externally-effectful action it needs.
  *  The issues-tray analog — the same object that shows a human what a Project
@@ -64,8 +76,16 @@ export interface OpenSubGoal {
   /** The workspace display name that posted it (public identity). */
   postedBy: string
   postedAt: number
-  /** `open` = awaiting a taker; `done` = a Contributor fired the effect. */
-  status: 'open' | 'done'
+  /** `open` = awaiting a taker; `done` = a Contributor fired the effect;
+   *  `retracted` = closed unresolved by its poster or the Project owner (D23 —
+   *  open items only: a `done` item is immutable history, credit already accrued). */
+  status: 'open' | 'done' | 'retracted'
+  /** The flat discussion thread (D23). Optional: items minted before the feature
+   *  (older persisted snapshots) carry none — read as `?? []`. */
+  comments?: WorkItemComment[]
+  retractedAt?: number
+  /** Who closed it (display name) — the poster or the Project owner. */
+  retractedBy?: string
   /** How the item arrived: unset = the native route; `'a2a'` = posted by a foreign
    *  agent through the A2A edge (D20). Provenance only — never an authority
    *  distinction (both paths pass the identical walls). */
@@ -123,6 +143,11 @@ export interface OwnerProfile {
   stats: OwnerProfileStats
   /** Recent public acts, newest first (capped server-side). */
   activity: OwnerActivity[]
+}
+
+/** Body of `POST /v1/projects/:id/open-subgoals/:itemId/comments` (D23). */
+export interface PostWorkItemCommentRequest {
+  body: string
 }
 
 /** Body of `POST /v1/projects/:id/open-subgoals` — post a work item. */

@@ -121,6 +121,9 @@ import {
   importAgentCard,
   a2aAgentCardUrl,
   postOpenSubGoal,
+  commentOnWorkItem,
+  retractWorkItem,
+  useMe,
   updateCommission,
   deleteCommission,
   reserveSubGoal,
@@ -153,6 +156,7 @@ import {
   type Agent,
   type AgentDirectoryEntry,
   type AuditEntry,
+  type OpenSubGoal,
   type ProjectDirectoryEntry,
   type Commission,
   type CreatedProvider,
@@ -1508,7 +1512,7 @@ function CoordinationPanel({ project }: { project: Project }) {
             )}
           </div>
 
-          <OpenWorkList projectId={project.id} />
+          <OpenWorkList projectId={project.id} ownerCanModerate={project.own !== false} />
         </>
       )}
     </SidePanel>
@@ -1521,7 +1525,7 @@ function CoordinationPanel({ project }: { project: Project }) {
  *  project's STANDING contributors (through the same role/reach/guardian walls as a
  *  prompted effect); the returned item is already done when one took it. Live on
  *  `openwork.changed`. */
-function OpenWorkList({ projectId }: { projectId: string }) {
+function OpenWorkList({ projectId, ownerCanModerate }: { projectId: string; ownerCanModerate: boolean }) {
   const items = useOpenSubGoals(projectId).data ?? []
   const [subGoal, setSubGoal] = useState('')
   const [type, setType] = useState<ProjectEffectType>('charge')
@@ -1556,22 +1560,7 @@ function OpenWorkList({ projectId }: { projectId: string }) {
       ) : (
         <div className="space-y-2">
           {items.map((o) => (
-            <div key={o.id} className="flex items-start gap-2.5">
-              <span
-                className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${o.status === 'done' ? 'bg-emerald-500' : 'bg-amber-500'}`}
-              />
-              <div className="min-w-0 flex-1">
-                <div className="text-[13px] font-medium text-ink">{o.subGoal}</div>
-                <div className="text-[11px] text-ink-faint">
-                  {o.type} → {o.target}
-                  {/* Provenance, not authority (D20): an A2A-posted item passed the same walls. */}
-                  {o.via === 'a2a' ? ' · via A2A' : ''}
-                  {o.status === 'done'
-                    ? ` · done by ${o.resolvedByLabel ?? 'a contributor'}`
-                    : ` · posted by ${o.postedBy} — awaiting a taker`}
-                </div>
-              </div>
-            </div>
+            <WorkItemRow key={o.id} item={o} projectId={projectId} ownerCanModerate={ownerCanModerate} />
           ))}
         </div>
       )}
@@ -1613,6 +1602,120 @@ function OpenWorkList({ projectId }: { projectId: string }) {
           </button>
         </div>
         {error && <p className="text-[11px] text-removed">{error}</p>}
+      </div>
+    </div>
+  )
+}
+
+/** One work item on the backlog (D19), now a CONVERSATION (D23): the status line,
+ *  a flat comment thread (anyone who can see the project may comment — the
+ *  issue-thread analog), and the honest close (Retract — shown to the likely-
+ *  permitted: the poster or the project owner; the server is the gate either way). */
+function WorkItemRow({
+  item: o,
+  projectId,
+  ownerCanModerate,
+}: {
+  item: OpenSubGoal
+  projectId: string
+  ownerCanModerate: boolean
+}) {
+  const myName = useMe().data?.tenant.name
+  const comments = o.comments ?? []
+  const [threadOpen, setThreadOpen] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const mayRetract = o.status === 'open' && (ownerCanModerate || o.postedBy === myName)
+
+  const send = async () => {
+    if (busy || !draft.trim()) return
+    setBusy(true)
+    setError(null)
+    try {
+      await commentOnWorkItem(projectId, o.id, draft.trim())
+      setDraft('')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not post this comment.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const retract = async () => {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await retractWorkItem(projectId, o.id)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not retract this item.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="flex items-start gap-2.5">
+      <span
+        className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
+          o.status === 'done' ? 'bg-emerald-500' : o.status === 'retracted' ? 'bg-line-strong' : 'bg-amber-500'
+        }`}
+      />
+      <div className="min-w-0 flex-1">
+        <div className={`text-[13px] font-medium ${o.status === 'retracted' ? 'text-ink-faint line-through' : 'text-ink'}`}>
+          {o.subGoal}
+        </div>
+        <div className="text-[11px] text-ink-faint">
+          {o.type} → {o.target}
+          {/* Provenance, not authority (D20): an A2A-posted item passed the same walls. */}
+          {o.via === 'a2a' ? ' · via A2A' : ''}
+          {o.status === 'done'
+            ? ` · done by ${o.resolvedByLabel ?? 'a contributor'}`
+            : o.status === 'retracted'
+              ? ` · retracted by ${o.retractedBy ?? o.postedBy}`
+              : ` · posted by ${o.postedBy} — awaiting a taker`}
+        </div>
+        <div className="mt-0.5 flex items-center gap-3 text-[11px]">
+          <button onClick={() => setThreadOpen((v) => !v)} className={INLINE_ACTION_CLASS}>
+            {comments.length === 0
+              ? 'Comment'
+              : `${comments.length} comment${comments.length === 1 ? '' : 's'}`}
+          </button>
+          {mayRetract && (
+            <button onClick={retract} disabled={busy} className={INLINE_ACTION_CLASS} title="Close this item unresolved (poster or project owner)">
+              Retract
+            </button>
+          )}
+        </div>
+        {threadOpen && (
+          <div className="mt-1.5 space-y-1.5 border-l-2 border-line pl-2.5">
+            {comments.map((c) => (
+              <div key={c.id} className="text-[12px] leading-snug text-ink-soft">
+                <span className="font-medium text-ink">{c.author}</span>
+                <span className="text-ink-faint"> · {relativeTime(c.at)}</span>
+                <div className="whitespace-pre-wrap">{c.body}</div>
+              </div>
+            ))}
+            <div className="flex items-center gap-1.5">
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && send()}
+                placeholder="Add a comment…"
+                aria-label={`Comment on ${o.subGoal}`}
+                className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+              />
+              <button
+                onClick={send}
+                disabled={busy || !draft.trim()}
+                className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-white transition enabled:hover:bg-accent/90 disabled:opacity-45"
+              >
+                Post
+              </button>
+            </div>
+          </div>
+        )}
+        {error && <p className="mt-1 text-[11px] text-removed">{error}</p>}
       </div>
     </div>
   )

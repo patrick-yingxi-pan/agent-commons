@@ -186,6 +186,10 @@ let auditSeq = 0
 // needs crash recovery — only the items themselves persist.
 const openSubGoals: OpenSubGoal[] = []
 let openSubGoalSeq = 0
+// D23 discussion bounds — enough to coordinate, not a blob store (a hostile poster
+// gets a cap, not a forum). Coarse by design; the design log records the trade-off.
+const MAX_WORK_ITEM_COMMENTS = 100
+const MAX_WORK_ITEM_COMMENT_CHARS = 2000
 // Monotonic counters for server-minted session + message ids. The conversation is
 // now server-owned (a sent turn persists; a draft materializes into a real session
 // on first send), so the backend mints these — the client no longer fabricates them.
@@ -2486,6 +2490,49 @@ export const store = {
       return true
     }
     return false
+  },
+  /** Append a comment to a work item's flat discussion thread (D23): anyone who can
+   *  see the Project may comment (the route enforces visibility with the same wall
+   *  the backlog read uses); attribution is the display name, like `postedBy`.
+   *  Append-only, trimmed + capped (per comment and per item — a bound, not a forum).
+   *  Returns the updated item; `'capped'` when the thread is full; undefined for an
+   *  unknown item (→ 404). */
+  commentOnOpenSubGoal(projectId: string, itemId: string, body: string, tenantId: string): OpenSubGoal | 'capped' | undefined {
+    const item = openSubGoals.find((o) => o.id === itemId && o.projectId === projectId)
+    if (!item) return undefined
+    const comments = (item.comments ??= [])
+    if (comments.length >= MAX_WORK_ITEM_COMMENTS) return 'capped'
+    comments.push({
+      // Deterministic per-item id: comments are append-only (no delete act), so the
+      // running count is stable — no new persisted sequence needed.
+      id: `${item.id}-c${comments.length + 1}`,
+      author: tenantName(tenantId),
+      body: body.trim().slice(0, MAX_WORK_ITEM_COMMENT_CHARS),
+      at: Date.now(),
+    })
+    emit({ type: 'openwork.changed', projectId })
+    persist()
+    return item
+  },
+  /** Retract a work item (D23) — the honest close: permitted only to the item's
+   *  POSTER (name-compared, the platform's public identity) or the Project's OWNER
+   *  tenant, and only while the item is still `open` — a `done` item is immutable
+   *  history (the D13 credit cannot be un-happened). Returns the updated item;
+   *  `'forbidden'` / `'closed'` for the two refusals; undefined for an unknown
+   *  item (→ 404). Also the store method behind A2A `tasks/cancel` (D20). */
+  retractOpenSubGoal(projectId: string, itemId: string, tenantId: string): OpenSubGoal | 'forbidden' | 'closed' | undefined {
+    const item = openSubGoals.find((o) => o.id === itemId && o.projectId === projectId)
+    if (!item) return undefined
+    const caller = tenantName(tenantId)
+    const ownerTenant = findProject(projectId)?.tenantId ?? defaultTenantId()
+    if (item.postedBy !== caller && ownerTenant !== tenantId) return 'forbidden'
+    if (item.status !== 'open') return 'closed'
+    item.status = 'retracted'
+    item.retractedAt = Date.now()
+    item.retractedBy = caller
+    emit({ type: 'openwork.changed', projectId })
+    persist()
+    return item
   },
 
   /** The base artifacts (the relation graph carries any saved-out extras),

@@ -93,6 +93,11 @@ export const paths = {
   commissionAuthority: (id: string) => `/commissions/${encodeURIComponent(id)}/authority`,
   projectSubGoals: (projectId: string) => `/projects/${encodeURIComponent(projectId)}/subgoals`,
   openSubGoals: (projectId: string) => `/projects/${encodeURIComponent(projectId)}/open-subgoals`,
+  /** D23 — a work item's flat discussion thread + the honest close. */
+  openSubGoalComments: (projectId: string, itemId: string) =>
+    `/projects/${encodeURIComponent(projectId)}/open-subgoals/${encodeURIComponent(itemId)}/comments`,
+  openSubGoalRetract: (projectId: string, itemId: string) =>
+    `/projects/${encodeURIComponent(projectId)}/open-subgoals/${encodeURIComponent(itemId)}/retract`,
   agentFork: (id: string) => `/agents/${encodeURIComponent(id)}/fork`,
   directoryProjects: (q?: string) => (q ? `/directory/projects?q=${encodeURIComponent(q)}` : '/directory/projects'),
   directoryAgents: (q?: string) => (q ? `/directory/agents?q=${encodeURIComponent(q)}` : '/directory/agents'),

@@ -101,6 +101,20 @@ export function taskFromOpenSubGoal(item: OpenSubGoal): A2aTask {
       metadata: meta,
     }
   }
+  if (item.status === 'retracted') {
+    // The D23 close, spoken in protocol: retract = the spec's `canceled` state.
+    return {
+      kind: 'task',
+      id: item.id,
+      contextId: item.projectId,
+      status: {
+        state: 'canceled',
+        timestamp: new Date(item.retractedAt ?? item.postedAt).toISOString(),
+        message: agentMessage(`Retracted by ${item.retractedBy ?? item.postedBy} — closed unresolved.`, item.projectId),
+      },
+      metadata: meta,
+    }
+  }
   return {
     kind: 'task',
     id: item.id,

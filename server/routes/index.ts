@@ -69,6 +69,7 @@ import type {
   A2aRpcRequest,
   A2aTextPart,
   ImportAgentCardRequest,
+  PostWorkItemCommentRequest,
   ProjectEffectType,
   AuthAccount,
   CapabilityRequest,
@@ -1256,6 +1257,29 @@ export function buildRouter(): Router {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     sendJson(res, store.postOpenSubGoal(params.id, { ...input, subGoal: input.subGoal.trim() }, store.identity(req.headers).tenant.id))
   })
+  // D23 — the item's flat discussion thread: anyone who can SEE the project may
+  // comment (the same wall as reading the backlog); attribution is the display name.
+  r.post('/projects/:id/open-subgoals/:itemId/comments', async ({ req, res, params, body }) => {
+    const input = await body<PostWorkItemCommentRequest>()
+    if (typeof input?.body !== 'string' || !input.body.trim()) {
+      return sendError(res, 'bad_request', 'a non-empty comment body is required')
+    }
+    if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+    const out = store.commentOnOpenSubGoal(params.id, params.itemId, input.body, store.identity(req.headers).tenant.id)
+    if (out === undefined) return sendError(res, 'not_found', `No work item '${params.itemId}'`)
+    if (out === 'capped') return sendError(res, 'conflict', 'This item’s discussion is at its cap')
+    sendJson(res, out)
+  })
+  // D23 — the honest close: poster-or-owner only, open items only (a done item is
+  // immutable history). The same store method serves A2A tasks/cancel.
+  r.post('/projects/:id/open-subgoals/:itemId/retract', ({ req, res, params }) => {
+    if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+    const out = store.retractOpenSubGoal(params.id, params.itemId, store.identity(req.headers).tenant.id)
+    if (out === undefined) return sendError(res, 'not_found', `No work item '${params.itemId}'`)
+    if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the poster or the project owner may retract an item')
+    if (out === 'closed') return sendError(res, 'conflict', 'Only an open item can be retracted')
+    sendJson(res, out)
+  })
 
   // ── A2A: the protocol edge (docs/a2a-integration.md, D20) ──────────────────
   // The platform-shell objects re-served in the Agent2Agent wire format — pure
@@ -1337,7 +1361,14 @@ export function buildRouter(): Router {
       return rpcResult(res, id, taskFromOpenSubGoal(item))
     }
     if (rpc.method === 'tasks/cancel') {
-      return rpcError(res, id, A2A_ERROR.taskNotCancelable, 'The backlog has no retract act yet; an open item stays visible until taken')
+      // The native retract act (D23), spoken in protocol: same store method, same
+      // authorization (the caller's identity must be the poster's — or the owner's).
+      const taskId = rpc.params?.id
+      const out = typeof taskId === 'string' ? store.retractOpenSubGoal(params.id, taskId, store.identity(req.headers).tenant.id) : undefined
+      if (out === undefined) return rpcError(res, id, A2A_ERROR.taskNotFound, `No task '${typeof taskId === 'string' ? taskId : ''}'`)
+      if (out === 'forbidden') return rpcError(res, id, A2A_ERROR.taskNotCancelable, 'Only the poster or the Project owner may cancel a task')
+      if (out === 'closed') return rpcError(res, id, A2A_ERROR.taskNotCancelable, 'Only an open task can be canceled — this one already completed or was canceled')
+      return rpcResult(res, id, taskFromOpenSubGoal(out))
     }
     rpcError(res, id, A2A_ERROR.methodNotFound, `Unknown method '${rpc.method}'`)
   })
