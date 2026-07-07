@@ -169,7 +169,7 @@ only when shipped.
 | # | Slice | Ships | Status |
 |---|---|---|---|
 | R1 | **Focus seam** — `FocusTarget` + controller `pendingFocus`/`consumeFocus` + nav entry points (`openWorkItem`/`openProposal`/`openAgent`) recording history | `src/lib/focusTarget.ts`, controller wiring, `tests/nav.test.ts` (+ focus helper tests) | ☐ |
-| R2 | **Contract ids** — `workItemId?`/`proposalId?`/`commentId?` on `AppNotification`; populate at every mint site (public-face) | `contract/notifications.ts`, `server/store.ts`, `tests/*` (mint sites carry the ids) | ☐ |
+| R2 | **Contract ids** — `workItemId?`/`proposalId?`/`commentId?` on `AppNotification`; populate at every mint site (public-face) | `contract/notifications.ts`, `server/store.ts`, `tests/notifications.test.ts` (3 R2 tests) | ✅ |
 | R3 | **Exhaustive door switch** — `doorFor(n): NavIntent` with `never` default; panel routes through it; the every-kind-has-a-door test | `NotificationsPanel.tsx`, `tests/notification-doors.test.ts` | ☐ |
 | R4 | **Work-item doors live** — project page consumes work-item focus (scroll + highlight + thread expand + comment anchor); route `work.*` + `mentioned` | `SectionView.tsx` (`OpenWorkList`/`WorkItemRow`), `e2e/*`, tests | ☐ |
 | R5 | **Proposal doors live** — agent detail / directory consume proposal focus (own→review dialog, proposer→Your proposals; scroll + highlight + thread) | `SectionView.tsx`, tests | ☐ |

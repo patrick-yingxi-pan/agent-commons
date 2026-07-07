@@ -8,6 +8,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from '../server/store.ts'
+import { accounts } from '../server/accounts.ts'
 import { call } from './helpers/http.ts'
 
 const A = 'tenant-ntf-A' // project owner
@@ -144,4 +145,58 @@ test('the per-tenant cap evicts oldest — a pointer cache, not a second history
   assert.ok(mine.length <= 200, 'capped')
   assert.ok(capRows.some((x) => x.subGoal === `cap-${n}-204`), 'newest kept')
   assert.ok(!capRows.some((x) => x.subGoal === `cap-${n}-0`), 'oldest evicted')
+})
+
+// ── Notification routing (docs/notification-routing.md, R2) ──────────────────
+// Every bell is a DOOR; a coarse door (the project page, the Agents section) makes
+// the recipient hunt for the thing. These lock that the id needed to land on the
+// EXACT sub-entity rides the wire — public-face (a work item / proposal / comment
+// the recipient may already see), never a raw tenant id.
+
+test('R2 — work notifications carry the item id (and comment id) so the door lands on the exact thread', async () => {
+  const { projectId } = await arena()
+  const item = (await call('POST', `/projects/${projectId}/open-subgoals`, { subGoal: `door-${(n += 1)}`, type: 'charge', target: 'budget:demo' }, { 'x-tenant-id': B })).json
+  await call('POST', `/projects/${projectId}/open-subgoals/${item.id}/comments`, { body: 'hi' }, { 'x-tenant-id': A })
+  await call('POST', `/projects/${projectId}/open-subgoals/${item.id}/retract`, undefined, { 'x-tenant-id': B })
+
+  const posted = (await inbox(C)).find((x) => x.kind === 'work.posted' && x.workItemId === item.id)
+  assert.ok(posted, 'work.posted anchors the item')
+  const commented = (await inbox(B)).find((x) => x.kind === 'work.commented' && x.workItemId === item.id)
+  assert.ok(commented, 'work.commented anchors the item')
+  assert.ok(String(commented.commentId ?? '').startsWith(item.id), 'and anchors the exact comment (#issuecomment-N)')
+  const retracted = (await inbox(C)).find((x) => x.kind === 'work.retracted' && x.workItemId === item.id)
+  assert.ok(retracted, 'work.retracted anchors the item')
+  assert.ok((await inbox(C)).every((x) => !('tenantId' in x)), 'no tenant id leaks through the id fields')
+})
+
+test('R2 — @mention carries the item + the naming comment, so the door opens the thread on that comment', async () => {
+  const { projectId } = await arena()
+  const target = accounts.createWorkspace('user-local', `Pinged ${(n += 1)}`) // a registered, mentionable workspace
+  assert.ok(target)
+  const item = (await call('POST', `/projects/${projectId}/open-subgoals`, { subGoal: `mnt-${n}`, type: 'charge', target: 'budget:demo' }, { 'x-tenant-id': B })).json
+  await call('POST', `/projects/${projectId}/open-subgoals/${item.id}/comments`, { body: `@${target!.name} take a look` }, { 'x-tenant-id': B })
+  const rung = (await inbox(target!.id)).find((x) => x.kind === 'mentioned' && x.workItemId === item.id)
+  assert.ok(rung, 'the mention anchors the item')
+  assert.ok(String(rung.commentId ?? '').startsWith(item.id), 'and the exact comment that named them')
+})
+
+test('R2 — proposal notifications carry the proposal id (and comment id), public-face', async () => {
+  const agent = store.createAgent({ label: `Door Agent ${(n += 1)}`, systemPrompt: 'x', tools: [], instructions: '' }, A)
+  await call('PATCH', `/agents/${agent.id}`, { published: true }, { 'x-tenant-id': A })
+  const proposal = store.proposeAgentChange(agent.id, { fields: { label: `Door Agent v2 ${n}` }, note: 'rename' }, B)
+  assert.ok(proposal && typeof proposal === 'object' && 'id' in proposal, 'proposal opened')
+  const pid = (proposal as { id: string }).id
+
+  const opened = (await inbox(A)).find((x) => x.kind === 'proposal.opened' && x.agentId === agent.id)
+  assert.equal(opened?.proposalId, pid, 'proposal.opened anchors the proposal (owner’s review door)')
+
+  store.commentOnAgentProposal(agent.id, pid, 'looks good', A) // owner → proposer's bell
+  const commented = (await inbox(B)).find((x) => x.kind === 'proposal.commented' && x.agentId === agent.id)
+  assert.equal(commented?.proposalId, pid, 'proposal.commented anchors the proposal')
+  assert.ok(String(commented?.commentId ?? '').startsWith(pid), 'and the exact proposal comment')
+
+  store.resolveAgentProposal(agent.id, pid, A, 'merge') // owner merges → proposer's bell
+  const merged = (await inbox(B)).find((x) => x.kind === 'proposal.merged' && x.agentId === agent.id)
+  assert.equal(merged?.proposalId, pid, 'proposal.merged anchors the proposal')
+  assert.ok((await inbox(B)).every((x) => !('tenantId' in x)), 'no tenant id leaks')
 })

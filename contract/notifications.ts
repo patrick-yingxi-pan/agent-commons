@@ -37,7 +37,19 @@ export interface AppNotification {
   projectName?: string
   /** The work item's sub-goal (`work.*` kinds). */
   subGoal?: string
-  /** The forked definition (`agent.forked`) — the SOURCE agent's id + label. */
+  /** The work item's id (`work.*` / `mentioned`) — the focus target the door lands
+   *  ON inside the project page (scroll + highlight the row, expand its thread). A
+   *  public id of a backlog the recipient may already see; never a tenant id. */
+  workItemId?: string
+  /** The change proposal's id (`proposal.*`) — the focus target inside the agent's
+   *  review surface. A party-visible id, never a tenant id. */
+  proposalId?: string
+  /** A specific comment to anchor within a thread (`work.commented`, `mentioned`,
+   *  `proposal.commented`) — the platform's `#issuecomment-N`. */
+  commentId?: string
+  /** The forked definition (`agent.forked`) — the SOURCE agent's id + label. (The
+   *  door lands on the source the recipient OWNS, never the fork — a private agent of
+   *  the forker the source owner may not see: the D24 leak-wall.) */
   agentId?: string
   agentLabel?: string
 }

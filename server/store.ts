@@ -2499,6 +2499,7 @@ export const store = {
       actor: proposal.proposedBy,
       agentId,
       agentLabel: agent.label,
+      proposalId: proposal.id,
     })
     persist()
     return serveProposal(proposal, agent)
@@ -2535,12 +2536,13 @@ export const store = {
     if (proposal.status !== 'open') return 'closed'
     const comments = (proposal.comments ??= [])
     if (comments.length >= MAX_WORK_ITEM_COMMENTS) return 'capped'
-    comments.push({
+    const comment = {
       id: `${proposal.id}-c${comments.length + 1}`, // append-only ⇒ stable count ⇒ unique
       author: tenantName(tenantId),
       body: body.trim().slice(0, MAX_WORK_ITEM_COMMENT_CHARS),
       at: Date.now(),
-    })
+    }
+    comments.push(comment)
     // NB: no `@mention` fan-out here (unlike commentOnOpenSubGoal, D29). A proposal
     // thread is parties-only (proposer ↔ owner) over a definition that need not be
     // public; naming a third party would leak the proposal's existence to a non-party.
@@ -2549,6 +2551,8 @@ export const store = {
       actor: tenantName(tenantId),
       agentId,
       agentLabel: agent.label,
+      proposalId: proposal.id,
+      commentId: comment.id,
     })
     persist()
     return serveProposal(proposal, agent)
@@ -2605,6 +2609,7 @@ export const store = {
       actor: tenantName(tenantId),
       agentId,
       agentLabel: WORKER_AGENTS.get(agentId)?.label ?? agent.label,
+      proposalId: proposal.id,
     })
     persist()
     return publicProposal(proposal)
@@ -2871,6 +2876,7 @@ export const store = {
       projectId,
       projectName: findProject(projectId)?.name ?? '',
       subGoal: item.subGoal,
+      workItemId: item.id,
     })
     this.dispatchOpenSubGoal(item)
     emit({ type: 'openwork.changed', projectId })
@@ -2917,6 +2923,7 @@ export const store = {
           projectId: item.projectId,
           projectName: findProject(item.projectId)?.name ?? '',
           subGoal: item.subGoal,
+          workItemId: item.id,
         })
       }
       return true
@@ -2937,7 +2944,7 @@ export const store = {
     // Parse mentions from the STORED text (trimmed + sliced) so a mention past the
     // char cap — not visible in the comment — never notifies.
     const storedBody = body.trim().slice(0, MAX_WORK_ITEM_COMMENT_CHARS)
-    comments.push({
+    const comment = {
       // Deterministic per-item id: comments are append-only (no delete act), so the
       // running count is stable — no new persisted sequence needed.
       id: `${item.id}-c${comments.length + 1}`,
@@ -2945,7 +2952,8 @@ export const store = {
       author: verifiedPeer ?? tenantName(tenantId),
       body: storedBody,
       at: Date.now(),
-    })
+    }
+    comments.push(comment)
     const project = findProject(projectId)
     const projectName = project?.name ?? ''
     // D29 — `@mention` fan-out, but ONLY on a shared Project: its backlog is already
@@ -2962,6 +2970,8 @@ export const store = {
       projectId,
       projectName,
       subGoal: item.subGoal,
+      workItemId: item.id,
+      commentId: comment.id,
     })
     if (mentioned.size > 0) {
       notifyTenants(mentioned, tenantId, {
@@ -2970,6 +2980,8 @@ export const store = {
         projectId,
         projectName,
         subGoal: item.subGoal,
+        workItemId: item.id,
+        commentId: comment.id,
       })
     }
     emit({ type: 'openwork.changed', projectId })
@@ -3003,6 +3015,7 @@ export const store = {
       projectId,
       projectName: findProject(projectId)?.name ?? '',
       subGoal: item.subGoal,
+      workItemId: item.id,
     })
     emit({ type: 'openwork.changed', projectId })
     persist()
