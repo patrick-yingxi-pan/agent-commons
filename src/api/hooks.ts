@@ -16,6 +16,7 @@ import type {
   Authority,
   Commission,
   AgentChangeProposal,
+  AgentResolvedItem,
   AppNotification,
   OpenSubGoal,
   OwnerProfile,
@@ -270,6 +271,13 @@ export function useAgentDirectory(q?: string): QueryState<AgentDirectoryEntry[]>
  *  proposer their own. `enabled: false` holds the fetch until a dialog opens. */
 export function useAgentProposals(agentId: string, enabled = true): QueryState<AgentChangeProposal[]> {
   return useQuery(keys.agentProposals(agentId), () => apiGet<AgentChangeProposal[]>(paths.agentProposals(agentId)), enabled)
+}
+
+/** A published definition's resolved-work track record (D13/S10) — the concrete,
+ *  P8-redacted acts behind its contribution count. `enabled: false` holds the fetch
+ *  until the detail dialog opens. */
+export function useAgentResolvedWork(agentId: string, enabled = true): QueryState<AgentResolvedItem[]> {
+  return useQuery(keys.agentResolvedWork(agentId), () => apiGet<AgentResolvedItem[]>(paths.agentResolvedWork(agentId)), enabled)
 }
 
 /** The caller's notification inbox (D24), newest first — refreshed live by the

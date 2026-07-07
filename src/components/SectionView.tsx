@@ -143,6 +143,7 @@ import {
   API_BASE,
   useAgents,
   useAgentDirectory,
+  useAgentResolvedWork,
   useAuditLog,
   useCommissions,
   useCommissionAuthority,
@@ -3561,6 +3562,39 @@ function ProposalFieldDiff({
   )
 }
 
+/** A published definition's resolved-work TRACK RECORD (surface-audit S10) — the
+ *  concrete acts behind its D13 contribution count (a number that is a lineage), the way
+ *  a contribution graph links to the actual work. P8-REDACTED server-side to shared-
+ *  Project resolutions; each row deep-links to the project it happened on (closing the
+ *  detail dialog first). Reuses the changelog list's styling so the two read as one. */
+function AgentResolvedWork({ agentId, onClose }: { agentId: string; onClose: () => void }) {
+  const rel = useRelations()
+  const items = useAgentResolvedWork(agentId).data ?? []
+  if (items.length === 0) return null
+  return (
+    <FormField label={`Resolved work (${items.length})`}>
+      <ul className="max-h-24 space-y-1 overflow-y-auto rounded-lg border border-line bg-panel-2 p-2.5 text-[11px] leading-snug text-ink-soft">
+        {items.map((it, i) => (
+          <li key={`${it.projectId}-${it.resolvedAt}-${i}`} className="flex items-baseline gap-1.5">
+            <span className="min-w-0 flex-1 truncate">{it.subGoal}</span>
+            <button
+              onClick={() => {
+                onClose()
+                rel.navigate('projects', it.projectId)
+              }}
+              className={INLINE_ACTION_CLASS}
+              title={`Open ${it.projectName}`}
+            >
+              {it.projectName}
+            </button>
+            <span className="shrink-0 text-ink-faint">{relativeTime(it.resolvedAt)}</span>
+          </li>
+        ))}
+      </ul>
+    </FormField>
+  )
+}
+
 /** The version-history timeline of a published definition (D25) — one line per
  *  version: who authored it (a merged proposal, or the owner's own edit), the note, and
  *  when, newest first. A version badge is a number where a lineage lives; this is the
@@ -5004,6 +5038,8 @@ function AgentDetailDialog({
           Propose a change
         </button>
       </p>
+      {/* S10 — the acts behind the contribution count (P8-redacted to shared projects). */}
+      <AgentResolvedWork agentId={entry.id} onClose={onClose} />
       <p className="text-[11px] text-ink-faint">
         Forking copies the definition — you grant your own model &amp; authority (D18).
       </p>

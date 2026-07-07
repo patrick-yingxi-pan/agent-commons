@@ -137,6 +137,17 @@ export interface OwnerActivity {
   agentId?: string
 }
 
+/** One item a published Agent resolved on a SHARED Project (D13 — the concrete acts
+ *  behind the contribution count, the way a contribution graph links to the actual
+ *  work). Public-face and P8-REDACTED: only resolutions on shared Projects are served —
+ *  a private-Project resolution never appears here (it isn't publicly visible). */
+export interface AgentResolvedItem {
+  projectId: string
+  projectName: string
+  subGoal: string
+  resolvedAt: number
+}
+
 export interface OwnerProfileStats {
   sharedProjects: number
   publishedAgents: number

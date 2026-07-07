@@ -1299,6 +1299,13 @@ export function buildRouter(): Router {
     if (out === undefined) return sendError(res, 'not_found', `No agent '${params.id}'`)
     sendJson(res, out)
   })
+  // S10 — the concrete work an Agent resolved (D13 track record); same existence-hiding
+  // 404 as the proposal read, P8-redacted to shared-Project items only (in the store).
+  r.get('/agents/:id/resolved-work', ({ req, res, params }) => {
+    const out = store.agentResolvedWork(params.id, store.identity(req.headers).tenant.id)
+    if (out === undefined) return sendError(res, 'not_found', `No agent '${params.id}'`)
+    sendJson(res, out)
+  })
   // D27 — the proposal's discussion thread: its two parties only (anyone else gets
   // the same 404 the list read gives); open proposals only.
   r.post('/agents/:id/proposals/:pid/comments', async ({ req, res, params, body }) => {

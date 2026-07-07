@@ -73,7 +73,7 @@ import { ConflictError } from './conflict.ts'
 import { LimitError } from './limit.ts'
 import { scopeMatches } from './runner-runtime.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../contract/index.ts'
-import type { Agent, AgentChangeProposal, AgentDirectoryEntry, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelProvider, OpenSubGoal, OwnerActivity, OwnerProfile, PostOpenSubGoalRequest, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState } from '../contract/index.ts'
+import type { Agent, AgentChangeProposal, AgentDirectoryEntry, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelProvider, OpenSubGoal, OwnerActivity, OwnerProfile, PostOpenSubGoalRequest, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
@@ -2514,6 +2514,28 @@ export const store = {
     const list = AGENT_PROPOSALS.get(agentId) ?? []
     const owner = (agent.tenantId ?? defaultTenantId()) === tenantId
     return list.filter((p) => owner || p.proposedByTenant === tenantId).map((p) => serveProposal(p, agent))
+  },
+  /** D13 — the concrete work an Agent RESOLVED, the acts behind its contribution count
+   *  (surface-audit S10: a number that is a lineage). Same existence-hiding gate as the
+   *  proposal read (invisible agent ⇒ undefined ⇒ 404). The list is PUBLIC-FACE and
+   *  P8-REDACTED, the load-bearing wall: an item is included ONLY if its Project is
+   *  SHARED — a resolution on a PRIVATE Project is publicly invisible and must never
+   *  leak here (the same `project.shared !== true` skip the profile's resolved-activity
+   *  uses). Attribution is the resolving commission's Agent — so it survives the
+   *  commission still existing (a deleted commission drops its items, like an
+   *  unpublished changelog drops off, rather than inventing an attribution). */
+  agentResolvedWork(agentId: string, tenantId: string): AgentResolvedItem[] | undefined {
+    const agent = WORKER_AGENTS.get(agentId)
+    if (!agent || !(agent.published === true || registryVisible(agent, tenantId))) return undefined
+    const out: AgentResolvedItem[] = []
+    for (const item of openSubGoals) {
+      if (item.status !== 'done' || !item.resolvedBy) continue
+      const project = findProject(item.projectId)
+      if (!project || project.shared !== true) continue // P8 REDACTION — private resolutions never leak
+      if (COMMISSIONS.get(item.resolvedBy)?.agentId !== agentId) continue
+      out.push({ projectId: project.id, projectName: project.name, subGoal: item.subGoal, resolvedAt: item.resolvedAt ?? item.postedAt })
+    }
+    return out.sort((a, b) => b.resolvedAt - a.resolvedAt)
   },
   /** Comment on a proposal's thread (D27) — writable by exactly its TWO parties
    *  (proposer ↔ owner, raw tenant ids), while open (the verdict ends the

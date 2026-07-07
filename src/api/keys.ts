@@ -29,6 +29,8 @@ export const keys = {
   directoryAgents: (q?: string) => (q ? `directory-agents:${q}` : 'directory-agents'),
   /** A published definition's review queue (D25) — keyed per agent. */
   agentProposals: (agentId: string) => `agent-proposals:${agentId}`,
+  /** A published definition's resolved-work track record (D13/S10) — keyed per agent. */
+  agentResolvedWork: (agentId: string) => `agent-resolved-work:${agentId}`,
   /** The caller's notification inbox (D24) + per-project watch state. */
   notifications: 'notifications',
   projectWatch: (projectId: string) => `project-watch:${projectId}`,
@@ -108,6 +110,7 @@ export const paths = {
   directoryAgents: (q?: string) => (q ? `/directory/agents?q=${encodeURIComponent(q)}` : '/directory/agents'),
   /** Change proposals against a published definition (D25). */
   agentProposals: (agentId: string) => `/agents/${encodeURIComponent(agentId)}/proposals`,
+  agentResolvedWork: (agentId: string) => `/agents/${encodeURIComponent(agentId)}/resolved-work`,
   agentProposalMerge: (agentId: string, pid: string) =>
     `/agents/${encodeURIComponent(agentId)}/proposals/${encodeURIComponent(pid)}/merge`,
   agentProposalDecline: (agentId: string, pid: string) =>
