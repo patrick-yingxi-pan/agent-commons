@@ -47,6 +47,15 @@ test('the README is public on a shared project; instructions stay private; the o
   const after = (await call('GET', '/relations', undefined, { 'x-tenant-id': A })).json
   assert.equal(after.projectReadmes[projectId], 'What this is, and how to contribute.', 'unchanged')
 
+  // A malformed readme (the one op field the SHARED reducer calls a method on)
+  // answers 400, not a 500 from a TypeError inside the reducer (review finding).
+  const malformed = await call(
+    'POST', '/relations/ops',
+    { op: { kind: 'set-project-readme', projectId, projectName: `Readme ${n}`, readme: 123 } },
+    { 'x-tenant-id': A },
+  )
+  assert.equal(malformed.status, 400)
+
   // Un-share ⇒ the visitor loses the row (the projection re-checks at read time).
   store.applyRelationOp({ kind: 'share-project', projectId, projectName: `Readme ${n}`, shared: false }, A)
   const dark = (await call('GET', '/relations', undefined, { 'x-tenant-id': B })).json

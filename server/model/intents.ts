@@ -210,6 +210,18 @@ function matchKeywords(text: string): ToolCall[] {
     }
   }
 
+  // ── The project README (D26): "write/update the readme for X (saying "…")" ──
+  if (!calls.length && /\breadme\b/.test(t)) {
+    const readmeProject =
+      grab(/\breadme\s+(?:for|on|of)\s+(?:the\s+)?["“]?([A-Za-z0-9][A-Za-z0-9 -]*?)["”]?(?:\s+(?:project|saying|that)\b|[.,!]|$)/i) ?? project
+    if (readmeProject) {
+      const body =
+        grab(/(?:saying|that says|body)\s+["“]([^"”]+)["”]/i) ??
+        'What this project is, who it serves, and how to contribute — start with the open work list.'
+      calls.push({ name: 'set_project_readme', input: { project: readmeProject, readme: body } })
+    }
+  }
+
   // ── Attach / scope a connector ────────────────────────────────────────────
   const connector = grab(/\b(?:attach|connect|scope)\s+([A-Za-z][A-Za-z ]*?)(?:\s+to\b|[.,!]|$)/i)
   if (connector && !hasSchedule) {

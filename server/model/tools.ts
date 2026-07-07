@@ -344,6 +344,19 @@ const TOOLS: ToolSpec[] = [
     },
   },
   {
+    name: 'set_project_readme',
+    description: "Update a project's README — the PUBLIC 'about' every viewer of a shared project reads (unlike instructions, which stay private to the owner). Edits the project's public face (D26).",
+    properties: {
+      project: { type: 'string', description: 'The project to update.' },
+      readme: { type: 'string', description: 'The new README text (plain text).' },
+    },
+    required: ['project', 'readme'],
+    build: (input) => {
+      const p = resolveProject(str(input.project))
+      return { relationOps: [{ kind: 'set-project-readme', projectId: p.id, projectName: p.name, readme: str(input.readme) }], summary: `Proposed updating ${p.name}'s README; awaiting confirmation.` }
+    },
+  },
+  {
     name: 'link_schedule_project',
     description: "Link a recurring schedule to a project so its cadence lives with the project (or unlink it). Edits the project ↔ schedule relation.",
     properties: {

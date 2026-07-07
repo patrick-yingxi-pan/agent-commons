@@ -18,10 +18,11 @@ test('every tour beat resolves to exactly the tool calls it scripts (fixed-strin
 })
 
 /** The Agent Commons CRUD tools (D6/D9/D10/D7) — Claude managing the multi-tenant
- *  concepts. They're shown via free-typed requests, not the linear narrative tour
- *  (which is the chat→workspace→repo→organize story), so they're excluded from the
- *  tour-completeness invariant and covered by the keyword tests below instead. */
-const COMMONS_TOOLS = ['create_provider', 'create_system_prompt', 'create_agent', 'commission_agent', 'uncommission_agent', 'handoff_agent', 'set_commission_cap']
+ *  concepts — plus the D26 README setter. They're shown via free-typed requests,
+ *  not the linear narrative tour (which is the chat→workspace→repo→organize
+ *  story), so they're excluded from the tour-completeness invariant and covered
+ *  by the keyword tests below instead. */
+const COMMONS_TOOLS = ['create_provider', 'create_system_prompt', 'create_agent', 'commission_agent', 'uncommission_agent', 'handoff_agent', 'set_commission_cap', 'set_project_readme']
 
 test('the tour exercises every relation/escalation tool (the Agent Commons CRUD tools are shown via free-typed requests)', () => {
   const used = new Set(TOUR_TURNS.flatMap((t) => t.calls.map((c) => c.name)))
@@ -46,6 +47,10 @@ test('keyword fallback: free-typed organizing requests pick the right tools', ()
   assert.equal(matchIntents('attach Linear to this session').at(0)?.name, 'attach_context')
   assert.equal(matchIntents('file this under the Growth experiments project').at(0)?.name, 'file_session')
   assert.equal(matchIntents('create a project called Q3 Planning').at(0)?.name, 'create_project')
+  // D26 — the conversational README (the claim the design log makes, exercised).
+  const readme = matchIntents('Write a readme for the Insights dashboard saying “Ship weekly, measure everything.”').at(0)
+  assert.equal(readme?.name, 'set_project_readme')
+  assert.equal((readme?.input as { readme?: string })?.readme, 'Ship weekly, measure everything.')
 })
 
 test('keyword fallback: Agent Commons management requests pick the right CRUD tools', () => {
@@ -87,6 +92,7 @@ test('every Agent Commons CRUD tool is exercised by a keyword pattern (none ship
       'Uncommission Scout from the Insights dashboard project',
       'Hand this conversation off to Scout',
       'Set the commission cap on Insights dashboard to 3',
+      'Write a readme for the Insights dashboard', // D26 — the conversational README
     ].flatMap((m) => matchIntents(m).map((c) => c.name)),
   )
   for (const t of COMMONS_TOOLS) assert.ok(exercised.has(t), `${t} is exercised by a keyword pattern`)

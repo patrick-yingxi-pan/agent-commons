@@ -2319,6 +2319,12 @@ export function buildRouter(): Router {
   r.post('/relations/ops', idempotent(async ({ req, res, body }) => {
     const { op } = await body<ApplyOpRequest>()
     if (!op || typeof op.kind !== 'string') return sendError(res, 'bad_request', 'op is required')
+    // The one op field the SHARED reducer calls a method on (review finding): a
+    // non-string readme would TypeError inside applyGraphOp → a 500 where every
+    // sibling malformed input answers 400. Guard the shape here.
+    if (op.kind === 'set-project-readme' && typeof op.readme !== 'string') {
+      return sendError(res, 'bad_request', 'readme (string) is required')
+    }
     // Pass the caller's tenant so a created project is stamped with it (F2/PD9); the
     // returned graph is projected to that tenant too (applyRelationOp handles both).
     const tenantId = store.identity(req.headers).tenant.id
