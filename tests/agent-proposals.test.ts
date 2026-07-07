@@ -125,6 +125,35 @@ test('published owner-edits version (with changelog); private edits are drafts; 
   assert.equal(store.listAgents(A).find((a) => a.id === draft.id)?.version, undefined)
 })
 
+test('a merged bespoke prompt survives an unrelated owner edit (review finding)', async () => {
+  const agent = await publishedAgent()
+  const opened = await propose(agent.id, B, { systemPrompt: 'the merged bespoke prompt' })
+  await call('POST', `/agents/${agent.id}/proposals/${opened.json.id}/merge`, undefined, { 'x-tenant-id': A })
+
+  // The owner renames WITHOUT touching the prompt binding (the fixed dialog omits
+  // systemPromptId when the picker is untouched) — the merged prompt must survive.
+  const renamed = await call('PATCH', `/agents/${agent.id}`, { label: 'Renamed after merge' }, { 'x-tenant-id': A })
+  assert.equal(renamed.json.systemPrompt, 'the merged bespoke prompt', 'an absent binding keeps the bespoke prompt')
+  // The regression shape: sending systemPromptId '' resolves to the DEFAULT body —
+  // which is why the dialog must only send the binding when it actually changed.
+  const cleared = await call('PATCH', `/agents/${agent.id}`, { systemPromptId: '' }, { 'x-tenant-id': A })
+  assert.notEqual(cleared.json.systemPrompt, 'the merged bespoke prompt', 'an EXPLICIT clear is a real act (resets to default)')
+})
+
+test('verdict walls hide existence like every sibling: unpublished + foreign ⇒ 404, never 403 (review finding)', async () => {
+  const agent = await publishedAgent()
+  const opened = await propose(agent.id, B, { instructions: 'pending when unpublished' })
+  await call('PATCH', `/agents/${agent.id}`, { published: false }, { 'x-tenant-id': A })
+
+  // A bystander probing a guessable proposal id on the now-invisible agent: 404
+  // (a 403 would confirm "alive, with proposals").
+  const probe = await call('POST', `/agents/${agent.id}/proposals/${opened.json.id}/merge`, undefined, { 'x-tenant-id': C })
+  assert.equal(probe.status, 404)
+  // The OWNER can still resolve the queue of their unpublished agent.
+  const merged = await call('POST', `/agents/${agent.id}/proposals/${opened.json.id}/merge`, undefined, { 'x-tenant-id': A })
+  assert.equal(merged.status, 200)
+})
+
 test('the open-queue cap answers 409', async () => {
   const agent = await publishedAgent()
   for (let i = 0; i < 20; i += 1) {

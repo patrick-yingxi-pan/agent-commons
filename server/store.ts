@@ -1418,6 +1418,11 @@ export const store = {
         `${commissioned.length} commission${commissioned.length === 1 ? '' : 's'} still ${commissioned.length === 1 ? 'assigns' : 'assign'} this agent — remove ${commissioned.length === 1 ? 'it' : 'them'} first.`,
       )
     }
+    // D25 hygiene (review finding): drop the agent's proposal queue with it — an
+    // orphaned list would ride the snapshot forever. AFTER the guards: a refused
+    // delete (409) must not lose the queue. No id-reuse hazard (agent ids mint
+    // from a persisted counter), so this is storage hygiene, not correctness.
+    AGENT_PROPOSALS.delete(id)
     WORKER_AGENTS.delete(id)
     persist()
     return true
@@ -2420,9 +2425,14 @@ export const store = {
   ): AgentChangeProposal | 'forbidden' | 'closed' | undefined {
     const agent = WORKER_AGENTS.get(agentId)
     if (!agent) return undefined
+    const owner = (agent.tenantId ?? defaultTenantId()) === tenantId
+    // Visibility BEFORE authorization (review finding): to a caller the agent is
+    // invisible to (unpublished + foreign), a guessable proposal id must answer
+    // 404 like everything else — a 403 would confirm "alive, with proposals".
+    if (!owner && agent.published !== true) return undefined
     const proposal = (AGENT_PROPOSALS.get(agentId) ?? []).find((p) => p.id === proposalId)
     if (!proposal) return undefined
-    if ((agent.tenantId ?? defaultTenantId()) !== tenantId) return 'forbidden'
+    if (!owner) return 'forbidden'
     if (proposal.status !== 'open') return 'closed'
     proposal.resolvedAt = Date.now()
     if (action === 'merge') {

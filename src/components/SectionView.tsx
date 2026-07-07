@@ -3458,12 +3458,17 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
     const fields = {
       label: label.trim(),
       providerId,
-      systemPromptId: promptId,
+      // Send the prompt binding only when the picker actually CHANGED (review
+      // finding): an agent carrying a bespoke prompt (a merged proposal, a fork)
+      // has no systemPromptId, so its picker shows '' ("Default") — sending that
+      // unconditionally resolved to the default BODY and silently destroyed the
+      // merged prompt on any unrelated edit (a rename would revert v2 → default).
+      ...(promptId !== (agent?.systemPromptId ?? '') ? { systemPromptId: promptId } : {}),
       instructions: instructions.trim(),
     }
     try {
       if (agent) await updateAgent(agent.id, fields)
-      else await createAgent(fields)
+      else await createAgent({ ...fields, systemPromptId: promptId })
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save this agent.')
@@ -3511,7 +3516,12 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
       </FormField>
       <FormField label="System prompt">
         <select value={promptId} onChange={(e) => onPrompt(e.target.value)} className={FORM_INPUT_CLASS}>
-          <option value="">Default prompt</option>
+          {/* An agent with a BESPOKE prompt (merged proposal, fork) has no library
+              binding — say so, instead of mislabeling it "Default". Left untouched,
+              the patch omits the binding and the custom prompt is preserved. */}
+          <option value="">
+            {agent && !agent.systemPromptId ? 'Keep current prompt (custom)' : 'Default prompt'}
+          </option>
           {prompts.map((p) => (
             <option key={p.id} value={p.id}>
               {p.label}
@@ -4641,7 +4651,13 @@ function ProposeChangeDialog({
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const changed = prompt.trim() !== entry.systemPrompt || instructions.trim() !== entry.instructions
+  // A CLEARED prompt is "keep the current one", not a change (review finding: the
+  // server drops an empty prompt, so counting it as a change either opened a
+  // proposal that didn't say what was meant, or 400'd a form that said it had
+  // changes). Proposals replace, they never erase.
+  const promptChanged = prompt.trim() !== '' && prompt.trim() !== entry.systemPrompt
+  const instructionsChanged = instructions.trim() !== entry.instructions
+  const changed = promptChanged || instructionsChanged
   const submit = async () => {
     if (busy || !changed) return
     setBusy(true)
@@ -4649,8 +4665,8 @@ function ProposeChangeDialog({
     try {
       await proposeAgentChange(entry.id, {
         fields: {
-          ...(prompt.trim() !== entry.systemPrompt ? { systemPrompt: prompt } : {}),
-          ...(instructions.trim() !== entry.instructions ? { instructions } : {}),
+          ...(promptChanged ? { systemPrompt: prompt } : {}),
+          ...(instructionsChanged ? { instructions } : {}),
         },
         note,
       })
