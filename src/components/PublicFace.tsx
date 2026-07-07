@@ -18,12 +18,18 @@ const OWNER_LINK_CLASS = 'underline decoration-line-strong underline-offset-2 tr
 export function OwnerLink({
   ownerName,
   own,
+  bare,
   onClick,
 }: {
   ownerName?: string
   own?: boolean
+  /** Render JUST the name (derived from the one label source, "by " stripped) — for
+   *  bylines embedded in a phrase that already says "posted by"/"retracted by", or a
+   *  bare comment author. Off = the standalone "by X (you)" byline. */
+  bare?: boolean
   onClick: () => void
 }) {
+  const label = bylineLabel(ownerName, own)
   return (
     <button
       onClick={(e) => {
@@ -33,7 +39,7 @@ export function OwnerLink({
       className={OWNER_LINK_CLASS}
       title="Show everything this workspace shares"
     >
-      {bylineLabel(ownerName, own)}
+      {bare ? label.replace(/^by /, '') : label}
     </button>
   )
 }

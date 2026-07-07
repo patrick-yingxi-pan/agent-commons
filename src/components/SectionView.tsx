@@ -1792,6 +1792,11 @@ function WorkItemRow({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const mayRetract = o.status === 'open' && (ownerCanModerate || o.postedBy === myName)
+  // S13 — the poster / retractedBy / comment author are workspace public identities, so
+  // each is a door to that workspace's profile (the shared OwnerLink), like every other
+  // byline. Theme #3's work-item-poster RefLink target, finally built.
+  const rel = useRelations()
+  const ownerDoor = (name: string) => rel.navigate('agents', name)
 
   // Notification door (docs/notification-routing.md, R4): when a work.* / mentioned
   // bell targets THIS item, scroll to it, flash a highlight, open its thread, and
@@ -1863,12 +1868,25 @@ function WorkItemRow({
               A verified peer credential (D28) upgrades the stamp with its registered name. */}
           {o.via === 'a2a' ? (o.verifiedPeer ? ` · via A2A · ${o.verifiedPeer} ✓` : ' · via A2A') : ''}
           {/* S3 — the lifecycle is three timestamped transitions, not just a status
-              word: carry WHEN on the terminus (posted / done / retracted). */}
-          {o.status === 'done'
-            ? ` · done by ${o.resolvedByLabel ?? 'a contributor'}${o.resolvedAt ? ` · ${relativeTime(o.resolvedAt)}` : ''}`
-            : o.status === 'retracted'
-              ? ` · retracted by ${o.retractedBy ?? o.postedBy}${o.retractedAt ? ` · ${relativeTime(o.retractedAt)}` : ''}`
-              : ` · posted by ${o.postedBy} · ${relativeTime(o.postedAt)} — awaiting a taker`}
+              word: carry WHEN on the terminus. S13 — the poster / retractedBy workspace
+              is a door (done-by is an AGENT label, not a workspace, so it stays text). */}
+          {o.status === 'done' ? (
+            <>
+              {' · '}done by {o.resolvedByLabel ?? 'a contributor'}
+              {o.resolvedAt ? ` · ${relativeTime(o.resolvedAt)}` : ''}
+            </>
+          ) : o.status === 'retracted' ? (
+            <>
+              {' · '}retracted by{' '}
+              <OwnerLink bare ownerName={o.retractedBy ?? o.postedBy} onClick={() => ownerDoor(o.retractedBy ?? o.postedBy)} />
+              {o.retractedAt ? ` · ${relativeTime(o.retractedAt)}` : ''}
+            </>
+          ) : (
+            <>
+              {' · '}posted by <OwnerLink bare ownerName={o.postedBy} onClick={() => ownerDoor(o.postedBy)} /> ·{' '}
+              {relativeTime(o.postedAt)} — awaiting a taker
+            </>
+          )}
         </div>
         <div className="mt-0.5 flex items-center gap-3 text-[11px]">
           <button onClick={() => setThreadOpen((v) => !v)} className={INLINE_ACTION_CLASS}>
@@ -1891,7 +1909,8 @@ function WorkItemRow({
                   c.id === anchorComment ? 'bg-accent-tint -mx-1 px-1' : ''
                 }`}
               >
-                <span className="font-medium text-ink">{c.author}</span>
+                {/* S13 — the comment author is a workspace door, like every other byline. */}
+                <OwnerLink bare ownerName={c.author} onClick={() => ownerDoor(c.author)} />
                 <span className="text-ink-faint"> · {relativeTime(c.at)}</span>
                 <div className="whitespace-pre-wrap">{renderCommentBody(c.body)}</div>
               </div>

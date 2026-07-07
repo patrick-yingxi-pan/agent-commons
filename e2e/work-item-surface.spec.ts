@@ -43,4 +43,11 @@ test('a work item reveals its note and a lifecycle timestamp (S3)', async ({ pag
   await expect(page.getByText(NOTE)).toBeVisible()
   // … and carries WHEN — a fresh post reads "just now" on the status line.
   await expect(page.getByText(/just now — awaiting a taker/)).toBeVisible()
+
+  // S13 — the poster byline is a DOOR to that workspace's profile, like every other
+  // byline. The bare OwnerLink's accessible name is exactly the poster's display name
+  // (the header byline reads "by X (you)", so exact-match targets the poster).
+  const me = (await page.request.get('/api/v1/me').then((r) => r.json())) as { tenant: { name: string } }
+  await page.getByRole('button', { name: me.tenant.name, exact: true }).first().click()
+  await expect(page.getByText('Recent public activity')).toBeVisible() // a profile-page section
 })
