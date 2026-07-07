@@ -2963,6 +2963,13 @@ function AgentCommonsSection({
   backTo: NavLocation | null
 }) {
   const [tab, setTab] = useState<CommonsTab>('agents')
+  // A proposal door (R5) lands on the hub → force the Agents tab so the owning
+  // agent's card (which auto-opens its review dialog) is mounted, even if the user
+  // last left the hub on another tab.
+  const { pending } = usePendingFocus()
+  useEffect(() => {
+    if (!owner && pending?.agentId && pending?.proposalId) setTab('agents')
+  }, [owner, pending])
   if (owner) {
     return <OwnerProfilePage name={owner} onOpenProject={onOpenProject} onBack={onBack} backTo={backTo} />
   }
@@ -3237,6 +3244,17 @@ function AgentCard({
   const proposals = useAgentProposals(agent.id, agent.published === true).data ?? []
   const openProposals = proposals.filter((p) => p.status === 'open')
   const [reviewing, setReviewing] = useState(false)
+  // Notification door (R5): a proposal.* bell whose recipient OWNS this agent opens
+  // the review dialog ON its proposal. Consumed once.
+  const { pending, consume } = usePendingFocus()
+  const proposalFocus = pending?.agentId === agent.id && pending?.proposalId ? pending.proposalId : null
+  const [reviewFocus, setReviewFocus] = useState<string | null>(null)
+  useEffect(() => {
+    if (!proposalFocus) return
+    setReviewing(true)
+    setReviewFocus(proposalFocus)
+    consume()
+  }, [proposalFocus, consume])
   const del = async () => {
     setError(null)
     try {
@@ -3342,7 +3360,17 @@ function AgentCard({
         )}
       </div>
       {error && <p className="mt-2 text-[12px] text-removed">{error}</p>}
-      {reviewing && <ProposalsReviewDialog agent={agent} proposals={proposals} onClose={() => setReviewing(false)} />}
+      {reviewing && (
+        <ProposalsReviewDialog
+          agent={agent}
+          proposals={proposals}
+          focusProposalId={reviewFocus}
+          onClose={() => {
+            setReviewing(false)
+            setReviewFocus(null)
+          }}
+        />
+      )}
     </CommonsCard>
   )
 }
@@ -3423,16 +3451,27 @@ function ProposalsReviewDialog({
   agent,
   proposals,
   onClose,
+  focusProposalId = null,
 }: {
   agent: Agent
   proposals: AgentChangeProposal[]
   onClose: () => void
+  /** A notification door opened this dialog ON a specific proposal (R5) — scroll it
+   *  into view and mark it. Null when opened by the Review button. */
+  focusProposalId?: string | null
 }) {
   const dialogRef = useRef<HTMLDivElement>(null)
   useFocusTrap(dialogRef, onClose)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const currentVersion = agent.version ?? 1
+  // Scroll the door's target proposal into view once it's present (the list is a
+  // live fetch, so it may arrive after the dialog opens).
+  const focusRef = useRef<HTMLDivElement>(null)
+  const focusPresent = proposals.some((p) => p.id === focusProposalId)
+  useEffect(() => {
+    if (focusProposalId && focusPresent) focusRef.current?.scrollIntoView({ block: 'center' })
+  }, [focusProposalId, focusPresent])
   const verdict = async (pid: string, action: 'merge' | 'decline') => {
     if (busy) return
     setBusy(true)
@@ -3481,8 +3520,16 @@ function ProposalsReviewDialog({
           </button>
         </div>
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-          {proposals.map((p) => (
-            <div key={p.id} className="rounded-xl border border-line p-3">
+          {proposals.map((p) => {
+            const isFocus = p.id === focusProposalId
+            return (
+            <div
+              key={p.id}
+              ref={isFocus ? focusRef : undefined}
+              className={`scroll-mt-4 rounded-xl border p-3 transition-colors ${
+                isFocus ? 'border-accent bg-accent-tint ring-1 ring-accent/40' : 'border-line'
+              }`}
+            >
               <div className="flex items-center gap-2 text-[12px]">
                 <span className="font-medium text-ink">{p.proposedBy}</span>
                 <span className="text-ink-faint">· {relativeTime(p.at)} · against v{p.baseVersion}</span>
@@ -3541,7 +3588,8 @@ function ProposalsReviewDialog({
                 <p className="mt-2 text-[11px] text-ink-faint">Owner’s note: {p.responseNote}</p>
               ) : null}
             </div>
-          ))}
+            )
+          })}
         </div>
         {error && <p className="border-t border-line px-4 py-2 text-[12px] text-removed">{error}</p>}
       </div>

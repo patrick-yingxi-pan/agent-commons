@@ -131,3 +131,48 @@ test('a work.commented bell opens the project ON the item’s thread, auto-expan
   await owner.context.close()
   await visitor.context.close()
 })
+
+test('a proposal.opened bell opens the review dialog directly ON the proposal (R5 owner focus)', async ({ browser }) => {
+  test.setTimeout(120_000)
+  const owner = await newUser(browser) // seeded default tenant — owns the agent
+  const proposer = await newUser(browser, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
+  const AGENT = `Reviewed guide ${STAMP}`
+  const NEW_PROMPT = `a sharper prompt ${STAMP}`
+  const NOTE = `please consider this ${STAMP}`
+
+  // Owner: create + publish via the API seam (as the definition-evolution spec does).
+  const created = await owner.page.request.post('/api/v1/agents', { data: { label: AGENT, tools: [], instructions: '' } })
+  const agentId = ((await created.json()) as { id: string }).id
+  await owner.page.request.patch(`/api/v1/agents/${agentId}`, { data: { published: true } })
+
+  // Proposer: Discover → View definition → Propose a change (rings the owner's bell).
+  await openApp(proposer.page)
+  await proposer.page.getByRole('navigation').getByRole('button', { name: 'Agents', exact: true }).click()
+  await proposer.page.getByRole('button', { name: 'Discover' }).click()
+  await expect(proposer.page.getByText(AGENT).first()).toBeVisible()
+  await proposer.page.locator('div').filter({ hasText: AGENT }).getByRole('button', { name: 'View definition' }).last().click()
+  await proposer.page.getByRole('button', { name: 'Propose a change' }).click()
+  await proposer.page.getByLabel('Proposed system prompt').fill(NEW_PROMPT)
+  await proposer.page.getByLabel('Proposal note').fill(NOTE)
+  await proposer.page.getByRole('button', { name: 'Open proposal' }).click()
+
+  // Owner opens the app; the bell rings proposal.opened. Clicking the NOTIFICATION —
+  // not the Review button — is the door: the review dialog opens directly, focused on
+  // the proposal (border-accent), showing its diff. That the dialog is open here
+  // WITHOUT a Review-button click is the R5 owner-side proof.
+  await openApp(owner.page)
+  await expect(owner.page.getByRole('complementary').getByLabel(/Notifications \(\d+ unread\)/)).toBeVisible({ timeout: 10_000 })
+  await owner.page.getByRole('complementary').getByLabel(/Notifications/).click()
+  await owner.page
+    .getByRole('dialog', { name: 'Notifications' })
+    .getByRole('button', { name: new RegExp(`proposed a change to .*${AGENT}`) })
+    .click()
+
+  const review = owner.page.getByRole('dialog', { name: `Proposals — ${AGENT}` })
+  await expect(review).toBeVisible()
+  await expect(review.getByText(NEW_PROMPT)).toBeVisible()
+  await expect(review.getByText(NOTE)).toBeVisible()
+
+  await owner.context.close()
+  await proposer.context.close()
+})
