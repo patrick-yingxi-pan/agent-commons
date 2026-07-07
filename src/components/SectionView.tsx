@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import {
   AlertCircle,
@@ -76,7 +76,7 @@ import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { bylineLabel, profileTitle, PROFILE_TAGLINE } from '../lib/publicFace'
 import { Byline, CreditLine, OwnerLink } from './PublicFace'
 import { resolveBackLabel, type NavLocation } from '../lib/nav'
-import { usePendingFocus } from '../lib/focusContext'
+import { usePendingFocus, useFocusFlash } from '../lib/focusContext'
 import { relativeTime } from '../lib/relativeTime'
 import { Chip } from './Chip'
 import { RowMenu, type RowMenuItem } from './RowMenu'
@@ -1774,32 +1774,20 @@ function WorkItemRow({
   // bell targets THIS item, scroll to it, flash a highlight, open its thread, and
   // (if the bell was a comment) anchor that comment. Consumed once so Back / an
   // unrelated re-render never re-fires the flash.
-  const { pending, consume } = usePendingFocus()
+  const { pending } = usePendingFocus()
   const isFocus = pending?.projectId === projectId && pending?.workItemId === o.id
   const focusCommentId = isFocus ? pending?.commentId ?? null : null
   const rowRef = useRef<HTMLDivElement>(null)
-  const [flash, setFlash] = useState(false)
   const [anchorComment, setAnchorComment] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!isFocus) return
-    // A comment / mention bell points INTO the thread → open it and anchor the
-    // comment. A posted / resolved / retracted bell has nothing to read there, so
-    // it just scrolls + flashes the row (no noisy empty-composer reveal).
+  // The shared focus-flash (scroll + highlight + consume-once). A comment / mention
+  // bell points INTO the thread → open it and anchor that comment; a posted /
+  // resolved / retracted bell just scrolls + flashes the row (no noisy composer).
+  const flash = useFocusFlash(isFocus, rowRef, () => {
     if (focusCommentId) {
       setThreadOpen(true)
       setAnchorComment(focusCommentId)
     }
-    setFlash(true)
-    rowRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-    consume() // fire once — clears the pending target
-  }, [isFocus, focusCommentId, consume])
-
-  useEffect(() => {
-    if (!flash) return
-    const t = setTimeout(() => setFlash(false), 1600)
-    return () => clearTimeout(t)
-  }, [flash])
+  })
 
   const send = async () => {
     if (busy || !draft.trim()) return
@@ -2963,12 +2951,12 @@ function AgentCommonsSection({
   backTo: NavLocation | null
 }) {
   const [tab, setTab] = useState<CommonsTab>('agents')
-  // A proposal door (R5) lands on the hub → force the Agents tab so the owning
-  // agent's card (which auto-opens its review dialog) is mounted, even if the user
-  // last left the hub on another tab.
+  // An agent door lands on the hub → force the Agents tab so the target agent's card
+  // is mounted (it auto-opens its review dialog for a proposal bell, R5, or flashes
+  // for a fork bell, R6), even if the user last left the hub on another tab.
   const { pending } = usePendingFocus()
   useEffect(() => {
-    if (!owner && pending?.agentId && pending?.proposalId) setTab('agents')
+    if (!owner && pending?.agentId) setTab('agents')
   }, [owner, pending])
   if (owner) {
     return <OwnerProfilePage name={owner} onOpenProject={onOpenProject} onBack={onBack} backTo={backTo} />
@@ -3029,8 +3017,27 @@ function SubTabs<T extends string>({
 /** The shared card shell + head for the Agents-hub lists — one icon-tile + title +
  *  subtitle row (with optional trailing slot), so the four tabs read as one system
  *  (form follows function). The body below the head is each card's own children. */
-function CommonsCard({ children }: { children: ReactNode }) {
-  return <div className="group rounded-xl border border-line bg-surface p-4 shadow-sm">{children}</div>
+function CommonsCard({
+  children,
+  cardRef,
+  flash = false,
+}: {
+  children: ReactNode
+  /** Set by a notification-door target (R6) so the card can scroll itself into view. */
+  cardRef?: RefObject<HTMLDivElement | null>
+  /** Lit briefly when a door lands on this card (the shared focus-flash cue). */
+  flash?: boolean
+}) {
+  return (
+    <div
+      ref={cardRef}
+      className={`group scroll-mt-6 rounded-xl border bg-surface p-4 shadow-sm transition-colors ${
+        flash ? 'border-accent bg-accent-tint ring-1 ring-accent/40' : 'border-line'
+      }`}
+    >
+      {children}
+    </div>
+  )
 }
 
 /** The shared input style for the hub's form dialogs — one source so every field reads
@@ -3255,6 +3262,12 @@ function AgentCard({
     setReviewFocus(proposalFocus)
     consume()
   }, [proposalFocus, consume])
+  // Notification door (R6): an agent.forked bell targets the SOURCE agent (which the
+  // recipient owns) with no proposalId — scroll this card into view + flash it. The
+  // shared hook consumes the pending target so it fires once.
+  const cardRef = useRef<HTMLDivElement>(null)
+  const agentFocus = pending?.agentId === agent.id && !pending?.proposalId
+  const flash = useFocusFlash(agentFocus, cardRef)
   const del = async () => {
     setError(null)
     try {
@@ -3278,7 +3291,7 @@ function AgentCard({
     }
   }
   return (
-    <CommonsCard>
+    <CommonsCard cardRef={cardRef} flash={flash}>
       <CommonsCardHead
         icon={<Bot size={16} />}
         title={agent.label}

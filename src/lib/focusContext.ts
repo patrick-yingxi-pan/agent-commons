@@ -9,7 +9,7 @@
  *  transient highlight through every intermediate signature would bloat them for a
  *  cross-cutting concern. One provider wraps `SectionView`; the leaf that matches the
  *  target consumes it. */
-import { createContext, useContext } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type RefObject } from 'react'
 import type { FocusTarget } from './notificationDoor'
 
 export interface PendingFocus {
@@ -22,3 +22,38 @@ export interface PendingFocus {
 export const FocusContext = createContext<PendingFocus>({ pending: null, consume: () => {} })
 
 export const usePendingFocus = (): PendingFocus => useContext(FocusContext)
+
+/** How long a focus flash lingers before fading (ms). */
+export const FOCUS_FLASH_MS = 1600
+
+/** The ONE focus-flash behavior every notification-door target shares (a work item
+ *  row, an agent card): when `active` flips true, run the optional side effect (e.g.
+ *  open a thread), scroll the element into view, flash a highlight for
+ *  `FOCUS_FLASH_MS`, and `consume()` the pending target so it fires exactly once.
+ *  Returns whether the flash is currently lit (the caller styles on it). `onActivate`
+ *  is read through a ref so it need not be memoised and never re-triggers the effect —
+ *  the single trigger is `active`, which the pending-target consume flips back to
+ *  false. */
+export function useFocusFlash(
+  active: boolean,
+  ref: RefObject<HTMLElement | null>,
+  onActivate?: () => void,
+): boolean {
+  const { consume } = usePendingFocus()
+  const [flash, setFlash] = useState(false)
+  const onActivateRef = useRef(onActivate)
+  onActivateRef.current = onActivate
+  useEffect(() => {
+    if (!active) return
+    onActivateRef.current?.()
+    setFlash(true)
+    ref.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    consume()
+  }, [active, consume, ref])
+  useEffect(() => {
+    if (!flash) return
+    const t = setTimeout(() => setFlash(false), FOCUS_FLASH_MS)
+    return () => clearTimeout(t)
+  }, [flash])
+  return flash
+}

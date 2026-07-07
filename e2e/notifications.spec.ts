@@ -235,3 +235,37 @@ test('a proposal.merged bell opens the owner’s profile ON Your-proposals, focu
   await owner.context.close()
   await proposer.context.close()
 })
+
+test('an agent.forked bell lands on the source agent’s own card in the hub (R6 fork door)', async ({ browser }) => {
+  test.setTimeout(120_000)
+  const owner = await newUser(browser) // seeded default tenant — owns the source agent
+  const forker = await newUser(browser, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
+  const AGENT = `Forkable guide ${STAMP}`
+
+  // Owner: create + publish via the API seam.
+  const created = await owner.page.request.post('/api/v1/agents', { data: { label: AGENT, tools: [], instructions: '' } })
+  const agentId = ((await created.json()) as { id: string }).id
+  await owner.page.request.patch(`/api/v1/agents/${agentId}`, { data: { published: true } })
+
+  // Forker: fork the definition → rings the SOURCE owner's bell (public credit, D18×D24).
+  const forked = await forker.page.request.post(`/api/v1/agents/${agentId}/fork`)
+  expect(forked.ok()).toBeTruthy()
+
+  // Owner: the agent.forked bell is the door — clicking it lands on the Agents hub
+  // with the SOURCE agent's OWN card (its owner-only Unpublish action proves it's the
+  // hub card, not a Discover entry, and never the fork — which the owner may not see).
+  await openApp(owner.page)
+  await expect(owner.page.getByRole('complementary').getByLabel(/Notifications \(\d+ unread\)/)).toBeVisible({ timeout: 10_000 })
+  await owner.page.getByRole('complementary').getByLabel(/Notifications/).click()
+  await owner.page
+    .getByRole('dialog', { name: 'Notifications' })
+    .getByRole('button', { name: new RegExp(`forked your agent .*${AGENT}`) })
+    .click()
+
+  await expect(
+    owner.page.locator('div').filter({ hasText: AGENT }).getByRole('button', { name: 'Unpublish' }).last(),
+  ).toBeVisible()
+
+  await owner.context.close()
+  await forker.context.close()
+})
