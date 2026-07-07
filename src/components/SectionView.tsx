@@ -3332,15 +3332,28 @@ function AgentCard({
       <p className="mt-2 text-[12px] text-ink-soft">Authority: {authorityLabel(agent.authority)}</p>
       {agent.forkedFrom && (
         <p className="mt-1 inline-flex items-center gap-1 text-[12px] text-ink-faint">
+          {/* S7 — the label is a VERBATIM provenance snapshot (kept as text, never a
+              live deep link that 404s on unpublish); the pinned VERSION is the baseline
+              a "am I behind the source?" check measures against — revealed, not dropped. */}
           <GitFork size={12} /> Forked from {agent.forkedFrom.label}
+          {agent.forkedFrom.version ? ` · v${agent.forkedFrom.version}` : ''}
         </p>
       )}
       {agent.importedFrom && (
-        <p
-          className="mt-1 inline-flex items-center gap-1 text-[12px] text-ink-faint"
-          title={agent.importedFrom.url}
-        >
-          <Globe size={12} /> Imported from {agent.importedFrom.name} (A2A card)
+        <p className="mt-1 inline-flex items-center gap-1 text-[12px] text-ink-faint">
+          {/* S7 — a cross-instance provenance relation is a ref link, not a dead label
+              with the URL buried in a hover title: the source card is one click away. */}
+          <Globe size={12} /> Imported from{' '}
+          <a
+            href={agent.importedFrom.url}
+            target="_blank"
+            rel="noreferrer"
+            title={agent.importedFrom.url}
+            className="underline decoration-dotted underline-offset-2 transition hover:text-ink"
+          >
+            {agent.importedFrom.name}
+          </a>{' '}
+          (A2A card)
         </p>
       )}
       {agent.contributions ? (
