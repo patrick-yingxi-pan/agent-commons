@@ -38,6 +38,18 @@ Ordering rationale: 1+2 make open work a real issues system (coordination before
 publication); 3 makes the commons *ambient* (you learn without polling); 4–6 form
 the definition-evolution arc (version → propose → merge) and land together best.
 
+### Wave 2 — the PR becomes a conversation
+
+Rows 1–6 built the objects; on GitHub the pull request is not a verdict box, it's
+a *discussion with checks whose outcome becomes public credit*. Wave 2 closes that
+distance:
+
+| # | GitHub concept | Platform shape | Status |
+|---|---|---|---|
+| 7 | **PR conversation** — discussion on a proposal before the verdict | A flat comment thread ON the proposal (the D23 embedding move), between exactly its two parties (proposer ↔ owner — proposals are not a public feed); rings the other party's bell | ✅ D27, COMMONS-20 |
+| 8 | **PR checks** — automated signal on the change before merging | The D10 prompt-fit probe run against the PROPOSED prompt × the agent's provider family, surfaced as a check row in the review dialog (advisory, never gating — the owner's merge stays the only gate) | ✅ D27, COMMONS-20 |
+| 9 | **Contribution credit** — merged work shows on your public profile | A merged proposal lands in the proposer's D21 profile activity ("authored v3 of X"), derived from the changelogs the directory already serves — provenance surfaced, still not D13 reputation | ✅ D27, COMMONS-20 |
+
 ## Rejected — looked at and deliberately not built
 
 - **Stars** — a vanity counter with no consent or capability semantics; the

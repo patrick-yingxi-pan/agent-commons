@@ -485,6 +485,13 @@ export async function resolveAgentProposal(agentId: string, pid: string, action:
   }
 }
 
+/** Comment on a proposal's thread (D27) — its two parties only; open proposals only. */
+export async function commentOnAgentProposal(agentId: string, pid: string, body: string): Promise<AgentChangeProposal> {
+  const proposal = await apiPost<AgentChangeProposal>(paths.agentProposalComments(agentId, pid), { body })
+  invalidate(keys.agentProposals(agentId))
+  return proposal
+}
+
 /** Watch / unwatch a Project (D24) — the bell subscription. */
 export async function setProjectWatch(projectId: string, watching: boolean): Promise<WatchState> {
   const state = await apiPost<WatchState>(paths.projectWatch(projectId), { watching })

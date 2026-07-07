@@ -17,6 +17,7 @@ const KIND_ICON: Record<NotificationKind, LucideIcon> = {
   'proposal.opened': GitPullRequest,
   'proposal.merged': GitMerge,
   'proposal.declined': XCircle,
+  'proposal.commented': MessageSquare,
 }
 
 /** The row's one-line sentence — actor + verb + object (all public-face fields). */
@@ -38,6 +39,8 @@ function describe(n: AppNotification): string {
       return `${n.actor} merged your proposal into “${n.agentLabel}”`
     case 'proposal.declined':
       return `${n.actor} declined your proposal on “${n.agentLabel}”`
+    case 'proposal.commented':
+      return `${n.actor} commented on a proposal on “${n.agentLabel}”`
   }
 }
 

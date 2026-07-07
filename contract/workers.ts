@@ -118,6 +118,32 @@ export interface AgentChangeProposal {
   /** The owner's note on decline. */
   responseNote?: string
   resolvedAt?: number
+  /** The proposal's discussion thread (D27) — flat, append-only, writable by
+   *  exactly its two parties (proposer ↔ owner) while open. Same row shape as a
+   *  work item's thread (one comment primitive platform-wide). */
+  comments?: import('./directory.ts').WorkItemComment[]
+  /** The review check (D27) — COMPUTED at read time when the proposal changes the
+   *  prompt; never stored. The D10 static-tag face: what authored-for tag the
+   *  replacement discards, and which provider family it will run on. Advisory,
+   *  never gating. */
+  check?: ProposalCheck
+}
+
+/** The proposal check row (D27) — the honest, knowable facts about a prompt
+ *  replacement (a scored probe of untagged bespoke text would be fabricated). */
+export interface ProposalCheck {
+  /** The provider family the agent's cognition runs on. */
+  providerFamily: string
+  /** The authored-for family of the prompt being REPLACED (its library tag), when
+   *  it had one — the provenance the merge would discard. */
+  replacesFamily?: string
+  /** One line for the review dialog. */
+  note: string
+}
+
+/** Body of `POST /agents/:id/proposals/:pid/comments` (D27). */
+export interface PostProposalCommentRequest {
+  body: string
 }
 
 /** Body of `POST /agents/:id/proposals` (D25). */

@@ -73,7 +73,7 @@ import { ConflictError } from './conflict.ts'
 import { LimitError } from './limit.ts'
 import { scopeMatches } from './runner-runtime.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../contract/index.ts'
-import type { Agent, AgentChangeProposal, AgentDirectoryEntry, AppNotification, AuditEntry, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelProvider, OpenSubGoal, OwnerActivity, OwnerProfile, PostOpenSubGoalRequest, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState } from '../contract/index.ts'
+import type { Agent, AgentChangeProposal, AgentDirectoryEntry, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelProvider, OpenSubGoal, OwnerActivity, OwnerProfile, PostOpenSubGoalRequest, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
@@ -228,6 +228,29 @@ function publicProposal(p: StoredAgentProposal): AgentChangeProposal {
   const { proposedByTenant, ...pub } = p
   void proposedByTenant
   return pub
+}
+
+/** The review check (D27) — computed at read time for a prompt-changing proposal:
+ *  the D10 static-tag face (which authored-for tag the replacement would discard,
+ *  which provider family it runs on). Advisory, never gating; a scored probe of
+ *  untagged bespoke text would be fabricated, so v1 reports what is knowable. */
+function proposalCheck(p: StoredAgentProposal, agent: Agent): ProposalCheck | undefined {
+  if (p.fields.systemPrompt === undefined) return undefined
+  const providerFamily = resolveProvider(agent.providerId).modelFamily ?? 'claude'
+  const replaced = agent.systemPromptId ? SYSTEM_PROMPT_LIB.get(agent.systemPromptId) : undefined
+  return {
+    providerFamily,
+    ...(replaced ? { replacesFamily: replaced.targetFamily } : {}),
+    note: replaced
+      ? `Replaces a prompt authored for ${replaced.targetFamily} with untagged text; it will run on the ${providerFamily} family — run the fit probe after merging (D10).`
+      : `Replaces the current prompt with untagged text; it will run on the ${providerFamily} family — run the fit probe after merging (D10).`,
+  }
+}
+
+/** A proposal as SERVED: the redacted row plus its computed check. */
+function serveProposal(p: StoredAgentProposal, agent: Agent): AgentChangeProposal {
+  const check = proposalCheck(p, agent)
+  return { ...publicProposal(p), ...(check ? { check } : {}) }
 }
 
 /** Fan one public act out to its interested tenants (D24), always MINUS the actor
@@ -2398,7 +2421,7 @@ export const store = {
       agentLabel: agent.label,
     })
     persist()
-    return publicProposal(proposal)
+    return serveProposal(proposal, agent)
   },
   /** The review queue. The OWNER sees every proposal; anyone else who can see the
    *  agent sees only their OWN (a proposal is a conversation between proposer and
@@ -2409,7 +2432,38 @@ export const store = {
     if (!agent || !(agent.published === true || registryVisible(agent, tenantId))) return undefined
     const list = AGENT_PROPOSALS.get(agentId) ?? []
     const owner = (agent.tenantId ?? defaultTenantId()) === tenantId
-    return list.filter((p) => owner || p.proposedByTenant === tenantId).map(publicProposal)
+    return list.filter((p) => owner || p.proposedByTenant === tenantId).map((p) => serveProposal(p, agent))
+  },
+  /** Comment on a proposal's thread (D27) — writable by exactly its TWO parties
+   *  (proposer ↔ owner, raw tenant ids), while open (the verdict ends the
+   *  conversation; the decline note is the last word). To anyone else the proposal
+   *  does not exist (→ 404, matching the list read). Rings the OTHER party's bell. */
+  commentOnAgentProposal(agentId: string, proposalId: string, body: string, tenantId: string): AgentChangeProposal | 'closed' | 'capped' | undefined {
+    const agent = WORKER_AGENTS.get(agentId)
+    if (!agent) return undefined
+    const ownerTenant = agent.tenantId ?? defaultTenantId()
+    const proposal = (AGENT_PROPOSALS.get(agentId) ?? []).find((p) => p.id === proposalId)
+    if (!proposal) return undefined
+    const isOwner = ownerTenant === tenantId
+    const isProposer = proposal.proposedByTenant === tenantId
+    if (!isOwner && !isProposer) return undefined
+    if (proposal.status !== 'open') return 'closed'
+    const comments = (proposal.comments ??= [])
+    if (comments.length >= MAX_WORK_ITEM_COMMENTS) return 'capped'
+    comments.push({
+      id: `${proposal.id}-c${comments.length + 1}`, // append-only ⇒ stable count ⇒ unique
+      author: tenantName(tenantId),
+      body: body.trim().slice(0, MAX_WORK_ITEM_COMMENT_CHARS),
+      at: Date.now(),
+    })
+    notifyTenants([isOwner ? proposal.proposedByTenant : ownerTenant], tenantId, {
+      kind: 'proposal.commented',
+      actor: tenantName(tenantId),
+      agentId,
+      agentLabel: agent.label,
+    })
+    persist()
+    return serveProposal(proposal, agent)
   },
   /** The owner's verdict — merge or decline, open proposals only, owner only (raw
    *  tenant-id comparison — the D23 lesson). Merging applies the proposed fields,
@@ -2504,6 +2558,17 @@ export const store = {
             agentLabel: item.resolvedByLabel,
           })
         }
+      }
+    }
+    // D27 — definition authorship: this name's merged proposals into ANOTHER
+    // owner's published definition, read from the changelogs the directory already
+    // serves (no new stored state; unpublished history drops off with the rest of
+    // its public face). Provenance surfaced — deliberately not D13 reputation.
+    for (const entry of this.agentDirectory(tenantId)) {
+      if (entry.owner === name) continue
+      for (const l of entry.changelog) {
+        if (l.author !== name) continue
+        activity.push({ kind: 'authored', at: l.at, agentLabel: entry.label, version: l.version, subGoal: l.note })
       }
     }
     if (projects.length === 0 && agents.length === 0 && activity.length === 0) return undefined

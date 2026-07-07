@@ -71,6 +71,7 @@ import type {
   DeclineProposalRequest,
   ImportAgentCardRequest,
   MarkNotificationsReadRequest,
+  PostProposalCommentRequest,
   ProposeAgentChangeRequest,
   PostWorkItemCommentRequest,
   ProjectEffectType,
@@ -1295,6 +1296,19 @@ export function buildRouter(): Router {
   r.get('/agents/:id/proposals', ({ req, res, params }) => {
     const out = store.listAgentProposals(params.id, store.identity(req.headers).tenant.id)
     if (out === undefined) return sendError(res, 'not_found', `No agent '${params.id}'`)
+    sendJson(res, out)
+  })
+  // D27 — the proposal's discussion thread: its two parties only (anyone else gets
+  // the same 404 the list read gives); open proposals only.
+  r.post('/agents/:id/proposals/:pid/comments', async ({ req, res, params, body }) => {
+    const input = await body<PostProposalCommentRequest>()
+    if (typeof input?.body !== 'string' || !input.body.trim()) {
+      return sendError(res, 'bad_request', 'a non-empty comment body is required')
+    }
+    const out = store.commentOnAgentProposal(params.id, params.pid, input.body, store.identity(req.headers).tenant.id)
+    if (out === undefined) return sendError(res, 'not_found', `No proposal '${params.pid}'`)
+    if (out === 'closed') return sendError(res, 'conflict', 'This proposal was already resolved — the verdict ended the conversation')
+    if (out === 'capped') return sendError(res, 'conflict', 'This proposal’s discussion is at its cap')
     sendJson(res, out)
   })
   r.post('/agents/:id/proposals/:pid/merge', ({ req, res, params }) => {

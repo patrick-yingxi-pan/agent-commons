@@ -112,6 +112,8 @@ export const paths = {
     `/agents/${encodeURIComponent(agentId)}/proposals/${encodeURIComponent(pid)}/merge`,
   agentProposalDecline: (agentId: string, pid: string) =>
     `/agents/${encodeURIComponent(agentId)}/proposals/${encodeURIComponent(pid)}/decline`,
+  agentProposalComments: (agentId: string, pid: string) =>
+    `/agents/${encodeURIComponent(agentId)}/proposals/${encodeURIComponent(pid)}/comments`,
   /** The notification inbox + watch acts (D24). */
   notifications: '/notifications',
   notificationsRead: '/notifications/read',

@@ -17,6 +17,8 @@ export type NotificationKind =
   | 'proposal.opened'
   | 'proposal.merged'
   | 'proposal.declined'
+  // D27 — a comment on the proposal thread rings the OTHER party.
+  | 'proposal.commented'
 
 /** One inbox row ("App" prefix: the DOM has a `Notification`). */
 export interface AppNotification {

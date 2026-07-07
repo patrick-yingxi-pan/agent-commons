@@ -154,6 +154,68 @@ test('verdict walls hide existence like every sibling: unpublished + foreign ⇒
   assert.equal(merged.status, 200)
 })
 
+test('D27 — the thread: two parties discuss, bells ring the OTHER end, outsiders get 404, verdict closes it', async () => {
+  const agent = await publishedAgent()
+  const opened = await propose(agent.id, B, { instructions: 'discuss me' }, 'why this?')
+
+  // The proposer opens the discussion → the OWNER's bell.
+  const first = await call('POST', `/agents/${agent.id}/proposals/${opened.json.id}/comments`, { body: 'happy to adjust the tone' }, { 'x-tenant-id': B })
+  assert.equal(first.status, 200)
+  assert.equal(first.json.comments.length, 1)
+  assert.equal(first.json.comments[0].author, B)
+  const ownerBell = (await call('GET', '/notifications', undefined, { 'x-tenant-id': A })).json
+  assert.ok(ownerBell.some((x: any) => x.kind === 'proposal.commented' && x.agentId === agent.id), 'the owner hears the comment')
+
+  // The owner replies → the PROPOSER's bell (never the actor's own).
+  await call('POST', `/agents/${agent.id}/proposals/${opened.json.id}/comments`, { body: 'tone is fine — tighten the intro' }, { 'x-tenant-id': A })
+  const proposerBell = (await call('GET', '/notifications', undefined, { 'x-tenant-id': B })).json
+  assert.ok(proposerBell.some((x: any) => x.kind === 'proposal.commented' && x.agentId === agent.id), 'the proposer hears the reply')
+
+  // A bystander — who can SEE the published agent — still gets 404 on its thread:
+  // a proposal is a two-party conversation, not a public feed.
+  const outsider = await call('POST', `/agents/${agent.id}/proposals/${opened.json.id}/comments`, { body: 'me too' }, { 'x-tenant-id': C })
+  assert.equal(outsider.status, 404)
+
+  // The verdict ends the conversation.
+  await call('POST', `/agents/${agent.id}/proposals/${opened.json.id}/decline`, { note: 'thanks anyway' }, { 'x-tenant-id': A })
+  const after = await call('POST', `/agents/${agent.id}/proposals/${opened.json.id}/comments`, { body: 'one more thing' }, { 'x-tenant-id': B })
+  assert.equal(after.status, 409)
+})
+
+test('D27 — the check rides prompt-changing proposals: knowable facts, never a fabricated score', async () => {
+  // The published agent binds the seeded library prompt (targetFamily 'claude' via
+  // createAgent's default) — actually bespoke here, so bind one explicitly.
+  const prompt = store.createSystemPrompt({ label: `Check base ${(n += 1)}`, body: 'base', targetFamily: 'claude' }, A)
+  const agent = store.createAgent({ label: `Checked ${n}`, systemPrompt: 'base', systemPromptId: prompt.id, tools: [], instructions: '' }, A)
+  await call('PATCH', `/agents/${agent.id}`, { published: true }, { 'x-tenant-id': A })
+
+  const withPrompt = await propose(agent.id, B, { systemPrompt: 'bespoke replacement' })
+  assert.ok(withPrompt.json.check, 'a prompt change carries the check')
+  assert.equal(withPrompt.json.check.replacesFamily, 'claude', 'names the tag the merge would discard')
+  assert.ok(withPrompt.json.check.providerFamily, 'names the family it will run on')
+  assert.match(withPrompt.json.check.note, /probe after merging/i)
+  assert.equal('score' in withPrompt.json.check, false, 'no fabricated score on untagged text')
+
+  const withoutPrompt = await propose(agent.id, B, { instructions: 'no prompt change' })
+  assert.equal(withoutPrompt.json.check, undefined, 'nothing to check when the prompt is untouched')
+})
+
+test('D27 — a merged proposal lands on the PROPOSER’s public profile as authorship', async () => {
+  const agent = await publishedAgent()
+  const opened = await propose(agent.id, B, { instructions: 'authored credit' }, 'make it mine')
+  await call('POST', `/agents/${agent.id}/proposals/${opened.json.id}/merge`, undefined, { 'x-tenant-id': A })
+
+  const profile = (await call('GET', `/directory/owners/${encodeURIComponent(B)}`, undefined, { 'x-tenant-id': C })).json
+  const authored = profile.activity.find((a: any) => a.kind === 'authored' && a.agentLabel === agent.label)
+  assert.ok(authored, 'the proposer’s profile shows the authorship')
+  assert.equal(authored.version, 2)
+  assert.equal(authored.subGoal, 'make it mine', 'the changelog note rides along')
+
+  // The OWNER's own edits never appear as "authored" on their own profile (noise).
+  const ownerProfile = (await call('GET', `/directory/owners/${encodeURIComponent(A)}`, undefined, { 'x-tenant-id': C })).json
+  assert.ok(!ownerProfile.activity.some((a: any) => a.kind === 'authored' && a.agentLabel === agent.label), 'own-agent history is not cross-authorship')
+})
+
 test('the open-queue cap answers 409', async () => {
   const agent = await publishedAgent()
   for (let i = 0; i < 20; i += 1) {

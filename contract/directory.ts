@@ -112,14 +112,20 @@ export interface OpenSubGoal {
  *  404s (existence-hiding, extended to identities). */
 export interface OwnerActivity {
   /** `posted` = put a work item on a shared Project's backlog; `resolved` = one of
-   *  this workspace's Agents fired the effect that completed an item (D19 credit). */
-  kind: 'posted' | 'resolved'
+   *  this workspace's Agents fired the effect that completed an item (D19 credit);
+   *  `authored` = this workspace's merged proposal became version N of ANOTHER
+   *  owner's published definition (D27 — provenance surfaced, not D13 reputation). */
+  kind: 'posted' | 'resolved' | 'authored'
   at: number
-  projectId: string
-  projectName: string
-  subGoal: string
-  /** `resolved` only — the acting Agent's public label (the credit line). */
+  /** The Project door (`posted`/`resolved` kinds). */
+  projectId?: string
+  projectName?: string
+  /** The work item's sub-goal — or, for `authored`, the changelog note. */
+  subGoal?: string
+  /** `resolved`: the acting Agent's label; `authored`: the evolved definition's. */
   agentLabel?: string
+  /** `authored` only — the version this workspace's merge became. */
+  version?: number
 }
 
 export interface OwnerProfileStats {

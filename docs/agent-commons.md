@@ -1171,6 +1171,46 @@ would inherit the artifact model's private-by-default visibility and gallery
 semantics, then need carve-outs for the public read; a graph overlay with an explicit
 public projection rule is smaller and states its visibility in one place.
 
+### D27 — The proposal becomes a conversation: threads, checks, public authorship
+
+**Decision.** Three completions that make the D25 proposal a real pull request
+(parity wave 2, rows 7–9). **The thread**: a flat, append-only comment list ON the
+proposal (the D23 embedding move again), writable by exactly its two parties —
+proposer and owner, raw-tenant-id compared — while the proposal is open; each
+comment rings the *other* party's bell. Proposals stay a two-party conversation,
+not a public feed (the D25 posture, unchanged). **The check**: when a proposal
+carries a prompt change, the review read computes a check row from the D10
+machinery's HONEST face — the static tag: which authored-for family the replacement
+would discard (bespoke text carries no tag) and which provider family it will run
+on, with the probe recommended post-merge. Advisory, never gating: the owner's
+merge remains the only gate (a scored probe of untagged text would be fake
+intelligence — the mock scorer keys on the tag, so v1 reports what is knowable). **The credit**: a merged proposal now appears
+on the proposer's D21 profile activity ("authored vN of X"), derived at read time
+from the changelogs the directory already serves — no new stored state, and still
+provenance, not D13 reputation. **[COMMONS]**
+
+**Why.** On GitHub the PR is not a verdict box — it's a discussion, with automated
+signal, whose merge becomes public credit. D25 built the object and the verdict;
+without the thread a proposer couldn't answer "why did you change the intro?",
+without the check the owner re-reviewed by eyeball what a probe already scores, and
+without profile credit the changelog authorship was buried on the agent detail.
+
+**Trade-off accepted.** Comments are open-proposal-only (the verdict ends the
+conversation; the decline note is the last word — GitHub allows post-close
+comments, we don't, recorded). The check runs at read time (recomputed per review
+open — cheap and always current against the LIVE provider binding, at the cost of
+not being a frozen at-open snapshot). Authored-activity derives from directory
+changelogs, so it reaches only PUBLISHED agents' history — authorship of a
+since-unpublished definition drops off the profile with the rest of its public face
+(consistent, if occasionally surprising).
+
+**Rejected alternative.** Public proposal threads (anyone-who-can-see comments,
+like work items) — a proposal is pre-consent negotiation over a definition the
+owner may reject; broadcasting it invites brigading and leaks half-formed prompt
+text the proposer may withdraw. Also rejected: check-gated merging (a failing fit
+probe blocking the merge button) — the probe is heuristic and advisory by D10's own
+framing; hard-gating would launder a score into an authority.
+
 ## Invariants (locked principles, not open forks)
 
 - **One role, one name.** Agent = worker; Runner = host; Model provider = cognition;
@@ -1684,6 +1724,13 @@ session↔context binding, mediation handle, and single-resource escrow).
   page-top "About" (owner edits, visitor reads). Locked by
   `tests/project-readme.test.ts` + `e2e/project-readme.spec.ts`; spec row
   COMMONS-19; parity row 5 — **the "needed" column of the parity ledger is complete**.
+- **Slice 26 — the proposal becomes a conversation (D27). ✅ Built.** Parity wave 2
+  (rows 7–9): the two-party **thread** on a proposal (open-only, bells both ways,
+  outsiders 404), the read-time **review check** (the D10 static-tag face — no
+  fabricated score on untagged text), and **public authorship** (a merged proposal
+  on the proposer's D21 profile, from the changelogs the directory already serves).
+  One comment primitive platform-wide; one `ProposalThread` component for both
+  ends. Locked by `tests/agent-proposals.test.ts`; spec row COMMONS-20.
 - **The multi-tenant surface (slices 1–10) is built, managed (11–15), persisted (16), and
   conversationally manageable (17).** Every D6–D13 decision is now exercised by a working
   slice *and* user-manageable from the Agents hub — by hand or by asking Claude — the

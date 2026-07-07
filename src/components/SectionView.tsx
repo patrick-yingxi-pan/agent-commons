@@ -128,6 +128,7 @@ import {
   setProjectWatch,
   proposeAgentChange,
   resolveAgentProposal,
+  commentOnAgentProposal,
   useAgentProposals,
   useMe,
   useWatchState,
@@ -3286,6 +3287,70 @@ function AgentCard({
   )
 }
 
+/** D27 — one proposal's discussion thread + composer, shared by the owner's review
+ *  dialog and the proposer's view on the public detail (one thread, two ends —
+ *  form follows function). The composer shows only while the proposal is open
+ *  (the verdict ends the conversation). */
+function ProposalThread({
+  agentId,
+  proposal,
+  openForComments,
+}: {
+  agentId: string
+  proposal: AgentChangeProposal
+  openForComments: boolean
+}) {
+  const [draft, setDraft] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const comments = proposal.comments ?? []
+  if (comments.length === 0 && !openForComments) return null
+  const send = async () => {
+    if (busy || !draft.trim()) return
+    setBusy(true)
+    setError(null)
+    try {
+      await commentOnAgentProposal(agentId, proposal.id, draft.trim())
+      setDraft('')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not post this comment.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="mt-2 space-y-1.5 border-l-2 border-line pl-2.5">
+      {comments.map((c) => (
+        <div key={c.id} className="text-[12px] leading-snug text-ink-soft">
+          <span className="font-medium text-ink">{c.author}</span>
+          <span className="text-ink-faint"> · {relativeTime(c.at)}</span>
+          <div className="whitespace-pre-wrap">{c.body}</div>
+        </div>
+      ))}
+      {openForComments && (
+        <div className="flex items-center gap-1.5">
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && send()}
+            placeholder="Discuss this proposal…"
+            aria-label={`Comment on proposal ${proposal.id}`}
+            className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+          />
+          <button
+            onClick={send}
+            disabled={busy || !draft.trim()}
+            className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-white transition enabled:hover:bg-accent/90 disabled:opacity-45"
+          >
+            Post
+          </button>
+        </div>
+      )}
+      {error && <p className="text-[11px] text-removed">{error}</p>}
+    </div>
+  )
+}
+
 /** D25 — the owner's review queue: each proposal as a side-by-side (current vs
  *  proposed, per changed field), with the stale flag and the two verdicts. Merging
  *  applies the fields, bumps the version, and credits the proposer in the changelog. */
@@ -3386,6 +3451,14 @@ function ProposalsReviewDialog({
                   </div>
                 </div>
               ))}
+              {/* D27 — the check row: the honest, knowable facts about a prompt
+                  replacement (advisory, never gating — the merge stays the gate). */}
+              {p.check && (
+                <p className="mt-2 flex items-start gap-1 rounded-lg bg-amber-500/10 px-2 py-1.5 text-[11px] leading-snug text-amber-700">
+                  <AlertCircle size={12} className="mt-0.5 shrink-0" /> {p.check.note}
+                </p>
+              )}
+              <ProposalThread agentId={agent.id} proposal={p} openForComments={p.status === 'open'} />
               {p.status === 'open' ? (
                 <div className="mt-2.5 flex items-center gap-2">
                   <button
@@ -4381,18 +4454,30 @@ function OwnerProfilePage({
             <ul className="space-y-1.5">
               {profile.activity.map((a) => (
                 <li
-                  key={`${a.kind}-${a.projectId}-${a.subGoal}-${a.at}`}
+                  key={`${a.kind}-${a.projectId ?? a.agentLabel}-${a.subGoal}-${a.at}`}
                   className="flex items-baseline gap-2 text-[12px] text-ink-soft"
                 >
-                  <span className="min-w-0">
-                    {a.kind === 'posted' ? 'Posted' : 'Resolved'}{' '}
-                    <span className="font-medium text-ink">{a.subGoal}</span>
-                    {' on '}
-                    <button onClick={() => onOpenProject(a.projectId)} className={INLINE_ACTION_CLASS}>
-                      {a.projectName}
-                    </button>
-                    {a.agentLabel ? ` via ${a.agentLabel}` : ''}
-                  </span>
+                  {a.kind === 'authored' ? (
+                    // D27 — merged-proposal authorship on another owner's definition.
+                    <span className="min-w-0">
+                      Authored <span className="font-medium text-ink">v{a.version}</span> of{' '}
+                      <span className="font-medium text-ink">{a.agentLabel}</span>
+                      {a.subGoal ? ` — ${a.subGoal}` : ''}
+                    </span>
+                  ) : (
+                    <span className="min-w-0">
+                      {a.kind === 'posted' ? 'Posted' : 'Resolved'}{' '}
+                      <span className="font-medium text-ink">{a.subGoal}</span>
+                      {' on '}
+                      <button
+                        onClick={() => a.projectId && onOpenProject(a.projectId)}
+                        className={INLINE_ACTION_CLASS}
+                      >
+                        {a.projectName}
+                      </button>
+                      {a.agentLabel ? ` via ${a.agentLabel}` : ''}
+                    </span>
+                  )}
                   <span className="ml-auto shrink-0 text-[11px] text-ink-faint">{relativeTime(a.at)}</span>
                 </li>
               ))}
@@ -4629,7 +4714,36 @@ function AgentDetailDialog({ entry, onClose }: { entry: AgentDirectoryEntry; onC
       <p className="text-[11px] text-ink-faint">
         Forking copies the definition — you grant your own model &amp; authority (D18).
       </p>
+      {/* D27 — the proposer's end of the conversation: their proposals against this
+          definition (status, the owner's note, the thread). The owner sees all of
+          them here too — the same rows their review dialog resolves. */}
+      <YourProposals entry={entry} />
     </FormDialog>
+  )
+}
+
+function YourProposals({ entry }: { entry: AgentDirectoryEntry }) {
+  const mine = useAgentProposals(entry.id).data ?? []
+  if (mine.length === 0) return null
+  return (
+    <FormField label={`Your proposals (${mine.length})`}>
+      <div className="space-y-2">
+        {mine.map((p) => (
+          <div key={p.id} className="rounded-lg border border-line p-2">
+            <div className="flex items-center gap-2 text-[11px] text-ink-faint">
+              <span className="font-medium text-ink-soft">against v{p.baseVersion}</span>
+              <span>· {relativeTime(p.at)}</span>
+              <span className="rounded-full bg-panel-2 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide">
+                {p.status}
+              </span>
+            </div>
+            {p.note && <p className="mt-1 text-[12px] text-ink-soft">{p.note}</p>}
+            {p.responseNote && <p className="mt-1 text-[11px] text-ink-faint">Owner’s note: {p.responseNote}</p>}
+            <ProposalThread agentId={entry.id} proposal={p} openForComments={p.status === 'open'} />
+          </div>
+        ))}
+      </div>
+    </FormField>
   )
 }
 
