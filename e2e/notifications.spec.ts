@@ -236,6 +236,9 @@ test('a proposal.merged bell opens the owner’s profile ON Your-proposals, focu
   await expect(detail.getByText(/Your proposals/)).toBeVisible()
   // The proposal row's own note (exact — the merge also echoes it into the changelog).
   await expect(detail.getByText(NOTE, { exact: true })).toBeVisible()
+  // Surface-audit S1: the proposer can now review THEIR OWN change (the diff's
+  // proposed column), not just its note — the shared ProposalFieldDiff renders here.
+  await expect(detail.getByText(NEW_PROMPT).first()).toBeVisible()
 
   await owner.context.close()
   await proposer.context.close()

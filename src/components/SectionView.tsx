@@ -3457,6 +3457,51 @@ function ProposalThread({
   )
 }
 
+/** The label per proposable definition field (D25). Module-level so the one Diff
+ *  primitive below and any future consumer read the same names. */
+const PROPOSAL_FIELD_LABEL: Record<string, string> = {
+  label: 'Label',
+  systemPrompt: 'System prompt',
+  instructions: 'Instructions',
+  tools: 'Tools',
+}
+
+/** The change a proposal carries, as a side-by-side field diff (current → proposed) —
+ *  the shared **Diff** primitive (surface-audit S1). A proposal's payload IS a change,
+ *  so it belongs in a diff, not prose. ONE rendering serves the owner's review queue
+ *  AND the proposer's own "Your proposals" (who otherwise couldn't see their own
+ *  change), so the two can't drift (form follows function). `current` is built by the
+ *  caller from whatever definition its surface holds — the live Agent, or the public
+ *  directory entry — so no cross-tenant field crosses a wall the caller couldn't
+ *  already read. Left column = current (removed tint), right = proposed (added tint). */
+function ProposalFieldDiff({
+  fields,
+  current,
+}: {
+  fields: AgentChangeProposal['fields']
+  current: Record<string, string>
+}) {
+  return (
+    <>
+      {Object.entries(fields).map(([field, proposed]) => (
+        <div key={field} className="mt-2">
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
+            {PROPOSAL_FIELD_LABEL[field] ?? field}
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            <pre className="max-h-28 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-removed-bg/40 p-2 font-sans text-[11px] leading-snug text-ink-soft">
+              {current[field]}
+            </pre>
+            <pre className="max-h-28 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-emerald-500/5 p-2 font-sans text-[11px] leading-snug text-ink-soft">
+              {Array.isArray(proposed) ? proposed.join(', ') : proposed}
+            </pre>
+          </div>
+        </div>
+      ))}
+    </>
+  )
+}
+
 /** D25 — the owner's review queue: each proposal as a side-by-side (current vs
  *  proposed, per changed field), with the stale flag and the two verdicts. Merging
  *  applies the fields, bumps the version, and credits the proposer in the changelog. */
@@ -3502,12 +3547,6 @@ function ProposalsReviewDialog({
     systemPrompt: agent.systemPrompt,
     instructions: agent.instructions,
     tools: agent.tools.join(', '),
-  }
-  const FIELD_LABEL: Record<string, string> = {
-    label: 'Label',
-    systemPrompt: 'System prompt',
-    instructions: 'Instructions',
-    tools: 'Tools',
   }
   return (
     <div
@@ -3559,23 +3598,13 @@ function ProposalsReviewDialog({
                     {p.status}
                   </span>
                 )}
+                {/* The terminal lifecycle event's timestamp (D25; surface-audit S1). */}
+                {p.status !== 'open' && p.resolvedAt && (
+                  <span className="text-ink-faint">· {relativeTime(p.resolvedAt)}</span>
+                )}
               </div>
               {p.note && <p className="mt-1 text-[12px] text-ink-soft">{p.note}</p>}
-              {Object.entries(p.fields).map(([field, proposed]) => (
-                <div key={field} className="mt-2">
-                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">
-                    {FIELD_LABEL[field] ?? field}
-                  </div>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <pre className="max-h-28 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-removed-bg/40 p-2 font-sans text-[11px] leading-snug text-ink-soft">
-                      {current[field]}
-                    </pre>
-                    <pre className="max-h-28 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-emerald-500/5 p-2 font-sans text-[11px] leading-snug text-ink-soft">
-                      {Array.isArray(proposed) ? proposed.join(', ') : proposed}
-                    </pre>
-                  </div>
-                </div>
-              ))}
+              <ProposalFieldDiff fields={p.fields} current={current} />
               {/* D27 — the check row: the honest, knowable facts about a prompt
                   replacement (advisory, never gating — the merge stays the gate). */}
               {p.check && (
@@ -4889,6 +4918,15 @@ function YourProposals({ entry, focusProposalId = null }: { entry: AgentDirector
     if (focusProposalId && focusPresent) focusRef.current?.scrollIntoView({ block: 'center' })
   }, [focusProposalId, focusPresent])
   if (mine.length === 0) return null
+  // The current published definition — the LEFT side of the diff. Public-face (the
+  // directory entry the proposer already sees), so surfacing their own change against
+  // it crosses no wall (surface-audit S1).
+  const current: Record<string, string> = {
+    label: entry.label,
+    systemPrompt: entry.systemPrompt,
+    instructions: entry.instructions,
+    tools: entry.tools.join(', '),
+  }
   return (
     <FormField label={`Your proposals (${mine.length})`}>
       <div className="space-y-2">
@@ -4908,8 +4946,13 @@ function YourProposals({ entry, focusProposalId = null }: { entry: AgentDirector
               <span className="rounded-full bg-panel-2 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide">
                 {p.status}
               </span>
+              {/* The terminal lifecycle event — WHEN the owner merged/declined (D25;
+                  surface-audit S1: resolvedAt was rendered nowhere). */}
+              {p.status !== 'open' && p.resolvedAt && <span>· {relativeTime(p.resolvedAt)}</span>}
             </div>
             {p.note && <p className="mt-1 text-[12px] text-ink-soft">{p.note}</p>}
+            {/* The proposer can now review THEIR OWN change, not just its note (S1). */}
+            <ProposalFieldDiff fields={p.fields} current={current} />
             {p.responseNote && <p className="mt-1 text-[11px] text-ink-faint">Owner’s note: {p.responseNote}</p>}
             <ProposalThread agentId={entry.id} proposal={p} openForComments={p.status === 'open'} />
           </div>
