@@ -216,6 +216,21 @@ test('D27 — a merged proposal lands on the PROPOSER’s public profile as auth
   assert.ok(!ownerProfile.activity.some((a: any) => a.kind === 'authored' && a.agentLabel === agent.label), 'own-agent history is not cross-authorship')
 })
 
+test('D27 — unpublish closes the conversation to the ex-proposer: comment 404s like the read (review finding)', async () => {
+  const agent = await publishedAgent()
+  const opened = await propose(agent.id, B, { instructions: 'talk to me' })
+  await call('POST', `/agents/${agent.id}/proposals/${opened.json.id}/comments`, { body: 'while published — fine' }, { 'x-tenant-id': B })
+  await call('PATCH', `/agents/${agent.id}`, { published: false }, { 'x-tenant-id': A })
+
+  // The ex-proposer's WRITE moves with their READ (write-without-read is
+  // incoherent, and a 200 here leaked the thread back + kept the bell channel open).
+  const after = await call('POST', `/agents/${agent.id}/proposals/${opened.json.id}/comments`, { body: 'still there?' }, { 'x-tenant-id': B })
+  assert.equal(after.status, 404)
+  // The OWNER can still write on their own unpublished agent's queue.
+  const owner = await call('POST', `/agents/${agent.id}/proposals/${opened.json.id}/comments`, { body: 'archiving this' }, { 'x-tenant-id': A })
+  assert.equal(owner.status, 200)
+})
+
 test('the open-queue cap answers 409', async () => {
   const agent = await publishedAgent()
   for (let i = 0; i < 20; i += 1) {

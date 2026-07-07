@@ -1199,7 +1199,13 @@ without profile credit the changelog authorship was buried on the agent detail.
 conversation; the decline note is the last word — GitHub allows post-close
 comments, we don't, recorded). The check runs at read time (recomputed per review
 open — cheap and always current against the LIVE provider binding, at the cost of
-not being a frozen at-open snapshot). Authored-activity derives from directory
+not being a frozen at-open snapshot) — and it discloses the agent's provider
+**family** to the proposer, a deliberate one-notch softening of D18's
+"provider binding structurally absent" posture: family-only (never the provider's
+id, label, endpoint, or key), because a proposer improving a prompt legitimately
+needs to know what family it will run on. Unpublishing closes the whole
+conversation to the ex-proposer — read, write, and bells alike (the walls move
+together; write-without-read is incoherent). Authored-activity derives from directory
 changelogs, so it reaches only PUBLISHED agents' history — authorship of a
 since-unpublished definition drops off the profile with the rest of its public face
 (consistent, if occasionally surprising).

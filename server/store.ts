@@ -2442,6 +2442,11 @@ export const store = {
     const agent = WORKER_AGENTS.get(agentId)
     if (!agent) return undefined
     const ownerTenant = agent.tenantId ?? defaultTenantId()
+    // Visibility BEFORE everything, like the list and verdict siblings (review
+    // finding): after an unpublish, the ex-proposer's READ 404s — so their WRITE
+    // must too (write-without-read is incoherent, the 200 leaked the thread back,
+    // and the still-open bell channel named an entity the walls now hide).
+    if (ownerTenant !== tenantId && agent.published !== true) return undefined
     const proposal = (AGENT_PROPOSALS.get(agentId) ?? []).find((p) => p.id === proposalId)
     if (!proposal) return undefined
     const isOwner = ownerTenant === tenantId

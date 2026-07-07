@@ -3320,13 +3320,18 @@ function ProposalThread({
   }
   return (
     <div className="mt-2 space-y-1.5 border-l-2 border-line pl-2.5">
-      {comments.map((c) => (
-        <div key={c.id} className="text-[12px] leading-snug text-ink-soft">
-          <span className="font-medium text-ink">{c.author}</span>
-          <span className="text-ink-faint"> · {relativeTime(c.at)}</span>
-          <div className="whitespace-pre-wrap">{c.body}</div>
-        </div>
-      ))}
+      {/* Self-capped like every long field in this dialog family (review finding:
+          FormDialog's shell doesn't scroll — an uncapped thread pushed the footer
+          off-viewport). */}
+      <div className="max-h-40 space-y-1.5 overflow-y-auto">
+        {comments.map((c) => (
+          <div key={c.id} className="text-[12px] leading-snug text-ink-soft">
+            <span className="font-medium text-ink">{c.author}</span>
+            <span className="text-ink-faint"> · {relativeTime(c.at)}</span>
+            <div className="whitespace-pre-wrap">{c.body}</div>
+          </div>
+        ))}
+      </div>
       {openForComments && (
         <div className="flex items-center gap-1.5">
           <input
