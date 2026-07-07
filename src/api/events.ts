@@ -55,6 +55,10 @@ function route(e: ServerEvent): void {
     case 'relation.applied':
       invalidate(keys.relations)
       invalidateForCommonsOp(e.op)
+      // A relation op can create/share/rename what profiles + search serve (D21/D22)
+      // — refresh any OPEN profile/search views (mounts revalidate on their own).
+      invalidatePrefix(keys.ownerProfile())
+      invalidatePrefix(keys.search())
       break
     // A connector's auth/setup state changed (the Contexts page connect/disconnect,
     // here or on another client/device) — re-read the saved-contexts snapshot.
@@ -108,6 +112,9 @@ function route(e: ServerEvent): void {
       invalidate(keys.openSubGoals(e.projectId))
       invalidate(keys.workerAgents)
       invalidatePrefix(keys.directoryProjects())
+      // Open-work counts + activity ride profiles and search hits too (D21/D22).
+      invalidatePrefix(keys.ownerProfile())
+      invalidatePrefix(keys.search())
       break
     default:
       break

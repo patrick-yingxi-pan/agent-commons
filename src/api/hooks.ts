@@ -268,13 +268,17 @@ export function useAgentDirectory(q?: string): QueryState<AgentDirectoryEntry[]>
  *  the same public identity the directories expose. 404 (surfaced as `error`) for a
  *  name with no public rows. */
 export function useOwnerProfile(name: string): QueryState<OwnerProfile> {
-  return useQuery(keys.ownerProfile(name), () => apiGet<OwnerProfile>(paths.ownerProfile(name)))
+  // Revalidate on mount: the profile composes many other reads (D21), so no
+  // per-entity invalidation covers it — SWR keeps it honest without flicker.
+  return useQuery(keys.ownerProfile(name), () => apiGet<OwnerProfile>(paths.ownerProfile(name)), true, true)
 }
 
 /** Global search (D22): typed grouped hits across everything the caller can see —
  *  private workspace + the commons. Keyed per query; empty query answers no groups. */
 export function useGlobalSearch(q: string): QueryState<SearchResponse> {
-  return useQuery(keys.search(q), () => apiGet<SearchResponse>(paths.search(q)))
+  // Revalidate on mount (SWR): search composes EVERY read (D22) — a cached answer
+  // from before an entity changed would otherwise be served forever.
+  return useQuery(keys.search(q), () => apiGet<SearchResponse>(paths.search(q)), true, true)
 }
 
 /** A runner's authoritative effect log (the server's projection of it). Updates

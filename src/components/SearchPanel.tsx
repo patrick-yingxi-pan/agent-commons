@@ -174,15 +174,17 @@ export function SearchPanel({
 
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups])
 
-  // Keep the active row in range as results change.
+  // Keep the active row in range as results change — including the ↓-during-empty
+  // case (an arrow while "Searching…" would otherwise pin the index at -1, and
+  // Enter would no-op after results land).
   useEffect(() => {
-    setActive((a) => (a >= flat.length ? 0 : a))
+    setActive((a) => (a >= flat.length || a < 0 ? 0 : a))
   }, [flat.length])
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault()
-      setActive((a) => Math.min(a + 1, flat.length - 1))
+      setActive((a) => Math.max(0, Math.min(a + 1, flat.length - 1)))
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
       setActive((a) => Math.max(a - 1, 0))
@@ -227,7 +229,15 @@ export function SearchPanel({
         <div className="min-h-0 flex-1 overflow-y-auto py-1.5">
           {flat.length === 0 ? (
             <div className="px-4 py-10 text-center text-[13px] text-ink-faint">
-              {settled ? <>No matches for “{needle}”.</> : 'Searching…'}
+              {settled ? (
+                <>No matches for “{needle}”.</>
+              ) : server.error ? (
+                // A failed fetch would otherwise read "Searching…" forever for this
+                // query (an errored key refetches on the next palette open).
+                'Search is unavailable right now — try again.'
+              ) : (
+                'Searching…'
+              )}
             </div>
           ) : (
             groups.map((g) => (

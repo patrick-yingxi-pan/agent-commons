@@ -601,10 +601,11 @@ export function useSessionWorkspace() {
         })
         // Same as openProject, inlined to avoid referencing that later const —
         // recording the thread first so the project page's back returns to it.
-        record({ kind: 'section', section: 'projects', projectId: esc.project.id, scheduleId: null })
+        record({ kind: 'section', section: 'projects', projectId: esc.project.id, scheduleId: null, ownerName: null })
         setActiveSection('projects')
         setFocusProjectId(esc.project.id)
         setFocusScheduleId(null)
+        setFocusOwnerName(null)
         if (esc.visitCaption) setCaption(esc.visitCaption)
       } else {
         applyEscalation(esc, workspaceRoot)

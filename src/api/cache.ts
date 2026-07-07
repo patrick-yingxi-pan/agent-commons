@@ -51,11 +51,13 @@ function setState(key: string, next: QueryState<unknown>): void {
 }
 
 /** Kick off a fetch for `key` if it isn't already loaded or loading. Stores the
- *  fetcher so an event can later `invalidate` (refetch) the same key. */
-function ensure(key: string, fetcher: () => Promise<unknown>): void {
+ *  fetcher so an event can later `invalidate` (refetch) the same key. With `force`,
+ *  a loaded key refetches anyway (stale-while-revalidate: the cached data keeps
+ *  rendering while the fresh copy is in flight — `run` preserves `data`). */
+function ensure(key: string, fetcher: () => Promise<unknown>, force = false): void {
   const e = getEntry(key)
   e.fetcher = fetcher
-  if (e.inFlight || e.state.status === 'success') return
+  if (e.inFlight || (e.state.status === 'success' && !force)) return
   run(key, fetcher)
 }
 
@@ -129,8 +131,11 @@ export function resetAll(): void {
 /** Read a query reactively: triggers the fetch on first use, re-renders when the
  *  data changes (whether from the fetch or an SSE push). Pass `enabled: false` to
  *  hold off the fetch (e.g. a source-keyed query whose source is client-side / not
- *  yet chosen) — the hook still runs (rules of hooks), it just doesn't fetch. */
-export function useQuery<T>(key: string, fetcher: () => Promise<T>, enabled = true): QueryState<T> {
+ *  yet chosen) — the hook still runs (rules of hooks), it just doesn't fetch.
+ *  Pass `revalidate: true` for reads that COMPOSE many other reads (global search,
+ *  a workspace profile — D21/D22): no per-entity invalidation can cover them, so
+ *  every mount refetches while the cached copy keeps rendering (SWR). */
+export function useQuery<T>(key: string, fetcher: () => Promise<T>, enabled = true, revalidate = false): QueryState<T> {
   const subscribe = useCallback(
     (cb: () => void) => {
       const e = getEntry(key)
@@ -144,9 +149,9 @@ export function useQuery<T>(key: string, fetcher: () => Promise<T>, enabled = tr
   const getSnapshot = useCallback(() => getEntry(key).state as QueryState<T>, [key])
   const state = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
   useEffect(() => {
-    if (enabled) ensure(key, fetcher as () => Promise<unknown>)
+    if (enabled) ensure(key, fetcher as () => Promise<unknown>, revalidate)
     // Re-run only when the key (or enablement) changes; the fetcher is keyed by the
-    // same inputs.
+    // same inputs, and revalidate is constant per call site.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, enabled])
   return state

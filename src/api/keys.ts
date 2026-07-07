@@ -27,10 +27,11 @@ export const keys = {
   /** The discovery directories (D17) — keyed per search so each query caches on its own. */
   directoryProjects: (q?: string) => (q ? `directory-projects:${q}` : 'directory-projects'),
   directoryAgents: (q?: string) => (q ? `directory-agents:${q}` : 'directory-agents'),
-  /** A workspace's public face (D21) — keyed per display name. */
-  ownerProfile: (name: string) => `owner-profile:${name}`,
-  /** Global search (D22) — keyed per query so each caches on its own. */
-  search: (q: string) => `search:${q}`,
+  /** A workspace's public face (D21) — keyed per display name; the no-arg call is
+   *  the family prefix for `invalidatePrefix` (the directory-keys convention). */
+  ownerProfile: (name?: string) => (name ? `owner-profile:${name}` : 'owner-profile'),
+  /** Global search (D22) — keyed per query; no-arg = the family prefix. */
+  search: (q?: string) => (q ? `search:${q}` : 'search'),
   runners: 'agents',
   runnerEffects: (id: string) => `runner-effects:${id}`,
   resourceStatus: (key: string) => `resource:${key}`,

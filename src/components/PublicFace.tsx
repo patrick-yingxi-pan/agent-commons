@@ -14,7 +14,7 @@ import { bylineLabel, SHARED_MARKER } from '../lib/publicFace'
 const OWNER_LINK_CLASS = 'underline decoration-line-strong underline-offset-2 transition hover:text-ink'
 
 /** The clickable owner byline — the same door on a directory subtitle and inside
- *  a Byline: click the owner to filter the commons down to that workspace. */
+ *  a Byline: click the owner to open that workspace's profile page (D21). */
 export function OwnerLink({
   ownerName,
   own,
@@ -39,8 +39,8 @@ export function OwnerLink({
 }
 
 /** The shared-entity byline: Globe + "Shared · by X (you)". `onOwnerClick`
- *  (where given) makes the owner name a door — e.g. filter the directory down
- *  to that workspace's shares. */
+ *  (where given) makes the owner name a door to that workspace's profile page
+ *  (D21 — everything it shares, one surface). */
 export function Byline({
   ownerName,
   own,

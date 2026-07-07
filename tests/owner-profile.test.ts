@@ -46,6 +46,22 @@ test('the profile aggregates a name’s public rows: shared projects, published 
   assert.equal(JSON.stringify(mine.json.stats), JSON.stringify(json.stats))
 })
 
+test('a malformed percent-sequence in the handle is declined, not a rejected request', async () => {
+  // decodeURIComponent throws on `%`; the router's param decode runs BEFORE the
+  // per-route try/catch, so an uncaught throw would reject handle() and hang the
+  // socket (review finding — the owner handle is the first free-form :param a
+  // client naturally constructs). The guard treats an undecodable path as a
+  // non-match: handle() resolves without writing (status stays 0 at this layer —
+  // the entry server's fall-through then 404s); before the guard this call
+  // REJECTED with URIError.
+  const outcome = await call('GET', '/directory/owners/%').then(
+    (r) => ({ rejected: false, status: r.status }),
+    () => ({ rejected: true, status: -1 }),
+  )
+  assert.equal(outcome.rejected, false, 'the router must decline, never throw')
+  assert.equal(outcome.status, 0, 'nothing matched — the entry server 404s the fall-through')
+})
+
 test('no public rows ⇒ 404, indistinguishable from an unknown name (existence-hiding)', async () => {
   const ghostTenant = 'tenant-prof-ghost'
   // Private rows only: an unshared project and an unpublished agent build no face.

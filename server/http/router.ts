@@ -81,7 +81,15 @@ function match(pattern: string[], path: string[]): Record<string, string> | null
     }
     if (i >= path.length) return null
     if (seg.startsWith(':')) {
-      params[seg.slice(1)] = decodeURIComponent(path[i])
+      // A malformed percent-sequence (e.g. `/owners/%`) makes decodeURIComponent
+      // throw, and match() runs BEFORE the per-route try/catch — an uncaught throw
+      // here would reject handle() and hang the request. Treat it as a non-match
+      // (the caller falls through to 404): a path that doesn't decode names nothing.
+      try {
+        params[seg.slice(1)] = decodeURIComponent(path[i])
+      } catch {
+        return null
+      }
     } else if (seg !== path[i]) {
       return null
     }
