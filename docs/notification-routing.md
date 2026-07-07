@@ -168,9 +168,9 @@ only when shipped.
 
 | # | Slice | Ships | Status |
 |---|---|---|---|
-| R1 | **Focus seam** — `FocusTarget` + controller `pendingFocus`/`consumeFocus` + nav entry points (`openWorkItem`/`openProposal`/`openAgent`) recording history | `src/lib/focusTarget.ts`, controller wiring, `tests/nav.test.ts` (+ focus helper tests) | ☐ |
+| R1 | **Routing brain** — `FocusTarget` + `NavIntent` + `doorFor(n): NavIntent` total over `NotificationKind` (`never` default); a runtime `NOTIFICATION_KINDS` array so the switch + tests can enumerate every kind; degrades a legacy row to the page, never a dead click | `src/lib/notificationDoor.ts`, `contract/notifications.ts`, `tests/notification-doors.test.ts` | ✅ |
 | R2 | **Contract ids** — `workItemId?`/`proposalId?`/`commentId?` on `AppNotification`; populate at every mint site (public-face) | `contract/notifications.ts`, `server/store.ts`, `tests/notifications.test.ts` (3 R2 tests) | ✅ |
-| R3 | **Exhaustive door switch** — `doorFor(n): NavIntent` with `never` default; panel routes through it; the every-kind-has-a-door test | `NotificationsPanel.tsx`, `tests/notification-doors.test.ts` | ☐ |
+| R3 | **Panel + controller wiring** — controller `pendingFocus`/`consumeFocus` + nav entry points (`openWorkItem`/`openProposal`/`openAgent`, ownership-resolving the proposal surface) recording history; panel `open(n)` routes through `doorFor` → dispatch (proposals stop being dead clicks) | `useSessionWorkspace.ts`, `NotificationsPanel.tsx`, `App.tsx`, e2e/app-verify | ☐ |
 | R4 | **Work-item doors live** — project page consumes work-item focus (scroll + highlight + thread expand + comment anchor); route `work.*` + `mentioned` | `SectionView.tsx` (`OpenWorkList`/`WorkItemRow`), `e2e/*`, tests | ☐ |
 | R5 | **Proposal doors live** — agent detail / directory consume proposal focus (own→review dialog, proposer→Your proposals; scroll + highlight + thread) | `SectionView.tsx`, tests | ☐ |
 | R6 | **Fork door live** — `agent.forked` → source agent detail, card highlighted | `SectionView.tsx`, tests | ☐ |

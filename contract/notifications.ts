@@ -6,23 +6,29 @@
  *  foreign tenant ids); a notification never tells you something the walls
  *  wouldn't show you if you went looking. */
 
-export type NotificationKind =
-  | 'work.posted'
-  | 'work.resolved'
-  | 'work.commented'
-  | 'work.retracted'
-  | 'agent.forked'
+/** Every kind of inbox row, as a RUNTIME array — the source of truth the door
+ *  switch (`src/lib/notificationDoor.ts`) and its exhaustiveness test enumerate, so
+ *  adding a kind here forces a door for it (the switch's `never` default fails the
+ *  build otherwise) and the test covers it. The type is derived from the array. */
+export const NOTIFICATION_KINDS = [
+  'work.posted',
+  'work.resolved',
+  'work.commented',
+  'work.retracted',
+  'agent.forked',
   // D25 — the definition-evolution loop: an opened proposal rings the owner;
   // the merge/decline rings the proposer.
-  | 'proposal.opened'
-  | 'proposal.merged'
-  | 'proposal.declined'
+  'proposal.opened',
+  'proposal.merged',
+  'proposal.declined',
   // D27 — a comment on the proposal thread rings the OTHER party.
-  | 'proposal.commented'
+  'proposal.commented',
   // D29 — a work-item comment named you with `@<display name>`. Minted only on a
   // SHARED project (naming an outsider on a private one would leak its existence);
   // points at the item, like the other `work.*` kinds.
-  | 'mentioned'
+  'mentioned',
+] as const
+export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
 
 /** One inbox row ("App" prefix: the DOM has a `Notification`). */
 export interface AppNotification {

@@ -1,0 +1,78 @@
+/** ── Notification doors (docs/notification-routing.md) ───────────────────────
+ *  Every inbox row is a DOOR: clicking it must land on the EXACT place its act
+ *  happened — the work item's thread, the proposal under review — not a coarse
+ *  section the recipient then has to search. `doorFor` maps a notification to a
+ *  `NavIntent` (where to go + the sub-entity to focus on arrival); it is TOTAL over
+ *  `NotificationKind` (the `never` default fails the build if a kind gains no door).
+ *  The controller turns a NavIntent into navigation + a `FocusTarget`; the
+ *  destination page consumes the focus (scroll · highlight · expand the thread).
+ *
+ *  Every id here is public-face — a work item / proposal / comment the recipient may
+ *  already see — never a tenant id (the D24 leak-wall). A row that predates the R2 id
+ *  fields degrades to the page (then the section), so a bell is never a dead click. */
+import type { AppNotification } from '../../contract/index.ts'
+import type { SectionId } from '../types'
+
+/** The transient "highlight this on arrival" intent. Deliberately NOT part of
+ *  `NavLocation` (which is page identity): keeping focus out of navigation identity
+ *  means Back never re-fires a highlight, and two arrivals at one page from different
+ *  bells aren't counted as different pages. The controller holds one pending target
+ *  and the destination page consumes it once. */
+export interface FocusTarget {
+  projectId?: string
+  workItemId?: string
+  agentId?: string
+  proposalId?: string
+  /** Anchor a specific comment inside the thread (the platform's `#issuecomment-N`). */
+  commentId?: string
+}
+
+/** Where a door leads. The precise variants carry the focus; the fallbacks (a legacy
+ *  row missing its id, or a kind with no sub-entity) land on the page, then section —
+ *  always somewhere, never a no-op. */
+export type NavIntent =
+  | { kind: 'workItem'; projectId: string; workItemId: string; commentId?: string }
+  | { kind: 'project'; projectId: string }
+  | { kind: 'proposal'; agentId: string; proposalId: string; commentId?: string }
+  | { kind: 'agent'; agentId: string }
+  | { kind: 'section'; section: SectionId }
+
+/** The door for one notification — total over `NotificationKind`. */
+export function doorFor(n: AppNotification): NavIntent {
+  switch (n.kind) {
+    // Work-item lifecycle + @mention → the item's thread on the project page.
+    case 'work.posted':
+    case 'work.resolved':
+    case 'work.commented':
+    case 'work.retracted':
+    case 'mentioned':
+      if (n.projectId && n.workItemId)
+        return { kind: 'workItem', projectId: n.projectId, workItemId: n.workItemId, commentId: n.commentId }
+      if (n.projectId) return { kind: 'project', projectId: n.projectId }
+      return { kind: 'section', section: 'projects' }
+    // Change-proposal lifecycle → the proposal on the agent's review surface.
+    case 'proposal.opened':
+    case 'proposal.merged':
+    case 'proposal.declined':
+    case 'proposal.commented':
+      if (n.agentId && n.proposalId)
+        return { kind: 'proposal', agentId: n.agentId, proposalId: n.proposalId, commentId: n.commentId }
+      if (n.agentId) return { kind: 'agent', agentId: n.agentId }
+      return { kind: 'section', section: 'agents' }
+    // A fork → the SOURCE agent the recipient owns (never the fork: a private agent
+    // of the forker the source owner may not see — the leak-wall).
+    case 'agent.forked':
+      if (n.agentId) return { kind: 'agent', agentId: n.agentId }
+      return { kind: 'section', section: 'agents' }
+    default:
+      return assertNever(n.kind)
+  }
+}
+
+/** Compile-time exhaustiveness: a new `NotificationKind` with no `case` above leaves
+ *  `n.kind` wider than `never` here and fails the build. At runtime (a persisted row
+ *  of some unknown future kind) it degrades to a section rather than throwing. */
+function assertNever(kind: never): NavIntent {
+  void kind
+  return { kind: 'section', section: 'agents' }
+}
