@@ -1007,14 +1007,17 @@ export function useSessionWorkspace() {
   // A change proposal on the agent's review surface (proposal.* bells). `ownerName`
   // null ⇒ the caller OWNS the agent ⇒ their Agents hub (the review queue); else the
   // owner's profile (D21), where the public agent detail + "Your proposals" live.
+  // (No commentId focus: the proposal's thread renders open in both surfaces — a
+  // short two-party conversation — so anchoring one comment added nothing; the
+  // per-comment anchor is a work-item-only affordance, where threads collapse.)
   const openProposal = useCallback(
-    (agentId: string, proposalId: string, ownerName: string | null, commentId?: string) => {
+    (agentId: string, proposalId: string, ownerName: string | null) => {
       record({ kind: 'section', section: 'agents', projectId: null, scheduleId: null, ownerName })
       setActiveSection('agents')
       setFocusOwnerName(ownerName)
       setFocusProjectId(null)
       setFocusScheduleId(null)
-      setPendingFocus({ agentId, proposalId, commentId })
+      setPendingFocus({ agentId, proposalId })
     },
     [record],
   )

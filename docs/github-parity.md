@@ -83,6 +83,17 @@ absent. The concepts still absent (below) fail (c) — they are enrichment or va
 core-model gaps the agent-cooperation thesis needs — so **the loop terminates here**.
 Re-open it by adding a `needed` row with a concrete design rationale that clears bar (c).
 
+### Post-parity polish — the bell's doors made precise (2026-07-07, COMMONS-23)
+
+GitHub's bell deep-links to the exact place — `…/issues/42#issuecomment-99`, the PR
+conversation, the fork. Ours landed coarsely (the project page, the Agents section; every
+`proposal.*` row a dead click). **Notification routing** (`docs/notification-routing.md`,
+spec COMMONS-23) closed that: every `NotificationKind` now navigates to the exact
+sub-entity — the work item's thread anchored to the comment, the proposal under review,
+the source agent — provably (an exhaustive `doorFor` switch + the every-kind door test),
+leak-wall-safe (public-face ids only), and adversarially reviewed. Not a new parity
+*object* — a refinement of the D24 bell (COMMONS-17) to GitHub's deep-link standard.
+
 ### Deferred — evaluated at Wave 4's close, judged enrichment (not a current gap)
 
 - **Cross-references (`#N` links between items / proposals)** — graph edges for a human

@@ -61,6 +61,10 @@ test('unprompted resolution notifies the poster — the bell’s whole point (D1
   const resolved = mine.find((x) => x.kind === 'work.resolved' && x.subGoal === `bell-auto-${n}`)
   assert.ok(resolved, 'the poster learns their item was taken — without polling')
   assert.equal(resolved.actor, A, 'attributed to the resolving agent’s owner workspace (D13)')
+  // R2 door id on the STANDING-DISPATCH mint path (the only site work.resolved is
+  // minted — dispatchOpenSubGoal): without this the resolved bell would degrade to
+  // the coarse project page and no other test would catch it (review R9, finding 1).
+  assert.equal(resolved.workItemId, posted.json.id, 'the resolved bell anchors the exact item')
 })
 
 test('retraction notifies; unwatching stops the bell; watching needs visibility', async () => {

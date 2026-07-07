@@ -61,13 +61,15 @@ export function NotificationsPanel({
   onOpenWorkItem,
   onOpenProposal,
   onOpenAgent,
+  onOpenOwner,
   onClose,
 }: {
   onOpenProject: (id: string) => void
   onOpenSection: (s: SectionId) => void
   onOpenWorkItem: (projectId: string, workItemId: string, commentId?: string) => void
-  onOpenProposal: (agentId: string, proposalId: string, ownerName: string | null, commentId?: string) => void
+  onOpenProposal: (agentId: string, proposalId: string, ownerName: string | null) => void
   onOpenAgent: (agentId: string) => void
+  onOpenOwner: (name: string) => void
   onClose: () => void
 }) {
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -90,12 +92,20 @@ export function NotificationsPanel({
         break
       case 'proposal': {
         const iOwn = myAgents.some((a) => a.id === intent.agentId)
-        onOpenProposal(intent.agentId, intent.proposalId, iOwn ? null : n.actor, intent.commentId)
+        onOpenProposal(intent.agentId, intent.proposalId, iOwn ? null : n.actor)
         break
       }
-      case 'agent':
-        onOpenAgent(intent.agentId)
+      case 'agent': {
+        // A proposal.* bell whose id predates R2 (no proposalId) degrades to this
+        // coarse 'agent' door. It still belongs to the PROPOSER when they don't own
+        // the agent → the owner's profile (n.actor), where "Your proposals" lives —
+        // not the caller's own hub. A fork bell always rings the owner (who owns the
+        // source), so it lands on the hub.
+        const iOwn = myAgents.some((a) => a.id === intent.agentId)
+        if (!iOwn && n.kind.startsWith('proposal.')) onOpenOwner(n.actor)
+        else onOpenAgent(intent.agentId)
         break
+      }
       case 'section':
         onOpenSection(intent.section)
         break

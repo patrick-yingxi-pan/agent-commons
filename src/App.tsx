@@ -619,6 +619,7 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
           onOpenWorkItem={openWorkItem}
           onOpenProposal={openProposal}
           onOpenAgent={openAgent}
+          onOpenOwner={openOwner}
           onClose={() => setNotifOpen(false)}
         />
       )}

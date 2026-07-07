@@ -179,7 +179,7 @@ only when shipped.
 | R6 | **Fork door live** — `agent.forked` → the source agent's own hub card scrolls + flashes (never the fork — leak-wall); the flash behavior unified into a shared `useFocusFlash` hook (work-item rows + agent cards) | `src/lib/focusContext.ts` (`useFocusFlash`), `SectionView.tsx` (`CommonsCard`/`AgentCard`/`WorkItemRow`); `e2e/notifications.spec.ts` (agent.forked → source card) | ✅ |
 | R7 | **New `work.taken`** — investigated; **REJECTED** (no "taken" state; dispatch is atomic so `work.resolved` already covers it; explicit assignment deferred by parity) | finding recorded above | ⊘ rejected |
 | R8 | **`project.commissioned`** — investigated; **REJECTED** (the only cross-tenant commissioning is self-service, actor = recipient; the owner-driven case is Phase 2, unbuilt) | finding recorded above | ⊘ rejected |
-| R9 | **Close** — full verify + adversarial `/code-review` sweep across the whole diff; fix; finalize spec ledger + `docs/github-parity.md` note + this doc's status; final commit | verify + docs | ☐ |
+| R9 | **Close** — adversarial 5-dimension review workflow over the whole diff (10 raised, 4 confirmed after per-finding refutation, **0 high, 0 leak-wall**); all 4 fixed + locked; spec row COMMONS-23 + `docs/github-parity.md` note; full verify | see "R9 — the close" below | ✅ |
 
 ### Termination condition (checkable, lives in the repo)
 
@@ -195,3 +195,30 @@ is met: all ten existing `NotificationKind`s land on a precise, tested door, and
 two candidate new kinds were investigated and honestly rejected (their triggers don't
 exist yet). Re-open only by adding a `New` row with a concrete, leak-wall-clearing
 rationale for an act that actually occurs.
+
+## R9 — the close (adversarial review + fixes)
+
+A 5-dimension review workflow (React-effect/consume-once races, leak-wall/tenant-id,
+exhaustiveness/legacy-degrade, test coverage, dead code) swept the whole diff; each
+finding was independently **refuted-or-confirmed** by a skeptic pass. **10 raised, 4
+confirmed** — all low/medium, **none high, none a crown-jewel/leak-wall violation**
+(the confidentiality posture held; the `useAgents()` mis-route race and the
+lingering-focus re-assert were among the 6 correctly refuted). All four confirmed
+findings were fixed and locked:
+
+1. **(med, coverage)** `work.resolved`'s `workItemId` mint (the standing-dispatch path,
+   the only site it's minted) was asserted by no wire test → added the assertion to the
+   unprompted-resolution test (`tests/notifications.test.ts`).
+2. **(low, correctness)** the coarse `agent` degrade routed a *legacy* proposer-side
+   `proposal.*` row (no `proposalId`) to the caller's own hub instead of the owner's
+   profile → the panel's `agent` door is now ownership-aware (`n.kind` + `iOwn`); a fork
+   bell still lands on the hub.
+3. **(low, coverage)** the bare-row scroll+flash arm (`work.posted/resolved/retracted`,
+   no comment) had no live coverage → the work.posted e2e now asserts the item is on the
+   focused page with its thread **collapsed** (the branch distinct from the comment arm).
+4. **(low, dead-code)** `commentId` was plumbed into `pendingFocus` on the proposal path
+   but no proposal consumer read it → removed (proposal threads render open, so a
+   per-comment anchor added nothing; the anchor stays a work-item affordance).
+
+Verification: `typecheck` + `node --test tests/*.test.ts` (890) + `build` + `npx
+playwright test e2e/notifications.spec.ts` (5) all green. **Initiative complete.**

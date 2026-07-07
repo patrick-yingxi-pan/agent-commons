@@ -33,7 +33,10 @@ export interface FocusTarget {
 export type NavIntent =
   | { kind: 'workItem'; projectId: string; workItemId: string; commentId?: string }
   | { kind: 'project'; projectId: string }
-  | { kind: 'proposal'; agentId: string; proposalId: string; commentId?: string }
+  // No commentId: a proposal's thread renders open in both review surfaces (a short
+  // two-party conversation), so the per-comment anchor — a work-item affordance where
+  // threads collapse — carried no value on this path.
+  | { kind: 'proposal'; agentId: string; proposalId: string }
   | { kind: 'agent'; agentId: string }
   | { kind: 'section'; section: SectionId }
 
@@ -56,7 +59,7 @@ export function doorFor(n: AppNotification): NavIntent {
     case 'proposal.declined':
     case 'proposal.commented':
       if (n.agentId && n.proposalId)
-        return { kind: 'proposal', agentId: n.agentId, proposalId: n.proposalId, commentId: n.commentId }
+        return { kind: 'proposal', agentId: n.agentId, proposalId: n.proposalId }
       if (n.agentId) return { kind: 'agent', agentId: n.agentId }
       return { kind: 'section', section: 'agents' }
     // A fork → the SOURCE agent the recipient owns (never the fork: a private agent

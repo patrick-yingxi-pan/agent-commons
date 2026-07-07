@@ -67,6 +67,11 @@ test('watch a shared project → the owner acts → the watcher’s bell rings, 
   // specs' rows may keep the global badge — assert the row's own dot, not the badge).
   await row.click()
   await expect(watcher.page.getByRole('heading', { name: PROJECT })).toBeVisible()
+  // The work.posted door is the BARE-ROW focus arm (no comment to read): the item is
+  // on the focused page and its thread stays COLLAPSED — distinct from the comment
+  // arm (next test), which auto-expands. Locks that branch (review R9, finding 3).
+  await expect(watcher.page.getByText(ITEM).first()).toBeVisible()
+  await expect(watcher.page.getByLabel(`Comment on ${ITEM}`)).toHaveCount(0)
   await watcher.page.getByRole('complementary').getByLabel(/Notifications/).click()
   await expect(
     watcher.page.getByRole('dialog', { name: 'Notifications' }).getByRole('button', { name: new RegExp(ITEM) }).getByLabel('Unread'),
