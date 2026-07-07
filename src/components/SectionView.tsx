@@ -3599,13 +3599,20 @@ function AgentResolvedWork({ agentId, onClose }: { agentId: string; onClose: () 
  *  version: who authored it (a merged proposal, or the owner's own edit), the note, and
  *  when, newest first. A version badge is a number where a lineage lives; this is the
  *  lineage. Shared (surface-audit S4) so the owner's card and the visitor's detail
- *  render the same history and can't drift (form follows function). */
+ *  render the same history and can't drift (form follows function). S12: the AUTHOR is
+ *  a workspace byline, so it's a door to that workspace's profile like every other
+ *  byline (postedBy, resolvedBy, the profile's "authored" line) — via the shared
+ *  OwnerLink; `author` IS the profile handle, and store.ownerProfile pushes an
+ *  "authored" activity for it, so a bare proposer's profile always resolves. */
 function ChangelogList({ changelog }: { changelog: AgentChangelogEntry[] }) {
+  const rel = useRelations()
   return (
     <ul className="max-h-24 space-y-1 overflow-y-auto rounded-lg border border-line bg-panel-2 p-2.5 text-[11px] leading-snug text-ink-soft">
       {[...changelog].reverse().map((l) => (
         <li key={l.version}>
-          <span className="font-medium text-ink">v{l.version}</span> · {l.author} · {l.note} · {relativeTime(l.at)}
+          <span className="font-medium text-ink">v{l.version}</span> ·{' '}
+          <OwnerLink ownerName={l.author} onClick={() => rel.navigate('agents', l.author)} /> · {l.note} ·{' '}
+          {relativeTime(l.at)}
         </li>
       ))}
     </ul>

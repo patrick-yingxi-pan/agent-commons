@@ -93,6 +93,10 @@ test('propose → review side-by-side → merge: the definition evolves and cred
   const ownerCard = owner.page.locator('div').filter({ hasText: AGENT })
   await ownerCard.getByRole('button', { name: /History \(\d+\)/ }).last().click()
   await expect(owner.page.getByText(NOTE).last()).toBeVisible() // the merged entry's note
+  // Surface-audit S12: the changelog AUTHOR is a workspace door like every other byline
+  // — clicking it opens that workspace's profile (the proposer authored v2).
+  await ownerCard.getByRole('button', { name: /^by / }).last().click()
+  await expect(owner.page.getByText('Recent public activity')).toBeVisible() // a profile-page section
   await expect(proposer.page.getByRole('complementary').getByLabel(/Notifications \(\d+ unread\)/)).toBeVisible({ timeout: 10_000 })
   await proposer.page.getByRole('complementary').getByLabel(/Notifications/).click()
   await expect(
