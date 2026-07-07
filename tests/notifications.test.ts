@@ -83,6 +83,29 @@ test('retraction notifies; unwatching stops the bell; watching needs visibility'
   assert.ok(!(await inbox(D)).some((x) => x.projectId === projectId), 'tenant-scoped: no bleed')
 })
 
+test('un-sharing silences the stale audience — no act on a now-private project leaks (review finding)', async () => {
+  // C watched while shared; B posted while shared. Then the owner takes the
+  // project private: watches and the poster anchor OUTLIVE the un-share, so
+  // without a mint-time visibility re-check both would keep hearing acts —
+  // including brand-new item text — that every read wall now 404s.
+  const { projectId } = await arena()
+  const item = (await call('POST', `/projects/${projectId}/open-subgoals`, { subGoal: `pre-privacy-${n}`, type: 'charge', target: 'budget:demo' }, { 'x-tenant-id': B })).json
+  store.applyRelationOp({ kind: 'share-project', projectId, projectName: `Bell ${n}`, shared: false }, A)
+
+  // The owner acts on the now-private project: a fresh post and a comment.
+  await call('POST', `/projects/${projectId}/open-subgoals`, { subGoal: `post-privacy-${n}`, type: 'charge', target: 'budget:demo' }, { 'x-tenant-id': A })
+  await call('POST', `/projects/${projectId}/open-subgoals/${item.id}/comments`, { body: 'owner-only now' }, { 'x-tenant-id': A })
+
+  assert.ok(!(await inbox(C)).some((x) => x.subGoal === `post-privacy-${n}`), 'the ex-watcher never hears the private post')
+  assert.ok(!(await inbox(C)).some((x) => x.kind === 'work.commented' && x.subGoal === `pre-privacy-${n}`), '…nor the private comment')
+  assert.ok(!(await inbox(B)).some((x) => x.kind === 'work.commented' && x.subGoal === `pre-privacy-${n}`), 'the ex-poster anchor is silenced too')
+
+  // Re-sharing restores the flow — the audience is computed at mint time.
+  store.applyRelationOp({ kind: 'share-project', projectId, projectName: `Bell ${n}`, shared: true }, A)
+  await call('POST', `/projects/${projectId}/open-subgoals/${item.id}/comments`, { body: 'public again' }, { 'x-tenant-id': A })
+  assert.ok((await inbox(C)).some((x) => x.kind === 'work.commented' && x.subGoal === `pre-privacy-${n}`), 'a re-shared project rings again')
+})
+
 test('a fork rings the definition owner’s bell (public credit, D18 × D24)', async () => {
   const agent = store.createAgent({ label: `Bell Fork Subject ${(n += 1)}`, systemPrompt: 'x', tools: [], instructions: '' }, A)
   await call('PATCH', `/agents/${agent.id}`, { published: true }, { 'x-tenant-id': A })

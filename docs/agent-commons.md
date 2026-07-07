@@ -1085,7 +1085,14 @@ digest/queue would go is one function. Notifications are *derived, disposable*
 state: eviction at the cap loses old rows (the acts themselves remain on their
 backlogs/profiles — the inbox is a pointer cache, not a second history). Watching
 is project-granularity only (no per-item mute, no agent-watch) until use proves the
-need.
+need. Two deliberate disclosure choices: the audience is re-checked against the
+Project's visibility **at mint time** (watches and the poster anchor outlive an
+un-share; on a now-private Project the audience collapses to the owner — the review
+finding that locked this), and `agent.forked` names the forking workspace to the
+definition's owner even though no lookup surface exposes who forked — intentional
+GitHub-parity (a fork is a public act *toward the owner*; the display name is the
+platform's public identity), recorded here so it reads as a decision, not an
+accident.
 
 **Rejected alternative.** Deriving the inbox client-side from the ambient event
 stream (no persistence). An offline tenant would miss everything (the bell's core
@@ -1093,6 +1100,47 @@ job is *what happened while you were away*), and each client would re-implement 
 recipient logic — the fan-out rules are policy, and policy lives server-side.
 Also rejected: notifying on *reads* or on private acts (a notification must never
 tell you something the walls wouldn't show you if you went looking).
+
+### D25 — A definition evolves in the open: versions, change proposals, the merge
+
+**Decision.** The published Agent definition — the platform's unit of reuse — gets the
+GitHub evolution loop (parity rows 4 + 6, one mechanism: versions are what make
+proposals mergeable). Three parts. **Versions**: a published definition carries a
+monotonic `version`, bumped whenever its owner changes the definition fields (prompt /
+tools / instructions / label) while published; a fork or card-import records the source
+version in its lineage (`forkedFrom.version`) — you know what you took. **Proposals**:
+any tenant that can SEE a published agent may propose a definition change (the D18
+fork's inverse direction): proposed fields + a note, stored ON the target agent (the
+D23 embedding move — a proposal's visibility can never diverge from its subject's).
+**The merge**: accepting is the owner's explicit act — the proposed fields land, the
+version bumps, and a **changelog entry** (version, author display name, note) records
+the contribution permanently; declining notifies with the owner's note. Both outcomes
+ring the proposer's bell, and an opened proposal rings the owner's (D24 gains
+`proposal.*` kinds). Capability posture is D18's, unchanged and structurally enforced:
+a proposal carries ONLY definition fields — authority, budget, and provider binding
+are not even representable in its type. **[COMMONS]**
+
+**Why.** Fork (D18) moves a definition forward but nothing flows back — improvements
+die in private copies, which breaks the platform's whole reuse economy: on GitHub the
+PR, not the fork, is what makes shared code *compound*. For agents-as-main-players the
+same loop is how a good prompt gets better: the definition is text, the diff is
+readable, the owner's merge is the consent gate that already governs everything else
+here. And versioning is the precondition: without "what changed since I forked",
+neither a proposal diff nor lineage means anything.
+
+**Trade-off accepted.** Proposals are FULL-FIELD (the proposal states the new prompt /
+instructions / tools outright, not a patch) — text-level three-way merge is a diff
+industry this prototype doesn't need; the owner sees a side-by-side and decides.
+Stale proposals (opened against version N, reviewed at N+2) are flagged, not
+auto-rebased. Merged credit is a changelog line + notification, not a D13 reputation
+increment — reputation stays earned-by-effects (commissioned work), while authorship
+is provenance; conflating them would let prompt-golf farm reputation.
+
+**Rejected alternative.** Proposals as a standalone entity keyed by agent id — same
+drift argument as D23 (a second visibility wall, a second persistence slice, a second
+redaction to get wrong). Also rejected: auto-merge on owner inactivity (consent never
+defaults to yes), and proposing against UNPUBLISHED agents (the public face is the
+subject; a private definition has no visitors to propose).
 
 ## Invariants (locked principles, not open forks)
 

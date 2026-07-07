@@ -243,10 +243,17 @@ function notifyTenants(
 }
 
 /** A work item's interested tenants: the Project's watchers, its owner, and the
- *  item's poster (participants are implicit watchers of their thread). */
+ *  item's poster (participants are implicit watchers of their thread) — RE-CHECKED
+ *  against the Project's visibility AT MINT TIME (review finding: watches and the
+ *  poster anchor outlive an un-share, and a notification must never tell a tenant
+ *  something the walls wouldn't show it if it went looking — so on a now-private
+ *  Project the audience collapses to the owner alone). */
 function workItemAudience(item: StoredOpenSubGoal): Set<string> {
+  const project = findProject(item.projectId)
+  const ownerTenant = project?.tenantId ?? defaultTenantId()
+  if (project?.shared !== true) return new Set([ownerTenant])
   const out = new Set<string>(watches.get(item.projectId) ?? [])
-  out.add(findProject(item.projectId)?.tenantId ?? defaultTenantId())
+  out.add(ownerTenant)
   if (item.postedByTenant) out.add(item.postedByTenant)
   return out
 }

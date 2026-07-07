@@ -275,6 +275,15 @@ export async function buildComprehensive(): Promise<PersistedState> {
   store.postOpenSubGoal('p-insights', { subGoal: 'playground-open-work', type: 'charge', target: 'budget:playground' }, store.defaultTenantId())
   store.postOpenSubGoal('p-insights', { subGoal: 'playground-backlog', type: 'connector.write', target: 'no-such-connector' }, store.defaultTenantId())
 
+  // ── Watching + the inbox (D24) ── exercise both persisted slices: share the
+  // CREATED project (watch fan-out re-checks visibility at mint time — a private
+  // project's audience is its owner alone), a foreign tenant watches it, and a
+  // posted-then-commented item (D23) fans notifications out to that watcher.
+  store.applyRelationOp({ kind: 'share-project', projectId: PROJECT_ID, projectName: PROJECT_NAME, shared: true })
+  store.setWatch(PROJECT_ID, 'tenant-playground-watcher', true)
+  const watchedItem = store.postOpenSubGoal(PROJECT_ID, { subGoal: 'playground-watched-item', type: 'charge', target: 'budget:playground' }, store.defaultTenantId())
+  store.commentOnOpenSubGoal(PROJECT_ID, watchedItem.id, 'playground discussion — still needed?', store.defaultTenantId())
+
   // Run the created routine and wait for it to finish (it steps one beat at a
   // time, then a final beat applies the standing-approved artifact save). Poll the
   // REAL run record for a terminal state rather than hard-coding the store's step

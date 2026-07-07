@@ -145,6 +145,18 @@ test('build produces a snapshot covering every persisted slice', async () => {
     s.openSubGoals?.some((o) => o.status === 'open'),
     'postOpenSubGoal → openSubGoals (D19, open/backlog state)',
   )
+  assert.ok(
+    s.openSubGoals?.some((o) => (o.comments?.length ?? 0) > 0),
+    'commentOnOpenSubGoal → the item’s discussion thread (D23)',
+  )
+  assert.ok(
+    s.watches?.some(([tenantId]) => tenantId === 'tenant-playground-watcher'),
+    'setWatch → watches (D24)',
+  )
+  assert.ok(
+    (s.notifications?.length ?? 0) > 0,
+    'notifyTenants fan-out → notifications inbox (D24)',
+  )
 
   // ── id counters all advanced (so post-restore mints never collide) ──
   for (const k of ['session', 'message', 'schedule', 'run', 'artifact', 'provider', 'systemPrompt', 'agent', 'commission'] as const) {
