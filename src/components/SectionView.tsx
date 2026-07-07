@@ -4471,6 +4471,19 @@ function OwnerProfilePage({
   const state = useOwnerProfile(name)
   const profile = state.data
   const [detail, setDetail] = useState<AgentDirectoryEntry | null>(null)
+  // Notification door (R5b): a proposal.* bell whose recipient is the PROPOSER (not
+  // the owner) lands here — auto-open the target agent's public detail with "Your
+  // proposals" focused on the proposal. Consumed once, once the profile has loaded.
+  const [proposalFocus, setProposalFocus] = useState<string | null>(null)
+  const { pending, consume } = usePendingFocus()
+  useEffect(() => {
+    if (!pending?.agentId || !pending?.proposalId || !profile) return
+    const target = profile.agents.find((a) => a.id === pending.agentId)
+    if (!target) return
+    setDetail(target)
+    setProposalFocus(pending.proposalId)
+    consume()
+  }, [pending, profile, consume])
   if (!profile) {
     return (
       <Page>
@@ -4599,7 +4612,16 @@ function OwnerProfilePage({
         </div>
       </div>
 
-      {detail && <AgentDetailDialog entry={detail} onClose={() => setDetail(null)} />}
+      {detail && (
+        <AgentDetailDialog
+          entry={detail}
+          focusProposalId={proposalFocus}
+          onClose={() => {
+            setDetail(null)
+            setProposalFocus(null)
+          }}
+        />
+      )}
     </Page>
   )
 }
@@ -4737,7 +4759,16 @@ function PublishedAgentCard({
  *  nothing more), the public track record, and both doors out: Fork (the human act)
  *  and the A2A card link (the same fact, machine-readable — D20). What is structurally
  *  absent mirrors the wire: no authority, budget, or provider binding to show. */
-function AgentDetailDialog({ entry, onClose }: { entry: AgentDirectoryEntry; onClose: () => void }) {
+function AgentDetailDialog({
+  entry,
+  onClose,
+  focusProposalId = null,
+}: {
+  entry: AgentDirectoryEntry
+  onClose: () => void
+  /** A notification door (R5b) opened this detail focused on one of Your proposals. */
+  focusProposalId?: string | null
+}) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // D25: the detail carries the propose-a-change door — one dialog, two modes.
@@ -4830,19 +4861,34 @@ function AgentDetailDialog({ entry, onClose }: { entry: AgentDirectoryEntry; onC
       {/* D27 — the proposer's end of the conversation: their proposals against this
           definition (status, the owner's note, the thread). The owner sees all of
           them here too — the same rows their review dialog resolves. */}
-      <YourProposals entry={entry} />
+      <YourProposals entry={entry} focusProposalId={focusProposalId} />
     </FormDialog>
   )
 }
 
-function YourProposals({ entry }: { entry: AgentDirectoryEntry }) {
+function YourProposals({ entry, focusProposalId = null }: { entry: AgentDirectoryEntry; focusProposalId?: string | null }) {
   const mine = useAgentProposals(entry.id).data ?? []
+  // A notification door (R5b) opened this detail ON a specific proposal — scroll it
+  // into view + mark it once it's present (the list is a live fetch).
+  const focusRef = useRef<HTMLDivElement>(null)
+  const focusPresent = mine.some((p) => p.id === focusProposalId)
+  useEffect(() => {
+    if (focusProposalId && focusPresent) focusRef.current?.scrollIntoView({ block: 'center' })
+  }, [focusProposalId, focusPresent])
   if (mine.length === 0) return null
   return (
     <FormField label={`Your proposals (${mine.length})`}>
       <div className="space-y-2">
-        {mine.map((p) => (
-          <div key={p.id} className="rounded-lg border border-line p-2">
+        {mine.map((p) => {
+          const isFocus = p.id === focusProposalId
+          return (
+          <div
+            key={p.id}
+            ref={isFocus ? focusRef : undefined}
+            className={`scroll-mt-4 rounded-lg border p-2 transition-colors ${
+              isFocus ? 'border-accent bg-accent-tint ring-1 ring-accent/40' : 'border-line'
+            }`}
+          >
             <div className="flex items-center gap-2 text-[11px] text-ink-faint">
               <span className="font-medium text-ink-soft">against v{p.baseVersion}</span>
               <span>· {relativeTime(p.at)}</span>
@@ -4854,7 +4900,8 @@ function YourProposals({ entry }: { entry: AgentDirectoryEntry }) {
             {p.responseNote && <p className="mt-1 text-[11px] text-ink-faint">Owner’s note: {p.responseNote}</p>}
             <ProposalThread agentId={entry.id} proposal={p} openForComments={p.status === 'open'} />
           </div>
-        ))}
+          )
+        })}
       </div>
     </FormField>
   )

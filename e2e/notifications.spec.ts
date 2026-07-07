@@ -176,3 +176,62 @@ test('a proposal.opened bell opens the review dialog directly ON the proposal (R
   await owner.context.close()
   await proposer.context.close()
 })
+
+test('a proposal.merged bell opens the owner’s profile ON Your-proposals, focused (R5b proposer focus)', async ({ browser }) => {
+  test.setTimeout(120_000)
+  const owner = await newUser(browser) // seeded default tenant — owns + merges
+  const proposer = await newUser(browser, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
+  const AGENT = `Accepted guide ${STAMP}`
+  const NEW_PROMPT = `a tighter prompt ${STAMP}`
+  const NOTE = `please accept this ${STAMP}`
+
+  // Owner: create + publish.
+  const created = await owner.page.request.post('/api/v1/agents', { data: { label: AGENT, tools: [], instructions: '' } })
+  const agentId = ((await created.json()) as { id: string }).id
+  await owner.page.request.patch(`/api/v1/agents/${agentId}`, { data: { published: true } })
+
+  // Proposer: propose a change against the published definition.
+  await openApp(proposer.page)
+  await proposer.page.getByRole('navigation').getByRole('button', { name: 'Agents', exact: true }).click()
+  await proposer.page.getByRole('button', { name: 'Discover' }).click()
+  await expect(proposer.page.getByText(AGENT).first()).toBeVisible()
+  await proposer.page.locator('div').filter({ hasText: AGENT }).getByRole('button', { name: 'View definition' }).last().click()
+  await proposer.page.getByRole('button', { name: 'Propose a change' }).click()
+  await proposer.page.getByLabel('Proposed system prompt').fill(NEW_PROMPT)
+  await proposer.page.getByLabel('Proposal note').fill(NOTE)
+  await proposer.page.getByRole('button', { name: 'Open proposal' }).click()
+
+  // Owner: open the app, review, merge → the proposer's bell rings proposal.merged.
+  await openApp(owner.page)
+  await owner.page.getByRole('navigation').getByRole('button', { name: 'Agents', exact: true }).click()
+  await owner.page
+    .locator('div')
+    .filter({ hasText: AGENT })
+    .getByRole('button', { name: 'Review 1 proposal', exact: true })
+    .last()
+    .click()
+  const review = owner.page.getByRole('dialog', { name: `Proposals — ${AGENT}` })
+  await review.getByRole('button', { name: 'Merge' }).click()
+  await expect(review.getByText('merged', { exact: true })).toBeVisible() // the status pill
+
+  // Proposer's inbox note text is unique; give the SSE a beat to deliver the bell.
+
+  // Proposer: the proposal.merged bell is the door — clicking it opens the OWNER's
+  // profile with the agent's public detail, "Your proposals" focused on the proposal
+  // (its note + the merged status are visible in the dialog — no manual drill-in).
+  await expect(proposer.page.getByRole('complementary').getByLabel(/Notifications \(\d+ unread\)/)).toBeVisible({ timeout: 10_000 })
+  await proposer.page.getByRole('complementary').getByLabel(/Notifications/).click()
+  await proposer.page
+    .getByRole('dialog', { name: 'Notifications' })
+    .getByRole('button', { name: new RegExp(`merged your proposal into .*${AGENT}`) })
+    .click()
+
+  const detail = proposer.page.getByRole('dialog', { name: AGENT })
+  await expect(detail).toBeVisible()
+  await expect(detail.getByText(/Your proposals/)).toBeVisible()
+  // The proposal row's own note (exact — the merge also echoes it into the changelog).
+  await expect(detail.getByText(NOTE, { exact: true })).toBeVisible()
+
+  await owner.context.close()
+  await proposer.context.close()
+})
