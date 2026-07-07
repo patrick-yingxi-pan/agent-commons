@@ -26,6 +26,7 @@ import {
   GitMerge,
   GitPullRequest,
   Globe,
+  History,
   KeyRound,
   Loader2,
   Lock,
@@ -165,6 +166,7 @@ import {
   AUDIT_CHANNEL_LABEL,
   type Agent,
   type AgentChangeProposal,
+  type AgentChangelogEntry,
   type AgentDirectoryEntry,
   type AuditEntry,
   type OpenSubGoal,
@@ -3257,6 +3259,11 @@ function AgentCard({
   const proposals = useAgentProposals(agent.id, agent.published === true).data ?? []
   const openProposals = proposals.filter((p) => p.status === 'open')
   const [reviewing, setReviewing] = useState(false)
+  // S4 — the version-history timeline the owner (who authored every version) could see
+  // only as a bare badge. Shown regardless of publish state: the badge is
+  // published-only, but the changelog persists after an unpublish.
+  const changelog = agent.changelog ?? []
+  const [showHistory, setShowHistory] = useState(false)
   // Notification door (R5): a proposal.* bell whose recipient OWNS this agent opens
   // the review dialog ON its proposal. Consumed once.
   const { pending, consume } = usePendingFocus()
@@ -3365,6 +3372,17 @@ function AgentCard({
             <GitFork size={11} /> forked {agent.forks} time{agent.forks === 1 ? '' : 's'}
           </span>
         )}
+        {/* S4 — the owner reaches their own version-history timeline, not just a badge. */}
+        {changelog.length > 0 && (
+          <button
+            onClick={() => setShowHistory((v) => !v)}
+            className={INLINE_ACTION_CLASS}
+            aria-expanded={showHistory}
+            title="This definition’s version history — who authored each version and why (D25)"
+          >
+            <History size={12} /> {showHistory ? 'Hide history' : `History (${changelog.length})`}
+          </button>
+        )}
         {/* D25 — the review queue: proposals sent back by forkers/visitors. */}
         {agent.published && proposals.length > 0 && (
           <button
@@ -3378,6 +3396,11 @@ function AgentCard({
           </button>
         )}
       </div>
+      {showHistory && changelog.length > 0 && (
+        <div className="mt-2">
+          <ChangelogList changelog={changelog} />
+        </div>
+      )}
       {error && <p className="mt-2 text-[12px] text-removed">{error}</p>}
       {reviewing && (
         <ProposalsReviewDialog
@@ -3498,6 +3521,23 @@ function ProposalFieldDiff({
         />
       ))}
     </>
+  )
+}
+
+/** The version-history timeline of a published definition (D25) — one line per
+ *  version: who authored it (a merged proposal, or the owner's own edit), the note, and
+ *  when, newest first. A version badge is a number where a lineage lives; this is the
+ *  lineage. Shared (surface-audit S4) so the owner's card and the visitor's detail
+ *  render the same history and can't drift (form follows function). */
+function ChangelogList({ changelog }: { changelog: AgentChangelogEntry[] }) {
+  return (
+    <ul className="max-h-24 space-y-1 overflow-y-auto rounded-lg border border-line bg-panel-2 p-2.5 text-[11px] leading-snug text-ink-soft">
+      {[...changelog].reverse().map((l) => (
+        <li key={l.version}>
+          <span className="font-medium text-ink">v{l.version}</span> · {l.author} · {l.note} · {relativeTime(l.at)}
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -4869,15 +4909,8 @@ function AgentDetailDialog({
         </div>
       </FormField>
       {(entry.changelog?.length ?? 0) > 0 && (
-        <FormField label={`Changelog (${entry.changelog.length})`}>
-          <ul className="max-h-24 space-y-1 overflow-y-auto rounded-lg border border-line bg-panel-2 p-2.5 text-[11px] leading-snug text-ink-soft">
-            {[...entry.changelog].reverse().map((l) => (
-              <li key={l.version}>
-                <span className="font-medium text-ink">v{l.version}</span> · {l.author} · {l.note} ·{' '}
-                {relativeTime(l.at)}
-              </li>
-            ))}
-          </ul>
+        <FormField label={`Changelog (${entry.changelog!.length})`}>
+          <ChangelogList changelog={entry.changelog!} />
         </FormField>
       )}
       <p className="flex items-center gap-3 text-[11px] text-ink-faint">

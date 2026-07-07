@@ -86,6 +86,13 @@ test('propose → review side-by-side → merge: the definition evolves and cred
   await expect(
     owner.page.locator('div').filter({ hasText: AGENT }).getByText('Published · v2').last(),
   ).toBeVisible()
+
+  // Surface-audit S4: the owner reaches their own version-history timeline FROM THE
+  // CARD — the merge authored a changelog entry, so a "History (N)" reveal appears and
+  // opens the same list the visitor sees (not just the bare v2 badge).
+  const ownerCard = owner.page.locator('div').filter({ hasText: AGENT })
+  await ownerCard.getByRole('button', { name: /History \(\d+\)/ }).last().click()
+  await expect(owner.page.getByText(NOTE).last()).toBeVisible() // the merged entry's note
   await expect(proposer.page.getByRole('complementary').getByLabel(/Notifications \(\d+ unread\)/)).toBeVisible({ timeout: 10_000 })
   await proposer.page.getByRole('complementary').getByLabel(/Notifications/).click()
   await expect(
