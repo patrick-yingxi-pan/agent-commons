@@ -286,6 +286,18 @@ the mock?
   (`src/lib/publicFace.ts` + `src/components/PublicFace.tsx`, invariant UI-10, spec
   COMMONS-13). Don't add a visitor-variant page or an owner-only rendering of the same
   entity — gate affordances on `own` inside the one page.
+- **Surface follows the entity's nature.** Before choosing a control or layout, ask
+  what the thing *is* — its temporal nature (moment / state / **lifecycle**), its
+  payload (a **change** → a diff; prose; refs; a quantity), the interactions it
+  accumulates (a **thread**; a **negotiation** with a verdict), and its **relations**
+  (ref links + back-references) — and let that dictate the form. A lifecycle entity
+  wants a **dedicated page with a timeline** (state transitions + thread interleaved),
+  not a modal; a change wants a **diff**; a relation wants a **ref link**. A modal is
+  only for a transient act. This is the deep form of "form follows function"; the full
+  method + the living refinement audit are in
+  [`docs/design/surface-from-nature.md`](docs/design/surface-from-nature.md) and
+  [`docs/design/surface-audit.md`](docs/design/surface-audit.md). New timeline / diff /
+  ref-link forms become shared primitives the first time two entities need them.
 - **The dev server binds IPv4** (`server.host: '127.0.0.1'` in `vite.config.ts`).
   On some hosts `localhost` resolves to `::1` only, which a browser/preview hitting
   `127.0.0.1` can't reach. Keep the explicit bind (the API proxy targets it too).
