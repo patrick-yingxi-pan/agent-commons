@@ -6,7 +6,8 @@ import { useFocusTrap } from '../lib/useFocusTrap'
 import { SCRIM_CLASS } from '../lib/scrim'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { relativeTime } from '../lib/relativeTime'
-import { useNotifications, markNotificationsRead } from '../api'
+import { doorFor } from '../lib/notificationDoor'
+import { useNotifications, markNotificationsRead, useAgents } from '../api'
 
 const KIND_ICON: Record<NotificationKind, LucideIcon> = {
   'work.posted': ListChecks,
@@ -49,27 +50,56 @@ function describe(n: AppNotification): string {
 
 /** ── The notification inbox (docs/agent-commons.md, D24) ─────────────────────
  *  The GitHub bell: what happened to what you watch, own, or posted — while you
- *  weren't looking. Rows are DOORS (a work act opens its project page; a fork
- *  opens the Agents hub) and clicking one marks it read; "Mark all read" settles
- *  the badge. Overlay chrome mirrors the search palette (one dialog family). */
+ *  weren't looking. Every row is a DOOR that lands on the EXACT place its act
+ *  happened (docs/notification-routing.md): `doorFor` maps the kind to a nav intent
+ *  the controller dispatches — the work item's thread, the proposal under review,
+ *  the source agent — and clicking marks it read. "Mark all read" settles the badge.
+ *  Overlay chrome mirrors the search palette (one dialog family). */
 export function NotificationsPanel({
   onOpenProject,
   onOpenSection,
+  onOpenWorkItem,
+  onOpenProposal,
+  onOpenAgent,
   onClose,
 }: {
   onOpenProject: (id: string) => void
   onOpenSection: (s: SectionId) => void
+  onOpenWorkItem: (projectId: string, workItemId: string, commentId?: string) => void
+  onOpenProposal: (agentId: string, proposalId: string, ownerName: string | null, commentId?: string) => void
+  onOpenAgent: (agentId: string) => void
   onClose: () => void
 }) {
   const dialogRef = useRef<HTMLDivElement>(null)
   const rows = useNotifications().data ?? []
+  // My own agent registry — resolves whether a proposal bell lands on MY review
+  // queue (I own the agent) or the owner's public profile (I'm the proposer).
+  const myAgents = useAgents().data ?? []
   const unread = rows.filter((r) => !r.read).length
   useFocusTrap(dialogRef, onClose)
 
   const open = (n: AppNotification) => {
     if (!n.read) void markNotificationsRead([n.id])
-    if (n.kind === 'agent.forked') onOpenSection('agents')
-    else if (n.projectId) onOpenProject(n.projectId)
+    const intent = doorFor(n)
+    switch (intent.kind) {
+      case 'workItem':
+        onOpenWorkItem(intent.projectId, intent.workItemId, intent.commentId)
+        break
+      case 'project':
+        onOpenProject(intent.projectId)
+        break
+      case 'proposal': {
+        const iOwn = myAgents.some((a) => a.id === intent.agentId)
+        onOpenProposal(intent.agentId, intent.proposalId, iOwn ? null : n.actor, intent.commentId)
+        break
+      }
+      case 'agent':
+        onOpenAgent(intent.agentId)
+        break
+      case 'section':
+        onOpenSection(intent.section)
+        break
+    }
     onClose()
   }
 

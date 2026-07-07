@@ -117,6 +117,9 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
     openProject,
     openSchedule,
     openOwner,
+    openWorkItem,
+    openProposal,
+    openAgent,
     goBack,
     backTo,
     pinSession,
@@ -603,6 +606,9 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
         <NotificationsPanel
           onOpenProject={openProject}
           onOpenSection={openSection}
+          onOpenWorkItem={openWorkItem}
+          onOpenProposal={openProposal}
+          onOpenAgent={openAgent}
           onClose={() => setNotifOpen(false)}
         />
       )}

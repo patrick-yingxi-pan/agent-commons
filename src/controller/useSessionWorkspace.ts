@@ -22,6 +22,7 @@ import {
 } from '../data/liveSession'
 import { sameFocus } from '../lib/focus'
 import { pushLocation, type NavLocation } from '../lib/nav'
+import type { FocusTarget } from '../lib/notificationDoor'
 import { rememberAttached } from '../lib/contextShortcuts'
 import { getPanelPref, setPanelPref } from '../lib/panelPrefs'
 import { loadModelPrefs } from '../lib/modelPrefs'
@@ -146,6 +147,12 @@ export function useSessionWorkspace() {
   // And for a workspace profile (D21) open under the Agents section — the display
   // name, which IS the public handle (an owner byline anywhere is a door here).
   const [focusOwnerName, setFocusOwnerName] = useState<string | null>(null)
+  // A transient "highlight this on arrival" target, set by a notification door
+  // (docs/notification-routing.md) and consumed once by the destination page (scroll
+  // + highlight the work item / proposal). Deliberately SEPARATE from the nav state
+  // above and from history — focus is not page identity, so Back never re-fires a
+  // highlight. A plain navigation clears it; a focus-carrying entry point sets it.
+  const [pendingFocus, setPendingFocus] = useState<FocusTarget | null>(null)
   // The navigation history stack — the pages visited, so "back" returns to where
   // you actually came *from* (dynamic) instead of a fixed structural parent. Each
   // nav action pushes the page it leaves; goBack pops. (See lib/nav.ts.)
@@ -941,6 +948,7 @@ export function useSessionWorkspace() {
     setFocusProjectId(null)
     setFocusScheduleId(null)
     setFocusOwnerName(null)
+    setPendingFocus(null) // a plain nav carries no focus intent — drop any stale target
   }, [record])
 
   // Open a project's detail page. Reached three ways — a session's "In ‹Project›"
@@ -953,6 +961,7 @@ export function useSessionWorkspace() {
     setFocusProjectId(projectId)
     setFocusScheduleId(null)
     setFocusOwnerName(null)
+    setPendingFocus(null)
   }, [record])
 
   // Open a routine's detail page. Reached from a run session's breadcrumb, a
@@ -963,6 +972,7 @@ export function useSessionWorkspace() {
     setFocusScheduleId(scheduleId)
     setFocusProjectId(null)
     setFocusOwnerName(null)
+    setPendingFocus(null)
   }, [record])
 
   // Open a workspace's public profile (D21) — reached from any owner byline (a
@@ -974,6 +984,50 @@ export function useSessionWorkspace() {
     setFocusOwnerName(name)
     setFocusProjectId(null)
     setFocusScheduleId(null)
+    setPendingFocus(null)
+  }, [record])
+
+  // ── Notification doors (docs/notification-routing.md) ─────────────────────
+  // A bell lands on the EXACT sub-entity its act touched: these navigate to the
+  // page (recording history, like every nav) AND set the transient focus the
+  // destination consumes to scroll + highlight it. `setPendingFocus` runs last so
+  // it survives the plain-nav clear these reuse conceptually.
+  const consumeFocus = useCallback(() => setPendingFocus(null), [])
+
+  // A work item's thread on its project page (work.* / mentioned bells).
+  const openWorkItem = useCallback((projectId: string, workItemId: string, commentId?: string) => {
+    record({ kind: 'section', section: 'projects', projectId, scheduleId: null, ownerName: null })
+    setActiveSection('projects')
+    setFocusProjectId(projectId)
+    setFocusScheduleId(null)
+    setFocusOwnerName(null)
+    setPendingFocus({ projectId, workItemId, commentId })
+  }, [record])
+
+  // A change proposal on the agent's review surface (proposal.* bells). `ownerName`
+  // null ⇒ the caller OWNS the agent ⇒ their Agents hub (the review queue); else the
+  // owner's profile (D21), where the public agent detail + "Your proposals" live.
+  const openProposal = useCallback(
+    (agentId: string, proposalId: string, ownerName: string | null, commentId?: string) => {
+      record({ kind: 'section', section: 'agents', projectId: null, scheduleId: null, ownerName })
+      setActiveSection('agents')
+      setFocusOwnerName(ownerName)
+      setFocusProjectId(null)
+      setFocusScheduleId(null)
+      setPendingFocus({ agentId, proposalId, commentId })
+    },
+    [record],
+  )
+
+  // The source agent (agent.forked) — the recipient is its owner, so their own
+  // Agents hub, with the card highlighted. Never the fork (the leak-wall).
+  const openAgent = useCallback((agentId: string) => {
+    record({ kind: 'section', section: 'agents', projectId: null, scheduleId: null, ownerName: null })
+    setActiveSection('agents')
+    setFocusOwnerName(null)
+    setFocusProjectId(null)
+    setFocusScheduleId(null)
+    setPendingFocus({ agentId })
   }, [record])
 
   // ── Back: pop the history stack and restore that page ─────────────────────
@@ -1154,6 +1208,7 @@ export function useSessionWorkspace() {
     focusProjectId,
     focusScheduleId,
     focusOwnerName,
+    pendingFocus,
     live,
     typing,
     focus,
@@ -1183,6 +1238,10 @@ export function useSessionWorkspace() {
     openProject,
     openSchedule,
     openOwner,
+    openWorkItem,
+    openProposal,
+    openAgent,
+    consumeFocus,
     goBack,
     backTo,
     pinSession,
