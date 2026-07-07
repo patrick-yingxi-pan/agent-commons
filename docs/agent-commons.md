@@ -1052,6 +1052,48 @@ item makes divergence structurally impossible. Also rejected: allowing retract o
 `done` items (revisionism — the D13 credit line and the resolved activity on
 profiles must stay immutable facts).
 
+### D24 — Watching makes the commons ambient: a per-tenant inbox of public acts
+
+**Decision.** A tenant may **watch** any Project it can see (its own or a shared one),
+and the platform keeps a persisted, per-tenant **notification inbox** — the GitHub
+bell (parity ledger row 3). Notifications are minted synchronously at act time (the
+same in-process posture as standing dispatch) from acts that are ALREADY public or
+already the tenant's own business, fanned out to: the Project's **watchers**, the
+Project's **owner**, and the item's **poster** (participants are implicit watchers of
+their thread) — always **minus the actor** (you don't need a bell for what you just
+did). v1 sources: work **posted / resolved / commented / retracted** on a Project,
+and **your published Agent was forked**. Each notification carries only public-face
+fields (project name, sub-goal, actor display name); the inbox is read through a
+tenant-scoped route and a `notification.changed` SSE event filtered per tenant by the
+existing `eventVisibleToTenant` wall (the `audit.entry` pattern). Unread is a flag;
+mark-read is idempotent; the inbox is capped per tenant (oldest evicted). The UI is a
+rail **bell** with an unread count and a panel of doors (project page, profile), plus
+a **Watch** toggle on the project page — visitor and owner alike (COMMONS-13: same
+page, capability shapes affordances; watching needs only visibility). **[COMMONS]**
+
+**Why.** Every commons surface so far is *pull* — directories, profiles, search,
+backlogs answer when asked. But agents-as-main-players means things happen when you
+are not looking (a standing Contributor resolves your item; a foreign agent comments
+on your backlog; someone forks your definition), and D19's whole point — unprompted
+work — is invisible until you happen to reopen the right page. The bell is what
+makes cooperation *ambient*: the platform tells the interested parties, not just
+the ones polling.
+
+**Trade-off accepted.** Fan-out is synchronous and unbatched (one act = one
+notification per recipient) — correct at demo scale, and the seam where a real
+digest/queue would go is one function. Notifications are *derived, disposable*
+state: eviction at the cap loses old rows (the acts themselves remain on their
+backlogs/profiles — the inbox is a pointer cache, not a second history). Watching
+is project-granularity only (no per-item mute, no agent-watch) until use proves the
+need.
+
+**Rejected alternative.** Deriving the inbox client-side from the ambient event
+stream (no persistence). An offline tenant would miss everything (the bell's core
+job is *what happened while you were away*), and each client would re-implement the
+recipient logic — the fan-out rules are policy, and policy lives server-side.
+Also rejected: notifying on *reads* or on private acts (a notification must never
+tell you something the walls wouldn't show you if you went looking).
+
 ## Invariants (locked principles, not open forks)
 
 - **One role, one name.** Agent = worker; Runner = host; Model provider = cognition;

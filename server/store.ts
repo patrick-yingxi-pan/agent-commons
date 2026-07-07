@@ -184,7 +184,22 @@ let auditSeq = 0
 // issues-tray analog. Persisted (additive, like `auditLog`) so an un-taken item survives
 // a restart; standing dispatch is synchronous at post time, so nothing in-flight ever
 // needs crash recovery — only the items themselves persist.
-const openSubGoals: OpenSubGoal[] = []
+/** The stored shape of a work item: the wire type plus the poster's RAW tenant id —
+ *  the strict authorization anchor for retract (review finding: display names are
+ *  attacker-controlled — `createWorkspace` has no uniqueness guard — so a name
+ *  comparison would let a colliding-name tenant close a victim's items). Server-
+ *  private: `publicOpenSubGoal` strips it from every read; only `postedBy` (the
+ *  display name) ever crosses the boundary. */
+type StoredOpenSubGoal = OpenSubGoal & { postedByTenant?: string }
+
+/** The one redaction seam stored → wire: drop the poster's raw tenant id. */
+function publicOpenSubGoal(item: StoredOpenSubGoal): OpenSubGoal {
+  const { postedByTenant, ...pub } = item
+  void postedByTenant
+  return pub
+}
+
+const openSubGoals: StoredOpenSubGoal[] = []
 let openSubGoalSeq = 0
 // D23 discussion bounds — enough to coordinate, not a blob store (a hostile poster
 // gets a cap, not a forum). Coarse by design; the design log records the trade-off.
@@ -2427,18 +2442,20 @@ export const store = {
       tenantId,
     )
   },
-  /** A Project's open-work backlog (D19) — open items first (newest within each band). */
+  /** A Project's open-work backlog (D19) — open items first (newest within each band).
+   *  Served through the `publicOpenSubGoal` redaction (the poster's raw tenant id
+   *  never crosses; the display name is the public face). */
   listOpenSubGoals(projectId: string): OpenSubGoal[] {
     const items = openSubGoals.filter((o) => o.projectId === projectId)
     const band = (o: OpenSubGoal) => (o.status === 'open' ? 0 : 1)
-    return [...items].sort((a, b) => band(a) - band(b) || b.postedAt - a.postedAt)
+    return [...items].sort((a, b) => band(a) - band(b) || b.postedAt - a.postedAt).map(publicOpenSubGoal)
   },
   /** Post a work item onto a Project's backlog (D19) — the issues-tray act — then
    *  dispatch it to the Project's standing Contributors synchronously. Returns the item
    *  in its post-dispatch state: `done` when a standing Commission took it, `open` when
    *  none could (it stays visible in the backlog). The route validates visibility. */
   postOpenSubGoal(projectId: string, req: PostOpenSubGoalRequest, tenantId: string, via?: 'a2a'): OpenSubGoal {
-    const item: OpenSubGoal = {
+    const item: StoredOpenSubGoal = {
       id: `work-${(openSubGoalSeq += 1)}`,
       projectId,
       subGoal: req.subGoal,
@@ -2446,6 +2463,8 @@ export const store = {
       target: req.target,
       note: req.note ?? '',
       postedBy: tenantName(tenantId),
+      // The strict retract-authorization anchor — server-private (redacted on read).
+      postedByTenant: tenantId,
       postedAt: Date.now(),
       status: 'open',
       // Provenance only (D20): an A2A-posted item passes the identical walls.
@@ -2455,7 +2474,7 @@ export const store = {
     this.dispatchOpenSubGoal(item)
     emit({ type: 'openwork.changed', projectId })
     persist()
-    return item
+    return publicOpenSubGoal(item)
   },
   /** Standing dispatch (D19): offer an open item to the Project's `standing`
    *  Commissions, in role-rank order (ties first-come by id), and let the FIRST one
@@ -2512,7 +2531,7 @@ export const store = {
     })
     emit({ type: 'openwork.changed', projectId })
     persist()
-    return item
+    return publicOpenSubGoal(item)
   },
   /** Retract a work item (D23) — the honest close: permitted only to the item's
    *  POSTER (name-compared, the platform's public identity) or the Project's OWNER
@@ -2523,16 +2542,21 @@ export const store = {
   retractOpenSubGoal(projectId: string, itemId: string, tenantId: string): OpenSubGoal | 'forbidden' | 'closed' | undefined {
     const item = openSubGoals.find((o) => o.id === itemId && o.projectId === projectId)
     if (!item) return undefined
-    const caller = tenantName(tenantId)
     const ownerTenant = findProject(projectId)?.tenantId ?? defaultTenantId()
-    if (item.postedBy !== caller && ownerTenant !== tenantId) return 'forbidden'
+    // BOTH branches compare raw tenant ids (review finding: display names are
+    // attacker-controlled — createWorkspace has no uniqueness guard — so a name
+    // comparison would let a colliding-name tenant close a victim's items). A
+    // legacy item persisted without `postedByTenant` is poster-unretractable
+    // (fail-closed); its Project owner still can.
+    const isPoster = item.postedByTenant !== undefined && item.postedByTenant === tenantId
+    if (!isPoster && ownerTenant !== tenantId) return 'forbidden'
     if (item.status !== 'open') return 'closed'
     item.status = 'retracted'
     item.retractedAt = Date.now()
-    item.retractedBy = caller
+    item.retractedBy = tenantName(tenantId)
     emit({ type: 'openwork.changed', projectId })
     persist()
-    return item
+    return publicOpenSubGoal(item)
   },
 
   /** The base artifacts (the relation graph carries any saved-out extras),

@@ -9,6 +9,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from '../server/store.ts'
+import { accounts } from '../server/accounts.ts'
 import { call } from './helpers/http.ts'
 
 const A = 'tenant-disc-A' // project owner
@@ -107,6 +108,36 @@ test('retract: the poster may; the project owner may; a bystander may not; done 
   assert.equal(taken.json.status, 'done', 'the standing Contributor took it at post time')
   const revisionism = await call('POST', `/projects/${three.projectId}/open-subgoals/${taken.json.id}/retract`, undefined, { 'x-tenant-id': B })
   assert.equal(revisionism.status, 409)
+})
+
+test('retract authorization survives a display-name collision (the spoof attack, refused)', async () => {
+  // Review finding: workspace names have NO uniqueness guard, so a display-name
+  // comparison would let an attacker mint a colliding name and close a victim's
+  // items. Run the actual attack: a workspace named EXACTLY the poster's public
+  // name (in the dev seam, B's display name is its raw id) tries to retract.
+  const { projectId, itemId } = await arena()
+  const spoof = accounts.createWorkspace('user-ada', B)
+  assert.ok(spoof, 'the registry happily mints the colliding name — that is the point')
+  assert.equal(spoof!.name, B, 'display names collide')
+  assert.notEqual(spoof!.id, B, 'tenant ids do not')
+
+  const attack = await call('POST', `/projects/${projectId}/open-subgoals/${itemId}/retract`, undefined, { 'x-tenant-id': spoof!.id })
+  assert.equal(attack.status, 403, 'authorization compares raw tenant ids, never display names')
+
+  // The true poster still can.
+  const legit = await call('POST', `/projects/${projectId}/open-subgoals/${itemId}/retract`, undefined, { 'x-tenant-id': B })
+  assert.equal(legit.status, 200)
+})
+
+test('the poster’s raw tenant id never crosses the boundary (redacted from every read)', async () => {
+  const { projectId, itemId } = await arena()
+  const posted = await call('POST', `/projects/${projectId}/open-subgoals`, { subGoal: `redact-${n}`, type: 'charge', target: 'budget:demo' }, { 'x-tenant-id': B })
+  const commented = await call('POST', `/projects/${projectId}/open-subgoals/${itemId}/comments`, { body: 'checking the wire' }, { 'x-tenant-id': C })
+  const list = await call('GET', `/projects/${projectId}/open-subgoals`, undefined, { 'x-tenant-id': A })
+  const task = await call('POST', `/a2a/projects/${projectId}`, { jsonrpc: '2.0', id: 1, method: 'tasks/get', params: { id: itemId } }, { 'x-tenant-id': C })
+  for (const [label, payload] of [['post', posted.json], ['comment', commented.json], ['list', list.json], ['a2a task', task.json]] as const) {
+    assert.ok(!JSON.stringify(payload).includes('postedByTenant'), `'postedByTenant' must not ride the ${label} response`)
+  }
 })
 
 test('a retracted item leaves the open counts (directory, search) but stays on the backlog', async () => {
