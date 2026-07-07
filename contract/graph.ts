@@ -16,6 +16,7 @@ export function emptyGraph(): RelationGraph {
     scheduleProject: {},
     projectContexts: {},
     projectInstructions: {},
+    projectReadmes: {},
     artifactSource: {},
     scheduleArtifact: {},
     scheduleSession: {},
@@ -142,6 +143,13 @@ export function applyGraphOp(
       return {
         ...graph,
         projectInstructions: { ...graph.projectInstructions, [op.projectId]: op.instructions },
+      }
+    case 'set-project-readme':
+      // The public "about" of a shared project (D26). Capped in the shared reducer
+      // so both appliers agree on the bound; empty clears it.
+      return {
+        ...graph,
+        projectReadmes: { ...graph.projectReadmes, [op.projectId]: op.readme.slice(0, 10_000) },
       }
     case 'link-schedule-project':
       return { ...graph, scheduleProject: { ...graph.scheduleProject, [op.scheduleId]: op.projectId } }

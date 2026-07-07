@@ -447,6 +447,16 @@ function projectGraphForTenant(g: RelationGraph, tenantId: string): RelationGrap
     scheduleProject: byProjValue(g.scheduleProject),
     projectContexts: byProjKey(g.projectContexts),
     projectInstructions: byProjKey(g.projectInstructions),
+    // The README is the PUBLIC "about" (D26): unlike instructions (owner-scoped),
+    // its row survives for any viewer of a SHARED project — the same visibility
+    // the project object itself has in this projection.
+    projectReadmes: Object.fromEntries(
+      Object.entries(g.projectReadmes).filter(([pid]) => {
+        if (projVisible(pid)) return true
+        const p = findProject(pid)
+        return p?.shared === true
+      }),
+    ),
     artifactSource: byArtKey(g.artifactSource),
   }
 }

@@ -1142,6 +1142,35 @@ redaction to get wrong). Also rejected: auto-merge on owner inactivity (consent 
 defaults to yes), and proposing against UNPUBLISHED agents (the public face is the
 subject; a private definition has no visitors to propose).
 
+### D26 — The README: a shared Project's public "about" (the last parity row)
+
+**Decision.** A Project gets a **README** (parity row 5): owner-editable public
+landing content, stored as a graph overlay (`projectReadmes`, a `set-project-readme`
+relation op — the same consent-gated funnel every graph edit rides, so Claude can
+propose one conversationally through the standard confirm card for free). It is the
+**public complement of `instructions`**: instructions are private owner context (the
+projection strips them from visitors); the README is served to every viewer of a
+shared Project — that's its whole job. Rendered as an "About" section at the top of
+the one project page (COMMONS-13: same page, the owner gets Edit, the visitor gets
+prose); capped in the SHARED reducer so both appliers agree on the bound; plain
+text v1 (the app deliberately has no markdown renderer to feed). **[COMMONS]**
+
+**Why.** A visitor deciding whether to commission an agent onto a project — or take
+its open work — had one line of description and a backlog to reason from. GitHub's
+README is where a repo says *what this is and how to contribute*; a cooperation
+platform needs the same first page, or every joining decision starts under-informed.
+
+**Trade-off accepted.** Plain text (no markdown pipeline for one field); one README
+per project (no docs tree); the cap is coarse. Owner-only editing — contributors
+propose README changes in the work-item threads (D23) rather than through a
+PR-mechanism of its own (the definition-evolution machinery stays scoped to agent
+definitions, where reuse justifies it).
+
+**Rejected alternative.** A README as a special Artifact filed to the project — it
+would inherit the artifact model's private-by-default visibility and gallery
+semantics, then need carve-outs for the public read; a graph overlay with an explicit
+public projection rule is smaller and states its visibility in one place.
+
 ## Invariants (locked principles, not open forks)
 
 - **One role, one name.** Agent = worker; Runner = host; Model provider = cognition;
@@ -1648,6 +1677,13 @@ session↔context binding, mediation handle, and single-resource escrow).
   the public detail; the owner's side-by-side review queue on the agent card.
   Locked by `tests/agent-proposals.test.ts` + `e2e/definition-evolution.spec.ts`;
   spec row COMMONS-18; parity rows 4/6.
+- **Slice 25 — the project README (D26). ✅ Built.** The last parity row: a shared
+  Project's public "about" as a `projectReadmes` graph overlay (`set-project-readme`
+  op — the consent-gated funnel, owner-only, reducer-capped), public in the
+  projection for shared projects while instructions stay private, rendered as the
+  page-top "About" (owner edits, visitor reads). Locked by
+  `tests/project-readme.test.ts` + `e2e/project-readme.spec.ts`; spec row
+  COMMONS-19; parity row 5 — **the "needed" column of the parity ledger is complete**.
 - **The multi-tenant surface (slices 1–10) is built, managed (11–15), persisted (16), and
   conversationally manageable (17).** Every D6–D13 decision is now exercised by a working
   slice *and* user-manageable from the Agents hub — by hand or by asking Claude — the

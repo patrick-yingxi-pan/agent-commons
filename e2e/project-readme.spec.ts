@@ -1,0 +1,60 @@
+import { test, expect, type Browser, type Page } from '@playwright/test'
+
+/** D26 — the project README through the rendered UI: the owner writes the public
+ *  "about" on the one project page; a FOREIGN tenant reads it on the same page —
+ *  with no Edit affordance (capability shapes affordances, not location). */
+
+const STAMP = Date.now().toString(36)
+const PROJECT = `Documented project ${STAMP}`
+const README = `This project exists to prove READMEs travel. Contribute via open work. ${STAMP}`
+
+async function dismissIntro(page: Page, timeout = 2_500) {
+  await page
+    .getByRole('button', { name: 'Explore on my own' })
+    .click({ timeout })
+    .catch(() => {})
+}
+
+async function openApp(page: Page) {
+  await page.goto('/')
+  await dismissIntro(page, 5_000)
+}
+
+async function newUser(browser: Browser, headers?: Record<string, string>) {
+  const context = await browser.newContext(headers ? { extraHTTPHeaders: headers } : {})
+  const page = await context.newPage()
+  return { context, page }
+}
+
+test('the owner writes the README; the visitor reads it on the same page, without Edit', async ({ browser }) => {
+  test.setTimeout(120_000)
+  const owner = await newUser(browser)
+  const visitor = await newUser(browser, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
+
+  await openApp(owner.page)
+  await owner.page.getByRole('navigation').getByRole('button', { name: 'Projects', exact: true }).click()
+  await owner.page.getByRole('button', { name: 'New project' }).click()
+  await owner.page.getByPlaceholder('e.g. Insights dashboard').fill(PROJECT)
+  await owner.page.getByRole('button', { name: 'Create project' }).click()
+  const share = owner.page.getByTestId('share-toggle')
+  await share.click()
+  await expect(share).toHaveAttribute('aria-pressed', 'true')
+
+  // Owner: write the About through the page's own editor.
+  await owner.page.getByRole('button', { name: 'Edit', exact: true }).first().click()
+  await owner.page.getByLabel('Project README').fill(README)
+  await owner.page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(owner.page.getByText(README)).toBeVisible()
+
+  // Visitor: same page, the About renders — and no Edit affordance next to it.
+  await openApp(visitor.page)
+  await visitor.page.getByRole('navigation').getByRole('button', { name: 'Projects', exact: true }).click()
+  await visitor.page.getByText(PROJECT).first().click()
+  await expect(visitor.page.getByText(README)).toBeVisible()
+  await expect(visitor.page.getByLabel('Project README')).toHaveCount(0)
+  const about = visitor.page.getByRole('main').getByText('About')
+  await expect(about).toBeVisible()
+
+  await owner.context.close()
+  await visitor.context.close()
+})

@@ -631,6 +631,9 @@ function ProjectDetail({
       <div className="flex flex-col gap-6 lg:flex-row">
         {/* Main panel — the project's recent sessions. */}
         <div className="min-w-0 flex-1">
+          {/* The README (D26) — the PUBLIC "about", read by owner and visitor alike;
+              only the owner gets the edit affordance (capability shapes affordances). */}
+          <ProjectReadme project={project} own={own} />
           <PanelLabel>Recent sessions</PanelLabel>
           {convs.length === 0 ? (
             <Empty>
@@ -754,6 +757,80 @@ function ProjectDetail({
         </aside>
       </div>
     </Page>
+  )
+}
+
+/** The project README (D26) — the GitHub-parity "about": the PUBLIC landing content
+ *  of a shared project, distinct from `instructions` (private owner context the
+ *  projection strips for visitors). Rendered for every viewer when non-empty; the
+ *  owner gets Edit (a `set-project-readme` op — server-owned, persisted, broadcast). */
+function ProjectReadme({ project, own }: { project: Project; own: boolean }) {
+  const rel = useRelations()
+  const current = rel.readmeForProject(project.id) ?? ''
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(current)
+  if (!current && !own) return null
+  const save = () => {
+    rel.applyOp({ kind: 'set-project-readme', projectId: project.id, projectName: project.name, readme: draft.trim() })
+    setEditing(false)
+  }
+  return (
+    <div className="mb-6">
+      <div className="flex items-center gap-2">
+        <PanelLabel>About</PanelLabel>
+        {own && !editing && (
+          <button
+            onClick={() => {
+              setDraft(current)
+              setEditing(true)
+            }}
+            className={`mb-2.5 ${INLINE_ACTION_CLASS}`}
+            title="The public README — every viewer of a shared project reads this"
+          >
+            <Pencil size={12} /> Edit
+          </button>
+        )}
+      </div>
+      {editing ? (
+        <div>
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setEditing(false)
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) save()
+            }}
+            rows={6}
+            placeholder="What is this project, and how does one contribute? (public — every viewer reads this)"
+            aria-label="Project README"
+            className="w-full resize-none rounded-lg border border-line bg-surface px-2.5 py-2 text-[13px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-accent"
+          />
+          <div className="mt-2 flex items-center justify-end gap-2">
+            <button
+              onClick={() => setEditing(false)}
+              className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:text-ink"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={save}
+              className="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas shadow-sm transition hover:opacity-90"
+            >
+              <Check size={13} />
+              Save
+            </button>
+          </div>
+        </div>
+      ) : current ? (
+        <p className="whitespace-pre-wrap rounded-xl border border-line bg-surface p-4 text-[13px] leading-relaxed text-ink-soft">
+          {current}
+        </p>
+      ) : (
+        <p className="text-[12px] text-ink-faint">
+          No README yet — the public “about” a visitor reads first.
+        </p>
+      )}
+    </div>
   )
 }
 

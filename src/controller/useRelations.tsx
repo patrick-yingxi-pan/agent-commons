@@ -69,6 +69,8 @@ export interface RelationsValue {
   contextsForProject: (pid: string) => ProjectContext[]
   // ── Project instructions (edited overlay; undefined = use the project's seed) ──
   instructionsForProject: (pid: string) => string | undefined
+  /** The project's public README (D26) — served to every viewer of a shared project. */
+  readmeForProject: (pid: string) => string | undefined
   // ── Nav bridge (the card's "View in …" deep-link) ──
   navigate: (section: SectionId, projectId?: string) => void
 }
@@ -135,6 +137,7 @@ export function RelationsProvider({
       isStandingApproved: (key) => !!graph.standingApprovals[key],
       contextsForProject: (pid) => graph.projectContexts[pid] ?? [],
       instructionsForProject: (pid) => graph.projectInstructions?.[pid],
+      readmeForProject: (pid) => graph.projectReadmes?.[pid],
       navigate: (section, projectId) => navigate?.(section, projectId),
     }
   }, [projects, baseArtifacts, schedules, sessions, graph, applyOp, navigate])

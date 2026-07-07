@@ -139,6 +139,9 @@ export type RelationOp =
   | { kind: 'unscope-context'; projectId: string; projectName: string; contextLabel: string }
   // Project — edit a project's custom instructions (the right-panel "Instructions" card).
   | { kind: 'set-project-instructions'; projectId: string; projectName: string; instructions: string }
+  // Project — edit a project's README (D26): the PUBLIC "about" every viewer of a
+  // shared project reads, unlike instructions (private owner context).
+  | { kind: 'set-project-readme'; projectId: string; projectName: string; readme: string }
   // Project ↔ Schedule — link a recurring schedule to a project (null = unlink).
   | { kind: 'link-schedule-project'; scheduleId: string; scheduleName: string; projectId: string | null; projectName: string }
   // Artifact ↔ Context — record that an artifact derives from a context.
@@ -195,6 +198,8 @@ export function opKey(op: RelationOp): string {
       return `unscope-context:${op.projectId}:${op.contextLabel}`
     case 'set-project-instructions':
       return `set-project-instructions:${op.projectId}`
+    case 'set-project-readme':
+      return `set-project-readme:${op.projectId}`
     case 'link-schedule-project':
       return `link-schedule-project:${op.scheduleId}:${op.projectId ?? 'none'}`
     case 'set-artifact-source':
@@ -335,6 +340,15 @@ export function describeOp(op: RelationOp): OpDescription {
       return {
         text: `Update the **${op.projectName}** project instructions`,
         done: 'Instructions updated',
+        section: 'projects',
+        projectId: op.projectId,
+        relationId: 'project-context',
+        approval: 'per-action',
+      }
+    case 'set-project-readme':
+      return {
+        text: `Update the **${op.projectName}** project README`,
+        done: 'README updated',
         section: 'projects',
         projectId: op.projectId,
         relationId: 'project-context',
