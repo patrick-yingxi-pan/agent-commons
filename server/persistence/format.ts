@@ -10,6 +10,7 @@
  *    • `PersistenceBackend` — the port both backends implement. */
 import type {
   Agent,
+  AppNotification,
   AuditEntry,
   Commission,
   DispatchRun,
@@ -52,6 +53,12 @@ import { join } from 'node:path'
  *  matching how `savedContexts?` / `auditLog?` were added.) */
 export const STORE_VERSION = 5
 
+/** A notification as STORED — the wire row plus its recipient tenant (server-private;
+ *  the tenant-scoped read serves only the caller's own rows, as `AppNotification`). */
+export interface StoredNotification extends AppNotification {
+  tenantId: string
+}
+
 /** The persisted shape — the store's mutable, UI-owned state. Maps are stored as
  *  entry arrays (JSON has no Map). The id counters ride along so minted ids don't
  *  collide with persisted ones after a restart. */
@@ -93,6 +100,13 @@ export interface PersistedState {
    *  cleanly with an empty backlog). Dispatch itself is synchronous at post time, so
    *  nothing in-flight ever needs recovering — only the items persist. */
   openSubGoals?: OpenSubGoal[]
+  /** Watch subscriptions (D24) — `[tenantId, projectId]` pairs (tuples, not a Map:
+   *  a project has many watchers). Additive-optional like `dispatch` (a pre-field
+   *  snapshot loads cleanly with no watches). */
+  watches?: [string, string][]
+  /** The per-tenant notification inbox (D24) — derived, capped, disposable state
+   *  (the acts themselves remain on their backlogs/profiles). Additive-optional. */
+  notifications?: StoredNotification[]
   /** The account registry (multi-account P7 — real onboarded accounts): users
    *  (with their server-only scrypt credential), tenants/workspaces, and
    *  memberships. Additive-optional like `dispatch` (a pre-P7 snapshot loads
@@ -118,6 +132,8 @@ export interface PersistedState {
     dispatch?: number
     /** Open-work item id counter (D19). Optional like `dispatch`. */
     openSubGoal?: number
+    /** Notification id counter (D24). Optional like `dispatch`. */
+    notification?: number
     /** Account registry counters (multi-account P7). Optional like the slices. */
     user?: number
     tenant?: number
@@ -150,6 +166,8 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   auditLog: 'array',
   dispatch: 'array',
   openSubGoals: 'array',
+  watches: 'array',
+  notifications: 'array',
   accountUsers: 'mapEntries',
   accountTenants: 'mapEntries',
   memberships: 'array',

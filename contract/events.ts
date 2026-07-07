@@ -216,6 +216,14 @@ export interface OpenWorkChangedEvent {
   projectId: string
 }
 
+/** A tenant's notification inbox changed (D24) — a public act fanned out to it, or a
+ *  mark-read landed. Targeted: `eventVisibleToTenant` delivers it ONLY to the named
+ *  tenant's streams (the `audit.entry` pattern); the client re-reads the inbox. */
+export interface NotificationChangedEvent {
+  type: 'notification.changed'
+  tenantId: string
+}
+
 /** Sent once when an SSE channel opens, so the client can confirm liveness. */
 export interface HelloEvent {
   type: 'hello'
@@ -253,6 +261,7 @@ export type ServerEvent =
   | RunFinishedEvent
   | RelationAppliedEvent
   | RecentsChangedEvent
+  | NotificationChangedEvent
   | ConnectorStatusEvent
   | SessionUpdatedEvent
   | SessionContextsChangedEvent

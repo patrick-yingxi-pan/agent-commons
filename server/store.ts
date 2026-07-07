@@ -72,8 +72,8 @@ import { mintAuthority } from './authority.ts'
 import { ConflictError } from './conflict.ts'
 import { LimitError } from './limit.ts'
 import { scopeMatches } from './runner-runtime.ts'
-import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP } from '../contract/index.ts'
-import type { Agent, AgentDirectoryEntry, AuditEntry, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelProvider, OpenSubGoal, OwnerActivity, OwnerProfile, PostOpenSubGoalRequest, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest } from '../contract/index.ts'
+import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../contract/index.ts'
+import type { Agent, AgentDirectoryEntry, AppNotification, AuditEntry, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelProvider, OpenSubGoal, OwnerActivity, OwnerProfile, PostOpenSubGoalRequest, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
@@ -86,7 +86,7 @@ import { ResourceGuardian, GuardianError } from './guardian.ts'
 import { LOCAL_RUNNER_SEED, RUNNER_FS_ROOTS } from './data/runners.ts'
 import { DEFAULT_AGENT } from './data/workers.ts'
 import { EMPTY_WORKSPACE, workspaceFromSeed } from './workspace.ts'
-import { STORE_VERSION, loadState, saveState, type PersistedState } from './persist.ts'
+import { STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification } from './persist.ts'
 import { eventlog } from './eventlog.ts'
 import { accounts } from './accounts.ts'
 
@@ -205,6 +205,51 @@ let openSubGoalSeq = 0
 // gets a cap, not a forum). Coarse by design; the design log records the trade-off.
 const MAX_WORK_ITEM_COMMENTS = 100
 const MAX_WORK_ITEM_COMMENT_CHARS = 2000
+
+// ── D24 — watching + the per-tenant notification inbox ──────────────────────
+// Watch subscriptions: projectId → the tenant ids watching it. Persisted as
+// [tenantId, projectId] pairs (a project has many watchers).
+const watches = new Map<string, Set<string>>()
+// The inbox: derived, capped, disposable rows (the acts themselves remain on their
+// backlogs/profiles). Each row carries its RECIPIENT tenant — server-private; the
+// tenant-scoped read serves only the caller's own rows, without the field.
+const notifications: StoredNotification[] = []
+let notificationSeq = 0
+
+/** Fan one public act out to its interested tenants (D24), always MINUS the actor
+ *  (you don't need a bell for what you just did). Synchronous and unbatched — the
+ *  seam where a real digest/queue would go. No persist() here: every call site
+ *  persists after its own mutation. */
+function notifyTenants(
+  recipients: Iterable<string>,
+  actorTenant: string,
+  row: Omit<StoredNotification, 'id' | 'read' | 'at' | 'tenantId'>,
+): void {
+  const at = Date.now()
+  const unique = new Set(recipients)
+  unique.delete(actorTenant)
+  for (const tenantId of unique) {
+    notifications.push({ ...row, id: `ntf-${(notificationSeq += 1)}`, tenantId, at, read: false })
+    // Per-tenant cap: evict oldest (a pointer cache, not a second history).
+    const mine = notifications.filter((x) => x.tenantId === tenantId)
+    if (mine.length > NOTIFICATION_CAP) {
+      const drop = new Set(mine.slice(0, mine.length - NOTIFICATION_CAP).map((x) => x.id))
+      for (let i = notifications.length - 1; i >= 0; i -= 1) {
+        if (drop.has(notifications[i].id)) notifications.splice(i, 1)
+      }
+    }
+    emit({ type: 'notification.changed', tenantId })
+  }
+}
+
+/** A work item's interested tenants: the Project's watchers, its owner, and the
+ *  item's poster (participants are implicit watchers of their thread). */
+function workItemAudience(item: StoredOpenSubGoal): Set<string> {
+  const out = new Set<string>(watches.get(item.projectId) ?? [])
+  out.add(findProject(item.projectId)?.tenantId ?? defaultTenantId())
+  if (item.postedByTenant) out.add(item.postedByTenant)
+  return out
+}
 // Monotonic counters for server-minted session + message ids. The conversation is
 // now server-owned (a sent turn persists; a draft materializes into a real session
 // on first send), so the backend mints these — the client no longer fabricates them.
@@ -667,6 +712,9 @@ function snapshot(): PersistedState {
     auditLog, // D15/OQ7 — the cross-user effect trail (append-only)
     dispatch, // P7 — one-off dispatch runs (a live run survives a restart)
     openSubGoals, // D19 — the Project open-work backlog (an un-taken item survives a restart)
+    // D24 — watch subscriptions ([tenantId, projectId] pairs) + the notification inbox.
+    watches: [...watches.entries()].flatMap(([projectId, tenants]) => [...tenants].map((t) => [t, projectId] as [string, string])),
+    notifications,
     // The account registry (multi-account P7): onboarded users (scrypt
     // credential included — it must survive a restart), workspaces, memberships.
     accountUsers: persistedAccounts.users,
@@ -685,6 +733,7 @@ function snapshot(): PersistedState {
       audit: auditSeq,
       dispatch: dispatchSeq,
       openSubGoal: openSubGoalSeq,
+      notification: notificationSeq,
       user: persistedAccounts.seq.user,
       tenant: persistedAccounts.seq.tenant,
     },
@@ -794,6 +843,16 @@ function rehydrate(s: PersistedState): void {
   // back to the backlog length so freshly minted ids never collide with restored ones.
   openSubGoals.splice(0, openSubGoals.length, ...(s.openSubGoals ?? []))
   openSubGoalSeq = s.seq.openSubGoal ?? openSubGoals.length
+  // D24 — watches + the inbox (empty for a pre-field snapshot); counter falls back
+  // to the inbox length so freshly minted ids never collide with restored ones.
+  watches.clear()
+  for (const [tenantId, projectId] of s.watches ?? []) {
+    const set = watches.get(projectId) ?? new Set<string>()
+    set.add(tenantId)
+    watches.set(projectId, set)
+  }
+  notifications.splice(0, notifications.length, ...(s.notifications ?? []))
+  notificationSeq = s.seq.notification ?? notifications.length
 }
 
 /** Re-ensure the code's seed rows after a snapshot restore: a seed row missing
@@ -1079,6 +1138,9 @@ export const store = {
       }
       case 'audit.entry':
         return (e.entry.tenantId ?? defaultTenantId()) === tenantId
+      // Targeted (D24): an inbox event reaches ONLY its tenant's streams.
+      case 'notification.changed':
+        return e.tenantId === tenantId
       case 'relation.applied':
         // Gate on the tenant that APPLIED the edit — not the op payload. Keying off
         // op.projectId leaked the unfile/unlink ops (projectId:null but carrying the
@@ -2408,6 +2470,13 @@ export const store = {
       tenantId,
     )
     WORKER_AGENTS.set(source.id, { ...source, forks: (source.forks ?? 0) + 1 })
+    // D24: a fork is public credit — tell the definition's owner.
+    notifyTenants([source.tenantId ?? defaultTenantId()], tenantId, {
+      kind: 'agent.forked',
+      actor: tenantName(tenantId),
+      agentId: source.id,
+      agentLabel: source.label,
+    })
     persist()
     return fork
   },
@@ -2471,6 +2540,15 @@ export const store = {
       ...(via ? { via } : {}),
     }
     openSubGoals.push(item)
+    // The posted-notification fans out BEFORE dispatch so the two acts read in
+    // order in every inbox (posted, then — when a standing taker fired — resolved).
+    notifyTenants(workItemAudience(item), tenantId, {
+      kind: 'work.posted',
+      actor: item.postedBy,
+      projectId,
+      projectName: findProject(projectId)?.name ?? '',
+      subGoal: item.subGoal,
+    })
     this.dispatchOpenSubGoal(item)
     emit({ type: 'openwork.changed', projectId })
     persist()
@@ -2506,6 +2584,18 @@ export const store = {
       item.resolvedBy = c.id
       item.resolvedByLabel = WORKER_AGENTS.get(c.agentId)?.label ?? c.agentId
       item.resolvedAt = Date.now()
+      // D24: unprompted work is exactly what a bell exists for — tell the item's
+      // audience, attributed to the resolving agent's OWNER workspace (D13).
+      {
+        const resolverTenant = this.commissionOwnerTenant(c.id) ?? defaultTenantId()
+        notifyTenants(workItemAudience(item), resolverTenant, {
+          kind: 'work.resolved',
+          actor: tenantName(resolverTenant),
+          projectId: item.projectId,
+          projectName: findProject(item.projectId)?.name ?? '',
+          subGoal: item.subGoal,
+        })
+      }
       return true
     }
     return false
@@ -2528,6 +2618,13 @@ export const store = {
       author: tenantName(tenantId),
       body: body.trim().slice(0, MAX_WORK_ITEM_COMMENT_CHARS),
       at: Date.now(),
+    })
+    notifyTenants(workItemAudience(item), tenantId, {
+      kind: 'work.commented',
+      actor: tenantName(tenantId),
+      projectId,
+      projectName: findProject(projectId)?.name ?? '',
+      subGoal: item.subGoal,
     })
     emit({ type: 'openwork.changed', projectId })
     persist()
@@ -2554,9 +2651,57 @@ export const store = {
     item.status = 'retracted'
     item.retractedAt = Date.now()
     item.retractedBy = tenantName(tenantId)
+    notifyTenants(workItemAudience(item), tenantId, {
+      kind: 'work.retracted',
+      actor: item.retractedBy,
+      projectId,
+      projectName: findProject(projectId)?.name ?? '',
+      subGoal: item.subGoal,
+    })
     emit({ type: 'openwork.changed', projectId })
     persist()
     return publicOpenSubGoal(item)
+  },
+
+  // ── D24 — watching + the notification inbox ──
+  /** Set the caller's watch on a Project (the route validates visibility with the
+   *  same wall as reading it — watching needs only visibility, COMMONS-13). */
+  setWatch(projectId: string, tenantId: string, watching: boolean): WatchState {
+    const set = watches.get(projectId) ?? new Set<string>()
+    if (watching) set.add(tenantId)
+    else set.delete(tenantId)
+    if (set.size > 0) watches.set(projectId, set)
+    else watches.delete(projectId)
+    persist()
+    return { watching }
+  },
+  watchState(projectId: string, tenantId: string): WatchState {
+    return { watching: watches.get(projectId)?.has(tenantId) ?? false }
+  },
+  /** The caller's inbox, newest first — ONLY its own rows, served without the
+   *  recipient field (the wire shape is `AppNotification`). */
+  listNotifications(tenantId: string): AppNotification[] {
+    return notifications
+      .filter((x) => x.tenantId === tenantId)
+      .map(({ tenantId: _recipient, ...pub }) => pub)
+      .reverse()
+  },
+  /** Mark the caller's rows read — the named ids, or all. Idempotent; emits (and
+   *  persists) only when something actually flipped. */
+  markNotificationsRead(tenantId: string, ids?: string[]): AppNotification[] {
+    const named = ids ? new Set(ids) : null
+    let changed = false
+    for (const x of notifications) {
+      if (x.tenantId !== tenantId || x.read) continue
+      if (named && !named.has(x.id)) continue
+      x.read = true
+      changed = true
+    }
+    if (changed) {
+      emit({ type: 'notification.changed', tenantId })
+      persist()
+    }
+    return this.listNotifications(tenantId)
   },
 
   /** The base artifacts (the relation graph carries any saved-out extras),

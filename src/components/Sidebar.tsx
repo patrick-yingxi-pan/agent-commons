@@ -13,6 +13,7 @@ import {
   Play,
   PlayCircle,
   Plus,
+  Bell,
   Search,
   Trash2,
 } from 'lucide-react'
@@ -23,7 +24,7 @@ import { ScheduledFilterMenu } from './ScheduledFilterMenu'
 import { RowMenu, projectMenuItems, type RowMenuItem } from './RowMenu'
 import { SECTION_META, SECTION_ORDER } from '../lib/sections'
 import { SIDEBAR_HOVER } from '../lib/sidebar'
-import { removeSchedule, runScheduleNow, toggleScheduleEnabled, useProjects, useSchedules } from '../api'
+import { removeSchedule, runScheduleNow, toggleScheduleEnabled, useNotifications, useProjects, useSchedules } from '../api'
 import { AccountChip } from './AccountMenu'
 import { useRelations } from '../controller/useRelations'
 import { runSessionId } from '../../contract/ids.ts'
@@ -58,6 +59,7 @@ export function Sidebar({
   onDeleteSession,
   onToggleCollapse,
   onOpenSearch,
+  onOpenNotifications,
   resizable = true,
   onResizeStart,
   onResize,
@@ -81,6 +83,8 @@ export function Sidebar({
   onToggleCollapse: () => void
   /** Open the floating search palette (the rail keeps only an icon). */
   onOpenSearch: () => void
+  /** Open the notification inbox (D24) — the bell beside the search icon. */
+  onOpenNotifications: () => void
   /** Drag-to-resize wiring; the parent owns the width and clamps it. On the
    *  narrow tier the rail is a fixed-width drawer, so the handle is dropped. */
   resizable?: boolean
@@ -89,6 +93,8 @@ export function Sidebar({
   onResizeEnd: () => void
 }) {
   const inSession = activeSection === null
+  // The bell's badge (D24) — live via the tenant-targeted notification.changed event.
+  const unreadCount = (useNotifications().data ?? []).filter((r) => !r.read).length
   // The "Scheduled" section folds (persisted) to save rail space.
   const [schedOpen, setSchedOpen] = useState<boolean>(() => getLayout('schedOpen', true))
   // The rail now lists scheduled *routines* (each entry is the recurring workflow,
@@ -199,6 +205,21 @@ export function Sidebar({
           className={`flex h-8 w-8 items-center justify-center rounded-lg text-ink-soft transition ${SIDEBAR_HOVER} hover:text-ink`}
         >
           <Search size={18} />
+        </button>
+        {/* The bell (D24) — the inbox of public acts on what you watch, own, or
+            posted. The badge is the unread count, live via notification.changed. */}
+        <button
+          onClick={onOpenNotifications}
+          title="Notifications"
+          aria-label={unreadCount > 0 ? `Notifications (${unreadCount} unread)` : 'Notifications'}
+          className={`relative flex h-8 w-8 items-center justify-center rounded-lg text-ink-soft transition ${SIDEBAR_HOVER} hover:text-ink`}
+        >
+          <Bell size={18} />
+          {unreadCount > 0 && (
+            <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-semibold leading-none text-white">
+              {unreadCount > 99 ? '99+' : unreadCount}
+            </span>
+          )}
         </button>
       </div>
 

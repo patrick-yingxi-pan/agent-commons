@@ -69,8 +69,10 @@ import type {
   A2aRpcRequest,
   A2aTextPart,
   ImportAgentCardRequest,
+  MarkNotificationsReadRequest,
   PostWorkItemCommentRequest,
   ProjectEffectType,
+  SetWatchRequest,
   AuthAccount,
   CapabilityRequest,
   ProjectEffectRequest,
@@ -1270,6 +1272,26 @@ export function buildRouter(): Router {
     if (out === 'capped') return sendError(res, 'conflict', 'This item’s discussion is at its cap')
     sendJson(res, out)
   })
+  // ── D24 — watching + the notification inbox ─────────────────────────────────
+  // Watch a project you can see (the same wall as reading it); read/mark your inbox.
+  r.get('/projects/:id/watch', ({ req, res, params }) => {
+    if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+    sendJson(res, store.watchState(params.id, store.identity(req.headers).tenant.id))
+  })
+  r.post('/projects/:id/watch', async ({ req, res, params, body }) => {
+    const input = await body<SetWatchRequest>()
+    if (typeof input?.watching !== 'boolean') return sendError(res, 'bad_request', 'watching (boolean) is required')
+    if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+    sendJson(res, store.setWatch(params.id, store.identity(req.headers).tenant.id, input.watching))
+  })
+  r.get('/notifications', ({ req, res }) => {
+    sendJson(res, store.listNotifications(store.identity(req.headers).tenant.id))
+  })
+  r.post('/notifications/read', async ({ req, res, body }) => {
+    const input = await body<MarkNotificationsReadRequest>()
+    sendJson(res, store.markNotificationsRead(store.identity(req.headers).tenant.id, input?.ids))
+  })
+
   // D23 — the honest close: poster-or-owner only, open items only (a done item is
   // immutable history). The same store method serves A2A tasks/cancel.
   r.post('/projects/:id/open-subgoals/:itemId/retract', ({ req, res, params }) => {

@@ -69,6 +69,11 @@ function route(e: ServerEvent): void {
     case 'recents.changed':
       invalidate(keys.recents)
       break
+    // A public act fanned out to THIS tenant's inbox (D24 — the event is
+    // tenant-targeted server-side) — re-read it so the bell updates live.
+    case 'notification.changed':
+      invalidate(keys.notifications)
+      break
     // The native-runner registry changed — a runner connected, disconnected, or
     // re-advertised its capabilities. Re-read the registry so affordances that
     // depend on a host's capabilities reflect it.

@@ -123,7 +123,9 @@ import {
   postOpenSubGoal,
   commentOnWorkItem,
   retractWorkItem,
+  setProjectWatch,
   useMe,
+  useWatchState,
   updateCommission,
   deleteCommission,
   reserveSubGoal,
@@ -608,11 +610,16 @@ function ProjectDetail({
           )}
           <p className="mt-1 text-sm text-ink-soft">{project.description}</p>
         </div>
-        {own && (
-          <PrimaryButton icon={<Plus size={15} />} onClick={onNewSession}>
-            New session
-          </PrimaryButton>
-        )}
+        <div className="flex shrink-0 items-center gap-2">
+          {/* Watch (D24) — on shared projects, for owner and visitor alike: watching
+              needs only visibility (capability shapes affordances, not location). */}
+          {project.shared === true && <WatchButton projectId={project.id} />}
+          {own && (
+            <PrimaryButton icon={<Plus size={15} />} onClick={onNewSession}>
+              New session
+            </PrimaryButton>
+          )}
+        </div>
       </header>
 
       <div className="flex flex-col gap-6 lg:flex-row">
@@ -1604,6 +1611,39 @@ function OpenWorkList({ projectId, ownerCanModerate }: { projectId: string; owne
         {error && <p className="text-[11px] text-removed">{error}</p>}
       </div>
     </div>
+  )
+}
+
+/** The watch toggle (D24) — subscribe to a shared Project's public acts (work
+ *  posted / resolved / commented / retracted land in your bell). Reads and writes
+ *  the caller's own subscription; the server walls it on visibility. */
+function WatchButton({ projectId }: { projectId: string }) {
+  const state = useWatchState(projectId).data
+  const [busy, setBusy] = useState(false)
+  const watching = state?.watching === true
+  const toggle = async () => {
+    if (busy || !state) return
+    setBusy(true)
+    try {
+      await setProjectWatch(projectId, !watching)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <button
+      onClick={toggle}
+      disabled={busy || !state}
+      aria-pressed={watching}
+      title={watching ? 'Stop receiving this project’s public acts' : 'Get this project’s public acts in your notifications'}
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[13px] font-medium transition disabled:opacity-45 ${
+        watching
+          ? 'border-accent/40 bg-accent-tint text-accent-strong'
+          : 'border-line text-ink-soft hover:border-line-strong hover:text-ink'
+      }`}
+    >
+      <Bell size={14} /> {watching ? 'Watching' : 'Watch'}
+    </button>
   )
 }
 

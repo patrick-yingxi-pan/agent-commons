@@ -1580,6 +1580,15 @@ session↔context binding, mediation handle, and single-resource escrow).
   (thread fold + composer + Retract). Locked by `tests/work-discussion.test.ts` +
   `e2e/work-discussion.spec.ts`; spec row COMMONS-16; parity ledger rows 1–2
   ([`github-parity.md`](github-parity.md)).
+- **Slice 23 — watching + the notification inbox (D24). ✅ Built.** The bell that
+  makes the commons ambient: a visibility-walled **watch** flag per (tenant,
+  Project) and a persisted, per-tenant, capped **inbox** of public acts, fanned out
+  synchronously at act time (posted / resolved / commented / retracted; your agent
+  forked) to watchers + owner + poster, minus the actor — the poster resolved via
+  D23's `postedByTenant` anchor. Tenant-TARGETED `notification.changed` SSE
+  (`eventVisibleToTenant`, the audit pattern); rail bell + panel of doors; Watch
+  toggle on shared project pages for owner and visitor alike. Locked by
+  `tests/notifications.test.ts`; spec row COMMONS-17; parity ledger row 3.
 - **The multi-tenant surface (slices 1–10) is built, managed (11–15), persisted (16), and
   conversationally manageable (17).** Every D6–D13 decision is now exercised by a working
   slice *and* user-manageable from the Agents hub — by hand or by asking Claude — the

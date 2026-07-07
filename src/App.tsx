@@ -19,6 +19,7 @@ import { IntroOverlay } from './components/IntroOverlay'
 import { TourPermissionPrompt } from './components/TourPermissionPrompt'
 import { ProposalBar } from './components/ProposalBar'
 import { SearchPanel } from './components/SearchPanel'
+import { NotificationsPanel } from './components/NotificationsPanel'
 import { AddContextButton } from './components/AddContextButton'
 import { useAgents, useCapabilities, useMe, useProviders, useSessions, useServerEvents } from './api'
 import { DEFAULT_PROVIDER_ID, estimateTokens } from '../contract/index.ts'
@@ -72,6 +73,8 @@ export default function App() {
  *  in the controllers (controller/) and the model (data/). */
 function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro: (v: boolean) => void }) {
   const [searchOpen, setSearchOpen] = useState(false)
+  // The notification inbox overlay (D24) — the rail bell's panel.
+  const [notifOpen, setNotifOpen] = useState(false)
   // A scheduled-run session's right panel (the run switcher) is open by default;
   // closing it is per-session, so switching threads re-opens it.
   const [runsPanelOpen, setRunsPanelOpen] = useState(true)
@@ -346,6 +349,7 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
                 onDeleteSession={deleteSession}
                 onToggleCollapse={toggleLeft}
                 onOpenSearch={withRailClose(() => setSearchOpen(true))}
+                onOpenNotifications={withRailClose(() => setNotifOpen(true))}
                 resizable={!railOverlay}
                 onResizeStart={startResize}
                 onResize={resize}
@@ -594,6 +598,14 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
           </main>
         </div>
       </div>
+
+      {notifOpen && (
+        <NotificationsPanel
+          onOpenProject={openProject}
+          onOpenSection={openSection}
+          onClose={() => setNotifOpen(false)}
+        />
+      )}
 
       {searchOpen && (
         <SearchPanel

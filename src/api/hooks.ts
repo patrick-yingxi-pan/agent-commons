@@ -15,10 +15,12 @@ import type {
   AuditEntry,
   Authority,
   Commission,
+  AppNotification,
   OpenSubGoal,
   OwnerProfile,
   ProjectDirectoryEntry,
   SearchResponse,
+  WatchState,
   CapabilityEffect,
   ArtifactContentLibrary,
   ArtifactItem,
@@ -261,6 +263,17 @@ export function useProjectDirectory(q?: string): QueryState<ProjectDirectoryEntr
  *  plus its public track record; capability never rides an entry. */
 export function useAgentDirectory(q?: string): QueryState<AgentDirectoryEntry[]> {
   return useQuery(keys.directoryAgents(q), () => apiGet<AgentDirectoryEntry[]>(paths.directoryAgents(q)))
+}
+
+/** The caller's notification inbox (D24), newest first — refreshed live by the
+ *  tenant-targeted `notification.changed` event. */
+export function useNotifications(): QueryState<AppNotification[]> {
+  return useQuery(keys.notifications, () => apiGet<AppNotification[]>(paths.notifications))
+}
+
+/** The caller's watch state for one Project (D24). */
+export function useWatchState(projectId: string): QueryState<WatchState> {
+  return useQuery(keys.projectWatch(projectId), () => apiGet<WatchState>(paths.projectWatch(projectId)))
 }
 
 /** A workspace's public face (docs/agent-commons.md, D21): its shared Projects,

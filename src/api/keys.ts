@@ -27,6 +27,9 @@ export const keys = {
   /** The discovery directories (D17) — keyed per search so each query caches on its own. */
   directoryProjects: (q?: string) => (q ? `directory-projects:${q}` : 'directory-projects'),
   directoryAgents: (q?: string) => (q ? `directory-agents:${q}` : 'directory-agents'),
+  /** The caller's notification inbox (D24) + per-project watch state. */
+  notifications: 'notifications',
+  projectWatch: (projectId: string) => `project-watch:${projectId}`,
   /** A workspace's public face (D21) — keyed per display name; the no-arg call is
    *  the family prefix for `invalidatePrefix` (the directory-keys convention). */
   ownerProfile: (name?: string) => (name ? `owner-profile:${name}` : 'owner-profile'),
@@ -101,6 +104,10 @@ export const paths = {
   agentFork: (id: string) => `/agents/${encodeURIComponent(id)}/fork`,
   directoryProjects: (q?: string) => (q ? `/directory/projects?q=${encodeURIComponent(q)}` : '/directory/projects'),
   directoryAgents: (q?: string) => (q ? `/directory/agents?q=${encodeURIComponent(q)}` : '/directory/agents'),
+  /** The notification inbox + watch acts (D24). */
+  notifications: '/notifications',
+  notificationsRead: '/notifications/read',
+  projectWatch: (projectId: string) => `/projects/${encodeURIComponent(projectId)}/watch`,
   /** The workspace profile (D21) — the display name IS the public handle. */
   ownerProfile: (name: string) => `/directory/owners/${encodeURIComponent(name)}`,
   /** Global search (D22): typed grouped hits across everything the caller can see. */

@@ -23,7 +23,9 @@ import {
   type CreateSystemPromptRequest,
   type SystemPromptEntry,
   type UpdateSystemPromptRequest,
+  type AppNotification,
   type OpenSubGoal,
+  type WatchState,
   type PostOpenSubGoalRequest,
   type PromptProbeRequest,
   type PromptProbeResult,
@@ -452,6 +454,21 @@ export async function retractWorkItem(projectId: string, itemId: string): Promis
   invalidatePrefix(keys.ownerProfile())
   invalidatePrefix(keys.search())
   return item
+}
+
+/** Watch / unwatch a Project (D24) — the bell subscription. */
+export async function setProjectWatch(projectId: string, watching: boolean): Promise<WatchState> {
+  const state = await apiPost<WatchState>(paths.projectWatch(projectId), { watching })
+  setData(keys.projectWatch(projectId), state)
+  return state
+}
+
+/** Mark inbox rows read (D24) — the named ids, or all. The server answers with the
+ *  full refreshed inbox; seed it so the bell count settles without a refetch. */
+export async function markNotificationsRead(ids?: string[]): Promise<AppNotification[]> {
+  const inbox = await apiPost<AppNotification[]>(paths.notificationsRead, ids ? { ids } : {})
+  setData(keys.notifications, inbox)
+  return inbox
 }
 
 /** Remove an Agent. Rejects (so the caller can surface the message) when the server

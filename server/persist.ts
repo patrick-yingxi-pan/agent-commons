@@ -20,7 +20,7 @@ import type { PersistedState, PersistenceBackend } from './persistence/format.ts
 
 // Re-export the persisted shape + format primitives so existing importers
 // (server/store.ts, scripts/snapshot.ts, tests/) keep their import paths.
-export { STORE_VERSION, dataFile, databaseFile, type PersistedState } from './persistence/format.ts'
+export { STORE_VERSION, dataFile, databaseFile, type PersistedState, type StoredNotification } from './persistence/format.ts'
 
 /** The active backend, memoized by kind so we don't reopen a DB handle per write.
  *  Re-selected when `PERSIST_BACKEND` changes (only a test does that), closing the
