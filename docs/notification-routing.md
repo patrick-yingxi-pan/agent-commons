@@ -126,18 +126,20 @@ at something the recipient may already see.
 | `proposal.declined` | owner declines your proposal | proposer | PR closed | Public agent detail → Your proposals, proposal focused ("declined") |
 | `proposal.commented` | a comment on the proposal thread | the **other** party | PR review comment | The proposal — surface picked by whether the recipient owns the agent; thread scrolled to newest |
 
-### New — a real gap; mint it (own row, tests, spec + parity)
+### New — imagined, then REJECTED after verifying the trigger doesn't exist
 
-| Kind | Trigger | Audience | GitHub counterpart | Door |
-|---|---|---|---|---|
-| `work.taken` | a Contributor claims an open item (standing dispatch **or** a manual reserve) | poster · owner −taker | Issue assigned | Project page → item row (status "taken by X — in progress") |
-| `project.commissioned` *(candidate — verify)* | an agent is commissioned to a project **as a role**, and the agent's owner is a **different** tenant | that owner | Added as a collaborator | The project page you were added to |
+Both candidates were investigated at build time (R7/R8) and found to have **no clean
+triggering act in the current platform** — so minting a bell for them would be a
+speculative notification for an event that can't happen, exactly what the leak-wall
+discipline forbids. Recorded here rather than fabricated (the same honesty that
+terminated the parity loop).
 
-`project.commissioned` is a candidate: its row's design step must first confirm
-cross-tenant commissioning produces a notifiable recipient distinct from the actor,
-and that minting after the grant keeps the leak-wall (the recipient gains access, so
-may see the project). If the act is same-tenant-only, the row moves to Rejected with
-that finding recorded — no speculative bell.
+| Kind | GitHub counterpart | Why rejected (the verified finding) |
+|---|---|---|
+| `work.taken` | Issue assigned | `OpenSubGoal.status` is only `open \| done \| retracted` — there is **no "taken/in-progress" state**. Dispatch is **atomic**: a standing Contributor takes *and* resolves in one synchronous call (`dispatchOpenSubGoal`), which already fires `work.resolved` ("done by X") — so "taken" and "resolved" are the same moment; a `work.taken` bell would double every `work.resolved`. The guardian `reserveSubGoal` lease is a **transient** coordination primitive keyed by a sub-goal *string*, not a persisted claim on a posted backlog item. And explicit assignment was **already deliberately deferred** (`docs/github-parity.md`: "adds an authority axis the take-model avoids"). A real `work.taken` needs async work-claiming first — a separate feature, out of this initiative's scope. |
+| `project.commissioned` | Added as a collaborator | The only cross-tenant commissioning today is **self-service** (workspace B commissions B's *own* agent onto A's project — `clampContributorRole`), where the actor **is** the agent owner, so the recipient equals the actor and is dropped (no bell). The owner-driven case that *would* notify a distinct owner ("A adds B's agent to A's project") is **explicitly a Phase 2 item** (`clampContributorRole` comment; `docs/design/test-plan-coop-lifecycle.md`), not built. No distinct notifiable recipient exists yet. |
+
+### Deferred / Rejected — imagined, deliberately not built
 
 ### Deferred / Rejected — imagined, deliberately not built
 
@@ -175,16 +177,21 @@ only when shipped.
 | R5 | **Proposal doors — owner side** — the owner's `AgentCard` auto-opens `ProposalsReviewDialog` on the proposal (scroll + highlight); the hub forces the Agents tab | `SectionView.tsx`; `e2e/notifications.spec.ts` (proposal.opened → review dialog on the proposal) | ✅ |
 | R5b | **Proposal doors — proposer side** — the owner's profile auto-opens the agent's public detail with "Your proposals" focused on the proposal (merged/declined/commented-to-proposer) | `SectionView.tsx` (`OwnerProfilePage`/`AgentDetailDialog`/`YourProposals`); `e2e/notifications.spec.ts` (proposal.merged → Your-proposals focused) | ✅ |
 | R6 | **Fork door live** — `agent.forked` → the source agent's own hub card scrolls + flashes (never the fork — leak-wall); the flash behavior unified into a shared `useFocusFlash` hook (work-item rows + agent cards) | `src/lib/focusContext.ts` (`useFocusFlash`), `SectionView.tsx` (`CommonsCard`/`AgentCard`/`WorkItemRow`); `e2e/notifications.spec.ts` (agent.forked → source card) | ✅ |
-| R7 | **New `work.taken`** — mint on claim (poster+owner −taker); kind + icon + copy + door (reuses R4); leak-wall | `contract/notifications.ts`, `server/store.ts`, `NotificationsPanel.tsx`, `tests/*`, spec + parity rows | ☐ |
-| R8 | **`project.commissioned`** — verify the cross-tenant act; build the bell + project-page door, or record Rejected with the finding | as R7, or a Rejected note here | ☐ |
-| R9 | **Close** — full verify + `/code-review` sweep across the whole diff; fix; finalize spec ledger + `docs/github-parity.md` note + this doc's status; final commit | verify + docs | ☐ |
+| R7 | **New `work.taken`** — investigated; **REJECTED** (no "taken" state; dispatch is atomic so `work.resolved` already covers it; explicit assignment deferred by parity) | finding recorded above | ⊘ rejected |
+| R8 | **`project.commissioned`** — investigated; **REJECTED** (the only cross-tenant commissioning is self-service, actor = recipient; the owner-driven case is Phase 2, unbuilt) | finding recorded above | ⊘ rejected |
+| R9 | **Close** — full verify + adversarial `/code-review` sweep across the whole diff; fix; finalize spec ledger + `docs/github-parity.md` note + this doc's status; final commit | verify + docs | ☐ |
 
 ### Termination condition (checkable, lives in the repo)
 
 The loop stops when **all** hold:
 1. Every `NotificationKind` resolves to a concrete door — the exhaustive switch
    compiles and `tests/notification-doors.test.ts` passes for every kind.
-2. Every built row R1–R9 is ✅ with locking tests + a spec row.
+2. Every **built** row (R1–R6) is ✅ with locking tests; the two imagined new-kind
+   rows (R7/R8) are resolved — here, ⊘ **rejected** with a verified finding, not built.
 3. The imagined-but-not-built set above is recorded with its rationale (done).
 
-Re-open only by adding a `New` row with a concrete, leak-wall-clearing rationale.
+The routing initiative's core ask — *every notification jumps to a meaningful page* —
+is met: all ten existing `NotificationKind`s land on a precise, tested door, and the
+two candidate new kinds were investigated and honestly rejected (their triggers don't
+exist yet). Re-open only by adding a `New` row with a concrete, leak-wall-clearing
+rationale for an act that actually occurs.
