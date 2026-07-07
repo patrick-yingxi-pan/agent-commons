@@ -72,8 +72,8 @@ import { mintAuthority } from './authority.ts'
 import { ConflictError } from './conflict.ts'
 import { LimitError } from './limit.ts'
 import { scopeMatches } from './runner-runtime.ts'
-import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, clampAuthority, clampBudget, probeScore } from '../contract/index.ts'
-import type { Agent, AgentDirectoryEntry, AuditEntry, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelProvider, OpenSubGoal, PostOpenSubGoalRequest, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProxyRequest, ProxyResult, Reservation, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest } from '../contract/index.ts'
+import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP } from '../contract/index.ts'
+import type { Agent, AgentDirectoryEntry, AuditEntry, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelProvider, OpenSubGoal, OwnerActivity, OwnerProfile, PostOpenSubGoalRequest, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
@@ -2220,6 +2220,147 @@ export const store = {
         contributions: a.contributions ?? 0,
         forks: a.forks ?? 0,
       }))
+  },
+  /** The workspace profile — a display name's ONE public face (D21,
+   *  `GET /directory/owners/:name`). A pure aggregation of rows that are ALREADY
+   *  public, through the same redactions the directories use: shared Projects,
+   *  published Agents, stats that are themselves public acts, and a recent-activity
+   *  feed of open-work acts on SHARED Projects (an item on a private Project is not
+   *  a public act). Viewer-independent except the viewer-relative `own` flags.
+   *  Undefined (→ 404) for a name with no public rows: a workspace that shares
+   *  nothing is invisible — the directory's existence-hiding, extended to identities. */
+  ownerProfile(name: string, tenantId: string): OwnerProfile | undefined {
+    const projects = this.projectDirectory(tenantId).filter((p) => p.owner === name)
+    const agents = this.agentDirectory(tenantId).filter((a) => a.owner === name)
+    // `posted` attributes by `postedBy` (already the display name); `resolved` by the
+    // resolving commission's Agent owner (commissionOwnerTenant — the attribution
+    // primitive), surfacing credit earned on OTHERS' Projects too.
+    const activity: OwnerActivity[] = []
+    let workPosted = 0
+    let workResolved = 0
+    for (const item of openSubGoals) {
+      const project = findProject(item.projectId)
+      if (!project || project.shared !== true) continue
+      if (item.postedBy === name) {
+        workPosted += 1
+        activity.push({ kind: 'posted', at: item.postedAt, projectId: project.id, projectName: project.name, subGoal: item.subGoal })
+      }
+      if (item.status === 'done' && item.resolvedBy) {
+        const resolverTenant = this.commissionOwnerTenant(item.resolvedBy)
+        if (resolverTenant && tenantName(resolverTenant) === name) {
+          workResolved += 1
+          activity.push({
+            kind: 'resolved',
+            at: item.resolvedAt ?? item.postedAt,
+            projectId: project.id,
+            projectName: project.name,
+            subGoal: item.subGoal,
+            agentLabel: item.resolvedByLabel,
+          })
+        }
+      }
+    }
+    if (projects.length === 0 && agents.length === 0 && activity.length === 0) return undefined
+    activity.sort((a, b) => b.at - a.at)
+    return {
+      name,
+      own: tenantName(tenantId) === name,
+      projects,
+      agents,
+      stats: {
+        sharedProjects: projects.length,
+        publishedAgents: agents.length,
+        contributions: agents.reduce((n, a) => n + a.contributions, 0),
+        forks: agents.reduce((n, a) => n + a.forks, 0),
+        openWork: projects.reduce((n, p) => n + p.openWorkCount, 0),
+        workPosted,
+        workResolved,
+      },
+      activity: activity.slice(0, 20),
+    }
+  },
+  /** Global search (D22, `GET /search?q=`): typed, grouped hits across everything the
+   *  caller can see. Every source below is an EXISTING per-tenant read or public
+   *  redaction — search composes windows, it never opens a new one (a row absent from
+   *  every page is absent from search; tests/search.test.ts locks the walls). Groups
+   *  come in a fixed order, capped at SEARCH_GROUP_CAP with a true `total`; the
+   *  private/commons split mirrors the pages' own bands (your projects vs shared-with-
+   *  you; your registry vs the published directory), so nothing appears twice. */
+  searchAll(tenantId: string, q?: string): SearchResponse {
+    const needle = (q ?? '').trim().toLowerCase()
+    if (!needle) return { query: '', groups: [] }
+    const hit = (...fields: (string | undefined)[]) => fields.some((f) => f?.toLowerCase().includes(needle))
+    const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`
+    const group = (type: SearchHit['type'], label: string, hits: SearchHit[]): SearchGroup[] =>
+      hits.length ? [{ type, label, total: hits.length, hits: hits.slice(0, SEARCH_GROUP_CAP) }] : []
+
+    // 'Your projects' = seeds + created rows the caller owns; a FOREIGN shared row
+    // (the Projects list's "Shared with you" band) surfaces via the directory group
+    // below instead, so the two groups partition and nothing appears twice.
+    const projection = this.relationGraph(tenantId)
+    const ownProjects = [...this.listProjects(tenantId), ...projection.extraProjects.filter((p) => p.own !== false)]
+    const projectDir = this.projectDirectory(tenantId)
+    const agentDir = this.agentDirectory(tenantId)
+    const owners = [...new Set([...projectDir.map((p) => p.owner), ...agentDir.map((a) => a.owner)])]
+    // Open work is findable exactly where its backlog is readable: on a project the
+    // caller owns, or on any shared project (the project page's own wall).
+    const openItems = openSubGoals.filter((o) => {
+      const p = findProject(o.projectId)
+      return o.status === 'open' && !!p && (p.shared === true || rowVisibleTo(p, tenantId))
+    })
+
+    return {
+      query: needle,
+      groups: [
+        ...group('session', 'Sessions', this.listSessions(tenantId)
+          .filter((s) => hit(s.title, s.preview))
+          .map((s): SearchHit => ({ type: 'session', id: s.id, title: s.title, subtitle: s.preview }))),
+        ...group('project', 'Your projects', ownProjects
+          .filter((p) => hit(p.name, p.description))
+          .map((p): SearchHit => ({ type: 'project', id: p.id, title: p.name, subtitle: p.description }))),
+        ...group('artifact', 'Artifacts', this.listArtifacts(tenantId)
+          .filter((a) => hit(a.name, a.source))
+          .map((a): SearchHit => ({ type: 'artifact', id: a.id, title: a.name, subtitle: `${a.meta} · ${a.source}` }))),
+        ...group('schedule', 'Scheduled', this.listSchedules(tenantId)
+          .filter((s) => hit(s.name, s.subtitle, s.cadence))
+          .map((s): SearchHit => ({ type: 'schedule', id: s.id, title: s.name, subtitle: s.subtitle }))),
+        ...group('agent', 'Your agents', this.listAgents(tenantId)
+          .filter((a) => hit(a.label, a.instructions))
+          .map((a): SearchHit => ({ type: 'agent', id: a.id, title: a.label, subtitle: a.instructions }))),
+        ...group('prompt', 'Prompts', this.listSystemPrompts(tenantId)
+          .filter((p) => hit(p.label, p.body))
+          .map((p): SearchHit => ({ type: 'prompt', id: p.id, title: p.label, subtitle: `Authored for ${p.targetFamily}` }))),
+        ...group('model', 'Models', this.listProviders(tenantId)
+          .filter((p) => hit(p.label))
+          .map((p): SearchHit => ({ type: 'model', id: p.id, title: p.label, subtitle: p.kind === 'session' ? 'Delegated session provider' : 'Model endpoint' }))),
+        ...group('context', 'Contexts', this.savedContexts().contexts
+          .filter((c) => hit(c.label, c.detail))
+          .map((c): SearchHit => ({ type: 'context', id: c.id, title: c.label, subtitle: c.detail }))),
+        ...group('owner', 'Workspaces', owners
+          .filter((n) => hit(n))
+          .map((n): SearchHit => ({
+            type: 'owner',
+            id: n,
+            title: n,
+            subtitle: `${count(projectDir.filter((p) => p.owner === n).length, 'shared project')} · ${count(agentDir.filter((a) => a.owner === n).length, 'published agent')}`,
+          }))),
+        ...group('sharedProject', 'Shared projects', projectDir
+          .filter((p) => !p.own && hit(p.name, p.description))
+          .map((p): SearchHit => ({ type: 'sharedProject', id: p.id, title: p.name, subtitle: `Shared by ${p.owner} · ${p.description}` }))),
+        ...group('publishedAgent', 'Published agents', agentDir
+          .filter((a) => !a.own && hit(a.label, a.instructions))
+          .map((a): SearchHit => ({ type: 'publishedAgent', id: a.id, title: a.label, subtitle: `Published by ${a.owner} · ${a.instructions}`, ref: a.owner }))),
+        ...group('openWork', 'Open work', openItems
+          .filter((o) => hit(o.subGoal, o.note, o.target))
+          .map((o): SearchHit => ({
+            type: 'openWork',
+            id: o.id,
+            title: o.subGoal,
+            subtitle: `${findProject(o.projectId)?.name ?? ''} · needs ${o.type}`,
+            ref: o.projectId,
+          }))),
+      ],
+    }
   },
   /** Fork a published Agent's definition into the caller's tenant (D18). The copy is a
    *  new PRIVATE Agent carrying the definition (label / prompt / tools / instructions)

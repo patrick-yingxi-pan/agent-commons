@@ -77,6 +77,54 @@ export interface OpenSubGoal {
   resolvedAt?: number
 }
 
+/** ── The workspace profile — a name's ONE public face (D21) ─────────────────
+ *  `GET /directory/owners/:name` (URL-encoded display name — the public identity
+ *  the directories and `postedBy` already use; a raw tenant id never crosses).
+ *  A pure aggregation of rows that are ALREADY public: the workspace's shared
+ *  Projects, its published Agents, stats that are themselves public acts, and a
+ *  recent-activity feed of those acts. Viewer-independent except the
+ *  viewer-relative `own` flags (COMMONS-13 posture); a name with no public rows
+ *  404s (existence-hiding, extended to identities). */
+export interface OwnerActivity {
+  /** `posted` = put a work item on a shared Project's backlog; `resolved` = one of
+   *  this workspace's Agents fired the effect that completed an item (D19 credit). */
+  kind: 'posted' | 'resolved'
+  at: number
+  projectId: string
+  projectName: string
+  subGoal: string
+  /** `resolved` only — the acting Agent's public label (the credit line). */
+  agentLabel?: string
+}
+
+export interface OwnerProfileStats {
+  sharedProjects: number
+  publishedAgents: number
+  /** D13 reputation earned by this workspace's published Agents. */
+  contributions: number
+  /** Times this workspace's published definitions were forked (D18). */
+  forks: number
+  /** Open items awaiting a taker across this workspace's shared Projects. */
+  openWork: number
+  /** Work items this workspace posted on shared Projects (any status). */
+  workPosted: number
+  /** Work items this workspace's Agents resolved — including on OTHERS' Projects. */
+  workResolved: number
+}
+
+export interface OwnerProfile {
+  /** The display name — the profile's handle and its public identity. */
+  name: string
+  /** Whether the caller's tenant IS this workspace (drives "(you)" chrome only —
+   *  the page's content is identical for every viewer; that's the point). */
+  own: boolean
+  projects: ProjectDirectoryEntry[]
+  agents: AgentDirectoryEntry[]
+  stats: OwnerProfileStats
+  /** Recent public acts, newest first (capped server-side). */
+  activity: OwnerActivity[]
+}
+
 /** Body of `POST /v1/projects/:id/open-subgoals` — post a work item. */
 export interface PostOpenSubGoalRequest {
   subGoal: string

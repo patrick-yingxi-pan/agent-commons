@@ -11,6 +11,7 @@ const session = (id: string, title = id): NavLocation => ({ kind: 'session', ses
 const list = (section: SectionId): NavLocation => ({ kind: 'section', section, projectId: null, scheduleId: null })
 const projectDetail = (id: string): NavLocation => ({ kind: 'section', section: 'projects', projectId: id, scheduleId: null })
 const routineDetail = (id: string): NavLocation => ({ kind: 'section', section: 'scheduled', projectId: null, scheduleId: id })
+const ownerProfile = (name: string): NavLocation => ({ kind: 'section', section: 'agents', projectId: null, scheduleId: null, ownerName: name })
 
 test('sameLocation compares page identity, ignoring a session title', () => {
   assert.ok(sameLocation(session('s1', 'Old title'), session('s1', 'New title')), 'same session id ⇒ same page')
@@ -19,6 +20,12 @@ test('sameLocation compares page identity, ignoring a session title', () => {
   assert.ok(!sameLocation(projectDetail('p1'), projectDetail('p2')))
   assert.ok(!sameLocation(projectDetail('p1'), list('projects')), 'the list and a detail are different pages')
   assert.ok(!sameLocation(session('s1'), list('projects')))
+  // The workspace profile (D21) is a detail of the agents section, keyed by name.
+  assert.ok(sameLocation(ownerProfile('Ada Lab'), ownerProfile('Ada Lab')))
+  assert.ok(!sameLocation(ownerProfile('Ada Lab'), ownerProfile('Bo Studio')))
+  assert.ok(!sameLocation(ownerProfile('Ada Lab'), list('agents')), 'a profile and the hub are different pages')
+  // An old location literal without the field ≡ one with it null (history compat).
+  assert.ok(sameLocation({ kind: 'section', section: 'agents', projectId: null, scheduleId: null }, list('agents')))
 })
 
 test('pushLocation records the page being left', () => {
@@ -59,6 +66,7 @@ test('resolveBackLabel names the destination', () => {
   assert.equal(resolveBackLabel(projectDetail('p1'), { project: { p1: 'Q4 launch planning' } }), 'Q4 launch planning')
   assert.equal(resolveBackLabel(routineDetail('r1'), { schedule: { r1: 'Daily news briefing' } }), 'Daily news briefing')
   assert.equal(resolveBackLabel(list('scheduled')), SECTION_LABELS.scheduled, 'a bare section uses its list name')
+  assert.equal(resolveBackLabel(ownerProfile('Ada Lab')), 'Ada Lab', 'a workspace profile is its own label (D21)')
 })
 
 test('resolveBackLabel falls back gracefully when a name is missing', () => {

@@ -15,3 +15,15 @@ export function bylineLabel(ownerName: string | undefined, own: boolean | undefi
 /** The shared-entity marker text — pairs with the Globe cue in the Byline
  *  component. Exported so the lock test can assert no component re-hardcodes it. */
 export const SHARED_MARKER = 'Shared · '
+
+/** The workspace-profile page title (D21) — the display name, with the same
+ *  "(you)" cue the byline uses when the viewer IS this workspace. Minted here so
+ *  the page can't drift from the byline's own-marker (the lock greps for a
+ *  hand-rolled "(you)" in components). */
+export function profileTitle(name: string, own: boolean | undefined): string {
+  return own ? `${name} (you)` : name
+}
+
+/** The profile page's one-line subtitle — what the page IS: the aggregation of a
+ *  workspace's already-public rows, identical for every viewer (D21). */
+export const PROFILE_TAGLINE = 'Public workspace profile — everything this workspace shares.'

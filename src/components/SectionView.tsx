@@ -71,7 +71,7 @@ import { ConnectorDetailBody } from './ConnectorPanel'
 import { AddContextButton } from './AddContextButton'
 import { AddTrigger } from './AddTrigger'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
-import { bylineLabel } from '../lib/publicFace'
+import { bylineLabel, profileTitle, PROFILE_TAGLINE } from '../lib/publicFace'
 import { Byline, CreditLine, OwnerLink } from './PublicFace'
 import { resolveBackLabel, type NavLocation } from '../lib/nav'
 import { relativeTime } from '../lib/relativeTime'
@@ -133,6 +133,7 @@ import {
   useCommissions,
   useCommissionAuthority,
   useOpenSubGoals,
+  useOwnerProfile,
   useProjectDirectory,
   useProjectSubGoals,
   useDispatchRuns,
@@ -152,6 +153,7 @@ import {
   type Agent,
   type AgentDirectoryEntry,
   type AuditEntry,
+  type ProjectDirectoryEntry,
   type Commission,
   type CreatedProvider,
   type ModelProvider,
@@ -186,6 +188,7 @@ export function SectionView({
   railCollapsed = false,
   focusProjectId = null,
   focusScheduleId = null,
+  focusOwnerName = null,
 }: {
   section: SectionId
   onOpenSession: (id: string) => void
@@ -207,6 +210,9 @@ export function SectionView({
    *  reached by a breadcrumb, a deep-link, or a list-card click. */
   focusProjectId?: string | null
   focusScheduleId?: string | null
+  /** A workspace profile open under the Agents section (D21) — the display name.
+   *  Same single-source-of-truth discipline as the two above. */
+  focusOwnerName?: string | null
 }) {
   const body =
     section === 'projects' ? (
@@ -225,7 +231,12 @@ export function SectionView({
     ) : section === 'models' ? (
       <ModelsSection />
     ) : section === 'agents' ? (
-      <AgentCommonsSection />
+      <AgentCommonsSection
+        owner={focusOwnerName}
+        onOpenProject={onOpenProject}
+        onBack={onBack}
+        backTo={backTo}
+      />
     ) : section === 'scheduled' ? (
       <ScheduledSection
         scheduleId={focusScheduleId}
@@ -580,7 +591,15 @@ function ProjectDetail({
           <h1 className="font-serif text-2xl font-semibold text-ink">{project.name}</h1>
           {(project.shared === true || !own) && (
             <div className="mt-1">
-              <Byline ownerName={project.ownerName} own={project.own} />
+              {/* The owner name is a DOOR to the workspace's profile page (D21) —
+                  when the projection stamped one (seed rows carry none). */}
+              <Byline
+                ownerName={project.ownerName}
+                own={project.own}
+                onOwnerClick={
+                  project.ownerName ? () => rel.navigate('agents', project.ownerName) : undefined
+                }
+              />
             </div>
           )}
           <p className="mt-1 text-sm text-ink-soft">{project.description}</p>
@@ -2644,8 +2663,22 @@ const COMMONS_TABS: { id: CommonsTab; label: string }[] = [
   { id: 'audit', label: 'Audit' },
 ]
 
-function AgentCommonsSection() {
+function AgentCommonsSection({
+  owner,
+  onOpenProject,
+  onBack,
+  backTo,
+}: {
+  /** A workspace profile to show instead of the hub (D21) — null = the hub. */
+  owner: string | null
+  onOpenProject: (id: string) => void
+  onBack: () => void
+  backTo: NavLocation | null
+}) {
   const [tab, setTab] = useState<CommonsTab>('agents')
+  if (owner) {
+    return <OwnerProfilePage name={owner} onOpenProject={onOpenProject} onBack={onBack} backTo={backTo} />
+  }
   return (
     <Page>
       <PageHeader title="Agents" />
@@ -3736,16 +3769,13 @@ function CommissionsTab() {
 function DiscoverTab() {
   const rel = useRelations()
   const [q, setQ] = useState('')
-  const [ownerFilter, setOwnerFilter] = useState<string | null>(null)
   const query = q.trim() || undefined
-  const allProjects = useProjectDirectory(query).data ?? []
-  const allAgents = useAgentDirectory(query).data ?? []
-  // The owner filter is a lightweight PROFILE — "everything this workspace shares" —
-  // reached by clicking a byline. Client-side: presentation over the same directory
-  // read (D17's no-ranking mechanism untouched).
-  const projects = ownerFilter ? allProjects.filter((p) => p.owner === ownerFilter) : allProjects
-  const agents = ownerFilter ? allAgents.filter((a) => a.owner === ownerFilter) : allAgents
+  const projects = useProjectDirectory(query).data ?? []
+  const agents = useAgentDirectory(query).data ?? []
   const [detail, setDetail] = useState<AgentDirectoryEntry | null>(null)
+  // Every owner byline is a DOOR to the workspace's profile page (D21) — the one
+  // "everything this workspace shares" surface (it subsumed the old filter chip).
+  const openOwner = (name: string) => rel.navigate('agents', name)
   return (
     <div className="space-y-6">
       <div className="relative">
@@ -3758,60 +3788,22 @@ function DiscoverTab() {
           className={`${FORM_INPUT_CLASS} pl-8`}
         />
       </div>
-      {ownerFilter && (
-        <div className="flex items-center gap-2 text-[12px] text-ink-soft">
-          <span>
-            Everything shared by <span className="font-medium text-ink">{ownerFilter}</span>
-          </span>
-          <button onClick={() => setOwnerFilter(null)} className={INLINE_ACTION_CLASS}>
-            Clear
-          </button>
-        </div>
-      )}
 
       <div>
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
           Shared projects
         </div>
         {projects.length === 0 ? (
-          <Empty>No shared projects{query || ownerFilter ? ' match' : ' yet — share one from its project page'}.</Empty>
+          <Empty>No shared projects{query ? ' match' : ' yet — share one from its project page'}.</Empty>
         ) : (
           <div className="space-y-3">
             {projects.map((p) => (
-              <CommonsCard key={p.id}>
-                <CommonsCardHead
-                  icon={<SquareKanban size={16} />}
-                  title={p.name}
-                  subtitle={
-                    <>
-                      <OwnerLink ownerName={p.owner} own={p.own} onClick={() => setOwnerFilter(p.owner)} />
-                      {` · updated ${relativeTime(p.updatedAt)}`}
-                    </>
-                  }
-                  trailing={
-                    p.openWorkCount > 0 ? (
-                      <span
-                        title={`${p.openWorkCount} open work item${p.openWorkCount === 1 ? '' : 's'} awaiting a taker (D19)`}
-                        className="shrink-0 rounded-full bg-amber-500/10 px-2 py-px text-[11px] font-medium text-amber-700"
-                      >
-                        {p.openWorkCount} open
-                      </span>
-                    ) : undefined
-                  }
-                />
-                {p.description && <p className="mt-2 text-[12px] text-ink-soft">{p.description}</p>}
-                <p className="mt-1.5 flex items-center gap-3 text-[11px] text-ink-faint">
-                  <span>
-                    {p.contributorCount} contributor{p.contributorCount === 1 ? '' : 's'}
-                    {p.guarded ? ' · coordinated (guardian)' : ''}
-                  </span>
-                  {/* The card is a DOOR: the shared project page (one page, owner and
-                      visitor alike) is where joining happens. */}
-                  <button onClick={() => rel.navigate('projects', p.id)} className={INLINE_ACTION_CLASS}>
-                    Open project
-                  </button>
-                </p>
-              </CommonsCard>
+              <SharedProjectCard
+                key={p.id}
+                entry={p}
+                onOpen={() => rel.navigate('projects', p.id)}
+                onOwnerClick={() => openOwner(p.owner)}
+              />
             ))}
           </div>
         )}
@@ -3822,7 +3814,7 @@ function DiscoverTab() {
           Published agents
         </div>
         {agents.length === 0 ? (
-          <Empty>No published agents{query || ownerFilter ? ' match' : ' yet — publish one from the Agents tab'}.</Empty>
+          <Empty>No published agents{query ? ' match' : ' yet — publish one from the Agents tab'}.</Empty>
         ) : (
           <div className="space-y-3">
             {agents.map((a) => (
@@ -3830,7 +3822,7 @@ function DiscoverTab() {
                 key={a.id}
                 entry={a}
                 onView={() => setDetail(a)}
-                onOwnerClick={() => setOwnerFilter(a.owner)}
+                onOwnerClick={() => openOwner(a.owner)}
               />
             ))}
           </div>
@@ -3840,6 +3832,198 @@ function DiscoverTab() {
       <ImportAgentCardForm />
       {detail && <AgentDetailDialog entry={detail} onClose={() => setDetail(null)} />}
     </div>
+  )
+}
+
+/** One shared Project in the commons — the D17 directory face. Rendered identically
+ *  on the Discover tab and a workspace profile (form follows function: same role,
+ *  one card). The card is a DOOR: the shared project page (one page, owner and
+ *  visitor alike) is where joining happens; the byline is a door to the owner. */
+function SharedProjectCard({
+  entry: p,
+  onOpen,
+  onOwnerClick,
+}: {
+  entry: ProjectDirectoryEntry
+  onOpen: () => void
+  onOwnerClick: () => void
+}) {
+  return (
+    <CommonsCard>
+      <CommonsCardHead
+        icon={<SquareKanban size={16} />}
+        title={p.name}
+        subtitle={
+          <>
+            <OwnerLink ownerName={p.owner} own={p.own} onClick={onOwnerClick} />
+            {` · updated ${relativeTime(p.updatedAt)}`}
+          </>
+        }
+        trailing={
+          p.openWorkCount > 0 ? (
+            <span
+              title={`${p.openWorkCount} open work item${p.openWorkCount === 1 ? '' : 's'} awaiting a taker (D19)`}
+              className="shrink-0 rounded-full bg-amber-500/10 px-2 py-px text-[11px] font-medium text-amber-700"
+            >
+              {p.openWorkCount} open
+            </span>
+          ) : undefined
+        }
+      />
+      {p.description && <p className="mt-2 text-[12px] text-ink-soft">{p.description}</p>}
+      <p className="mt-1.5 flex items-center gap-3 text-[11px] text-ink-faint">
+        <span>
+          {p.contributorCount} contributor{p.contributorCount === 1 ? '' : 's'}
+          {p.guarded ? ' · coordinated (guardian)' : ''}
+        </span>
+        <button onClick={onOpen} className={INLINE_ACTION_CLASS}>
+          Open project
+        </button>
+      </p>
+    </CommonsCard>
+  )
+}
+
+/** ── The workspace profile page (docs/agent-commons.md, D21) ─────────────────
+ *  A display name's ONE public face — the GitHub-user-page analog: everything the
+ *  workspace shares (projects, agents), its public track record, and its recent
+ *  public acts. Served viewer-independent except the own-marker cue (minted by
+ *  profileTitle, never inline): the owner sees this page exactly as visitors do,
+ *  which is the point. Reached from any owner byline (directory cards, a shared
+ *  project's header, a search hit). */
+function OwnerProfilePage({
+  name,
+  onOpenProject,
+  onBack,
+  backTo,
+}: {
+  name: string
+  onOpenProject: (id: string) => void
+  onBack: () => void
+  backTo: NavLocation | null
+}) {
+  const rel = useRelations()
+  const state = useOwnerProfile(name)
+  const profile = state.data
+  const [detail, setDetail] = useState<AgentDirectoryEntry | null>(null)
+  if (!profile) {
+    return (
+      <Page>
+        <BackButton to={backTo} onBack={onBack} />
+        {state.error ? (
+          // The 404 face: a workspace that shares nothing is indistinguishable
+          // from one that doesn't exist (existence-hiding, D21).
+          <Empty>“{name}” shares nothing publicly — or doesn’t exist.</Empty>
+        ) : null}
+      </Page>
+    )
+  }
+  const s = profile.stats
+  return (
+    <Page>
+      <BackButton to={backTo} onBack={onBack} />
+      <header className="flex items-start gap-3.5">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-emerald-600/10 text-emerald-700">
+          <Globe size={22} />
+        </div>
+        <div className="min-w-0">
+          <h1 className="font-serif text-2xl font-semibold text-ink">
+            {profileTitle(profile.name, profile.own)}
+          </h1>
+          <p className="mt-0.5 text-[13px] text-ink-soft">{PROFILE_TAGLINE}</p>
+          <p className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-ink-faint">
+            <CreditLine contributions={s.contributions} forks={s.forks} />
+            <span>
+              {s.sharedProjects} shared project{s.sharedProjects === 1 ? '' : 's'}
+            </span>
+            <span>
+              {s.publishedAgents} published agent{s.publishedAgents === 1 ? '' : 's'}
+            </span>
+            {s.openWork > 0 && (
+              <span title="Open work items awaiting a taker across this workspace's shared projects (D19)">
+                {s.openWork} open work item{s.openWork === 1 ? '' : 's'}
+              </span>
+            )}
+          </p>
+        </div>
+      </header>
+
+      <div className="mt-6 space-y-6">
+        <div>
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+            Shared projects
+          </div>
+          {profile.projects.length === 0 ? (
+            <Empty>No shared projects.</Empty>
+          ) : (
+            <div className="space-y-3">
+              {profile.projects.map((p) => (
+                <SharedProjectCard
+                  key={p.id}
+                  entry={p}
+                  onOpen={() => onOpenProject(p.id)}
+                  onOwnerClick={() => rel.navigate('agents', p.owner)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+            Published agents
+          </div>
+          {profile.agents.length === 0 ? (
+            <Empty>No published agents.</Empty>
+          ) : (
+            <div className="space-y-3">
+              {profile.agents.map((a) => (
+                <PublishedAgentCard
+                  key={a.id}
+                  entry={a}
+                  onView={() => setDetail(a)}
+                  onOwnerClick={() => rel.navigate('agents', a.owner)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <div className="mb-2 flex items-baseline gap-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+            <span>Recent public activity</span>
+            <span className="font-normal normal-case tracking-normal">
+              {s.workPosted} posted · {s.workResolved} resolved
+            </span>
+          </div>
+          {profile.activity.length === 0 ? (
+            <Empty>No public activity yet — posting or resolving open work shows up here.</Empty>
+          ) : (
+            <ul className="space-y-1.5">
+              {profile.activity.map((a) => (
+                <li
+                  key={`${a.kind}-${a.projectId}-${a.subGoal}-${a.at}`}
+                  className="flex items-baseline gap-2 text-[12px] text-ink-soft"
+                >
+                  <span className="min-w-0">
+                    {a.kind === 'posted' ? 'Posted' : 'Resolved'}{' '}
+                    <span className="font-medium text-ink">{a.subGoal}</span>
+                    {' on '}
+                    <button onClick={() => onOpenProject(a.projectId)} className={INLINE_ACTION_CLASS}>
+                      {a.projectName}
+                    </button>
+                    {a.agentLabel ? ` via ${a.agentLabel}` : ''}
+                  </span>
+                  <span className="ml-auto shrink-0 text-[11px] text-ink-faint">{relativeTime(a.at)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      {detail && <AgentDetailDialog entry={detail} onClose={() => setDetail(null)} />}
+    </Page>
   )
 }
 

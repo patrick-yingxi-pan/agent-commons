@@ -16,7 +16,9 @@ import type {
   Authority,
   Commission,
   OpenSubGoal,
+  OwnerProfile,
   ProjectDirectoryEntry,
+  SearchResponse,
   CapabilityEffect,
   ArtifactContentLibrary,
   ArtifactItem,
@@ -259,6 +261,20 @@ export function useProjectDirectory(q?: string): QueryState<ProjectDirectoryEntr
  *  plus its public track record; capability never rides an entry. */
 export function useAgentDirectory(q?: string): QueryState<AgentDirectoryEntry[]> {
   return useQuery(keys.directoryAgents(q), () => apiGet<AgentDirectoryEntry[]>(paths.directoryAgents(q)))
+}
+
+/** A workspace's public face (docs/agent-commons.md, D21): its shared Projects,
+ *  published Agents, public stats, and recent public acts — keyed by display name,
+ *  the same public identity the directories expose. 404 (surfaced as `error`) for a
+ *  name with no public rows. */
+export function useOwnerProfile(name: string): QueryState<OwnerProfile> {
+  return useQuery(keys.ownerProfile(name), () => apiGet<OwnerProfile>(paths.ownerProfile(name)))
+}
+
+/** Global search (D22): typed grouped hits across everything the caller can see —
+ *  private workspace + the commons. Keyed per query; empty query answers no groups. */
+export function useGlobalSearch(q: string): QueryState<SearchResponse> {
+  return useQuery(keys.search(q), () => apiGet<SearchResponse>(paths.search(q)))
 }
 
 /** A runner's authoritative effect log (the server's projection of it). Updates

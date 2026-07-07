@@ -1029,6 +1029,23 @@ export function buildRouter(): Router {
   r.get('/directory/agents', ({ req, res, url }) => {
     sendJson(res, store.agentDirectory(store.identity(req.headers).tenant.id, url.searchParams.get('q') ?? undefined))
   })
+  // The workspace profile (D21): a display name's one public face — its shared
+  // Projects, published Agents, public stats, and recent public acts. The router
+  // URL-decodes `:name`. 404 for a name with no public rows: a workspace that
+  // shares nothing is indistinguishable from one that doesn't exist.
+  r.get('/directory/owners/:name', ({ req, res, params }) => {
+    const profile = store.ownerProfile(params.name, store.identity(req.headers).tenant.id)
+    if (!profile) return sendError(res, 'not_found', `No public workspace '${params.name}'`)
+    sendJson(res, profile)
+  })
+
+  // ── Global search (docs/agent-commons.md, D22) ──────────────────────────────
+  // One route, typed grouped hits across everything the CALLER can see — private
+  // workspace + the commons — composed exclusively from the same per-tenant reads
+  // the pages use (search is a window, never a wall-breach). Empty q ⇒ no groups.
+  r.get('/search', ({ req, res, url }) => {
+    sendJson(res, store.searchAll(store.identity(req.headers).tenant.id, url.searchParams.get('q') ?? undefined))
+  })
 
   // ── System-prompt library (the cognition half — docs/agent-commons.md, D10) ──
   // The reusable, target-family-tagged prompts a user picks for an Agent. The Agents hub

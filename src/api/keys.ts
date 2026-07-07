@@ -27,6 +27,10 @@ export const keys = {
   /** The discovery directories (D17) — keyed per search so each query caches on its own. */
   directoryProjects: (q?: string) => (q ? `directory-projects:${q}` : 'directory-projects'),
   directoryAgents: (q?: string) => (q ? `directory-agents:${q}` : 'directory-agents'),
+  /** A workspace's public face (D21) — keyed per display name. */
+  ownerProfile: (name: string) => `owner-profile:${name}`,
+  /** Global search (D22) — keyed per query so each caches on its own. */
+  search: (q: string) => `search:${q}`,
   runners: 'agents',
   runnerEffects: (id: string) => `runner-effects:${id}`,
   resourceStatus: (key: string) => `resource:${key}`,
@@ -91,6 +95,10 @@ export const paths = {
   agentFork: (id: string) => `/agents/${encodeURIComponent(id)}/fork`,
   directoryProjects: (q?: string) => (q ? `/directory/projects?q=${encodeURIComponent(q)}` : '/directory/projects'),
   directoryAgents: (q?: string) => (q ? `/directory/agents?q=${encodeURIComponent(q)}` : '/directory/agents'),
+  /** The workspace profile (D21) — the display name IS the public handle. */
+  ownerProfile: (name: string) => `/directory/owners/${encodeURIComponent(name)}`,
+  /** Global search (D22): typed grouped hits across everything the caller can see. */
+  search: (q: string) => `/search?q=${encodeURIComponent(q)}`,
   /** The A2A edge (docs/a2a-integration.md, D20). `a2aAgentCard` is a public GET a
    *  foreign agent (or a curious human) can open; `agentImportCard` is the outbound
    *  fetch-a-remote-card mint. */

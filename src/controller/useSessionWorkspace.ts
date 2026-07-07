@@ -143,6 +143,9 @@ export function useSessionWorkspace() {
   const [focusProjectId, setFocusProjectId] = useState<string | null>(null)
   // Likewise for a scheduled run session deep-linking back to its routine.
   const [focusScheduleId, setFocusScheduleId] = useState<string | null>(null)
+  // And for a workspace profile (D21) open under the Agents section — the display
+  // name, which IS the public handle (an owner byline anywhere is a door here).
+  const [focusOwnerName, setFocusOwnerName] = useState<string | null>(null)
   // The navigation history stack — the pages visited, so "back" returns to where
   // you actually came *from* (dynamic) instead of a fixed structural parent. Each
   // nav action pushes the page it leaves; goBack pops. (See lib/nav.ts.)
@@ -202,6 +205,8 @@ export function useSessionWorkspace() {
   focusProjectRef.current = focusProjectId
   const focusScheduleRef = useRef(focusScheduleId)
   focusScheduleRef.current = focusScheduleId
+  const focusOwnerRef = useRef(focusOwnerName)
+  focusOwnerRef.current = focusOwnerName
   const historyRef = useRef(history)
   historyRef.current = history
   // The in-flight draft → real materialization, so two quick sends on a fresh draft
@@ -254,7 +259,7 @@ export function useSessionWorkspace() {
   // leave, without depending on (and rebuilding from) changing state.
   const here = useCallback((): NavLocation => {
     return sectionRef.current
-      ? { kind: 'section', section: sectionRef.current, projectId: focusProjectRef.current, scheduleId: focusScheduleRef.current }
+      ? { kind: 'section', section: sectionRef.current, projectId: focusProjectRef.current, scheduleId: focusScheduleRef.current, ownerName: focusOwnerRef.current }
       : { kind: 'session', sessionId: activeIdRef.current, title: activeSessionRef.current.title }
   }, [])
 
@@ -930,10 +935,11 @@ export function useSessionWorkspace() {
   // Opening a section from the rail always lands on its top level, so clear any
   // project a previous deep-link had focused.
   const openSection = useCallback((s: SectionId) => {
-    record({ kind: 'section', section: s, projectId: null, scheduleId: null })
+    record({ kind: 'section', section: s, projectId: null, scheduleId: null, ownerName: null })
     setActiveSection(s)
     setFocusProjectId(null)
     setFocusScheduleId(null)
+    setFocusOwnerName(null)
   }, [record])
 
   // Open a project's detail page. Reached three ways — a session's "In ‹Project›"
@@ -941,19 +947,32 @@ export function useSessionWorkspace() {
   // route through here, so the detail target is one source of truth (focusProjectId)
   // and every entry is recorded in history for back.
   const openProject = useCallback((projectId: string) => {
-    record({ kind: 'section', section: 'projects', projectId, scheduleId: null })
+    record({ kind: 'section', section: 'projects', projectId, scheduleId: null, ownerName: null })
     setActiveSection('projects')
     setFocusProjectId(projectId)
     setFocusScheduleId(null)
+    setFocusOwnerName(null)
   }, [record])
 
   // Open a routine's detail page. Reached from a run session's breadcrumb, a
   // project's routine row, or the Scheduled list — all through here (see openProject).
   const openSchedule = useCallback((scheduleId: string) => {
-    record({ kind: 'section', section: 'scheduled', projectId: null, scheduleId })
+    record({ kind: 'section', section: 'scheduled', projectId: null, scheduleId, ownerName: null })
     setActiveSection('scheduled')
     setFocusScheduleId(scheduleId)
     setFocusProjectId(null)
+    setFocusOwnerName(null)
+  }, [record])
+
+  // Open a workspace's public profile (D21) — reached from any owner byline (a
+  // directory card, a shared project's header, a search hit), all through here,
+  // so the open profile is one source of truth and every entry lands in history.
+  const openOwner = useCallback((name: string) => {
+    record({ kind: 'section', section: 'agents', projectId: null, scheduleId: null, ownerName: name })
+    setActiveSection('agents')
+    setFocusOwnerName(name)
+    setFocusProjectId(null)
+    setFocusScheduleId(null)
   }, [record])
 
   // ── Back: pop the history stack and restore that page ─────────────────────
@@ -967,6 +986,7 @@ export function useSessionWorkspace() {
       setActiveSection(loc.section)
       setFocusProjectId(loc.projectId)
       setFocusScheduleId(loc.scheduleId)
+      setFocusOwnerName(loc.ownerName ?? null)
     }
   }, [selectSession])
 
@@ -974,9 +994,10 @@ export function useSessionWorkspace() {
     const h = historyRef.current
     if (h.length === 0) {
       // Nothing recorded — fall back to the current section's list (drop a detail).
-      if (sectionRef.current && (focusProjectRef.current || focusScheduleRef.current)) {
+      if (sectionRef.current && (focusProjectRef.current || focusScheduleRef.current || focusOwnerRef.current)) {
         setFocusProjectId(null)
         setFocusScheduleId(null)
+        setFocusOwnerName(null)
       }
       return
     }
@@ -993,10 +1014,10 @@ export function useSessionWorkspace() {
   // detail page) that section's list. Null when there's nowhere to go back to.
   const backTo = useMemo<NavLocation | null>(() => {
     if (history.length > 0) return history[history.length - 1]
-    if (activeSection && (focusProjectId || focusScheduleId))
-      return { kind: 'section', section: activeSection, projectId: null, scheduleId: null }
+    if (activeSection && (focusProjectId || focusScheduleId || focusOwnerName))
+      return { kind: 'section', section: activeSection, projectId: null, scheduleId: null, ownerName: null }
     return null
-  }, [history, activeSection, focusProjectId, focusScheduleId])
+  }, [history, activeSection, focusProjectId, focusScheduleId, focusOwnerName])
 
   // ── Recents row-menu edits (pin / rename / archive / delete) ──────────────
   // List-level mutations; the sidebar reflects them through the live session
@@ -1131,6 +1152,7 @@ export function useSessionWorkspace() {
     activeSection,
     focusProjectId,
     focusScheduleId,
+    focusOwnerName,
     live,
     typing,
     focus,
@@ -1159,6 +1181,7 @@ export function useSessionWorkspace() {
     openSection,
     openProject,
     openSchedule,
+    openOwner,
     goBack,
     backTo,
     pinSession,

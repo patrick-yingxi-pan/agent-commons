@@ -87,6 +87,7 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
     activeSection,
     focusProjectId,
     focusScheduleId,
+    focusOwnerName,
     live,
     typing,
     focus,
@@ -112,6 +113,7 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
     openSection,
     openProject,
     openSchedule,
+    openOwner,
     goBack,
     backTo,
     pinSession,
@@ -247,15 +249,18 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
     [handleAddContext],
   )
   // The relations "View in …" deep-link. The second arg is an entity id whose
-  // meaning depends on the section: a project to expand, or a schedule to open.
+  // meaning depends on the section: a project to expand, a schedule to open, or —
+  // under agents — a workspace display name whose public profile to show (D21).
   const navigateToSection = useCallback(
     (section: SectionId, id?: string) =>
       section === 'projects' && id
         ? openProject(id)
         : section === 'scheduled' && id
           ? openSchedule(id)
-          : openSection(section),
-    [openProject, openSchedule, openSection],
+          : section === 'agents' && id
+            ? openOwner(id)
+            : openSection(section),
+    [openProject, openSchedule, openOwner, openSection],
   )
 
   return (
@@ -384,6 +389,7 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
                 railCollapsed={!leftOpen && !railOverlay}
                 focusProjectId={focusProjectId}
                 focusScheduleId={focusScheduleId}
+                focusOwnerName={focusOwnerName}
               />
             ) : (
               <>
@@ -594,6 +600,9 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
           sessions={sessions}
           onSelectSession={selectSession}
           onOpenSection={openSection}
+          onOpenProject={openProject}
+          onOpenSchedule={openSchedule}
+          onOpenOwner={openOwner}
           onClose={() => setSearchOpen(false)}
         />
       )}

@@ -1,26 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import {
-  FileText,
-  Image as ImageIcon,
-  Mail,
-  MessageSquare,
-  Presentation,
-  Search,
-  Sheet,
-  type LucideIcon,
-} from 'lucide-react'
-import type { ArtifactKind, Session, SectionId } from '../types'
+import { FileText, Globe, ListChecks, MessageSquare, Search, type LucideIcon } from 'lucide-react'
+import type { SearchHit, SearchHitType } from '../../contract/index.ts'
+import type { Session, SectionId } from '../types'
 import { SECTION_META, SECTION_ORDER } from '../lib/sections'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { SCRIM_CLASS } from '../lib/scrim'
-import { useArtifacts, useProjects, useSchedules } from '../api'
+import { useGlobalSearch } from '../api'
 
-const KIND_ICON: Record<ArtifactKind, LucideIcon> = {
-  doc: FileText,
-  email: Mail,
-  image: ImageIcon,
-  slide: Presentation,
-  sheet: Sheet,
+/** Icon per server hit type. Section-shaped types reuse the section's own icon
+ *  (one cue per concept); the commons types get their public-face cues. */
+const HIT_ICON: Record<SearchHitType, LucideIcon> = {
+  session: MessageSquare,
+  project: SECTION_META.projects.Icon,
+  artifact: SECTION_META.artifacts.Icon,
+  schedule: SECTION_META.scheduled.Icon,
+  agent: SECTION_META.agents.Icon,
+  prompt: FileText,
+  model: SECTION_META.models.Icon,
+  context: SECTION_META.contexts.Icon,
+  owner: Globe,
+  sharedProject: SECTION_META.projects.Icon,
+  publishedAgent: SECTION_META.agents.Icon,
+  openWork: ListChecks,
 }
 
 interface Result {
@@ -36,39 +37,54 @@ interface Group {
   items: Result[]
 }
 
-/** A command-palette search over everything the prototype knows about —
- *  sessions, projects, artifacts, scheduled tasks, and the nav pages.
- *  Typing filters live; ↑/↓ + ↵ or a click runs the result (open the
- *  conversation / jump to the page). Opened from the rail's search icon. */
+/** The command palette — the product's ONE global search surface (D22: the rail
+ *  owns search; there is deliberately no top bar). A typed query asks the server
+ *  (`GET /search`) for typed, grouped hits across everything the caller can see —
+ *  private workspace AND the commons (shared projects, published agents, owners,
+ *  open work) — and every hit DEEP-LINKS: a project hit opens the project page, an
+ *  owner hit the workspace profile (D21), a session hit the thread. The empty-query
+ *  default ("Jump to" + recents) and the Pages group stay client-side — they're
+ *  navigation over the shell itself, not entity search. */
 export function SearchPanel({
   sessions,
   onSelectSession,
   onOpenSection,
+  onOpenProject,
+  onOpenSchedule,
+  onOpenOwner,
   onClose,
 }: {
   sessions: Session[]
   onSelectSession: (id: string) => void
   onOpenSection: (s: SectionId) => void
+  onOpenProject: (id: string) => void
+  onOpenSchedule: (id: string) => void
+  onOpenOwner: (name: string) => void
   onClose: () => void
 }) {
   const [q, setQ] = useState('')
   const [active, setActive] = useState(0)
   const dialogRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  // Projects / artifacts / schedules come from the server (sessions arrive as a prop).
-  const projects = useProjects().data ?? []
-  const artifacts = useArtifacts().data ?? []
-  const schedules = useSchedules().data ?? []
+
+  // Debounced server query — one request per typing pause, cached per query.
+  const [debouncedQ, setDebouncedQ] = useState('')
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(q.trim()), 160)
+    return () => clearTimeout(t)
+  }, [q])
+  const server = useGlobalSearch(debouncedQ)
 
   // Focus the search input on open, trap Tab within the palette, close on
   // Escape, restore focus on close.
   useFocusTrap(dialogRef, onClose, { initialFocus: inputRef })
 
-  const groups = useMemo<Group[]>(() => {
-    const needle = q.trim().toLowerCase()
-    const hit = (...fields: string[]) =>
-      needle === '' || fields.some((f) => f.toLowerCase().includes(needle))
+  const needle = q.trim()
+  // The server echoes the (lowercased) query it answered — mismatch means the
+  // answer for what's typed is still in flight, so "no matches" would be a lie.
+  const settled = needle === '' || server.data?.query === needle.toLowerCase()
 
+  const groups = useMemo<Group[]>(() => {
     const goSession = (id: string) => () => {
       onSelectSession(id)
       onClose()
@@ -78,44 +94,11 @@ export function SearchPanel({
       onClose()
     }
 
-    const sessionResults: Result[] = sessions
-      .filter((c) => hit(c.title, c.preview))
-      .map((c) => ({
-        key: `c-${c.id}`,
-        title: c.title,
-        subtitle: c.preview,
-        Icon: MessageSquare,
-        run: goSession(c.id),
-      }))
-
-    const projectResults: Result[] = projects.filter((p) => hit(p.name, p.description)).map((p) => ({
-      key: `p-${p.id}`,
-      title: p.name,
-      subtitle: `${p.sessionIds.length} session${p.sessionIds.length === 1 ? '' : 's'} · ${p.description}`,
-      Icon: SECTION_META.projects.Icon,
-      run: goSection('projects'),
-    }))
-
-    const artifactResults: Result[] = artifacts.filter((a) => hit(a.name, a.source)).map((a) => ({
-      key: `a-${a.id}`,
-      title: a.name,
-      subtitle: `${a.meta} · ${a.source}`,
-      Icon: KIND_ICON[a.kind],
-      run: goSection('artifacts'),
-    }))
-
-    const scheduledResults: Result[] = schedules.filter((s) => hit(s.name, s.cadence)).map(
-      (s) => ({
-        key: `s-${s.id}`,
-        title: s.name,
-        subtitle: s.cadence,
-        Icon: SECTION_META.scheduled.Icon,
-        run: goSection('scheduled'),
-      }),
-    )
-
-    const pageResults: Result[] = SECTION_ORDER.filter((id) =>
-      hit(SECTION_META[id].label, SECTION_META[id].subtitle),
+    const pageResults: Result[] = SECTION_ORDER.filter(
+      (id) =>
+        needle === '' ||
+        SECTION_META[id].label.toLowerCase().includes(needle.toLowerCase()) ||
+        SECTION_META[id].subtitle.toLowerCase().includes(needle.toLowerCase()),
     ).map((id) => ({
       key: `pg-${id}`,
       title: SECTION_META[id].label,
@@ -124,21 +107,70 @@ export function SearchPanel({
       run: goSection(id),
     }))
 
-    // Empty query → a tidy "jump to" default; typed query → ranked matches.
+    // Empty query → a tidy "jump to" default over the shell + recent threads.
     if (needle === '') {
+      const recent: Result[] = sessions.slice(0, 5).map((c) => ({
+        key: `c-${c.id}`,
+        title: c.title,
+        subtitle: c.preview,
+        Icon: MessageSquare,
+        run: goSession(c.id),
+      }))
       return [
         { label: 'Jump to', items: pageResults },
-        { label: 'Recent', items: sessionResults.slice(0, 5) },
+        { label: 'Recent', items: recent },
       ].filter((g) => g.items.length > 0)
     }
-    return [
-      { label: 'Sessions', items: sessionResults },
-      { label: 'Projects', items: projectResults },
-      { label: 'Artifacts', items: artifactResults },
-      { label: 'Scheduled', items: scheduledResults },
-      { label: 'Pages', items: pageResults },
-    ].filter((g) => g.items.length > 0)
-  }, [q, sessions, projects, artifacts, schedules, onSelectSession, onOpenSection, onClose])
+
+    // Typed query → the server's grouped hits, each a DEEP LINK to its entity.
+    const door = (hit: SearchHit): (() => void) => {
+      const go = (fn: () => void) => () => {
+        fn()
+        onClose()
+      }
+      switch (hit.type) {
+        case 'session':
+          return go(() => onSelectSession(hit.id))
+        case 'project':
+        case 'sharedProject':
+          // One page serves owner and visitor alike (COMMONS-13) — same door.
+          return go(() => onOpenProject(hit.id))
+        case 'schedule':
+          return go(() => onOpenSchedule(hit.id))
+        case 'owner':
+          return go(() => onOpenOwner(hit.id))
+        case 'publishedAgent':
+          // Its public face (card + detail + fork) lives on the owner's profile.
+          return go(() => (hit.ref ? onOpenOwner(hit.ref) : onOpenSection('agents')))
+        case 'openWork':
+          // The backlog lives on the project page — `ref` carries the projectId.
+          return go(() => (hit.ref ? onOpenProject(hit.ref) : onOpenSection('projects')))
+        case 'artifact':
+          return go(() => onOpenSection('artifacts'))
+        case 'model':
+          return go(() => onOpenSection('models'))
+        case 'context':
+          return go(() => onOpenSection('contexts'))
+        case 'agent':
+        case 'prompt':
+          return go(() => onOpenSection('agents'))
+      }
+    }
+
+    const serverGroups: Group[] = (server.data?.groups ?? []).map((g) => ({
+      // The cap is honest: when more matched than shown, the header says so.
+      label: g.total > g.hits.length ? `${g.label} · ${g.hits.length} of ${g.total}` : g.label,
+      items: g.hits.map((h) => ({
+        key: `${h.type}-${h.id}`,
+        title: h.title,
+        subtitle: h.subtitle,
+        Icon: HIT_ICON[h.type],
+        run: door(h),
+      })),
+    }))
+
+    return [...serverGroups, { label: 'Pages', items: pageResults }].filter((g) => g.items.length > 0)
+  }, [needle, sessions, server.data, onSelectSession, onOpenSection, onOpenProject, onOpenSchedule, onOpenOwner, onClose])
 
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups])
 
@@ -184,7 +216,7 @@ export function SearchPanel({
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Search sessions, projects, artifacts…"
+            placeholder="Search everything — sessions, projects, agents, workspaces…"
             className="flex-1 bg-transparent py-3 text-[15px] text-ink outline-none placeholder:text-ink-faint"
           />
           <kbd className="shrink-0 rounded border border-line-strong bg-panel-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-faint">
@@ -195,7 +227,7 @@ export function SearchPanel({
         <div className="min-h-0 flex-1 overflow-y-auto py-1.5">
           {flat.length === 0 ? (
             <div className="px-4 py-10 text-center text-[13px] text-ink-faint">
-              No matches for “{q.trim()}”.
+              {settled ? <>No matches for “{needle}”.</> : 'Searching…'}
             </div>
           ) : (
             groups.map((g) => (

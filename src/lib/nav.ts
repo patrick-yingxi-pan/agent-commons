@@ -15,7 +15,16 @@ import type { SectionId } from '../types'
 
 export type NavLocation =
   | { kind: 'session'; sessionId: string; title: string }
-  | { kind: 'section'; section: SectionId; projectId: string | null; scheduleId: string | null }
+  | {
+      kind: 'section'
+      section: SectionId
+      projectId: string | null
+      scheduleId: string | null
+      /** A workspace profile open under the agents section (D21) — the display name,
+       *  which IS the public handle. Optional so older call sites / history entries
+       *  stay valid; absent ≡ null. */
+      ownerName?: string | null
+    }
 
 /** The display name for each cross-cutting section (its list page). */
 export const SECTION_LABELS: Record<SectionId, string> = {
@@ -35,7 +44,12 @@ export function sameLocation(a: NavLocation, b: NavLocation): boolean {
   if (a.kind !== b.kind) return false
   if (a.kind === 'session' && b.kind === 'session') return a.sessionId === b.sessionId
   if (a.kind === 'section' && b.kind === 'section')
-    return a.section === b.section && a.projectId === b.projectId && a.scheduleId === b.scheduleId
+    return (
+      a.section === b.section &&
+      a.projectId === b.projectId &&
+      a.scheduleId === b.scheduleId &&
+      (a.ownerName ?? null) === (b.ownerName ?? null)
+    )
   return false
 }
 
@@ -61,5 +75,7 @@ export function resolveBackLabel(
   if (to.kind === 'session') return to.title || 'Back'
   if (to.projectId) return names.project?.[to.projectId] ?? SECTION_LABELS.projects
   if (to.scheduleId) return names.schedule?.[to.scheduleId] ?? SECTION_LABELS.scheduled
+  // A workspace profile is its own label — the display name IS the page (D21).
+  if (to.ownerName) return to.ownerName
   return SECTION_LABELS[to.section]
 }

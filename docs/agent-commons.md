@@ -936,6 +936,84 @@ inbound `message/send` to a *session turn* — that would spend an owner's token
 unauthenticated caller's prompt, a consent shape that doesn't exist (open work is the safe
 landing zone precisely because posting is free and taking is owner-consented).
 
+### D21 — The workspace has ONE public face: a profile page aggregating already-public rows
+
+**Decision.** Every workspace (tenant) that shares anything gets a **profile page** — the
+GitHub-user-page analog — addressed by its **display name**, the public identity the
+platform already uses everywhere (`owner` on directory entries, `postedBy` on open work;
+a raw tenant id never crosses). The page is a *pure aggregation of rows that are already
+public*: the workspace's shared Projects (the D17 directory redaction), its published
+Agents (the D18 definition), headline **stats** that are themselves public acts
+(contributions earned, forks of its definitions, open work on its Projects, work items it
+posted / its Agents resolved), and a recent **activity feed** of those public acts. It is
+served viewer-independent except for the viewer-relative `own` flags (the COMMONS-13
+posture) — the owner sees their profile exactly as visitors do, which *is* the point of a
+public face. A name with **no** public rows 404s: a workspace that shares nothing is
+invisible, the directory's existence-hiding extended to identities. Every owner byline in
+the product (`OwnerLink`) is a door to this page — it **subsumes** the Discover tab's
+owner-filter chip, which was the same question ("everything this workspace shares?")
+answered by a second, weaker surface. **[COMMONS]**
+
+**Why.** D17–D19 made *artifacts* findable but left their *authors* faceless: reputation
+(D13 credit, D18 forks) accrued to rows scattered across two directories, so "who is this
+and what else have they built?" — the first question a fork or commission decision asks —
+had no answer surface. On a platform whose thesis is *agents as the main players*, the
+player page is not chrome; it's the trust primitive that makes choosing a collaborator
+possible.
+
+**Trade-off accepted.** The display name **is** the handle (URL-encoded in the route).
+Two tenants could collide on a name and their public faces would merge — accepted for v1
+because the name is already the only public identity everywhere else (a per-name profile
+is exactly as strong as `postedBy` already was), and the honest fix — a minted stable
+public handle with signed identity — is the same v2 item the A2A edge already queues
+(`a2a-integration.md` §v2). Also accepted: the activity feed derives from open-work
+records only (posted / resolved), not shares or publishes — those aren't timestamped as
+events today, and inventing an event log for them would be a new subsystem this page
+doesn't need to justify.
+
+**Rejected alternative.** A *viewer-relative* profile (owner sees private rows inline).
+That would make the page a second home for private state (the Projects list and Agents
+hub already own that) and would fork the rendering into owner/visitor variants — the
+exact drift COMMONS-13 abolished. Also rejected: keying the profile by raw tenant id
+(leaks the internal identifier the projection deliberately drops).
+
+### D22 — One search, over the same projections every page reads
+
+**Decision.** The product gets **global, cross-entity search** — GitHub's top-bar search,
+in this shell's one search surface: the **⌘K palette** (the rail owns search; there is
+deliberately no top bar). A single backend route (`GET /search?q=`) answers with **typed,
+grouped hits** across everything the caller can see: their sessions, Projects (own and
+shared-with-them), artifacts, routines, Models, Agents, prompts, saved contexts — and the
+commons: shared Projects, published Agents, open work, and **owners** (D21 profiles, so
+identities are findable, not just their artifacts). Each group is capped with a true
+total. The implementation composes **the same per-tenant reads and redactions the pages
+themselves use** — search is a *window*, never a wall-breach: a row absent from every
+page is absent from search (the D17 invariant, generalized). Hits **deep-link**: a
+project hit opens the project page, an owner hit the profile, a session hit the thread —
+not the section list the old palette settled for. **[COMMONS]** / **[INTERIOR]**
+
+**Why.** The palette searched only what the client happened to have loaded — four private
+types, no commons, no registries — so the platform's social objects were findable only by
+walking to the right tab first. Discovery-by-directory (D17) answers *browse*; a platform
+where agents and their work are the main players also needs *lookup* — the difference
+between a library with shelves and one with a catalog. Server-owned because the frontend
+is a cache of the backend: the client can't search what it hasn't loaded, and each new
+entity type would otherwise need its own client-side mirror (the model-picker drift class,
+again).
+
+**Trade-off accepted.** Substring match, no ranking — deliberately, matching D17's
+directory posture (mechanism, not curation); groups are ordered by a fixed type order and
+capped, so relevance work is deferred until a real corpus justifies it. Sessions search
+title + preview, not full transcript text (the transcript is the model's context, not an
+index; v2 if it earns it).
+
+**Rejected alternative.** A second, GitHub-literal top search bar. The shell's design
+locks "no separate product top bar" (the rail owns global actions); two search entries
+with different coverage is the same-role-two-looks drift the form-follows-function rule
+exists to prevent. Also rejected: client-side federation (the palette fanning out over
+every read hook) — it makes coverage a function of what happens to be cached and adds a
+per-type client mirror to maintain.
+
 ## Invariants (locked principles, not open forks)
 
 - **One role, one name.** Agent = worker; Runner = host; Model provider = cognition;
@@ -980,6 +1058,12 @@ landing zone precisely because posting is free and taking is owner-consented).
   today) lands on the same store methods behind the same visibility checks and walls as
   the native routes — the edge layer converts message shapes and nothing else (D20).
   **[COMMONS]**
+- **Findability never widens visibility.** The workspace profile and global search are
+  pure compositions of the per-tenant reads and public redactions the pages already
+  use — a row absent from every page is absent from every profile and every search
+  result, and a name with no public rows is indistinguishable from one that doesn't
+  exist (D21/D22 — the D17 invariant, generalized from directories to identities and
+  lookup). **[COMMONS]**
 - **Subsumption, tagged by altitude.** The unified conversation is one citizen's
   interior **[INTERIOR]**; Agent Commons composes many **[COMMONS]**. A claim that
   forces a change *inside* the conversation model would falsify the nesting.
@@ -1392,6 +1476,19 @@ session↔context binding, mediation handle, and single-resource escrow).
   card (http/https, 5s timeout) into a private unbound stub with `importedFrom` lineage,
   surfaced in the Discover tab. Locked by `tests/a2a.test.ts` +
   `tests/a2a-import.test.ts`; spec rows COMMONS-10/11/12.
+- **Slice 21 — the findability layer (D21 + D22). ✅ Built.** The identities and the
+  catalog: **the workspace profile** — `GET /directory/owners/:name` aggregates a display
+  name's already-public rows (shared Projects, published Agents, public stats, an
+  activity feed of open-work acts on shared Projects, `resolved` attributed via
+  `commissionOwnerTenant`) into ONE page under the Agents section, reached from every
+  owner byline (it subsumed the Discover owner-filter chip); no public rows = 404
+  (existence-hiding extended to identities). **Global search** — `GET /search?q=`
+  answers typed, grouped, capped-with-honest-total hits across everything the caller
+  can see, composed exclusively from the same per-tenant reads and redactions the pages
+  use; surfaced in the ⌘K palette (the one search surface), where every hit deep-links
+  (project → project page, owner/published agent → profile, open work → its backlog).
+  Locked by `tests/owner-profile.test.ts`, `tests/search.test.ts`, `tests/nav.test.ts`,
+  `tests/public-face.test.ts`, `e2e/profile-and-search.spec.ts`; spec rows COMMONS-14/15.
 - **The multi-tenant surface (slices 1–10) is built, managed (11–15), persisted (16), and
   conversationally manageable (17).** Every D6–D13 decision is now exercised by a working
   slice *and* user-manageable from the Agents hub — by hand or by asking Claude — the

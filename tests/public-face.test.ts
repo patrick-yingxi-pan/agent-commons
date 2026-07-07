@@ -8,7 +8,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { bylineLabel, SHARED_MARKER } from '../src/lib/publicFace.ts'
+import { bylineLabel, profileTitle, SHARED_MARKER } from '../src/lib/publicFace.ts'
 
 const src = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
 
@@ -16,6 +16,11 @@ test('bylineLabel — the one owner label', () => {
   assert.equal(bylineLabel('Ada Lab', false), 'by Ada Lab')
   assert.equal(bylineLabel('Ada Lab', true), 'by Ada Lab (you)')
   assert.equal(bylineLabel(undefined, undefined), 'by this workspace')
+})
+
+test('profileTitle — the profile page title carries the same own-marker (D21)', () => {
+  assert.equal(profileTitle('Ada Lab', false), 'Ada Lab')
+  assert.equal(profileTitle('Ada Lab', true), 'Ada Lab (you)')
 })
 
 test('no component re-hardcodes the byline or the shared marker', () => {
