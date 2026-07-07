@@ -182,6 +182,7 @@ import {
 import { authorityLabel, providerPlanLabel } from '../lib/agentCommonsLabels'
 import { ArtifactThumb, ArtifactViewer, KIND_ICON, KIND_LABEL } from './artifactPreview'
 import { artifactMetaIsSpecific } from '../lib/artifactMeta'
+import { resolvedByCommission } from '../lib/commissionTrackRecord'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { useDismissable } from '../lib/useDismissable'
 import { SCRIM_CLASS } from '../lib/scrim'
@@ -1196,11 +1197,16 @@ function ContributorRow({
   commission,
   agentLabel,
   contributions,
+  resolvedHere,
 }: {
   commission: Commission
   agentLabel: string
   /** The Contributor Agent's D13 reputation — successful commissioned effects (OQ1). */
   contributions?: number
+  /** S8 — for a STANDING commission, what it actually resolved on THIS project (its
+   *  local track record, distinct from the cross-project Award total). Undefined for a
+   *  non-standing commission (no unprompted acts to summarize). */
+  resolvedHere?: { count: number; lastAt: number }
 }) {
   const reach = useCommissionAuthority(commission.id).data
   // Post-clamp the connectors are always a concrete set (the Project admits a concrete
@@ -1253,6 +1259,18 @@ function ContributorRow({
           ) : null}
         </div>
         <div className="text-[11px] text-ink-faint">{reachLabel}</div>
+        {/* S8 — the acts this STANDING contributor produced HERE (D19), so the row shows
+            local output, not just the cross-project Award total that misreads as local. */}
+        {resolvedHere && (
+          <div
+            className="text-[11px] text-ink-faint"
+            title="Open work this standing contributor took on THIS project (D19) — distinct from its cross-project contribution total"
+          >
+            {resolvedHere.count > 0
+              ? `Took ${resolvedHere.count} item${resolvedHere.count === 1 ? '' : 's'} here · last ${relativeTime(resolvedHere.lastAt)}`
+              : 'Standing · no items taken yet'}
+          </div>
+        )}
         {error && <div className="text-[11px] text-removed">{error}</div>}
       </div>
       <CardActions onEdit={project ? () => setEditing(true) : undefined} onDelete={del} />
@@ -4387,40 +4405,66 @@ function CommissionsTab() {
 
   return (
     <div className="space-y-6">
-      {[...byProject.entries()].map(([projectId, list]) => {
-        const cap = projects.find((p) => p.id === projectId)?.commissionCap
-        return (
-        <div key={projectId}>
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-              {projectName(projectId)}
-            </span>
-            {cap !== undefined && (
-              <span
-                title={`Per-commissioner abuse cap (D13): ${list.length} of ${cap} commissions used`}
-                className={`shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium ${
-                  list.length >= cap ? 'bg-removed/10 text-removed' : 'bg-ink/5 text-ink-soft'
-                }`}
-              >
-                {list.length} / {cap} commissioned
-              </span>
-            )}
-          </div>
-          <CommonsCard>
-            <div className="space-y-2.5">
-              {list.map((c) => (
-                <ContributorRow
-                  key={c.id}
-                  commission={c}
-                  agentLabel={agentsById.get(c.agentId)?.label ?? c.agentLabel ?? c.agentId}
-                  contributions={agentsById.get(c.agentId)?.contributions}
-                />
-              ))}
-            </div>
-          </CommonsCard>
+      {[...byProject.entries()].map(([projectId, list]) => (
+        <ProjectCommissionGroup
+          key={projectId}
+          projectId={projectId}
+          title={projectName(projectId)}
+          list={list}
+          cap={projects.find((p) => p.id === projectId)?.commissionCap}
+          agentsById={agentsById}
+        />
+      ))}
+    </div>
+  )
+}
+
+/** One project's commissioned Contributors. Fetches the project's open work ONCE here
+ *  (not per row) and folds it into a resolvedBy → {count, last} map, so each STANDING
+ *  Contributor can show what it actually did HERE (S8) — the per-project track record
+ *  that the cross-project Award total (a state word) otherwise misreads as local. */
+function ProjectCommissionGroup({
+  projectId,
+  title,
+  list,
+  cap,
+  agentsById,
+}: {
+  projectId: string
+  title: string
+  list: Commission[]
+  cap: number | undefined
+  agentsById: Map<string, Agent>
+}) {
+  const resolvedHere = resolvedByCommission(useOpenSubGoals(projectId).data ?? [])
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">{title}</span>
+        {cap !== undefined && (
+          <span
+            title={`Per-commissioner abuse cap (D13): ${list.length} of ${cap} commissions used`}
+            className={`shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium ${
+              list.length >= cap ? 'bg-removed/10 text-removed' : 'bg-ink/5 text-ink-soft'
+            }`}
+          >
+            {list.length} / {cap} commissioned
+          </span>
+        )}
+      </div>
+      <CommonsCard>
+        <div className="space-y-2.5">
+          {list.map((c) => (
+            <ContributorRow
+              key={c.id}
+              commission={c}
+              agentLabel={agentsById.get(c.agentId)?.label ?? c.agentLabel ?? c.agentId}
+              contributions={agentsById.get(c.agentId)?.contributions}
+              resolvedHere={c.standing ? resolvedHere.get(c.id) ?? { count: 0, lastAt: 0 } : undefined}
+            />
+          ))}
         </div>
-        )
-      })}
+      </CommonsCard>
     </div>
   )
 }
