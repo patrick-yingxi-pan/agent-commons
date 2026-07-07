@@ -181,6 +181,7 @@ import {
 } from '../../contract/index.ts'
 import { authorityLabel, providerPlanLabel } from '../lib/agentCommonsLabels'
 import { ArtifactThumb, ArtifactViewer, KIND_ICON, KIND_LABEL } from './artifactPreview'
+import { artifactMetaIsSpecific } from '../lib/artifactMeta'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { useDismissable } from '../lib/useDismissable'
 import { SCRIM_CLASS } from '../lib/scrim'
@@ -2266,6 +2267,11 @@ function ArtifactCard({
           </div>
         )}
         <div className="mt-3">
+          {/* S6 — the gallery card's own descriptor (meta), when it's more specific than
+              the generic kind label (the shared guard prevents "Document · Document"). */}
+          {artifactMetaIsSpecific(artifact.meta, KIND_LABEL[artifact.kind]) && (
+            <span className="mr-2 text-[11px] text-ink-soft">{artifact.meta}</span>
+          )}
           <span className="text-[11px] text-ink-faint">
             {pending ? 'Saving…' : `Edited ${relativeTime(artifact.editedAt)}`}
           </span>

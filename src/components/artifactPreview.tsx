@@ -16,6 +16,7 @@ import type { ArtifactKind } from '../types'
 import type { ArtifactItem } from '../data/cowork'
 import type { ArtifactContent, DocBlock } from '../types'
 import { useArtifactContent, useFsText, fsContentUrl } from '../api'
+import { artifactMetaIsSpecific } from '../lib/artifactMeta'
 import { PhotoThumb } from './PhotoThumb'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { useDismissable } from '../lib/useDismissable'
@@ -591,7 +592,13 @@ export function ArtifactViewer({
           <div className="min-w-0 flex-1">
             <div className="truncate text-[15px] font-semibold text-ink">{artifact.name}</div>
             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-ink-faint">
-              <span>{KIND_LABEL[artifact.kind]}</span>
+              {/* S6 — the canonical viewer should be at least as specific as the humble
+                  side panel: show the artifact's own descriptor (meta — "functional spec",
+                  "1600×900") when it beats the generic kind label (the shared guard skips
+                  gallery-created artifacts whose meta = the label — no "Document · Document"). */}
+              <span>
+                {artifactMetaIsSpecific(artifact.meta, KIND_LABEL[artifact.kind]) ? artifact.meta : KIND_LABEL[artifact.kind]}
+              </span>
               <span>·</span>
               <ProjectAssignMenu
                 projects={projects}
