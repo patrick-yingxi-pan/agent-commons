@@ -60,8 +60,10 @@ export interface Agent {
    *  provider binding stay private and never travel. Unset/false ⇒ private (default). */
   published?: boolean
   /** Fork lineage (D18): the published Agent this one was copied from, when forked.
-   *  The label is captured at fork time (the source may be renamed/unpublished later). */
-  forkedFrom?: { agentId: string; label: string }
+   *  The label is captured at fork time (the source may be renamed/unpublished later).
+   *  `version` (D25) records WHICH definition version was taken — what "behind the
+   *  source" means for a later proposal. Absent on pre-D25 forks. */
+  forkedFrom?: { agentId: string; label: string; version?: number }
   /** Import lineage (D20, docs/a2a-integration.md): the remote A2A Agent Card this
    *  definition-stub was minted from — the cross-INSTANCE sibling of `forkedFrom`.
    *  Like a fork, the import carries definition only; capability never travels. */
@@ -69,6 +71,64 @@ export interface Agent {
   /** How many times this Agent's published definition was forked (D18) — a public,
    *  monotonic credit, like `contributions`. Absent/0 ⇒ never forked. */
   forks?: number
+  /** The definition VERSION (D25) — bumped whenever the definition fields (label /
+   *  prompt / tools / instructions) change while published, and on every merged
+   *  proposal. Absent ⇒ 1 (a never-versioned or pre-D25 definition). Private edits
+   *  before publication don't version — drafts aren't history. */
+  version?: number
+  /** The published definition's changelog (D25) — one entry per version bump, the
+   *  permanent authorship record (a merged proposal credits its proposer here;
+   *  authorship is provenance, deliberately NOT D13 reputation). */
+  changelog?: AgentChangelogEntry[]
+}
+
+/** One changelog line (D25): who authored version N, and why. */
+export interface AgentChangelogEntry {
+  version: number
+  /** The authoring workspace's display name — the owner, or a merged proposal's
+   *  proposer (public identity, like `postedBy`). */
+  author: string
+  note: string
+  at: number
+}
+
+/** ── D25 — a change proposal against a published definition (the PR analog) ──
+ *  FULL-FIELD: the proposal states the new values outright (no patch algebra); the
+ *  owner reviews a side-by-side and merges or declines. Capability is structurally
+ *  absent — only definition fields are representable here (the D18 wall, again). */
+export interface AgentChangeProposal {
+  id: string
+  /** The proposing workspace's display name (public identity). */
+  proposedBy: string
+  /** The proposed replacement values — a present field replaces, an absent one
+   *  keeps the current value. */
+  fields: {
+    label?: string
+    systemPrompt?: string
+    instructions?: string
+    tools?: string[]
+  }
+  /** Why — the PR description. `''` when none. */
+  note: string
+  /** The definition version this was authored against. Reviewed at a later
+   *  version ⇒ stale (flagged, never auto-rebased). */
+  baseVersion: number
+  at: number
+  status: 'open' | 'merged' | 'declined'
+  /** The owner's note on decline. */
+  responseNote?: string
+  resolvedAt?: number
+}
+
+/** Body of `POST /agents/:id/proposals` (D25). */
+export interface ProposeAgentChangeRequest {
+  fields: AgentChangeProposal['fields']
+  note?: string
+}
+
+/** Body of `POST /agents/:id/proposals/:pid/decline`. */
+export interface DeclineProposalRequest {
+  note?: string
 }
 
 /** The owner-side aggregate of D13 reputation: standing "accrues to both the Agent and

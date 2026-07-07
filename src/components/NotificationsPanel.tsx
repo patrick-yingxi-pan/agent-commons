@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { Award, Bell, Hammer, ListChecks, MessageSquare, XCircle, type LucideIcon } from 'lucide-react'
+import { Award, Bell, GitMerge, GitPullRequest, Hammer, ListChecks, MessageSquare, XCircle, type LucideIcon } from 'lucide-react'
 import type { AppNotification, NotificationKind } from '../../contract/index.ts'
 import type { SectionId } from '../types'
 import { useFocusTrap } from '../lib/useFocusTrap'
@@ -14,6 +14,9 @@ const KIND_ICON: Record<NotificationKind, LucideIcon> = {
   'work.commented': MessageSquare,
   'work.retracted': XCircle,
   'agent.forked': Award,
+  'proposal.opened': GitPullRequest,
+  'proposal.merged': GitMerge,
+  'proposal.declined': XCircle,
 }
 
 /** The row's one-line sentence — actor + verb + object (all public-face fields). */
@@ -29,6 +32,12 @@ function describe(n: AppNotification): string {
       return `${n.actor} retracted “${n.subGoal}” on ${n.projectName}`
     case 'agent.forked':
       return `${n.actor} forked your agent “${n.agentLabel}”`
+    case 'proposal.opened':
+      return `${n.actor} proposed a change to “${n.agentLabel}”`
+    case 'proposal.merged':
+      return `${n.actor} merged your proposal into “${n.agentLabel}”`
+    case 'proposal.declined':
+      return `${n.actor} declined your proposal on “${n.agentLabel}”`
   }
 }
 

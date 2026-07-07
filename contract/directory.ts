@@ -6,6 +6,7 @@
  *  open work, contributions, forks). Search is a case-insensitive substring over
  *  name/description — a mechanism; ranking is deliberately absent (D17). */
 import type { ProjectEffectType } from './coordination.ts'
+import type { AgentChangelogEntry } from './workers.ts'
 
 /** One shared Project in the discovery directory (`GET /directory/projects`). */
 export interface ProjectDirectoryEntry {
@@ -44,6 +45,10 @@ export interface AgentDirectoryEntry {
   contributions: number
   /** How many times this definition was forked (a public act). */
   forks: number
+  /** The definition version (D25) — what a fork takes, what a proposal targets. */
+  version: number
+  /** The published changelog (D25) — the definition's public authorship record. */
+  changelog: AgentChangelogEntry[]
 }
 
 /** One comment on a work item (D23) — the flat discussion thread that makes open

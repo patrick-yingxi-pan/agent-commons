@@ -54,7 +54,8 @@ test('fork copies the definition, UNBINDS capability, stamps lineage, credits th
   // …the copy is B's, private, lineage-stamped, track record reset…
   assert.equal(fork.tenantId, B)
   assert.notEqual(fork.published, true, 'a fork starts private')
-  assert.deepEqual(fork.forkedFrom, { agentId: source.id, label: 'Release scribe' })
+  // `version` (D25): the lineage records WHICH definition version was taken.
+  assert.deepEqual(fork.forkedFrom, { agentId: source.id, label: 'Release scribe', version: 1 })
   assert.ok(!fork.contributions, 'reputation does not transfer')
   // …and the source earned the public credit.
   assert.equal(store.getAgent(source.id).forks, 1, 'the source fork counter incremented')
@@ -90,5 +91,5 @@ test('fork walls: unknown id and a foreign UNPUBLISHED agent are 404; forking yo
 
   const own = await call('POST', `/agents/${secret.id}/fork`, undefined, { 'x-tenant-id': A })
   assert.equal(own.status, 200, 'your own agent forks freely (duplicate)')
-  assert.deepEqual(own.json.forkedFrom, { agentId: secret.id, label: 'A secret' })
+  assert.deepEqual(own.json.forkedFrom, { agentId: secret.id, label: 'A secret', version: 1 })
 })

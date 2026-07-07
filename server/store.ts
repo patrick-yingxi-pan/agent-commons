@@ -73,7 +73,7 @@ import { ConflictError } from './conflict.ts'
 import { LimitError } from './limit.ts'
 import { scopeMatches } from './runner-runtime.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../contract/index.ts'
-import type { Agent, AgentDirectoryEntry, AppNotification, AuditEntry, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelProvider, OpenSubGoal, OwnerActivity, OwnerProfile, PostOpenSubGoalRequest, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState } from '../contract/index.ts'
+import type { Agent, AgentChangeProposal, AgentDirectoryEntry, AppNotification, AuditEntry, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelProvider, OpenSubGoal, OwnerActivity, OwnerProfile, PostOpenSubGoalRequest, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
@@ -86,7 +86,7 @@ import { ResourceGuardian, GuardianError } from './guardian.ts'
 import { LOCAL_RUNNER_SEED, RUNNER_FS_ROOTS } from './data/runners.ts'
 import { DEFAULT_AGENT } from './data/workers.ts'
 import { EMPTY_WORKSPACE, workspaceFromSeed } from './workspace.ts'
-import { STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification } from './persist.ts'
+import { STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification, type StoredAgentProposal } from './persist.ts'
 import { eventlog } from './eventlog.ts'
 import { accounts } from './accounts.ts'
 
@@ -215,6 +215,20 @@ const watches = new Map<string, Set<string>>()
 // tenant-scoped read serves only the caller's own rows, without the field.
 const notifications: StoredNotification[] = []
 let notificationSeq = 0
+
+// ── D25 — change proposals against published definitions, keyed by agent id ──
+const AGENT_PROPOSALS = new Map<string, StoredAgentProposal[]>()
+// Proposal bounds — a review queue, not a blob store (the D23 posture).
+const MAX_OPEN_PROPOSALS = 20
+const MAX_PROPOSAL_PROMPT_CHARS = 8000
+const MAX_PROPOSAL_NOTE_CHARS = 2000
+
+/** The one redaction seam stored → wire: drop the proposer's raw tenant id. */
+function publicProposal(p: StoredAgentProposal): AgentChangeProposal {
+  const { proposedByTenant, ...pub } = p
+  void proposedByTenant
+  return pub
+}
 
 /** Fan one public act out to its interested tenants (D24), always MINUS the actor
  *  (you don't need a bell for what you just did). Synchronous and unbatched — the
@@ -722,6 +736,7 @@ function snapshot(): PersistedState {
     // D24 — watch subscriptions ([tenantId, projectId] pairs) + the notification inbox.
     watches: [...watches.entries()].flatMap(([projectId, tenants]) => [...tenants].map((t) => [t, projectId] as [string, string])),
     notifications,
+    agentProposals: [...AGENT_PROPOSALS.entries()], // D25 — the definition review queue
     // The account registry (multi-account P7): onboarded users (scrypt
     // credential included — it must survive a restart), workspaces, memberships.
     accountUsers: persistedAccounts.users,
@@ -860,6 +875,7 @@ function rehydrate(s: PersistedState): void {
   }
   notifications.splice(0, notifications.length, ...(s.notifications ?? []))
   notificationSeq = s.seq.notification ?? notifications.length
+  replaceMap(AGENT_PROPOSALS, s.agentProposals) // D25 (no-op for a pre-field snapshot)
 }
 
 /** Re-ensure the code's seed rows after a snapshot restore: a seed row missing
@@ -1358,6 +1374,21 @@ export const store = {
       // (never a creation side-effect). Normalized: false stores as absent.
       published: 'published' in patch ? (patch.published === true ? true : undefined) : current.published,
       id: current.id,
+    }
+    // D25 versioning: an owner edit that changes the DEFINITION of a published
+    // agent bumps the version and logs authorship (private edits are drafts —
+    // they don't version). Compared against `current`, so a no-op patch is silent.
+    const definitionChanged =
+      next.label !== current.label ||
+      next.systemPrompt !== current.systemPrompt ||
+      next.instructions !== current.instructions ||
+      JSON.stringify(next.tools) !== JSON.stringify(current.tools)
+    if (current.published === true && definitionChanged) {
+      next.version = (current.version ?? 1) + 1
+      next.changelog = [
+        ...(current.changelog ?? []),
+        { version: next.version, author: tenantName(current.tenantId ?? defaultTenantId()), note: 'Edited by the owner', at: Date.now() },
+      ]
     }
     WORKER_AGENTS.set(id, next)
     reclampCommissionsOf(next) // D8 runtime: a narrowed Agent re-clamps its Contributors' grants
@@ -2307,7 +2338,114 @@ export const store = {
         instructions: a.instructions,
         contributions: a.contributions ?? 0,
         forks: a.forks ?? 0,
+        version: a.version ?? 1,
+        changelog: a.changelog ?? [],
       }))
+  },
+  // ── D25 — change proposals against a published definition (the PR analog) ──
+  /** Open a proposal. The wall is the DIRECTORY's: published-only (an unpublished
+   *  agent has no public face to propose against — the identical 404). Full-field,
+   *  trimmed + capped; the open-queue is bounded ('capped' → 409). Only definition
+   *  fields are representable (the D18 wall, structurally). Rings the owner's bell. */
+  proposeAgentChange(agentId: string, req: ProposeAgentChangeRequest, tenantId: string): AgentChangeProposal | 'capped' | undefined {
+    const agent = WORKER_AGENTS.get(agentId)
+    if (!agent || agent.published !== true) return undefined
+    const f = req.fields ?? {}
+    const fields: AgentChangeProposal['fields'] = {
+      ...(typeof f.label === 'string' && f.label.trim() ? { label: f.label.trim().slice(0, 120) } : {}),
+      ...(typeof f.systemPrompt === 'string' && f.systemPrompt.trim()
+        ? { systemPrompt: f.systemPrompt.trim().slice(0, MAX_PROPOSAL_PROMPT_CHARS) }
+        : {}),
+      ...(typeof f.instructions === 'string' ? { instructions: f.instructions.trim().slice(0, MAX_PROPOSAL_NOTE_CHARS) } : {}),
+      ...(Array.isArray(f.tools)
+        ? { tools: f.tools.filter((t): t is string => typeof t === 'string' && !!t.trim()).map((t) => t.trim().slice(0, 80)).slice(0, 16) }
+        : {}),
+    }
+    if (Object.keys(fields).length === 0) return undefined // route pre-validates; belt-and-braces
+    const list = AGENT_PROPOSALS.get(agentId) ?? []
+    if (list.filter((p) => p.status === 'open').length >= MAX_OPEN_PROPOSALS) return 'capped'
+    const proposal: StoredAgentProposal = {
+      id: `${agentId}-p${list.length + 1}`, // append-only list ⇒ stable count ⇒ unique
+      proposedBy: tenantName(tenantId),
+      proposedByTenant: tenantId,
+      fields,
+      note: (req.note ?? '').trim().slice(0, MAX_PROPOSAL_NOTE_CHARS),
+      baseVersion: agent.version ?? 1,
+      at: Date.now(),
+      status: 'open',
+    }
+    list.push(proposal)
+    AGENT_PROPOSALS.set(agentId, list)
+    notifyTenants([agent.tenantId ?? defaultTenantId()], tenantId, {
+      kind: 'proposal.opened',
+      actor: proposal.proposedBy,
+      agentId,
+      agentLabel: agent.label,
+    })
+    persist()
+    return publicProposal(proposal)
+  },
+  /** The review queue. The OWNER sees every proposal; anyone else who can see the
+   *  agent sees only their OWN (a proposal is a conversation between proposer and
+   *  owner, not a public feed — recorded trade-off). Undefined for an agent the
+   *  caller can't see at all. */
+  listAgentProposals(agentId: string, tenantId: string): AgentChangeProposal[] | undefined {
+    const agent = WORKER_AGENTS.get(agentId)
+    if (!agent || !(agent.published === true || registryVisible(agent, tenantId))) return undefined
+    const list = AGENT_PROPOSALS.get(agentId) ?? []
+    const owner = (agent.tenantId ?? defaultTenantId()) === tenantId
+    return list.filter((p) => owner || p.proposedByTenant === tenantId).map(publicProposal)
+  },
+  /** The owner's verdict — merge or decline, open proposals only, owner only (raw
+   *  tenant-id comparison — the D23 lesson). Merging applies the proposed fields,
+   *  bumps the version, and writes the changelog line crediting the PROPOSER
+   *  (authorship is provenance, deliberately not D13 reputation); either outcome
+   *  rings the proposer's bell. */
+  resolveAgentProposal(
+    agentId: string,
+    proposalId: string,
+    tenantId: string,
+    action: 'merge' | 'decline',
+    note?: string,
+  ): AgentChangeProposal | 'forbidden' | 'closed' | undefined {
+    const agent = WORKER_AGENTS.get(agentId)
+    if (!agent) return undefined
+    const proposal = (AGENT_PROPOSALS.get(agentId) ?? []).find((p) => p.id === proposalId)
+    if (!proposal) return undefined
+    if ((agent.tenantId ?? defaultTenantId()) !== tenantId) return 'forbidden'
+    if (proposal.status !== 'open') return 'closed'
+    proposal.resolvedAt = Date.now()
+    if (action === 'merge') {
+      const version = (agent.version ?? 1) + 1
+      const next: Agent = {
+        ...agent,
+        ...(proposal.fields.label !== undefined ? { label: proposal.fields.label } : {}),
+        ...(proposal.fields.systemPrompt !== undefined
+          ? { systemPrompt: proposal.fields.systemPrompt, systemPromptId: undefined }
+          : {}),
+        ...(proposal.fields.instructions !== undefined ? { instructions: proposal.fields.instructions } : {}),
+        ...(proposal.fields.tools !== undefined ? { tools: [...proposal.fields.tools] } : {}),
+        version,
+        changelog: [
+          ...(agent.changelog ?? []),
+          { version, author: proposal.proposedBy, note: proposal.note || 'Merged proposal', at: proposal.resolvedAt },
+        ],
+      }
+      WORKER_AGENTS.set(agentId, next)
+      proposal.status = 'merged'
+    } else {
+      proposal.status = 'declined'
+      const trimmed = (note ?? '').trim().slice(0, MAX_PROPOSAL_NOTE_CHARS)
+      if (trimmed) proposal.responseNote = trimmed
+    }
+    notifyTenants([proposal.proposedByTenant], tenantId, {
+      kind: action === 'merge' ? 'proposal.merged' : 'proposal.declined',
+      actor: tenantName(tenantId),
+      agentId,
+      agentLabel: WORKER_AGENTS.get(agentId)?.label ?? agent.label,
+    })
+    persist()
+    return publicProposal(proposal)
   },
   /** The workspace profile — a display name's ONE public face (D21,
    *  `GET /directory/owners/:name`). A pure aggregation of rows that are ALREADY
@@ -2472,7 +2610,9 @@ export const store = {
         tools: [...source.tools],
         instructions: source.instructions,
         providerId: provider && registryVisible(provider, tenantId) ? provider.id : undefined,
-        forkedFrom: { agentId: source.id, label: source.label },
+        // D25: record WHICH version was taken — the baseline a later proposal
+        // (or "am I behind the source?") is measured against.
+        forkedFrom: { agentId: source.id, label: source.label, version: source.version ?? 1 },
       },
       tenantId,
     )

@@ -12,6 +12,11 @@ export type NotificationKind =
   | 'work.commented'
   | 'work.retracted'
   | 'agent.forked'
+  // D25 — the definition-evolution loop: an opened proposal rings the owner;
+  // the merge/decline rings the proposer.
+  | 'proposal.opened'
+  | 'proposal.merged'
+  | 'proposal.declined'
 
 /** One inbox row ("App" prefix: the DOM has a `Notification`). */
 export interface AppNotification {

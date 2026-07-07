@@ -1,0 +1,136 @@
+/** D25 — a definition evolves in the open: versions, change proposals, the merge
+ *  (docs/agent-commons.md; the GitHub-parity ledger rows 4/6). The invariants under
+ *  test: proposing needs the directory's wall (published-only; unpublished ≡ unknown
+ *  404); only definition fields ride a proposal (capability is unrepresentable);
+ *  the review queue is owner-sees-all / proposer-sees-own; verdicts are OWNER-only
+ *  by raw tenant id (the D23 lesson); a merge applies fields + bumps the version +
+ *  credits the proposer in the changelog (authorship ≠ D13 reputation); published
+ *  owner-edits version too, private edits don't; forks record the taken version;
+ *  the proposer's raw tenant id never crosses the wire. */
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { store } from '../server/store.ts'
+import { call } from './helpers/http.ts'
+
+const A = 'tenant-prop-A' // definition owner
+const B = 'tenant-prop-B' // proposer
+const C = 'tenant-prop-C' // bystander
+let n = 0
+
+async function publishedAgent() {
+  const agent = store.createAgent(
+    { label: `Evolvable ${(n += 1)}`, systemPrompt: 'v1 prompt', tools: ['create_artifact'], instructions: 'be good' },
+    A,
+  )
+  await call('PATCH', `/agents/${agent.id}`, { published: true }, { 'x-tenant-id': A })
+  return agent
+}
+
+const propose = (agentId: string, tenant: string, fields: Record<string, unknown>, note?: string) =>
+  call('POST', `/agents/${agentId}/proposals`, { fields, note }, { 'x-tenant-id': tenant })
+
+test('the propose wall is the directory’s: unpublished ≡ unknown (404); empty proposals 400', async () => {
+  const priv = store.createAgent({ label: `Private ${(n += 1)}`, systemPrompt: 'x', tools: [], instructions: '' }, A)
+  const hidden = await propose(priv.id, B, { systemPrompt: 'better' })
+  const ghost = await propose('agent-no-such', B, { systemPrompt: 'better' })
+  assert.equal(hidden.status, 404)
+  assert.equal(ghost.status, 404)
+  assert.equal(hidden.json.error.code, ghost.json.error.code, 'no existence leak')
+
+  const agent = await publishedAgent()
+  const empty = await propose(agent.id, B, {})
+  assert.equal(empty.status, 400, 'at least one definition field required')
+})
+
+test('open → review: owner sees all, the proposer sees their own, a bystander sees neither; owner’s bell rings', async () => {
+  const agent = await publishedAgent()
+  const opened = await propose(agent.id, B, { systemPrompt: '  v2 prompt — sharper  ' }, 'tightens the intro')
+  assert.equal(opened.status, 200)
+  assert.equal(opened.json.status, 'open')
+  assert.equal(opened.json.proposedBy, B)
+  assert.equal(opened.json.baseVersion, 1)
+  assert.equal(opened.json.fields.systemPrompt, 'v2 prompt — sharper', 'trimmed')
+
+  const ownerView = await call('GET', `/agents/${agent.id}/proposals`, undefined, { 'x-tenant-id': A })
+  assert.equal(ownerView.json.length, 1, 'the owner reviews everything')
+  const proposerView = await call('GET', `/agents/${agent.id}/proposals`, undefined, { 'x-tenant-id': B })
+  assert.equal(proposerView.json.length, 1, 'the proposer tracks their own')
+  const bystanderView = await call('GET', `/agents/${agent.id}/proposals`, undefined, { 'x-tenant-id': C })
+  assert.equal(bystanderView.json.length, 0, 'a proposal is proposer↔owner, not a public feed')
+  for (const view of [opened.json, ownerView.json, proposerView.json]) {
+    assert.ok(!JSON.stringify(view).includes('proposedByTenant'), 'the raw tenant id never rides the wire')
+  }
+
+  const bell = (await call('GET', '/notifications', undefined, { 'x-tenant-id': A })).json
+  assert.ok(bell.some((x: any) => x.kind === 'proposal.opened' && x.agentId === agent.id), 'the owner hears the proposal')
+})
+
+test('merge: fields land, version bumps, the changelog credits the PROPOSER, the bell rings', async () => {
+  const agent = await publishedAgent()
+  const opened = await propose(agent.id, B, { systemPrompt: 'v2 prompt', instructions: 'be better' }, 'sharper + kinder')
+  const merged = await call('POST', `/agents/${agent.id}/proposals/${opened.json.id}/merge`, undefined, { 'x-tenant-id': A })
+  assert.equal(merged.status, 200)
+  assert.equal(merged.json.status, 'merged')
+
+  const entry = store.agentDirectory(C).find((e) => e.id === agent.id)!
+  assert.equal(entry.systemPrompt, 'v2 prompt', 'the definition changed')
+  assert.equal(entry.instructions, 'be better')
+  assert.equal(entry.version, 2, 'the merge versioned')
+  const line = entry.changelog.find((l) => l.version === 2)!
+  assert.equal(line.author, B, 'authorship is the proposer’s — provenance, not reputation')
+  assert.equal(line.note, 'sharper + kinder')
+  assert.ok(!store.listAgents(A).some((a) => a.id === agent.id && (a.contributions ?? 0) > 0), 'no D13 reputation from prompt-golf')
+
+  const bell = (await call('GET', '/notifications', undefined, { 'x-tenant-id': B })).json
+  assert.ok(bell.some((x: any) => x.kind === 'proposal.merged' && x.agentId === agent.id), 'the proposer hears the merge')
+})
+
+test('decline carries the owner’s note; verdicts are owner-only by tenant id; resolved is final', async () => {
+  const agent = await publishedAgent()
+  const opened = await propose(agent.id, B, { instructions: 'different' })
+
+  // The PROPOSER cannot merge their own proposal (nor can a bystander).
+  const selfMerge = await call('POST', `/agents/${agent.id}/proposals/${opened.json.id}/merge`, undefined, { 'x-tenant-id': B })
+  assert.equal(selfMerge.status, 403)
+  const declined = await call('POST', `/agents/${agent.id}/proposals/${opened.json.id}/decline`, { note: 'out of scope' }, { 'x-tenant-id': A })
+  assert.equal(declined.json.status, 'declined')
+  assert.equal(declined.json.responseNote, 'out of scope')
+  const again = await call('POST', `/agents/${agent.id}/proposals/${opened.json.id}/merge`, undefined, { 'x-tenant-id': A })
+  assert.equal(again.status, 409, 'a resolved proposal is final')
+  const bell = (await call('GET', '/notifications', undefined, { 'x-tenant-id': B })).json
+  assert.ok(bell.some((x: any) => x.kind === 'proposal.declined' && x.agentId === agent.id))
+})
+
+test('published owner-edits version (with changelog); private edits are drafts; forks record the taken version', async () => {
+  const agent = await publishedAgent()
+  await call('PATCH', `/agents/${agent.id}`, { label: `Evolvable ${n} v2` }, { 'x-tenant-id': A })
+  let entry = store.agentDirectory(C).find((e) => e.id === agent.id)!
+  assert.equal(entry.version, 2, 'a published definition edit versions')
+  assert.equal(entry.changelog.find((l) => l.version === 2)?.author, A, 'authored by the owner')
+
+  // A stale proposal: authored at v2, reviewed after another edit → baseVersion < current.
+  const stale = await propose(agent.id, B, { instructions: 'authored against v2' })
+  await call('PATCH', `/agents/${agent.id}`, { instructions: 'owner moved on' }, { 'x-tenant-id': A })
+  entry = store.agentDirectory(C).find((e) => e.id === agent.id)!
+  assert.equal(entry.version, 3)
+  assert.ok(stale.json.baseVersion < entry.version, 'staleness is derivable (flagged, never auto-rebased)')
+
+  // Fork lineage records the version taken.
+  const forked = await call('POST', `/agents/${agent.id}/fork`, undefined, { 'x-tenant-id': B })
+  assert.equal(forked.json.forkedFrom.version, 3)
+
+  // A PRIVATE agent's edits don't version — drafts aren't history.
+  const draft = store.createAgent({ label: `Draft ${(n += 1)}`, systemPrompt: 'x', tools: [], instructions: '' }, A)
+  await call('PATCH', `/agents/${draft.id}`, { label: 'renamed draft' }, { 'x-tenant-id': A })
+  assert.equal(store.listAgents(A).find((a) => a.id === draft.id)?.version, undefined)
+})
+
+test('the open-queue cap answers 409', async () => {
+  const agent = await publishedAgent()
+  for (let i = 0; i < 20; i += 1) {
+    const r = await propose(agent.id, B, { instructions: `variant ${i}` })
+    assert.equal(r.status, 200)
+  }
+  const over = await propose(agent.id, C, { instructions: 'one too many' })
+  assert.equal(over.status, 409, 'a review queue, not a blob store')
+})

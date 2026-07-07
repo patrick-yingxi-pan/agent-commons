@@ -10,6 +10,7 @@
  *    • `PersistenceBackend` — the port both backends implement. */
 import type {
   Agent,
+  AgentChangeProposal,
   AppNotification,
   AuditEntry,
   Commission,
@@ -57,6 +58,13 @@ export const STORE_VERSION = 5
  *  the tenant-scoped read serves only the caller's own rows, as `AppNotification`). */
 export interface StoredNotification extends AppNotification {
   tenantId: string
+}
+
+/** A change proposal as STORED (D25) — the wire row plus the proposer's RAW tenant
+ *  id: the strict authorization anchor (the D23 lesson — write authorization compares
+ *  tenant ids, never spoofable display names). Server-private; every read strips it. */
+export interface StoredAgentProposal extends AgentChangeProposal {
+  proposedByTenant: string
 }
 
 /** The persisted shape — the store's mutable, UI-owned state. Maps are stored as
@@ -107,6 +115,9 @@ export interface PersistedState {
   /** The per-tenant notification inbox (D24) — derived, capped, disposable state
    *  (the acts themselves remain on their backlogs/profiles). Additive-optional. */
   notifications?: StoredNotification[]
+  /** Change proposals against published definitions (D25), keyed by target agent
+   *  id. Additive-optional like `dispatch`. */
+  agentProposals?: [string, StoredAgentProposal[]][]
   /** The account registry (multi-account P7 — real onboarded accounts): users
    *  (with their server-only scrypt credential), tenants/workspaces, and
    *  memberships. Additive-optional like `dispatch` (a pre-P7 snapshot loads
@@ -168,6 +179,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   openSubGoals: 'array',
   watches: 'array',
   notifications: 'array',
+  agentProposals: 'mapEntries',
   accountUsers: 'mapEntries',
   accountTenants: 'mapEntries',
   memberships: 'array',

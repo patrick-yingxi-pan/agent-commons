@@ -68,8 +68,10 @@ import type {
   A2aMessage,
   A2aRpcRequest,
   A2aTextPart,
+  DeclineProposalRequest,
   ImportAgentCardRequest,
   MarkNotificationsReadRequest,
+  ProposeAgentChangeRequest,
   PostWorkItemCommentRequest,
   ProjectEffectType,
   SetWatchRequest,
@@ -1272,6 +1274,45 @@ export function buildRouter(): Router {
     if (out === 'capped') return sendError(res, 'conflict', 'This item’s discussion is at its cap')
     sendJson(res, out)
   })
+  // ── D25 — change proposals against published definitions (the PR analog) ────
+  // Propose: the directory's wall (published-only ⇒ the identical 404). Review:
+  // the owner sees all, a proposer sees their own. Verdicts are owner-only.
+  r.post('/agents/:id/proposals', async ({ req, res, params, body }) => {
+    const input = await body<ProposeAgentChangeRequest>()
+    const f = input?.fields
+    const hasField =
+      !!f &&
+      ((typeof f.label === 'string' && !!f.label.trim()) ||
+        (typeof f.systemPrompt === 'string' && !!f.systemPrompt.trim()) ||
+        typeof f.instructions === 'string' ||
+        Array.isArray(f.tools))
+    if (!hasField) return sendError(res, 'bad_request', 'at least one definition field is required')
+    const out = store.proposeAgentChange(params.id, input!, store.identity(req.headers).tenant.id)
+    if (out === undefined) return sendError(res, 'not_found', `No agent '${params.id}'`)
+    if (out === 'capped') return sendError(res, 'conflict', 'This definition’s review queue is full')
+    sendJson(res, out)
+  })
+  r.get('/agents/:id/proposals', ({ req, res, params }) => {
+    const out = store.listAgentProposals(params.id, store.identity(req.headers).tenant.id)
+    if (out === undefined) return sendError(res, 'not_found', `No agent '${params.id}'`)
+    sendJson(res, out)
+  })
+  r.post('/agents/:id/proposals/:pid/merge', ({ req, res, params }) => {
+    const out = store.resolveAgentProposal(params.id, params.pid, store.identity(req.headers).tenant.id, 'merge')
+    if (out === undefined) return sendError(res, 'not_found', `No proposal '${params.pid}'`)
+    if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the definition’s owner may merge a proposal')
+    if (out === 'closed') return sendError(res, 'conflict', 'This proposal was already resolved')
+    sendJson(res, out)
+  })
+  r.post('/agents/:id/proposals/:pid/decline', async ({ req, res, params, body }) => {
+    const input = await body<DeclineProposalRequest>()
+    const out = store.resolveAgentProposal(params.id, params.pid, store.identity(req.headers).tenant.id, 'decline', input?.note)
+    if (out === undefined) return sendError(res, 'not_found', `No proposal '${params.pid}'`)
+    if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the definition’s owner may decline a proposal')
+    if (out === 'closed') return sendError(res, 'conflict', 'This proposal was already resolved')
+    sendJson(res, out)
+  })
+
   // ── D24 — watching + the notification inbox ─────────────────────────────────
   // Watch a project you can see (the same wall as reading it); read/mark your inbox.
   r.get('/projects/:id/watch', ({ req, res, params }) => {
