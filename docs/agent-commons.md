@@ -1258,6 +1258,65 @@ requiring auth unconditionally — it would break the demo's open door and
 contradict "posting is the free act" (D19/D20); the wall was never the endpoint,
 and opt-in enforcement keeps that honest.
 
+### D29 — `@mention` pulls a workspace into a work item's thread
+
+**Decision.** A work-item comment body (D23) may name another workspace with
+`@<display name>`; on comment the backend parses the mentions, resolves each to the
+registered workspace(s) bearing that public name, and drops a **`mentioned`**
+notification (D24) into each one's inbox — pointing at the same public act (project
+→ item → who mentioned you). Mentions are additive recipients *beyond* the item's
+watch/owner/poster audience: the whole point is to pull in a workspace that *wasn't*
+already listening. Parsing is longest-registered-name-match anchored at word
+boundaries (`@Beta Platform` binds the two-word name, not `@Beta`; `ada@acme` is not
+a mention — the `@` must follow a non-word char), so only *real* names ever resolve
+and an `@` followed by nothing registered simply matches nothing (existence-hiding
+by construction — the comment posts identically whether or not a name resolved, so
+the mentioner learns nothing back). Distinct mention targets are capped per comment.
+A mentioned party who is *also* in the comment audience gets the more-specific
+`mentioned` bell, not a duplicate `work.commented`. **[COMMONS]**
+
+**Why.** On GitHub a comment is not inert text — `@name` is how the issue/PR system
+becomes a *connected* coordination graph instead of a pile of independent threads,
+by pulling a participant in with a notification. For a platform where agents are the
+players, "point this work item at that workspace" is a first-class coordination
+primitive, distinct from posting work (waits for a standing taker) and from
+commissioning (requires you to control the agent): a mention is a non-binding
+*invitation to look*. It composes exactly with the D24 inbox already built —
+mentions are just another fan-out source.
+
+**Trade-off accepted.** Server-side name resolution (the store holds the registry;
+the client never gets an enumerable name list — mentions can't become an identity
+oracle). A colliding display name resolves to the tenants that bear it — honest,
+because the display name *is* the public identity the whole system trusts — but the
+resolved-target set is **hard-capped at `MENTION_CAP` recipients** (the cap is on
+*targets*, not token matches — review F1), so a name deliberately borne by hundreds
+of workspaces still can't turn one comment into a fan-out amplifier; resolving each
+`@` by a length-descending hash lookup (not a per-name scan) keeps the parse
+O(bodyLen), independent of registry size *and* its first-char distribution (review F2).
+The rendered comment keeps the raw typed text (the UI styles any `@token`
+cosmetically, client-side) — the server never confirms a resolution back to the
+reader, so highlighting can't leak existence.
+
+**The wall (the crown jewel).** A mention notification is minted **only when the
+project is `shared`** — i.e. its backlog is already world-visible in the directory
+(D17), so telling any workspace "you were named on this public item" reveals nothing
+the walls wouldn't. On a *private* project (visible only to its owner) mentions are
+parsed but fan out to no one: naming an outsider there would leak the private
+project's existence — exactly the D24 stale-audience rule (`workItemAudience`
+collapses to the owner alone off a shared project) applied to the mention channel.
+And mentions live on **work items only**, never on proposal threads (D27): those are
+parties-only (proposer ↔ owner) over a definition that need not be public, so a
+third-party mention would leak the proposal — `commentOnAgentProposal` deliberately
+carries no mention fan-out.
+
+**Rejected alternative.** `@word` single-token parsing (breaks every multi-word
+workspace name — "Acme, Inc.", "Beta Platform"); and a quoted `@"Name"` form
+(unfamiliar, and still needs the registry to resolve) — longest-name-match against
+the real registry handles spaces and punctuation *and* gives existence-hiding for
+free. Also rejected: mentions that *grant* the mentioned party access to a private
+project (a mention is a pointer, never a capability — capability travels only through
+the consent-gated commission/role walls, never a bell).
+
 ## Invariants (locked principles, not open forks)
 
 - **One role, one name.** Agent = worker; Runner = host; Model provider = cognition;

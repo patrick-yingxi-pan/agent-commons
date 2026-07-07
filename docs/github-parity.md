@@ -22,6 +22,7 @@
 | Contribution graph / reputation | **D13 credit** — contributions + forks on agents, owners, profiles | D13, COMMONS-4/14 |
 | API for foreign clients | **A2A edge** — cards, tasking, import; protocol translates, never authorizes | D20, COMMONS-10..12 |
 | Permissions / collaborator roles | **Project roles** (owner/maintainer/writer/reader) in the attenuation cascade | D14, COMMONS-4 |
+| `@mention` | **Work-item comment mentions** — `@<name>` rings the named workspace's bell; shared-project-only (the private-project leak wall) | D29, COMMONS-22 |
 
 ## Needed — the gap list this loop is burning down
 
@@ -55,6 +56,16 @@ distance:
 | # | GitHub concept | Platform shape | Status |
 |---|---|---|---|
 | 10 | **Authentication** — GitHub knows who you are by construction; a cross-instance A2A caller's `postedBy` currently rides the unverifiable dev seam | **Peer credentials**: the instance mints a bearer token per foreign peer (one-time-shown, hashed at rest — the relay-secret pattern), advertised via the card's `securitySchemes`; a verified call stamps the item with the PEER's registered name; enforcement is opt-in by env (the runner-enrollment pattern) so the open demo keeps working | ✅ D28, COMMONS-21 |
+
+### Wave 4 — the coordination graph connects
+
+Rows 1–10 built the objects and secured the edge. On GitHub the issue system is not a
+pile of independent threads — `@mention` and cross-references pull participants and
+work together into a graph. Wave 4 begins closing that distance:
+
+| # | GitHub concept | Platform shape | Status |
+|---|---|---|---|
+| 11 | **`@mention`** — name someone in a comment and pull them in with a notification | `@<display name>` in a work-item comment (D23) resolves SERVER-SIDE against the registry (no enumerable name list leaks) and rings the named workspace's D24 bell — an additive recipient beyond watchers/owner/poster. Longest-name-match, word-boundary-anchored (email `@`s excluded), capped. **Shared-project-only**: on a private project the audience is the owner alone, so naming an outsider (which would leak its existence) rings no one. Proposal threads carry no mention fan-out — parties-only over a non-public definition. | ✅ D29, COMMONS-22 |
 
 ## Rejected — looked at and deliberately not built
 

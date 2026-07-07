@@ -19,6 +19,10 @@ export type NotificationKind =
   | 'proposal.declined'
   // D27 — a comment on the proposal thread rings the OTHER party.
   | 'proposal.commented'
+  // D29 — a work-item comment named you with `@<display name>`. Minted only on a
+  // SHARED project (naming an outsider on a private one would leak its existence);
+  // points at the item, like the other `work.*` kinds.
+  | 'mentioned'
 
 /** One inbox row ("App" prefix: the DOM has a `Notification`). */
 export interface AppNotification {

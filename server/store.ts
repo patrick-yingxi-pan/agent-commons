@@ -205,6 +205,15 @@ let openSubGoalSeq = 0
 // gets a cap, not a forum). Coarse by design; the design log records the trade-off.
 const MAX_WORK_ITEM_COMMENTS = 100
 const MAX_WORK_ITEM_COMMENT_CHARS = 2000
+// D29 — max notification RECIPIENTS one comment's `@mentions` may fan out to (review
+// F1: the cap is on resolved targets, not token matches — a display name borne by K
+// workspaces still can't ring K bells, so a comment can't become an amplifier).
+const MENTION_CAP = 10
+// Longest display name (chars) resolvable as a mention target. Bounds the per-`@`
+// candidate scan so parsing is O(bodyLen) — independent of registry size AND its
+// first-char distribution (review F2: a bucket index still scanned O(bucketSize) when
+// names clustered on one first char). A name longer than this simply isn't mentionable.
+const MENTION_MAX_NAME_LEN = 80
 
 // ── D24 — watching + the per-tenant notification inbox ──────────────────────
 // Watch subscriptions: projectId → the tenant ids watching it. Persisted as
@@ -304,6 +313,63 @@ function workItemAudience(item: StoredOpenSubGoal): Set<string> {
   out.add(ownerTenant)
   if (item.postedByTenant) out.add(item.postedByTenant)
   return out
+}
+
+/** The workspaces a comment names with `@<display name>` (D29), resolved SERVER-SIDE
+ *  against the account registry (the client never receives an enumerable name list —
+ *  a mention can't become an identity oracle). Match rules: the `@` must follow a
+ *  non-word char (so an email local part like `ada@acme` is NOT a mention); the name
+ *  that follows is the LONGEST registered display name whose end lands on a word
+ *  boundary (so `@Beta Platform` binds the two-word name, and `@Ada` won't match
+ *  inside `@Adam`). "Word char" is Unicode-aware (`\p{L}\p{N}_`), matching the client
+ *  highlighter and excluding `x_@Name` / `@Name_x` (review F3). A display name is not
+ *  unique (createWorkspace has no guard), so a match resolves to the tenants bearing
+ *  it — the display name IS the public identity the whole system trusts; case-folded,
+ *  like a handle. The result set is HARD-capped at MENTION_CAP *recipients* — NOT
+ *  token matches — so a name borne by K workspaces can't fan one comment out to K
+ *  bells (review F1): a self-serviceable notification amplifier. Resolution is a
+ *  length-descending HASH lookup (the longest candidate substring that is a registered
+ *  name and ends on a boundary wins), so the work per `@` is O(MENTION_MAX_NAME_LEN²) —
+ *  bounded, independent of registry size AND its first-char distribution (review F2:
+ *  a first-char bucket still scanned O(bucketSize) when names clustered on one char).
+ *  Never widens visibility — the caller decides whether to honour the result (only a
+ *  shared Project does; see commentOnOpenSubGoal). */
+function resolveMentions(body: string): Set<string> {
+  const byName = new Map<string, string[]>() // lower(name) → tenant ids bearing it
+  let maxLen = 0 // longest registered (mentionable) name — bounds the per-`@` scan
+  for (const [tid, t] of accounts.tenants) {
+    const name = t.name
+    if (name.length === 0 || name.length > MENTION_MAX_NAME_LEN) continue
+    const key = name.toLowerCase()
+    const arr = byName.get(key)
+    if (arr) {
+      arr.push(tid) // a duplicate display name — one key, several bearers
+      continue
+    }
+    byName.set(key, [tid])
+    if (name.length > maxLen) maxLen = name.length
+  }
+  const isWord = (ch: string | undefined) => ch !== undefined && /[\p{L}\p{N}_]/u.test(ch)
+  const hits = new Set<string>()
+  for (let i = 0; i < body.length && hits.size < MENTION_CAP; i += 1) {
+    if (body[i] !== '@' || isWord(body[i - 1])) continue
+    // Longest-match by length-descending hash lookup: the longest candidate that is a
+    // registered name AND ends on a word boundary wins. O(maxLen²) per `@`, never O(registry).
+    const upper = Math.min(maxLen, body.length - (i + 1))
+    for (let len = upper; len >= 1; len -= 1) {
+      const end = i + 1 + len
+      if (isWord(body[end])) continue // the name must end at a boundary
+      const ids = byName.get(body.slice(i + 1, end).toLowerCase())
+      if (!ids) continue
+      for (const tid of ids) {
+        hits.add(tid)
+        if (hits.size >= MENTION_CAP) break // the resolved-target hard cap (F1)
+      }
+      i = end - 1 // skip past the matched name
+      break
+    }
+  }
+  return hits
 }
 // Monotonic counters for server-minted session + message ids. The conversation is
 // now server-owned (a sent turn persists; a draft materializes into a real session
@@ -2475,6 +2541,9 @@ export const store = {
       body: body.trim().slice(0, MAX_WORK_ITEM_COMMENT_CHARS),
       at: Date.now(),
     })
+    // NB: no `@mention` fan-out here (unlike commentOnOpenSubGoal, D29). A proposal
+    // thread is parties-only (proposer ↔ owner) over a definition that need not be
+    // public; naming a third party would leak the proposal's existence to a non-party.
     notifyTenants([isOwner ? proposal.proposedByTenant : ownerTenant], tenantId, {
       kind: 'proposal.commented',
       actor: tenantName(tenantId),
@@ -2865,22 +2934,44 @@ export const store = {
     if (!item) return undefined
     const comments = (item.comments ??= [])
     if (comments.length >= MAX_WORK_ITEM_COMMENTS) return 'capped'
+    // Parse mentions from the STORED text (trimmed + sliced) so a mention past the
+    // char cap — not visible in the comment — never notifies.
+    const storedBody = body.trim().slice(0, MAX_WORK_ITEM_COMMENT_CHARS)
     comments.push({
       // Deterministic per-item id: comments are append-only (no delete act), so the
       // running count is stable — no new persisted sequence needed.
       id: `${item.id}-c${comments.length + 1}`,
       // D28: a verified peer's registered name attributes the comment.
       author: verifiedPeer ?? tenantName(tenantId),
-      body: body.trim().slice(0, MAX_WORK_ITEM_COMMENT_CHARS),
+      body: storedBody,
       at: Date.now(),
     })
-    notifyTenants(workItemAudience(item), tenantId, {
+    const project = findProject(projectId)
+    const projectName = project?.name ?? ''
+    // D29 — `@mention` fan-out, but ONLY on a shared Project: its backlog is already
+    // world-visible (D17), so naming any workspace on it leaks nothing; on a private
+    // Project (audience = owner alone) naming an outsider would leak its existence,
+    // so mentions there resolve to no one (the D24 stale-audience wall).
+    const mentioned = project?.shared === true ? resolveMentions(storedBody) : new Set<string>()
+    // A mentioned party gets the more-specific `mentioned` bell, not ALSO a generic
+    // `work.commented` — fan the comment audience MINUS the mention set.
+    const commentAudience = new Set([...workItemAudience(item)].filter((t) => !mentioned.has(t)))
+    notifyTenants(commentAudience, tenantId, {
       kind: 'work.commented',
       actor: verifiedPeer ?? tenantName(tenantId),
       projectId,
-      projectName: findProject(projectId)?.name ?? '',
+      projectName,
       subGoal: item.subGoal,
     })
+    if (mentioned.size > 0) {
+      notifyTenants(mentioned, tenantId, {
+        kind: 'mentioned',
+        actor: verifiedPeer ?? tenantName(tenantId),
+        projectId,
+        projectName,
+        subGoal: item.subGoal,
+      })
+    }
     emit({ type: 'openwork.changed', projectId })
     persist()
     return publicOpenSubGoal(item)

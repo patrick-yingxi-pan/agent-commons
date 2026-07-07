@@ -1610,6 +1610,23 @@ function CoordinationPanel({ project }: { project: Project }) {
   )
 }
 
+/** Render a comment body with `@mention` tokens styled (D29) — PURELY cosmetic: a
+ *  heuristic `@`+word-run cue, never a claim the name resolved (the server never
+ *  confirms a resolution back to the reader, so highlighting can't leak existence).
+ *  Multi-word workspace names highlight only their first token — a signal, not the
+ *  full identity, which is all the client may know without an enumerable name list. */
+function renderCommentBody(body: string): ReactNode[] {
+  return body.split(/(@[\p{L}\p{N}]+)/u).map((part, i) =>
+    /^@[\p{L}\p{N}]+$/u.test(part) ? (
+      <span key={i} className="font-medium text-accent-strong">
+        {part}
+      </span>
+    ) : (
+      <span key={i}>{part}</span>
+    ),
+  )
+}
+
 /** The project's open-work backlog (docs/agent-commons.md, D19) — the issues-tray
  *  analog inside the Coordination panel: posted items awaiting a taker, resolved items
  *  with their credit line, and the post form. Posting dispatches synchronously to the
@@ -1818,7 +1835,7 @@ function WorkItemRow({
               <div key={c.id} className="text-[12px] leading-snug text-ink-soft">
                 <span className="font-medium text-ink">{c.author}</span>
                 <span className="text-ink-faint"> · {relativeTime(c.at)}</span>
-                <div className="whitespace-pre-wrap">{c.body}</div>
+                <div className="whitespace-pre-wrap">{renderCommentBody(c.body)}</div>
               </div>
             ))}
             <div className="flex items-center gap-1.5">
@@ -1826,7 +1843,7 @@ function WorkItemRow({
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && send()}
-                placeholder="Add a comment…"
+                placeholder="Add a comment… @mention to notify"
                 aria-label={`Comment on ${o.subGoal}`}
                 className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
               />
