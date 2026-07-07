@@ -210,6 +210,10 @@ test('D27 — a merged proposal lands on the PROPOSER’s public profile as auth
   assert.ok(authored, 'the proposer’s profile shows the authorship')
   assert.equal(authored.version, 2)
   assert.equal(authored.subGoal, 'make it mine', 'the changelog note rides along')
+  // S9 — the authored line carries the OTHER owner (a ref-link target, a public display
+  // name) + the definition id, so it can be a live door like its posted/resolved siblings.
+  assert.equal(authored.owner, A, 'the definition’s owner rides along for the ref link')
+  assert.equal(authored.agentId, agent.id, 'and the definition id')
 
   // The OWNER's own edits never appear as "authored" on their own profile (noise).
   const ownerProfile = (await call('GET', `/directory/owners/${encodeURIComponent(A)}`, undefined, { 'x-tenant-id': C })).json

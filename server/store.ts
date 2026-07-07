@@ -2661,7 +2661,9 @@ export const store = {
       if (entry.owner === name) continue
       for (const l of entry.changelog) {
         if (l.author !== name) continue
-        activity.push({ kind: 'authored', at: l.at, agentLabel: entry.label, version: l.version, subGoal: l.note })
+        // S9 — carry the OTHER owner (public display name) + the definition id so the
+        // profile's authored line can be a ref link to their profile, like its siblings.
+        activity.push({ kind: 'authored', at: l.at, agentLabel: entry.label, version: l.version, subGoal: l.note, owner: entry.owner, agentId: entry.id })
       }
     }
     if (projects.length === 0 && agents.length === 0 && activity.length === 0) return undefined

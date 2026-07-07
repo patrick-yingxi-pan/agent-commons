@@ -130,6 +130,11 @@ export interface OwnerActivity {
   agentLabel?: string
   /** `authored` only — the version this workspace's merge became. */
   version?: number
+  /** `authored` only — the OTHER owner whose definition this evolved (a public display
+   *  name, so the activity line can be a ref link to their profile, matching the
+   *  posted/resolved project doors); plus the definition's public id. Never a tenant id. */
+  owner?: string
+  agentId?: string
 }
 
 export interface OwnerProfileStats {

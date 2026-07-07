@@ -4728,10 +4728,22 @@ function OwnerProfilePage({
                   className="flex items-baseline gap-2 text-[12px] text-ink-soft"
                 >
                   {a.kind === 'authored' ? (
-                    // D27 — merged-proposal authorship on another owner's definition.
+                    // D27 — merged-proposal authorship on another owner's definition. S9:
+                    // the definition is a ref link to its owner's profile (like the
+                    // posted/resolved project doors) — same role ⇒ same affordance.
                     <span className="min-w-0">
                       Authored <span className="font-medium text-ink">v{a.version}</span> of{' '}
-                      <span className="font-medium text-ink">{a.agentLabel}</span>
+                      {a.owner ? (
+                        <button
+                          onClick={() => rel.navigate('agents', a.owner!)}
+                          className={INLINE_ACTION_CLASS}
+                          title={`Open ${a.owner}’s profile`}
+                        >
+                          {a.agentLabel}
+                        </button>
+                      ) : (
+                        <span className="font-medium text-ink">{a.agentLabel}</span>
+                      )}
                       {a.subGoal ? ` — ${a.subGoal}` : ''}
                     </span>
                   ) : (
