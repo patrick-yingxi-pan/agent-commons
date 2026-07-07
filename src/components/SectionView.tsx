@@ -5205,6 +5205,13 @@ function AuditTab() {
   const entries = useAuditLog().data ?? []
   const agents = useAgents().data ?? []
   const labelFor = (id?: string) => (id ? (agents.find((a) => a.id === id)?.label ?? id) : undefined)
+  // S11 — the sharpest signal is a DENIED outcome (the contract's own thesis: "a denied
+  // proxy is exactly what a watcher wants to see"), yet in a growing ledger it's one red
+  // dot among many. A two-state filter surfaces it directly. (Detective-audit scope: a
+  // header control only — no row restructure, no day-grouping, no taint graph.)
+  const [filter, setFilter] = useState<'all' | 'denied'>('all')
+  const deniedCount = entries.filter((e) => e.outcome === 'denied').length
+  const shown = filter === 'denied' ? entries.filter((e) => e.outcome === 'denied') : entries
   return (
     <div className="space-y-3">
       <p className="text-[12px] leading-relaxed text-ink-soft">
@@ -5216,13 +5223,27 @@ function AuditTab() {
       {entries.length === 0 ? (
         <Empty>No cross-user effects recorded yet.</Empty>
       ) : (
-        <CommonsCard>
-          <div className="divide-y divide-ink/5">
-            {entries.map((e) => (
-              <AuditEntryRow key={e.id} entry={e} actor={labelFor(e.actorAgentId) ?? e.commissionId} />
-            ))}
-          </div>
-        </CommonsCard>
+        <>
+          <SubTabs
+            tabs={[
+              { id: 'all', label: `All (${entries.length})` },
+              { id: 'denied', label: `Denied (${deniedCount})` },
+            ]}
+            active={filter}
+            onChange={setFilter}
+          />
+          {shown.length === 0 ? (
+            <Empty>No denied effects — every recorded effect was allowed.</Empty>
+          ) : (
+            <CommonsCard>
+              <div className="divide-y divide-ink/5">
+                {shown.map((e) => (
+                  <AuditEntryRow key={e.id} entry={e} actor={labelFor(e.actorAgentId) ?? e.commissionId} />
+                ))}
+              </div>
+            </CommonsCard>
+          )}
+        </>
       )}
     </div>
   )

@@ -55,7 +55,7 @@
 | S8 | **Per-commission track record on the standing `ContributorRow`** — "Took N item(s) here · last {time}" (or "Standing · no items taken yet"), from a pure `resolvedByCommission` fold of the project's open work (fetched once per group). Standing commissions only; owner-scoped reveal of already-served `resolvedBy`/`resolvedAt` | Commission / standing dispatch | A capability badge (state word) with none of the acts it produced; the only number is a cross-project total misread as local | Timeline (line) | low | M | ✅ |
 | S9 | **Make the profile's "authored" activity line a ref link** — the evolved definition now links to its (other) owner's profile via `rel.navigate('agents', owner)`, matching the posted/resolved project doors. Zero-cost projection add of `owner`+`agentId` (public-face) to `OwnerActivity` | Workspace profile activity (D21) | A parity break: "authored" was inert text while sibling lines were live doors — same weight, different affordance | **RefLink** | medium | M | ✅ |
 | S10 | **Expand the D13 contribution count into a per-agent resolved-work track record** — `GET /agents/:id/resolved-work` + `useAgentResolvedWork`, rendered as a "Resolved work (N)" list under `CreditLine` (each project a deep link). **The P8 redaction is the load-bearing wall** (server returns ONLY shared-project resolutions; a private-project resolution never leaks) — locked by a dedicated redaction test; existence-hiding 404 + no tenant id also locked | D13 credit / contributions | A number that is a lineage, beside the changelog rendered *as* a timeline — the "agents as verifiable main players" pillar left implicit | Timeline (list) | medium | M | ✅ |
-| S11 | **Audit log: a Denied filter + a navigable actor link** (degrade to text when the actor isn't a resolvable agent) | Audit log (D15) | The sharpest signal (a denied proxy) lost as one red dot in a growing ledger; the actor a dead label | **RefLink** | low | S | ☐ |
+| S11 | **Audit log: a Denied filter** — an All · Denied two-state control (reusing the shared `SubTabs`) + counts, so the sharpest signal (a denied outcome) isn't lost as one red dot in a growing ledger; an empty-Denied state reads "every recorded effect was allowed". **Actor-ref-link reclassified/deferred** (finding below) | Audit log (D15) | The sharpest signal (a denied proxy) lost among fulfilled rows | control (reveal) | low | S | ✅ |
 
 Build order roughly follows rank, but respects primitive dependencies: **S1 establishes
 `FieldDiff`**, which **S2** reuses; a `ChangelogList` (S4) and the `resolvedBy`
@@ -75,6 +75,14 @@ can slot in early as low-risk wins.
   consistency nit, and adding ordering semantics brushes locked decision **D17**
   ("ranking is a policy this prototype doesn't take"). Cheapness isn't a reason to adopt
   a policy the prototype deliberately abstains from.
+- **A navigable actor ref link on the audit row** (the second half of S11) — investigated
+  and deferred. Two findings kill its value: (1) a worker-Agent actor has **no clean nav
+  target** — the `AgentDetailDialog` is directory-only (a non-published agent has no
+  page), so the link would have nowhere honest to go; (2) audit actors are often
+  **users/tenants, not resolvable Agents** (the critic's point), so the link is dead for
+  most rows. Threading nav handlers into `AuditTab` for a coarse, rarely-useful link is
+  disproportionate to a detective-audit surface whose scope is deliberately minimal (no
+  taint graph, no row restructure). The **Denied filter** — the row's real value — shipped.
 
 ## Termination
 
