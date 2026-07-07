@@ -1,0 +1,84 @@
+# Surface audit — the living refinement backlog
+
+> Applies the method in [`surface-from-nature.md`](surface-from-nature.md) across every
+> core entity: a 15-entity fan-out characterized each thing's nature, judged the
+> surface fit, and proposed refinements; a synthesis pass ranked them and an
+> **adversarial critic** challenged each (rejecting gold-plating and tuned-surface
+> rewrites). This is the backlog the redesign loop burns down — one item per iteration,
+> each shipped with the full design → test → self-review → verify → commit rhythm, a row
+> flipping to ✅ only when it lands with a locking test.
+>
+> **The bar** (from the method + the critic): build only a genuine nature↔form mismatch
+> the **backend already supports** (a pure *reveal* of stored fields beats a new
+> feature; never surface invented data — mock-by-design); never gratuitously rewrite a
+> well-tuned surface; compose with the locked decisions (one shared entity page gated on
+> `own`; parallel controls share one primitive; light-theme-only). New **Timeline /
+> Diff / RefLink** forms become **shared primitives** the first time two entities need
+> them.
+
+## Themes (the cross-cutting shapes)
+
+1. **Diff — a change belongs in a diff, not prose.** The proposal's side-by-side field
+   diff (`SectionView.tsx`, `ProposalsReviewDialog`) is already well-tuned. Extract it
+   as the shared **`FieldDiff`** primitive and reuse it verbatim where a change is shown
+   as prose today: the proposer's own "Your proposals" (note-only — they can't see their
+   own change) and the content-bearing relation-consent cards (README / instructions /
+   prompt bodies approved **blind**). *The critic's steer: this is the primitive worth
+   extracting first — concrete and immediately reused — not a speculative universal
+   Timeline.*
+2. **Timeline — a lifecycle wants an interleaved event-list.** Several entities (the
+   proposal's terminal state, the work-item transitions, the changelog, the commission
+   track record) share the shape of "typed events in time." Introduce a **`Timeline`**
+   primitive *only when a second consumer genuinely needs it* — start by revealing the
+   terminal lifecycle events inline; don't reshape a tuned thread speculatively.
+3. **RefLink — a relation is a navigable link, not a dead label.** Bylines and lineage
+   refs (work-item poster, per-turn author, fork/import source, the profile's "authored"
+   line, the audit actor) should route through the one existing profile door
+   (`openOwner` / `rel.navigate('agents', owner)` / `a2aAgentCardUrl`), not inert text.
+4. **Reveal what's already stamped.** The safest, highest-yield shape is surfacing
+   fields the backend already carries (`o.note`, `postedAt`/`resolvedAt`/`retractedAt`,
+   `agent.changelog[]`, per-turn `agentId`, `artifact.meta`, `forkedFrom.version`,
+   `importedFrom.url`) — several fix a *drift* where the same entity shows richer info on
+   a lesser surface than on its canonical one.
+
+## Backlog (ranked, critic-vetted)
+
+| # | Item | Entity | Nature→form mismatch | Primitive | Impact | Effort | Status |
+|---|---|---|---|---|---|---|---|
+| S1 | **Unify the change-proposal onto one diff+lifecycle surface** — give the proposer's "Your proposals" the current-vs-proposed **diff** (they can't see their own change today); render `resolvedAt` + `responseNote` on the terminal state (rendered nowhere now); gate Merge/Decline on `own`+`open`; preserve the two-party visibility walls | Change proposal (D25, the PR analog) | A PR (change + open→merged/declined lifecycle + negotiation) split into two divergent renderings, proposer can't see the diff — breaches "one shared entity page, gate on `own`" | **Diff** (extract `FieldDiff`) | high | M | ☐ |
+| S2 | **Content-bearing consent cards show the body (+ old→new diff)** — for the ~5 content ops (set-project-readme/instructions, create-prompt/project/agent) add a default-collapsed disclosure (reuse `foldHeader`) revealing the proposed body; for readme/instructions a minimal old→new diff | Relation consent card | A change shown as prose — you approve replacing a public README / private instructions / a prompt body **without seeing the text** | **Diff** + foldHeader | high | M | ☐ |
+| S3 | **Reveal the work item's note + lifecycle timestamps** in `WorkItemRow` — show `o.note` when non-empty; append `relativeTime` to the status line for posted/done/retracted | Work item (OpenSubGoal, the issue analog) | A lifecycle (3 stamped transitions) collapsed to a status word with no *when*, and the taker-help prose (`note`) never rendered | Timeline (inline) | medium | S | ☐ |
+| S4 | **Surface the changelog on the owner's `AgentCard`** (a `History (N)` reveal), not only to visitors — extract a shared `ChangelogList` | Agent definition + version history | A version badge is a number where a 5-entry authorship lineage lives; shown to *visitors* but not the owner who authored every version | Timeline (list) | medium | S | ☐ |
+| S5 | **Per-turn author byline when a non-default agent drove the turn** — resolve `message.agentId` via `useAgents()`; default stays "Claude" so ordinary threads are unchanged | Session / conversation thread | `agentId`/`providerId` stamped per turn for D16 hand-off traceability, yet the byline is a hardcoded constant | **RefLink** | low | S | ☐ |
+| S6 | **Show `artifact.meta` in the full viewer + gallery card** (guard against "Document · Document") | Artifact | The canonical viewer is *less* specific than the humble side panel — a form-follows-function drift | none (reveal) | medium | S | ☐ |
+| S7 | **Reveal fork version + make the import URL a real link** — "Forked from X · v{version}"; `<a href={importedFrom.url}>` | Fork / import lineage | A cross-instance provenance relation shown as a dead label; the pinned version (the "am I behind?" baseline) dropped | **RefLink** | low | S | ☐ |
+| S8 | **Per-commission track record on the standing `ContributorRow`** — "Took N here · last {time}" from `resolvedBy` data (disambiguates the cross-project Award total that misreads as local) | Commission / standing dispatch | A capability badge (state word) with none of the acts it produced; the only number is a cross-project total misread as local | Timeline (line) | low | M | ☐ |
+| S9 | **Make the profile's "authored" activity line a ref link** like its posted/resolved siblings (link to the *other* owner's profile) — add `agentId`+`owner` to the `OwnerActivity` projection | Workspace profile activity (D21) | A parity break: "authored" is inert text while sibling lines are live doors — same weight, different affordance | **RefLink** | medium | M | ☐ |
+| S10 | **Expand the D13 contribution count into a per-agent resolved-work track record** under `CreditLine` — new server method gated on the P8 public-face redaction (only shared-project items) | D13 credit / contributions | A number that is a lineage, beside the changelog rendered *as* a timeline — the "agents as verifiable main players" pillar left implicit | Timeline (list) | medium | M | ☐ |
+| S11 | **Audit log: a Denied filter + a navigable actor link** (degrade to text when the actor isn't a resolvable agent) | Audit log (D15) | The sharpest signal (a denied proxy) lost as one red dot in a growing ledger; the actor a dead label | **RefLink** | low | S | ☐ |
+
+Build order roughly follows rank, but respects primitive dependencies: **S1 establishes
+`FieldDiff`**, which **S2** reuses; a `ChangelogList` (S4) and the `resolvedBy`
+track-record rendering (S8, S10) are shared where they recur. Pure reveals (S3, S6, S7)
+can slot in early as low-risk wins.
+
+## Rejected (investigated, deliberately not built)
+
+- **A chronological "Activity" feed on the Project page** (was rank 8) — the critic's
+  strongest gold-plating call: the project page is *genuinely well-tuned*, and once S3
+  lands each work item carries its own lifecycle where it belongs, so a cross-item feed
+  corrects no wrong *form* — it just re-presents the same items re-sorted. Adds a
+  surface; "reuses a primitive" is not a reason to build one that isn't needed. Trips
+  "don't gratuitously rewrite a well-tuned surface."
+- **A deterministic sort for the Discover directory** (was rank 13) — not a nature↔form
+  mismatch (the searchable card-index form already fits); a missing sort is a
+  consistency nit, and adding ordering semantics brushes locked decision **D17**
+  ("ranking is a policy this prototype doesn't take"). Cheapness isn't a reason to adopt
+  a policy the prototype deliberately abstains from.
+
+## Termination
+
+The loop stops when every kept row (S1–S11) is ✅ **or** honestly reclassified (built /
+rejected-with-finding), and a fresh pass over the method surfaces no new genuine
+nature↔form mismatch that clears the bar. Re-open by adding a row with a concrete,
+backend-supported mismatch.
