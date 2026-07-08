@@ -248,11 +248,16 @@ the mock?
   chrome + the stay-inside-the-viewport containment, applied by
   `src/lib/usePopoverShift.ts` / `clampLeft`) and `src/lib/copyButton.ts` +
   `src/components/CopyButton.tsx` (every copy-to-clipboard button — the rendezvous-secret
-  reveal and the A2A-card viewer alike, label swapping to "Copied" then self-resetting);
+  reveal and the A2A-card viewer alike, label swapping to "Copied" then self-resetting)
+  and `src/lib/spinner.ts` + `src/components/Spinner.tsx` (every loading spinner — its
+  spin gated behind `motion-safe:` so it respects `prefers-reduced-motion`, WCAG 2.3.3;
+  the lock forbids ANY bare `animate-{spin,pulse,ping,bounce}` so no infinite animation
+  ships ungated — which also keeps a headless screenshot from chasing an animation that
+  never settles);
   each shared cue is locked by a test
   that fails if a component re-hardcodes it (`tests/addTrigger.test.ts`,
   `tests/foldHeader.test.ts`, `tests/scrim.test.ts`, `tests/popover.test.ts`,
-  `tests/copy-button.test.ts`).
+  `tests/copy-button.test.ts`, `tests/spinner.test.ts`).
   The same rule governs
   shared *behaviour*, not just styling: every popover / dropdown / menu dismisses on
   outside-click + Escape through one hook, `src/lib/useDismissable.ts` (locked by

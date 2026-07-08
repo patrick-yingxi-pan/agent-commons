@@ -26,7 +26,7 @@ export function CompactionAffordance({ onCompact }: { onCompact: () => Promise<v
         aria-label="Compact conversation to free up context"
         className="inline-flex items-center gap-1.5 rounded-full border border-line bg-panel-2/40 px-3 py-1 text-[12px] text-ink-soft transition hover:bg-panel-2 disabled:opacity-70"
       >
-        <Sparkles size={13} className={`text-accent ${busy ? 'animate-pulse' : ''}`} />
+        <Sparkles size={13} className={`text-accent ${busy ? 'motion-safe:animate-pulse' : ''}`} />
         {busy ? 'Compacting our conversation so we can keep chatting…' : 'Compact conversation to free up context'}
       </button>
     </div>

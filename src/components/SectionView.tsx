@@ -29,7 +29,6 @@ import {
   Globe,
   History,
   KeyRound,
-  Loader2,
   Lock,
   Mail,
   MessageSquare,
@@ -80,6 +79,7 @@ import { bylineLabel, profileTitle, PROFILE_TAGLINE } from '../lib/publicFace'
 import { Byline, CreditLine, OwnerLink } from './PublicFace'
 import { TextDiff } from './TextDiff'
 import { CopyButton } from './CopyButton'
+import { Spinner } from './Spinner'
 import { resolveBackLabel, type NavLocation } from '../lib/nav'
 import { usePendingFocus, useFocusFlash } from '../lib/focusContext'
 import { relativeTime } from '../lib/relativeTime'
@@ -982,7 +982,7 @@ function ProjectScheduleRow({
             aria-label={`Run ${task.name} now`}
             className={`flex h-6 w-6 items-center justify-center rounded-md text-ink-faint hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${HOVER_REVEAL}`}
           >
-            {running ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+            {running ? <Spinner size={13} /> : <Play size={13} />}
           </button>
         </Tooltip>
         <RowMenu ariaLabel={`Actions for ${task.name}`} items={menu} />
@@ -4296,7 +4296,7 @@ function A2aCardDialog({
 
           {state === 'loading' && (
             <div className="flex items-center gap-2 py-6 text-[13px] text-ink-faint">
-              <Loader2 size={15} className="animate-spin" /> Loading the card…
+              <Spinner size={15} /> Loading the card…
             </div>
           )}
 
@@ -5922,7 +5922,7 @@ function ScheduledRow({
               aria-label={`Run ${task.name} now`}
               className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink"
             >
-              {running ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+              {running ? <Spinner size={14} /> : <Play size={14} />}
             </button>
           </Tooltip>
           <button
@@ -6153,7 +6153,7 @@ function ScheduledDetail({
             disabled={running}
             className="flex items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas shadow-sm transition hover:opacity-90 disabled:opacity-60"
           >
-            {running ? <Loader2 size={15} className="animate-spin" /> : <Play size={15} />}
+            {running ? <Spinner size={15} /> : <Play size={15} />}
             {running ? 'Running…' : 'Run now'}
           </button>
           <button
@@ -6314,7 +6314,7 @@ function RailRow({
     ) : !delivery && state === 'fail' ? (
       <AlertCircle size={14} />
     ) : !delivery && state === 'running' ? (
-      <Loader2 size={13} className="animate-spin" />
+      <Spinner size={13} />
     ) : (
       marker
     )
@@ -6585,7 +6585,7 @@ function StepToolPicker({
 }
 
 function RunStatusIcon({ status }: { status: ScheduledRun['status'] }) {
-  if (status === 'running') return <Loader2 size={16} className="mt-0.5 shrink-0 animate-spin text-accent" />
+  if (status === 'running') return <Spinner size={16} className="mt-0.5 shrink-0 text-accent" />
   if (status === 'failed') return <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-500" />
   if (status === 'skipped') return <MinusCircle size={16} className="mt-0.5 shrink-0 text-ink-faint" />
   return <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-emerald-500" />
@@ -7522,7 +7522,7 @@ function Empty({ children }: { children: ReactNode }) {
 
 function DispatchStatus({ status }: { status: DispatchRun['status'] }) {
   if (status === 'running')
-    return <Loader2 size={17} className="mt-0.5 shrink-0 animate-spin text-accent" />
+    return <Spinner size={17} className="mt-0.5 shrink-0 text-accent" />
   if (status === 'failed') return <AlertCircle size={17} className="mt-0.5 shrink-0 text-red-500" />
   return <CheckCircle2 size={17} className="mt-0.5 shrink-0 text-emerald-500" />
 }

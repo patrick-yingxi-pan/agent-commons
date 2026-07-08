@@ -32,7 +32,7 @@ export function AudioInputControl() {
           recording ? 'bg-red-50 text-red-600' : 'text-ink-soft hover:bg-panel-2 hover:text-ink'
         }`}
       >
-        <Mic size={16} className={recording ? 'animate-pulse' : ''} />
+        <Mic size={16} className={recording ? 'motion-safe:animate-pulse' : ''} />
       </button>
       <button
         onClick={() => setOpen((o) => !o)}
