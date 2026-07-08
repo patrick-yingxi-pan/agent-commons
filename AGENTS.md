@@ -246,9 +246,13 @@ the mock?
   header) and `src/lib/scrim.ts` (every dimmed overlay backdrop — the tier scrims and
   the dialog scrims alike) and `src/lib/popover.ts` (every anchored popover surface —
   chrome + the stay-inside-the-viewport containment, applied by
-  `src/lib/usePopoverShift.ts` / `clampLeft`); each shared cue is locked by a test
+  `src/lib/usePopoverShift.ts` / `clampLeft`) and `src/lib/copyButton.ts` +
+  `src/components/CopyButton.tsx` (every copy-to-clipboard button — the rendezvous-secret
+  reveal and the A2A-card viewer alike, label swapping to "Copied" then self-resetting);
+  each shared cue is locked by a test
   that fails if a component re-hardcodes it (`tests/addTrigger.test.ts`,
-  `tests/foldHeader.test.ts`, `tests/scrim.test.ts`, `tests/popover.test.ts`).
+  `tests/foldHeader.test.ts`, `tests/scrim.test.ts`, `tests/popover.test.ts`,
+  `tests/copy-button.test.ts`).
   The same rule governs
   shared *behaviour*, not just styling: every popover / dropdown / menu dismisses on
   outside-click + Escape through one hook, `src/lib/useDismissable.ts` (locked by

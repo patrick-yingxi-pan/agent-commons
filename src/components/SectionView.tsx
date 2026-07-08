@@ -17,6 +17,7 @@ import {
   Clock,
   Copy,
   Cpu,
+  ExternalLink,
   FileText,
   Folder,
   FolderGit2,
@@ -43,6 +44,7 @@ import {
   Search,
   SendHorizontal,
   Server,
+  Share2,
   Sparkles,
   SquareKanban,
   Trash2,
@@ -77,6 +79,7 @@ import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { bylineLabel, profileTitle, PROFILE_TAGLINE } from '../lib/publicFace'
 import { Byline, CreditLine, OwnerLink } from './PublicFace'
 import { TextDiff } from './TextDiff'
+import { CopyButton } from './CopyButton'
 import { resolveBackLabel, type NavLocation } from '../lib/nav'
 import { usePendingFocus, useFocusFlash } from '../lib/focusContext'
 import { relativeTime } from '../lib/relativeTime'
@@ -165,6 +168,7 @@ import {
   PROJECT_ROLES,
   PROJECT_EFFECT_TYPES,
   AUDIT_CHANNEL_LABEL,
+  type A2aAgentCard,
   type Agent,
   type AgentChangeProposal,
   type AgentChangelogEntry,
@@ -3308,6 +3312,10 @@ function AgentCard({
   // published-only, but the changelog persists after an unpublish.
   const changelog = agent.changelog ?? []
   const [showHistory, setShowHistory] = useState(false)
+  // The A2A-card viewer, driven by WHICH card was asked for — this definition's own
+  // published card and (if present) its imported-from lineage card are distinct URLs
+  // that can both exist on one agent, so a single boolean would be ambiguous.
+  const [cardModal, setCardModal] = useState<{ url: string; title: string } | null>(null)
   // Notification door (R5): a proposal.* bell whose recipient OWNS this agent opens
   // the review dialog ON its proposal. Consumed once.
   const { pending, consume } = usePendingFocus()
@@ -3382,15 +3390,15 @@ function AgentCard({
           {/* S7 — a cross-instance provenance relation is a ref link, not a dead label
               with the URL buried in a hover title: the source card is one click away. */}
           <Globe size={12} /> Imported from{' '}
-          <a
-            href={agent.importedFrom.url}
-            target="_blank"
-            rel="noreferrer"
+          <button
+            onClick={() =>
+              setCardModal({ url: agent.importedFrom!.url, title: `Imported card — ${agent.importedFrom!.name}` })
+            }
             title={agent.importedFrom.url}
             className="underline decoration-dotted underline-offset-2 transition hover:text-ink"
           >
             {agent.importedFrom.name}
-          </a>{' '}
+          </button>{' '}
           (A2A card)
         </p>
       )}
@@ -3414,15 +3422,13 @@ function AgentCard({
           {agent.published ? 'Unpublish' : 'Publish to directory'}
         </button>
         {agent.published && (
-          <a
-            href={a2aAgentCardUrl(agent.id)}
-            target="_blank"
-            rel="noreferrer"
+          <button
+            onClick={() => setCardModal({ url: a2aAgentCardUrl(agent.id), title: `A2A card — ${agent.label}` })}
             className={INLINE_ACTION_CLASS}
             title="The machine-readable A2A Agent Card for this published definition (D20) — hand this URL to a foreign agent framework"
           >
             A2A card
-          </a>
+          </button>
         )}
         {(agent.forks ?? 0) > 0 && (
           <span className="inline-flex items-center gap-1 text-[11px] text-ink-faint">
@@ -3459,6 +3465,9 @@ function AgentCard({
         </div>
       )}
       {error && <p className="mt-2 text-[12px] text-removed">{error}</p>}
+      {cardModal && (
+        <A2aCardDialog url={cardModal.url} title={cardModal.title} onClose={() => setCardModal(null)} />
+      )}
       {reviewing && (
         <ProposalsReviewDialog
           agent={agent}
@@ -4076,7 +4085,6 @@ function ProviderCard({ provider, onEdit }: { provider: ModelProvider; onEdit: (
  *  reveal, not a form (no Cancel — there is nothing to cancel back to). */
 function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvider; secret: string; onClose: () => void }) {
   const [saved, setSaved] = useState(false)
-  const [copied, setCopied] = useState<string | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const guardedClose = () => saved && onClose()
   useFocusTrap(dialogRef, guardedClose)
@@ -4099,10 +4107,6 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
   // recipe, this string exactly) by tests/connector-serve.test.ts.
   const installCommand = `curl -fsSL ${connectorUrl} -o ~/session-relay.mjs.tmp && mv ~/session-relay.mjs.tmp ~/session-relay.mjs && (claude mcp remove -s local session-relay >/dev/null 2>&1; claude mcp add -s local session-relay -- node ~/session-relay.mjs)`
   const connectSentence = `Connect to ${relayUrl} with secret ${secret} and start draining.`
-  const copy = (text: string) => {
-    void navigator.clipboard?.writeText(text)
-    setCopied(text)
-  }
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-center px-4 pt-[14dvh]" onMouseDown={guardedClose} role="dialog" aria-modal="true" aria-label="Rendezvous secret">
       <div className={`${SCRIM_CLASS} backdrop-blur-[1px]`} />
@@ -4123,12 +4127,7 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
           </p>
           <div className="flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2">
             <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-[12px] text-ink">{secret}</code>
-            <button
-              onClick={() => copy(secret)}
-              className="shrink-0 rounded-md border border-line px-2 py-1 text-[11px] font-medium text-ink-soft transition hover:border-accent hover:text-ink"
-            >
-              {copied === secret ? 'Copied' : 'Copy'}
-            </button>
+            <CopyButton text={secret} ariaLabel="Copy rendezvous secret" />
           </div>
           <div>
             <p className="mb-1 text-[12px] font-medium text-ink-soft">
@@ -4140,24 +4139,14 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
             </p>
             <div className="flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2">
               <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-[12px] text-ink">{installCommand}</code>
-              <button
-                onClick={() => copy(installCommand)}
-                className="shrink-0 rounded-md border border-line px-2 py-1 text-[11px] font-medium text-ink-soft transition hover:border-accent hover:text-ink"
-              >
-                {copied === installCommand ? 'Copied' : 'Copy'}
-              </button>
+              <CopyButton text={installCommand} ariaLabel="Copy install command" />
             </div>
           </div>
           <div>
             <p className="mb-1 text-[12px] font-medium text-ink-soft">Then type this into a fresh session that will do the thinking:</p>
             <div className="flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2">
               <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-[12px] text-ink">{connectSentence}</code>
-              <button
-                onClick={() => copy(connectSentence)}
-                className="shrink-0 rounded-md border border-line px-2 py-1 text-[11px] font-medium text-ink-soft transition hover:border-accent hover:text-ink"
-              >
-                {copied === connectSentence ? 'Copied' : 'Copy'}
-              </button>
+              <CopyButton text={connectSentence} ariaLabel="Copy connect sentence" />
             </div>
             <p className="mt-1.5 text-[12px] text-ink-faint">
               The first credentials the connector hears bind it for good — later attempts to redirect it are refused.
@@ -4177,6 +4166,253 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
             onClick={onClose}
             disabled={!saved}
             className="rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+/** ── The A2A Agent Card viewer (D20) ─────────────────────────────────────────
+ *  A published Agent's (or an imported peer's) machine-readable front door,
+ *  *presented* — not dumped. Clicking "A2A card" used to navigate the browser to the
+ *  raw JSON endpoint; this fetches the card and lays it out instead: the endpoint URL
+ *  (the artifact you hand a foreign agent framework) with Copy front-and-centre, a
+ *  legible summary (identity · protocol · capabilities · skills · auth), and the raw
+ *  JSON with its own Copy plus an "Open raw" escape hatch. It is a read-only viewer
+ *  with copy affordances, so it mirrors RelaySecretPanel's shell — not the FormDialog
+ *  form shell. The fetch is client-side: a same-origin card loads; a foreign
+ *  `importedFrom` card that blocks cross-origin reads degrades honestly to the URL +
+ *  Copy + Open-raw (never the surprise raw tab the old link produced). */
+const CARD_FACT_CLASS = 'rounded-md bg-panel-2 px-1.5 py-0.5 text-[11px] text-ink-soft'
+const CARD_LABEL_CLASS = 'mb-1 text-[11px] font-medium uppercase tracking-wide text-ink-faint'
+
+/** A boolean capability as a labelled ✓/✗ — present even when off, because "no
+ *  streaming" is information a foreign framework acts on, not a nothing to omit. */
+function CapabilityFact({ label, on }: { label: string; on: boolean }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      {on ? (
+        <Check size={12} className="text-emerald-600" />
+      ) : (
+        <MinusCircle size={12} className="text-ink-faint" />
+      )}
+      <span className={on ? 'text-ink' : 'text-ink-faint'}>{label}</span>
+    </span>
+  )
+}
+
+function A2aCardDialog({
+  url,
+  title = 'A2A Agent Card',
+  onClose,
+}: {
+  /** The absolute card endpoint (ours: a2aAgentCardUrl(id); a peer's: importedFrom.url). */
+  url: string
+  title?: string
+  onClose: () => void
+}) {
+  const [card, setCard] = useState<A2aAgentCard | null>(null)
+  const [state, setState] = useState<'loading' | 'loaded' | 'error'>('loading')
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useFocusTrap(dialogRef, onClose)
+
+  useEffect(() => {
+    let live = true
+    setState('loading')
+    setCard(null)
+    fetch(url, { headers: { accept: 'application/json' } })
+      .then((r) => (r.ok ? (r.json() as Promise<unknown>) : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((data) => {
+        if (!live) return
+        // The card may come from an untrusted foreign instance — a non-object, an
+        // array, or a shape missing fields is possible. Accept only a plain object;
+        // every field is then guarded at render (render what's present, tolerate the rest).
+        if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('not a card')
+        setCard(data as A2aAgentCard)
+        setState('loaded')
+      })
+      .catch(() => {
+        if (live) setState('error')
+      })
+    return () => {
+      live = false
+    }
+  }, [url])
+
+  const rawJson = card ? JSON.stringify(card, null, 2) : ''
+  const skills = Array.isArray(card?.skills) ? card!.skills : []
+  const schemes =
+    card?.securitySchemes && typeof card.securitySchemes === 'object' ? Object.entries(card.securitySchemes) : []
+  const modes = card
+    ? [
+        ...(Array.isArray(card.defaultInputModes) ? card.defaultInputModes : []).map((m) => `in: ${m}`),
+        ...(Array.isArray(card.defaultOutputModes) ? card.defaultOutputModes : []).map((m) => `out: ${m}`),
+      ]
+    : []
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex justify-center px-4 pt-[10dvh]"
+      onMouseDown={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
+      <div className={`${SCRIM_CLASS} backdrop-blur-[1px]`} />
+      <div
+        ref={dialogRef}
+        onMouseDown={(e) => e.stopPropagation()}
+        className="relative flex max-h-[80dvh] w-[560px] max-w-full flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong"
+      >
+        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+          <div className="flex items-center gap-2">
+            <Share2 size={18} className="text-ink-soft" />
+            <span className="text-[15px] font-semibold text-ink">{title}</span>
+          </div>
+          <button
+            onClick={onClose}
+            title="Close"
+            aria-label="Close"
+            className="-mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5" aria-live="polite">
+          {/* The endpoint URL is the point of the whole surface — the string you hand a
+              foreign framework — so it leads, with Copy as the primary action. */}
+          <div>
+            <p className={CARD_LABEL_CLASS}>Card URL — hand this to a foreign agent framework</p>
+            <div className="flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2">
+              <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-[12px] text-ink">{url}</code>
+              <CopyButton text={url} label="Copy" ariaLabel="Copy card URL" />
+            </div>
+          </div>
+
+          {state === 'loading' && (
+            <div className="flex items-center gap-2 py-6 text-[13px] text-ink-faint">
+              <Loader2 size={15} className="animate-spin" /> Loading the card…
+            </div>
+          )}
+
+          {state === 'error' && (
+            <div className="rounded-lg border border-line bg-panel-2 px-3 py-2.5 text-[12px] leading-relaxed text-ink-soft">
+              Couldn’t read the card from here — a foreign instance may be unreachable or block cross-origin
+              reads. Copy the URL above to hand it on, or{' '}
+              <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 font-medium text-accent hover:underline">
+                open it raw <ExternalLink size={11} />
+              </a>
+              .
+            </div>
+          )}
+
+          {state === 'loaded' && card && (
+            <>
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                  <span className="text-[15px] font-semibold text-ink">{card.name}</span>
+                  {card.version && <span className="text-[12px] text-ink-faint">v{card.version}</span>}
+                </div>
+                {card.provider?.organization && <p className="text-[12px] text-ink-faint">by {card.provider.organization}</p>}
+                {card.description && <p className="text-[12px] leading-relaxed text-ink-soft">{card.description}</p>}
+              </div>
+
+              <div className="flex flex-wrap gap-1.5">
+                {card.protocolVersion && <span className={CARD_FACT_CLASS}>A2A {card.protocolVersion}</span>}
+                {card.preferredTransport && <span className={CARD_FACT_CLASS}>{card.preferredTransport}</span>}
+                {modes.map((m) => (
+                  <span key={m} className={CARD_FACT_CLASS}>
+                    {m}
+                  </span>
+                ))}
+              </div>
+
+              {/* Capabilities shown explicitly (✓/✗), not silently omitted when false —
+                  "no streaming" is a fact a foreign framework needs, not an absence. */}
+              {card.capabilities && (
+                <div>
+                  <p className={CARD_LABEL_CLASS}>Capabilities</p>
+                  <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[12px] text-ink-soft">
+                    <CapabilityFact label="Streaming" on={card.capabilities.streaming === true} />
+                    <CapabilityFact label="Push notifications" on={card.capabilities.pushNotifications === true} />
+                  </div>
+                </div>
+              )}
+
+              {skills.length > 0 && (
+                <div>
+                  <p className={CARD_LABEL_CLASS}>Skills ({skills.length})</p>
+                  <ul className="space-y-1.5">
+                    {skills.map((s) => (
+                      <li key={s.id} className="rounded-lg border border-line bg-panel-2 px-2.5 py-1.5">
+                        <div className="text-[12px] font-medium text-ink">{s.name || s.id}</div>
+                        {s.description && <div className="text-[11px] leading-snug text-ink-soft">{s.description}</div>}
+                        {Array.isArray(s.tags) && s.tags.length > 0 && (
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {s.tags.map((t) => (
+                              <span key={t} className="rounded bg-panel px-1 py-px text-[10px] text-ink-faint">
+                                {t}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div>
+                <p className={CARD_LABEL_CLASS}>Authentication</p>
+                {schemes.length > 0 ? (
+                  <div className="space-y-0.5">
+                    {schemes.map(([name, s]) => (
+                      <p key={name} className="text-[12px] text-ink-soft">
+                        <span className="font-medium text-ink">{name}</span>
+                        {s && [s.type, s.scheme].filter(Boolean).length > 0
+                          ? ` — ${[s.type, s.scheme].filter(Boolean).join(' ')}`
+                          : ''}
+                        {card.security ? ' · required' : ' · optional'}
+                      </p>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[12px] text-ink-soft">Open — no authentication advertised.</p>
+                )}
+              </div>
+
+              <div>
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <p className={`${CARD_LABEL_CLASS} mb-0`}>Raw card (JSON)</p>
+                  <div className="flex items-center gap-3">
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-[11px] text-ink-faint transition hover:text-ink"
+                    >
+                      <ExternalLink size={11} /> Open raw
+                    </a>
+                    <CopyButton text={rawJson} label="Copy JSON" ariaLabel="Copy raw card JSON" />
+                  </div>
+                </div>
+                <pre className="max-h-52 overflow-auto rounded-lg border border-line bg-panel p-3 font-mono text-[11px] leading-relaxed text-ink-soft">
+                  {rawJson}
+                </pre>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="flex shrink-0 items-center justify-end border-t border-line bg-panel px-5 py-3">
+          <button
+            onClick={onClose}
+            className="rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas shadow-sm transition hover:opacity-90"
           >
             Done
           </button>
@@ -4989,6 +5225,7 @@ function AgentDetailDialog({
   const [error, setError] = useState<string | null>(null)
   // D25: the detail carries the propose-a-change door — one dialog, two modes.
   const [proposing, setProposing] = useState(false)
+  const [showCard, setShowCard] = useState(false)
   const fork = async () => {
     if (busy) return
     setBusy(true)
@@ -5050,20 +5287,25 @@ function AgentDetailDialog({
       )}
       <p className="flex items-center gap-3 text-[11px] text-ink-faint">
         <CreditLine contributions={entry.contributions} forks={entry.forks} />
-        <a
-          href={a2aAgentCardUrl(entry.id)}
-          target="_blank"
-          rel="noreferrer"
+        <button
+          onClick={() => setShowCard(true)}
           className={INLINE_ACTION_CLASS}
           title="This definition as a machine-readable A2A Agent Card (D20) — hand the URL to a foreign agent framework"
         >
           A2A card
-        </a>
+        </button>
         {/* D25 — the fork's inverse: send an improvement BACK to the owner. */}
         <button onClick={() => setProposing(true)} className={INLINE_ACTION_CLASS}>
           Propose a change
         </button>
       </p>
+      {showCard && (
+        <A2aCardDialog
+          url={a2aAgentCardUrl(entry.id)}
+          title={`A2A card — ${entry.label}`}
+          onClose={() => setShowCard(false)}
+        />
+      )}
       {/* S10 — the acts behind the contribution count (P8-redacted to shared projects). */}
       <AgentResolvedWork agentId={entry.id} onClose={onClose} />
       <p className="text-[11px] text-ink-faint">
