@@ -21,6 +21,15 @@ async function openApp(page: Page) {
   await dismissIntro(page, 5_000)
 }
 
+/** Navigate to a section from the rail. Section sub-nav is a drill-in menu (ADAPT-13):
+ *  while inside a section its sibling section rows are hidden behind the sub-menu, so
+ *  pop back to the section list first (a no-op when we're already at the top level). */
+async function gotoSection(page: Page, name: string) {
+  const back = page.getByRole('navigation').getByRole('button', { name: 'Sections', exact: true })
+  if (await back.isVisible().catch(() => false)) await back.click()
+  await page.getByRole('navigation').getByRole('button', { name, exact: true }).click()
+}
+
 async function newUser(browser: Browser, headers?: Record<string, string>) {
   const context = await browser.newContext(headers ? { extraHTTPHeaders: headers } : {})
   const page = await context.newPage()
@@ -34,7 +43,7 @@ test('watch a shared project → the owner acts → the watcher’s bell rings, 
 
   // Owner: create + share.
   await openApp(owner.page)
-  await owner.page.getByRole('navigation').getByRole('button', { name: 'Projects', exact: true }).click()
+  await gotoSection(owner.page, 'Projects')
   await owner.page.getByRole('button', { name: 'New project' }).click()
   await owner.page.getByPlaceholder('e.g. Insights dashboard').fill(PROJECT)
   await owner.page.getByRole('button', { name: 'Create project' }).click()
@@ -44,7 +53,7 @@ test('watch a shared project → the owner acts → the watcher’s bell rings, 
 
   // Watcher: open the shared project page and hit Watch.
   await openApp(watcher.page)
-  await watcher.page.getByRole('navigation').getByRole('button', { name: 'Projects', exact: true }).click()
+  await gotoSection(watcher.page, 'Projects')
   await watcher.page.getByText(PROJECT).first().click()
   const watch = watcher.page.getByRole('button', { name: 'Watch', exact: true })
   await watch.click()
@@ -91,7 +100,7 @@ test('a work.commented bell opens the project ON the item’s thread, auto-expan
 
   // Owner: shared project + one open item (owner is poster ⇒ in the item's audience).
   await openApp(owner.page)
-  await owner.page.getByRole('navigation').getByRole('button', { name: 'Projects', exact: true }).click()
+  await gotoSection(owner.page, 'Projects')
   await owner.page.getByRole('button', { name: 'New project' }).click()
   await owner.page.getByPlaceholder('e.g. Insights dashboard').fill(P)
   await owner.page.getByRole('button', { name: 'Create project' }).click()
@@ -105,7 +114,7 @@ test('a work.commented bell opens the project ON the item’s thread, auto-expan
 
   // Visitor: opens the shared project and comments on the item → the OWNER's bell rings.
   await openApp(visitor.page)
-  await visitor.page.getByRole('navigation').getByRole('button', { name: 'Projects', exact: true }).click()
+  await gotoSection(visitor.page, 'Projects')
   await visitor.page.getByText(P).first().click()
   await expect(visitor.page.getByRole('heading', { name: P })).toBeVisible()
   await visitor.page.getByRole('button', { name: 'Comment', exact: true }).click()
@@ -115,7 +124,7 @@ test('a work.commented bell opens the project ON the item’s thread, auto-expan
 
   // Owner navigates AWAY (to Agents) so the door's navigation + focus is unambiguous —
   // the comment is nowhere on screen until the bell takes us there.
-  await owner.page.getByRole('navigation').getByRole('button', { name: 'Agents', exact: true }).click()
+  await gotoSection(owner.page, 'Agents')
   await expect(owner.page.getByRole('heading', { name: 'Agents' })).toBeVisible()
   await expect(owner.page.getByText(CMT)).toHaveCount(0)
 
@@ -152,7 +161,7 @@ test('a proposal.opened bell opens the review dialog directly ON the proposal (R
 
   // Proposer: Discover → View definition → Propose a change (rings the owner's bell).
   await openApp(proposer.page)
-  await proposer.page.getByRole('navigation').getByRole('button', { name: 'Agents', exact: true }).click()
+  await gotoSection(proposer.page, 'Agents')
   await proposer.page.getByRole('button', { name: 'Discover' }).click()
   await expect(proposer.page.getByText(AGENT).first()).toBeVisible()
   await proposer.page.locator('div').filter({ hasText: AGENT }).getByRole('button', { name: 'View definition' }).last().click()
@@ -197,7 +206,7 @@ test('a proposal.merged bell opens the owner’s profile ON Your-proposals, focu
 
   // Proposer: propose a change against the published definition.
   await openApp(proposer.page)
-  await proposer.page.getByRole('navigation').getByRole('button', { name: 'Agents', exact: true }).click()
+  await gotoSection(proposer.page, 'Agents')
   await proposer.page.getByRole('button', { name: 'Discover' }).click()
   await expect(proposer.page.getByText(AGENT).first()).toBeVisible()
   await proposer.page.locator('div').filter({ hasText: AGENT }).getByRole('button', { name: 'View definition' }).last().click()
@@ -208,7 +217,7 @@ test('a proposal.merged bell opens the owner’s profile ON Your-proposals, focu
 
   // Owner: open the app, review, merge → the proposer's bell rings proposal.merged.
   await openApp(owner.page)
-  await owner.page.getByRole('navigation').getByRole('button', { name: 'Agents', exact: true }).click()
+  await gotoSection(owner.page, 'Agents')
   await owner.page
     .locator('div')
     .filter({ hasText: AGENT })

@@ -62,10 +62,19 @@ async function reloadApp(page: Page) {
   await dismissIntro(page)
 }
 
+/** Navigate to a section from the rail. Section sub-nav is a drill-in menu (ADAPT-13):
+ *  while inside a section its sibling section rows are hidden behind the sub-menu, so
+ *  pop back to the section list first (a no-op when we're already at the top level). */
+async function gotoSection(page: Page, name: string) {
+  const back = page.getByRole('navigation').getByRole('button', { name: 'Sections', exact: true })
+  if (await back.isVisible().catch(() => false)) await back.click()
+  await page.getByRole('navigation').getByRole('button', { name, exact: true }).click()
+}
+
 /** Create a worker agent through the Agents hub dialog. */
 async function createAgent(page: Page, label: string) {
   await dismissIntro(page, 250)
-  await page.getByRole('navigation').getByRole('button', { name: 'Agents', exact: true }).click()
+  await gotoSection(page, 'Agents')
   await page.getByRole('button', { name: 'New agent' }).click()
   await page.getByPlaceholder('e.g. Code reviewer').fill(label)
   await page.getByRole('button', { name: 'Create', exact: true }).click()
@@ -75,7 +84,7 @@ async function createAgent(page: Page, label: string) {
 /** Open a project's detail page from the Projects list. */
 async function openProject(page: Page, name: string) {
   await dismissIntro(page, 250)
-  await page.getByRole('navigation').getByRole('button', { name: 'Projects', exact: true }).click()
+  await gotoSection(page, 'Projects')
   await page.getByText(name).first().click()
   await expect(page.getByRole('heading', { name })).toBeVisible()
 }
@@ -125,7 +134,7 @@ test('two tenants each contribute an agent to co-author an article on one shared
 
   // ── Stage A — Ada founds the shared article project ─────────────────────────────
   await openApp(ada.page)
-  await ada.page.getByRole('navigation').getByRole('button', { name: 'Projects', exact: true }).click()
+  await gotoSection(ada.page, 'Projects')
   await ada.page.getByRole('button', { name: 'New project' }).click()
   await ada.page.getByPlaceholder('e.g. Insights dashboard').fill(PROJECT)
   await ada.page.getByRole('button', { name: 'Create project' }).click()
@@ -144,7 +153,7 @@ test('two tenants each contribute an agent to co-author an article on one shared
   await expect(ada.page.getByText('Google Drive').first()).toBeVisible()
 
   // A PRIVATE control project too — Bo's tenant must never see this one.
-  await ada.page.getByRole('navigation').getByRole('button', { name: 'Projects', exact: true }).click()
+  await gotoSection(ada.page, 'Projects')
   await ada.page.getByRole('button', { name: 'New project' }).click()
   await ada.page.getByPlaceholder('e.g. Insights dashboard').fill(PRIVATE_PROJECT)
   await ada.page.getByRole('button', { name: 'Create project' }).click()
@@ -165,7 +174,7 @@ test('two tenants each contribute an agent to co-author an article on one shared
 
   // ── Stage B — Bo (a DIFFERENT tenant) joins with his own agent ──────────────────
   await openApp(bo.page)
-  await bo.page.getByRole('navigation').getByRole('button', { name: 'Projects', exact: true }).click()
+  await gotoSection(bo.page, 'Projects')
   // The shared project is visible across the tenant boundary; the private one is not.
   await expect(bo.page.getByText(PROJECT).first()).toBeVisible()
   await expect(bo.page.getByText(PRIVATE_PROJECT)).toHaveCount(0)

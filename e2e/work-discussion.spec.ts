@@ -23,9 +23,18 @@ async function openApp(page: Page) {
   await dismissIntro(page, 5_000)
 }
 
+/** Navigate to a section from the rail. Section sub-nav is a drill-in menu (ADAPT-13):
+ *  while inside a section its sibling section rows are hidden behind the sub-menu, so
+ *  pop back to the section list first (a no-op when we're already at the top level). */
+async function gotoSection(page: Page, name: string) {
+  const back = page.getByRole('navigation').getByRole('button', { name: 'Sections', exact: true })
+  if (await back.isVisible().catch(() => false)) await back.click()
+  await page.getByRole('navigation').getByRole('button', { name, exact: true }).click()
+}
+
 async function openProject(page: Page, name: string) {
   await dismissIntro(page, 250)
-  await page.getByRole('navigation').getByRole('button', { name: 'Projects', exact: true }).click()
+  await gotoSection(page, 'Projects')
   await page.getByText(name).first().click()
   await expect(page.getByRole('heading', { name })).toBeVisible()
 }
@@ -43,7 +52,7 @@ test('a work item hosts a cross-tenant discussion; the poster retracts it honest
 
   // Owner: shared project + one open item.
   await openApp(owner.page)
-  await owner.page.getByRole('navigation').getByRole('button', { name: 'Projects', exact: true }).click()
+  await gotoSection(owner.page, 'Projects')
   await owner.page.getByRole('button', { name: 'New project' }).click()
   await owner.page.getByPlaceholder('e.g. Insights dashboard').fill(PROJECT)
   await owner.page.getByRole('button', { name: 'Create project' }).click()
