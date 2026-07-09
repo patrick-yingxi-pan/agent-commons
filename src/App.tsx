@@ -89,6 +89,7 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
   const {
     activeId,
     activeSection,
+    activeSubview,
     focusProjectId,
     focusScheduleId,
     focusOwnerName,
@@ -116,6 +117,7 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
     newSession,
     newSessionWith,
     openSection,
+    openSubview,
     openProject,
     openSchedule,
     openOwner,
@@ -350,9 +352,15 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
                 sessions={sessions}
                 activeId={activeId}
                 activeSection={activeSection}
+                activeSubview={activeSubview}
                 onSelect={withRailClose(selectSession)}
                 onNewSession={withRailClose(() => newSession())}
-                onOpenSection={withRailClose(openSection)}
+                // Section / sub-view handlers stay UNwrapped: the rail decides when to
+                // close the narrow drawer (a leaf navigates → close; drilling into a
+                // section's sub-menu keeps it open), via onLeafNavigate below.
+                onOpenSection={openSection}
+                onOpenSubview={openSubview}
+                onLeafNavigate={railOverlay ? closeLeft : undefined}
                 onOpenSchedule={withRailClose(openSchedule)}
                 onPinSession={pinSession}
                 onRenameSession={renameSession}
@@ -396,6 +404,8 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
               <FocusContext.Provider value={focusCtx}>
                 <SectionView
                   section={activeSection}
+                  subview={activeSubview}
+                  onOpenSubview={openSubview}
                   onOpenSession={selectSession}
                   onNewSession={() => newSession()}
                   onOpenProject={openProject}

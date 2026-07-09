@@ -1,7 +1,8 @@
-import { Fragment, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Archive,
   ArchiveRestore,
+  ChevronLeft,
   ChevronRight,
   FolderInput,
   FolderMinus,
@@ -22,7 +23,7 @@ import { ResizeHandle } from './ResizeHandle'
 import { SessionFilterMenu } from './SessionFilterMenu'
 import { ScheduledFilterMenu } from './ScheduledFilterMenu'
 import { RowMenu, projectMenuItems, type RowMenuItem } from './RowMenu'
-import { SECTION_META, SECTION_ORDER } from '../lib/sections'
+import { SECTION_META, SECTION_ORDER, SECTION_SUBVIEWS } from '../lib/sections'
 import { SIDEBAR_HOVER } from '../lib/sidebar'
 import { removeSchedule, runScheduleNow, toggleScheduleEnabled, useNotifications, useProjects, useSchedules } from '../api'
 import { AccountChip } from './AccountMenu'
@@ -49,9 +50,12 @@ export function Sidebar({
   sessions,
   activeId,
   activeSection,
+  activeSubview,
   onSelect,
   onNewSession,
   onOpenSection,
+  onOpenSubview,
+  onLeafNavigate,
   onOpenSchedule,
   onPinSession,
   onRenameSession,
@@ -68,9 +72,18 @@ export function Sidebar({
   sessions: Session[]
   activeId: string
   activeSection: SectionId | null
+  /** The active section's selected sub-view (lib/subviews) — the drill-in menu's
+   *  highlight. null when the section has no sub-views. */
+  activeSubview: string | null
   onSelect: (id: string) => void
   onNewSession: () => void
   onOpenSection: (s: SectionId) => void
+  /** Switch the active section's sub-view (a rail drill-in row). */
+  onOpenSubview: (id: string) => void
+  /** Dismiss the narrow-tier rail drawer after a *leaf* navigation (a sub-view, or a
+   *  section with no sub-views). Undefined off the narrow tier. Drilling into a
+   *  section's sub-menu deliberately does NOT call this — the menu must stay visible. */
+  onLeafNavigate?: () => void
   /** Open a routine's page in the Scheduled section (the row menu / "no runs" yet). */
   onOpenSchedule: (scheduleId: string) => void
   /** Row-menu session edits (controller-owned: delete navigates away if active). */
@@ -93,6 +106,28 @@ export function Sidebar({
   onResizeEnd: () => void
 }) {
   const inSession = activeSection === null
+  // Rail drill-in (the secondary menu): while a section that has sub-views is active,
+  // the section-row list collapses into that section's sub-view menu (a back chip +
+  // its rows). `drilled` can be popped by the back chip to browse other sections; an
+  // effect re-drills whenever the active section changes (so an external deep-link
+  // into a sub-view section reflects here too). The active section — not `drilled`
+  // alone — decides whether a sub-menu is even possible, so the two can't disagree.
+  const [drilled, setDrilled] = useState<boolean>(() => !!(activeSection && SECTION_SUBVIEWS[activeSection]))
+  useEffect(() => {
+    setDrilled(!!(activeSection && SECTION_SUBVIEWS[activeSection]))
+  }, [activeSection])
+  const drilledSection = drilled && activeSection && SECTION_SUBVIEWS[activeSection] ? activeSection : null
+
+  // Open a section row: drill into its sub-menu if it has sub-views (on the persistent
+  // rail — wide/medium — that IS the navigation). `onLeafNavigate` fires either way, so
+  // on the NARROW tier any section tap dismisses the off-canvas drawer and reveals the
+  // page; reopening the drawer then shows the (still-drilled) sub-menu. Off the narrow
+  // tier onLeafNavigate is undefined — a no-op — so the sub-menu just appears in place.
+  const openSectionRow = (id: SectionId) => {
+    onOpenSection(id)
+    setDrilled(!!SECTION_SUBVIEWS[id])
+    onLeafNavigate?.()
+  }
   // The bell's badge (D24) — live via the tenant-targeted notification.changed event.
   const unreadCount = (useNotifications().data ?? []).filter((r) => !r.read).length
   // The "Scheduled" section folds (persisted) to save rail space.
@@ -223,22 +258,37 @@ export function Sidebar({
         </button>
       </div>
 
-      {/* Nav: a new session plus the cross-cutting tools. */}
+      {/* Nav: "New session" is always pinned; below it the section rows collapse into
+          the active section's sub-view menu when you drill in (the rail's secondary
+          menu — the drill-in/push model). Scheduled + Recents (session furniture) stay
+          below, always. */}
       <nav className="mt-3 px-2">
         <NavRow icon={<Plus size={16} />} label="New session" onClick={onNewSession} />
-        {SECTION_ORDER.map((id) => {
-          const { label, Icon, beta } = SECTION_META[id]
-          return (
-            <NavRow
-              key={id}
-              icon={<Icon size={16} />}
-              label={label}
-              beta={beta}
-              active={activeSection === id}
-              onClick={() => onOpenSection(id)}
-            />
-          )
-        })}
+        {drilledSection ? (
+          <SectionSubmenu
+            section={drilledSection}
+            activeSubview={activeSubview}
+            onBack={() => setDrilled(false)}
+            onOpenSubview={(id) => {
+              onOpenSubview(id)
+              onLeafNavigate?.()
+            }}
+          />
+        ) : (
+          SECTION_ORDER.map((id) => {
+            const { label, Icon, beta } = SECTION_META[id]
+            return (
+              <NavRow
+                key={id}
+                icon={<Icon size={16} />}
+                label={label}
+                beta={beta}
+                active={activeSection === id}
+                onClick={() => openSectionRow(id)}
+              />
+            )
+          })
+        )}
       </nav>
 
       <div className="mt-3 min-h-0 flex-1 overflow-y-auto px-2 pb-3">
@@ -418,6 +468,69 @@ function NavRow({
           Beta
         </span>
       )}
+    </button>
+  )
+}
+
+/** The rail's secondary menu — the active section drilled into: a back chip to the
+ *  full section list, the section's name (where you are), then one row per sub-view.
+ *  Reads the ONE sub-view registry (lib/subviews) the section body reads, so the rail
+ *  and the content can't disagree. */
+function SectionSubmenu({
+  section,
+  activeSubview,
+  onBack,
+  onOpenSubview,
+}: {
+  section: SectionId
+  activeSubview: string | null
+  onBack: () => void
+  onOpenSubview: (id: string) => void
+}) {
+  const { label, Icon } = SECTION_META[section]
+  const subviews = SECTION_SUBVIEWS[section] ?? []
+  return (
+    <div>
+      <button
+        onClick={onBack}
+        className={`flex w-full items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink-soft`}
+      >
+        <ChevronLeft size={14} className="shrink-0" />
+        Sections
+      </button>
+      <div className="mt-1 flex items-center gap-2.5 px-2 py-1.5 text-[13px] font-semibold text-ink">
+        <Icon size={16} className="shrink-0 text-ink-soft" />
+        <span className="min-w-0 truncate">{label}</span>
+      </div>
+      <div className="mt-0.5">
+        {subviews.map((sv) => (
+          <SubNavRow
+            key={sv.id}
+            label={sv.label}
+            active={activeSubview === sv.id}
+            onClick={() => onOpenSubview(sv.id)}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** One sub-view row in the section sub-menu — indented under the section title, with
+ *  a leading dot echoing the Recents rows, so the two-level hierarchy reads clearly. */
+function SubNavRow({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-current={active ? 'page' : undefined}
+      className={`flex w-full items-center gap-2.5 rounded-lg py-1.5 pl-3.5 pr-2 text-[13px] transition ${
+        active ? 'bg-panel-2 font-medium text-ink' : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
+      }`}
+    >
+      <span
+        className={`h-1.5 w-1.5 shrink-0 rounded-full ${active ? 'bg-accent' : 'border border-line-strong bg-transparent'}`}
+      />
+      <span className="min-w-0 flex-1 truncate text-left">{label}</span>
     </button>
   )
 }

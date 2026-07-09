@@ -203,6 +203,8 @@ import { HOVER_REVEAL, HOVER_CUE } from '../lib/hoverReveal'
  *  tools share the generic header + body. */
 export function SectionView({
   section,
+  subview,
+  onOpenSubview,
   onOpenSession,
   onNewSession,
   onOpenProject,
@@ -215,6 +217,12 @@ export function SectionView({
   focusOwnerName = null,
 }: {
   section: SectionId
+  /** The active sub-view (lib/subviews) the rail drilled into — the section body
+   *  renders it. null when the section has no sub-views. */
+  subview: string | null
+  /** Switch sub-view from inside the body (the Agents hub forces its 'agents' tab
+   *  on a notification door). */
+  onOpenSubview: (id: string) => void
   onOpenSession: (id: string) => void
   onNewSession: () => void
   /** Open a project / routine detail through the controller, so every entry is one
@@ -242,6 +250,7 @@ export function SectionView({
     section === 'projects' ? (
       <ProjectsSection
         projectId={focusProjectId}
+        subview={subview ?? 'all'}
         onOpenProject={onOpenProject}
         onBack={onBack}
         backTo={backTo}
@@ -249,14 +258,16 @@ export function SectionView({
         onNewSession={onNewSession}
       />
     ) : section === 'artifacts' ? (
-      <ArtifactsSection onOpenSession={onOpenSession} />
+      <ArtifactsSection subview={subview ?? 'all'} onOpenSession={onOpenSession} />
     ) : section === 'contexts' ? (
-      <ContextsSection />
+      <ContextsSection subview={subview ?? 'all'} />
     ) : section === 'models' ? (
-      <ModelsSection />
+      <ModelsSection subview={subview ?? 'all'} />
     ) : section === 'agents' ? (
       <AgentCommonsSection
         owner={focusOwnerName}
+        subview={subview ?? 'agents'}
+        onOpenSubview={onOpenSubview}
         onOpenProject={onOpenProject}
         onBack={onBack}
         backTo={backTo}
@@ -264,6 +275,7 @@ export function SectionView({
     ) : section === 'scheduled' ? (
       <ScheduledSection
         scheduleId={focusScheduleId}
+        subview={subview ?? 'all'}
         onOpenSchedule={onOpenSchedule}
         onBack={onBack}
         backTo={backTo}
@@ -303,6 +315,7 @@ function BackButton({ to, onBack }: { to: NavLocation | null; onBack: () => void
 
 function ProjectsSection({
   projectId,
+  subview,
   onOpenProject,
   onBack,
   backTo,
@@ -312,6 +325,8 @@ function ProjectsSection({
   /** Which project detail to show (null = the list) — the controlled source of
    *  truth, set by the controller however the detail was reached. */
   projectId: string | null
+  /** The active sub-view (rail drill-in): 'all' (yours + shared) or 'shared'. */
+  subview: string
   onOpenProject: (id: string) => void
   onBack: () => void
   backTo: NavLocation | null
@@ -386,25 +401,41 @@ function ProjectsSection({
         </PrimaryButton>
       </PageHeader>
       <SearchBox value={query} onChange={setQuery} placeholder="Search projects…" />
-      {mine.length === 0 ? (
-        <Empty>
-          {/* "of yours": a search may still match the Shared-with-you band below. */}
-          {query.trim() ? `No projects of yours match “${query.trim()}”.` : 'No projects yet — create one to group related work.'}
-        </Empty>
+      {/* The rail's drill-in menu owns the yours/shared split: 'shared' isolates the
+          commons band; 'all' shows your projects with that band below. */}
+      {subview === 'shared' ? (
+        sharedWithYou.length === 0 ? (
+          <Empty>
+            {query.trim()
+              ? `No projects shared with you match “${query.trim()}”.`
+              : 'No projects shared with you yet — other workspaces’ shared projects show here.'}
+          </Empty>
+        ) : (
+          grid(sharedWithYou)
+        )
       ) : (
-        grid(mine)
-      )}
-      {sharedWithYou.length > 0 && (
-        <div className="mt-8">
-          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-            Shared with you
-          </div>
-          <p className="mb-3 text-[12px] text-ink-faint">
-            Projects other workspaces opened to the commons — visit one to commission your agent
-            or take open work.
-          </p>
-          {grid(sharedWithYou)}
-        </div>
+        <>
+          {mine.length === 0 ? (
+            <Empty>
+              {/* "of yours": a search may still match the Shared-with-you band below. */}
+              {query.trim() ? `No projects of yours match “${query.trim()}”.` : 'No projects yet — create one to group related work.'}
+            </Empty>
+          ) : (
+            grid(mine)
+          )}
+          {sharedWithYou.length > 0 && (
+            <div className="mt-8">
+              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+                Shared with you
+              </div>
+              <p className="mb-3 text-[12px] text-ink-faint">
+                Projects other workspaces opened to the commons — visit one to commission your agent
+                or take open work.
+              </p>
+              {grid(sharedWithYou)}
+            </div>
+          )}
+        </>
       )}
       {creating && <NewProjectDialog onCreate={createProject} onClose={() => setCreating(false)} />}
     </Page>
@@ -1946,11 +1977,9 @@ function WorkItemRow({
 
 /* ─────────────────────────── Artifacts ─────────────────────────── */
 
-const ARTIFACT_FILTERS = ['All', 'Documents', 'Images', 'Sheets', 'Slides', 'Emails']
 
-function ArtifactsSection({ onOpenSession }: { onOpenSession: (id: string) => void }) {
+function ArtifactsSection({ subview, onOpenSession }: { subview: string; onOpenSession: (id: string) => void }) {
   const [query, setQuery] = useState('')
-  const [filter, setFilter] = useState('All')
   const [openId, setOpenId] = useState<string | null>(null)
   const [folded, setFolded] = useState<Set<string>>(new Set())
   const [creating, setCreating] = useState(false)
@@ -1975,18 +2004,9 @@ function ArtifactsSection({ onOpenSession }: { onOpenSession: (id: string) => vo
     })
 
   const needle = query.trim().toLowerCase()
-  const wantKind =
-    filter === 'Documents'
-      ? 'doc'
-      : filter === 'Images'
-        ? 'image'
-        : filter === 'Sheets'
-          ? 'sheet'
-          : filter === 'Slides'
-            ? 'slide'
-            : filter === 'Emails'
-              ? 'email'
-              : null
+  // The sub-view ids ARE the ArtifactKind values (lib/subviews): 'all' → no kind
+  // filter, else restrict to that kind. The rail's drill-in menu owns this choice now.
+  const wantKind = subview === 'all' ? null : (subview as ArtifactKind)
 
   const matches = rel.allArtifacts().filter(
     (a) =>
@@ -2044,7 +2064,6 @@ function ArtifactsSection({ onOpenSession }: { onOpenSession: (id: string) => vo
   return (
     <Page>
       <PageHeader title="Artifacts">
-        <Dropdown label="Filter by" value={filter} options={ARTIFACT_FILTERS} onChange={setFilter} />
         <PrimaryButton icon={<Plus size={15} />} onClick={() => setCreating(true)}>
           New artifact
         </PrimaryButton>
@@ -2331,7 +2350,6 @@ const CONTEXT_GROUPS: { kind: SavedContextKind; label: string }[] = [
   { kind: 'repo', label: 'Repositories' },
 ]
 
-const CONTEXT_FILTERS = ['All', 'Connectors', 'MCP servers', 'Repositories']
 
 /** The reusable context the workspace already knows about — connectors and MCP
  *  servers (set up / authenticated once) plus the repos you've attached before.
@@ -2563,14 +2581,13 @@ function AddContextRow({ ctx, onAdd }: { ctx: SavedContext; onAdd: () => void })
   )
 }
 
-function ContextsSection() {
+function ContextsSection({ subview }: { subview: string }) {
   // The base list is server-owned: a connect / disconnect routes through the server,
   // which broadcasts `connector.status`, so the row's auth state reconciles here and
   // on every other client. Fall back to the seed while the first fetch is in flight.
   const saved = useSavedContexts()
   const base = saved.data?.contexts ?? SAVED_CONTEXTS
   const [query, setQuery] = useState('')
-  const [filter, setFilter] = useState('All')
   // Which group headers are folded shut, and which context is opened in detail.
   const [folded, setFolded] = useState<Set<SavedContextKind>>(new Set())
   const [openId, setOpenId] = useState<string | null>(null)
@@ -2633,8 +2650,9 @@ function ContextsSection() {
     )
 
   const needle = query.trim().toLowerCase()
-  const wantKind =
-    filter === 'Connectors' ? 'connector' : filter === 'MCP servers' ? 'mcp' : filter === 'Repositories' ? 'repo' : null
+  // The sub-view ids ARE the SavedContextKind values (lib/subviews): 'all' → no kind
+  // filter, else restrict to that kind. The rail's drill-in menu owns this choice now.
+  const wantKind = subview === 'all' ? null : (subview as SavedContextKind)
 
   const visible = items.filter(
     (c) =>
@@ -2649,7 +2667,6 @@ function ContextsSection() {
   return (
     <Page>
       <PageHeader title="Contexts">
-        <Dropdown label="Show" value={filter} options={CONTEXT_FILTERS} onChange={setFilter} />
         <AddContextControl existingIds={new Set(items.map((c) => c.id))} onAdd={add} />
       </PageHeader>
       <p className="-mt-2 mb-4 text-[13px] leading-relaxed text-ink-soft">
@@ -2980,40 +2997,37 @@ function StatusPill({ tone, label }: { tone: 'ok' | 'warn' | 'bad' | 'neutral'; 
 
 /** The Agents hub (docs/agent-commons.md) — one left-panel home for the multi-tenant
  *  fabric: the worker Agents, the Model providers + system prompts they run on, and the
- *  commissions placing them on Projects. Sub-tabs because the four concepts are
- *  interdependent (an Agent binds a provider + prompt; a commission binds an Agent to a
- *  Project), so they read as one surface rather than four nav rows. Slice 1 lists each
- *  read-only; later slices add create / edit / delete per tab. */
+ *  commissions placing them on Projects. The four concepts are interdependent (an Agent
+ *  binds a provider + prompt; a commission binds an Agent to a Project), so they read as
+ *  ONE surface — its sub-views live in the rail's drill-in menu (lib/subviews), not an
+ *  in-page segmented control, so all of the app's section navigation lives in one place. */
 type CommonsTab = 'agents' | 'prompts' | 'commissions' | 'discover' | 'audit'
-
-const COMMONS_TABS: { id: CommonsTab; label: string }[] = [
-  { id: 'agents', label: 'Agents' },
-  { id: 'prompts', label: 'Prompts' },
-  { id: 'commissions', label: 'Commissions' },
-  { id: 'discover', label: 'Discover' },
-  { id: 'audit', label: 'Audit' },
-]
 
 function AgentCommonsSection({
   owner,
+  subview,
+  onOpenSubview,
   onOpenProject,
   onBack,
   backTo,
 }: {
   /** A workspace profile to show instead of the hub (D21) — null = the hub. */
   owner: string | null
+  /** The active hub sub-view (rail drill-in) — one of the CommonsTab ids. */
+  subview: string
+  onOpenSubview: (id: string) => void
   onOpenProject: (id: string) => void
   onBack: () => void
   backTo: NavLocation | null
 }) {
-  const [tab, setTab] = useState<CommonsTab>('agents')
-  // An agent door lands on the hub → force the Agents tab so the target agent's card
-  // is mounted (it auto-opens its review dialog for a proposal bell, R5, or flashes
-  // for a fork bell, R6), even if the user last left the hub on another tab.
+  const tab = subview as CommonsTab
+  // An agent door lands on the hub → force the Agents sub-view so the target agent's
+  // card is mounted (it auto-opens its review dialog for a proposal bell, R5, or flashes
+  // for a fork bell, R6), even if the user last left the hub on another sub-view.
   const { pending } = usePendingFocus()
   useEffect(() => {
-    if (!owner && pending?.agentId) setTab('agents')
-  }, [owner, pending])
+    if (!owner && pending?.agentId && tab !== 'agents') onOpenSubview('agents')
+  }, [owner, pending, tab, onOpenSubview])
   if (owner) {
     return <OwnerProfilePage name={owner} onOpenProject={onOpenProject} onBack={onBack} backTo={backTo} />
   }
@@ -3027,8 +3041,7 @@ function AgentCommonsSection({
         The models that supply their cognition live in the sidebar’s{' '}
         <span className="font-medium text-ink">Models</span> section.
       </p>
-      <SubTabs tabs={COMMONS_TABS} active={tab} onChange={setTab} />
-      <div className="mt-5">
+      <div className="mt-1">
         {tab === 'agents' && <AgentsTab />}
         {tab === 'prompts' && <PromptsTab />}
         {tab === 'commissions' && <CommissionsTab />}
@@ -3968,10 +3981,21 @@ function ProbeResultCard({ probe }: { probe: PromptProbeResult }) {
  *  surface. Every entry here is selectable as a model in any session's composer
  *  (the selector reads this same registry), so registering a provider and using
  *  it are two views of one concept: models are first-class citizens. */
-function ModelsSection() {
+function ModelsSection({ subview }: { subview: string }) {
   const providers = useProviders().data ?? []
   // null = no dialog; 'new' = create; a provider = edit that one.
   const [editing, setEditing] = useState<ModelProvider | 'new' | null>(null)
+  // The rail's drill-in menu classifies by provider kind (lib/subviews): the built-in /
+  // shared providers (no tenant), the endpoints you register, and delegated Sessions
+  // (always tenant-stamped). 'all' shows everything.
+  const shown =
+    subview === 'builtin'
+      ? providers.filter((p) => !p.tenantId)
+      : subview === 'registered'
+        ? providers.filter((p) => !!p.tenantId && p.kind !== 'session')
+        : subview === 'session'
+          ? providers.filter((p) => p.kind === 'session')
+          : providers
   return (
     <Page>
       <PageHeader title="Models" />
@@ -3985,10 +4009,10 @@ function ModelsSection() {
       </p>
       <div className="space-y-3">
         <TabToolbar newLabel="New provider" onNew={() => setEditing('new')} />
-        {providers.length === 0 ? (
-          <Empty>No providers registered.</Empty>
+        {shown.length === 0 ? (
+          <Empty>No providers in this view.</Empty>
         ) : (
-          providers.map((p) => <ProviderCard key={p.id} provider={p} onEdit={() => setEditing(p)} />)
+          shown.map((p) => <ProviderCard key={p.id} provider={p} onEdit={() => setEditing(p)} />)
         )}
         {editing && (
           <ProviderDialog provider={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
@@ -5696,6 +5720,7 @@ function taskPill(task: ScheduledTask): { tone: 'ok' | 'warn' | 'bad' | 'neutral
 
 function ScheduledSection({
   scheduleId,
+  subview,
   onOpenSchedule,
   onBack,
   backTo,
@@ -5704,6 +5729,8 @@ function ScheduledSection({
   /** Which routine detail to show (null = the list) — the controlled source of
    *  truth, set by the controller however the detail was reached. */
   scheduleId: string | null
+  /** The active sub-view (rail drill-in): 'all' | 'active' | 'paused'. */
+  subview: string
   onOpenSchedule: (id: string) => void
   onBack: () => void
   backTo: NavLocation | null
@@ -5716,7 +5743,6 @@ function ScheduledSection({
   // events invalidate the cache, so the list reflects run-now / the daemon live.
   const items = useSchedules().data ?? []
   const [query, setQuery] = useState('')
-  const [filter, setFilter] = useState('All')
   const [folded, setFolded] = useState<Set<'active' | 'paused'>>(new Set())
   // Ids with a "Run now" in flight — drives the button spinner until the run's
   // run.finished event lands (cleared on a timer as a safety net).
@@ -5785,7 +5811,8 @@ function ScheduledSection({
       t.subtitle.toLowerCase().includes(needle) ||
       t.steps.some((s) => s.tool.label.toLowerCase().includes(needle)),
   )
-  const wantEnabled = filter === 'Active' ? true : filter === 'Paused' ? false : null
+  // The sub-view ids drive the enabled filter (lib/subviews); the rail owns this choice.
+  const wantEnabled = subview === 'active' ? true : subview === 'paused' ? false : null
   const allGroups = [
     { key: 'active' as const, label: 'Active', items: matches.filter((t) => t.enabled) },
     { key: 'paused' as const, label: 'Paused', items: matches.filter((t) => !t.enabled) },
@@ -5799,7 +5826,6 @@ function ScheduledSection({
   return (
     <Page>
       <PageHeader title="Scheduled">
-        <Dropdown label="Show" value={filter} options={['All', 'Active', 'Paused']} onChange={setFilter} />
         <NewScheduleControl onAdd={addFromTemplate} />
       </PageHeader>
       <p className="-mt-2 mb-4 text-[13px] leading-relaxed text-ink-soft">

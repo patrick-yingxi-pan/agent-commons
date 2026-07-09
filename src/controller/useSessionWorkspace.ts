@@ -21,6 +21,7 @@ import {
   type Live,
 } from '../data/liveSession'
 import { sameFocus } from '../lib/focus'
+import { firstSubview } from '../lib/subviews'
 import { pushLocation, type NavLocation } from '../lib/nav'
 import type { FocusTarget } from '../lib/notificationDoor'
 import { rememberAttached } from '../lib/contextShortcuts'
@@ -137,6 +138,11 @@ export function useSessionWorkspace() {
   const [focus, setFocus] = useState<PanelFocus | null>(null)
   // Which cross-cutting tool is open in the main area (null = the session).
   const [activeSection, setActiveSection] = useState<SectionId | null>(null)
+  // Which sub-view of the active section is selected — the rail's drill-in menu and
+  // the section body both read this (lib/subviews). A lateral tab switch, deliberately
+  // NOT in navigation history: Back doesn't undo a sub-view switch (the push model).
+  // null = the section has no sub-views (or none open).
+  const [activeSubview, setActiveSubview] = useState<string | null>(null)
   // When a session deep-links into its project, which project the Projects
   // section should open in detail (null = show the project list). This is the
   // single source of truth for "which project detail is open" — a list-card click
@@ -945,11 +951,23 @@ export function useSessionWorkspace() {
   const openSection = useCallback((s: SectionId) => {
     record({ kind: 'section', section: s, projectId: null, scheduleId: null, ownerName: null })
     setActiveSection(s)
+    setActiveSubview(firstSubview(s)) // land on the section's first sub-view (null if none)
     setFocusProjectId(null)
     setFocusScheduleId(null)
     setFocusOwnerName(null)
     setPendingFocus(null) // a plain nav carries no focus intent — drop any stale target
   }, [record])
+
+  // Switch the active section's sub-view (the rail drill-in menu). A LATERAL move —
+  // not recorded in history — so it drops any open detail (returning to that
+  // sub-view's list) but leaves the section itself put.
+  const openSubview = useCallback((id: string) => {
+    setActiveSubview(id)
+    setFocusProjectId(null)
+    setFocusScheduleId(null)
+    setFocusOwnerName(null)
+    setPendingFocus(null)
+  }, [])
 
   // Open a project's detail page. Reached three ways — a session's "In ‹Project›"
   // breadcrumb, a relation deep-link, or a click in the Projects list — and all
@@ -958,6 +976,7 @@ export function useSessionWorkspace() {
   const openProject = useCallback((projectId: string) => {
     record({ kind: 'section', section: 'projects', projectId, scheduleId: null, ownerName: null })
     setActiveSection('projects')
+    setActiveSubview(firstSubview('projects'))
     setFocusProjectId(projectId)
     setFocusScheduleId(null)
     setFocusOwnerName(null)
@@ -969,6 +988,7 @@ export function useSessionWorkspace() {
   const openSchedule = useCallback((scheduleId: string) => {
     record({ kind: 'section', section: 'scheduled', projectId: null, scheduleId, ownerName: null })
     setActiveSection('scheduled')
+    setActiveSubview(firstSubview('scheduled'))
     setFocusScheduleId(scheduleId)
     setFocusProjectId(null)
     setFocusOwnerName(null)
@@ -981,6 +1001,7 @@ export function useSessionWorkspace() {
   const openOwner = useCallback((name: string) => {
     record({ kind: 'section', section: 'agents', projectId: null, scheduleId: null, ownerName: name })
     setActiveSection('agents')
+    setActiveSubview(firstSubview('agents'))
     setFocusOwnerName(name)
     setFocusProjectId(null)
     setFocusScheduleId(null)
@@ -998,6 +1019,7 @@ export function useSessionWorkspace() {
   const openWorkItem = useCallback((projectId: string, workItemId: string, commentId?: string) => {
     record({ kind: 'section', section: 'projects', projectId, scheduleId: null, ownerName: null })
     setActiveSection('projects')
+    setActiveSubview(firstSubview('projects'))
     setFocusProjectId(projectId)
     setFocusScheduleId(null)
     setFocusOwnerName(null)
@@ -1014,6 +1036,7 @@ export function useSessionWorkspace() {
     (agentId: string, proposalId: string, ownerName: string | null) => {
       record({ kind: 'section', section: 'agents', projectId: null, scheduleId: null, ownerName })
       setActiveSection('agents')
+      setActiveSubview(firstSubview('agents'))
       setFocusOwnerName(ownerName)
       setFocusProjectId(null)
       setFocusScheduleId(null)
@@ -1027,6 +1050,7 @@ export function useSessionWorkspace() {
   const openAgent = useCallback((agentId: string) => {
     record({ kind: 'section', section: 'agents', projectId: null, scheduleId: null, ownerName: null })
     setActiveSection('agents')
+    setActiveSubview(firstSubview('agents'))
     setFocusOwnerName(null)
     setFocusProjectId(null)
     setFocusScheduleId(null)
@@ -1042,6 +1066,7 @@ export function useSessionWorkspace() {
       selectSession(loc.sessionId)
     } else {
       setActiveSection(loc.section)
+      setActiveSubview(firstSubview(loc.section)) // sub-views aren't in history — land on the first
       setFocusProjectId(loc.projectId)
       setFocusScheduleId(loc.scheduleId)
       setFocusOwnerName(loc.ownerName ?? null)
@@ -1208,6 +1233,7 @@ export function useSessionWorkspace() {
     // state
     activeId,
     activeSection,
+    activeSubview,
     focusProjectId,
     focusScheduleId,
     focusOwnerName,
@@ -1238,6 +1264,7 @@ export function useSessionWorkspace() {
     newSession,
     newSessionWith,
     openSection,
+    openSubview,
     openProject,
     openSchedule,
     openOwner,
