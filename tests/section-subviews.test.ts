@@ -47,6 +47,17 @@ test('the rail is an inline disclosure tree, not a drill-in push', () => {
   assert.doesNotMatch(sidebar, /ChevronLeft/, 'the "‹ Sections" back chip is gone — no push')
 })
 
+test('the rail has one fold/unfold-all control that toggles the whole tree', () => {
+  const sidebar = read(join(ROOT, 'src', 'components', 'Sidebar.tsx'))
+  // A single toggle whose label reflects the action either way.
+  assert.match(sidebar, /aria-label=\{allExpanded \? 'Collapse all sections' : 'Expand all sections'\}/)
+  assert.match(sidebar, /toggleAll/, 'a fold/unfold-all handler exists')
+  // "All expanded" is measured over the sections that actually HAVE children, and the
+  // toggle sets the whole set to none or all — not a per-section op.
+  assert.match(sidebar, /expandableIds\s*=\s*useMemo\(\(\)\s*=>\s*SECTION_ORDER\.filter/)
+  assert.match(sidebar, /setExpanded\(allExpanded \? new Set\(\) : new Set\(expandableIds\)\)/)
+})
+
 test('the section body + controller route through the registry; a section lands on its default', () => {
   const sectionView = read(join(ROOT, 'src', 'components', 'SectionView.tsx'))
   assert.match(sectionView, /subview \?\? 'agents'/, 'the Agents hub maps the null default to its worker-list surface')

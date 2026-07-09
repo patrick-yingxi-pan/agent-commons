@@ -3,6 +3,8 @@ import {
   Archive,
   ArchiveRestore,
   ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
   FolderInput,
   FolderMinus,
   PanelLeftClose,
@@ -125,6 +127,13 @@ export function Sidebar({
       next.has(id) ? next.delete(id) : next.add(id)
       return next
     })
+
+  // Fold / unfold all — one toggle over the whole tree. "All expanded" means every
+  // section that HAS children is open; the control then collapses everything (VSCode's
+  // "Collapse All"); otherwise it expands every expandable section at once.
+  const expandableIds = useMemo(() => SECTION_ORDER.filter((id) => SECTION_SUBVIEWS[id]), [])
+  const allExpanded = expandableIds.every((id) => expanded.has(id))
+  const toggleAll = () => setExpanded(allExpanded ? new Set() : new Set(expandableIds))
 
   // Clicking a section row: open its page, and — if it has children — expand it in place
   // (keeping the narrow drawer open so the children show, so you can pick one). A childless
@@ -277,6 +286,19 @@ export function Sidebar({
           here — it's on the page. */}
       <nav className="mt-3 px-2">
         <NavRow icon={<Plus size={16} />} label="New session" onClick={onNewSession} />
+        {/* Section-tree header: a label + one fold/unfold-all control, mirroring the
+            Recents / Scheduled headers (the three foldable-list regions share a shape). */}
+        <div className="mt-2 flex items-center justify-between pr-1">
+          <SectionLabel className="mt-0">Sections</SectionLabel>
+          <button
+            onClick={toggleAll}
+            title={allExpanded ? 'Collapse all' : 'Expand all'}
+            aria-label={allExpanded ? 'Collapse all sections' : 'Expand all sections'}
+            className={`flex h-6 w-6 items-center justify-center rounded-md text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink-soft`}
+          >
+            {allExpanded ? <ChevronsDownUp size={14} /> : <ChevronsUpDown size={14} />}
+          </button>
+        </div>
         {SECTION_ORDER.map((id) => {
           const { label, Icon, beta } = SECTION_META[id]
           const children = SECTION_SUBVIEWS[id]
