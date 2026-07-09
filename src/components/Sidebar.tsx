@@ -258,37 +258,47 @@ export function Sidebar({
         </button>
       </div>
 
-      {/* Nav: "New session" is always pinned; below it the section rows collapse into
-          the active section's sub-view menu when you drill in (the rail's secondary
-          menu — the drill-in/push model). Scheduled + Recents (session furniture) stay
-          below, always. */}
+      {/* Nav: "New session" is always pinned. Below it, the section list and the active
+          section's drill-in sub-menu (Agents — the one section with true sub-navigation)
+          are STACKED in one grid cell. The list is always mounted, so the cell is always
+          as tall as the full section list; drilling in overlays the sub-menu without
+          changing the height — so Scheduled + Recents below never shift (the point of the
+          fix). Filtering (kinds/status/etc.) is NOT here — it's an in-page control. */}
       <nav className="mt-3 px-2">
         <NavRow icon={<Plus size={16} />} label="New session" onClick={onNewSession} />
-        {drilledSection ? (
-          <SectionSubmenu
-            section={drilledSection}
-            activeSubview={activeSubview}
-            onBack={() => setDrilled(false)}
-            onOpenSubview={(id) => {
-              onOpenSubview(id)
-              onLeafNavigate?.()
-            }}
-          />
-        ) : (
-          SECTION_ORDER.map((id) => {
-            const { label, Icon, beta } = SECTION_META[id]
-            return (
-              <NavRow
-                key={id}
-                icon={<Icon size={16} />}
-                label={label}
-                beta={beta}
-                active={activeSection === id}
-                onClick={() => openSectionRow(id)}
+        <div className="grid">
+          {/* The section list — always mounted to reserve the cell's height; hidden
+              (and inert, out of the tab order) while a section is drilled into. */}
+          <div className={`col-start-1 row-start-1 ${drilledSection ? 'invisible' : ''}`} inert={!!drilledSection}>
+            {SECTION_ORDER.map((id) => {
+              const { label, Icon, beta } = SECTION_META[id]
+              return (
+                <NavRow
+                  key={id}
+                  icon={<Icon size={16} />}
+                  label={label}
+                  beta={beta}
+                  active={activeSection === id}
+                  onClick={() => openSectionRow(id)}
+                />
+              )
+            })}
+          </div>
+          {/* The drill-in sub-menu, overlaid in the same cell when active. */}
+          {drilledSection && (
+            <div className="col-start-1 row-start-1">
+              <SectionSubmenu
+                section={drilledSection}
+                activeSubview={activeSubview}
+                onBack={() => setDrilled(false)}
+                onOpenSubview={(id) => {
+                  onOpenSubview(id)
+                  onLeafNavigate?.()
+                }}
               />
-            )
-          })
-        )}
+            </div>
+          )}
+        </div>
       </nav>
 
       <div className="mt-3 min-h-0 flex-1 overflow-y-auto px-2 pb-3">

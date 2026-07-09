@@ -286,25 +286,27 @@ the mock?
   drive it from the registry hook and route it through the shared menu — and if the
   concept's entries are usable in sessions, make the registry a first-class rail
   surface, not a sub-tab of the thing that consumes it.
-- **Section sub-navigation lives in the rail, from one registry.** A section's
-  internal classification is a **drill-in secondary menu** in the left rail — not an
-  in-page segmented control or filter dropdown — so *all* of the app's navigation
-  lives in one place and the main page is just content (spec ADAPT-13). Opening a
-  section that has sub-views collapses the section-row list into `‹ Sections` + the
-  section name + one row per sub-view (**New session** stays pinned; Scheduled +
-  Recents stay below); switching sub-view is a *lateral* move (not in nav history —
-  Back doesn't undo a tab switch). ONE registry — `src/lib/subviews.ts`
-  (`SECTION_SUBVIEWS`) — is the single source of truth that **both** the rail
-  (`Sidebar`) and the section body (`SectionView`) read, so the nav and the content
-  can't drift (same rule as *Registries have one home*, applied to sub-navigation).
-  The filter-style sections keep an **`all`** default (their full grouped body — no
-  power-user density lost); each section's sub-view ids ARE its own switch keys
-  (`SavedContextKind` / `ArtifactKind` / a provider class / an enabled state / a hub
-  tab), so a body switches on `subview` directly with no lookup table. When a section
-  grows a real internal grouping, add it here — don't hand-roll a new in-page tab bar
-  or filter dropdown. Locked by `tests/section-subviews.test.ts` (registry shape +
-  the rail/body/controller all route through it + the old in-page classifiers are
-  gone).
+- **Navigation lives in the rail; filtering lives on the content.** Distinguish the
+  two by *nature* before choosing where a section's sub-structure goes (spec ADAPT-13).
+  **Sub-navigation** — genuinely distinct surfaces, each with its own entities and
+  actions — is a **drill-in menu** in the left rail; today exactly the **Agents hub**
+  (Agents / Prompts / Commissions / Discover / Audit). It's driven by ONE registry —
+  `src/lib/subviews.ts` (`SECTION_SUBVIEWS`) — read by **both** the rail (`Sidebar`) and
+  the body (`SectionView`), so they can't drift (the *Registries have one home* rule).
+  Opening it collapses the section-row list into `‹ Sections` + the section name + one
+  row per sub-view (**New session** stays pinned; Scheduled + Recents stay below);
+  the section list stays mounted (stacked in one grid cell, `invisible`+`inert`) so
+  drilling in **reserves its height and never shifts the lists below** — a rail that
+  reflows on nav is a bug. Switching sub-view is *lateral* (not in nav history).
+  **Filtering** — one list narrowed by a facet (kind / type / status / ownership:
+  Contexts, Artifacts, Scheduled, Models, Projects) — is NOT navigation and must NOT go
+  in the rail: it's an in-page control, the shared `SectionFilter` segmented primitive
+  (`src/components/SectionView.tsx`), so a filter never masquerades as a nav destination
+  and opening those sections never reshuffles the rail. When a section grows a real
+  internal grouping, ask *is this a distinct surface (→ rail nav) or the same list
+  filtered (→ `SectionFilter`)?* — don't hand-roll a new tab bar or filter dropdown.
+  Locked by `tests/section-subviews.test.ts` (registry holds only nav; filters route
+  through the shared in-page control; no ad-hoc dropdowns).
 - **The entity page is the shared surface — capability shapes affordances, not
   location.** A shared Project (and any future shared entity) has ONE canonical page
   serving owner and visitor alike, GitHub-repo-style: what differs is which controls
