@@ -21,7 +21,6 @@ import {
   type Live,
 } from '../data/liveSession'
 import { sameFocus } from '../lib/focus'
-import { firstSubview } from '../lib/subviews'
 import { pushLocation, type NavLocation } from '../lib/nav'
 import type { FocusTarget } from '../lib/notificationDoor'
 import { rememberAttached } from '../lib/contextShortcuts'
@@ -951,7 +950,7 @@ export function useSessionWorkspace() {
   const openSection = useCallback((s: SectionId) => {
     record({ kind: 'section', section: s, projectId: null, scheduleId: null, ownerName: null })
     setActiveSection(s)
-    setActiveSubview(firstSubview(s)) // land on the section's first sub-view (null if none)
+    setActiveSubview(null) // each section body maps null to its own default (all / worker list)
     setFocusProjectId(null)
     setFocusScheduleId(null)
     setFocusOwnerName(null)
@@ -961,7 +960,7 @@ export function useSessionWorkspace() {
   // Switch the active section's sub-view (the rail drill-in menu). A LATERAL move —
   // not recorded in history — so it drops any open detail (returning to that
   // sub-view's list) but leaves the section itself put.
-  const openSubview = useCallback((id: string) => {
+  const openSubview = useCallback((id: string | null) => {
     setActiveSubview(id)
     setFocusProjectId(null)
     setFocusScheduleId(null)
@@ -976,7 +975,7 @@ export function useSessionWorkspace() {
   const openProject = useCallback((projectId: string) => {
     record({ kind: 'section', section: 'projects', projectId, scheduleId: null, ownerName: null })
     setActiveSection('projects')
-    setActiveSubview(firstSubview('projects'))
+    setActiveSubview(null)
     setFocusProjectId(projectId)
     setFocusScheduleId(null)
     setFocusOwnerName(null)
@@ -988,7 +987,7 @@ export function useSessionWorkspace() {
   const openSchedule = useCallback((scheduleId: string) => {
     record({ kind: 'section', section: 'scheduled', projectId: null, scheduleId, ownerName: null })
     setActiveSection('scheduled')
-    setActiveSubview(firstSubview('scheduled'))
+    setActiveSubview(null)
     setFocusScheduleId(scheduleId)
     setFocusProjectId(null)
     setFocusOwnerName(null)
@@ -1001,7 +1000,7 @@ export function useSessionWorkspace() {
   const openOwner = useCallback((name: string) => {
     record({ kind: 'section', section: 'agents', projectId: null, scheduleId: null, ownerName: name })
     setActiveSection('agents')
-    setActiveSubview(firstSubview('agents'))
+    setActiveSubview(null)
     setFocusOwnerName(name)
     setFocusProjectId(null)
     setFocusScheduleId(null)
@@ -1019,7 +1018,7 @@ export function useSessionWorkspace() {
   const openWorkItem = useCallback((projectId: string, workItemId: string, commentId?: string) => {
     record({ kind: 'section', section: 'projects', projectId, scheduleId: null, ownerName: null })
     setActiveSection('projects')
-    setActiveSubview(firstSubview('projects'))
+    setActiveSubview(null)
     setFocusProjectId(projectId)
     setFocusScheduleId(null)
     setFocusOwnerName(null)
@@ -1036,7 +1035,7 @@ export function useSessionWorkspace() {
     (agentId: string, proposalId: string, ownerName: string | null) => {
       record({ kind: 'section', section: 'agents', projectId: null, scheduleId: null, ownerName })
       setActiveSection('agents')
-      setActiveSubview(firstSubview('agents'))
+      setActiveSubview(null)
       setFocusOwnerName(ownerName)
       setFocusProjectId(null)
       setFocusScheduleId(null)
@@ -1050,7 +1049,7 @@ export function useSessionWorkspace() {
   const openAgent = useCallback((agentId: string) => {
     record({ kind: 'section', section: 'agents', projectId: null, scheduleId: null, ownerName: null })
     setActiveSection('agents')
-    setActiveSubview(firstSubview('agents'))
+    setActiveSubview(null)
     setFocusOwnerName(null)
     setFocusProjectId(null)
     setFocusScheduleId(null)
@@ -1066,7 +1065,7 @@ export function useSessionWorkspace() {
       selectSession(loc.sessionId)
     } else {
       setActiveSection(loc.section)
-      setActiveSubview(firstSubview(loc.section)) // sub-views aren't in history — land on the first
+      setActiveSubview(null) // sub-views aren't in history — land on the section default
       setFocusProjectId(loc.projectId)
       setFocusScheduleId(loc.scheduleId)
       setFocusOwnerName(loc.ownerName ?? null)

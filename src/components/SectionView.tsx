@@ -220,9 +220,9 @@ export function SectionView({
   /** The active sub-view (lib/subviews) the rail drilled into — the section body
    *  renders it. null when the section has no sub-views. */
   subview: string | null
-  /** Switch sub-view from inside the body (the Agents hub forces its 'agents' tab
-   *  on a notification door). */
-  onOpenSubview: (id: string) => void
+  /** Switch sub-view from inside the body (the Agents hub resets to its default
+   *  worker-list surface — null — on a notification door). */
+  onOpenSubview: (id: string | null) => void
   onOpenSession: (id: string) => void
   onNewSession: () => void
   /** Open a project / routine detail through the controller, so every entry is one
@@ -3041,20 +3041,22 @@ function AgentCommonsSection({
 }: {
   /** A workspace profile to show instead of the hub (D21) — null = the hub. */
   owner: string | null
-  /** The active hub sub-view (rail drill-in) — one of the CommonsTab ids. */
+  /** The active hub sub-view — a CommonsTab id, defaulting to the worker-agents surface
+   *  ('agents') when the section is on its default (rail subview null). */
   subview: string
-  onOpenSubview: (id: string) => void
+  onOpenSubview: (id: string | null) => void
   onOpenProject: (id: string) => void
   onBack: () => void
   backTo: NavLocation | null
 }) {
   const tab = subview as CommonsTab
-  // An agent door lands on the hub → force the Agents sub-view so the target agent's
-  // card is mounted (it auto-opens its review dialog for a proposal bell, R5, or flashes
-  // for a fork bell, R6), even if the user last left the hub on another sub-view.
+  // An agent door lands on the hub → reset to the default worker-agents surface so the
+  // target agent's card is mounted (it auto-opens its review dialog for a proposal bell,
+  // R5, or flashes for a fork bell, R6), even if the user last left the hub on another
+  // sub-view. `null` is the section default (→ the 'agents' surface).
   const { pending } = usePendingFocus()
   useEffect(() => {
-    if (!owner && pending?.agentId && tab !== 'agents') onOpenSubview('agents')
+    if (!owner && pending?.agentId && tab !== 'agents') onOpenSubview(null)
   }, [owner, pending, tab, onOpenSubview])
   if (owner) {
     return <OwnerProfilePage name={owner} onOpenProject={onOpenProject} onBack={onBack} backTo={backTo} />

@@ -20,16 +20,13 @@ export type SubView = { id: string; label: string }
  *  This module is deliberately pure (only a type-only import), so `tests/` can import the
  *  registry without pulling the UI's icon deps. */
 export const SECTION_SUBVIEWS: Partial<Record<SectionId, SubView[]>> = {
+  // The Agents hub's children are its NON-default surfaces — the section row itself opens
+  // the worker-agents list (the default), so listing "Agents" again as a child would
+  // duplicate it. Each child is a genuinely distinct surface.
   agents: [
-    { id: 'agents', label: 'Agents' },
     { id: 'prompts', label: 'Prompts' },
     { id: 'commissions', label: 'Commissions' },
     { id: 'discover', label: 'Discover' },
     { id: 'audit', label: 'Audit' },
   ],
-}
-
-/** The sub-view a section lands on when opened (its first), or null if it has none. */
-export function firstSubview(section: SectionId): string | null {
-  return SECTION_SUBVIEWS[section]?.[0]?.id ?? null
 }

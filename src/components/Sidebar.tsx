@@ -2,7 +2,6 @@ import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Archive,
   ArchiveRestore,
-  ChevronLeft,
   ChevronRight,
   FolderInput,
   FolderMinus,
@@ -106,26 +105,40 @@ export function Sidebar({
   onResizeEnd: () => void
 }) {
   const inSession = activeSection === null
-  // Rail drill-in (the secondary menu): while a section that has sub-views is active,
-  // the section-row list collapses into that section's sub-view menu (a back chip +
-  // its rows). `drilled` can be popped by the back chip to browse other sections; an
-  // effect re-drills whenever the active section changes (so an external deep-link
-  // into a sub-view section reflects here too). The active section — not `drilled`
-  // alone — decides whether a sub-menu is even possible, so the two can't disagree.
-  const [drilled, setDrilled] = useState<boolean>(() => !!(activeSection && SECTION_SUBVIEWS[activeSection]))
+  // Rail navigation is an inline disclosure tree (VSCode-explorer style): a section with
+  // sub-nodes (SECTION_SUBVIEWS) carries a chevron and expands IN PLACE to show its
+  // children indented below it — no push, no back button, siblings stay visible. Several
+  // sections can be open at once. An effect expands the active section, so a deep-link
+  // into it reveals its children.
+  const [expanded, setExpanded] = useState<Set<SectionId>>(() => {
+    const s = new Set<SectionId>()
+    if (activeSection && SECTION_SUBVIEWS[activeSection]) s.add(activeSection)
+    return s
+  })
   useEffect(() => {
-    setDrilled(!!(activeSection && SECTION_SUBVIEWS[activeSection]))
+    if (activeSection && SECTION_SUBVIEWS[activeSection])
+      setExpanded((prev) => (prev.has(activeSection) ? prev : new Set(prev).add(activeSection)))
   }, [activeSection])
-  const drilledSection = drilled && activeSection && SECTION_SUBVIEWS[activeSection] ? activeSection : null
+  const toggleExpand = (id: SectionId) =>
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
 
-  // Open a section row: drill into its sub-menu if it has sub-views (on the persistent
-  // rail — wide/medium — that IS the navigation). `onLeafNavigate` fires either way, so
-  // on the NARROW tier any section tap dismisses the off-canvas drawer and reveals the
-  // page; reopening the drawer then shows the (still-drilled) sub-menu. Off the narrow
-  // tier onLeafNavigate is undefined — a no-op — so the sub-menu just appears in place.
-  const openSectionRow = (id: SectionId) => {
+  // Clicking a section row: open its page, and — if it has children — expand it in place
+  // (keeping the narrow drawer open so the children show, so you can pick one). A childless
+  // section is a leaf: it navigates and dismisses the narrow drawer.
+  const onSectionClick = (id: SectionId) => {
     onOpenSection(id)
-    setDrilled(!!SECTION_SUBVIEWS[id])
+    if (SECTION_SUBVIEWS[id]) setExpanded((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
+    else onLeafNavigate?.()
+  }
+  // Clicking a child (a sub-node): make sure its section is active, then select it, and
+  // dismiss the narrow drawer (a child is a leaf — it navigates).
+  const onChildClick = (id: SectionId, subviewId: string) => {
+    if (activeSection !== id) onOpenSection(id)
+    onOpenSubview(subviewId)
     onLeafNavigate?.()
   }
   // The bell's badge (D24) — live via the tenant-targeted notification.changed event.
@@ -258,47 +271,43 @@ export function Sidebar({
         </button>
       </div>
 
-      {/* Nav: "New session" is always pinned. Below it, the section list and the active
-          section's drill-in sub-menu (Agents — the one section with true sub-navigation)
-          are STACKED in one grid cell. The list is always mounted, so the cell is always
-          as tall as the full section list; drilling in overlays the sub-menu without
-          changing the height — so Scheduled + Recents below never shift (the point of the
-          fix). Filtering (kinds/status/etc.) is NOT here — it's an in-page control. */}
+      {/* Nav: "New session" is pinned; below it every section is a node in an inline
+          disclosure tree. A section with sub-nodes expands in place to show them indented
+          (no push, no back button); siblings stay put. Filtering (kinds/status/…) is NOT
+          here — it's on the page. */}
       <nav className="mt-3 px-2">
         <NavRow icon={<Plus size={16} />} label="New session" onClick={onNewSession} />
-        <div className="grid">
-          {/* The section list — always mounted to reserve the cell's height; hidden
-              (and inert, out of the tab order) while a section is drilled into. */}
-          <div className={`col-start-1 row-start-1 ${drilledSection ? 'invisible' : ''}`} inert={!!drilledSection}>
-            {SECTION_ORDER.map((id) => {
-              const { label, Icon, beta } = SECTION_META[id]
-              return (
-                <NavRow
-                  key={id}
-                  icon={<Icon size={16} />}
-                  label={label}
-                  beta={beta}
-                  active={activeSection === id}
-                  onClick={() => openSectionRow(id)}
-                />
-              )
-            })}
-          </div>
-          {/* The drill-in sub-menu, overlaid in the same cell when active. */}
-          {drilledSection && (
-            <div className="col-start-1 row-start-1">
-              <SectionSubmenu
-                section={drilledSection}
-                activeSubview={activeSubview}
-                onBack={() => setDrilled(false)}
-                onOpenSubview={(id) => {
-                  onOpenSubview(id)
-                  onLeafNavigate?.()
-                }}
+        {SECTION_ORDER.map((id) => {
+          const { label, Icon, beta } = SECTION_META[id]
+          const children = SECTION_SUBVIEWS[id]
+          const isExpanded = expanded.has(id)
+          return (
+            <Fragment key={id}>
+              <SectionTreeRow
+                icon={<Icon size={16} />}
+                label={label}
+                beta={beta}
+                hasChildren={!!children}
+                expanded={isExpanded}
+                // The section row is "active" only on its own default view (subview null);
+                // when a child is selected the child carries the highlight instead.
+                active={activeSection === id && activeSubview == null}
+                onToggle={() => toggleExpand(id)}
+                onOpen={() => onSectionClick(id)}
               />
-            </div>
-          )}
-        </div>
+              {children &&
+                isExpanded &&
+                children.map((sv) => (
+                  <SubNavRow
+                    key={sv.id}
+                    label={sv.label}
+                    active={activeSection === id && activeSubview === sv.id}
+                    onClick={() => onChildClick(id, sv.id)}
+                  />
+                ))}
+            </Fragment>
+          )
+        })}
       </nav>
 
       <div className="mt-3 min-h-0 flex-1 overflow-y-auto px-2 pb-3">
@@ -482,58 +491,66 @@ function NavRow({
   )
 }
 
-/** The rail's secondary menu — the active section drilled into: a back chip to the
- *  full section list, the section's name (where you are), then one row per sub-view.
- *  Reads the ONE sub-view registry (lib/subviews) the section body reads, so the rail
- *  and the content can't disagree. */
-function SectionSubmenu({
-  section,
-  activeSubview,
-  onBack,
-  onOpenSubview,
+/** One section node in the rail's disclosure tree. A chevron (only when the section has
+ *  sub-nodes) expands/collapses its children in place; the icon + label opens the page.
+ *  The chevron toggles WITHOUT navigating; the row body navigates — VSCode-explorer
+ *  behaviour, so you can peek at a section's children without leaving where you are. */
+function SectionTreeRow({
+  icon,
+  label,
+  beta,
+  hasChildren,
+  expanded,
+  active,
+  onToggle,
+  onOpen,
 }: {
-  section: SectionId
-  activeSubview: string | null
-  onBack: () => void
-  onOpenSubview: (id: string) => void
+  icon: ReactNode
+  label: string
+  beta?: boolean
+  hasChildren: boolean
+  expanded: boolean
+  active: boolean
+  onToggle: () => void
+  onOpen: () => void
 }) {
-  const { label, Icon } = SECTION_META[section]
-  const subviews = SECTION_SUBVIEWS[section] ?? []
   return (
-    <div>
-      <button
-        onClick={onBack}
-        className={`flex w-full items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink-soft`}
-      >
-        <ChevronLeft size={14} className="shrink-0" />
-        Sections
+    <div
+      className={`group flex w-full items-center rounded-lg pr-2 text-[13px] transition ${
+        active ? 'bg-panel-2 font-medium text-ink' : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
+      }`}
+    >
+      {hasChildren ? (
+        <button
+          onClick={onToggle}
+          aria-label={expanded ? `Collapse ${label}` : `Expand ${label}`}
+          aria-expanded={expanded}
+          className="flex h-8 w-5 shrink-0 items-center justify-center text-ink-faint transition hover:text-ink"
+        >
+          <ChevronRight size={13} className={`transition-transform ${expanded ? 'rotate-90' : ''}`} />
+        </button>
+      ) : (
+        <span className="w-5 shrink-0" aria-hidden />
+      )}
+      <button onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-2.5 py-1.5 text-left">
+        <span className="shrink-0">{icon}</span>
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        {beta && (
+          <span className="rounded bg-panel-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-soft">Beta</span>
+        )}
       </button>
-      <div className="mt-1 flex items-center gap-2.5 px-2 py-1.5 text-[13px] font-semibold text-ink">
-        <Icon size={16} className="shrink-0 text-ink-soft" />
-        <span className="min-w-0 truncate">{label}</span>
-      </div>
-      <div className="mt-0.5">
-        {subviews.map((sv) => (
-          <SubNavRow
-            key={sv.id}
-            label={sv.label}
-            active={activeSubview === sv.id}
-            onClick={() => onOpenSubview(sv.id)}
-          />
-        ))}
-      </div>
     </div>
   )
 }
 
-/** One sub-view row in the section sub-menu — indented under the section title, with
- *  a leading dot echoing the Recents rows, so the two-level hierarchy reads clearly. */
+/** One child node under an expanded section — indented, with a leading dot echoing the
+ *  Recents rows, so the two-level tree reads clearly. */
 function SubNavRow({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
       aria-current={active ? 'page' : undefined}
-      className={`flex w-full items-center gap-2.5 rounded-lg py-1.5 pl-3.5 pr-2 text-[13px] transition ${
+      className={`flex w-full items-center gap-2.5 rounded-lg py-1.5 pl-7 pr-2 text-[13px] transition ${
         active ? 'bg-panel-2 font-medium text-ink' : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
       }`}
     >

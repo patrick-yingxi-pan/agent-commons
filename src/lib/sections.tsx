@@ -64,4 +64,4 @@ export const SECTION_ORDER: SectionId[] = [
 // The section sub-view registry lives in the pure `./subviews` module (no lucide
 // import), so a node --test can import it directly — re-exported here for callers
 // that already reach for section metadata.
-export { SECTION_SUBVIEWS, firstSubview, type SubView } from './subviews'
+export { SECTION_SUBVIEWS, type SubView } from './subviews'
