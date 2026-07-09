@@ -284,21 +284,30 @@ export function Sidebar({
           disclosure tree. A section with sub-nodes expands in place to show them indented
           (no push, no back button); siblings stay put. Filtering (kinds/status/…) is NOT
           here — it's on the page. */}
-      <nav className="mt-3 px-2">
-        <NavRow icon={<Plus size={16} />} label="New session" onClick={onNewSession} />
-        {/* Section-tree header: a label + one fold/unfold-all control, mirroring the
-            Recents / Scheduled headers (the three foldable-list regions share a shape). */}
-        <div className="mt-2 flex items-center justify-between pr-1">
-          <SectionLabel className="mt-0">Sections</SectionLabel>
-          <button
-            onClick={toggleAll}
-            title={allExpanded ? 'Collapse all' : 'Expand all'}
-            aria-label={allExpanded ? 'Collapse all sections' : 'Expand all sections'}
-            className={`flex h-6 w-6 items-center justify-center rounded-md text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink-soft`}
-          >
-            {allExpanded ? <ChevronsDownUp size={14} /> : <ChevronsUpDown size={14} />}
-          </button>
+      {/* Nav: "New session" + the Sections header stay pinned; the section tree below
+          scrolls in its OWN region, so a fully-unfolded tree gets its own scrollbar
+          instead of pushing Scheduled / Recents (below) out of view. New session stays
+          inside <nav> — e2e scopes it to the navigation role. */}
+      <nav className="mt-3 flex min-h-0 flex-col">
+        <div className="shrink-0 px-2">
+          <NavRow icon={<Plus size={16} />} label="New session" onClick={onNewSession} />
+          {/* Section-tree header: a label + one fold/unfold-all control, mirroring the
+              Recents / Scheduled headers (the three foldable-list regions share a shape). */}
+          <div className="mt-2 flex items-center justify-between pr-1">
+            <SectionLabel className="mt-0">Sections</SectionLabel>
+            <button
+              onClick={toggleAll}
+              title={allExpanded ? 'Collapse all' : 'Expand all'}
+              aria-label={allExpanded ? 'Collapse all sections' : 'Expand all sections'}
+              className={`flex h-6 w-6 items-center justify-center rounded-md text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink-soft`}
+            >
+              {allExpanded ? <ChevronsDownUp size={14} /> : <ChevronsUpDown size={14} />}
+            </button>
+          </div>
         </div>
+        {/* The tree's own scroll region (flex-auto: sizes to content, then shrinks +
+            scrolls when the rail runs short — so Scheduled / Recents keep their floor). */}
+        <div className="min-h-0 flex-auto overflow-y-auto px-2 pb-1">
         {SECTION_ORDER.map((id) => {
           const { label, Icon, beta } = SECTION_META[id]
           const children = SECTION_SUBVIEWS[id]
@@ -330,9 +339,13 @@ export function Sidebar({
             </Fragment>
           )
         })}
+        </div>
       </nav>
 
-      <div className="mt-3 min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+      {/* Scheduled + Recents — a min-height floor keeps them in view even when the
+          section tree above is fully unfolded (the tree scrolls within its own region
+          rather than shoving these off-screen). */}
+      <div className="mt-3 min-h-[9rem] flex-1 overflow-y-auto px-2 pb-3">
         {/* Scheduled — each row is a recurring routine; clicking opens its latest
             run, with a right panel to switch among runs. Foldable to save space. */}
         {routines.length > 0 && (

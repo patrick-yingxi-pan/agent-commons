@@ -58,6 +58,17 @@ test('the rail has one fold/unfold-all control that toggles the whole tree', () 
   assert.match(sidebar, /setExpanded\(allExpanded \? new Set\(\) : new Set\(expandableIds\)\)/)
 })
 
+test('the section tree scrolls in its own region; Scheduled/Recents keep a floor', () => {
+  const sidebar = read(join(ROOT, 'src', 'components', 'Sidebar.tsx'))
+  // The nav is a flex column: a pinned head (New session + Sections header) over a
+  // scrollable tree region, so a fully-unfolded tree gets its OWN scrollbar.
+  assert.match(sidebar, /<nav className="mt-3 flex min-h-0 flex-col">/)
+  assert.match(sidebar, /flex-auto overflow-y-auto/, 'the section tree has its own scroll region')
+  // The Scheduled/Recents region carries a min-height floor so the tree can't shove it
+  // off-screen — it stays in view and scrolls internally instead.
+  assert.match(sidebar, /min-h-\[9rem\] flex-1 overflow-y-auto/)
+})
+
 test('the section body + controller route through the registry; a section lands on its default', () => {
   const sectionView = read(join(ROOT, 'src', 'components', 'SectionView.tsx'))
   assert.match(sectionView, /subview \?\? 'agents'/, 'the Agents hub maps the null default to its worker-list surface')
