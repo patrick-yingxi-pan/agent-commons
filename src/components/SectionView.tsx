@@ -250,6 +250,7 @@ export function SectionView({
     section === 'projects' ? (
       <ProjectsSection
         projectId={focusProjectId}
+        subview={subview}
         onOpenProject={onOpenProject}
         onBack={onBack}
         backTo={backTo}
@@ -257,14 +258,15 @@ export function SectionView({
         onNewSession={onNewSession}
       />
     ) : section === 'artifacts' ? (
-      <ArtifactsSection onOpenSession={onOpenSession} />
+      <ArtifactsSection subview={subview} onOpenSession={onOpenSession} />
     ) : section === 'contexts' ? (
-      <ContextsSection />
+      <ContextsSection subview={subview} />
     ) : section === 'models' ? (
-      <ModelsSection />
+      <ModelsSection subview={subview} />
     ) : section === 'agents' ? (
-      // The Agents hub is the ONE section with true sub-navigation (distinct surfaces,
-      // not one list filtered) — it lives in the rail's drill-in menu (lib/subviews).
+      // The Agents hub's children are distinct SURFACES (not one list filtered), so its
+      // sub-view is a surface id — defaulting to the worker list when the rail sub-view is
+      // null. The content sections below instead take the raw sub-view (a group id or null).
       <AgentCommonsSection
         owner={focusOwnerName}
         subview={subview ?? 'agents'}
@@ -276,6 +278,7 @@ export function SectionView({
     ) : section === 'scheduled' ? (
       <ScheduledSection
         scheduleId={focusScheduleId}
+        subview={subview}
         onOpenSchedule={onOpenSchedule}
         onBack={onBack}
         backTo={backTo}
@@ -313,13 +316,9 @@ function BackButton({ to, onBack }: { to: NavLocation | null; onBack: () => void
 
 /* ─────────────────────────── Projects ─────────────────────────── */
 
-const PROJECTS_FILTER_TABS = [
-  { id: 'all', label: 'All' },
-  { id: 'shared', label: 'Shared with you' },
-]
-
 function ProjectsSection({
   projectId,
+  subview,
   onOpenProject,
   onBack,
   backTo,
@@ -329,6 +328,9 @@ function ProjectsSection({
   /** Which project detail to show (null = the list) — the controlled source of
    *  truth, set by the controller however the detail was reached. */
   projectId: string | null
+  /** The rail's group node (lib/subviews): null = yours + shared, 'mine' = yours only,
+   *  'shared' = the commons band only. */
+  subview: string | null
   onOpenProject: (id: string) => void
   onBack: () => void
   backTo: NavLocation | null
@@ -336,7 +338,6 @@ function ProjectsSection({
   onNewSession: () => void
 }) {
   const [query, setQuery] = useState('')
-  const [view, setView] = useState('all')
   const [sort, setSort] = useState('Last updated')
   const [creating, setCreating] = useState(false)
   const rel = useRelations()
@@ -404,10 +405,9 @@ function ProjectsSection({
         </PrimaryButton>
       </PageHeader>
       <SearchBox value={query} onChange={setQuery} placeholder="Search projects…" />
-      <SectionFilter tabs={PROJECTS_FILTER_TABS} active={view} onChange={setView} />
-      {/* The filter owns the yours/shared split: 'shared' isolates the commons band;
-          'all' shows your projects with that band below. */}
-      {view === 'shared' ? (
+      {/* The rail's group node owns the yours/shared split: 'shared' isolates the commons
+          band; 'mine' your own; null shows yours with the shared band below. */}
+      {subview === 'shared' ? (
         sharedWithYou.length === 0 ? (
           <Empty>
             {query.trim()
@@ -427,7 +427,7 @@ function ProjectsSection({
           ) : (
             grid(mine)
           )}
-          {sharedWithYou.length > 0 && (
+          {subview !== 'mine' && sharedWithYou.length > 0 && (
             <div className="mt-8">
               <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
                 Shared with you
@@ -1984,18 +1984,8 @@ function WorkItemRow({
 
 /** The Artifacts filter (in-page, the shared SubTabs primitive): the tab ids ARE the
  *  ArtifactKind values, so the body switches on the choice directly. */
-const ARTIFACT_FILTER_TABS = [
-  { id: 'all', label: 'All' },
-  { id: 'doc', label: 'Documents' },
-  { id: 'image', label: 'Images' },
-  { id: 'sheet', label: 'Sheets' },
-  { id: 'slide', label: 'Slides' },
-  { id: 'email', label: 'Emails' },
-]
-
-function ArtifactsSection({ onOpenSession }: { onOpenSession: (id: string) => void }) {
+function ArtifactsSection({ subview, onOpenSession }: { subview: string | null; onOpenSession: (id: string) => void }) {
   const [query, setQuery] = useState('')
-  const [view, setView] = useState('all')
   const [openId, setOpenId] = useState<string | null>(null)
   const [folded, setFolded] = useState<Set<string>>(new Set())
   const [creating, setCreating] = useState(false)
@@ -2022,7 +2012,9 @@ function ArtifactsSection({ onOpenSession }: { onOpenSession: (id: string) => vo
   const needle = query.trim().toLowerCase()
   // The filter tab ids ARE the ArtifactKind values: 'all' → no kind filter, else
   // restrict to that kind.
-  const wantKind = view === 'all' ? null : (view as ArtifactKind)
+  // The rail's group node (lib/subviews) drives the type filter: null = all types (the
+  // page still folds by project), else focus the chosen type.
+  const wantKind = subview ? (subview as ArtifactKind) : null
 
   const matches = rel.allArtifacts().filter(
     (a) =>
@@ -2085,7 +2077,6 @@ function ArtifactsSection({ onOpenSession }: { onOpenSession: (id: string) => vo
         </PrimaryButton>
       </PageHeader>
       <SearchBox value={query} onChange={setQuery} placeholder="Search artifacts…" />
-      <SectionFilter tabs={ARTIFACT_FILTER_TABS} active={view} onChange={setView} />
 
       {groups.length === 0 ? (
         <Empty>No artifacts match.</Empty>
@@ -2600,21 +2591,13 @@ function AddContextRow({ ctx, onAdd }: { ctx: SavedContext; onAdd: () => void })
 
 /** The Contexts filter (in-page, the shared SubTabs primitive): the tab ids ARE the
  *  SavedContextKind values, so the body switches on the choice directly. */
-const CONTEXT_FILTER_TABS = [
-  { id: 'all', label: 'All' },
-  { id: 'connector', label: 'Connectors' },
-  { id: 'mcp', label: 'MCP servers' },
-  { id: 'repo', label: 'Repositories' },
-]
-
-function ContextsSection() {
+function ContextsSection({ subview }: { subview: string | null }) {
   // The base list is server-owned: a connect / disconnect routes through the server,
   // which broadcasts `connector.status`, so the row's auth state reconciles here and
   // on every other client. Fall back to the seed while the first fetch is in flight.
   const saved = useSavedContexts()
   const base = saved.data?.contexts ?? SAVED_CONTEXTS
   const [query, setQuery] = useState('')
-  const [view, setView] = useState('all')
   // Which group headers are folded shut, and which context is opened in detail.
   const [folded, setFolded] = useState<Set<SavedContextKind>>(new Set())
   const [openId, setOpenId] = useState<string | null>(null)
@@ -2679,7 +2662,9 @@ function ContextsSection() {
   const needle = query.trim().toLowerCase()
   // The filter tab ids ARE the SavedContextKind values: 'all' → no kind filter, else
   // restrict to that kind.
-  const wantKind = view === 'all' ? null : (view as SavedContextKind)
+  // The rail's group node (lib/subviews) drives the filter: null = all kinds (folded
+  // groups on the page), else focus the chosen kind.
+  const wantKind = subview ? (subview as SavedContextKind) : null
 
   const visible = items.filter(
     (c) =>
@@ -2701,7 +2686,6 @@ function ContextsSection() {
         <span className="font-medium text-ink">Add context</span> — no re-authenticating, no re-cloning.
       </p>
       <SearchBox value={query} onChange={setQuery} placeholder="Search contexts…" />
-      <SectionFilter tabs={CONTEXT_FILTER_TABS} active={view} onChange={setView} />
 
       {groups.length === 0 ? (
         <Empty>No contexts match.</Empty>
@@ -3082,29 +3066,8 @@ function AgentCommonsSection({
   )
 }
 
-/** The standardized in-page **filter** bar. Every section that classifies its list by
- *  a facet (kind / type / status / ownership) uses this ONE control, so filtering reads
- *  the same everywhere and never masquerades as the rail's navigation (which is reserved
- *  for genuinely distinct surfaces — the Agents hub). Wraps the shared SubTabs segmented
- *  primitive with consistent placement below the section's header/search. */
-function SectionFilter<T extends string>({
-  tabs,
-  active,
-  onChange,
-}: {
-  tabs: { id: T; label: string }[]
-  active: T
-  onChange: (id: T) => void
-}) {
-  return (
-    <div className="mb-4">
-      <SubTabs tabs={tabs} active={active} onChange={onChange} />
-    </div>
-  )
-}
-
-/** A segmented control — the shared primitive behind the in-page SectionFilter and the
- *  Audit log's all/denied toggle. */
+/** A segmented control — the in-page toggle behind the Audit log's all/denied filter.
+ *  (Section-level grouping now lives in the rail's disclosure tree, not an in-page bar.) */
 function SubTabs<T extends string>({
   tabs,
   active,
@@ -4033,26 +3996,19 @@ function ProbeResultCard({ probe }: { probe: PromptProbeResult }) {
  *  surface. Every entry here is selectable as a model in any session's composer
  *  (the selector reads this same registry), so registering a provider and using
  *  it are two views of one concept: models are first-class citizens. */
-const MODELS_FILTER_TABS = [
-  { id: 'all', label: 'All' },
-  { id: 'builtin', label: 'Built-in' },
-  { id: 'registered', label: 'Registered' },
-  { id: 'session', label: 'Sessions' },
-]
-
-function ModelsSection() {
+function ModelsSection({ subview }: { subview: string | null }) {
   const providers = useProviders().data ?? []
   // null = no dialog; 'new' = create; a provider = edit that one.
   const [editing, setEditing] = useState<ModelProvider | 'new' | null>(null)
-  const [view, setView] = useState('all')
-  // The filter classifies by provider kind: the built-in / shared providers (no tenant),
-  // the endpoints you register, and delegated Sessions (always tenant-stamped).
+  // The rail's group node (lib/subviews) classifies by provider kind: the built-in /
+  // shared providers (no tenant), the endpoints you register, and delegated Sessions
+  // (always tenant-stamped). null = all.
   const shown =
-    view === 'builtin'
+    subview === 'builtin'
       ? providers.filter((p) => !p.tenantId)
-      : view === 'registered'
+      : subview === 'registered'
         ? providers.filter((p) => !!p.tenantId && p.kind !== 'session')
-        : view === 'session'
+        : subview === 'session'
           ? providers.filter((p) => p.kind === 'session')
           : providers
   return (
@@ -4066,7 +4022,6 @@ function ModelsSection() {
         session you already run. All of them appear in the composer’s model selector, so a
         model registered here is immediately usable in any conversation.
       </p>
-      <SectionFilter tabs={MODELS_FILTER_TABS} active={view} onChange={setView} />
       <div className="space-y-3">
         <TabToolbar newLabel="New provider" onNew={() => setEditing('new')} />
         {shown.length === 0 ? (
@@ -5778,14 +5733,9 @@ function taskPill(task: ScheduledTask): { tone: 'ok' | 'warn' | 'bad' | 'neutral
   return { tone: 'ok', label: last ? `Ran ${relativeTime(last.at)}` : 'Active' }
 }
 
-const SCHEDULED_FILTER_TABS = [
-  { id: 'all', label: 'All' },
-  { id: 'active', label: 'Active' },
-  { id: 'paused', label: 'Paused' },
-]
-
 function ScheduledSection({
   scheduleId,
+  subview,
   onOpenSchedule,
   onBack,
   backTo,
@@ -5794,6 +5744,8 @@ function ScheduledSection({
   /** Which routine detail to show (null = the list) — the controlled source of
    *  truth, set by the controller however the detail was reached. */
   scheduleId: string | null
+  /** The rail's group node (lib/subviews): null = all, else 'active' | 'paused'. */
+  subview: string | null
   onOpenSchedule: (id: string) => void
   onBack: () => void
   backTo: NavLocation | null
@@ -5806,7 +5758,6 @@ function ScheduledSection({
   // events invalidate the cache, so the list reflects run-now / the daemon live.
   const items = useSchedules().data ?? []
   const [query, setQuery] = useState('')
-  const [view, setView] = useState('all')
   const [folded, setFolded] = useState<Set<'active' | 'paused'>>(new Set())
   // Ids with a "Run now" in flight — drives the button spinner until the run's
   // run.finished event lands (cleared on a timer as a safety net).
@@ -5876,7 +5827,7 @@ function ScheduledSection({
       t.steps.some((s) => s.tool.label.toLowerCase().includes(needle)),
   )
   // The filter tab ids drive the enabled filter.
-  const wantEnabled = view === 'active' ? true : view === 'paused' ? false : null
+  const wantEnabled = subview === 'active' ? true : subview === 'paused' ? false : null
   const allGroups = [
     { key: 'active' as const, label: 'Active', items: matches.filter((t) => t.enabled) },
     { key: 'paused' as const, label: 'Paused', items: matches.filter((t) => !t.enabled) },
@@ -5897,7 +5848,6 @@ function ScheduledSection({
         see its steps and run history.
       </p>
       <SearchBox value={query} onChange={setQuery} placeholder="Search scheduled tasks…" />
-      <SectionFilter tabs={SCHEDULED_FILTER_TABS} active={view} onChange={setView} />
 
       {groups.length === 0 ? (
         <Empty>No scheduled tasks match.</Empty>

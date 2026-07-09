@@ -295,15 +295,20 @@ the mock?
   toggles children without navigating; the row body opens the page. It's driven by ONE
   registry — `src/lib/subviews.ts` (`SECTION_SUBVIEWS`) — read by **both** the rail
   (`Sidebar`, `SectionTreeRow`) and the body (`SectionView`), so they can't drift (the
-  *Registries have one home* rule). The registry holds only true sub-**navigation**
-  (genuinely distinct surfaces); today just the **Agents hub**, whose children are its four
-  *non-default* surfaces (Prompts / Commissions / Discover / Audit) — the section row itself
-  is the worker-agents surface, so it isn't re-listed as a child (that would duplicate
-  "Agents" and make the nav ambiguous). A section lands on its **default** view (rail
-  sub-view `null`; each body maps null to its own default). Filtering (a list narrowed by a
-  facet) is NOT navigation — don't hand-roll a tab bar or a filter dropdown for it. Locked
-  by `tests/section-subviews.test.ts` (inline tree not a drill-in push; registry holds only
-  nav; section lands on its default; no ad-hoc dropdowns).
+  *Registries have one home* rule). Two node kinds, by nature: **content sections**
+  (Contexts / Artifacts / Scheduled / Models / Projects) expand to their **facet groups**
+  (kind / type / status / provider-class / ownership) — clicking a group focuses the page
+  on it, the section row shows all groups; the **Agents hub** expands to its four
+  *non-default surfaces* (Prompts / Commissions / Discover / Audit) — the section row
+  itself is the worker-agents surface, so it isn't re-listed as a child (that would
+  duplicate "Agents" and make the nav ambiguous). A section lands on its **default** view
+  (rail sub-view `null`; each body maps null to its own default). A facet is chosen in
+  **one** place — the tree — never *also* an in-page filter bar; a section's grouping and
+  its rail children are the same partition, so don't add an in-page tab/dropdown that
+  re-selects it. When a section grows a new facet, add its group nodes here — the body
+  filters on the same `subview` the tree selects. Locked by `tests/section-subviews.test.ts`
+  (inline tree not a push; child ids = the body's switch keys; grouping in the tree, no
+  in-page filter bar).
 - **The entity page is the shared surface — capability shapes affordances, not
   location.** A shared Project (and any future shared entity) has ONE canonical page
   serving owner and visitor alike, GitHub-repo-style: what differs is which controls

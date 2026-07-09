@@ -20,13 +20,41 @@ export type SubView = { id: string; label: string }
  *  This module is deliberately pure (only a type-only import), so `tests/` can import the
  *  registry without pulling the UI's icon deps. */
 export const SECTION_SUBVIEWS: Partial<Record<SectionId, SubView[]>> = {
-  // The Agents hub's children are its NON-default surfaces — the section row itself opens
-  // the worker-agents list (the default), so listing "Agents" again as a child would
-  // duplicate it. Each child is a genuinely distinct surface.
+  // Content sections expand to their group nodes (a facet partition); clicking one focuses
+  // the page on that group, the section row itself shows all groups (rail sub-view null).
+  // The ids ARE each section's own switch keys, so the body filters on `subview` directly.
+  projects: [
+    { id: 'mine', label: 'Yours' },
+    { id: 'shared', label: 'Shared with you' },
+  ],
+  artifacts: [
+    { id: 'doc', label: 'Documents' },
+    { id: 'image', label: 'Images' },
+    { id: 'sheet', label: 'Sheets' },
+    { id: 'slide', label: 'Slides' },
+    { id: 'email', label: 'Emails' },
+  ],
+  contexts: [
+    { id: 'connector', label: 'Connectors' },
+    { id: 'mcp', label: 'MCP servers' },
+    { id: 'repo', label: 'Repositories' },
+  ],
+  models: [
+    { id: 'builtin', label: 'Built-in' },
+    { id: 'registered', label: 'Registered' },
+    { id: 'session', label: 'Sessions' },
+  ],
+  // The Agents hub's children are its NON-default *surfaces* (not a facet of one list) —
+  // the section row itself opens the worker-agents list (the default), so listing "Agents"
+  // again as a child would duplicate it.
   agents: [
     { id: 'prompts', label: 'Prompts' },
     { id: 'commissions', label: 'Commissions' },
     { id: 'discover', label: 'Discover' },
     { id: 'audit', label: 'Audit' },
+  ],
+  scheduled: [
+    { id: 'active', label: 'Active' },
+    { id: 'paused', label: 'Paused' },
   ],
 }
