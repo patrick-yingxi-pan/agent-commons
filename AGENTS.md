@@ -308,7 +308,27 @@ the mock?
   re-selects it. When a section grows a new facet, add its group nodes here — the body
   filters on the same `subview` the tree selects. Locked by `tests/section-subviews.test.ts`
   (inline tree not a push; child ids = the body's switch keys; grouping in the tree, no
-  in-page filter bar).
+  in-page filter bar). A **Sections** header carries one **fold/unfold-all** toggle. The
+  rail's lower body is an **accordion of foldable, resizable panes** — Sections, Scheduled,
+  Recents. Each pane's header has a **fold caret** (symmetric across all three); folding
+  collapses it to its header (persisted per pane). Open panes hold a **persisted, FIXED**
+  height except the **bottom-most open one**, which **flexes** to fill — so folding never
+  opens a gap (fold Recents → Scheduled fills; fold Scheduled too → Sections fills). A
+  divider moves only on drag — folding or a content change never moves it (**fixed unless
+  manually adjusted**); heights **clamp at render, never in storage** (the rule the rail
+  *width* follows, `useLayout`). A drag rewrites **only the dragged pane's** stored height,
+  computed from the OTHER panes' **effective** heights, so the clamp can't leak into an
+  untouched pane's stored value (a real bug an earlier sum-preserving model had). The pure
+  allocation/drag math (`layoutPanes` / `dragPane`) lives in `src/lib/railPanes.ts`
+  (dependency-free, node-tested); dividers are **in-flow gutters between panes** (never
+  overlaying a pane's scroll content/scrollbar) reusing the ONE `ResizeHandle` primitive
+  (now `top`/`bottom` orientation, with a persistent hairline on horizontals — form follows
+  function). Dividers **drop on the narrow tier** (`resizable` false → panes flow in the
+  drawer, ADAPT-11; folding still works). Two **labeled** `<nav>` landmarks keep the rail
+  landmark-unique (WCAG) *and* section rows navigation-scoped for e2e — "Create" (New
+  session) and "Sections" (the tree) — while Scheduled/Recents stay out of navigation.
+  Locked by `tests/rail-panes.test.ts` (fold combos + flex promotion, fit-to-avail clamp,
+  min floors both drag directions, no clamp-leak into storage).
 - **The entity page is the shared surface — capability shapes affordances, not
   location.** A shared Project (and any future shared entity) has ONE canonical page
   serving owner and visitor alike, GitHub-repo-style: what differs is which controls

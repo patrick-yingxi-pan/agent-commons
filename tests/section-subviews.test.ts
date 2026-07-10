@@ -58,15 +58,32 @@ test('the rail has one fold/unfold-all control that toggles the whole tree', () 
   assert.match(sidebar, /setExpanded\(allExpanded \? new Set\(\) : new Set\(expandableIds\)\)/)
 })
 
-test('the section tree scrolls in its own region; Scheduled/Recents keep a floor', () => {
+test('the rail body is an accordion of foldable, resizable panes with draggable dividers', () => {
   const sidebar = read(join(ROOT, 'src', 'components', 'Sidebar.tsx'))
-  // The nav is a flex column: a pinned head (New session + Sections header) over a
-  // scrollable tree region, so a fully-unfolded tree gets its OWN scrollbar.
-  assert.match(sidebar, /<nav className="mt-3 flex min-h-0 flex-col">/)
-  assert.match(sidebar, /flex-auto overflow-y-auto/, 'the section tree has its own scroll region')
-  // The Scheduled/Recents region carries a min-height floor so the tree can't shove it
-  // off-screen — it stays in view and scrolls internally instead.
-  assert.match(sidebar, /min-h-\[9rem\] flex-1 overflow-y-auto/)
+  // Two landmark-unique rail navs (WCAG): New session ("Create") and the Sections tree.
+  assert.match(sidebar, /<nav aria-label="Create" className="mt-3 shrink-0 px-2">/)
+  assert.match(sidebar, /aria-label="Sections"/, 'the Sections pane nav is labeled')
+  assert.match(sidebar, /ref=\{stackRef\}/, 'the pane stack is a measured region')
+  // Every pane folds like Scheduled (symmetry): one PaneFoldHeader each, and all three
+  // fold states persist (only a manual toggle changes them).
+  for (const label of ['Sections', 'Scheduled', 'Recents'])
+    assert.match(sidebar, new RegExp(`PaneFoldHeader label="${label}"`), `${label} pane folds`)
+  assert.match(sidebar, /setLayout\('railSectionsOpen'/)
+  assert.match(sidebar, /setLayout\('railRecentsOpen'/)
+  assert.match(sidebar, /setLayout\('schedOpen'/)
+  // Dividers are in-flow gutters (PaneDivider), gated on the pane's own layout.divider so
+  // a folded/flex pane has none; dropped entirely on the narrow tier (ADAPT-11).
+  assert.match(sidebar, /<PaneDivider/, 'dividers are the in-flow gutter primitive')
+  assert.match(sidebar, /paneOf\('sections'\)\?\.divider/)
+  assert.match(sidebar, /paneOf\('scheduled'\)\?\.divider/)
+  // Heights come from the accordion reducer; fixed heights persist only on drag.
+  assert.match(sidebar, /layoutPanes/, 'pane heights come from the accordion reducer')
+  assert.match(sidebar, /setLayout\('railSectionsH'/)
+  assert.match(sidebar, /setLayout\('railScheduledH'/)
+  // The old fixed 2-divider model + auto-sizing/floor are gone.
+  assert.doesNotMatch(sidebar, /railPaneHeights/)
+  assert.doesNotMatch(sidebar, /flex-auto overflow-y-auto/)
+  assert.doesNotMatch(sidebar, /min-h-\[9rem\]/)
 })
 
 test('the section body + controller route through the registry; a section lands on its default', () => {

@@ -1,4 +1,12 @@
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
+import {
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import {
   Archive,
   ArchiveRestore,
@@ -31,6 +39,14 @@ import { AccountChip } from './AccountMenu'
 import { useRelations } from '../controller/useRelations'
 import { runSessionId } from '../../contract/ids.ts'
 import { getLayout, setLayout } from '../lib/uiPrefs'
+import {
+  dragPane,
+  layoutPanes,
+  RAIL_SCHEDULED_DEFAULT,
+  RAIL_SECTIONS_DEFAULT,
+  type PaneId,
+  type PaneInput,
+} from '../lib/railPanes'
 import {
   filterSessions,
   loadSessionFilter,
@@ -206,6 +222,82 @@ export function Sidebar({
     else onOpenSchedule(task.id)
   }
 
+  // ── Resizable, foldable rail body panes (ADAPT-13) ──────────────────────────
+  // The rail body is an accordion: each pane (Sections / Scheduled / Recents) folds
+  // to its header, and open panes hold a persisted FIXED height except the bottom-most
+  // open one, which flexes to fill. A divider moves only on drag — folding or new
+  // content never does; heights clamp at render (layoutPanes), never in storage. The
+  // whole mechanism is gated on `resizable` (dropped on the narrow tier, ADAPT-11).
+  const [sectionsOpen, setSectionsOpen] = useState<boolean>(() => getLayout('railSectionsOpen', true))
+  const [recentsOpen, setRecentsOpen] = useState<boolean>(() => getLayout('railRecentsOpen', true))
+  const toggleSectionsOpen = () =>
+    setSectionsOpen((v) => {
+      setLayout('railSectionsOpen', !v)
+      return !v
+    })
+  const toggleRecentsOpen = () =>
+    setRecentsOpen((v) => {
+      setLayout('railRecentsOpen', !v)
+      return !v
+    })
+
+  const stackRef = useRef<HTMLDivElement>(null)
+  const sectionsPaneRef = useRef<HTMLElement>(null)
+  const scheduledPaneRef = useRef<HTMLDivElement>(null)
+  const dragTopRef = useRef(0)
+  const [avail, setAvail] = useState(0)
+  // Measure the stack synchronously before paint (no first-frame flash), then track
+  // it live so window resize re-flows the flex pane while fixed panes stay put.
+  useLayoutEffect(() => {
+    const el = stackRef.current
+    if (!el) return
+    const update = () => setAvail(el.clientHeight)
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  const [sectionsH, setSectionsH] = useState<number>(() => getLayout('railSectionsH', RAIL_SECTIONS_DEFAULT))
+  const [scheduledH, setScheduledH] = useState<number>(() => getLayout('railScheduledH', RAIL_SCHEDULED_DEFAULT))
+  const sectionsHRef = useRef(sectionsH)
+  sectionsHRef.current = sectionsH
+  const scheduledHRef = useRef(scheduledH)
+  scheduledHRef.current = scheduledH
+
+  const paneInputs: PaneInput[] = [
+    { id: 'sections', present: true, open: sectionsOpen, height: sectionsH },
+    { id: 'scheduled', present: routines.length > 0, open: schedOpen, height: scheduledH },
+    { id: 'recents', present: true, open: recentsOpen, height: 0 },
+  ]
+  const layout = layoutPanes(paneInputs, avail)
+  const paneOf = (id: PaneId) => layout.find((p) => p.id === id)
+  // A fixed (open, non-flex) pane gets an explicit height; the flex pane fills via
+  // flex-1; a folded pane collapses to its (auto-height) header.
+  const paneStyle = (id: PaneId) => {
+    const l = paneOf(id)
+    return resizable && l && l.open && !l.flex ? { height: l.height } : undefined
+  }
+  const paneClass = (id: PaneId) => {
+    const l = paneOf(id)
+    if (!resizable) return 'shrink-0'
+    return l?.flex ? 'relative flex min-h-0 flex-1 flex-col' : 'relative flex min-h-0 shrink-0 flex-col'
+  }
+
+  // Drag a pane's bottom divider → a new FIXED height for THAT pane only (the flex pane
+  // absorbs). Anchored on the effective layout, so the clamp can't leak into storage.
+  const startSectionsDrag = () => {
+    dragTopRef.current = sectionsPaneRef.current?.getBoundingClientRect().top ?? 0
+  }
+  const startScheduledDrag = () => {
+    dragTopRef.current = scheduledPaneRef.current?.getBoundingClientRect().top ?? 0
+  }
+  const moveSectionsDrag = (clientY: number) =>
+    setSectionsH(dragPane('sections', clientY - dragTopRef.current, paneInputs, avail))
+  const moveScheduledDrag = (clientY: number) =>
+    setScheduledH(dragPane('scheduled', clientY - dragTopRef.current, paneInputs, avail))
+  const persistSectionsH = () => setLayout('railSectionsH', sectionsHRef.current)
+  const persistScheduledH = () => setLayout('railScheduledH', scheduledHRef.current)
+
   // The project-membership menu items, shared by sessions and routines, built from
   // the relation op each entity files under.
   const sessionProjectItems = (s: Session): RowMenuItem[] =>
@@ -280,21 +372,32 @@ export function Sidebar({
         </button>
       </div>
 
-      {/* Nav: "New session" is pinned; below it every section is a node in an inline
-          disclosure tree. A section with sub-nodes expands in place to show them indented
-          (no push, no back button); siblings stay put. Filtering (kinds/status/…) is NOT
-          here — it's on the page. */}
-      {/* Nav: "New session" + the Sections header stay pinned; the section tree below
-          scrolls in its OWN region, so a fully-unfolded tree gets its own scrollbar
-          instead of pushing Scheduled / Recents (below) out of view. New session stays
-          inside <nav> — e2e scopes it to the navigation role. */}
-      <nav className="mt-3 flex min-h-0 flex-col">
-        <div className="shrink-0 px-2">
-          <NavRow icon={<Plus size={16} />} label="New session" onClick={onNewSession} />
-          {/* Section-tree header: a label + one fold/unfold-all control, mirroring the
-              Recents / Scheduled headers (the three foldable-list regions share a shape). */}
-          <div className="mt-2 flex items-center justify-between pr-1">
-            <SectionLabel className="mt-0">Sections</SectionLabel>
+      {/* New session — pinned above the pane stack, in a labeled <nav> so e2e's
+          navigation-role scoping finds it and the two rail navs stay landmark-unique
+          (the Sections pane below is the second <nav>, carrying the section rows). */}
+      <nav aria-label="Create" className="mt-3 shrink-0 px-2">
+        <NavRow icon={<Plus size={16} />} label="New session" onClick={onNewSession} />
+      </nav>
+
+      {/* Rail body: an accordion of foldable, resizable panes — Sections, Scheduled,
+          Recents (ADAPT-13). Each folds to its header; open panes hold a persisted FIXED
+          height except the bottom-most open one, which flexes to fill. A divider moves
+          only on drag (folding / new content never does); heights clamp at render, never
+          in storage. On the narrow tier (`resizable` false) the dividers drop and the
+          panes flow inside the scrolling drawer. */}
+      <div
+        ref={stackRef}
+        className={resizable ? 'relative flex min-h-0 flex-1 flex-col' : 'min-h-0 flex-1 overflow-y-auto'}
+      >
+        {/* ── Sections pane ── the disclosure tree. A labeled <nav> so the section rows
+            carry the navigation role (e2e scopes to it). */}
+        <nav
+          ref={sectionsPaneRef}
+          aria-label="Sections"
+          style={paneStyle('sections')}
+          className={paneClass('sections')}
+        >
+          <PaneFoldHeader label="Sections" open={sectionsOpen} onToggle={toggleSectionsOpen}>
             <button
               onClick={toggleAll}
               title={allExpanded ? 'Collapse all' : 'Expand all'}
@@ -303,11 +406,9 @@ export function Sidebar({
             >
               {allExpanded ? <ChevronsDownUp size={14} /> : <ChevronsUpDown size={14} />}
             </button>
-          </div>
-        </div>
-        {/* The tree's own scroll region (flex-auto: sizes to content, then shrinks +
-            scrolls when the rail runs short — so Scheduled / Recents keep their floor). */}
-        <div className="min-h-0 flex-auto overflow-y-auto px-2 pb-1">
+          </PaneFoldHeader>
+          {sectionsOpen && (
+          <div className={resizable ? 'min-h-0 flex-1 overflow-y-auto px-2 pb-1' : 'px-2 pb-1'}>
         {SECTION_ORDER.map((id) => {
           const { label, Icon, beta } = SECTION_META[id]
           const children = SECTION_SUBVIEWS[id]
@@ -339,44 +440,29 @@ export function Sidebar({
             </Fragment>
           )
         })}
-        </div>
-      </nav>
+          </div>
+          )}
+        </nav>
+        {/* The divider is a SIBLING between panes (an in-flow gutter), not inside a pane —
+            so it never overlays a pane's scroll content / scrollbar. */}
+        {resizable && paneOf('sections')?.divider && (
+          <PaneDivider onStart={startSectionsDrag} onMove={moveSectionsDrag} onEnd={persistSectionsH} />
+        )}
 
-      {/* Scheduled + Recents — a min-height floor keeps them in view even when the
-          section tree above is fully unfolded (the tree scrolls within its own region
-          rather than shoving these off-screen). */}
-      <div className="mt-3 min-h-[9rem] flex-1 overflow-y-auto px-2 pb-3">
-        {/* Scheduled — each row is a recurring routine; clicking opens its latest
-            run, with a right panel to switch among runs. Foldable to save space. */}
+        {/* ── Scheduled pane ── each row is a recurring routine; clicking opens its
+            latest run. Folds to its header (like every pane); resizable when open. */}
         {routines.length > 0 && (
           <>
-            <div className="flex items-center justify-between pr-1">
-              <button
-                onClick={toggleSched}
-                aria-expanded={schedOpen}
-                className={`flex flex-1 items-center gap-1 rounded-md px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink-soft`}
-              >
-                {/* Label left-aligned (matching RECENTS + the row dots); the fold
-                    caret sits to its right, Claude-app "Recents ⌄" style. */}
-                Scheduled
-                <ChevronRight
-                  size={12}
-                  className={`shrink-0 transition-transform ${schedOpen ? 'rotate-90' : ''}`}
-                />
-                <span className="font-normal normal-case tracking-normal text-ink-faint">
-                  routines
-                </span>
-              </button>
-              {schedOpen && (
-                <ScheduledFilterMenu
-                  filter={routineFilter}
-                  onChange={updateRoutineFilter}
-                  projects={projects}
-                />
-              )}
-            </div>
+          <div ref={scheduledPaneRef} style={paneStyle('scheduled')} className={paneClass('scheduled')}>
+            <PaneFoldHeader label="Scheduled" open={schedOpen} onToggle={toggleSched} suffix="routines">
+              <ScheduledFilterMenu
+                filter={routineFilter}
+                onChange={updateRoutineFilter}
+                projects={projects}
+              />
+            </PaneFoldHeader>
             {schedOpen && (
-              <>
+              <div className={resizable ? 'min-h-0 flex-1 overflow-y-auto' : ''}>
                 {routineGroups.map((g) => (
                   <Fragment key={g.key}>
                     {g.label && <GroupHeader>{g.label}</GroupHeader>}
@@ -421,18 +507,23 @@ export function Sidebar({
                 {routineTotal === 0 && (
                   <p className="px-2 py-2 text-[12px] text-ink-faint">No routines match these filters.</p>
                 )}
-              </>
+              </div>
             )}
+          </div>
+          {resizable && paneOf('scheduled')?.divider && (
+            <PaneDivider onStart={startScheduledDrag} onMove={moveScheduledDrag} onEnd={persistScheduledH} />
+          )}
           </>
         )}
 
-        {/* Recents — one compact line per conversation, filtered / sorted / grouped
-            by the "Filter & sort" menu. When Group by ≠ None each bucket gets a
-            small header; otherwise it's one flat, header-less list. */}
-        <div className="mt-3 flex items-center justify-between pr-1">
-          <SectionLabel className="mt-0">Recents</SectionLabel>
-          <SessionFilterMenu filter={filter} onChange={updateFilter} projects={projects} />
-        </div>
+        {/* ── Recents pane ── one compact line per conversation. Folds to its header;
+            normally the flex pane, filling whatever height the dividers leave. */}
+        <div className={paneClass('recents')} style={paneStyle('recents')}>
+          <PaneFoldHeader label="Recents" open={recentsOpen} onToggle={toggleRecentsOpen}>
+            <SessionFilterMenu filter={filter} onChange={updateFilter} projects={projects} />
+          </PaneFoldHeader>
+          {recentsOpen && (
+          <div className={resizable ? 'min-h-0 flex-1 overflow-y-auto px-2 pb-3' : 'px-2 pb-3'}>
 
         {groups.map((g) => (
           <Fragment key={g.key}>
@@ -482,9 +573,12 @@ export function Sidebar({
             ))}
           </Fragment>
         ))}
-        {total === 0 && (
-          <p className="px-2 py-3 text-[12px] text-ink-faint">No sessions match these filters.</p>
-        )}
+          {total === 0 && (
+            <p className="px-2 py-3 text-[12px] text-ink-faint">No sessions match these filters.</p>
+          )}
+          </div>
+          )}
+        </div>
       </div>
 
       <AccountChip />
@@ -494,6 +588,60 @@ export function Sidebar({
 
 // The account/tenant chip + switcher/onboarding menu moved to ./AccountMenu.tsx
 // (multi-account P7 — it grew the sign-in / create-account / workspace flows).
+
+/** A pane's foldable header (ADAPT-13): the uppercase label doubles as a fold toggle
+ *  with a rotating caret — the same affordance on every rail pane — and its right-side
+ *  control (a filter menu, or the Sections fold-all button) shows only when open. */
+function PaneFoldHeader({
+  label,
+  open,
+  onToggle,
+  suffix,
+  children,
+}: {
+  label: string
+  open: boolean
+  onToggle: () => void
+  suffix?: string
+  children?: ReactNode
+}) {
+  return (
+    <div className="flex shrink-0 items-center justify-between pr-1 pt-2">
+      <button
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-label={open ? `Collapse ${label}` : `Expand ${label}`}
+        className={`flex flex-1 items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink-soft`}
+      >
+        {label}
+        <ChevronRight size={12} className={`shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
+        {suffix && (
+          <span className="font-normal normal-case tracking-normal text-ink-faint">{suffix}</span>
+        )}
+      </button>
+      {open && children}
+    </div>
+  )
+}
+
+/** A pane divider: an in-flow gutter carrying the shared horizontal ResizeHandle, so it
+ *  sits BETWEEN two panes — not overlaying either pane's scroll content or scrollbar —
+ *  with a persistent, easy-to-spot hairline centered in it. */
+function PaneDivider({
+  onStart,
+  onMove,
+  onEnd,
+}: {
+  onStart: () => void
+  onMove: (clientY: number) => void
+  onEnd: () => void
+}) {
+  return (
+    <div className="relative h-2 shrink-0">
+      <ResizeHandle side="bottom" onStart={onStart} onMove={onMove} onEnd={onEnd} />
+    </div>
+  )
+}
 
 function NavRow({
   icon,
