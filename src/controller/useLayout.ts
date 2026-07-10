@@ -13,8 +13,10 @@ import type { ViewportTier } from '../lib/viewport'
  *  phone visit must not clobber the desktop layout. The stored width is never
  *  rewritten either; the view clamps it at render (railWidthCss). */
 
-const LEFT_MIN = 208
-const LEFT_MAX = 420
+/** Rail width bounds — exported so the rail's ResizeHandle can announce them
+ *  (aria-valuemin/-max) from the same constants the clamp enforces. */
+export const LEFT_MIN = 208
+export const LEFT_MAX = 420
 
 export function useLayout(tier: ViewportTier) {
   const narrow = tier === 'narrow'
@@ -44,7 +46,14 @@ export function useLayout(tier: ViewportTier) {
   const openLeft = useCallback(() => setLeftOpen(true), [])
   const closeLeft = useCallback(() => setLeftOpen(false), [])
   const startResize = useCallback(() => setLeftDragging(true), [])
-  const resize = useCallback((clientX: number) => setLeftW(clamp(clientX, LEFT_MIN, LEFT_MAX)), [])
+  // resize refreshes the persist ref itself (not just at render): a keyboard step on
+  // the handle runs resize → endResize in one tick, before React re-renders, so an
+  // at-render-only ref would persist the previous width.
+  const resize = useCallback((clientX: number) => {
+    const w = clamp(clientX, LEFT_MIN, LEFT_MAX)
+    leftWRef.current = w
+    setLeftW(w)
+  }, [])
   const endResize = useCallback(() => {
     setLeftDragging(false)
     setLayout('leftW', leftWRef.current)

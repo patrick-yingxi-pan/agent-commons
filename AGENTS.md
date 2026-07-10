@@ -323,12 +323,18 @@ the mock?
   (dependency-free, node-tested); dividers are **in-flow gutters between panes** (never
   overlaying a pane's scroll content/scrollbar) reusing the ONE `ResizeHandle` primitive
   (now `top`/`bottom` orientation, with a persistent hairline on horizontals — form follows
-  function). Dividers **drop on the narrow tier** (`resizable` false → panes flow in the
+  function). Every `ResizeHandle` — rail width, panel width, pane gutters — is
+  **keyboard-operable** (WCAG 2.1.1, invariant UI-11): a focusable, distinctly named
+  separator whose axis arrows run the same start→move→end pipeline as a pointer drag,
+  announcing its size + bounds (`aria-valuenow/-min/-max`, WCAG 4.1.2) from the same
+  constants the clamp enforces.
+  Dividers **drop on the narrow tier** (`resizable` false → panes flow in the
   drawer, ADAPT-11; folding still works). Two **labeled** `<nav>` landmarks keep the rail
   landmark-unique (WCAG) *and* section rows navigation-scoped for e2e — "Create" (New
   session) and "Sections" (the tree) — while Scheduled/Recents stay out of navigation.
   Locked by `tests/rail-panes.test.ts` (fold combos + flex promotion, fit-to-avail clamp,
-  min floors both drag directions, no clamp-leak into storage).
+  min floors both drag directions, no clamp-leak into storage) and
+  `tests/resize-handle.test.ts` + `e2e/keyboard-resize.spec.ts` (the keyboard path).
 - **The entity page is the shared surface — capability shapes affordances, not
   location.** A shared Project (and any future shared entity) has ONE canonical page
   serving owner and visitor alike, GitHub-repo-style: what differs is which controls

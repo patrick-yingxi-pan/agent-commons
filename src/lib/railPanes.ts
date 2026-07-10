@@ -94,17 +94,12 @@ export function layoutPanes(panes: PaneInput[], avail: number, opts: Opts = {}):
   })
 }
 
-/** New stored height for open, non-flex pane `id` whose bottom edge is dragged to
- *  `target` px below the pane's top. Clamped so the flex pane keeps its minimum; the
- *  clamp is computed from the OTHER panes' EFFECTIVE heights, so the returned value
- *  maps 1:1 to the cursor and only this pane's stored height changes. */
-export function dragPane(
-  id: PaneId,
-  target: number,
-  panes: PaneInput[],
-  avail: number,
-  opts: Opts = {},
-): number {
+/** The ceiling open, non-flex pane `id` can grow to right now: the space left after
+ *  the folded strips, the OTHER fixed panes' EFFECTIVE heights, and the flex pane's
+ *  reserved minimum. Never below `min` (a degenerate short rail pins the range to
+ *  [min, min]). Shared by `dragPane`'s clamp and the divider's `aria-valuemax`, so
+ *  the announced range can't drift from the enforced one. */
+export function paneMax(id: PaneId, panes: PaneInput[], avail: number, opts: Opts = {}): number {
   const min = opts.min ?? RAIL_PANE_MIN
   const header = opts.header ?? RAIL_PANE_HEADER
   const gutter = opts.gutter ?? RAIL_GUTTER
@@ -116,6 +111,20 @@ export function dragPane(
   const otherFixed = layout
     .filter((p) => p.open && !p.flex && p.id !== id)
     .reduce((sum, p) => sum + p.height, 0)
-  const maxThis = availForPanes - stripsTotal - otherFixed - min // reserve the flex pane's min
-  return clamp(target, min, Math.max(min, maxThis))
+  return Math.max(min, availForPanes - stripsTotal - otherFixed - min) // reserve the flex pane's min
+}
+
+/** New stored height for open, non-flex pane `id` whose bottom edge is dragged to
+ *  `target` px below the pane's top. Clamped so the flex pane keeps its minimum; the
+ *  clamp is computed from the OTHER panes' EFFECTIVE heights (`paneMax`), so the
+ *  returned value maps 1:1 to the cursor and only this pane's stored height changes. */
+export function dragPane(
+  id: PaneId,
+  target: number,
+  panes: PaneInput[],
+  avail: number,
+  opts: Opts = {},
+): number {
+  const min = opts.min ?? RAIL_PANE_MIN
+  return clamp(target, min, paneMax(id, panes, avail, opts))
 }

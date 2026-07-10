@@ -44,6 +44,14 @@ export function PanelShell({
   const [dragging, setDragging] = useState(false)
   const widthRef = useRef(width)
   widthRef.current = width
+  // A keyboard step runs start → move → end in ONE tick; committing dragging=false
+  // in that same batch would spring-animate the step (and the handle's rect — a
+  // child of the animated motion.div — would lag the committed width, making the
+  // next press re-snap to a stale position and swallow motion under key repeat).
+  // Dropping the flag a frame later keeps the keyboard gesture on the pointer
+  // path's duration:0, with no pending width change left to animate.
+  const dropDragRaf = useRef(0)
+  useEffect(() => () => cancelAnimationFrame(dropDragRaf.current), [])
 
   // Keep the panel within the viewport if the window shrinks under it.
   useEffect(() => {
@@ -53,9 +61,14 @@ export function PanelShell({
   }, [])
 
   // The handle sits on the panel's left edge; the panel is flush-right, so the
-  // width is the distance from the pointer to the right of the viewport.
-  const resize = (clientX: number) =>
-    setWidth(panelWidthFor(tier, window.innerWidth, window.innerWidth - clientX))
+  // width is the distance from the pointer to the right of the viewport. It
+  // refreshes the persist ref itself (not just at render): a keyboard step runs
+  // resize → the persisting onEnd in one tick, before React re-renders.
+  const resize = (clientX: number) => {
+    const w = panelWidthFor(tier, window.innerWidth, window.innerWidth - clientX)
+    widthRef.current = w
+    setWidth(w)
+  }
 
   const header = (
     <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-1.5">
@@ -106,10 +119,14 @@ export function PanelShell({
     >
       <ResizeHandle
         side="left"
+        label="Resize panel"
+        value={width}
+        min={PANEL_MIN}
+        max={PANEL_MAX}
         onStart={() => setDragging(true)}
         onMove={resize}
         onEnd={() => {
-          setDragging(false)
+          dropDragRaf.current = requestAnimationFrame(() => setDragging(false))
           setLayout('rightW', widthRef.current)
         }}
       />

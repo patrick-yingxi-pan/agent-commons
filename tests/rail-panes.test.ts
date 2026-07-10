@@ -9,6 +9,7 @@ import assert from 'node:assert/strict'
 import {
   dragPane,
   layoutPanes,
+  paneMax,
   RAIL_GUTTER,
   RAIL_PANE_HEADER,
   RAIL_PANE_MIN,
@@ -118,6 +119,15 @@ test('a divider can never starve the flex pane below its min (up-drag ceiling)',
   const ls = layoutPanes(panes({ sections: { height: maxSections } }), AVAIL)
   assert.ok(byId(ls, 'recents').height >= RAIL_PANE_MIN)
   assert.equal(byId(ls, 'recents').height, RAIL_PANE_MIN, 'flex pane sits exactly at its floor')
+})
+
+test('paneMax IS dragPane’s ceiling, and floors at min on a degenerate short rail', () => {
+  // The exported ceiling exists so the divider can announce (aria-valuemax) the same
+  // range the drag enforces — these two must never drift.
+  assert.equal(paneMax('sections', panes(), AVAIL), dragPane('sections', 9999, panes(), AVAIL))
+  assert.equal(paneMax('scheduled', panes(), AVAIL), dragPane('scheduled', 9999, panes(), AVAIL))
+  // A rail too short for even the minimums pins the range to [min, min].
+  assert.equal(paneMax('sections', panes(), 100), RAIL_PANE_MIN)
 })
 
 test('the clamp never leaks into storage: a drag in a clamped state maps to the cursor, not the stored sum', () => {

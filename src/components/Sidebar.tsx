@@ -42,11 +42,14 @@ import { getLayout, setLayout } from '../lib/uiPrefs'
 import {
   dragPane,
   layoutPanes,
+  paneMax,
+  RAIL_PANE_MIN,
   RAIL_SCHEDULED_DEFAULT,
   RAIL_SECTIONS_DEFAULT,
   type PaneId,
   type PaneInput,
 } from '../lib/railPanes'
+import { LEFT_MIN, LEFT_MAX } from '../controller/useLayout'
 import {
   filterSessions,
   loadSessionFilter,
@@ -82,6 +85,7 @@ export function Sidebar({
   onOpenSearch,
   onOpenNotifications,
   resizable = true,
+  railW,
   onResizeStart,
   onResize,
   onResizeEnd,
@@ -118,6 +122,8 @@ export function Sidebar({
   /** Drag-to-resize wiring; the parent owns the width and clamps it. On the
    *  narrow tier the rail is a fixed-width drawer, so the handle is dropped. */
   resizable?: boolean
+  /** The rail's current width — the handle's aria-valuenow. */
+  railW: number
   onResizeStart: () => void
   onResize: (clientX: number) => void
   onResizeEnd: () => void
@@ -293,10 +299,19 @@ export function Sidebar({
   const startScheduledDrag = () => {
     dragTopRef.current = scheduledPaneRef.current?.getBoundingClientRect().top ?? 0
   }
-  const moveSectionsDrag = (clientY: number) =>
-    setSectionsH(dragPane('sections', clientY - dragTopRef.current, paneInputs, avail))
-  const moveScheduledDrag = (clientY: number) =>
-    setScheduledH(dragPane('scheduled', clientY - dragTopRef.current, paneInputs, avail))
+  // The move handlers refresh the persist ref THEMSELVES (not just at render): a
+  // keyboard gesture runs move → end in one tick, before React re-renders, so an
+  // at-render-only ref would persist one step stale (a reload snapped the pane back).
+  const moveSectionsDrag = (clientY: number) => {
+    const h = dragPane('sections', clientY - dragTopRef.current, paneInputs, avail)
+    sectionsHRef.current = h
+    setSectionsH(h)
+  }
+  const moveScheduledDrag = (clientY: number) => {
+    const h = dragPane('scheduled', clientY - dragTopRef.current, paneInputs, avail)
+    scheduledHRef.current = h
+    setScheduledH(h)
+  }
   const persistSectionsH = () => setLayout('railSectionsH', sectionsHRef.current)
   const persistScheduledH = () => setLayout('railScheduledH', scheduledHRef.current)
 
@@ -335,7 +350,16 @@ export function Sidebar({
   return (
     <aside className="relative flex h-full w-full shrink-0 flex-col border-r border-line bg-sidebar">
       {resizable && (
-        <ResizeHandle side="right" onStart={onResizeStart} onMove={onResize} onEnd={onResizeEnd} />
+        <ResizeHandle
+          side="right"
+          label="Resize sidebar"
+          value={railW}
+          min={LEFT_MIN}
+          max={LEFT_MAX}
+          onStart={onResizeStart}
+          onMove={onResize}
+          onEnd={onResizeEnd}
+        />
       )}
       {/* Rail header — the collapse toggle sits at the top-left, with a search
           icon beside it; both on one line (no separate product top bar). Search
@@ -452,7 +476,14 @@ export function Sidebar({
         {/* The divider is a SIBLING between panes (an in-flow gutter), not inside a pane —
             so it never overlays a pane's scroll content / scrollbar. */}
         {resizable && paneOf('sections')?.divider && (
-          <PaneDivider onStart={startSectionsDrag} onMove={moveSectionsDrag} onEnd={persistSectionsH} />
+          <PaneDivider
+            label="Resize Sections pane"
+            value={paneOf('sections')!.height}
+            max={paneMax('sections', paneInputs, avail)}
+            onStart={startSectionsDrag}
+            onMove={moveSectionsDrag}
+            onEnd={persistSectionsH}
+          />
         )}
 
         {/* ── Scheduled pane ── each row is a recurring routine; clicking opens its
@@ -517,7 +548,14 @@ export function Sidebar({
             )}
           </div>
           {resizable && paneOf('scheduled')?.divider && (
-            <PaneDivider onStart={startScheduledDrag} onMove={moveScheduledDrag} onEnd={persistScheduledH} />
+            <PaneDivider
+              label="Resize Scheduled pane"
+              value={paneOf('scheduled')!.height}
+              max={paneMax('scheduled', paneInputs, avail)}
+              onStart={startScheduledDrag}
+              onMove={moveScheduledDrag}
+              onEnd={persistScheduledH}
+            />
           )}
           </>
         )}
@@ -637,17 +675,35 @@ function PaneFoldHeader({
  *  sits BETWEEN two panes — not overlaying either pane's scroll content or scrollbar —
  *  with a persistent, easy-to-spot hairline centered in it. */
 function PaneDivider({
+  label,
+  value,
+  max,
   onStart,
   onMove,
   onEnd,
 }: {
+  /** Distinct accessible name per divider ("Resize Sections pane", …) — see ResizeHandle. */
+  label: string
+  /** The pane's EFFECTIVE (on-screen) height and its current ceiling (`paneMax`) —
+   *  the handle's aria-valuenow/-max; the floor is always RAIL_PANE_MIN. */
+  value: number
+  max: number
   onStart: () => void
   onMove: (clientY: number) => void
   onEnd: () => void
 }) {
   return (
     <div className="relative h-2 shrink-0">
-      <ResizeHandle side="bottom" onStart={onStart} onMove={onMove} onEnd={onEnd} />
+      <ResizeHandle
+        side="bottom"
+        label={label}
+        value={value}
+        min={RAIL_PANE_MIN}
+        max={max}
+        onStart={onStart}
+        onMove={onMove}
+        onEnd={onEnd}
+      />
     </div>
   )
 }

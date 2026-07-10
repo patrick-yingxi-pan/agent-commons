@@ -39,7 +39,7 @@ function requirementRows(markdown) {
 
 /** Inline-code tokens that look like a repo path (dir-prefixed or a known root file);
  *  excludes globs/URLs/flags and strips a trailing :line. */
-const DIR_PREFIX = /^(contract|server|src|tests|scripts|docs|sample-cloud|sample-runner-host)\//
+const DIR_PREFIX = /^(contract|server|src|tests|scripts|docs|e2e|sample-cloud|sample-runner-host)\//
 const ROOT_FILES = new Set(['vite.config.ts', 'package.json', 'tsconfig.json'])
 function repoPathsIn(markdown) {
   const out = []

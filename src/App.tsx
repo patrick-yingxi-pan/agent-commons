@@ -370,6 +370,7 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
                 onOpenSearch={withRailClose(() => setSearchOpen(true))}
                 onOpenNotifications={withRailClose(() => setNotifOpen(true))}
                 resizable={!railOverlay}
+                railW={leftW}
                 onResizeStart={startResize}
                 onResize={resize}
                 onResizeEnd={endResize}
