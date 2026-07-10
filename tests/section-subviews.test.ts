@@ -80,6 +80,14 @@ test('the rail body is an accordion of foldable, resizable panes with draggable 
   assert.match(sidebar, /layoutPanes/, 'pane heights come from the accordion reducer')
   assert.match(sidebar, /setLayout\('railSectionsH'/)
   assert.match(sidebar, /setLayout\('railScheduledH'/)
+  // A too-short rail scrolls instead of spilling over the account chip: the resizable
+  // stack keeps an overflow fallback and the flex pane floors at a pane-min (can't be
+  // squeezed to 0px).
+  assert.match(sidebar, /flex min-h-0 flex-1 flex-col overflow-y-auto/)
+  assert.match(sidebar, /min-h-\[6rem\] flex-1 flex-col/, 'the flex pane floors at a pane-min')
+  // The fold header's accessible name includes its suffix, so the Scheduled pane fold
+  // ("Collapse Scheduled routines") stays distinct from the Scheduled section chevron.
+  assert.match(sidebar, /\$\{label\}\$\{suffix/, 'the fold aria-label carries the suffix')
   // The old fixed 2-divider model + auto-sizing/floor are gone.
   assert.doesNotMatch(sidebar, /railPaneHeights/)
   assert.doesNotMatch(sidebar, /flex-auto overflow-y-auto/)

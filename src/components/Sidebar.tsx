@@ -280,7 +280,9 @@ export function Sidebar({
   const paneClass = (id: PaneId) => {
     const l = paneOf(id)
     if (!resizable) return 'shrink-0'
-    return l?.flex ? 'relative flex min-h-0 flex-1 flex-col' : 'relative flex min-h-0 shrink-0 flex-col'
+    // The flex pane floors at a pane-min so a too-short rail can't squeeze it to 0px
+    // (the stack scrolls instead — see the stack's overflow-y-auto below).
+    return l?.flex ? 'relative flex min-h-[6rem] flex-1 flex-col' : 'relative flex min-h-0 shrink-0 flex-col'
   }
 
   // Drag a pane's bottom divider → a new FIXED height for THAT pane only (the flex pane
@@ -387,7 +389,11 @@ export function Sidebar({
           panes flow inside the scrolling drawer. */}
       <div
         ref={stackRef}
-        className={resizable ? 'relative flex min-h-0 flex-1 flex-col' : 'min-h-0 flex-1 overflow-y-auto'}
+        className={
+          resizable
+            ? 'relative flex min-h-0 flex-1 flex-col overflow-y-auto'
+            : 'min-h-0 flex-1 overflow-y-auto'
+        }
       >
         {/* ── Sections pane ── the disclosure tree. A labeled <nav> so the section rows
             carry the navigation role (e2e scopes to it). */}
@@ -610,7 +616,10 @@ function PaneFoldHeader({
       <button
         onClick={onToggle}
         aria-expanded={open}
-        aria-label={open ? `Collapse ${label}` : `Expand ${label}`}
+        // Include the suffix in the name so the Scheduled pane fold ("… Scheduled routines")
+        // stays distinct from the Scheduled *section* row's chevron ("… Scheduled"), and the
+        // accessible name matches the visible label (WCAG 2.5.3).
+        aria-label={`${open ? 'Collapse' : 'Expand'} ${label}${suffix ? ` ${suffix}` : ''}`}
         className={`flex flex-1 items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink-soft`}
       >
         {label}
