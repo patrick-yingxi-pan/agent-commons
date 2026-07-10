@@ -130,6 +130,13 @@ export interface ConnectorStatusEvent {
   id: string
   status: 'connected' | 'needs-auth'
 }
+/** A saved context was ADDED to or REMOVED from the set-up registry (the Contexts
+ *  page's Add / Remove — status flips ride `connector.status` above). Carries only
+ *  the id (the row is gone on a remove); clients re-read the snapshot. */
+export interface SavedContextChangedEvent {
+  type: 'savedcontext.changed'
+  id: string
+}
 /** A session's persisted summary changed (title, preview, updatedAt) — e.g.
  *  after a turn — so list rows refresh without a full refetch. */
 export interface SessionUpdatedEvent {
@@ -224,6 +231,37 @@ export interface NotificationChangedEvent {
   tenantId: string
 }
 
+/** A routine was created, edited, paused/resumed, or removed (here or on another
+ *  client/device) — the schedules list (and the recent-runs feed a delete prunes)
+ *  is stale. Carries only the id: the row itself may already be gone on a delete. */
+export interface ScheduleChangedEvent {
+  type: 'schedule.changed'
+  taskId: string
+  /** The owning routine's tenant, captured at emit time (F2/PD9) — the SSE gate
+   *  reads this, not the (possibly deleted) row. Unset ⇒ the flagship seeds. */
+  tenantId?: string
+}
+
+/** A Project's Contributor roster changed — a commission was minted, re-granted, or
+ *  removed, possibly by ANOTHER tenant (the P8 cooperation primitive the acting
+ *  client's local invalidation can't cover). Visibility mirrors the Project's,
+ *  exactly like `openwork.changed`: everyone while shared, owner-only while private. */
+export interface CommissionChangedEvent {
+  type: 'commission.changed'
+  projectId: string
+}
+
+/** A D25 change proposal's lifecycle moved (opened / commented / merged / declined)
+ *  — the agent's review queue is stale. Delivered ONLY to the two parties (a
+ *  proposal is a private proposer ↔ owner negotiation, never a public feed). */
+export interface ProposalChangedEvent {
+  type: 'proposal.changed'
+  agentId: string
+  /** The two parties' tenant ids (owner + proposer), captured at emit time — the
+   *  SSE gate delivers the event to exactly these streams. */
+  parties: string[]
+}
+
 /** Sent once when an SSE channel opens, so the client can confirm liveness. */
 export interface HelloEvent {
   type: 'hello'
@@ -263,6 +301,7 @@ export type ServerEvent =
   | RecentsChangedEvent
   | NotificationChangedEvent
   | ConnectorStatusEvent
+  | SavedContextChangedEvent
   | SessionUpdatedEvent
   | SessionContextsChangedEvent
   | RunnerConnectedEvent
@@ -275,6 +314,9 @@ export type ServerEvent =
   | DispatchChangedEvent
   | AuditEntryEvent
   | OpenWorkChangedEvent
+  | ScheduleChangedEvent
+  | CommissionChangedEvent
+  | ProposalChangedEvent
 
 export type ServerEventType = ServerEvent['type']
 

@@ -285,7 +285,15 @@ the mock?
   the catalog outside the shared menu. When adding a picker for a registry concept,
   drive it from the registry hook and route it through the shared menu — and if the
   concept's entries are usable in sessions, make the registry a first-class rail
-  surface, not a sub-tab of the thing that consumes it.
+  surface, not a sub-tab of the thing that consumes it. The rule's general form is
+  invariant **UI-12** (`docs/ui-invariants.md`): every displayed datum reads a LIVE
+  source and has a SYNC path — no seed-mirror reads (the rail's project menus once
+  missed every runtime-created project), no SSE case that invalidates a key nothing
+  reads, no component-state "registry" that evaporates on unmount (the Contexts
+  page's add/remove once did), no asserted status a registry actually owns (the
+  composer quick list's fabricated green dot). Locked by
+  `tests/connectivity-freshness.test.ts` + `tests/event-tenancy.test.ts` (the
+  2026-07 connectivity audit's ratchet).
 - **Rail navigation is an inline disclosure tree.** Sections render as a VSCode-explorer
   tree (spec ADAPT-13): a section with sub-nodes carries a chevron and expands **in place**
   — children indented below it, siblings staying put, **no push and no back button**. (The

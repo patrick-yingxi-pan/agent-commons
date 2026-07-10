@@ -60,6 +60,16 @@ export function saveSessionFilter(f: SessionFilter) {
   }
 }
 
+/** Clamp a persisted filter at RENDER, never in storage (the layout-height rule).
+ *  The blob persists under one browser-wide key while `projectId` names a
+ *  tenant-scoped entity — after an account switch the stored id resolves to
+ *  nothing in the new world and would silently filter EVERY row out (the menu
+ *  labelling it "Unknown"). A dangling id reads as 'all'; the stored choice
+ *  survives untouched, so switching back restores it. */
+export function clampSessionFilter(f: SessionFilter, validProjectIds: ReadonlySet<string>): SessionFilter {
+  return f.projectId === 'all' || validProjectIds.has(f.projectId) ? f : { ...f, projectId: 'all' }
+}
+
 // ── The filter / sort / group pipeline ───────────────────────────────────────
 const DAY = 86_400_000
 const ACTIVITY_DAYS: Record<Exclude<ActivityFilter, 'all'>, number> = {

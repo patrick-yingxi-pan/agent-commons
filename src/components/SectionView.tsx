@@ -15,7 +15,6 @@ import {
   ChevronRight,
   ChevronUp,
   Clock,
-  Copy,
   Cpu,
   ExternalLink,
   FileText,
@@ -75,7 +74,7 @@ import { ConnectorDetailBody } from './ConnectorPanel'
 import { AddContextButton } from './AddContextButton'
 import { AddTrigger } from './AddTrigger'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
-import { bylineLabel, profileTitle, PROFILE_TAGLINE } from '../lib/publicFace'
+import { profileTitle, PROFILE_TAGLINE } from '../lib/publicFace'
 import { Byline, CreditLine, OwnerLink } from './PublicFace'
 import { TextDiff } from './TextDiff'
 import { CopyButton } from './CopyButton'
@@ -111,6 +110,8 @@ import {
   isOptimisticId,
   removeSchedule,
   runScheduleNow,
+  addSavedContext,
+  removeSavedContext,
   setConnectorStatus,
   toggleScheduleEnabled,
   updateSchedule,
@@ -270,7 +271,6 @@ export function SectionView({
       <AgentCommonsSection
         owner={focusOwnerName}
         subview={subview ?? 'agents'}
-        onOpenSubview={onOpenSubview}
         onOpenProject={onOpenProject}
         onBack={onBack}
         backTo={backTo}
@@ -1982,8 +1982,8 @@ function WorkItemRow({
 /* ─────────────────────────── Artifacts ─────────────────────────── */
 
 
-/** The Artifacts filter (in-page, the shared SubTabs primitive): the tab ids ARE the
- *  ArtifactKind values, so the body switches on the choice directly. */
+/** The Artifacts gallery. Its kind facet is chosen in the RAIL TREE (ADAPT-13 — the
+ *  `subview` prop; the group ids ARE the ArtifactKind values), never an in-page bar. */
 function ArtifactsSection({ subview, onOpenSession }: { subview: string | null; onOpenSession: (id: string) => void }) {
   const [query, setQuery] = useState('')
   const [openId, setOpenId] = useState<string | null>(null)
@@ -1992,15 +1992,20 @@ function ArtifactsSection({ subview, onOpenSession }: { subview: string | null; 
   const rel = useRelations()
   const projects = rel.allProjects()
   const sessions = useSessions().data ?? []
-  // Resolve an artifact's `source` (the conversation that produced it, stored as a
-  // title — artifacts carry no session id) to a real session, so "From ‹conversation›"
-  // can navigate there. A created/sourceless artifact ("Created here") or a source
-  // that isn't a known conversation simply has no match and stays a plain label.
+  // Resolve an artifact's producing conversation for "From ‹conversation›": by its
+  // stable `sourceSessionId` when stamped (runtime saves), else by the `source`
+  // TITLE (seed/legacy artifacts — a best-effort fallback: a title is mutable and
+  // not unique). A created/sourceless artifact ("Created here") or an unknown
+  // source has no match and stays a plain label.
   const sessionIdByTitle = useMemo(() => {
     const m = new Map<string, string>()
     for (const s of sessions) if (!m.has(s.title)) m.set(s.title, s.id)
     return m
   }, [sessions])
+  const sourceSessionOf = (a: ArtifactItem) =>
+    a.sourceSessionId && sessions.some((s) => s.id === a.sourceSessionId)
+      ? a.sourceSessionId
+      : sessionIdByTitle.get(a.source)
 
   const foldGroup = (id: string) =>
     setFolded((prev) => {
@@ -2127,7 +2132,7 @@ function ArtifactsSection({ subview, onOpenSession }: { subview: string | null; 
           currentProjectId={rel.artifactProjectId(openArtifact)}
           onAssignProject={(projectId) => assignProject(openArtifact, projectId)}
           onOpenSource={(() => {
-            const sid = sessionIdByTitle.get(openArtifact.source)
+            const sid = sourceSessionOf(openArtifact)
             return sid ? () => { onOpenSession(sid); setOpenId(null) } : undefined
           })()}
           onClose={() => setOpenId(null)}
@@ -2596,46 +2601,25 @@ function ContextsSection({ subview }: { subview: string | null }) {
   // which broadcasts `connector.status`, so the row's auth state reconciles here and
   // on every other client. Fall back to the seed while the first fetch is in flight.
   const saved = useSavedContexts()
-  const base = saved.data?.contexts ?? SAVED_CONTEXTS
+  const items = saved.data?.contexts ?? SAVED_CONTEXTS
   const [query, setQuery] = useState('')
   // Which group headers are folded shut, and which context is opened in detail.
   const [folded, setFolded] = useState<Set<SavedContextKind>>(new Set())
   const [openId, setOpenId] = useState<string | null>(null)
-  // Add / remove are local view conveniences (not server-backed): `removed` hides a
-  // base row; `extra` layers locally set-up contexts on top.
-  const [removed, setRemoved] = useState<Set<string>>(new Set())
-  const [extra, setExtra] = useState<SavedContext[]>([])
-  const items = [...extra, ...base.filter((c) => !removed.has(c.id))]
 
-  // Connect / disconnect: a server-owned connector goes through the server (real
-  // `connector.status` broadcast); a locally-added one flips in view state.
+  // Add / remove / connect all route through the SERVER (the registry is the
+  // system of record — these once lived in component state and silently
+  // evaporated when the section unmounted): the optimistic cache write makes the
+  // row flip instantly, the broadcast reconciles every other client.
   const toggle = (id: string) => {
-    const serverItem = base.find((c) => c.id === id)
-    if (serverItem) {
-      void setConnectorStatus(id, serverItem.status === 'connected' ? 'needs-auth' : 'connected')
-    } else {
-      setExtra((prev) =>
-        prev.map((c) =>
-          c.id === id ? { ...c, status: c.status === 'connected' ? 'needs-auth' : 'connected' } : c,
-        ),
-      )
-    }
+    const item = items.find((c) => c.id === id)
+    if (item) void setConnectorStatus(id, item.status === 'connected' ? 'needs-auth' : 'connected')
   }
   const remove = (id: string) => {
-    setRemoved((prev) => new Set(prev).add(id))
-    setExtra((prev) => prev.filter((c) => c.id !== id))
+    void removeSavedContext(id)
   }
   const add = (ctx: SavedContext) => {
-    if (base.some((c) => c.id === ctx.id)) {
-      // Re-adding a hidden base row just un-hides it.
-      setRemoved((prev) => {
-        const next = new Set(prev)
-        next.delete(ctx.id)
-        return next
-      })
-    } else {
-      setExtra((prev) => (prev.some((c) => c.id === ctx.id) ? prev : [ctx, ...prev]))
-    }
+    void addSavedContext(ctx)
   }
   const foldGroup = (kind: SavedContextKind) =>
     setFolded((prev) => {
@@ -3018,7 +3002,6 @@ type CommonsTab = 'agents' | 'prompts' | 'commissions' | 'discover' | 'audit'
 function AgentCommonsSection({
   owner,
   subview,
-  onOpenSubview,
   onOpenProject,
   onBack,
   backTo,
@@ -3028,20 +3011,16 @@ function AgentCommonsSection({
   /** The active hub sub-view — a CommonsTab id, defaulting to the worker-agents surface
    *  ('agents') when the section is on its default (rail subview null). */
   subview: string
-  onOpenSubview: (id: string | null) => void
   onOpenProject: (id: string) => void
   onBack: () => void
   backTo: NavLocation | null
 }) {
   const tab = subview as CommonsTab
-  // An agent door lands on the hub → reset to the default worker-agents surface so the
-  // target agent's card is mounted (it auto-opens its review dialog for a proposal bell,
-  // R5, or flashes for a fork bell, R6), even if the user last left the hub on another
-  // sub-view. `null` is the section default (→ the 'agents' surface).
-  const { pending } = usePendingFocus()
-  useEffect(() => {
-    if (!owner && pending?.agentId && tab !== 'agents') onOpenSubview(null)
-  }, [owner, pending, tab, onOpenSubview])
+  // NB: no "reset the sub-view for an agent door" effect here — the door entry
+  // points (openAgent / openProposal in useSessionWorkspace) already land the hub
+  // on its default surface in the same update that sets the focus target, and a
+  // component-side reset routed through the openSubview funnel would CLEAR that
+  // pendingFocus. The controller is the single source of the reset.
   if (owner) {
     return <OwnerProfilePage name={owner} onOpenProject={onOpenProject} onBack={onBack} backTo={backTo} />
   }
@@ -5260,6 +5239,7 @@ function AgentDetailDialog({
   /** A notification door (R5b) opened this detail focused on one of Your proposals. */
   focusProposalId?: string | null
 }) {
+  const rel = useRelations()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // D25: the detail carries the propose-a-change door — one dialog, two modes.
@@ -5292,7 +5272,17 @@ function AgentDetailDialog({
       error={error}
     >
       <p className="text-[12px] text-ink-faint">
-        {bylineLabel(entry.owner, entry.own)} · v{entry.version}
+        {/* The owner byline is a profile door like every other byline (S12/S13's
+            parity rule) — close the dialog first, the resolved-work rows' pattern. */}
+        <OwnerLink
+          ownerName={entry.owner}
+          own={entry.own}
+          onClick={() => {
+            onClose()
+            rel.navigate('agents', entry.owner)
+          }}
+        />{' '}
+        · v{entry.version}
       </p>
       <FormField label="System prompt">
         <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-panel-2 p-2.5 font-sans text-[12px] leading-relaxed text-ink-soft">
@@ -5426,6 +5416,7 @@ function ProposeChangeDialog({
   onBack: () => void
   onClose: () => void
 }) {
+  const rel = useRelations()
   const [prompt, setPrompt] = useState(entry.systemPrompt)
   const [instructions, setInstructions] = useState(entry.instructions)
   const [note, setNote] = useState('')
@@ -5467,8 +5458,16 @@ function ProposeChangeDialog({
       error={error}
     >
       <p className="text-[12px] text-ink-faint">
-        Against v{entry.version} {bylineLabel(entry.owner, entry.own)} — the owner reviews and merges or
-        declines.{' '}
+        Against v{entry.version}{' '}
+        <OwnerLink
+          ownerName={entry.owner}
+          own={entry.own}
+          onClick={() => {
+            onClose()
+            rel.navigate('agents', entry.owner)
+          }}
+        />{' '}
+        — the owner reviews and merges or declines.{' '}
         <button onClick={onBack} className={INLINE_ACTION_CLASS}>
           Back to the definition
         </button>
@@ -6271,15 +6270,7 @@ function PromptCard({ prompt, onSave }: { prompt: string; onSave: (prompt: strin
                 <Pencil size={13} />
               </button>
             </Tooltip>
-            <Tooltip label="Copy">
-              <button
-                onClick={() => navigator.clipboard?.writeText(prompt)}
-                aria-label="Copy instruction"
-                className="flex h-6 w-6 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink-soft"
-              >
-                <Copy size={14} />
-              </button>
-            </Tooltip>
+            <CopyButton text={prompt} ariaLabel="Copy instruction" />
           </div>
         )}
       </div>

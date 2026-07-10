@@ -113,7 +113,6 @@ body {
   margin-left: 1px;
   background: var(--color-accent);
   color: transparent;
-  animation: caret-blink 1s steps(1) infinite;
   border-radius: 1px;
 }
 
@@ -130,8 +129,17 @@ body {
     transform: translateY(-2px);
   }
 }
-.thinking-dot {
-  animation: dot-pulse 1.2s ease-in-out infinite;
+
+/* The infinite blink/pulse play only for motion-tolerant users (WCAG 2.3.3 — the
+   same gate every spinner wears, src/lib/spinner.ts); reduced motion gets a
+   steady caret and steady dots, which still read as "generating". */
+@media (prefers-reduced-motion: no-preference) {
+  .stream-caret {
+    animation: caret-blink 1s steps(1) infinite;
+  }
+  .thinking-dot {
+    animation: dot-pulse 1.2s ease-in-out infinite;
+  }
 }
 
 .font-serif {

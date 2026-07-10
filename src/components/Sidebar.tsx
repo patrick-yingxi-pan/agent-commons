@@ -27,14 +27,14 @@ import {
   Search,
   Trash2,
 } from 'lucide-react'
-import type { Project, ScheduledTask, Session, SectionId } from '../types'
+import type { ScheduledTask, Session, SectionId } from '../types'
 import { ResizeHandle } from './ResizeHandle'
 import { SessionFilterMenu } from './SessionFilterMenu'
 import { ScheduledFilterMenu } from './ScheduledFilterMenu'
 import { RowMenu, projectMenuItems, type RowMenuItem } from './RowMenu'
 import { SECTION_META, SECTION_ORDER, SECTION_SUBVIEWS } from '../lib/sections'
 import { SIDEBAR_HOVER } from '../lib/sidebar'
-import { removeSchedule, runScheduleNow, toggleScheduleEnabled, useNotifications, useProjects, useSchedules } from '../api'
+import { removeSchedule, runScheduleNow, toggleScheduleEnabled, useNotifications, useSchedules } from '../api'
 import { AccountChip } from './AccountMenu'
 import { useRelations } from '../controller/useRelations'
 import { runSessionId } from '../../contract/ids.ts'
@@ -51,20 +51,20 @@ import {
 } from '../lib/railPanes'
 import { LEFT_MIN, LEFT_MAX } from '../controller/useLayout'
 import {
+  clampSessionFilter,
   filterSessions,
   loadSessionFilter,
   saveSessionFilter,
   type SessionFilter,
 } from '../lib/sessionFilter'
 import {
+  clampRoutineFilter,
   filterRoutines,
   loadRoutineFilter,
   saveRoutineFilter,
   type RoutineFilter,
 } from '../lib/routineFilter'
 
-// Stable empty fallback so the filter useMemo's deps don't churn while projects load.
-const NO_PROJECTS: Project[] = []
 
 export function Sidebar({
   sessions,
@@ -180,13 +180,23 @@ export function Sidebar({
   // not one run of it) — the same live source the Scheduled section reads.
   const routines = useSchedules().data ?? []
 
-  const { applyOp, projectIdForSession, scheduleProjectId } = useRelations()
-  const projects = useProjects().data ?? NO_PROJECTS
+  const { applyOp, projectIdForSession, scheduleProjectId, allProjects } = useRelations()
+  // The LIVE project registry — seeds + runtime-created (graph.extraProjects), the
+  // same list the Projects page renders. The rail must not read the seed-only
+  // /projects mirror: a just-created project would be nameless here ("Project")
+  // and missing from every "Add to project" / filter menu (registries have one
+  // home and live points-of-use).
+  const projects = useMemo(() => allProjects(), [allProjects])
   const projectName = (pid: string) => projects.find((p) => p.id === pid)?.name ?? 'Project'
 
   // Recents "Filter & sort": the persisted choice, plus the project membership /
   // names it needs to filter and group by project (read from the relations graph).
-  const [filter, setFilter] = useState<SessionFilter>(loadSessionFilter)
+  // The stored blob is browser-wide while its projectId is tenant-scoped, so the
+  // choice CLAMPS at render (never in storage): a dangling id — another account's
+  // project, or a deleted one — reads as 'all' instead of hiding every row.
+  const [rawFilter, setFilter] = useState<SessionFilter>(loadSessionFilter)
+  const projectIds = useMemo(() => new Set(projects.map((p) => p.id)), [projects])
+  const filter = clampSessionFilter(rawFilter, projectIds)
   const updateFilter = (next: SessionFilter) => {
     setFilter(next)
     saveSessionFilter(next)
@@ -202,7 +212,8 @@ export function Sidebar({
   // The Scheduled feed gets the same "Filter & sort" control, retuned for routines
   // (Status active/paused, group by project). Its own persisted choice + project
   // resolver (routine → project, via the relations graph).
-  const [routineFilter, setRoutineFilter] = useState<RoutineFilter>(loadRoutineFilter)
+  const [rawRoutineFilter, setRoutineFilter] = useState<RoutineFilter>(loadRoutineFilter)
+  const routineFilter = clampRoutineFilter(rawRoutineFilter, projectIds)
   const updateRoutineFilter = (next: RoutineFilter) => {
     setRoutineFilter(next)
     saveRoutineFilter(next)
@@ -807,16 +818,6 @@ function SubNavRow({ label, active, onClick }: { label: string; active: boolean;
       />
       <span className="min-w-0 flex-1 truncate text-left">{label}</span>
     </button>
-  )
-}
-
-function SectionLabel({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return (
-    <div
-      className={`px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint ${className}`}
-    >
-      {children}
-    </div>
   )
 }
 

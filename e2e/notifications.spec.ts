@@ -21,12 +21,9 @@ async function openApp(page: Page) {
   await dismissIntro(page, 5_000)
 }
 
-/** Navigate to a section from the rail. Section sub-nav is a drill-in menu (ADAPT-13):
- *  while inside a section its sibling section rows are hidden behind the sub-menu, so
- *  pop back to the section list first (a no-op when we're already at the top level). */
+/** Navigate to a section from the rail tree (ADAPT-13: an inline disclosure tree —
+ *  every section row is always present; there is no drill-in to pop back from). */
 async function gotoSection(page: Page, name: string) {
-  const back = page.getByRole('navigation').getByRole('button', { name: 'Sections', exact: true })
-  if (await back.isVisible().catch(() => false)) await back.click()
   await page.getByRole('navigation').getByRole('button', { name, exact: true }).click()
 }
 
@@ -245,6 +242,10 @@ test('a proposal.merged bell opens the owner’s profile ON Your-proposals, focu
   await expect(detail.getByText(/Your proposals/)).toBeVisible()
   // The proposal row's own note (exact — the merge also echoes it into the changelog).
   await expect(detail.getByText(NOTE, { exact: true })).toBeVisible()
+  // The VERDICT is visible too — the row's merged status pill. This is the review
+  // fix's regression lock: the queue was prefetched before the owner merged, and
+  // without the `proposal.changed` push the door opened the stale 'open' copy.
+  await expect(detail.getByText('merged', { exact: true }).first()).toBeVisible()
   // Surface-audit S1: the proposer can now review THEIR OWN change (the diff's
   // proposed column), not just its note — the shared ProposalFieldDiff renders here.
   await expect(detail.getByText(NEW_PROMPT).first()).toBeVisible()

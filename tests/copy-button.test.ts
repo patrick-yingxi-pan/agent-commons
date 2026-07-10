@@ -36,3 +36,17 @@ test('the copy-pill literal is defined once — no component re-hardcodes it', (
     )
   }
 })
+
+test('the clipboard write itself is funneled — only CopyButton touches navigator.clipboard', () => {
+  // The deeper enumeration handle: a copy affordance that bypasses <CopyButton>
+  // shows up as a stray clipboard call (the PromptCard's icon button did exactly
+  // this — no "Copied" feedback, its own markup). Scanning for the API call
+  // catches the next escape even if it invents entirely new styling.
+  for (const file of filesUnder('src')) {
+    if (file.endsWith(join('components', 'CopyButton.tsx'))) continue
+    assert.ok(
+      !stripComments(read(file)).includes('navigator.clipboard'),
+      `${file} must route its copy affordance through <CopyButton>, not call the clipboard directly`,
+    )
+  }
+})

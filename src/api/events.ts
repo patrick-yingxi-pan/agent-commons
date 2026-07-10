@@ -20,6 +20,25 @@ import { activeAccount, onAccountSwitch } from './account.ts'
 let source: EventSource | null = null
 let knownEpoch: string | null = null
 
+/** Session-scoped push fan-out for the CONTROLLER. The open thread is controller
+ *  state (not a `useQuery` read), so cache invalidation alone can't heal it — a
+ *  context attached on another client, or a rename, would stay invisible until
+ *  the session was re-selected. Callbacks get the session id whose server-side
+ *  state moved; the controller decides whether that's the open thread and how to
+ *  reconcile. One narrow, event-shape-free seam, so the one-door rule holds
+ *  (nothing outside src/api knows an SSE event type). */
+type SessionPushListener = (sessionId: string) => void
+const sessionPushListeners = new Set<SessionPushListener>()
+export function onSessionPush(fn: SessionPushListener): () => void {
+  sessionPushListeners.add(fn)
+  return () => {
+    sessionPushListeners.delete(fn)
+  }
+}
+function notifySessionPush(sessionId: string): void {
+  for (const fn of sessionPushListeners) fn(sessionId)
+}
+
 /** The single place an ambient event becomes a cache mutation. */
 function route(e: ServerEvent): void {
   switch (e.type) {
@@ -33,20 +52,28 @@ function route(e: ServerEvent): void {
       // The full session (its thread) changed too — a persisted turn, a rename.
       // No-op unless some view has read this session (then it refetches).
       invalidate(keys.session(e.session.id))
+      notifySessionPush(e.session.id)
       break
     // A session's attached contexts changed (here or on another client) — re-read
-    // the binding the effect-mediation path resolves against.
+    // the binding the effect-mediation path resolves against, and tell the
+    // controller: the composer's chips render controller state, which must
+    // reconcile or the attach never shows here.
     case 'session.contexts.changed':
       invalidate(keys.sessionContexts(e.sessionId))
+      notifySessionPush(e.sessionId)
       break
     // A scheduled run fired / advanced a step / finished (run-now or the daemon) —
-    // the recent-runs feed and the schedules (their run lists) are now stale. This
-    // is the ambient-push that makes a run appear in the rail and step forward with
-    // no user request.
+    // the schedules (their run lists) are now stale. This is the ambient-push that
+    // makes a run appear in the rail and step forward with no user request.
     case 'run.started':
     case 'run.progress':
     case 'run.finished':
-      invalidate(keys.recentRuns)
+      invalidate(keys.schedules)
+      break
+    // A routine was created / edited / paused / removed (another client or device;
+    // this one's commands invalidate locally too) — the rail's Scheduled pane and
+    // the Scheduled section read the same list, so one refetch heals both.
+    case 'schedule.changed':
       invalidate(keys.schedules)
       break
     // A relation edit was applied (by another client, or this one's standing
@@ -59,10 +86,16 @@ function route(e: ServerEvent): void {
       // — refresh any OPEN profile/search views (mounts revalidate on their own).
       invalidatePrefix(keys.ownerProfile())
       invalidatePrefix(keys.search())
+      // …and what the D17 directories list (share-project / publish-agent): a just-
+      // shared project must appear in an open Discover tab, a retracted one must leave.
+      invalidatePrefix(keys.directoryProjects())
+      invalidatePrefix(keys.directoryAgents())
       break
     // A connector's auth/setup state changed (the Contexts page connect/disconnect,
-    // here or on another client/device) — re-read the saved-contexts snapshot.
+    // here or on another client/device), or a context was added to / removed from
+    // the set-up registry — re-read the saved-contexts snapshot.
     case 'connector.status':
+    case 'savedcontext.changed':
       invalidate(keys.savedContexts)
       break
     // Recents changed (attached on another device/tab) — re-read the snapshot.
@@ -73,6 +106,23 @@ function route(e: ServerEvent): void {
     // tenant-targeted server-side) — re-read it so the bell updates live.
     case 'notification.changed':
       invalidate(keys.notifications)
+      // A bell can name a project shared with this tenant AFTER its graph loaded
+      // (mention fan-out needs only `project.shared`) — refetch the graph so the
+      // door resolves instead of dead-clicking. Tenant-targeted and rare, so cheap.
+      invalidate(keys.relations)
+      break
+    // A proposal's lifecycle moved (opened / commented / merged / declined — the
+    // event reaches only the two parties). The review queue is prefetched as soon
+    // as a published card renders, so the bell's door must refetch it or open stale.
+    case 'proposal.changed':
+      invalidate(keys.agentProposals(e.agentId))
+      break
+    // A Project's Contributor roster changed — possibly a cross-tenant arrival (P8).
+    // The roster count also rides the directory card ("N contributors", D17).
+    case 'commission.changed':
+      invalidate(keys.commissions(e.projectId))
+      invalidate(keys.commissions())
+      invalidatePrefix(keys.directoryProjects())
       break
     // The native-runner registry changed — a runner connected, disconnected, or
     // re-advertised its capabilities. Re-read the registry so affordances that
@@ -96,9 +146,12 @@ function route(e: ServerEvent): void {
       invalidate(keys.providers)
       break
     // A resource's reservation ledger changed (acquired / committed / released /
-    // capacity set) — re-read that resource's lock state.
+    // capacity set) — re-read that resource's lock state, and every open project
+    // Coordination panel (the surface that actually renders reservations; the
+    // event doesn't carry a projectId, and the family is small).
     case 'reservation.changed':
       invalidate(keys.resourceStatus(e.resourceId))
+      invalidatePrefix(keys.projectSubGoals())
       break
     // The Dispatch feed changed — a one-off run was kicked off or finished. Re-read
     // the small feed so it appears and flips running → done live.
@@ -117,6 +170,11 @@ function route(e: ServerEvent): void {
       invalidate(keys.openSubGoals(e.projectId))
       invalidate(keys.workerAgents)
       invalidatePrefix(keys.directoryProjects())
+      // A resolve moves the taker's D13 credit on every surface built to show it:
+      // the agent DIRECTORY's contribution counts and the S10 resolved-work list
+      // behind them (not just the caller's own agent list above).
+      invalidatePrefix(keys.directoryAgents())
+      invalidatePrefix(keys.agentResolvedWork())
       // Open-work counts + activity ride profiles and search hits too (D21/D22).
       invalidatePrefix(keys.ownerProfile())
       invalidatePrefix(keys.search())

@@ -11,7 +11,7 @@ import type {
   Session,
   StepTool,
 } from '../types'
-import { emptyGraph } from '../../contract/index.ts'
+import { emptyGraph, opAppliedInGraph } from '../../contract/index.ts'
 import {
   applyRelationOp,
   useArtifacts,
@@ -65,9 +65,14 @@ export interface RelationsValue {
   scheduleSessionFor: (schedId: string) => string | undefined
   scheduleExtraToolsFor: (schedId: string) => StepTool[]
   isStandingApproved: (key: string) => boolean
+  /** Whether a one-off op's effect is already IN the graph (contract `opAppliedInGraph`)
+   *  — the consent card's remount-proof confirmed state; undefined = not derivable
+   *  (the card falls back to its in-memory state). */
+  appliedInGraph: (op: RelationOp) => boolean | undefined
   // ── Project ↔ Context ──
   contextsForProject: (pid: string) => ProjectContext[]
-  // ── Project instructions (edited overlay; undefined = use the project's seed) ──
+  // ── Project instructions (the CURRENT value: edited overlay, else the seed —
+  //    the same overlay-or-seed read the project page renders) ──
   instructionsForProject: (pid: string) => string | undefined
   /** The project's public README (D26) — served to every viewer of a shared project. */
   readmeForProject: (pid: string) => string | undefined
@@ -122,7 +127,10 @@ export function RelationsProvider({
       projectIdForSession,
       projectForSessionId: (sid) => {
         const pid = projectIdForSession(sid)
-        return pid ? projects.find((p) => p.id === pid) : undefined
+        // Search the SAME merged list allProjects() serves — a session filed into a
+        // runtime-created project (graph.extraProjects) must resolve too, or the
+        // thread's breadcrumb goes blank for exactly the projects Claude creates.
+        return pid ? [...graph.extraProjects, ...projects].find((p) => p.id === pid) : undefined
       },
       sessionsForProject: (pid) => sessions.filter((s) => projectIdForSession(s.id) === pid),
       artifactProjectId,
@@ -135,8 +143,14 @@ export function RelationsProvider({
       scheduleSessionFor: (schedId) => graph.scheduleSession[schedId],
       scheduleExtraToolsFor: (schedId) => graph.scheduleExtraTools[schedId] ?? [],
       isStandingApproved: (key) => !!graph.standingApprovals[key],
+      appliedInGraph: (op) => opAppliedInGraph(graph, op),
       contextsForProject: (pid) => graph.projectContexts[pid] ?? [],
-      instructionsForProject: (pid) => graph.projectInstructions?.[pid],
+      // Overlay-or-seed — the SAME current value the project page renders, so a
+      // consent card previewing an instructions edit diffs against what the user
+      // actually sees (an overlay-only read showed an edit as a blind create).
+      instructionsForProject: (pid) =>
+        graph.projectInstructions?.[pid] ??
+        [...graph.extraProjects, ...projects].find((p) => p.id === pid)?.instructions,
       readmeForProject: (pid) => graph.projectReadmes?.[pid],
       navigate: (section, projectId) => navigate?.(section, projectId),
     }

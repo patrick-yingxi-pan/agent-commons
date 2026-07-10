@@ -1300,6 +1300,30 @@ export const store = {
         const p = MODEL_PROVIDERS.get(e.providerId)
         return (p?.tenantId ?? defaultTenantId()) === tenantId
       }
+      case 'run.started':
+      case 'run.progress':
+      case 'run.finished': {
+        // A run event names its routine (taskName / the delivery-target summary) — a
+        // tenant's private operational signal, gated like the schedules read itself.
+        // These once fell through the global default, leaking every tenant's routine
+        // names to every stream. A deleted routine falls back to the flagship rule.
+        const t = schedules.find((x) => x.id === e.taskId)
+        return t ? rowVisibleTo(t, tenantId) : seedVisibleTo(tenantId)
+      }
+      case 'schedule.changed':
+        // Stamped at emit time (the row may already be deleted) — relation.applied's
+        // pattern: the mutation is the owning tenant's private signal.
+        return e.tenantId ? e.tenantId === tenantId : seedVisibleTo(tenantId)
+      case 'commission.changed': {
+        // The Contributor roster's visibility mirrors the Project's (P8/D19), exactly
+        // like openwork.changed: everyone while shared, owner-only while private.
+        const p = findProject(e.projectId)
+        if (!p) return seedVisibleTo(tenantId)
+        return p.shared === true || rowVisibleTo(p, tenantId)
+      }
+      case 'proposal.changed':
+        // A proposal is a two-party negotiation (D25) — only proposer + owner streams.
+        return e.parties.includes(tenantId)
       default:
         return true
     }
@@ -1838,6 +1862,10 @@ export const store = {
     const standing = input.standing === true ? true : undefined
     const commission: Commission = { ...input, role, standing, id: `commission-${(commissionSeq += 1)}`, tenantId: owningTenant }
     COMMISSIONS.set(commission.id, commission)
+    // Ambient push (project-visibility-gated): a cross-tenant Contributor arriving on
+    // a shared Project must reach the OWNER's open Contributors panel too — the acting
+    // client's local invalidation can't (P8).
+    emit({ type: 'commission.changed', projectId: commission.projectId })
     persist()
     return commission
   },
@@ -1877,6 +1905,7 @@ export const store = {
       }
       if (took) emit({ type: 'openwork.changed', projectId: next.projectId })
     }
+    emit({ type: 'commission.changed', projectId: next.projectId })
     persist()
     return next
   },
@@ -1891,6 +1920,7 @@ export const store = {
       .filter((s) => s.holder === id)
       .forEach((s) => this.releaseSubGoal(s.reservationId))
     COMMISSIONS.delete(id)
+    emit({ type: 'commission.changed', projectId: commission.projectId })
     persist()
     return true
   },
@@ -2129,6 +2159,29 @@ export const store = {
     emit({ type: 'connector.status', id, status })
     persist()
     return this.savedContexts()
+  },
+  /** Save a context to the account's set-up list (the Contexts page's Add). The
+   *  registry is the system of record — the page's add once lived in component
+   *  state and evaporated on unmount. Idempotent by id (re-adding returns the
+   *  existing row); broadcasts so every client's page + composer quick list
+   *  reconcile; persists. */
+  addSavedContext(ctx: SavedContext): SavedContext {
+    const existing = savedCtxs.find((c) => c.id === ctx.id)
+    if (existing) return existing
+    savedCtxs.unshift(ctx)
+    emit({ type: 'savedcontext.changed', id: ctx.id })
+    persist()
+    return ctx
+  },
+  /** Remove a context from the set-up list (the page's "Remove from contexts").
+   *  False for an unknown id (→ 404). */
+  removeSavedContext(id: string): boolean {
+    const i = savedCtxs.findIndex((c) => c.id === id)
+    if (i < 0) return false
+    savedCtxs.splice(i, 1)
+    emit({ type: 'savedcontext.changed', id })
+    persist()
+    return true
   },
   /** The sidebar detail for one connector / MCP server (mock: derived locally;
    *  a real backend fetches live resources from the connected service). */
@@ -2501,6 +2554,9 @@ export const store = {
       agentLabel: agent.label,
       proposalId: proposal.id,
     })
+    // The bell refreshes the inbox; THIS refreshes the review queue itself (the
+    // owner's card prefetches it), so the door never opens on a stale list.
+    emit({ type: 'proposal.changed', agentId, parties: [agent.tenantId ?? defaultTenantId(), tenantId] })
     persist()
     return serveProposal(proposal, agent)
   },
@@ -2576,6 +2632,7 @@ export const store = {
       proposalId: proposal.id,
       commentId: comment.id,
     })
+    emit({ type: 'proposal.changed', agentId, parties: [ownerTenant, proposal.proposedByTenant] })
     persist()
     return serveProposal(proposal, agent)
   },
@@ -2633,6 +2690,7 @@ export const store = {
       agentLabel: WORKER_AGENTS.get(agentId)?.label ?? agent.label,
       proposalId: proposal.id,
     })
+    emit({ type: 'proposal.changed', agentId, parties: [tenantId, proposal.proposedByTenant] })
     persist()
     return publicProposal(proposal)
   },
@@ -3211,6 +3269,7 @@ export const store = {
     const task = schedules.find((t) => t.id === id)
     if (!task) return undefined
     task.enabled = enabled ?? !task.enabled
+    emit({ type: 'schedule.changed', taskId: task.id, tenantId: task.tenantId })
     persist()
     return task
   },
@@ -3233,6 +3292,7 @@ export const store = {
     if (patch.notifyOnFailure !== undefined) task.notifyOnFailure = patch.notifyOnFailure
     if (patch.delivery !== undefined) task.delivery = patch.delivery
     if (patch.steps !== undefined) task.steps = patch.steps
+    emit({ type: 'schedule.changed', taskId: task.id, tenantId: task.tenantId })
     persist()
     return task
   },
@@ -3240,13 +3300,17 @@ export const store = {
   addSchedule(seed: Omit<ScheduledTask, 'id'>): ScheduledTask {
     const task: ScheduledTask = { ...seed, id: `s-new-${(scheduleSeq += 1)}` }
     schedules.unshift(task)
+    emit({ type: 'schedule.changed', taskId: task.id, tenantId: task.tenantId })
     persist()
     return task
   },
   /** Remove a routine. */
   removeSchedule(id: string): void {
     const i = schedules.findIndex((t) => t.id === id)
-    if (i >= 0) schedules.splice(i, 1)
+    if (i < 0) return
+    const [gone] = schedules.splice(i, 1)
+    // Stamped from the removed row — the gate can no longer resolve it by id.
+    emit({ type: 'schedule.changed', taskId: gone.id, tenantId: gone.tenantId })
     persist()
   },
 

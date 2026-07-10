@@ -99,6 +99,12 @@ S1–S11 backlog shipped, three adversarial completeness passes ran —
 - **Pass 1** found **S12** (the changelog author was the last un-doored workspace byline) — shipped.
 - **Pass 2** found **S13** (the work-item poster / retractedBy / comment-author bylines were still dead labels — a gap S12 wrongly believed closed) — shipped.
 - **Pass 3** returned **empty** — zero candidates, nothing clears the bar. The audit is complete.
+- **Pass 4** (a later at-HEAD review, 2026-07) found the claim above had been premature
+  in one spot pass 3 missed: the **AgentDetailDialog / ProposeChangeDialog owner
+  bylines** rendered as plain `bylineLabel` text — the same parity break S12/S13 were
+  filed for, on the one public entity surface. Shipped: both now wear `OwnerLink`
+  (close-the-dialog-then-navigate, the resolved-work rows' pattern). A lesson for the
+  method: a "returned empty" pass certifies the sweep it ran, not the theme forever.
 
 The method's four families are now satisfied across the app: every **change** renders
 as a diff (S1/S2, shared `ProposalFieldDiff`/`TextDiff`); every **lifecycle** carries its

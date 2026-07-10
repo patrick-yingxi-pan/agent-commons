@@ -5,7 +5,7 @@
  *  Single-sourced and used by BOTH the apply command (the acting client) and the
  *  ambient `relation.applied` handler (a watching one), so they can't drift. */
 import type { RelationOp } from '../../contract/index.ts'
-import { invalidate } from './cache.ts'
+import { invalidate, invalidatePrefix } from './cache.ts'
 import { keys } from './keys.ts'
 
 /** Refresh the registry caches a confirmed CRUD op touched. A relationship-graph op
@@ -25,6 +25,8 @@ export function invalidateForCommonsOp(op: RelationOp): void {
     case 'uncommission-agent':
       invalidate(keys.commissions(op.projectId))
       invalidate(keys.commissions())
+      // The roster size rides the directory card ("N contributors", D17).
+      invalidatePrefix(keys.directoryProjects())
       break
     case 'set-commission-cap':
       // The D13 cap lives on the Project; refresh the projects list so the cap badge

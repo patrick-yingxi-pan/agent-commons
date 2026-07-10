@@ -40,3 +40,34 @@ test('PATCH an unknown saved context is 404 not_found', async () => {
   const r = await call('PATCH', '/saved-contexts/does-not-exist', { status: 'connected' })
   assert.equal(r.status, 404)
 })
+
+test('POST /saved-contexts saves a context server-side; DELETE removes it (the page’s Add/Remove survive navigation)', async () => {
+  // The Contexts page's add/remove once lived in component state and evaporated
+  // when the section unmounted — the registry is now the system of record.
+  const context = {
+    id: 'rt-test-linear',
+    label: 'Linear (route test)',
+    kind: 'connector',
+    connectorKind: 'connector',
+    status: 'connected',
+    detail: 'route test',
+    lastUsedAt: 1,
+    sessions: 0,
+  }
+  const added = await call('POST', '/saved-contexts', { context })
+  assert.equal(added.status, 200)
+  assert.equal(added.json.id, 'rt-test-linear')
+  const listed = (await call('GET', '/saved-contexts')).json
+  assert.ok(find(listed, 'rt-test-linear'), 'a fresh GET serves the saved row')
+
+  const removed = await call('DELETE', '/saved-contexts/rt-test-linear')
+  assert.equal(removed.status, 200)
+  const after = (await call('GET', '/saved-contexts')).json
+  assert.ok(!find(after, 'rt-test-linear'), 'a fresh GET no longer serves it')
+  assert.equal((await call('DELETE', '/saved-contexts/rt-test-linear')).status, 404, 'a second delete 404s')
+})
+
+test('POST /saved-contexts without a usable context is 400', async () => {
+  assert.equal((await call('POST', '/saved-contexts', {})).status, 400)
+  assert.equal((await call('POST', '/saved-contexts', { context: { id: 'x' } })).status, 400)
+})

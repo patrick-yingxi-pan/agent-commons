@@ -40,10 +40,10 @@ import {
   loadSession,
   patchSession,
   persistWorkspace,
-  runSessionFromCache,
   runSessionFromSchedules,
   cancelTurn,
   onAccountSwitch,
+  onSessionPush,
   reattachTurn,
   sendMessage,
   compactSession,
@@ -194,6 +194,12 @@ export function useSessionWorkspace() {
   // deps and must not close over a stale snapshot).
   const liveRef = useRef(live)
   liveRef.current = live
+  // Mirrors of the generation flags, so the push-reconcile effect (stable deps)
+  // can tell whether a local stream is mid-flight without a stale closure.
+  const typingRef = useRef(typing)
+  typingRef.current = typing
+  const busyRef = useRef(busy)
+  busyRef.current = busy
   // handleSend, reachable from callbacks defined before it (retryInterrupted).
   const handleSendRef = useRef<((text: string) => void) | null>(null)
   // Mirror of the open panel, so the toggle (focusContext) can compute the next panel
@@ -250,7 +256,6 @@ export function useSessionWorkspace() {
       SESSIONS.find((c) => c.id === activeId) ??
       extraSessions.find((s) => s.id === activeId) ??
       runSessionFromSchedules(activeId) ??
-      runSessionFromCache(activeId) ??
       runSessionById(activeId) ??
       DRAFT_SESSION,
     [activeId, extraSessions],
@@ -416,7 +421,6 @@ export function useSessionWorkspace() {
         SESSIONS.find((c) => c.id === id) ??
         extraSessionsRef.current.find((s) => s.id === id) ??
         runSessionFromSchedules(id) ??
-        runSessionFromCache(id) ??
         runSessionById(id) ??
         DRAFT_SESSION
       const nextLive = liveFromSession(session)
@@ -465,6 +469,29 @@ export function useSessionWorkspace() {
   // itself continues server-side — that's invariant I1's whole point).
   useEffect(() => onAccountSwitch(() => selectSession(DRAFT_ID)), [selectSession])
 
+  // A server push named the OPEN thread (a context attached on another client, a
+  // rename, a persisted turn): reconcile the controller's live copy from the
+  // system of record — the same read selectSession does — so the composer chips
+  // and panels track the server instead of freezing at selection time. Skipped
+  // while a local stream is mid-flight (the live tail is already authoritative;
+  // a reconcile would stomp the render) and for the demo/draft (client-owned).
+  useEffect(
+    () =>
+      onSessionPush((sessionId) => {
+        if (sessionId !== activeIdRef.current || sessionId === DRAFT_ID) return
+        if (activeSessionRef.current.isDemo || busyRef.current || typingRef.current) return
+        const myRun = runId.current
+        loadSession(sessionId)
+          .then((s) => {
+            if (runId.current !== myRun || activeIdRef.current !== sessionId) return
+            if (busyRef.current || typingRef.current) return
+            setLive(liveFromSession(s))
+          })
+          .catch(() => {})
+      }),
+    [],
+  )
+
   // Apply an approved escalation to the live session — attach the workspace
   // (using the user-chosen root as its label) or the repo + its connector — and
   // focus the newly attached context's sidebar. The panel *content* came from the
@@ -472,39 +499,58 @@ export function useSessionWorkspace() {
   // only once the user approves (see approveEscalation), never automatically.
   const applyEscalation = useCallback(
     (esc: EscalationProposal, workspaceRoot?: string) => {
-      setLive((l) => {
-        const next: Live = { ...l }
-        // Guard the id-keyed pushes so a replayed beat can't duplicate a panel.
-        if (esc.kind === 'workspace' && !l.workspaces.some((w) => w.id === 'ws-demo')) {
-          next.workspaces = [
-            ...l.workspaces,
-            {
-              id: 'ws-demo',
-              label: workspaceRoot ? folderLabel(workspaceRoot) : workspaceNameFor(activeSession),
-              artifacts: esc.artifacts,
-            },
-          ]
-        }
-        if (esc.kind === 'repo' && !l.repos.some((r) => r.id === 'repo-demo')) {
-          next.repos = [
-            ...l.repos,
-            {
-              id: 'repo-demo',
-              label: esc.remote,
-              origin: 'github',
-              remote: esc.remote,
-              branch: esc.branch,
-              files: esc.files,
-              diff: esc.diff,
-              terminal: esc.terminal,
-            },
-          ]
-          next.connectors = esc.connectors.reduce(withConnector, l.connectors)
-        }
-        return next
-      })
+      const l = liveRef.current
+      const next: Live = { ...l }
+      // Guard the id-keyed pushes so a replayed beat can't duplicate a panel.
+      if (esc.kind === 'workspace' && !l.workspaces.some((w) => w.id === 'ws-demo')) {
+        next.workspaces = [
+          ...l.workspaces,
+          {
+            id: 'ws-demo',
+            label: workspaceRoot ? folderLabel(workspaceRoot) : workspaceNameFor(activeSession),
+            artifacts: esc.artifacts,
+          },
+        ]
+      }
+      if (esc.kind === 'repo' && !l.repos.some((r) => r.id === 'repo-demo')) {
+        next.repos = [
+          ...l.repos,
+          {
+            id: 'repo-demo',
+            label: esc.remote,
+            origin: 'github',
+            remote: esc.remote,
+            branch: esc.branch,
+            files: esc.files,
+            diff: esc.diff,
+            terminal: esc.terminal,
+          },
+        ]
+        next.connectors = esc.connectors.reduce(withConnector, l.connectors)
+      }
+      setLive(next)
       if (esc.kind === 'workspace') setFocus({ kind: 'workspace', id: 'ws-demo' })
       if (esc.kind === 'repo') setFocus({ kind: 'repo', id: 'repo-demo' })
+      // An approved escalation on a REAL session persists through the same two
+      // facets as a manual attach (handleAddContext): the binding-of-record the
+      // effect-mediation path resolves against, and the panel write-through — or
+      // a reload would silently drop what the user just consented to grow. The
+      // demo stays client-owned (the tour replays); a draft has no server row.
+      const id = activeIdRef.current
+      const session = SESSIONS.find((s) => s.id === id) ?? extraSessionsRef.current.find((s) => s.id === id)
+      if (id !== DRAFT_ID && session && !session.isDemo && esc.kind !== 'project') {
+        const binding: AttachContextRequest =
+          esc.kind === 'workspace'
+            ? {
+                id: 'ws-demo',
+                type: 'folder',
+                label: workspaceRoot ? folderLabel(workspaceRoot) : workspaceNameFor(activeSession),
+                scope: workspaceRoot ?? '*',
+              }
+            : { id: 'repo-demo', type: 'repo', label: esc.remote, scope: '*' }
+        void attachContext(id, binding).catch(() => {})
+        void persistWorkspace(id, workspaceOf(next)).catch(() => {})
+      }
     },
     [activeSession],
   )

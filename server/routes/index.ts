@@ -2273,6 +2273,22 @@ export function buildRouter(): Router {
   r.get('/saved-contexts', ({ res }) => {
     sendJson(res, store.savedContexts())
   })
+  // Save a context to the set-up registry (the Contexts page's Add — server-owned,
+  // so it survives navigation/reload and reaches every client). Idempotent by id.
+  r.post('/saved-contexts', async ({ res, body }) => {
+    const { context } = await body<{ context?: import('../../contract/index.ts').SavedContext }>()
+    if (!context?.id || !context.label || !context.kind) {
+      return sendError(res, 'bad_request', 'context with id, label and kind is required')
+    }
+    sendJson(res, store.addSavedContext(context))
+  })
+  // Remove a context from the set-up registry.
+  r.delete('/saved-contexts/:id', ({ res, params }) => {
+    if (!store.removeSavedContext(params.id)) {
+      return sendError(res, 'not_found', `No saved context '${params.id}'`)
+    }
+    sendJson(res, { ok: true })
+  })
   // Set a saved connector / MCP server's auth status (connect / disconnect; the
   // OAuth-callback / token-expiry seam). Broadcasts `connector.status` and returns
   // the updated snapshot so the originating client reconciles immediately.

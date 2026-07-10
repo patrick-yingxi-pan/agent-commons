@@ -31,12 +31,28 @@ test('SectionView routes its spinners through the shared component', () => {
 test('no component or the shell re-hardcodes an ungated infinite animation', () => {
   // Every infinite-animation utility must be motion-safe: gated (negative lookbehind
   // excludes the gated form). Comment-stripped so a doc example can neither satisfy
-  // nor trip the scan. lib/spinner.ts holds the one gated literal and is not scanned.
+  // nor trip the scan. Sweeps ALL of src/ (a cue added in lib/ or controller/ must
+  // obey the same gate — the scan once covered only components/ and a stray in lib/
+  // would have shipped ungated). lib/spinner.ts holds the one gated literal, which
+  // the lookbehind already admits.
   const ungated = /(?<!motion-safe:)animate-(spin|pulse|ping|bounce)\b/
-  const files = [...filesUnder('src/components'), join(ROOT, 'src', 'App.tsx')]
-  for (const file of files) {
+  const files = ['src/components', 'src/lib', 'src/controller', 'src/api', 'src/data'].flatMap((d) => filesUnder(d))
+  for (const file of [...files, join(ROOT, 'src', 'App.tsx')]) {
     const src = stripComments(read(file))
     const hit = src.match(ungated)
     assert.ok(!hit, `${file} must gate "${hit?.[0]}" behind motion-safe: (use <Spinner> or motion-safe:…)`)
   }
+})
+
+test('raw CSS keyframe animations are reduced-motion gated (the stream caret + thinking dots)', () => {
+  // The two INFINITE keyframe animations in index.css predate the spinner funnel
+  // and shipped ungated — a motion-reduced viewer got a blinking caret and pulsing
+  // dots for entire generations. Lock: every `animation:` that plays an infinite
+  // keyframe lives inside a `prefers-reduced-motion: no-preference` block.
+  const css = read(join(ROOT, 'src', 'index.css'))
+  const gated = css.slice(css.indexOf('@media (prefers-reduced-motion: no-preference)'))
+  assert.match(gated, /\.stream-caret\s*\{\s*animation: caret-blink/, 'the caret blink is motion-gated')
+  assert.match(gated, /\.thinking-dot\s*\{\s*animation: dot-pulse/, 'the dot pulse is motion-gated')
+  const ungatedHalf = css.slice(0, css.indexOf('@media (prefers-reduced-motion: no-preference)'))
+  assert.doesNotMatch(ungatedHalf, /animation:[^;]*infinite/, 'no infinite animation outside the gate')
 })

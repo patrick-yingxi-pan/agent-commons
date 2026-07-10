@@ -52,7 +52,8 @@ const RELATION_ICON: Record<string, LucideIcon> = {
  *  Per-action edits confirm one-off; a recurring schedule's effect is a standing
  *  approval ("approve for all runs") that then executes unprompted. */
 export function RelationActionCard({ ops }: { ops: RelationOp[] }) {
-  const { applyOp, navigate, isStandingApproved, readmeForProject, instructionsForProject } = useRelations()
+  const { applyOp, navigate, isStandingApproved, appliedInGraph, readmeForProject, instructionsForProject } =
+    useRelations()
   const [done, setDone] = useState<Set<string>>(new Set())
   const [skipped, setSkipped] = useState<Set<string>>(new Set())
 
@@ -78,8 +79,11 @@ export function RelationActionCard({ ops }: { ops: RelationOp[] }) {
           const standing = desc.approval === 'standing'
           // A standing approval lives in the store, so an already-approved
           // recurring op renders as done even in a freshly-mounted card —
-          // "approved once, then unprompted" holds across re-proposals.
-          const isDone = done.has(key) || (standing && isStandingApproved(key))
+          // "approved once, then unprompted" holds across re-proposals. One-off
+          // ops derive the same remount-proof state from the GRAPH (the record of
+          // what was applied): a reopened thread must not re-offer a confirmed
+          // edit as pending. Non-derivable ops keep the in-memory fallback.
+          const isDone = done.has(key) || (standing && isStandingApproved(key)) || appliedInGraph(op) === true
           const isSkipped = skipped.has(key)
           const cadence = 'cadence' in op ? op.cadence : ''
           // S2 — for a content-bearing op (README / instructions / prompt / agent /

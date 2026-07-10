@@ -49,6 +49,14 @@ export function saveRoutineFilter(f: RoutineFilter) {
   }
 }
 
+/** Clamp a persisted filter at RENDER, never in storage — the sessionFilter rule:
+ *  a stored projectId from another account's world (the blob is browser-wide,
+ *  the entity tenant-scoped) must not filter every routine out; it reads as
+ *  'all' until the owning account returns. */
+export function clampRoutineFilter(f: RoutineFilter, validProjectIds: ReadonlySet<string>): RoutineFilter {
+  return f.projectId === 'all' || validProjectIds.has(f.projectId) ? f : { ...f, projectId: 'all' }
+}
+
 // ── The filter / sort / group pipeline ───────────────────────────────────────
 const STATUS_LABEL: Record<string, string> = { active: 'Active', paused: 'Paused' }
 const STATUS_ORDER: Record<string, number> = { active: 0, paused: 1 }

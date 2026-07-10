@@ -43,7 +43,7 @@ import {
   type Reservation,
   type ResourceStatus,
   type ReplyStreamEvent,
-  type RunSessionEntry,
+  type SavedContext,
   type SavedContextsSnapshot,
   type CreateDispatchRequest,
   type ScheduledTask,
@@ -233,7 +233,6 @@ export async function applyRelationOp(op: RelationOp): Promise<void> {
  *  invalidate the feed; we also nudge the local caches so it shows immediately. */
 export async function runScheduleNow(id: string): Promise<void> {
   await apiPost(paths.scheduleRun(id))
-  invalidate(keys.recentRuns)
   invalidate(keys.schedules)
 }
 
@@ -243,7 +242,6 @@ export async function runScheduleNow(id: string): Promise<void> {
 export async function toggleScheduleEnabled(id: string, enabled: boolean): Promise<void> {
   await apiPatch(paths.schedule(id), { enabled } satisfies UpdateScheduleRequest)
   invalidate(keys.schedules)
-  invalidate(keys.recentRuns)
 }
 
 /** Patch a routine's own fields (name, prompt, cadence, model, notify-on-failure,
@@ -270,7 +268,6 @@ export async function addScheduleFromSeed(seed: Omit<ScheduledTask, 'id'>): Prom
 export async function removeSchedule(id: string): Promise<void> {
   await apiDelete(paths.schedule(id))
   invalidate(keys.schedules)
-  invalidate(keys.recentRuns)
 }
 
 /** Kick off a one-off dispatch (a single on-demand agent run). The server mints it
@@ -288,6 +285,8 @@ export async function createCommission(input: CreateCommissionRequest): Promise<
   const commission = await apiPost<Commission>(paths.commissions(), input)
   invalidate(keys.commissions(input.projectId))
   invalidate(keys.commissions())
+  // The roster size rides the directory card ("N contributors", D17).
+  invalidatePrefix(keys.directoryProjects())
   return commission
 }
 
@@ -302,6 +301,7 @@ export async function updateCommission(
   invalidate(keys.commissions(projectId))
   invalidate(keys.commissions())
   invalidate(keys.commissionAuthority(id))
+  invalidatePrefix(keys.directoryProjects())
   return commission
 }
 
@@ -312,6 +312,7 @@ export async function deleteCommission(id: string, projectId: string): Promise<v
   invalidate(keys.commissions(projectId))
   invalidate(keys.commissions())
   invalidate(keys.projectSubGoals(projectId))
+  invalidatePrefix(keys.directoryProjects())
 }
 
 // ── Model providers (the Agents hub — docs/agent-commons.md, D9) ─────────────
@@ -420,9 +421,13 @@ export async function importAgentCard(url: string): Promise<Agent> {
 }
 
 /** Absolute URL of a published Agent's A2A card (D20) — a public GET, linkable
- *  from the UI so an owner can hand their agent's front door to a foreign peer. */
+ *  from the UI so an owner can hand their agent's front door to a foreign peer.
+ *  The card is handed OUT of this browser (pasted into a foreign framework), so a
+ *  same-origin relative base must resolve against the page's origin — a bare
+ *  `/api/v1/…` path is undialable by the peer and rejected by the import
+ *  validator. `new URL` leaves an absolute `VITE_API_BASE` untouched. */
 export function a2aAgentCardUrl(id: string): string {
-  return `${API_BASE}${paths.a2aAgentCard(id)}`
+  return new URL(`${API_BASE}${paths.a2aAgentCard(id)}`, window.location.origin).toString()
 }
 
 /** Post a work item onto a Project's backlog (docs/agent-commons.md, D19) — the
@@ -435,6 +440,10 @@ export async function postOpenSubGoal(projectId: string, input: PostOpenSubGoalR
   invalidate(keys.projectSubGoals(projectId))
   invalidate(keys.workerAgents)
   invalidatePrefix(keys.directoryProjects())
+  // A standing taker may have resolved it synchronously — its D13 credit rides the
+  // agent directory and the S10 resolved-work list, not just the caller's own list.
+  invalidatePrefix(keys.directoryAgents())
+  invalidatePrefix(keys.agentResolvedWork())
   return item
 }
 
@@ -531,13 +540,6 @@ export async function reserveSubGoal(projectId: string, holder: string, subGoal:
 export async function releaseSubGoal(reservationId: string, projectId: string): Promise<void> {
   await apiPost(paths.reservationRelease(reservationId))
   invalidate(keys.projectSubGoals(projectId))
-}
-
-/** Resolve a run session from the recent-runs feed cache — the controller uses
- *  this to open an `srun-*` session (including ones the daemon just created)
- *  without an extra fetch. */
-export function runSessionFromCache(id: string): Session | undefined {
-  return peek<RunSessionEntry[]>(keys.recentRuns)?.find((e) => e.session.id === id)?.session
 }
 
 /** Resolve a run session from the live schedules cache — which holds *every* run
@@ -647,6 +649,36 @@ export async function setConnectorStatus(id: string, status: ContextStatus): Pro
       { status } satisfies SetConnectorStatusRequest,
     )
     setData(keys.savedContexts, updated)
+  } catch {
+    invalidate(keys.savedContexts)
+  }
+}
+
+/** Save a context to the set-up registry (the Contexts page's Add). Optimistic —
+ *  the row appears instantly — then POSTs the canonical write (idempotent by id;
+ *  the server broadcasts `savedcontext.changed` for every other client). */
+export async function addSavedContext(context: SavedContext): Promise<void> {
+  mutate<SavedContextsSnapshot>(keys.savedContexts, (snap) => {
+    if (!snap) return snap as unknown as SavedContextsSnapshot
+    if (snap.contexts.some((c) => c.id === context.id)) return snap
+    return { ...snap, contexts: [context, ...snap.contexts] }
+  })
+  try {
+    await apiPost(paths.savedContexts, { context })
+    invalidate(keys.savedContexts)
+  } catch {
+    invalidate(keys.savedContexts)
+  }
+}
+
+/** Remove a context from the set-up registry ("Remove from contexts"). */
+export async function removeSavedContext(id: string): Promise<void> {
+  mutate<SavedContextsSnapshot>(keys.savedContexts, (snap) => {
+    if (!snap) return snap as unknown as SavedContextsSnapshot
+    return { ...snap, contexts: snap.contexts.filter((c) => c.id !== id) }
+  })
+  try {
+    await apiDelete(paths.savedContext(id))
   } catch {
     invalidate(keys.savedContexts)
   }

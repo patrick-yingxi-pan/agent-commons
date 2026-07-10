@@ -105,8 +105,9 @@ export function applyGraphOp(
       const id = mintArtifactId()
       const pid = op.projectId ?? ''
       // A user-created artifact (no session) cites a neutral source rather than a
-      // conversation title; an AI save-out passes the real session title.
-      const item = artifactFromDraft(op.artifact, id, op.sessionTitle ?? 'Created here', pid, now)
+      // conversation title; an AI save-out passes the real session title + id (the
+      // id is the stable join the gallery's "From ‹conversation›" door resolves by).
+      const item = artifactFromDraft(op.artifact, id, op.sessionTitle ?? 'Created here', pid, now, op.sessionId)
       return {
         ...graph,
         extraArtifacts: [item, ...graph.extraArtifacts],
@@ -207,6 +208,76 @@ export function applyGraphOp(
     case 'handoff-agent': // a Session↔Agent re-bind (D16), executed by the store, not a graph edit
     case 'set-commission-cap': // a Project D13 cap set, executed by the store, not a graph edit
       return graph
+    default: {
+      const _exhaustive: never = op
+      return _exhaustive
+    }
+  }
+}
+
+/** Whether a one-off op's EFFECT is already present in the graph. The consent card
+ *  derives its confirmed state from this, so a reopened thread doesn't re-offer an
+ *  already-applied edit (the persisted message keeps its proposal forever; the
+ *  GRAPH — not component state — is the record of what was applied, the same way
+ *  standing ops read `standingApprovals`). Returns `undefined` for ops whose effect
+ *  doesn't live in the graph (attach-context is a live-session effect; the Agent
+ *  Commons CRUD ops execute in the store's registries; handoff / cap ride other
+ *  stores; standing ops are covered by `standingApprovals`) — the card falls back
+ *  to its in-memory state for those. */
+export function opAppliedInGraph(graph: RelationGraph, op: RelationOp): boolean | undefined {
+  switch (op.kind) {
+    case 'file-session':
+      return op.sessionId in graph.sessionProject && graph.sessionProject[op.sessionId] === op.projectId
+    case 'create-project':
+      // The project exists AND — when the op files a session — the filing holds.
+      return (
+        graph.extraProjects.some((p) => p.id === op.projectId) &&
+        (!op.sessionId || graph.sessionProject[op.sessionId] === op.projectId)
+      )
+    case 'refile-artifact':
+      return graph.artifactProject[op.artifactId] === (op.projectId ?? '')
+    case 'save-artifact':
+      // The minted id isn't on the op, so match what artifactFromDraft stamped: the
+      // name + the citing source. Same-session re-proposals read applied; a same-name
+      // save from a DIFFERENT session stays pending (distinct source).
+      return graph.extraArtifacts.some(
+        (a) => a.name === op.artifact.name && a.source === (op.sessionTitle ?? 'Created here'),
+      )
+    case 'scope-context':
+      return (graph.projectContexts[op.projectId] ?? []).some((c) => c.label === op.context.label)
+    case 'unscope-context':
+      // Applied ⇔ the label is absent from a project the graph knows. (A vacuous
+      // unscope — never scoped — reads applied too: the effect holds.)
+      return (
+        op.projectId in graph.projectContexts &&
+        !(graph.projectContexts[op.projectId] ?? []).some((c) => c.label === op.contextLabel)
+      )
+    case 'set-project-instructions':
+      return graph.projectInstructions?.[op.projectId] === op.instructions
+    case 'set-project-readme':
+      return graph.projectReadmes?.[op.projectId] === op.readme.slice(0, 10_000)
+    case 'link-schedule-project':
+      return op.scheduleId in graph.scheduleProject && graph.scheduleProject[op.scheduleId] === op.projectId
+    case 'set-artifact-source':
+      return graph.artifactSource[op.artifactId] === op.contextLabel
+    case 'share-project': {
+      // Derivable only for created projects (the slice this reducer flips); a seed
+      // id's shared flag lives server-side, so the card keeps its local state.
+      const p = graph.extraProjects.find((x) => x.id === op.projectId)
+      return p ? (p.shared === true) === op.shared : undefined
+    }
+    case 'attach-context':
+    case 'create-provider':
+    case 'create-prompt':
+    case 'create-agent':
+    case 'commission-agent':
+    case 'uncommission-agent':
+    case 'handoff-agent':
+    case 'set-commission-cap':
+    case 'set-schedule-session':
+    case 'set-schedule-artifact':
+    case 'schedule-add-tool':
+      return undefined
     default: {
       const _exhaustive: never = op
       return _exhaustive

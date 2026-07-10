@@ -256,15 +256,18 @@ export function useOpenSubGoals(projectId: string): QueryState<OpenSubGoal[]> {
 }
 
 /** The shared-Project discovery directory (docs/agent-commons.md, D17) — every Project
- *  any tenant made public, redacted to its public face + public aggregates. */
+ *  any tenant made public, redacted to its public face + public aggregates. Revalidates
+ *  on mount (SWR, the profile/search rationale): the list composes OTHER tenants' share
+ *  acts, which no event delivered to this tenant covers. */
 export function useProjectDirectory(q?: string): QueryState<ProjectDirectoryEntry[]> {
-  return useQuery(keys.directoryProjects(q), () => apiGet<ProjectDirectoryEntry[]>(paths.directoryProjects(q)))
+  return useQuery(keys.directoryProjects(q), () => apiGet<ProjectDirectoryEntry[]>(paths.directoryProjects(q)), true, true)
 }
 
 /** The published-Agent discovery directory (D17/D18) — each entry a forkable DEFINITION
- *  plus its public track record; capability never rides an entry. */
+ *  plus its public track record; capability never rides an entry. Revalidates on mount
+ *  (SWR): publish/unpublish is another tenant's private relation act. */
 export function useAgentDirectory(q?: string): QueryState<AgentDirectoryEntry[]> {
-  return useQuery(keys.directoryAgents(q), () => apiGet<AgentDirectoryEntry[]>(paths.directoryAgents(q)))
+  return useQuery(keys.directoryAgents(q), () => apiGet<AgentDirectoryEntry[]>(paths.directoryAgents(q)), true, true)
 }
 
 /** A published definition's review queue (D25): the owner sees every proposal, a
@@ -275,9 +278,11 @@ export function useAgentProposals(agentId: string, enabled = true): QueryState<A
 
 /** A published definition's resolved-work track record (D13/S10) — the concrete,
  *  P8-redacted acts behind its contribution count. `enabled: false` holds the fetch
- *  until the detail dialog opens. */
+ *  until the detail dialog opens; revalidates when it does (SWR — `openwork.changed`
+ *  refreshes a LIVE view, but a dialog opened later must not serve a frozen first
+ *  fetch next to a count that moved). */
 export function useAgentResolvedWork(agentId: string, enabled = true): QueryState<AgentResolvedItem[]> {
-  return useQuery(keys.agentResolvedWork(agentId), () => apiGet<AgentResolvedItem[]>(paths.agentResolvedWork(agentId)), enabled)
+  return useQuery(keys.agentResolvedWork(agentId), () => apiGet<AgentResolvedItem[]>(paths.agentResolvedWork(agentId)), enabled, true)
 }
 
 /** The caller's notification inbox (D24), newest first — refreshed live by the
@@ -422,11 +427,6 @@ export function useSchedules(): QueryState<ScheduledTask[]> {
 /** The relationship graph (seed + applied edits). */
 export function useRelationGraph(): QueryState<RelationGraph> {
   return useQuery(keys.relations, () => apiGet<RelationGraph>(paths.relations))
-}
-
-/** The left rail's recent-runs feed (a single live source; updates on run events). */
-export function useRecentRuns(): QueryState<RunSessionEntry[]> {
-  return useQuery(keys.recentRuns, () => apiGet<RunSessionEntry[]>(paths.recentRuns))
 }
 
 /** The per-user recents snapshot (one MRU id list per context type). */

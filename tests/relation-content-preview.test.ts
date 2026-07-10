@@ -25,6 +25,19 @@ test('an edit to a value with NO current overlay surfaces the proposed body alon
   assert.equal(got?.proposed, 'brand new')
 })
 
+test('a CLEARED current ("" — a real stored value) also renders as a create, not a blank-left diff', () => {
+  // graph.ts stores '' when instructions are cleared; diffing against an empty
+  // column is exactly the faked diff the contract forbids.
+  const cleared = (pid: string) => (pid === 'p1' ? '' : undefined)
+  const got = relationContentPreview(
+    { kind: 'set-project-instructions', projectId: 'p1', projectName: 'P', instructions: 'fresh' },
+    cleared,
+    cleared,
+  )
+  assert.equal(got?.current, undefined, 'empty-string current normalizes away')
+  assert.equal(got?.proposed, 'fresh')
+})
+
 test('set-project-instructions previews the instructions body', () => {
   const got = preview({ kind: 'set-project-instructions', projectId: 'p1', projectName: 'P', instructions: 'be terse' })
   assert.equal(got?.label, 'Instructions')

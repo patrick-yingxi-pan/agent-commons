@@ -502,10 +502,12 @@ export function relationContentPreview(
   currentInstructions: (projectId: string) => string | undefined,
 ): RelationContentPreview | null {
   switch (op.kind) {
+    // A cleared/blank current normalizes to a create (`|| undefined`): a diff
+    // against an empty column is exactly the faked-diff the contract above forbids.
     case 'set-project-readme':
-      return { label: 'README', current: currentReadme(op.projectId), proposed: op.readme }
+      return { label: 'README', current: currentReadme(op.projectId) || undefined, proposed: op.readme }
     case 'set-project-instructions':
-      return { label: 'Instructions', current: currentInstructions(op.projectId), proposed: op.instructions }
+      return { label: 'Instructions', current: currentInstructions(op.projectId) || undefined, proposed: op.instructions }
     case 'create-prompt':
       return { label: 'Prompt body', proposed: op.body }
     case 'create-agent':
@@ -527,6 +529,7 @@ export function artifactFromDraft(
   sourceTitle: string,
   projectId: string,
   editedAt: number,
+  sourceSessionId?: string,
 ): ArtifactItem {
   return {
     id,
@@ -534,6 +537,9 @@ export function artifactFromDraft(
     kind: draft.kind,
     meta: draft.meta,
     source: sourceTitle,
+    // The stable join for "From ‹conversation›" — the title above is display only
+    // (mutable; a rename must not break the door).
+    sourceSessionId,
     projectId,
     excerpt: draft.excerpt,
     editedAt,

@@ -191,8 +191,13 @@ export interface ArtifactItem {
    *  tenant sees only its own created artifacts. (Independent of `projectId`, since an
    *  artifact can be saved without a project.) */
   tenantId?: string
-  /** The conversation that produced it. */
+  /** The conversation that produced it — its TITLE (display only). */
   source: string
+  /** The producing conversation's ID — the stable join the "From ‹conversation›"
+   *  door resolves by (a title is mutable: a rename must not break the door, and
+   *  two sessions can share one). Unset on seed/legacy artifacts, which fall back
+   *  to a title lookup. */
+  sourceSessionId?: string
   /** The project it belongs to (groups the Artifacts gallery). */
   projectId: string
   /** A one-line preview shown on the card and in the viewer. */

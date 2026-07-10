@@ -20,8 +20,9 @@ export const keys = {
   commissions: (projectId?: string) => (projectId ? `commissions:${projectId}` : 'commissions'),
   /** A commission's effective (Project-clamped) authority — the D12 reach. */
   commissionAuthority: (id: string) => `commission-authority:${id}`,
-  /** A Project's in-flight sub-goal reservations (D11 coordination). */
-  projectSubGoals: (projectId: string) => `project-subgoals:${projectId}`,
+  /** A Project's in-flight sub-goal reservations (D11 coordination) — the no-arg
+   *  call is the family prefix for `invalidatePrefix` (the directory-keys convention). */
+  projectSubGoals: (projectId?: string) => (projectId ? `project-subgoals:${projectId}` : 'project-subgoals'),
   /** A Project's open-work backlog (docs/agent-commons.md, D19). */
   openSubGoals: (projectId: string) => `open-subgoals:${projectId}`,
   /** The discovery directories (D17) — keyed per search so each query caches on its own. */
@@ -29,8 +30,9 @@ export const keys = {
   directoryAgents: (q?: string) => (q ? `directory-agents:${q}` : 'directory-agents'),
   /** A published definition's review queue (D25) — keyed per agent. */
   agentProposals: (agentId: string) => `agent-proposals:${agentId}`,
-  /** A published definition's resolved-work track record (D13/S10) — keyed per agent. */
-  agentResolvedWork: (agentId: string) => `agent-resolved-work:${agentId}`,
+  /** A published definition's resolved-work track record (D13/S10) — keyed per agent;
+   *  no-arg = the family prefix (invalidated whole on `openwork.changed`). */
+  agentResolvedWork: (agentId?: string) => (agentId ? `agent-resolved-work:${agentId}` : 'agent-resolved-work'),
   /** The caller's notification inbox (D24) + per-project watch state. */
   notifications: 'notifications',
   projectWatch: (projectId: string) => `project-watch:${projectId}`,
@@ -62,7 +64,6 @@ export const keys = {
   artifacts: 'artifacts',
   schedules: 'schedules',
   relations: 'relations',
-  recentRuns: 'runs-recent',
   recents: 'recents',
   /** The detective audit trail (docs/agent-commons.md, D15/OQ7) — the cross-user effect log. */
   auditLog: 'audit-log',
@@ -181,7 +182,6 @@ export const paths = {
   scheduleRun: (id: string) => `/schedules/${encodeURIComponent(id)}/run`,
   relations: '/relations',
   relationOps: '/relations/ops',
-  recentRuns: '/runs/recent',
   recents: '/recents',
   recentsType: (type: string) => `/recents/${encodeURIComponent(type)}`,
   audit: '/audit',

@@ -62,12 +62,9 @@ async function reloadApp(page: Page) {
   await dismissIntro(page)
 }
 
-/** Navigate to a section from the rail. Section sub-nav is a drill-in menu (ADAPT-13):
- *  while inside a section its sibling section rows are hidden behind the sub-menu, so
- *  pop back to the section list first (a no-op when we're already at the top level). */
+/** Navigate to a section from the rail tree (ADAPT-13: an inline disclosure tree —
+ *  every section row is always present; there is no drill-in to pop back from). */
 async function gotoSection(page: Page, name: string) {
-  const back = page.getByRole('navigation').getByRole('button', { name: 'Sections', exact: true })
-  if (await back.isVisible().catch(() => false)) await back.click()
   await page.getByRole('navigation').getByRole('button', { name, exact: true }).click()
 }
 

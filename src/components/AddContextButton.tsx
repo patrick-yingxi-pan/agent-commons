@@ -42,7 +42,7 @@ import { useRecentIds } from '../lib/recents'
 import { UI_HOST_SOURCE, DEFAULT_FS_SOURCE_ID, useFsSourceList } from '../lib/fsSources'
 import { pickUiHostFiles, pickUiHostFolder, readDroppedFiles, type UiHostFile } from '../lib/uiHostFs'
 import { SCRIM_CLASS } from '../lib/scrim'
-import { useFsCatalog, fsContentUrl } from '../api/hooks'
+import { useFsCatalog, useSavedContexts, fsContentUrl } from '../api/hooks'
 import { apiGet } from '../api/client'
 import { paths } from '../api/keys'
 import { fsRecentKey, parseFsRecentKey } from '../../contract/index'
@@ -564,6 +564,13 @@ function ListPicker<T extends { id: string; label: string }>({
   // rest are the Browse candidates. Nothing is evicted; a long list folds into the
   // "More" flyout (RecentOverflowList).
   const recentIds = useRecentIds(type)
+  // Each row's auth state comes from the saved-contexts REGISTRY (the Contexts
+  // page's system of record, refreshed live on `connector.status`) — never
+  // asserted by this picker. The quick list once painted every row with a
+  // fabricated green "Connected" dot, so a disconnect never showed here.
+  const savedStatus = new Map(
+    (useSavedContexts().data?.contexts ?? []).filter((c) => c.kind === type).map((c) => [c.id, c.status]),
+  )
   const byId = new Map(options.map((o) => [o.id, o]))
   const connected = recentIds.map((id) => byId.get(id)).filter(Boolean) as T[]
   const rest = options.filter((o) => !recentIds.includes(o.id))
@@ -576,19 +583,22 @@ function ListPicker<T extends { id: string; label: string }>({
     onAdd(toContext(o))
   }
 
-  const rows: OverflowRow[] = connected.map((o) => ({
-    key: o.id,
-    node: (
-      <OptionRow
-        icon={rowIcon}
-        label={o.label}
-        meta={rowMeta(o, true)}
-        accentDot
-        added={addedIds.includes(o.id)}
-        onClick={() => choose(o)}
-      />
-    ),
-  }))
+  const rows: OverflowRow[] = connected.map((o) => {
+    const status = savedStatus.get(o.id) ?? 'connected'
+    return {
+      key: o.id,
+      node: (
+        <OptionRow
+          icon={rowIcon}
+          label={o.label}
+          meta={status === 'needs-auth' ? 'Needs auth — reconnect from Contexts' : rowMeta(o, true)}
+          status={status}
+          added={addedIds.includes(o.id)}
+          onClick={() => choose(o)}
+        />
+      ),
+    }
+  })
 
   return (
     <>
@@ -1275,15 +1285,18 @@ function OptionRow({
   icon,
   label,
   meta,
-  accentDot,
+  status,
   added,
   onClick,
 }: {
   icon: ReactNode
   label: string
   meta?: string
-  /** A small green "connected / ready" dot before the icon (the quick list). */
-  accentDot?: boolean
+  /** The row's LIVE auth state dot (the quick list): green = connected, amber =
+   *  needs auth. Read from the saved-contexts registry, never asserted — a
+   *  disconnect on the Contexts page must show here too (registries have one
+   *  home and live points-of-use). */
+  status?: 'connected' | 'needs-auth'
   /** Already attached to the thread — shows ✓ Added (not a plus) and isn't
    *  clickable, so it can't be added twice. Persists across reopens. */
   added?: boolean
@@ -1297,8 +1310,11 @@ function OptionRow({
         added ? 'cursor-default' : 'hover:bg-panel-2'
       }`}
     >
-      {accentDot && (
-        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" title="Connected" />
+      {status && (
+        <span
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${status === 'connected' ? 'bg-emerald-500' : 'bg-amber-500'}`}
+          title={status === 'connected' ? 'Connected' : 'Needs auth'}
+        />
       )}
       <span className="shrink-0 text-ink-soft">{icon}</span>
       <span className="min-w-0 flex-1">

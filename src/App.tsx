@@ -423,7 +423,10 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
               <>
                 {!isDemo && !isDraft && (
                   <SessionTitleBar
-                    session={activeSession}
+                    // The LIVE row (the useSessions cache, refreshed on session.updated),
+                    // not the controller's creation-time snapshot — a rename must appear
+                    // here the moment it appears on the sidebar row.
+                    session={activeRow}
                     leftOpen={leftOpen}
                     leading={railOverlay ? <RailOpenButton onClick={openLeft} /> : undefined}
                     onOpenProject={openProject}

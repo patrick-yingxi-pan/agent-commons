@@ -48,7 +48,7 @@ same page from different bells would count as different pages. Focus is *ephemer
 intent*, consumed once on arrival.
 
 ```ts
-// src/lib/focusTarget.ts — "highlight this on arrival"; NOT part of NavLocation.
+// src/lib/notificationDoor.ts — "highlight this on arrival"; NOT part of NavLocation.
 export interface FocusTarget {
   projectId?: string     // project page → focus a work item
   workItemId?: string
@@ -138,8 +138,6 @@ terminated the parity loop).
 |---|---|---|
 | `work.taken` | Issue assigned | `OpenSubGoal.status` is only `open \| done \| retracted` — there is **no "taken/in-progress" state**. Dispatch is **atomic**: a standing Contributor takes *and* resolves in one synchronous call (`dispatchOpenSubGoal`), which already fires `work.resolved` ("done by X") — so "taken" and "resolved" are the same moment; a `work.taken` bell would double every `work.resolved`. The guardian `reserveSubGoal` lease is a **transient** coordination primitive keyed by a sub-goal *string*, not a persisted claim on a posted backlog item. And explicit assignment was **already deliberately deferred** (`docs/github-parity.md`: "adds an authority axis the take-model avoids"). A real `work.taken` needs async work-claiming first — a separate feature, out of this initiative's scope. |
 | `project.commissioned` | Added as a collaborator | The only cross-tenant commissioning today is **self-service** (workspace B commissions B's *own* agent onto A's project — `clampContributorRole`), where the actor **is** the agent owner, so the recipient equals the actor and is dropped (no bell). The owner-driven case that *would* notify a distinct owner ("A adds B's agent to A's project") is **explicitly a Phase 2 item** (`clampContributorRole` comment; `docs/design/test-plan-coop-lifecycle.md`), not built. No distinct notifiable recipient exists yet. |
-
-### Deferred / Rejected — imagined, deliberately not built
 
 ### Deferred / Rejected — imagined, deliberately not built
 
