@@ -30,7 +30,10 @@ export interface Commission {
   agentLabel?: string
   /** The Contributor's **role** on the Project (D14) — owner / maintainer / writer /
    *  reader: the permission baseline (`rolePermits`) and the arbitration rank
-   *  (`roleRank`). Absent ⇒ treated as the `'writer'` default. */
+   *  (`roleRank`). Required at the creation funnel (INV-9: an unset role is refused,
+   *  never defaulted — the commissioning surface pre-selects the Project's optional
+   *  `defaultRole`, a UI shortcut). Optional HERE only for rows stored before that
+   *  strictness, which READ as `'writer'` — legacy tolerance, not a write path. */
   role?: ProjectRole
   /** The authority this Agent actually carries onto the Project — a subset of the
    *  Agent's (D8/D12), validated at the funnel. Absent = inherit the Agent's authority.
@@ -56,8 +59,10 @@ export interface Commission {
 export interface CreateCommissionRequest {
   agentId: string
   projectId: string
-  /** The role to grant (D14). Absent ⇒ the funnel defaults to `'writer'`. */
-  role?: ProjectRole
+  /** The role to grant (D14). **Required** (INV-9): the API never picks a role for the
+   *  caller — a missing role is refused (400). The commissioning UI pre-selects the
+   *  Project's optional `defaultRole` (else `writer`), visibly, before the request. */
+  role: ProjectRole
   authority?: Authority
   grant?: Budget
   /** Volunteer for the Project's open work (D19). Absent ⇒ false. */

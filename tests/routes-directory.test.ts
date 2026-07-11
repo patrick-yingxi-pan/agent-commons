@@ -53,7 +53,7 @@ test('a directory entry is the PUBLIC face — no owner-scoped fields ride it', 
 test('the directory carries the collaboration aggregates (contributors, open work)', async () => {
   shareProject('p-dir-counts', 'Counted', A)
   const agent = store.createAgent({ label: 'Counter', systemPrompt: 'x', tools: [], instructions: '' }, A)
-  store.createCommission({ agentId: agent.id, projectId: 'p-dir-counts' }, A)
+  store.createCommission({ role: 'writer', agentId: agent.id, projectId: 'p-dir-counts' }, A)
   store.postOpenSubGoal('p-dir-counts', { subGoal: 'dir-counts-item', type: 'charge', target: 'budget:demo' }, A)
 
   const { json } = await call('GET', '/directory/projects', undefined, { 'x-tenant-id': B })

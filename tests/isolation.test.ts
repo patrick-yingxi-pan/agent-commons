@@ -82,7 +82,7 @@ test('store.commissionAdmitsTarget walls a Contributor to the Project-admitted f
 })
 
 test('narrowing a commission’s scopes (the per-axis editor) tightens commissionAdmitsTarget (D12)', () => {
-  const c = store.createCommission({ agentId: 'agent-default', projectId: 'p-insights' })
+  const c = store.createCommission({ role: 'writer', agentId: 'agent-default', projectId: 'p-insights' })
   // Full admitted reach: both of p-insights' folder/repo roots are reachable.
   assert.equal(store.commissionAdmitsTarget(c.id, 'fs.read', '~/code/insights-web/x.ts'), true)
   assert.equal(store.commissionAdmitsTarget(c.id, 'fs.read', 'patrick-yingxi-pan/web-app/y.ts'), true)

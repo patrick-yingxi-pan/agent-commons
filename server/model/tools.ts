@@ -513,9 +513,13 @@ const TOOLS: ToolSpec[] = [
             systemPromptId: prompt.id,
             systemPromptLabel: prompt.label,
             instructions: str(input.instructions) || undefined,
+            // The tool grant is explicit (an absent grant means NO tools — the
+            // minimal-risk default): a conversationally-created agent gets the full
+            // catalog, stamped here so the consent card states the grant.
+            tools: [...TOOL_NAMES],
           },
         ],
-        summary: `Proposed creating the ${label} worker agent on ${provider.label} with the ${prompt.label} prompt; awaiting confirmation.`,
+        summary: `Proposed creating the ${label} worker agent on ${provider.label} with the ${prompt.label} prompt and the full tool catalog; awaiting confirmation.`,
       }
     },
   },
@@ -528,7 +532,8 @@ const TOOLS: ToolSpec[] = [
       project: { type: 'string', description: 'The Project to commission it onto, e.g. "Insights dashboard".' },
       role: {
         type: 'string',
-        description: 'Optional project role (D14): owner, maintainer, writer, or reader. Defaults to writer.',
+        description:
+          'Optional project role (D14): owner, maintainer, writer, or reader. Unnamed → the Project’s default contributor role, else writer.',
       },
     },
     required: ['agent', 'project'],
@@ -538,13 +543,19 @@ const TOOLS: ToolSpec[] = [
       if (!agent) {
         return { summary: `No worker agent matching "${str(input.agent)}" — proposed nothing.` }
       }
+      // The role is stamped CONCRETE before the consent card (INV-9 — the apply path
+      // refuses a role-less commission): a named role wins; unnamed takes the Project's
+      // defaultRole (the owner's picker pre-selection), else the writer baseline. The
+      // card then names the role the user is approving.
       const raw = str(input.role).toLowerCase()
-      const role = (PROJECT_ROLES as readonly string[]).includes(raw) ? (raw as ProjectRole) : undefined
+      const role: ProjectRole = (PROJECT_ROLES as readonly string[]).includes(raw)
+        ? (raw as ProjectRole)
+        : p.defaultRole ?? 'writer'
       return {
         relationOps: [
-          { kind: 'commission-agent', agentId: agent.id, agentLabel: agent.label, projectId: p.id, projectName: p.name, ...(role ? { role } : {}) },
+          { kind: 'commission-agent', agentId: agent.id, agentLabel: agent.label, projectId: p.id, projectName: p.name, role },
         ],
-        summary: `Proposed commissioning ${agent.label} to ${p.name}${role ? ` as ${role}` : ''}; awaiting confirmation.`,
+        summary: `Proposed commissioning ${agent.label} to ${p.name} as ${role}; awaiting confirmation.`,
       }
     },
   },

@@ -300,24 +300,29 @@ the mock?
   2026-07 connectivity audit's ratchet).
 - **Strict core, convenient edge — an absent request field must mean something, or be
   refused.** The generalization of the registry-default rule (invariant **INV-9**,
-  `docs/spec/09-design-invariants.md`; earned by MODEL-15): the API never fills in an
-  absence by *choosing for the caller*. A write-path field is either present and
-  concrete, or absent with a fixed, documented semantic — the four allowed absence
-  classes are **inherit** (a session's unset provider pick = its Agent's),
-  **closed-vocabulary baseline** (an unset commission role = `writer`),
-  **complete-set value default** (unset agent tools = the full catalog), and **none**
-  (unset budget = no cap; unset instructions = `''`). What is *never* allowed:
-  resolving an absence to a **mutable entity** — a registry entry, a "current
-  default", anything another actor can change — because the same write would mean
-  something different later, and the wiring bug surfaces far from its cause. That
-  class is refused loudly (`ValidationError` → 400) so the bug is caught at the call
-  site. Conveniences live at the **edge, visibly**: pickers pre-select
-  (`defaultEntry`); the conversational tool resolves names and defaults *before* the
-  consent card, and the card names the result — what crosses the API is always the
+  `docs/spec/09-design-invariants.md`): the API never fills in an absence by *choosing
+  for the caller*. A write-path field is either present and concrete, or absent with a
+  fixed, documented semantic — the three allowed absence classes are **inherit** (a
+  session's unset provider pick = its Agent's), **complete-set value default from
+  fixed constants** (a confirmed create-provider op's effort levels / root authority),
+  and **none, the minimal-risk meaning** (unset budget = no cap; unset instructions =
+  `''`; unset agent tools = the **empty** set — the API never *widens* a grant
+  silently; a Project with no `defaultRole` = no preference). What is *never* allowed:
+  resolving an absence to a **mutable entity or a privileged value** — a registry
+  entry, a "current default", a role picked on the caller's behalf. The same write
+  would mean something different later, and the wiring bug surfaces far from its
+  cause — so that class is refused loudly (`ValidationError` → 400), and an INVALID
+  value is refused the same way, never silently normalized. Earned instances: the
+  agent provider/prompt bindings (MODEL-15), the commission `role` (D14 — required;
+  the Project's optional `defaultRole` is only a picker pre-selection), and the
+  explicit tool grant. Conveniences live at the **edge, visibly**: pickers pre-select
+  (`defaultEntry`, a Project's `defaultRole`); the conversational tools resolve names
+  and defaults *before* the consent card, and the card states the result (provider +
+  prompt + tool grant; the commission's role) — what crosses the API is always the
   resolved, concrete form. Read-side, the server may decorate responses with
   **computed, viewer-relative annotations** (`isDefault`, `online`, `own`) — never
   stored, stripped at every mint/patch funnel. When adding a request field, classify
-  its absence into one of the four classes or refuse it; when adding a convenience,
+  its absence into one of the three classes or refuse it; when adding a convenience,
   put it at the edge and show its result.
 - **Rail navigation is an inline disclosure tree.** Sections render as a VSCode-explorer
   tree (spec ADAPT-13): a section with sub-nodes carries a chevron and expands **in place**

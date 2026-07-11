@@ -88,7 +88,7 @@ test('every schedule mutator emits schedule.changed, stamped with the owning ten
 test('commission mutators emit commission.changed; visibility mirrors the Project’s (the openwork rule)', () => {
   let commission: ReturnType<typeof store.createCommission>
   const onCreate = emitted(() => {
-    commission = store.createCommission({ agentId: 'agent-default', projectId: 'p-insights' })
+    commission = store.createCommission({ role: 'writer', agentId: 'agent-default', projectId: 'p-insights' })
   })
   assert.ok(
     onCreate.some((e) => e.type === 'commission.changed' && e.projectId === 'p-insights'),

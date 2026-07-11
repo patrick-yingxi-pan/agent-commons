@@ -23,7 +23,7 @@ async function arena(opts: { standing?: boolean } = {}) {
   store.applyRelationOp({ kind: 'share-project', projectId, projectName: `Bell ${n}`, shared: true }, A)
   if (opts.standing) {
     const agent = store.createAgent({ label: `Bell Taker ${n}`, systemPrompt: 'x', tools: [], instructions: '' }, A)
-    store.createCommission({ agentId: agent.id, projectId, standing: true }, A)
+    store.createCommission({ role: 'writer', agentId: agent.id, projectId, standing: true }, A)
   }
   const watched = await call('POST', `/projects/${projectId}/watch`, { watching: true }, { 'x-tenant-id': C })
   assert.equal(watched.status, 200)

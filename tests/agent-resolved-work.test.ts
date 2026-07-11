@@ -19,7 +19,7 @@ function projectWithStandingTaker(agentId: string, shared: boolean): string {
   const projectId = `p-arw-${(n += 1)}`
   store.applyRelationOp({ kind: 'create-project', projectId, projectName: `ARW ${n}`, projectDescription: '' }, OWNER)
   if (shared) store.applyRelationOp({ kind: 'share-project', projectId, projectName: `ARW ${n}`, shared: true }, OWNER)
-  store.createCommission({ agentId, projectId, standing: true }, OWNER)
+  store.createCommission({ role: 'writer', agentId, projectId, standing: true }, OWNER)
   return projectId
 }
 const post = (projectId: string, subGoal: string) =>

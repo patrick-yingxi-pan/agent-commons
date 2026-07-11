@@ -226,7 +226,10 @@ export async function buildComprehensive(): Promise<PersistedState> {
   // persisted slice (the per-tenant default-flag pointers, a UI shortcut).
   store.setDefaultProvider(provider.id)
   store.setDefaultSystemPrompt(prompt.id)
-  const playgroundCommission = store.createCommission({ agentId: playgroundAgent.id, projectId: 'p-insights' })
+  // A default contributor role on a seed project — exercises the projectDefaultRoles
+  // overlay slice (the commissioning pickers' pre-selection, D14/INV-9).
+  store.setProjectDefaultRole('p-insights', 'maintainer')
+  const playgroundCommission = store.createCommission({ role: 'writer', agentId: playgroundAgent.id, projectId: 'p-insights' })
   // A D13 per-commissioner abuse cap on the (seed) insights project — generous enough not
   // to block, exercising the commissionCaps persisted overlay ("every slice covered").
   store.setCommissionCap('p-insights', 8)

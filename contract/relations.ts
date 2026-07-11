@@ -165,9 +165,16 @@ export type RelationOp =
   | { kind: 'create-provider'; label: string; modelFamily: string }
   // D10 — add a reusable system prompt to the library.
   | { kind: 'create-prompt'; label: string; body: string; targetFamily: string }
-  // D6 — create a worker Agent, optionally bound to a provider + a library prompt.
-  | { kind: 'create-agent'; label: string; providerId?: string; providerLabel?: string; systemPromptId?: string; systemPromptLabel?: string; instructions?: string }
+  // D6 — create a worker Agent bound to a provider + a library prompt. The tool builder
+  // stamps the bindings (and the tool grant) CONCRETE before the consent card (INV-9);
+  // the ids are optional in the type only for proposals persisted before that
+  // strictness — the apply funnel refuses them. `tools` absent = the empty set
+  // (minimal risk; the builder grants the full catalog explicitly and says so).
+  | { kind: 'create-agent'; label: string; providerId?: string; providerLabel?: string; systemPromptId?: string; systemPromptLabel?: string; instructions?: string; tools?: string[] }
   // D7/D13 — commission an Agent onto a Project (the agent→Project leaf of the cascade).
+  // `role` is stamped concrete by the builder (the Project's defaultRole, else writer —
+  // shown on the card); optional in the type only for pre-strictness proposals, which
+  // the apply funnel refuses (INV-9).
   | { kind: 'commission-agent'; agentId: string; agentLabel: string; projectId: string; projectName: string; role?: ProjectRole }
   // D7 — un-commission: remove a Contributor (a commission) from its Project.
   | { kind: 'uncommission-agent'; commissionId: string; agentLabel: string; projectId: string; projectName: string }
@@ -177,6 +184,10 @@ export type RelationOp =
   | { kind: 'set-commission-cap'; projectId: string; projectName: string; cap: number }
   // P8 — mark a Project SHARED (open to cross-tenant Contributors) or private again. Owner-only.
   | { kind: 'share-project'; projectId: string; projectName: string; shared: boolean }
+  // D14 — set (or clear) a Project's default contributor role: the UI-shortcut the
+  // commissioning pickers pre-select (INV-9 — the API never resolves to it). Owner-only.
+  // `role` absent = clear the preference (pickers fall back to the writer baseline).
+  | { kind: 'set-project-default-role'; projectId: string; projectName: string; role?: ProjectRole }
 
 /** A stable key per op — used to mark standing approvals and to track a card
  *  row's confirmed state. */
@@ -226,6 +237,8 @@ export function opKey(op: RelationOp): string {
       return `set-commission-cap:${op.projectId}:${op.cap}`
     case 'share-project':
       return `share-project:${op.projectId}:${op.shared}`
+    case 'set-project-default-role':
+      return `set-project-default-role:${op.projectId}:${op.role ?? 'none'}`
     default: {
       const _exhaustive: never = op
       return _exhaustive
@@ -423,8 +436,11 @@ export function describeOp(op: RelationOp): OpDescription {
     case 'create-agent': {
       const on = op.providerLabel ? ` on **${op.providerLabel}**` : ''
       const withPrompt = op.systemPromptLabel ? ` with the **${op.systemPromptLabel}** prompt` : ''
+      // The tool grant is part of what's being approved (INV-9: absent = NO tools),
+      // so the card states it rather than leaving the grant implicit.
+      const granting = op.tools?.length ? `, granting **${op.tools.length} tools**` : ', granting no tools'
       return {
-        text: `Create the **${op.label}** worker agent${on}${withPrompt}`,
+        text: `Create the **${op.label}** worker agent${on}${withPrompt}${granting}`,
         done: `Created ${op.label}`,
         section: 'agents',
         relationId: 'agent-worker',
@@ -474,6 +490,19 @@ export function describeOp(op: RelationOp): OpDescription {
         section: 'projects',
         projectId: op.projectId,
         relationId: 'project-shared',
+        approval: 'per-action',
+      }
+    case 'set-project-default-role':
+      return {
+        text: op.role
+          ? `Pre-select **${op.role}** for new contributors on **${op.projectName}**`
+          : `Clear **${op.projectName}**'s default contributor role`,
+        done: op.role
+          ? `New contributors on ${op.projectName} pre-select ${op.role}`
+          : `Cleared ${op.projectName}'s default contributor role`,
+        section: 'projects',
+        projectId: op.projectId,
+        relationId: 'project-default-role',
         approval: 'per-action',
       }
     default: {

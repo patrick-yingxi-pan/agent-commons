@@ -188,13 +188,18 @@ test('commission_agent with an unknown agent proposes nothing (no op, just a sum
   assert.match(e.summary, /no worker agent/i)
 })
 
-test('commission_agent carries a valid role onto the op (D14); an invalid role is dropped', () => {
+test('commission_agent stamps a CONCRETE role onto the op (D14/INV-9) — named, else default-else-writer', () => {
   const withRole = executeTool('commission_agent', { agent: 'Scout', project: 'Insights dashboard', role: 'Reader' }, ctxCommons)
   assert.equal((withRole.relationOps![0] as any).role, 'reader') // case-normalized
   assert.match(withRole.summary, /as reader/i)
-  // An unrecognized role is ignored (the op defaults to writer server-side).
+  // An unrecognized (or absent) role resolves BEFORE the consent card — to the
+  // Project's defaultRole when set, else the writer baseline — never rides undefined
+  // (the apply funnel refuses a role-less commission).
   const bogus = executeTool('commission_agent', { agent: 'Scout', project: 'Insights dashboard', role: 'admin' }, ctxCommons)
-  assert.equal((bogus.relationOps![0] as any).role, undefined)
+  assert.equal((bogus.relationOps![0] as any).role, 'writer')
+  assert.match(bogus.summary, /as writer/i)
+  const unnamed = executeTool('commission_agent', { agent: 'Scout', project: 'Insights dashboard' }, ctxCommons)
+  assert.equal((unnamed.relationOps![0] as any).role, 'writer')
 })
 
 test('uncommission_agent → an uncommission-agent op resolving the live commission by (agent, project)', () => {

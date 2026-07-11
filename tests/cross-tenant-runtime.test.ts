@@ -16,7 +16,7 @@ const A = 'tenant-A'
 const B = 'tenant-B'
 const C = 'tenant-C'
 const commissionOp = (agentId: string, projectId: string): RelationOp =>
-  ({ kind: 'commission-agent', agentId, agentLabel: 'w', projectId, projectName: 'p' })
+  ({ kind: 'commission-agent', agentId, agentLabel: 'w', projectId, projectName: 'p', role: 'writer' })
 const shareOp = (projectId: string): RelationOp => ({ kind: 'share-project', projectId, projectName: 'p', shared: true })
 const scopeConnector = (projectId: string, label: string): RelationOp =>
   ({ kind: 'scope-context', projectId, projectName: 'p', context: { kind: 'connector', label, meta: '' } } as RelationOp)
@@ -121,7 +121,7 @@ test('route — POST /projects/:id/effects reaches a shared CREATED project (was
   store.applyRelationOp({ kind: 'create-project', projectId: 'p-route-eff', projectName: 'RouteEff', projectDescription: '' }, D)
   store.applyRelationOp(shareOp('p-route-eff'), D)
   store.applyRelationOp(scopeConnector('p-route-eff', 'Linear'), D)
-  const comm = store.createCommission({ agentId: 'agent-default', projectId: 'p-route-eff' }, D)
+  const comm = store.createCommission({ role: 'writer', agentId: 'agent-default', projectId: 'p-route-eff' }, D)
 
   // A non-monotonic connector effect on the admitted connector, holding a fresh sub-goal — the
   // route must find the created project (bridge) and run it (before the fix this was a 404).

@@ -62,6 +62,7 @@ import { BudgetError } from '../usage.ts'
 import { AuthorityError } from '../authority.ts'
 import { ConflictError, ValidationError } from '../conflict.ts'
 import { LimitError } from '../limit.ts'
+import { TOOL_NAMES } from '../model/tools.ts'
 import { A2A_ERROR, DEFAULT_PROVIDER_ID, isMonotonic, isProjectEffectMonotonic, PROJECT_EFFECT_TYPES, PROJECT_ROLES } from '../../contract/index.ts'
 import type {
   A2aDataPart,
@@ -1082,6 +1083,16 @@ export function buildRouter(): Router {
     sendJson(res, store.searchAll(store.identity(req.headers).tenant.id, url.searchParams.get('q') ?? undefined))
   })
 
+  // ── The Agent tool catalog ───────────────────────────────────────────────────
+  // The names `server/model/tools.ts` declares — what an Agent's explicit tool grant
+  // can name. Read-only and tenant-free (the catalog is shared infra, like the seeded
+  // registries); the UI's "full tool catalog" grant reads it live instead of
+  // hard-coding a mirror (UI-12) — an omitted grant is the EMPTY set (INV-9 minimal
+  // risk), so the full grant must be spelled out by the caller.
+  r.get('/agent-tools', ({ res }) => {
+    sendJson(res, { tools: TOOL_NAMES })
+  })
+
   // ── System-prompt library (the cognition half — docs/agent-commons.md, D10) ──
   // The reusable, target-family-tagged prompts a user picks for an Agent. The Agents hub
   // manages them (create / patch / delete); the (prompt × provider) fit warning is
@@ -1184,8 +1195,10 @@ export function buildRouter(): Router {
   })
   r.post('/commissions', async ({ req, res, body }) => {
     const input = await body<CreateCommissionRequest>()
-    if (!input?.agentId || !input?.projectId) {
-      return sendError(res, 'bad_request', 'agentId and projectId are required')
+    // Strict role (INV-9): the API never picks a role for the caller — the
+    // commissioning UI pre-selects the Project's defaultRole (else writer), visibly.
+    if (!input?.agentId || !input?.projectId || !input?.role) {
+      return sendError(res, 'bad_request', 'agentId, projectId, and role are required')
     }
     const tenantId = store.identity(req.headers).tenant.id
     // Scoped: a tenant may only commission an agent it can see (its own or the shared default),
@@ -1204,14 +1217,15 @@ export function buildRouter(): Router {
     if (!project || (projectOwner !== tenantId && project.shared !== true)) {
       return sendError(res, 'not_found', `No project '${input.projectId}'`)
     }
-    if (input.role && !PROJECT_ROLES.includes(input.role)) {
+    if (!PROJECT_ROLES.includes(input.role)) {
       return sendError(res, 'bad_request', `Unknown role '${input.role}'`)
     }
     try {
       sendJson(res, store.createCommission(input, tenantId))
     } catch (err) {
-      // An over-grant on either cascade face — the request named an impossible grant.
-      if (err instanceof BudgetError || err instanceof AuthorityError) {
+      // An over-grant on either cascade face — the request named an impossible grant —
+      // or the funnel's own strict-role wall (belt to the check above).
+      if (err instanceof BudgetError || err instanceof AuthorityError || err instanceof ValidationError) {
         return sendError(res, 'bad_request', err.message)
       }
       // The Project is at its D13 commission cap (fail-closed) → 429.

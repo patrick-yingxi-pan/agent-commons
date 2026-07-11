@@ -10,12 +10,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from '../server/store.ts'
+import { ValidationError } from '../server/conflict.ts'
 import type { RelationOp } from '../contract/index.ts'
 
 const A = 'tenant-A'
 const B = 'tenant-B'
 const commissionOp = (agentId: string, projectId: string): RelationOp =>
-  ({ kind: 'commission-agent', agentId, agentLabel: 'w', projectId, projectName: 'p' })
+  ({ kind: 'commission-agent', agentId, agentLabel: 'w', projectId, projectName: 'p', role: 'writer' })
 
 test('a shared Project admits a cross-tenant Contributor; the list is public; owner-pays attributes to the agent owner', () => {
   store.applyRelationOp({ kind: 'create-project', projectId: 'p-coop', projectName: 'Shared effort', projectDescription: '' }, A)
@@ -83,7 +84,7 @@ test('redaction — a shared project’s Contributor list hides foreign authorit
   store.applyRelationOp({ kind: 'share-project', projectId: 'p-redact2', projectName: 'R2', shared: true }, A)
   // A commissions its own agent with a concrete authority + token grant (subset of the '*' default).
   const comm = store.createCommission(
-    { agentId: aAgent.id, projectId: 'p-redact2', authority: { connectors: ['Linear'] }, grant: { windows: [{ label: '5-hour limit', ceiling: 1000 }] } },
+    { agentId: aAgent.id, projectId: 'p-redact2', role: 'writer', authority: { connectors: ['Linear'] }, grant: { windows: [{ label: '5-hour limit', ceiling: 1000 }] } },
     A,
   )
   assert.ok(comm.authority && comm.grant, 'the created commission carries authority + grant')
@@ -216,15 +217,20 @@ test('B8 (re-grant path) — a cross-tenant Contributor cannot self-elevate via 
   assert.equal(store.updateCommission(aComm.id, { role: 'maintainer' })?.role, 'maintainer', 'the project owner may elevate its own contributor')
 })
 
-test('review fix — an INVALID role on the commission-agent op is normalized to writer (never stored verbatim, even on the caller’s own project)', () => {
+test('review fix — an INVALID role on the commission-agent op is REFUSED (never stored verbatim, even on the caller’s own project)', () => {
   store.applyRelationOp({ kind: 'create-project', projectId: 'p-badrole', projectName: 'BadRole', projectDescription: '' }, A)
   const aAgent = store.createAgent({ label: 'A badrole worker', systemPrompt: 'x', tools: [], instructions: '' }, A)
   // The op path casts the request JSON unchecked (unlike POST /commissions, which 400s an unknown
   // role), so a hand-crafted op could carry 'superadmin' — roleRank(invalid)=4 would outrank owner
-  // and rolePermits would throw. The store normalizes it to the safe baseline.
-  store.applyRelationOp(
-    { kind: 'commission-agent', agentId: aAgent.id, agentLabel: 'w', projectId: 'p-badrole', projectName: 'BadRole', role: 'superadmin' } as unknown as RelationOp,
-    A,
+  // and rolePermits would throw. The strict funnel (INV-9) REFUSES it outright — loud, not a
+  // silent downgrade to writer (the pre-strictness normalization) — so nothing corrupt is stored.
+  assert.throws(
+    () =>
+      store.applyRelationOp(
+        { kind: 'commission-agent', agentId: aAgent.id, agentLabel: 'w', projectId: 'p-badrole', projectName: 'BadRole', role: 'superadmin' } as unknown as RelationOp,
+        A,
+      ),
+    ValidationError,
   )
-  assert.equal(store.listCommissions('p-badrole', A).find((c) => c.agentId === aAgent.id)?.role, 'writer', 'an invalid role is normalized to writer (no roleRank/rolePermits corruption)')
+  assert.equal(store.listCommissions('p-badrole', A).find((c) => c.agentId === aAgent.id), undefined, 'nothing was minted from the invalid op')
 })

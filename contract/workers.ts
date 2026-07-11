@@ -166,13 +166,14 @@ export function ownerReputation(agents: readonly Agent[]): number {
 }
 
 /** Create an Agent from the management UI. The server resolves the `systemPrompt` *body*
- *  from `systemPromptId` (the library entry), defaults `tools` to the full catalog when
- *  omitted, and validates `authority`/`budget` against the provider (the D8 funnel).
- *  **Strict by design**: `providerId` and `systemPromptId` are required and must name
- *  registered entries — the API never resolves a missing binding to a default (a
- *  missing binding is a caller bug, surfaced now rather than as a surprising
- *  resolution later). The *default*-flagged entries (`isDefault` / `defaultEntry`)
- *  are a UI pre-selection shortcut only. */
+ *  from `systemPromptId` (the library entry) and validates `authority`/`budget` against
+ *  the provider (the D8 funnel). **Strict by design** (INV-9): `providerId` and
+ *  `systemPromptId` are required and must name registered entries — the API never
+ *  resolves a missing binding to a default (a missing binding is a caller bug, surfaced
+ *  now rather than as a surprising resolution later); the *default*-flagged entries
+ *  (`isDefault` / `defaultEntry`) are a UI pre-selection shortcut only. An omitted
+ *  `tools` is the EMPTY set (minimal risk — the API never widens a grant silently);
+ *  the full catalog is an explicit, visible grant made at the edge. */
 export interface CreateAgentRequest {
   label: string
   providerId: string

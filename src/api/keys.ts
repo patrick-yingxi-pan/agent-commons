@@ -13,6 +13,9 @@ export const keys = {
   authAccounts: 'auth-accounts',
   providers: 'providers',
   systemPrompts: 'system-prompts',
+  /** The Agent tool catalog — the names an explicit tool grant can spell out (INV-9:
+   *  an omitted grant is the empty set, so "all tools" must be stated, from a live read). */
+  agentTools: 'agent-tools',
   /** Worker Agents (docs/agent-commons.md, D6). Distinct from `runners` below — whose
    *  cache key is the legacy string 'agents' from before the D6 rename. */
   workerAgents: 'worker-agents',
@@ -92,6 +95,7 @@ export const paths = {
   provider: (id: string) => `/providers/${encodeURIComponent(id)}`,
   systemPrompts: '/system-prompts',
   systemPrompt: (id: string) => `/system-prompts/${encodeURIComponent(id)}`,
+  agentTools: '/agent-tools',
   systemPromptProbe: (id: string) => `/system-prompts/${encodeURIComponent(id)}/probe`,
   agents: '/agents',
   agent: (id: string) => `/agents/${encodeURIComponent(id)}`,

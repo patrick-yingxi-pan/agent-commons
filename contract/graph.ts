@@ -207,6 +207,7 @@ export function applyGraphOp(
     case 'uncommission-agent':
     case 'handoff-agent': // a Session↔Agent re-bind (D16), executed by the store, not a graph edit
     case 'set-commission-cap': // a Project D13 cap set, executed by the store, not a graph edit
+    case 'set-project-default-role': // a Project D14 picker pre-selection, executed by the store like the cap
       return graph
     default: {
       const _exhaustive: never = op
@@ -265,6 +266,12 @@ export function opAppliedInGraph(graph: RelationGraph, op: RelationOp): boolean 
       // id's shared flag lives server-side, so the card keeps its local state.
       const p = graph.extraProjects.find((x) => x.id === op.projectId)
       return p ? (p.shared === true) === op.shared : undefined
+    }
+    case 'set-project-default-role': {
+      // Same shape as share-project: the store mutates the created-project object the
+      // graph slice carries, so a refetched graph answers; a seed id stays server-side.
+      const p = graph.extraProjects.find((x) => x.id === op.projectId)
+      return p ? p.defaultRole === op.role : undefined
     }
     case 'attach-context':
     case 'create-provider':

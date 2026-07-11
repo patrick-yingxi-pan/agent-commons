@@ -48,7 +48,9 @@ test('create-agent op mints a worker agent bound to the named provider + prompt'
   assert.equal(agent?.systemPromptId, prompt.id, 'built from the chosen library prompt')
   assert.equal(agent?.systemPrompt, 'Cite sources.', 'the prompt body is resolved from the library entry')
   assert.equal(agent?.instructions, 'Stay focused.')
-  assert.ok((agent?.tools.length ?? 0) > 0, 'tools default to the full catalog')
+  // No tools on the op ⇒ NO tools granted (INV-9 minimal risk — the tool builder
+  // stamps the full catalog explicitly; a bare op means a bare agent).
+  assert.equal(agent?.tools.length, 0, 'an omitted tool grant is the empty set')
 })
 
 test('commission-agent op commissions through the leaf funnel; uncommission-agent removes it', async () => {
@@ -60,6 +62,7 @@ test('commission-agent op commissions through the leaf funnel; uncommission-agen
     agentLabel: agent.label,
     projectId: 'p-insights',
     projectName: 'Insights',
+    role: 'writer',
   })
   assert.equal(commissioned.status, 200)
   const commission = store.listCommissions('p-insights').find((c) => c.agentId === agent.id)
@@ -107,6 +110,7 @@ test('commission-agent against a removed agent is a 409 (the guard), not a 500',
     agentLabel: 'Stale',
     projectId: 'p-insights',
     projectName: 'Insights',
+    role: 'writer',
   })
   assert.equal(res.status, 409)
   assert.equal(res.json.error.code, 'conflict')
@@ -119,6 +123,7 @@ test('the default agent (always present) commissions fine through the op', async
     agentLabel: DEFAULT_AGENT.label,
     projectId: 'p-insights',
     projectName: 'Insights',
+    role: 'writer',
   })
   assert.equal(res.status, 200)
   assert.ok(store.listCommissions('p-insights').some((c) => c.agentId === DEFAULT_AGENT.id))

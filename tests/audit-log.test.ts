@@ -28,7 +28,7 @@ test('runAgentProxy logs both a fulfilled and a denied proxy entry (D15)', () =>
 
 test('runProjectEffect logs a fulfilled project-effect entry attributed to the Commission', () => {
   const agent = store.createAgent({ label: 'Effect agent', systemPrompt: 'p', tools: [], instructions: '' })
-  const c = store.createCommission({ agentId: agent.id, projectId: 'p-insights' })
+  const c = store.createCommission({ role: 'writer', agentId: agent.id, projectId: 'p-insights' })
   store.runProjectEffect('p-insights', c.id, 'audit-sub', 'connector.read', 'Linear')
   const top = store.listAuditLog()[0]
   assert.equal(top.channel, 'project-effect')

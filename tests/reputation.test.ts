@@ -9,7 +9,7 @@ import { call } from './helpers/http.ts'
 
 test('a successful Project effect credits the commissioned Contributor (D13)', () => {
   const agent = store.createAgent({ label: 'Rep Contributor', systemPrompt: 'p', tools: [], instructions: '' })
-  const commission = store.createCommission({ agentId: agent.id, projectId: 'p-insights' })
+  const commission = store.createCommission({ role: 'writer', agentId: agent.id, projectId: 'p-insights' })
   const before = store.getAgent(agent.id).contributions ?? 0
 
   // A monotonic effect (connector.read) runs coordination-free → fulfils → credits once.

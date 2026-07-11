@@ -126,6 +126,10 @@ test('build produces a snapshot covering every persisted slice', async () => {
     'setDefaultProvider/-SystemPrompt → registryDefaults (the per-tenant default-flag pointers)',
   )
   assert.ok(
+    s.projectDefaultRoles?.some(([id, role]) => id === 'p-insights' && role === 'maintainer'),
+    'setProjectDefaultRole → projectDefaultRoles (the D14 seed overlay)',
+  )
+  assert.ok(
     s.commissions?.some(([, c]) => c.projectId === 'p-insights'),
     'createCommission → commissions',
   )

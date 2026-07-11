@@ -3,6 +3,7 @@
  *  and the backend; the seed *data* that fills these shapes lives server-side
  *  (server/data/cowork.ts). */
 import type { ArtifactKind } from './entities.ts'
+import type { ProjectRole } from './roles.ts'
 
 /** A scheduled run that belongs to a project (shown in the project's right-hand
  *  panel). Mirrors the shape of the global ScheduledTask but scoped to one
@@ -54,6 +55,15 @@ export interface Project {
    *  `limit_exceeded`). The prototype has one account, so the cap is keyed at the Project
    *  (its Guardian); a true per-*commissioner* identity is forward. Unset = uncapped. */
   commissionCap?: number
+  /** The Project's optional **default contributor role** (D14) — a pure UI shortcut
+   *  (INV-9, the same shape as a registry's `isDefault`): the role the commissioning
+   *  surfaces PRE-SELECT for a new Contributor on this Project. The API never resolves
+   *  to it — `CreateCommissionRequest.role` stays required — and unset simply means
+   *  "no project preference" (pickers fall back to `writer`, the D14 baseline, chosen
+   *  visibly at the edge). Owner-set via the `set-project-default-role` relation op;
+   *  served cross-tenant on a shared Project so a visitor's picker pre-selects the
+   *  owner's preference too. */
+  defaultRole?: ProjectRole
   /** When true, this Project is a **shared workspace** across tenants (P8 — the Agent
    *  Commons "many users' agents on one shared Project"). A shared Project is visible to
    *  every tenant and open to cross-tenant **Contributors**: a *different* tenant may

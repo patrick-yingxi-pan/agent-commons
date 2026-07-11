@@ -33,6 +33,10 @@ export function invalidateForCommonsOp(op: RelationOp): void {
       // updates live (a seeded Project; a created one rides the relations cache above).
       invalidate(keys.projects)
       break
+    case 'set-project-default-role':
+      // The D14 picker pre-selection lives on the Project too — same refresh shape.
+      invalidate(keys.projects)
+      break
     default:
       break
   }

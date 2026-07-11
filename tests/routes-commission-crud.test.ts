@@ -12,7 +12,7 @@ import { call } from './helpers/http.ts'
 const GUARDED = 'p-insights'
 
 test('PATCH narrows a Contributor reach to a subset of what the Project admits (D12)', async () => {
-  const commission = store.createCommission({ agentId: DEFAULT_AGENT.id, projectId: GUARDED })
+  const commission = store.createCommission({ role: 'writer', agentId: DEFAULT_AGENT.id, projectId: GUARDED })
   // Inheriting: the full admitted connector set.
   const full = await call('GET', `/commissions/${commission.id}/authority`)
   const admitted: string[] = full.json.connectors
@@ -42,7 +42,7 @@ test('PATCH rejects an authority over the Agent (the leaf funnel) and 404s an un
     instructions: '',
     providerId: provider.id,
   })
-  const commission = store.createCommission({ agentId: agent.id, projectId: GUARDED })
+  const commission = store.createCommission({ role: 'writer', agentId: agent.id, projectId: GUARDED })
   // The agent (inheriting its provider) may reach only 'linear'; granting 'figma' too
   // exceeds it.
   const over = await call('PATCH', `/commissions/${commission.id}`, {
@@ -56,7 +56,7 @@ test('PATCH rejects an authority over the Agent (the leaf funnel) and 404s an un
 })
 
 test('DELETE un-commissions; a second DELETE 404s', async () => {
-  const commission = store.createCommission({ agentId: DEFAULT_AGENT.id, projectId: GUARDED })
+  const commission = store.createCommission({ role: 'writer', agentId: DEFAULT_AGENT.id, projectId: GUARDED })
   const del = await call('DELETE', `/commissions/${commission.id}`)
   assert.equal(del.status, 200)
   assert.deepEqual(del.json, { ok: true })
@@ -67,7 +67,7 @@ test('DELETE un-commissions; a second DELETE 404s', async () => {
 })
 
 test('DELETE cascade-releases the Contributor’s in-flight sub-goals (no dangling hold)', async () => {
-  const commission = store.createCommission({ agentId: DEFAULT_AGENT.id, projectId: GUARDED })
+  const commission = store.createCommission({ role: 'writer', agentId: DEFAULT_AGENT.id, projectId: GUARDED })
   store.reserveSubGoal(GUARDED, commission.id, 'crud-cascade-subgoal')
   assert.ok(store.projectSubGoals(GUARDED).some((s) => s.subGoal === 'crud-cascade-subgoal'))
 

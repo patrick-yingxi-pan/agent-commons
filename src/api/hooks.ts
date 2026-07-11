@@ -228,6 +228,13 @@ export function useAgents(): QueryState<Agent[]> {
   return useQuery(keys.workerAgents, () => apiGet<Agent[]>(paths.agents))
 }
 
+/** The Agent tool CATALOG — the names an explicit tool grant can spell out. An omitted
+ *  grant is the EMPTY set (INV-9 minimal risk), so the dialog's "full catalog" grant
+ *  reads this live list rather than hard-coding a mirror of the server's tools. */
+export function useAgentToolCatalog(): QueryState<{ tools: string[] }> {
+  return useQuery(keys.agentTools, () => apiGet<{ tools: string[] }>(paths.agentTools))
+}
+
 /** A Project's Contributors — the commissions assigning Agents onto it
  *  (docs/agent-commons.md, D7/D13). Keyed per project. */
 export function useCommissions(projectId?: string): QueryState<Commission[]> {

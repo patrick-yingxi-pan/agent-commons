@@ -103,7 +103,7 @@ test('retract: the poster may; the project owner may; a bystander may not; done 
   // A DONE item cannot be retracted — credit is immutable history.
   const three = await arena()
   const agent = store.createAgent({ label: `Disc Taker ${n}`, systemPrompt: 'x', tools: [], instructions: '' }, A)
-  store.createCommission({ agentId: agent.id, projectId: three.projectId, standing: true }, A)
+  store.createCommission({ role: 'writer', agentId: agent.id, projectId: three.projectId, standing: true }, A)
   const taken = await call('POST', `/projects/${three.projectId}/open-subgoals`, { subGoal: `disc-done-${n}`, type: 'charge', target: 'budget:demo' }, { 'x-tenant-id': B })
   assert.equal(taken.json.status, 'done', 'the standing Contributor took it at post time')
   const revisionism = await call('POST', `/projects/${three.projectId}/open-subgoals/${taken.json.id}/retract`, undefined, { 'x-tenant-id': B })

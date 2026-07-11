@@ -303,7 +303,7 @@ test('Agent-Commons by-id MUTATIONS are tenant-isolated on a remote backend (for
   const agent = store.createAgent({ label: 'Zeta agent', systemPrompt: 'x', tools: [], instructions: '' }, 'tenant-zeta')
   const prompt = store.createSystemPrompt({ label: 'Zeta prompt', body: 'b', targetFamily: 'claude' }, 'tenant-zeta')
   const proj = store.listProjects()[0]
-  const commission = store.createCommission({ agentId: agent.id, projectId: proj.id }, 'tenant-zeta')
+  const commission = store.createCommission({ role: 'writer', agentId: agent.id, projectId: proj.id }, 'tenant-zeta')
 
   // Every by-id mutation from a FOREIGN tenant is 404 (existence-hiding), never a 403 that
   // would confirm the id. The guard short-circuits before the body is read.
@@ -371,7 +371,7 @@ test('registry by-id READS are tenant-isolated on a remote backend (prompt probe
   const prompt = store.createSystemPrompt({ label: 'Zeta prompt', body: 'b', targetFamily: 'claude' }, 'tenant-zeta')
   const agent = store.createAgent({ label: 'Zeta agent', systemPrompt: 'x', tools: [], instructions: '' }, 'tenant-zeta')
   const proj = store.listProjects()[0]
-  const commission = store.createCommission({ agentId: agent.id, projectId: proj.id }, 'tenant-zeta')
+  const commission = store.createCommission({ role: 'writer', agentId: agent.id, projectId: proj.id }, 'tenant-zeta')
 
   // Both by-id READS that derive from a private entry must scope to the caller: a foreign
   // tenant probing zeta's prompt, or reading its commission's effective authority, is 404.
@@ -394,7 +394,7 @@ test('relation ops with a foreign AGENT/COMMISSION subject are refused on a remo
   // tenant-zeta owns a private agent + a commission of it.
   const agent = store.createAgent({ label: 'Zeta agent', systemPrompt: 'x', tools: [], instructions: '' }, 'tenant-zeta')
   const seedProj = store.listProjects()[0]
-  const commission = store.createCommission({ agentId: agent.id, projectId: seedProj.id }, 'tenant-zeta')
+  const commission = store.createCommission({ role: 'writer', agentId: agent.id, projectId: seedProj.id }, 'tenant-zeta')
 
   // tenant-omega owns a project, so the op's PROJECT axis passes — isolating the subject axis.
   const mk = await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-omega' }, {
@@ -404,7 +404,7 @@ test('relation ops with a foreign AGENT/COMMISSION subject are refused on a remo
 
   // Commissioning zeta's PRIVATE agent into omega's own project is refused by the AGENT axis.
   const commOmega = await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-omega' }, {
-    op: { kind: 'commission-agent', agentId: agent.id, agentLabel: 'Zeta agent', projectId: 'proj-omega', projectName: 'Omega Only' },
+    op: { kind: 'commission-agent', agentId: agent.id, agentLabel: 'Zeta agent', projectId: 'proj-omega', projectName: 'Omega Only', role: 'writer' },
   })
   assert.equal(commOmega.status, 404, 'a foreign agent subject is refused 404')
 
@@ -459,7 +459,7 @@ test('a shared Project admits a cross-tenant Contributor on a remote backend (P8
 
   // omega commissions ITS OWN agent onto zeta's SHARED project — ALLOWED (200).
   const commission = await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-omega' }, {
-    op: { kind: 'commission-agent', agentId: omegaAgentId, agentLabel: 'Omega worker', projectId: 'proj-shared', projectName: 'Shared' },
+    op: { kind: 'commission-agent', agentId: omegaAgentId, agentLabel: 'Omega worker', projectId: 'proj-shared', projectName: 'Shared', role: 'writer' },
   })
   assert.equal(commission.status, 200, 'a cross-tenant commission onto a shared project succeeds')
 
@@ -474,7 +474,7 @@ test('a shared Project admits a cross-tenant Contributor on a remote backend (P8
     op: { kind: 'create-project', projectId: 'proj-priv', projectName: 'Priv', projectDescription: '' },
   })
   const refused = await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-omega' }, {
-    op: { kind: 'commission-agent', agentId: omegaAgentId, agentLabel: 'Omega worker', projectId: 'proj-priv', projectName: 'Priv' },
+    op: { kind: 'commission-agent', agentId: omegaAgentId, agentLabel: 'Omega worker', projectId: 'proj-priv', projectName: 'Priv', role: 'writer' },
   })
   assert.equal(refused.status, 404, 'a private project still refuses the cross-tenant commission (isolation intact)')
 })
@@ -495,7 +495,7 @@ test('P8 BUG-1 — POST /commissions (direct REST) reaches a shared CREATED proj
   // The DIRECT REST path (not the op path) onto the shared CREATED project — must succeed now
   // (before BUG-1 it 404'd because the guard used seed-only `listProjects()`).
   const commission = await call('POST', '/commissions', { 'x-tenant-id': 'tenant-omega2' }, {
-    agentId: omegaAgentId, projectId: 'proj-rest-shared',
+    agentId: omegaAgentId, projectId: 'proj-rest-shared', role: 'writer',
   })
   assert.equal(commission.status, 200, 'POST /commissions reaches a shared created project cross-tenant (BUG-1 fixed)')
 
@@ -504,7 +504,7 @@ test('P8 BUG-1 — POST /commissions (direct REST) reaches a shared CREATED proj
     op: { kind: 'create-project', projectId: 'proj-rest-priv', projectName: 'RestPriv', projectDescription: '' },
   })
   const refused = await call('POST', '/commissions', { 'x-tenant-id': 'tenant-omega2' }, {
-    agentId: omegaAgentId, projectId: 'proj-rest-priv',
+    agentId: omegaAgentId, projectId: 'proj-rest-priv', role: 'writer',
   })
   assert.equal(refused.status, 404, 'a private created project refuses the direct REST cross-tenant commission')
 })
@@ -520,7 +520,7 @@ test('P8 BUG-5 — a shared Project exposes a foreign Contributor’s IDENTITY b
     op: { kind: 'share-project', projectId: 'proj-who', projectName: 'Who', shared: true },
   })
   const created = await call('POST', '/agents', { 'x-tenant-id': 'tenant-contrib5' }, { label: 'Contrib5', providerId: 'provider-anthropic', systemPromptId: 'sp-default' })
-  const comm = await call('POST', '/commissions', { 'x-tenant-id': 'tenant-contrib5' }, { agentId: created.json.id, projectId: 'proj-who' })
+  const comm = await call('POST', '/commissions', { 'x-tenant-id': 'tenant-contrib5' }, { role: 'writer', agentId: created.json.id, projectId: 'proj-who' })
   assert.equal(comm.status, 200)
   const commissionId = comm.json.id
 
@@ -561,7 +561,7 @@ test('P8 Phase 2b — effect-route authorization: own-commission fires; a foreig
   await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-eff-a' }, { op: { kind: 'share-project', projectId: 'proj-eff', projectName: 'Eff', shared: true } })
   await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-eff-a' }, { op: { kind: 'scope-context', projectId: 'proj-eff', projectName: 'Eff', context: { kind: 'connector', label: 'Linear', meta: '' } } })
   const bAgent = await call('POST', '/agents', { 'x-tenant-id': 'tenant-eff-b' }, { label: 'B eff worker', providerId: 'provider-anthropic', systemPromptId: 'sp-default' })
-  const commission = await call('POST', '/commissions', { 'x-tenant-id': 'tenant-eff-b' }, { agentId: bAgent.json.id, projectId: 'proj-eff' })
+  const commission = await call('POST', '/commissions', { 'x-tenant-id': 'tenant-eff-b' }, { role: 'writer', agentId: bAgent.json.id, projectId: 'proj-eff' })
   const commId = commission.json.id
 
   // B fires an effect as ITS OWN commission on the shared project → allowed (writer, admitted Linear).
@@ -581,7 +581,7 @@ test('P8 Phase 2b — effect-route authorization: own-commission fires; a foreig
   await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-eff-a' }, { op: { kind: 'create-project', projectId: 'proj-priv-eff', projectName: 'PrivEff', projectDescription: '' } })
   await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-eff-a' }, { op: { kind: 'scope-context', projectId: 'proj-priv-eff', projectName: 'PrivEff', context: { kind: 'connector', label: 'Linear', meta: '' } } })
   const aAgent = await call('POST', '/agents', { 'x-tenant-id': 'tenant-eff-a' }, { label: 'A eff worker', providerId: 'provider-anthropic', systemPromptId: 'sp-default' })
-  const aComm = await call('POST', '/commissions', { 'x-tenant-id': 'tenant-eff-a' }, { agentId: aAgent.json.id, projectId: 'proj-priv-eff' })
+  const aComm = await call('POST', '/commissions', { 'x-tenant-id': 'tenant-eff-a' }, { role: 'writer', agentId: aAgent.json.id, projectId: 'proj-priv-eff' })
   const okA = await call('POST', '/projects/proj-priv-eff/effects', { 'x-tenant-id': 'tenant-eff-a' }, { commissionId: aComm.json.id, subGoal: 'sg-a', type: 'connector.write', target: 'Linear' })
   assert.equal(okA.status, 200, 'a same-tenant commission on a private project is unaffected by the shared-gate')
 })
@@ -601,7 +601,7 @@ test('P8 Phase 2b review — project-binding: a self-owned commission cannot act
   await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-atk' }, { op: { kind: 'create-project', projectId: 'proj-atk', projectName: 'Atk', projectDescription: '' } })
   await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-atk' }, { op: { kind: 'scope-context', projectId: 'proj-atk', projectName: 'Atk', context: { kind: 'connector', label: 'Linear', meta: '' } } })
   const atkAgent = await call('POST', '/agents', { 'x-tenant-id': 'tenant-atk' }, { label: 'Atk worker', providerId: 'provider-anthropic', systemPromptId: 'sp-default' })
-  const atkComm = await call('POST', '/commissions', { 'x-tenant-id': 'tenant-atk' }, { agentId: atkAgent.json.id, projectId: 'proj-atk' })
+  const atkComm = await call('POST', '/commissions', { 'x-tenant-id': 'tenant-atk' }, { role: 'writer', agentId: atkAgent.json.id, projectId: 'proj-atk' })
 
   // The exploit: attacker cites its OWN commission to fire an effect on the VICTIM's project.
   // Blocked 403 — the commission is not a Contributor on proj-vic (project-binding).
@@ -632,14 +632,14 @@ test('P8 review — commission-agent hides agent existence uniformly cross-tenan
   // the 404 a real foreign PRIVATE agent gets, so the two can't be distinguished (no existence
   // oracle over the private-agent registry, which has no cross-tenant read projection).
   const ghostForeign = await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-probeG' }, {
-    op: { kind: 'commission-agent', agentId: 'agent-does-not-exist', agentLabel: 'x', projectId: 'proj-ghost', projectName: 'Ghost' },
+    op: { kind: 'commission-agent', agentId: 'agent-does-not-exist', agentLabel: 'x', projectId: 'proj-ghost', projectName: 'Ghost', role: 'writer' },
   })
   assert.equal(ghostForeign.status, 404, 'a ghost agent on the cross-tenant carve-out is a uniform 404, not a 409 oracle')
 
   // Control: the OWNER (same tenant) committing an unknown agent id onto its OWN project still gets
   // the helpful 409 (agent removed → re-propose) — the fix is scoped to the cross-tenant path.
   const ghostOwner = await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-ownerG' }, {
-    op: { kind: 'commission-agent', agentId: 'agent-does-not-exist', agentLabel: 'x', projectId: 'proj-ghost', projectName: 'Ghost' },
+    op: { kind: 'commission-agent', agentId: 'agent-does-not-exist', agentLabel: 'x', projectId: 'proj-ghost', projectName: 'Ghost', role: 'writer' },
   })
   assert.equal(ghostOwner.status, 409, 'the owner’s own removed-agent commission still returns 409 (preserved)')
 })

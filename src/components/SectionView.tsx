@@ -163,6 +163,7 @@ import {
   useSchedules,
   useSessions,
   useSystemPrompts,
+  useAgentToolCatalog,
 } from '../api'
 import {
   promptFitWarning,
@@ -1211,6 +1212,7 @@ function ContributorsPanel({ project }: { project: Project }) {
           FOREIGN shared project (it lives in extraProjects too), which used to show a
           visitor the owner's share switch — a control the server would only refuse. */}
       {rel.isCreatedProject(project.id) && project.own !== false && <ShareToggle project={project} />}
+      {project.own !== false && <DefaultRolePicker project={project} />}
       {commissions.length === 0 ? (
         <p className="text-[12px] text-ink-faint">No agents commissioned yet.</p>
       ) : (
@@ -1225,8 +1227,49 @@ function ContributorsPanel({ project }: { project: Project }) {
           ))}
         </div>
       )}
-      <CommissionAdd projectId={project.id} available={available} />
+      <CommissionAdd projectId={project.id} available={available} joinRole={project.defaultRole ?? 'writer'} />
     </SidePanel>
+  )
+}
+
+/** The Project's **default contributor role** (D14) — the pre-selection every
+ *  commissioning surface uses for this Project (INV-9: a pure UI shortcut — the
+ *  commission request still names its role explicitly; the API never resolves to
+ *  this). Owner-only, applied through the same one relation-edit gate as the share
+ *  toggle (`set-project-default-role`); "no preference" clears it and pickers fall
+ *  back to the writer baseline. */
+function DefaultRolePicker({ project }: { project: Project }) {
+  const rel = useRelations()
+  const set = (value: string) =>
+    rel.applyOp({
+      kind: 'set-project-default-role',
+      projectId: project.id,
+      projectName: project.name,
+      ...(value ? { role: value as ProjectRole } : {}),
+    })
+  return (
+    <div className="mb-3">
+      <label htmlFor="project-default-role" className="mb-1 block text-[11px] font-medium text-ink-soft">
+        Default role for new contributors
+      </label>
+      <select
+        id="project-default-role"
+        value={project.defaultRole ?? ''}
+        onChange={(e) => set(e.target.value)}
+        className={FORM_INPUT_CLASS}
+      >
+        <option value="">No preference (writer)</option>
+        {PROJECT_ROLES.map((r) => (
+          <option key={r} value={r}>
+            {r}
+          </option>
+        ))}
+      </select>
+      <p className="mt-1 text-[11px] text-ink-faint">
+        Pre-selected when an agent is commissioned here — a shortcut only; every commission still
+        states its role.
+      </p>
+    </div>
   )
 }
 
@@ -1473,8 +1516,11 @@ function CommissionDialog({
 
 /** The "Commission an agent" picker — the inline-add primitive (AddTrigger), listing
  *  the Agents not already contributing. Picking one POSTs a commission (inheriting the
- *  Agent's grant) and the panel refreshes via the commissions cache. */
-function CommissionAdd({ projectId, available }: { projectId: string; available: Agent[] }) {
+ *  Agent's grant) and the panel refreshes via the commissions cache. The role is
+ *  stated, not implied (INV-9 — the request must name one): `joinRole` is the
+ *  Project's defaultRole-else-writer, shown in the picker so a click grants exactly
+ *  what it says; per-contributor changes live in the row's Edit dialog. */
+function CommissionAdd({ projectId, available, joinRole }: { projectId: string; available: Agent[]; joinRole: ProjectRole }) {
   const [open, setOpen] = useState(false)
   const ref = useDismissable<HTMLDivElement>(open, () => setOpen(false))
   const popRef = usePopoverShift<HTMLDivElement>(open)
@@ -1483,7 +1529,7 @@ function CommissionAdd({ projectId, available }: { projectId: string; available:
   const commission = async (agent: Agent) => {
     setPending(agent.id)
     try {
-      await createCommission({ agentId: agent.id, projectId })
+      await createCommission({ agentId: agent.id, projectId, role: joinRole })
       setOpen(false)
     } catch {
       // The server funnel rejects an over-grant / unknown id; the picker only ever
@@ -1510,27 +1556,35 @@ function CommissionAdd({ projectId, available }: { projectId: string; available:
           {available.length === 0 ? (
             <p className="px-1.5 py-1 text-[12px] text-ink-faint">Every agent is already a Contributor.</p>
           ) : (
-            available.map((a) => (
-              <button
-                key={a.id}
-                onClick={() => commission(a)}
-                disabled={pending === a.id}
-                className="group mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition hover:bg-panel-2 disabled:opacity-50"
-              >
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-ink-soft">
-                  <Cpu size={15} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] font-medium text-ink">{a.label}</span>
-                  <span className="block truncate text-[11px] text-ink-faint">
-                    {a.tools.length} tool{a.tools.length === 1 ? '' : 's'}
+            <>
+              {available.map((a) => (
+                <button
+                  key={a.id}
+                  onClick={() => commission(a)}
+                  disabled={pending === a.id}
+                  className="group mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition hover:bg-panel-2 disabled:opacity-50"
+                >
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-ink-soft">
+                    <Cpu size={15} />
                   </span>
-                </span>
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent group-hover:text-white">
-                  <Plus size={13} />
-                </span>
-              </button>
-            ))
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-medium text-ink">{a.label}</span>
+                    <span className="block truncate text-[11px] text-ink-faint">
+                      {a.tools.length} tool{a.tools.length === 1 ? '' : 's'}
+                    </span>
+                  </span>
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent group-hover:text-white">
+                    <Plus size={13} />
+                  </span>
+                </button>
+              ))}
+              {/* The role a pick grants — stated, not implied (the strict API requires
+                  the request to name one; this is the visible edge choice). */}
+              <p className="mt-1 border-t border-line px-1.5 pt-1.5 text-[11px] text-ink-faint">
+                Joins as <span className="font-medium text-ink-soft">{joinRole}</span> — change per
+                contributor via its Edit.
+              </p>
+            </>
           )}
         </div>
       )}
@@ -3800,10 +3854,17 @@ function ProposalsReviewDialog({
 function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => void }) {
   const providers = useProviders().data ?? []
   const prompts = useSystemPrompts().data ?? []
+  const catalog = useAgentToolCatalog().data?.tools ?? []
   const [label, setLabel] = useState(agent?.label ?? '')
   const [providerId, setProviderId] = useState(agent?.providerId ?? '')
   const [promptId, setPromptId] = useState(agent?.systemPromptId ?? '')
   const [instructions, setInstructions] = useState(agent?.instructions ?? '')
+  // The tool grant is EXPLICIT (INV-9 minimal risk: the API treats an omitted grant as
+  // NO tools, never the catalog) — so the dialog states it: a new agent pre-checks the
+  // full catalog (the visible edge convenience); an edit starts at 'keep' and only
+  // sends the grant when the user actually flips it (per-tool editing is a later
+  // refinement — a custom subset is preserved unless changed).
+  const [toolChoice, setToolChoice] = useState<'keep' | 'all' | 'none'>(agent ? 'keep' : 'all')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   // The opt-in prompt-fit probe (D10/OQ5) — null until the user runs it; reset when the
@@ -3819,7 +3880,15 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
   const bespokePrompt = !!agent && !agent.systemPromptId
   const effectiveProviderId = providerId || defaultEntry(providers)?.id || ''
   const effectivePromptId = promptId || (bespokePrompt ? '' : defaultEntry(prompts)?.id || '')
-  const canSubmit = label.trim().length > 0 && !!effectiveProviderId && (bespokePrompt || !!effectivePromptId) && !busy
+  // What the grant checkbox shows: 'keep' reflects the agent's current grant.
+  const grantAll = toolChoice === 'all' || (toolChoice === 'keep' && !!agent && catalog.length > 0 && agent.tools.length === catalog.length)
+  const canSubmit =
+    label.trim().length > 0 &&
+    !!effectiveProviderId &&
+    (bespokePrompt || !!effectivePromptId) &&
+    // A full-catalog grant needs the catalog loaded — never send [] while showing "all".
+    (toolChoice !== 'all' || catalog.length > 0) &&
+    !busy
 
   // Live fit warning: the chosen prompt's family vs the chosen provider's.
   const providerFamily = providers.find((p) => p.id === effectiveProviderId)?.modelFamily ?? 'claude'
@@ -3852,11 +3921,15 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
       // sending a binding on an unrelated edit would silently destroy the merged /
       // forked prompt (a rename would revert v2 → the picked library body).
       ...(effectivePromptId !== (agent?.systemPromptId ?? '') ? { systemPromptId: effectivePromptId } : {}),
+      // The tool grant, spelled out (the API's own default is the EMPTY set): sent on
+      // create always, on edit only when the user flipped the checkbox — 'keep'
+      // preserves a custom subset exactly like the bespoke-prompt guard above.
+      ...(toolChoice !== 'keep' ? { tools: toolChoice === 'all' ? catalog : [] } : {}),
       instructions: instructions.trim(),
     }
     try {
       if (agent) await updateAgent(agent.id, fields)
-      else await createAgent({ ...fields, systemPromptId: effectivePromptId })
+      else await createAgent({ ...fields, systemPromptId: effectivePromptId, tools: grantAll ? catalog : [] })
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save this agent.')
@@ -3943,6 +4016,21 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
             </button>
             {probe && <ProbeResultCard probe={probe} />}
           </div>
+        )}
+      </FormField>
+      <FormField label="Tools">
+        <CheckboxRow checked={grantAll} onToggle={() => setToolChoice(grantAll ? 'none' : 'all')}>
+          <span className="text-[12px] leading-snug text-ink-soft">
+            <span className="font-medium text-ink">Full tool catalog</span>
+            {catalog.length > 0 ? ` — all ${catalog.length} tools` : ''}. Unchecked grants{' '}
+            <span className="font-medium text-ink">no tools</span> (the agent converses but can’t
+            propose changes). Per-tool selection is a later refinement.
+          </span>
+        </CheckboxRow>
+        {agent && toolChoice === 'keep' && !grantAll && agent.tools.length > 0 && (
+          <span className="mt-1 block text-[11px] text-ink-faint">
+            Currently {agent.tools.length} of {catalog.length || '…'} tools — the custom set is kept unless you change this.
+          </span>
         )}
       </FormField>
       <FormField label="Instructions" optional>

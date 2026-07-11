@@ -43,3 +43,18 @@ test('an unshared private row stays invisible — the stamps never widen visibil
   store.applyRelationOp({ kind: 'create-project', projectId: 'p-pub-priv', projectName: 'Priv', projectDescription: '' }, A)
   assert.ok(!store.relationGraph(B).extraProjects.some((p) => p.id === 'p-pub-priv'))
 })
+
+test('a Project’s defaultRole rides the FOREIGN shared view — a visitor’s picker pre-selects the owner’s preference', () => {
+  store.applyRelationOp({ kind: 'create-project', projectId: 'p-pub-role', projectName: 'Role pref', projectDescription: '' }, A)
+  store.applyRelationOp({ kind: 'share-project', projectId: 'p-pub-role', projectName: 'Role pref', shared: true }, A)
+  store.applyRelationOp({ kind: 'set-project-default-role', projectId: 'p-pub-role', projectName: 'Role pref', role: 'reader' }, A)
+  // A cross-tenant commissioner sees the preference (INV-9: it only PRE-SELECTS their
+  // picker — their commission request still names its role explicitly)…
+  assert.equal(store.relationGraph(B).extraProjects.find((p) => p.id === 'p-pub-role')?.defaultRole, 'reader')
+  // …and a visitor cannot SET it (owner-only, like every other project-keyed op).
+  assert.equal(
+    store.opDeniedForTenant({ kind: 'set-project-default-role', projectId: 'p-pub-role', projectName: 'Role pref', role: 'owner' }, B),
+    true,
+    'a foreign tenant may not set another workspace’s default role',
+  )
+})

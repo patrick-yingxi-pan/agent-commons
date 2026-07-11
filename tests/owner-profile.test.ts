@@ -20,7 +20,7 @@ function publicFace(tenant: string) {
   store.applyRelationOp({ kind: 'create-project', projectId: id, projectName: `Prof ${n}`, projectDescription: 'public row' }, tenant)
   store.applyRelationOp({ kind: 'share-project', projectId: id, projectName: `Prof ${n}`, shared: true }, tenant)
   const agent = store.createAgent({ label: `Prof Agent ${n}`, systemPrompt: 'x', tools: [], instructions: '' }, tenant)
-  const commission = store.createCommission({ agentId: agent.id, projectId: id, standing: true }, tenant)
+  const commission = store.createCommission({ role: 'writer', agentId: agent.id, projectId: id, standing: true }, tenant)
   return { id, agent, commission }
 }
 

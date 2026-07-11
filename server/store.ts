@@ -864,6 +864,11 @@ function snapshot(): PersistedState {
     commissionCaps: PROJECTS.filter((p) => p.commissionCap !== undefined).map(
       (p) => [p.id, p.commissionCap!] as [string, number],
     ),
+    // D14 default contributor roles — the same seed-overlay shape as the caps (a
+    // created Project's defaultRole rides the graph slice on its own object).
+    projectDefaultRoles: PROJECTS.filter((p) => p.defaultRole !== undefined).map(
+      (p) => [p.id, p.defaultRole!] as [string, ProjectRole],
+    ),
     auditLog, // D15/OQ7 — the cross-user effect trail (append-only)
     dispatch, // P7 — one-off dispatch runs (a live run survives a restart)
     openSubGoals, // D19 — the Project open-work backlog (an un-taken item survives a restart)
@@ -949,6 +954,15 @@ function rehydrate(s: PersistedState): void {
     for (const [id, cap] of s.commissionCaps) {
       const p = PROJECTS.find((x) => x.id === id)
       if (p) p.commissionCap = cap
+    }
+  }
+  // D14 default contributor roles — the caps' twin overlay (cleared, then re-applied,
+  // so a preference cleared at runtime stays cleared).
+  for (const p of PROJECTS) p.defaultRole = undefined
+  if (s.projectDefaultRoles) {
+    for (const [id, role] of s.projectDefaultRoles) {
+      const p = PROJECTS.find((x) => x.id === id)
+      if (p) p.defaultRole = role
     }
   }
   // D15/OQ7 audit trail — restore the append-only log (empty for a pre-field snapshot).
@@ -1507,7 +1521,10 @@ export const store = {
       systemPrompt: entry.body,
       systemPromptId: entry.id,
       providerId: provider.id,
-      tools: input.tools ?? [...DEFAULT_AGENT.tools],
+      // Minimal risk (INV-9 'none' class): an omitted tool grant means NO tools — the
+      // API never widens silently. The full catalog is an EXPLICIT, visible grant
+      // (the dialog's checkbox; the tool builder stamps it onto the consent card).
+      tools: input.tools ?? [],
       instructions: input.instructions ?? '',
       authority: input.authority,
       budget: input.budget,
@@ -1911,6 +1928,21 @@ export const store = {
     persist()
     return project
   },
+  /** Set / clear a Project's **default contributor role** (D14) — the commissioning
+   *  pickers' pre-selection, a pure UI shortcut (INV-9: `createCommission` still
+   *  requires a concrete role; nothing resolves to this). `role` undefined = clear.
+   *  Same resolve-from-both-homes + persistence shape as `setCommissionCap` (seed →
+   *  the `projectDefaultRoles` overlay; created → the `graph` slice). */
+  setProjectDefaultRole(projectId: string, role?: ProjectRole): Project | undefined {
+    if (role !== undefined && !PROJECT_ROLES.includes(role)) {
+      throw new ValidationError(`No such project role '${role}'.`)
+    }
+    const project = findProject(projectId)
+    if (!project) return undefined
+    project.defaultRole = role
+    persist()
+    return project
+  },
   /** How many active Commissions a Project currently holds — the count the D13 cap is
    *  measured against (one Contributor = one Commission). The Coordination/abuse read. */
   activeCommissionCount(projectId: string): number {
@@ -1938,12 +1970,18 @@ export const store = {
     if (input.grant) {
       mintBudget(agent.budget?.windows ?? provider.plan?.windows ?? usageMeter.planCeilings(), input.grant)
     }
-    // Role is the D14 baseline; default to 'writer' when unset, then apply the P8 self-assign
-    // clamp (B8) keyed on the commission's OWNING tenant vs the Project owner (single-sourced
-    // with the re-grant path, so a cross-tenant joiner can't self-elevate on mint or via PATCH).
+    // Role is REQUIRED (INV-9): the funnel never picks one for the caller — the
+    // commissioning surface pre-selects the Project's `defaultRole` (else the writer
+    // baseline) VISIBLY, and what arrives here must be concrete. Then the P8
+    // self-assign clamp (B8) runs, keyed on the commission's OWNING tenant vs the
+    // Project owner (single-sourced with the re-grant path, so a cross-tenant joiner
+    // can't self-elevate on mint or via PATCH).
     // Stamp the creating tenant (F2/PD9) so listCommissions(…, tenant) scopes it; unset ⇒ shared.
+    if (!input.role || !PROJECT_ROLES.includes(input.role)) {
+      throw new ValidationError(`A commission must name a project role (${PROJECT_ROLES.join(' / ')}) — got '${input.role ?? ''}'.`)
+    }
     const owningTenant = tenantId ?? input.tenantId
-    const role = clampContributorRole(input.role ?? 'writer', owningTenant, input.projectId)
+    const role = clampContributorRole(input.role, owningTenant, input.projectId)
     // The D19 standing flag is the commission OWNER's consent to unprompted spend
     // (owner-pays) — normalized so anything but `true` stores as absent.
     const standing = input.standing === true ? true : undefined
@@ -3462,6 +3500,9 @@ export const store = {
           providerId: op.providerId,
           systemPromptId: op.systemPromptId,
           instructions: op.instructions,
+          // Absent on a stale proposal ⇒ the empty set (minimal risk) — unlike the
+          // bindings above, absence here has an honest meaning, so no refusal.
+          tools: op.tools,
         }, tenantId)
         break
       case 'commission-agent':
@@ -3480,6 +3521,9 @@ export const store = {
         break
       case 'set-commission-cap':
         this.setCommissionCap(op.projectId, op.cap) // D13: the owner's abuse ceiling, via the same card
+        break
+      case 'set-project-default-role':
+        this.setProjectDefaultRole(op.projectId, op.role) // D14: the pickers' pre-selection, via the same card
         break
       case 'attach-context':
         break // a live-session effect, applied by the caller

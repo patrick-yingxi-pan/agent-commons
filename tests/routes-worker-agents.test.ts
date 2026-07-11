@@ -1,19 +1,21 @@
 /** Worker-Agent CRUD on the wire (docs/agent-commons.md, D6) — the Agents hub's create /
- *  patch / delete. POST is **strict**: `providerId` and `systemPromptId` are required and
- *  must name registered entries — the API never resolves a missing binding to a default
- *  (default-flagged entries are a UI pre-selection shortcut only). The prompt body is
- *  resolved from the named entry, tools default to the full catalog, then the D8 funnel
- *  runs (an over-grant is a 400); DELETE refuses the protected default and any Agent a
+ *  patch / delete. POST is **strict** (INV-9): `providerId` and `systemPromptId` are
+ *  required and must name registered entries — the API never resolves a missing binding
+ *  to a default (default-flagged entries are a UI pre-selection shortcut only) — and an
+ *  omitted `tools` is the EMPTY set (minimal risk; the full catalog is an explicit
+ *  grant). The prompt body is resolved from the named entry, then the D8 funnel runs
+ *  (an over-grant is a 400); DELETE refuses the protected default and any Agent a
  *  Commission still assigns (409). The in-memory store is shared across the run, so each
  *  case uses its own labels. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from '../server/store.ts'
 import { DEFAULT_AGENT } from '../server/data/workers.ts'
+import { TOOL_NAMES } from '../server/model/tools.ts'
 import { DEFAULT_PROVIDER_ID } from '../contract/index.ts'
 import { call } from './helpers/http.ts'
 
-test('POST resolves the prompt body from systemPromptId and defaults tools to the catalog', async () => {
+test('POST resolves the prompt body; an omitted tool grant is the EMPTY set (minimal risk)', async () => {
   const created = await call('POST', '/agents', {
     label: 'Reviewer',
     providerId: DEFAULT_PROVIDER_ID,
@@ -25,12 +27,31 @@ test('POST resolves the prompt body from systemPromptId and defaults tools to th
   assert.equal(created.json.systemPromptId, 'sp-concise-reviewer')
   // The body is resolved from the library entry, not echoed from the request.
   assert.equal(created.json.systemPrompt, store.getSystemPrompt('sp-concise-reviewer')!.body)
-  // Tools default to the full catalog (the default Agent's set).
-  assert.equal(created.json.tools.length, DEFAULT_AGENT.tools.length)
+  // No tools named ⇒ NO tools granted — the API never widens silently; the full
+  // catalog is an explicit grant the dialog spells out.
+  assert.equal(created.json.tools.length, 0)
 
   const one = await call('GET', `/agents/${created.json.id}`)
   assert.equal(one.status, 200)
   assert.equal(one.json.label, 'Reviewer')
+})
+
+test('POST with an explicit full-catalog grant carries every tool (the dialog’s checked path)', async () => {
+  const created = await call('POST', '/agents', {
+    label: 'Fully tooled',
+    providerId: DEFAULT_PROVIDER_ID,
+    systemPromptId: 'sp-concise-reviewer',
+    tools: [...TOOL_NAMES],
+  })
+  assert.equal(created.status, 200)
+  assert.deepEqual(created.json.tools, TOOL_NAMES)
+})
+
+test('GET /agent-tools serves the live catalog the explicit grant names', async () => {
+  const res = await call('GET', '/agent-tools')
+  assert.equal(res.status, 200)
+  assert.deepEqual(res.json.tools, TOOL_NAMES)
+  assert.ok(res.json.tools.length > 0)
 })
 
 test('POST refuses missing bindings — the API never resolves to a default (400)', async () => {
@@ -141,7 +162,7 @@ test('DELETE refuses an agent a Commission still assigns (409)', async () => {
     providerId: DEFAULT_PROVIDER_ID,
     systemPromptId: 'sp-concise-reviewer',
   })
-  store.createCommission({ agentId: created.json.id, projectId: 'p-insights' })
+  store.createCommission({ role: 'writer', agentId: created.json.id, projectId: 'p-insights' })
   const blocked = await call('DELETE', `/agents/${created.json.id}`)
   assert.equal(blocked.status, 409)
   assert.equal(blocked.json.error.code, 'conflict')

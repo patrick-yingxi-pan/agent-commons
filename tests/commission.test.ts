@@ -8,6 +8,7 @@ import { store } from '../server/store.ts'
 import { BudgetError } from '../server/usage.ts'
 import { AuthorityError } from '../server/authority.ts'
 import { LimitError } from '../server/limit.ts'
+import { ValidationError } from '../server/conflict.ts'
 import { call } from './helpers/http.ts'
 
 test('the seeded commission is present and queryable by project (the Contributor view)', () => {
@@ -35,6 +36,7 @@ test('createCommission attenuates against the Agent (leaf of the cascade)', () =
   assert.throws(
     () =>
       store.createCommission({
+        role: 'writer',
         agentId: agent.id,
         projectId: 'p-insights',
         grant: { windows: [{ label: '5-hour limit', ceiling: 200_000 }] },
@@ -45,6 +47,7 @@ test('createCommission attenuates against the Agent (leaf of the cascade)', () =
   assert.throws(
     () =>
       store.createCommission({
+        role: 'writer',
         agentId: agent.id,
         projectId: 'p-insights',
         authority: { tools: ['read', 'write'] },
@@ -53,6 +56,7 @@ test('createCommission attenuates against the Agent (leaf of the cascade)', () =
   )
   // A commission that is a subset of the Agent's grants mints fine.
   const ok = store.createCommission({
+    role: 'writer',
     agentId: agent.id,
     projectId: 'p-insights',
     authority: { tools: ['read'] },
@@ -64,7 +68,7 @@ test('createCommission attenuates against the Agent (leaf of the cascade)', () =
 })
 
 test('createCommission rejects an unknown agent rather than silently using the default', () => {
-  assert.throws(() => store.createCommission({ agentId: 'ghost-agent', projectId: 'p-insights' }), /unknown agent/)
+  assert.throws(() => store.createCommission({ role: 'writer', agentId: 'ghost-agent', projectId: 'p-insights' }), /unknown agent/)
 })
 
 test('GET /commissions lists + filters; /:id 404s the envelope', async () => {
@@ -82,20 +86,23 @@ test('GET /commissions lists + filters; /:id 404s the envelope', async () => {
 })
 
 test('POST /commissions mints (201); over-grant 400s; unknown agent/project 404s', async () => {
-  const created = await call('POST', '/commissions', { agentId: 'agent-default', projectId: 'p-insights' })
+  const created = await call('POST', '/commissions', { role: 'writer', agentId: 'agent-default', projectId: 'p-insights' })
   assert.equal(created.status, 200) // sendJson default; body carries the new commission
   assert.equal(created.json.agentId, 'agent-default')
   assert.ok(created.json.id.startsWith('commission-'))
 
-  // Missing required fields.
-  const bad = await call('POST', '/commissions', { agentId: 'agent-default' })
+  // Missing required fields — including a missing ROLE (INV-9: never defaulted).
+  const bad = await call('POST', '/commissions', { role: 'writer', agentId: 'agent-default' })
   assert.equal(bad.status, 400)
   assert.equal(bad.json.error.code, 'bad_request')
+  const noRole = await call('POST', '/commissions', { agentId: 'agent-default', projectId: 'p-insights' })
+  assert.equal(noRole.status, 400)
+  assert.match(noRole.json.error.message, /role/i)
 
   // Unknown agent / project → 404.
-  const noAgent = await call('POST', '/commissions', { agentId: 'ghost', projectId: 'p-insights' })
+  const noAgent = await call('POST', '/commissions', { role: 'writer', agentId: 'ghost', projectId: 'p-insights' })
   assert.equal(noAgent.status, 404)
-  const noProject = await call('POST', '/commissions', { agentId: 'agent-default', projectId: 'p-ghost' })
+  const noProject = await call('POST', '/commissions', { role: 'writer', agentId: 'agent-default', projectId: 'p-ghost' })
   assert.equal(noProject.status, 404)
 
   // An over-authority commission against the default agent? The default agent inherits
@@ -110,24 +117,48 @@ test('POST /commissions mints (201); over-grant 400s; unknown agent/project 404s
   const over = await call('POST', '/commissions', {
     agentId: capped.id,
     projectId: 'p-insights',
+    role: 'writer',
     authority: { tools: ['read', 'write'] },
   })
   assert.equal(over.status, 400)
   assert.equal(over.json.error.code, 'bad_request')
 })
 
-test('a commission carries a project role (D14) — seeded maintainer, default writer, patchable', () => {
+test('a commission carries a project role (D14) — seeded maintainer, REQUIRED at the funnel, patchable', () => {
   // The seed is an explicit maintainer.
   assert.equal(store.getCommission('commission-insights-default')?.role, 'maintainer')
-  // An unset role defaults to 'writer' at the funnel.
-  const c = store.createCommission({ agentId: 'agent-default', projectId: 'p-insights' })
-  assert.equal(c.role, 'writer')
+  // An unset role is REFUSED (INV-9): the funnel never picks one for the caller — the
+  // commissioning UI pre-selects the Project's defaultRole (else writer), visibly.
+  assert.throws(
+    () => store.createCommission({ agentId: 'agent-default', projectId: 'p-insights' } as never),
+    ValidationError,
+  )
   // An explicit role is carried through.
   const r = store.createCommission({ agentId: 'agent-default', projectId: 'p-insights', role: 'reader' })
   assert.equal(r.role, 'reader')
   // updateCommission re-assigns the role; absent leaves it unchanged.
   assert.equal(store.updateCommission(r.id, { role: 'owner' })?.role, 'owner')
   assert.equal(store.updateCommission(r.id, {})?.role, 'owner')
+})
+
+test('a Project can carry a DEFAULT role — a picker pre-selection the API never resolves to', () => {
+  // Set on a seed project via the same store seam the relation op uses.
+  const set = store.setProjectDefaultRole('p-insights', 'maintainer')
+  assert.equal(set?.defaultRole, 'maintainer')
+  // It is convenience metadata ONLY: a role-less commission is still refused.
+  assert.throws(
+    () => store.createCommission({ agentId: 'agent-default', projectId: 'p-insights' } as never),
+    ValidationError,
+  )
+  // Clearing leaves no default — a valid state (pickers fall back to writer).
+  assert.equal(store.setProjectDefaultRole('p-insights', undefined)?.defaultRole, undefined)
+  // An unknown role name is refused at the same seam.
+  assert.throws(() => store.setProjectDefaultRole('p-insights', 'admin' as never), ValidationError)
+  // The relation op is the same funnel (the project-page select + the consent card).
+  store.applyRelationOp({ kind: 'set-project-default-role', projectId: 'p-insights', projectName: 'Insights dashboard', role: 'reader' })
+  assert.equal(store.findProject('p-insights')?.defaultRole, 'reader')
+  store.applyRelationOp({ kind: 'set-project-default-role', projectId: 'p-insights', projectName: 'Insights dashboard' })
+  assert.equal(store.findProject('p-insights')?.defaultRole, undefined)
 })
 
 test('the commission routes reject an unknown role (400)', async () => {
@@ -154,24 +185,24 @@ test('D13 commission cap: the funnel refuses past the cap; the route 429s (fail-
 
   // The first mints; a second at the *funnel* throws LimitError (covers both the route
   // and the conversational commission-agent path, which share this funnel).
-  assert.ok(store.createCommission({ agentId: 'agent-default', projectId }).id.startsWith('commission-'))
-  assert.throws(() => store.createCommission({ agentId: 'agent-default', projectId }), LimitError)
+  assert.ok(store.createCommission({ role: 'writer', agentId: 'agent-default', projectId }).id.startsWith('commission-'))
+  assert.throws(() => store.createCommission({ role: 'writer', agentId: 'agent-default', projectId }), LimitError)
 
   // The route surfaces the over-cap attempt as 429 limit_exceeded.
-  const over = await call('POST', '/commissions', { agentId: 'agent-default', projectId }, asOwner)
+  const over = await call('POST', '/commissions', { role: 'writer', agentId: 'agent-default', projectId }, asOwner)
   assert.equal(over.status, 429)
   assert.equal(over.json.error.code, 'limit_exceeded')
 
   // The owner raises the cap → admits more; clearing it (undefined) is uncapped.
   store.setCommissionCap(projectId, 3)
-  assert.equal((await call('POST', '/commissions', { agentId: 'agent-default', projectId }, asOwner)).status, 200)
+  assert.equal((await call('POST', '/commissions', { role: 'writer', agentId: 'agent-default', projectId }, asOwner)).status, 200)
   store.setCommissionCap(projectId, undefined)
-  assert.equal((await call('POST', '/commissions', { agentId: 'agent-default', projectId }, asOwner)).status, 200)
+  assert.equal((await call('POST', '/commissions', { role: 'writer', agentId: 'agent-default', projectId }, asOwner)).status, 200)
 })
 
 test('D13 cap: a Project with no cap is unlimited (back-compat)', () => {
   // p-growth carries no cap; commissions mint freely.
-  for (let i = 0; i < 5; i += 1) store.createCommission({ agentId: 'agent-default', projectId: 'p-growth' })
+  for (let i = 0; i < 5; i += 1) store.createCommission({ role: 'writer', agentId: 'agent-default', projectId: 'p-growth' })
   assert.ok(store.activeCommissionCount('p-growth') >= 5)
 })
 
@@ -180,8 +211,8 @@ test('D13 cap works on a *created* Project too (findProject spans both homes)', 
     kind: 'create-project', projectId: 'p-capped-new', projectName: 'Capped New', projectDescription: 'd',
   })
   assert.equal(store.setCommissionCap('p-capped-new', 1)?.id, 'p-capped-new')
-  assert.ok(store.createCommission({ agentId: 'agent-default', projectId: 'p-capped-new' }).id.startsWith('commission-'))
-  assert.throws(() => store.createCommission({ agentId: 'agent-default', projectId: 'p-capped-new' }), LimitError)
+  assert.ok(store.createCommission({ role: 'writer', agentId: 'agent-default', projectId: 'p-capped-new' }).id.startsWith('commission-'))
+  assert.throws(() => store.createCommission({ role: 'writer', agentId: 'agent-default', projectId: 'p-capped-new' }), LimitError)
   // An unknown Project resolves to nothing — no cap to set.
   assert.equal(store.setCommissionCap('p-ghost', 1), undefined)
 })
@@ -189,7 +220,7 @@ test('D13 cap works on a *created* Project too (findProject spans both homes)', 
 test('narrowing a provider re-clamps its Agents and their commissions (D8 runtime propagation)', () => {
   const p = store.createProvider({ label: 'Shrink P', modelFamily: 'x', effortLevels: ['Low'], authority: { tools: ['a', 'b', 'c'] } })
   const a = store.createAgent({ label: 'Shrink A', systemPrompt: 's', tools: [], instructions: '', providerId: p.id, authority: { tools: ['a', 'b'] } })
-  const c = store.createCommission({ agentId: a.id, projectId: 'p-insights', authority: { tools: ['a', 'b'] } })
+  const c = store.createCommission({ role: 'writer', agentId: a.id, projectId: 'p-insights', authority: { tools: ['a', 'b'] } })
   // Narrow the provider's tools to just ['a'] — the already-minted children must follow down.
   store.updateProvider(p.id, { authority: { tools: ['a'] } })
   assert.deepEqual(store.listAgents().find((x) => x.id === a.id)?.authority?.tools, ['a']) // Agent clamped
@@ -202,6 +233,7 @@ test('narrowing an Agent budget re-clamps its commissions grants (D8 runtime pro
     budget: { windows: [{ label: '5-hour limit', ceiling: 1_000_000 }] },
   })
   const c = store.createCommission({
+    role: 'writer',
     agentId: a.id, projectId: 'p-insights',
     grant: { windows: [{ label: '5-hour limit', ceiling: 1_000_000 }] },
   })

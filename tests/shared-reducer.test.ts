@@ -325,9 +325,11 @@ test('describeOp(Agent Commons CRUD): per-action, lands in the Agents hub, reads
     'Add **Researcher** to the system-prompt library',
   )
 
-  // create-agent: the provider / prompt phrasing appears only when a label is carried.
+  // create-agent: the provider / prompt phrasing appears only when a label is carried,
+  // and the tool grant is ALWAYS stated (INV-9: absent = no tools — the card says so
+  // rather than leaving the grant implicit).
   const bare = describeOp({ kind: 'create-agent', label: 'Scout' })
-  assert.equal(bare.text, 'Create the **Scout** worker agent')
+  assert.equal(bare.text, 'Create the **Scout** worker agent, granting no tools')
   const bound = describeOp({
     kind: 'create-agent',
     label: 'Scout',
@@ -335,8 +337,12 @@ test('describeOp(Agent Commons CRUD): per-action, lands in the Agents hub, reads
     providerLabel: 'Acme LLM',
     systemPromptId: 'sp-1',
     systemPromptLabel: 'Researcher',
+    tools: ['read', 'write', 'search'],
   })
-  assert.equal(bound.text, 'Create the **Scout** worker agent on **Acme LLM** with the **Researcher** prompt')
+  assert.equal(
+    bound.text,
+    'Create the **Scout** worker agent on **Acme LLM** with the **Researcher** prompt, granting **3 tools**',
+  )
 
   const comm = describeOp({ kind: 'commission-agent', agentId: 'agent-1', agentLabel: 'Scout', projectId: 'p1', projectName: 'Insights' })
   assert.equal(comm.text, 'Commission **Scout** to **Insights**')

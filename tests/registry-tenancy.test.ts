@@ -41,7 +41,7 @@ test('providers, system prompts + commissions scope the same way (shared seed + 
 
   const ag = store.createAgent({ label: 'C-agent', systemPrompt: 'x', tools: [], instructions: '' }, 'tenant-rp')
   const proj = store.listProjects()[0]
-  const c = store.createCommission({ agentId: ag.id, projectId: proj.id }, 'tenant-rp')
+  const c = store.createCommission({ role: 'writer', agentId: ag.id, projectId: proj.id }, 'tenant-rp')
   assert.ok(store.listCommissions(undefined, 'tenant-rp').some((x) => x.id === c.id), 'creator sees its commission')
   assert.ok(!store.listCommissions(undefined, 'tenant-other').some((x) => x.id === c.id), 'another tenant does not')
 })

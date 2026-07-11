@@ -21,7 +21,7 @@ function arena(opts: { standing?: boolean } = {}) {
   store.applyRelationOp({ kind: 'create-project', projectId: id, projectName: `A2A ${n}`, projectDescription: '' }, A)
   store.applyRelationOp({ kind: 'share-project', projectId: id, projectName: `A2A ${n}`, shared: true }, A)
   const agent = store.createAgent({ label: `A2A Worker ${n}`, systemPrompt: 'x', tools: [], instructions: '' }, A)
-  const commission = store.createCommission({ agentId: agent.id, projectId: id, standing: opts.standing }, A)
+  const commission = store.createCommission({ role: 'writer', agentId: agent.id, projectId: id, standing: opts.standing }, A)
   return { id, agent, commission }
 }
 

@@ -18,6 +18,7 @@ import type {
   DispatchRun,
   OpenSubGoal,
   ModelProvider,
+  ProjectRole,
   RecentsSnapshot,
   RelationGraph,
   SavedContext,
@@ -108,6 +109,10 @@ export interface PersistedState {
    *  written before the field loads cleanly (no caps); only Projects with a cap set
    *  appear. Keeps a conversationally-set cap (the shared confirm card) across a restart. */
   commissionCaps?: [string, number][]
+  /** Per-Project D14 default contributor roles — the commissioning pickers' pre-selection
+   *  (a UI shortcut, INV-9). Same seed-overlay shape as `commissionCaps`: only seed
+   *  Projects carrying one appear; a created Project's rides the `graph` slice. */
+  projectDefaultRoles?: [string, ProjectRole][]
   /** The detective audit trail (D15/OQ7). Optional so a pre-field snapshot loads cleanly
    *  (an empty trail); append-only, so the watch survives a restart. */
   auditLog?: AuditEntry[]
@@ -189,6 +194,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   agents: 'mapEntries',
   commissions: 'mapEntries',
   commissionCaps: 'mapEntries',
+  projectDefaultRoles: 'mapEntries',
   auditLog: 'array',
   dispatch: 'array',
   openSubGoals: 'array',
