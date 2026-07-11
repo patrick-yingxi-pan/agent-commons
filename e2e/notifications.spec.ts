@@ -1,4 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
+import { agentBindings } from './agent-bindings.ts'
 
 /** D24 — the bell, end to end through the rendered UI: a visitor watches a shared
  *  project; the owner posts a work item; the visitor's bell badges live (the
@@ -144,7 +145,9 @@ test('a proposal.opened bell opens the review dialog directly ON the proposal (R
   const NOTE = `please consider this ${STAMP}`
 
   // Owner: create + publish via the API seam (as the definition-evolution spec does).
-  const created = await owner.page.request.post('/api/v1/agents', { data: { label: AGENT, tools: [], instructions: '' } })
+  const created = await owner.page.request.post('/api/v1/agents', {
+    data: { label: AGENT, ...(await agentBindings(owner.page)), tools: [], instructions: '' },
+  })
   const agentId = ((await created.json()) as { id: string }).id
   await owner.page.request.patch(`/api/v1/agents/${agentId}`, { data: { published: true } })
 
@@ -189,7 +192,9 @@ test('a proposal.merged bell opens the owner’s profile ON Your-proposals, focu
   const NOTE = `please accept this ${STAMP}`
 
   // Owner: create + publish.
-  const created = await owner.page.request.post('/api/v1/agents', { data: { label: AGENT, tools: [], instructions: '' } })
+  const created = await owner.page.request.post('/api/v1/agents', {
+    data: { label: AGENT, ...(await agentBindings(owner.page)), tools: [], instructions: '' },
+  })
   const agentId = ((await created.json()) as { id: string }).id
   await owner.page.request.patch(`/api/v1/agents/${agentId}`, { data: { published: true } })
 
@@ -253,7 +258,9 @@ test('an agent.forked bell lands on the source agent’s own card in the hub (R6
   const AGENT = `Forkable guide ${STAMP}`
 
   // Owner: create + publish via the API seam.
-  const created = await owner.page.request.post('/api/v1/agents', { data: { label: AGENT, tools: [], instructions: '' } })
+  const created = await owner.page.request.post('/api/v1/agents', {
+    data: { label: AGENT, ...(await agentBindings(owner.page)), tools: [], instructions: '' },
+  })
   const agentId = ((await created.json()) as { id: string }).id
   await owner.page.request.patch(`/api/v1/agents/${agentId}`, { data: { published: true } })
 

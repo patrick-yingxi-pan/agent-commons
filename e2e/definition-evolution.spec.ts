@@ -1,4 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
+import { agentBindings } from './agent-bindings.ts'
 
 /** D25 — the definition evolution loop, end to end through the rendered UI: the
  *  owner publishes; a FOREIGN tenant opens the public detail, proposes a sharper
@@ -30,7 +31,7 @@ test('propose → review side-by-side → merge: the definition evolves and cred
   // The route resolves the prompt BODY from systemPromptId — the created agent
   // carries the default toolkit body; the proposal will replace it.
   const created = await owner.page.request.post('/api/v1/agents', {
-    data: { label: AGENT, tools: [], instructions: '' },
+    data: { label: AGENT, ...(await agentBindings(owner.page)), tools: [], instructions: '' },
   })
   const agentId = ((await created.json()) as { id: string }).id
   await owner.page.request.patch(`/api/v1/agents/${agentId}`, { data: { published: true } })

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
+import { agentBindings } from './agent-bindings.ts'
 
 /** The A2A Agent Card is a machine-readable document, not a page to navigate to.
  *  Clicking "A2A card" used to open the raw JSON endpoint in a new browser tab; it
@@ -18,7 +19,7 @@ test('the "A2A card" trigger opens a presented viewer, not a raw-JSON tab', asyn
   // Create + publish an agent through the API seam (publishing is locked elsewhere) —
   // the "A2A card" affordance shows only on a published definition.
   const created = await page.request.post('/api/v1/agents', {
-    data: { label: AGENT, tools: ['save_artifact', 'attach_context'], instructions: '' },
+    data: { label: AGENT, ...(await agentBindings(page)), tools: ['save_artifact', 'attach_context'], instructions: '' },
   })
   const agentId = ((await created.json()) as { id: string }).id
   await page.request.patch(`/api/v1/agents/${agentId}`, { data: { published: true } })

@@ -1,4 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
+import { agentBindings } from './agent-bindings.ts'
 
 /** D21/D22 — the findability layer, end to end through the rendered UI: the
  *  workspace PROFILE page (a display name's one public face, reached from any owner
@@ -40,7 +41,7 @@ test('a workspace profile is reachable from any byline, and global search finds 
   // The agent: created in the hub, published via the same authenticated boundary the
   // UI uses (publishing itself is locked by the D18 suites; this spec is findability).
   const created = await owner.page.request.post(`${API}/agents`, {
-    data: { label: AGENT, systemPrompt: 'guide well', tools: [], instructions: 'be findable' },
+    data: { label: AGENT, ...(await agentBindings(owner.page)), tools: [], instructions: 'be findable' },
   })
   expect(created.status()).toBe(200)
   const agentId = ((await created.json()) as { id: string }).id

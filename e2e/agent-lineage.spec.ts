@@ -1,4 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
+import { agentBindings } from './agent-bindings.ts'
 
 /** Surface-audit S7 — a fork is a lineage relationship (this definition descends from
  *  that one, at version N), not a bare label. Locks, through the rendered UI, that a
@@ -22,7 +23,9 @@ test('a forked agent reveals the pinned source version on its lineage line (S7)'
   const AGENT = `Lineage guide ${STAMP}`
 
   // Owner: create + publish (v1) via the API seam.
-  const created = await owner.page.request.post('/api/v1/agents', { data: { label: AGENT, tools: [], instructions: '' } })
+  const created = await owner.page.request.post('/api/v1/agents', {
+    data: { label: AGENT, ...(await agentBindings(owner.page)), tools: [], instructions: '' },
+  })
   const agentId = ((await created.json()) as { id: string }).id
   await owner.page.request.patch(`/api/v1/agents/${agentId}`, { data: { published: true } })
 
