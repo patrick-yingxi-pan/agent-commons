@@ -287,12 +287,9 @@ the mock?
   concept's entries are usable in sessions, make the registry a first-class rail
   surface, not a sub-tab of the thing that consumes it. A registry entry can be
   flagged the caller's **default** (`isDefault`, set via the one shared
-  `DefaultToggle` in the entry's own dialog), but the flag is a **UI pre-selection
-  shortcut only** (spec MODEL-15): create-agent pickers pre-select the
-  default-else-first entry (`defaultEntry`), while the **API stays strict** — an
-  agent create/patch must name concrete provider + prompt ids (a missing binding is
-  a 400, never an implicit resolution to a default), so a wiring bug surfaces at the
-  call site instead of as a surprising resolution later. The rule's general form is
+  `DefaultToggle` in the entry's own dialog) — a pure UI pre-selection shortcut
+  (spec MODEL-15), governed by the *Strict core, convenient edge* decision below.
+  The rule's general form is
   invariant **UI-12** (`docs/ui-invariants.md`): every displayed datum reads a LIVE
   source and has a SYNC path — no seed-mirror reads (the rail's project menus once
   missed every runtime-created project), no SSE case that invalidates a key nothing
@@ -301,6 +298,27 @@ the mock?
   composer quick list's fabricated green dot). Locked by
   `tests/connectivity-freshness.test.ts` + `tests/event-tenancy.test.ts` (the
   2026-07 connectivity audit's ratchet).
+- **Strict core, convenient edge — an absent request field must mean something, or be
+  refused.** The generalization of the registry-default rule (invariant **INV-9**,
+  `docs/spec/09-design-invariants.md`; earned by MODEL-15): the API never fills in an
+  absence by *choosing for the caller*. A write-path field is either present and
+  concrete, or absent with a fixed, documented semantic — the four allowed absence
+  classes are **inherit** (a session's unset provider pick = its Agent's),
+  **closed-vocabulary baseline** (an unset commission role = `writer`),
+  **complete-set value default** (unset agent tools = the full catalog), and **none**
+  (unset budget = no cap; unset instructions = `''`). What is *never* allowed:
+  resolving an absence to a **mutable entity** — a registry entry, a "current
+  default", anything another actor can change — because the same write would mean
+  something different later, and the wiring bug surfaces far from its cause. That
+  class is refused loudly (`ValidationError` → 400) so the bug is caught at the call
+  site. Conveniences live at the **edge, visibly**: pickers pre-select
+  (`defaultEntry`); the conversational tool resolves names and defaults *before* the
+  consent card, and the card names the result — what crosses the API is always the
+  resolved, concrete form. Read-side, the server may decorate responses with
+  **computed, viewer-relative annotations** (`isDefault`, `online`, `own`) — never
+  stored, stripped at every mint/patch funnel. When adding a request field, classify
+  its absence into one of the four classes or refuse it; when adding a convenience,
+  put it at the edge and show its result.
 - **Rail navigation is an inline disclosure tree.** Sections render as a VSCode-explorer
   tree (spec ADAPT-13): a section with sub-nodes carries a chevron and expands **in place**
   — children indented below it, siblings staying put, **no push and no back button**. (The
