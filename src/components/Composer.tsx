@@ -90,10 +90,10 @@ export function Composer({
   connectors: Connector[]
   attachments: Attachment[]
   focus: PanelFocus | null
-  /** Locks free-typing — while the guided tour auto-plays, or a turn streams. */
+  /** Locks free-typing — while a turn streams. */
   disabled?: boolean
-  /** Why it's locked, as the placeholder ("Playing the tour…", "Waiting on your
-   *  session…") — the caller knows the reason; a generic default covers the rest. */
+  /** Why it's locked, as the placeholder ("Waiting on your session…") — the
+   *  caller knows the reason; a generic default covers the rest. */
   disabledLabel?: string
   /** The open session, so the usage gauge's plan rings track this thread. */
   sessionId?: string
@@ -397,7 +397,7 @@ export function Composer({
 
         {/* The disclaimer is chrome a landscape phone can't afford. */}
         <p className="mt-2 text-center text-[11px] text-ink-faint short:hidden">
-          Prototype · the model is a local mock, but every turn — tour or free-typed — is a real round-trip through the tool interface.
+          Prototype · the model is a local mock, but every turn is a real round-trip through the tool interface.
         </p>
       </div>
     </div>

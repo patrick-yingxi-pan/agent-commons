@@ -12,16 +12,8 @@ const PROJECT = `Findable atlas ${STAMP}`
 const AGENT = `Atlas Guide ${STAMP}`
 const API = '/api/v1'
 
-async function dismissIntro(page: Page, timeout = 2_500) {
-  await page
-    .getByRole('button', { name: 'Explore on my own' })
-    .click({ timeout })
-    .catch(() => {})
-}
-
 async function openApp(page: Page) {
   await page.goto('/')
-  await dismissIntro(page, 5_000)
 }
 
 async function newUser(browser: Browser, headers?: Record<string, string>) {

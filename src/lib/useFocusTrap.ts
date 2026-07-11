@@ -17,7 +17,7 @@ function getFocusable(root: HTMLElement | null): HTMLElement[] {
  *  • close on Escape (unless the dialog owns Escape itself — see `closeOnEscape`);
  *  • restore focus to whatever was focused before it opened, on close.
  *
- * Extracted from the original inline implementation in IntroOverlay so every
+ * Extracted from an original inline implementation so every
  * modal traps focus identically rather than re-deriving it — or omitting it.
  *
  * @param dialogRef the dialog container to trap focus within

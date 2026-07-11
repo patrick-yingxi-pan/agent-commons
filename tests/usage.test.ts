@@ -61,7 +61,7 @@ test('System tools + System prompt are the real eager request sizes (not seed)',
 
 test('store: the System tools category is the real tool-schema size, eager (loaded)', () => {
   const realToolTokens = estimateTokens(JSON.stringify(TOOL_DEFINITIONS))
-  const seg = store.usage('insights-launch').context.segments.find((s) => s.id === 'systemTools')!
+  const seg = store.usage('auth-refactor').context.segments.find((s) => s.id === 'systemTools')!
   assert.equal(seg.rawTokens, realToolTokens, 'System tools reflects the actual TOOL_DEFINITIONS the backend sends')
   assert.ok(!seg.deferred, 'tools are injected eagerly, so the category is loaded')
   assert.ok(seg.rawTokens > 0)
@@ -85,7 +85,7 @@ test('store.usage(session) reflects the open thread; a longer thread shows more 
   if (withMsgs) {
     assert.ok(store.usage(withMsgs.id).context.pct >= empty, 'a thread with messages reads ≥ the empty baseline')
   }
-  const u = store.usage('insights-launch')
+  const u = store.usage('auth-refactor')
   assert.ok(u.context && Array.isArray(u.limits))
 })
 

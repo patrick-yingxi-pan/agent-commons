@@ -82,7 +82,7 @@ export interface SendHandlers {
 
 /** Send a turn and stream the reply. Resolves when the stream ends. `signal`
  *  cancels an in-flight turn (e.g. on session switch); `ephemeral` runs the full
- *  model + tool round-trip without persisting the turn (the guided tour). */
+ *  model + tool round-trip without persisting the turn. */
 export async function sendMessage(
   sessionId: string,
   text: string,

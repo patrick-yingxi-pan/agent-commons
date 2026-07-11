@@ -12,10 +12,6 @@ import { test, expect, type Page } from '@playwright/test'
 const STAMP = Date.now().toString(36)
 const AGENT = `Card subject ${STAMP}`
 
-async function dismissIntro(page: Page) {
-  await page.getByRole('button', { name: 'Explore on my own' }).click({ timeout: 5_000 }).catch(() => {})
-}
-
 test('the "A2A card" trigger opens a presented viewer, not a raw-JSON tab', async ({ page, context }) => {
   test.setTimeout(60_000)
 
@@ -28,7 +24,6 @@ test('the "A2A card" trigger opens a presented viewer, not a raw-JSON tab', asyn
   await page.request.patch(`/api/v1/agents/${agentId}`, { data: { published: true } })
 
   await page.goto('/')
-  await dismissIntro(page)
 
   // ── Site 1: the owner's Agents-hub card ────────────────────────────────────
   await page.getByRole('navigation').getByRole('button', { name: 'Agents', exact: true }).click()

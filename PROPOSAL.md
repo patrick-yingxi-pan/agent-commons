@@ -83,7 +83,7 @@ discoverable answer to "what can I attach?"
 
 ### 4.3 The panel is adaptive, and every chip opens it
 A right-hand panel shows the **focused context** and is otherwise absent. It
-opens automatically as context attaches (and during the tour), and **every chip
+opens automatically as context attaches, and **every chip
 above the composer is clickable** to open — or, if already open, close — that
 context's view:
 
@@ -104,8 +104,8 @@ work needs them*, not because you navigated to them.
 
 ### 4.4 Escalation is fluid and in-place
 The defining move: a plain chat can **level up into a workspace, then into a
-repo, in the same thread**, carrying all prior context. The prototype's guided
-tour is exactly this — strategy chat → drafts a one-pager, launch email, and hero
+repo, in the same thread**, carrying all prior context. The prototype does
+exactly this — strategy chat → drafts a one-pager, launch email, and hero
 image (workspace) → ships a feature flag and route (repo) — with no tab switch and nothing
 re-explained.
 
@@ -174,11 +174,11 @@ schedule's delivery — because they all read one shared relation graph.
 | Context as attachment | The **Add context** button — one entry point for files, folders, repos, photos, connectors, and MCP servers — and the chips it produces above the composer. |
 | Progressive disclosure | The right panel is absent in chat; it opens as context attaches. |
 | Every chip opens a panel | Click any context chip — workspace, repo, connector, MCP, file, or photo — to open its detail / preview / edit panel. |
-| In-place escalation | **Play the tour** — one thread, three beats. |
+| In-place escalation | Free-type it — “open a workspace…”, then “connect the repo…” — one thread, three beats. |
 | Adaptive panel | The panel morphs from artifacts → code at the repo step. |
 | Unified history | The single sidebar list — one row per conversation; the open conversation's composer chips show what it carries. |
 | Cross-cutting tools, not tabs | The sidebar nav — New task, Projects, Artifacts, Scheduled, Dispatch, Customize — and their section views; no Chat/Cowork/Code switcher. |
-| Relations, edited with consent | The guided tour's **Organize** beat (and any "file this under…" message) — Claude proposes relation edits as inline cards; confirming one updates the Projects / Artifacts / Scheduled views. A standing card ("approve for all runs") shows the advance-approval model for schedules. |
+| Relations, edited with consent | Any "file this under…" / "save this as an artifact" message — Claude proposes relation edits as inline cards; confirming one updates the Projects / Artifacts / Scheduled views. A standing card ("approve for all runs") shows the advance-approval model for schedules. |
 
 ## 6. Design principles (carry beyond this one screen)
 

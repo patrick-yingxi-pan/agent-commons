@@ -63,7 +63,7 @@ test('sharing is owner-only — a non-owner cannot share another tenant’s proj
 })
 
 test('redaction — a non-owner sees a shared project WITHOUT the owner’s session ids / contexts', () => {
-  // A creates a project with a FOUNDING session (the tour's create-from-session path), then shares it.
+  // A creates a project with a FOUNDING session (the create-from-session path), then shares it.
   store.applyRelationOp({ kind: 'create-project', projectId: 'p-redact', projectName: 'Redact', projectDescription: '', sessionId: 'sess-A-secret', sessionTitle: 'A secret' }, A)
   store.applyRelationOp({ kind: 'share-project', projectId: 'p-redact', projectName: 'Redact', shared: true }, A)
 

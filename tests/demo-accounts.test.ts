@@ -8,7 +8,7 @@
  *    • MODERATE SCALE — no huge series: ≤ 8 sessions, ≤ 3 seeded runs per
  *      routine, ≤ 3 routines per account.
  *  Plus the flagship rule: the untagged seed world belongs to the backend's
- *  default principal AND Ada/Acme (one seat, two faces), so the tour's dataset
+ *  default principal AND Ada/Acme (one seat, two faces), so the flagship dataset
  *  reads the same on both backends. And the rehydrate guard: a pre-split
  *  snapshot must not strip the tenancy stamps. */
 import { test } from 'node:test'
@@ -22,7 +22,7 @@ import { call } from './helpers/http.ts'
  *  (tenant-personal) and its web face (tenant-acme); we test through acme so
  *  the same assertions hold on either backend. */
 const TENANTS = [
-  'tenant-acme', // Ada — product & platform (the flagship / tour dataset)
+  'tenant-acme', // Ada — product & platform (the flagship dataset)
   'tenant-beta', // Grace — deploys & reliability
   'tenant-growthworks', // Maya — growth & experimentation
   'tenant-northlight', // Noor — brand & marketing
@@ -101,10 +101,10 @@ test('the flagship seat has two faces: the backend default and Ada see the same 
     store.listSessions(def).map((s) => s.id),
     'Ada reads the flagship sessions on any backend',
   )
-  assert.ok(store.listSessions('tenant-acme').some((s) => s.id === store.demoSessionId), 'the tour session is flagship')
-  // The five themed accounts never see it.
+  assert.ok(store.listSessions('tenant-acme').some((s) => s.id === 'auth-refactor'), 'the flagship seeds are Ada’s')
+  // The five themed accounts never see them.
   for (const t of TENANTS.slice(1)) {
-    assert.ok(!store.listSessions(t).some((s) => s.id === store.demoSessionId), `${t} does not see the demo session`)
+    assert.ok(!store.listSessions(t).some((s) => s.id === 'auth-refactor'), `${t} does not see the flagship seeds`)
   }
 })
 

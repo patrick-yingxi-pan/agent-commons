@@ -9,10 +9,6 @@
  *  an at-render-only ref stored the previous size, so a reload snapped it back). */
 import { test, expect, type Locator, type Page } from '@playwright/test'
 
-async function dismissIntro(page: Page, timeout = 2_500) {
-  await page.getByRole('button', { name: 'Explore on my own' }).click({ timeout }).catch(() => {})
-}
-
 /** The rail width animates (200ms transition), so measure only once the box has
  *  stopped moving — two consecutive samples within half a pixel. */
 async function settled(page: Page, target: Locator, dim: 'width' | 'height'): Promise<number> {
@@ -37,7 +33,6 @@ test('arrow keys resize the rail and a rail pane through the focused separator, 
   // default, and the coarse step would read as "keyboard broken" when it's the clamp.
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto('/')
-  await dismissIntro(page)
 
   // ── Vertical separator (rail width): Left/Right arrows step it. ──
   const rail = page.locator('aside')
@@ -78,7 +73,6 @@ test('arrow keys resize the rail and a rail pane through the focused separator, 
 test('the panel separator takes RAPID keyboard steps at full size, announces its value, and persists', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto('/')
-  await dismissIntro(page)
 
   // The seeded repo session restores its panel on select (same door responsive.spec uses).
   await page.locator('aside').getByText('Refactor auth middleware').first().click()

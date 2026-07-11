@@ -108,8 +108,8 @@ test('session pushes reach the controller through the one narrow seam (one-door 
   assert.match(controller, /onSessionPush\(\(sessionId\) => \{/, 'the controller subscribes')
   assert.match(
     controller,
-    /if \(activeSessionRef\.current\.isDemo \|\| busyRef\.current \|\| typingRef\.current\) return/,
-    'a mid-stream or demo thread is never stomped by a reconcile',
+    /if \(busyRef\.current \|\| typingRef\.current\) return/,
+    'a mid-stream thread is never stomped by a reconcile',
   )
   const push = controller.slice(controller.indexOf('onSessionPush(('))
   assert.match(push.slice(0, 700), /loadSession\(sessionId\)/, 'the reconcile is the same server read selectSession uses')

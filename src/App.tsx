@@ -9,20 +9,17 @@ import { Composer } from './components/Composer'
 import { MessageRow, TypingRow } from './components/Message'
 import { CompactionAffordance } from './components/CompactionAffordance'
 import { TurnControls } from './components/TurnControls'
-import { CaptionBar } from './components/CaptionBar'
 import { WorkspacePanel } from './components/WorkspacePanel'
 import { RunsPanel } from './components/RunsPanel'
 import { SectionView } from './components/SectionView'
 import { AttachmentPanel } from './components/AttachmentPanel'
 import { ConnectorPanel } from './components/ConnectorPanel'
-import { IntroOverlay } from './components/IntroOverlay'
-import { TourPermissionPrompt } from './components/TourPermissionPrompt'
-import { ProposalBar } from './components/ProposalBar'
+import { EscalationPrompt } from './components/EscalationPrompt'
 import { SearchPanel } from './components/SearchPanel'
 import { NotificationsPanel } from './components/NotificationsPanel'
 import { AddContextButton } from './components/AddContextButton'
 import { useAgents, useCapabilities, useMe, useProviders, useSessions, useServerEvents } from './api'
-import { DEFAULT_PROVIDER_ID, estimateTokens } from '../contract/index.ts'
+import { estimateTokens } from '../contract/index.ts'
 import { useSessionWorkspace } from './controller/useSessionWorkspace'
 import { useLayout } from './controller/useLayout'
 import { RelationsProvider, useRelations } from './controller/useRelations'
@@ -43,9 +40,6 @@ export default function App() {
   const caps = useCapabilities().data
   const me = useMe().data
   const authView = useAuthScreen()
-  // Lifted ABOVE the surface switch: the intro must not replay every time the
-  // auth screen swaps the workspace out and back (e.g. "Add account…" mid-session).
-  const [showIntro, setShowIntro] = useState(true)
   // An account switch resets the whole cache (useMe momentarily undefined) —
   // hold the last known answers so the workspace doesn't unmount mid-switch.
   const lastCaps = useRef<Capabilities | undefined>(undefined)
@@ -65,14 +59,14 @@ export default function App() {
     // the sign-in form when no account is remembered on this browser.
     return <AuthScreen view={authView ?? { kind: 'picker' }} gated={gated} />
   }
-  return <Workspace showIntro={showIntro} onShowIntro={setShowIntro} />
+  return <Workspace />
 }
 
 /** The View: composes the product chrome from two controllers — the session +
  *  its live workspace, and the rail layout — holding only local view chrome
- *  (the intro overlay and the search palette toggle). All business logic lives
- *  in the controllers (controller/) and the model (data/). */
-function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro: (v: boolean) => void }) {
+ *  (the search palette toggle). All business logic lives in the controllers
+ *  (controller/) and the model (data/). */
+function Workspace() {
   const [searchOpen, setSearchOpen] = useState(false)
   // The notification inbox overlay (D24) — the rail bell's panel.
   const [notifOpen, setNotifOpen] = useState(false)
@@ -98,16 +92,11 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
     typing,
     focus,
     activeSession,
-    isDemo,
     isDraft,
-    phase,
-    stepIndex,
-    caption,
     busy,
     liveTurn,
     interrupted,
     sendFailure,
-    totalSteps,
     pendingApproval,
     bottomRef,
     focusedWorkspace,
@@ -143,9 +132,6 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
     removeAttachment,
     removeFolder,
     closePanel,
-    startTour,
-    nextStep,
-    startDemoTour,
     approveEscalation,
   } = useSessionWorkspace()
 
@@ -153,9 +139,7 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
   // resolve a session's driver → provider kind (the client mirror of the server's
   // resolution — an unset agentId means the seeded default Agent). Feeds the
   // "Waiting on your session…" state (§7.8 — a relayed reply arrives whole, so the
-  // UI says who it's waiting on instead of faking a token stream) and the tour
-  // gate (§7.7 — the scripted tour depends on tool calls; forbid the playback,
-  // not the binding).
+  // UI says who it's waiting on instead of faking a token stream).
   const agents = useAgents().data ?? []
   const providers = useProviders().data ?? []
   // A session's provider resolves the way the server routes the turn: the session's
@@ -184,22 +168,6 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
   const modelPickWritable =
     isDraft || sessions.some((s) => s.id === activeId) || !!activeSession.scheduledRunOf
   const onRelay = sessionProviderKind({ agentId: activeRow.agentId, providerId: activeProviderId }) === 'session'
-  const demoSession = sessions.find((s) => s.isDemo)
-  // The scripted tour depends on the DEFAULT provider (its beats are the mock
-  // model's fixed strings): any other resolved provider — a prose-only relay OR a
-  // registered endpoint whose replies won't match the script — blocks playback
-  // (§7.7: forbid the playback, not the binding).
-  const demoAgent = agents.find((a) => a.id === (demoSession?.agentId ?? 'agent-default'))
-  const demoProviderId = demoSession?.providerId ?? demoAgent?.providerId ?? DEFAULT_PROVIDER_ID
-  const tourBlocked =
-    demoProviderId !== DEFAULT_PROVIDER_ID
-      ? sessionProviderKind(demoSession) === 'session'
-        ? 'The tour can’t play: it depends on tool calls, and the demo runs on a prose-only Session provider. Pick the built-in model for it (the composer’s model selector) to play it.'
-        : 'The tour can’t play: its scripted beats need the built-in model, and the demo is picked onto a registered provider. Pick the built-in model for it (the composer’s model selector) to play it.'
-      : null
-  const guardedStartTour = useCallback(() => {
-    if (!tourBlocked) startTour()
-  }, [tourBlocked, startTour])
 
   // Responsive layout ladder (FWD-3 / PD35): below a wide window the right panel
   // would crush the conversation column, so it overlays as a drawer (with a scrim)
@@ -248,8 +216,8 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
   const panelOpen = !!focus || (isRunSession && runsPanelOpen && !!activeSession.scheduledRunOf)
 
   // The live size of the open thread's Messages — so the composer's usage gauge
-  // (and its context breakdown) fills in real time as the conversation grows (the
-  // tour's turns included). The fixed config categories are added by the breakdown.
+  // (and its context breakdown) fills in real time as the conversation grows.
+  // The fixed config categories are added by the breakdown.
   const messageTokens = useMemo(
     () => live.messages.reduce((n, m) => n + estimateTokens(m.content), 0),
     [live.messages],
@@ -287,30 +255,7 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
   return (
     <RelationsProvider attachConnector={attachConnector} navigate={navigateToSection}>
     <div className="flex h-dvh flex-col overflow-hidden bg-canvas text-ink">
-      {/* ===== Proposal framing — the description, kept outside the product mock.
-              A dark band holding the concept label, "About this proposal", and
-              the guided tour, so the product below can read like a real app. ===== */}
-      <div className="shrink-0 bg-ink text-canvas">
-        <ProposalBar onAbout={() => onShowIntro(true)} />
-        {/* The caption bar normally hides when a section is open — but during the
-            running tour the create-project beat sends the user to the project page,
-            so keep it visible there so "Next" can bring them back. */}
-        {isDemo && (!activeSection || phase === 'running') && (
-          <CaptionBar
-            phase={phase}
-            stepIndex={stepIndex}
-            totalSteps={totalSteps}
-            caption={caption}
-            busy={busy}
-            blocked={tourBlocked}
-            onStart={guardedStartTour}
-            onNext={nextStep}
-            onRestart={guardedStartTour}
-          />
-        )}
-      </div>
-
-      {/* ===== The proposed product — no top bar; the rail owns its toggle ===== */}
+      {/* ===== The product — no top bar; the rail owns its toggle ===== */}
       <div className="relative flex min-h-0 flex-1 flex-col">
         {/* When the rail is collapsed its own toggle hides with it, so a floating
             control re-opens it — in the same top-left spot the rail's toggle sits.
@@ -390,11 +335,11 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
             inert={railOverlay && leftOpen}
             className="flex min-w-0 flex-1 flex-col"
           >
-            {/* Narrow tier: surfaces without their own title bar (sections, the
-                demo, a draft) get a slim header row that HOUSES the rail toggle —
+            {/* Narrow tier: surfaces without their own title bar (sections, a
+                draft) get a slim header row that HOUSES the rail toggle —
                 in-flow, so content scrolls under nothing. Regular sessions embed
                 the same toggle in their existing title bar instead. */}
-            {railOverlay && (activeSection || isDemo || isDraft) && (
+            {railOverlay && (activeSection || isDraft) && (
               <NarrowBar
                 title={
                   activeSection
@@ -426,7 +371,7 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
               </FocusContext.Provider>
             ) : (
               <>
-                {!isDemo && !isDraft && (
+                {!isDraft && (
                   <SessionTitleBar
                     // The LIVE row (the useSessions cache, refreshed on session.updated),
                     // not the controller's creation-time snapshot — a rename must appear
@@ -449,22 +394,22 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
                     <div className="flex-1 overflow-y-auto">
                       {live.messages.length === 0 && !typing ? (
                         <EmptyState
-                          mode={isDemo ? 'demo' : isDraft ? 'draft' : 'empty'}
+                          mode={isDraft ? 'draft' : 'empty'}
                           live={live}
                           onNewSessionWith={newSessionWith}
                         />
                       ) : (
-                        <div className={!leftOpen && !railOverlay && (isDemo || isDraft) ? 'pb-4 pt-14' : 'py-4'}>
+                        <div className={!leftOpen && !railOverlay && isDraft ? 'pb-4 pt-14' : 'py-4'}>
                           {live.messages.map((m) => (
                             <MessageRow key={m.id} message={m} sessionId={activeId} />
                           ))}
                           <AnimatePresence>
                             {typing && <TypingRow waitingOn={onRelay ? 'Waiting on your session…' : undefined} />}
                           </AnimatePresence>
-                          {/* The tour asks before it escalates: this consent prompt
+                          {/* Claude asks before it escalates: this consent prompt
                               gates attaching a workspace / repo (see the controller). */}
                           {pendingApproval && (
-                            <TourPermissionPrompt
+                            <EscalationPrompt
                               key={pendingApproval.kind}
                               kind={pendingApproval.kind}
                               rootChoices={
@@ -492,10 +437,10 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
 
                     {/* Compaction (P5): offered once the open thread is long enough to be
                         worth compacting; hides itself after (the thread is short again). Only
-                        a persisted, real session — a draft/demo has nothing durable to archive —
+                        a persisted, real session — a draft has nothing durable to archive —
                         and only BETWEEN turns: compacting mid-stream would swap out live.messages
                         and drop the still-streaming reply, so gate on !busy && !typing. */}
-                    {!isDemo && !isDraft && !busy && !typing && live.messages.length > 6 && (
+                    {!isDraft && !busy && !typing && live.messages.length > 6 && (
                       <CompactionAffordance onCompact={compact} />
                     )}
 
@@ -519,14 +464,8 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
                       connectors={live.connectors}
                       attachments={live.attachments}
                       focus={focus}
-                      disabled={busy || (isDemo && phase === 'running')}
-                      disabledLabel={
-                        isDemo && phase === 'running'
-                          ? 'Playing the tour…'
-                          : onRelay
-                            ? 'Waiting on your session…'
-                            : undefined
-                      }
+                      disabled={busy}
+                      disabledLabel={onRelay ? 'Waiting on your session…' : undefined}
                       onSend={handleSend}
                       onAddContext={handleAddContext}
                       onOpenContext={focusContext}
@@ -655,21 +594,6 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
         />
       )}
 
-      {/* Rendered without AnimatePresence: framer-motion 11 + React 19 can leave
-          an exited overlay in the DOM (an invisible, click-blocking backdrop).
-          A plain conditional unmounts instantly; the entrance still animates. */}
-      {showIntro && (
-        <IntroOverlay
-          onClose={() => onShowIntro(false)}
-          onStartTour={() => {
-            onShowIntro(false)
-            // Blocked playback (§7.7): still land on the demo session, where the
-            // caption bar explains why the tour won't start and names the remedy.
-            if (tourBlocked) selectSession(demoSession?.id ?? '')
-            else startDemoTour()
-          }}
-        />
-      )}
     </div>
     </RelationsProvider>
   )
@@ -692,7 +616,7 @@ function RailOpenButton({ onClick }: { onClick: () => void }) {
 }
 
 /** The slim header row narrow surfaces WITHOUT their own title bar wear (a
- *  section page, the demo, a draft): rail toggle + where-am-I title. */
+ *  section page, a draft): rail toggle + where-am-I title. */
 function NarrowBar({ title, onOpenRail }: { title: string; onOpenRail: () => void }) {
   return (
     <div className="flex min-h-12 shrink-0 items-center gap-1.5 border-b border-line bg-canvas/80 py-1 pl-2 pr-4">
@@ -772,7 +696,7 @@ function EmptyState({
   live,
   onNewSessionWith,
 }: {
-  mode: 'demo' | 'draft' | 'empty'
+  mode: 'draft' | 'empty'
   /** The draft's live context (drives the launcher's "Added" ticks). Draft mode only. */
   live?: Live
   /** Start a new chat with a context pre-attached (FWD-1). Draft mode only. */
@@ -807,25 +731,12 @@ function EmptyState({
       </div>
     )
   }
-  if (mode === 'empty') {
-    return (
-      <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-        <div className="max-w-sm">
-          <div className="font-serif text-lg font-semibold text-ink">No messages yet</div>
-          <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-            Start typing below to pick this session back up.
-          </p>
-        </div>
-      </div>
-    )
-  }
   return (
     <div className="flex h-full flex-col items-center justify-center px-6 text-center">
       <div className="max-w-sm">
-        <div className="font-serif text-lg font-semibold text-ink">One place for everything</div>
+        <div className="font-serif text-lg font-semibold text-ink">No messages yet</div>
         <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-          Start typing, or press <span className="font-semibold text-accent-strong">Play the tour</span>{' '}
-          to watch a single session grow a workspace and a repo — no tabs, no lost context.
+          Start typing below to pick this session back up.
         </p>
       </div>
     </div>

@@ -141,7 +141,7 @@ test('sessions are tenant-isolated on a remote backend (list + read-by-id, 404 n
 
   // The default (no-header) reader is the web tenant; seed sessions default to it and stay visible.
   const listDefault = await call('GET', '/sessions')
-  assert.ok(listDefault.json.some((s) => s.isDemo), 'the default tenant still sees the seed demo')
+  assert.ok(listDefault.json.some((s) => s.id === 'auth-refactor'), 'the default tenant still sees the flagship seeds')
 })
 
 test('the turn routes sit behind the same tenant wall (cancel + reattach are 404 cross-tenant)', async () => {

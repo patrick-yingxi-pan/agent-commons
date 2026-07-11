@@ -129,7 +129,6 @@ export async function probeProviderEndpoint(config: ProviderConfig): Promise<Pro
 export interface ReplySession {
   id: string
   title: string
-  isDemo?: boolean
 }
 
 /** Streamed-reply callbacks the route wires to its SSE channel. */
@@ -160,17 +159,11 @@ export interface ReplyResult {
 }
 
 /** The system prompt the backend sends — the worker Agent's prompt + its custom
- *  instructions, with the demo clause layered on for the scripted session. The
- *  Agent (docs/agent-commons.md, D6) carries the framing that used to be hard-coded
- *  here; for the default Agent this reproduces the original prompt verbatim. */
-export function systemPrompt(session: ReplySession, agent: Agent): string {
-  return [
-    agent.systemPrompt,
-    agent.instructions,
-    session.isDemo ? 'This is the scripted demo session — keep replies brief.' : '',
-  ]
-    .filter(Boolean)
-    .join(' ')
+ *  instructions. The Agent (docs/agent-commons.md, D6) carries the framing that
+ *  used to be hard-coded here; for the default Agent this reproduces the
+ *  original prompt verbatim. */
+export function systemPrompt(_session: ReplySession, agent: Agent): string {
+  return [agent.systemPrompt, agent.instructions].filter(Boolean).join(' ')
 }
 
 /** Stream an assistant reply through the Messages API tool-use loop. Fires the

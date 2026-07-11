@@ -1,47 +1,70 @@
 /** Unit tests for the mock model's decision logic (server/model/intents.ts) — the
- *  "fake Anthropic" matching messages to tool calls by fixed string (the tour) and
- *  by keyword pattern (free-typed). */
+ *  "fake Anthropic" matching free-typed messages to tool calls by keyword
+ *  pattern. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { matchIntents, TOUR_TURNS } from '../server/model/intents.ts'
+import { matchIntents } from '../server/model/intents.ts'
 import { TOOL_NAMES } from '../server/model/tools.ts'
 
-test('every tour beat resolves to exactly the tool calls it scripts (fixed-string match)', () => {
-  for (const turn of TOUR_TURNS) {
-    const calls = matchIntents(turn.text)
-    assert.deepEqual(
-      calls.map((c) => c.name),
-      turn.calls.map((c) => c.name),
-      `tour beat: ${turn.text.slice(0, 40)}…`,
-    )
-  }
-})
-
 /** The Agent Commons CRUD tools (D6/D9/D10/D7) — Claude managing the multi-tenant
- *  concepts — plus the D26 README setter. They're shown via free-typed requests,
- *  not the linear narrative tour (which is the chat→workspace→repo→organize
- *  story), so they're excluded from the tour-completeness invariant and covered
- *  by the keyword tests below instead. */
+ *  concepts — plus the D26 README setter. Covered by their own keyword tests. */
 const COMMONS_TOOLS = ['create_provider', 'create_system_prompt', 'create_agent', 'commission_agent', 'uncommission_agent', 'handoff_agent', 'set_commission_cap', 'set_project_readme']
 
-test('the tour exercises every relation/escalation tool (the Agent Commons CRUD tools are shown via free-typed requests)', () => {
-  const used = new Set(TOUR_TURNS.flatMap((t) => t.calls.map((c) => c.name)))
-  const missing = TOOL_NAMES.filter((n) => !used.has(n) && !COMMONS_TOOLS.includes(n))
-  assert.deepEqual(missing, [], `tools never exercised by the tour: ${missing.join(', ')}`)
+/** One free-typed phrase per relation/escalation tool — the coverage set for the
+ *  completeness invariant below (no tool in the catalog ships unreachable). */
+const PHRASES: Record<string, string> = {
+  open_workspace: 'Open a workspace and draft the launch assets',
+  connect_repo: 'Connect the repo patrick-yingxi-pan/web-app on branch feat/insights-dashboard',
+  create_project: 'Create a project called Q3 Planning',
+  file_session: 'File this under the Growth experiments project',
+  save_artifact: 'Please save a recap of this as recap.md',
+  set_schedule_artifact: 'Have the “Triage new GitHub issues” schedule save a digest each run',
+  set_schedule_session: 'Have the “Daily AI news briefing” schedule open a fresh session each run',
+  schedule_add_tool: 'Let the “Daily AI news briefing” schedule use Slack each run',
+  link_schedule_project: 'Link the “Triage new GitHub issues” schedule to the Growth experiments project',
+  attach_context: 'Attach Linear to this session',
+  scope_context: 'Scope Figma into the Growth experiments project',
+  unscope_context: 'Drop Figma from the Growth experiments project',
+  set_artifact_source: 'Note that insights-onepager.md derives from the brand-kit/ folder',
+  refile_artifact: 'Move query-perf.sheet into the Growth experiments project',
+  set_project_instructions: 'Set the instructions for Growth experiments: lead with the metric, then the mechanism',
+}
+
+test('every relation/escalation tool in the catalog is reachable by a free-typed phrase', () => {
+  const missing = TOOL_NAMES.filter((n) => {
+    if (COMMONS_TOOLS.includes(n)) return false
+    const phrase = PHRASES[n]
+    return !phrase || matchIntents(phrase).at(0)?.name !== n
+  })
+  assert.deepEqual(missing, [], `tools with no working keyword phrase: ${missing.join(', ')}`)
 })
 
-test('the tour has two no-tool beats (the plain-chat + wrap turns)', () => {
-  const noTool = TOUR_TURNS.filter((t) => t.calls.length === 0)
-  assert.equal(noTool.length, 2)
+test('the panel escalations match free-typed asks (chat → workspace / repo growth)', () => {
+  assert.equal(matchIntents(PHRASES.open_workspace).at(0)?.name, 'open_workspace')
+  const repo = matchIntents(PHRASES.connect_repo).at(0)
+  assert.equal(repo?.name, 'connect_repo')
+  assert.equal(repo?.input.remote, 'patrick-yingxi-pan/web-app')
+  assert.equal(repo?.input.branch, 'feat/insights-dashboard')
+  // A repo ask never doubles as a connector attach ("the repo" is not a connector).
+  assert.equal(matchIntents(PHRASES.connect_repo).length, 1)
 })
 
-test('whitespace differences do not break the fixed-string match', () => {
-  const turn = TOUR_TURNS[0]
-  const spaced = `  ${turn.text.replace(/ /g, '  ')}  `
-  assert.equal(matchIntents(spaced).length, turn.calls.length)
+test('the escalation patterns do not misfire on messages that merely mention the nouns', () => {
+  // The verb must sit ON the noun — mentioning a workspace is not asking for one.
+  assert.deepEqual(matchIntents('Start a new session in my workspace'), [])
+  assert.deepEqual(matchIntents('Which folders are open in my workspace?'), [])
+  // A connector attach that merely mentions the repo still attaches the connector.
+  const mixed = matchIntents('Attach Linear to this session so it can read the repo')
+  assert.equal(mixed.at(0)?.name, 'attach_context')
+  assert.equal(mixed.length, 1)
+  // An innocent edit is never an unscope proposal (project vocabulary required).
+  assert.deepEqual(matchIntents('Remove the last paragraph from the doc'), [])
+  // Unnamed project instructions are refused, not resolved to some default
+  // project on the caller's behalf (INV-9's shape at the mock's altitude).
+  assert.deepEqual(matchIntents('Set the project instructions: be brief'), [])
 })
 
-test('keyword fallback: free-typed organizing requests pick the right tools', () => {
+test('keyword matching: free-typed organizing requests pick the right tools', () => {
   assert.equal(matchIntents('Please save a recap of this as recap.md').at(0)?.name, 'save_artifact')
   assert.equal(matchIntents('Have the “Triage new GitHub issues” schedule save a digest each run').at(0)?.name, 'set_schedule_artifact')
   assert.equal(matchIntents('attach Linear to this session').at(0)?.name, 'attach_context')
@@ -136,6 +159,6 @@ test('an article-draft request is a plain-chat turn whose canned prose is the sh
   const prose = plainReplyText(msg)
   assert.match(prose, /The Adaptive Workspace/, 'the draft names the shared article')
   assert.match(prose, /Guardian/, 'the draft narrates the coordination it stands on')
-  // The generic static-prototype pointer must NOT swallow the beat.
-  assert.doesNotMatch(prose, /static prototype/)
+  // The generic local-mock pointer must NOT swallow the beat.
+  assert.doesNotMatch(prose, /local mock/)
 })

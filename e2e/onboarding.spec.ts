@@ -15,10 +15,6 @@ const EMAIL = `olive-${STAMP}@example.test`
 const PASSWORD = `olives-password-${STAMP}`
 const MESSAGE = `hello from my new account ${STAMP}`
 
-async function dismissIntro(page: Page, timeout = 2_500) {
-  await page.getByRole('button', { name: 'Explore on my own' }).click({ timeout }).catch(() => {})
-}
-
 /** Drive the sign-up wizard from its first step to the created account. */
 async function completeWizard(page: Page, name: string, email: string, password: string) {
   await expect(page.getByTestId('auth-step')).toContainText('Step 1 of 3')
@@ -36,7 +32,6 @@ async function completeWizard(page: Page, name: string, email: string, password:
 test('create account via the wizard → own world → reload stays signed in → sign out → sign back in', async ({ page, browser }) => {
   test.setTimeout(120_000)
   await page.goto('/')
-  await dismissIntro(page)
   await expect(page.getByTestId('account-chip')).toContainText('Ada Lovelace') // the remote default
 
   // ── The chip menu opens the DEDICATED full-screen wizard (no inline form) ──
@@ -54,11 +49,10 @@ test('create account via the wizard → own world → reload stays signed in →
   await page.getByRole('navigation').getByRole('button', { name: 'New session' }).click()
   await page.getByPlaceholder('Reply to Claude…').fill(MESSAGE)
   await page.keyboard.press('Enter')
-  await expect(page.getByText(/This is a static/).first()).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByText(/free-form chat is canned/).first()).toBeVisible({ timeout: 15_000 })
 
   // ── Reload: the cookie is the persistence — still the new account ──
   await page.reload()
-  await dismissIntro(page)
   await expect(page.getByTestId('account-chip')).toContainText(NAME)
   await expect(page.locator('aside').getByText(new RegExp(MESSAGE.slice(0, 20))).first()).toBeVisible({ timeout: 5_000 })
 
@@ -66,7 +60,6 @@ test('create account via the wizard → own world → reload stays signed in →
   const other = await browser.newContext()
   const otherPage = await other.newPage()
   await otherPage.goto('/')
-  await dismissIntro(otherPage)
   await expect(otherPage.getByTestId('account-chip')).toContainText('Ada Lovelace')
   await expect(otherPage.getByText(MESSAGE)).toHaveCount(0)
   await other.close()
@@ -92,7 +85,6 @@ test('create account via the wizard → own world → reload stays signed in →
 
 test('a new workspace: create through the chip, switch into it, and it lists as owner', async ({ page }) => {
   await page.goto('/')
-  await dismissIntro(page)
   await page.getByTestId('account-chip').click()
   await page.getByTestId('auth-signup').click()
   await completeWizard(page, `Wsp Wren ${STAMP}`, `wren-${STAMP}@example.test`, `wrens-password-${STAMP}`)
@@ -113,7 +105,6 @@ test('a new workspace: create through the chip, switch into it, and it lists as 
 
 test("the wizard's optional team-workspace step creates and enters the workspace in one flow", async ({ page }) => {
   await page.goto('/')
-  await dismissIntro(page)
   await page.getByTestId('account-chip').click()
   await page.getByTestId('auth-signup').click()
   await expect(page.getByTestId('auth-step')).toContainText('Step 1 of 3')

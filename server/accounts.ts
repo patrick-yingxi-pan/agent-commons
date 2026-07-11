@@ -65,7 +65,7 @@ export class AccountRegistry {
    *  the SIX demo accounts (docs/demo-accounts.md): each a themed principal
    *  with a documented demo credential and its own workspace, so the
    *  multi-account demo has genuinely distinguishable worlds to hop between.
-   *  Ada owns the default tenant (the tour's flagship dataset); Grace holds the
+   *  Ada owns the default tenant (the flagship dataset); Grace holds the
    *  cross-tenant pair (Acme member + her own platform workspace — also the
    *  co-authoring E2E's "Bo"); the other four each own one themed org. */
   seed(): void {

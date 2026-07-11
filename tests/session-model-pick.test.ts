@@ -81,11 +81,11 @@ test('the one-seat wall: a flagship (unstamped) session cannot be picked onto a 
   const acme = { 'x-tenant-id': 'tenant-acme' }
   const minted = await call('POST', '/providers', { label: 'Acme’s relay', modelFamily: 'claude', effortLevels: ['Default'], kind: 'session' }, acme)
   assert.equal(minted.status, 200)
-  const refused = await call('PATCH', '/sessions/insights-launch', { providerId: minted.json.id }, acme)
+  const refused = await call('PATCH', '/sessions/auth-refactor', { providerId: minted.json.id }, acme)
   assert.equal(refused.status, 404, 'acme’s private relay is refused on the shared seed session')
-  assert.equal(store.getSession('insights-launch')?.providerId, undefined)
+  assert.equal(store.getSession('auth-refactor')?.providerId, undefined)
   // Non-routing edits keep the demo affordance: the same face can still rename it.
-  const renamed = await call('PATCH', '/sessions/insights-launch', { title: 'Insights dashboard launch' }, acme)
+  const renamed = await call('PATCH', '/sessions/auth-refactor', { title: 'Insights dashboard launch' }, acme)
   assert.equal(renamed.status, 200)
 })
 

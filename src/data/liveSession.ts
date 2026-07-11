@@ -49,11 +49,10 @@ export function withConnector(list: Connector[], c: Connector): Connector[] {
 import { repoIdForLabel, slug } from '../../contract/ids.ts'
 export { repoIdForLabel, slug }
 
-// Branch names for the two scripted seed sessions that carry a repo. Demo seed
-// data, not a general registry — context attached at runtime brings its own
-// branch (see the controller's handleAddContext), so anything not seeded is 'main'.
+// Branch names for the seed sessions that carry a repo. Demo seed data, not a
+// general registry — context attached at runtime brings its own branch (see the
+// controller's handleAddContext), so anything not seeded is 'main'.
 const SEED_BRANCHES: Record<string, string> = {
-  'insights-launch': 'feat/insights-dashboard',
   'auth-refactor': 'refactor/auth-middleware',
 }
 
@@ -61,11 +60,10 @@ export function branchFor(id: string) {
   return SEED_BRANCHES[id] ?? 'main'
 }
 
-// The repo's remote (owner/name) shown on the chip for the scripted seed
-// sessions — distinct from the branch, which shows in the repo panel.
+// The repo's remote (owner/name) shown on the chip for the seed sessions that
+// carry one — distinct from the branch, which shows in the repo panel.
 // Runtime-attached repos carry their own remote.
 const SEED_REMOTES: Record<string, string> = {
-  'insights-launch': 'patrick-yingxi-pan/web-app',
   'auth-refactor': 'patrick-yingxi-pan/server',
 }
 
@@ -92,10 +90,8 @@ export function folderLabel(path: string) {
 }
 
 /** Derive the live view from a seeded session: its workspace (if it has
- *  artifacts) and its repo (if it has files/diff/terminal). The demo starts
- *  empty and grows during the guided tour, so it derives to EMPTY_LIVE. */
+ *  artifacts) and its repo (if it has files/diff/terminal). */
 export function liveFromSession(session: Session): Live {
-  if (session.isDemo) return EMPTY_LIVE
   // The server owns the live workspace (runtime attaches persist into it). When the
   // session carries one — a server read / the select-time reconcile — project it
   // directly; otherwise derive from the flat seed fields, which is the instant

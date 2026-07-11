@@ -72,7 +72,7 @@ interface ToolSpec {
 // ── Resolvers — turn the model's *names* into real graph ids ──────────────────
 // The model proposes in human terms ("file under Insights dashboard"); the
 // backend resolves that to the concrete id the graph uses. Case-insensitive,
-// with a sensible fallback so a tour fixed-string always lands.
+// with a sensible fallback so a loosely-named request still lands.
 
 const str = (v: unknown, fallback = ''): string => (typeof v === 'string' ? v : fallback)
 const bool = (v: unknown): boolean => v === true
@@ -149,17 +149,6 @@ const REPO_TERMINAL = [
   'PASS  web/src/routes/insights.test.tsx (3.1s)',
   'Tests: 7 passed, 7 total',
 ]
-/** The fresh project the tour's create_project spins up (distinct from the seeded
- *  `p-insights`, so the "file this session into a new project" move is real). */
-const TOUR_PROJECT = {
-  id: 'p-insights-launch',
-  name: 'Insights dashboard launch',
-  description:
-    'Everything for the Insights dashboard launch — the strategy thread, the one-pager and email, and the feature-flagged rollout.',
-}
-const TOUR_PROJECT_VISIT_CAPTION =
-  'Here it is: a brand-new project with this session already filed inside. Same conversation — now it has a home, and everything it produces will collect here. Next heads back to the thread to wrap up.'
-
 // ── The catalog ───────────────────────────────────────────────────────────────
 // One entry per resource manipulation. The 3 panel-escalation tools produce an
 // `escalation`; the rest produce `relationOps` — the relationship edits plus the
@@ -214,18 +203,14 @@ const TOOLS: ToolSpec[] = [
     },
     required: ['name'],
     build: (input) => {
-      // The tour's canonical project carries its own id + visit caption; a
-      // free-typed "create a project called X" mints an id from the name.
+      // "create a project called X" mints an id from the name.
       const name = str(input.name).trim()
-      const isTour = name.toLowerCase() === TOUR_PROJECT.name.toLowerCase()
-      const project = isTour
-        ? TOUR_PROJECT
-        : { id: `p-${slug(name)}`, name, description: str(input.description, `Everything for ${name}.`) }
-      // `file_session` defaults to true (the usual "create + file" move); the tour
-      // passes "false" so a later file_session beat demonstrates filing on its own.
+      const project = { id: `p-${slug(name)}`, name, description: str(input.description, `Everything for ${name}.`) }
+      // `file_session` defaults to true (the usual "create + file" move); "false"
+      // creates it empty, to be filed by a later step.
       const fileSession = str(input.file_session, 'true').toLowerCase() !== 'false'
       return {
-        escalation: { kind: 'project', project, fileSession, visitCaption: isTour ? TOUR_PROJECT_VISIT_CAPTION : undefined },
+        escalation: { kind: 'project', project, fileSession },
         summary: `Proposed creating the ${project.name} project${fileSession ? ' and filing this session into it' : ''}; awaiting the user's approval.`,
       }
     },

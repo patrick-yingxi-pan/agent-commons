@@ -29,10 +29,12 @@ how to verify, and a claim-by-claim evaluation guide.
 
 ## What the demo shows
 
-Open it and press **Play the tour**. One conversation walks through four beats
+Open it and free-type the flow. One conversation walks through four beats
 without ever switching tabs:
 
 1. **Chat** — an ordinary message thread. No mode chosen up front.
+   Then ask for each escalation in plain words — *"open a workspace and draft the
+   launch assets"*, *"connect the repo"* — and approve the consent prompt it raises:
 2. **→ Workspace** — the same thread grows a workspace; a panel slides in with a
    one-pager, a launch email, and a hero image. *(This is today's "Cowork".)*
 3. **→ Repo** — it becomes a coding session: a branch, a diff, and a passing
@@ -101,8 +103,8 @@ blocks, the backend executes each call into a consent-gated proposal (a relation
 card or a panel escalation), feeds the `tool_result`s back, and relays the final
 stream. In dev that endpoint is a local Anthropic-compatible mock
 (`server/model/`, `:8788`) that decides which tools to call by matching the
-message (fixed string for the guided tour, keyword otherwise) and wraps canned
-prose around them — so even the guided tour is a real round-trip. Going live is
+message by keyword pattern and wraps canned prose around them — so every
+organizing turn is a real round-trip. Going live is
 just `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` — the whole pipeline is already
 real, only the model is mocked.
 

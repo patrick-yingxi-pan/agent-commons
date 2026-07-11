@@ -27,25 +27,21 @@ function workspaceNameFor(session: Session): string {
   )
 }
 
-// The seed branch / remote for the two scripted sessions that carry a repo —
-// demo seed data, not a general registry (mirrors src/data/liveSession.ts).
+// The seed branch / remote for the seed sessions that carry a repo — demo seed
+// data, not a general registry (mirrors src/data/liveSession.ts).
 const SEED_BRANCHES: Record<string, string> = {
-  'insights-launch': 'feat/insights-dashboard',
   'auth-refactor': 'refactor/auth-middleware',
 }
 const SEED_REMOTES: Record<string, string> = {
-  'insights-launch': 'patrick-yingxi-pan/web-app',
   'auth-refactor': 'patrick-yingxi-pan/server',
 }
 const branchFor = (id: string) => SEED_BRANCHES[id] ?? 'main'
 const remoteFor = (id: string) => SEED_REMOTES[id] ?? 'origin'
 
-/** Materialize a session's live workspace from its flat seed fields. The demo
- *  starts empty and grows during the guided tour (client-side), so it seeds empty;
- *  every other session derives its workspace (if it has artifacts) and its repo (if
- *  it has files/diff/terminal) the same way the client's instant render does. */
+/** Materialize a session's live workspace from its flat seed fields: its
+ *  workspace (if it has artifacts) and its repo (if it has files/diff/terminal),
+ *  the same way the client's instant render does. */
 export function workspaceFromSeed(session: Session): SessionWorkspace {
-  if (session.isDemo) return { ...EMPTY_WORKSPACE }
   const workspaces: Workspace[] = session.artifacts?.length
     ? [{ id: `ws-${session.id}`, label: workspaceNameFor(session), artifacts: session.artifacts }]
     : []

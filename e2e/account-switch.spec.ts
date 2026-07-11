@@ -20,11 +20,7 @@ import { test, expect, type Page } from '@playwright/test'
 const STAMP = Date.now().toString(36)
 const PACED_MESSAGE = `paced hello please ${STAMP}`
 // The mock model's default plain reply — what the completed turn must contain.
-const REPLY_MARKER = 'static prototype'
-
-async function dismissIntro(page: Page, timeout = 2_500) {
-  await page.getByRole('button', { name: 'Explore on my own' }).click({ timeout }).catch(() => {})
-}
+const REPLY_MARKER = 'free-form chat is canned'
 
 /** Sign the browser context in through the REAL endpoints (page.request shares
  *  the context's cookie jar, so the Set-Cookie lands where the page reads it).
@@ -56,7 +52,6 @@ async function switchTo(page: Page, optionText: string | RegExp, expectChip: str
 test('a mid-generation account switch: the turn survives, the other tenant sees nothing, switch-back finds the reply', async ({ page }) => {
   test.setTimeout(120_000)
   await page.goto('/')
-  await dismissIntro(page)
 
   // The default identity on the remote backend — server truth on the chip.
   await expect(page.getByTestId('account-chip')).toContainText('Ada Lovelace')
@@ -66,20 +61,18 @@ test('a mid-generation account switch: the turn survives, the other tenant sees 
   // to Ada through the stack — the surface under test from here on.
   await stackSeedAccounts(page)
   await page.reload()
-  await dismissIntro(page)
   await expect(page.getByTestId('account-chip')).toContainText('Grace Hopper')
   await expect(page.getByTestId('account-chip')).toContainText('Beta Platform')
   await switchTo(page, 'Ada Lovelace', 'Ada Lovelace')
 
-  // A FRESH draft — the app opens on the demo session, and a send there would
-  // land in the demo thread instead of materializing a new session.
+  // A FRESH draft, so the send below materializes a new session.
   await page.getByRole('navigation').getByRole('button', { name: 'New session' }).click()
 
   // Send the paced turn from the fresh thread; wait until the reply is
   // demonstrably MID-STREAM (some text arrived, the marker's tail hasn't).
   await page.getByPlaceholder('Reply to Claude…').fill(PACED_MESSAGE)
   await page.keyboard.press('Enter')
-  await expect(page.getByText(/This is a static/).first()).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByText(/free-form chat is canned/).first()).toBeVisible({ timeout: 15_000 })
   // The draft materialized into a real, persisted session (server-minted id,
   // titled from the message) — visible in Ada's sidebar before we switch away.
   await expect(page.locator('aside').getByText(new RegExp(PACED_MESSAGE.slice(0, 20))).first()).toBeVisible({
@@ -135,10 +128,8 @@ test('a mid-generation account switch: the turn survives, the other tenant sees 
 
 test('the menu lists remembered accounts + real memberships (no dev directory); an active-workspace pick is a no-op', async ({ page }) => {
   await page.goto('/')
-  await dismissIntro(page)
   await stackSeedAccounts(page)
   await page.reload()
-  await dismissIntro(page)
   await expect(page.getByTestId('account-chip')).toContainText('Grace Hopper')
 
   await page.getByTestId('account-chip').click()

@@ -60,8 +60,8 @@ test('every component that declares aria-modal="true" wires useFocusTrap', () =>
     .map((f) => ({ rel: f.replace(ROOT, ''), src: stripComments(read(f)) }))
     .filter((m) => m.src.includes('aria-modal="true"'))
 
-  // The known modals: IntroOverlay, New project / New artifact, the artifact
-  // viewer, the search palette, and the Add-context browse window.
+  // The known modals: New project / New artifact, the artifact viewer, the
+  // search palette, and the Add-context browse window.
   assert.ok(
     modals.length >= 5,
     `expected the aria-modal dialogs; found only ${modals.length}: ${modals.map((m) => m.rel).join(', ')}`,

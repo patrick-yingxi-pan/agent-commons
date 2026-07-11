@@ -9,7 +9,6 @@ const STAMP = Date.now().toString(36)
 
 async function openApp(page: Page) {
   await page.goto('/')
-  await page.getByRole('button', { name: 'Explore on my own' }).click({ timeout: 5_000 }).catch(() => {})
 }
 async function newUser(browser: Browser, headers?: Record<string, string>) {
   const context = await browser.newContext(headers ? { extraHTTPHeaders: headers } : {})

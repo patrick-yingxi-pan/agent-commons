@@ -12,9 +12,9 @@ three top-level tabs — **Chat**, **Cowork**, **Code** — should collapse into
 not affiliated with or endorsed by Anthropic**, built to share *with* Anthropic
 as constructive feedback.
 
-- **It is:** a clickable, end-to-end demo (a scripted guided tour) running as a
-  real web frontend over a real — but **mock** — HTTP + SSE backend, so the
-  interaction model and the client/server shape are both tangible.
+- **It is:** a clickable, end-to-end demo running as a real web frontend over a
+  real — but **mock** — HTTP + SSE backend, so the interaction model and the
+  client/server shape are both tangible.
 - **It is not:** a production client. Data is mocked on purpose (deterministic,
   reviewable) and there is **no real model** behind the streaming reply.
 
@@ -24,8 +24,9 @@ The full argument is in [`PROPOSAL.md`](PROPOSAL.md); the engineering tour is in
 ## Suggested read order for an evaluator (≈10 min)
 
 1. **[`PROPOSAL.md`](PROPOSAL.md)** §1–§4 — the problem and the proposed model.
-2. **Run it and press *Play the guided tour*** (see below) — the whole thesis in
-   one conversation: chat → workspace → repo → organize.
+2. **Run it and free-type the flow** (see below) — the whole thesis in one
+   conversation: chat → workspace → repo → organize, each step a consent-gated
+   proposal.
 3. **[`README.md`](README.md) "Architecture"** — how one UI runs over a portable
    contract (desktop sidecar *or* remote web server, same wire types).
 4. Skim **`contract/`** — the shared types *are* the API; this is the portability
@@ -45,10 +46,12 @@ npm run dev        # boots the UI (Vite, :5173) AND the mock backend (:8787)
                    # → open http://127.0.0.1:5173
 ```
 
-On first load an intro dialog summarizes the proposal — click **Play the guided
-tour** to watch the scripted chat → workspace → repo → organize escalation in a
-single thread. The tour asks for consent (folder pick, repo connect, project
-create) before each escalation, mirroring the desktop app's permission prompts.
+The app opens on a fresh thread. Free-type the escalation flow in one session —
+“Open a workspace and draft the launch assets”, “Connect the repo”, “Create a
+project called X” — and each step asks for consent (folder pick, repo connect,
+project create) before it lands, mirroring the desktop app's permission prompts.
+(The original scripted guided tour and the proposal top bar were removed in
+2026-07 — the direction landed; the repo now focuses on the platform work.)
 
 Other scripts:
 
@@ -76,9 +79,9 @@ sizes: the narrow-tier rail drawer, the full-viewport panel takeover, and the
 `short:` chrome compression, spec ADAPT-11), and
 a pinned local `ANTHROPIC_BASE_URL` (an ambient one would stand the mock model down);
 `e2e/*.spec.ts`. The store/route suites lock the logic, the E2E locks the wiring.
-E2E spec gotchas: the app **opens on the demo session** (click "New session" before
-sending, or the turn persists onto the demo thread), and the sidebar is an `<aside>`
-(role `complementary`) — only its nav buttons carry a `navigation` role.
+E2E spec gotchas: the app **opens on a fresh draft** (sending materializes a new
+session), and the sidebar is an `<aside>` (role `complementary`) — only its nav
+buttons carry a `navigation` role.
 
 `npm run dev`/`start` boot the mock model server in-process, so one command is a
 complete stack. To run the backend against the **real** API instead of the mock,
@@ -105,10 +108,10 @@ mirrors `PROPOSAL.md` §5:
 |---|---|
 | No mode chosen up front | App opens to a single empty thread + composer; no Chat/Cowork/Code switcher. |
 | Context is *attached*, not a mode | The composer's single **Add context** button (files, folders, repos, connectors, MCP) and the chips it produces. |
-| In-place escalation | **Play the guided tour** — one thread escalates chat → workspace → repo with nothing re-explained. |
+| In-place escalation | Free-type it — “Open a workspace and draft the launch assets”, then “Connect the repo” — one thread escalates chat → workspace → repo with nothing re-explained, each step a consent prompt. |
 | Progressive disclosure | The right panel is absent in chat and morphs (artifacts → code editor/diff/terminal) as context attaches. |
 | Unified history | The sidebar — one row per conversation; open "Refactor auth middleware" (chat+repo) vs "Vector databases, explained" (chat only) to see the panel adapt. |
-| Relations, edited with consent | The tour's **project-create** and **Organize** beats — Claude proposes relation edits as inline cards; nothing changes until you confirm. Standing approval (a schedule) is approved once, then runs unprompted. |
+| Relations, edited with consent | Free-type an organize request (“file this under X”, “save the recap as an artifact”) — Claude proposes relation edits as inline cards; nothing changes until you confirm. Standing approval (a schedule) is approved once, then runs unprompted. |
 | One gate for everything Claude changes | The Agent-Commons concepts (model providers — the **Models** rail section; worker agents, prompts, commissions — the **Agents** hub) are managed two ways — by hand (their dialogs) **and conversationally**: free-type "create a worker agent called X on Anthropic" or "commission X to the Insights dashboard project" and Claude proposes it through the *same* confirm card the relation edits use (`docs/agent-commons.md` slice 17). |
 | Agents as the main players (the platform shell) | The Agents hub's **Discover** tab — cross-tenant directories of shared Projects and published Agents (D17); **Publish to directory** on an agent card and **Fork** on a directory entry — the definition travels, capability never does (D18); a project page's **Open work** list — post a work item and a **standing** Contributor takes it *unprompted*, through the same role/reach/guardian walls, earning D13 credit (D19); each item is a **conversation** — a comment thread for anyone who can see the project, and an honest close (**Retract**, poster/owner only, which also powers A2A `tasks/cancel`) (D23). Spec rows COMMONS-7/8/9/16; the feature roadmap vs GitHub's model lives in `docs/github-parity.md`. |
 | A foreign agent can join (the A2A edge) | The platform speaks Google's **A2A** protocol as pure translation (D20, `docs/a2a-integration.md`): a published agent's **A2A card** link (a spec-shaped Agent Card from the same directory redaction; the platform card at `/.well-known/agent-card.json`); JSON-RPC `message/send` to a shared Project posts **open work** through the identical walls (task = the item's lifecycle; `via A2A` shown on the backlog); messaging an *Agent* endpoint gets a `rejected` Task naming fork-and-bind; the Discover tab's **Import from another instance** fetches a remote card into an unbound stub with lineage. Spec rows COMMONS-10/11/12. |
@@ -132,11 +135,11 @@ the mock?
   consent-gated proposal — a relation-edit card or an escalation), feeds the
   `tool_result`s back, and streams the model's final prose. In dev the endpoint is
   a local **Anthropic-compatible mock model server** (`server/model/`, on `:8788`)
-  that decides which tools to call by matching the message — by **fixed string**
-  for the guided tour's scripted beats, by **keyword pattern** otherwise
-  (`server/model/intents.ts`) — and wraps canned prose around them
-  (`server/model/replies.ts`). The **guided tour itself is a real round-trip**: its
-  messages travel UI → backend → model and back, so every escalation and relation
+  that decides which tools to call by matching the message by **keyword pattern**
+  (`server/model/intents.ts` — every escalation/relation tool is reachable by a
+  free-typed phrase) and wraps canned prose around them
+  (`server/model/replies.ts`). Every organizing turn is a **real round-trip**: its
+  message travels UI → backend → model and back, so every escalation and relation
   edit you see is the result of an actual tool call (the panels' content is the
   tool's *output*, not a client fixture). Point `ANTHROPIC_BASE_URL` at
   `api.anthropic.com` + set `ANTHROPIC_API_KEY` to talk to the real API — no code
@@ -234,7 +237,7 @@ the mock?
 - **Light theme only.** There is no dark mode — no `dark:` variants and no theme
   toggle. Don't add one unless the proposal direction changes.
 - **No "before" view.** The prototype deliberately does *not* reproduce today's
-  three-tab UI. The motivation lives in the docs and the in-app tour captions, and
+  three-tab UI. The motivation lives in the docs, and
   reviewers can diff against the live app — so don't build a side-by-side "before".
 - **Form follows function — parallel controls share one styled primitive.**
   Logically / structurally similar elements must *look* the same: same role ⇒ same

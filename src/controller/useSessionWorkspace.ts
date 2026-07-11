@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { DEMO_STEPS } from '../data/demo'
-import { DEMO_SESSION_ID, SESSIONS } from '../data/sessions'
+import { SESSIONS } from '../data/sessions'
 import {
   DRAFT_ID,
   DRAFT_SESSION,
   EMPTY_LIVE,
-  WS_ID,
   addContextToLive,
   focusForAdded,
   folderLabel,
@@ -53,10 +51,8 @@ import type {
   Message,
   ModelProvider,
   PanelFocus,
-  Repo,
   SectionId,
   Session,
-  TourPhase,
 } from '../types'
 
 /** A held escalation proposal — the result of the model's panel-producing tool
@@ -124,11 +120,12 @@ function strongestFocus(l: Live): PanelFocus | null {
 }
 
 /** ── Controller: the active session + its live workspace ───────────────────
- *  Owns all session, live-context, panel-focus, section, and guided-tour state,
- *  plus every handler the view binds to. App.tsx is a thin view over what this
- *  returns; the domain rules it calls live in data/liveSession.ts (model). */
+ *  Owns all session, live-context, panel-focus, and section state, plus every
+ *  handler the view binds to. App.tsx is a thin view over what this returns;
+ *  the domain rules it calls live in data/liveSession.ts (model). */
 export function useSessionWorkspace() {
-  const [activeId, setActiveId] = useState(DEMO_SESSION_ID)
+  // The app opens on a fresh draft — a single empty thread + composer (ADAPT-1).
+  const [activeId, setActiveId] = useState(DRAFT_ID)
   const [live, setLive] = useState<Live>(EMPTY_LIVE)
   const [typing, setTyping] = useState(false)
   // Which attached context the right-hand sidebar is showing (null = closed).
@@ -161,10 +158,6 @@ export function useSessionWorkspace() {
   // nav action pushes the page it leaves; goBack pops. (See lib/nav.ts.)
   const [history, setHistory] = useState<NavLocation[]>([])
 
-  // Guided-tour state (only meaningful for the demo session).
-  const [phase, setPhase] = useState<TourPhase>('idle')
-  const [stepIndex, setStepIndex] = useState(-1)
-  const [caption, setCaption] = useState('')
   const [busy, setBusy] = useState(false)
   // The server-owned turn currently streaming into THIS client (multi-account
   // P0/P6c) — the handle the stop button cancels with. Null between turns.
@@ -259,7 +252,6 @@ export function useSessionWorkspace() {
       DRAFT_SESSION,
     [activeId, extraSessions],
   )
-  const isDemo = !!activeSession.isDemo
   // The transient "New session" draft (not a saved session). Drives the empty
   // greeting + title-bar suppression off the actual id, so a future *empty* real
   // session falls back to neutral copy with its title still shown.
@@ -293,14 +285,6 @@ export function useSessionWorkspace() {
     runId.current += 1
     timers.current.forEach(clearTimeout)
     timers.current = []
-  }, [])
-
-  const schedule = useCallback((fn: () => void, ms: number) => {
-    const myRun = runId.current
-    const t = setTimeout(() => {
-      if (myRun === runId.current) fn()
-    }, ms)
-    timers.current.push(t)
   }, [])
 
   // Auto-scroll the thread as messages/typing change — and when a consent prompt
@@ -388,12 +372,11 @@ export function useSessionWorkspace() {
   // A thread whose last word is the USER'S with nothing generating — the
   // orphaned-turn state (server restarted mid-turn, or the send failed): offer
   // a retry. Deliberately a FRESH send (the record stays honest — no rewriting
-  // history); scoped to real sessions (the demo/draft can't orphan a turn).
+  // history); scoped to real sessions (a draft can't orphan a turn).
   const interrupted =
     !busy &&
     !typing &&
     activeId !== DRAFT_ID &&
-    !activeSession.isDemo &&
     live.messages.length > 0 &&
     live.messages[live.messages.length - 1].role === 'user'
   const retryInterrupted = useCallback(() => {
@@ -445,17 +428,12 @@ export function useSessionWorkspace() {
         return pref !== undefined ? pref : strongestFocus(l)
       }
       setFocus(restoreFocus(nextLive))
-      setPhase('idle')
       setPendingEscalation(null)
-      if (session.isDemo) {
-        setStepIndex(-1)
-        setCaption('')
-      }
       // Reconcile the full live session from the server (the system of record): a
       // persisted turn AND any persisted runtime attaches (workspace/repo/connector/
-      // file) reappear. Skip the demo (the guided tour owns its panels, client-side)
-      // and the unsaved draft. Guarded by runId so a fast re-switch can't clobber.
-      if (id !== DRAFT_ID && !session.isDemo) {
+      // file) reappear. Skip the unsaved draft (it has no server row yet). Guarded
+      // by runId so a fast re-switch can't clobber.
+      if (id !== DRAFT_ID) {
         loadSession(id)
           .then((s) => {
             upsertExtraSession(s)
@@ -497,12 +475,12 @@ export function useSessionWorkspace() {
   // system of record — the same read selectSession does — so the composer chips
   // and panels track the server instead of freezing at selection time. Skipped
   // while a local stream is mid-flight (the live tail is already authoritative;
-  // a reconcile would stomp the render) and for the demo/draft (client-owned).
+  // a reconcile would stomp the render) and for the draft (client-owned).
   useEffect(
     () =>
       onSessionPush((sessionId) => {
         if (sessionId !== activeIdRef.current || sessionId === DRAFT_ID) return
-        if (activeSessionRef.current.isDemo || busyRef.current || typingRef.current) return
+        if (busyRef.current || typingRef.current) return
         const myRun = runId.current
         loadSession(sessionId)
           .then((s) => {
@@ -558,11 +536,11 @@ export function useSessionWorkspace() {
       // An approved escalation on a REAL session persists through the same two
       // facets as a manual attach (handleAddContext): the binding-of-record the
       // effect-mediation path resolves against, and the panel write-through — or
-      // a reload would silently drop what the user just consented to grow. The
-      // demo stays client-owned (the tour replays); a draft has no server row.
+      // a reload would silently drop what the user just consented to grow. A
+      // draft has no server row yet.
       const id = activeIdRef.current
       const session = SESSIONS.find((s) => s.id === id) ?? extraSessionsRef.current.find((s) => s.id === id)
-      if (id !== DRAFT_ID && session && !session.isDemo && esc.kind !== 'project') {
+      if (id !== DRAFT_ID && session && esc.kind !== 'project') {
         const binding: AttachContextRequest =
           esc.kind === 'workspace'
             ? {
@@ -579,91 +557,9 @@ export function useSessionWorkspace() {
     [activeSession],
   )
 
-  // Play one beat: send its user message through the *real* path — the backend
-  // calls the model with the tool interface, runs whatever tools it calls, and
-  // streams the reply + proposals back. The demo session sends `ephemeral` so the
-  // tour replays without persisting. Escalation beats hold here (busy stays true)
-  // on the inline consent prompt until approved; relation-edit beats render their
-  // confirm cards and release "Next" at message end.
-  const playStep = useCallback(
-    (index: number) => {
-      const step = DEMO_STEPS[index]
-      if (!step) return
-      // A beat always plays in the session thread — so if a prior beat sent the
-      // user to the project page (the create-project detour), advancing returns
-      // here first, then plays.
-      setActiveSection(null)
-      setFocusProjectId(null)
-      setStepIndex(index)
-      setCaption(step.caption)
-      setBusy(true)
-      const myRun = runId.current
-      const userMsg: Message = { id: `u-tour-${index}-${Date.now()}`, role: 'user', content: step.userText }
-      setLive((l) => ({ ...l, messages: [...l.messages, userMsg] }))
-      setTyping(true)
-      // Stale if the user navigated to a different session, or a re-select bumped
-      // runId (the project detour keeps activeId on the demo, so it stays live).
-      const stale = () => activeIdRef.current !== DEMO_SESSION_ID || runId.current !== myRun
-      let escalated = false
-      void sendMessage(
-        DEMO_SESSION_ID,
-        step.userText,
-        {
-          onStart: (_id, message) => {
-            if (stale()) return
-            setTyping(false)
-            setLive((l) => ({ ...l, messages: [...l.messages, message] }))
-          },
-          onDelta: (messageId, chunk) => {
-            if (stale()) return
-            setLive((l) => ({
-              ...l,
-              messages: l.messages.map((m) => (m.id === messageId ? { ...m, content: m.content + chunk } : m)),
-            }))
-          },
-          onRelations: (messageId, relationActions) => {
-            if (stale()) return
-            setLive((l) => ({
-              ...l,
-              messages: l.messages.map((m) => (m.id === messageId ? { ...m, relationActions } : m)),
-            }))
-          },
-          onToolActivity: (messageId, toolActivities) => {
-            if (stale()) return
-            setLive((l) => ({
-              ...l,
-              messages: l.messages.map((m) => (m.id === messageId ? { ...m, toolActivities } : m)),
-            }))
-          },
-          onEscalation: (_messageId, escalation) => {
-            if (stale()) return
-            escalated = true
-            setPendingEscalation({ messageId: _messageId, escalation })
-          },
-          onEnd: (message) => {
-            if (stale()) return
-            setLive((l) => ({ ...l, messages: l.messages.map((m) => (m.id === message.id ? { ...m, ...message } : m)) }))
-            setTyping(false)
-            // The turn consumed real tokens — refresh the usage gauge.
-            invalidate(keys.usage(DEMO_SESSION_ID))
-            // Escalation beats stay busy until the consent prompt is resolved.
-            if (!escalated) setBusy(false)
-          },
-        },
-        { ephemeral: true },
-      ).catch(() => {
-        if (stale()) return
-        setTyping(false)
-        setBusy(false)
-      })
-    },
-    [],
-  )
-
   // Consent resolved: apply the held escalation (with the chosen cowork root, for
-  // a workspace), clear the prompt, and release "Next". Deny is handled in the
-  // prompt itself (a recoverable "denied" view) and never reaches here, so the
-  // tour can't advance without access.
+  // a workspace) and clear the prompt. Deny is handled in the prompt itself (a
+  // recoverable "denied" view) and never reaches here.
   const approveEscalation = useCallback(
     (workspaceRoot?: string) => {
       const pending = pendingEscalationRef.current
@@ -672,8 +568,7 @@ export function useSessionWorkspace() {
       if (esc.kind === 'project') {
         // A project escalation creates a real project (a server-backed relation
         // op), optionally filing this session into it, then walks the user to the
-        // project's page so the change is visible. "Next" (still on the caption
-        // bar) plays the next beat, which clears the section and lands back here.
+        // project's page so the change is visible.
         applyRelationOp({
           kind: 'create-project',
           projectId: esc.project.id,
@@ -688,54 +583,20 @@ export function useSessionWorkspace() {
         setFocusProjectId(esc.project.id)
         setFocusScheduleId(null)
         setFocusOwnerName(null)
-        if (esc.visitCaption) setCaption(esc.visitCaption)
       } else {
         applyEscalation(esc, workspaceRoot)
       }
       setPendingEscalation(null)
-      setBusy(false)
     },
     [applyEscalation, activeSession, record],
   )
-
-  // Resets step/caption too, so this doubles as a one-click "Replay" from the
-  // finished state — not just the first run.
-  const startTour = useCallback(() => {
-    clearTimers()
-    setLive(EMPTY_LIVE)
-    setStepIndex(-1)
-    setCaption('')
-    setPendingEscalation(null)
-    setPhase('running')
-    schedule(() => playStep(0), 200)
-  }, [clearTimers, playStep, schedule])
-
-  // "Next" advances a beat; on the final beat the button reads "Finish" and
-  // ends the tour rather than stepping past the last step.
-  const nextStep = useCallback(() => {
-    if (busy) return
-    if (stepIndex + 1 >= DEMO_STEPS.length) {
-      setPhase('done')
-      return
-    }
-    playStep(stepIndex + 1)
-  }, [busy, playStep, stepIndex])
-
-  // Open the demo session and immediately play its guided tour. Owned by the
-  // controller so the view doesn't have to encode the select-then-tour ordering.
-  // The demo is "home" — clear any history so back doesn't escape the tour.
-  const startDemoTour = useCallback(() => {
-    selectSession(DEMO_SESSION_ID)
-    setHistory([])
-    startTour()
-  }, [selectSession, startTour])
 
   // A turn streams from the backend (POST /sessions/:id/messages) through the real
   // Messages API tool-use loop: we append the user message, then render the
   // assistant reply token-by-token as it arrives. The model (a local mock) decides
   // which resource-manipulation tools to call; the backend executes them and
-  // streams back the consent-gated proposals (relation cards / escalations), so a
-  // free-typed "organize" request is as real a round-trip as the guided tour's.
+  // streams back the consent-gated proposals (relation cards / escalations) — a
+  // free-typed "organize" request is a real round-trip.
   const handleSend = useCallback((text: string) => {
     const startId = activeIdRef.current
     // The draft's panel choice at dispatch (captured synchronously, before the
@@ -866,7 +727,7 @@ export function useSessionWorkspace() {
           }))
         },
         // A free-typed turn can also call a panel-producing tool (e.g. "create a
-        // project") — surface the same consent prompt the tour uses; it applies
+        // project") — surface the inline consent prompt; it applies
         // only on approval.
         onEscalation: (messageId, escalation) => {
           if (stale()) return
@@ -898,29 +759,28 @@ export function useSessionWorkspace() {
   handleSendRef.current = handleSend
 
   // Whether a session's server-owned writes (its panels AND its binding-of-record)
-  // should persist: a real, listed (or just-materialized) session that isn't the
-  // demo or the unsaved draft. Both write-through paths gate on this so the two
-  // facets stay in step — otherwise a binding write would land for a draft/demo
-  // while the panel write was skipped, orphaning a persisted binding.
+  // should persist: a real, listed (or just-materialized) session — not the
+  // unsaved draft. Both write-through paths gate on this so the two facets stay
+  // in step — otherwise a binding write would land for a draft while the panel
+  // write was skipped, orphaning a persisted binding.
   const persistableSession = useCallback((id: string): boolean => {
     if (id === DRAFT_ID) return false
     const session =
       SESSIONS.find((s) => s.id === id) ?? extraSessionsRef.current.find((s) => s.id === id)
-    return !!session && !session.isDemo
+    return !!session
   }, [])
 
   // Write the active session's panels through to the server (the system of record)
   // after a panel mutation, so a runtime attach survives a reload / shows on
-  // another client. Skips the demo (the guided tour owns its panels, client-side)
-  // and the unsaved draft / run sessions (not persisted). Fire-and-forget — the
-  // optimistic `live` stays the panel's instant driver.
+  // another client. Skips the unsaved draft (no server row yet). Fire-and-forget —
+  // the optimistic `live` stays the panel's instant driver.
   const persistLive = useCallback((id: string, next: Live) => {
     if (!persistableSession(id)) return
     void persistWorkspace(id, workspaceOf(next)).catch(() => {})
   }, [persistableSession])
 
-  // Manually attach context to the open thread — the same escalation the tour
-  // performs, but user-driven. Every context type funnels through here, and the
+  // Manually attach context to the open thread — the same escalation Claude can
+  // propose, but user-driven. Every context type funnels through here, and the
   // newly attached context's sidebar opens so you see what you added.
   const handleAddContext = useCallback((ctx: AddedContext) => {
     // The single attach funnel — every context type, from every surface (this
@@ -994,9 +854,6 @@ export function useSessionWorkspace() {
       setFocus(null)
       pendingDraftContexts.current = []
     }
-    setPhase('idle')
-    setStepIndex(-1)
-    setCaption('')
     setPendingEscalation(null)
   }, [clearTimers, record])
 
@@ -1311,17 +1168,11 @@ export function useSessionWorkspace() {
     typing,
     focus,
     activeSession,
-    isDemo,
     isDraft,
-    // guided tour
-    phase,
-    stepIndex,
-    caption,
     busy,
     liveTurn,
     interrupted,
     sendFailure,
-    totalSteps: DEMO_STEPS.length,
     pendingApproval,
     bottomRef,
     // derived focus
@@ -1360,9 +1211,6 @@ export function useSessionWorkspace() {
     removeAttachment,
     removeFolder,
     closePanel,
-    startTour,
-    nextStep,
-    startDemoTour,
     approveEscalation,
   }
 }

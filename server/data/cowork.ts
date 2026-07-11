@@ -70,9 +70,6 @@ export const PROJECTS: Project[] = [
       { kind: 'connector', label: 'Linear', meta: 'INS team · 18 issues' },
       { kind: 'connector', label: 'Figma', meta: 'Insights v2' },
     ],
-    // The demo session ('insights-launch') starts *unfiled* — the guided tour's
-    // "create a project" beat spins up a fresh project ('p-insights-launch') and
-    // files it there, so that move is real and visible (not into this project).
     sessionIds: ['insights-empty-states', 'dashboard-perf'],
   },
   {

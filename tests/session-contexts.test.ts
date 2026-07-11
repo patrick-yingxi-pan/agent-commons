@@ -8,10 +8,10 @@ import { call } from './helpers/http.ts'
 import { store } from '../server/store.ts'
 
 test('a seeded session lists its attached contexts', async () => {
-  const { status, json } = await call('GET', '/sessions/insights-launch/contexts')
+  const { status, json } = await call('GET', '/sessions/auth-refactor/contexts')
   assert.equal(status, 200)
   assert.ok(Array.isArray(json))
-  assert.ok(json.some((c: any) => c.id === 'repo-insights'))
+  assert.ok(json.some((c: any) => c.id === 'repo-auth'))
 })
 
 test('a session with no bindings lists an empty array', async () => {

@@ -17,13 +17,13 @@ const COMMONS_TOOLS = ['create_provider', 'create_system_prompt', 'create_agent'
 
 export function finalReplyText(toolNames: string[]): string {
   if (toolNames.includes('open_workspace')) {
-    return 'Opening a workspace and pulling in `brand-kit/` and `launch-assets/` for reference. First pass is on the right, grouped by source — the one-pager reuses the value prop above, the email is written for admins, and the hero picks up the brand-kit palette. Pick a folder to open it.'
+    return 'Opening a workspace with a first pass of drafts on the right, grouped by source. Pick a folder to open it.'
   }
   if (toolNames.includes('connect_repo')) {
-    return 'Connecting your repo and the GitHub connector. I branched `feat/insights-dashboard`, added the flag, and wired the route — tests pass, the diff’s on the right. Approve to attach it to this session.'
+    return 'Connecting your repo and the GitHub connector. I branched, made the change, and ran the tests — the diff’s on the right. Approve to attach it to this session.'
   }
   if (toolNames.includes('create_project')) {
-    return "Good idea — I'll spin up an **Insights dashboard launch** project so the strategy, the docs, and the code all sit under one roof. Approve below and I'll take you straight to it."
+    return "Good idea — I'll spin up a project so everything this effort produces sits under one roof. Approve below and I'll take you straight to it."
   }
   // Agent Commons CRUD proposals (provider / prompt / agent / commission) — their own
   // consent line; the card carries the detail, and nothing is created or assigned yet.
@@ -41,17 +41,9 @@ export function finalReplyText(toolNames: string[]): string {
   return "Here's the edit I'd make — confirm below, nothing changes until you do."
 }
 
-/** Prose for a turn with no tool calls: the tour's chat + wrap beats get their
- *  scripted lines (matched loosely on content); anything else gets the
- *  static-prototype pointer. */
+/** Prose for a turn with no tool calls. */
 export function plainReplyText(userText: string): string {
   const t = userText.toLowerCase()
-  if (t.includes('think through the launch')) {
-    return "Let's anchor on three things first:\n\n• **Audience** — workspace admins on Team & Enterprise.\n• **Value prop** — “See what your team actually does with Claude, in one view.”\n• **Channels** — in-app banner, changelog, a short email to admins.\n\nWant me to draft the announcement assets next?"
-  }
-  if (t.includes('organized') || t.includes('that’s the whole thing') || t.includes("that's the whole thing")) {
-    return 'Done — the strategy, the docs, the code, and the schedules now live under one project, all linked to this thread. One surface, one history.'
-  }
   // The co-authoring beat (the cross-tenant cooperation E2E): a user asks their
   // commissioned agent to draft a section of the shared article. Only this PROSE is
   // canned (the mock stands in for the model's words, as everywhere) — the cooperation
@@ -59,7 +51,7 @@ export function plainReplyText(userText: string): string {
   if (/\bdraft\b/.test(t) && /\barticle\b/.test(t)) {
     return 'Here’s a draft for our shared article, **The Adaptive Workspace**:\n\n> One conversation that grows into a workspace beats three tabs that each start from zero. Context should attach to the thread — never the other way around.\n\nI’ve claimed this section at the project’s Guardian so we don’t collide with the other contributors — refine away.'
   }
-  return 'This is a static prototype — open the **Insights dashboard launch** session and play the guided tour to see the unified flow. You can also ask me to *save a draft as an artifact*, *file this under a project*, or *have a schedule save a digest*.'
+  return 'The model here is a local mock, so free-form chat is canned — but every organizing act is real. Ask me to *open a workspace*, *connect the repo*, *save a draft as an artifact*, *file this under a project*, or *have a schedule save a digest*.'
 }
 
 /** Split text into word-sized chunks (each keeps trailing whitespace, so the

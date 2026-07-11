@@ -22,7 +22,7 @@
 
 | # | Account | Email · password | Workspace | Theme — what you'll find |
 |---|---------|------------------|-----------|--------------------------|
-| 1 | **Ada Lovelace** | `ada@acme.example` · `ada-demo-password` | **Acme, Inc.** (org) | **The flagship** — product & platform. The guided-tour session (*Insights dashboard launch*), the Insights + Platform-hardening projects, the auth-refactor repo session, issue-triage + standup routines. |
+| 1 | **Ada Lovelace** | `ada@acme.example` · `ada-demo-password` | **Acme, Inc.** (org) | **The flagship** — product & platform. The Insights + Platform-hardening projects, the auth-refactor repo session, issue-triage + standup routines. |
 | 2 | **Grace Hopper** | `grace@acme.example` · `grace-demo-password` | **Beta Platform** (org) + Acme membership | Deploys & reliability — canary pipeline (repo session), cache-stampede postmortem, on-call error watch. Her Acme membership shows org sharing; she's also the co-authoring E2E's second tenant. |
 | 3 | **Maya Chen** | `maya@growthworks.example` · `maya-demo-password` | **Growthworks** (org) | Growth & experimentation — onboarding A/B readout, June churn analysis, Q3 board deck, weekly metrics roll-up routine. |
 | 4 | **Noor Haddad** | `noor@northlight.example` · `noor-demo-password` | **Northlight Studio** (org) | Brand & marketing — brand-voice guide, homepage rewrite, logo lockups, weekly site-copy-review routine. |
@@ -41,7 +41,7 @@
   backend's *default principal* — the local user's Personal workspace on the
   desktop backend, Ada/Acme on the web — **and** to `tenant-acme` explicitly
   (`seedVisibleTo`), so signing in as Ada on the desktop shows the same
-  flagship world the tour runs on instead of an empty one. Runtime-created rows
+  flagship world instead of an empty one. Runtime-created rows
   are always stamped with their creator's tenant, so this widens nothing.
 - **Tenancy stamps are code-owned.** `reconcileSeedTenancy` re-applies the
   stamps (and re-adds missing seed rows) after a snapshot restore, so a
@@ -57,7 +57,7 @@
 npm run dev   →  http://127.0.0.1:5173
 ```
 
-1. The app boots as the backend default (the flagship world) — play the tour.
+1. The app boots as the backend default (the flagship world).
 2. Account chip (bottom-left) → **Sign in…** → Ada. Then **Add account…** →
    Grace, Maya, … each sign-in stacks.
 3. Hop between accounts from the chip's **Accounts** section — one click, no

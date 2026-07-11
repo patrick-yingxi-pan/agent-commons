@@ -13,11 +13,11 @@ test('capabilities: the mock backend reports its native features true', () => {
   assert.equal(typeof caps.epoch, 'string')
 })
 
-test('sessions: the list is non-empty and the demo session resolves', () => {
+test('sessions: the list is non-empty and a seed session resolves by id', () => {
   const sessions = store.listSessions()
   assert.ok(Array.isArray(sessions))
   assert.ok(sessions.length > 0)
-  assert.ok(store.getSession(store.demoSessionId))
+  assert.ok(store.getSession('auth-refactor'))
 })
 
 test('usage: the snapshot has the gauge shape', () => {

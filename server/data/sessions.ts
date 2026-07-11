@@ -20,21 +20,10 @@ const ago = (ms: number) => NOW - ms
  *  PER-ACCOUNT THEMING (docs/demo-accounts.md): each row belongs to one of the
  *  six demo accounts via `tenantId` — unset means the backend's DEFAULT tenant
  *  (Ada / Acme on the web, the local user's Personal on desktop), which holds
- *  the flagship product+platform dataset the guided tour runs on. The other
- *  five accounts each hold a small, distinct, themed world so the account
- *  switcher demo has something real to switch BETWEEN. */
+ *  the flagship product+platform dataset. The other five accounts each hold a
+ *  small, distinct, themed world so the account switcher demo has something
+ *  real to switch BETWEEN. */
 export const SESSIONS: Session[] = [
-  {
-    id: 'insights-launch',
-    title: 'Insights dashboard launch',
-    caps: ['chat', 'workspace', 'repo'],
-    preview: 'Strategy → one-pager & email → feature flag and route. Guided demo.',
-    status: 'active',
-    environment: 'local',
-    updatedAt: ago(5 * 60_000),
-    createdAt: ago(3 * DAY),
-    isDemo: true,
-  },
   {
     id: 'auth-refactor',
     title: 'Refactor auth middleware',
@@ -554,5 +543,3 @@ export const SESSIONS: Session[] = [
     ],
   },
 ]
-
-export const DEMO_SESSION_ID = 'insights-launch'

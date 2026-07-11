@@ -52,7 +52,7 @@ import {
   runSessionId,
   seedGraph,
 } from '../contract/index.ts'
-import { SESSIONS, DEMO_SESSION_ID } from './data/sessions.ts'
+import { SESSIONS } from './data/sessions.ts'
 import { DISPATCH_RUNS, SCHEDULE_TEMPLATES, PROJECTS, ALL_ARTIFACTS, SCHEDULED_TASKS } from './data/cowork.ts'
 import {
   DEFAULT_RECENT_IDS,
@@ -120,7 +120,7 @@ function defaultTenantId(): string {
 /** Whether an UNSTAMPED (seed/legacy) row is visible to `tenantId`. The untagged
  *  seeds are the FLAGSHIP demo world (docs/demo-accounts.md): they belong to the
  *  backend's default principal AND to Ada/Acme — the same seat's two faces (the
- *  desktop's local user; the web's default principal) — so the tour's dataset
+ *  desktop's local user; the web's default principal) — so the flagship dataset
  *  reads identically on both backends, and signing in as Ada on the desktop
  *  shows the same flagship world instead of an empty one. This never widens
  *  user data: every RUNTIME-created row is stamped with its creator's tenant at
@@ -702,7 +702,6 @@ const connectedIds = (kind: 'connector' | 'mcp'): string[] =>
 // initiates can be mediated by naming one of these (Tiers A–C). Seeded for the
 // demo sessions; created state is persisted to disk (see persist.ts).
 const sessionContextBindings = new Map<string, SessionContext[]>([
-  ['insights-launch', [{ id: 'repo-insights', type: 'repo', label: 'insights-dashboard', scope: '~/projects/insights-dashboard' }]],
   ['auth-refactor', [{ id: 'repo-auth', type: 'repo', label: 'auth-service', scope: '~/projects/auth-service' }]],
 ])
 
@@ -1470,7 +1469,6 @@ export const store = {
       title: s.title,
       caps: s.caps,
       preview: s.preview,
-      isDemo: s.isDemo,
       tenantId: s.tenantId,
       // Sidebar filter/sort backing — cheap scalars, safe to ship in the list rows.
       status: s.status,
@@ -1603,7 +1601,6 @@ export const store = {
     }
     return undefined
   },
-  demoSessionId: DEMO_SESSION_ID,
 
   /** A session's live workspace — the panels it has grown. Lazily seeded from the
    *  flat seed fields (server/workspace.ts) so a never-touched session still
@@ -2513,7 +2510,7 @@ export const store = {
   // ── Usage (the composer gauge: context window + plan limit windows) ──
   /** Record one turn's real token usage (from the model's Messages response)
    *  against the rolling plan windows. Called by the message route after every
-   *  turn — including the tour's ephemeral ones, since they consume real tokens. */
+   *  turn — including ephemeral ones, since they consume real tokens. */
   recordUsage(inputTokens: number, outputTokens: number, tenantId?: string): void {
     meterFor(tenantId).record(inputTokens, outputTokens)
   },
@@ -2585,7 +2582,7 @@ export const store = {
     // System tools + system prompt are computed from the *actual* request the
     // backend sends — both injected eagerly — so they're real loaded categories.
     const agent = resolveAgent(session?.agentId)
-    const systemPromptTokens = estimateTokens(systemPrompt({ id: sessionId ?? '', title: session?.title ?? '', isDemo: session?.isDemo }, agent))
+    const systemPromptTokens = estimateTokens(systemPrompt({ id: sessionId ?? '', title: session?.title ?? '' }, agent))
     return {
       context: contextBreakdown({ messageTokens, systemToolsTokens: SYSTEM_TOOLS_TOKENS, systemPromptTokens }),
       limits: meterFor(tenantId).planLimits(), // per-tenant plan windows (F2/PD9)

@@ -14,9 +14,7 @@ import { test, expect } from '@playwright/test'
 test('an owner shares a created project and the toggle + backend reflect it (and un-share reverses)', async ({ page, request }) => {
   await page.goto('/')
 
-  // Dismiss the intro dialog if present (it mounts after /v1/me answers, so
   // wait for it briefly rather than sampling visibility at goto-time).
-  await page.getByRole('button', { name: 'Explore on my own' }).click({ timeout: 2_500 }).catch(() => {})
 
   // Go to Projects and create one (only CREATED projects are shareable).
   await page.getByRole('button', { name: 'Projects', exact: true }).click()

@@ -3,8 +3,8 @@ import { motion } from 'framer-motion'
 import { Check, Folder, FolderOpen, FolderPlus, Github, ShieldAlert } from 'lucide-react'
 import { HOVER_CUE } from '../lib/hoverReveal'
 
-/** ── The guided tour's consent gate ───────────────────────────────────────────
- *  Before the tour escalates a chat into a workspace — or connects a repo /
+/** ── The escalation consent gate ──────────────────────────────────────────────
+ *  Before Claude escalates a chat into a workspace — or connects a repo /
  *  GitHub — it asks first, mirroring the desktop app's "Claude would like to
  *  Cowork in a folder → Deny / Choose folder" prompt. It renders inline under
  *  Claude's reply (aligned to the message body) and is the gate: the escalation
@@ -16,10 +16,9 @@ import { HOVER_CUE } from '../lib/hoverReveal'
  *  • Repo: a single `Connect` approves attaching the repo + its connector.
  *  • Project: a single `Create project` files this session into a new project.
  *
- *  Deny doesn't dead-end the tour: it flips the card to a recoverable "access
- *  denied" view with `Grant access`, and the tour stays paused (the caption bar's
- *  "Next" is disabled) until access is granted. */
-export function TourPermissionPrompt({
+ *  Deny doesn't dead-end the thread: it flips the card to a recoverable "access
+ *  denied" view with `Grant access`. */
+export function EscalationPrompt({
   kind,
   rootChoices = [],
   connectorLabel = 'GitHub',
@@ -244,8 +243,8 @@ function FolderPicker({
   )
 }
 
-/** Deny's recoverable landing: the tour can't go on without access, so this
- *  explains the block and offers a one-click way back to the prompt. */
+/** Deny's recoverable landing: the escalation can't proceed without access, so
+ *  this explains the block and offers a one-click way back to the prompt. */
 function DeniedView({
   kind,
   connectorLabel,
@@ -270,7 +269,7 @@ function DeniedView({
             : kind === 'project'
               ? `Claude can’t create the ${projectName} project without your approval.`
               : `Claude can’t connect ${connectorLabel} without your approval.`}{' '}
-          The tour pauses here until you grant access.
+          The escalation waits here until you grant access.
         </p>
         <div className="mt-2.5 flex items-center justify-end">
           <button

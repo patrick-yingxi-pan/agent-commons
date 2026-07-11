@@ -17,10 +17,6 @@ import { test, expect, type Page } from '@playwright/test'
 
 const STAMP = Date.now().toString(36)
 
-async function dismissIntro(page: Page, timeout = 2_500) {
-  await page.getByRole('button', { name: 'Explore on my own' }).click({ timeout }).catch(() => {})
-}
-
 const noHorizontalScroll = async (page: Page) =>
   page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)
 
@@ -28,7 +24,6 @@ test('phone (375×812): rail drawer over a scrim, full-viewport panel takeover, 
   test.setTimeout(120_000)
   await page.setViewportSize({ width: 375, height: 812 })
   await page.goto('/')
-  await dismissIntro(page)
 
   // The rail starts closed on narrow — the reopen control is the door, and it
   // sits IN the layout (a header row), not floating over content: scrolling
@@ -59,8 +54,7 @@ test('phone (375×812): rail drawer over a scrim, full-viewport panel takeover, 
 
   // Picking from the drawer navigates AND dismisses it (the drawer covers what
   // the pick opens — the reopen control coming back is the drawer being gone).
-  // "New session" also dodges the demo-thread gotcha: the app opens on the demo
-  // session, and a send there would land in its thread.
+  // "New session" starts a fresh draft; the send below materializes it.
   await page.getByRole('navigation').getByRole('button', { name: 'New session' }).click()
   await expect(reopen).toBeVisible()
   await expect(page.locator('main[inert]')).toHaveCount(0)
@@ -69,11 +63,11 @@ test('phone (375×812): rail drawer over a scrim, full-viewport panel takeover, 
   const message = `responsive phone hello ${STAMP}`
   await page.getByPlaceholder('Reply to Claude…').fill(message)
   await page.keyboard.press('Enter')
-  await expect(page.getByText(/static prototype/).first()).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByText(/free-form chat is canned/).first()).toBeVisible({ timeout: 20_000 })
   expect(await noHorizontalScroll(page), 'no horizontal scroll with a thread').toBe(true)
 
   // A context panel on narrow is a TAKEOVER: the seeded repo session restores
-  // its repo focus on open, so the panel appears without running the tour.
+  // its repo focus on open, so the panel appears on select.
   await reopen.click()
   await page.locator('aside').getByText('Refactor auth middleware').first().click()
   const panelClose = page.getByRole('button', { name: 'Close', exact: true }).first()
@@ -98,7 +92,6 @@ test('extreme narrow (320×700): every composer popover stays inside the viewpor
   // asserts the *class* generically instead of hand-measuring one popover.
   await page.setViewportSize({ width: 320, height: 700 })
   await page.goto('/')
-  await dismissIntro(page)
 
   const MARGIN = 7 // POPOVER_MARGIN with a 1px rounding allowance
   const triggers = [
@@ -136,7 +129,6 @@ test('extreme narrow (320×700): every composer popover stays inside the viewpor
 test('tablet (768×1024): the panel overlays the thread behind a scrim; the scrim click dismisses', async ({ page }) => {
   await page.setViewportSize({ width: 768, height: 1024 })
   await page.goto('/')
-  await dismissIntro(page)
 
   // The seeded repo session restores its repo focus on open — panel + scrim.
   await page.locator('aside').getByText('Refactor auth middleware').first().click()
@@ -169,7 +161,6 @@ test('tablet (768×1024): the panel overlays the thread behind a scrim; the scri
 test('landscape phone (844×390, short): compressed chrome, usable composer', async ({ page }) => {
   await page.setViewportSize({ width: 844, height: 390 })
   await page.goto('/')
-  await dismissIntro(page)
 
   // The short variant sheds the composer's disclaimer line.
   await expect(page.getByText('the model is a local mock')).toBeHidden()
@@ -193,6 +184,6 @@ test('landscape phone (844×390, short): compressed chrome, usable composer', as
   await page.getByRole('navigation').getByRole('button', { name: 'New session' }).click()
   await composer.fill(message)
   await page.keyboard.press('Enter')
-  await expect(page.getByText(/static prototype/).first()).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByText(/free-form chat is canned/).first()).toBeVisible({ timeout: 20_000 })
   expect(await noHorizontalScroll(page)).toBe(true)
 })

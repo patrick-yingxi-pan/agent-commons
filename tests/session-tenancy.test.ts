@@ -30,10 +30,10 @@ test('seed/legacy sessions belong to the default tenant (visible to it, not to a
   // The mock backend's default tenant is the personal one; seed sessions carry no tenantId.
   const personal = store.listSessions('tenant-personal')
   assert.ok(personal.length > 0, 'the default tenant sees the seed sessions')
-  assert.ok(personal.some((s) => s.isDemo), 'including the scripted demo')
+  assert.ok(personal.some((s) => s.id === 'auth-refactor'), 'including the flagship seeds')
 
   const stranger = store.listSessions('tenant-stranger')
-  assert.ok(!stranger.some((s) => s.isDemo), 'a foreign tenant does not see the seed demo')
+  assert.ok(!stranger.some((s) => s.id === 'auth-refactor'), 'a foreign tenant does not see the flagship seeds')
 })
 
 test('createSession defaults to the backend tenant, matching the scoped read', () => {

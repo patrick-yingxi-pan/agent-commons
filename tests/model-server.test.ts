@@ -19,7 +19,7 @@ before(async () => {
 })
 after(() => server.close())
 
-const TOUR_MSG = 'This is becoming a real effort. Can you give it a home of its own?'
+const PROJECT_MSG = 'Create a project called Insights dashboard launch.'
 
 async function post(body: unknown): Promise<{ status: number; json?: any; text: string }> {
   const res = await fetch(`${base}/v1/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -32,7 +32,7 @@ async function post(body: unknown): Promise<{ status: number; json?: any; text: 
 }
 
 test('turn 1, non-streaming: a matched message returns a tool_use block + stop_reason tool_use', async () => {
-  const { status, json } = await post({ model: 'claude-opus-4-8', messages: [{ role: 'user', content: TOUR_MSG }], stream: false })
+  const { status, json } = await post({ model: 'claude-opus-4-8', messages: [{ role: 'user', content: PROJECT_MSG }], stream: false })
   assert.equal(status, 200)
   assert.equal(json.stop_reason, 'tool_use')
   assert.equal(json.content[0].type, 'tool_use')
@@ -41,7 +41,7 @@ test('turn 1, non-streaming: a matched message returns a tool_use block + stop_r
 })
 
 test('turn 1, streaming: emits content_block_start tool_use + input_json_delta + stop_reason tool_use', async () => {
-  const { text } = await post({ messages: [{ role: 'user', content: TOUR_MSG }], stream: true })
+  const { text } = await post({ messages: [{ role: 'user', content: PROJECT_MSG }], stream: true })
   assert.match(text, /"type":"content_block_start"/)
   assert.match(text, /"type":"tool_use"/)
   assert.match(text, /"type":"input_json_delta"/)
@@ -52,14 +52,14 @@ test('turn 2: a tool_result message returns the final prose (end_turn)', async (
   const { json } = await post({
     stream: false,
     messages: [
-      { role: 'user', content: TOUR_MSG },
+      { role: 'user', content: PROJECT_MSG },
       { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_1', name: 'create_project', input: {} }] },
       { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'Proposed creating the project.' }] },
     ],
   })
   assert.equal(json.stop_reason, 'end_turn')
   assert.equal(json.content[0].type, 'text')
-  assert.match(json.content[0].text, /Insights dashboard launch/)
+  assert.match(json.content[0].text, /spin up a project/)
 })
 
 test('an unmatched message returns plain text (no tools)', async () => {

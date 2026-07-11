@@ -9,16 +9,8 @@ const STAMP = Date.now().toString(36)
 const PROJECT = `Belled project ${STAMP}`
 const ITEM = `ring the bell ${STAMP}`
 
-async function dismissIntro(page: Page, timeout = 2_500) {
-  await page
-    .getByRole('button', { name: 'Explore on my own' })
-    .click({ timeout })
-    .catch(() => {})
-}
-
 async function openApp(page: Page) {
   await page.goto('/')
-  await dismissIntro(page, 5_000)
 }
 
 /** Navigate to a section from the rail tree (ADAPT-13: an inline disclosure tree —

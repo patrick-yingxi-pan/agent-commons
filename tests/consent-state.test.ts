@@ -112,11 +112,10 @@ test('the instructions resolver is overlay-or-seed — a consent preview diffs a
 
 test('an approved escalation on a real session persists BOTH facets, like a manual attach (C27)', () => {
   const controller = stripComments(read(join(ROOT, 'src', 'controller', 'useSessionWorkspace.ts')))
-  const block = controller.slice(controller.indexOf('const applyEscalation'), controller.indexOf('const playStep'))
+  const block = controller.slice(controller.indexOf('const applyEscalation'), controller.indexOf('const approveEscalation'))
   assert.match(block, /esc\.kind !== 'project'/, 'project escalations take the relation-op path instead')
   assert.match(block, /void attachContext\(id, binding\)/, 'the binding-of-record is written')
   assert.match(block, /void persistWorkspace\(id, workspaceOf\(next\)\)/, 'the panels write through')
-  assert.match(block, /!session\.isDemo/, 'the demo tour stays client-owned')
 })
 
 test('a saved artifact stamps its producing session ID — the stable join for "From ‹conversation›" (N3)', () => {

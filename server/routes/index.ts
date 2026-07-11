@@ -2031,8 +2031,8 @@ export function buildRouter(): Router {
     // included, they're rows through the same mint funnel — persists below.
     const known = store.getSession(params.id)
     const session = known
-      ? { id: known.id, title: known.title, isDemo: known.isDemo }
-      : { id: params.id, title: 'New session', isDemo: false }
+      ? { id: known.id, title: known.title }
+      : { id: params.id, title: 'New session' }
     // The worker Agent driving this Conversation (docs/agent-commons.md, D6) —
     // resolves to the seeded default until users create their own.
     const agent = store.getAgent(known?.agentId)
@@ -2066,9 +2066,8 @@ export function buildRouter(): Router {
     if (over) {
       return sendError(res, 'limit_exceeded', `Plan limit reached for '${over.label}' — this turn is refused until the window resets.`)
     }
-    // `ephemeral` (the guided tour) generates the full model + tool round-trip
-    // but persists nothing, so the tour can replay against the demo session
-    // without accumulating duplicate turns. Persist otherwise — the conversation
+    // `ephemeral` generates the full model + tool round-trip but persists
+    // nothing. Persist otherwise — the conversation
     // is server-owned, so a sent turn survives a reload even if generation fails.
     const persist = !!known && !ephemeral
 
@@ -2169,7 +2168,7 @@ export function buildRouter(): Router {
               // contexts are ignored). Only what's attached is reachable.
               store.sessionContexts(params.id),
             )
-      // Meter the real tokens this turn consumed (even ephemeral tour turns —
+      // Meter the real tokens this turn consumed (even ephemeral turns —
       // they hit the model too), so the composer's plan-usage rings reflect use.
       store.recordUsage(usage.inputTokens, usage.outputTokens, tenantId)
       // The model reported `ok` or `fallback` (endpoint degraded); recorded once in `finally`.
@@ -2205,7 +2204,7 @@ export function buildRouter(): Router {
       }
       // The model's reply text is canned (the mock model server) but its
       // *persistence* is real: record the assistant turn so the thread is the
-      // system of record, then close the stream. The tour (ephemeral) skips this.
+      // system of record, then close the stream. An ephemeral turn skips this.
       // D16 per-turn provenance: stamp the turn with the Agent that drove it AND the
       // provider that supplied the cognition (as resolved — session pick or agent's), so
       // authorship, metering attribution, and the relayed-reply badge survive a

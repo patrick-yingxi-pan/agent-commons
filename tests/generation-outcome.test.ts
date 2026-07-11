@@ -17,7 +17,7 @@ import { buildRouter } from '../server/routes/index.ts'
 import { callRaw } from './helpers/http.ts'
 
 let server: Server
-const session: ReplySession = { id: 'gen-outcome', title: 'Outcome', isDemo: true }
+const session: ReplySession = { id: 'gen-outcome', title: 'Outcome' }
 const noop = { onStart: () => {}, onDelta: () => {} }
 
 before(async () => {

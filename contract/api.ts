@@ -68,8 +68,7 @@ export interface Capabilities {
 export interface SendMessageRequest {
   text: string
   /** When true, generate the reply (the full model + tool round-trip) but do NOT
-   *  persist the turn — the guided tour uses this so it can replay against the
-   *  demo session without accumulating duplicate messages. Omitted = persist. */
+   *  persist the turn. Omitted = persist. */
   ephemeral?: boolean
 }
 

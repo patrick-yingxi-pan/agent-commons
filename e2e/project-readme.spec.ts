@@ -8,16 +8,8 @@ const STAMP = Date.now().toString(36)
 const PROJECT = `Documented project ${STAMP}`
 const README = `This project exists to prove READMEs travel. Contribute via open work. ${STAMP}`
 
-async function dismissIntro(page: Page, timeout = 2_500) {
-  await page
-    .getByRole('button', { name: 'Explore on my own' })
-    .click({ timeout })
-    .catch(() => {})
-}
-
 async function openApp(page: Page) {
   await page.goto('/')
-  await dismissIntro(page, 5_000)
 }
 
 async function newUser(browser: Browser, headers?: Record<string, string>) {

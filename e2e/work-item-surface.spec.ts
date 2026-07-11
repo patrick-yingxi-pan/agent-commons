@@ -8,7 +8,6 @@ import { test, expect } from '@playwright/test'
  *  carried field the row now surfaces. */
 test('a work item reveals its note and a lifecycle timestamp (S3)', async ({ page, request }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'Explore on my own' }).click({ timeout: 2_500 }).catch(() => {})
 
   // Create a project — the work item's home.
   const NAME = `S3 work-item project ${Date.now().toString(36)}`
@@ -35,7 +34,6 @@ test('a work item reveals its note and a lifecycle timestamp (S3)', async ({ pag
 
   // Re-open the project page so the Open-work list fetches the API-posted item.
   await page.reload()
-  await page.getByRole('button', { name: 'Explore on my own' }).click({ timeout: 2_500 }).catch(() => {})
   await page.getByRole('button', { name: 'Projects', exact: true }).click()
   await page.getByText(NAME).first().click()
 

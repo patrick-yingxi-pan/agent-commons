@@ -8,14 +8,9 @@ import { test, expect, type Page } from '@playwright/test'
 const STAMP = Date.now().toString(36)
 const PACED_MESSAGE = `paced stop me please ${STAMP}`
 
-async function dismissIntro(page: Page, timeout = 2_500) {
-  await page.getByRole('button', { name: 'Explore on my own' }).click({ timeout }).catch(() => {})
-}
-
 test('Stop mid-stream: the partial persists, the streaming state stands down', async ({ page }) => {
   test.setTimeout(60_000)
   await page.goto('/')
-  await dismissIntro(page)
   await page.getByRole('navigation').getByRole('button', { name: 'New session' }).click()
 
   await page.getByPlaceholder('Reply to Claude…').fill(PACED_MESSAGE)
@@ -23,7 +18,7 @@ test('Stop mid-stream: the partial persists, the streaming state stands down', a
 
   // Mid-stream: the stop affordance is up and some text has arrived.
   await expect(page.getByText('Claude is writing…')).toBeVisible({ timeout: 15_000 })
-  await expect(page.getByText(/This is a static/).first()).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByText(/free-form chat is canned/).first()).toBeVisible({ timeout: 15_000 })
   await page.getByRole('button', { name: 'Stop', exact: true }).click()
 
   // The affordance stands down (the stream's own message.end cleared it).

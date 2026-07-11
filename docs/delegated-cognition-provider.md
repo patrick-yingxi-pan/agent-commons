@@ -493,6 +493,10 @@ successor**, plus the provider-row removal and the existing agent-binding 409.
 
 ### 7.7 The tour: forbid the playback, not the binding
 
+> **Retired (2026-07):** the guided tour (and its launch gate) was removed when the
+> proposal's framing chrome came out — the prose-only *badge* and the picker warning
+> survive. This section stays as the design record of the ruling.
+
 The guided tour is scripted around tool-call escalations; on a prose-only provider
 its beats cannot land (the far session free-answers — the mock's fixed-string
 intents never fire). Ruling: binding the default Agent to a Session provider stays

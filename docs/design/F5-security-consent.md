@@ -24,7 +24,7 @@ the web adds multi-tenant blast-radius concerns.
 ### 2.1 The consent boundary (the core invariant)
 
 Every **irreversible or externally-visible** effect is a *proposal the user confirms*,
-never a silent action — the prototype's model (escalation prompts `TourPermissionPrompt`,
+never a silent action — the prototype's model (escalation prompts `EscalationPrompt`,
 relation cards `RelationActionCard`). Production:
 
 - The gate is **server-enforced**, not just UI: the backend produces proposals and

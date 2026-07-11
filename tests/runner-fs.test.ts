@@ -36,7 +36,7 @@ test('an unknown / offline runner source 404s', async () => {
 test('mediated invoke: fs.read on the runner returns REAL host bytes + journals the effect', async () => {
   // Attach a folder context (scope = the runner's granted root) so the effect can
   // be mediated through it (D5), then invoke a read within that scope.
-  const attach = await call('POST', '/sessions/insights-launch/contexts', {
+  const attach = await call('POST', '/sessions/auth-refactor/contexts', {
     id: 'ctx-runner-fs',
     type: 'folder',
     label: 'projects',
@@ -45,7 +45,7 @@ test('mediated invoke: fs.read on the runner returns REAL host bytes + journals 
   assert.equal(attach.status, 200)
 
   const r = await call('POST', '/runners/runner-local/invoke', {
-    sessionId: 'insights-launch',
+    sessionId: 'auth-refactor',
     contextId: 'ctx-runner-fs',
     capability: 'fs.read',
     target: '~/projects/TODO.md',
@@ -62,14 +62,14 @@ test('mediated invoke: fs.read on the runner returns REAL host bytes + journals 
 })
 
 test('mediated invoke: fs.list (the new monotonic capability) lists a real host directory + journals', async () => {
-  await call('POST', '/sessions/insights-launch/contexts', {
+  await call('POST', '/sessions/auth-refactor/contexts', {
     id: 'ctx-runner-list',
     type: 'folder',
     label: 'projects',
     scope: '~/projects',
   })
   const r = await call('POST', '/runners/runner-local/invoke', {
-    sessionId: 'insights-launch',
+    sessionId: 'auth-refactor',
     contextId: 'ctx-runner-list',
     capability: 'fs.list',
     target: '~/projects/insights-dashboard',
@@ -85,14 +85,14 @@ test('mediated invoke: fs.list (the new monotonic capability) lists a real host 
 })
 
 test('context mediation still bounds the effect: a target outside the context scope is forbidden', async () => {
-  await call('POST', '/sessions/insights-launch/contexts', {
+  await call('POST', '/sessions/auth-refactor/contexts', {
     id: 'ctx-runner-fs2',
     type: 'folder',
     label: 'projects',
     scope: '~/projects',
   })
   const r = await call('POST', '/runners/runner-local/invoke', {
-    sessionId: 'insights-launch',
+    sessionId: 'auth-refactor',
     contextId: 'ctx-runner-fs2',
     capability: 'fs.read',
     target: '~/secrets/keys.txt',

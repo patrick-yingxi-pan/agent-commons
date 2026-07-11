@@ -11,16 +11,8 @@ const AGENT = `Evolving guide ${STAMP}`
 const NEW_PROMPT = `You are the sharper v2 guide ${STAMP}.`
 const NOTE = `tightens everything ${STAMP}`
 
-async function dismissIntro(page: Page, timeout = 2_500) {
-  await page
-    .getByRole('button', { name: 'Explore on my own' })
-    .click({ timeout })
-    .catch(() => {})
-}
-
 async function openApp(page: Page) {
   await page.goto('/')
-  await dismissIntro(page, 5_000)
 }
 
 async function newUser(browser: Browser, headers?: Record<string, string>) {

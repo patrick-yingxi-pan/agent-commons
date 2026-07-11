@@ -11,8 +11,7 @@ lives in the shared agent file:
 
 Essentials:
 
-- **Run:** `npm run dev` (Node 26+) → http://127.0.0.1:5173, then **Play the
-  guided tour**.
+- **Run:** `npm run dev` (Node 26+) → http://127.0.0.1:5173.
 - **Ship tests with every feature:** a change isn't done until `tests/` lock its
   behavior against regression (see `AGENTS.md` conventions).
 - **Verify:** `npm run typecheck`, `node --test` (and `npm run build`) before

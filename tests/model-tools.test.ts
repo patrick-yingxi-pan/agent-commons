@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import { TOOL_DEFINITIONS, TOOL_NAMES, executeTool, type ToolContext } from '../server/model/tools.ts'
 import type { RelationOp } from '../contract/index.ts'
 
-const ctx: ToolContext = { session: { id: 'insights-launch', title: 'Insights dashboard launch' } }
+const ctx: ToolContext = { session: { id: 'auth-refactor', title: 'Refactor auth middleware' } }
 
 test('TOOL_DEFINITIONS: every tool has a name, description, and object input_schema', () => {
   assert.equal(TOOL_DEFINITIONS.length, TOOL_NAMES.length)
@@ -39,13 +39,12 @@ test('connect_repo builds a repo escalation carrying the diff/terminal + GitHub 
   assert.ok(e.escalation.connectors.some((c) => c.kind === 'github'))
 })
 
-test('create_project: file_session "false" creates an empty (unfiled) project escalation with the tour id', () => {
+test('create_project: file_session "false" creates an empty (unfiled) project escalation', () => {
   const e = executeTool('create_project', { name: 'Insights dashboard launch', file_session: 'false' }, ctx)
   assert.equal(e.escalation?.kind, 'project')
   if (e.escalation?.kind !== 'project') return
-  assert.equal(e.escalation.project.id, 'p-insights-launch')
+  assert.equal(e.escalation.project.id, 'p-insights-dashboard-launch')
   assert.equal(e.escalation.fileSession, false)
-  assert.ok(e.escalation.visitCaption) // the tour project carries its visit caption
 })
 
 test('create_project: defaults to filing the session, and mints an id for a free-typed name', () => {
@@ -221,7 +220,7 @@ test('handoff_agent → a handoff-agent op re-binding the session to the resolve
   const e = executeTool('handoff_agent', { agent: 'Scout' }, ctxCommons)
   const op = e.relationOps![0]
   assert.equal(op.kind, 'handoff-agent')
-  assert.equal((op as any).sessionId, 'insights-launch') // from ctx.session
+  assert.equal((op as any).sessionId, 'auth-refactor') // from ctx.session
   assert.equal((op as any).agentId, 'agent-7')
 })
 

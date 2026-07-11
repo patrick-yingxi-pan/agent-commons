@@ -344,7 +344,7 @@ function ProjectsSection({
   const [sort, setSort] = useState('Last updated')
   const [creating, setCreating] = useState(false)
   const rel = useRelations()
-  // Includes projects created mid-tour (the relation graph's extras), so a freshly
+  // Includes projects created mid-conversation (the relation graph's extras), so a freshly
   // created project shows in the list and opens to its detail like any seed one.
   const projects = rel.allProjects()
 
@@ -3973,7 +3973,6 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
           <span className="mt-1 flex items-start gap-1 text-[11px] text-amber-600">
             <AlertCircle size={12} className="mt-0.5 shrink-0" />
             Prose-only: turns on this Agent will converse but can’t propose relation edits, escalations, or run tools.
-            The guided tour depends on tool calls — it won’t play while the demo’s Agent runs on a Session provider.
           </span>
         )}
       </FormField>

@@ -13,7 +13,7 @@ import { generateReply, systemPrompt, type ReplySession } from '../server/genera
 import { DEFAULT_AGENT } from '../server/data/workers.ts'
 
 let server: Server
-const session: ReplySession = { id: 'insights-launch', title: 'Insights dashboard launch', isDemo: true }
+const session: ReplySession = { id: 'auth-refactor', title: 'Refactor auth middleware' }
 
 before(async () => {
   server = startModelServer(0, '127.0.0.1')
@@ -46,7 +46,7 @@ test('a workspace turn streams prose AND yields a workspace escalation (the tool
   const { message: msg } = await generateReply(
     session,
     DEFAULT_AGENT,
-    'Yes — turn that into a one-pager and a launch email, plus a hero image. Pull from our brand kit and the last launch’s assets so it stays on-brand.',
+    'Open a workspace and draft the launch assets.',
     c.handlers,
   )
   assert.equal(msg.escalation?.kind, 'workspace')
@@ -58,17 +58,17 @@ test('a workspace turn streams prose AND yields a workspace escalation (the tool
 
 test('a relation-op turn yields the relation proposal (save-artifact)', async () => {
   const c = collect()
-  const { message: msg } = await generateReply(session, DEFAULT_AGENT, 'Save the recap of this as launch-recap.md and file it under the project.', c.handlers)
+  const { message: msg } = await generateReply(session, DEFAULT_AGENT, 'Save the recap of this as launch-recap.md', c.handlers)
   assert.equal(msg.escalation, undefined)
   assert.ok(msg.relationActions && msg.relationActions[0].kind === 'save-artifact')
   assert.ok(c.text.length > 0)
 })
 
-test('a project turn yields a project escalation (create_project, unfiled for the tour)', async () => {
+test('a project turn yields a project escalation (create_project, filing this session)', async () => {
   const c = collect()
-  const { message: msg } = await generateReply(session, DEFAULT_AGENT, 'This is becoming a real effort. Can you give it a home of its own?', c.handlers)
+  const { message: msg } = await generateReply(session, DEFAULT_AGENT, 'Create a project called Auth hardening.', c.handlers)
   assert.equal(msg.escalation?.kind, 'project')
-  assert.ok(msg.escalation?.kind === 'project' && msg.escalation.fileSession === false)
+  assert.ok(msg.escalation?.kind === 'project' && msg.escalation.fileSession === true)
 })
 
 test('a plain-chat turn yields prose only — no escalation, no relations', async () => {
@@ -86,13 +86,10 @@ test('a turn reports the real token usage it consumed (fed to the meter)', async
   assert.ok(usage.outputTokens > 0, 'output tokens metered')
 })
 
-test('systemPrompt composes the worker Agent prompt + instructions + the demo clause', () => {
+test('systemPrompt composes the worker Agent prompt + instructions', () => {
   const agent = { id: 'a', label: 'A', systemPrompt: 'BASE PROMPT', tools: [], instructions: 'CUSTOM RULES' }
-  const demo = systemPrompt({ id: 's', title: 'T', isDemo: true }, agent)
-  assert.ok(demo.includes('BASE PROMPT') && demo.includes('CUSTOM RULES'), 'agent prompt + instructions present')
-  assert.match(demo, /scripted demo session/, 'demo clause layered on for the scripted session')
-  const plain = systemPrompt({ id: 's', title: 'T', isDemo: false }, agent)
-  assert.doesNotMatch(plain, /scripted demo session/, 'no demo clause off the demo')
+  const composed = systemPrompt({ id: 's', title: 'T' }, agent)
+  assert.ok(composed.includes('BASE PROMPT') && composed.includes('CUSTOM RULES'), 'agent prompt + instructions present')
   // The default Agent reproduces the original framing verbatim — no behavior drift.
   assert.equal(systemPrompt({ id: 's', title: 'T' }, DEFAULT_AGENT), DEFAULT_AGENT.systemPrompt)
 })

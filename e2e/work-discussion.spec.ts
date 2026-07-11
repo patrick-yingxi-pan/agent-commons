@@ -11,16 +11,8 @@ const PROJECT = `Discussion arena ${STAMP}`
 const ITEM = `debate-worthy item ${STAMP}`
 const COMMENT = `what does this need, exactly? ${STAMP}`
 
-async function dismissIntro(page: Page, timeout = 2_500) {
-  await page
-    .getByRole('button', { name: 'Explore on my own' })
-    .click({ timeout })
-    .catch(() => {})
-}
-
 async function openApp(page: Page) {
   await page.goto('/')
-  await dismissIntro(page, 5_000)
 }
 
 /** Navigate to a section from the rail tree (ADAPT-13: an inline disclosure tree —
@@ -30,7 +22,6 @@ async function gotoSection(page: Page, name: string) {
 }
 
 async function openProject(page: Page, name: string) {
-  await dismissIntro(page, 250)
   await gotoSection(page, 'Projects')
   await page.getByText(name).first().click()
   await expect(page.getByRole('heading', { name })).toBeVisible()
@@ -82,7 +73,6 @@ test('a work item hosts a cross-tenant discussion; the poster retracts it honest
 
   // The visitor's view converges (live event or reload) to the closed face.
   await visitor.page.reload()
-  await dismissIntro(visitor.page)
   await openProject(visitor.page, PROJECT)
   await expect(visitor.page.getByText(/retracted by/)).toBeVisible()
 

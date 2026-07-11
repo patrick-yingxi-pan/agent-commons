@@ -40,26 +40,14 @@ const INTRO = 'draft: introduction'
 const CONCLUSION = 'draft: conclusion'
 const API = '/api/v1'
 
-/** Dismiss the intro overlay when it's up. It mounts on EVERY page load (showIntro
- *  starts true — deliberate for the proposal demo), and it can mount a beat after
- *  `load`, so a one-shot check races: wait briefly for it, click if it appears. */
-async function dismissIntro(page: Page, timeout = 2_500) {
-  await page
-    .getByRole('button', { name: 'Explore on my own' })
-    .click({ timeout })
-    .catch(() => {})
-}
-
-/** Open the app fresh and clear the intro. */
+/** Open the app fresh. */
 async function openApp(page: Page) {
   await page.goto('/')
-  await dismissIntro(page, 5_000)
 }
 
-/** Reload — the intro overlay re-mounts on every load, so clear it again. */
+/** Reload. */
 async function reloadApp(page: Page) {
   await page.reload()
-  await dismissIntro(page)
 }
 
 /** Navigate to a section from the rail tree (ADAPT-13: an inline disclosure tree —
@@ -70,7 +58,6 @@ async function gotoSection(page: Page, name: string) {
 
 /** Create a worker agent through the Agents hub dialog. */
 async function createAgent(page: Page, label: string) {
-  await dismissIntro(page, 250)
   await gotoSection(page, 'Agents')
   await page.getByRole('button', { name: 'New agent' }).click()
   await page.getByPlaceholder('e.g. Code reviewer').fill(label)
@@ -80,7 +67,6 @@ async function createAgent(page: Page, label: string) {
 
 /** Open a project's detail page from the Projects list. */
 async function openProject(page: Page, name: string) {
-  await dismissIntro(page, 250)
   await gotoSection(page, 'Projects')
   await page.getByText(name).first().click()
   await expect(page.getByRole('heading', { name })).toBeVisible()

@@ -9,10 +9,6 @@ const STAMP = Date.now().toString(36)
 const A = { name: `Stack Ana ${STAMP}`, email: `ana-${STAMP}@example.test`, password: `anas-password-${STAMP}` }
 const B = { name: `Stack Bix ${STAMP}`, email: `bix-${STAMP}@example.test`, password: `bixs-password-${STAMP}` }
 
-async function dismissIntro(page: Page, timeout = 2_500) {
-  await page.getByRole('button', { name: 'Explore on my own' }).click({ timeout }).catch(() => {})
-}
-
 async function completeWizard(page: Page, who: { name: string; email: string; password: string }) {
   await page.getByTestId('auth-name').fill(who.name)
   await page.getByTestId('auth-email').fill(who.email)
@@ -25,7 +21,6 @@ async function completeWizard(page: Page, who: { name: string; email: string; pa
 test('two accounts stack; the switcher hops between them instantly; sign-out lands on the picker', async ({ page }) => {
   test.setTimeout(120_000)
   await page.goto('/')
-  await dismissIntro(page)
 
   // ── Account A signs up through the wizard ──
   await page.getByTestId('account-chip').click()

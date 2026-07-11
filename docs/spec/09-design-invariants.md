@@ -13,7 +13,7 @@
 | ID | Requirement | Implementation | Verified by | Status |
 |----|-------------|----------------|-------------|--------|
 | INV-1 | Light theme only — no dark mode, no theme toggle, no `dark:` variants. | `src/index.css` | `tests/spec-conformance.test.ts` (no `dark:` in `src`) | ✅ |
-| INV-2 | No "before" view — the prototype does not reproduce today's three-tab UI; the motivation lives in docs + tour captions. | (absence by design) | review-enforced convention (no automated guard) | 🟡 |
+| INV-2 | No "before" view — the prototype does not reproduce today's three-tab UI; the motivation lives in the docs. | (absence by design) | review-enforced convention (no automated guard) | 🟡 |
 | INV-3 | The dev server binds IPv4 (`127.0.0.1`) for both the UI and the API proxy. | `vite.config.ts`, `scripts/dev.mjs` | `tests/spec-conformance.test.ts` (`127.0.0.1` in `vite.config.ts`) | ✅ |
 | INV-4 | Form follows function: every "+ Add ‹thing›" picker-opener shares one primitive, and every foldable section header shares one. | `src/lib/inlineAction.ts`, `src/components/AddTrigger.tsx`, `src/lib/foldHeader.ts` | `tests/addTrigger.test.ts`, `tests/foldHeader.test.ts` | ✅ |
 | INV-5 | Every popover / dropdown / menu dismisses on outside-click + Escape through one shared hook. | `src/lib/useDismissable.ts` | `tests/useDismissable.test.ts` | ✅ |

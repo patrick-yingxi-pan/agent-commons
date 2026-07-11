@@ -25,10 +25,6 @@ export type SectionId =
   | 'dispatch'
   | 'customize'
 
-/** The guided tour's lifecycle: idle (not started), running (stepping through),
- *  or done (finished, showing Replay). */
-export type TourPhase = 'idle' | 'running' | 'done'
-
 /** A connector / MCP attached to the conversation (GitHub, Drive, …). */
 export interface Connector {
   id: string
@@ -186,7 +182,7 @@ export interface ToolActivity {
  *  a panel-producing tool call. The backend builds it (the panel content comes
  *  from a real tool execution, not a client fixture) and streams it as a
  *  `message.escalation` event; the UI shows the matching permission prompt and
- *  applies it only on approval (TourPermissionPrompt). Three kinds, one per
+ *  applies it only on approval (EscalationPrompt). Three kinds, one per
  *  panel-escalation tool. */
 export type EscalationProposal =
   | {
@@ -216,8 +212,6 @@ export type EscalationProposal =
       /** Whether approving also files the current session into the new project
        *  (vs. creating it empty, to be filed by a later step). */
       fileSession?: boolean
-      /** Caption shown once the tour lands on the new project's page. */
-      visitCaption?: string
     }
 
 export type ArtifactKind = 'doc' | 'email' | 'image' | 'slide' | 'sheet'
@@ -269,8 +263,6 @@ export interface Session {
   title: string
   caps: Capability[]
   preview: string
-  /** Whether this conversation is the scripted, step-through demo. */
-  isDemo?: boolean
   /** The worker Agent (docs/agent-commons.md, D6) driving this Conversation. Unset =
    *  the seeded default Agent — the degenerate N=1 case. */
   agentId?: string
