@@ -210,7 +210,11 @@ export function ModelPickerMenu({
       )}
       {levels.length === 0 && (
         <p className="px-3 pb-2 text-[11px] leading-snug text-ink-soft">
-          This provider declares no effort levels{provider?.kind === 'session' ? ' and answers in prose only' : ''}.
+          {provider?.kind === 'session'
+            ? 'This provider declares no effort levels and answers in prose only.'
+            : activeModel
+              ? 'This model runs at a single effort — no levels to pick.'
+              : 'This provider declares no effort levels.'}
         </p>
       )}
 

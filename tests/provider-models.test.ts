@@ -75,6 +75,47 @@ test('the seeded default provider carries its catalog, stamped listed', async ()
   assert.equal(def.catalogSource, 'listed')
 })
 
+test('the OpenAI seed: a second shared provider with a static curated catalog (its real list API carries no metadata)', async () => {
+  // Shared infra — visible to every tenant, like the default provider.
+  for (const tenant of [undefined, 'tenant-acme', 'tenant-harbor']) {
+    const list = await call('GET', '/providers', undefined, tenant ? { 'x-tenant-id': tenant } : undefined)
+    assert.ok(list.json.some((p: any) => p.id === 'provider-openai'), `visible to ${tenant ?? 'the default tenant'}`)
+  }
+  const openai = (await call('GET', '/providers')).json.find((p: any) => p.id === 'provider-openai')
+  assert.equal(openai.label, 'OpenAI')
+  assert.equal(openai.catalogSource, 'static', 'curated from docs, not listed — OpenAI’s list API exposes no metadata')
+  assert.equal(openai.defaultModelId, 'gpt-5.1', 'the configured model, stamped at serve time')
+  assert.equal(openai.models.length, 3)
+  // Per-field flexibility, exercised: GPT-5.1 declares the reasoning ladder, the
+  // mini a subset, GPT-4.1 an EMPTY vocabulary (no reasoning — the effort control
+  // stands down instead of falling back to the provider's).
+  const byId = Object.fromEntries(openai.models.map((m: any) => [m.id, m]))
+  assert.deepEqual(byId['gpt-5.1'].effortLevels, ['Minimal', 'Low', 'Medium', 'High'])
+  assert.deepEqual(byId['gpt-5.1-mini'].effortLevels, ['Low', 'Medium'])
+  assert.deepEqual(byId['gpt-4.1'].effortLevels, [])
+})
+
+test('picking the OpenAI provider routes and measures against ITS catalog', async () => {
+  const { json: session } = await call('POST', '/sessions', { firstMessage: 'x', providerId: 'provider-openai' })
+  // Unset model pick → the configured model (gpt-5.1) and its 400k window.
+  const usage = (await call('GET', `/usage?session=${session.id}`)).json
+  assert.equal(usage.model.providerLabel, 'OpenAI')
+  assert.equal(usage.model.modelLabel, 'GPT-5.1')
+  assert.equal(usage.context.windowTokens, 400_000)
+  // A concrete pick within its catalog validates and re-measures.
+  const picked = await call('PATCH', `/sessions/${session.id}`, { modelId: 'gpt-4.1' })
+  assert.equal(picked.status, 200)
+  const usage41 = (await call('GET', `/usage?session=${session.id}`)).json
+  assert.equal(usage41.context.windowTokens, 1_047_576)
+  // A Claude model id is NOT in OpenAI's catalog — refused, never normalized.
+  const cross = await call('PATCH', `/sessions/${session.id}`, { modelId: 'claude-opus-4-8' })
+  assert.equal(cross.status, 400)
+  // The turn stamps the resolved OpenAI model as provenance.
+  const send = await callRaw('POST', `/sessions/${session.id}/messages`, { text: 'plain turn' })
+  assert.equal(send.status, 200)
+  assert.equal(store.getSession(session.id)?.messages?.at(-1)?.modelId, 'gpt-4.1')
+})
+
 // ── Registration: listed vs static vs none ────────────────────────────────────
 
 test('registering a provider with its own endpoint fetches its catalog (listed)', async () => {

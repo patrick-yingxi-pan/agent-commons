@@ -65,7 +65,7 @@ import {
   nextRunLabel,
   parseCadence,
 } from '../lib/cadence'
-import { composeModelLabel, displayModelLabel, isOpusModel, parseModelChoice, type ModelPick } from '../lib/models'
+import { composeModelLabel, displayModelLabel, isOpusModel, modelBlurb, parseModelChoice, type ModelPick } from '../lib/models'
 import { loadModelPrefs, saveModelPrefs, type ModelPrefs } from '../lib/modelPrefs'
 import { ModelPickerMenu } from './ModelPickerMenu'
 import { STEP_TOOLS } from '../lib/stepTools'
@@ -121,6 +121,7 @@ import {
   updateProvider,
   deleteProvider,
   rotateProvider,
+  refreshProviderModels,
   createSystemPrompt,
   updateSystemPrompt,
   deleteSystemPrompt,
@@ -4137,6 +4138,7 @@ function ProviderCard({ provider, onEdit }: { provider: ModelProvider; onEdit: (
   const [error, setError] = useState<string | null>(null)
   // Rotate mints a fresh rendezvous secret (kill switch) — shown once via the panel.
   const [rotated, setRotated] = useState<CreatedProvider | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
   const isSession = provider.kind === 'session'
   const del = async () => {
     setError(null)
@@ -4153,6 +4155,18 @@ function ProviderCard({ provider, onEdit }: { provider: ModelProvider; onEdit: (
       setRotated(await rotateProvider(provider.id))
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not rotate the secret.')
+    }
+  }
+  const refresh = async () => {
+    setError(null)
+    setRefreshing(true)
+    try {
+      await refreshProviderModels(provider.id)
+    } catch (e) {
+      // The endpoint didn't answer a model list (400) — the catalog stays untouched.
+      setError(e instanceof Error ? e.message : 'Could not refresh the model catalog.')
+    } finally {
+      setRefreshing(false)
     }
   }
   return (
@@ -4182,6 +4196,51 @@ function ProviderCard({ provider, onEdit }: { provider: ModelProvider; onEdit: (
           </span>
         ))}
       </div>
+      {/* The provider's own model catalog (spec MODEL-16) — what the composer's
+          Model section lists for it. One chip per model (the configured default
+          marked); the source note says how the list was obtained, and a LISTED
+          catalog can be re-fetched from the endpoint it came from. A Session
+          provider has none (its cognition is whatever session drains it). */}
+      {!isSession && (
+        <div className="mt-2">
+          {(provider.models?.length ?? 0) > 0 && (
+            <div className="flex flex-wrap items-center gap-1">
+              {provider.models!.map((m) => (
+                <span
+                  key={m.id}
+                  title={modelBlurb(m)}
+                  className={`rounded px-1.5 py-0.5 text-[10px] ${
+                    m.id === provider.defaultModelId ? 'bg-accent/10 text-ink' : 'bg-panel-2 text-ink-faint'
+                  }`}
+                >
+                  {m.label}
+                  {m.id === provider.defaultModelId && <span className="text-ink-faint"> · default</span>}
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="mt-1.5 flex items-center gap-2 text-[11px] text-ink-faint">
+            <span>
+              {provider.models?.length
+                ? provider.catalogSource === 'listed'
+                  ? `${provider.models.length} models, listed from its endpoint`
+                  : `${provider.models.length} models, declared at registration`
+                : 'No model catalog — turns run its configured model.'}
+            </span>
+            {provider.catalogSource === 'listed' && (
+              <button
+                onClick={refresh}
+                disabled={refreshing}
+                className="inline-flex items-center gap-1 rounded-md border border-line px-1.5 py-0.5 text-[11px] text-ink-soft transition enabled:hover:border-accent enabled:hover:text-ink disabled:opacity-60"
+                title="Re-fetch the catalog from the provider’s own model-list API. Session model picks the new list no longer carries are cleared."
+              >
+                <RefreshCw size={11} />
+                {refreshing ? 'Refreshing…' : 'Refresh models'}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       {isSession && (
         <div className="mt-2 flex items-center gap-2 text-[12px] text-ink-soft">
           <KeyRound size={12} className="shrink-0 text-ink-faint" />

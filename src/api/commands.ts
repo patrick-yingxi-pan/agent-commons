@@ -335,6 +335,17 @@ export async function rotateProvider(id: string): Promise<CreatedProvider> {
   return rotated
 }
 
+/** Re-fetch a provider's model catalog from its endpoint's own list API (spec
+ *  MODEL-16 — the 'listed' source stamp is earned only by this funnel). Rejects
+ *  when the server refuses — a Session provider (nothing to list from, 409) or an
+ *  endpoint that doesn't answer a model list (400) — so the card can surface the
+ *  reason; the existing catalog stays untouched on failure. */
+export async function refreshProviderModels(id: string): Promise<ModelProvider> {
+  const provider = await apiPost<ModelProvider>(`${paths.provider(id)}/models/refresh`, {})
+  invalidate(keys.providers)
+  return provider
+}
+
 /** Patch a provider's own fields; refreshes the provider list. */
 export async function updateProvider(id: string, patch: UpdateProviderRequest): Promise<ModelProvider> {
   const provider = await apiPatch<ModelProvider>(paths.provider(id), patch)

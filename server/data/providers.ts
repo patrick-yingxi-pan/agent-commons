@@ -90,3 +90,64 @@ export const DEFAULT_PROVIDER: ModelProvider = {
  *  env-configured default, so the env override (`ANTHROPIC_MODEL`) stays the one
  *  place the default model is chosen. */
 export const DEFAULT_PROVIDER_CONFIG: ProviderConfig = {}
+
+/** The second seeded provider — OpenAI, so provider selection is exercisable out
+ *  of the box (two providers ⇒ the composer's Provider section renders). Its
+ *  catalog is **static** on purpose: OpenAI's real `GET /v1/models` carries no
+ *  metadata (ids only — no context windows, no capabilities), so a client curates
+ *  its catalog from the docs rather than the list API — exactly the degradation
+ *  class the flexible `ModelInfo` exists for (spec MODEL-16). The entries vary
+ *  deliberately: GPT-5.1 declares the reasoning-effort ladder, the mini a subset,
+ *  GPT-4.1 an EMPTY vocabulary (no reasoning — the effort control stands down
+ *  rather than falling back to the provider's). Like every provider here, its
+ *  turns dial the ambient mock endpoint in dev (mock by design). */
+export const OPENAI_PROVIDER: ModelProvider = {
+  id: 'provider-openai',
+  label: 'OpenAI',
+  modelFamily: 'gpt',
+  effortLevels: ['Minimal', 'Low', 'Medium', 'High'],
+  models: [
+    {
+      id: 'gpt-5.1',
+      label: 'GPT-5.1',
+      contextWindow: 400_000,
+      maxOutputTokens: 128_000,
+      capabilities: { toolUse: true, vision: true, thinking: true },
+      effortLevels: ['Minimal', 'Low', 'Medium', 'High'],
+    },
+    {
+      id: 'gpt-5.1-mini',
+      label: 'GPT-5.1 mini',
+      contextWindow: 400_000,
+      maxOutputTokens: 64_000,
+      capabilities: { toolUse: true, vision: true, thinking: true },
+      effortLevels: ['Low', 'Medium'],
+    },
+    {
+      id: 'gpt-4.1',
+      label: 'GPT-4.1',
+      contextWindow: 1_047_576,
+      maxOutputTokens: 32_768,
+      capabilities: { toolUse: true, vision: true, thinking: false },
+      effortLevels: [],
+    },
+  ],
+  catalogSource: 'static',
+  authority: { tools: ['*'], connectors: ['*'], scopes: ['*'] },
+}
+
+/** OpenAI's server-only config: a concrete configured model (what an unset pick
+ *  resolves to — stamped onto reads as `defaultModelId`), no endpoint of its own
+ *  (dev turns run against the ambient mock; a real deployment would set a
+ *  translating gateway's baseURL + a PROVIDER_* credential here). */
+export const OPENAI_PROVIDER_CONFIG: ProviderConfig = { model: 'gpt-5.1' }
+
+/** The seeded provider registry, in list order (the default first). Rehydrate
+ *  re-inserts a seed row a pre-seed snapshot doesn't carry (the P9 re-stamp rule;
+ *  a runtime delete of a seed therefore lasts until the next restart — the same
+ *  mock semantics as seed sessions). */
+export const SEED_PROVIDERS: ModelProvider[] = [DEFAULT_PROVIDER, OPENAI_PROVIDER]
+export const SEED_PROVIDER_CONFIGS: Array<[string, ProviderConfig]> = [
+  [DEFAULT_PROVIDER.id, DEFAULT_PROVIDER_CONFIG],
+  [OPENAI_PROVIDER.id, OPENAI_PROVIDER_CONFIG],
+]

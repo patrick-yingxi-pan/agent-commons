@@ -76,7 +76,7 @@ import { LimitError } from './limit.ts'
 import { scopeMatches } from './runner-runtime.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../contract/index.ts'
 import type { Agent, AgentChangeProposal, AgentDirectoryEntry, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelInfo, ModelProvider, OpenSubGoal, OwnerActivity, OwnerProfile, PostOpenSubGoalRequest, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState } from '../contract/index.ts'
-import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from './data/providers.ts'
+import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, SEED_PROVIDERS, SEED_PROVIDER_CONFIGS, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
 import { TOOL_DEFINITIONS } from './model/tools.ts'
@@ -572,8 +572,8 @@ function projectGraphForTenant(g: RelationGraph, tenantId: string): RelationGrap
 // implicit Anthropic client. The contract `ModelProvider` is paired with its
 // server-only `ProviderConfig` (credentials / concrete model id) by id — the config
 // never leaves the server, mirroring how `Capabilities` hides the key.
-const MODEL_PROVIDERS = new Map<string, ModelProvider>([[DEFAULT_PROVIDER.id, DEFAULT_PROVIDER]])
-const PROVIDER_CONFIGS = new Map<string, ProviderConfig>([[DEFAULT_PROVIDER.id, DEFAULT_PROVIDER_CONFIG]])
+const MODEL_PROVIDERS = new Map<string, ModelProvider>(SEED_PROVIDERS.map((p) => [p.id, p]))
+const PROVIDER_CONFIGS = new Map<string, ProviderConfig>(SEED_PROVIDER_CONFIGS)
 const resolveProvider = (id?: string): ModelProvider => MODEL_PROVIDERS.get(id ?? '') ?? DEFAULT_PROVIDER
 let providerSeq = 0
 
@@ -1200,19 +1200,24 @@ function rehydrate(s: PersistedState): void {
   // snapshot carries it, so a pre-v4-shaped snapshot keeps the seeded set rather
   // than wiping it (defensive — a v4 snapshot always writes all five).
   replaceMap(MODEL_PROVIDERS, s.providers)
-  // A pre-catalog snapshot must not strip the seeded default provider's model
-  // catalog — it's CODE-owned (derived from the mock endpoint's own list, see
-  // server/model/catalog.ts), the same re-stamp rule as seed tenancy (P9). A
-  // snapshot that DOES carry a catalog (a runtime refresh) wins over the seed.
-  const restoredDefault = MODEL_PROVIDERS.get(DEFAULT_PROVIDER.id)
-  if (restoredDefault && !restoredDefault.models) {
-    MODEL_PROVIDERS.set(DEFAULT_PROVIDER.id, {
-      ...restoredDefault,
-      models: DEFAULT_PROVIDER.models,
-      catalogSource: DEFAULT_PROVIDER.catalogSource,
-    })
-  }
   replaceMap(PROVIDER_CONFIGS, s.providerConfigs)
+  // Reconcile the SEEDED providers against an older snapshot (the P9 re-stamp
+  // rule — seed rows and their catalogs are CODE-owned): a pre-seed snapshot
+  // gains a missing seed row (+ its server-only config), and a pre-catalog
+  // snapshot regains the seed's model catalog. A snapshot that carries its own
+  // catalog (a runtime refresh) or runtime edits wins over the seed; a runtime
+  // DELETE of a seed therefore lasts only until the next restart — the same
+  // mock semantics as seed sessions.
+  for (const seed of SEED_PROVIDERS) {
+    const restored = MODEL_PROVIDERS.get(seed.id)
+    if (!restored) MODEL_PROVIDERS.set(seed.id, seed)
+    else if (!restored.models && seed.models) {
+      MODEL_PROVIDERS.set(seed.id, { ...restored, models: seed.models, catalogSource: seed.catalogSource })
+    }
+  }
+  for (const [id, config] of SEED_PROVIDER_CONFIGS) {
+    if (!PROVIDER_CONFIGS.has(id) && MODEL_PROVIDERS.has(id)) PROVIDER_CONFIGS.set(id, config)
+  }
   replaceMap(SYSTEM_PROMPT_LIB, s.systemPrompts)
   replaceMap(REGISTRY_DEFAULTS, s.registryDefaults)
   replaceMap(WORKER_AGENTS, s.agents)

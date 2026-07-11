@@ -70,4 +70,13 @@ test('rehydrate re-stamps the default provider’s code-owned catalog; a stored 
   const kept = providers.find((p) => p.id === 'provider-2')
   assert.deepEqual(kept?.models, [{ id: 'kept-1', label: 'Kept model' }], 'a stored catalog survives verbatim')
   assert.equal(kept?.catalogSource, 'static')
+
+  // A seed row the snapshot predates is re-inserted whole — the OpenAI provider
+  // (and its server-only config: `defaultModelId` resolves to its configured
+  // model, not the env default an empty config would inherit).
+  const openai = providers.find((p) => p.id === 'provider-openai')
+  assert.ok(openai, 'the missing seed provider was re-seeded')
+  assert.equal(openai?.catalogSource, 'static')
+  assert.equal(openai?.models?.length, 3)
+  assert.equal(openai?.defaultModelId, 'gpt-5.1', 'its seed config rode along')
 })
