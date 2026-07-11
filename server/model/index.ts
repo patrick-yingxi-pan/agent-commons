@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import { matchIntents, matchConnectorTools } from './intents.ts'
 import { finalReplyText, plainReplyText, chunkText } from './replies.ts'
+import { wireModels } from './catalog.ts'
 
 const MODEL_PORT = Number(process.env.MODEL_PORT ?? 8788)
 const MODEL_HOST = process.env.MODEL_HOST ?? '127.0.0.1'
@@ -234,6 +235,15 @@ export function startModelServer(port = MODEL_PORT, host = MODEL_HOST): import('
     const path = (req.url ?? '').split('?')[0]
     if (req.method === 'POST' && path === '/v1/messages') {
       handleMessages(req, res)
+      return
+    }
+    // The Anthropic Models API face (`GET /v1/models`, cursor-paginated in the real
+    // thing; the mock's whole catalog fits one page). The backend fetches this
+    // through the same SDK/base-URL seam it generates through, so a provider's
+    // model catalog is genuinely *listed from its endpoint*, never a client const.
+    if (req.method === 'GET' && path === '/v1/models') {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
+      res.end(JSON.stringify({ data: wireModels(), has_more: false, first_id: null, last_id: null }))
       return
     }
     if (req.method === 'GET' && path === '/health') {

@@ -19,6 +19,8 @@ import type {
   Repo,
   Workspace,
 } from '../types'
+import type { UsageModelRef } from '../../contract/index.ts'
+import type { ModelPick } from '../lib/models'
 import { CheckSquare } from './Checkbox'
 import { ModelEffortControl } from './ModelEffortControl'
 import { AddContextButton } from './AddContextButton'
@@ -81,8 +83,9 @@ export function Composer({
   onRemoveContexts,
   onRemoveFolder,
   sessionId,
-  providerId,
-  onSelectModelProvider,
+  modelPick,
+  onSelectModel,
+  usageModel,
   messageTokens,
 }: {
   workspaces: Workspace[]
@@ -97,12 +100,16 @@ export function Composer({
   disabledLabel?: string
   /** The open session, so the usage gauge's plan rings track this thread. */
   sessionId?: string
-  /** The session's model pick (`session.providerId`) — undefined = the built-in
-   *  Claude models (the default provider / the Agent's own). */
-  providerId?: string
+  /** The session's two-level model pick (`session.providerId` + `session.modelId`)
+   *  — absences inherit (the default provider / its configured model). */
+  modelPick?: ModelPick
   /** Write the pick through (controller-owned: PATCH for a real session, held
-   *  locally for a draft until it materializes). Undefined clears to default. */
-  onSelectModelProvider?: (providerId?: string) => void
+   *  locally for a draft until it materializes). Absences clear to inherit. */
+  onSelectModel?: (pick: ModelPick) => void
+  /** The DRAFT's resolved cognition (provider/model identity + context window),
+   *  resolved client-side against the live registry — a draft has no server row
+   *  for the usage snapshot to resolve from. Absent for real sessions. */
+  usageModel?: UsageModelRef & { windowTokens?: number }
   /** Live Messages token count of the open thread, so the usage gauge + its
    *  context breakdown fill in real time as the conversation grows. */
   messageTokens?: number
@@ -388,10 +395,10 @@ export function Composer({
             <AudioInputControl />
           </div>
           <div className="flex items-center gap-1.5">
-            <ModelEffortControl providerId={providerId} onSelectProvider={onSelectModelProvider} />
+            <ModelEffortControl pick={modelPick} onSelectModel={onSelectModel} />
             <ProvidersControl />
             <HostsControl />
-            <UsageControl sessionId={sessionId} messageTokens={messageTokens} />
+            <UsageControl sessionId={sessionId} messageTokens={messageTokens} model={usageModel} />
           </div>
         </div>
 

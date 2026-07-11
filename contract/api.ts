@@ -80,6 +80,10 @@ export interface CreateSessionRequest {
   /** The model picked in the draft's composer before first send — becomes the
    *  session's `providerId`. Validated against the caller's visible providers. */
   providerId?: string
+  /** The concrete catalog model picked in the draft — becomes the session's
+   *  `modelId`. Must name an entry in the effective provider's catalog (refused
+   *  otherwise); unset = inherit the provider's configured model. */
+  modelId?: string
 }
 
 /** Body of `POST /v1/sessions/:id/contexts` — attach a context to a session (the

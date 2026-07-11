@@ -24,7 +24,8 @@ import type { FocusTarget } from '../lib/notificationDoor'
 import { rememberAttached } from '../lib/contextShortcuts'
 import { getPanelPref, setPanelPref } from '../lib/panelPrefs'
 import { loadModelPrefs } from '../lib/modelPrefs'
-import { parseFsRecentKey } from '../../contract/index'
+import type { ModelPick } from '../lib/models'
+import { parseFsRecentKey, DEFAULT_PROVIDER_ID } from '../../contract/index'
 import {
   applyRelationOp,
   attachContext,
@@ -231,14 +232,16 @@ export function useSessionWorkspace() {
   const pendingDraftContexts = useRef<AddedContext[]>([])
   // The draft's model pick (the composer's selector on a not-yet-real session) —
   // same holding pattern as the contexts above: the draft can't PATCH a server row,
-  // so the pick rides the materialization (`createSession(text, providerId)`).
-  // Seeded from the Customize page's default (`defaultProviderId`), so "what new
-  // sessions start with" covers registered models too.
-  const [draftProviderId, setDraftProviderId] = useState<string | undefined>(
-    () => loadModelPrefs().defaultProviderId,
-  )
-  const draftProviderRef = useRef(draftProviderId)
-  draftProviderRef.current = draftProviderId
+  // so the pick rides the materialization (`createSession(text, providerId,
+  // modelId)`). Two levels (provider + catalog model), seeded from the Customize
+  // page's default prefs, so "what new sessions start with" covers registered
+  // providers and concrete models alike.
+  const [draftPick, setDraftPick] = useState<ModelPick>(() => {
+    const prefs = loadModelPrefs()
+    return { providerId: prefs.providerId, modelId: prefs.modelId }
+  })
+  const draftPickRef = useRef(draftPick)
+  draftPickRef.current = draftPick
 
   const activeSession = useMemo(
     // One resolution chain for every session kind: the static seed mirror, then
@@ -606,15 +609,20 @@ export function useSessionWorkspace() {
     const draftFocus = focusRef.current
     // The draft's model pick at dispatch (same synchronous capture as the focus
     // above), sanitized against the live registry: a stale pick — e.g. a Customize
-    // default whose provider was deleted — degrades to the built-in default instead
-    // of failing the materialization (the server 404s an unknown providerId). The
-    // same sanitize guards the post-materialize flush below, so a rejected stale id
-    // can't sneak back in through the late-write path.
-    const sanitizePick = (id: string | undefined): string | undefined => {
+    // default whose provider was deleted, or a model its catalog dropped —
+    // degrades to the inherit default instead of failing the materialization (the
+    // server 404s an unknown providerId and 400s an off-catalog modelId). The
+    // same sanitize guards the post-materialize flush below, so a rejected stale
+    // pick can't sneak back in through the late-write path.
+    const sanitizePick = (pick: ModelPick): ModelPick => {
       const known = peek<ModelProvider[]>(keys.providers)
-      return id && (!known || known.some((p) => p.id === id)) ? id : undefined
+      if (!known) return pick // registry not loaded — let the server arbitrate
+      const provider = known.find((p) => p.id === (pick.providerId ?? DEFAULT_PROVIDER_ID))
+      if (pick.providerId && !provider) return {}
+      const modelId = pick.modelId && provider?.models?.some((m) => m.id === pick.modelId) ? pick.modelId : undefined
+      return { providerId: pick.providerId, modelId }
     }
-    const draftProvider = sanitizePick(draftProviderRef.current)
+    const draftModel = sanitizePick(draftPickRef.current)
     // The send generation at dispatch time. Any session switch / re-select bumps
     // runId (via clearTimers), which invalidates this stream — so a reconcile
     // triggered by re-selecting this same session mid-stream can't be clobbered by,
@@ -641,7 +649,7 @@ export function useSessionWorkspace() {
           // Coalesce a rapid second send on the same fresh draft into the first
           // materialization (the composer isn't disabled while streaming), so two
           // quick messages land in ONE session rather than creating two.
-          const pending = draftMaterializing.current ?? createSession(text, draftProvider)
+          const pending = draftMaterializing.current ?? createSession(text, draftModel.providerId, draftModel.modelId)
           draftMaterializing.current = pending
           const created = await pending
           sid = created.id
@@ -676,9 +684,9 @@ export function useSessionWorkspace() {
           // the same late-write treatment the pre-attached contexts get. Sanitized
           // like the capture, so a stale pref the dispatch just dropped isn't
           // re-PATCHed here (it would 404 on every fresh-draft send).
-          const latePick = sanitizePick(draftProviderRef.current)
-          if (latePick !== draftProvider) {
-            void patchSession(sid, { providerId: latePick ?? '' })
+          const latePick = sanitizePick(draftPickRef.current)
+          if (latePick.providerId !== draftModel.providerId || latePick.modelId !== draftModel.modelId) {
+            void patchSession(sid, { providerId: latePick.providerId ?? '', modelId: latePick.modelId ?? '' })
           }
           // Adopt the new id only if the user is still on the draft — don't yank
           // them back if they navigated away while it was materializing.
@@ -840,9 +848,10 @@ export function useSessionWorkspace() {
     // A fresh draft must re-materialize on its first send — don't reuse the
     // previous draft's (now resolved) session.
     draftMaterializing.current = null
-    // …and starts back on the preferred default model (a registered provider when
-    // Customize says so, else no pick — the built-in trio).
-    setDraftProviderId(loadModelPrefs().defaultProviderId)
+    // …and starts back on the preferred default model (the Customize pick —
+    // provider and/or concrete catalog model; no pick = the inherit default).
+    const prefs = loadModelPrefs()
+    setDraftPick({ providerId: prefs.providerId, modelId: prefs.modelId })
     if (seed) {
       rememberAttached(seed) // promote into the Add-context recents, like a manual attach
       const seeded = addContextToLive(EMPTY_LIVE, seed)
@@ -1042,13 +1051,15 @@ export function useSessionWorkspace() {
   const archiveSession = useCallback((id: string, archived: boolean) => {
     void patchSession(id, { status: archived ? 'archived' : 'active' })
   }, [])
-  // The composer's model pick for the ACTIVE session. A real session PATCHes its
-  // server row (undefined → '' clears back to the Agent's provider — the registry's
-  // empty-string-means-default convention); a draft holds the pick locally and the
-  // materialization carries it (see handleSend). Next turn routes accordingly.
-  const selectModelProvider = useCallback((providerId?: string) => {
-    if (activeIdRef.current === DRAFT_ID) setDraftProviderId(providerId)
-    else void patchSession(activeIdRef.current, { providerId: providerId ?? '' })
+  // The composer's model pick for the ACTIVE session — two levels (provider +
+  // catalog model). A real session PATCHes its server row (undefined → '' clears
+  // each back to inherit — the registry's empty-string-means-default convention;
+  // the server clears the model pick on any provider change, its namespace moved);
+  // a draft holds the pick locally and the materialization carries it (see
+  // handleSend). Next turn routes accordingly.
+  const selectModel = useCallback((pick: ModelPick) => {
+    if (activeIdRef.current === DRAFT_ID) setDraftPick(pick)
+    else void patchSession(activeIdRef.current, { providerId: pick.providerId ?? '', modelId: pick.modelId ?? '' })
   }, [])
   const deleteSession = useCallback(
     (id: string) => {
@@ -1199,8 +1210,8 @@ export function useSessionWorkspace() {
     archiveSession,
     deleteSession,
     // the composer's model pick (draft-held until materialization)
-    selectModelProvider,
-    draftProviderId,
+    selectModel,
+    draftPick,
     handleSend,
     stopTurn,
     retryInterrupted,

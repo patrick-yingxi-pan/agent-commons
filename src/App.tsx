@@ -24,6 +24,7 @@ import { useSessionWorkspace } from './controller/useSessionWorkspace'
 import { useLayout } from './controller/useLayout'
 import { RelationsProvider, useRelations } from './controller/useRelations'
 import { railWidthCss, useViewport } from './lib/viewport'
+import { pickedModel, pickedProvider, type ModelPick } from './lib/models'
 import { FocusContext } from './lib/focusContext'
 import { SCRIM_CLASS } from './lib/scrim'
 import { SECTION_META } from './lib/sections'
@@ -120,8 +121,8 @@ function Workspace() {
     renameSession,
     archiveSession,
     deleteSession,
-    selectModelProvider,
-    draftProviderId,
+    selectModel,
+    draftPick,
     handleSend,
     stopTurn,
     retryInterrupted,
@@ -159,7 +160,12 @@ function Workspace() {
   // row, so the same fields resolve; a draft falls back to the local shell and the
   // not-yet-persisted pick held by the controller.
   const activeRow = sessions.find((s) => s.id === activeId) ?? activeSession
-  const activeProviderId = isDraft ? draftProviderId : activeRow.providerId
+  // The active two-level model pick (provider + catalog model) — the draft's local
+  // hold, or the server row's persisted fields.
+  const activePick: ModelPick = useMemo(
+    () => (isDraft ? draftPick : { providerId: activeRow.providerId, modelId: activeRow.modelId }),
+    [isDraft, draftPick, activeRow.providerId, activeRow.modelId],
+  )
   // A model pick needs somewhere to live: a draft (held locally) or a real server
   // row (PATCHed). Every non-draft session is a server row through the one mint
   // funnel — run sessions included — so the pick is writable everywhere; only an
@@ -167,7 +173,24 @@ function Workspace() {
   // registered-models section instead of silently no-oping.
   const modelPickWritable =
     isDraft || sessions.some((s) => s.id === activeId) || !!activeSession.scheduledRunOf
-  const onRelay = sessionProviderKind({ agentId: activeRow.agentId, providerId: activeProviderId }) === 'session'
+  const onRelay = sessionProviderKind({ agentId: activeRow.agentId, providerId: activePick.providerId }) === 'session'
+
+  // The DRAFT's usage overlay: no server row exists to resolve its pick, so the
+  // strip resolves the picked provider+model against the live registry here —
+  // identity for the popover's model line, window for the context gauge (absent =
+  // unknown-capacity, e.g. a Session provider). A real session reads the server
+  // snapshot instead (same resolution, done authoritatively server-side).
+  const draftModelRef = useMemo(() => {
+    if (!isDraft) return undefined
+    const provider = pickedProvider(providers, draftPick)
+    if (!provider) return undefined
+    const model = pickedModel(provider, draftPick)
+    return {
+      providerId: provider.id,
+      providerLabel: provider.label,
+      ...(model ? { modelId: model.id, modelLabel: model.label, windowTokens: model.contextWindow } : {}),
+    }
+  }, [isDraft, providers, draftPick])
 
   // Responsive layout ladder (FWD-3 / PD35): below a wide window the right panel
   // would crush the conversation column, so it overlays as a drawer (with a scrim)
@@ -456,8 +479,9 @@ function Workspace() {
 
                     <Composer
                       sessionId={activeId}
-                      providerId={activeProviderId}
-                      onSelectModelProvider={modelPickWritable ? selectModelProvider : undefined}
+                      modelPick={activePick}
+                      onSelectModel={modelPickWritable ? selectModel : undefined}
+                      usageModel={draftModelRef}
                       messageTokens={messageTokens}
                       workspaces={live.workspaces}
                       repos={live.repos}

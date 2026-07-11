@@ -50,7 +50,7 @@ import { store, type GenerationOutcome } from '../store.ts'
 import { IdempotencyCache, captureResponse, replayResponse } from '../idempotency.ts'
 import { pageParams, paginate, MAX_PAGE_LIMIT } from '../pagination.ts'
 import { RateLimiter } from '../ratelimit.ts'
-import { generateReply, probeProviderEndpoint } from '../generate.ts'
+import { generateReply, probeProviderEndpoint, fetchProviderModels, resolvedModelId } from '../generate.ts'
 import { relayReply, mintRelaySecret, hashRelaySecret, relaySecretHint, type RelayOutcome } from '../relay.ts'
 import { platformCard, agentCard, taskFromOpenSubGoal, rejectedAgentTask, rpcResult, rpcError } from '../a2a.ts'
 import { ProviderProbeError, type ProviderConfig } from '../data/providers.ts'
@@ -762,6 +762,7 @@ export function buildRouter(): Router {
     // store's mint wall re-asserts both).
     if (input.kind === 'session') {
       if (input.config) return sendError(res, 'bad_request', 'A Session provider has no endpoint — omit `config`.')
+      if (input.models) return sendError(res, 'bad_request', 'A Session provider has no model catalog — omit `models`.')
       const secret = mintRelaySecret()
       try {
         const tenantId = store.identity(req.headers).tenant.id
@@ -796,7 +797,9 @@ export function buildRouter(): Router {
     // (`kind`/`secretHint`/`online` are server-stamped relay fields — stripped, so an
     // endpoint registration can't forge them. `isDefault` is split off too: it's the
     // per-tenant pointer move below, never a stored field.)
-    const { config: endpoint, kind: _kind, secretHint: _hint, online: _online, isDefault, ...fields } = input
+    // (`catalogSource` is server-derived too — stripped so a request can't claim a
+    // 'listed' catalog it declared by hand; the mint funnel stamps 'static'.)
+    const { config: endpoint, kind: _kind, secretHint: _hint, online: _online, isDefault, catalogSource: _src, defaultModelId: _dm, ...fields } = input
     // Pick the three known endpoint fields explicitly (strings only) — a raw spread
     // would let arbitrary unknown JSON ride into the persisted server-only config
     // (including a forged `capabilities` record).
@@ -809,20 +812,51 @@ export function buildRouter(): Router {
         if (err instanceof ProviderProbeError) return sendError(res, 'bad_request', err.message)
         throw err
       }
+      // The model catalog (D9's flexible half): an explicit static declaration on the
+      // request wins; otherwise ask the just-probed endpoint for its own list — an
+      // endpoint with no list API simply yields no catalog (absence = can't
+      // enumerate, shown honestly by the picker; never an error).
+      if (!fields.models) {
+        const listed = await fetchProviderModels(config)
+        if (listed) Object.assign(fields, { models: listed, catalogSource: 'listed' as const })
+      }
     }
     try {
       const tenantId = store.identity(req.headers).tenant.id
       const provider = store.createProvider(fields, config, tenantId)
       if (isDefault === true) store.setDefaultProvider(provider.id, tenantId)
-      sendJson(res, { ...provider, ...(isDefault === true ? { isDefault: true } : {}) })
+      // Re-read so the response carries the serve-time stamps (isDefault,
+      // defaultModelId) — the same projection every later GET serves.
+      sendJson(res, store.listProviders(tenantId).find((p) => p.id === provider.id) ?? provider)
     } catch (err) {
       // An over-plan provider — the requested plan exceeds the account plan (the cascade root).
       if (err instanceof BudgetError) return sendError(res, 'bad_request', err.message)
       // An out-of-policy credential reference the probe never saw (no endpoint to
       // probe) — caught by the mint funnel's own wall.
       if (err instanceof ProviderProbeError) return sendError(res, 'bad_request', err.message)
+      // A malformed static model catalog (the funnel's shape wall).
+      if (err instanceof ValidationError) return sendError(res, 'bad_request', err.message)
       throw err
     }
+  })
+  // Re-fetch a provider's model catalog from its endpoint's own list API — the
+  // 'listed' source stamp is earned only by this funnel (and the registration-time
+  // fetch), never claimable on a request. A Session provider has no endpoint to
+  // list from (409); an endpoint that doesn't answer a model list is a 400 and the
+  // existing catalog stays untouched.
+  r.post('/providers/:id/models/refresh', async ({ req, res, params }) => {
+    if (denyForeignEntry(req, res, params.id, (t) => store.listProviders(t), 'provider')) return
+    const config = store.providerConfig(params.id)
+    if (config.kind === 'session') {
+      return sendError(res, 'conflict', 'A Session provider has no endpoint to list models from.')
+    }
+    const models = await fetchProviderModels(config)
+    if (!models) return sendError(res, 'bad_request', 'The provider’s endpoint didn’t answer a model list.')
+    const provider = store.refreshProviderModels(params.id, models)
+    if (!provider) return sendError(res, 'not_found', `No provider '${params.id}'`)
+    // Re-read so the response carries the serve-time stamps (isDefault, online).
+    const tenantId = store.identity(req.headers).tenant.id
+    sendJson(res, store.listProviders(tenantId).find((p) => p.id === params.id) ?? provider)
   })
   r.patch('/providers/:id', async ({ req, res, params, body }) => {
     if (denyForeignEntry(req, res, params.id, (t) => store.listProviders(t), 'provider')) return
@@ -1881,18 +1915,24 @@ export function buildRouter(): Router {
       ? `No provider '${providerId}'`
       : null
   r.post('/sessions', idempotent(async ({ req, res, body }) => {
-    const { firstMessage, providerId } = await body<import('../../contract/index.ts').CreateSessionRequest>()
+    const { firstMessage, providerId, modelId } = await body<import('../../contract/index.ts').CreateSessionRequest>()
     // Stamp the creating tenant so the scoped list/read above see it (F2/PD9).
     const tenantId = store.identity(req.headers).tenant.id
     const bad = badSessionProvider(providerId, tenantId)
     if (bad) return sendError(res, 'not_found', bad)
-    sendJson(res, store.createSession(firstMessage, tenantId, providerId))
+    try {
+      sendJson(res, store.createSession(firstMessage, tenantId, providerId, modelId))
+    } catch (err) {
+      // A model pick outside the effective provider's catalog — refused, never normalized.
+      if (err instanceof ValidationError) return sendError(res, 'bad_request', err.message)
+      throw err
+    }
   }))
   // Edit a session's row fields (rename / pin / archive / model pick) from the
   // sidebar menu and the composer's model selector.
   r.patch('/sessions/:id', async ({ req, res, params, body }) => {
     if (denyForeignSession(req, res, params.id)) return
-    const patch = await body<{ title?: string; status?: 'active' | 'archived'; pinned?: boolean; providerId?: string }>()
+    const patch = await body<{ title?: string; status?: 'active' | 'archived'; pinned?: boolean; providerId?: string; modelId?: string }>()
     // Empty string clears back to the Agent's provider — always a valid reference.
     const callerTenant = store.identity(req.headers).tenant.id
     const bad = badSessionProvider(patch?.providerId || undefined, callerTenant)
@@ -1909,9 +1949,15 @@ export function buildRouter(): Router {
         return sendError(res, 'not_found', `No provider '${patch.providerId}'`)
       }
     }
-    const session = store.patchSession(params.id, patch)
-    if (!session) return sendError(res, 'not_found', `No session '${params.id}'`)
-    sendJson(res, session)
+    try {
+      const session = store.patchSession(params.id, patch)
+      if (!session) return sendError(res, 'not_found', `No session '${params.id}'`)
+      sendJson(res, session)
+    } catch (err) {
+      // A model pick outside the effective provider's catalog — refused, never normalized.
+      if (err instanceof ValidationError) return sendError(res, 'bad_request', err.message)
+      throw err
+    }
   })
   // Delete a session (the row menu's "Delete").
   r.delete('/sessions/:id', ({ req, res, params }) => {
@@ -2045,6 +2091,14 @@ export function buildRouter(): Router {
     // provenance stamp below always names a real provider (never "implicit").
     const turnProviderId = known?.providerId ?? agent.providerId ?? DEFAULT_PROVIDER_ID
     const provider = store.providerConfig(turnProviderId)
+    // The session's concrete model pick (`session.modelId`, catalog-validated at
+    // write time) overrides the provider's configured model for THIS session's
+    // turns — riding the same server-only `model` field a turn already resolves
+    // (`config.model ?? env default`), so generation needs no new seam. The
+    // resolved id is also the per-turn provenance stamp below; a Session provider's
+    // model is whatever session drains its mailbox, so its turns carry none.
+    const turnConfig = known?.modelId ? { ...provider, model: known.modelId } : provider
+    const turnModelId = provider.kind === 'session' ? undefined : resolvedModelId(turnConfig)
     // The relay pre-turn gate (docs/delegated-cognition-provider.md §7.2): a turn on a
     // Session provider refuses BEFORE the user turn persists — the spend gate's shape —
     // when no drain loop is bound (offline) or another turn already holds the relay's
@@ -2147,7 +2201,7 @@ export function buildRouter(): Router {
               text ?? '',
               replyHandlers,
               ac.signal,
-              provider,
+              turnConfig,
               // The live Agent Commons registries, so a confirmed "commission the agent I
               // just made" / "create an agent on <provider>" resolves the names the model
               // proposes against what currently exists (server/model/tools.ts). Tenant-scoped
@@ -2209,7 +2263,7 @@ export function buildRouter(): Router {
       // provider that supplied the cognition (as resolved — session pick or agent's), so
       // authorship, metering attribution, and the relayed-reply badge survive a
       // mid-thread hand-off or model switch — the binding is current-driver.
-      const stamped = { ...message, agentId: agent.id, providerId: turnProviderId }
+      const stamped = { ...message, agentId: agent.id, providerId: turnProviderId, ...(turnModelId ? { modelId: turnModelId } : {}) }
       if (persist) {
         store.appendMessage(params.id, stamped)
         turns.markPersisted(active.id, stamped.id) // gate for post-finish retry replay (§5.4)
@@ -2222,7 +2276,7 @@ export function buildRouter(): Router {
       // A cancel keeps what the turn already produced (design §7): persist the
       // partial as the assistant turn and close the stream with it as authoritative.
       if (ac.signal.aborted && messageId) {
-        const partial: Message = { id: messageId, role: 'assistant', content: streamedText, agentId: agent.id, providerId: turnProviderId }
+        const partial: Message = { id: messageId, role: 'assistant', content: streamedText, agentId: agent.id, providerId: turnProviderId, ...(turnModelId ? { modelId: turnModelId } : {}) }
         if (persist) {
           store.appendMessage(params.id, partial)
           turns.markPersisted(active.id, partial.id) // a cancelled partial is still the record

@@ -21,6 +21,38 @@ import type { Authority } from './authority.ts'
  *  Claude models (an unset session pick) rather than as a duplicate list entry. */
 export const DEFAULT_PROVIDER_ID = 'provider-anthropic'
 
+/** ── One model in a provider's catalog ────────────────────────────────────────
+ *  The flexible, provider-agnostic projection of "a model this provider serves".
+ *  Real providers disagree wildly about what a model-list API returns — Anthropic
+ *  ships per-level effort capabilities and token limits, Gemini ships token limits
+ *  and a thinking flag, Mistral ships capability booleans, OpenRouter adds pricing,
+ *  and OpenAI's list carries *nothing* beyond ids — so **every metadata field here
+ *  is optional**, and an absent field means *unknown*, never a default. The UI
+ *  degrades per-field (an unknown context window renders an unknown-capacity
+ *  gauge, not a made-up 100%). Only `id` + `label` are guaranteed. */
+export interface ModelInfo {
+  /** The provider-local model id a turn is routed with (e.g. 'claude-opus-4-8'). */
+  id: string
+  /** Human display name; falls back to the id when the provider names nothing. */
+  label: string
+  /** Optional one-line description for the picker row. */
+  blurb?: string
+  /** Max input context window, in tokens. Absent = the provider doesn't expose it
+   *  (OpenAI-class lists) — the usage gauge renders unknown-capacity, not a guess. */
+  contextWindow?: number
+  /** Max output tokens per response. Absent = unknown. */
+  maxOutputTokens?: number
+  /** Capability flags. Each flag is tri-state by absence: true / false / unknown. */
+  capabilities?: { toolUse?: boolean; vision?: boolean; thinking?: boolean }
+  /** This model's own effort vocabulary (e.g. Anthropic's per-model effort levels).
+   *  Absent = fall back to the provider-level `effortLevels`. */
+  effortLevels?: string[]
+  /** Per-million-token pricing, when the provider publishes it (OpenRouter-class). */
+  pricing?: { inputPerMTok: number; outputPerMTok: number }
+  /** The provider still serves it but has marked it deprecated (Mistral-class). */
+  deprecated?: boolean
+}
+
 export interface ModelProvider {
   id: string
   /** The tenant that created it (F2/PD9). Unset ⇒ a seeded/shared entry visible to every
@@ -56,8 +88,26 @@ export interface ModelProvider {
   modelFamily: string
   /** The provider-declared effort vocabulary (e.g. ['Low','Medium','High']). A
    *  provider-local vocabulary, NOT a universal scale — "High" on one provider is
-   *  not "High" on another (D9 trade-off); the UI shows each provider's own levels. */
+   *  not "High" on another (D9 trade-off); the UI shows each provider's own levels.
+   *  A catalog model's own `effortLevels` overrides this for that model. */
   effortLevels: string[]
+  /** The provider's model catalog — what the composer's model picker lists for it.
+   *  Absent/empty = the provider can't enumerate models (a Session provider's
+   *  cognition is whatever session drains its mailbox; a list-less endpoint just
+   *  serves whatever id it's configured with) — the picker shows that honestly
+   *  instead of fabricating rows. Populated by the registration-time fetch from the
+   *  endpoint's own list API, or declared statically on the create request. */
+  models?: ModelInfo[]
+  /** How `models` was obtained — server-stamped, never caller-forgeable:
+   *  'listed' = fetched from the endpoint's model-list API (refreshable);
+   *  'static' = declared on the create/patch request (the endpoint has no list API). */
+  catalogSource?: 'listed' | 'static'
+  /** The model an UNSET session pick resolves to on this provider — its configured
+   *  model (the server-only config's `model`, or the env default). Stamped at serve
+   *  time like `online`, never stored and never caller-settable, so the client's
+   *  inherit display can't drift from what a turn actually runs. Endpoint kind
+   *  only — a Session provider's model is whatever session drains its mailbox. */
+  defaultModelId?: string
   /** The provider plan — the **root** of the D8 attenuation cascade (token face): an
    *  Agent's budget (and a Commission's grant) must be a subset of it. Optional: a
    *  provider with no declared plan imposes no token ceiling of its own (the account

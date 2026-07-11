@@ -9,6 +9,7 @@
  *  see) and the server-only `ProviderConfig` (credentials / base-URL / concrete model
  *  id) — never exposed to the client, mirroring how `Capabilities` hides the key. */
 import { DEFAULT_PROVIDER_ID, type ModelProvider, type ProviderEndpointConfig } from '../../contract/index.ts'
+import { seedModels } from '../model/catalog.ts'
 
 /** What the registration probe learned about a provider's endpoint — the capability
  *  record `generate.ts` branches on (never on provider identity). Today one axis:
@@ -72,6 +73,12 @@ export const DEFAULT_PROVIDER: ModelProvider = {
   label: 'Anthropic',
   modelFamily: 'claude',
   effortLevels: ['Low', 'Medium', 'High'],
+  // The endpoint's own catalog (server/model/catalog.ts — ONE record set derives
+  // this seed AND the mock's `/v1/models` wire face, so they can't drift; a live
+  // refresh through `fetchProviderModels` round-trips to exactly this list).
+  // Every model picker renders THESE rows — the UI carries no model constants.
+  models: seedModels(),
+  catalogSource: 'listed',
   // The cascade root grants everything (D8, authority face) — so the seeded default
   // Agent (which carries the whole tool catalog) is a valid attenuation of it, and an
   // Agent or Commission can only ever tighten from here. Explicit '*' so the grant is

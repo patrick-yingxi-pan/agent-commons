@@ -123,6 +123,11 @@ export interface Message {
    *  relayed-reply badge reads THIS, not the agent's current provider, so a later model
    *  switch can't relabel old turns. Absent on user turns and legacy messages. */
   providerId?: string
+  /** The concrete model that answered this turn — per-turn provenance beside
+   *  `providerId`, resolved the way the turn actually routed (`session.modelId ??
+   *  the provider's configured model`). Absent on user turns and on Session-provider
+   *  (relay) turns, whose model is whatever the delegated session runs. */
+  modelId?: string
   /** An escalation Claude proposes for this turn — open a workspace, connect a
    *  repo, or create a project. It is the *result of a model tool call* (the
    *  backend executes `open_workspace` / `connect_repo` / `create_project` and
@@ -273,6 +278,15 @@ export interface Session {
    *  which defaults to the seeded Anthropic one. Validated against the caller's
    *  visible providers at create/patch time. */
   providerId?: string
+  /** The concrete model picked *within* the session's effective provider (its
+   *  catalog `ModelInfo.id`) — the second half of the composer's two-level pick.
+   *  Unset = **inherit**: the provider's own configured model decides (INV-9's
+   *  inherit class — the server-only config / env default, exactly what a turn
+   *  ran against before this field existed). When set it must name an entry in
+   *  the effective provider's catalog — an unknown id is refused (400), never
+   *  normalized. Changing/clearing `providerId` clears this pick (the id's
+   *  namespace changed), the same documented cascade as a provider delete. */
+  modelId?: string
   /** The tenant this conversation belongs to — the isolation boundary on the web
    *  (F2 / PD9): a tenant only ever lists/opens its own sessions. Unset on a seed
    *  session (or a run session of an unstamped seed routine) ⇒ the backend's

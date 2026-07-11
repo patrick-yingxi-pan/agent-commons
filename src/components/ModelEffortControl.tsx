@@ -1,6 +1,14 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { ChevronDown, Workflow, Zap } from 'lucide-react'
-import { EFFORTS, MODELS, providerModelOptions } from '../lib/models'
+import {
+  displayModelLabel,
+  effortLevelsFor,
+  isOpusModel,
+  pickedModel,
+  pickedProvider,
+  resolveEffort,
+  type ModelPick,
+} from '../lib/models'
 import { loadModelPrefs, saveModelPrefs, type ModelPrefs } from '../lib/modelPrefs'
 import { useProviders } from '../api'
 import { useDismissable } from '../lib/useDismissable'
@@ -8,11 +16,13 @@ import { POPOVER_SURFACE } from '../lib/popover'
 import { usePopoverShift } from '../lib/usePopoverShift'
 import { ModelPickerMenu, OnlineDot } from './ModelPickerMenu'
 
-/** The composer's model/effort config — the shared "default model" preference
- *  (lib/modelPrefs), so the Customize page edits the same setting. The MODEL list
- *  itself renders through the shared ModelPickerMenu (built-in trio + the live
- *  provider registry); what a pick MEANS here is session wiring — a provider row
- *  writes `session.providerId` through `onSelectProvider`. */
+/** The composer's model/effort config. The list renders through the shared
+ *  ModelPickerMenu — provider → model → effort, all sourced from the live
+ *  registry (each provider's own catalog) — and what a pick MEANS here is
+ *  session wiring: both levels write the session row (`providerId` + `modelId`)
+ *  through `onSelectModel`, so the turn genuinely routes there. The same pick is
+ *  mirrored into the shared "default model" preference (lib/modelPrefs), so the
+ *  Customize page edits the same setting. */
 type Config = ModelPrefs
 
 /** An orthogonal on/off mode (Ultracode, Fast output) — visually distinct from
@@ -62,28 +72,30 @@ function ToggleRow({
 }
 
 export function ModelEffortControl({
-  providerId,
-  onSelectProvider,
+  pick,
+  onSelectModel,
 }: {
-  /** The open session's model pick (`session.providerId`) — undefined = the
-   *  built-in Claude models (the default provider). */
-  providerId?: string
-  /** Write the pick through to the session (undefined clears to default). */
-  onSelectProvider?: (providerId?: string) => void
+  /** The open session's two-level pick (`session.providerId` + `session.modelId`)
+   *  — absences inherit (the default provider / its configured model). */
+  pick?: ModelPick
+  /** Write the pick through to the session (absences clear back to inherit). */
+  onSelectModel?: (pick: ModelPick) => void
 }) {
   const [open, setOpen] = useState(false)
   const [config, setConfig] = useState<Config>(loadModelPrefs)
   const wrapRef = useDismissable<HTMLDivElement>(open, () => setOpen(false))
   const popRef = usePopoverShift<HTMLDivElement>(open)
 
-  const registered = providerModelOptions(useProviders().data ?? [])
-  const picked = providerId ? registered.find((o) => o.providerId === providerId) : undefined
+  const providers = useProviders().data ?? []
+  const provider = pickedProvider(providers, pick)
+  const model = pickedModel(provider, pick)
+  const levels = effortLevelsFor(provider, model)
 
-  const { modelId, effort, ultracode, fast } = config
+  const { ultracode, fast } = config
+  const effort = resolveEffort(levels, config.effort)
   const update = (patch: Partial<Config>) => setConfig((c) => ({ ...c, ...patch }))
-
-  const model = MODELS.find((m) => m.id === modelId)!
-  const effortMeta = EFFORTS.find((e) => e.id === effort)!
+  const onDefaultProvider = !pick?.providerId
+  const opus = isOpusModel(model?.id)
 
   // Remember the last-used config as the default (shared with the Customize page).
   useEffect(() => {
@@ -104,19 +116,19 @@ export function ModelEffortControl({
       >
         {/* Orthogonal modes, when on, show as icons to the left so the
             model/effort text stays put next to the usage button. */}
-        {!picked && ultracode && (
+        {onDefaultProvider && ultracode && (
           <span title="Ultracode — multi-agent workflow" className="flex items-center text-accent">
             <Workflow size={14} />
           </span>
         )}
-        {!picked && fast && model.isOpus && (
+        {onDefaultProvider && fast && opus && (
           <span title="Fast output" className="flex items-center text-accent">
             <Zap size={14} />
           </span>
         )}
-        {picked?.kind === 'session' && <OnlineDot online={picked.online} />}
+        {provider?.kind === 'session' && <OnlineDot online={provider.online} />}
         <span className="max-w-[160px] truncate text-ink">
-          {picked ? picked.name : `${model.short} · ${effortMeta.label}`}
+          {displayModelLabel(providers, pick, onDefaultProvider ? effort : undefined)}
         </span>
         <ChevronDown size={13} className={`transition ${open ? 'rotate-180' : ''}`} />
       </button>
@@ -129,17 +141,21 @@ export function ModelEffortControl({
           className={`absolute bottom-full right-0 z-20 mb-2 w-[320px] overflow-hidden ${POPOVER_SURFACE}`}
         >
           <ModelPickerMenu
-            modelId={modelId}
-            effort={effort}
-            providerId={providerId}
-            onPickModel={(m) => {
-              update({ modelId: m.id, ...(m.isOpus ? {} : { fast: false }) })
-              // A Claude pick clears any provider override on the session.
-              if (providerId) onSelectProvider?.(undefined)
-            }}
+            pick={pick ?? {}}
+            effort={config.effort}
+            // Both pick levels are gated on the write path together: with no
+            // server row to write (onSelectModel absent) the rows render
+            // read-only, and the shared default-model preference isn't silently
+            // rewritten by a click that visibly does nothing.
+            onPickModel={onSelectModel && ((next) => {
+              update({ providerId: next.providerId, modelId: next.modelId, ...(isOpusModel(next.modelId) ? {} : { fast: false }) })
+              onSelectModel(next)
+            })}
             onPickEffort={(e) => update({ effort: e })}
-            // No write-through (no server row resolved yet) ⇒ no provider section.
-            onPickProvider={onSelectProvider && ((o) => onSelectProvider(o.providerId))}
+            onPickProvider={onSelectModel && ((providerId) => {
+              update({ providerId, modelId: undefined })
+              onSelectModel({ providerId })
+            })}
           >
             <div className="border-t border-line" />
             {/* Orthogonal modes — independent of the effort level above */}
@@ -154,10 +170,10 @@ export function ModelEffortControl({
             <ToggleRow
               icon={<Zap size={15} />}
               title="Fast output"
-              subtitle={model.isOpus ? 'Opus, with faster streaming' : 'Available on Opus models'}
+              subtitle={opus ? 'Opus, with faster streaming' : 'Available on Opus models'}
               hint="An orthogonal mode, independent of the effort level above. Fast output speeds up Opus token streaming and can be combined with any effort level."
-              on={fast && model.isOpus}
-              disabled={!model.isOpus}
+              on={fast && opus}
+              disabled={!opus}
               onToggle={() => update({ fast: !fast })}
             />
           </ModelPickerMenu>

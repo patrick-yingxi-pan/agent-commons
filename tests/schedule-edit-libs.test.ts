@@ -13,7 +13,8 @@ import {
   nextRunLabel,
   type CadenceSpec,
 } from '../src/lib/cadence.ts'
-import { composeModelLabel, parseModelLabel, MODELS, EFFORTS } from '../src/lib/models.ts'
+import { composeModelLabel, parseModelChoice, effortLevelsFor, pickedProvider, pickedModel } from '../src/lib/models.ts'
+import { store } from '../server/store.ts'
 
 test('formatTime / parseTime round-trip the 12h ↔ 24h forms', () => {
   assert.equal(formatTime('08:00'), '8:00 AM')
@@ -81,18 +82,28 @@ test('nextRunLabel for weekdays / weekly skips to the right day (Sat 10:00 → n
   assert.equal(nextRunLabel({ freq: 'weekly', time: '07:00', weekday: 1 }, sat), 'Mon, 7:00 AM', 'next Monday')
 })
 
-test('composeModelLabel / parseModelLabel round-trip every model × effort combo', () => {
-  assert.equal(composeModelLabel('opus', 'high'), 'Claude Opus 4.8 · High')
-  assert.equal(composeModelLabel('sonnet', 'medium'), 'Claude Sonnet 4.6 · Medium')
-  for (const m of MODELS) {
-    for (const e of EFFORTS) {
-      const label = composeModelLabel(m.id, e.id)
-      assert.deepEqual(parseModelLabel(label), { modelId: m.id, effort: e.id }, `round-trip for "${label}"`)
+// The routine's stored model label is composed from — and parsed against — the
+// LIVE provider registry (each provider's own catalog), so the round-trip is
+// exercised on the real seeded registry rather than a mirror.
+const PROVIDERS = store.listProviders()
+
+test('composeModelLabel / parseModelChoice round-trip every default-provider model × effort combo', () => {
+  assert.equal(composeModelLabel(PROVIDERS, { modelId: 'claude-opus-4-8' }, 'High'), 'Claude Opus 4.8 · High')
+  assert.equal(composeModelLabel(PROVIDERS, { modelId: 'claude-sonnet-4-6' }, 'Medium'), 'Claude Sonnet 4.6 · Medium')
+  const provider = pickedProvider(PROVIDERS, {})
+  for (const m of provider?.models ?? []) {
+    const levels = effortLevelsFor(provider, m)
+    for (const effort of levels.length ? levels : [undefined]) {
+      const pick = { modelId: m.id }
+      const label = composeModelLabel(PROVIDERS, pick, effort)
+      const parsed = parseModelChoice(label, PROVIDERS)
+      assert.equal(pickedModel(provider, parsed.pick)?.id, m.id, `model round-trip for "${label}"`)
+      assert.equal(parsed.effort, effort, `effort round-trip for "${label}"`)
     }
   }
 })
 
-test('parseModelLabel falls back to Opus · High for an unrecognized label (never throws)', () => {
-  assert.deepEqual(parseModelLabel('Some Unknown Model'), { modelId: 'opus', effort: 'high' })
-  assert.deepEqual(parseModelLabel(''), { modelId: 'opus', effort: 'high' })
+test('parseModelChoice degrades an unrecognized label to the inherit default (never throws)', () => {
+  assert.deepEqual(parseModelChoice('Some Unknown Model', PROVIDERS).pick, {})
+  assert.deepEqual(parseModelChoice('', PROVIDERS).pick, {})
 })

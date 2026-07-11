@@ -38,7 +38,7 @@ test('a window resets once its span elapses (the consumption clears)', () => {
 })
 
 test('contextBreakdown: Messages is live, the loaded categories sum to used, the rest is Free space', () => {
-  const ctx = contextBreakdown(PARTS)
+  const ctx = contextBreakdown(PARTS, CONTEXT_WINDOW)
   assert.equal(ctx.segments.find((s) => s.id === 'messages')?.rawTokens, PARTS.messageTokens)
   assert.equal(ctx.total, formatTokens(CONTEXT_WINDOW))
   const loaded = ctx.segments.filter((s) => !s.deferred && s.id !== 'free')
@@ -54,7 +54,7 @@ test('contextBreakdown: Messages is live, the loaded categories sum to used, the
 
 test('System tools + System prompt are the real eager request sizes (not seed)', () => {
   const parts: ContextParts = { messageTokens: 0, systemToolsTokens: 1_780, systemPromptTokens: 100 }
-  const ctx = contextBreakdown(parts)
+  const ctx = contextBreakdown(parts, CONTEXT_WINDOW)
   assert.equal(ctx.segments.find((s) => s.id === 'systemTools')?.rawTokens, 1_780)
   assert.equal(ctx.segments.find((s) => s.id === 'systemPrompt')?.rawTokens, 100)
 })
@@ -68,7 +68,7 @@ test('store: the System tools category is the real tool-schema size, eager (load
 })
 
 test('withLiveMessages overlays a live Messages count, keeping the real categories', () => {
-  const server = contextBreakdown({ messageTokens: 50, systemToolsTokens: 1_780, systemPromptTokens: 100 })
+  const server = contextBreakdown({ messageTokens: 50, systemToolsTokens: 1_780, systemPromptTokens: 100 }, CONTEXT_WINDOW)
   const live = withLiveMessages(server, 9_000)
   assert.equal(live.segments.find((s) => s.id === 'messages')?.rawTokens, 9_000)
   // The real system-tools size is preserved through the overlay.

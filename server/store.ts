@@ -75,12 +75,12 @@ import { ConflictError, ValidationError } from './conflict.ts'
 import { LimitError } from './limit.ts'
 import { scopeMatches } from './runner-runtime.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../contract/index.ts'
-import type { Agent, AgentChangeProposal, AgentDirectoryEntry, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelProvider, OpenSubGoal, OwnerActivity, OwnerProfile, PostOpenSubGoalRequest, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState } from '../contract/index.ts'
+import type { Agent, AgentChangeProposal, AgentDirectoryEntry, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelInfo, ModelProvider, OpenSubGoal, OwnerActivity, OwnerProfile, PostOpenSubGoalRequest, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
 import { TOOL_DEFINITIONS } from './model/tools.ts'
-import { systemPrompt } from './generate.ts'
+import { systemPrompt, resolvedModelId } from './generate.ts'
 import { RunnerRegistry } from './registry.ts'
 import { RunnerJournal } from './journal.ts'
 import { RelayRuntime, hashRelaySecret, mintRelaySecret, relaySecretHint, sameSecretHash } from './relay.ts'
@@ -577,6 +577,84 @@ const PROVIDER_CONFIGS = new Map<string, ProviderConfig>([[DEFAULT_PROVIDER.id, 
 const resolveProvider = (id?: string): ModelProvider => MODEL_PROVIDERS.get(id ?? '') ?? DEFAULT_PROVIDER
 let providerSeq = 0
 
+// ── Provider model catalogs (the flexible per-provider model list) ───────────
+// A provider may carry a `models` catalog (contract `ModelInfo[]` — every metadata
+// field optional, absence = unknown), obtained from its endpoint's list API
+// ('listed') or declared on the request ('static'). These helpers are the single
+// validation/replacement funnel for both.
+
+/** Refuse a malformed caller-declared catalog loudly (INV-9: an invalid value is
+ *  refused, never silently normalized). `undefined` = no catalog, always valid. */
+function assertCatalogModels(models: ModelInfo[] | undefined): void {
+  if (models === undefined) return
+  if (!Array.isArray(models) || models.length === 0) {
+    throw new ValidationError('`models` must be a non-empty array of catalog entries.')
+  }
+  const seen = new Set<string>()
+  for (const m of models) {
+    if (!m || typeof m.id !== 'string' || !m.id || typeof m.label !== 'string' || !m.label) {
+      throw new ValidationError('Every catalog model needs a non-empty string `id` and `label`.')
+    }
+    if (seen.has(m.id)) throw new ValidationError(`Duplicate catalog model id '${m.id}'.`)
+    seen.add(m.id)
+  }
+}
+
+/** The provider a session's turns effectively route through — the same INV-9
+ *  inherit chain the messages route resolves (`session pick ?? agent's ?? default`).
+ *  Shared by the model-pick wall, the catalog-refresh sweep, and the usage snapshot
+ *  so "which provider is this session on" has exactly one answer. */
+function effectiveProviderOf(session?: Session): ModelProvider {
+  return resolveProvider(session?.providerId ?? resolveAgent(session?.agentId).providerId)
+}
+
+/** The session-modelId wall: a concrete model pick must name an entry in the
+ *  effective provider's catalog — an unknown id (or a pick on a provider that
+ *  enumerates nothing) is refused, never normalized. */
+function assertModelInCatalog(modelId: string, providerId?: string, agentId?: string): void {
+  const provider = resolveProvider(providerId ?? resolveAgent(agentId).providerId)
+  if (provider.models?.some((m) => m.id === modelId)) return
+  throw new ValidationError(
+    provider.models?.length
+      ? `Provider '${provider.label}' lists no model '${modelId}' — the pick must name a catalog entry.`
+      : `Provider '${provider.label}' doesn't enumerate models — a concrete model can't be picked on it.`,
+  )
+}
+
+/** THE model-pick invariant, enforced centrally: a stored `session.modelId`
+ *  always names an entry in the catalog of the provider the session CURRENTLY
+ *  resolves to. Re-validates every held pick against the live resolution and
+ *  clears the ones whose namespace moved (each cleared row broadcast so open
+ *  composers reconcile). Called by every mutation that can change a session's
+ *  effective provider or its catalog — the direct paths (session provider patch,
+ *  provider delete) clear inline where they already hold the row, and the
+ *  indirect ones (catalog replacement, an Agent re-bind, an Agent hand-off, an
+ *  Agent delete) run this sweep — so a validated-once pick can never dangle. */
+function sweepSessionModelPicks(): void {
+  for (const s of SESSIONS) {
+    if (!s.modelId) continue
+    const provider = effectiveProviderOf(s)
+    if (provider.kind !== 'session' && provider.models?.some((m) => m.id === s.modelId)) continue
+    delete s.modelId
+    emit({ type: 'session.updated', session: s })
+  }
+}
+
+/** Replace a provider's model catalog (registration fetch, static declaration, or
+ *  the refresh route) and stamp how it was obtained. Session model picks the new
+ *  catalog no longer lists are cleared by the invariant sweep — the same
+ *  documented cascade as a provider delete (the pick's namespace changed). */
+function replaceProviderModels(id: string, models: ModelInfo[], source: 'listed' | 'static'): ModelProvider | undefined {
+  const current = MODEL_PROVIDERS.get(id)
+  if (!current) return undefined
+  assertCatalogModels(models)
+  const next: ModelProvider = { ...current, models, catalogSource: source }
+  MODEL_PROVIDERS.set(id, next)
+  sweepSessionModelPicks()
+  persist()
+  return next
+}
+
 // The system-prompt library (docs/agent-commons.md, D10) — reusable, target-family-
 // tagged prompts a user picks for an Agent. Seeded; the (prompt × provider) fit check
 // is the pure `promptFitWarning` (contract), surfaced in the picker at selection.
@@ -753,6 +831,7 @@ function mintSession(
     preview: string
     tenantId?: string
     providerId?: string
+    modelId?: string
     connectors?: Connector[]
     scheduledRunOf?: { taskId: string; taskName: string }
     messages?: Message[]
@@ -769,6 +848,7 @@ function mintSession(
     caps: ['chat'],
     agentId: DEFAULT_AGENT.id,
     ...(input.providerId ? { providerId: input.providerId } : {}),
+    ...(input.modelId ? { modelId: input.modelId } : {}),
     // Tenancy: stamped when the initiator carries one (a human create always does;
     // an agent session mirrors its ROUTINE's stamp verbatim, so an unstamped
     // flagship seed keeps the two-faces visibility rule — F2/PD9, seedVisibleTo).
@@ -1120,6 +1200,18 @@ function rehydrate(s: PersistedState): void {
   // snapshot carries it, so a pre-v4-shaped snapshot keeps the seeded set rather
   // than wiping it (defensive — a v4 snapshot always writes all five).
   replaceMap(MODEL_PROVIDERS, s.providers)
+  // A pre-catalog snapshot must not strip the seeded default provider's model
+  // catalog — it's CODE-owned (derived from the mock endpoint's own list, see
+  // server/model/catalog.ts), the same re-stamp rule as seed tenancy (P9). A
+  // snapshot that DOES carry a catalog (a runtime refresh) wins over the seed.
+  const restoredDefault = MODEL_PROVIDERS.get(DEFAULT_PROVIDER.id)
+  if (restoredDefault && !restoredDefault.models) {
+    MODEL_PROVIDERS.set(DEFAULT_PROVIDER.id, {
+      ...restoredDefault,
+      models: DEFAULT_PROVIDER.models,
+      catalogSource: DEFAULT_PROVIDER.catalogSource,
+    })
+  }
   replaceMap(PROVIDER_CONFIGS, s.providerConfigs)
   replaceMap(SYSTEM_PROMPT_LIB, s.systemPrompts)
   replaceMap(REGISTRY_DEFAULTS, s.registryDefaults)
@@ -1479,8 +1571,10 @@ export const store = {
       // The driving Agent (D16 current-driver binding) — the client resolves it to a
       // provider kind for the relay affordances ("Waiting on your session…", §7.8).
       agentId: s.agentId,
-      // The session's model pick (the composer selector reads its current value here).
+      // The session's two-level model pick (the composer selector reads its
+      // current value here — provider + concrete catalog model).
       providerId: s.providerId,
+      modelId: s.modelId,
     }))
   },
   /** Whether a session is visible to `tenantId` — the route-level guard for reads by id,
@@ -1638,7 +1732,10 @@ export const store = {
    *  the initiator stamp. The creating tenant is always stamped so the scoped
    *  list/read see it (F2 / PD9): the route passes the caller's tenant; absent
    *  that it's the backend's default tenant. */
-  createSession(firstMessage?: string, tenantId: string = defaultTenantId(), providerId?: string): Session {
+  createSession(firstMessage?: string, tenantId: string = defaultTenantId(), providerId?: string, modelId?: string): Session {
+    // A draft's concrete model pick must name an entry in its effective provider's
+    // catalog (the picked provider's, else the default Agent's) — refused otherwise.
+    if (modelId) assertModelInCatalog(modelId, providerId)
     return mintSession({
       id: `sess-${(sessionSeq += 1)}`,
       title: titleFrom(firstMessage),
@@ -1646,6 +1743,7 @@ export const store = {
       tenantId,
       // The composer's model pick, when the draft made one (route-validated).
       providerId,
+      modelId,
     })
   },
 
@@ -1767,6 +1865,9 @@ export const store = {
     }
     WORKER_AGENTS.set(id, next)
     reclampCommissionsOf(next) // D8 runtime: a narrowed Agent re-clamps its Contributors' grants
+    // A re-bound provider changes what sessions INHERITING this Agent's provider
+    // resolve to — their held model picks may now name another catalog's entries.
+    if (next.providerId !== current.providerId) sweepSessionModelPicks()
     persist()
     return next
   },
@@ -1789,6 +1890,9 @@ export const store = {
     // from a persisted counter), so this is storage hygiene, not correctness.
     AGENT_PROPOSALS.delete(id)
     WORKER_AGENTS.delete(id)
+    // Sessions bound to the deleted Agent resolve to the default Agent now — a
+    // held model pick may name a catalog the new resolution doesn't serve.
+    sweepSessionModelPicks()
     persist()
     return true
   },
@@ -1804,7 +1908,14 @@ export const store = {
     const defaultId = defaultsFor(tenantId)?.providerId
     return [...MODEL_PROVIDERS.values()]
       .filter((p) => registryVisible(p, tenantId))
-      .map((p) => (p.kind === 'session' ? { ...p, online: relay.online(p.id) } : p))
+      .map((p) =>
+        p.kind === 'session'
+          ? { ...p, online: relay.online(p.id) }
+          : // What an UNSET pick resolves to — the configured model (serve-time
+            // stamp, like `online`), so the client's inherit display matches
+            // what a turn actually runs (never `catalog[0]` guesswork).
+            { ...p, defaultModelId: resolvedModelId(PROVIDER_CONFIGS.get(p.id)) },
+      )
       .map((p) => (p.id === defaultId ? { ...p, isDefault: true } : p))
   },
   /** Move / clear the caller's **default-provider** flag (the UI shortcut — see
@@ -1857,6 +1968,9 @@ export const store = {
       if (config.baseURL || config.apiKeyEnv) {
         throw new ProviderProbeError('A Session provider has no endpoint to dial — it must not carry a baseURL or credential.')
       }
+      if (input.models) {
+        throw new ProviderProbeError('A Session provider has no model catalog — its cognition is whatever session drains its mailbox.')
+      }
       if (config.capabilities?.toolUse !== false) {
         throw new ProviderProbeError('A Session provider must be minted prose-only (capabilities.toolUse === false).')
       }
@@ -1867,11 +1981,19 @@ export const store = {
         throw new ProviderProbeError('A Session provider must be tenant-scoped — it can never be shared.')
       }
     }
+    // A declared catalog is validated at the funnel (shape + unique ids); its source
+    // stamp is server-derived — a caller-declared list is 'static' unless the route
+    // fetched it from the endpoint itself ('listed'), and a provider with no catalog
+    // carries no source at all.
+    assertCatalogModels(input.models)
     // Stamp the creating tenant (F2/PD9) so listProviders(tenant) scopes it; unset ⇒ shared.
-    // `isDefault` is stripped: it's the serve-time stamp of the per-tenant pointer
-    // (REGISTRY_DEFAULTS) — stored on the entity it would leak across tenants and drift.
-    const { isDefault: _default, ...fields } = input
+    // `isDefault` and `defaultModelId` are stripped: both are serve-time stamps
+    // (the per-tenant pointer; the config-resolved model) — stored on the entity
+    // they would leak across tenants / drift from the config they mirror.
+    const { isDefault: _default, defaultModelId: _dm, ...fields } = input
     const provider: ModelProvider = { ...fields, id: `provider-${(providerSeq += 1)}`, tenantId: tenantId ?? input.tenantId }
+    if (!provider.models) delete provider.catalogSource
+    else provider.catalogSource ??= 'static'
     MODEL_PROVIDERS.set(provider.id, provider)
     PROVIDER_CONFIGS.set(provider.id, config)
     persist()
@@ -1886,16 +2008,34 @@ export const store = {
     const current = MODEL_PROVIDERS.get(id)
     if (!current) return undefined
     if (patch.plan) mintBudget(usageMeter.planCeilings(), patch.plan)
+    // A patched catalog is a *static declaration* — validated before anything
+    // mutates, source-stamped server-side ('listed' is earned only by the fetch
+    // funnel, never claimable on a request), and refused on a Session provider
+    // (nothing to enumerate — same wall as the mint's).
+    if (patch.models !== undefined) {
+      if (PROVIDER_CONFIGS.get(id)?.kind === 'session') {
+        throw new ValidationError('A Session provider has no model catalog — its cognition is whatever session drains its mailbox.')
+      }
+      assertCatalogModels(patch.models)
+    }
     // The transport identity is fixed at mint, and the fingerprint/status are
     // server-stamped: a PATCH may rename/re-plan a provider but never flip its
     // kind or forge relay state. `isDefault` is a serve-time stamp too — the route
     // turns it into a setDefaultProvider call; it never lands on the entity.
-    const { kind: _kind, secretHint: _hint, online: _online, isDefault: _default, ...safe } = patch
+    const { kind: _kind, secretHint: _hint, online: _online, isDefault: _default, defaultModelId: _dm, models: patchModels, catalogSource: _src, ...safe } = patch
     const next: ModelProvider = { ...current, ...safe, id: current.id }
     MODEL_PROVIDERS.set(id, next)
     reclampAgentsOf(next) // D8 runtime: a narrowed provider re-clamps its Agents (+ their commissions)
+    // The catalog replacement funnel last — it re-persists and sweeps stale session
+    // model picks against the new list.
+    if (patchModels !== undefined) return replaceProviderModels(id, patchModels, 'static')
     persist()
     return next
+  },
+  /** Replace a provider's model catalog from its endpoint's list API (the refresh
+   *  route) — the 'listed' source stamp is earned only here and at registration. */
+  refreshProviderModels(id: string, models: ModelInfo[]): ModelProvider | undefined {
+    return replaceProviderModels(id, models, 'listed')
   },
   /** Rotate a Session provider's rendezvous secret — the kill switch (§7.5),
    *  immediate and total: the stored hash is replaced (no old-hash grace), the
@@ -1940,6 +2080,7 @@ export const store = {
     // provider rather than wedging the delete. Broadcast so open selectors reconcile.
     for (const s of SESSIONS.filter((s) => s.providerId === id)) {
       delete s.providerId
+      delete s.modelId // the model pick named the deleted provider's catalog — same cascade
       emit({ type: 'session.updated', session: s })
     }
     MODEL_PROVIDERS.delete(id)
@@ -2317,6 +2458,9 @@ export const store = {
     }
     session.agentId = agentId
     session.updatedAt = Date.now()
+    // The hand-off may change the session's effective provider (the new Agent's
+    // binding) — a held model pick whose namespace moved must clear with it.
+    sweepSessionModelPicks()
     emit({ type: 'session.updated', session })
     persist()
     return session
@@ -2327,10 +2471,18 @@ export const store = {
    *  `session.updated` so every client's list refreshes. */
   patchSession(
     id: string,
-    patch: { title?: string; status?: 'active' | 'archived'; pinned?: boolean; providerId?: string },
+    patch: { title?: string; status?: 'active' | 'archived'; pinned?: boolean; providerId?: string; modelId?: string },
   ): Session | undefined {
     const session = SESSIONS.find((s) => s.id === id)
     if (!session) return undefined
+    // Validate the model pick BEFORE anything mutates (a refused patch must change
+    // nothing): it must name an entry in the catalog of the provider this patch
+    // leaves the session on — the incoming providerId when the patch carries one,
+    // else the session's current effective provider.
+    if (patch.modelId) {
+      const nextProviderId = patch.providerId !== undefined ? patch.providerId || undefined : session.providerId
+      assertModelInCatalog(patch.modelId, nextProviderId, session.agentId)
+    }
     if (patch.title !== undefined) session.title = patch.title
     if (patch.status !== undefined) session.status = patch.status
     if (patch.pinned !== undefined) session.pinned = patch.pinned
@@ -2341,6 +2493,15 @@ export const store = {
     if (patch.providerId !== undefined) {
       if (patch.providerId) session.providerId = patch.providerId
       else delete session.providerId
+      // The provider changed, so the model pick's namespace changed — clear it (the
+      // documented cascade); a modelId in this same patch re-picks right below.
+      delete session.modelId
+    }
+    // The concrete-model half of the pick (validated above); falsy clears back to
+    // the provider's configured model — the INV-9 inherit state.
+    if (patch.modelId !== undefined) {
+      if (patch.modelId) session.modelId = patch.modelId
+      else delete session.modelId
     }
     emit({ type: 'session.updated', session })
     persist()
@@ -2583,9 +2744,26 @@ export const store = {
     // backend sends — both injected eagerly — so they're real loaded categories.
     const agent = resolveAgent(session?.agentId)
     const systemPromptTokens = estimateTokens(systemPrompt({ id: sessionId ?? '', title: session?.title ?? '' }, agent))
+    // The context figures are measured against the session's RESOLVED cognition —
+    // the same chain a turn routes (provider: session pick ?? agent's ?? default;
+    // model: session pick ?? the provider's configured model) — so the gauge's
+    // capacity comes from the provider's own catalog, never a client constant. A
+    // Session provider's model is whatever session drains its mailbox (opaque), and
+    // a model the catalog doesn't describe has no known window: both degrade to
+    // unknown-capacity (`windowTokens` absent), the honest reading.
+    const provider = effectiveProviderOf(session)
+    const opaque = provider.kind === 'session'
+    const modelId = opaque ? undefined : session?.modelId ?? resolvedModelId(PROVIDER_CONFIGS.get(provider.id))
+    const model = modelId ? provider.models?.find((m) => m.id === modelId) : undefined
     return {
-      context: contextBreakdown({ messageTokens, systemToolsTokens: SYSTEM_TOOLS_TOKENS, systemPromptTokens }),
+      context: contextBreakdown({ messageTokens, systemToolsTokens: SYSTEM_TOOLS_TOKENS, systemPromptTokens }, model?.contextWindow),
       limits: meterFor(tenantId).planLimits(), // per-tenant plan windows (F2/PD9)
+      model: {
+        providerId: provider.id,
+        providerLabel: provider.label,
+        ...(modelId ? { modelId } : {}),
+        ...(model ? { modelLabel: model.label } : {}),
+      },
     }
   },
 

@@ -177,8 +177,8 @@ export async function cancelTurn(sessionId: string, turnId: string): Promise<voi
 /** Materialize a draft into a real persisted session on its first send. The
  *  server mints the id + titles it from the first message; we prime the caches so
  *  the controller can resolve the new session immediately and the sidebar shows it. */
-export async function createSession(firstMessage?: string, providerId?: string): Promise<Session> {
-  const session = await apiPost<Session>(paths.sessions, { firstMessage, providerId })
+export async function createSession(firstMessage?: string, providerId?: string, modelId?: string): Promise<Session> {
+  const session = await apiPost<Session>(paths.sessions, { firstMessage, providerId, modelId })
   setData(keys.session(session.id), session)
   invalidate(keys.sessions)
   return session
@@ -544,15 +544,21 @@ export async function releaseSubGoal(reservationId: string, projectId: string): 
 // ── Sessions (the sidebar row menu's edits) ─────────────────────────────────
 
 /** Patch a session's row fields — rename / pin / archive, or the composer's model
- *  pick (`providerId`; empty string clears back to the Agent's provider).
+ *  pick (`providerId` + `modelId`; empty string clears each back to inherit).
  *  Optimistically patches the cached list (the row updates instantly), then PATCHes;
  *  the server's `session.updated` event reconciles every client. */
 export async function patchSession(
   id: string,
-  patch: { title?: string; status?: 'active' | 'archived'; pinned?: boolean; providerId?: string },
+  patch: { title?: string; status?: 'active' | 'archived'; pinned?: boolean; providerId?: string; modelId?: string },
 ): Promise<void> {
-  // The optimistic row mirrors the server's clear semantics: '' deletes the pick.
-  const optimistic = patch.providerId === '' ? { ...patch, providerId: undefined } : patch
+  // The optimistic row mirrors the server's clear semantics: '' deletes the pick,
+  // and a provider change clears the model pick (its namespace changed).
+  const optimistic = {
+    ...patch,
+    ...(patch.providerId === '' ? { providerId: undefined } : {}),
+    ...(patch.providerId !== undefined && patch.modelId === undefined ? { modelId: undefined } : {}),
+    ...(patch.modelId === '' ? { modelId: undefined } : {}),
+  }
   mutate<Session[]>(keys.sessions, (list) =>
     (list ?? []).map((s) => (s.id === id ? { ...s, ...optimistic } : s)),
   )
@@ -561,6 +567,9 @@ export async function patchSession(
   } catch {
     invalidate(keys.sessions)
   }
+  // A model pick changes what the usage gauge measures against (the provider-
+  // sourced context window) — refresh the snapshot the composer strip reads.
+  if (patch.providerId !== undefined || patch.modelId !== undefined) invalidate(keys.usage(id))
 }
 
 /** Delete a session (the row menu's "Delete"). Optimistically drops it from the

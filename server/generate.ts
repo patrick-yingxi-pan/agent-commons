@@ -9,7 +9,7 @@
  *  endpoint (dev: server/model on :8788). To go live, repoint `ANTHROPIC_BASE_URL`
  *  at `api.anthropic.com` and set `ANTHROPIC_API_KEY` — no code change. */
 import Anthropic from '@anthropic-ai/sdk'
-import type { Agent, EscalationProposal, Message, RelationOp, SessionContext, ToolActivity } from '../contract/index.ts'
+import type { Agent, EscalationProposal, Message, ModelInfo, RelationOp, SessionContext, ToolActivity } from '../contract/index.ts'
 import { ProviderProbeError, validApiKeyEnv, PROVIDER_KEY_ENV_PREFIX, type ProviderCapabilities, type ProviderConfig } from './data/providers.ts'
 import { TOOL_DEFINITIONS, executeTool, type ToolContext } from './model/tools.ts'
 import { deriveConnectorTools, runConnectorTool } from './model/connectorTools.ts'
@@ -21,6 +21,14 @@ import { positiveNumberEnv, nonNegativeIntEnv } from './env.ts'
  *  env override stays the single source for the default model. Other providers carry
  *  their own model id in the server-only `ProviderConfig` `generateReply` receives. */
 const MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-8'
+
+/** The concrete model a turn on `config` runs against — the same resolution
+ *  `generateReply` applies (`config.model ?? env default`), exported so the route
+ *  can stamp per-turn model provenance (`Message.modelId`) and the usage snapshot
+ *  can name the model its context figures are measured against. */
+export function resolvedModelId(config: ProviderConfig = {}): string {
+  return config.model ?? MODEL
+}
 
 /** SDK transient-error retries (network blips / 429 / 5xx) — fail fast by default to
  *  reach the graceful fallback. Override with `ANTHROPIC_MAX_RETRIES` (non-negative int). */
@@ -122,6 +130,79 @@ export async function probeProviderEndpoint(config: ProviderConfig): Promise<Pro
       const detail = err2 instanceof Error ? err2.message : String(err2)
       throw new ProviderProbeError(`The endpoint didn't answer the Messages protocol: ${detail}`)
     }
+  }
+}
+
+/** The loose wire shape of one `GET /v1/models` entry. Providers disagree about
+ *  everything past `id` (Anthropic ships capabilities + token limits; OpenAI ships
+ *  nothing; the SDK's own type lags the live API), so the normalizer reads each
+ *  field defensively and simply omits what an endpoint doesn't expose — absence
+ *  *is* the contract's unknown state (`ModelInfo`). */
+interface WireModel {
+  id?: string
+  display_name?: string
+  max_input_tokens?: number
+  max_tokens?: number
+  capabilities?: {
+    effort?: { supported?: boolean } & Record<string, { supported?: boolean } | boolean | undefined>
+    thinking?: { supported?: boolean }
+    image_input?: { supported?: boolean }
+  }
+}
+
+/** The canonical effort ladder (the Anthropic capability keys, low→max) and its
+ *  display labels — the order the normalized `effortLevels` list preserves. */
+const WIRE_EFFORTS: Array<[key: string, label: string]> = [
+  ['low', 'Low'],
+  ['medium', 'Medium'],
+  ['high', 'High'],
+  ['xhigh', 'xHigh'],
+  ['max', 'Max'],
+]
+
+/** Normalize one wire model into the contract's flexible `ModelInfo` — every
+ *  metadata field optional, filled only when the endpoint exposed it. */
+function normalizeWireModel(m: WireModel): ModelInfo | undefined {
+  if (typeof m.id !== 'string' || !m.id) return undefined
+  const caps = m.capabilities
+  const efforts =
+    caps?.effort?.supported === true
+      ? WIRE_EFFORTS.filter(([k]) => {
+          const level = caps.effort?.[k]
+          return typeof level === 'object' && level?.supported === true
+        }).map(([, label]) => label)
+      : []
+  const flags = {
+    ...(caps?.thinking?.supported !== undefined ? { thinking: caps.thinking.supported } : {}),
+    ...(caps?.image_input?.supported !== undefined ? { vision: caps.image_input.supported } : {}),
+  }
+  return {
+    id: m.id,
+    label: typeof m.display_name === 'string' && m.display_name ? m.display_name : m.id,
+    ...(typeof m.max_input_tokens === 'number' && m.max_input_tokens > 0 ? { contextWindow: m.max_input_tokens } : {}),
+    ...(typeof m.max_tokens === 'number' && m.max_tokens > 0 ? { maxOutputTokens: m.max_tokens } : {}),
+    ...(Object.keys(flags).length ? { capabilities: flags } : {}),
+    ...(efforts.length ? { effortLevels: efforts } : {}),
+  }
+}
+
+/** Fetch a provider endpoint's model catalog (`GET /v1/models`) through the same
+ *  SDK/base-URL seam turns generate through, normalized into the contract's
+ *  `ModelInfo[]`. Absence-tolerant by design: an endpoint with no list API (404),
+ *  an unreachable one, or an empty list all yield `undefined` — the provider's
+ *  catalog simply stays absent (the picker shows that honestly) rather than the
+ *  registration failing. Against the dev mock this returns the seeded trio; against
+ *  `api.anthropic.com` it returns the live catalog — no code change (MODEL-5). */
+export async function fetchProviderModels(config: ProviderConfig = {}): Promise<ModelInfo[] | undefined> {
+  try {
+    const page = await clientFor(config).models.list(
+      { limit: 100 },
+      { signal: AbortSignal.timeout(positiveNumberEnv(process.env.PROVIDER_PROBE_TIMEOUT_MS, 10_000)) },
+    )
+    const models = (page.data as WireModel[]).map(normalizeWireModel).filter((m): m is ModelInfo => !!m)
+    return models.length ? models : undefined
+  } catch {
+    return undefined
   }
 }
 

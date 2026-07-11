@@ -283,9 +283,15 @@ the mock?
   through the api hooks**, never a hard-coded mirror. (The composer's model list
   was once a frozen trio while providers lived in a hub tab — registering a model
   didn't make it selectable; that class of drift is the target.) Embodied by
-  `src/components/ModelPickerMenu.tsx` (the one model list, all three pickers) and
-  locked by `tests/model-picker.test.ts`, which fails if a component re-hardcodes
-  the catalog outside the shared menu. When adding a picker for a registry concept,
+  `src/components/ModelPickerMenu.tsx` (the one provider→model→effort menu, all
+  three pickers) and locked by `tests/model-picker.test.ts`, which fails if ANY
+  src/ file declares a model/effort catalog constant: the models a picker lists
+  are each provider's **own catalog** (`ModelProvider.models` — fetched from its
+  endpoint's `GET /v1/models` or declared at registration, spec MODEL-16/-17), so
+  even the default Claude models are registry rows, and the composer strip's
+  usage gauge measures against the resolved model's provider-sourced context
+  window (honest unknown-capacity when it doesn't expose one).
+  When adding a picker for a registry concept,
   drive it from the registry hook and route it through the shared menu — and if the
   concept's entries are usable in sessions, make the registry a first-class rail
   surface, not a sub-tab of the thing that consumes it. A registry entry can be

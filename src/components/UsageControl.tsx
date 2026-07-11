@@ -4,7 +4,7 @@ import { useUsage } from '../api'
 import { useDismissable } from '../lib/useDismissable'
 import { POPOVER_SURFACE } from '../lib/popover'
 import { usePopoverShift } from '../lib/usePopoverShift'
-import { withLiveMessages, type ContextSegment, type ContextTone, type UsageSnapshot } from '../../contract/index.ts'
+import { withLiveMessages, type ContextSegment, type ContextTone, type UsageModelRef, type UsageSnapshot } from '../../contract/index.ts'
 
 /* Shown until the server's usage snapshot loads — a zeroed gauge rather than a
    flash of a missing icon. The real figures arrive from `GET /v1/usage`, after
@@ -46,8 +46,24 @@ function waterColor(pct: number): string {
  *  session. The context disc + breakdown reflect the *live* open thread: when the
  *  composer passes `messageTokens` (the size of the messages currently loaded),
  *  the breakdown is recomputed immediately — so the Messages row + the disc fill
- *  as you chat — overriding the server's persisted-only figure. */
-export function UsageControl({ sessionId, messageTokens }: { sessionId?: string; messageTokens?: number }) {
+ *  as you chat — overriding the server's persisted-only figure.
+ *
+ *  The context capacity is PROVIDER-SOURCED: the snapshot's `windowTokens` comes
+ *  from the session's resolved provider+model catalog, and may be absent — a
+ *  provider that doesn't expose its window (a Session provider, an OpenAI-class
+ *  list) renders the honest **unknown-capacity** state (raw tokens, no percent,
+ *  hollow disc) instead of a fabricated 100%-scale. `model` is the draft's
+ *  overlay: before a server row exists, the composer resolves the picked model
+ *  against the live registry and passes its identity + window here. */
+export function UsageControl({
+  sessionId,
+  messageTokens,
+  model,
+}: {
+  sessionId?: string
+  messageTokens?: number
+  model?: UsageModelRef & { windowTokens?: number }
+}) {
   const [open, setOpen] = useState(false)
   const [expanded, setExpanded] = useState(true)
   const wrapRef = useDismissable<HTMLDivElement>(open, () => setOpen(false))
@@ -57,13 +73,26 @@ export function UsageControl({ sessionId, messageTokens }: { sessionId?: string;
   const snapshot = useUsage(sessionId).data ?? EMPTY_USAGE
   // The server owns the real category sizes (system tools, system prompt, …); the
   // composer overlays the live Messages count so the breakdown tracks the open
-  // thread without re-sending those server-owned figures.
+  // thread without re-sending those server-owned figures — and, on a draft, the
+  // picked model's window (the server can't know a pick that has no row yet).
+  const liveTokens =
+    messageTokens ?? snapshot.context.segments.find((s) => s.id === 'messages')?.rawTokens ?? 0
   const usage: UsageSnapshot =
-    messageTokens === undefined ? snapshot : { ...snapshot, context: withLiveMessages(snapshot.context, messageTokens) }
+    messageTokens === undefined && !model
+      ? snapshot
+      : {
+          ...snapshot,
+          context: withLiveMessages(snapshot.context, liveTokens, model ? { window: model.windowTokens } : undefined),
+          ...(model ? { model } : {}),
+        }
+  const windowKnown = usage.context.windowTokens !== undefined
+  const modelRef = usage.model
 
-  const title =
-    `Usage — context ${usage.context.pct}%, ` +
-    `5-hour ${usage.limits[0]?.pct ?? 0}%, weekly ${usage.limits[1]?.pct ?? 0}%`
+  const title = windowKnown
+    ? `Usage — context ${usage.context.pct}%, ` +
+      `5-hour ${usage.limits[0]?.pct ?? 0}%, weekly ${usage.limits[1]?.pct ?? 0}%`
+    : `Usage — context ${usage.context.used} used (window unknown), ` +
+      `5-hour ${usage.limits[0]?.pct ?? 0}%, weekly ${usage.limits[1]?.pct ?? 0}%`
 
   return (
     <div ref={wrapRef} className="relative">
@@ -91,11 +120,32 @@ export function UsageControl({ sessionId, messageTokens }: { sessionId?: string;
           >
             <span className="text-[13px] font-medium text-ink">Context window</span>
             <span className="flex items-center gap-1 text-[12px] text-ink-soft">
-              {usage.context.used} / {usage.context.total} ({usage.context.pct}%)
+              {windowKnown ? (
+                <>
+                  {usage.context.used} / {usage.context.total} ({usage.context.pct}%)
+                </>
+              ) : (
+                <>{usage.context.used} used · window unknown</>
+              )}
               <ChevronRight size={13} className={`text-ink-faint transition-transform ${expanded ? 'rotate-90' : ''}`} />
             </span>
           </button>
-          <StackedBar segments={usage.context.segments} className="mt-1.5" />
+          {/* The cognition the figures are measured against — the session's resolved
+              provider + model, straight from the registry/snapshot (never a client
+              constant). A provider that can't name its model shows only itself. */}
+          {modelRef && (
+            <div className="mt-0.5 text-[11px] text-ink-faint">
+              {modelRef.modelLabel ?? modelRef.modelId ?? 'Model chosen by the provider'} · {modelRef.providerLabel}
+            </div>
+          )}
+          {windowKnown ? (
+            <StackedBar segments={usage.context.segments} className="mt-1.5" />
+          ) : (
+            <p className="mt-1.5 text-[11px] leading-snug text-ink-soft">
+              This provider doesn’t expose the model’s context window, so fill percentages can’t
+              be computed — token counts below are still real.
+            </p>
+          )}
 
           {expanded && usage.context.segments.length > 0 && (
             <div className="mt-2.5 space-y-1.5">
@@ -142,8 +192,11 @@ export function UsageControl({ sessionId, messageTokens }: { sessionId?: string;
 
 /** Concentric usage gauge. The two outer rings fill clockwise like a dial
  *  (middle = 5-hour limit, outer = weekly limit); the inner solid disc is a
- *  water-level tank for the context window. Hue follows the usage threshold. */
+ *  water-level tank for the context window. Hue follows the usage threshold.
+ *  An unknown context window (the provider doesn't expose it) renders the disc
+ *  as a faded track — visibly "no reading", distinct from "empty". */
 function UsageGauge({ usage }: { usage: UsageSnapshot }) {
+  const windowKnown = usage.context.windowTokens !== undefined
   const uid = useId().replace(/:/g, '')
   const cx = 12
   const cy = 12
@@ -204,9 +257,9 @@ function UsageGauge({ usage }: { usage: UsageSnapshot }) {
         )
       })}
 
-      <g mask={`url(#${uid}-disc)`}>
+      <g mask={`url(#${uid}-disc)`} opacity={windowKnown ? 1 : 0.35}>
         <rect x="0" y="0" width="24" height="24" className="fill-line-strong" />
-        {f > 0 && (
+        {windowKnown && f > 0 && (
           <rect
             x="0"
             y={surface}
@@ -246,8 +299,9 @@ function StackedBar({ segments, className = '' }: { segments: ContextSegment[]; 
 }
 
 /** One breakdown row: a swatch, the category (with its item count, if a
- *  collection), the token size, and the percent — or '—' for a deferred row,
- *  which lists its item count there instead. */
+ *  collection), the token size, and the percent — or '—' for a deferred row
+ *  (which lists its item count there instead) and for every row in
+ *  unknown-capacity mode, where percentages are uncomputable. */
 function SegmentRow({ seg }: { seg: ContextSegment }) {
   const muted = seg.deferred || seg.tone === 'free'
   return (
@@ -262,7 +316,7 @@ function SegmentRow({ seg }: { seg: ContextSegment }) {
       </span>
       <span className="shrink-0 tabular-nums text-ink-faint">{seg.tokens}</span>
       <span className="w-12 shrink-0 text-right tabular-nums text-ink-soft">
-        {seg.pct === undefined ? (seg.count !== undefined ? seg.count : '—') : `${seg.pct}%`}
+        {seg.pct !== undefined ? `${seg.pct}%` : seg.deferred && seg.count !== undefined ? seg.count : '—'}
       </span>
     </div>
   )

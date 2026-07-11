@@ -65,7 +65,7 @@ import {
   nextRunLabel,
   parseCadence,
 } from '../lib/cadence'
-import { composeModelLabel, parseModelChoice, providerModelOptions, type Effort, type ModelChoice, type ModelId } from '../lib/models'
+import { composeModelLabel, displayModelLabel, isOpusModel, parseModelChoice, type ModelPick } from '../lib/models'
 import { loadModelPrefs, saveModelPrefs, type ModelPrefs } from '../lib/modelPrefs'
 import { ModelPickerMenu } from './ModelPickerMenu'
 import { STEP_TOOLS } from '../lib/stepTools'
@@ -7224,41 +7224,26 @@ function ModelPanel({ task }: { task: ScheduledTask }) {
   )
 }
 
-/** The model + effort picker for a routine — the shared ModelPickerMenu (built-in
- *  trio + the live provider registry), so a model registered in the Models section
- *  is schedulable too. A built-in pick stores the composed label ("Claude Opus 4.8
- *  · High"); a provider pick stores the provider's label — `parseModelChoice`
- *  bridges both back. Each pick applies live via updateSchedule({ model }); "Done"
- *  closes. (Runs are mock-synthesized, so the field is descriptive — the same
- *  honesty boundary as the rest of Scheduled.) */
+/** The model + effort picker for a routine — the shared ModelPickerMenu
+ *  (provider → the provider's own catalog → effort, all from the live registry),
+ *  so a model registered in the Models section is schedulable too. The pick is
+ *  stored as a composed LABEL ("Claude Opus 4.8 · High" / "Provider · Model") —
+ *  `parseModelChoice` bridges it back. Each pick applies live via
+ *  updateSchedule({ model }); "Done" closes. (Runs are mock-synthesized, so the
+ *  field is descriptive — the same honesty boundary as the rest of Scheduled.) */
 function ScheduleModelPicker({ task, onClose }: { task: ScheduledTask; onClose: () => void }) {
   // Mounted only while open, so dismiss listeners live for its whole lifetime.
   const ref = useDismissable<HTMLDivElement>(true, onClose)
   const popRef = usePopoverShift<HTMLDivElement>(true)
-  const registered = providerModelOptions(useProviders().data ?? [])
-  const init = parseModelChoice(task.model, registered)
-  // Two axes of state: the built-in radios keep their last model+effort even while
-  // a provider is picked over them, so switching back lands where the user left
-  // off (Opus · High only for a routine that never had a built-in pick).
-  const [builtin, setBuiltin] = useState<{ modelId: ModelId; effort: Effort }>(
-    init.kind === 'builtin' ? { modelId: init.modelId, effort: init.effort } : { modelId: 'opus', effort: 'high' },
-  )
-  const [providerPick, setProviderPick] = useState<string | undefined>(
-    init.kind === 'provider' ? init.providerId : undefined,
-  )
+  const providers = useProviders().data ?? []
+  const init = parseModelChoice(task.model, providers)
+  const [pick, setPick] = useState<ModelPick>(init.pick)
+  const [effort, setEffort] = useState<string | undefined>(init.effort)
 
-  const commit = (next: ModelChoice) => {
-    if (next.kind === 'provider') {
-      setProviderPick(next.providerId)
-    } else {
-      setProviderPick(undefined)
-      setBuiltin({ modelId: next.modelId, effort: next.effort })
-    }
-    const label =
-      next.kind === 'provider'
-        ? registered.find((o) => o.providerId === next.providerId)?.name ?? task.model
-        : composeModelLabel(next.modelId, next.effort)
-    void updateSchedule(task.id, { model: label })
+  const commit = (nextPick: ModelPick, nextEffort?: string) => {
+    setPick(nextPick)
+    setEffort(nextEffort)
+    void updateSchedule(task.id, { model: composeModelLabel(providers, nextPick, nextEffort) })
   }
 
   return (
@@ -7272,12 +7257,11 @@ function ScheduleModelPicker({ task, onClose }: { task: ScheduledTask; onClose: 
       className={`absolute bottom-full right-0 z-30 mb-1.5 w-[300px] overflow-hidden ${POPOVER_SURFACE}`}
     >
       <ModelPickerMenu
-        modelId={builtin.modelId}
-        effort={builtin.effort}
-        providerId={providerPick}
-        onPickModel={(m) => commit({ kind: 'builtin', modelId: m.id, effort: builtin.effort })}
-        onPickEffort={(e) => commit({ kind: 'builtin', modelId: builtin.modelId, effort: e })}
-        onPickProvider={(o) => commit({ kind: 'provider', providerId: o.providerId })}
+        pick={pick}
+        effort={effort}
+        onPickModel={(next) => commit(next, effort)}
+        onPickEffort={(e) => commit(pick, e)}
+        onPickProvider={(providerId) => commit({ providerId }, effort)}
       />
       <div className="flex justify-end px-3 pb-2">
         <button onClick={onClose} className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:text-ink">
@@ -7354,20 +7338,20 @@ function CustomizeView() {
 
 /** The "Default model" setting — reads & writes the SAME persisted preference the
  *  composer's model control uses (lib/modelPrefs), so changing it here changes what
- *  new sessions start with. The shared ModelPickerMenu, so a registered provider
- *  is a valid default too (`defaultProviderId` — a fresh draft starts on it; a
- *  later-deleted provider degrades back to the built-in default at send). */
+ *  new sessions start with. The shared ModelPickerMenu, so any registered
+ *  provider — and any model from its own catalog — is a valid default too (a
+ *  fresh draft starts on it; a later-deleted provider or dropped model degrades
+ *  back to the inherit default at send). */
 function DefaultModelCard() {
   const [prefs, setPrefs] = useState<ModelPrefs>(loadModelPrefs)
   const [open, setOpen] = useState(false)
   const ref = useDismissable<HTMLDivElement>(open, () => setOpen(false))
   const popRef = usePopoverShift<HTMLDivElement>(open)
-  const registered = providerModelOptions(useProviders().data ?? [])
-  // Stale-pref tolerance: a defaultProviderId whose provider is gone renders (and
-  // behaves) as the built-in default rather than a dangling name.
-  const pickedDefault = prefs.defaultProviderId
-    ? registered.find((o) => o.providerId === prefs.defaultProviderId)
-    : undefined
+  const providers = useProviders().data ?? []
+  // Stale-pref tolerance: a pick whose provider/model is gone renders (and
+  // behaves) as the inherit default rather than a dangling name — the display
+  // resolves against the live registry.
+  const pick: ModelPick = { providerId: prefs.providerId, modelId: prefs.modelId }
 
   const commit = (next: ModelPrefs) => {
     setPrefs(next)
@@ -7384,7 +7368,7 @@ function DefaultModelCard() {
           className="group inline-flex items-center gap-1.5 rounded-lg bg-panel-2 px-3 py-1 text-[12px] font-medium text-ink ring-1 ring-transparent transition hover:ring-line-strong"
         >
           <ClaudeMark size={13} />
-          <span>{pickedDefault ? pickedDefault.name : composeModelLabel(prefs.modelId, prefs.effort)}</span>
+          <span>{displayModelLabel(providers, pick, prefs.providerId ? undefined : prefs.effort)}</span>
           <ChevronDown size={12} className="text-ink-faint transition group-hover:text-ink-soft" />
         </button>
         {open && (
@@ -7395,14 +7379,18 @@ function DefaultModelCard() {
             className={`absolute right-0 top-full z-30 mt-1.5 w-[300px] overflow-hidden ${POPOVER_SURFACE}`}
           >
             <ModelPickerMenu
-              modelId={prefs.modelId}
+              pick={pick}
               effort={prefs.effort}
-              providerId={pickedDefault?.providerId}
-              onPickModel={(m) =>
-                commit({ ...prefs, modelId: m.id, ...(m.isOpus ? {} : { fast: false }), defaultProviderId: undefined })
+              onPickModel={(next) =>
+                commit({
+                  ...prefs,
+                  providerId: next.providerId,
+                  modelId: next.modelId,
+                  ...(isOpusModel(next.modelId) ? {} : { fast: false }),
+                })
               }
               onPickEffort={(e) => commit({ ...prefs, effort: e })}
-              onPickProvider={(o) => commit({ ...prefs, defaultProviderId: o.providerId })}
+              onPickProvider={(providerId) => commit({ ...prefs, providerId, modelId: undefined })}
             />
           </div>
         )}

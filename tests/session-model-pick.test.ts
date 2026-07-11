@@ -6,14 +6,16 @@
  *  routing resolution (a pick of a Session provider hits the relay gates and the
  *  relay round-trip without any Agent re-binding), per-turn provider provenance on
  *  messages, delete-time pick cleanup, and the registry→selector projection
- *  (`providerModelOptions` — the sync whose absence hard-coded the old list). */
+ *  (`pickedProvider`/`parseModelChoice` — the sync whose absence hard-coded the
+ *  old list). The second level of the pick (`session.modelId`, the concrete
+ *  catalog model) is locked by tests/provider-models.test.ts. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { call, callRaw } from './helpers/http.ts'
 import { store } from '../server/store.ts'
 import { DEFAULT_PROVIDER_ID, type ModelProvider } from '../contract/index.ts'
-import { parseModelChoice, providerModelOptions } from '../src/lib/models.ts'
-import { parseModelPrefs } from '../src/lib/modelPrefs.ts'
+import { parseModelChoice, pickedProvider, pickedModel } from '../src/lib/models.ts'
+import { parseModelPrefs, migrateLegacyPrefs } from '../src/lib/modelPrefs.ts'
 
 const auth = (secret: string) => ({ authorization: `Bearer ${secret}` })
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -159,33 +161,52 @@ test('deleting a provider clears session picks of it (fallback to the Agent’s 
 
 // ── The registry → selector projection (the sync that was missing) ────────────
 
-test('parseModelChoice bridges both label kinds; the default-model pref tolerates the new field', () => {
-  const options = providerModelOptions([
+test('parseModelChoice bridges both label kinds; the prefs migrate the legacy blob', () => {
+  const providers = [
+    ...store.listProviders(),
     { id: 'provider-relay', label: 'My laptop’s Claude', modelFamily: 'claude', effortLevels: ['Default'], kind: 'session' },
-  ] as ModelProvider[])
-  assert.deepEqual(parseModelChoice('My laptop’s Claude', options), { kind: 'provider', providerId: 'provider-relay' },
+  ] as ModelProvider[]
+  assert.deepEqual(parseModelChoice('My laptop’s Claude', providers).pick, { providerId: 'provider-relay' },
     'a provider’s label names that provider')
-  assert.deepEqual(parseModelChoice('Claude Haiku 4.5 · Low', options), { kind: 'builtin', modelId: 'haiku', effort: 'low' })
-  assert.deepEqual(parseModelChoice('My laptop’s Claude', []), { kind: 'builtin', modelId: 'opus', effort: 'high' },
+  const haiku = parseModelChoice('Claude Haiku 4.5 · Low', providers)
+  assert.deepEqual(haiku, { pick: { modelId: 'claude-haiku-4-5' }, effort: 'Low' })
+  assert.deepEqual(parseModelChoice('My laptop’s Claude', []).pick, {},
     'a deleted/renamed provider degrades to the default, never throws')
-  // The Customize default: a registered provider persists in ModelPrefs and a
-  // legacy blob without the field parses unchanged.
-  assert.equal(parseModelPrefs(JSON.stringify({ defaultProviderId: 'provider-relay' })).defaultProviderId, 'provider-relay')
-  assert.equal(parseModelPrefs(JSON.stringify({ modelId: 'sonnet' })).defaultProviderId, undefined)
+  // The Customize default: a registered provider persists in ModelPrefs, and the
+  // pre-catalog v1 blob migrates onto the new pick shape (never throws).
+  assert.equal(parseModelPrefs(JSON.stringify({ providerId: 'provider-relay' })).providerId, 'provider-relay')
+  assert.deepEqual(
+    migrateLegacyPrefs(JSON.stringify({ modelId: 'sonnet', effort: 'xhigh', ultracode: true, fast: false })),
+    { modelId: 'claude-sonnet-4-6', effort: 'xHigh', ultracode: true, fast: false },
+  )
+  assert.equal(migrateLegacyPrefs(JSON.stringify({ defaultProviderId: 'provider-relay' }))?.providerId, 'provider-relay')
+  assert.equal(migrateLegacyPrefs('not json'), undefined)
 })
 
-test('providerModelOptions projects every registered provider except the built-in default', () => {
+test('pickedProvider/pickedModel project the registry: default provider = its own catalog rows', () => {
   const providers: ModelProvider[] = [
-    { id: DEFAULT_PROVIDER_ID, label: 'Anthropic', modelFamily: 'claude', effortLevels: ['Low', 'Medium', 'High'] },
-    { id: 'provider-gw', label: 'Corp gateway', modelFamily: 'claude', effortLevels: ['Standard'] },
+    {
+      id: DEFAULT_PROVIDER_ID,
+      label: 'Anthropic',
+      modelFamily: 'claude',
+      effortLevels: ['Low', 'Medium', 'High'],
+      models: [
+        { id: 'claude-opus-4-8', label: 'Claude Opus 4.8', contextWindow: 1_000_000 },
+        { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', contextWindow: 200_000 },
+      ],
+    },
     { id: 'provider-relay', label: 'My laptop’s Claude', modelFamily: 'claude', effortLevels: ['Default'], kind: 'session', online: true },
   ]
-  const options = providerModelOptions(providers)
-  assert.deepEqual(options.map((o) => o.providerId), ['provider-gw', 'provider-relay'],
-    'the default provider is the built-in Claude trio, never a duplicate row')
-  assert.equal(options[0]!.kind, 'endpoint', 'unset kind normalizes to endpoint')
-  assert.equal(options[1]!.kind, 'session')
-  assert.equal(options[1]!.online, true, 'the selector shows the relay liveness dot')
-  assert.deepEqual(options[1]!.effortLevels, ['Default'], 'provider-local effort vocabulary rides along')
-  assert.match(options[1]!.blurb, /prose only/i, 'a Session provider declares its limitation in the list')
+  // No pick at all = the default provider's first catalog entry (the pre-selection
+  // shortcut; the server-side inherit resolves to its configured model).
+  const def = pickedProvider(providers, {})
+  assert.equal(def?.id, DEFAULT_PROVIDER_ID)
+  assert.equal(pickedModel(def, {})?.id, 'claude-opus-4-8')
+  assert.equal(pickedModel(def, { modelId: 'claude-haiku-4-5' })?.id, 'claude-haiku-4-5')
+  // A Session provider can't enumerate models — no fabricated rows.
+  const relay = pickedProvider(providers, { providerId: 'provider-relay' })
+  assert.equal(relay?.kind, 'session')
+  assert.equal(pickedModel(relay, { providerId: 'provider-relay' }), undefined)
+  // A stale pick (deleted provider) resolves to nothing; callers degrade.
+  assert.equal(pickedProvider(providers, { providerId: 'provider-ghost' }), undefined)
 })

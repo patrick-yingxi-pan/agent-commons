@@ -52,6 +52,11 @@ function route(e: ServerEvent): void {
       // The full session (its thread) changed too — a persisted turn, a rename.
       // No-op unless some view has read this session (then it refetches).
       invalidate(keys.session(e.session.id))
+      // The usage snapshot is session-resolved (its context capacity + model ref
+      // come from the session's provider/model pick, which this event may have
+      // changed — a cross-client pick, a cascade clearing it) — keep the gauge's
+      // datum in sync (UI-12). No-op unless the session's composer is open.
+      invalidate(keys.usage(e.session.id))
       notifySessionPush(e.session.id)
       break
     // A session's attached contexts changed (here or on another client) — re-read
