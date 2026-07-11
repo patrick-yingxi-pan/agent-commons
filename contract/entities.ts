@@ -282,8 +282,9 @@ export interface Session {
    *  visible providers at create/patch time. */
   providerId?: string
   /** The tenant this conversation belongs to — the isolation boundary on the web
-   *  (F2 / PD9): a tenant only ever lists/opens its own sessions. Unset on a seed or
-   *  synthesized (run) session ⇒ the backend's default tenant (personal on desktop). */
+   *  (F2 / PD9): a tenant only ever lists/opens its own sessions. Unset on a seed
+   *  session (or a run session of an unstamped seed routine) ⇒ the backend's
+   *  default tenant (personal on desktop). */
   tenantId?: string
   /** A generation turn currently running for this session (contract/turns.ts —
    *  server-owned turns, invariant I1). Projected at read time from the transient
@@ -307,13 +308,18 @@ export interface Session {
   diff?: DiffLine[]
   terminal?: string[]
   connectors?: Connector[]
-  /** When this session is a scheduled routine's run, the routine it belongs to —
-   *  lets the title bar show a "Scheduled run of ‹routine›" breadcrumb without the
-   *  client needing the run-synthesis logic. Set by the backend for `srun-*` ids. */
+  /** The INITIATOR stamp — the one field on which a human-created and an
+   *  agent-created session differ. Present ⇒ an agent opened this conversation
+   *  (a scheduled routine's run; `srun-*` ids), naming the routine so the title
+   *  bar shows its breadcrumb and the run switcher keys off it. Absent ⇒ a person
+   *  did. Both kinds are persisted rows minted through the server's one session
+   *  funnel (store.mintSession) with the same property set and route surface;
+   *  agent sessions surface through the Scheduled rail / `/runs/recent` instead
+   *  of the sessions list — a view rule, not a separate code path. */
   scheduledRunOf?: { taskId: string; taskName: string }
   /** ── Sidebar filter / sort backing (the Recents "Filter & sort" menu) ──
-   *  All optional so draft / synthesized sessions need not set them; the filter
-   *  treats a missing value as the neutral default (active, local, epoch 0). */
+   *  All optional so a client-only draft need not set them; the filter treats a
+   *  missing value as the neutral default (active, local, epoch 0). */
   /** Archival status. The Recents filter defaults to showing only `active`;
    *  `archived` sessions are hidden until the Status filter is widened. */
   status?: 'active' | 'archived'

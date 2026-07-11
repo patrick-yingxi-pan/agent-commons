@@ -42,7 +42,6 @@ import type {
   RecentsSnapshot,
   RelationGraph,
   ResourceStatus,
-  RunSessionEntry,
   SavedContextsSnapshot,
   ScheduledTask,
   ScheduleTemplate,

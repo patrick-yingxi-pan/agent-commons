@@ -138,7 +138,7 @@ export function ModelEffortControl({
               if (providerId) onSelectProvider?.(undefined)
             }}
             onPickEffort={(e) => update({ effort: e })}
-            // No write-through (a synthesized run session) ⇒ no provider section.
+            // No write-through (no server row resolved yet) ⇒ no provider section.
             onPickProvider={onSelectProvider && ((o) => onSelectProvider(o.providerId))}
           >
             <div className="border-t border-line" />

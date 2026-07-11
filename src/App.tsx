@@ -170,14 +170,19 @@ function Workspace({ showIntro, onShowIntro }: { showIntro: boolean; onShowIntro
   )
   // Resolve the active session's driver + model pick from the SERVER row when one
   // exists (the useSessions cache refreshes on session.updated — a hand-off or model
-  // switch lands there), falling back to the controller's local shell (drafts, run
-  // sessions) — and, on a draft, the not-yet-persisted pick held by the controller.
+  // switch lands there). A run session isn't in that list (it surfaces through the
+  // Scheduled rail), but the controller's activeSession IS its reconciled server
+  // row, so the same fields resolve; a draft falls back to the local shell and the
+  // not-yet-persisted pick held by the controller.
   const activeRow = sessions.find((s) => s.id === activeId) ?? activeSession
   const activeProviderId = isDraft ? draftProviderId : activeRow.providerId
   // A model pick needs somewhere to live: a draft (held locally) or a real server
-  // row (PATCHed). A synthesized run session has neither — the selector's
-  // registered-models section is omitted there instead of silently no-oping.
-  const modelPickWritable = isDraft || sessions.some((s) => s.id === activeId)
+  // row (PATCHed). Every non-draft session is a server row through the one mint
+  // funnel — run sessions included — so the pick is writable everywhere; only an
+  // id whose reconcile read hasn't resolved yet (no row to PATCH) omits the
+  // registered-models section instead of silently no-oping.
+  const modelPickWritable =
+    isDraft || sessions.some((s) => s.id === activeId) || !!activeSession.scheduledRunOf
   const onRelay = sessionProviderKind({ agentId: activeRow.agentId, providerId: activeProviderId }) === 'session'
   const demoSession = sessions.find((s) => s.isDemo)
   // The scripted tour depends on the DEFAULT provider (its beats are the mock

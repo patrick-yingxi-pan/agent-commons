@@ -27,7 +27,6 @@ import { rememberAttached } from '../lib/contextShortcuts'
 import { getPanelPref, setPanelPref } from '../lib/panelPrefs'
 import { loadModelPrefs } from '../lib/modelPrefs'
 import { parseFsRecentKey } from '../../contract/index'
-import { runSessionById } from '../data/scheduledRuns'
 import {
   applyRelationOp,
   attachContext,
@@ -40,7 +39,6 @@ import {
   loadSession,
   patchSession,
   persistWorkspace,
-  runSessionFromSchedules,
   cancelTurn,
   onAccountSwitch,
   onSessionPush,
@@ -177,9 +175,11 @@ export function useSessionWorkspace() {
   const [pendingEscalation, setPendingEscalation] = useState<PendingEscalation | null>(null)
   const pendingEscalationRef = useRef(pendingEscalation)
   pendingEscalationRef.current = pendingEscalation
-  // Sessions materialized this client-session — a draft made real on its first
-  // send (server-minted, so absent from the static seed mirror). The active-session
-  // resolution and the sidebar consult this until the next reload reseeds from the API.
+  // Server sessions this client resolved that aren't in the static seed mirror —
+  // a draft made real on its first send, or any session opened by id (a run
+  // session from the Scheduled rail, a thread from another device): the reconcile
+  // read upserts here, so ALL sessions resolve through one chain (seed mirror →
+  // this) with no per-kind synthesis. Consulted until the next reload reseeds.
   const [extraSessions, setExtraSessions] = useState<Session[]>([])
   // Free-typed sends run one-at-a-time through this chain: the backend enforces one
   // live turn per session (server/turns.ts), so a rapid second send queues behind
@@ -248,15 +248,14 @@ export function useSessionWorkspace() {
   draftProviderRef.current = draftProviderId
 
   const activeSession = useMemo(
-    // A scheduled run opens its own synthesized session — resolve from the live
-    // feed cache first (covers daemon/run-now runs), then the seed fallback. A
-    // session materialized this client-session (a sent draft) resolves from
-    // `extraSessions`, since it isn't in the static seed mirror.
+    // One resolution chain for every session kind: the static seed mirror, then
+    // the sessions this client resolved from the server (`extraSessions` — sent
+    // drafts AND any session opened by id, run sessions included; the reconcile
+    // read upserts them). An id not yet resolved renders as the draft shell until
+    // that read lands — the same brief state any cross-device open has.
     () =>
       SESSIONS.find((c) => c.id === activeId) ??
       extraSessions.find((s) => s.id === activeId) ??
-      runSessionFromSchedules(activeId) ??
-      runSessionById(activeId) ??
       DRAFT_SESSION,
     [activeId, extraSessions],
   )
@@ -402,6 +401,21 @@ export function useSessionWorkspace() {
     if (last?.content) handleSendRef.current?.(last.content)
   }, [])
 
+  // Land a server-read session in the client's resolvable set (rows the static
+  // seed mirror already covers are skipped) — how a run session opened from the
+  // Scheduled rail, or a thread from another device, becomes locally resolvable
+  // (title bar, initiator stamp, model pick) after its reconcile read.
+  const upsertExtraSession = useCallback((s: Session) => {
+    if (SESSIONS.some((c) => c.id === s.id)) return
+    setExtraSessions((prev) => {
+      const i = prev.findIndex((x) => x.id === s.id)
+      if (i === -1) return [s, ...prev]
+      const next = [...prev]
+      next[i] = s
+      return next
+    })
+  }, [])
+
   const selectSession = useCallback(
     (id: string) => {
       // Record the page we're leaving so back can return to it (title irrelevant
@@ -420,8 +434,6 @@ export function useSessionWorkspace() {
       const session =
         SESSIONS.find((c) => c.id === id) ??
         extraSessionsRef.current.find((s) => s.id === id) ??
-        runSessionFromSchedules(id) ??
-        runSessionById(id) ??
         DRAFT_SESSION
       const nextLive = liveFromSession(session)
       setLive(nextLive)
@@ -446,6 +458,7 @@ export function useSessionWorkspace() {
       if (id !== DRAFT_ID && !session.isDemo) {
         loadSession(id)
           .then((s) => {
+            upsertExtraSession(s)
             if (runId.current !== myRun) return
             const reconciled = liveFromSession(s)
             setLive(reconciled)
@@ -458,7 +471,7 @@ export function useSessionWorkspace() {
           .catch(() => {})
       }
     },
-    [clearTimers, record, reattachToTurn],
+    [clearTimers, record, reattachToTurn, upsertExtraSession],
   )
 
   // An account switch changes whose world this client renders (multi-account
@@ -467,7 +480,17 @@ export function useSessionWorkspace() {
   // not even exist for the new account. Land on a fresh draft; selectSession's
   // clearTimers bumps runId, so any in-flight local stream goes stale (the turn
   // itself continues server-side — that's invariant I1's whole point).
-  useEffect(() => onAccountSwitch(() => selectSession(DRAFT_ID)), [selectSession])
+  useEffect(
+    () =>
+      onAccountSwitch(() => {
+        // Drop the sessions resolved for the OLD account — they're another
+        // tenant's threads (run sessions included), and keeping them would let a
+        // history-back render foreign content the server would now 404.
+        setExtraSessions([])
+        selectSession(DRAFT_ID)
+      }),
+    [selectSession],
+  )
 
   // A server push named the OPEN thread (a context attached on another client, a
   // rename, a persisted turn): reconcile the controller's live copy from the
@@ -483,6 +506,7 @@ export function useSessionWorkspace() {
         const myRun = runId.current
         loadSession(sessionId)
           .then((s) => {
+            upsertExtraSession(s)
             if (runId.current !== myRun || activeIdRef.current !== sessionId) return
             if (busyRef.current || typingRef.current) return
             setLive(liveFromSession(s))

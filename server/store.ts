@@ -44,9 +44,11 @@ import type {
 } from '../contract/index.ts'
 import {
   applyGraphOp,
+  connectorsFor,
   emptyGraph,
-  entryById,
   recentEntries,
+  runPrompt,
+  runRecap,
   runSessionId,
   seedGraph,
 } from '../contract/index.ts'
@@ -173,6 +175,10 @@ let dispatchSeq = 0
  *  (SCHEDULED_TASKS / DISPATCH_RUNS stay pristine on their own: `schedules` /
  *  `dispatch` are deep copies, but `SESSIONS` is spliced directly). */
 const SEED_SESSIONS: readonly Session[] = JSON.parse(JSON.stringify(SESSIONS))
+// (Seeded runs materialize their session rows below, right after the mint-funnel
+// definitions — deliberately AFTER this pristine capture: run sessions are
+// derived rows, re-ensured from the schedules on every boot, not seed-session
+// rows for reconcileSeedTenancy to manage.)
 // The detective audit trail (docs/agent-commons.md, D15/OQ7) — an append-only log of
 // effects on the cross-user channels (proxy / Project effect / commissioned host invoke),
 // recorded whether fulfilled or denied. Persisted (additive) so the watch survives a
@@ -730,6 +736,179 @@ function emit(e: ServerEvent): void {
   }
 }
 
+// ── The one session mint funnel ──────────────────────────────────────────────
+// Every session is registered through here — human-created (`store.createSession`,
+// the "New chat" materialized on first send) and agent-created (`ensureRunSession`,
+// a scheduled routine's run) — so the two kinds share one shape (the full uniform
+// property set), one route surface, and one permission wall, and differ ONLY in
+// the initiator stamp: `scheduledRunOf` present ⇒ an agent (that routine's run)
+// opened the conversation; absent ⇒ a person did. `quiet` is the boot-time
+// seed/rehydrate materialization: rows register without broadcasting (no SSE
+// subscriber exists yet, and the event log's seq must not inflate at boot) and
+// without a per-row snapshot write.
+
+function mintSession(
+  input: {
+    id: string
+    title: string
+    preview: string
+    tenantId?: string
+    providerId?: string
+    connectors?: Connector[]
+    scheduledRunOf?: { taskId: string; taskName: string }
+    messages?: Message[]
+    /** Row timestamps (an agent session is stamped with its run's `at`, so seeded
+     *  history keeps its fixture chronology); default = now. */
+    at?: number
+  },
+  opts?: { quiet?: boolean },
+): Session {
+  const now = input.at ?? Date.now()
+  const session: Session = {
+    id: input.id,
+    title: input.title,
+    caps: ['chat'],
+    agentId: DEFAULT_AGENT.id,
+    ...(input.providerId ? { providerId: input.providerId } : {}),
+    // Tenancy: stamped when the initiator carries one (a human create always does;
+    // an agent session mirrors its ROUTINE's stamp verbatim, so an unstamped
+    // flagship seed keeps the two-faces visibility rule — F2/PD9, seedVisibleTo).
+    ...(input.tenantId ? { tenantId: input.tenantId } : {}),
+    ...(input.connectors ? { connectors: input.connectors } : {}),
+    ...(input.scheduledRunOf ? { scheduledRunOf: input.scheduledRunOf } : {}),
+    preview: input.preview,
+    messages: input.messages ?? [],
+    status: 'active',
+    environment: 'local',
+    createdAt: now,
+    updatedAt: now,
+  }
+  // Agent sessions append (the sessions LIST excludes them — they surface through
+  // the Scheduled rail/feed — so seed-list order must not shift under them);
+  // human sessions lead the list, newest first.
+  if (session.scheduledRunOf) SESSIONS.push(session)
+  else SESSIONS.unshift(session)
+  if (!opts?.quiet) {
+    emit({ type: 'session.updated', session })
+    persist()
+  }
+  return session
+}
+
+/** The recap's fixed per-session message id — the settle idempotency key (the
+ *  opening prompt is `m1`; route-minted follow-up turns are `m-u-N`/`m-a-N`, so
+ *  neither can collide with or masquerade as the recap). */
+const RUN_RECAP_MESSAGE_ID = 'm2'
+
+/** How much run history a routine retains — the daemon accretes a run every
+ *  tick forever, and each run now carries a session row, so without a cap the
+ *  store grows without bound (the principle tests/store-runs.test.ts pins for
+ *  standing artifacts applies here too). Old runs retire with their session
+ *  rows through the same run↔session identity cascade the delete paths use. */
+const RUN_HISTORY_CAP = 50
+
+/** The AGENT adapter of the mint funnel: the persisted session for one scheduled
+ *  run, idempotent by its deterministic id (`srun-…`, contract/ids.ts) so run-now,
+ *  the daemon, boot-time materialization, and the feed lookup all converge on the
+ *  same row. Minted with the user turn it ran (`runPrompt`); the recap lands when
+ *  the run settles (`settleRunSession`), the way a human turn's reply does. On an
+ *  EXISTING row the routine's code-owned facts re-stamp (P9 — the run-session
+ *  face of `reconcileSeedTenancy`): tenancy and the initiator stamp's name follow
+ *  the routine, so a snapshot written before a seed re-tenanted or renamed can't
+ *  leave a run thread 404ing behind the wall its routine moved past. The row's
+ *  `title` is deliberately NOT re-stamped — it's user-editable (PATCH rename). */
+function ensureRunSession(task: ScheduledTask, run: ScheduledRun, opts?: { quiet?: boolean }): Session {
+  const id = runSessionId(task.id, run.id)
+  const existing = SESSIONS.find((s) => s.id === id)
+  if (existing) {
+    if (task.tenantId) existing.tenantId = task.tenantId
+    else delete existing.tenantId
+    if (existing.scheduledRunOf && existing.scheduledRunOf.taskName !== task.name) {
+      existing.scheduledRunOf = { taskId: task.id, taskName: task.name }
+    }
+    return existing
+  }
+  return mintSession(
+    {
+      id,
+      title: task.name,
+      preview: run.summary,
+      tenantId: task.tenantId,
+      connectors: connectorsFor(task),
+      scheduledRunOf: { taskId: task.id, taskName: task.name },
+      messages: [{ id: 'm1', role: 'user', content: runPrompt(task) }],
+      at: run.at,
+    },
+    opts,
+  )
+}
+
+/** Land a settled run's recap in its session — the assistant turn of the run's
+ *  conversation, appended through the same message-append rules a human turn
+ *  persists through. Idempotent (the recap is the thread's one assistant turn
+ *  until a user follows up — a session that already carries one is left alone);
+ *  a still-running run has no recap yet. Quiet path (boot healing — e.g. a run
+ *  swept to 'failed' after a restart) stamps the run's own time, not now. */
+function settleRunSession(task: ScheduledTask, run: ScheduledRun, opts?: { quiet?: boolean }): void {
+  if (run.status === 'running') return
+  const session = ensureRunSession(task, run, opts)
+  // Idempotency keys on the RECAP itself (its fixed id), not "any assistant
+  // turn" — a follow-up exchange that lands while the run is still executing
+  // must not swallow the run's primary output.
+  if ((session.messages ?? []).some((m) => m.id === RUN_RECAP_MESSAGE_ID)) return
+  const message: Message = { id: RUN_RECAP_MESSAGE_ID, role: 'assistant', content: runRecap(task, run) }
+  applyMessage(session, message, opts?.quiet ? run.at : Date.now())
+  if (!opts?.quiet) {
+    emit({ type: 'session.updated', session })
+    persist()
+  }
+}
+
+/** Retire a routine's oldest runs past the retention cap — WITH their session
+ *  rows (the run↔session identity cascade). Quiet: the callers broadcast/persist
+ *  the mutation that grew the history. */
+function retireOldRuns(task: ScheduledTask): void {
+  if (task.runs.length <= RUN_HISTORY_CAP) return
+  const retired = task.runs.slice(RUN_HISTORY_CAP)
+  task.runs = task.runs.slice(0, RUN_HISTORY_CAP)
+  const goneIds = new Set(retired.map((r) => runSessionId(task.id, r.id)))
+  for (let j = SESSIONS.length - 1; j >= 0; j -= 1) {
+    if (goneIds.has(SESSIONS[j].id)) SESSIONS.splice(j, 1)
+  }
+}
+
+/** Materialize the session row for every run the schedules already carry — the
+ *  boot-time pass (module init + rehydrate) that keeps the one-funnel invariant
+ *  over SEED runs and over snapshots written before run sessions persisted.
+ *  Idempotent by the deterministic run-session id (and existing rows get their
+ *  code-owned facts re-stamped — P9). Applies the retention cap first, so an
+ *  over-cap snapshot (a long-running daemon's) shrinks to policy on boot —
+ *  which also bounds this pass. */
+function materializeRunSessions(): void {
+  for (const task of schedules) {
+    retireOldRuns(task)
+    for (const run of task.runs) {
+      ensureRunSession(task, run, { quiet: true })
+      settleRunSession(task, run, { quiet: true })
+    }
+  }
+}
+
+/** The in-place message append shared by `appendMessage` (the store's public
+ *  write) and the quiet boot-time recap healing — one place computes the row's
+ *  preview + activity refresh. */
+function applyMessage(session: Session, message: Message, at = Date.now()): void {
+  session.messages = [...(session.messages ?? []), message]
+  session.preview = message.content.slice(0, 120)
+  session.updatedAt = at
+}
+
+// Materialize the session row for every seeded run — at module init, after the
+// funnel's declarations (the `const` policy knobs above are TDZ before this
+// line) and after SEED_SESSIONS' pristine capture. Quiet: registers without
+// broadcasting, so booting doesn't inflate the event log.
+materializeRunSessions()
+
 // The native-runner registry — the broker's live view of connected hosts. In
 // native/mock mode we seed the co-located runner (the one-runner registry the
 // static capabilities describe); a remote web server seeds none.
@@ -1035,6 +1214,10 @@ function rehydrate(s: PersistedState): void {
   replaceMap(AGENT_PROPOSALS, s.agentProposals) // D25 (no-op for a pre-field snapshot)
   replaceMap(A2A_PEERS, s.a2aPeers) // D28 (no-op for a pre-field snapshot)
   a2aPeerSeq = A2A_PEERS.size // ids are `peer-N`; size floors the counter safely past restores
+  // Run sessions are ordinary persisted rows, but a snapshot written before they
+  // were (or one whose 'running' run was just swept to 'failed' above) can miss a
+  // row or its recap — re-materialize through the same funnel, idempotently.
+  materializeRunSessions()
 }
 
 /** Re-ensure the code's seed rows after a snapshot restore: a seed row missing
@@ -1274,9 +1457,14 @@ export const store = {
     // Tenant-scoped enumeration (F2 / PD9): a tenant lists only its own sessions. A
     // seed/legacy session (no tenantId) belongs to the backend's default tenant, so it's
     // visible to the default reader on both backends. No arg ⇒ unscoped (internal use).
+    // Agent-initiated (run) sessions are the same rows behind the same by-id routes,
+    // but they surface through the Scheduled rail + `/runs/recent` — one row per
+    // routine, not per run — so this list (Recents/search) scopes to human-initiated
+    // conversations. A pure view rule, not a separate code path.
+    const rows = SESSIONS.filter((s) => !s.scheduledRunOf)
     const within = tenantId
-      ? SESSIONS.filter((s) => rowVisibleTo(s, tenantId))
-      : SESSIONS
+      ? rows.filter((s) => rowVisibleTo(s, tenantId))
+      : rows
     return within.map((s) => ({
       id: s.id,
       title: s.title,
@@ -1448,31 +1636,20 @@ export const store = {
 
   /** Materialize a new persisted session — the desktop app's "New chat" the moment
    *  it's first sent to. `firstMessage` seeds the title (its first words) + preview.
-   *  Added to the live list + broadcast (`session.updated`) so every sidebar shows
-   *  it; created state is persisted to disk (see persist.ts). */
+   *  The HUMAN adapter of the one mint funnel (`mintSession`); the agent adapter is
+   *  `ensureRunSession` — same row shape, same broadcast/persist, differing only in
+   *  the initiator stamp. The creating tenant is always stamped so the scoped
+   *  list/read see it (F2 / PD9): the route passes the caller's tenant; absent
+   *  that it's the backend's default tenant. */
   createSession(firstMessage?: string, tenantId: string = defaultTenantId(), providerId?: string): Session {
-    const now = Date.now()
-    const session: Session = {
+    return mintSession({
       id: `sess-${(sessionSeq += 1)}`,
       title: titleFrom(firstMessage),
-      caps: ['chat'],
-      agentId: DEFAULT_AGENT.id,
-      // The composer's model pick, when the draft made one (route-validated).
-      ...(providerId ? { providerId } : {}),
-      // Stamp the creating tenant so the scoped list/read see it (F2 / PD9). The route
-      // passes the caller's tenant; absent that it's the backend's default tenant.
-      tenantId,
       preview: (firstMessage ?? '').slice(0, 120),
-      messages: [],
-      status: 'active',
-      environment: 'local',
-      createdAt: now,
-      updatedAt: now,
-    }
-    SESSIONS.unshift(session)
-    emit({ type: 'session.updated', session })
-    persist()
-    return session
+      tenantId,
+      // The composer's model pick, when the draft made one (route-validated).
+      providerId,
+    })
   },
 
   /** The seeded worker Agents (docs/agent-commons.md, D6) — the degenerate N=1 set. */
@@ -2117,16 +2294,16 @@ export const store = {
   },
 
   /** Append a message to a session's thread — the write that makes "send" real.
-   *  Persists only for a known (listed) session; a draft is materialized via
-   *  `createSession` first, and synthesized run / unknown ids aren't persisted here
-   *  (returns undefined). Refreshes the row's preview + activity, then broadcasts
-   *  `session.updated` so every client's list reflects the new turn. */
+   *  Persists only for a known session; a draft is materialized via
+   *  `createSession` first, and unknown ids aren't persisted here (returns
+   *  undefined). Run sessions are ordinary rows (the one mint funnel), so a
+   *  follow-up turn in one persists like any other. Refreshes the row's preview +
+   *  activity, then broadcasts `session.updated` so every client's list reflects
+   *  the new turn. */
   appendMessage(id: string, message: Message): Session | undefined {
     const session = SESSIONS.find((s) => s.id === id)
     if (!session) return undefined
-    session.messages = [...(session.messages ?? []), message]
-    session.preview = message.content.slice(0, 120)
-    session.updatedAt = Date.now()
+    applyMessage(session, message)
     emit({ type: 'session.updated', session })
     persist()
     return session
@@ -2173,11 +2350,25 @@ export const store = {
     return session
   },
   /** Delete a session (the row menu's "Delete"). Splices it from the seed and
-   *  broadcasts a refresh; a server restart reseeds it (mock semantics). */
+   *  broadcasts a refresh; a server restart reseeds it (mock semantics). A run
+   *  session and its run are one entity in two projections, so deleting the
+   *  conversation also retires the run from its routine's history — otherwise
+   *  the run switcher would reopen a thread that no longer exists (and the boot
+   *  materializer would re-mint it). */
   removeSession(id: string): boolean {
     const i = SESSIONS.findIndex((s) => s.id === id)
     if (i === -1) return false
     const [removed] = SESSIONS.splice(i, 1)
+    if (removed.scheduledRunOf) {
+      const task = schedules.find((t) => t.id === removed.scheduledRunOf!.taskId)
+      if (task) {
+        const before = task.runs.length
+        task.runs = task.runs.filter((r) => runSessionId(task.id, r.id) !== removed.id)
+        if (task.runs.length !== before) {
+          emit({ type: 'schedule.changed', taskId: task.id, tenantId: task.tenantId })
+        }
+      }
+    }
     emit({ type: 'session.updated', session: removed })
     persist()
     return true
@@ -3330,13 +3521,16 @@ export const store = {
 
   // ── Scheduled runs (a single live feed; runs are server-owned) ──
   /** The left rail's recent runs (newest-first, capped) — the caller's tenant's
-   *  routines only when given (a run session belongs to its routine's tenant). */
+   *  routines only when given (a run session belongs to its routine's tenant).
+   *  Each entry carries the run's PERSISTED session row (the same row the by-id
+   *  session routes serve — one source, so a rename shows here too); the quiet
+   *  ensure only covers a row a pre-feature snapshot didn't carry. */
   recentRuns(tenantId?: string): RunSessionEntry[] {
-    return recentEntries(tenantId ? this.listSchedules(tenantId) : schedules)
-  },
-  /** The synthesized session for a run id (resolves `srun-*`). */
-  runSession(id: string): Session | undefined {
-    return entryById(schedules, id)?.session
+    return recentEntries(tenantId ? this.listSchedules(tenantId) : schedules).map(({ task, run }) => ({
+      task,
+      run,
+      session: ensureRunSession(task, run, { quiet: true }),
+    }))
   },
   /** Run a routine now: append a 'running' run, broadcast it, relight its rail one
    *  step at a time (`run.progress`), then finish it (`run.finished`). On finish any
@@ -3360,15 +3554,27 @@ export const store = {
       at: Date.now(),
     }
     task.runs = [run, ...task.runs]
-    const sessionId = runSessionId(task.id, run.id)
+    // Bounded history (the daemon runs forever): past the cap the oldest run
+    // retires together with its session row.
+    retireOldRuns(task)
+    // The run's conversation opens the moment the run does — a real row through
+    // the one mint funnel (initiator: this routine), so the thread is live while
+    // the rail still steps. Broadcasts session.updated + persists.
+    const session = ensureRunSession(task, run)
+    const sessionId = session.id
     emit({ type: 'run.started', taskId: task.id, taskName: task.name, sessionId, run })
     persist()
     const steps = task.steps.length
+    // The timers close over `task`/`run`; if either was deleted mid-run
+    // (removeSchedule, or removeSession's run cascade), a late beat must do
+    // NOTHING — settling a detached run would re-mint a zombie session row for
+    // a routine that no longer exists.
+    const gone = () => !schedules.includes(task) || !task.runs.includes(run)
     // Advance the rail one step per beat so a connected client sees the run progress
     // (`run.progress`) rather than jump from 0 → done.
     for (let i = 1; i <= steps; i += 1) {
       setTimeout(() => {
-        if (run.status !== 'running') return // superseded (e.g. swept after a restart)
+        if (run.status !== 'running' || gone()) return // superseded (swept after a restart) / deleted
         run.reachedStep = i
         emit({ type: 'run.progress', taskId: task.id, runId: run.id, reachedStep: i, status: 'running' })
         persist()
@@ -3376,12 +3582,14 @@ export const store = {
     }
     // A final beat after the last step: mark done, apply standing effects, finish.
     setTimeout(() => {
-      if (run.status !== 'running') return
+      if (run.status !== 'running' || gone()) return
       run.status = 'ok'
       run.reachedStep = steps
       run.duration = `${8 + steps * 3}s`
       run.summary = `Ran on demand — delivered to ${task.delivery.target}`
       task.lastStatus = 'ok'
+      // The recap lands in the run's session the way any reply lands in a thread.
+      settleRunSession(task, run)
       applyStandingEffects(task, sessionId)
       emit({ type: 'run.finished', taskId: task.id, taskName: task.name, sessionId, run })
       persist()
@@ -3407,7 +3615,22 @@ export const store = {
     const task = schedules.find((t) => t.id === id)
     if (!task) return undefined
     if (patch.enabled !== undefined) task.enabled = patch.enabled
-    if (patch.name !== undefined) task.name = patch.name
+    if (patch.name !== undefined) {
+      task.name = patch.name
+      // The runs' sessions carry the routine's name (title + initiator stamp) —
+      // sync them so the run threads can't drift from a renamed routine (UI-12:
+      // no stale mirror of a live source). Quietly: one rename must not emit a
+      // full-payload session.updated per run (a routine can hold RUN_HISTORY_CAP
+      // of them — that would flood the event-log ring and fan out N refetches);
+      // the schedule.changed below is the one broadcast, and the run rows aren't
+      // in the sessions list, so nothing reads them except a by-id open — which
+      // re-reads on select.
+      for (const s of SESSIONS) {
+        if (s.scheduledRunOf?.taskId !== task.id) continue
+        s.title = patch.name
+        s.scheduledRunOf = { ...s.scheduledRunOf, taskName: patch.name }
+      }
+    }
     if (patch.prompt !== undefined) task.prompt = patch.prompt
     if (patch.cadence !== undefined) task.cadence = patch.cadence
     if (patch.trigger !== undefined) task.trigger = patch.trigger
@@ -3425,15 +3648,28 @@ export const store = {
   addSchedule(seed: Omit<ScheduledTask, 'id'>): ScheduledTask {
     const task: ScheduledTask = { ...seed, id: `s-new-${(scheduleSeq += 1)}` }
     schedules.unshift(task)
+    // A seed can carry run history — capped, and every run gets its session row
+    // through the same funnel (the one-funnel invariant holds wherever runs
+    // enter the store).
+    retireOldRuns(task)
+    for (const run of task.runs) {
+      ensureRunSession(task, run, { quiet: true })
+      settleRunSession(task, run, { quiet: true })
+    }
     emit({ type: 'schedule.changed', taskId: task.id, tenantId: task.tenantId })
     persist()
     return task
   },
-  /** Remove a routine. */
+  /** Remove a routine — and its runs' sessions with it (they are the routine's
+   *  conversations; `schedule.changed` already tells clients the whole history is
+   *  gone, so the rows go without per-row broadcasts). */
   removeSchedule(id: string): void {
     const i = schedules.findIndex((t) => t.id === id)
     if (i < 0) return
     const [gone] = schedules.splice(i, 1)
+    for (let j = SESSIONS.length - 1; j >= 0; j -= 1) {
+      if (SESSIONS[j].scheduledRunOf?.taskId === gone.id) SESSIONS.splice(j, 1)
+    }
     // Stamped from the removed row — the gate can no longer resolve it by id.
     emit({ type: 'schedule.changed', taskId: gone.id, tenantId: gone.tenantId })
     persist()

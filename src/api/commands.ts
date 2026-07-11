@@ -5,7 +5,6 @@
 import {
   applyGraphOp,
   emptyGraph,
-  entryById,
   type ApplyOpRequest,
   type AttachContextRequest,
   type CapabilityEffect,
@@ -56,7 +55,7 @@ import {
   type UpdateScheduleRequest,
 } from '../../contract/index.ts'
 import { API_BASE, apiDelete, apiGet, apiPatch, apiPost } from './client.ts'
-import { invalidate, invalidatePrefix, mutate, peek, setData } from './cache.ts'
+import { invalidate, invalidatePrefix, mutate, setData } from './cache.ts'
 import { keys, paths } from './keys.ts'
 import { invalidateForCommonsOp } from './commonsInvalidation.ts'
 import { OPTIMISTIC_ID_PREFIX } from './ids.ts'
@@ -540,15 +539,6 @@ export async function reserveSubGoal(projectId: string, holder: string, subGoal:
 export async function releaseSubGoal(reservationId: string, projectId: string): Promise<void> {
   await apiPost(paths.reservationRelease(reservationId))
   invalidate(keys.projectSubGoals(projectId))
-}
-
-/** Resolve a run session from the live schedules cache — which holds *every* run
- *  of every routine, not just the recent-feed top-two. The run switcher lists all
- *  of a routine's runs, so opening one (a live run-now, or an older seed run) must
- *  resolve against this full set. The cache is warm (the sidebar reads it). */
-export function runSessionFromSchedules(id: string): Session | undefined {
-  const schedules = peek<ScheduledTask[]>(keys.schedules)
-  return schedules ? entryById(schedules, id)?.session : undefined
 }
 
 // ── Sessions (the sidebar row menu's edits) ─────────────────────────────────

@@ -1844,7 +1844,7 @@ export function buildRouter(): Router {
   // each route's own not-found path; run/seed sessions (no tenantId) belong to the
   // default tenant.
   const denyForeignSession = (req: IncomingMessage, res: ServerResponse, id: string): boolean => {
-    const session = store.getSession(id) ?? store.runSession(id)
+    const session = store.getSession(id)
     if (session && !store.sessionVisibleToTenant(session, store.identity(req.headers).tenant.id)) {
       sendError(res, 'not_found', `No session '${id}'`)
       return true
@@ -1861,9 +1861,9 @@ export function buildRouter(): Router {
   })
   r.get('/sessions/:id', ({ req, res, params }) => {
     if (denyForeignSession(req, res, params.id)) return
-    // A scheduled run *is* a session — resolve `srun-*` ids to the synthesized run
-    // session (which reflects the current, live runs).
-    const session = store.getSession(params.id) ?? store.runSession(params.id)
+    // A scheduled run *is* a session — a persisted row minted through the same
+    // funnel as a human one (`srun-*` ids resolve here like any other).
+    const session = store.getSession(params.id)
     if (!session) return sendError(res, 'not_found', `No session '${params.id}'`)
     // Project the live turn (if any) onto the read — transient registry state,
     // never persisted (contract/turns.ts): a client arriving mid-generation sees
@@ -2026,7 +2026,9 @@ export function buildRouter(): Router {
       }
     }
 
-    // A draft / run session may not be persisted; reply with a generic shell.
+    // An unknown id (a client-only draft that skipped materialization) gets a
+    // generic shell and an ephemeral turn; every real session — run sessions
+    // included, they're rows through the same mint funnel — persists below.
     const known = store.getSession(params.id)
     const session = known
       ? { id: known.id, title: known.title, isDemo: known.isDemo }

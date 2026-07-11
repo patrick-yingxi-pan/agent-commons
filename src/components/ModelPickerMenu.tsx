@@ -87,8 +87,8 @@ export function ModelPickerMenu({
   providerId?: string
   onPickModel: (m: (typeof MODELS)[number]) => void
   onPickEffort: (e: Effort) => void
-  /** Absent = registered models are not pickable on this surface (e.g. a
-   *  synthesized run session has no server row to write the pick to) — the
+  /** Absent = registered models are not pickable on this surface (e.g. a session
+   *  whose server row hasn't resolved yet has nowhere to write the pick) — the
    *  section is omitted rather than rendering rows that silently no-op. */
   onPickProvider?: (o: ProviderModelOption) => void
   /** Caller extras rendered below the effort section while a built-in model is
