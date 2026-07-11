@@ -122,6 +122,10 @@ test('build produces a snapshot covering every persisted slice', async () => {
     'createAgentFromRequest → agents',
   )
   assert.ok(
+    s.registryDefaults?.some(([, d]) => d.providerId && d.promptId),
+    'setDefaultProvider/-SystemPrompt → registryDefaults (the per-tenant default-flag pointers)',
+  )
+  assert.ok(
     s.commissions?.some(([, c]) => c.projectId === 'p-insights'),
     'createCommission → commissions',
   )

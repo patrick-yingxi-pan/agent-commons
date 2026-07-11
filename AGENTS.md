@@ -285,7 +285,14 @@ the mock?
   the catalog outside the shared menu. When adding a picker for a registry concept,
   drive it from the registry hook and route it through the shared menu — and if the
   concept's entries are usable in sessions, make the registry a first-class rail
-  surface, not a sub-tab of the thing that consumes it. The rule's general form is
+  surface, not a sub-tab of the thing that consumes it. A registry entry can be
+  flagged the caller's **default** (`isDefault`, set via the one shared
+  `DefaultToggle` in the entry's own dialog), but the flag is a **UI pre-selection
+  shortcut only** (spec MODEL-15): create-agent pickers pre-select the
+  default-else-first entry (`defaultEntry`), while the **API stays strict** — an
+  agent create/patch must name concrete provider + prompt ids (a missing binding is
+  a 400, never an implicit resolution to a default), so a wiring bug surfaces at the
+  call site instead of as a surprising resolution later. The rule's general form is
   invariant **UI-12** (`docs/ui-invariants.md`): every displayed datum reads a LIVE
   source and has a SYNC path — no seed-mirror reads (the rail's project menus once
   missed every runtime-created project), no SSE case that invalidates a key nothing

@@ -60,7 +60,7 @@ import { CapabilityError, runCapability, scopeMatches } from '../runner-runtime.
 import { GuardianError } from '../guardian.ts'
 import { BudgetError } from '../usage.ts'
 import { AuthorityError } from '../authority.ts'
-import { ConflictError } from '../conflict.ts'
+import { ConflictError, ValidationError } from '../conflict.ts'
 import { LimitError } from '../limit.ts'
 import { A2A_ERROR, DEFAULT_PROVIDER_ID, isMonotonic, isProjectEffectMonotonic, PROJECT_EFFECT_TYPES, PROJECT_ROLES } from '../../contract/index.ts'
 import type {
@@ -763,6 +763,7 @@ export function buildRouter(): Router {
       if (input.config) return sendError(res, 'bad_request', 'A Session provider has no endpoint — omit `config`.')
       const secret = mintRelaySecret()
       try {
+        const tenantId = store.identity(req.headers).tenant.id
         const provider = store.createProvider(
           {
             label: input.label,
@@ -774,9 +775,12 @@ export function buildRouter(): Router {
             secretHint: relaySecretHint(secret),
           },
           { kind: 'session', capabilities: { toolUse: false }, secretHash: hashRelaySecret(secret) },
-          store.identity(req.headers).tenant.id,
+          tenantId,
         )
-        return sendJson(res, { ...provider, secret })
+        // The request flagged the new entry as the caller's default (the UI shortcut) —
+        // one pointer move through the same seam the PATCH path uses.
+        if (input.isDefault === true) store.setDefaultProvider(provider.id, tenantId)
+        return sendJson(res, { ...provider, ...(input.isDefault === true ? { isDefault: true } : {}), secret })
       } catch (err) {
         if (err instanceof BudgetError || err instanceof ProviderProbeError) return sendError(res, 'bad_request', err.message)
         throw err
@@ -789,8 +793,9 @@ export function buildRouter(): Router {
     // record travels with the config, satisfying the funnel's unverified-endpoint
     // guard. A probe failure is a 400 — a non-conformant provider is never registered.
     // (`kind`/`secretHint`/`online` are server-stamped relay fields — stripped, so an
-    // endpoint registration can't forge them.)
-    const { config: endpoint, kind: _kind, secretHint: _hint, online: _online, ...fields } = input
+    // endpoint registration can't forge them. `isDefault` is split off too: it's the
+    // per-tenant pointer move below, never a stored field.)
+    const { config: endpoint, kind: _kind, secretHint: _hint, online: _online, isDefault, ...fields } = input
     // Pick the three known endpoint fields explicitly (strings only) — a raw spread
     // would let arbitrary unknown JSON ride into the persisted server-only config
     // (including a forged `capabilities` record).
@@ -805,7 +810,10 @@ export function buildRouter(): Router {
       }
     }
     try {
-      sendJson(res, store.createProvider(fields, config, store.identity(req.headers).tenant.id))
+      const tenantId = store.identity(req.headers).tenant.id
+      const provider = store.createProvider(fields, config, tenantId)
+      if (isDefault === true) store.setDefaultProvider(provider.id, tenantId)
+      sendJson(res, { ...provider, ...(isDefault === true ? { isDefault: true } : {}) })
     } catch (err) {
       // An over-plan provider — the requested plan exceeds the account plan (the cascade root).
       if (err instanceof BudgetError) return sendError(res, 'bad_request', err.message)
@@ -818,12 +826,20 @@ export function buildRouter(): Router {
   r.patch('/providers/:id', async ({ req, res, params, body }) => {
     if (denyForeignEntry(req, res, params.id, (t) => store.listProviders(t), 'provider')) return
     const patch = await body<UpdateProviderRequest>()
+    const tenantId = store.identity(req.headers).tenant.id
     try {
       const provider = store.updateProvider(params.id, patch)
       if (!provider) return sendError(res, 'not_found', `No provider '${params.id}'`)
-      sendJson(res, provider)
+      // The default flag (the UI shortcut): true moves the caller's pointer here;
+      // false clears it when this entry holds it — no default left is a valid state.
+      if (patch.isDefault === true) store.setDefaultProvider(params.id, tenantId)
+      else if (patch.isDefault === false && store.listProviders(tenantId).some((p) => p.id === params.id && p.isDefault)) {
+        store.setDefaultProvider(undefined, tenantId)
+      }
+      // Re-read so the response carries the serve-time stamps (isDefault, online).
+      sendJson(res, store.listProviders(tenantId).find((p) => p.id === params.id) ?? provider)
     } catch (err) {
-      if (err instanceof BudgetError) return sendError(res, 'bad_request', err.message)
+      if (err instanceof BudgetError || err instanceof ValidationError) return sendError(res, 'bad_request', err.message)
       throw err
     }
   })
@@ -961,15 +977,21 @@ export function buildRouter(): Router {
   }
   r.post('/agents', async ({ req, res, body }) => {
     const input = await body<CreateAgentRequest>()
-    if (!input?.label) return sendError(res, 'bad_request', 'label is required')
+    // Strict bindings: an Agent is minted against a NAMED provider + prompt — the API
+    // never resolves an absent one to a default (defaults are a UI pre-selection
+    // shortcut only; a missing binding is a caller bug surfaced here, as a 400).
+    if (!input?.label || !input.providerId || !input.systemPromptId) {
+      return sendError(res, 'bad_request', 'label, providerId, and systemPromptId are required')
+    }
     const tenantId = store.identity(req.headers).tenant.id
     const bad = badAgentRef(input, tenantId)
     if (bad) return sendError(res, 'not_found', bad)
     try {
       sendJson(res, store.createAgentFromRequest(input, tenantId))
     } catch (err) {
-      // An over-grant on either cascade face — the request named an impossible grant.
-      if (err instanceof BudgetError || err instanceof AuthorityError) {
+      // An over-grant on either cascade face — the request named an impossible grant —
+      // or a binding the store's own strictness wall refused.
+      if (err instanceof BudgetError || err instanceof AuthorityError || err instanceof ValidationError) {
         return sendError(res, 'bad_request', err.message)
       }
       throw err
@@ -978,6 +1000,12 @@ export function buildRouter(): Router {
   r.patch('/agents/:id', async ({ req, res, params, body }) => {
     if (denyForeignEntry(req, res, params.id, (t) => store.listAgents(t), 'agent')) return
     const patch = await body<UpdateAgentRequest>()
+    // Strict like create: a PRESENT binding must name a registered entry — empty
+    // string ("clear to default") no longer exists; omit the field to keep the
+    // current binding (including a bespoke merged/forked prompt).
+    if (('providerId' in patch && !patch.providerId) || ('systemPromptId' in patch && !patch.systemPromptId)) {
+      return sendError(res, 'bad_request', 'providerId / systemPromptId must name a registered entry — omit the field to keep the current binding')
+    }
     const bad = badAgentRef(patch, store.identity(req.headers).tenant.id)
     if (bad) return sendError(res, 'not_found', bad)
     try {
@@ -985,7 +1013,7 @@ export function buildRouter(): Router {
       if (!agent) return sendError(res, 'not_found', `No agent '${params.id}'`)
       sendJson(res, agent)
     } catch (err) {
-      if (err instanceof BudgetError || err instanceof AuthorityError) {
+      if (err instanceof BudgetError || err instanceof AuthorityError || err instanceof ValidationError) {
         return sendError(res, 'bad_request', err.message)
       }
       throw err
@@ -1075,7 +1103,11 @@ export function buildRouter(): Router {
     if (!input?.label || !input?.body || !input?.targetFamily) {
       return sendError(res, 'bad_request', 'label, body, and targetFamily are required')
     }
-    sendJson(res, store.createSystemPrompt(input, store.identity(req.headers).tenant.id))
+    const tenantId = store.identity(req.headers).tenant.id
+    const entry = store.createSystemPrompt(input, tenantId)
+    // The request flagged the new entry as the caller's default (the UI shortcut).
+    if (input.isDefault === true) store.setDefaultSystemPrompt(entry.id, tenantId)
+    sendJson(res, { ...entry, ...(input.isDefault === true ? { isDefault: true } : {}) })
   })
   // The opt-in prompt-fit probe (D10/OQ5) — the deeper, scored upgrade beside the static
   // tag. Scores the prompt against the chosen provider's model family (default if absent).
@@ -1092,9 +1124,15 @@ export function buildRouter(): Router {
   r.patch('/system-prompts/:id', async ({ req, res, params, body }) => {
     if (denyForeignEntry(req, res, params.id, (t) => store.listSystemPrompts(t), 'system prompt')) return
     const patch = await body<UpdateSystemPromptRequest>()
+    const tenantId = store.identity(req.headers).tenant.id
     const entry = store.updateSystemPrompt(params.id, patch)
     if (!entry) return sendError(res, 'not_found', `No system prompt '${params.id}'`)
-    sendJson(res, entry)
+    // The default flag — same set/clear semantics as the provider PATCH.
+    if (patch.isDefault === true) store.setDefaultSystemPrompt(params.id, tenantId)
+    else if (patch.isDefault === false && store.listSystemPrompts(tenantId).some((p) => p.id === params.id && p.isDefault)) {
+      store.setDefaultSystemPrompt(undefined, tenantId)
+    }
+    sendJson(res, store.listSystemPrompts(tenantId).find((p) => p.id === params.id) ?? entry)
   })
   r.delete('/system-prompts/:id', ({ req, res, params }) => {
     if (denyForeignEntry(req, res, params.id, (t) => store.listSystemPrompts(t), 'system prompt')) return
@@ -2101,8 +2139,11 @@ export function buildRouter(): Router {
               // (F2/PD9): the model only resolves against the caller's own + the shared seeds.
               (() => {
                 return {
-                  providers: store.listProviders(tenantId).map((p) => ({ id: p.id, label: p.label })),
-                  systemPrompts: store.listSystemPrompts(tenantId).map((p) => ({ id: p.id, label: p.label })),
+                  // isDefault rides along so create_agent can pre-select the caller's
+                  // default-else-first binding when the model names none — the same
+                  // shortcut the New-agent dialog applies (contract `defaultEntry`).
+                  providers: store.listProviders(tenantId).map((p) => ({ id: p.id, label: p.label, isDefault: p.isDefault })),
+                  systemPrompts: store.listSystemPrompts(tenantId).map((p) => ({ id: p.id, label: p.label, isDefault: p.isDefault })),
                   agents: store.listAgents(tenantId).map((a) => ({ id: a.id, label: a.label })),
                   commissions: store.listCommissions(undefined, tenantId).map((c) => ({ id: c.id, agentId: c.agentId, projectId: c.projectId })),
                 }
@@ -2426,6 +2467,9 @@ export function buildRouter(): Router {
       if (err instanceof ConflictError) return sendError(res, err.code, err.message)
       // A commission-agent op confirmed against an at-cap Project (D13) → 429.
       if (err instanceof LimitError) return sendError(res, err.code, err.message)
+      // A create-agent op without concrete bindings (stale pre-strictness proposal, or
+      // a binding removed since) — the store's strictness wall, surfaced as a 400.
+      if (err instanceof ValidationError) return sendError(res, err.code, err.message)
       throw err
     }
   }))

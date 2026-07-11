@@ -43,6 +43,14 @@ export interface ModelProvider {
   online?: boolean
   /** Human label, shown wherever a provider is listed / chosen. */
   label: string
+  /** Viewer-relative, stamped at serve time (like `online`) — never stored on the
+   *  entity: this entry is the viewer's **default**, pre-selected wherever a provider
+   *  must be picked (the New-agent dialog). At most one per registry per tenant, and
+   *  purely a *UI shortcut*: the API never resolves an absent id to it — a request
+   *  that names no provider is refused, not defaulted (`defaultEntry` is the UI-side
+   *  fallback when no entry is flagged). Set/cleared via `isDefault` on a create /
+   *  patch request; optional on purpose — zero defaults is a valid registry state. */
+  isDefault?: boolean
   /** The model family this provider resolves to (e.g. 'claude') — the typed
    *  compatibility edge a system prompt is checked against at selection (D10). */
   modelFamily: string
@@ -95,5 +103,19 @@ export type CreateProviderRequest = Omit<ModelProvider, 'id'> & { config?: Provi
  *  never readable again (only its hash persists server-side); treat it as a password. */
 export type CreatedProvider = ModelProvider & { secret?: string }
 
-/** Patch a provider's own fields. All optional — only the named fields change. */
+/** Patch a provider's own fields. All optional — only the named fields change.
+ *  `isDefault: true` moves the viewer's default flag here (clearing any other entry's);
+ *  `isDefault: false` clears it when this entry holds it — leaving the registry with
+ *  no default, which is fine (the flag is a UI shortcut, not an invariant). */
 export type UpdateProviderRequest = Partial<Omit<ModelProvider, 'id'>>
+
+/** The one entry a picker should pre-select for a registry list (providers, system
+ *  prompts): the viewer's flagged default when one exists, else the first entry —
+ *  a pure UI convenience shared by every "create an agent" surface (the dialog AND
+ *  the conversational tool), so the two can't disagree. Undefined for an empty list.
+ *  Deliberately NOT used by the API's write paths: a request that omits a binding is
+ *  refused, never silently defaulted — missing bindings should surface as bugs at the
+ *  call site, not as surprising resolutions later. */
+export function defaultEntry<T extends { isDefault?: boolean }>(list: readonly T[]): T | undefined {
+  return list.find((e) => e.isDefault) ?? list[0]
+}

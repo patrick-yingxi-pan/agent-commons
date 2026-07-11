@@ -16,7 +16,7 @@
 import { ALL_ARTIFACTS, PROJECTS, SCHEDULED_TASKS } from '../data/cowork.ts'
 import { CONNECTOR_OPTIONS } from '../data/contextOptions.ts'
 import { slug } from '../../contract/ids.ts'
-import { PROJECT_ROLES } from '../../contract/index.ts'
+import { PROJECT_ROLES, defaultEntry } from '../../contract/index.ts'
 import type {
   Artifact,
   ArtifactKind,
@@ -40,8 +40,8 @@ export interface ToolContext {
    *  created earlier in the same conversation — not just the seed. Absent in unit calls
    *  that don't exercise those tools. */
   commons?: {
-    providers: { id: string; label: string }[]
-    systemPrompts: { id: string; label: string }[]
+    providers: { id: string; label: string; isDefault?: boolean }[]
+    systemPrompts: { id: string; label: string; isDefault?: boolean }[]
     agents: { id: string; label: string }[]
     commissions: { id: string; agentId: string; projectId: string }[]
   }
@@ -472,28 +472,50 @@ const TOOLS: ToolSpec[] = [
       'Create a worker Agent — a reusable bundle of a Model provider + a system prompt + instructions that drives conversations. Use when the user asks to create or set up a worker agent. The user confirms before it is created.',
     properties: {
       label: { type: 'string', description: 'The agent name, e.g. "Research scout".' },
-      provider: { type: 'string', description: 'The Model provider it runs on, e.g. "Anthropic". Optional — defaults to the account default.' },
-      system_prompt: { type: 'string', description: 'The library system prompt it uses, e.g. "Deep research". Optional.' },
+      provider: { type: 'string', description: 'The Model provider it runs on, e.g. "Anthropic". Optional — the user’s default (or first) registered provider when unnamed.' },
+      system_prompt: { type: 'string', description: 'The library system prompt it uses, e.g. "Deep research". Optional — the user’s default (or first) library prompt when unnamed.' },
       instructions: { type: 'string', description: 'Custom instructions appended after the prompt. Optional.' },
     },
     required: ['label'],
     build: (input, ctx) => {
       const label = str(input.label, 'New agent').trim()
-      const provider = byLabel(ctx.commons?.providers, str(input.provider))
-      const prompt = byLabel(ctx.commons?.systemPrompts, str(input.system_prompt))
+      // The proposal must arrive CONCRETE: the apply path never resolves a missing
+      // binding to a default (the strict-API rule), so the shortcut runs here, before
+      // the consent card — a named entry resolves by label; an unnamed one takes the
+      // user's default-else-first (`defaultEntry`, the same pre-selection the New-agent
+      // dialog makes). A NAMED entry that matches nothing proposes nothing, loudly —
+      // silently swapping in a default would mint an agent the user didn't describe.
+      const wantProvider = str(input.provider).trim()
+      const wantPrompt = str(input.system_prompt).trim()
+      const provider = wantProvider ? byLabel(ctx.commons?.providers, wantProvider) : defaultEntry(ctx.commons?.providers ?? [])
+      const prompt = wantPrompt ? byLabel(ctx.commons?.systemPrompts, wantPrompt) : defaultEntry(ctx.commons?.systemPrompts ?? [])
+      if (!provider) {
+        return {
+          summary: wantProvider
+            ? `No model provider matching "${wantProvider}" — proposed nothing.`
+            : 'No model providers are registered — proposed nothing.',
+        }
+      }
+      if (!prompt) {
+        return {
+          summary: wantPrompt
+            ? `No library system prompt matching "${wantPrompt}" — proposed nothing.`
+            : 'No system prompts are in the library — proposed nothing.',
+        }
+      }
       return {
         relationOps: [
           {
             kind: 'create-agent',
             label,
-            providerId: provider?.id,
-            providerLabel: provider?.label,
-            systemPromptId: prompt?.id,
-            systemPromptLabel: prompt?.label,
+            providerId: provider.id,
+            providerLabel: provider.label,
+            systemPromptId: prompt.id,
+            systemPromptLabel: prompt.label,
             instructions: str(input.instructions) || undefined,
           },
         ],
-        summary: `Proposed creating the ${label} worker agent${provider ? ` on ${provider.label}` : ''}; awaiting confirmation.`,
+        summary: `Proposed creating the ${label} worker agent on ${provider.label} with the ${prompt.label} prompt; awaiting confirmation.`,
       }
     },
   },

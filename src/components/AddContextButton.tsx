@@ -37,6 +37,7 @@ import { getDecision, setDecision } from '../lib/prefs'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { useDismissable } from '../lib/useDismissable'
 import { POPOVER_SURFACE } from '../lib/popover'
+import { CheckSquare } from './Checkbox'
 import { usePopoverShift } from '../lib/usePopoverShift'
 import { useRecentIds } from '../lib/recents'
 import { UI_HOST_SOURCE, DEFAULT_FS_SOURCE_ID, useFsSourceList } from '../lib/fsSources'
@@ -988,13 +989,7 @@ function AttachPromptCard({
         onClick={onToggleDontAsk}
         className="mt-2 flex items-center gap-1.5 px-1 text-[11px] text-ink-soft transition hover:text-ink"
       >
-        <span
-          className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border ${
-            dontAsk ? 'border-accent bg-accent text-white' : 'border-line-strong'
-          }`}
-        >
-          {dontAsk && <Check size={10} strokeWidth={3} />}
-        </span>
+        <CheckSquare checked={dontAsk} />
         Don’t ask again
       </button>
       <div className="mt-2.5 flex flex-wrap justify-end gap-1.5">

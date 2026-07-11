@@ -1,19 +1,27 @@
 /** Worker-Agent CRUD on the wire (docs/agent-commons.md, D6) — the Agents hub's create /
- *  patch / delete. POST resolves the prompt body from `systemPromptId` and defaults tools
- *  to the full catalog, then runs the D8 funnel (an over-grant is a 400); DELETE refuses
- *  the protected default and any Agent a Commission still assigns (409). The in-memory
- *  store is shared across the run, so each case uses its own labels. */
+ *  patch / delete. POST is **strict**: `providerId` and `systemPromptId` are required and
+ *  must name registered entries — the API never resolves a missing binding to a default
+ *  (default-flagged entries are a UI pre-selection shortcut only). The prompt body is
+ *  resolved from the named entry, tools default to the full catalog, then the D8 funnel
+ *  runs (an over-grant is a 400); DELETE refuses the protected default and any Agent a
+ *  Commission still assigns (409). The in-memory store is shared across the run, so each
+ *  case uses its own labels. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from '../server/store.ts'
 import { DEFAULT_AGENT } from '../server/data/workers.ts'
-import { SP_DEFAULT_ID } from '../server/data/prompts.ts'
+import { DEFAULT_PROVIDER_ID } from '../contract/index.ts'
 import { call } from './helpers/http.ts'
 
 test('POST resolves the prompt body from systemPromptId and defaults tools to the catalog', async () => {
-  const created = await call('POST', '/agents', { label: 'Reviewer', systemPromptId: 'sp-concise-reviewer' })
+  const created = await call('POST', '/agents', {
+    label: 'Reviewer',
+    providerId: DEFAULT_PROVIDER_ID,
+    systemPromptId: 'sp-concise-reviewer',
+  })
   assert.equal(created.status, 200)
   assert.ok(created.json.id.startsWith('agent-'))
+  assert.equal(created.json.providerId, DEFAULT_PROVIDER_ID)
   assert.equal(created.json.systemPromptId, 'sp-concise-reviewer')
   // The body is resolved from the library entry, not echoed from the request.
   assert.equal(created.json.systemPrompt, store.getSystemPrompt('sp-concise-reviewer')!.body)
@@ -25,39 +33,68 @@ test('POST resolves the prompt body from systemPromptId and defaults tools to th
   assert.equal(one.json.label, 'Reviewer')
 })
 
-test('POST with no systemPromptId falls back to the default body', async () => {
-  const created = await call('POST', '/agents', { label: 'Bare agent' })
-  assert.equal(created.status, 200)
-  assert.equal(created.json.systemPromptId, undefined)
-  assert.equal(created.json.systemPrompt, store.getSystemPrompt(SP_DEFAULT_ID)!.body)
+test('POST refuses missing bindings — the API never resolves to a default (400)', async () => {
+  // No systemPromptId: refused loudly, NOT silently defaulted (the strict-API rule —
+  // a missing binding is a caller bug surfaced now, not a surprising resolution later).
+  const noPrompt = await call('POST', '/agents', { label: 'Bare agent', providerId: DEFAULT_PROVIDER_ID })
+  assert.equal(noPrompt.status, 400)
+  // No providerId: same refusal.
+  const noProvider = await call('POST', '/agents', { label: 'Bare agent', systemPromptId: 'sp-concise-reviewer' })
+  assert.equal(noProvider.status, 400)
+  // Empty strings are the same as missing — there is no ""-means-default.
+  const empty = await call('POST', '/agents', { label: 'Bare agent', providerId: '', systemPromptId: '' })
+  assert.equal(empty.status, 400)
 })
 
-test('PATCH edits fields; clearing the prompt id reverts to the default body', async () => {
-  const created = await call('POST', '/agents', { label: 'Editable', systemPromptId: 'sp-concise-reviewer' })
+test('PATCH edits fields; a present-but-empty binding is refused, never "cleared to default"', async () => {
+  const created = await call('POST', '/agents', {
+    label: 'Editable',
+    providerId: DEFAULT_PROVIDER_ID,
+    systemPromptId: 'sp-concise-reviewer',
+  })
   const id = created.json.id
 
   const patched = await call('PATCH', `/agents/${id}`, { label: 'Edited', instructions: 'Be brief.' })
   assert.equal(patched.status, 200)
   assert.equal(patched.json.label, 'Edited')
   assert.equal(patched.json.instructions, 'Be brief.')
-  // Untouched prompt binding survives the patch.
+  // Untouched bindings survive the patch.
   assert.equal(patched.json.systemPromptId, 'sp-concise-reviewer')
+  assert.equal(patched.json.providerId, DEFAULT_PROVIDER_ID)
 
-  // Clearing the prompt ('' = default) reverts the body and drops the id.
+  // '' used to mean "clear to default" — now it's a 400 and the binding is untouched.
   const cleared = await call('PATCH', `/agents/${id}`, { systemPromptId: '' })
-  assert.equal(cleared.status, 200)
-  assert.equal(cleared.json.systemPromptId, undefined)
-  assert.equal(cleared.json.systemPrompt, store.getSystemPrompt(SP_DEFAULT_ID)!.body)
+  assert.equal(cleared.status, 400)
+  const after = await call('GET', `/agents/${id}`)
+  assert.equal(after.json.systemPromptId, 'sp-concise-reviewer')
+
+  // Re-pointing to another registered prompt still works and re-resolves the body.
+  const repointed = await call('PATCH', `/agents/${id}`, { systemPromptId: 'sp-open-generalist' })
+  assert.equal(repointed.status, 200)
+  assert.equal(repointed.json.systemPromptId, 'sp-open-generalist')
+  assert.equal(repointed.json.systemPrompt, store.getSystemPrompt('sp-open-generalist')!.body)
 })
 
 test('POST validates named ids and required fields', async () => {
-  const noLabel = await call('POST', '/agents', { systemPromptId: 'sp-concise-reviewer' })
+  const noLabel = await call('POST', '/agents', {
+    providerId: DEFAULT_PROVIDER_ID,
+    systemPromptId: 'sp-concise-reviewer',
+  })
   assert.equal(noLabel.status, 400)
 
-  const badProvider = await call('POST', '/agents', { label: 'x', providerId: 'no-such-provider' })
+  // A NAMED-but-unknown reference is a 404 (distinct from missing, a 400).
+  const badProvider = await call('POST', '/agents', {
+    label: 'x',
+    providerId: 'no-such-provider',
+    systemPromptId: 'sp-concise-reviewer',
+  })
   assert.equal(badProvider.status, 404)
 
-  const badPrompt = await call('POST', '/agents', { label: 'x', systemPromptId: 'no-such-prompt' })
+  const badPrompt = await call('POST', '/agents', {
+    label: 'x',
+    providerId: DEFAULT_PROVIDER_ID,
+    systemPromptId: 'no-such-prompt',
+  })
   assert.equal(badPrompt.status, 404)
 })
 
@@ -73,6 +110,7 @@ test('POST rejects an authority over its provider (the D8 funnel, on the wire)',
   const over = await call('POST', '/agents', {
     label: 'Greedy agent',
     providerId: provider.id,
+    systemPromptId: 'sp-concise-reviewer',
     authority: { connectors: ['linear', 'figma'] },
   })
   assert.equal(over.status, 400)
@@ -80,7 +118,11 @@ test('POST rejects an authority over its provider (the D8 funnel, on the wire)',
 })
 
 test('DELETE removes an agent; a second DELETE 404s; the default is refused (409)', async () => {
-  const created = await call('POST', '/agents', { label: 'Disposable agent' })
+  const created = await call('POST', '/agents', {
+    label: 'Disposable agent',
+    providerId: DEFAULT_PROVIDER_ID,
+    systemPromptId: 'sp-concise-reviewer',
+  })
   const del = await call('DELETE', `/agents/${created.json.id}`)
   assert.equal(del.status, 200)
   assert.deepEqual(del.json, { ok: true })
@@ -94,7 +136,11 @@ test('DELETE removes an agent; a second DELETE 404s; the default is refused (409
 })
 
 test('DELETE refuses an agent a Commission still assigns (409)', async () => {
-  const created = await call('POST', '/agents', { label: 'Commissioned agent' })
+  const created = await call('POST', '/agents', {
+    label: 'Commissioned agent',
+    providerId: DEFAULT_PROVIDER_ID,
+    systemPromptId: 'sp-concise-reviewer',
+  })
   store.createCommission({ agentId: created.json.id, projectId: 'p-insights' })
   const blocked = await call('DELETE', `/agents/${created.json.id}`)
   assert.equal(blocked.status, 409)

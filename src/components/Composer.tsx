@@ -19,6 +19,7 @@ import type {
   Repo,
   Workspace,
 } from '../types'
+import { CheckSquare } from './Checkbox'
 import { ModelEffortControl } from './ModelEffortControl'
 import { AddContextButton } from './AddContextButton'
 import { Chip } from './Chip'
@@ -671,13 +672,7 @@ function RemoveConfirm({
         onClick={onToggleDontAsk}
         className="mt-2 flex items-center gap-1.5 text-[11px] text-ink-soft transition hover:text-ink"
       >
-        <span
-          className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border ${
-            dontAsk ? 'border-accent bg-accent text-white' : 'border-line-strong'
-          }`}
-        >
-          {dontAsk && <Check size={10} strokeWidth={3} />}
-        </span>
+        <CheckSquare checked={dontAsk} />
         Don’t ask again
       </button>
       <div className="mt-2 flex flex-wrap justify-end gap-1.5">

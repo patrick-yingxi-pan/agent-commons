@@ -24,7 +24,7 @@ async function mintSessionProvider(label = PROVIDER_BODY.label) {
 
 /** A session whose Agent runs on the given provider — the turn path's fixture. */
 async function sessionOnProvider(providerId: string) {
-  const agent = await call('POST', '/agents', { label: `relay-agent-${providerId}`, providerId })
+  const agent = await call('POST', '/agents', { label: `relay-agent-${providerId}`, providerId, systemPromptId: 'sp-default' })
   assert.equal(agent.status, 200)
   const session = await call('POST', '/sessions', { firstMessage: undefined })
   assert.equal(session.status, 200)

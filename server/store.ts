@@ -69,7 +69,7 @@ import { connectorActionResult } from './model/connectorTools.ts'
 import { ARTIFACT_CONTENT } from './data/artifactContent.ts'
 import { createUsageMeter, estimateTokens, mintBudget } from './usage.ts'
 import { mintAuthority } from './authority.ts'
-import { ConflictError } from './conflict.ts'
+import { ConflictError, ValidationError } from './conflict.ts'
 import { LimitError } from './limit.ts'
 import { scopeMatches } from './runner-runtime.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../contract/index.ts'
@@ -577,6 +577,29 @@ let providerSeq = 0
 const SYSTEM_PROMPT_LIB = new Map<string, SystemPromptEntry>(SYSTEM_PROMPTS.map((p) => [p.id, p]))
 let systemPromptSeq = 0
 
+// Per-tenant default flags for the two agent-binding registries (providers + system
+// prompts) — a **UI pre-selection shortcut**, nothing more: the flagged entry is what
+// a picker pre-selects; the API never resolves an absent binding to it (see
+// `ValidationError`). A pointer, not a stored field, so at-most-one-per-tenant holds
+// by construction and the flag is stamped viewer-relative at serve time (a private
+// entry flagged by tenant A never reads as B's default). Zero defaults is a valid
+// state — the UI then falls back to the first listed entry (`defaultEntry`). Unseeded
+// on purpose: the seeded Anthropic provider / default prompt already sort first.
+const REGISTRY_DEFAULTS = new Map<string, { providerId?: string; promptId?: string }>()
+const defaultsFor = (tenantId?: string) => REGISTRY_DEFAULTS.get(tenantId ?? defaultTenantId())
+function setRegistryDefault(field: 'providerId' | 'promptId', id: string | undefined, tenantId?: string): void {
+  const key = tenantId ?? defaultTenantId()
+  const next = { ...REGISTRY_DEFAULTS.get(key), [field]: id }
+  if (next.providerId === undefined && next.promptId === undefined) REGISTRY_DEFAULTS.delete(key)
+  else REGISTRY_DEFAULTS.set(key, next)
+}
+// Deletion hygiene: a removed entry must not linger as any tenant's default pointer.
+function dropRegistryDefault(field: 'providerId' | 'promptId', id: string): void {
+  for (const [key, value] of REGISTRY_DEFAULTS) {
+    if (value[field] === id) setRegistryDefault(field, undefined, key)
+  }
+}
+
 // Commissions (docs/agent-commons.md, D7/D13) — the agent→Project assignments, the
 // leaf of the D8 cascade. Keyed by id; `listCommissions(projectId)` gives a Project's
 // Contributors. Persisted to disk like the agent/provider registries (see persist.ts).
@@ -833,6 +856,7 @@ function snapshot(): PersistedState {
     providers: [...MODEL_PROVIDERS.entries()],
     providerConfigs: [...PROVIDER_CONFIGS.entries()],
     systemPrompts: [...SYSTEM_PROMPT_LIB.entries()],
+    registryDefaults: [...REGISTRY_DEFAULTS.entries()], // per-tenant default-flag pointers (UI shortcut)
     agents: [...WORKER_AGENTS.entries()],
     commissions: [...COMMISSIONS.entries()],
     // D13 commission caps — only Projects that carry one (the seed Projects are otherwise
@@ -915,6 +939,7 @@ function rehydrate(s: PersistedState): void {
   replaceMap(MODEL_PROVIDERS, s.providers)
   replaceMap(PROVIDER_CONFIGS, s.providerConfigs)
   replaceMap(SYSTEM_PROMPT_LIB, s.systemPrompts)
+  replaceMap(REGISTRY_DEFAULTS, s.registryDefaults)
   replaceMap(WORKER_AGENTS, s.agents)
   replaceMap(COMMISSIONS, s.commissions)
   // D13 commission caps overlay onto the (re-seeded) Projects: clear any seed cap, then
@@ -948,6 +973,13 @@ function rehydrate(s: PersistedState): void {
   reconcileSeedTenancy(SESSIONS, SEED_SESSIONS)
   reconcileSeedTenancy(schedules, SCHEDULED_TASKS)
   reconcileSeedTenancy(dispatch, DISPATCH_RUNS)
+  // Same P9 rule for the default Agent's explicit provider binding: a snapshot
+  // written before the seed carried `providerId` restores it unbound (the card
+  // would read "no provider bound"); the code seed is authoritative — backfill.
+  const seededAgent = WORKER_AGENTS.get(DEFAULT_AGENT.id)
+  if (seededAgent && !seededAgent.providerId) {
+    WORKER_AGENTS.set(DEFAULT_AGENT.id, { ...seededAgent, providerId: DEFAULT_AGENT.providerId })
+  }
   // The account registry (multi-account P7): restore onboarded accounts (the
   // seeds are re-ensured inside — a snapshot can't lose the switcher directory).
   accounts.rehydrate({
@@ -1461,36 +1493,51 @@ export const store = {
   },
   /** Create an Agent from a management request: resolve the `systemPrompt` body from the
    *  chosen library entry (D10), default the tool set to the full catalog (the default
-   *  Agent's), and run the same D8 funnel via `createAgent`. An empty-string provider /
-   *  prompt id means "none / default". The route validates that named ids exist first. */
+   *  Agent's), and run the same D8 funnel via `createAgent`. **Strict**: the provider and
+   *  prompt bindings are required and must resolve — a missing/empty/unknown reference is
+   *  a `ValidationError`, never an implicit resolution to a default (default-flagged
+   *  entries are a UI pre-selection shortcut; the request must arrive concrete). */
   createAgentFromRequest(input: CreateAgentRequest, tenantId?: string): Agent {
+    const provider = input.providerId ? MODEL_PROVIDERS.get(input.providerId) : undefined
+    if (!provider) throw new ValidationError(`An agent must name a registered model provider — no provider '${input.providerId ?? ''}'.`)
     const entry = input.systemPromptId ? SYSTEM_PROMPT_LIB.get(input.systemPromptId) : undefined
+    if (!entry) throw new ValidationError(`An agent must name a library system prompt — no system prompt '${input.systemPromptId ?? ''}'.`)
     return this.createAgent({
       label: input.label,
-      systemPrompt: entry?.body ?? DEFAULT_SYSTEM_PROMPT_BODY,
-      systemPromptId: entry?.id,
-      providerId: input.providerId || undefined,
+      systemPrompt: entry.body,
+      systemPromptId: entry.id,
+      providerId: provider.id,
       tools: input.tools ?? [...DEFAULT_AGENT.tools],
       instructions: input.instructions ?? '',
       authority: input.authority,
       budget: input.budget,
     }, tenantId)
   },
-  /** Patch an Agent. A present field is applied (an empty-string provider / prompt id
-   *  clears it to the default); an absent one is left unchanged. Changing the prompt
-   *  re-resolves the body; changing the provider (or grants) re-validates authority /
-   *  budget against the resulting provider — the D8 funnel runs again, so a patch can't
-   *  smuggle an over-grant past it. Undefined when unknown (→ 404). */
+  /** Patch an Agent. A present field is applied; an absent one is left unchanged.
+   *  **Strict like create**: a present provider / prompt id must resolve — empty string
+   *  or an unknown id is a `ValidationError` ("clear to default" no longer exists; omit
+   *  the field to keep the current binding, including a bespoke merged/forked prompt).
+   *  Changing the prompt re-resolves the body; changing the provider (or grants)
+   *  re-validates authority / budget against the resulting provider — the D8 funnel
+   *  runs again, so a patch can't smuggle an over-grant past it. Undefined when
+   *  unknown (→ 404). */
   updateAgentFromRequest(id: string, patch: UpdateAgentRequest): Agent | undefined {
     const current = WORKER_AGENTS.get(id)
     if (!current) return undefined
-    const providerId = 'providerId' in patch ? patch.providerId || undefined : current.providerId
+    let providerId = current.providerId
+    if ('providerId' in patch) {
+      if (!patch.providerId || !MODEL_PROVIDERS.has(patch.providerId)) {
+        throw new ValidationError(`An agent must name a registered model provider — no provider '${patch.providerId ?? ''}'.`)
+      }
+      providerId = patch.providerId
+    }
     let systemPrompt = current.systemPrompt
     let systemPromptId = current.systemPromptId
     if ('systemPromptId' in patch) {
       const entry = patch.systemPromptId ? SYSTEM_PROMPT_LIB.get(patch.systemPromptId) : undefined
-      systemPromptId = entry?.id
-      systemPrompt = entry?.body ?? DEFAULT_SYSTEM_PROMPT_BODY
+      if (!entry) throw new ValidationError(`An agent must name a library system prompt — no system prompt '${patch.systemPromptId ?? ''}'.`)
+      systemPromptId = entry.id
+      systemPrompt = entry.body
     }
     const authority = 'authority' in patch ? patch.authority : current.authority
     const budget = 'budget' in patch ? patch.budget : current.budget
@@ -1559,11 +1606,25 @@ export const store = {
   /** The registered Model providers, tenant-scoped (F2/PD9): the shared seeded provider(s)
    *  are visible to all; a created one only to its tenant. No arg ⇒ all (internal use).
    *  A `kind:'session'` row is stamped with its computed `online` flag at read time —
-   *  the status dot; the flag is transient relay state, never stored. */
+   *  the status dot; the flag is transient relay state, never stored. The viewer's
+   *  default flag (`isDefault` — the UI pre-selection shortcut) is stamped the same
+   *  way, from the per-tenant pointer, so it can never leak across tenants. */
   listProviders(tenantId?: string): ModelProvider[] {
+    const defaultId = defaultsFor(tenantId)?.providerId
     return [...MODEL_PROVIDERS.values()]
       .filter((p) => registryVisible(p, tenantId))
       .map((p) => (p.kind === 'session' ? { ...p, online: relay.online(p.id) } : p))
+      .map((p) => (p.id === defaultId ? { ...p, isDefault: true } : p))
+  },
+  /** Move / clear the caller's **default-provider** flag (the UI shortcut — see
+   *  REGISTRY_DEFAULTS). `id` must be a provider the caller can see; `undefined`
+   *  clears the flag, leaving the registry with no default (a valid state). */
+  setDefaultProvider(id: string | undefined, tenantId?: string): void {
+    if (id !== undefined && ![...MODEL_PROVIDERS.values()].some((p) => p.id === id && registryVisible(p, tenantId))) {
+      throw new ValidationError(`No provider '${id}' to set as the default.`)
+    }
+    setRegistryDefault('providerId', id, tenantId)
+    persist()
   },
   /** Resolve an Agent's Model provider; unset/unknown falls back to the seeded
    *  default. */
@@ -1616,7 +1677,10 @@ export const store = {
       }
     }
     // Stamp the creating tenant (F2/PD9) so listProviders(tenant) scopes it; unset ⇒ shared.
-    const provider: ModelProvider = { ...input, id: `provider-${(providerSeq += 1)}`, tenantId: tenantId ?? input.tenantId }
+    // `isDefault` is stripped: it's the serve-time stamp of the per-tenant pointer
+    // (REGISTRY_DEFAULTS) — stored on the entity it would leak across tenants and drift.
+    const { isDefault: _default, ...fields } = input
+    const provider: ModelProvider = { ...fields, id: `provider-${(providerSeq += 1)}`, tenantId: tenantId ?? input.tenantId }
     MODEL_PROVIDERS.set(provider.id, provider)
     PROVIDER_CONFIGS.set(provider.id, config)
     persist()
@@ -1633,8 +1697,9 @@ export const store = {
     if (patch.plan) mintBudget(usageMeter.planCeilings(), patch.plan)
     // The transport identity is fixed at mint, and the fingerprint/status are
     // server-stamped: a PATCH may rename/re-plan a provider but never flip its
-    // kind or forge relay state.
-    const { kind: _kind, secretHint: _hint, online: _online, ...safe } = patch
+    // kind or forge relay state. `isDefault` is a serve-time stamp too — the route
+    // turns it into a setDefaultProvider call; it never lands on the entity.
+    const { kind: _kind, secretHint: _hint, online: _online, isDefault: _default, ...safe } = patch
     const next: ModelProvider = { ...current, ...safe, id: current.id }
     MODEL_PROVIDERS.set(id, next)
     reclampAgentsOf(next) // D8 runtime: a narrowed provider re-clamps its Agents (+ their commissions)
@@ -1688,15 +1753,30 @@ export const store = {
     }
     MODEL_PROVIDERS.delete(id)
     PROVIDER_CONFIGS.delete(id)
+    // A removed provider must not linger as any tenant's default pointer — the flag
+    // simply clears (no protection: the default is a UI shortcut, not an invariant).
+    dropRegistryDefault('providerId', id)
     persist()
     return true
   },
 
   // ── System-prompt library (docs/agent-commons.md, D10) ──
   /** The reusable, target-family-tagged system prompts a user picks for an Agent —
-   *  tenant-scoped (F2/PD9): shared seeds visible to all, a created one to its tenant. */
+   *  tenant-scoped (F2/PD9): shared seeds visible to all, a created one to its tenant.
+   *  The viewer's default flag is stamped at serve time, like `listProviders`. */
   listSystemPrompts(tenantId?: string): SystemPromptEntry[] {
-    return [...SYSTEM_PROMPT_LIB.values()].filter((p) => registryVisible(p, tenantId))
+    const defaultId = defaultsFor(tenantId)?.promptId
+    return [...SYSTEM_PROMPT_LIB.values()]
+      .filter((p) => registryVisible(p, tenantId))
+      .map((p) => (p.id === defaultId ? { ...p, isDefault: true } : p))
+  },
+  /** Move / clear the caller's **default-prompt** flag — `setDefaultProvider`'s twin. */
+  setDefaultSystemPrompt(id: string | undefined, tenantId?: string): void {
+    if (id !== undefined && ![...SYSTEM_PROMPT_LIB.values()].some((p) => p.id === id && registryVisible(p, tenantId))) {
+      throw new ValidationError(`No system prompt '${id}' to set as the default.`)
+    }
+    setRegistryDefault('promptId', id, tenantId)
+    persist()
   },
   /** Resolve one library entry by id (undefined when unknown — unlike provider/agent
    *  there is no "default prompt to fall back to" at this seam; the caller decides). */
@@ -1719,7 +1799,9 @@ export const store = {
    *  selection-time check, `promptFitWarning`, surfaced in the picker). */
   createSystemPrompt(input: Omit<SystemPromptEntry, 'id'>, tenantId?: string): SystemPromptEntry {
     // Stamp the creating tenant (F2/PD9) so listSystemPrompts(tenant) scopes it; unset ⇒ shared.
-    const entry: SystemPromptEntry = { ...input, id: `sp-new-${(systemPromptSeq += 1)}`, tenantId: tenantId ?? input.tenantId }
+    // `isDefault` is stripped like createProvider's: a serve-time stamp, never stored.
+    const { isDefault: _default, ...fields } = input
+    const entry: SystemPromptEntry = { ...fields, id: `sp-new-${(systemPromptSeq += 1)}`, tenantId: tenantId ?? input.tenantId }
     SYSTEM_PROMPT_LIB.set(entry.id, entry)
     persist()
     return entry
@@ -1730,7 +1812,10 @@ export const store = {
   updateSystemPrompt(id: string, patch: Partial<Omit<SystemPromptEntry, 'id'>>): SystemPromptEntry | undefined {
     const current = SYSTEM_PROMPT_LIB.get(id)
     if (!current) return undefined
-    const next: SystemPromptEntry = { ...current, ...patch, id: current.id }
+    // `isDefault` never lands on the entity (see updateProvider) — the route routes
+    // it to setDefaultSystemPrompt.
+    const { isDefault: _default, ...safe } = patch
+    const next: SystemPromptEntry = { ...current, ...safe, id: current.id }
     SYSTEM_PROMPT_LIB.set(id, next)
     persist()
     return next
@@ -1749,6 +1834,8 @@ export const store = {
       )
     }
     SYSTEM_PROMPT_LIB.delete(id)
+    // Clear any default pointer at it (deleteProvider's twin — the flag just clears).
+    dropRegistryDefault('promptId', id)
     persist()
     return true
   },
@@ -3362,6 +3449,14 @@ export const store = {
         this.createSystemPrompt({ label: op.label, body: op.body, targetFamily: op.targetFamily }, tenantId)
         break
       case 'create-agent':
+        // The tool builder stamps concrete bindings on every proposal (default-else-
+        // first when the model named none), so the consent card the user confirmed
+        // already NAMED the provider + prompt. A proposal without them (a stale
+        // pre-strictness one) is refused like any other invalid create — never
+        // silently resolved to a default.
+        if (!op.providerId || !op.systemPromptId) {
+          throw new ValidationError('This proposal predates the required provider/prompt bindings — ask for it again.')
+        }
         this.createAgentFromRequest({
           label: op.label,
           providerId: op.providerId,

@@ -274,7 +274,7 @@ test('Agent-Commons registries are tenant-scoped on a remote backend (created pr
   const call = caller(buildRouter())
 
   // tenant-zeta creates an agent through the route (stamped with its tenant).
-  const created = await call('POST', '/agents', { 'x-tenant-id': 'tenant-zeta' }, { label: 'Zeta agent' })
+  const created = await call('POST', '/agents', { 'x-tenant-id': 'tenant-zeta' }, { label: 'Zeta agent', providerId: 'provider-anthropic', systemPromptId: 'sp-default' })
   assert.equal(created.status, 200, 'the agent is created')
   const id = created.json.id
 
@@ -454,7 +454,7 @@ test('a shared Project admits a cross-tenant Contributor on a remote backend (P8
   assert.equal(foreignShare.status, 404, 'only the owner may (un)share a project')
 
   // tenant-omega owns an agent (created through the route → stamped omega).
-  const created = await call('POST', '/agents', { 'x-tenant-id': 'tenant-omega' }, { label: 'Omega worker' })
+  const created = await call('POST', '/agents', { 'x-tenant-id': 'tenant-omega' }, { label: 'Omega worker', providerId: 'provider-anthropic', systemPromptId: 'sp-default' })
   const omegaAgentId = created.json.id
 
   // omega commissions ITS OWN agent onto zeta's SHARED project — ALLOWED (200).
@@ -489,7 +489,7 @@ test('P8 BUG-1 — POST /commissions (direct REST) reaches a shared CREATED proj
   await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-zeta2' }, {
     op: { kind: 'share-project', projectId: 'proj-rest-shared', projectName: 'RestShared', shared: true },
   })
-  const created = await call('POST', '/agents', { 'x-tenant-id': 'tenant-omega2' }, { label: 'Omega2 worker' })
+  const created = await call('POST', '/agents', { 'x-tenant-id': 'tenant-omega2' }, { label: 'Omega2 worker', providerId: 'provider-anthropic', systemPromptId: 'sp-default' })
   const omegaAgentId = created.json.id
 
   // The DIRECT REST path (not the op path) onto the shared CREATED project — must succeed now
@@ -519,7 +519,7 @@ test('P8 BUG-5 — a shared Project exposes a foreign Contributor’s IDENTITY b
   await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-owner5' }, {
     op: { kind: 'share-project', projectId: 'proj-who', projectName: 'Who', shared: true },
   })
-  const created = await call('POST', '/agents', { 'x-tenant-id': 'tenant-contrib5' }, { label: 'Contrib5' })
+  const created = await call('POST', '/agents', { 'x-tenant-id': 'tenant-contrib5' }, { label: 'Contrib5', providerId: 'provider-anthropic', systemPromptId: 'sp-default' })
   const comm = await call('POST', '/commissions', { 'x-tenant-id': 'tenant-contrib5' }, { agentId: created.json.id, projectId: 'proj-who' })
   assert.equal(comm.status, 200)
   const commissionId = comm.json.id
@@ -543,7 +543,7 @@ test('P8 B8 — a cross-tenant self-commission cannot self-assign an elevated ro
   await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-o8' }, {
     op: { kind: 'share-project', projectId: 'proj-r8', projectName: 'R8', shared: true },
   })
-  const created = await call('POST', '/agents', { 'x-tenant-id': 'tenant-c8' }, { label: 'C8' })
+  const created = await call('POST', '/agents', { 'x-tenant-id': 'tenant-c8' }, { label: 'C8', providerId: 'provider-anthropic', systemPromptId: 'sp-default' })
   const agentId = created.json.id
   await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-c8' }, {
     op: { kind: 'commission-agent', agentId, agentLabel: 'C8', projectId: 'proj-r8', projectName: 'R8', role: 'owner' },
@@ -560,7 +560,7 @@ test('P8 Phase 2b — effect-route authorization: own-commission fires; a foreig
   await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-eff-a' }, { op: { kind: 'create-project', projectId: 'proj-eff', projectName: 'Eff', projectDescription: '' } })
   await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-eff-a' }, { op: { kind: 'share-project', projectId: 'proj-eff', projectName: 'Eff', shared: true } })
   await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-eff-a' }, { op: { kind: 'scope-context', projectId: 'proj-eff', projectName: 'Eff', context: { kind: 'connector', label: 'Linear', meta: '' } } })
-  const bAgent = await call('POST', '/agents', { 'x-tenant-id': 'tenant-eff-b' }, { label: 'B eff worker' })
+  const bAgent = await call('POST', '/agents', { 'x-tenant-id': 'tenant-eff-b' }, { label: 'B eff worker', providerId: 'provider-anthropic', systemPromptId: 'sp-default' })
   const commission = await call('POST', '/commissions', { 'x-tenant-id': 'tenant-eff-b' }, { agentId: bAgent.json.id, projectId: 'proj-eff' })
   const commId = commission.json.id
 
@@ -580,7 +580,7 @@ test('P8 Phase 2b — effect-route authorization: own-commission fires; a foreig
   // Control: a SAME-tenant commission on a PRIVATE project is unaffected by the shared-gate.
   await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-eff-a' }, { op: { kind: 'create-project', projectId: 'proj-priv-eff', projectName: 'PrivEff', projectDescription: '' } })
   await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-eff-a' }, { op: { kind: 'scope-context', projectId: 'proj-priv-eff', projectName: 'PrivEff', context: { kind: 'connector', label: 'Linear', meta: '' } } })
-  const aAgent = await call('POST', '/agents', { 'x-tenant-id': 'tenant-eff-a' }, { label: 'A eff worker' })
+  const aAgent = await call('POST', '/agents', { 'x-tenant-id': 'tenant-eff-a' }, { label: 'A eff worker', providerId: 'provider-anthropic', systemPromptId: 'sp-default' })
   const aComm = await call('POST', '/commissions', { 'x-tenant-id': 'tenant-eff-a' }, { agentId: aAgent.json.id, projectId: 'proj-priv-eff' })
   const okA = await call('POST', '/projects/proj-priv-eff/effects', { 'x-tenant-id': 'tenant-eff-a' }, { commissionId: aComm.json.id, subGoal: 'sg-a', type: 'connector.write', target: 'Linear' })
   assert.equal(okA.status, 200, 'a same-tenant commission on a private project is unaffected by the shared-gate')
@@ -600,7 +600,7 @@ test('P8 Phase 2b review — project-binding: a self-owned commission cannot act
   // (so its commission's own project is attacker-controlled and shared-gate-passing).
   await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-atk' }, { op: { kind: 'create-project', projectId: 'proj-atk', projectName: 'Atk', projectDescription: '' } })
   await call('POST', '/relations/ops', { 'x-tenant-id': 'tenant-atk' }, { op: { kind: 'scope-context', projectId: 'proj-atk', projectName: 'Atk', context: { kind: 'connector', label: 'Linear', meta: '' } } })
-  const atkAgent = await call('POST', '/agents', { 'x-tenant-id': 'tenant-atk' }, { label: 'Atk worker' })
+  const atkAgent = await call('POST', '/agents', { 'x-tenant-id': 'tenant-atk' }, { label: 'Atk worker', providerId: 'provider-anthropic', systemPromptId: 'sp-default' })
   const atkComm = await call('POST', '/commissions', { 'x-tenant-id': 'tenant-atk' }, { agentId: atkAgent.json.id, projectId: 'proj-atk' })
 
   // The exploit: attacker cites its OWN commission to fire an effect on the VICTIM's project.

@@ -130,12 +130,48 @@ test('create_agent → a create-agent op binding the named provider + prompt (re
   assert.equal((op as any).instructions, 'Stay terse.')
 })
 
-test('create_agent with no provider/prompt → an unbound agent op (no ids)', () => {
+test('create_agent with no provider/prompt → CONCRETE bindings (default-else-first), never an unbound op', () => {
+  // The apply path refuses an op without bindings (the strict-API rule), so the
+  // builder resolves the shortcut BEFORE the consent card: unnamed → the first entry
+  // when nothing is flagged default. The card therefore always names the pairing.
   const e = executeTool('create_agent', { label: 'Solo' }, ctxCommons)
   const op = e.relationOps![0]
   assert.equal(op.kind, 'create-agent')
-  assert.equal((op as any).providerId, undefined)
-  assert.equal((op as any).systemPromptId, undefined)
+  assert.equal((op as any).providerId, 'provider-anthropic')
+  assert.equal((op as any).providerLabel, 'Anthropic')
+  assert.equal((op as any).systemPromptId, 'sp-1')
+  assert.equal((op as any).systemPromptLabel, 'Deep research')
+})
+
+test('create_agent honors the default-flagged entries over list order', () => {
+  const flagged: ToolContext = {
+    ...ctxCommons,
+    commons: {
+      ...ctxCommons.commons!,
+      providers: [
+        { id: 'provider-anthropic', label: 'Anthropic' },
+        { id: 'provider-9', label: 'Local Llama', isDefault: true },
+      ],
+      systemPrompts: [
+        { id: 'sp-1', label: 'Deep research' },
+        { id: 'sp-2', label: 'Terse helper', isDefault: true },
+      ],
+    },
+  }
+  const e = executeTool('create_agent', { label: 'Solo' }, flagged)
+  const op = e.relationOps![0]
+  assert.equal((op as any).providerId, 'provider-9')
+  assert.equal((op as any).systemPromptId, 'sp-2')
+})
+
+test('create_agent with a NAMED-but-unknown provider/prompt proposes nothing (no silent default swap)', () => {
+  const badProvider = executeTool('create_agent', { label: 'Solo', provider: 'No Such Provider' }, ctxCommons)
+  assert.equal(badProvider.relationOps, undefined)
+  assert.match(badProvider.summary, /no model provider matching/i)
+
+  const badPrompt = executeTool('create_agent', { label: 'Solo', system_prompt: 'No Such Prompt' }, ctxCommons)
+  assert.equal(badPrompt.relationOps, undefined)
+  assert.match(badPrompt.summary, /no library system prompt matching/i)
 })
 
 test('commission_agent → a commission-agent op resolving the agent (live) + project (seed)', () => {

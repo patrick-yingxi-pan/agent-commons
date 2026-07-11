@@ -222,6 +222,10 @@ export async function buildComprehensive(): Promise<PersistedState> {
     systemPromptId: prompt.id,
     instructions: 'Prefer primary sources.',
   })
+  // Flag the created pair as the pickers' defaults — exercises the registryDefaults
+  // persisted slice (the per-tenant default-flag pointers, a UI shortcut).
+  store.setDefaultProvider(provider.id)
+  store.setDefaultSystemPrompt(prompt.id)
   const playgroundCommission = store.createCommission({ agentId: playgroundAgent.id, projectId: 'p-insights' })
   // A D13 per-commissioner abuse cap on the (seed) insights project — generous enough not
   // to block, exercising the commissionCaps persisted overlay ("every slice covered").

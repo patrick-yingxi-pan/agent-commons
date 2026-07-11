@@ -96,6 +96,11 @@ export interface PersistedState {
   providers?: [string, ModelProvider][]
   providerConfigs?: [string, ProviderConfig][]
   systemPrompts?: [string, SystemPromptEntry][]
+  /** Per-tenant default-flag pointers for the provider / prompt registries — the UI
+   *  pre-selection shortcut (`isDefault` is stamped from these at serve time, never
+   *  stored on the entities). Additive-optional: a pre-field snapshot loads cleanly
+   *  with no defaults flagged (pickers fall back to the first entry). */
+  registryDefaults?: [string, { providerId?: string; promptId?: string }][]
   agents?: [string, Agent][]
   commissions?: [string, Commission][]
   /** Per-Project D13 commission caps, as `[projectId, cap]` overlays onto the seed
@@ -180,6 +185,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   providers: 'mapEntries',
   providerConfigs: 'mapEntries',
   systemPrompts: 'mapEntries',
+  registryDefaults: 'mapEntries',
   agents: 'mapEntries',
   commissions: 'mapEntries',
   commissionCaps: 'mapEntries',

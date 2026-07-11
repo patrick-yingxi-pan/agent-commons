@@ -16,6 +16,12 @@ export interface SystemPromptEntry {
   tenantId?: string
   /** Human label, shown in the picker. */
   label: string
+  /** Viewer-relative, stamped at serve time — never stored on the entity: this entry
+   *  is the viewer's **default** prompt, pre-selected wherever one must be picked (the
+   *  New-agent dialog). At most one per tenant; a pure UI shortcut (see
+   *  `ModelProvider.isDefault` / `defaultEntry` — same semantics, same funnel): the
+   *  API never resolves an absent id to it. Set/cleared via a create/patch request. */
+  isDefault?: boolean
   /** The prompt text an Agent drives the model with — the resolved `Agent.systemPrompt`
    *  when an Agent is built from this entry. */
   body: string
@@ -36,8 +42,10 @@ export function promptFitWarning(entry: SystemPromptEntry, providerModelFamily: 
   return `Authored for ${entry.targetFamily} models — may degrade on a ${providerModelFamily} provider.`
 }
 
-/** Add a library prompt (the server mints the id). */
+/** Add a library prompt (the server mints the id). `isDefault: true` flags the new
+ *  entry as the caller's default (moving the flag off any other entry). */
 export type CreateSystemPromptRequest = Omit<SystemPromptEntry, 'id'>
 
-/** Patch a library prompt's fields. All optional — only the named fields change. */
+/** Patch a library prompt's fields. All optional — only the named fields change.
+ *  `isDefault` moves/clears the caller's default flag (see `UpdateProviderRequest`). */
 export type UpdateSystemPromptRequest = Partial<Omit<SystemPromptEntry, 'id'>>

@@ -167,21 +167,27 @@ export function ownerReputation(agents: readonly Agent[]): number {
 
 /** Create an Agent from the management UI. The server resolves the `systemPrompt` *body*
  *  from `systemPromptId` (the library entry), defaults `tools` to the full catalog when
- *  omitted, and validates `authority`/`budget` against the provider (the D8 funnel). An
- *  empty-string `providerId` / `systemPromptId` means "none / default". */
+ *  omitted, and validates `authority`/`budget` against the provider (the D8 funnel).
+ *  **Strict by design**: `providerId` and `systemPromptId` are required and must name
+ *  registered entries — the API never resolves a missing binding to a default (a
+ *  missing binding is a caller bug, surfaced now rather than as a surprising
+ *  resolution later). The *default*-flagged entries (`isDefault` / `defaultEntry`)
+ *  are a UI pre-selection shortcut only. */
 export interface CreateAgentRequest {
   label: string
-  providerId?: string
-  systemPromptId?: string
+  providerId: string
+  systemPromptId: string
   instructions?: string
   tools?: string[]
   authority?: Authority
   budget?: Budget
 }
 
-/** Patch an Agent's fields. All optional — a present field (including an empty-string
- *  `providerId` / `systemPromptId` meaning "clear to default") is applied; an absent one
- *  is left unchanged. A changed provider re-validates authority/budget against it.
+/** Patch an Agent's fields. All optional — a present field is applied; an absent one is
+ *  left unchanged. Same strictness as create: a present `providerId` / `systemPromptId`
+ *  must name a registered entry (empty string is refused, never "clear to default") —
+ *  omit the field to keep the current binding, including an Agent's bespoke merged /
+ *  forked prompt. A changed provider re-validates authority/budget against it.
  *  `published` is the D18 publish/unpublish act — an explicit owner toggle, deliberately
  *  NOT on `CreateAgentRequest` (a definition is published deliberately, never as a
  *  side-effect of creation). */

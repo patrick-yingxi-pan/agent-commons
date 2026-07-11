@@ -78,6 +78,7 @@ import { profileTitle, PROFILE_TAGLINE } from '../lib/publicFace'
 import { Byline, CreditLine, OwnerLink } from './PublicFace'
 import { TextDiff } from './TextDiff'
 import { CopyButton } from './CopyButton'
+import { CheckboxRow, DefaultBadge, DefaultToggle } from './Checkbox'
 import { Spinner } from './Spinner'
 import { resolveBackLabel, type NavLocation } from '../lib/nav'
 import { usePendingFocus, useFocusFlash } from '../lib/focusContext'
@@ -165,6 +166,7 @@ import {
 } from '../api'
 import {
   promptFitWarning,
+  defaultEntry,
   projectAdmittedAuthority,
   PROJECT_ROLES,
   PROJECT_EFFECT_TYPES,
@@ -1344,10 +1346,9 @@ function AdmittedChecklist({
       ) : (
         <div className="space-y-1.5">
           {admitted.map((v) => (
-            <label key={v} className="flex items-center gap-2 text-[13px] text-ink">
-              <input type="checkbox" checked={selected.has(v)} onChange={() => onToggle(v)} />
+            <CheckboxRow key={v} checked={selected.has(v)} onToggle={() => onToggle(v)} className="text-[13px] text-ink">
               {v}
-            </label>
+            </CheckboxRow>
           ))}
         </div>
       )}
@@ -1439,20 +1440,14 @@ function CommissionDialog({
           reserve sub-goals; owner may also commission others.
         </p>
       </div>
-      <label className="mb-3 flex items-start gap-2">
-        <input
-          type="checkbox"
-          checked={standing}
-          onChange={(e) => setStanding(e.target.checked)}
-          className="mt-0.5 h-3.5 w-3.5 accent-accent"
-        />
+      <CheckboxRow checked={standing} onToggle={() => setStanding(!standing)} className="mb-3">
         <span className="text-[12px] leading-snug text-ink-soft">
           <span className="font-medium text-ink">Standing</span> — volunteer this agent for the
           project’s open work: when a work item is posted it may take it{' '}
           <span className="font-medium text-ink">unprompted</span>, spending your plan (owner-pays,
           D19). Approved once, here — the same shape as a standing schedule approval.
         </span>
-      </label>
+      </CheckboxRow>
       <div className="space-y-3">
         <AdmittedChecklist
           label="Connectors this contributor may reach"
@@ -3281,7 +3276,10 @@ function CommonsCardHead({
 function AgentsTab() {
   const agents = useAgents().data ?? []
   const providers = useProviders().data ?? []
-  const providerLabel = (id?: string) => providers.find((p) => p.id === id)?.label ?? 'Default provider'
+  // Every creatable agent names its provider (the strict-API rule); only definition-
+  // only fork/import stubs (D18/D20 — capability never travels) are unbound, so say
+  // that instead of implying a hidden default resolution.
+  const providerLabel = (id?: string) => providers.find((p) => p.id === id)?.label ?? 'No provider bound yet'
   const [editing, setEditing] = useState<Agent | 'new' | null>(null)
   return (
     <div className="space-y-3">
@@ -3792,10 +3790,13 @@ function ProposalsReviewDialog({
 }
 
 /** Create / edit an Agent — the bundle that binds a Model provider (D9) to a system
- *  prompt (D10). Both pickers default to the seeded provider / prompt; the prompt's fit
- *  against the chosen provider's family is checked live (the same `promptFitWarning` the
- *  Customize picker uses). New agents inherit the provider's authority + the full tool
- *  catalog; per-axis authority editing is a later refinement. */
+ *  prompt (D10). Both pickers pre-select the registry's *default-flagged* entry, else
+ *  the first listed (`defaultEntry` — the flag is exactly this pre-selection and
+ *  nothing more); there is NO implicit "Default" option, because the API refuses an
+ *  agent without concrete bindings (the strict-API rule). The prompt's fit against the
+ *  chosen provider's family is checked live (the same `promptFitWarning` the Customize
+ *  picker uses). New agents inherit the provider's authority + the full tool catalog;
+ *  per-axis authority editing is a later refinement. */
 function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => void }) {
   const providers = useProviders().data ?? []
   const prompts = useSystemPrompts().data ?? []
@@ -3809,21 +3810,29 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
   // pairing changes so a stale score never lingers.
   const [probe, setProbe] = useState<PromptProbeResult | null>(null)
   const [probing, setProbing] = useState(false)
-  const canSubmit = label.trim().length > 0 && !busy
 
-  // Live fit warning: the chosen prompt's family vs the chosen provider's (the default
-  // provider's family when none is chosen — providers[0] is the seeded default).
-  const providerFamily = (providers.find((p) => p.id === providerId) ?? providers[0])?.modelFamily ?? 'claude'
-  const selectedPrompt = prompts.find((p) => p.id === promptId)
+  // The pickers' EFFECTIVE values: untouched state resolves to the default-else-first
+  // entry (registries load async, so this is derived, not initial state). An agent
+  // carrying a BESPOKE prompt (merged proposal, fork) has no library binding — its
+  // picker keeps a "keep current" option ('') and must never be coerced onto a library
+  // entry by an unrelated edit; only that case leaves effectivePromptId empty.
+  const bespokePrompt = !!agent && !agent.systemPromptId
+  const effectiveProviderId = providerId || defaultEntry(providers)?.id || ''
+  const effectivePromptId = promptId || (bespokePrompt ? '' : defaultEntry(prompts)?.id || '')
+  const canSubmit = label.trim().length > 0 && !!effectiveProviderId && (bespokePrompt || !!effectivePromptId) && !busy
+
+  // Live fit warning: the chosen prompt's family vs the chosen provider's.
+  const providerFamily = providers.find((p) => p.id === effectiveProviderId)?.modelFamily ?? 'claude'
+  const selectedPrompt = prompts.find((p) => p.id === effectivePromptId)
   const warning = selectedPrompt ? promptFitWarning(selectedPrompt, providerFamily) : null
   // Changing either side of the pairing invalidates a prior probe result.
   const onPrompt = (id: string) => { setPromptId(id); setProbe(null) }
   const onProvider = (id: string) => { setProviderId(id); setProbe(null) }
   const runProbe = async () => {
-    if (!promptId) return
+    if (!effectivePromptId) return
     setProbing(true)
     try {
-      setProbe(await probePrompt(promptId, providerId || undefined))
+      setProbe(await probePrompt(effectivePromptId, effectiveProviderId || undefined))
     } catch {
       setProbe(null)
     } finally {
@@ -3837,18 +3846,17 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
     setError(null)
     const fields = {
       label: label.trim(),
-      providerId,
+      providerId: effectiveProviderId,
       // Send the prompt binding only when the picker actually CHANGED (review
-      // finding): an agent carrying a bespoke prompt (a merged proposal, a fork)
-      // has no systemPromptId, so its picker shows '' ("Default") — sending that
-      // unconditionally resolved to the default BODY and silently destroyed the
-      // merged prompt on any unrelated edit (a rename would revert v2 → default).
-      ...(promptId !== (agent?.systemPromptId ?? '') ? { systemPromptId: promptId } : {}),
+      // finding): a bespoke-prompt agent's picker shows '' ("Keep current prompt") —
+      // sending a binding on an unrelated edit would silently destroy the merged /
+      // forked prompt (a rename would revert v2 → the picked library body).
+      ...(effectivePromptId !== (agent?.systemPromptId ?? '') ? { systemPromptId: effectivePromptId } : {}),
       instructions: instructions.trim(),
     }
     try {
       if (agent) await updateAgent(agent.id, fields)
-      else await createAgent({ ...fields, systemPromptId: promptId })
+      else await createAgent({ ...fields, systemPromptId: effectivePromptId })
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save this agent.')
@@ -3876,17 +3884,19 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
         />
       </FormField>
       <FormField label="Provider">
-        <select value={providerId} onChange={(e) => onProvider(e.target.value)} className={FORM_INPUT_CLASS}>
-          <option value="">Default provider</option>
+        {/* No implicit option: every agent names a concrete provider (the strict-API
+            rule); the pre-selected entry is the registry's default-else-first. */}
+        <select value={effectiveProviderId} onChange={(e) => onProvider(e.target.value)} className={FORM_INPUT_CLASS}>
           {providers.map((p) => (
             <option key={p.id} value={p.id}>
               {/* The prose-only trade-off is visible at bind time (§4.6) — an <option>
-                  can't carry the badge, so the cue rides the label text. */}
-              {p.kind === 'session' ? `${p.label} · Session (prose-only)` : p.label}
+                  can't carry the badge, so the cue rides the label text. The default
+                  flag rides the same way. */}
+              {`${p.label}${p.kind === 'session' ? ' · Session (prose-only)' : ''}${p.isDefault ? ' · Default' : ''}`}
             </option>
           ))}
         </select>
-        {providers.find((p) => p.id === providerId)?.kind === 'session' && (
+        {providers.find((p) => p.id === effectiveProviderId)?.kind === 'session' && (
           <span className="mt-1 flex items-start gap-1 text-[11px] text-amber-600">
             <AlertCircle size={12} className="mt-0.5 shrink-0" />
             Prose-only: turns on this Agent will converse but can’t propose relation edits, escalations, or run tools.
@@ -3895,19 +3905,25 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
         )}
       </FormField>
       <FormField label="System prompt">
-        <select value={promptId} onChange={(e) => onPrompt(e.target.value)} className={FORM_INPUT_CLASS}>
-          {/* An agent with a BESPOKE prompt (merged proposal, fork) has no library
-              binding — say so, instead of mislabeling it "Default". Left untouched,
-              the patch omits the binding and the custom prompt is preserved. */}
-          <option value="">
-            {agent && !agent.systemPromptId ? 'Keep current prompt (custom)' : 'Default prompt'}
-          </option>
+        <select value={effectivePromptId} onChange={(e) => onPrompt(e.target.value)} className={FORM_INPUT_CLASS}>
+          {/* The ONLY empty option is a bespoke-prompt agent's "keep current" (merged
+              proposal, fork — no library binding to show). Left untouched, the patch
+              omits the binding and the custom prompt is preserved. Everything else
+              picks a concrete library entry — there is no implicit "Default prompt". */}
+          {bespokePrompt && <option value="">Keep current prompt (custom)</option>}
           {prompts.map((p) => (
             <option key={p.id} value={p.id}>
-              {p.label}
+              {`${p.label}${p.isDefault ? ' · Default' : ''}`}
             </option>
           ))}
         </select>
+        {/* An agent needs a concrete prompt (the strict-API rule) — an emptied library
+            would otherwise just disable Create with no explanation. */}
+        {!bespokePrompt && prompts.length === 0 && (
+          <span className="mt-1 block text-[11px] text-ink-faint">
+            The prompt library is empty — add one under Agents → Prompts first.
+          </span>
+        )}
         {warning && (
           <span className="mt-1 flex items-center gap-1 text-[11px] text-amber-600">
             <AlertCircle size={12} className="shrink-0" /> {warning}
@@ -4058,7 +4074,12 @@ function ProviderCard({ provider, onEdit }: { provider: ModelProvider; onEdit: (
         icon={<Cpu size={16} />}
         title={provider.label}
         subtitle={isSession ? 'Session · prose-only' : provider.modelFamily}
-        trailing={<CardActions onEdit={onEdit} onDelete={del} />}
+        trailing={
+          <div className="flex items-center gap-1.5">
+            {provider.isDefault && <DefaultBadge />}
+            <CardActions onEdit={onEdit} onDelete={del} />
+          </div>
+        }
       />
       <div className="mt-2 flex flex-wrap items-center gap-1">
         {isSession && (
@@ -4174,10 +4195,9 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
               retire the session. “{provider.label}” goes green here while the loop runs.
             </p>
           </div>
-          <label className="flex cursor-pointer items-center gap-2 text-[13px] text-ink">
-            <input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} />
+          <CheckboxRow checked={saved} onToggle={() => setSaved(!saved)} className="text-[13px] text-ink">
             I’ve saved the secret somewhere safe
-          </label>
+          </CheckboxRow>
         </div>
         <div className="flex shrink-0 items-center justify-end border-t border-line bg-panel px-5 py-3">
           <button
@@ -4453,6 +4473,10 @@ function ProviderDialog({ provider, onClose }: { provider: ModelProvider | null;
   const [label, setLabel] = useState(provider?.label ?? '')
   const [family, setFamily] = useState(provider?.modelFamily ?? 'claude')
   const [kind, setKind] = useState<'endpoint' | 'session'>(provider?.kind ?? 'endpoint')
+  // The default flag (the UI shortcut — spec: agents always bind explicitly; this only
+  // pre-selects the New-agent picker). Sent only when it changed, so an unrelated edit
+  // can't move another entry's flag.
+  const [isDefault, setIsDefault] = useState(provider?.isDefault ?? false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   // A freshly minted Session provider: hold the one-time secret panel open until
@@ -4465,9 +4489,14 @@ function ProviderDialog({ provider, onClose }: { provider: ModelProvider | null;
     if (!canSubmit) return
     setBusy(true)
     setError(null)
+    const defaultChanged = isDefault !== (provider?.isDefault ?? false)
     try {
       if (provider) {
-        await updateProvider(provider.id, { label: label.trim(), modelFamily: family.trim() })
+        await updateProvider(provider.id, {
+          label: label.trim(),
+          modelFamily: family.trim(),
+          ...(defaultChanged ? { isDefault } : {}),
+        })
         onClose()
       } else if (isSession) {
         const created = await createProvider({
@@ -4475,6 +4504,7 @@ function ProviderDialog({ provider, onClose }: { provider: ModelProvider | null;
           modelFamily: 'claude', // advisory on a session — the far side picks its own model
           effortLevels: ['Low', 'Medium', 'High'],
           kind: 'session',
+          ...(isDefault ? { isDefault } : {}),
         })
         setMinted(created) // the one-time reveal takes over; onClose comes from its Done
       } else {
@@ -4482,6 +4512,7 @@ function ProviderDialog({ provider, onClose }: { provider: ModelProvider | null;
           label: label.trim(),
           modelFamily: family.trim(),
           effortLevels: ['Low', 'Medium', 'High'],
+          ...(isDefault ? { isDefault } : {}),
         })
         onClose()
       }
@@ -4559,17 +4590,19 @@ function ProviderDialog({ provider, onClose }: { provider: ModelProvider | null;
           </span>
         </FormField>
       )}
+      <DefaultToggle checked={isDefault} onChange={setIsDefault} entity="provider" />
     </FormDialog>
   )
 }
 
 /** System prompts (D10) — the reusable, target-family-tagged prompts an Agent starts
  *  from. Each shows its target family and a downgrade warning when it wouldn't fit the
- *  default provider's family (the pure `promptFitWarning`). */
+ *  default-else-first provider's family (the pure `promptFitWarning` against the same
+ *  entry the New-agent picker pre-selects). */
 function PromptsTab() {
   const prompts = useSystemPrompts().data ?? []
   const providers = useProviders().data ?? []
-  const providerFamily = providers[0]?.modelFamily ?? 'claude'
+  const providerFamily = defaultEntry(providers)?.modelFamily ?? 'claude'
   const [editing, setEditing] = useState<SystemPromptEntry | 'new' | null>(null)
   return (
     <div className="space-y-3">
@@ -4613,6 +4646,7 @@ function LibraryPromptCard({
         subtitle={`Tuned for ${prompt.targetFamily}`}
         trailing={
           <div className="flex items-center gap-1.5">
+            {prompt.isDefault && <DefaultBadge />}
             {warning && (
               <span title={warning} className="shrink-0 text-amber-600">
                 <AlertCircle size={15} />
@@ -4634,6 +4668,8 @@ function PromptDialog({ prompt, onClose }: { prompt: SystemPromptEntry | null; o
   const [label, setLabel] = useState(prompt?.label ?? '')
   const [family, setFamily] = useState(prompt?.targetFamily ?? 'claude')
   const [bodyText, setBodyText] = useState(prompt?.body ?? '')
+  // The default flag (the UI shortcut) — sent only when changed, like ProviderDialog's.
+  const [isDefault, setIsDefault] = useState(prompt?.isDefault ?? false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const canSubmit =
@@ -4643,7 +4679,13 @@ function PromptDialog({ prompt, onClose }: { prompt: SystemPromptEntry | null; o
     if (!canSubmit) return
     setBusy(true)
     setError(null)
-    const fields = { label: label.trim(), targetFamily: family.trim(), body: bodyText.trim() }
+    const defaultChanged = isDefault !== (prompt?.isDefault ?? false)
+    const fields = {
+      label: label.trim(),
+      targetFamily: family.trim(),
+      body: bodyText.trim(),
+      ...(defaultChanged ? { isDefault } : {}),
+    }
     try {
       if (prompt) await updateSystemPrompt(prompt.id, fields)
       else await createSystemPrompt(fields)
@@ -4694,6 +4736,7 @@ function PromptDialog({ prompt, onClose }: { prompt: SystemPromptEntry | null; o
           className={`${FORM_INPUT_CLASS} resize-none leading-relaxed`}
         />
       </FormField>
+      <DefaultToggle checked={isDefault} onChange={setIsDefault} entity="prompt" />
     </FormDialog>
   )
 }
@@ -7292,8 +7335,9 @@ const SYSTEM_PROMPT_PREF_KEY = 'claude-ui.customize.systemPromptId'
 function SystemPromptCard() {
   const prompts = useSystemPrompts().data ?? []
   const providers = useProviders().data ?? []
-  // The account's cognition source the prompt would run against — the seeded provider.
-  const provider = providers[0]
+  // The account's cognition source the prompt would run against — the default-else-
+  // first provider, the same entry the New-agent picker pre-selects.
+  const provider = defaultEntry(providers)
   const providerFamily = provider?.modelFamily ?? 'claude'
 
   const [selectedId, setSelectedId] = useState<string>(() => {

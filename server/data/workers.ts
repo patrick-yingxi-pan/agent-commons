@@ -5,7 +5,7 @@
  *  generation are unchanged for the default), and it may call the whole tool
  *  catalog. A later slice introduces user-created Agents + a registry; for now the
  *  store seeds just this one and every Conversation resolves to it. */
-import type { Agent } from '../../contract/index.ts'
+import { DEFAULT_PROVIDER_ID, type Agent } from '../../contract/index.ts'
 import { TOOL_NAMES } from '../model/tools.ts'
 import { DEFAULT_SYSTEM_PROMPT_BODY, SP_DEFAULT_ID } from './prompts.ts'
 
@@ -16,6 +16,10 @@ export const DEFAULT_AGENT: Agent = {
   // library entry can't drift; this body is the exact base framing used before.
   systemPrompt: DEFAULT_SYSTEM_PROMPT_BODY,
   systemPromptId: SP_DEFAULT_ID,
+  // Bound explicitly (not left to a turn-time fallback): every Agent the management
+  // API can produce names its provider, and the seed follows the same rule. Only
+  // fork/import stubs — definition-only by design (D18/D20) — stay unbound.
+  providerId: DEFAULT_PROVIDER_ID,
   tools: TOOL_NAMES,
   instructions: '',
 }
