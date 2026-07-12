@@ -13,6 +13,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { accounts, AccountRegistry } from '../server/accounts.ts'
+import { store } from '../server/store.ts'
 import { call } from './helpers/http.ts'
 
 const cookieOf = (r: { headers: Record<string, string> }) => r.headers['set-cookie']?.split(';')[0] ?? ''
@@ -156,4 +157,82 @@ test('persistence: seats + invites round-trip; one HOME per user; the pre-collap
   echo.rehydrate({ users: [], tenants: [], memberships: [{ userId: 'user-grace', tenantId: 'tenant-acme', role: 'member', seeded: true }] })
   assert.equal(echo.membership('user-grace', 'tenant-acme'), undefined)
   assert.deepEqual(echo.orgsOf('user-grace'), [], 'no phantom org seat either')
+})
+
+test('O2 — an org-owned project: the picker stamps the org; members read + cooperate, only org-owners write; outsiders 404', async () => {
+  const founder = await account('Org Fox')
+  const member = await account('Org Mel')
+  const outsider = await account('Org Odd')
+  const org = (await call('POST', '/orgs', { name: 'Fox Labs' }, { cookie: founder.cookie })).json
+  await call('POST', `/orgs/${org.id}/invites`, { email: member.email }, { cookie: founder.cookie })
+  const inv = (await call('GET', '/me/invites', undefined, { cookie: member.cookie })).json[0]
+  await call('POST', `/me/invites/${inv.id}/accept`, undefined, { cookie: member.cookie })
+
+  // The owner picker (O-D4): a MEMBER may create an org-owned project; the op
+  // stamps the ORG, not the creator's namespace.
+  const pid = `p-org-${(n += 1)}`
+  const created = await call(
+    'POST', '/relations/ops',
+    { op: { kind: 'create-project', projectId: pid, projectName: 'Org roadmap', projectDescription: '', ownerTenantId: org.id } },
+    { cookie: member.cookie },
+  )
+  assert.equal(created.status, 200)
+  const memberRow = created.json.extraProjects.find((p: { id: string }) => p.id === pid)
+  assert.ok(memberRow, 'the member sees the org project (the union)')
+  assert.equal(memberRow.ownerName, 'Fox Labs', 'owned by the ORG namespace')
+  assert.equal(memberRow.own, false, 'a member gets visitor-style affordances (O-D6)')
+
+  // The founder (org OWNER seat) gets write-grade `own`.
+  const founderGraph = (await call('GET', '/relations', undefined, { cookie: founder.cookie })).json
+  assert.equal(founderGraph.extraProjects.find((p: { id: string }) => p.id === pid)?.own, true)
+
+  // An outsider sees nothing — projection and walls alike (it is PRIVATE to the org).
+  const outsiderGraph = (await call('GET', '/relations', undefined, { cookie: outsider.cookie })).json
+  assert.ok(!outsiderGraph.extraProjects.some((p: { id: string }) => p.id === pid))
+  assert.equal(
+    (await call('POST', `/projects/${pid}/open-subgoals`, { subGoal: 'x', type: 'charge', target: 'budget:demo' }, { cookie: outsider.cookie })).status,
+    404,
+  )
+
+  // A MEMBER cooperates on the private org project (the union at the project walls)…
+  const posted = await call(
+    'POST', `/projects/${pid}/open-subgoals`,
+    { subGoal: `org-item-${n}`, type: 'charge', target: 'budget:demo' },
+    { cookie: member.cookie },
+  )
+  assert.equal(posted.status, 200)
+  // …and the org's bell (the recipient is the ORG tenant) is member-readable —
+  // here the FOUNDER hears the member's act.
+  const founderInbox = (await call('GET', '/notifications', undefined, { cookie: founder.cookie })).json
+  assert.ok(founderInbox.some((x: { kind: string; workItemId?: string }) => x.kind === 'work.posted' && x.workItemId === posted.json.id))
+  assert.equal(
+    store.eventVisibleToTenant({ type: 'notification.changed', tenantId: org.id }, member.home),
+    true,
+    'the org-targeted inbox event reaches a member’s stream',
+  )
+  assert.equal(store.eventVisibleToTenant({ type: 'notification.changed', tenantId: org.id }, outsider.home), false)
+
+  // WRITE-grade ops: a member's share attempt is refused (404 — write walls);
+  // the org OWNER's succeeds.
+  const memberShare = await call(
+    'POST', '/relations/ops',
+    { op: { kind: 'share-project', projectId: pid, projectName: 'Org roadmap', shared: true } },
+    { cookie: member.cookie },
+  )
+  assert.equal(memberShare.status, 404, 'member ≠ owner-grade — refused, existence-hidden shape')
+  const ownerShare = await call(
+    'POST', '/relations/ops',
+    { op: { kind: 'share-project', projectId: pid, projectName: 'Org roadmap', shared: true } },
+    { cookie: founder.cookie },
+  )
+  assert.equal(ownerShare.status, 200, 'the org-owner seat is write-grade')
+
+  // The picker refuses an org the caller holds NO seat in (INV-9: refused loudly,
+  // never normalized to the namespace it would have meant).
+  const stolen = await call(
+    'POST', '/relations/ops',
+    { op: { kind: 'create-project', projectId: `p-steal-${n}`, projectName: 'Steal', projectDescription: '', ownerTenantId: org.id } },
+    { cookie: outsider.cookie },
+  )
+  assert.equal(stolen.status, 404)
 })

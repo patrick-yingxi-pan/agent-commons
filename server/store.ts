@@ -131,10 +131,25 @@ function seedVisibleTo(tenantId: string): boolean {
   return tenantId === defaultTenantId() || tenantId === 'tenant-acme'
 }
 
+/** FWD-6 O-D5 — member access is a UNION at the walls, never a switched world:
+ *  a caller READS as their namespace plus every org they hold a seat in;
+ *  owner-grade WRITES require the org's `owner` seat. One funnel pair, so the
+ *  rule can't drift per surface (in practice only Projects carry org stamps —
+ *  sessions/artifacts stamp their creator — so the union is precise by
+ *  construction). Dev-seam synthetic tenants hold no seats (`seatIn` is
+ *  namespace-rooted), so impersonation tests see exactly the old walls. */
+function tenantReadsAs(callerTenant: string, owner: string): boolean {
+  return owner === callerTenant || accounts.seatIn(callerTenant, owner) !== undefined
+}
+function tenantWritesAs(callerTenant: string, owner: string): boolean {
+  return owner === callerTenant || accounts.seatIn(callerTenant, owner) === 'owner'
+}
+
 /** The tenant-visibility test every scoped read shares: a stamped row matches
- *  exactly; an unstamped row follows the flagship rule above. */
+ *  the caller's READ union (their namespace + org seats, FWD-6); an unstamped
+ *  row follows the flagship rule above. */
 function rowVisibleTo(row: { tenantId?: string }, tenantId: string): boolean {
-  return row.tenantId ? row.tenantId === tenantId : seedVisibleTo(tenantId)
+  return row.tenantId ? tenantReadsAs(tenantId, row.tenantId) : seedVisibleTo(tenantId)
 }
 
 // ── Served filesystem sources (the Files / Photos / Folder context types) ──────
@@ -555,7 +570,12 @@ function projectGraphForTenant(g: RelationGraph, tenantId: string): RelationGrap
       // foreign row also drops the raw `tenantId` — the display name is the public
       // face; the raw id of a foreign tenant never crosses (mirrors the directory).
       const ownerName = tenantName(p.tenantId ?? defaultTenantId())
-      if (rowVisibleTo(p, tenantId)) return [{ ...p, ownerName, own: true }]
+      if (rowVisibleTo(p, tenantId)) {
+        // FWD-6 O-D6: `own` is WRITE-grade — the owner tenant itself, or an org
+        // OWNER seat. A member sees the full object (they're inside the wall)
+        // with visitor-style affordances (own: false).
+        return [{ ...p, ownerName, own: p.tenantId ? tenantWritesAs(tenantId, p.tenantId) : true }]
+      }
       return p.shared === true ? [{ ...publicSharedProject(p), ownerName, own: false, tenantId: undefined }] : []
     }),
     extraArtifacts: g.extraArtifacts.filter((a) => rowVisibleTo(a, tenantId)),
@@ -1625,9 +1645,10 @@ export const store = {
       }
       case 'audit.entry':
         return (e.entry.tenantId ?? defaultTenantId()) === tenantId
-      // Targeted (D24): an inbox event reaches ONLY its tenant's streams.
+      // Targeted (D24): an inbox event reaches its tenant's streams — and, FWD-6
+      // O-D5, the streams of that org's members (the inbox is member-readable).
       case 'notification.changed':
-        return e.tenantId === tenantId
+        return tenantReadsAs(tenantId, e.tenantId)
       case 'relation.applied':
         // Gate on the tenant that APPLIED the edit — not the op payload. Keying off
         // op.projectId leaked the unfile/unlink ops (projectId:null but carrying the
@@ -3613,7 +3634,9 @@ export const store = {
     // legacy item persisted without `postedByTenant` is poster-unretractable
     // (fail-closed); its Project owner still can.
     const isPoster = item.postedByTenant !== undefined && item.postedByTenant === tenantId
-    if (!isPoster && ownerTenant !== tenantId) return 'forbidden'
+    // FWD-6: "the Project owner" on an org-owned project means the org's OWNER
+    // seat (write-grade union) — same raw-id comparison discipline underneath.
+    if (!isPoster && !tenantWritesAs(tenantId, ownerTenant)) return 'forbidden'
     if (item.status !== 'open') return 'closed'
     item.status = 'retracted'
     item.retractedAt = Date.now()
@@ -3688,25 +3711,31 @@ export const store = {
   },
   /** The caller's inbox, newest first — ONLY its own rows, served without the
    *  recipient field (the wire shape is `AppNotification`). */
+  /** The caller's inbox — their namespace's rows plus every org's they hold a
+   *  seat in (FWD-6 O-D5: an org's bell is member-readable). */
   listNotifications(tenantId: string): AppNotification[] {
     return notifications
-      .filter((x) => x.tenantId === tenantId)
+      .filter((x) => tenantReadsAs(tenantId, x.tenantId))
       .map(({ tenantId: _recipient, ...pub }) => pub)
       .reverse()
   },
   /** Mark the caller's rows read — the named ids, or all. Idempotent; emits (and
-   *  persists) only when something actually flipped. */
+   *  persists) only when something actually flipped. The same union as the read:
+   *  a member may settle the org's bell (a disposable, derived row — not an act). */
   markNotificationsRead(tenantId: string, ids?: string[]): AppNotification[] {
     const named = ids ? new Set(ids) : null
-    let changed = false
+    // Invalidate per RECIPIENT tenant, not per caller: a member settling an org
+    // row must reach the org's other member streams (which gate on the row's
+    // tenant through the same union), not just their own.
+    const touched = new Set<string>()
     for (const x of notifications) {
-      if (x.tenantId !== tenantId || x.read) continue
+      if (!tenantReadsAs(tenantId, x.tenantId) || x.read) continue
       if (named && !named.has(x.id)) continue
       x.read = true
-      changed = true
+      touched.add(x.tenantId)
     }
-    if (changed) {
-      emit({ type: 'notification.changed', tenantId })
+    if (touched.size > 0) {
+      for (const t of touched) emit({ type: 'notification.changed', tenantId: t })
       persist()
     }
     return this.listNotifications(tenantId)
@@ -3982,7 +4011,10 @@ export const store = {
         // agnostic; the server (which knows the caller) owns the stamp.
         if (op.kind === 'create-project') {
           const created = graph.extraProjects.find((p) => p.id === op.projectId)
-          if (created && created.tenantId === undefined) created.tenantId = tenantId ?? defaultTenantId()
+          // FWD-6 O-D4: an explicit ownerTenantId (validated in opDeniedForTenant —
+          // a held seat) stamps the org; ABSENT means the caller's own namespace,
+          // the fixed minimal-risk absence class (INV-9), never a mutable default.
+          if (created && created.tenantId === undefined) created.tenantId = op.ownerTenantId ?? tenantId ?? defaultTenantId()
         } else if (op.kind === 'save-artifact') {
           // The reducer unshifts the new artifact to extraArtifacts[0] (its id is minted
           // internally). Stamp the creating tenant so the projection scopes it (F2/PD9).
@@ -4028,8 +4060,13 @@ export const store = {
       // foreign project must be refused (findProject resolves it).
       const owner = projectTenant(pid) // defaultTenantId() for an unknown id
       if (op.kind === 'create-project') {
-        if (findProject(pid) && owner !== tenantId) return true
-      } else if (owner !== tenantId) {
+        if (findProject(pid) && !tenantWritesAs(tenantId, owner)) return true
+        // FWD-6 O-D4 — the owner picker: a present ownerTenantId must be a tenant
+        // the caller holds a SEAT in (their own namespace included); anything else
+        // is refused with the same existence-hiding 404 as any foreign target —
+        // never normalized to a namespace it didn't say (INV-9).
+        if (op.ownerTenantId && accounts.seatIn(tenantId, op.ownerTenantId) === undefined) return true
+      } else if (!tenantWritesAs(tenantId, owner)) {
         // P8 carve-out — the ONE cross-tenant project op allowed: commissioning your OWN
         // agent onto a SHARED Project (the cooperation primitive, D13 owner-pays). The
         // agent-subject axis below still requires the agent be the caller's own, so this

@@ -347,9 +347,23 @@ org — seed surgery for a feature the runtime path must prove anyway.
   namespaces take no org machinery). The invite BELL ships with its door in O3
   (a bell without a door is the anti-pattern the notification-doors lock
   exists for). Locks: `tests/orgs.test.ts`.
-- **O2 — walls + owner picker:** `visibleTenants` union at the project walls
-  and the notification/event funnels; `ownerTenantId` on project creation
-  (op + route, INV-9-refused when not a held org); the Projects-list org band.
+- **O2 — walls + owner picker. ✅ BUILT (2026-07-12).** The union lives in ONE
+  funnel pair — `tenantReadsAs` (any seat) / `tenantWritesAs` (the owner seat) —
+  threaded through `rowVisibleTo` (so every scoped read inherits it),
+  `projectHiddenFrom`, the notification inbox + its SSE gate (mark-read now
+  invalidates per RECIPIENT tenant, so a member settling the org bell reaches
+  the other members' streams), and `opDeniedForTenant`'s project axis;
+  `create-project` carries `ownerTenantId` (absent = your namespace, INV-9;
+  a non-held org is the same existence-hiding 404 as any foreign target) and
+  the stamp uses it; the projection's `own` is write-grade (org owner ⇒ owner
+  controls; member ⇒ full object, visitor affordances); "the Project owner" in
+  the retract wall means the org's owner seat. **v1 boundaries, recorded:**
+  member-role relation WRITES stay owner-grade (a member cooperates through
+  open work / comments / watch; role-graduated member writes are v2); a member
+  reading the org inbox sees bells for their own acts (actor-exclusion is
+  per-recipient-tenant — a wart, v2); the Projects-list ORG BAND is O3 UI (the
+  data already lands: org rows carry `ownerName` + write-grade `own`). Locks:
+  `tests/orgs.test.ts` (the O2 case).
 - **O3 — UI:** the chip menu's **Organizations** section (rows are DOORS to
   org pages + "New organization…" — unlike the deleted workspace rows, nothing
   re-mints); the org page's member panel (members, invites, accept/decline);

@@ -255,6 +255,16 @@ export class AccountRegistry {
     return this.memberships.some((m) => m.home && m.tenantId === tenantId)
   }
 
+  /** FWD-6 O-D5 — the role the account behind a NAMESPACE holds in `target`
+   *  (their own namespace answers with the home seat's role). Undefined = no
+   *  seat — including when the caller tenant is nobody's namespace (a dev-seam
+   *  synthetic), which keeps the union walls inert for impersonated tenants. */
+  seatIn(namespaceTenantId: string, target: string): TenantRole | undefined {
+    const home = this.memberships.find((m) => m.home && m.tenantId === namespaceTenantId)
+    if (!home) return undefined
+    return this.membership(home.userId, target)?.role
+  }
+
   // ── FWD-6 — organizations (namespaces with members, never worlds) ───────────
 
   /** Found an org: a new org tenant + the founder's `owner` seat (O-D2). The

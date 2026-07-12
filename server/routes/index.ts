@@ -1393,7 +1393,9 @@ export function buildRouter(): Router {
     const project = store.findProject(projectId)
     const owner = project?.tenantId ?? store.defaultTenantId()
     const tenantId = store.identity(req.headers).tenant.id
-    return !project || (owner !== tenantId && project.shared !== true)
+    // FWD-6 O-D5: an org seat reads the org's projects (the member union).
+    const reads = owner === tenantId || accounts.seatIn(tenantId, owner) !== undefined
+    return !project || (!reads && project.shared !== true)
   }
   r.get('/projects/:id/open-subgoals', ({ req, res, params }) => {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)

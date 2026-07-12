@@ -123,7 +123,11 @@ export type RelationOp =
   // Session ↔ Project — create a new project, optionally filing a session into it
   // in the same move. The AI's tour proposal files the live session; a user
   // creating a project from the Projects page passes neither (an empty project).
-  | { kind: 'create-project'; projectId: string; projectName: string; projectDescription: string; sessionId?: string; sessionTitle?: string }
+  // `ownerTenantId` (FWD-6 O-D4, the owner picker): ABSENT = the caller's own
+  // namespace (the fixed minimal-risk absence, INV-9 — never a mutable default);
+  // present = an org the caller holds a seat in, else refused (404, the
+  // existence-hiding shape every foreign target gets).
+  | { kind: 'create-project'; projectId: string; projectName: string; projectDescription: string; sessionId?: string; sessionTitle?: string; ownerTenantId?: string }
   // Project ↔ Artifact — move an artifact into a project (null = unfile, back to
   // the gallery's "Unfiled" bucket).
   | { kind: 'refile-artifact'; artifactId: string; artifactName: string; projectId: string | null; projectName: string }
