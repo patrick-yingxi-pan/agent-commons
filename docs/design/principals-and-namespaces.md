@@ -1,11 +1,14 @@
 # Principals & namespaces — the GitHub/HF identity model, plus agents
 
-> **Status: DECIDED direction (2026-07-12), not yet built.** Settled in a design
-> dialogue and recorded here per the repo rule that decisions live in files, not
-> agent memory. Until the phases below land, the *shipped* behavior remains the
-> workspace-tenancy model of [`F2-identity-tenancy.md`](F2-identity-tenancy.md) +
-> [`multi-account-ui.md`](multi-account-ui.md). Tracked as spec row **FWD-5**
-> ([`../spec/10-forward-looking.md`](../spec/10-forward-looking.md)).
+> **Status: BUILT — all four phases (decided AND executed 2026-07-12).** Settled
+> in a design dialogue and recorded here per the repo rule that decisions live in
+> files, not agent memory; implemented the same day as phases 1–4 below (each
+> with its locks). Now invariant **INV-10**
+> ([`../spec/09-design-invariants.md`](../spec/09-design-invariants.md)); the
+> **orgs phase stays deferred by design** (§4.1 — the opaque owner id is the
+> re-entry seam). The pre-collapse workspace model survives only as history in
+> [`F2-identity-tenancy.md`](F2-identity-tenancy.md) +
+> [`multi-account-ui.md`](multi-account-ui.md).
 
 ## 1. Why — the dialogue that forced this
 
@@ -227,10 +230,13 @@ migration; Phase 3 verified rather than added it. Locks:
 `tests/principals.test.ts` (the chain on the wire),
 `e2e/work-item-surface.spec.ts` (the chain rendered, owner door working).
 
-**Phase 4 — docs/spec sweep.** AGENTS.md claim table, `docs/spec/` pillar rows,
-[`../github-parity.md`](../github-parity.md) ("User / org page" row →
-namespace profile), `docs/agent-commons.md` terminology notes. FWD-5 moves into
-the owning pillars as ✅ rows.
+**Phase 4 — docs/spec sweep. ✅ BUILT (2026-07-12).** AGENTS.md (the
+exploration entry → BUILT pointer), [`../github-parity.md`](../github-parity.md)
+("User / org page" → namespace profile), `docs/agent-commons.md` +
+[`multi-account-ui.md`](multi-account-ui.md) banners,
+[`../demo-accounts.md`](../demo-accounts.md) (Phase 2). FWD-5 moved into the
+invariants pillar as **INV-10** with the full lock list; the forward-looking row
+is a tombstone pointing there.
 
 **Deferred phase — orgs.** Memberships, org creation/joining, org-owned
 registries, the owner picker on create flows, org profile = the same D21 page.

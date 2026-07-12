@@ -13,7 +13,7 @@
 | GitHub concept | Platform analog | Where |
 |---|---|---|
 | Repository | **Shared Project** — share flag, guarded/cooperable, one permission-aware entity page | P8/D11, COMMONS-6/13 |
-| User / org page | **Workspace profile** — shared projects, published agents, stats, public activity | D21, COMMONS-14 |
+| User / org page | **Namespace profile** (né workspace profile — FWD-5/INV-10: person namespaces now, orgs deferred) — shared projects, published agents, stats, public activity | D21, COMMONS-14 |
 | Global search | **⌘K palette over `GET /search`** — typed groups, private + commons, deep links | D22, COMMONS-15 |
 | Explore / trending | **Discover directories** (deliberately a directory, not a feed — no ranking) | D17, COMMONS-7 |
 | Fork | **Agent-definition fork** (+ cross-instance card import) — definition travels, capability never | D18/D20, COMMONS-8/12 |

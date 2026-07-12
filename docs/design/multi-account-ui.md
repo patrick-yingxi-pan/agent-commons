@@ -1,12 +1,13 @@
 # Multi-account UI — detailed design
 
-> **Direction change (2026-07-12):** the workspace-tenancy layer this doc builds
-> on (multi-workspace accounts, workspace switching, memberships) is slated for
-> collapse under the decided **principals & namespaces** model —
-> [`principals-and-namespaces.md`](principals-and-namespaces.md) (spec FWD-5).
-> The account **stack** and the switch-mid-generation machinery (§12, I1–I5)
-> survive unchanged — they switch *humans*, not tenants. Don't build further on
-> the workspace arm.
+> **Direction change (2026-07-12) — now EXECUTED:** the workspace-tenancy layer
+> this doc built on (multi-workspace accounts, workspace switching, memberships)
+> is **collapsed** under the **principals & namespaces** model —
+> [`principals-and-namespaces.md`](principals-and-namespaces.md) (INV-10). An
+> account holds exactly one namespace; the workspace routes, the wizard's team
+> step, and the chip menu's workspace section are gone. The account **stack**
+> and the switch-mid-generation machinery (§12, I1–I5) survive unchanged — they
+> switch *humans*, not tenants. Read this doc's workspace sections as history.
 
 > **Status: BUILT (P0–P9, 2026-07-04)** — P9 (§13, by user direction) **retired
 > the dev switcher directory**: `GET /v1/identities` and the chip menu's

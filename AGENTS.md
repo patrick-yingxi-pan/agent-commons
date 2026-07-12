@@ -475,17 +475,18 @@ the mock?
   ending in the simplification the implementation follows verbatim — and the v2
   checklist: [`docs/delegated-cognition-provider.md`](docs/delegated-cognition-provider.md).
 
-- **Principals & namespaces — a DECIDED direction (2026-07-12), not yet built.**
-  Identity re-roots on the GitHub/Hugging Face model *plus agents*: the person is
-  the only login (personal namespace implicit — no workspaces to create or switch;
-  the switcher keeps only the account stack), every entity has exactly one owner
-  **namespace** (`tenantId` becomes the opaque namespace id; orgs deferred, to be
-  re-added later as namespaces — never as switched-into worlds), and acts are
-  attributed to **principals** — humans and bound agents (badged, never
-  credentialed; capability only ever in grants, i.e. project roles and
-  commissions — the GitHub-Apps shape D18/D19 already built). Until its phases
-  land, shipped behavior remains the workspace model above. Target model,
-  precedent, and the 4-phase migration: spec row FWD-5 +
+- **Principals & namespaces — decided 2026-07-12, now BUILT (all four phases).**
+  Identity follows the GitHub/Hugging Face model *plus agents*: the person is the
+  only login and holds exactly ONE namespace (minted at signup, named after the
+  person — no workspaces to create or switch; the switcher hops ACCOUNTS, the
+  stack), every entity has one owner **namespace** (`tenantId`, opaque — orgs
+  deferred, to return as namespaces, never as switched-into worlds), every act is
+  stamped with its **principal** — human or badged agent (never credentialed;
+  capability only ever in grants, i.e. project roles and commissions — the
+  GitHub-Apps shape D18/D19 already built), and a standing resolution renders the
+  who/owner/grant attribution chain. Now invariant **INV-10**
+  ([`docs/spec/09-design-invariants.md`](docs/spec/09-design-invariants.md));
+  target model, precedent, and the phase log:
   [`docs/design/principals-and-namespaces.md`](docs/design/principals-and-namespaces.md).
 
 ## Repo map (detail in [`README.md`](README.md))
