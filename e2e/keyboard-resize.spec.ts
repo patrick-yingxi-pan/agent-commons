@@ -61,8 +61,11 @@ test('arrow keys resize the rail and a rail pane through the focused separator, 
   expect(h1, 'Shift steps coarse (64px ± the half-gutter bias)').toBeGreaterThanOrEqual(h0 + 48)
 
   // ── The keyboard gesture persisted what it rendered (not one step stale). ──
-  const stored = await page.evaluate(() => {
-    const raw = localStorage.getItem('claude-ui.layout.v1')
+  // The layout blob is scoped PER ACCOUNT (src/lib/uiPrefs.ts) — resolve the
+  // active account's key the way App.tsx does (the resolved /me user).
+  const stored = await page.evaluate(async () => {
+    const me = (await (await fetch('/api/v1/me')).json()) as { user: { id: string } }
+    const raw = localStorage.getItem(`claude-ui.layout.v1.${me.user.id}`)
     const layout = raw ? (JSON.parse(raw) as { leftW?: number; railSectionsH?: number }) : {}
     return { leftW: layout.leftW, railSectionsH: layout.railSectionsH }
   })
@@ -97,8 +100,9 @@ test('the panel separator takes RAPID keyboard steps at full size, announces its
   // The value tracks (WCAG 4.1.2) and the gesture persisted what it rendered.
   const v1 = Number(await panelHandle.getAttribute('aria-valuenow'))
   expect(v1, 'aria-valuenow follows the steps').toBeGreaterThanOrEqual(v0 + 24)
-  const storedRight = await page.evaluate(
-    () => (JSON.parse(localStorage.getItem('claude-ui.layout.v1') ?? '{}') as { rightW?: number }).rightW,
-  )
+  const storedRight = await page.evaluate(async () => {
+    const me = (await (await fetch('/api/v1/me')).json()) as { user: { id: string } }
+    return (JSON.parse(localStorage.getItem(`claude-ui.layout.v1.${me.user.id}`) ?? '{}') as { rightW?: number }).rightW
+  })
   expect(Math.abs((storedRight ?? 0) - w1), 'stored panel width matches the rendered one').toBeLessThanOrEqual(1)
 })

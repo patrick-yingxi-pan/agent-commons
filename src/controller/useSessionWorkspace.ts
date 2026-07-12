@@ -23,6 +23,7 @@ import { pushLocation, type NavLocation } from '../lib/nav'
 import type { FocusTarget } from '../lib/notificationDoor'
 import { rememberAttached } from '../lib/contextShortcuts'
 import { getPanelPref, setPanelPref } from '../lib/panelPrefs'
+import { loadViewLocation, saveViewLocation } from '../lib/viewMemory'
 import { loadModelPrefs } from '../lib/modelPrefs'
 import type { ModelPick } from '../lib/models'
 import { parseFsRecentKey, DEFAULT_PROVIDER_ID } from '../../contract/index'
@@ -40,6 +41,7 @@ import {
   persistWorkspace,
   cancelTurn,
   onAccountSwitch,
+  useMe,
   onSessionPush,
   reattachTurn,
   sendMessage,
@@ -219,6 +221,21 @@ export function useSessionWorkspace() {
   focusScheduleRef.current = focusScheduleId
   const focusOwnerRef = useRef(focusOwnerName)
   focusOwnerRef.current = focusOwnerName
+
+  // ── Per-account view memory (src/lib/viewMemory.ts) ─────────────────────────
+  // The scope freezes at first resolution: the Workspace is KEYED per account
+  // (App.tsx), so one instance of this hook serves exactly one account — the
+  // freeze keeps the mid-switch cache flicker (useMe briefly undefined, then
+  // the NEXT account's answer reaching a not-yet-remounted instance) from ever
+  // crediting this account's saves to another. `leftAccount` flips on
+  // switch-away so the land-on-draft reset below can't overwrite the place the
+  // account was actually left at; `restoreSettled` holds saves off until the
+  // mount-time restore has landed (or concluded there is nothing to restore).
+  const me = useMe().data
+  const viewScope = useRef<string | null>(null)
+  if (viewScope.current === null && me) viewScope.current = me.user.id
+  const restoreSettled = useRef(false)
+  const leftAccount = useRef(false)
   const historyRef = useRef(history)
   historyRef.current = history
   // The in-flight draft → real materialization, so two quick sends on a fresh draft
@@ -464,6 +481,10 @@ export function useSessionWorkspace() {
   useEffect(
     () =>
       onAccountSwitch(() => {
+        // This instance's account is being LEFT: its last real location is
+        // already saved — stop saving so the draft reset below (and any
+        // renders while the keyed remount lands) can't overwrite it.
+        leftAccount.current = true
         // Drop the sessions resolved for the OLD account — they're another
         // tenant's threads (run sessions included), and keeping them would let a
         // history-back render foreign content the server would now 404.
@@ -942,6 +963,60 @@ export function useSessionWorkspace() {
     setFocusScheduleId(null)
     setPendingFocus(null)
   }, [record])
+
+  // ── Per-account view restore + save (multi-account: switch-back finds the
+  // account exactly where it was left; a reload restores the same way) ────────
+  // Restore ONCE per mount, as soon as the scope resolves. A remembered thread
+  // is validated against the server first (deleted / foreign → stay on the
+  // fresh draft); a remembered section page restores optimistically — those
+  // pages read live data and degrade gracefully. Declared BEFORE the save
+  // effect so a restore always settles ahead of the first save.
+  useEffect(() => {
+    if (!viewScope.current || restoreSettled.current) return
+    const loc = loadViewLocation(viewScope.current)
+    if (!loc) {
+      restoreSettled.current = true
+      return
+    }
+    if (loc.kind === 'session') {
+      loadSession(loc.sessionId)
+        .then(() => selectSession(loc.sessionId))
+        .catch(() => {}) // gone (or the draft placeholder) → the fresh draft stands
+        .finally(() => {
+          restoreSettled.current = true
+        })
+      return
+    }
+    if (loc.ownerName) openOwner(loc.ownerName)
+    else if (loc.projectId) openProject(loc.projectId)
+    else if (loc.scheduleId) openSchedule(loc.scheduleId)
+    else {
+      openSection(loc.section)
+      if (loc.subview) openSubview(loc.subview)
+    }
+    restoreSettled.current = true
+  }, [me, selectSession, openOwner, openProject, openSchedule, openSection, openSubview])
+
+  // Save the location on every navigation — the thread, or the section page
+  // with its sub-view / detail focus. Gated until the restore settles (the
+  // mount-time draft must not clobber the remembered place) and stopped once
+  // the account is left (see onAccountSwitch above).
+  useEffect(() => {
+    if (!viewScope.current || !restoreSettled.current || leftAccount.current) return
+    saveViewLocation(
+      viewScope.current,
+      activeSection
+        ? {
+            kind: 'section',
+            section: activeSection,
+            subview: activeSubview,
+            projectId: focusProjectId,
+            scheduleId: focusScheduleId,
+            ownerName: focusOwnerName,
+          }
+        : { kind: 'session', sessionId: activeId },
+    )
+  }, [activeId, activeSection, activeSubview, focusProjectId, focusScheduleId, focusOwnerName])
 
   // ── Notification doors (docs/notification-routing.md) ─────────────────────
   // A bell lands on the EXACT sub-entity its act touched: these navigate to the

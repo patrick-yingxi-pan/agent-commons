@@ -4,6 +4,7 @@ import { CalendarClock, Folder, PanelLeft } from 'lucide-react'
 import { Sidebar } from './components/Sidebar'
 import { AuthScreen } from './components/auth/AuthScreen'
 import { useAuthScreen } from './controller/useAuthScreen'
+import { setUiPrefScope } from './lib/uiPrefs'
 import type { Capabilities, Identity } from '../contract/index.ts'
 import { Composer } from './components/Composer'
 import { MessageRow, TypingRow } from './components/Message'
@@ -58,9 +59,19 @@ export default function App() {
   if (gated || authView) {
     // Gated with no explicit view: land on the picker — it falls through to
     // the sign-in form when no account is remembered on this browser.
+    setUiPrefScope(null)
     return <AuthScreen view={authView ?? { kind: 'picker' }} gated={gated} />
   }
-  return <Workspace />
+  // Per-account chrome + view memory (multi-account): the layout store reads as
+  // THIS account (a plain module set — idempotent per render — done before the
+  // children whose useState initializers read it can mount), and the Workspace
+  // is KEYED by the account, so a switch remounts it: every mount-time read
+  // (rail width, pane folds/heights, panel width, the saved view location in
+  // useSessionWorkspace) re-runs against the account's own blobs. `ident` holds
+  // the last-known identity mid-switch, so the remount fires exactly when the
+  // NEW /me resolves — the old account's instance never renders as the new one.
+  setUiPrefScope(ident.user.id)
+  return <Workspace key={ident.user.id} />
 }
 
 /** The View: composes the product chrome from two controllers — the session +

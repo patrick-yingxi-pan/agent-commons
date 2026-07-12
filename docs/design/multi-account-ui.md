@@ -505,6 +505,21 @@ GitHub-style surface** and makes "multiple accounts on one browser" real
   - `DELETE /v1/auth/session` now also forgets the ACTIVE account's stack
     entry (sign out of one account; the others stay — the client then offers
     them on the picker); `?all=1` forgets everything.
+  - **Per-account view + layout memory** (2026-07, client-side): switching
+    back to an account restores it exactly where it was left — the open thread
+    or section page (with sub-view / detail focus) via `src/lib/viewMemory.ts`,
+    and the account's own chrome (rail width/collapse, pane heights + folds,
+    panel width) via the account-scoped layout blob (`src/lib/uiPrefs.ts`,
+    seeded from the legacy unscoped blob on first use). The mechanism is one
+    move: App.tsx KEYS the Workspace by the resolved account, so a switch
+    remounts it and every mount-time read re-runs against that account's
+    blobs; `useSessionWorkspace` restores the saved location at mount (a
+    remembered thread is validated against the server first — deleted → the
+    fresh draft) and saves on every navigation (stopped at switch-away so the
+    land-on-draft reset can't clobber the real place). Data is never stored —
+    only "where you were"; the pages re-read the server as the account.
+    Locked by `tests/view-memory.test.ts` (the stores) and
+    `e2e/account-switch.spec.ts` (the restore choreography, reload included).
   - `DELETE /v1/auth/accounts/:id` (2026-07) forgets ONE remembered account —
     the switcher rows' HOVER sign-out; forgetting the active account also
     clears the session (a remembered-list can't outlive the session proving

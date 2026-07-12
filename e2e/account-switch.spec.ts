@@ -145,3 +145,36 @@ test('the menu lists remembered accounts only (no dev directory, no workspace ro
   await expect(page.getByTestId('account-chip')).toContainText('Grace Hopper')
   await expect(page.getByTestId('account-chip')).toContainText('Beta Platform')
 })
+
+test('per-account view memory: each account is restored to where it was left — section page and open thread alike', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.goto('/')
+  await stackSeedAccounts(page)
+  await page.reload()
+  await expect(page.getByTestId('account-chip')).toContainText('Grace Hopper')
+
+  // ── Grace parks on the Projects SECTION page ──
+  await page.getByRole('navigation').getByRole('button', { name: 'Projects', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
+
+  // ── Switch to Ada; she has no memory yet → the fresh draft; open a THREAD ──
+  await switchTo(page, 'Ada Lovelace', 'Ada Lovelace')
+  await expect(page.getByText('What should we work on?')).toBeVisible({ timeout: 5_000 })
+  await page.getByRole('button', { name: 'Refactor auth middleware' }).first().click()
+  await expect(page.getByText('What should we work on?')).toHaveCount(0)
+
+  // ── Back to Grace: her Projects page is RESTORED (not the draft) ──
+  await switchTo(page, 'Grace Hopper', 'Grace Hopper')
+  await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible({ timeout: 5_000 })
+  await expect(page.getByText('What should we work on?')).toHaveCount(0)
+
+  // ── Back to Ada: her THREAD is restored, mid-conversation, not a draft ──
+  await switchTo(page, 'Ada Lovelace', 'Ada Lovelace')
+  await expect(page.getByText('What should we work on?')).toHaveCount(0, { timeout: 5_000 })
+  await expect(page.locator('aside').getByText('Refactor auth middleware').first()).toBeVisible()
+
+  // ── The memory also survives a RELOAD (same account, same place) ──
+  await page.reload()
+  await expect(page.getByTestId('account-chip')).toContainText('Ada Lovelace')
+  await expect(page.getByText('What should we work on?')).toHaveCount(0, { timeout: 5_000 })
+})
