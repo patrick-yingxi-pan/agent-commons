@@ -86,7 +86,6 @@ import type {
   ProxyRequest,
   SignUpRequest,
   LoginRequest,
-  CreateWorkspaceRequest,
   ReserveRequest,
   SetCapacityRequest,
   SyncEffectsRequest,
@@ -348,40 +347,26 @@ export function buildRouter(): Router {
       return sendError(res, 'capability_unavailable', 'Account switching is disabled on this backend.')
     }
     const { userId, tenantId } = await body<{ userId?: string; tenantId?: string }>()
-    // Two mint paths, both registry-validated (role NEVER rides in the claims):
-    //   • a WORKSPACE re-mint (P7): the currently-resolved user switching to
-    //     another tenant they hold a real membership in — how an account moves
-    //     between its workspaces (never a foreign one; enumeration stays
-    //     impossible), or
-    //   • an ACCOUNT-STACK pick (§12): a `userId` the signed stack cookie
-    //     remembers — an account that signed in on this browser switches back
-    //     WITHOUT re-entering its credential (GitHub-style). The registry still
-    //     validates the landing tenant; the stack only proves "signed in here".
-    // (The former SEED-pick path retired with the enumeration directory, P9 —
-    // a seed identity signs in with its demo credential like everyone else.)
-    let mint: { userId: string; tenantId: string } | null = null
-    if (tenantId) {
-      const current = store.identity(req.headers)
-      const m = accounts.membership(current.user.id, tenantId)
-      if (m && (!userId || userId === current.user.id)) mint = { userId: current.user.id, tenantId }
+    // ONE mint path (FWD-5 Phase 2 — the workspace collapse): an ACCOUNT-STACK
+    // pick (§12) — a `userId` the signed stack cookie remembers, i.e. an account
+    // that signed in on this browser switching back WITHOUT re-entering its
+    // credential (GitHub-style). It always lands in the account's single
+    // namespace, registry-validated; the stack only proves "signed in here".
+    // The former WORKSPACE re-mint arm (P7) is gone with workspace multiplicity;
+    // a request still naming a tenantId is a caller bug, refused loudly (INV-9 —
+    // never silently normalized to the namespace it would have meant).
+    if (tenantId !== undefined) {
+      return sendError(res, 'bad_request', 'Workspace re-mints are gone (FWD-5): an account has exactly one namespace — omit tenantId.')
     }
-    if (!mint && userId) {
+    let mint: { userId: string; tenantId: string } | null = null
+    if (userId) {
       const stack = verifyStack(parseCookies(headerValue(req.headers, 'cookie'))[STACK_COOKIE])
       const entry = stack.find((e) => e.userId === userId)
-      if (entry) {
-        // The requested tenant if the membership holds, else where the account
-        // left off, else its first workspace — strictly registry-validated.
-        const valid = (t: string | undefined) => (t && accounts.membership(userId, t) ? t : undefined)
-        const target = valid(tenantId) ?? valid(entry.tenantId) ?? accounts.workspacesOf(userId)[0]?.tenant.id
-        if (target) mint = { userId, tenantId: target }
-      }
+      const home = entry && accounts.homeOf(userId)
+      if (home) mint = { userId, tenantId: home.tenant.id }
     }
     if (!mint) {
-      return sendError(
-        res,
-        'bad_request',
-        'Unknown identity — pick a workspace you belong to, or an account signed in on this browser.',
-      )
+      return sendError(res, 'bad_request', 'Unknown identity — pick an account signed in on this browser.')
     }
     mintSession(req, res, mint.userId, mint.tenantId, false)
   })
@@ -398,16 +383,17 @@ export function buildRouter(): Router {
   })
   // The accounts signed in on THIS browser (§12) — the switcher's instant-hop
   // rows, resolved STRICTLY against the registry at read time: a stale entry
-  // (deleted user) drops; a revoked last-active membership falls back to the
-  // account's first remaining workspace. Never enumerates anything the stack
-  // cookie doesn't already prove was signed in here.
+  // (deleted user) drops. Each account resolves to its ONE namespace (FWD-5
+  // Phase 2); a pre-collapse stack cookie's `tenantId` is ignored, not trusted.
+  // Never enumerates anything the stack cookie doesn't already prove was
+  // signed in here.
   r.get('/auth/accounts', ({ req, res }) => {
     const entries = verifyStack(parseCookies(headerValue(req.headers, 'cookie'))[STACK_COOKIE])
     const me = store.identity(req.headers)
     const rows: AuthAccount[] = []
     for (const e of entries) {
-      const home = accounts.workspacesOf(e.userId)[0]
-      const resolved = accounts.identityFor(e.userId, e.tenantId) ?? (home ? accounts.identityFor(e.userId, home.tenant.id) : null)
+      const home = accounts.homeOf(e.userId)
+      const resolved = home ? accounts.identityFor(e.userId, home.tenant.id) : null
       if (!resolved) continue
       rows.push({
         user: resolved.user,
@@ -451,25 +437,13 @@ export function buildRouter(): Router {
     const user = bounded ? accounts.verifyPassword(email, password) : null
     // One code for every failure mode — account existence must not leak.
     if (!user) return sendError(res, 'unauthorized', 'Invalid email or password.')
-    const home = accounts.workspacesOf(user.id)[0]
+    const home = accounts.homeOf(user.id)
     if (!home) return sendError(res, 'unauthorized', 'Invalid email or password.')
     mintSession(req, res, user.id, home.tenant.id, true)
   })
-
-  // The signed-in account's workspaces (the chip menu's switch targets) + create.
-  r.get('/me/workspaces', ({ req, res }) => {
-    const me = store.identity(req.headers)
-    sendJson(res, accounts.workspacesOf(me.user.id))
-  })
-  r.post('/workspaces', async ({ req, res, body }) => {
-    const { name } = await body<CreateWorkspaceRequest>()
-    if (!name?.trim()) return sendError(res, 'bad_request', 'A workspace name is required.')
-    const me = store.identity(req.headers)
-    const tenant = accounts.createWorkspace(me.user.id, name)
-    if (!tenant) return sendError(res, 'bad_request', 'No such user.')
-    store.accountsMutated()
-    sendJson(res, tenant, 201)
-  })
+  // (The workspace routes — `GET /me/workspaces`, `POST /workspaces` — are gone:
+  // FWD-5 Phase 2, the workspace collapse. An account IS its one namespace; the
+  // switcher switches ACCOUNTS (the stack above), and grouping is projects.)
 
   // ── Ops: liveness + readiness (design F6 — the autoscaled web tier) ──────────
   // `/healthz` — the process is up (load-balancer liveness). `/readyz` — the process

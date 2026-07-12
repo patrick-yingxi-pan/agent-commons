@@ -23,11 +23,14 @@ import { call } from './helpers/http.ts'
 const OWNER = 'tenant-acme' // seeded registered workspace — display name "Acme, Inc."
 let n = 0
 
-/** A registered workspace with a controlled, unique display name → mentionable. */
+/** A registered namespace with a controlled display name → mentionable. FWD-5
+ *  Phase 2: namespaces are minted only WITH an account (one each; the person's
+ *  display name IS the namespace name), so the factory is a real signup. */
+let emailSeq = 0
 function workspace(name: string): { id: string; name: string } {
-  const t = accounts.createWorkspace('user-local', name)
-  assert.ok(t, 'workspace created')
-  return { id: t!.id, name: t!.name }
+  const made = accounts.createUser(name, `mention-${(emailSeq += 1)}@mentions.example`, 'mention-pass-123')
+  assert.ok(made, 'namespace created')
+  return { id: made!.tenant.id, name: made!.tenant.name }
 }
 
 async function sharedProject(owner = OWNER): Promise<string> {
@@ -105,7 +108,7 @@ test('the longest registered name binds, and an @ inside a word (an email) is no
 test('a display name borne by two workspaces rings both — the name IS the public identity', async () => {
   const twin = `Twin ${(n += 1)}`
   const w1 = workspace(twin)
-  const w2 = workspace(twin) // same display name, distinct tenant (createWorkspace has no uniqueness guard)
+  const w2 = workspace(twin) // same display name, distinct tenant (display names have no uniqueness guard)
   const projectId = await sharedProject()
   const item = await postItem(projectId, `twin-${n}`)
   await comment(projectId, item.id, `@${twin} both of you`)

@@ -24,9 +24,9 @@ const REPLY_MARKER = 'free-form chat is canned'
 
 /** Sign the browser context in through the REAL endpoints (page.request shares
  *  the context's cookie jar, so the Set-Cookie lands where the page reads it).
- *  Ada and Grace are seeds with DOCUMENTED demo credentials (P9); Grace re-mints
- *  into tenant-beta so her stack entry's last-active tenant is the second
- *  tenant — the isolation counterpart to Ada's acme. */
+ *  Ada and Grace are seeds with DOCUMENTED demo credentials (P9); since FWD-5
+ *  Phase 2 each lands directly in their ONE namespace — Grace's is tenant-beta,
+ *  the isolation counterpart to Ada's acme. */
 async function stackSeedAccounts(page: Page) {
   const ada = await page.request.post('/api/v1/auth/login', {
     data: { email: 'ada@acme.example', password: 'ada-demo-password' },
@@ -36,8 +36,6 @@ async function stackSeedAccounts(page: Page) {
     data: { email: 'grace@acme.example', password: 'grace-demo-password' },
   })
   expect(grace.ok()).toBeTruthy()
-  const beta = await page.request.post('/api/v1/auth/session', { data: { tenantId: 'tenant-beta' } })
-  expect(beta.ok()).toBeTruthy()
 }
 
 /** Switch accounts via the chip's remembered-accounts rows (the stack —
@@ -80,8 +78,8 @@ test('a mid-generation account switch: the turn survives, the other tenant sees 
   })
 
   // Switch to the other account WHILE the turn streams (invariant I1: this only
-  // detaches the view — the turn runs on server-side). Grace's stack entry
-  // remembers tenant-beta (her last-active), so the hop lands there.
+  // detaches the view — the turn runs on server-side). Grace's one namespace is
+  // tenant-beta, so the hop lands there.
   await switchTo(page, 'Grace Hopper', 'Grace Hopper')
   await expect(page.getByTestId('account-chip')).toContainText('Beta Platform')
 
@@ -126,7 +124,7 @@ test('a mid-generation account switch: the turn survives, the other tenant sees 
   expect(full.messages[1].content).toContain(REPLY_MARKER)
 })
 
-test('the menu lists remembered accounts + real memberships (no dev directory); an active-workspace pick is a no-op', async ({ page }) => {
+test('the menu lists remembered accounts only (no dev directory, no workspace rows); an active pick is a no-op', async ({ page }) => {
   await page.goto('/')
   await stackSeedAccounts(page)
   await page.reload()
@@ -137,14 +135,13 @@ test('the menu lists remembered accounts + real memberships (no dev directory); 
   const stack = page.getByTestId('account-stack-option')
   await expect(stack).toHaveCount(2)
   await expect(stack.filter({ hasText: 'Grace' })).toContainText('Active')
-  // Your workspaces: Grace's REAL memberships — Acme + Beta Platform (active).
-  const workspaces = page.getByTestId('workspace-option')
-  await expect(workspaces).toHaveCount(2)
-  await expect(workspaces.filter({ hasText: 'Beta Platform' })).toContainText('Active')
+  // FWD-5 Phase 2: no workspace section — an account IS its one namespace.
+  await expect(page.getByTestId('workspace-option')).toHaveCount(0)
+  await expect(page.getByTestId('workspace-new')).toHaveCount(0)
   // The old "Switch identity (dev)" section is gone with the directory.
   await expect(page.getByTestId('account-option')).toHaveCount(0)
-  // Picking the already-active workspace closes the menu and changes nothing.
-  await workspaces.filter({ hasText: 'Beta Platform' }).click()
+  // Picking the already-active account closes the menu and changes nothing.
+  await stack.filter({ hasText: 'Grace' }).click()
   await expect(page.getByTestId('account-chip')).toContainText('Grace Hopper')
   await expect(page.getByTestId('account-chip')).toContainText('Beta Platform')
 })

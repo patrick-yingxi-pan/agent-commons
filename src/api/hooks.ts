@@ -3,11 +3,11 @@
  *  `useSessions()` and gains: a real fetch, a loading/error state, and live
  *  updates when the server pushes a change. Hooks grow per resource as reads
  *  migrate; Phase 1 covers capabilities + sessions. */
-import { useQuery, resetAll, invalidate, peek, type QueryState } from './cache.ts'
-import { API_BASE, apiGet, apiPost, apiUrl } from './client.ts'
+import { useQuery, resetAll, type QueryState } from './cache.ts'
+import { API_BASE, apiGet, apiUrl } from './client.ts'
 import { keys, paths } from './keys.ts'
 import { switchAccount, refreshAccount, accountGeneration, type Account } from './account.ts'
-import type { AuthAccount, Tenant as TenantT, TenantRole as TenantRoleT } from '../../contract/index.ts'
+import type { AuthAccount } from '../../contract/index.ts'
 import type {
   Runner,
   Agent,
@@ -77,12 +77,6 @@ export function useMe(): QueryState<Identity> {
  *    3. `resetAll` — every cached read refetches as the new account.
  *  A failed mint changes nothing (no partial switch); a same-account pick is a
  *  no-op. Passing null signs out (DELETE — back to the backend default). */
-/** The signed-in account's workspaces (P7) — the chip menu's real switch
- *  targets, distinct from the seeded dev directory (`useIdentities`). */
-export function useMyWorkspaces(enabled = true): QueryState<Array<{ tenant: TenantT; role: TenantRoleT }>> {
-  return useQuery(keys.meWorkspaces, () => apiGet<Array<{ tenant: TenantT; role: TenantRoleT }>>(paths.meWorkspaces), enabled)
-}
-
 /** The accounts signed in on THIS browser (multi-account §12) — the switcher's
  *  instant-hop rows and the auth screen's "Choose an account" picker,
  *  GitHub-style. Server-resolved from the signed account-stack cookie; empty
@@ -115,19 +109,6 @@ export const signUp = (name: string, email: string, password: string) =>
   authFlow(paths.authSignup, { name, email, password })
 export const signIn = (email: string, password: string) => authFlow(paths.authLogin, { email, password })
 
-/** Create an org workspace under the signed-in account and switch into it. */
-export async function createWorkspace(name: string): Promise<{ ok: true } | { ok: false; message: string }> {
-  try {
-    const tenant = await apiPost<TenantT>(paths.workspaces, { name })
-    invalidate(keys.meWorkspaces)
-    const me = peek<Identity>(keys.me)
-    await switchActiveAccount({ userId: me?.user.id ?? '', tenantId: tenant.id })
-    return { ok: true }
-  } catch (err) {
-    return { ok: false, message: err instanceof Error ? err.message : 'Failed to create workspace' }
-  }
-}
-
 /** The client half of a switch whose session the SERVER already minted (a
  *  signup/login response set the cookie): record the pick and reset the world. */
 export function adoptMintedSession(next: Account): void {
@@ -141,14 +122,10 @@ export function adoptMintedSession(next: Account): void {
  *  echo tripwire would catch it loudly, but not starting the race is better). */
 let switching = false
 
-export function switchActiveAccount(next: Account | null): Promise<boolean> {
-  return guardedSwitch(next)
-}
-
 /** Instant hop to an account REMEMBERED on this browser (§12): POST the bare
  *  userId — the server validates it against the signed stack cookie and lands
- *  it on its last-active workspace. No credential re-entry (GitHub-style); the
- *  stack cookie is the proof it already signed in here. */
+ *  it in the account's ONE namespace (FWD-5 Phase 2). No credential re-entry
+ *  (GitHub-style); the stack cookie is the proof it already signed in here. */
 export function switchToAccount(userId: string): Promise<boolean> {
   return guardedSwitch({ userId })
 }
@@ -159,7 +136,7 @@ export function signOut(all = false): Promise<boolean> {
   return guardedSwitch(null, all ? '?all=1' : '')
 }
 
-async function guardedSwitch(body: { userId?: string; tenantId?: string } | null, query = ''): Promise<boolean> {
+async function guardedSwitch(body: { userId: string } | null, query = ''): Promise<boolean> {
   if (switching) return false
   switching = true
   try {
@@ -169,7 +146,7 @@ async function guardedSwitch(body: { userId?: string; tenantId?: string } | null
   }
 }
 
-async function performSwitch(body: { userId?: string; tenantId?: string } | null, query: string): Promise<boolean> {
+async function performSwitch(body: { userId: string } | null, query: string): Promise<boolean> {
   const before = accountGeneration()
   // The account the switch LANDED on — for a POST, read from the response's
   // resolved Identity (server truth: a bare stack pick doesn't even know its

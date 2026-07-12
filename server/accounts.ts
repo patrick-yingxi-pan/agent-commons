@@ -35,6 +35,11 @@ export interface AccountTenant extends Tenant {
   seeded?: boolean
 }
 
+/** FWD-5 Phase 2 (the workspace collapse): a user holds exactly ONE membership —
+ *  their namespace (`homeOf`). The join-table shape survives on purpose: it is the
+ *  persisted slice (older snapshots carry it) and the seam orgs would re-enter
+ *  through (docs/design/principals-and-namespaces.md §4.1) — but nothing mints a
+ *  second row anymore, and `rehydrate` enforces one-per-user. */
 export interface Membership {
   userId: string
   tenantId: string
@@ -61,13 +66,15 @@ export class AccountRegistry {
     this.seed()
   }
 
-  /** The seeds — the desktop's local user with personal + work workspaces, and
-   *  the SIX demo accounts (docs/demo-accounts.md): each a themed principal
-   *  with a documented demo credential and its own workspace, so the
-   *  multi-account demo has genuinely distinguishable worlds to hop between.
-   *  Ada owns the default tenant (the flagship dataset); Grace holds the
-   *  cross-tenant pair (Acme member + her own platform workspace — also the
-   *  co-authoring E2E's "Bo"); the other four each own one themed org. */
+  /** The seeds — the desktop's local user and the SIX demo accounts
+   *  (docs/demo-accounts.md): each a themed principal with a documented demo
+   *  credential and exactly ONE namespace (FWD-5 Phase 2 — the workspace
+   *  collapse: account = namespace, 1:1). Ada's namespace is the flagship
+   *  dataset (`tenant-acme`); Grace's is her platform world (`tenant-beta` —
+   *  also the co-authoring E2E's "Bo"); the other four each own one themed
+   *  world. The pre-collapse second seats (local's "Acme (work)" membership,
+   *  Grace's Acme membership) are gone — cross-account collaboration is shared
+   *  projects, not shared tenancy. */
   seed(): void {
     this.users.clear()
     this.tenants.clear()
@@ -79,7 +86,6 @@ export class AccountRegistry {
     }
     const local: AccountUser = { id: 'user-local', name: 'You', seeded: true }
     put(local, { id: 'tenant-personal', name: 'Personal', kind: 'personal', seeded: true }, 'owner')
-    put(local, { id: 'tenant-work', name: 'Acme (work)', kind: 'org', seeded: true }, 'member')
     // The web principals carry DEMO CREDENTIALS (P9 — the dev enumeration
     // directory retired): since multi-account went real, the only way to act
     // as a seed is the same way as any account — sign in. The hashes are
@@ -107,7 +113,6 @@ export class AccountRegistry {
     }
     const acme: AccountTenant = { id: 'tenant-acme', name: 'Acme, Inc.', kind: 'org', seeded: true }
     put(ada, acme, 'owner')
-    put(grace, acme, 'member')
     put(grace, { id: 'tenant-beta', name: 'Beta Platform', kind: 'org', seeded: true }, 'owner')
     // The other four demo principals (docs/demo-accounts.md) — one themed org
     // each, same precomputed-credential pattern as ada/grace above.
@@ -174,8 +179,10 @@ export class AccountRegistry {
     return [...this.users.values()].find((u) => u.email?.toLowerCase() === needle)
   }
 
-  /** Onboard a real account: user + their personal workspace, credential hashed.
-   *  Returns null on a duplicate email (the route 409s). */
+  /** Onboard a real account: user + their ONE namespace, credential hashed.
+   *  The namespace bears the person's display name (GitHub-style — your
+   *  namespace IS you; FWD-5 Phase 2 dropped the "(personal)" suffix with the
+   *  workspace framing). Returns null on a duplicate email (the route 409s). */
   createUser(name: string, email: string, password: string): { user: AccountUser; tenant: AccountTenant } | null {
     if (this.findByEmail(email)) return null
     this.userSeq += 1
@@ -188,7 +195,7 @@ export class AccountRegistry {
       passwordSalt: salt,
       passwordHash: hashPassword(password, salt),
     }
-    const tenant: AccountTenant = { id: `tenant-u${this.userSeq}-personal`, name: `${user.name} (personal)`, kind: 'personal' }
+    const tenant: AccountTenant = { id: `tenant-u${this.userSeq}-personal`, name: user.name, kind: 'personal' }
     this.users.set(user.id, user)
     this.tenants.set(tenant.id, tenant)
     this.memberships.push({ userId: user.id, tenantId: tenant.id, role: 'owner' })
@@ -209,25 +216,12 @@ export class AccountRegistry {
     return given.length === stored.length && timingSafeEqual(given, stored) ? u : null
   }
 
-  /** Create an org workspace under an existing user (they become owner). */
-  createWorkspace(userId: string, name: string): AccountTenant | null {
-    if (!this.users.has(userId)) return null
-    this.tenantSeq += 1
-    const tenant: AccountTenant = { id: `tenant-ws-${this.tenantSeq}`, name: name.trim(), kind: 'org' }
-    this.tenants.set(tenant.id, tenant)
-    this.memberships.push({ userId, tenantId: tenant.id, role: 'owner' })
-    return tenant
-  }
-
-  /** A user's workspaces (for the chip menu) — their own memberships only. */
-  workspacesOf(userId: string): Array<{ tenant: Tenant; role: TenantRole }> {
-    return this.memberships
-      .filter((m) => m.userId === userId)
-      .map((m) => {
-        const t = this.tenants.get(m.tenantId)
-        return t ? { tenant: { id: t.id, name: t.name, kind: t.kind }, role: m.role } : null
-      })
-      .filter((x): x is { tenant: Tenant; role: TenantRole } => !!x)
+  /** A user's ONE namespace (FWD-5 Phase 2 — account = namespace). Undefined only
+   *  for a gone user or a dangling membership; every minted account has exactly one. */
+  homeOf(userId: string): { tenant: Tenant; role: TenantRole } | undefined {
+    const m = this.memberships.find((x) => x.userId === userId)
+    const t = m && this.tenants.get(m.tenantId)
+    return t ? { tenant: { id: t.id, name: t.name, kind: t.kind }, role: m.role } : undefined
   }
 
   // ── Persistence faces (additive slices; seeds re-ensured on rehydrate) ──────
@@ -257,7 +251,11 @@ export class AccountRegistry {
     for (const [id, u] of snapshotUsers) if (!this.users.get(id)?.seeded) this.users.set(id, u)
     for (const [id, t] of snapshotTenants) if (!this.tenants.get(id)?.seeded) this.tenants.set(id, t)
     for (const m of snapshotMemberships) {
-      if (!this.membership(m.userId, m.tenantId)) this.memberships.push(m)
+      // ONE membership per user (FWD-5 Phase 2): a pre-collapse snapshot may echo
+      // extra seats (Grace's Acme membership, a created org workspace) — the first
+      // row a user has wins; the rest are dropped, not restored. Seeds are already
+      // in place, so a seed user's snapshot echo never lands.
+      if (!this.memberships.some((x) => x.userId === m.userId)) this.memberships.push(m)
     }
     this.userSeq = Math.max(this.userSeq, s.seq?.user ?? 0)
     this.tenantSeq = Math.max(this.tenantSeq, s.seq?.tenant ?? 0)

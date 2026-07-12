@@ -66,22 +66,18 @@ test('a second sign-in stacks alongside the first; the bare-userId mint hops bac
   assert.equal(ghost.status, 400)
 })
 
-test('the stack records the last-active tenant — a hop back lands where the account left off', async () => {
+test('a hop back lands in the account’s ONE namespace — there is nowhere else (FWD-5 Phase 2)', async () => {
   const a = await signup('Tenant Tia', 'tenant-t@example.test')
   const aId = a.json.user.id as string
+  const aNamespace = a.json.tenant.id as string
 
-  // Create an org workspace (switches the registry, not the cookie) and re-mint
-  // into it — the workspace path refreshes the stack entry's tenant.
-  const ws = await call('POST', '/workspaces', { name: 'Tia Lab' }, { cookie: cookies(a) })
-  assert.equal(ws.status, 201)
-  const remint = await call('POST', '/auth/session', { userId: aId, tenantId: ws.json.id }, { cookie: cookies(a) })
-  assert.equal(remint.status, 200)
-  assert.equal(remint.json.tenant.id, ws.json.id)
-
-  // Stack a second account, then hop back: Tia lands in the Lab, not personal.
-  const b = await signup('Tenant Bo', 'tenant-b@example.test', cookies(remint))
+  // Stack a second account, then hop back: Tia lands in her namespace — the
+  // stack entry's remembered tenant is derived, never trusted (a pre-collapse
+  // cookie may carry an org tenant that no longer resolves).
+  const b = await signup('Tenant Bo', 'tenant-b@example.test', cookies(a))
   const hop = await call('POST', '/auth/session', { userId: aId }, { cookie: cookies(b) })
-  assert.equal(hop.json.tenant.id, ws.json.id, 'the last-active workspace is the landing tenant')
+  assert.equal(hop.status, 200)
+  assert.equal(hop.json.tenant.id, aNamespace, 'the one namespace is the landing tenant')
 })
 
 test('sign-out forgets the ACTIVE account only; ?all=1 forgets everything', async () => {
@@ -100,50 +96,42 @@ test('sign-out forgets the ACTIVE account only; ?all=1 forgets everything', asyn
   assert.match(outAll.headers['set-cookie'], /uw_accounts=;/, 'the whole stack clears')
 })
 
-test('/auth/accounts resolves strictly: unknown users drop; a workspace re-mint never joins the stack', async () => {
+test('/auth/accounts resolves strictly: unknown users drop; the workspace re-mint arm is gone', async () => {
   // A validly-signed stack naming a user the registry never had: dropped, not guessed.
   const forged = signStack([{ userId: 'user-never-existed', tenantId: 'tenant-x', iat: Date.now() }])
   const list = await call('GET', '/auth/accounts', undefined, { cookie: `uw_accounts=${forged}` })
   assert.deepEqual(list.json, [])
 
-  // A workspace re-mint (here: the desktop default principal moving into its
-  // seeded work workspace — the membership path) mints a session but does NOT
-  // join the stack: only CREDENTIALED sign-ins are "remembered on this browser".
-  const remint = await call('POST', '/auth/session', { userId: 'user-local', tenantId: 'tenant-work' })
-  assert.equal(remint.status, 200)
-  assert.equal(stackTok(remint), '', 'no stack cookie for a credential-less re-mint')
-  const after = await call('GET', '/auth/accounts', undefined, { cookie: cookies(remint) })
-  assert.deepEqual(after.json, [])
+  // The old credential-less workspace re-mint (a tenantId mint) is refused
+  // loudly (FWD-5 Phase 2 / INV-9) — an account has exactly one namespace, so
+  // the only credential-less mint left is the stack hop, which by construction
+  // requires a stack the account already joined by signing in.
+  const remint = await call('POST', '/auth/session', { tenantId: 'tenant-personal' })
+  assert.equal(remint.status, 400, 'a tenantId mint is a caller bug, refused — never normalized')
 })
 
-test('seeds sign in like everyone else (P9 — the enumeration directory is gone): demo credentials, stack, workspaces', async () => {
+test('seeds sign in like everyone else (P9 — the enumeration directory is gone): demo credentials, one namespace each', async () => {
   // The web principals carry DOCUMENTED demo credentials — the multi-tenancy
   // demo now walks through the REAL flow instead of a dev directory pick.
   const ada = await call('POST', '/auth/login', { email: 'ada@acme.example', password: 'ada-demo-password' })
   assert.equal(ada.status, 200)
   assert.equal(ada.json.user.id, 'user-ada')
+  assert.equal(ada.json.tenant.id, 'tenant-acme', 'Ada lands in her namespace — the flagship world')
   assert.equal(ada.json.via, 'session', 'a seed sign-in is a verified session like any other')
   assert.ok(stackTok(ada), 'and it joins the account stack like any other')
 
+  // Grace lands DIRECTLY in her one namespace (FWD-5 Phase 2 — her old second
+  // seat on Acme is gone; cross-account collaboration is shared projects).
   const grace = await call('POST', '/auth/login', { email: 'grace@acme.example', password: 'grace-demo-password' }, { cookie: cookies(ada) })
   assert.equal(grace.status, 200)
   assert.equal(grace.json.user.id, 'user-grace')
+  assert.equal(grace.json.tenant.id, 'tenant-beta')
 
-  // Grace's cross-tenant membership (the co-authoring second tenant) is reached
-  // through HER workspaces — a membership re-mint, not an enumeration.
-  const workspaces = await call('GET', '/me/workspaces', undefined, { cookie: cookies(grace) })
-  assert.ok(
-    workspaces.json.some((w: { tenant: { id: string } }) => w.tenant.id === 'tenant-beta'),
-    'tenant-beta lists among her memberships',
-  )
-  const beta = await call('POST', '/auth/session', { tenantId: 'tenant-beta' }, { cookie: cookies(grace) })
-  assert.equal(beta.status, 200)
-  assert.equal(beta.json.tenant.id, 'tenant-beta')
-
-  // Both seeds now hop through the stack, credential-less — same as real accounts.
-  const back = await call('POST', '/auth/session', { userId: 'user-ada' }, { cookie: cookies(beta) })
+  // Both seeds hop through the stack, credential-less — same as real accounts.
+  const back = await call('POST', '/auth/session', { userId: 'user-ada' }, { cookie: cookies(grace) })
   assert.equal(back.status, 200)
   assert.equal(back.json.user.id, 'user-ada')
+  assert.equal(back.json.tenant.id, 'tenant-acme')
 
   // The desktop's device owner deliberately has NO credential — it never signs in.
   const local = await call('POST', '/auth/login', { email: 'local@nowhere.example', password: 'anything-at-all' })

@@ -7,8 +7,6 @@ export const keys = {
   capabilities: 'capabilities',
   /** The current principal + tenant (design F2 / P1 §4 — "Identity from /v1/me"). */
   me: 'me',
-  /** The signed-in account's workspaces (P7 — the chip menu's switch targets). */
-  meWorkspaces: 'me-workspaces',
   /** The accounts signed in on this browser (§12 — the switcher's instant hops). */
   authAccounts: 'auth-accounts',
   providers: 'providers',
@@ -82,9 +80,6 @@ export const paths = {
   authLogin: '/auth/login',
   /** The account stack (§12): every account signed in on this browser. */
   authAccounts: '/auth/accounts',
-  /** The signed-in account's workspaces + workspace creation (P7). */
-  meWorkspaces: '/me/workspaces',
-  workspaces: '/workspaces',
   /** Reattach to a live server-owned turn (multi-account §5.2): replay after
    *  `after`, then the live tail. 404 once persisted (refetch the session). */
   turnStream: (id: string, turnId: string, after: number) =>

@@ -1,9 +1,10 @@
 /** The auth flow's pure logic + shared primitives (src/lib/authFlow.ts,
  *  multi-account §12): the sign-up wizard's step machine, the password rule
  *  checklist (mirroring the server's 8–128 bound), the email shape mirror —
- *  and the form-follows-function lock: the full-screen AuthScreen AND the
- *  sidebar menu's inline workspace form both wear the shared form primitives,
- *  and no component re-hardcodes the input class literal. */
+ *  and the form-follows-function lock: the full-screen AuthScreen wears the
+ *  shared form primitives and no component re-hardcodes the input class
+ *  literal. (Two steps since FWD-5 Phase 2 — the optional team-workspace step
+ *  went with workspace multiplicity.) */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
@@ -22,23 +23,21 @@ import {
   stepValid,
 } from '../src/lib/authFlow.ts'
 
-test('the step machine walks details → password → workspace and back', () => {
-  assert.deepEqual([...SIGNUP_STEPS], ['details', 'password', 'workspace'])
+test('the step machine walks details → password and back (no workspace step — FWD-5 Phase 2)', () => {
+  assert.deepEqual([...SIGNUP_STEPS], ['details', 'password'])
   assert.equal(stepAfter('details'), 'password')
-  assert.equal(stepAfter('password'), 'workspace')
-  assert.equal(stepAfter('workspace'), null, 'the last step submits, it does not advance')
+  assert.equal(stepAfter('password'), null, 'the last step submits, it does not advance')
   assert.equal(stepBefore('details'), null)
-  assert.equal(stepBefore('workspace'), 'password')
+  assert.equal(stepBefore('password'), 'details')
 })
 
-test('step gates: details needs a name + a plausible email; password needs the rules; workspace is optional', () => {
+test('step gates: details needs a name + a plausible email; password needs the rules', () => {
   assert.equal(stepValid('details', EMPTY_SIGNUP), false)
   assert.equal(stepValid('details', { ...EMPTY_SIGNUP, name: '  ', email: 'a@b.co' }), false, 'whitespace is not a name')
   assert.equal(stepValid('details', { ...EMPTY_SIGNUP, name: 'Ada', email: 'not-an-email' }), false)
   assert.equal(stepValid('details', { ...EMPTY_SIGNUP, name: 'Ada', email: 'ada@acme.example' }), true)
   assert.equal(stepValid('password', { ...EMPTY_SIGNUP, password: 'short' }), false)
   assert.equal(stepValid('password', { ...EMPTY_SIGNUP, password: 'long-enough-1' }), true)
-  assert.equal(stepValid('workspace', EMPTY_SIGNUP), true, 'the team workspace is optional — always passable')
 })
 
 test('the password checklist mirrors the server bound (8–128) and ticks live', () => {
@@ -61,16 +60,11 @@ test('the email shape mirrors the server rule', () => {
   assert.equal(String(EMAIL_SHAPE), m![1], 'client and server agree on the shape (hint-level, server remains the gate)')
 })
 
-test('form follows function: both auth surfaces wear the shared primitives; nobody re-hardcodes them', () => {
+test('form follows function: the auth surface wears the shared primitives; nobody re-hardcodes them', () => {
   const screen = stripComments(read(join(ROOT, 'src', 'components', 'auth', 'AuthScreen.tsx')))
   assert.match(screen, /from\s+'(\.\.\/)+lib\/authFlow'/, 'AuthScreen imports the shared module')
   for (const token of ['AUTH_INPUT_CLASS', 'AUTH_PRIMARY_CLASS', 'AUTH_ERROR_CLASS']) {
     assert.ok(screen.includes(token), `AuthScreen wears ${token}`)
-  }
-  const menu = stripComments(read(join(ROOT, 'src', 'components', 'AccountMenu.tsx')))
-  assert.match(menu, /from\s+'(\.\.\/)+lib\/authFlow'/, 'the menu form imports the shared module')
-  for (const token of ['AUTH_INPUT_CLASS', 'AUTH_PRIMARY_CLASS', 'AUTH_ERROR_CLASS']) {
-    assert.ok(menu.includes(token), `the menu form wears ${token}`)
   }
   // The literal lives ONCE, in the lib module — a re-hardcoded copy would drift.
   const needle = AUTH_INPUT_CLASS.slice(0, 40)

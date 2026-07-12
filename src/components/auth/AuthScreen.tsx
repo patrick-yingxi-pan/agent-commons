@@ -5,18 +5,19 @@
  *  views, navigable in place (useAuthScreen):
  *    • Sign in — email + password;
  *    • Create account — a stepped wizard (details → password with a live rule
- *      checklist → workspace) that submits ONE atomic signup at the end;
+ *      checklist) that submits ONE atomic signup at the end — the account is
+ *      minted WITH its one namespace (FWD-5 Phase 2: no workspace step);
  *    • Choose an account — the remembered-accounts picker (the account stack):
  *      instant, credential-less hops for accounts that already signed in here.
  *  Every submit rides the SAME onboarding seams the sidebar menu uses
- *  (signIn / signUp / createWorkspace / switchToAccount) — the server mints the
+ *  (signIn / signUp / switchToAccount) — the server mints the
  *  session cookie and the world resets. This surface adds no new trust, only a
  *  front door; when `gated` (AUTH_GATE=require) the back-to-workspace escape is
  *  withheld and signing in is the only way through. */
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { ArrowLeft, Check } from 'lucide-react'
 import { ClaudeMark } from '../ClaudeMark'
-import { signIn, signUp, createWorkspace, switchToAccount, useAuthAccounts } from '../../api'
+import { signIn, signUp, switchToAccount, useAuthAccounts } from '../../api'
 import { closeAuthScreen, type AuthScreenView } from '../../controller/useAuthScreen'
 import {
   AUTH_ERROR_CLASS,
@@ -143,21 +144,19 @@ function SignUpWizard({ onMode }: { onMode: (m: AuthScreenView) => void }) {
     if (next) setStep(next)
   }
 
-  // ONE atomic submit at the wizard's end: the account + personal workspace
-  // (server-side), then the optional team workspace (which switches into it).
+  // ONE atomic submit at the wizard's end: signup mints the account WITH its
+  // one namespace (FWD-5 Phase 2 — there is no separate workspace to set up).
   const create = async (e: FormEvent) => {
     e.preventDefault()
+    if (!canAdvance) return
     setBusy(true)
     setError('')
     const r = await signUp(draft.name.trim(), draft.email.trim(), draft.password)
+    setBusy(false)
     if (!r.ok) {
-      setBusy(false)
       setError(r.message)
       return
     }
-    const team = draft.teamWorkspace.trim()
-    if (team) await createWorkspace(team) // best-effort: the account itself is already live
-    setBusy(false)
     closeAuthScreen()
   }
 
@@ -165,7 +164,6 @@ function SignUpWizard({ onMode }: { onMode: (m: AuthScreenView) => void }) {
   const titles: Record<SignUpStep, string> = {
     details: 'Create your account',
     password: 'Choose a password',
-    workspace: 'Set up your workspace',
   }
   return (
     <>
@@ -212,7 +210,7 @@ function SignUpWizard({ onMode }: { onMode: (m: AuthScreenView) => void }) {
       )}
 
       {step === 'password' && (
-        <Card as="form" onSubmit={advance}>
+        <Card as="form" onSubmit={create}>
           <Field label="Password" testid="auth-password">
             <input
               data-testid="auth-password"
@@ -237,32 +235,8 @@ function SignUpWizard({ onMode }: { onMode: (m: AuthScreenView) => void }) {
               </li>
             ))}
           </ul>
-          <button type="submit" data-testid="auth-continue" disabled={!canAdvance} className={AUTH_PRIMARY_CLASS}>
-            Continue
-          </button>
-          <BackLink onClick={() => setStep(stepBefore(step)!)} />
-        </Card>
-      )}
-
-      {step === 'workspace' && (
-        <Card as="form" onSubmit={create}>
-          <div className="rounded-md border border-line bg-panel px-3 py-2">
-            <p className="text-[12px] font-medium text-ink">{draft.name.trim() || 'You'} (personal)</p>
-            <p className="text-[11px] text-ink-faint">Your personal workspace — created with your account.</p>
-          </div>
-          <Field label="Team workspace (optional)" testid="auth-team-workspace">
-            <input
-              data-testid="auth-team-workspace"
-              type="text"
-              autoFocus
-              placeholder="e.g. Acme Design"
-              value={draft.teamWorkspace}
-              onChange={(e) => set({ teamWorkspace: e.target.value })}
-              className={AUTH_INPUT_CLASS}
-            />
-          </Field>
           {error && <ErrorNote>{error}</ErrorNote>}
-          <button type="submit" data-testid="auth-submit" disabled={busy} className={AUTH_PRIMARY_CLASS}>
+          <button type="submit" data-testid="auth-submit" disabled={busy || !canAdvance} className={AUTH_PRIMARY_CLASS}>
             {busy ? 'Creating your account…' : 'Create account'}
           </button>
           <BackLink onClick={() => setStep(stepBefore(step)!)} />

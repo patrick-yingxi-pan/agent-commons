@@ -2,9 +2,8 @@
  *  Everything about the full-screen sign-in / sign-up surface that isn't JSX:
  *  the client-side mirrors of the server's validation rules (shape hints only —
  *  the SERVER remains the gate), the sign-up wizard's step machine, and the
- *  shared class tokens every auth form control wears (form follows function:
- *  the sidebar menu's inline workspace form and the full-screen flow are the
- *  same kind of form, so they draw from the same primitives).
+ *  shared class tokens every auth form control wears (form follows function —
+ *  one auth-form look, whatever surface renders it).
  *
  *  A plain module (no JSX / React / import.meta.env) so the DOM-less Node test
  *  runner locks the step machine and the password rules directly —
@@ -39,7 +38,9 @@ export function passwordOk(password: string): boolean {
 
 /* ── The sign-up wizard's step machine ──────────────────────────────────────── */
 
-export const SIGNUP_STEPS = ['details', 'password', 'workspace'] as const
+// Two steps (FWD-5 Phase 2): signup mints the account WITH its one namespace —
+// the old optional "team workspace" third step went with workspace multiplicity.
+export const SIGNUP_STEPS = ['details', 'password'] as const
 export type SignUpStep = (typeof SIGNUP_STEPS)[number]
 
 /** What the wizard collects across its steps; ONE atomic signup submits at the
@@ -49,23 +50,17 @@ export interface SignUpDraft {
   name: string
   email: string
   password: string
-  /** Optional org workspace to create right after the account (the personal
-   *  workspace is always created by signup itself). Empty = skip. */
-  teamWorkspace: string
 }
 
-export const EMPTY_SIGNUP: SignUpDraft = { name: '', email: '', password: '', teamWorkspace: '' }
+export const EMPTY_SIGNUP: SignUpDraft = { name: '', email: '', password: '' }
 
-/** Whether a step's inputs allow advancing — the Continue button's gate. The
- *  workspace step is always passable (its input is optional). */
+/** Whether a step's inputs allow advancing — the Continue button's gate. */
 export function stepValid(step: SignUpStep, draft: SignUpDraft): boolean {
   switch (step) {
     case 'details':
       return draft.name.trim().length > 0 && EMAIL_SHAPE.test(draft.email.trim())
     case 'password':
       return passwordOk(draft.password)
-    case 'workspace':
-      return true
   }
 }
 
@@ -80,8 +75,7 @@ export function stepBefore(step: SignUpStep): SignUpStep | null {
 }
 
 /* ── Shared styled primitives (form follows function) ───────────────────────
- * Every auth-flow form control — full-screen sign-in/sign-up AND the sidebar
- * menu's inline workspace form — wears these, so the two surfaces can't drift
+ * Every auth-flow form control wears these, so auth surfaces can't drift
  * apart. Locked by tests/auth-flow.test.ts (no component re-hardcodes them). */
 
 export const AUTH_INPUT_CLASS =

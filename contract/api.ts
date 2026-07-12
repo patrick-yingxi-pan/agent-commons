@@ -238,8 +238,6 @@ export interface LoginRequest {
   password: string
 }
 
-/** Body of `POST /v1/workspaces` (P7) — create an org workspace under the
- *  signed-in account (the caller becomes its owner). Returns the `Tenant`. */
-export interface CreateWorkspaceRequest {
-  name: string
-}
+// (`CreateWorkspaceRequest` is gone — FWD-5 Phase 2, the workspace collapse:
+// an account is minted WITH its one namespace at signup and never grows more;
+// orgs would return as namespaces through the deferred phase, not this seam.)

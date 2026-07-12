@@ -20,10 +20,10 @@
 
 ## The roster
 
-| # | Account | Email · password | Workspace | Theme — what you'll find |
+| # | Account | Email · password | Namespace | Theme — what you'll find |
 |---|---------|------------------|-----------|--------------------------|
 | 1 | **Ada Lovelace** | `ada@acme.example` · `ada-demo-password` | **Acme, Inc.** (org) | **The flagship** — product & platform. The Insights + Platform-hardening projects, the auth-refactor repo session, issue-triage + standup routines. |
-| 2 | **Grace Hopper** | `grace@acme.example` · `grace-demo-password` | **Beta Platform** (org) + Acme membership | Deploys & reliability — canary pipeline (repo session), cache-stampede postmortem, on-call error watch. Her Acme membership shows org sharing; she's also the co-authoring E2E's second tenant. |
+| 2 | **Grace Hopper** | `grace@acme.example` · `grace-demo-password` | **Beta Platform** (org) | Deploys & reliability — canary pipeline (repo session), cache-stampede postmortem, on-call error watch. She's also the co-authoring E2E's second tenant. |
 | 3 | **Maya Chen** | `maya@growthworks.example` · `maya-demo-password` | **Growthworks** (org) | Growth & experimentation — onboarding A/B readout, June churn analysis, Q3 board deck, weekly metrics roll-up routine. |
 | 4 | **Noor Haddad** | `noor@northlight.example` · `noor-demo-password` | **Northlight Studio** (org) | Brand & marketing — brand-voice guide, homepage rewrite, logo lockups, weekly site-copy-review routine. |
 | 5 | **Omar Diaz** | `omar@harborsupport.example` · `omar-demo-password` | **Harbor Support** (org) | Support operations — weekly ticket themes, reply-macro refresh, SEV-1 comms, daily ticket-themes routine (with a real failed run). |
@@ -37,9 +37,11 @@
   artifacts, dispatch, and the recent-runs feed are tenant-scoped** end to end
   (routes pass the caller's tenant; by-id schedule mutations sit behind a
   foreign-tenant 404 wall like sessions).
-- **The flagship seat has two faces.** Untagged seed rows belong to the
-  backend's *default principal* — the local user's Personal workspace on the
-  desktop backend, Ada/Acme on the web — **and** to `tenant-acme` explicitly
+- **The flagship world has two faces** (a cross-BACKEND fixture share, not
+  account multiplicity — FWD-5 Phase 2 collapsed workspaces, and every account
+  holds exactly ONE namespace). Untagged seed rows belong to the backend's
+  *default principal* — the local user's Personal namespace on the desktop
+  backend, Ada/Acme on the web — **and** to `tenant-acme` explicitly
   (`seedVisibleTo`), so signing in as Ada on the desktop shows the same
   flagship world instead of an empty one. Runtime-created rows
   are always stamped with their creator's tenant, so this widens nothing.
@@ -49,7 +51,9 @@
   (the same seed-authority rule as the account registry, P9).
 - Credentials are precomputed scrypt constants (fixed salts) — no boot or
   test-time hashing cost. The desktop's `user-local` deliberately has **no**
-  credential: the device owner never signs in; only their workspace switches.
+  credential: the device owner never signs in (its Personal namespace is the
+  backend default; since FWD-5 Phase 2 there is nothing to switch except
+  signed-in ACCOUNTS).
 
 ## Playing with them
 

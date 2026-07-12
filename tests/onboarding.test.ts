@@ -1,9 +1,9 @@
 /** Real accounts (multi-account P7): onboarding creates persisted users with a
  *  scrypt credential and signs them in on the P6 cookie; login never leaks
- *  account existence; workspaces are memberships you can re-mint into; the dev
- *  switcher directory never lists an onboarded account; a stale credential
- *  resolves to nothing; and the whole registry survives the persistence
- *  round-trip — hash included. */
+ *  account existence; an account is minted WITH its one namespace (FWD-5
+ *  Phase 2 — no workspace creation, no re-mints); the dev switcher directory
+ *  never lists an onboarded account; a stale credential resolves to nothing;
+ *  and the whole registry survives the persistence round-trip — hash included. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { call } from './helpers/http.ts'
@@ -66,29 +66,19 @@ test('login: right credential signs in; wrong password and unknown email are IND
   assert.equal(seed.status, 401)
 })
 
-test('workspaces: create under your account, list your memberships, re-mint into one — and only one you hold', async () => {
+test('the workspace surface is GONE (FWD-5 Phase 2): no create route, no list route, no re-mint', async () => {
   const signup = await call('POST', '/auth/signup', { name: 'Wanda Ws', email: 'wanda@example.test', password: 'wandas-password-1' })
   const cookie = cookieOf(signup.headers['set-cookie'])
+  assert.equal(signup.json.tenant.name, 'Wanda Ws', 'the namespace bears the person’s name (GitHub-style)')
 
-  const created = await call('POST', '/workspaces', { name: 'Wanda Research' }, { cookie })
-  assert.equal(created.status, 201)
-  assert.equal(created.json.kind, 'org')
+  // The routes are unrouted tombstones (status 0 at this handler-level harness,
+  // a real 404 at the entry server — same shape as the retired /identities).
+  assert.equal((await call('POST', '/workspaces', { name: 'Wanda Research' }, { cookie })).status, 0)
+  assert.equal((await call('GET', '/me/workspaces', undefined, { cookie })).status, 0)
 
-  const mine = await call('GET', '/me/workspaces', undefined, { cookie })
-  assert.equal(mine.json.length, 2, 'personal + the new org')
-  assert.ok(mine.json.some((w: any) => w.tenant.id === created.json.id && w.role === 'owner'))
-
-  // Re-mint the session into the new workspace (the switcher's real-account path).
-  const switched = await call('POST', '/auth/session', { tenantId: created.json.id }, { cookie })
-  assert.equal(switched.status, 200)
-  assert.equal(switched.json.tenant.id, created.json.id)
-  assert.equal(switched.json.role, 'owner')
-  assert.equal(switched.json.user.email, 'wanda@example.test')
-
-  // A DIFFERENT principal (the backend default — no cookie) holds no membership
-  // there: the re-mint is refused, so workspaces aren't enumerable-by-switching.
-  const foreign = await call('POST', '/auth/session', { tenantId: created.json.id })
-  assert.equal(foreign.status, 400)
+  // And the session route's old workspace re-mint arm refuses a tenantId loudly.
+  const remint = await call('POST', '/auth/session', { tenantId: signup.json.tenant.id }, { cookie })
+  assert.equal(remint.status, 400, 'a tenantId mint is refused — an account has exactly one namespace')
 })
 
 test('identities are not enumerable — the dev directory route is GONE (P9)', async () => {
@@ -122,7 +112,7 @@ test('the registry survives the persistence round-trip — credential and member
 
   assert.ok(reborn.verifyPassword('pat@example.test', 'pats-password-99'), 'the scrypt hash survived the restart')
   assert.equal(reborn.verifyPassword('pat@example.test', 'wrong'), null)
-  assert.equal(reborn.workspacesOf(patId).length, accounts.workspacesOf(patId).length, 'memberships intact')
+  assert.deepEqual(reborn.homeOf(patId), accounts.homeOf(patId), 'the one namespace is intact')
   assert.ok(reborn.users.get('user-local') && reborn.users.get('user-ada'), 'seeds present after rehydrate')
 
   // A PRE-P7 snapshot (no account slices): rehydrate keeps the seeds untouched.
@@ -130,6 +120,16 @@ test('the registry survives the persistence round-trip — credential and member
   const before = preP7.users.size
   preP7.rehydrate({})
   assert.equal(preP7.users.size, before, 'absent slices are a no-op — the seed directory stays')
+})
+
+test("a pre-collapse snapshot's extra memberships are dropped, not restored (FWD-5: one namespace per account)", () => {
+  // An older build's snapshot echoes Grace's second seat (the Acme membership).
+  // Rehydrate keeps ONE membership per user — the echo must not resurrect
+  // workspace multiplicity through the persistence door.
+  const reborn = new AccountRegistry()
+  reborn.rehydrate({ users: [], tenants: [], memberships: [{ userId: 'user-grace', tenantId: 'tenant-acme', role: 'member', seeded: true }] })
+  assert.equal(reborn.membership('user-grace', 'tenant-acme'), undefined, 'the old second seat stays gone')
+  assert.ok(reborn.membership('user-grace', 'tenant-beta'), 'her one namespace is intact')
 })
 
 test("a stale snapshot's seed rows never clobber the code's seeds (P9: the demo credentials survive)", () => {

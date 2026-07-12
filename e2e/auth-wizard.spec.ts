@@ -1,6 +1,6 @@
 /** The multi-account stack in the browser (multi-account §12): two accounts
  *  signed in through the DEDICATED auth flow become instant, credential-less
- *  switch targets in the workspace switcher (GitHub-style); sign-out forgets
+ *  switch targets in the account switcher (GitHub-style); sign-out forgets
  *  only the active account and lands on the "Choose an account" picker, from
  *  which the remaining account hops back in — again without a credential. */
 import { test, expect, type Page } from '@playwright/test'
@@ -14,8 +14,7 @@ async function completeWizard(page: Page, who: { name: string; email: string; pa
   await page.getByTestId('auth-email').fill(who.email)
   await page.getByTestId('auth-continue').click()
   await page.getByTestId('auth-password').fill(who.password)
-  await page.getByTestId('auth-continue').click()
-  await page.getByTestId('auth-submit').click()
+  await page.getByTestId('auth-submit').click() // two steps since FWD-5 Phase 2
 }
 
 test('two accounts stack; the switcher hops between them instantly; sign-out lands on the picker', async ({ page }) => {

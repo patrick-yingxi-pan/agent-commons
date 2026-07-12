@@ -116,7 +116,10 @@ test('retract authorization survives a display-name collision (the spoof attack,
   // items. Run the actual attack: a workspace named EXACTLY the poster's public
   // name (in the dev seam, B's display name is its raw id) tries to retract.
   const { projectId, itemId } = await arena()
-  const spoof = accounts.createWorkspace('user-ada', B)
+  // FWD-5 Phase 2: namespaces mint only WITH an account — the attack now signs
+  // up an account whose display name (= its namespace name) collides.
+  const spoofAccount = accounts.createUser(B, 'spoof@disc.example', 'spoof-pass-123')
+  const spoof = spoofAccount?.tenant
   assert.ok(spoof, 'the registry happily mints the colliding name — that is the point')
   assert.equal(spoof!.name, B, 'display names collide')
   assert.notEqual(spoof!.id, B, 'tenant ids do not')

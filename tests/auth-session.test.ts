@@ -3,8 +3,9 @@
  *  token for a DIRECTORY identity only; resolution is cookie-first (the cookie
  *  beats client-asserted headers); a tampered token is worthless; and with
  *  `IDENTITY_HEADERS=deny` (the production posture) client assertions are
- *  ignored entirely while the cookie keeps working. Default backend here
- *  (workspace switching); the remote face shares the same resolver spine. */
+ *  ignored entirely while the cookie keeps working. Default backend here;
+ *  the remote face shares the same resolver spine. Mints ride the CREDENTIALED
+ *  paths (login/signup) — the workspace re-mint arm is gone (FWD-5 Phase 2). */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { call } from './helpers/http.ts'
@@ -13,10 +14,10 @@ import { signSession, verifySession, assertAuthConfig, SESSION_COOKIE } from '..
 const cookieOf = (setCookie: string | undefined) => setCookie?.split(';')[0] ?? ''
 
 test('token primitives: round-trip verifies; any tampering or garbage is null', () => {
-  const token = signSession({ userId: 'user-local', tenantId: 'tenant-work', iat: Date.now() })
+  const token = signSession({ userId: 'user-grace', tenantId: 'tenant-beta', iat: Date.now() })
   const claims = verifySession(token)
-  assert.equal(claims?.userId, 'user-local')
-  assert.equal(claims?.tenantId, 'tenant-work')
+  assert.equal(claims?.userId, 'user-grace')
+  assert.equal(claims?.tenantId, 'tenant-beta')
 
   const [payload, sig] = token.split('.')
   const forgedPayload = Buffer.from(JSON.stringify({ userId: 'user-local', tenantId: 'tenant-other', iat: Date.now() })).toString('base64url')
@@ -25,7 +26,7 @@ test('token primitives: round-trip verifies; any tampering or garbage is null', 
   assert.equal(verifySession('garbage'), null)
   assert.equal(verifySession(''), null)
   assert.equal(verifySession(undefined), null)
-  const stale = signSession({ userId: 'user-local', tenantId: 'tenant-work', iat: Date.now() - 365 * 24 * 3600 * 1000 })
+  const stale = signSession({ userId: 'user-grace', tenantId: 'tenant-beta', iat: Date.now() - 365 * 24 * 3600 * 1000 })
   assert.equal(verifySession(stale), null, 'an aged-out token is refused')
 })
 
@@ -35,36 +36,39 @@ test('the production posture refuses to run on the dev signing secret', () => {
   assert.doesNotThrow(() => assertAuthConfig({}), 'the dev default (headers allowed) boots without a secret')
 })
 
-test('POST /auth/session mints a hardened cookie for a directory pick and answers with the resolved identity', async () => {
-  const res = await call('POST', '/auth/session', { userId: 'user-local', tenantId: 'tenant-work' })
+test('a credentialed sign-in mints a hardened cookie and answers with the resolved identity', async () => {
+  const res = await call('POST', '/auth/login', { email: 'grace@acme.example', password: 'grace-demo-password' })
   assert.equal(res.status, 200)
   const setCookie = res.headers['set-cookie']
   assert.ok(setCookie?.startsWith(`${SESSION_COOKIE}=`), 'the session cookie is set')
   assert.match(setCookie!, /HttpOnly/, 'not readable from script')
   assert.match(setCookie!, /SameSite=Lax/, 'bounded against cross-site sends')
   assert.match(setCookie!, /Path=\//)
-  // The response body is the seam's own answer (resolved THROUGH the cookie).
-  assert.equal(res.json.tenant.id, 'tenant-work')
-  assert.equal(res.json.user.id, 'user-local')
-  assert.equal(res.json.role, 'member', 'role comes from the directory, never from the client')
-  assert.equal(res.headers['x-resolved-tenant'], 'tenant-work', 'the echo already speaks as the new identity')
+  // The response body is the seam's own answer (resolved THROUGH the cookie) —
+  // the account lands in its ONE namespace (FWD-5 Phase 2).
+  assert.equal(res.json.tenant.id, 'tenant-beta')
+  assert.equal(res.json.user.id, 'user-grace')
+  assert.equal(res.json.role, 'owner', 'role comes from the directory, never from the client')
+  assert.equal(res.headers['x-resolved-tenant'], 'tenant-beta', 'the echo already speaks as the new identity')
 })
 
 test('the cookie IS the identity on later requests — and it beats client-asserted headers', async () => {
-  const minted = await call('POST', '/auth/session', { userId: 'user-local', tenantId: 'tenant-work' })
+  const minted = await call('POST', '/auth/login', { email: 'grace@acme.example', password: 'grace-demo-password' })
   const cookie = cookieOf(minted.headers['set-cookie'])
 
   const me = await call('GET', '/me', undefined, { cookie })
-  assert.equal(me.json.tenant.id, 'tenant-work')
+  assert.equal(me.json.tenant.id, 'tenant-beta')
 
-  const contested = await call('GET', '/me', undefined, { cookie, 'x-tenant-id': 'tenant-personal', 'x-user-role': 'owner' })
-  assert.equal(contested.json.tenant.id, 'tenant-work', 'the verified cookie outranks the header assertion')
-  assert.equal(contested.json.role, 'member', 'a role header cannot elevate a cookie session')
+  const contested = await call('GET', '/me', undefined, { cookie, 'x-tenant-id': 'tenant-personal', 'x-user-role': 'member' })
+  assert.equal(contested.json.tenant.id, 'tenant-beta', 'the verified cookie outranks the header assertion')
+  assert.equal(contested.json.role, 'owner', 'a role header cannot rewrite a cookie session’s registry role')
 })
 
-test('only registry memberships (or stack entries) are mintable', async () => {
-  const alien = await call('POST', '/auth/session', { userId: 'user-local', tenantId: 'tenant-not-in-directory' })
-  assert.equal(alien.status, 400, 'no membership, no mint — workspaces are not enumerable-by-switching')
+test('only stack entries are mintable — and a tenantId is refused loudly (FWD-5 Phase 2)', async () => {
+  const tenantArm = await call('POST', '/auth/session', { tenantId: 'tenant-acme' })
+  assert.equal(tenantArm.status, 400, 'the workspace re-mint arm is gone — an account has exactly one namespace')
+  const cold = await call('POST', '/auth/session', { userId: 'user-ada' })
+  assert.equal(cold.status, 400, 'a bare userId without a stack entry is not a credential')
   const noBody = await call('POST', '/auth/session', {})
   assert.equal(noBody.status, 400)
 })
@@ -81,19 +85,19 @@ test('IDENTITY_HEADERS=deny — the production posture: headers are ignored, the
     delete process.env.IDENTITY_HEADERS
   })
 
-  const asserted = await call('GET', '/me', undefined, { 'x-tenant-id': 'tenant-work', 'x-user-role': 'owner' })
+  const asserted = await call('GET', '/me', undefined, { 'x-tenant-id': 'tenant-beta', 'x-user-role': 'owner' })
   assert.equal(asserted.json.tenant.id, 'tenant-personal', 'a client-asserted tenant no longer moves the needle')
   assert.equal(asserted.headers['x-resolved-tenant'], 'tenant-personal')
 
-  const minted = await call('POST', '/auth/session', { userId: 'user-local', tenantId: 'tenant-work' })
-  assert.equal(minted.status, 200, 'minting still works — it is the only switch path now')
+  const minted = await call('POST', '/auth/login', { email: 'maya@growthworks.example', password: 'maya-demo-password' })
+  assert.equal(minted.status, 200, 'credentialed minting still works — it is the only sign-in path')
   const me = await call('GET', '/me', undefined, { cookie: cookieOf(minted.headers['set-cookie']) })
-  assert.equal(me.json.tenant.id, 'tenant-work', 'the verified credential is unaffected by the deny posture')
+  assert.equal(me.json.tenant.id, 'tenant-growthworks', 'the verified credential is unaffected by the deny posture')
 
   // The events stream's legacy ?user=&tenant= stand-in is the same trust class
   // as the headers — denied together. (The cookie rides EventSource natively.)
   const { callRaw } = await import('./helpers/http.ts')
-  const stream = await callRaw('GET', '/events?user=user-local&tenant=tenant-work')
+  const stream = await callRaw('GET', '/events?user=user-grace&tenant=tenant-beta')
   const hello = JSON.parse(stream.body.split('\n\n')[0].split('\n').find((l) => l.startsWith('data:'))!.slice(5))
   assert.equal(hello.identity.tenantId, 'tenant-personal', 'query identity is refused under deny')
 })

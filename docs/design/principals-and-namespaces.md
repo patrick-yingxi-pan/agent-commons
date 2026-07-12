@@ -190,15 +190,26 @@ attribution explicitly) rather than a contract-boundaries row; `resolvedBy` need
 no stamp — a resolution is definitionally an agent act and that field already
 records the grant. Locks: `tests/principals.test.ts`.
 
-**Phase 2 — the workspace collapse.** Signup mints exactly one person
-namespace; drop the workspace routes, the wizard step, the chip-menu workspace
-section; memberships collapse to 1:1 (role constant `owner`); `AuthAccount`
-keeps its shape (its `tenant` is now derived). Re-seed demo accounts (six
-worlds, now strictly one per account — [`../demo-accounts.md`](../demo-accounts.md)
-updated). Locks: rewritten `tests/auth-session|account-guard`,
-`e2e/auth-wizard|onboarding|account-switch` (the switch-mid-generation crux is
-unchanged — it never depended on tenancy, only on identity), and
-`tests/demo-accounts.test.ts` for the new worlds.
+**Phase 2 — the workspace collapse. ✅ BUILT (2026-07-12).** Signup mints
+exactly one person namespace (named after the person, GitHub-style — the
+"(personal)" suffix dropped); the workspace routes (`GET /me/workspaces`,
+`POST /workspaces`), the wizard's team step, and the chip-menu workspace
+section are gone; the session route's tenantId re-mint arm is **refused
+loudly** (INV-9 — never normalized to the namespace it would have meant);
+memberships collapse to one-per-user (`homeOf`), enforced also at `rehydrate`
+so a pre-collapse snapshot can't resurrect a second seat; `AuthAccount` keeps
+its shape (its `tenant` is derived; a stale stack cookie's tenant is ignored,
+not trusted). Demo seeds: Grace's Acme membership and the desktop user's
+"Acme (work)" second tenant are gone — six worlds, strictly one per account.
+Two reality corrections earned at implementation time: **(a)** the flagship
+world's dual visibility (`seedVisibleTo`: backend default + `tenant-acme`) is
+a cross-BACKEND fixture share, not account multiplicity — it stays; **(b)**
+the dev header seam's synthesized tenants (`IDENTITY_HEADERS`, off in the
+production posture) are the test impersonation mechanism, not the feature —
+they stay too. Locks: rewritten `tests/auth-session|auth-accounts|onboarding|
+auth-flow|demo-accounts` (+ the one-membership-per-user and
+snapshot-can't-resurrect guards), `e2e/auth-wizard|onboarding|account-switch`
+(the switch-mid-generation crux unchanged — it never depended on tenancy).
 
 **Phase 3 — agents as principals.** The visible agent badge through
 `publicFace` (UI-10) on every byline an agent can occupy; the full three-part

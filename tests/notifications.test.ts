@@ -175,8 +175,10 @@ test('R2 — work notifications carry the item id (and comment id) so the door l
 
 test('R2 — @mention carries the item + the naming comment, so the door opens the thread on that comment', async () => {
   const { projectId } = await arena()
-  const target = accounts.createWorkspace('user-local', `Pinged ${(n += 1)}`) // a registered, mentionable workspace
-  assert.ok(target)
+  // FWD-5 Phase 2: a mentionable namespace is minted WITH an account (name = namespace).
+  const made = accounts.createUser(`Pinged ${(n += 1)}`, `pinged-${n}@notif.example`, 'pinged-pass-123')
+  assert.ok(made)
+  const target = made!.tenant
   const item = (await call('POST', `/projects/${projectId}/open-subgoals`, { subGoal: `mnt-${n}`, type: 'charge', target: 'budget:demo' }, { 'x-tenant-id': B })).json
   await call('POST', `/projects/${projectId}/open-subgoals/${item.id}/comments`, { body: `@${target!.name} take a look` }, { 'x-tenant-id': B })
   const rung = (await inbox(target!.id)).find((x) => x.kind === 'mentioned' && x.workItemId === item.id)

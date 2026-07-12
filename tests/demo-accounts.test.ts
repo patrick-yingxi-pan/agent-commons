@@ -32,22 +32,28 @@ const TENANTS = [
 
 const CREDENTIALS: Array<[string, string, string]> = [
   ['ada@acme.example', 'ada-demo-password', 'tenant-acme'],
-  ['grace@acme.example', 'grace-demo-password', 'tenant-acme'], // her home; tenant-beta via workspaces
+  ['grace@acme.example', 'grace-demo-password', 'tenant-beta'], // her ONE namespace (FWD-5 Phase 2)
   ['maya@growthworks.example', 'maya-demo-password', 'tenant-growthworks'],
   ['noor@northlight.example', 'noor-demo-password', 'tenant-northlight'],
   ['omar@harborsupport.example', 'omar-demo-password', 'tenant-harbor'],
   ['rei@reislab.example', 'rei-demo-password', 'tenant-reislab'],
 ]
 
-test('every demo account signs in with its documented credential and lands in its workspace', async () => {
+test('every demo account signs in with its documented credential and lands in its ONE namespace', async () => {
   for (const [email, password, home] of CREDENTIALS) {
     const res = await call('POST', '/auth/login', { email, password })
     assert.equal(res.status, 200, `${email} signs in`)
     assert.equal(res.json.via, 'session')
     assert.equal(res.json.tenant.id, home, `${email} lands in ${home}`)
   }
-  // Grace's platform workspace is a real membership she can re-mint into.
-  assert.ok(accounts.membership('user-grace', 'tenant-beta'), 'Grace holds tenant-beta')
+  // FWD-5 Phase 2 (the workspace collapse): every user — seed or onboarded —
+  // holds exactly ONE membership; the second seats (Grace on Acme, the desktop
+  // user's "Acme (work)") are gone.
+  const perUser = new Map<string, number>()
+  for (const m of accounts.memberships) perUser.set(m.userId, (perUser.get(m.userId) ?? 0) + 1)
+  for (const [userId, count] of perUser) assert.equal(count, 1, `${userId} holds exactly one membership`)
+  assert.ok(accounts.membership('user-grace', 'tenant-beta'), 'Grace’s one namespace is Beta Platform')
+  assert.equal(accounts.membership('user-grace', 'tenant-acme'), undefined, 'her old Acme seat is gone')
 })
 
 test('exhaustive in types: every account holds sessions, a project, artifacts, a routine with runs, a dispatch run', () => {

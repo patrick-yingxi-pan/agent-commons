@@ -6,46 +6,28 @@
  *    • Accounts — every account SIGNED IN on this browser (the account stack,
  *      `GET /v1/auth/accounts`): instant, credential-less hops (GitHub-style),
  *      plus "Add account…" which opens the full-screen sign-in flow.
- *    • Your workspaces — the signed-in account's real memberships
- *      (`GET /v1/me/workspaces`); a pick re-mints the session for that tenant.
- *      Plus an inline "New workspace" form (`POST /v1/workspaces`).
- *      (The old "Switch identity (dev)" seeded directory retired in P9 — the
- *      seeds now sign in with demo credentials like every other account.)
  *    • Sign in / Create account / Sign out — sign-in and sign-up open the
  *      DEDICATED full-screen flow (§12 — src/components/auth/AuthScreen.tsx);
  *      sign-out clears the session and lands on the account picker.
  *
- *  All dismissal via useDismissable (the shared hook — design invariant); the
- *  inline workspace form wears the shared auth-form primitives (authFlow.ts). */
-import { useState, type FormEvent, type ReactNode } from 'react'
-import {
-  createWorkspace,
-  signOut,
-  switchActiveAccount,
-  switchToAccount,
-  useAuthAccounts,
-  useCapabilities,
-  useMe,
-  useMyWorkspaces,
-} from '../api'
+ *  The old "Your workspaces" section (workspace re-mints + the inline "New
+ *  workspace" form) is gone — FWD-5 Phase 2, the workspace collapse: an account
+ *  IS its one namespace, so the only thing to switch is the ACCOUNT
+ *  (docs/design/principals-and-namespaces.md). All dismissal via useDismissable
+ *  (the shared hook — design invariant). */
+import { useState, type ReactNode } from 'react'
+import { signOut, switchToAccount, useAuthAccounts, useCapabilities, useMe } from '../api'
 import { openAuthScreen } from '../controller/useAuthScreen'
-import { AUTH_ERROR_CLASS, AUTH_INPUT_CLASS, AUTH_PRIMARY_CLASS } from '../lib/authFlow'
 import { useDismissable } from '../lib/useDismissable'
 import { SIDEBAR_HOVER } from '../lib/sidebar'
-
-type Mode = 'menu' | 'workspace'
 
 export function AccountChip() {
   const me = useMe().data
   const switchable = useCapabilities().data?.features.identitySwitch === true
   const [open, setOpen] = useState(false)
-  const [mode, setMode] = useState<Mode>('menu')
-  const menuRef = useDismissable<HTMLDivElement>(open, () => {
-    setOpen(false)
-    setMode('menu')
-  })
+  const menuRef = useDismissable<HTMLDivElement>(open, () => setOpen(false))
   const name = me?.user.name ?? 'You'
-  const workspace = me?.tenant.name ?? 'Personal'
+  const namespace = me?.tenant.name ?? 'Personal'
   const initial = name.trim().charAt(0).toUpperCase() || 'Y'
   const identityRow = (
     <div className="flex items-center gap-2" title={me?.user.email}>
@@ -54,28 +36,19 @@ export function AccountChip() {
       </div>
       <div className="leading-tight">
         <div className="text-xs font-medium text-ink">{name}</div>
-        <div className="text-[11px] text-ink-faint">{workspace}</div>
+        <div className="text-[11px] text-ink-faint">{namespace}</div>
       </div>
     </div>
   )
   if (!switchable) {
     return <div className="border-t border-line px-3 py-2.5">{identityRow}</div>
   }
-  const close = () => {
-    setOpen(false)
-    setMode('menu')
-  }
+  const close = () => setOpen(false)
   return (
     <div className="relative border-t border-line px-3 py-2.5" ref={menuRef}>
       {open && (
         <div className="absolute bottom-full left-2 right-2 z-20 mb-1 rounded-lg border border-line bg-panel p-1 shadow-lg">
-          {mode === 'menu' && <MenuBody me={me} onMode={setMode} onClose={close} />}
-          {mode === 'workspace' && (
-            <WorkspaceForm
-              onBack={() => setMode('menu')}
-              onDone={close}
-            />
-          )}
+          <MenuBody me={me} onClose={close} />
         </div>
       )}
       <button
@@ -90,16 +63,7 @@ export function AccountChip() {
   )
 }
 
-function MenuBody({
-  me,
-  onMode,
-  onClose,
-}: {
-  me: ReturnType<typeof useMe>['data']
-  onMode: (m: Mode) => void
-  onClose: () => void
-}) {
-  const workspaces = useMyWorkspaces().data ?? []
+function MenuBody({ me, onClose }: { me: ReturnType<typeof useMe>['data']; onClose: () => void }) {
   const stacked = useAuthAccounts().data ?? []
   const signedIn = me?.via === 'session'
   return (
@@ -135,30 +99,6 @@ function MenuBody({
           </Row>
         </>
       )}
-      <SectionLabel>Your workspaces</SectionLabel>
-      {workspaces.map((w) => {
-        const active = w.tenant.id === me?.tenant.id
-        return (
-          <Row
-            key={w.tenant.id}
-            testid="workspace-option"
-            active={active}
-            onClick={() => {
-              onClose()
-              if (!active && me) void switchActiveAccount({ userId: me.user.id, tenantId: w.tenant.id })
-            }}
-          >
-            <span className="flex-1">
-              {w.tenant.name}
-              <span className="ml-1 text-[10px] text-ink-faint">{w.role}</span>
-            </span>
-            {active && <span className="text-[10px] text-ink-faint">Active</span>}
-          </Row>
-        )
-      })}
-      <Row testid="workspace-new" onClick={() => onMode('workspace')}>
-        + New workspace…
-      </Row>
       <SectionLabel>Account</SectionLabel>
       {!signedIn && (
         <>
@@ -226,50 +166,5 @@ function Row({
     >
       {children}
     </button>
-  )
-}
-
-/** The inline "New workspace" form — the one auth-adjacent flow that STAYS in
- *  the menu (it acts on the signed-in account; no identity transition). Wears
- *  the shared auth-form primitives (authFlow.ts) so it and the full-screen
- *  flow can't drift apart. Submits on Enter; the API's error shows verbatim. */
-function WorkspaceForm({ onBack, onDone }: { onBack: () => void; onDone: () => void }) {
-  const [name, setName] = useState('')
-  const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
-  const submit = async (e: FormEvent) => {
-    e.preventDefault()
-    setBusy(true)
-    setError('')
-    const r = await createWorkspace(name)
-    setBusy(false)
-    if (r.ok) onDone()
-    else setError(r.message)
-  }
-  return (
-    <form onSubmit={submit} className="space-y-1.5 p-1.5">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-ink">New workspace</span>
-        <button type="button" onClick={onBack} className="text-[11px] text-ink-faint hover:text-ink">
-          Back
-        </button>
-      </div>
-      <input
-        data-testid="auth-name"
-        type="text"
-        placeholder="Workspace name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        className={AUTH_INPUT_CLASS}
-      />
-      {error && (
-        <p data-testid="auth-error" className={AUTH_ERROR_CLASS}>
-          {error}
-        </p>
-      )}
-      <button type="submit" data-testid="auth-submit" disabled={busy || !name.trim()} className={AUTH_PRIMARY_CLASS}>
-        {busy ? 'Working…' : 'Create workspace'}
-      </button>
-    </form>
   )
 }
