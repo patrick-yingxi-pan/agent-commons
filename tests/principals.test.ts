@@ -87,3 +87,24 @@ test('a proposal + its thread stamp user principals; the projection strips the r
     assert.ok(!wire.includes(leaked), `the public projection must not carry ${leaked}`)
   }
 })
+
+test('a standing resolution carries the FULL attribution chain: who, under what grant, for which owner', async () => {
+  const projectId = `p-prin-chain-${(n += 1)}`
+  store.applyRelationOp({ kind: 'create-project', projectId, projectName: `Prin chain ${n}`, projectDescription: '' }, A)
+  store.applyRelationOp({ kind: 'share-project', projectId, projectName: `Prin chain ${n}`, shared: true }, A)
+  // B's agent, commissioned as a STANDING contributor onto A's shared project.
+  const agent = store.createAgent({ label: `Prin Worker ${n}`, systemPrompt: 'x', tools: [], instructions: '' }, B)
+  const commission = store.createCommission({ role: 'writer', agentId: agent.id, projectId, standing: true }, B)
+  const res = await call(
+    'POST', `/projects/${projectId}/open-subgoals`,
+    { subGoal: `chain-${n}`, type: 'charge', target: 'budget:demo' },
+    { 'x-tenant-id': A },
+  )
+  assert.equal(res.status, 200)
+  assert.equal(res.json.status, 'done', 'the standing contributor took it at post time')
+  assert.equal(res.json.resolvedBy, commission.id, 'the GRANT it acted under (the commission)')
+  assert.equal(res.json.resolvedByLabel, agent.label, 'WHO — the agent principal')
+  // The owner leg is captured AT ACT TIME (FWD-5 Phase 3) — a dev-seam tenant
+  // displays as its id; a registry namespace as its display name.
+  assert.equal(res.json.resolvedByOwner, B, 'FOR WHICH owner namespace')
+})

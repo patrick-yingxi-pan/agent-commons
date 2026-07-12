@@ -5,8 +5,9 @@
  *  page, its directory card, and a published agent's card/detail all state the
  *  same fact the same way (form follows function; tests/public-face.test.ts
  *  fails if a component re-hardcodes the cue). */
-import { Award, GitFork, Globe } from 'lucide-react'
-import { bylineLabel, SHARED_MARKER } from '../lib/publicFace'
+import { Award, Bot, GitFork, Globe } from 'lucide-react'
+import type { PrincipalKind } from '../../contract/index.ts'
+import { AGENT_ACTOR_TITLE, agentActorLabel, bylineLabel, SHARED_MARKER } from '../lib/publicFace'
 
 /** The one owner-door style — an underlined owner name that opens "everything this
  *  workspace shares". Local to this module on purpose: consumers use <OwnerLink>,
@@ -69,6 +70,35 @@ export function Byline({
       </span>
     </span>
   )
+}
+
+/** The agent-actor badge (FWD-5 Phase 3): Bot + label. An agent actor is TEXT,
+ *  not a door — an agent has no profile page of its own; its OWNER namespace
+ *  does (pair with an <OwnerLink> for the chain's owner leg). */
+export function AgentActor({ label }: { label?: string }) {
+  return (
+    <span className="inline-flex items-center gap-1" title={AGENT_ACTOR_TITLE}>
+      <Bot size={12} className="shrink-0 text-ink-faint" />
+      {agentActorLabel(label)}
+    </span>
+  )
+}
+
+/** The actor byline (FWD-5 Phase 3) — every act's WHO renders through this one
+ *  funnel, which picks the cue by principal KIND: a human/workspace actor is an
+ *  owner DOOR (D21 profile); an agent actor wears the Bot badge. Kind absent =
+ *  a legacy or foreign (A2A) actor — rendered as the door its display name is. */
+export function ActorByline({
+  name,
+  kind,
+  onOwnerClick,
+}: {
+  name: string
+  kind?: PrincipalKind
+  onOwnerClick: () => void
+}) {
+  if (kind === 'agent') return <AgentActor label={name} />
+  return <OwnerLink bare ownerName={name} onClick={onOwnerClick} />
 }
 
 /** The public track record — the same compact pair (contributions, forks) on a

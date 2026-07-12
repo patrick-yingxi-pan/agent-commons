@@ -75,7 +75,7 @@ import { AddContextButton } from './AddContextButton'
 import { AddTrigger } from './AddTrigger'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { profileTitle, PROFILE_TAGLINE } from '../lib/publicFace'
-import { Byline, CreditLine, OwnerLink } from './PublicFace'
+import { ActorByline, AgentActor, Byline, CreditLine, OwnerLink } from './PublicFace'
 import { TextDiff } from './TextDiff'
 import { CopyButton } from './CopyButton'
 import { CheckboxRow, DefaultBadge, DefaultToggle } from './Checkbox'
@@ -1957,13 +1957,20 @@ function WorkItemRow({
               A verified peer credential (D28) upgrades the stamp with its registered name. */}
           {o.via === 'a2a' ? (o.verifiedPeer ? ` · via A2A · ${o.verifiedPeer} ✓` : ' · via A2A') : ''}
           {/* S3 — the lifecycle is three timestamped transitions, not just a status
-              word: carry WHEN on the terminus. S13 — the poster / retractedBy workspace
-              is a door (done-by is an AGENT label, not a workspace, so it stays text). */}
+              word: carry WHEN on the terminus. S13/FWD-5 Phase 3 — done-by is the
+              attribution CHAIN: the agent (Bot badge, text — an agent has no page)
+              + its owner namespace (a door), the grant on the tooltip. */}
           {o.status === 'done' ? (
-            <>
-              {' · '}done by {o.resolvedByLabel ?? 'a contributor'}
+            <span title={o.resolvedBy ? `Resolved under commission ${o.resolvedBy}` : undefined}>
+              {' · '}done by <AgentActor label={o.resolvedByLabel} />
+              {o.resolvedByOwner ? (
+                <>
+                  {' '}· agent of{' '}
+                  <OwnerLink bare ownerName={o.resolvedByOwner} onClick={() => ownerDoor(o.resolvedByOwner!)} />
+                </>
+              ) : null}
               {o.resolvedAt ? ` · ${relativeTime(o.resolvedAt)}` : ''}
-            </>
+            </span>
           ) : o.status === 'retracted' ? (
             <>
               {' · '}retracted by{' '}
@@ -1998,8 +2005,9 @@ function WorkItemRow({
                   c.id === anchorComment ? 'bg-accent-tint -mx-1 px-1' : ''
                 }`}
               >
-                {/* S13 — the comment author is a workspace door, like every other byline. */}
-                <OwnerLink bare ownerName={c.author} onClick={() => ownerDoor(c.author)} />
+                {/* S13/FWD-5 — the comment author renders by principal KIND: a human is
+                    a workspace door; an agent wears the Bot badge (one funnel). */}
+                <ActorByline name={c.author} kind={c.authorKind} onOwnerClick={() => ownerDoor(c.author)} />
                 <span className="text-ink-faint"> · {relativeTime(c.at)}</span>
                 <div className="whitespace-pre-wrap">{renderCommentBody(c.body)}</div>
               </div>
@@ -3582,7 +3590,13 @@ function ProposalThread({
       <div className="max-h-40 space-y-1.5 overflow-y-auto">
         {comments.map((c) => (
           <div key={c.id} className="text-[12px] leading-snug text-ink-soft">
-            <span className="font-medium text-ink">{c.author}</span>
+            {/* FWD-5 Phase 3: an agent author wears the Bot badge; the human render
+                stays a plain name (a proposal thread is parties-only — no door). */}
+            {c.authorKind === 'agent' ? (
+              <AgentActor label={c.author} />
+            ) : (
+              <span className="font-medium text-ink">{c.author}</span>
+            )}
             <span className="text-ink-faint"> · {relativeTime(c.at)}</span>
             <div className="whitespace-pre-wrap">{c.body}</div>
           </div>

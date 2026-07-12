@@ -8,7 +8,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { bylineLabel, profileTitle, SHARED_MARKER } from '../src/lib/publicFace.ts'
+import { AGENT_ACTOR_TITLE, agentActorLabel, bylineLabel, profileTitle, SHARED_MARKER } from '../src/lib/publicFace.ts'
 
 const src = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
 
@@ -35,4 +35,20 @@ test('no component re-hardcodes the byline or the shared marker', () => {
   const publicFace = src('../src/components/PublicFace.tsx')
   assert.ok(publicFace.includes("from '../lib/publicFace'"), 'the component imports the one label source')
   assert.ok(publicFace.includes('SHARED_MARKER'), 'the marker is referenced, not retyped')
+})
+
+test('agentActorLabel — the one agent-actor label (FWD-5 Phase 3)', () => {
+  assert.equal(agentActorLabel('Canary Watcher'), 'Canary Watcher')
+  assert.equal(agentActorLabel(undefined), 'a contributor', 'an unattributed legacy row still reads honestly')
+})
+
+test('the agent-actor cue has one home — components route through <AgentActor>/<ActorByline>', () => {
+  const sectionView = src('../src/components/SectionView.tsx')
+  assert.ok(/<AgentActor|<ActorByline/.test(sectionView), 'act bylines route through the funnel')
+  assert.ok(!sectionView.includes(AGENT_ACTOR_TITLE), 'the tooltip is minted in lib/publicFace, never retyped')
+  assert.ok(!sectionView.includes("'a contributor'"), 'the fallback label lives in agentActorLabel, never inline (the pre-funnel copy)')
+
+  const publicFace = src('../src/components/PublicFace.tsx')
+  assert.ok(publicFace.includes('AGENT_ACTOR_TITLE'), 'the badge component references the one tooltip source')
+  assert.ok(publicFace.includes('agentActorLabel'), 'and the one label source')
 })

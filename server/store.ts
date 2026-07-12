@@ -3518,6 +3518,9 @@ export const store = {
       // audience, attributed to the resolving agent's OWNER workspace (D13).
       {
         const resolverTenant = this.commissionOwnerTenant(c.id) ?? defaultTenantId()
+        // FWD-5 Phase 3 — the attribution chain's owner leg, captured at act time
+        // (like resolvedByLabel: the record survives a later commission delete).
+        item.resolvedByOwner = tenantName(resolverTenant)
         notifyTenants(workItemAudience(item), resolverTenant, {
           kind: 'work.resolved',
           actor: tenantName(resolverTenant),

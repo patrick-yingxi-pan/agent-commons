@@ -115,6 +115,11 @@ export interface OpenSubGoal {
    *  full attribution chain (who / under what authority / on whose thing). */
   resolvedBy?: string
   resolvedByLabel?: string
+  /** The resolving Agent's OWNER namespace display name (FWD-5 Phase 3) —
+   *  captured at resolution time like `resolvedByLabel` (the act's record, not a
+   *  live lookup that a later commission delete would erase). Completes the
+   *  attribution chain's owner leg on the wire; absent on pre-Phase-3 rows. */
+  resolvedByOwner?: string
   resolvedAt?: number
 }
 

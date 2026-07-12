@@ -211,12 +211,21 @@ auth-flow|demo-accounts` (+ the one-membership-per-user and
 snapshot-can't-resurrect guards), `e2e/auth-wizard|onboarding|account-switch`
 (the switch-mid-generation crux unchanged — it never depended on tenancy).
 
-**Phase 3 — agents as principals.** The visible agent badge through
-`publicFace` (UI-10) on every byline an agent can occupy; the full three-part
-attribution line on open-work and proposal acts; dual credit accrual (agent
-track record + owner-namespace rollup on the D21 page). Locks: publicFace test
-extension (badge is funnel-rendered, not hand-rolled), credit-rollup reducer
-tests, an e2e asserting a standing contributor's act renders the chain.
+**Phase 3 — agents as principals. ✅ BUILT (2026-07-12).** The agent-actor cue
+is a `publicFace` funnel (UI-10): `AgentActor` (Bot badge + label + the one
+tooltip; an agent is TEXT, not a door — its OWNER has the profile page) and
+`ActorByline` (picks door-vs-badge by `PrincipalKind` — work-item and proposal
+threads route through it, ready for the day an agent authors a comment). The
+resolved work-item row renders the full chain: *who* (`resolvedByLabel`, badged)
+· *for which owner* (`resolvedByOwner`, NEW — captured at act time like the
+label, so the record survives a commission delete; an `OwnerLink` door) · *under
+what grant* (`resolvedBy`, on the tooltip). One reality finding: **dual credit
+already existed** — D13 built the agent increment (`runProjectEffect`) and the
+owner-profile rollup (`ownerProfile` stats fold, `ownerReputation`) before this
+migration; Phase 3 verified rather than added it. Locks:
+`tests/public-face.test.ts` (funnel + no hand-rolled cue/fallback),
+`tests/principals.test.ts` (the chain on the wire),
+`e2e/work-item-surface.spec.ts` (the chain rendered, owner door working).
 
 **Phase 4 — docs/spec sweep.** AGENTS.md claim table, `docs/spec/` pillar rows,
 [`../github-parity.md`](../github-parity.md) ("User / org page" row →

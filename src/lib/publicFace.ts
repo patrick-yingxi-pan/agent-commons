@@ -27,3 +27,16 @@ export function profileTitle(name: string, own: boolean | undefined): string {
 /** The profile page's one-line subtitle — what the page IS: the aggregation of a
  *  workspace's already-public rows, identical for every viewer (D21). */
 export const PROFILE_TAGLINE = 'Public workspace profile — everything this workspace shares.'
+
+/** ── The agent-actor cue (FWD-5 Phase 3 — agents as principals) ──────────────
+ *  Wherever an act's WHO is a worker AGENT (a resolution's credit line, a
+ *  comment whose `authorKind` is 'agent'), the byline wears the Bot badge and
+ *  this tooltip — one funnel (<AgentActor> / <ActorByline>), so a human actor
+ *  (an owner DOOR) and a machine actor (a badge, no profile page of its own —
+ *  its OWNER has the page) can never be confused or hand-rolled apart. */
+export const AGENT_ACTOR_TITLE = 'A worker Agent performed this act — its owner’s namespace holds the public record'
+
+/** The agent-actor label. Absent = an unattributed legacy row. */
+export function agentActorLabel(label: string | undefined): string {
+  return label ?? 'a contributor'
+}
