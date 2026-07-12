@@ -5,6 +5,7 @@
  *  native sidecar, or a remote web server. */
 export * from './entities.ts'
 export * from './identity.ts'
+export * from './orgs.ts'
 export * from './cowork.ts'
 export * from './relations.ts'
 export * from './contexts.ts'

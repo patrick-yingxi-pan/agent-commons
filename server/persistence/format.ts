@@ -31,7 +31,7 @@ import type {
   WorkItemComment,
 } from '../../contract/index.ts'
 import type { ProviderConfig } from '../data/providers.ts'
-import type { AccountUser, AccountTenant, Membership } from '../accounts.ts'
+import type { AccountUser, AccountTenant, Membership, StoredOrgInvite } from '../accounts.ts'
 import { join } from 'node:path'
 
 /** On-disk schema version. A snapshot whose version doesn't match is ignored (the
@@ -166,6 +166,10 @@ export interface PersistedState {
   accountUsers?: [string, AccountUser][]
   accountTenants?: [string, AccountTenant][]
   memberships?: Membership[]
+  /** Org invitations (FWD-6 O-D3) — email-keyed, existence-hidden; the pending
+   *  ones are what an invitee's `GET /me/invites` resolves lazily. Additive-
+   *  optional like every account slice. */
+  orgInvites?: StoredOrgInvite[]
   seq: {
     session: number
     message: number
@@ -188,6 +192,8 @@ export interface PersistedState {
     /** Account registry counters (multi-account P7). Optional like the slices. */
     user?: number
     tenant?: number
+    /** Org invite id counter (FWD-6). Optional like the slices. */
+    orgInvite?: number
   }
 }
 
@@ -226,6 +232,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   accountUsers: 'mapEntries',
   accountTenants: 'mapEntries',
   memberships: 'array',
+  orgInvites: 'array',
   seq: 'singleton',
 }
 

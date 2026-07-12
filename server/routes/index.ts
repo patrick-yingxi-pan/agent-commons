@@ -86,6 +86,8 @@ import type {
   ProxyRequest,
   SignUpRequest,
   LoginRequest,
+  CreateOrgRequest,
+  InviteToOrgRequest,
   ReserveRequest,
   SetCapacityRequest,
   SyncEffectsRequest,
@@ -444,6 +446,87 @@ export function buildRouter(): Router {
   // (The workspace routes — `GET /me/workspaces`, `POST /workspaces` — are gone:
   // FWD-5 Phase 2, the workspace collapse. An account IS its one namespace; the
   // switcher switches ACCOUNTS (the stack above), and grouping is projects.)
+
+  // ── FWD-6 — organizations: namespaces with members, never worlds (§8) ────────
+  // Founding is open to any resolved identity; JOINING is a consent act — an
+  // email-keyed, existence-hidden invitation the invitee accepts. Nothing here
+  // switches anything: an org's one surface is its namespace page. Org machinery
+  // is walled out of person namespaces (`isNamespace`) with the same
+  // existence-hiding 404 an unknown org gets; a member who isn't an owner gets
+  // an honest 403 (they already know the org exists — they're in it).
+  const orgWall = (headers: Ctx['req']['headers'], orgId: string): { role?: import('../../contract/index.ts').TenantRole; deny?: true } => {
+    const t = accounts.tenants.get(orgId)
+    if (!t || t.kind !== 'org' || accounts.isNamespace(orgId)) return { deny: true }
+    const me = store.identity(headers)
+    return { role: accounts.membership(me.user.id, orgId)?.role }
+  }
+  r.post('/orgs', async ({ req, res, body }) => {
+    const { name } = await body<CreateOrgRequest>()
+    if (!name?.trim() || name.trim().length > 120) {
+      return sendError(res, 'bad_request', 'An organization name (1–120 chars) is required.')
+    }
+    const me = store.identity(req.headers)
+    const tenant = accounts.createOrg(me.user.id, name)
+    if (!tenant) return sendError(res, 'bad_request', 'No such user.')
+    store.accountsMutated()
+    sendJson(res, { id: tenant.id, name: tenant.name, kind: tenant.kind }, 201)
+  })
+  r.get('/me/orgs', ({ req, res }) => {
+    sendJson(res, accounts.orgsOf(store.identity(req.headers).user.id))
+  })
+  r.get('/me/invites', ({ req, res }) => {
+    sendJson(res, accounts.myInvites(store.identity(req.headers).user.email))
+  })
+  // The invitee's verdict (O-D3). An invite that isn't pending-and-addressed-to-
+  // the-caller does not exist (404 — indistinguishable from a wrong guess).
+  const inviteVerdict = (action: 'accept' | 'decline') => ({ req, res, params }: Ctx) => {
+    const me = store.identity(req.headers)
+    const out = accounts.resolveInvite(params.id, me.user.id, action)
+    if (out === undefined) return sendError(res, 'not_found', `No invite '${params.id}'`)
+    store.accountsMutated()
+    sendJson(res, out === 'declined' ? { declined: true } : out)
+  }
+  r.post('/me/invites/:id/accept', inviteVerdict('accept'))
+  r.post('/me/invites/:id/decline', inviteVerdict('decline'))
+  r.get('/orgs/:id/invites', ({ req, res, params }) => {
+    const wall = orgWall(req.headers, params.id)
+    // A non-member never learns the org exists (404); a member who isn't an
+    // owner gets the honest 403 — they're already inside the wall.
+    if (wall.deny || wall.role === undefined) return sendError(res, 'not_found', `No organization '${params.id}'`)
+    if (wall.role !== 'owner') return sendError(res, 'forbidden', 'Only an organization owner may manage invitations.')
+    sendJson(res, accounts.invitesOfOrg(params.id))
+  })
+  r.post('/orgs/:id/invites', async ({ req, res, params, body }) => {
+    const wall = orgWall(req.headers, params.id)
+    // A non-member never learns the org exists (404); a member who isn't an
+    // owner gets the honest 403 — they're already inside the wall.
+    if (wall.deny || wall.role === undefined) return sendError(res, 'not_found', `No organization '${params.id}'`)
+    if (wall.role !== 'owner') return sendError(res, 'forbidden', 'Only an organization owner may manage invitations.')
+    const { email } = await body<InviteToOrgRequest>()
+    if (!email || !EMAIL_SHAPE.test(email.trim()) || email.trim().length > 254) {
+      return sendError(res, 'bad_request', 'A valid email is required.')
+    }
+    const me = store.identity(req.headers)
+    // Uniform whether or not an account bears the email (existence-hiding) —
+    // a duplicate pending invite returns the SAME row, signalling nothing.
+    const invite = accounts.createInvite(params.id, email, me.user.name)
+    if (!invite) return sendError(res, 'conflict', 'This organization’s pending invitations are at their cap.')
+    store.accountsMutated()
+    const { orgId: _org, ...row } = invite
+    sendJson(res, row, 201)
+  })
+  r.delete('/orgs/:id/invites/:iid', ({ req, res, params }) => {
+    const wall = orgWall(req.headers, params.id)
+    // A non-member never learns the org exists (404); a member who isn't an
+    // owner gets the honest 403 — they're already inside the wall.
+    if (wall.deny || wall.role === undefined) return sendError(res, 'not_found', `No organization '${params.id}'`)
+    if (wall.role !== 'owner') return sendError(res, 'forbidden', 'Only an organization owner may manage invitations.')
+    const out = accounts.revokeInvite(params.id, params.iid)
+    if (out === undefined) return sendError(res, 'not_found', `No invite '${params.iid}'`)
+    if (out === 'closed') return sendError(res, 'conflict', 'This invitation was already resolved.')
+    store.accountsMutated()
+    sendJson(res, out)
+  })
 
   // ── Ops: liveness + readiness (design F6 — the autoscaled web tier) ──────────
   // `/healthz` — the process is up (load-balancer liveness). `/readyz` — the process

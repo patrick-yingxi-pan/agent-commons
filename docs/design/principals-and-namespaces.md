@@ -4,9 +4,10 @@
 > in a design dialogue and recorded here per the repo rule that decisions live in
 > files, not agent memory; implemented the same day as phases 1–4 below (each
 > with its locks). Now invariant **INV-10**
-> ([`../spec/09-design-invariants.md`](../spec/09-design-invariants.md)); the
-> **orgs phase stays deferred by design** (§4.1 — the opaque owner id is the
-> re-entry seam). The pre-collapse workspace model survives only as history in
+> ([`../spec/09-design-invariants.md`](../spec/09-design-invariants.md)). The
+> **orgs phase** — deferred at decision time (§4.1) — was un-deferred by user
+> direction and is being built per **§8** (spec FWD-6; O1 ✅, O2/O3 in
+> progress). The pre-collapse workspace model survives only as history in
 > [`F2-identity-tenancy.md`](F2-identity-tenancy.md) +
 > [`multi-account-ui.md`](multi-account-ui.md).
 
@@ -336,9 +337,16 @@ org — seed surgery for a feature the runtime path must prove anyway.
 
 ### Build order (each shippable, tested, spec-ledgered)
 
-- **O1 — server core:** the membership invariant rework, `POST /orgs` (founder
-  becomes owner), the invite lifecycle (create / accept / decline / revoke,
-  email-keyed + existence-hidden, bell on arrival), `GET /me/orgs`.
+- **O1 — server core. ✅ BUILT (2026-07-12).** `Membership.home` marks the
+  namespace seat (seeds/`createUser` stamp it; `homeOf` resolves it; `rehydrate`
+  normalizes legacy first-rows and walls org seats out of every namespace);
+  `POST /orgs` (founder = owner), the invite lifecycle (create / accept /
+  decline / revoke — email-keyed, existence-hidden: known and unknown addresses
+  answer identically, a wrong-party verdict is the same 404), `GET /me/orgs` +
+  `GET /me/invites`, org walls (outsider 404, member-non-owner 403, person
+  namespaces take no org machinery). The invite BELL ships with its door in O3
+  (a bell without a door is the anti-pattern the notification-doors lock
+  exists for). Locks: `tests/orgs.test.ts`.
 - **O2 — walls + owner picker:** `visibleTenants` union at the project walls
   and the notification/event funnels; `ownerTenantId` on project creation
   (op + route, INV-9-refused when not a held org); the Projects-list org band.

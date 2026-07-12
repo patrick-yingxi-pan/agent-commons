@@ -1156,6 +1156,8 @@ function snapshot(): PersistedState {
     accountUsers: persistedAccounts.users,
     accountTenants: persistedAccounts.tenants,
     memberships: persistedAccounts.memberships,
+    orgInvites: persistedAccounts.orgInvites, // FWD-6 — the consent-gated org door
+
     seq: {
       session: sessionSeq,
       message: messageSeq,
@@ -1172,6 +1174,7 @@ function snapshot(): PersistedState {
       notification: notificationSeq,
       user: persistedAccounts.seq.user,
       tenant: persistedAccounts.seq.tenant,
+      orgInvite: persistedAccounts.seq.orgInvite,
     },
   }
 }
@@ -1291,7 +1294,8 @@ function rehydrate(s: PersistedState): void {
     users: s.accountUsers,
     tenants: s.accountTenants,
     memberships: s.memberships,
-    seq: { user: s.seq.user, tenant: s.seq.tenant },
+    orgInvites: s.orgInvites,
+    seq: { user: s.seq.user, tenant: s.seq.tenant, orgInvite: s.seq.orgInvite },
   })
   sessionSeq = s.seq.session
   messageSeq = s.seq.message

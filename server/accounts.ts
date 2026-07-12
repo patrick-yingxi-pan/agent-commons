@@ -16,7 +16,7 @@
  *  enumerable. In a real deployment an IdP replaces the credential entirely; the
  *  registry (users/tenants/memberships) is what carries over. */
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
-import type { Capabilities, Identity, Tenant, TenantRole, User } from '../contract/index.ts'
+import type { Capabilities, Identity, MyInvite, MyOrg, OrgInviteRow, Tenant, TenantRole, User } from '../contract/index.ts'
 
 type Backend = Capabilities['backend']
 
@@ -35,17 +35,35 @@ export interface AccountTenant extends Tenant {
   seeded?: boolean
 }
 
-/** FWD-5 Phase 2 (the workspace collapse): a user holds exactly ONE membership —
- *  their namespace (`homeOf`). The join-table shape survives on purpose: it is the
- *  persisted slice (older snapshots carry it) and the seam orgs would re-enter
- *  through (docs/design/principals-and-namespaces.md §4.1) — but nothing mints a
- *  second row anymore, and `rehydrate` enforces one-per-user. */
+/** FWD-5 Phase 2 collapsed this to one row per user; FWD-6 (orgs) re-opened it
+ *  under a refined invariant: every user holds exactly ONE **home** membership —
+ *  their namespace (`home: true`, what `homeOf` resolves and sign-in lands in) —
+ *  plus any number of ORG seats (O-D2). `rehydrate` enforces the shape: one home
+ *  per user, and an org seat never lands in a tenant that is somebody's
+ *  namespace (that wall is what keeps a pre-collapse snapshot's echo — Grace's
+ *  old Acme seat — from resurrecting workspace multiplicity). */
 export interface Membership {
   userId: string
   tenantId: string
   role: TenantRole
+  /** True on the user's NAMESPACE membership (exactly one per user). Absent on
+   *  org seats — and on pre-FWD-6 persisted rows, where "the user's first row"
+   *  is the legacy home rule `rehydrate` normalizes from. */
+  home?: boolean
   seeded?: boolean
 }
+
+/** An org invitation as STORED (FWD-6 O-D3) — the wire row plus its org. The
+ *  registry keys nothing by account existence: the email is matched lazily at
+ *  read/accept time, so inviting an address reveals nothing about it. */
+export interface StoredOrgInvite extends OrgInviteRow {
+  orgId: string
+}
+
+/** Bounds: an org's PENDING invites are capped (a queue, not a spam cannon);
+ *  resolved rows are kept for the member panel's history but bounded too. */
+const MAX_PENDING_ORG_INVITES = 20
+const MAX_ORG_INVITE_ROWS = 100
 
 const SCRYPT_LEN = 64
 /** Burned on unknown-email logins so failure timing is uniform (see verifyPassword). */
@@ -59,8 +77,10 @@ export class AccountRegistry {
   readonly users = new Map<string, AccountUser>()
   readonly tenants = new Map<string, AccountTenant>()
   memberships: Membership[] = []
+  orgInvites: StoredOrgInvite[] = []
   private userSeq = 0
   private tenantSeq = 0
+  private inviteSeq = 0
 
   constructor() {
     this.seed()
@@ -82,7 +102,8 @@ export class AccountRegistry {
     const put = (u: AccountUser, t: AccountTenant, role: TenantRole) => {
       if (!this.users.has(u.id)) this.users.set(u.id, u)
       if (!this.tenants.has(t.id)) this.tenants.set(t.id, t)
-      this.memberships.push({ userId: u.id, tenantId: t.id, role, seeded: true })
+      // Every seed membership IS the user's namespace (FWD-6: `home`).
+      this.memberships.push({ userId: u.id, tenantId: t.id, role, home: true, seeded: true })
     }
     const local: AccountUser = { id: 'user-local', name: 'You', seeded: true }
     put(local, { id: 'tenant-personal', name: 'Personal', kind: 'personal', seeded: true }, 'owner')
@@ -198,7 +219,7 @@ export class AccountRegistry {
     const tenant: AccountTenant = { id: `tenant-u${this.userSeq}-personal`, name: user.name, kind: 'personal' }
     this.users.set(user.id, user)
     this.tenants.set(tenant.id, tenant)
-    this.memberships.push({ userId: user.id, tenantId: tenant.id, role: 'owner' })
+    this.memberships.push({ userId: user.id, tenantId: tenant.id, role: 'owner', home: true })
     return { user, tenant }
   }
 
@@ -217,32 +238,160 @@ export class AccountRegistry {
   }
 
   /** A user's ONE namespace (FWD-5 Phase 2 — account = namespace). Undefined only
-   *  for a gone user or a dangling membership; every minted account has exactly one. */
+   *  for a gone user or a dangling membership; every minted account has exactly
+   *  one. The `home` flag discriminates it from org seats (FWD-6); the first-row
+   *  fallback covers a legacy in-memory shape that predates the flag. */
   homeOf(userId: string): { tenant: Tenant; role: TenantRole } | undefined {
-    const m = this.memberships.find((x) => x.userId === userId)
+    const m =
+      this.memberships.find((x) => x.userId === userId && x.home) ??
+      this.memberships.find((x) => x.userId === userId)
     const t = m && this.tenants.get(m.tenantId)
     return t ? { tenant: { id: t.id, name: t.name, kind: t.kind }, role: m.role } : undefined
   }
 
+  /** Whether a tenant is somebody's NAMESPACE (home) — the wall that keeps org
+   *  machinery (invites, seats) out of person namespaces (FWD-6 O-D1/O-D5). */
+  isNamespace(tenantId: string): boolean {
+    return this.memberships.some((m) => m.home && m.tenantId === tenantId)
+  }
+
+  // ── FWD-6 — organizations (namespaces with members, never worlds) ───────────
+
+  /** Found an org: a new org tenant + the founder's `owner` seat (O-D2). The
+   *  org is a NAMESPACE — it never logs in and is never switched into. */
+  createOrg(founderUserId: string, name: string): AccountTenant | null {
+    if (!this.users.has(founderUserId)) return null
+    this.tenantSeq += 1
+    const tenant: AccountTenant = { id: `tenant-org-${this.tenantSeq}`, name: name.trim(), kind: 'org' }
+    this.tenants.set(tenant.id, tenant)
+    this.memberships.push({ userId: founderUserId, tenantId: tenant.id, role: 'owner' })
+    return tenant
+  }
+
+  /** The caller's org seats (`GET /me/orgs`) — home excluded by definition. */
+  orgsOf(userId: string): MyOrg[] {
+    return this.memberships
+      .filter((m) => m.userId === userId && !m.home)
+      .map((m) => {
+        const t = this.tenants.get(m.tenantId)
+        return t ? { tenant: { id: t.id, name: t.name, kind: t.kind }, role: m.role } : null
+      })
+      .filter((x): x is MyOrg => !!x)
+  }
+
+  /** Invite an email into an org (O-D3) — EXISTENCE-HIDDEN: the registry never
+   *  checks whether an account bears the email; matching happens lazily at the
+   *  invitee's reads. A duplicate pending invite returns the existing row
+   *  (uniform — no signal either way). Null = the org is full of pending
+   *  invites ('capped' at the route). */
+  createInvite(orgId: string, email: string, invitedByName: string): StoredOrgInvite | null {
+    const normalized = email.trim().toLowerCase()
+    const existing = this.orgInvites.find((i) => i.orgId === orgId && i.email === normalized && i.status === 'invited')
+    if (existing) return existing
+    const pending = this.orgInvites.filter((i) => i.orgId === orgId && i.status === 'invited').length
+    if (pending >= MAX_PENDING_ORG_INVITES) return null
+    this.inviteSeq += 1
+    const invite: StoredOrgInvite = {
+      id: `invite-${this.inviteSeq}`,
+      orgId,
+      email: normalized,
+      role: 'member',
+      invitedBy: invitedByName,
+      at: Date.now(),
+      status: 'invited',
+    }
+    this.orgInvites.push(invite)
+    // Bound the per-org history: drop the oldest RESOLVED rows past the cap
+    // (pending rows are already capped above and are never dropped).
+    const rows = this.orgInvites.filter((i) => i.orgId === orgId)
+    if (rows.length > MAX_ORG_INVITE_ROWS) {
+      const drop = rows.filter((i) => i.status !== 'invited').slice(0, rows.length - MAX_ORG_INVITE_ROWS)
+      this.orgInvites = this.orgInvites.filter((i) => !drop.includes(i))
+    }
+    return invite
+  }
+
+  /** The org side of the invite ledger (owner-only at the route). */
+  invitesOfOrg(orgId: string): OrgInviteRow[] {
+    return this.orgInvites.filter((i) => i.orgId === orgId).map(({ orgId: _org, ...row }) => row)
+  }
+
+  /** The INVITEE's pending invites — matched lazily by the signed-in account's
+   *  email (a credential-less account, e.g. the desktop user, has none). */
+  myInvites(email: string | undefined): MyInvite[] {
+    if (!email) return []
+    const needle = email.trim().toLowerCase()
+    return this.orgInvites
+      .filter((i) => i.status === 'invited' && i.email === needle)
+      .map((i) => ({
+        id: i.id,
+        orgId: i.orgId,
+        orgName: this.tenants.get(i.orgId)?.name ?? i.orgId,
+        role: i.role,
+        invitedBy: i.invitedBy,
+        at: i.at,
+      }))
+  }
+
+  /** The invitee's verdict (O-D3): accept mints the seat; decline just closes.
+   *  The invite must be pending AND addressed to the caller's email — anything
+   *  else is undefined (→ 404, indistinguishable from "no such invite"). */
+  resolveInvite(inviteId: string, userId: string, action: 'accept' | 'decline'): MyOrg | 'declined' | undefined {
+    const email = this.users.get(userId)?.email?.toLowerCase()
+    const invite = this.orgInvites.find((i) => i.id === inviteId)
+    if (!invite || invite.status !== 'invited' || !email || invite.email !== email) return undefined
+    invite.status = action === 'accept' ? 'accepted' : 'declined'
+    invite.resolvedAt = Date.now()
+    if (action === 'decline') return 'declined'
+    if (!this.membership(userId, invite.orgId)) {
+      this.memberships.push({ userId, tenantId: invite.orgId, role: invite.role })
+    }
+    const t = this.tenants.get(invite.orgId)!
+    return { tenant: { id: t.id, name: t.name, kind: t.kind }, role: this.membership(userId, invite.orgId)!.role }
+  }
+
+  /** The owner's honest close of a pending invite. */
+  revokeInvite(orgId: string, inviteId: string): OrgInviteRow | 'closed' | undefined {
+    const invite = this.orgInvites.find((i) => i.id === inviteId && i.orgId === orgId)
+    if (!invite) return undefined
+    if (invite.status !== 'invited') return 'closed'
+    invite.status = 'revoked'
+    invite.resolvedAt = Date.now()
+    const { orgId: _org, ...row } = invite
+    return row
+  }
+
   // ── Persistence faces (additive slices; seeds re-ensured on rehydrate) ──────
 
-  toPersisted(): { users: [string, AccountUser][]; tenants: [string, AccountTenant][]; memberships: Membership[]; seq: { user: number; tenant: number } } {
+  toPersisted(): {
+    users: [string, AccountUser][]
+    tenants: [string, AccountTenant][]
+    memberships: Membership[]
+    orgInvites: StoredOrgInvite[]
+    seq: { user: number; tenant: number; orgInvite: number }
+  } {
     return {
       users: [...this.users.entries()],
       tenants: [...this.tenants.entries()],
       memberships: this.memberships,
-      seq: { user: this.userSeq, tenant: this.tenantSeq },
+      orgInvites: this.orgInvites,
+      seq: { user: this.userSeq, tenant: this.tenantSeq, orgInvite: this.inviteSeq },
     }
   }
 
-  rehydrate(s: { users?: [string, AccountUser][]; tenants?: [string, AccountTenant][]; memberships?: Membership[]; seq?: { user?: number; tenant?: number } }): void {
+  rehydrate(s: {
+    users?: [string, AccountUser][]
+    tenants?: [string, AccountTenant][]
+    memberships?: Membership[]
+    orgInvites?: StoredOrgInvite[]
+    seq?: { user?: number; tenant?: number; orgInvite?: number }
+  }): void {
     // Replace wholesale when the snapshot carries the slices, then re-ensure the
     // seeds. The CODE's seed rows stay authoritative over their snapshot echoes:
     // a snapshot written by an older build carries the OLD seed shape (e.g.
     // pre-P9 rows without the demo credentials), and letting it overwrite the
     // fresh seeds would pin every clone to whatever build first persisted —
-    // so snapshot users/tenants only land on NON-seed ids. Memberships are
-    // re-added if missing.
+    // so snapshot users/tenants only land on NON-seed ids.
     if (!s.users && !s.tenants && !s.memberships) return
     const snapshotUsers = new Map(s.users ?? [])
     const snapshotTenants = new Map(s.tenants ?? [])
@@ -250,15 +399,42 @@ export class AccountRegistry {
     this.seed() // baseline: the seeds
     for (const [id, u] of snapshotUsers) if (!this.users.get(id)?.seeded) this.users.set(id, u)
     for (const [id, t] of snapshotTenants) if (!this.tenants.get(id)?.seeded) this.tenants.set(id, t)
+    // Memberships restore under the FWD-6 shape: exactly one HOME per user (the
+    // flagged row, or — legacy snapshots predate the flag — the user's first
+    // row), then org seats, which may NEVER land in a tenant that is somebody's
+    // namespace. That wall is what keeps a pre-collapse echo (Grace's old seat
+    // on Ada's Acme) dropped while a real org seat round-trips freely.
+    const homes = new Map<string, string>() // userId → namespace tenant id
+    for (const m of this.memberships) if (m.home) homes.set(m.userId, m.tenantId) // the seeds
+    // Pass 1 — FLAGGED homes first (order-independent: a seat listed before its
+    // user's home row must not be mis-inferred as the namespace).
     for (const m of snapshotMemberships) {
-      // ONE membership per user (FWD-5 Phase 2): a pre-collapse snapshot may echo
-      // extra seats (Grace's Acme membership, a created org workspace) — the first
-      // row a user has wins; the rest are dropped, not restored. Seeds are already
-      // in place, so a seed user's snapshot echo never lands.
-      if (!this.memberships.some((x) => x.userId === m.userId)) this.memberships.push(m)
+      if (m.home && !homes.has(m.userId)) {
+        homes.set(m.userId, m.tenantId)
+        this.memberships.push({ ...m, home: true })
+      }
     }
+    // Pass 2 — legacy inference: a user with NO flagged row anywhere (a pre-FWD-6
+    // snapshot) gets their FIRST row as the namespace.
+    for (const m of snapshotMemberships) {
+      if (m.home || homes.has(m.userId)) continue
+      homes.set(m.userId, m.tenantId)
+      this.memberships.push({ ...m, home: true })
+    }
+    // Pass 3 — org seats, walled out of every namespace. (A pre-collapse
+    // workspace seat that targeted a since-FWD-6 org-shaped tenant restores as
+    // the org seat it should have been; one that targets a person namespace —
+    // Grace's old Acme seat — stays dropped.)
+    const namespaces = new Set(homes.values())
+    for (const m of snapshotMemberships) {
+      if (m.home || homes.get(m.userId) === m.tenantId) continue
+      if (namespaces.has(m.tenantId)) continue
+      if (!this.membership(m.userId, m.tenantId)) this.memberships.push({ ...m, home: undefined })
+    }
+    this.orgInvites = s.orgInvites ?? []
     this.userSeq = Math.max(this.userSeq, s.seq?.user ?? 0)
     this.tenantSeq = Math.max(this.tenantSeq, s.seq?.tenant ?? 0)
+    this.inviteSeq = Math.max(this.inviteSeq, s.seq?.orgInvite ?? 0)
   }
 }
 
