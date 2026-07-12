@@ -84,6 +84,7 @@ export function Sidebar({
   onToggleCollapse,
   onOpenSearch,
   onOpenNotifications,
+  onOpenOwner,
   resizable = true,
   railW,
   onResizeStart,
@@ -119,6 +120,8 @@ export function Sidebar({
   onOpenSearch: () => void
   /** Open the notification inbox (D24) — the bell beside the search icon. */
   onOpenNotifications: () => void
+  /** Door to a namespace page (FWD-6 — the chip menu's Organizations rows). */
+  onOpenOwner?: (name: string) => void
   /** Drag-to-resize wiring; the parent owns the width and clamps it. On the
    *  narrow tier the rail is a fixed-width drawer, so the handle is dropped. */
   resizable?: boolean
@@ -636,7 +639,7 @@ export function Sidebar({
         </div>
       </div>
 
-      <AccountChip />
+      <AccountChip onOpenOwner={onOpenOwner} />
     </aside>
   )
 }

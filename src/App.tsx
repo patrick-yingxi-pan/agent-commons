@@ -342,6 +342,7 @@ function Workspace() {
                 onToggleCollapse={toggleLeft}
                 onOpenSearch={withRailClose(() => setSearchOpen(true))}
                 onOpenNotifications={withRailClose(() => setNotifOpen(true))}
+                onOpenOwner={withRailClose(openOwner)}
                 resizable={!railOverlay}
                 railW={leftW}
                 onResizeStart={startResize}

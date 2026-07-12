@@ -186,6 +186,10 @@ export interface OwnerProfile {
   /** Whether the caller's tenant IS this workspace (drives "(you)" chrome only —
    *  the page's content is identical for every viewer; that's the point). */
   own: boolean
+  /** FWD-6 O3 — present when this name is an ORG the VIEWER holds a seat in
+   *  (computed, viewer-relative — never stored). Unlocks the member panel and
+   *  keeps the page serving for members before anything public exists. */
+  org?: { id: string; role: import('./identity.ts').TenantRole }
   projects: ProjectDirectoryEntry[]
   agents: AgentDirectoryEntry[]
   stats: OwnerProfileStats

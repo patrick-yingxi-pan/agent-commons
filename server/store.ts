@@ -1649,13 +1649,26 @@ export const store = {
       // O-D5, the streams of that org's members (the inbox is member-readable).
       case 'notification.changed':
         return tenantReadsAs(tenantId, e.tenantId)
-      case 'relation.applied':
+      case 'relation.applied': {
         // Gate on the tenant that APPLIED the edit — not the op payload. Keying off
         // op.projectId leaked the unfile/unlink ops (projectId:null but carrying the
         // project *name*), and the projectless ops (handoff / Agent-Commons CRUD) leaked
         // their session/agent labels. A relation edit is the acting tenant's private
         // action, so it's visible only to that tenant (F2/PD9). Unstamped ⇒ default.
-        return (e.tenantId ?? defaultTenantId()) === tenantId
+        if ((e.tenantId ?? defaultTenantId()) === tenantId) return true
+        // FWD-6 O-D5: an edit that TOUCHED an ORG-owned project is the org's
+        // business — its seats' caches must invalidate live (UI-12: a member's
+        // Projects list would otherwise go stale on another seat's edit). Widened
+        // ONLY for org owners (`isNamespace` excludes every person namespace, so
+        // the legacy privacy — incl. cross-tenant ops on shared personal
+        // projects — is bit-for-bit preserved).
+        const pid = (e.op as { projectId?: string | null }).projectId
+        if (pid != null) {
+          const owner = projectTenant(pid)
+          if (!accounts.isNamespace(owner) && accounts.seatIn(tenantId, owner) !== undefined) return true
+        }
+        return false
+      }
       case 'openwork.changed': {
         // The backlog's visibility mirrors the Project's (D19/P8): everyone while it's
         // shared, owner-only while private. The event carries only the project id, so
@@ -3289,11 +3302,21 @@ export const store = {
         activity.push({ kind: 'authored', at: l.at, agentLabel: entry.label, version: l.version, subGoal: l.note, owner: entry.owner, agentId: entry.id })
       }
     }
-    if (projects.length === 0 && agents.length === 0 && activity.length === 0) return undefined
+    // FWD-6 O3 — the org door: the VIEWER's seat in an org bearing this name
+    // (computed, viewer-relative — the INV-9 read-side class; never stored).
+    // It both unlocks the member panel client-side and keeps the page serving
+    // for members when the org shares nothing public yet. Names collide, so the
+    // seat resolves against org tenants only (namespaces excluded) — first hit.
+    const seatOrg = [...accounts.tenants.values()].find(
+      (t) => t.name === name && t.kind === 'org' && !accounts.isNamespace(t.id) && accounts.seatIn(tenantId, t.id) !== undefined,
+    )
+    const org = seatOrg ? { id: seatOrg.id, role: accounts.seatIn(tenantId, seatOrg.id)! } : undefined
+    if (projects.length === 0 && agents.length === 0 && activity.length === 0 && !org) return undefined
     activity.sort((a, b) => b.at - a.at)
     return {
       name,
       own: tenantName(tenantId) === name,
+      ...(org ? { org } : {}),
       projects,
       agents,
       stats: {

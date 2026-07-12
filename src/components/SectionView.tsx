@@ -155,6 +155,11 @@ import {
   useCommissionAuthority,
   useOpenSubGoals,
   useOwnerProfile,
+  useMyOrgs,
+  useOrgMembers,
+  useOrgInvites,
+  inviteToOrg,
+  revokeOrgInvite,
   useProjectDirectory,
   useProjectSubGoals,
   useDispatchRuns,
@@ -179,7 +184,9 @@ import {
   type AgentChangelogEntry,
   type AgentDirectoryEntry,
   type AuditEntry,
+  type MyOrg,
   type OpenSubGoal,
+  type OwnerProfile,
   type ProjectDirectoryEntry,
   type Commission,
   type CreatedProvider,
@@ -345,6 +352,11 @@ function ProjectsSection({
   const [sort, setSort] = useState('Last updated')
   const [creating, setCreating] = useState(false)
   const rel = useRelations()
+  // FWD-6: the caller's org seats — the New-project owner picker's options and
+  // the "Your organizations" band's membership test (matched by tenant id; the
+  // projection keeps `tenantId` on every seat-visible row).
+  const myOrgs = useMyOrgs().data ?? []
+  const myOrgIds = new Set(myOrgs.map((o) => o.tenant.id))
   // Includes projects created mid-conversation (the relation graph's extras), so a freshly
   // created project shows in the list and opens to its detail like any seed one.
   const projects = rel.allProjects()
@@ -353,9 +365,17 @@ function ProjectsSection({
   // ones, so a duplicate name can't re-file into an existing project), apply the
   // sessionless create-project op (optimistic + persisted + broadcast), then open
   // the new project — it's already in `projects` via the optimistic graph patch.
-  const createProject = (name: string, description: string) => {
+  // `ownerTenantId` (FWD-6 O-D4): undefined = the caller's own namespace (the
+  // fixed absence, INV-9); an org id = the picker's explicit, validated choice.
+  const createProject = (name: string, description: string, ownerTenantId?: string) => {
     const id = uniqueProjectId(name, new Set(projects.map((p) => p.id)))
-    rel.applyOp({ kind: 'create-project', projectId: id, projectName: name, projectDescription: description })
+    rel.applyOp({
+      kind: 'create-project',
+      projectId: id,
+      projectName: name,
+      projectDescription: description,
+      ...(ownerTenantId ? { ownerTenantId } : {}),
+    })
     setCreating(false)
     onOpenProject(id)
   }
@@ -381,11 +401,14 @@ function ProjectsSection({
   )
   // "Last updated" keeps source order (already newest-first); "Name" sorts A→Z.
   const sorted = sort === 'Name' ? [...filtered].sort((a, b) => a.name.localeCompare(b.name)) : filtered
-  // Yours vs the commons (shared-surface UI model): a FOREIGN shared project is a
-  // different relationship — browsable, joinable, not yours — so it lists under its
-  // own band instead of interleaving indistinguishably with your projects.
-  const mine = sorted.filter((p) => p.own !== false)
-  const sharedWithYou = sorted.filter((p) => p.own === false)
+  // Yours vs your orgs vs the commons (shared-surface UI model): an ORG-owned
+  // project is reached through a seat (FWD-6 — banded under "Your organizations",
+  // whatever your role); a FOREIGN shared project is a different relationship —
+  // browsable, joinable, not yours. Neither interleaves with your own.
+  const isOrgRow = (p: Project) => !!p.tenantId && myOrgIds.has(p.tenantId)
+  const orgRows = sorted.filter(isOrgRow)
+  const mine = sorted.filter((p) => p.own !== false && !isOrgRow(p))
+  const sharedWithYou = sorted.filter((p) => p.own === false && !isOrgRow(p))
 
   const grid = (items: Project[]) => (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -431,6 +454,18 @@ function ProjectsSection({
           ) : (
             grid(mine)
           )}
+          {subview !== 'mine' && orgRows.length > 0 && (
+            <div className="mt-8">
+              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+                Your organizations
+              </div>
+              <p className="mb-3 text-[12px] text-ink-faint">
+                Projects owned by organizations you belong to — a seat, not a switch (the byline is
+                the org's page).
+              </p>
+              {grid(orgRows)}
+            </div>
+          )}
           {subview !== 'mine' && sharedWithYou.length > 0 && (
             <div className="mt-8">
               <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
@@ -445,7 +480,7 @@ function ProjectsSection({
           )}
         </>
       )}
-      {creating && <NewProjectDialog onCreate={createProject} onClose={() => setCreating(false)} />}
+      {creating && <NewProjectDialog orgs={myOrgs} onCreate={createProject} onClose={() => setCreating(false)} />}
     </Page>
   )
 }
@@ -470,21 +505,26 @@ function uniqueProjectId(name: string, taken: Set<string>): string {
 }
 
 /** The "New project" form — a centered modal (same idiom as ArtifactViewer): a
- *  required name and an optional description. Enter (in the name field) or the
- *  Create button submits; Escape, the backdrop, or Cancel dismisses. */
+ *  required name, an optional description, and — when the caller holds org
+ *  seats (FWD-6 O-D4) — an OWNER picker: "You" (the default pre-selection; the
+ *  request then omits ownerTenantId, the fixed INV-9 absence) or one of your
+ *  orgs (the request carries the concrete, validated id). */
 function NewProjectDialog({
+  orgs,
   onCreate,
   onClose,
 }: {
-  onCreate: (name: string, description: string) => void
+  orgs: MyOrg[]
+  onCreate: (name: string, description: string, ownerTenantId?: string) => void
   onClose: () => void
 }) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [owner, setOwner] = useState('') // '' = You (the person namespace)
 
   const canCreate = name.trim().length > 0
   const submit = () => {
-    if (canCreate) onCreate(name.trim(), description.trim())
+    if (canCreate) onCreate(name.trim(), description.trim(), owner || undefined)
   }
 
   return (
@@ -517,6 +557,23 @@ function NewProjectDialog({
           className={`${FORM_INPUT_CLASS} resize-none leading-relaxed`}
         />
       </FormField>
+      {orgs.length > 0 && (
+        <FormField label="Owner">
+          <select
+            aria-label="Project owner"
+            value={owner}
+            onChange={(e) => setOwner(e.target.value)}
+            className={FORM_INPUT_CLASS}
+          >
+            <option value="">You (your namespace)</option>
+            {orgs.map((o) => (
+              <option key={o.tenant.id} value={o.tenant.id}>
+                {o.tenant.name}
+              </option>
+            ))}
+          </select>
+        </FormField>
+      )}
     </FormDialog>
   )
 }
@@ -5117,6 +5174,76 @@ function SharedProjectCard({
  *  profileTitle, never inline): the owner sees this page exactly as visitors do,
  *  which is the point. Reached from any owner byline (directory cards, a shared
  *  project's header, a search hit). */
+/** FWD-6 O3 — the org page's MEMBER panel: visible only to seats (the profile's
+ *  viewer-relative `org` field). Everyone inside sees the roster; the OWNER also
+ *  manages invitations (invite by email — existence-hidden server-side — and
+ *  revoke pending ones). Everything public on this page stays identical for
+ *  every viewer; this panel is the capability-gated affordance (COMMONS-13). */
+function OrgMemberPanel({ org }: { org: NonNullable<OwnerProfile['org']> }) {
+  const members = useOrgMembers(org.id).data ?? []
+  const isOwner = org.role === 'owner'
+  const invites = useOrgInvites(org.id, isOwner).data ?? []
+  const [email, setEmail] = useState('')
+  const [error, setError] = useState('')
+  const invite = async () => {
+    setError('')
+    const r = await inviteToOrg(org.id, email.trim())
+    if (r.ok) setEmail('')
+    else setError(r.message)
+  }
+  const pending = invites.filter((i) => i.status === 'invited')
+  return (
+    <div data-testid="org-member-panel" className="rounded-lg border border-line bg-panel p-3">
+      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+        Members <span className="ml-1 normal-case font-normal">— you hold the {org.role} seat</span>
+      </div>
+      <ul className="space-y-1 text-[12px] text-ink-soft">
+        {members.map((m, i) => (
+          <li key={`${m.name}-${i}`} className="flex items-center gap-2">
+            <span className="min-w-0 flex-1 truncate">{m.name}</span>
+            <span className="text-[10px] uppercase tracking-wide text-ink-faint">{m.role}</span>
+          </li>
+        ))}
+      </ul>
+      {isOwner && (
+        <div className="mt-3 border-t border-line pt-2.5">
+          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Invitations</div>
+          {pending.length > 0 && (
+            <ul className="mb-2 space-y-1 text-[12px] text-ink-soft">
+              {pending.map((i) => (
+                <li key={i.id} className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate">{i.email}</span>
+                  <button
+                    onClick={() => void revokeOrgInvite(org.id, i.id)}
+                    className={INLINE_ACTION_CLASS}
+                    title="Withdraw this pending invitation"
+                  >
+                    Revoke
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="flex items-center gap-1.5">
+            <input
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && void invite()}
+              placeholder="Invite by email…"
+              aria-label="Invite by email"
+              className={`${FORM_INPUT_CLASS} flex-1`}
+            />
+            <button onClick={() => void invite()} disabled={!email.trim()} className={INLINE_ACTION_CLASS}>
+              Invite
+            </button>
+          </div>
+          {error && <p className="mt-1 text-[11px] text-removed">{error}</p>}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function OwnerProfilePage({
   name,
   onOpenProject,
@@ -5188,6 +5315,7 @@ function OwnerProfilePage({
       </header>
 
       <div className="mt-6 space-y-6">
+        {profile.org && <OrgMemberPanel org={profile.org} />}
         <div>
           <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
             Shared projects

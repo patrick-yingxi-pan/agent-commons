@@ -235,4 +235,40 @@ test('O2 — an org-owned project: the picker stamps the org; members read + coo
     { cookie: outsider.cookie },
   )
   assert.equal(stolen.status, 404)
+
+  // relation.applied widens to ORG seats only (UI-12: another seat's edit must
+  // invalidate a member's caches live); an outsider — and every personal-project
+  // case — keeps the acting-tenant privacy bit-for-bit.
+  const applied = { type: 'relation.applied', op: { kind: 'share-project', projectId: pid, projectName: 'Org roadmap', shared: true }, by: 'user', tenantId: founder.home } as const
+  assert.equal(store.eventVisibleToTenant(applied as never, member.home), true, 'a seat hears an org-project edit')
+  assert.equal(store.eventVisibleToTenant(applied as never, outsider.home), false)
+})
+
+test('O3 — the roster read is seat-gated, and the org PAGE serves for members before anything is public', async () => {
+  const founder = await account('Org Pia')
+  const member = await account('Org Moe')
+  const outsider = await account('Org Nox')
+  const org = (await call('POST', '/orgs', { name: `Pia Studio ${(n += 1)}` }, { cookie: founder.cookie })).json
+  await call('POST', `/orgs/${org.id}/invites`, { email: member.email }, { cookie: founder.cookie })
+  const inv = (await call('GET', '/me/invites', undefined, { cookie: member.cookie })).json[0]
+  await call('POST', `/me/invites/${inv.id}/accept`, undefined, { cookie: member.cookie })
+
+  // The roster: any seat reads it; an outsider gets the existence-hiding 404.
+  const roster = await call('GET', `/orgs/${org.id}/members`, undefined, { cookie: member.cookie })
+  assert.equal(roster.status, 200)
+  assert.deepEqual(
+    roster.json.map((m: { name: string; role: string }) => [m.name, m.role]).sort(),
+    [['Org Moe', 'member'], ['Org Pia', 'owner']],
+  )
+  assert.equal((await call('GET', `/orgs/${org.id}/members`, undefined, { cookie: outsider.cookie })).status, 404)
+
+  // The org PAGE (D21) serves for seats even with zero public rows — the member
+  // panel needs a page to live on; the viewer-relative `org` field unlocks it.
+  const memberView = store.ownerProfile(org.name, member.home)
+  assert.ok(memberView, 'a member reaches the page before anything is public')
+  assert.deepEqual(memberView!.org, { id: org.id, role: 'member' })
+  const founderView = store.ownerProfile(org.name, founder.home)
+  assert.deepEqual(founderView!.org, { id: org.id, role: 'owner' })
+  // An outsider still gets the existence-hiding nothing (no publics, no seat).
+  assert.equal(store.ownerProfile(org.name, outsider.home), undefined)
 })

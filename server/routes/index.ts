@@ -488,6 +488,13 @@ export function buildRouter(): Router {
   }
   r.post('/me/invites/:id/accept', inviteVerdict('accept'))
   r.post('/me/invites/:id/decline', inviteVerdict('decline'))
+  // The roster (O3): any SEAT may read it — the org page's member panel; an
+  // outsider gets the existence-hiding 404.
+  r.get('/orgs/:id/members', ({ req, res, params }) => {
+    const wall = orgWall(req.headers, params.id)
+    if (wall.deny || wall.role === undefined) return sendError(res, 'not_found', `No organization '${params.id}'`)
+    sendJson(res, accounts.membersOf(params.id))
+  })
   r.get('/orgs/:id/invites', ({ req, res, params }) => {
     const wall = orgWall(req.headers, params.id)
     // A non-member never learns the org exists (404); a member who isn't an

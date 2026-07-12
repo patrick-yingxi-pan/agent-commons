@@ -42,6 +42,13 @@ export interface MyInvite {
   at: number
 }
 
+/** One member row (`GET /v1/orgs/:id/members` — any seat may read; the display
+ *  name is the public identity, the same face every byline shows). */
+export interface OrgMemberRow {
+  name: string
+  role: TenantRole
+}
+
 /** Body of `POST /v1/orgs` — found an org; the caller becomes its `owner`. */
 export interface CreateOrgRequest {
   name: string

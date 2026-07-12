@@ -3,11 +3,11 @@
  *  `useSessions()` and gains: a real fetch, a loading/error state, and live
  *  updates when the server pushes a change. Hooks grow per resource as reads
  *  migrate; Phase 1 covers capabilities + sessions. */
-import { useQuery, resetAll, type QueryState } from './cache.ts'
-import { API_BASE, apiGet, apiUrl } from './client.ts'
+import { useQuery, resetAll, invalidate, type QueryState } from './cache.ts'
+import { API_BASE, apiDelete, apiGet, apiPost, apiUrl } from './client.ts'
 import { keys, paths } from './keys.ts'
 import { switchAccount, refreshAccount, accountGeneration, type Account } from './account.ts'
-import type { AuthAccount } from '../../contract/index.ts'
+import type { AuthAccount, MyInvite, MyOrg, OrgInviteRow, OrgMemberRow, Tenant as TenantT } from '../../contract/index.ts'
 import type {
   Runner,
   Agent,
@@ -83,6 +83,66 @@ export function useMe(): QueryState<Identity> {
  *  until a real sign-in / sign-up happens here (seed/dev picks don't count). */
 export function useAuthAccounts(enabled = true): QueryState<AuthAccount[]> {
   return useQuery(keys.authAccounts, () => apiGet<AuthAccount[]>(paths.authAccounts), enabled)
+}
+
+/* ── Organizations (FWD-6 — namespaces with members, never worlds) ─────────── */
+
+/** The caller's org SEATS (`GET /me/orgs`) — the chip menu's Organizations doors
+ *  and the New-project owner picker read this; the person namespace is not here. */
+export function useMyOrgs(enabled = true): QueryState<MyOrg[]> {
+  return useQuery(keys.meOrgs, () => apiGet<MyOrg[]>(paths.meOrgs), enabled)
+}
+
+/** The caller's PENDING invitations (matched to the signed-in account's email —
+ *  a credential-less identity has none). Surfaced in the chip menu (the v1 door). */
+export function useMyInvites(enabled = true): QueryState<MyInvite[]> {
+  return useQuery(keys.meInvites, () => apiGet<MyInvite[]>(paths.meInvites), enabled)
+}
+
+/** An org's roster — any seat may read (the org page's member panel). */
+export function useOrgMembers(orgId: string | undefined): QueryState<OrgMemberRow[]> {
+  return useQuery(keys.orgMembers(orgId ?? ''), () => apiGet<OrgMemberRow[]>(paths.orgMembers(orgId!)), !!orgId)
+}
+
+/** An org's invite ledger — OWNER-only (the route 403s a member; gate `enabled`). */
+export function useOrgInvites(orgId: string | undefined, enabled: boolean): QueryState<OrgInviteRow[]> {
+  return useQuery(keys.orgInvites(orgId ?? ''), () => apiGet<OrgInviteRow[]>(paths.orgInvites(orgId!)), !!orgId && enabled)
+}
+
+/** Found an org (the caller becomes its owner) and refresh the seats list. */
+export async function createOrg(name: string): Promise<{ ok: true; tenant: TenantT } | { ok: false; message: string }> {
+  try {
+    const tenant = await apiPost<TenantT>(paths.orgs, { name })
+    invalidate(keys.meOrgs)
+    return { ok: true, tenant }
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : 'Failed to create the organization' }
+  }
+}
+
+/** Invite an email into an org (owner-only; existence-hidden server-side). */
+export async function inviteToOrg(orgId: string, email: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    await apiPost(paths.orgInvites(orgId), { email })
+    invalidate(keys.orgInvites(orgId))
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : 'Failed to invite' }
+  }
+}
+
+/** The owner's honest close of a pending invitation. */
+export async function revokeOrgInvite(orgId: string, inviteId: string): Promise<void> {
+  await apiDelete(`${paths.orgInvites(orgId)}/${encodeURIComponent(inviteId)}`)
+  invalidate(keys.orgInvites(orgId))
+}
+
+/** The invitee's verdict (O-D3): accept mints the seat (the world re-reads —
+ *  org projects and bells become visible); decline just closes the invite. */
+export async function resolveMyInvite(inviteId: string, action: 'accept' | 'decline'): Promise<void> {
+  await apiPost(`${paths.meInvites}/${encodeURIComponent(inviteId)}/${action}`)
+  if (action === 'accept') resetAll() // a new seat widens the walls — re-read everything
+  else invalidate(keys.meInvites)
 }
 
 /** Onboarding (P7): both endpoints mint the session cookie server-side; on

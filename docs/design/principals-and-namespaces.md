@@ -6,8 +6,8 @@
 > with its locks). Now invariant **INV-10**
 > ([`../spec/09-design-invariants.md`](../spec/09-design-invariants.md)). The
 > **orgs phase** — deferred at decision time (§4.1) — was un-deferred by user
-> direction and is being built per **§8** (spec FWD-6; O1 ✅, O2/O3 in
-> progress). The pre-collapse workspace model survives only as history in
+> direction and is BUILT per **§8** (spec FWD-6 — O1–O3 ✅; org-owned
+> registries stay v2). The pre-collapse workspace model survives only as history in
 > [`F2-identity-tenancy.md`](F2-identity-tenancy.md) +
 > [`multi-account-ui.md`](multi-account-ui.md).
 
@@ -364,8 +364,23 @@ org — seed surgery for a feature the runtime path must prove anyway.
   per-recipient-tenant — a wart, v2); the Projects-list ORG BAND is O3 UI (the
   data already lands: org rows carry `ownerName` + write-grade `own`). Locks:
   `tests/orgs.test.ts` (the O2 case).
-- **O3 — UI:** the chip menu's **Organizations** section (rows are DOORS to
-  org pages + "New organization…" — unlike the deleted workspace rows, nothing
-  re-mints); the org page's member panel (members, invites, accept/decline);
-  the New-project owner picker; the create-project consent card naming the
-  resolved owner.
+- **O3 — UI. ✅ BUILT (2026-07-12).** The chip menu's **Organizations** section
+  (rows are DOORS to org pages via `openOwner` + the inline "New organization…"
+  form — unlike the deleted workspace rows, nothing re-mints; offered to the
+  credential-less desktop default too, since founding needs only an identity)
+  and its **Invitations** section — the v1 invite door (accept mints the seat
+  and re-reads the world; the D24 bell-kind stays v2: bells fan out at act time
+  to TENANTS, but an email invite may precede the account — a lazily-matched
+  bell would contradict that model). The org page (D21) gains the member panel
+  for seats — roster for everyone inside, invite/revoke for the owner — and now
+  serves for members before anything is public (the viewer-relative
+  `OwnerProfile.org` field, INV-9 read-side). The New-project dialog gains the
+  OWNER picker ("You" pre-selected ⇒ the request omits `ownerTenantId`); the
+  Projects list bands org-owned rows under **Your organizations** (matched by
+  tenant id against the caller's seats). One freshness fix earned by the e2e:
+  `relation.applied` widens to ORG seats only (`isNamespace` excludes every
+  person namespace, so the acting-tenant privacy — including cross-tenant ops
+  on shared personal projects — is preserved bit-for-bit; UI-12). Locks:
+  `tests/orgs.test.ts` (roster walls, the org-page door, the event widening),
+  `e2e/orgs.spec.ts` (found → invite → accept → org-owned project through the
+  picker, banded for both seats).

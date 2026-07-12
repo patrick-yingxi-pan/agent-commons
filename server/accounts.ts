@@ -16,7 +16,7 @@
  *  enumerable. In a real deployment an IdP replaces the credential entirely; the
  *  registry (users/tenants/memberships) is what carries over. */
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
-import type { Capabilities, Identity, MyInvite, MyOrg, OrgInviteRow, Tenant, TenantRole, User } from '../contract/index.ts'
+import type { Capabilities, Identity, MyInvite, MyOrg, OrgInviteRow, OrgMemberRow, Tenant, TenantRole, User } from '../contract/index.ts'
 
 type Backend = Capabilities['backend']
 
@@ -324,6 +324,18 @@ export class AccountRegistry {
   /** The org side of the invite ledger (owner-only at the route). */
   invitesOfOrg(orgId: string): OrgInviteRow[] {
     return this.orgInvites.filter((i) => i.orgId === orgId).map(({ orgId: _org, ...row }) => row)
+  }
+
+  /** The org's member roster (any seat may read it at the route) — display
+   *  names only, the public identity every byline shows. */
+  membersOf(orgId: string): OrgMemberRow[] {
+    return this.memberships
+      .filter((m) => !m.home && m.tenantId === orgId)
+      .map((m) => {
+        const u = this.users.get(m.userId)
+        return u ? { name: u.name, role: m.role } : null
+      })
+      .filter((x): x is OrgMemberRow => !!x)
   }
 
   /** The INVITEE's pending invites — matched lazily by the signed-in account's

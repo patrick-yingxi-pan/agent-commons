@@ -9,6 +9,11 @@ export const keys = {
   me: 'me',
   /** The accounts signed in on this browser (§12 — the switcher's instant hops). */
   authAccounts: 'auth-accounts',
+  /** The caller's org seats + pending invitations (FWD-6 — orgs as namespaces). */
+  meOrgs: 'me-orgs',
+  meInvites: 'me-invites',
+  orgMembers: (orgId: string) => `org-members:${orgId}`,
+  orgInvites: (orgId: string) => `org-invites:${orgId}`,
   providers: 'providers',
   systemPrompts: 'system-prompts',
   /** The Agent tool catalog — the names an explicit tool grant can spell out (INV-9:
@@ -80,6 +85,12 @@ export const paths = {
   authLogin: '/auth/login',
   /** The account stack (§12): every account signed in on this browser. */
   authAccounts: '/auth/accounts',
+  /** Organizations (FWD-6): founding, the caller's seats/invites, the org ledger. */
+  orgs: '/orgs',
+  meOrgs: '/me/orgs',
+  meInvites: '/me/invites',
+  orgMembers: (orgId: string) => `/orgs/${orgId}/members`,
+  orgInvites: (orgId: string) => `/orgs/${orgId}/invites`,
   /** Reattach to a live server-owned turn (multi-account §5.2): replay after
    *  `after`, then the live tail. 404 once persisted (refetch the session). */
   turnStream: (id: string, turnId: string, after: number) =>

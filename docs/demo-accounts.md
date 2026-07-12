@@ -68,6 +68,11 @@ npm run dev   →  http://127.0.0.1:5173
    password, and the sidebar (sessions, routines, recent runs), Projects,
    Artifacts, and Dispatch all switch worlds.
 4. Sign out to land on the **Choose an account** picker.
+5. **Orgs are runtime-demonstrable** (FWD-6, deliberately un-seeded): chip menu
+   → *New organization…*, invite another demo account by its email from the org
+   page's member panel, accept from that account's menu — then create a project
+   owned by the org (the New-project **Owner** picker) and watch it band under
+   *Your organizations* for every seat.
 
 > A `.data/store.json` from an earlier run rehydrates fine (stamps are
 > re-applied), but if you want the pristine seed worlds, delete it and restart.
