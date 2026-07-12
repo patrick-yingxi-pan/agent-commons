@@ -125,8 +125,10 @@ export function sessionClearCookie(): string {
 
 export const STACK_COOKIE = 'uw_accounts'
 
-/** Newest first; a re-sign-in moves an account back to the front. Bounded so a
- *  hostile client can't grow the cookie past header limits. */
+/** SIGN-IN ORDER, stable: the list reads oldest sign-in first and NEVER
+ *  reorders on activity — switching accounts must not shuffle the menu under
+ *  the user's pointer. Bounded so a hostile client can't grow the cookie past
+ *  header limits. */
 export const STACK_MAX = 8
 
 export interface StackEntry {
@@ -175,10 +177,14 @@ export function verifyStack(token: string | undefined): StackEntry[] {
   }
 }
 
-/** The stack with `entry` at the front — deduped by user (a re-sign-in or a
- *  switch REFRESHES the account's entry: new tenant, new iat), capped. */
+/** The stack with `entry` merged in, SIGN-IN ORDER preserved: an account
+ *  already remembered is refreshed IN PLACE (new last-active tenant, fresh
+ *  iat) — a switch or re-sign-in never moves its row; a NEW account appends at
+ *  the END. The cap evicts the OLDEST sign-in (the front). */
 export function stackWith(entries: StackEntry[], entry: StackEntry): StackEntry[] {
-  return [entry, ...entries.filter((e) => e.userId !== entry.userId)].slice(0, STACK_MAX)
+  const i = entries.findIndex((e) => e.userId === entry.userId)
+  if (i >= 0) return entries.map((e, j) => (j === i ? entry : e))
+  return [...entries, entry].slice(-STACK_MAX)
 }
 
 /** The stack without `userId`'s entry (that account signed out here). */

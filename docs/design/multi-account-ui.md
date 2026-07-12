@@ -487,9 +487,12 @@ GitHub-style surface** and makes "multiple accounts on one browser" real
 - **The account stack** — GitHub-style multi-account. A SECOND signed HttpOnly
   cookie (`uw_accounts`, `server/auth.ts`) remembers every account that
   **signed in with a credential** on this browser (seed/dev picks never join),
-  newest first, deduped by user, capped (`STACK_MAX`), per-entry TTL. Each
-  entry records the account's **last-active tenant**, refreshed on every mint,
-  so a switch back lands where the account left off. New surface:
+  in **SIGN-IN ORDER, stable** (2026-07: a re-sign-in or switch refreshes the
+  entry IN PLACE — the switcher's rows never shuffle under the pointer; a new
+  account appends; the cap evicts the oldest sign-in), deduped by user, capped
+  (`STACK_MAX`), per-entry TTL. Each entry records the account's
+  **last-active tenant**, refreshed on every mint, so a switch back lands
+  where the account left off. New surface:
   - `GET /v1/auth/accounts` → `AuthAccount[]` — the stack resolved STRICTLY
     against the registry at read time (deleted user drops; a revoked
     last-active membership falls back to the account's first workspace);
@@ -502,6 +505,12 @@ GitHub-style surface** and makes "multiple accounts on one browser" real
   - `DELETE /v1/auth/session` now also forgets the ACTIVE account's stack
     entry (sign out of one account; the others stay — the client then offers
     them on the picker); `?all=1` forgets everything.
+  - `DELETE /v1/auth/accounts/:id` (2026-07) forgets ONE remembered account —
+    the switcher rows' HOVER sign-out; forgetting the active account also
+    clears the session (a remembered-list can't outlive the session proving
+    it). Idempotent; the stack cookie itself is the authorization. In the
+    menu this replaced the old "Account" section: sign-out lives on each row,
+    and "Add account…" is the menu's last line.
 - **Signed-in is now a wire fact**: `Identity.via: 'session' | 'headers' |
   'default'` stamps HOW the identity resolved. Only `'session'` reads as
   signed in — the auth gate and the account menu branch on it, never on

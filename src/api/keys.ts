@@ -85,6 +85,8 @@ export const paths = {
   authLogin: '/auth/login',
   /** The account stack (§12): every account signed in on this browser. */
   authAccounts: '/auth/accounts',
+  /** Forget ONE remembered account (DELETE — the switcher rows' hover sign-out). */
+  authAccount: (userId: string) => `/auth/accounts/${encodeURIComponent(userId)}`,
   /** Organizations (FWD-6): founding, the caller's seats/invites, the org ledger. */
   orgs: '/orgs',
   meOrgs: '/me/orgs',

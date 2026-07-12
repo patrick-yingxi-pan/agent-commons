@@ -1,6 +1,6 @@
 /** The account-stack cookie primitives (multi-account §12 — GitHub-style
  *  remembered accounts, server/auth.ts): sign/verify round-trip, tamper
- *  refusal, per-entry expiry, the dedupe/front/cap merge, and the cookie
+ *  refusal, per-entry expiry, the in-place/append/cap merge (sign-in order), and the cookie
  *  posture. Same trust construction as the session token — HMAC over public
  *  claims — so the failure mode is always "no remembered accounts", never a
  *  guessed one. */
@@ -50,19 +50,24 @@ test('malformed entries are dropped, valid siblings kept', () => {
   assert.deepEqual(verifyStack(signStack([bad, good])), [good])
 })
 
-test('stackWith: newest first, deduped by user (a re-sign-in refreshes tenant + iat), capped', () => {
+test('stackWith: SIGN-IN ORDER, stable — a re-sign-in/switch refreshes IN PLACE, a new account appends', () => {
   const a = entry('user-a', 'tenant-a1')
   const b = entry('user-b')
+  // Refreshing user-a (a switch back, a re-sign-in) must NOT move its row.
   const merged = stackWith([a, b], entry('user-a', 'tenant-a2'))
   assert.equal(merged.length, 2)
-  assert.equal(merged[0].userId, 'user-a')
+  assert.equal(merged[0].userId, 'user-a', 'the refreshed entry keeps its sign-in position')
   assert.equal(merged[0].tenantId, 'tenant-a2', 'the refreshed entry records the new last-active tenant')
   assert.equal(merged[1].userId, 'user-b')
+  // A NEW account appends at the end (sign-in order, oldest first).
+  const grown = stackWith(merged, entry('user-c'))
+  assert.equal(grown[2].userId, 'user-c')
 
   let stack: StackEntry[] = []
   for (let i = 0; i < STACK_MAX + 3; i++) stack = stackWith(stack, entry(`user-${i}`))
   assert.equal(stack.length, STACK_MAX, 'bounded so a hostile client cannot grow the cookie unbounded')
-  assert.equal(stack[0].userId, `user-${STACK_MAX + 2}`, 'the newest survives the cap')
+  assert.equal(stack[0].userId, 'user-3', 'the cap evicts the OLDEST sign-ins')
+  assert.equal(stack[STACK_MAX - 1].userId, `user-${STACK_MAX + 2}`, 'the newest sign-in is last')
 })
 
 test('stackWithout forgets exactly that account', () => {

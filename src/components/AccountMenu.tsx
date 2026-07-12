@@ -3,18 +3,22 @@
  *  a signup, or a sign-in becomes VISIBLE TRUTH, never an optimistic label.
  *
  *  The menu's sections, top to bottom:
- *    • Accounts — every account SIGNED IN on this browser (the account stack,
- *      `GET /v1/auth/accounts`): instant, credential-less hops (GitHub-style),
- *      plus "Add account…" which opens the full-screen sign-in flow.
  *    • Invitations — the caller's PENDING org invites (FWD-6 O-D3, the v1
  *      door): accept mints the seat and re-reads the world; decline closes.
  *    • Organizations — the caller's org SEATS. Every row is a DOOR to the
  *      org's namespace page (D21 — openOwner), NEVER a switch: an org is a
  *      namespace, not a world (FWD-6 O-D1; the deleted workspace rows re-minted
  *      the session — these navigate). Plus the inline "New organization…" form.
- *    • Sign in / Create account / Sign out — sign-in and sign-up open the
- *      DEDICATED full-screen flow (§12 — src/components/auth/AuthScreen.tsx);
- *      sign-out clears the session and lands on the account picker.
+ *    • Accounts — every account SIGNED IN on this browser (the account stack,
+ *      `GET /v1/auth/accounts`), in SIGN-IN ORDER — switching never reorders
+ *      the rows (the server's stack merge is in-place, server/auth.ts). Each
+ *      row is an instant, credential-less hop (GitHub-style) and carries a
+ *      HOVER sign-out: on the active account it's the full sign-out (session
+ *      clears, land on the picker); on any other it just forgets that account
+ *      here (DELETE /v1/auth/accounts/:id). "Add account…" is the menu's last
+ *      line — there is no separate "Account" section; when nothing is signed
+ *      in, Sign in… / Create account… stand in its place (both open the
+ *      dedicated full-screen flow, §12 — src/components/auth/AuthScreen.tsx).
  *
  *  The old "Your workspaces" section (workspace re-mints + the inline "New
  *  workspace" form) is gone — FWD-5 Phase 2, the workspace collapse: an account
@@ -22,8 +26,10 @@
  *  (docs/design/principals-and-namespaces.md). All dismissal via useDismissable
  *  (the shared hook — design invariant). */
 import { useState, type FormEvent, type ReactNode } from 'react'
+import { LogOut } from 'lucide-react'
 import {
   createOrg,
+  forgetAccount,
   resolveMyInvite,
   signOut,
   switchToAccount,
@@ -35,6 +41,7 @@ import {
 } from '../api'
 import { openAuthScreen } from '../controller/useAuthScreen'
 import { AUTH_ERROR_CLASS, AUTH_INPUT_CLASS, AUTH_PRIMARY_CLASS } from '../lib/authFlow'
+import { HOVER_REVEAL } from '../lib/hoverReveal'
 import { useDismissable } from '../lib/useDismissable'
 import { SIDEBAR_HOVER } from '../lib/sidebar'
 
@@ -169,36 +176,68 @@ function MenuBody({
       {stacked.length > 0 && (
         <>
           <SectionLabel>Accounts</SectionLabel>
+          {/* SIGN-IN ORDER, straight from the server (the stack merge is
+              in-place) — never re-sorted here, active-first included: the rows
+              must not shuffle under the pointer when a switch lands. */}
           {stacked.map((a) => (
-            <Row
-              key={a.user.id}
-              testid="account-stack-option"
-              active={a.current}
-              onClick={() => {
-                onClose()
-                if (!a.current) void switchToAccount(a.user.id)
-              }}
-            >
-              <span className="min-w-0 flex-1 truncate">
-                {a.user.name}
-                <span className="ml-1 text-[10px] text-ink-faint">{a.tenant.name}</span>
-              </span>
-              {a.current && <span className="text-[10px] text-ink-faint">Active</span>}
-            </Row>
+            <div key={a.user.id} data-testid="account-stack-row" className="group relative">
+              <button
+                data-testid="account-stack-option"
+                onClick={() => {
+                  onClose()
+                  if (!a.current) void switchToAccount(a.user.id)
+                }}
+                className={`${rowClass(a.current)} pr-8`}
+              >
+                <span className="min-w-0 flex-1 truncate">
+                  {a.user.name}
+                  <span className="ml-1 text-[10px] text-ink-faint">{a.tenant.name}</span>
+                </span>
+                {a.current && <span className="text-[10px] text-ink-faint">Active</span>}
+              </button>
+              {/* The per-row sign-out — a real control, so HOVER_REVEAL (UI-7:
+                  persistent on touch tiers; focus reveals it for the keyboard
+                  path, WCAG 2.1.1). Active account: the full sign-out (session
+                  clears, land on the picker). Any other: just forget it on
+                  this browser — the menu stays put and re-reads. */}
+              <button
+                data-testid={a.current ? 'auth-signout' : 'account-stack-signout'}
+                aria-label={a.current ? `Sign out of ${a.user.name}` : `Forget ${a.user.name} on this browser`}
+                title={a.current ? 'Sign out' : 'Sign out of this account here'}
+                onClick={async () => {
+                  if (a.current) {
+                    onClose()
+                    // Sign out server-side FIRST (the stack forgets this account),
+                    // then land on the picker — the remaining accounts (or the
+                    // sign-in form when none remain) are next, GitHub-style.
+                    await signOut()
+                    openAuthScreen({ kind: 'picker' })
+                  } else {
+                    await forgetAccount(a.user.id)
+                  }
+                }}
+                className={`absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-ink-faint hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${HOVER_REVEAL}`}
+              >
+                <LogOut size={12} aria-hidden />
+              </button>
+            </div>
           ))}
-          <Row
-            testid="auth-add-account"
-            onClick={() => {
-              onClose()
-              openAuthScreen({ kind: 'signin', addAccount: true })
-            }}
-          >
-            + Add account…
-          </Row>
         </>
       )}
-      <SectionLabel>Account</SectionLabel>
-      {!signedIn && (
+      {/* The menu's last line: adding is the one account-level act left down
+          here (per-account sign-out lives on the rows above — no "Account"
+          section). Signed out entirely, the same slot offers the doors in. */}
+      {signedIn || stacked.length > 0 ? (
+        <Row
+          testid="auth-add-account"
+          onClick={() => {
+            onClose()
+            openAuthScreen({ kind: 'signin', addAccount: true })
+          }}
+        >
+          + Add account…
+        </Row>
+      ) : (
         <>
           <Row
             testid="auth-signin"
@@ -220,27 +259,20 @@ function MenuBody({
           </Row>
         </>
       )}
-      {signedIn && (
-        <Row
-          testid="auth-signout"
-          onClick={async () => {
-            onClose()
-            // Sign out server-side FIRST (the stack forgets this account), then
-            // land on the picker — the remaining accounts (or the sign-in form
-            // when none remain) are the natural next step, GitHub-style.
-            await signOut()
-            openAuthScreen({ kind: 'picker' })
-          }}
-        >
-          Sign out
-        </Row>
-      )}
     </>
   )
 }
 
 function SectionLabel({ children }: { children: ReactNode }) {
   return <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-ink-faint">{children}</div>
+}
+
+/** The one menu-row look — Row and the stacked-account button (which needs a
+ *  wrapper for its hover sign-out, so it can't BE a Row) share it verbatim. */
+function rowClass(active?: boolean): string {
+  return `flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition ${
+    active ? 'bg-panel-2 font-medium text-ink' : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
+  }`
 }
 
 function Row({
@@ -255,13 +287,7 @@ function Row({
   testid: string
 }) {
   return (
-    <button
-      data-testid={testid}
-      onClick={onClick}
-      className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition ${
-        active ? 'bg-panel-2 font-medium text-ink' : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
-      }`}
-    >
+    <button data-testid={testid} onClick={onClick} className={rowClass(active)}>
       {children}
     </button>
   )

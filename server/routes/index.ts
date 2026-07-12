@@ -404,6 +404,20 @@ export function buildRouter(): Router {
     res.setHeader('Set-Cookie', [sessionClearCookie(), stackSetCookie(next)])
     res.writeHead(204, BASE_HEADERS).end()
   })
+  // Forget ONE remembered account by id (the switcher rows' per-account
+  // sign-out): its stack entry drops, the others keep their sign-in order.
+  // Forgetting the ACTIVE account is a full sign-out (the session clears with
+  // it — a remembered-list can't outlive the session that proves it). The
+  // stack cookie itself is the authorization (it's this browser's own memory);
+  // an id it doesn't hold is a no-op, answered identically (idempotent 204).
+  r.delete('/auth/accounts/:id', ({ req, res, params }) => {
+    const stack = verifyStack(parseCookies(headerValue(req.headers, 'cookie'))[STACK_COOKIE])
+    const me = store.identity(req.headers)
+    const cookies = [stackSetCookie(stackWithout(stack, params.id))]
+    if (me.via === 'session' && me.user.id === params.id) cookies.unshift(sessionClearCookie())
+    res.setHeader('Set-Cookie', cookies)
+    res.writeHead(204, BASE_HEADERS).end()
+  })
   // The accounts signed in on THIS browser (§12) — the switcher's instant-hop
   // rows, resolved STRICTLY against the registry at read time: a stale entry
   // (deleted user) drops. Each account resolves to its ONE namespace (FWD-5

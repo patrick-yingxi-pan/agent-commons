@@ -49,8 +49,15 @@ test('two accounts stack; the switcher hops between them instantly; sign-out lan
   await expect(page.getByTestId('account-chip')).toContainText(A.name, { timeout: 5_000 })
   await expect(page.getByTestId('auth-screen')).toHaveCount(0) // no sign-in surface involved
 
-  // ── Sign out (of A): the picker offers the REMAINING account (B) ──
+  // ── SIGN-IN ORDER holds after the hop: A signed in first, so A lists
+  //    first even now that she's active (the rows never shuffle) ──
   await page.getByTestId('account-chip').click()
+  const stackedRows = page.getByTestId('account-stack-option')
+  await expect(stackedRows.first()).toContainText(A.name)
+  await expect(stackedRows.first()).toContainText('Active')
+
+  // ── Sign out (of A) — the hover control on HER row: the picker offers the
+  //    REMAINING account (B) ──
   await page.getByTestId('auth-signout').click()
   await expect(page.getByTestId('auth-screen')).toBeVisible({ timeout: 5_000 })
   await expect(page.locator('h1')).toContainText('Choose an account')
@@ -66,4 +73,37 @@ test('two accounts stack; the switcher hops between them instantly; sign-out lan
   await page.getByTestId('account-chip').click()
   await expect(page.getByTestId('account-stack-option')).toHaveCount(1)
   await expect(page.getByTestId('account-stack-option')).toContainText(B.name)
+})
+
+const C = { name: `Stack Cyd ${STAMP}`, email: `cyd-${STAMP}@example.test`, password: `cyds-password-${STAMP}` }
+const D = { name: `Stack Dot ${STAMP}`, email: `dot-${STAMP}@example.test`, password: `dots-password-${STAMP}` }
+
+test('the hover sign-out on a NON-active row forgets just that account, in place', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.goto('/')
+  await page.getByTestId('account-chip').click()
+  await page.getByTestId('auth-signup').click()
+  await completeWizard(page, C)
+  await expect(page.getByTestId('account-chip')).toContainText(C.name, { timeout: 5_000 })
+  await page.getByTestId('account-chip').click()
+  await page.getByTestId('auth-add-account').click()
+  await page.getByTestId('auth-open-signup').click()
+  await completeWizard(page, D)
+  await expect(page.getByTestId('account-chip')).toContainText(D.name, { timeout: 5_000 })
+
+  // D is active; C signed in first and lists first (sign-in order, stable).
+  await page.getByTestId('account-chip').click()
+  const rows = page.getByTestId('account-stack-option')
+  await expect(rows).toHaveCount(2)
+  await expect(rows.first()).toContainText(C.name)
+
+  // Forget C from HER row's hover control: the row drops in place — no
+  // navigation, no identity change, the menu stays open (D is untouched).
+  const rowC = page.getByTestId('account-stack-row').filter({ hasText: C.name })
+  await rowC.hover()
+  await rowC.getByTestId('account-stack-signout').click()
+  await expect(page.getByTestId('account-stack-option')).toHaveCount(1, { timeout: 5_000 })
+  await expect(page.getByTestId('account-stack-option')).toContainText(D.name)
+  await expect(page.getByTestId('account-chip')).toContainText(D.name)
+  await expect(page.getByTestId('auth-screen')).toHaveCount(0)
 })

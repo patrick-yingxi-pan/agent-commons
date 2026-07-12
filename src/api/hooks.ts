@@ -211,6 +211,17 @@ export function signOut(all = false): Promise<boolean> {
   return guardedSwitch(null, all ? '?all=1' : '')
 }
 
+/** Forget ONE remembered (non-active) account: its stack entry drops server-side,
+ *  the others keep their SIGN-IN ORDER, and the switcher list re-reads. The
+ *  ACTIVE account goes through `signOut` instead — its session must clear too. */
+export async function forgetAccount(userId: string): Promise<void> {
+  try {
+    await apiDelete(paths.authAccount(userId))
+  } finally {
+    invalidate(keys.authAccounts) // idempotent server-side — re-read either way
+  }
+}
+
 async function guardedSwitch(body: { userId: string } | null, query = ''): Promise<boolean> {
   if (switching) return false
   switching = true

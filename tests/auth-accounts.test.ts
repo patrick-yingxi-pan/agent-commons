@@ -2,7 +2,9 @@
  *  stack cookie; `GET /v1/auth/accounts` lists what's remembered (strictly
  *  registry-resolved, current marked); `POST /v1/auth/session { userId }` hops
  *  to a remembered account WITHOUT a credential (and only to a remembered one);
- *  DELETE forgets the active account (others stay; `?all=1` forgets everything).
+ *  DELETE forgets the active account (others stay; `?all=1` forgets everything;
+ *  `DELETE /v1/auth/accounts/:id` forgets ONE remembered account). The list is
+ *  SIGN-IN ORDER, stable across switches — a hop refreshes in place.
  *  Also locks `Identity.via` on the wire and the `authGate` capability flag. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -45,8 +47,8 @@ test('a second sign-in stacks alongside the first; the bare-userId mint hops bac
   assert.equal(list.json.length, 2)
   assert.deepEqual(
     list.json.map((r: { user: { name: string }; current: boolean }) => [r.user.name, r.current]),
-    [['Hop Bea', true], ['Hop Ana', false]],
-    'newest first; only the active account is current',
+    [['Hop Ana', false], ['Hop Bea', true]],
+    'SIGN-IN order (Ana signed in first); only the active account is current',
   )
 
   // The instant hop: userId alone, no password — the stack cookie is the proof.
@@ -147,4 +149,50 @@ test('the authGate capability flag follows AUTH_GATE (off by default)', async (t
   })
   const gated = await call('GET', '/capabilities')
   assert.equal(gated.json.features.authGate, true)
+})
+
+test('the stack keeps SIGN-IN ORDER across switches; DELETE /auth/accounts/:id forgets one row', async () => {
+  const a = await signup('Order Ann', 'order-a@example.test')
+  const b = await signup('Order Bob', 'order-b@example.test', cookies(a))
+  const aId = a.json.user.id as string
+  const bId = b.json.user.id as string
+
+  // Hop back to Ann — the switch REFRESHES her entry in place; the list must
+  // NOT reorder (the menu can't shuffle under the pointer).
+  const hop = await call('POST', '/auth/session', { userId: aId }, { cookie: cookies(b) })
+  assert.equal(hop.status, 200)
+  const afterHop = await call('GET', '/auth/accounts', undefined, { cookie: cookies(hop) })
+  assert.deepEqual(
+    afterHop.json.map((r: { user: { name: string }; current: boolean }) => [r.user.name, r.current]),
+    [['Order Ann', true], ['Order Bob', false]],
+    'sign-in order survives the switch; only current moved',
+  )
+
+  // Forget BOB (not active): his row drops, Ann's SESSION is untouched.
+  const forgetB = await call('DELETE', `/auth/accounts/${bId}`, undefined, { cookie: cookies(hop) })
+  assert.equal(forgetB.status, 204)
+  assert.ok(!forgetB.headers['set-cookie']!.includes('uw_session=;'), 'the active session cookie is not cleared')
+  const afterForget = await call('GET', '/auth/accounts', undefined, {
+    cookie: `uw_session=${sess(hop)}; uw_accounts=${stackTok(forgetB)}`,
+  })
+  assert.deepEqual(
+    afterForget.json.map((r: { user: { name: string } }) => r.user.name),
+    ['Order Ann'],
+    'exactly the forgotten row dropped',
+  )
+
+  // An id the stack does not hold: the same idempotent 204, nothing changes.
+  const noop = await call('DELETE', '/auth/accounts/user-nobody', undefined, {
+    cookie: `uw_session=${sess(hop)}; uw_accounts=${stackTok(forgetB)}`,
+  })
+  assert.equal(noop.status, 204)
+  assert.equal(verifyStack(stackTok(noop)).length, 1)
+
+  // Forget the ACTIVE account: a full sign-out — the session clears with it.
+  const forgetA = await call('DELETE', `/auth/accounts/${aId}`, undefined, {
+    cookie: `uw_session=${sess(hop)}; uw_accounts=${stackTok(forgetB)}`,
+  })
+  assert.equal(forgetA.status, 204)
+  assert.ok(forgetA.headers['set-cookie']!.includes('uw_session=;'), 'forgetting the active account signs it out')
+  assert.equal(verifyStack(stackTok(forgetA)).length, 0)
 })
