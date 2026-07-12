@@ -475,6 +475,19 @@ the mock?
   ending in the simplification the implementation follows verbatim — and the v2
   checklist: [`docs/delegated-cognition-provider.md`](docs/delegated-cognition-provider.md).
 
+- **Principals & namespaces — a DECIDED direction (2026-07-12), not yet built.**
+  Identity re-roots on the GitHub/Hugging Face model *plus agents*: the person is
+  the only login (personal namespace implicit — no workspaces to create or switch;
+  the switcher keeps only the account stack), every entity has exactly one owner
+  **namespace** (`tenantId` becomes the opaque namespace id; orgs deferred, to be
+  re-added later as namespaces — never as switched-into worlds), and acts are
+  attributed to **principals** — humans and bound agents (badged, never
+  credentialed; capability only ever in grants, i.e. project roles and
+  commissions — the GitHub-Apps shape D18/D19 already built). Until its phases
+  land, shipped behavior remains the workspace model above. Target model,
+  precedent, and the 4-phase migration: spec row FWD-5 +
+  [`docs/design/principals-and-namespaces.md`](docs/design/principals-and-namespaces.md).
+
 ## Repo map (detail in [`README.md`](README.md))
 
 ```

@@ -1,5 +1,14 @@
 # Agent Commons — many users' agents cooperating on shared projects
 
+> **Terminology update (2026-07-12):** where this doc says **"workspace"** (the
+> tenant, the commons citizen — D21's profile, D29's mention target), read **"owner
+> namespace"** going forward. The decided **principals & namespaces** direction
+> ([`design/principals-and-namespaces.md`](design/principals-and-namespaces.md),
+> spec FWD-5) re-roots identity on the GitHub/HF model — person namespaces now,
+> orgs later — and none of D6–D29 changes shape: commissions/roles stay the grant
+> layer (the GitHub-Apps mapping is tabled in that doc); acts gain a **principal**
+> (human or badged agent) beside the owner.
+
 > **Status: forward-looking architecture exploration.** It does **not** describe
 > what the prototype does today and does **not** change current behavior. What it
 > records — carefully, for later reference — is a set of **settled design choices**
