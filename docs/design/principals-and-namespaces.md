@@ -238,10 +238,9 @@ exploration entry → BUILT pointer), [`../github-parity.md`](../github-parity.m
 invariants pillar as **INV-10** with the full lock list; the forward-looking row
 is a tombstone pointing there.
 
-**Deferred phase — orgs.** Memberships, org creation/joining, org-owned
-registries, the owner picker on create flows, org profile = the same D21 page.
-Build only when the thesis needs an org actor; the contract seam (§4.1) is the
-guarantee this is additive.
+**Orgs phase — designed 2026-07-12 (§8, by user direction), building as
+O1→O3.** The §4.1 deferral ended when the user asked for it; the contract seam
+held (everything below is additive).
 
 ## 7. Open questions (deliberately left)
 
@@ -251,3 +250,100 @@ guarantee this is additive.
   user, account stack is a web concern).
 - Federation identity (BROKER-EXP-5) — namespace names across instances; the
   A2A import stub's lineage is the current answer.
+
+## 8. The orgs phase (the GitHub-2010 move) — designed 2026-07-12
+
+Six calls, each with the alternative it rejects. Spec row **FWD-6**.
+
+### O-D1 — An org is a namespace with members, never a world
+
+An org owns entities, has the D21 profile page, is a D29 mention target, can
+publish agents and share projects. It never acts (no principal), never logs in,
+and is never *entered*: there is **no switching**, no org rail, no org session
+list. Its ONE surface is its namespace page — the same COMMONS-13 shared page,
+with member affordances gated by the viewer's membership (capability shapes
+affordances, not location). *Rejected:* any workspace-shaped org (a switched
+world) — that is exactly what Phase 2 deleted.
+
+### O-D2 — Membership re-enters through the surviving join table
+
+`Membership` (kept in Phase 2 as "the seam orgs re-enter through") reactivates
+with a refined invariant: every user holds **exactly one person-namespace
+membership** (their namespace, role `owner`) **plus any number of org
+memberships**. Roles reuse `TenantRole`; v1 uses `owner` (the founder) and
+`member` — `admin` stays dormant until a real need (the parity doc already
+rejected sub-team structure). `rehydrate`'s one-per-user guard becomes
+one-PERSON-membership-per-user; org memberships round-trip freely.
+
+### O-D3 — Joining is a consent act: email-keyed invitations, existence-hidden
+
+An owner **invites**; the invitee **accepts** — membership is never written
+onto someone (the repo's consent thesis; GitHub does the same). The invite is
+keyed by **email**, and the response is uniform whether or not an account
+bears it (the login's existence-hiding posture — display names are public but
+non-unique, so name-keyed invites would either leak or misfire; the email is
+the one private, unique handle an inviter legitimately knows). A pending
+invite surfaces to the *invitee* (their bell + the org page's member panel)
+once an account with that email exists; accept mints the membership, decline
+closes it — a small lifecycle (`invited → accepted | declined`), poster-side
+revocable. *Rejected:* owner-side direct add (a capability grant without
+consent) and name-keyed invites (enumeration / collision).
+
+### O-D4 — The owner picker: an absent owner means YOUR namespace (INV-9)
+
+Creation flows gain an optional `ownerTenantId`. **Absent = the caller's
+person namespace** — a fixed, documented absence semantic (the minimal-risk
+class; never "the last-used org" or any mutable default). Present = must name
+an org the caller holds a membership in, else refused loudly. **v1 scope:
+projects only** — the shareable, collaboration-bearing entity. Org-owned
+*registries* (pooled providers/keys, org agent fleets) are the real "pooled
+infrastructure" residual and stay v2: they drag the D8/D9 cascade root with
+them and deserve their own pass.
+
+### O-D5 — Member access is a UNION at the walls, not a switched world
+
+Every project-visibility wall (`rowVisibleTo`-family, the open-work/watch/
+notification/event funnels that key off a project's tenant) moves from
+`=== callerTenant` to `∈ visibleTenants(caller)` — the person namespace plus
+org memberships — **one systematic change at the funnels**, not per-surface
+patches (the encode-invariants-centrally rule). Consequences, embraced: an
+org-owned project appears in a member's Projects list (banded under its org,
+like the *Shared with you* band), its bells reach members (the org inbox is
+member-readable), its SSE events pass `eventVisibleToTenant` for members.
+Sessions stay person-owned (§7's open question stays answered "no" for now),
+so the rail's session list is untouched. *Rejected:* the org page as the ONLY
+door (pull-only member access) — it would make org projects second-class in
+every live surface the thesis cares about.
+
+### O-D6 — Attribution is already right; `own` grows a role
+
+Acts on org entities need nothing new: the principal is the human (Phase 1),
+the owner is the org (Phase 3's chain renders it). The viewer-relative `own`
+flag on org-owned projections derives from membership role (owner-role ⇒ the
+owner controls; member ⇒ cooperation affordances); where a surface needs finer
+than a boolean, the projection may carry a computed `memberRole` — viewer-
+relative, never stored (the INV-9 read-side rule).
+
+### O-D7 — Demo seeds stay; orgs are demonstrated at runtime
+
+The six demo worlds keep their Phase-2 shape (one namespace per account —
+`tenant-acme` stays *Ada's namespace*, whatever its display name suggests).
+Re-seeding Acme as a true org would orphan the flagship world from Ada's rail
+(sessions are person-owned) and re-tangle what Phase 2 untangled. Orgs are
+exercised the honest way: created through the real flow (the e2e founds one,
+invites Grace, and collaborates on an org-owned project). *Rejected:* a seeded
+org — seed surgery for a feature the runtime path must prove anyway.
+
+### Build order (each shippable, tested, spec-ledgered)
+
+- **O1 — server core:** the membership invariant rework, `POST /orgs` (founder
+  becomes owner), the invite lifecycle (create / accept / decline / revoke,
+  email-keyed + existence-hidden, bell on arrival), `GET /me/orgs`.
+- **O2 — walls + owner picker:** `visibleTenants` union at the project walls
+  and the notification/event funnels; `ownerTenantId` on project creation
+  (op + route, INV-9-refused when not a held org); the Projects-list org band.
+- **O3 — UI:** the chip menu's **Organizations** section (rows are DOORS to
+  org pages + "New organization…" — unlike the deleted workspace rows, nothing
+  re-mints); the org page's member panel (members, invites, accept/decline);
+  the New-project owner picker; the create-project consent card naming the
+  resolved owner.
