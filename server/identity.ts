@@ -44,6 +44,21 @@ export const LOCAL_IDENTITY: Identity = {
 /** The web backend's default principal (no claims, no headers): the seeded org owner. */
 const WEB_DEFAULT = { userId: 'user-ada', tenantId: 'tenant-acme' }
 
+/** The signed-out face when the AUTH GATE applies (multi-account §12, hardened):
+ *  a principal that exists in NO registry and owns NOTHING — `rowVisibleTo`,
+ *  `seedVisibleTo`, `seatIn`, and every wall answer empty/false for it by
+ *  construction, so even the routes the gate leaves open (`/me`, the identity
+ *  echo) name nobody. The backend default (Ada / the local user) is what a
+ *  request resolves to only when the gate is OFF — pre-sign-in must never read
+ *  as somebody's populated world. Defense-in-depth beneath the router's 401
+ *  wall (routes/index.ts), not a substitute for it. */
+export const ANONYMOUS_IDENTITY: Identity = {
+  user: { id: 'user-anonymous', name: 'Guest' },
+  tenant: { id: 'tenant-anonymous', name: 'Guest', kind: 'personal' },
+  role: 'member',
+  local: false,
+}
+
 /** Read a single header value (Node lower-cases header names; arrays take the first). */
 function header(headers: Headers | undefined, name: string): string | undefined {
   const v = headers?.[name]

@@ -176,6 +176,13 @@ for (const vp of VIEWPORTS) {
   const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height } })
   const page = await ctx.newPage()
   page.on('pageerror', (e) => note(`${vp.name}/*`, 'pageerror', e.message.split('\n')[0]))
+  // A real dev boot gates the workspace behind sign-in (AUTH_GATE defaults on —
+  // server/index.ts). Sign in as the flagship demo account (docs/demo-accounts.md)
+  // via the API so the sweep lands in a populated world; a no-op on an ungated
+  // or already-authenticated stack.
+  await page.request
+    .post(`${BASE}/api/v1/auth/login`, { data: { email: 'ada@acme.example', password: 'ada-demo-password' } })
+    .catch(() => {})
   await page.goto(BASE)
   await page.getByRole('button', { name: 'Explore on my own' }).click({ timeout: 4000 }).catch(() => {})
   await tick(200)

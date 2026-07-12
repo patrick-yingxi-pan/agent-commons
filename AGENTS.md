@@ -46,7 +46,11 @@ npm run dev        # boots the UI (Vite, :5173) AND the mock backend (:8787)
                    # → open http://127.0.0.1:5173
 ```
 
-The app opens on a fresh thread. Free-type the escalation flow in one session —
+The app opens on the **sign-in front door** (the auth gate defaults ON for real
+boots — see `docs/demo-accounts.md` for the six demo credentials; Ada
+`ada@acme.example` / `ada-demo-password` is the flagship. `AUTH_GATE=off` opts a
+boot out). Once signed in you land on a fresh thread. Free-type the escalation
+flow in one session —
 “Open a workspace and draft the launch assets”, “Connect the repo”, “Create a
 project called X” — and each step asks for consent (folder pick, repo connect,
 project create) before it lands, mirroring the desktop app's permission prompts.
@@ -236,6 +240,16 @@ the mock?
 
 - **Light theme only.** There is no dark mode — no `dark:` variants and no theme
   toggle. Don't add one unless the proposal direction changes.
+- **Front door by default — no data before sign-in.** Real boots default the
+  auth gate ON (`server/index.ts` sets `AUTH_GATE ??= 'require'`): pre-sign-in,
+  the UI shows the auth surface and the API refuses data routes with 401 — the
+  gate is a server-side WALL (one router middleware + the ANONYMOUS principal in
+  `store.identity`), not client chrome. The open set is only the front door
+  (`/capabilities`, `/me`, `/auth/*`, ops probes) and the self-authenticated
+  machine edges (`/a2a/*`, `/relay/*`, `/connector`). `AUTH_GATE=off` opts a
+  boot out (the E2E stack and `scripts/ui-sweep.mjs`'s target may run either
+  way — the sweep signs in as Ada first). Locked by `tests/auth-gate.test.ts`;
+  spec row SYNC-8.
 - **No "before" view.** The prototype deliberately does *not* reproduce today's
   three-tab UI. The motivation lives in the docs, and
   reviewers can diff against the live app — so don't build a side-by-side "before".

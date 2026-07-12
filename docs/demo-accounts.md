@@ -61,8 +61,11 @@
 npm run dev   →  http://127.0.0.1:5173
 ```
 
-1. The app boots as the backend default (the flagship world).
-2. Account chip (bottom-left) → **Sign in…** → Ada. Then **Add account…** →
+1. The app boots on the **front door** (the auth gate defaults ON for real
+   boots — no account's data is shown or served before a verified sign-in;
+   `AUTH_GATE=off npm run dev` restores the old ungated boot, where the
+   backend default's flagship world renders immediately).
+2. Sign in as Ada. Then account chip (bottom-left) → **Add account…** →
    Grace, Maya, … each sign-in stacks.
 3. Hop between accounts from the chip's **Accounts** section — one click, no
    password, and the sidebar (sessions, routines, recent runs), Projects,

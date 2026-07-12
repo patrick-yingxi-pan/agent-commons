@@ -63,7 +63,7 @@ import { join } from 'node:path'
 import { fsReader, type FsReader } from './fs.ts'
 import type { FsCatalog, FsFileContent, FsFolderContents, FsSource, Identity } from '../contract/index.ts'
 import { fsRecentKey } from '../contract/index.ts'
-import { resolveIdentity, LOCAL_IDENTITY } from './identity.ts'
+import { resolveIdentity, ANONYMOUS_IDENTITY, LOCAL_IDENTITY } from './identity.ts'
 import { positiveNumberEnv, nonNegativeIntEnv } from './env.ts'
 import { SAVED_CONTEXTS, CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from './data/savedContexts.ts'
 import { connectorDetail } from './data/connectorDetails.ts'
@@ -1517,7 +1517,21 @@ export const store = {
    *  from the auth seam (request headers stand in for verified IdP claims, F2). The
    *  backend is the single source for which deployment this is. */
   identity(headers?: Record<string, string | string[] | undefined>): Identity {
-    return resolveIdentity(BACKEND_MODE, headers)
+    const ident = resolveIdentity(BACKEND_MODE, headers)
+    // The AUTH GATE's identity half (multi-account §12, hardened): when the gate
+    // applies, a request that resolved to the backend DEFAULT (no verified
+    // session, no dev-seam header assertion) reads as the anonymous principal —
+    // a registry-less identity that owns nothing — so pre-sign-in, `/me`, the
+    // identity echo, and every visibility wall name and serve NOBODY. The
+    // router's 401 wall (routes/index.ts) is the loud half; this is the
+    // defense-in-depth beneath it. `defaultTenantId()` deliberately bypasses
+    // this (it calls resolveIdentity directly): the default principal still
+    // OWNS the untagged seeds — the gate hides them from the wire, it doesn't
+    // reassign them.
+    if (ident.via === 'default' && this.capabilities().features.authGate) {
+      return { ...ANONYMOUS_IDENTITY, via: 'default' }
+    }
+    return ident
   },
   /** The backend's default tenant — the owner of *shared* infrastructure (seeded registry
    *  entries with no `tenantId`, seed sessions/projects/artifacts). Used by the by-id write

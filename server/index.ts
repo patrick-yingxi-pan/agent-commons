@@ -26,6 +26,16 @@ const HOST = process.env.HOST ?? '127.0.0.1'
 const ROOT = dirname(fileURLToPath(import.meta.url))
 const DIST = join(ROOT, '..', 'dist')
 
+// The auth gate is ON by default for every REAL boot (dev / server / start):
+// pre-sign-in, the app shows the front door and the API refuses data reads —
+// nobody's world renders without a verified session (multi-account §12,
+// hardened 2026-07). `AUTH_GATE=off` opts a boot out (e.g. the E2E stack,
+// which impersonates via the dev header seam and drives sign-in explicitly
+// where it tests it). Tests import the router directly and never run this
+// file, so the suite's ungated default is untouched — the flag stays
+// read-per-request in store.capabilities(), togglable without a reload.
+process.env.AUTH_GATE ??= 'require'
+
 // Turn on filesystem persistence and rehydrate from the last snapshot, so UI
 // operations (sent messages, attached context, created sessions, schedules,
 // recents, relation edits) survive a restart. Only the real server does this;

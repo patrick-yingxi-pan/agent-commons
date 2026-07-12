@@ -52,6 +52,11 @@ export default defineConfig({
       // invoking shell (e.g. a coding agent's harness exports api.anthropic.com) would
       // otherwise stand the mock down and dial a real API — E2E must be deterministic.
       ANTHROPIC_BASE_URL: 'http://127.0.0.1:8788',
+      // A real boot defaults the AUTH GATE ON (server/index.ts). The E2E stack
+      // opts out: its specs impersonate tenants via the dev header seam and
+      // drive the sign-in flow explicitly where they test it; the gate's WALL
+      // (401s + the anonymous principal) is locked by tests/auth-gate.test.ts.
+      AUTH_GATE: 'off',
     },
   },
 })

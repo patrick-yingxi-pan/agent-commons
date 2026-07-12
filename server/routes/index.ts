@@ -152,6 +152,27 @@ export function buildRouter(): Router {
     return true
   })
 
+  // ── The auth gate as a WALL (multi-account §12, hardened 2026-07) ───────────
+  // When the gate applies (`features.authGate`), an ANONYMOUS request — no
+  // verified session, no dev-seam header assertion (store.identity already
+  // resolved it to the anonymous principal) — reaches only the FRONT DOOR:
+  // boot identity (`/capabilities`, `/me`), the auth routes, the ops probes,
+  // and the MACHINE edges that carry their own authentication (A2A's peer
+  // credential; the relay's rendezvous secret; the connector download, a
+  // public artifact like the well-known card). Everything else refuses with a
+  // loud 401 — the client-side gate (App.tsx) is chrome; this is the wall.
+  // "Meaningful data before sign-in" is the failure this exists to prevent.
+  const GATE_OPEN_EXACT = new Set(['/capabilities', '/me', '/healthz', '/readyz', '/metrics', '/connector'])
+  const GATE_OPEN_PREFIX = ['/auth/', '/a2a/', '/relay/']
+  r.use((ctx) => {
+    if (!store.capabilities().features.authGate) return true
+    if (store.identity(ctx.req.headers).via !== 'default') return true
+    const path = ctx.url.pathname
+    if (GATE_OPEN_EXACT.has(path) || GATE_OPEN_PREFIX.some((p) => path.startsWith(p))) return true
+    sendError(ctx.res, 'unauthorized', 'Sign in to use this backend (AUTH_GATE is on).')
+    return false
+  })
+
   // ── Request metrics (design F6 PD31 — observability) ────────────────────────
   // A per-method counter over matched routes, exposed at `/metrics` in Prometheus
   // text format alongside process uptime/epoch. Counted in middleware (the method is

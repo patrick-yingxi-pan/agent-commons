@@ -507,16 +507,20 @@ GitHub-style surface** and makes "multiple accounts on one browser" real
   signed in — the auth gate and the account menu branch on it, never on
   heuristics. (The default principal still answers ungated requests; that's
   the demo posture, below.)
-- **The auth gate** (`AUTH_GATE=require` → `capabilities.features.authGate`):
-  the production posture — the workspace never renders for an unverified
-  identity; App.tsx shows the auth surface (picker → sign-in fallthrough) with
-  the back-to-workspace escape withheld. OFF by default so the demo still
-  boots straight into the workspace on the backend's default principal; the
-  auth flow itself exists either way (chip menu → Sign in / Create account /
-  Add account, and sign-out lands on the picker). A real deployment would
-  additionally 401 unauthenticated API reads — named follow-on, same class as
-  the IdP swap (§10); the UI gate is the product shape, the server gate is
-  deployment hardening.
+- **The auth gate** (`AUTH_GATE` → `capabilities.features.authGate`): the
+  production posture — the workspace never renders for an unverified identity;
+  App.tsx shows the auth surface (picker → sign-in fallthrough) with the
+  back-to-workspace escape withheld. **Hardened 2026-07 into a server-side
+  WALL** (the follow-on this bullet used to name is built): with the gate on,
+  an anonymous request resolves to the ANONYMOUS principal (`/me` and the
+  identity echo name nobody — never the backend default) and every data route
+  401s it through one router middleware; only the front door and the
+  self-authenticated machine edges (A2A, relay, the connector download) stay
+  open. Real boots (`dev`/`server`/`start`) default the gate ON
+  (`server/index.ts`; `AUTH_GATE=off` opts out — the E2E stack does), so
+  pre-sign-in nobody's data is served OR rendered; the auth flow itself exists
+  either way (chip menu → Sign in / Create account / Add account, and sign-out
+  lands on the picker). Locked by `tests/auth-gate.test.ts`.
 - **Menu → switcher completion**: the chip menu grew an **Accounts** section
   (the stack, instant hops via the bare-userId mint) + "Add account…" (opens
   the full-screen sign-in titled "Add another account" — the current account
