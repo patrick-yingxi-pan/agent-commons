@@ -18,6 +18,7 @@ import type {
   DispatchRun,
   OpenSubGoal,
   ModelProvider,
+  PrincipalRef,
   ProjectRole,
   RecentsSnapshot,
   RelationGraph,
@@ -27,6 +28,7 @@ import type {
   SessionContext,
   SessionWorkspace,
   SystemPromptEntry,
+  WorkItemComment,
 } from '../../contract/index.ts'
 import type { ProviderConfig } from '../data/providers.ts'
 import type { AccountUser, AccountTenant, Membership } from '../accounts.ts'
@@ -62,11 +64,30 @@ export interface StoredNotification extends AppNotification {
   tenantId: string
 }
 
+/** A thread comment as STORED — the wire row plus the acting principal (FWD-5
+ *  Phase 1). Server-private; the projection strips it and serves only `authorKind`. */
+export type StoredWorkItemComment = WorkItemComment & { principal?: PrincipalRef }
+
+/** A work item as STORED (D19) — the wire row plus the poster's RAW tenant id (the
+ *  strict retract-authorization anchor: display names are attacker-controlled, so
+ *  authorization compares tenant ids — the D23 lesson) and the acting principals of
+ *  its post / retract acts (FWD-5 Phase 1). Server-private; `publicOpenSubGoal`
+ *  strips all of it and serves only the display names + principal KINDs. */
+export interface StoredOpenSubGoal extends Omit<OpenSubGoal, 'comments'> {
+  postedByTenant?: string
+  postedByPrincipal?: PrincipalRef
+  retractedByPrincipal?: PrincipalRef
+  comments?: StoredWorkItemComment[]
+}
+
 /** A change proposal as STORED (D25) — the wire row plus the proposer's RAW tenant
  *  id: the strict authorization anchor (the D23 lesson — write authorization compares
- *  tenant ids, never spoofable display names). Server-private; every read strips it. */
-export interface StoredAgentProposal extends AgentChangeProposal {
+ *  tenant ids, never spoofable display names) — and the acting principal (FWD-5
+ *  Phase 1). Server-private; every read strips both. */
+export interface StoredAgentProposal extends Omit<AgentChangeProposal, 'comments'> {
   proposedByTenant: string
+  proposedByPrincipal?: PrincipalRef
+  comments?: StoredWorkItemComment[]
 }
 
 /** A peer as STORED (D28) — the wire row plus the credential's SHA-256 (the
@@ -124,7 +145,7 @@ export interface PersistedState {
    *  open and resolved. Additive-optional like `dispatch` (a pre-field snapshot loads
    *  cleanly with an empty backlog). Dispatch itself is synchronous at post time, so
    *  nothing in-flight ever needs recovering — only the items persist. */
-  openSubGoals?: OpenSubGoal[]
+  openSubGoals?: StoredOpenSubGoal[]
   /** Watch subscriptions (D24) — `[tenantId, projectId]` pairs (tuples, not a Map:
    *  a project has many watchers). Additive-optional like `dispatch` (a pre-field
    *  snapshot loads cleanly with no watches). */

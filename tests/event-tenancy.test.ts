@@ -114,7 +114,7 @@ test('the D25 proposal lifecycle emits proposal.changed to exactly its two parti
   store.updateAgentFromRequest(agent.id, { published: true })
   let pid = ''
   const onOpen = emitted(() => {
-    const p = store.proposeAgentChange(agent.id, { fields: { systemPrompt: 'v2' } }, OTHER)
+    const p = store.proposeAgentChange(agent.id, { fields: { systemPrompt: 'v2' } }, OTHER, undefined)
     pid = (p as { id: string }).id
   })
   const openEvt = onOpen.find((e) => e.type === 'proposal.changed')
@@ -124,7 +124,7 @@ test('the D25 proposal lifecycle emits proposal.changed to exactly its two parti
   assert.equal(store.eventVisibleToTenant(openEvt, OTHER), true, 'the proposer’s stream gets it')
   assert.equal(store.eventVisibleToTenant(openEvt, 'tenant-bystander'), false, 'a bystander’s never does')
 
-  const onComment = emitted(() => store.commentOnAgentProposal(agent.id, pid, 'why this?', OWNER))
+  const onComment = emitted(() => store.commentOnAgentProposal(agent.id, pid, 'why this?', OWNER, undefined))
   assert.ok(onComment.some((e) => e.type === 'proposal.changed' && e.agentId === agent.id), 'a comment broadcasts')
   const onVerdict = emitted(() => store.resolveAgentProposal(agent.id, pid, OWNER, 'merge'))
   assert.ok(onVerdict.some((e) => e.type === 'proposal.changed' && e.agentId === agent.id), 'the verdict broadcasts')

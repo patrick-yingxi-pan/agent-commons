@@ -26,7 +26,7 @@
  *  seam and advertises a directory — the desktop switches WORKSPACES for its
  *  one device owner; the web switches org principals. With no override, each
  *  backend resolves exactly what it always did. */
-import type { Capabilities, Identity, Tenant, TenantRole } from '../contract/index.ts'
+import type { Capabilities, Identity, PrincipalRef, Tenant, TenantRole } from '../contract/index.ts'
 import { SESSION_COOKIE, identityHeadersAllowed, parseCookies, verifySession } from './auth.ts'
 import { accounts } from './accounts.ts'
 
@@ -112,5 +112,13 @@ export function resolveIdentity(backend: Backend, headers?: Headers): Identity {
     }
   }
   return { ...(backend === 'remote' ? webIdentityFromHeaders() : LOCAL_IDENTITY), via: 'default' }
+}
+
+/** The acting principal behind a resolved identity (FWD-5 Phase 1): a native route's
+ *  caller is always a HUMAN principal — the signed-in (or dev-seam / default) user.
+ *  Agent principals are stamped where agents act (standing dispatch, D19); foreign
+ *  A2A actors get NO local principal (they're attributed by `verifiedPeer`, D28). */
+export function userPrincipal(identity: Identity): PrincipalRef {
+  return { kind: 'user', id: identity.user.id }
 }
 

@@ -134,8 +134,8 @@ test('the backlog persists — an open item and a resolved one round-trip the sn
   // The persisted slice is additive-optional (like dispatch); assert both states are in
   // the store's snapshot-visible read so persist.ts carries them whole.
   const { id } = arena({ standing: true })
-  store.postOpenSubGoal(id, { subGoal: 'persist-done', type: 'charge', target: 'budget:demo' }, A)
-  store.postOpenSubGoal(id, { subGoal: 'persist-open', type: 'connector.write', target: 'unreachable' }, A)
+  store.postOpenSubGoal(id, { subGoal: 'persist-done', type: 'charge', target: 'budget:demo' }, A, undefined)
+  store.postOpenSubGoal(id, { subGoal: 'persist-open', type: 'connector.write', target: 'unreachable' }, A, undefined)
   const items = store.listOpenSubGoals(id)
   assert.equal(items.length, 2)
   assert.equal(items[0].status, 'open', 'open items list first')

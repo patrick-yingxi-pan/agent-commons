@@ -175,12 +175,20 @@ namespaces.
 
 ## 6. Phased migration (each phase shippable, tested, spec-ledgered)
 
-**Phase 1 — actor/owner split (additive, no deletions).** Introduce a
-`PrincipalRef` (`{ kind: 'user' | 'agent'; id }`) in `contract/` and stamp it on
-the commons *acts* (work-item posts/takes/comments, proposals, mentions) beside
-the existing display-name projections; redocument `tenantId` as the owner
-namespace id. Nothing user-visible changes. Locks: a contract-boundaries test
-that every act DTO carries a principal; reducer tests for the stamp.
+**Phase 1 — actor/owner split (additive, no deletions). ✅ BUILT (2026-07-12).**
+`PrincipalRef` (`{ kind: 'user' | 'agent'; id }`) lives in `contract/identity.ts`;
+every native commons act — work-item post / comment / retract, proposal,
+proposal-comment (mentions ride the comment's stamp) — is stamped with its acting
+principal. Two refinements earned at implementation time: **(a)** the raw ref is
+server-private like the raw tenant ids — stored rows carry the full `PrincipalRef`
+(`StoredOpenSubGoal.postedByPrincipal` etc., `server/persistence/format.ts`) and
+the public projections derive only the KIND (`postedByKind` / `authorKind` /
+`retractedByKind` / `proposedByKind`); a foreign A2A act gets NO kind (its
+attribution stays `verifiedPeer`/`via`, D28). **(b)** the compile-side lock is the
+mutators' **required-but-undefinable** `principal` parameter (every caller decides
+attribution explicitly) rather than a contract-boundaries row; `resolvedBy` needs
+no stamp — a resolution is definitionally an agent act and that field already
+records the grant. Locks: `tests/principals.test.ts`.
 
 **Phase 2 — the workspace collapse.** Signup mints exactly one person
 namespace; drop the workspace routes, the wizard step, the chip-menu workspace

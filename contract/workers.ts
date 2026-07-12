@@ -100,6 +100,9 @@ export interface AgentChangeProposal {
   id: string
   /** The proposing workspace's display name (public identity). */
   proposedBy: string
+  /** The proposing principal's KIND (FWD-5 Phase 1) — the redaction-safe face of the
+   *  server-side `PrincipalRef` stamp; absent = a pre-Phase-1 row. */
+  proposedByKind?: import('./identity.ts').PrincipalKind
   /** The proposed replacement values — a present field replaces, an absent one
    *  keeps the current value. */
   fields: {

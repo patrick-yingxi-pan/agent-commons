@@ -187,14 +187,14 @@ test('R2 — @mention carries the item + the naming comment, so the door opens t
 test('R2 — proposal notifications carry the proposal id (and comment id), public-face', async () => {
   const agent = store.createAgent({ label: `Door Agent ${(n += 1)}`, systemPrompt: 'x', tools: [], instructions: '' }, A)
   await call('PATCH', `/agents/${agent.id}`, { published: true }, { 'x-tenant-id': A })
-  const proposal = store.proposeAgentChange(agent.id, { fields: { label: `Door Agent v2 ${n}` }, note: 'rename' }, B)
+  const proposal = store.proposeAgentChange(agent.id, { fields: { label: `Door Agent v2 ${n}` }, note: 'rename' }, B, undefined)
   assert.ok(proposal && typeof proposal === 'object' && 'id' in proposal, 'proposal opened')
   const pid = (proposal as { id: string }).id
 
   const opened = (await inbox(A)).find((x) => x.kind === 'proposal.opened' && x.agentId === agent.id)
   assert.equal(opened?.proposalId, pid, 'proposal.opened anchors the proposal (owner’s review door)')
 
-  store.commentOnAgentProposal(agent.id, pid, 'looks good', A) // owner → proposer's bell
+  store.commentOnAgentProposal(agent.id, pid, 'looks good', A, undefined) // owner → proposer's bell
   const commented = (await inbox(B)).find((x) => x.kind === 'proposal.commented' && x.agentId === agent.id)
   assert.equal(commented?.proposalId, pid, 'proposal.commented anchors the proposal')
   assert.ok(String(commented?.commentId ?? '').startsWith(pid), 'and the exact proposal comment')

@@ -75,7 +75,7 @@ import { ConflictError, ValidationError } from './conflict.ts'
 import { LimitError } from './limit.ts'
 import { scopeMatches } from './runner-runtime.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../contract/index.ts'
-import type { Agent, AgentChangeProposal, AgentDirectoryEntry, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelInfo, ModelProvider, OpenSubGoal, OwnerActivity, OwnerProfile, PostOpenSubGoalRequest, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState } from '../contract/index.ts'
+import type { Agent, AgentChangeProposal, AgentDirectoryEntry, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelInfo, ModelProvider, OpenSubGoal, OwnerActivity, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState, WorkItemComment } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, SEED_PROVIDERS, SEED_PROVIDER_CONFIGS, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
@@ -88,7 +88,7 @@ import { ResourceGuardian, GuardianError } from './guardian.ts'
 import { LOCAL_RUNNER_SEED, RUNNER_FS_ROOTS } from './data/runners.ts'
 import { DEFAULT_AGENT } from './data/workers.ts'
 import { EMPTY_WORKSPACE, workspaceFromSeed } from './workspace.ts'
-import { STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer } from './persist.ts'
+import { STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer, type StoredOpenSubGoal, type StoredWorkItemComment } from './persist.ts'
 import { eventlog } from './eventlog.ts'
 import { accounts } from './accounts.ts'
 
@@ -190,19 +190,30 @@ let auditSeq = 0
 // issues-tray analog. Persisted (additive, like `auditLog`) so an un-taken item survives
 // a restart; standing dispatch is synchronous at post time, so nothing in-flight ever
 // needs crash recovery — only the items themselves persist.
-/** The stored shape of a work item: the wire type plus the poster's RAW tenant id —
- *  the strict authorization anchor for retract (review finding: display names are
- *  attacker-controlled — `createWorkspace` has no uniqueness guard — so a name
- *  comparison would let a colliding-name tenant close a victim's items). Server-
- *  private: `publicOpenSubGoal` strips it from every read; only `postedBy` (the
- *  display name) ever crosses the boundary. */
-type StoredOpenSubGoal = OpenSubGoal & { postedByTenant?: string }
+// The stored work-item shape (`StoredOpenSubGoal`, server/persistence/format.ts):
+// the wire type plus the poster's RAW tenant id — the strict authorization anchor
+// for retract (review finding: display names are attacker-controlled —
+// `createWorkspace` has no uniqueness guard — so a name comparison would let a
+// colliding-name tenant close a victim's items) — and the acting principals of its
+// post/retract acts (FWD-5 Phase 1). Server-private, stripped below.
 
-/** The one redaction seam stored → wire: drop the poster's raw tenant id. */
+/** The comment redaction seam stored → wire: drop the principal, serve its KIND. */
+function publicWorkItemComment(c: StoredWorkItemComment): WorkItemComment {
+  const { principal, ...pub } = c
+  return { ...pub, ...(principal ? { authorKind: principal.kind } : {}) }
+}
+
+/** The one redaction seam stored → wire: drop the poster's raw tenant id and the
+ *  act principals; the wire face carries display names + principal KINDs only. */
 function publicOpenSubGoal(item: StoredOpenSubGoal): OpenSubGoal {
-  const { postedByTenant, ...pub } = item
+  const { postedByTenant, postedByPrincipal, retractedByPrincipal, comments, ...pub } = item
   void postedByTenant
-  return pub
+  return {
+    ...pub,
+    ...(postedByPrincipal ? { postedByKind: postedByPrincipal.kind } : {}),
+    ...(retractedByPrincipal ? { retractedByKind: retractedByPrincipal.kind } : {}),
+    ...(comments ? { comments: comments.map(publicWorkItemComment) } : {}),
+  }
 }
 
 const openSubGoals: StoredOpenSubGoal[] = []
@@ -249,11 +260,16 @@ const MAX_OPEN_PROPOSALS = 20
 const MAX_PROPOSAL_PROMPT_CHARS = 8000
 const MAX_PROPOSAL_NOTE_CHARS = 2000
 
-/** The one redaction seam stored → wire: drop the proposer's raw tenant id. */
+/** The one redaction seam stored → wire: drop the proposer's raw tenant id and the
+ *  act principals (FWD-5 Phase 1); serve display names + principal KINDs only. */
 function publicProposal(p: StoredAgentProposal): AgentChangeProposal {
-  const { proposedByTenant, ...pub } = p
+  const { proposedByTenant, proposedByPrincipal, comments, ...pub } = p
   void proposedByTenant
-  return pub
+  return {
+    ...pub,
+    ...(proposedByPrincipal ? { proposedByKind: proposedByPrincipal.kind } : {}),
+    ...(comments ? { comments: comments.map(publicWorkItemComment) } : {}),
+  }
 }
 
 /** The review check (D27) — computed at read time for a prompt-changing proposal:
@@ -3013,8 +3029,12 @@ export const store = {
   /** Open a proposal. The wall is the DIRECTORY's: published-only (an unpublished
    *  agent has no public face to propose against — the identical 404). Full-field,
    *  trimmed + capped; the open-queue is bounded ('capped' → 409). Only definition
-   *  fields are representable (the D18 wall, structurally). Rings the owner's bell. */
-  proposeAgentChange(agentId: string, req: ProposeAgentChangeRequest, tenantId: string): AgentChangeProposal | 'capped' | undefined {
+   *  fields are representable (the D18 wall, structurally). Rings the owner's bell.
+   *  `principal` (FWD-5 Phase 1, here and on every act mutator): the acting principal —
+   *  REQUIRED but undefinable, so every caller decides attribution explicitly
+   *  (`undefined` = a foreign A2A actor, attributed by `verifiedPeer`/`via` instead,
+   *  or a deliberately unattributed context like the snapshot generator's seeding). */
+  proposeAgentChange(agentId: string, req: ProposeAgentChangeRequest, tenantId: string, principal: PrincipalRef | undefined): AgentChangeProposal | 'capped' | undefined {
     const agent = WORKER_AGENTS.get(agentId)
     if (!agent || agent.published !== true) return undefined
     const f = req.fields ?? {}
@@ -3035,6 +3055,7 @@ export const store = {
       id: `${agentId}-p${list.length + 1}`, // append-only list ⇒ stable count ⇒ unique
       proposedBy: tenantName(tenantId),
       proposedByTenant: tenantId,
+      ...(principal ? { proposedByPrincipal: principal } : {}),
       fields,
       note: (req.note ?? '').trim().slice(0, MAX_PROPOSAL_NOTE_CHARS),
       baseVersion: agent.version ?? 1,
@@ -3093,7 +3114,7 @@ export const store = {
    *  (proposer ↔ owner, raw tenant ids), while open (the verdict ends the
    *  conversation; the decline note is the last word). To anyone else the proposal
    *  does not exist (→ 404, matching the list read). Rings the OTHER party's bell. */
-  commentOnAgentProposal(agentId: string, proposalId: string, body: string, tenantId: string): AgentChangeProposal | 'closed' | 'capped' | undefined {
+  commentOnAgentProposal(agentId: string, proposalId: string, body: string, tenantId: string, principal: PrincipalRef | undefined): AgentChangeProposal | 'closed' | 'capped' | undefined {
     const agent = WORKER_AGENTS.get(agentId)
     if (!agent) return undefined
     const ownerTenant = agent.tenantId ?? defaultTenantId()
@@ -3110,9 +3131,10 @@ export const store = {
     if (proposal.status !== 'open') return 'closed'
     const comments = (proposal.comments ??= [])
     if (comments.length >= MAX_WORK_ITEM_COMMENTS) return 'capped'
-    const comment = {
+    const comment: StoredWorkItemComment = {
       id: `${proposal.id}-c${comments.length + 1}`, // append-only ⇒ stable count ⇒ unique
       author: tenantName(tenantId),
+      ...(principal ? { principal } : {}),
       body: body.trim().slice(0, MAX_WORK_ITEM_COMMENT_CHARS),
       at: Date.now(),
     }
@@ -3426,7 +3448,7 @@ export const store = {
    *  dispatch it to the Project's standing Contributors synchronously. Returns the item
    *  in its post-dispatch state: `done` when a standing Commission took it, `open` when
    *  none could (it stays visible in the backlog). The route validates visibility. */
-  postOpenSubGoal(projectId: string, req: PostOpenSubGoalRequest, tenantId: string, via?: 'a2a', verifiedPeer?: string): OpenSubGoal {
+  postOpenSubGoal(projectId: string, req: PostOpenSubGoalRequest, tenantId: string, principal: PrincipalRef | undefined, via?: 'a2a', verifiedPeer?: string): OpenSubGoal {
     const item: StoredOpenSubGoal = {
       id: `work-${(openSubGoalSeq += 1)}`,
       projectId,
@@ -3440,6 +3462,7 @@ export const store = {
       ...(verifiedPeer ? { verifiedPeer } : {}),
       // The strict retract-authorization anchor — server-private (redacted on read).
       postedByTenant: tenantId,
+      ...(principal ? { postedByPrincipal: principal } : {}),
       postedAt: Date.now(),
       status: 'open',
       // Provenance only (D20): an A2A-posted item passes the identical walls.
@@ -3514,7 +3537,7 @@ export const store = {
    *  Append-only, trimmed + capped (per comment and per item — a bound, not a forum).
    *  Returns the updated item; `'capped'` when the thread is full; undefined for an
    *  unknown item (→ 404). */
-  commentOnOpenSubGoal(projectId: string, itemId: string, body: string, tenantId: string, verifiedPeer?: string): OpenSubGoal | 'capped' | undefined {
+  commentOnOpenSubGoal(projectId: string, itemId: string, body: string, tenantId: string, principal: PrincipalRef | undefined, verifiedPeer?: string): OpenSubGoal | 'capped' | undefined {
     const item = openSubGoals.find((o) => o.id === itemId && o.projectId === projectId)
     if (!item) return undefined
     const comments = (item.comments ??= [])
@@ -3522,12 +3545,13 @@ export const store = {
     // Parse mentions from the STORED text (trimmed + sliced) so a mention past the
     // char cap — not visible in the comment — never notifies.
     const storedBody = body.trim().slice(0, MAX_WORK_ITEM_COMMENT_CHARS)
-    const comment = {
+    const comment: StoredWorkItemComment = {
       // Deterministic per-item id: comments are append-only (no delete act), so the
       // running count is stable — no new persisted sequence needed.
       id: `${item.id}-c${comments.length + 1}`,
       // D28: a verified peer's registered name attributes the comment.
       author: verifiedPeer ?? tenantName(tenantId),
+      ...(principal ? { principal } : {}),
       body: storedBody,
       at: Date.now(),
     }
@@ -3572,7 +3596,7 @@ export const store = {
    *  history (the D13 credit cannot be un-happened). Returns the updated item;
    *  `'forbidden'` / `'closed'` for the two refusals; undefined for an unknown
    *  item (→ 404). Also the store method behind A2A `tasks/cancel` (D20). */
-  retractOpenSubGoal(projectId: string, itemId: string, tenantId: string): OpenSubGoal | 'forbidden' | 'closed' | undefined {
+  retractOpenSubGoal(projectId: string, itemId: string, tenantId: string, principal: PrincipalRef | undefined): OpenSubGoal | 'forbidden' | 'closed' | undefined {
     const item = openSubGoals.find((o) => o.id === itemId && o.projectId === projectId)
     if (!item) return undefined
     const ownerTenant = findProject(projectId)?.tenantId ?? defaultTenantId()
@@ -3587,6 +3611,7 @@ export const store = {
     item.status = 'retracted'
     item.retractedAt = Date.now()
     item.retractedBy = tenantName(tenantId)
+    if (principal) item.retractedByPrincipal = principal
     notifyTenants(workItemAudience(item), tenantId, {
       kind: 'work.retracted',
       actor: item.retractedBy,

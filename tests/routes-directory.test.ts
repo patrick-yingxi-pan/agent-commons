@@ -54,7 +54,7 @@ test('the directory carries the collaboration aggregates (contributors, open wor
   shareProject('p-dir-counts', 'Counted', A)
   const agent = store.createAgent({ label: 'Counter', systemPrompt: 'x', tools: [], instructions: '' }, A)
   store.createCommission({ role: 'writer', agentId: agent.id, projectId: 'p-dir-counts' }, A)
-  store.postOpenSubGoal('p-dir-counts', { subGoal: 'dir-counts-item', type: 'charge', target: 'budget:demo' }, A)
+  store.postOpenSubGoal('p-dir-counts', { subGoal: 'dir-counts-item', type: 'charge', target: 'budget:demo' }, A, undefined)
 
   const { json } = await call('GET', '/directory/projects', undefined, { 'x-tenant-id': B })
   const entry = json.find((e: any) => e.id === 'p-dir-counts')

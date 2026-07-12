@@ -44,6 +44,7 @@ import {
   stackWithout,
   verifyStack,
 } from '../auth.ts'
+import { userPrincipal } from '../identity.ts'
 import { accounts } from '../accounts.ts'
 import { openSse } from '../http/sse.ts'
 import { store, type GenerationOutcome } from '../store.ts'
@@ -1347,7 +1348,8 @@ export function buildRouter(): Router {
       return sendError(res, 'bad_request', 'subGoal, target, and a valid type are required')
     }
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
-    sendJson(res, store.postOpenSubGoal(params.id, { ...input, subGoal: input.subGoal.trim() }, store.identity(req.headers).tenant.id))
+    const who = store.identity(req.headers)
+    sendJson(res, store.postOpenSubGoal(params.id, { ...input, subGoal: input.subGoal.trim() }, who.tenant.id, userPrincipal(who)))
   })
   // D23 — the item's flat discussion thread: anyone who can SEE the project may
   // comment (the same wall as reading the backlog); attribution is the display name.
@@ -1357,7 +1359,8 @@ export function buildRouter(): Router {
       return sendError(res, 'bad_request', 'a non-empty comment body is required')
     }
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
-    const out = store.commentOnOpenSubGoal(params.id, params.itemId, input.body, store.identity(req.headers).tenant.id)
+    const who = store.identity(req.headers)
+    const out = store.commentOnOpenSubGoal(params.id, params.itemId, input.body, who.tenant.id, userPrincipal(who))
     if (out === undefined) return sendError(res, 'not_found', `No work item '${params.itemId}'`)
     if (out === 'capped') return sendError(res, 'conflict', 'This item’s discussion is at its cap')
     sendJson(res, out)
@@ -1375,7 +1378,8 @@ export function buildRouter(): Router {
         typeof f.instructions === 'string' ||
         Array.isArray(f.tools))
     if (!hasField) return sendError(res, 'bad_request', 'at least one definition field is required')
-    const out = store.proposeAgentChange(params.id, input!, store.identity(req.headers).tenant.id)
+    const who = store.identity(req.headers)
+    const out = store.proposeAgentChange(params.id, input!, who.tenant.id, userPrincipal(who))
     if (out === undefined) return sendError(res, 'not_found', `No agent '${params.id}'`)
     if (out === 'capped') return sendError(res, 'conflict', 'This definition’s review queue is full')
     sendJson(res, out)
@@ -1399,7 +1403,8 @@ export function buildRouter(): Router {
     if (typeof input?.body !== 'string' || !input.body.trim()) {
       return sendError(res, 'bad_request', 'a non-empty comment body is required')
     }
-    const out = store.commentOnAgentProposal(params.id, params.pid, input.body, store.identity(req.headers).tenant.id)
+    const who = store.identity(req.headers)
+    const out = store.commentOnAgentProposal(params.id, params.pid, input.body, who.tenant.id, userPrincipal(who))
     if (out === undefined) return sendError(res, 'not_found', `No proposal '${params.pid}'`)
     if (out === 'closed') return sendError(res, 'conflict', 'This proposal was already resolved — the verdict ended the conversation')
     if (out === 'capped') return sendError(res, 'conflict', 'This proposal’s discussion is at its cap')
@@ -1445,7 +1450,8 @@ export function buildRouter(): Router {
   // immutable history). The same store method serves A2A tasks/cancel.
   r.post('/projects/:id/open-subgoals/:itemId/retract', ({ req, res, params }) => {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
-    const out = store.retractOpenSubGoal(params.id, params.itemId, store.identity(req.headers).tenant.id)
+    const who = store.identity(req.headers)
+    const out = store.retractOpenSubGoal(params.id, params.itemId, who.tenant.id, userPrincipal(who))
     if (out === undefined) return sendError(res, 'not_found', `No work item '${params.itemId}'`)
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the poster or the project owner may retract an item')
     if (out === 'closed') return sendError(res, 'conflict', 'Only an open item can be retracted')
@@ -1554,7 +1560,8 @@ export function buildRouter(): Router {
       if (typeof continueTaskId === 'string') {
         const { subGoal: text } = messageParts(rpc)
         if (!text) return rpcError(res, id, A2A_ERROR.invalidParams, 'continuing a task needs a text part (the comment body)')
-        const out = store.commentOnOpenSubGoal(params.id, continueTaskId, text, store.identity(req.headers).tenant.id, peer?.name)
+        // FWD-5: a foreign actor gets NO local principal — `verifiedPeer` attributes it (D28).
+        const out = store.commentOnOpenSubGoal(params.id, continueTaskId, text, store.identity(req.headers).tenant.id, undefined, peer?.name)
         if (out === undefined) return rpcError(res, id, A2A_ERROR.taskNotFound, `No task '${continueTaskId}'`)
         if (out === 'capped') return rpcError(res, id, A2A_ERROR.invalidParams, 'This task’s discussion is at its cap')
         return rpcResult(res, id, taskFromOpenSubGoal(out))
@@ -1567,7 +1574,7 @@ export function buildRouter(): Router {
           'message/send needs a text part (the sub-goal statement) and a data part {type, target, note?} with a valid effect type')
       }
       const note = typeof data?.note === 'string' ? data.note : undefined
-      const item = store.postOpenSubGoal(params.id, { subGoal, type, target, note }, store.identity(req.headers).tenant.id, 'a2a', peer?.name)
+      const item = store.postOpenSubGoal(params.id, { subGoal, type, target, note }, store.identity(req.headers).tenant.id, undefined, 'a2a', peer?.name)
       return rpcResult(res, id, taskFromOpenSubGoal(item))
     }
     if (rpc.method === 'tasks/get') {
@@ -1580,7 +1587,7 @@ export function buildRouter(): Router {
       // The native retract act (D23), spoken in protocol: same store method, same
       // authorization (the caller's identity must be the poster's — or the owner's).
       const taskId = rpc.params?.id
-      const out = typeof taskId === 'string' ? store.retractOpenSubGoal(params.id, taskId, store.identity(req.headers).tenant.id) : undefined
+      const out = typeof taskId === 'string' ? store.retractOpenSubGoal(params.id, taskId, store.identity(req.headers).tenant.id, undefined) : undefined
       if (out === undefined) return rpcError(res, id, A2A_ERROR.taskNotFound, `No task '${typeof taskId === 'string' ? taskId : ''}'`)
       if (out === 'forbidden') return rpcError(res, id, A2A_ERROR.taskNotCancelable, 'Only the poster or the Project owner may cancel a task')
       if (out === 'closed') return rpcError(res, id, A2A_ERROR.taskNotCancelable, 'Only an open task can be canceled — this one already completed or was canceled')

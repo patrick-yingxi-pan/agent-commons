@@ -275,12 +275,15 @@ export async function buildComprehensive(): Promise<PersistedState> {
   // settles to 'done' a beat later — during the schedule-run poll below — and re-persists.
   store.addDispatch('Playground dispatch — refresh the digest', 'Pulling the latest metrics.')
 
+  // FWD-5 Phase 1 — the acts below stamp the backend default USER principal, so the
+  // persisted principal sub-slice is exercised too (deterministic on either backend).
+  const builder = { kind: 'user' as const, id: store.identity({}).user.id }
   // ── Open work (D19) ── exercise the openSubGoals persisted slice in BOTH states:
   // the standing playground Contributor takes a charge item (→ done, crediting D13),
   // and a connector item the created project can't admit stays open (the backlog face).
   store.updateCommission(playgroundCommission.id, { standing: true })
-  store.postOpenSubGoal('p-insights', { subGoal: 'playground-open-work', type: 'charge', target: 'budget:playground' }, store.defaultTenantId())
-  store.postOpenSubGoal('p-insights', { subGoal: 'playground-backlog', type: 'connector.write', target: 'no-such-connector' }, store.defaultTenantId())
+  store.postOpenSubGoal('p-insights', { subGoal: 'playground-open-work', type: 'charge', target: 'budget:playground' }, store.defaultTenantId(), builder)
+  store.postOpenSubGoal('p-insights', { subGoal: 'playground-backlog', type: 'connector.write', target: 'no-such-connector' }, store.defaultTenantId(), builder)
 
   // ── Watching + the inbox (D24) ── exercise both persisted slices: share the
   // CREATED project (watch fan-out re-checks visibility at mint time — a private
@@ -288,8 +291,8 @@ export async function buildComprehensive(): Promise<PersistedState> {
   // posted-then-commented item (D23) fans notifications out to that watcher.
   store.applyRelationOp({ kind: 'share-project', projectId: PROJECT_ID, projectName: PROJECT_NAME, shared: true })
   store.setWatch(PROJECT_ID, 'tenant-playground-watcher', true)
-  const watchedItem = store.postOpenSubGoal(PROJECT_ID, { subGoal: 'playground-watched-item', type: 'charge', target: 'budget:playground' }, store.defaultTenantId())
-  store.commentOnOpenSubGoal(PROJECT_ID, watchedItem.id, 'playground discussion — still needed?', store.defaultTenantId())
+  const watchedItem = store.postOpenSubGoal(PROJECT_ID, { subGoal: 'playground-watched-item', type: 'charge', target: 'budget:playground' }, store.defaultTenantId(), builder)
+  store.commentOnOpenSubGoal(PROJECT_ID, watchedItem.id, 'playground discussion — still needed?', store.defaultTenantId(), builder)
 
   // Run the created routine and wait for it to finish (it steps one beat at a
   // time, then a final beat applies the standing-approved artifact save). Poll the

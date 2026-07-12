@@ -48,6 +48,24 @@ export interface Identity {
 /** The resolution path an `Identity` arrived by — see `Identity.via`. */
 export type IdentityVia = 'session' | 'headers' | 'default'
 
+/** ── FWD-5 Phase 1 — the acting PRINCIPAL (docs/design/principals-and-namespaces.md) ──
+ *  The actor half of the actor/owner split: WHO performed an act — a signed-in human
+ *  (`user`) or a bound worker Agent (`agent`) — distinct from the namespace that owns
+ *  what was acted on (`tenantId`, read as the owner-namespace id). Orgs are namespaces,
+ *  never principals: they own, they don't act. */
+export type PrincipalKind = 'user' | 'agent'
+
+/** A reference to the acting principal, stamped on act rows SERVER-SIDE (beside the
+ *  raw-tenant authorization anchors, e.g. `postedByTenant`) and stripped at every
+ *  public projection — only the `kind` crosses the wire (`postedByKind` etc.), the
+ *  same redaction posture that keeps raw tenant ids private. Absent = unattributed:
+ *  a row minted before Phase 1, or a foreign A2A actor (identified by `via`/
+ *  `verifiedPeer`, D28 — a remote agent never gets a local principal id). */
+export interface PrincipalRef {
+  kind: PrincipalKind
+  id: string
+}
+
 /** One row of `GET /v1/auth/accounts` — an account that signed in on THIS
  *  browser (carried by the signed account-stack cookie, multi-account §12), the
  *  way GitHub remembers signed-in accounts for its switcher. `tenant` is the

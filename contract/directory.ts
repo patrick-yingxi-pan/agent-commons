@@ -6,6 +6,7 @@
  *  open work, contributions, forks). Search is a case-insensitive substring over
  *  name/description — a mechanism; ranking is deliberately absent (D17). */
 import type { ProjectEffectType } from './coordination.ts'
+import type { PrincipalKind } from './identity.ts'
 import type { AgentChangelogEntry } from './workers.ts'
 
 /** One shared Project in the discovery directory (`GET /directory/projects`). */
@@ -59,6 +60,10 @@ export interface WorkItemComment {
   id: string
   /** The commenting workspace's display name (public identity, like `postedBy`). */
   author: string
+  /** What KIND of principal authored it (FWD-5 Phase 1) — the redaction-safe face of
+   *  the server-side `PrincipalRef` stamp. Absent = unattributed (a pre-Phase-1 row,
+   *  or a foreign A2A commenter — then `author` is the verified peer name, D28). */
+  authorKind?: PrincipalKind
   body: string
   at: number
 }
@@ -80,6 +85,8 @@ export interface OpenSubGoal {
   note: string
   /** The workspace display name that posted it (public identity). */
   postedBy: string
+  /** The posting principal's KIND (FWD-5 Phase 1) — see `WorkItemComment.authorKind`. */
+  postedByKind?: PrincipalKind
   postedAt: number
   /** `open` = awaiting a taker; `done` = a Contributor fired the effect;
    *  `retracted` = closed unresolved by its poster or the Project owner (D23 —
@@ -91,6 +98,8 @@ export interface OpenSubGoal {
   retractedAt?: number
   /** Who closed it (display name) — the poster or the Project owner. */
   retractedBy?: string
+  /** The retracting principal's KIND (FWD-5 Phase 1). */
+  retractedByKind?: PrincipalKind
   /** How the item arrived: unset = the native route; `'a2a'` = posted by a foreign
    *  agent through the A2A edge (D20). Provenance only — never an authority
    *  distinction (both paths pass the identical walls). */
@@ -100,7 +109,10 @@ export interface OpenSubGoal {
    *  A verification stamp, still never an authority distinction. */
   verifiedPeer?: string
   /** The Commission that resolved it (D19 standing dispatch, or a later manual
-   *  path) + its Agent's display label — the public credit line. */
+   *  path) + its Agent's display label — the public credit line. The resolving
+   *  principal needs no separate stamp (FWD-5): a resolution is definitionally an
+   *  AGENT act, and this field already records the GRANT it acted under — the
+   *  full attribution chain (who / under what authority / on whose thing). */
   resolvedBy?: string
   resolvedByLabel?: string
   resolvedAt?: number

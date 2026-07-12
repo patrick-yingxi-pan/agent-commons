@@ -68,7 +68,7 @@ test('the discussion wall IS the project wall: a foreign private project 404s; b
 test('the per-item comment cap answers 409, not silent growth', async () => {
   const { projectId, itemId } = await arena()
   for (let i = 0; i < 99; i += 1) {
-    store.commentOnOpenSubGoal(projectId, itemId, `c${i}`, B)
+    store.commentOnOpenSubGoal(projectId, itemId, `c${i}`, B, undefined)
   }
   const hundredth = await call('POST', `/projects/${projectId}/open-subgoals/${itemId}/comments`, { body: 'the last one' }, { 'x-tenant-id': C })
   assert.equal(hundredth.status, 200)
