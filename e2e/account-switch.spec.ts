@@ -153,9 +153,12 @@ test('per-account view memory: each account is restored to where it was left —
   await page.reload()
   await expect(page.getByTestId('account-chip')).toContainText('Grace Hopper')
 
-  // ── Grace parks on the Projects SECTION page ──
+  // ── Grace parks on the Projects SECTION page, and explicitly expands a
+  //    tree section (chevron state persists per account too) ──
   await page.getByRole('navigation').getByRole('button', { name: 'Projects', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
+  await page.getByRole('button', { name: 'Expand Artifacts' }).click()
+  await expect(page.getByRole('button', { name: 'Collapse Artifacts' })).toBeVisible()
 
   // ── Switch to Ada; she has no memory yet → the fresh draft; open a THREAD ──
   await switchTo(page, 'Ada Lovelace', 'Ada Lovelace')
@@ -163,10 +166,12 @@ test('per-account view memory: each account is restored to where it was left —
   await page.getByRole('button', { name: 'Refactor auth middleware' }).first().click()
   await expect(page.getByText('What should we work on?')).toHaveCount(0)
 
-  // ── Back to Grace: her Projects page is RESTORED (not the draft) ──
+  // ── Back to Grace: her Projects page is RESTORED (not the draft), and her
+  //    tree still shows Artifacts expanded ──
   await switchTo(page, 'Grace Hopper', 'Grace Hopper')
   await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible({ timeout: 5_000 })
   await expect(page.getByText('What should we work on?')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Collapse Artifacts' })).toBeVisible()
 
   // ── Back to Ada: her THREAD is restored, mid-conversation, not a draft ──
   await switchTo(page, 'Ada Lovelace', 'Ada Lovelace')

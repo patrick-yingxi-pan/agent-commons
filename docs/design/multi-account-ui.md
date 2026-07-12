@@ -509,8 +509,10 @@ GitHub-style surface** and makes "multiple accounts on one browser" real
     back to an account restores it exactly where it was left — the open thread
     or section page (with sub-view / detail focus) via `src/lib/viewMemory.ts`,
     and the account's own chrome (rail width/collapse, pane heights + folds,
-    panel width) via the account-scoped layout blob (`src/lib/uiPrefs.ts`,
-    seeded from the legacy unscoped blob on first use). The mechanism is one
+    the section tree's chevron expansion, panel width) via the account-scoped
+    layout blob (`src/lib/uiPrefs.ts`, seeded from the legacy unscoped blob on
+    first use; the tree persists one `treeOpen.‹section›` boolean per EXPLICIT
+    toggle — the active-section auto-expansion stays derived). The mechanism is one
     move: App.tsx KEYS the Workspace by the resolved account, so a switch
     remounts it and every mount-time read re-runs against that account's
     blobs; `useSessionWorkspace` restores the saved location at mount (a

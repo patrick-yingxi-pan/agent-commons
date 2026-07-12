@@ -137,8 +137,15 @@ export function Sidebar({
   // children indented below it — no push, no back button, siblings stay visible. Several
   // sections can be open at once. An effect expands the active section, so a deep-link
   // into it reveals its children.
+  // The expansion set persists PER ACCOUNT through the scoped layout store
+  // (one boolean per section — uiPrefs.ts), so a switch-back or reload finds
+  // the tree folded exactly as that account left it. Only EXPLICIT toggles
+  // persist; the active-section auto-expansion below stays derived (the
+  // restored activeSection re-produces it), so navigating never pins a
+  // section open in storage.
   const [expanded, setExpanded] = useState<Set<SectionId>>(() => {
     const s = new Set<SectionId>()
+    for (const id of SECTION_ORDER) if (SECTION_SUBVIEWS[id] && getLayout(`treeOpen.${id}`, false)) s.add(id)
     if (activeSection && SECTION_SUBVIEWS[activeSection]) s.add(activeSection)
     return s
   })
@@ -150,6 +157,7 @@ export function Sidebar({
     setExpanded((prev) => {
       const next = new Set(prev)
       next.has(id) ? next.delete(id) : next.add(id)
+      setLayout(`treeOpen.${id}`, next.has(id))
       return next
     })
 
@@ -158,7 +166,10 @@ export function Sidebar({
   // "Collapse All"); otherwise it expands every expandable section at once.
   const expandableIds = useMemo(() => SECTION_ORDER.filter((id) => SECTION_SUBVIEWS[id]), [])
   const allExpanded = expandableIds.every((id) => expanded.has(id))
-  const toggleAll = () => setExpanded(allExpanded ? new Set() : new Set(expandableIds))
+  const toggleAll = () => {
+    for (const id of expandableIds) setLayout(`treeOpen.${id}`, !allExpanded)
+    setExpanded(allExpanded ? new Set() : new Set(expandableIds))
+  }
 
   // Clicking a section row: open its page, and — if it has children — expand it in place
   // (keeping the narrow drawer open so the children show, so you can pick one). A childless
