@@ -362,13 +362,17 @@ export class AccountRegistry {
     const email = this.users.get(userId)?.email?.toLowerCase()
     const invite = this.orgInvites.find((i) => i.id === inviteId)
     if (!invite || invite.status !== 'invited' || !email || invite.email !== email) return undefined
+    // An invite whose org tenant no longer resolves (an inconsistent snapshot —
+    // invites restore wholesale, tenants conditionally) is the same 404 as any
+    // bad invite, refused BEFORE any state flips — never a mid-mutation throw.
+    const t = this.tenants.get(invite.orgId)
+    if (!t) return undefined
     invite.status = action === 'accept' ? 'accepted' : 'declined'
     invite.resolvedAt = Date.now()
     if (action === 'decline') return 'declined'
     if (!this.membership(userId, invite.orgId)) {
       this.memberships.push({ userId, tenantId: invite.orgId, role: invite.role })
     }
-    const t = this.tenants.get(invite.orgId)!
     return { tenant: { id: t.id, name: t.name, kind: t.kind }, role: this.membership(userId, invite.orgId)!.role }
   }
 

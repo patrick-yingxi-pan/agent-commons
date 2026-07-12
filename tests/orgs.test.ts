@@ -272,3 +272,64 @@ test('O3 — the roster read is seat-gated, and the org PAGE serves for members 
   // An outsider still gets the existence-hiding nothing (no publics, no seat).
   assert.equal(store.ownerProfile(org.name, outsider.home), undefined)
 })
+
+test('the bounds: the pending-invite cap 409s, the resolved history is bounded, a bad name is refused', async () => {
+  const owner = await account('Org Cap')
+  const org = (await call('POST', '/orgs', { name: 'Cap Works' }, { cookie: owner.cookie })).json
+
+  // Org-name validation: empty and >120 chars are the same loud 400 (INV-9 —
+  // an invalid value is refused, never silently normalized).
+  assert.equal((await call('POST', '/orgs', { name: '' }, { cookie: owner.cookie })).status, 400)
+  assert.equal((await call('POST', '/orgs', { name: 'x'.repeat(121) }, { cookie: owner.cookie })).status, 400)
+
+  // The pending cap (20): the 21st DISTINCT pending invite 409s — but a
+  // duplicate of a pending one still answers uniformly (the same row, 201),
+  // so the cap never becomes an email oracle.
+  for (let i = 0; i < 20; i += 1) {
+    const r = await call('POST', `/orgs/${org.id}/invites`, { email: `cap-${i}-${n}@orgs.example` }, { cookie: owner.cookie })
+    assert.equal(r.status, 201, `invite ${i} lands under the cap`)
+  }
+  assert.equal(
+    (await call('POST', `/orgs/${org.id}/invites`, { email: `cap-over-${n}@orgs.example` }, { cookie: owner.cookie })).status,
+    409,
+    'the 21st pending invite is refused',
+  )
+  const dupAtCap = await call('POST', `/orgs/${org.id}/invites`, { email: `cap-0-${n}@orgs.example` }, { cookie: owner.cookie })
+  assert.equal(dupAtCap.status, 201, 'a pending duplicate still answers 201 at the cap (no oracle)')
+
+  // The history bound (100 rows/org): churning invites past the cap drops the
+  // OLDEST RESOLVED rows; every pending row survives. Driven at the registry
+  // (the route path is identical — createInvite is the one funnel).
+  const reg = new AccountRegistry()
+  const { user } = reg.createUser('Bound Founder', `bound-${n}@orgs.example`, 'bound-password-1')!
+  const boundOrg = reg.createOrg(user.id, 'Bound Guild')!
+  for (let i = 0; i < 130; i += 1) {
+    const inv = reg.createInvite(boundOrg.id, `churn-${i}@orgs.example`, 'Bound Founder')
+    assert.ok(inv, `invite ${i} mints (nothing pending accumulates)`)
+    assert.equal(typeof reg.revokeInvite(boundOrg.id, inv!.id), 'object', 'revoke returns the row, not a sentinel')
+  }
+  const kept = reg.invitesOfOrg(boundOrg.id)
+  assert.ok(kept.length <= 100, `history bounded (${kept.length} ≤ 100)`)
+  assert.ok(!kept.some((i) => i.email === 'churn-0@orgs.example'), 'the oldest resolved row was dropped')
+  assert.ok(kept.some((i) => i.email === 'churn-129@orgs.example'), 'the newest survives')
+})
+
+test('an invite whose org tenant is gone resolves to the same 404 — and mutates nothing', async () => {
+  // An inconsistent snapshot can restore invites whose org tenant didn't land
+  // (invites restore wholesale, tenants conditionally). The verdict must be
+  // `undefined` (the route's 404) BEFORE any state flips — never a throw.
+  const reg = new AccountRegistry()
+  const { user } = reg.createUser('Ghost Invitee', `ghost-inv-${n}@orgs.example`, 'ghost-password-1')!
+  reg.orgInvites.push({
+    id: 'invite-ghost',
+    orgId: 'tenant-org-gone',
+    email: `ghost-inv-${n}@orgs.example`,
+    role: 'member',
+    invitedBy: 'Nobody',
+    at: Date.now(),
+    status: 'invited',
+  })
+  assert.equal(reg.resolveInvite('invite-ghost', user.id, 'accept'), undefined)
+  assert.equal(reg.orgInvites[reg.orgInvites.length - 1]!.status, 'invited', 'the row did not flip mid-refusal')
+  assert.deepEqual(reg.orgsOf(user.id), [], 'no seat minted')
+})

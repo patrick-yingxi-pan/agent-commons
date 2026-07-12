@@ -5186,10 +5186,17 @@ function OrgMemberPanel({ org }: { org: NonNullable<OwnerProfile['org']> }) {
   const [email, setEmail] = useState('')
   const [error, setError] = useState('')
   const invite = async () => {
+    if (!email.trim()) return // the button disables; the Enter path gates here
     setError('')
     const r = await inviteToOrg(org.id, email.trim())
     if (r.ok) setEmail('')
     else setError(r.message)
+  }
+  // A revoke can race the invitee's accept — the result-object reports it in the
+  // same message slot the invite path uses (the hook re-read the ledger already).
+  const revoke = async (inviteId: string) => {
+    const r = await revokeOrgInvite(org.id, inviteId)
+    setError(r.ok ? '' : r.message)
   }
   const pending = invites.filter((i) => i.status === 'invited')
   return (
@@ -5214,7 +5221,7 @@ function OrgMemberPanel({ org }: { org: NonNullable<OwnerProfile['org']> }) {
                 <li key={i.id} className="flex items-center gap-2">
                   <span className="min-w-0 flex-1 truncate">{i.email}</span>
                   <button
-                    onClick={() => void revokeOrgInvite(org.id, i.id)}
+                    onClick={() => void revoke(i.id)}
                     className={INLINE_ACTION_CLASS}
                     title="Withdraw this pending invitation"
                   >

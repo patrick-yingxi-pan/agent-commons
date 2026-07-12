@@ -131,18 +131,33 @@ export async function inviteToOrg(orgId: string, email: string): Promise<{ ok: t
   }
 }
 
-/** The owner's honest close of a pending invitation. */
-export async function revokeOrgInvite(orgId: string, inviteId: string): Promise<void> {
-  await apiDelete(`${paths.orgInvites(orgId)}/${encodeURIComponent(inviteId)}`)
-  invalidate(keys.orgInvites(orgId))
+/** The owner's honest close of a pending invitation. Result-object like every
+ *  org mutation (a race — the invite accepted in another tab — is a message,
+ *  not an unhandled rejection); either way the ledger re-reads. */
+export async function revokeOrgInvite(orgId: string, inviteId: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    await apiDelete(`${paths.orgInvites(orgId)}/${encodeURIComponent(inviteId)}`)
+    invalidate(keys.orgInvites(orgId))
+    return { ok: true }
+  } catch (err) {
+    invalidate(keys.orgInvites(orgId)) // the row changed under us — re-read either way
+    return { ok: false, message: err instanceof Error ? err.message : 'Failed to revoke' }
+  }
 }
 
 /** The invitee's verdict (O-D3): accept mints the seat (the world re-reads —
- *  org projects and bells become visible); decline just closes the invite. */
-export async function resolveMyInvite(inviteId: string, action: 'accept' | 'decline'): Promise<void> {
-  await apiPost(`${paths.meInvites}/${encodeURIComponent(inviteId)}/${action}`)
-  if (action === 'accept') resetAll() // a new seat widens the walls — re-read everything
-  else invalidate(keys.meInvites)
+ *  org projects and bells become visible); decline just closes the invite.
+ *  A failure (the invite revoked meanwhile) re-reads the list and reports. */
+export async function resolveMyInvite(inviteId: string, action: 'accept' | 'decline'): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    await apiPost(`${paths.meInvites}/${encodeURIComponent(inviteId)}/${action}`)
+    if (action === 'accept') resetAll() // a new seat widens the walls — re-read everything
+    else invalidate(keys.meInvites)
+    return { ok: true }
+  } catch (err) {
+    invalidate(keys.meInvites) // stale row — re-read so the ghost invite clears
+    return { ok: false, message: err instanceof Error ? err.message : 'Failed to resolve the invitation' }
+  }
 }
 
 /** Onboarding (P7): both endpoints mint the session cookie server-side; on
