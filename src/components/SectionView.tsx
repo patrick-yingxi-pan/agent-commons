@@ -781,7 +781,7 @@ function ProjectDetail({
             <Empty>
               {own
                 ? 'No sessions in this project yet.'
-                : 'The owner’s sessions are private — the shared surfaces are the panels on the right: commission your agent, claim a sub-goal, or take open work.'}
+                : 'The owner’s sessions are private — the shared surfaces are below: commission your agent, claim a sub-goal, or take open work.'}
             </Empty>
           ) : (
             <div className="overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
@@ -816,18 +816,24 @@ function ProjectDetail({
               ))}
             </div>
           )}
+
+          {/* The commons panels live in the MAIN column, not the rail: Contributors
+              and Coordination/Open work are the page's PAYLOAD (for a visitor, the
+              entire point — the earlier aside squeezed the issues-tray analog to
+              288px behind an empty "sessions are private" note), while the rail
+              keeps what a rail is for: the owner's configuration. */}
+          <div className="mt-6 space-y-4">
+            <ContributorsPanel project={project} />
+            <CoordinationPanel project={project} />
+          </div>
         </div>
 
-        {/* Right panel — instructions, scheduled runs, and attached context. The
-            owner-only panels (instructions / scheduled / context) hide for a visitor
-            — their data is redacted by the projection anyway (P8) — while the
-            cooperation panels (Contributors, Coordination) ARE the visitor acts. */}
+        {/* Right rail — the OWNER's configuration (instructions, scheduled runs,
+            attached context); a visitor's projection redacts all of it (P8), so
+            the rail renders only for the owner and the visitor page is one column. */}
+        {own && (
         <aside className="w-full shrink-0 space-y-4 lg:w-72">
-          {own && <ProjectInstructions project={project} />}
-
-          <ContributorsPanel project={project} />
-
-          <CoordinationPanel project={project} />
+          <ProjectInstructions project={project} />
 
           {own && (
           <SidePanel title="Scheduled" icon={<Clock size={14} />}>
@@ -897,6 +903,7 @@ function ProjectDetail({
           </SidePanel>
           )}
         </aside>
+        )}
       </div>
     </Page>
   )

@@ -20,6 +20,7 @@ export function WorkspaceMark({ name, size = 13 }: { name?: string; size?: numbe
   return (
     <span
       aria-hidden
+      data-initial={identityInitial(n)}
       style={{
         width: size,
         height: size,
@@ -27,10 +28,11 @@ export function WorkspaceMark({ name, size = 13 }: { name?: string; size?: numbe
         backgroundColor: `hsl(${hue} 50% 88%)`,
         color: `hsl(${hue} 45% 32%)`,
       }}
-      className="inline-flex shrink-0 select-none items-center justify-center rounded-full font-semibold leading-none"
-    >
-      {identityInitial(n)}
-    </span>
+      // The initial is PAINT, not text (CSS content from data-initial): a real text
+      // node would leak into text selection ("Pby Personal" on copy) and into
+      // text-matching assertions — the letter is texture, exactly like the color.
+      className="inline-flex shrink-0 select-none items-center justify-center rounded-full font-semibold leading-none before:content-[attr(data-initial)]"
+    />
   )
 }
 
