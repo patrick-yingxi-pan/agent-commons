@@ -48,6 +48,8 @@ export function pathForView(loc: NavLocation, subview: string | null): string {
     return loc.sessionId === DRAFT_ID ? '/' : `/s/${encodeURIComponent(loc.sessionId)}`
   }
   if (loc.ownerName) return `/u/${encodeURIComponent(loc.ownerName)}`
+  if (loc.projectId && loc.workItemId)
+    return `/projects/${encodeURIComponent(loc.projectId)}/work/${encodeURIComponent(loc.workItemId)}`
   if (loc.projectId) return `/projects/${encodeURIComponent(loc.projectId)}`
   if (loc.scheduleId) return `/scheduled/${encodeURIComponent(loc.scheduleId)}`
   return subview ? `/${loc.section}/${encodeURIComponent(subview)}` : `/${loc.section}`
@@ -80,6 +82,11 @@ export function viewForPath(pathname: string): RoutedView | null {
   const section = segs[0]
   const base = { kind: 'section' as const, section, projectId: null, scheduleId: null, ownerName: null }
   if (segs.length === 1) return { loc: base, subview: null }
+  // The one deeper form: /projects/:id/work/:itemId — a work item's own page
+  // (the issue-page analog; nested because the item is project-scoped by nature).
+  if (section === 'projects' && segs.length === 4 && segs[2] === 'work' && segs[3]) {
+    return { loc: { ...base, projectId: segs[1], workItemId: segs[3] }, subview: null }
+  }
   if (segs.length !== 2) return null
   const second = segs[1]
   // Reserved words first: a registered sub-view id names the facet/tab, never an

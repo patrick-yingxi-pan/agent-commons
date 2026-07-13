@@ -187,6 +187,7 @@ import {
   type MyOrg,
   type OpenSubGoal,
   type OwnerProfile,
+  type WorkItemComment,
   type ProjectDirectoryEntry,
   type Commission,
   type CreatedProvider,
@@ -227,6 +228,7 @@ export function SectionView({
   focusProjectId = null,
   focusScheduleId = null,
   focusOwnerName = null,
+  focusWorkItemId = null,
 }: {
   section: SectionId
   /** The active sub-view (lib/subviews) the rail drilled into — the section body
@@ -257,11 +259,15 @@ export function SectionView({
   /** A workspace profile open under the Agents section (D21) — the display name.
    *  Same single-source-of-truth discipline as the two above. */
   focusOwnerName?: string | null
+  /** A work item's own page under the open project (the issue-page analog) —
+   *  meaningful only with `focusProjectId`; null = the project page itself. */
+  focusWorkItemId?: string | null
 }) {
   const body =
     section === 'projects' ? (
       <ProjectsSection
         projectId={focusProjectId}
+        workItemId={focusWorkItemId}
         subview={subview}
         onOpenProject={onOpenProject}
         onBack={onBack}
@@ -329,6 +335,7 @@ function BackButton({ to, onBack }: { to: NavLocation | null; onBack: () => void
 
 function ProjectsSection({
   projectId,
+  workItemId,
   subview,
   onOpenProject,
   onBack,
@@ -339,6 +346,8 @@ function ProjectsSection({
   /** Which project detail to show (null = the list) — the controlled source of
    *  truth, set by the controller however the detail was reached. */
   projectId: string | null
+  /** A work item's own page inside that project (null = the project page). */
+  workItemId?: string | null
   /** The rail's group node (lib/subviews): null = yours + shared, 'mine' = yours only,
    *  'shared' = the commons band only. */
   subview: string | null
@@ -381,6 +390,8 @@ function ProjectsSection({
   }
 
   const open = projectId ? (projects.find((p) => p.id === projectId) ?? null) : null
+  if (open && workItemId)
+    return <WorkItemPage project={open} workItemId={workItemId} onBack={onBack} backTo={backTo} />
   if (open)
     return (
       <ProjectDetail
@@ -2002,10 +2013,10 @@ function WorkItemRow({
         }`}
       />
       <div className="min-w-0 flex-1">
-        {/* The title is the door to the item's conversation (GitHub's issue-title-as-link)
-            — same destination as the comment-count link below, one more way in. */}
+        {/* The title is the door to the item's OWN page (GitHub's issue-title-as-link);
+            the comment-count link below stays the inline quick-thread. */}
         <button
-          onClick={() => setThreadOpen(true)}
+          onClick={() => rel.navigate('projects', projectId, o.id)}
           className={`block max-w-full text-left text-[13px] font-medium hover:underline ${
             o.status === 'retracted' ? 'text-ink-faint line-through' : 'text-ink'
           }`}
@@ -2098,6 +2109,238 @@ function WorkItemRow({
         {error && <p className="mt-1 text-[11px] text-removed">{error}</p>}
       </div>
     </div>
+  )
+}
+
+/** ── A work item's OWN page (the issue-page analog) ──────────────────────────
+ *  Surface follows the entity's nature (docs/design/surface-from-nature.md): an
+ *  open-work item is a LIFECYCLE entity (posted → taken → done / retracted) that
+ *  accumulates a THREAD, so it gets a dedicated page whose body is a **timeline**
+ *  — the state transitions and the conversation interleaved in time order,
+ *  GitHub-issue-style — not a row squeezed into the project sidebar (the backlog
+ *  row remains as the compact list face; its title is the door here). One page
+ *  for every viewer; capability shapes affordances (Retract renders for the
+ *  likely-permitted — poster or project owner — and the server stays the gate).
+ *  Reached by title-door, bell, or address (/projects/:id/work/:item). */
+function WorkItemPage({
+  project,
+  workItemId,
+  onBack,
+  backTo,
+}: {
+  project: Project
+  workItemId: string
+  onBack: () => void
+  backTo: NavLocation | null
+}) {
+  const items = useOpenSubGoals(project.id).data ?? []
+  const o = items.find((i) => i.id === workItemId) ?? null
+  const myName = useMe().data?.tenant.name
+  const rel = useRelations()
+  const ownerDoor = (name: string) => rel.navigate('agents', name)
+  const [draft, setDraft] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // A bell's comment anchor (docs/notification-routing.md): flash the named
+  // comment on arrival — the page-level face of the backlog row's same behavior.
+  const { pending } = usePendingFocus()
+  const isFocus = !!o && pending?.projectId === project.id && pending?.workItemId === o.id
+  const anchorComment = isFocus ? (pending?.commentId ?? null) : null
+  const anchorRef = useRef<HTMLDivElement>(null)
+  const flash = useFocusFlash(isFocus, anchorRef)
+
+  if (!o) {
+    return (
+      <Page>
+        <BackButton to={backTo} onBack={onBack} />
+        <Empty>This work item no longer exists on “{project.name}”.</Empty>
+      </Page>
+    )
+  }
+
+  const comments = o.comments ?? []
+  const mayRetract = o.status === 'open' && (project.own !== false || o.postedBy === myName)
+
+  const send = async () => {
+    if (busy || !draft.trim()) return
+    setBusy(true)
+    setError(null)
+    try {
+      await commentOnWorkItem(project.id, o.id, draft.trim())
+      setDraft('')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not post this comment.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const retract = async () => {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await retractWorkItem(project.id, o.id)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not retract this item.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // The timeline: every event the item accumulated, in time order — the opening
+  // post (its note is the body, GitHub's issue description), each comment, and
+  // the terminal transition when one occurred.
+  type TimelineEvent =
+    | { at: number; key: string; kind: 'posted' }
+    | { at: number; key: string; kind: 'comment'; comment: WorkItemComment }
+    | { at: number; key: string; kind: 'done' }
+    | { at: number; key: string; kind: 'retracted' }
+  const events: TimelineEvent[] = [
+    { at: o.postedAt, key: 'posted', kind: 'posted' as const },
+    ...comments.map((c) => ({ at: c.at, key: c.id, kind: 'comment' as const, comment: c })),
+    ...(o.status === 'done' ? [{ at: o.resolvedAt ?? o.postedAt, key: 'done', kind: 'done' as const }] : []),
+    ...(o.status === 'retracted'
+      ? [{ at: o.retractedAt ?? o.postedAt, key: 'retracted', kind: 'retracted' as const }]
+      : []),
+  ].sort((a, b) => a.at - b.at)
+
+  const badge =
+    o.status === 'done' ? (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-2.5 py-0.5 text-[12px] font-medium text-white">
+        <CheckCircle2 size={13} /> Done
+      </span>
+    ) : o.status === 'retracted' ? (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-ink-faint px-2.5 py-0.5 text-[12px] font-medium text-white">
+        <MinusCircle size={13} /> Retracted
+      </span>
+    ) : (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-600 px-2.5 py-0.5 text-[12px] font-medium text-white">
+        <Clock size={13} /> Open
+      </span>
+    )
+
+  return (
+    <Page>
+      <BackButton to={backTo} onBack={onBack} />
+      <div className="mx-auto w-full max-w-2xl">
+        <div className="flex items-start justify-between gap-3">
+          <h1 className="font-serif text-[24px] leading-tight text-ink">{o.subGoal}</h1>
+          {mayRetract && (
+            <button
+              onClick={retract}
+              disabled={busy}
+              title="Close this item unresolved (poster or project owner)"
+              className="shrink-0 rounded-lg border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
+            >
+              Retract
+            </button>
+          )}
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-faint">
+          {badge}
+          <span>
+            posted by <OwnerLink bare ownerName={o.postedBy} onClick={() => ownerDoor(o.postedBy)} /> ·{' '}
+            {relativeTime(o.postedAt)}
+          </span>
+          <span>
+            · {o.type} → {o.target}
+            {o.via === 'a2a' ? (o.verifiedPeer ? ` · via A2A · ${o.verifiedPeer} ✓` : ' · via A2A') : ''}
+          </span>
+          <span>
+            · in{' '}
+            <button onClick={onBack} className="font-medium text-ink-soft hover:underline">
+              {project.name}
+            </button>
+          </span>
+        </div>
+
+        {/* The timeline — transitions + conversation, interleaved in time order. */}
+        <div className="mt-5 space-y-3 border-l-2 border-line pl-4">
+          {events.map((ev) =>
+            ev.kind === 'posted' ? (
+              <div key={ev.key} className="rounded-lg border border-line bg-surface px-3 py-2">
+                <div className="text-[12px] text-ink-faint">
+                  <OwnerLink bare ownerName={o.postedBy} onClick={() => ownerDoor(o.postedBy)} /> posted this
+                  {o.postedByKind === 'agent' ? ' (agent)' : ''} · {relativeTime(o.postedAt)}
+                </div>
+                <div className="mt-1 whitespace-pre-wrap text-[13px] leading-snug text-ink">
+                  {o.note?.trim() ? o.note : <span className="text-ink-faint">No description given.</span>}
+                </div>
+              </div>
+            ) : ev.kind === 'comment' ? (
+              <div
+                key={ev.key}
+                ref={ev.comment.id === anchorComment ? anchorRef : undefined}
+                className={`rounded-lg border border-line bg-surface px-3 py-2 transition-colors ${
+                  flash && ev.comment.id === anchorComment ? 'bg-accent-tint ring-1 ring-accent/40' : ''
+                }`}
+              >
+                <div className="text-[12px] text-ink-faint">
+                  <ActorByline
+                    name={ev.comment.author}
+                    kind={ev.comment.authorKind}
+                    onOwnerClick={() => ownerDoor(ev.comment.author)}
+                  />
+                  <span> · {relativeTime(ev.comment.at)}</span>
+                </div>
+                <div className="mt-1 whitespace-pre-wrap text-[13px] leading-snug text-ink-soft">
+                  {renderCommentBody(ev.comment.body)}
+                </div>
+              </div>
+            ) : ev.kind === 'done' ? (
+              <div key={ev.key} className="flex items-center gap-2 py-0.5 text-[12px] text-ink-faint">
+                <CheckCircle2 size={14} className="shrink-0 text-emerald-600" />
+                <span title={o.resolvedBy ? `Resolved under commission ${o.resolvedBy}` : undefined}>
+                  done by <AgentActor label={o.resolvedByLabel} />
+                  {o.resolvedByOwner ? (
+                    <>
+                      {' '}· agent of{' '}
+                      <OwnerLink bare ownerName={o.resolvedByOwner} onClick={() => ownerDoor(o.resolvedByOwner!)} />
+                    </>
+                  ) : null}
+                  {o.resolvedAt ? ` · ${relativeTime(o.resolvedAt)}` : ''}
+                </span>
+              </div>
+            ) : (
+              <div key={ev.key} className="flex items-center gap-2 py-0.5 text-[12px] text-ink-faint">
+                <MinusCircle size={14} className="shrink-0" />
+                <span>
+                  retracted by{' '}
+                  <OwnerLink
+                    bare
+                    ownerName={o.retractedBy ?? o.postedBy}
+                    onClick={() => ownerDoor(o.retractedBy ?? o.postedBy)}
+                  />
+                  {o.retractedAt ? ` · ${relativeTime(o.retractedAt)}` : ''} — closed unresolved
+                </span>
+              </div>
+            ),
+          )}
+        </div>
+
+        {/* The conversation continues below the timeline — same funnel as the
+            backlog row's composer (anyone who can see the project may comment). */}
+        <div className="mt-4 flex items-center gap-1.5">
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && send()}
+            placeholder="Add a comment… @mention to notify"
+            aria-label={`Comment on ${o.subGoal}`}
+            className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-1.5 text-[13px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+          />
+          <button
+            onClick={send}
+            disabled={busy || !draft.trim()}
+            className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-[13px] font-medium text-white transition enabled:hover:bg-accent/90 disabled:opacity-45"
+          >
+            Post
+          </button>
+        </div>
+        {error && <p className="mt-1.5 text-[12px] text-removed">{error}</p>}
+      </div>
+    </Page>
   )
 }
 

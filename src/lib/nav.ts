@@ -24,6 +24,9 @@ export type NavLocation =
        *  which IS the public handle. Optional so older call sites / history entries
        *  stay valid; absent ≡ null. */
       ownerName?: string | null
+      /** A work item's own page under its project (the issue-page analog) — requires
+       *  `projectId`. Optional for the same back-compat reason; absent ≡ null. */
+      workItemId?: string | null
     }
 
 /** The display name for each cross-cutting section (its list page). */
@@ -48,7 +51,8 @@ export function sameLocation(a: NavLocation, b: NavLocation): boolean {
       a.section === b.section &&
       a.projectId === b.projectId &&
       a.scheduleId === b.scheduleId &&
-      (a.ownerName ?? null) === (b.ownerName ?? null)
+      (a.ownerName ?? null) === (b.ownerName ?? null) &&
+      (a.workItemId ?? null) === (b.workItemId ?? null)
     )
   return false
 }

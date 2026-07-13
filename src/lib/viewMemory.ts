@@ -19,6 +19,9 @@ export type ViewLocation =
       projectId: string | null
       scheduleId: string | null
       ownerName: string | null
+      /** A work item's page under its project. Optional so blobs saved before the
+       *  field existed stay loadable; absent ≡ null. */
+      workItemId?: string | null
     }
 
 const KEY = 'claude-ui.view.v1'

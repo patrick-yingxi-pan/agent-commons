@@ -76,8 +76,10 @@ export interface RelationsValue {
   instructionsForProject: (pid: string) => string | undefined
   /** The project's public README (D26) — served to every viewer of a shared project. */
   readmeForProject: (pid: string) => string | undefined
-  // ── Nav bridge (the card's "View in …" deep-link) ──
-  navigate: (section: SectionId, projectId?: string) => void
+  // ── Nav bridge (the card's "View in …" deep-link). The id's meaning follows the
+  //    section (a project / a schedule / an owner display name under agents); the
+  //    optional subId narrows to a sub-entity page (today: a project's work item).
+  navigate: (section: SectionId, id?: string, subId?: string) => void
 }
 
 const RelationsContext = createContext<RelationsValue | null>(null)
@@ -89,8 +91,8 @@ export function RelationsProvider({
 }: {
   /** Attaches a connector to the live session (wired to the session controller). */
   attachConnector?: (c: Connector) => void
-  /** Opens a cross-cutting section, optionally a specific project. */
-  navigate?: (section: SectionId, projectId?: string) => void
+  /** Opens a cross-cutting section, optionally a specific entity (and sub-entity). */
+  navigate?: (section: SectionId, id?: string, subId?: string) => void
   children: ReactNode
 }) {
   const projects = useProjects().data ?? NO_PROJECTS
@@ -152,7 +154,7 @@ export function RelationsProvider({
         graph.projectInstructions?.[pid] ??
         [...graph.extraProjects, ...projects].find((p) => p.id === pid)?.instructions,
       readmeForProject: (pid) => graph.projectReadmes?.[pid],
-      navigate: (section, projectId) => navigate?.(section, projectId),
+      navigate: (section, id, subId) => navigate?.(section, id, subId),
     }
   }, [projects, baseArtifacts, schedules, sessions, graph, applyOp, navigate])
 

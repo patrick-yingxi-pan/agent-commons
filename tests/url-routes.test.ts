@@ -55,6 +55,17 @@ test('project and routine details round-trip; sub-view ids are reserved words', 
   assert.deepEqual(viewForPath('/projects/mine'), { loc: section(), subview: 'mine' })
 })
 
+test('a work item page round-trips through /projects/:id/work/:itemId', () => {
+  const loc = section({ projectId: 'p_42', workItemId: 'osg_7' })
+  const path = pathForView(loc, null)
+  assert.equal(path, '/projects/p_42/work/osg_7')
+  assert.deepEqual(viewForPath(path), { loc: { ...loc, workItemId: 'osg_7' }, subview: null })
+  // The nested form exists only under projects, and only with the /work/ segment.
+  assert.equal(viewForPath('/scheduled/s1/work/x'), null)
+  assert.equal(viewForPath('/projects/p_42/other/x'), null)
+  assert.equal(viewForPath('/projects/p_42/work/'), null)
+})
+
 test('a workspace profile lives under /u/ and survives names needing encoding', () => {
   const loc = section({ section: 'agents', ownerName: 'Acme, Inc.' })
   const path = pathForView(loc, null)

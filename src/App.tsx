@@ -99,6 +99,7 @@ function Workspace() {
     focusProjectId,
     focusScheduleId,
     focusOwnerName,
+    focusWorkItemId,
     pendingFocus,
     live,
     typing,
@@ -122,6 +123,7 @@ function Workspace() {
     openProject,
     openSchedule,
     openOwner,
+    openWorkItemPage,
     openWorkItem,
     openProposal,
     openAgent,
@@ -275,15 +277,17 @@ function Workspace() {
   // meaning depends on the section: a project to expand, a schedule to open, or —
   // under agents — a workspace display name whose public profile to show (D21).
   const navigateToSection = useCallback(
-    (section: SectionId, id?: string) =>
-      section === 'projects' && id
-        ? openProject(id)
-        : section === 'scheduled' && id
-          ? openSchedule(id)
-          : section === 'agents' && id
-            ? openOwner(id)
-            : openSection(section),
-    [openProject, openSchedule, openOwner, openSection],
+    (section: SectionId, id?: string, subId?: string) =>
+      section === 'projects' && id && subId
+        ? openWorkItemPage(id, subId) // a work item's page under its project (D19/D23)
+        : section === 'projects' && id
+          ? openProject(id)
+          : section === 'scheduled' && id
+            ? openSchedule(id)
+            : section === 'agents' && id
+              ? openOwner(id)
+              : openSection(section),
+    [openProject, openWorkItemPage, openSchedule, openOwner, openSection],
   )
 
   return (
@@ -402,6 +406,7 @@ function Workspace() {
                   focusProjectId={focusProjectId}
                   focusScheduleId={focusScheduleId}
                   focusOwnerName={focusOwnerName}
+                  focusWorkItemId={focusWorkItemId}
                 />
               </FocusContext.Provider>
             ) : (

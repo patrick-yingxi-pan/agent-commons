@@ -94,6 +94,28 @@ the source agent — provably (an exhaustive `doorFor` switch + the every-kind d
 leak-wall-safe (public-face ids only), and adversarially reviewed. Not a new parity
 *object* — a refinement of the D24 bell (COMMONS-17) to GitHub's deep-link standard.
 
+### Post-parity polish — address parity + the issue page (2026-07-13, ADAPT-15 / COMMONS-24)
+
+A UI evaluation against GitHub found the remaining distance was **experiential, not
+object-level**: the objects existed but nothing had an address, and the issues system
+lived in a sidebar column. Two refinements closed the worst of it:
+
+- **Every page has a canonical URL** (ADAPT-15) — GitHub's deepest navigation property
+  (the link as coordination primitive: shareable, bookmarkable, browser Back/Forward).
+  `src/lib/urlRoutes.ts` + History sync in the controller; a pasted address wins over
+  view memory. **Titles are doors** rode along (`CommonsCardHead.onOpen` — GitHub's
+  title-as-link), and product copy dropped its design-doc numbers.
+- **The work item got its own page** (COMMONS-24, surface-audit S14) —
+  `/projects/:id/work/:item`: status badge, provenance, and a full **timeline** (post →
+  comments → terminal transition, time-ordered), with the same comment/Retract funnels.
+  The D24 bell now lands on the page, comment anchored — GitHub's
+  `…/issues/42#issuecomment-99` shape end-to-end.
+
+Still open from that evaluation (judged real but lesser): the published-agent
+definition renders as a modal, not a page (its versions/changelog/proposals argue for
+one); no cross-cutting "your open proposals / posted items" view; identity texture on
+bylines (avatar/handle beyond the display name).
+
 ### Deferred — evaluated at Wave 4's close, judged enrichment (not a current gap)
 
 - **Cross-references (`#N` links between items / proposals)** — graph edges for a human
