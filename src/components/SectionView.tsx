@@ -776,7 +776,12 @@ function ProjectDetail({
           {/* The README (D26) — the PUBLIC "about", read by owner and visitor alike;
               only the owner gets the edit affordance (capability shapes affordances). */}
           <ProjectReadme project={project} own={own} />
-          <PanelLabel>Recent sessions</PanelLabel>
+          {/* Main-column sections (S17): each a bare uppercase heading with its list
+              CARDED below — the heading is never inside the box (SidePanel's chrome
+              belongs to the rail; a main-column section wearing it reads as a stray
+              rail panel). */}
+          <div className="space-y-6">
+          <MainSection title="Recent sessions">
           {convs.length === 0 ? (
             <Empty>
               {own
@@ -784,13 +789,11 @@ function ProjectDetail({
                 : 'The owner’s sessions are private — the shared surfaces are below: commission your agent, claim a sub-goal, or take open work.'}
             </Empty>
           ) : (
-            <div className="overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
-              {convs.map((c, i) => (
+            <CardList>
+              {convs.map((c) => (
                 <div
                   key={c.id}
-                  className={`group flex items-center transition hover:bg-panel-2/60 ${
-                    i > 0 ? 'border-t border-line' : ''
-                  }`}
+                  className="group flex items-center transition hover:bg-panel-2/60"
                 >
                   <button
                     onClick={() => onOpenSession(c.id)}
@@ -814,17 +817,17 @@ function ProjectDetail({
                   </Tooltip>
                 </div>
               ))}
-            </div>
+            </CardList>
           )}
+          </MainSection>
 
           {/* The commons panels live in the MAIN column, not the rail: Contributors
               and Coordination/Open work are the page's PAYLOAD (for a visitor, the
               entire point — the earlier aside squeezed the issues-tray analog to
               288px behind an empty "sessions are private" note), while the rail
               keeps what a rail is for: the owner's configuration. */}
-          <div className="mt-6 space-y-4">
-            <ContributorsPanel project={project} />
-            <CoordinationPanel project={project} />
+          <ContributorsPanel project={project} />
+          <CoordinationPanel project={project} />
           </div>
         </div>
 
@@ -834,6 +837,15 @@ function ProjectDetail({
         {own && (
         <aside className="w-full shrink-0 space-y-4 lg:w-72">
           <ProjectInstructions project={project} />
+
+          {/* Sharing — the owner's audience/onboarding CONFIGURATION (S17): it used
+              to hide inside the Contributors payload; config belongs in the rail.
+              Seed projects can't toggle share (the server refuses), so the switch
+              gates on isCreatedProject; the role pre-selection applies either way. */}
+          <SidePanel title="Sharing" icon={<Globe size={14} />}>
+            {rel.isCreatedProject(project.id) && <ShareToggle project={project} />}
+            <DefaultRolePicker project={project} />
+          </SidePanel>
 
           {own && (
           <SidePanel title="Scheduled" icon={<Clock size={14} />}>
@@ -1297,8 +1309,10 @@ function ShareToggle({ project }: { project: Project }) {
   )
 }
 
+/** The project's Contributors — pure PAYLOAD now (S17): the owner's sharing config
+ *  (share switch, default role) moved to the rail's Sharing panel, so this section
+ *  reads the same for owner and visitor — the commissioned agents, carded. */
 function ContributorsPanel({ project }: { project: Project }) {
-  const rel = useRelations()
   const commissions = useCommissions(project.id).data ?? []
   const agents = useAgents().data ?? []
   const agentsById = new Map(agents.map((a) => [a.id, a]))
@@ -1306,28 +1320,24 @@ function ContributorsPanel({ project }: { project: Project }) {
   const available = agents.filter((a) => !commissionedIds.has(a.id))
 
   return (
-    <SidePanel title="Contributors" icon={<Cpu size={14} />}>
-      {/* Owner-only (the permission split): `isCreatedProject` alone also matches a
-          FOREIGN shared project (it lives in extraProjects too), which used to show a
-          visitor the owner's share switch — a control the server would only refuse. */}
-      {rel.isCreatedProject(project.id) && project.own !== false && <ShareToggle project={project} />}
-      {project.own !== false && <DefaultRolePicker project={project} />}
+    <MainSection title="Contributors">
       {commissions.length === 0 ? (
         <p className="text-[12px] text-ink-faint">No agents commissioned yet.</p>
       ) : (
-        <div className="space-y-2.5">
+        <CardList>
           {commissions.map((c) => (
-            <ContributorRow
-              key={c.id}
-              commission={c}
-              agentLabel={agentsById.get(c.agentId)?.label ?? c.agentLabel ?? c.agentId}
-              contributions={agentsById.get(c.agentId)?.contributions}
-            />
+            <div key={c.id} className="px-4 py-3">
+              <ContributorRow
+                commission={c}
+                agentLabel={agentsById.get(c.agentId)?.label ?? c.agentLabel ?? c.agentId}
+                contributions={agentsById.get(c.agentId)?.contributions}
+              />
+            </div>
           ))}
-        </div>
+        </CardList>
       )}
       <CommissionAdd projectId={project.id} available={available} joinRole={project.defaultRole ?? 'writer'} />
-    </SidePanel>
+    </MainSection>
   )
 }
 
@@ -1347,7 +1357,7 @@ function DefaultRolePicker({ project }: { project: Project }) {
       ...(value ? { role: value as ProjectRole } : {}),
     })
   return (
-    <div className="mb-3">
+    <div>
       <label htmlFor="project-default-role" className="mb-1 block text-[11px] font-medium text-ink-soft">
         Default role for new contributors
       </label>
@@ -1642,7 +1652,9 @@ function CommissionAdd({ projectId, available, joinRole }: { projectId: string; 
   }
 
   return (
-    <div ref={ref} className="relative mt-2.5 border-t border-line pt-2.5">
+    // Below the carded list in a MAIN-column section (S17): no rail-panel hairline,
+    // and the popover anchors LEFT (under the trigger, not the far column edge).
+    <div ref={ref} className="relative mt-2.5">
       <AddTrigger label="Commission an agent" open={open} onClick={() => setOpen((o) => !o)} />
 
       {open && (
@@ -1650,7 +1662,7 @@ function CommissionAdd({ projectId, available, joinRole }: { projectId: string; 
           ref={popRef}
           role="dialog"
           aria-label="Commission an agent"
-          className={`absolute right-0 top-full z-30 mt-1.5 w-[280px] p-2 ${POPOVER_SURFACE}`}
+          className={`absolute left-0 top-full z-30 mt-1.5 w-[280px] p-2 ${POPOVER_SURFACE}`}
         >
           {available.length === 0 ? (
             <p className="px-1.5 py-1 text-[12px] text-ink-faint">Every agent is already a Contributor.</p>
@@ -1738,7 +1750,8 @@ function CoordinationPanel({ project }: { project: Project }) {
   }
 
   return (
-    <SidePanel title="Coordination" icon={<GitBranch size={14} />}>
+    <>
+    <MainSection title="Coordination">
       {!guarded ? (
         <p className="text-[12px] text-ink-faint">This project isn’t a guarded resource.</p>
       ) : (
@@ -1746,9 +1759,9 @@ function CoordinationPanel({ project }: { project: Project }) {
           {subGoals.length === 0 ? (
             <p className="text-[12px] text-ink-faint">No sub-goals in flight.</p>
           ) : (
-            <div className="space-y-2.5">
+            <CardList>
               {subGoals.map((s) => (
-                <div key={s.reservationId} className="group flex items-start gap-2.5">
+                <div key={s.reservationId} className="group flex items-start gap-2.5 px-4 py-3">
                   <span
                     className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
                       s.status === 'committed' ? 'bg-accent' : 'bg-emerald-500'
@@ -1767,10 +1780,10 @@ function CoordinationPanel({ project }: { project: Project }) {
                   </button>
                 </div>
               ))}
-            </div>
+            </CardList>
           )}
 
-          <div className="mt-2.5 border-t border-line pt-2.5">
+          <div className="mt-2.5">
             {ownCommissions.length > 0 && (
               <select
                 value={holder}
@@ -1813,11 +1826,20 @@ function CoordinationPanel({ project }: { project: Project }) {
               </p>
             )}
           </div>
-
-          <OpenWorkList projectId={project.id} ownerCanModerate={project.own !== false} />
         </>
       )}
-    </SidePanel>
+    </MainSection>
+
+    {/* Open work is its OWN top-level section (S17) — it was a mini-heading buried
+        inside Coordination, one level deeper than its nature (the issues tray, a
+        first-class backlog) warrants. Same guardian gate as before: posting routes
+        through the guardian walls, so an unguarded project has no backlog. */}
+    {guarded && (
+      <MainSection title="Open work">
+        <OpenWorkList projectId={project.id} ownerCanModerate={project.own !== false} />
+      </MainSection>
+    )}
+    </>
   )
 }
 
@@ -1839,8 +1861,8 @@ function renderCommentBody(body: string): ReactNode[] {
 }
 
 /** The project's open-work backlog (docs/agent-commons.md, D19) — the issues-tray
- *  analog inside the Coordination panel: posted items awaiting a taker, resolved items
- *  with their credit line, and the post form. Posting dispatches synchronously to the
+ *  analog, its own main-column section (S17): posted items awaiting a taker, resolved
+ *  items with their credit line, and the post form. Posting dispatches synchronously to the
  *  project's STANDING contributors (through the same role/reach/guardian walls as a
  *  prompted effect); the returned item is already done when one took it. Live on
  *  `openwork.changed`. */
@@ -1868,20 +1890,21 @@ function OpenWorkList({ projectId, ownerCanModerate }: { projectId: string; owne
   }
 
   return (
-    <div className="mt-2.5 border-t border-line pt-2.5">
-      <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-        Open work
-      </div>
+    // The section heading comes from the caller's <MainSection> (S17) — this is
+    // just the carded backlog + the post form.
+    <div>
       {items.length === 0 ? (
         <p className="text-[12px] text-ink-faint">
           Nothing posted. Post a work item — a standing contributor may take it unprompted.
         </p>
       ) : (
-        <div className="space-y-2">
+        <CardList>
           {items.map((o) => (
-            <WorkItemRow key={o.id} item={o} projectId={projectId} ownerCanModerate={ownerCanModerate} />
+            <div key={o.id} className="px-4 py-3">
+              <WorkItemRow item={o} projectId={projectId} ownerCanModerate={ownerCanModerate} />
+            </div>
           ))}
-        </div>
+        </CardList>
       )}
       <div className="mt-2 space-y-1.5">
         <input
@@ -8292,6 +8315,30 @@ function SidePanel({ title, icon, children }: { title: string; icon: ReactNode; 
         {icon}
         {title}
       </div>
+      {children}
+    </div>
+  )
+}
+
+/** A MAIN-column section (S17) — the Recent-sessions idiom shared: a bare uppercase
+ *  heading (PanelLabel) with the content below it, NOT a boxed card. SidePanel (the
+ *  heading INSIDE the box) is the rail panel's chrome; a main-column section wearing
+ *  it reads as a stray rail panel. The section's list cards through <CardList>. */
+function MainSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section>
+      <PanelLabel>{title}</PanelLabel>
+      {children}
+    </section>
+  )
+}
+
+/** The one main-column LIST container (Recent sessions' box, shared): the ITEMS are
+ *  what's carded — one bordered surface around the list, rows divided — while the
+ *  section around it stays a bare heading (S17). */
+function CardList({ children }: { children: ReactNode }) {
+  return (
+    <div className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
       {children}
     </div>
   )
