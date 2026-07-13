@@ -1386,7 +1386,7 @@ function ContributorRow({
           </span>
           {commission.standing && (
             <span
-              title="Standing (D19): volunteers for this project’s open work — takes posted items unprompted, on its owner’s plan"
+              title="Standing: volunteers for this project’s open work — takes posted items unprompted, on its owner’s plan"
               className="shrink-0 rounded-full bg-accent/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-accent"
             >
               standing
@@ -1394,7 +1394,7 @@ function ContributorRow({
           )}
           {contributions ? (
             <span
-              title={`${contributions} commissioned ${contributions === 1 ? 'contribution' : 'contributions'} on the Commons (D13)`}
+              title={`${contributions} commissioned ${contributions === 1 ? 'contribution' : 'contributions'} on the Commons`}
               className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-emerald-500/10 px-1.5 py-px text-[10px] font-medium text-emerald-700"
             >
               <Award size={9} /> {contributions}
@@ -1407,7 +1407,7 @@ function ContributorRow({
         {resolvedHere && (
           <div
             className="text-[11px] text-ink-faint"
-            title="Open work this standing contributor took on THIS project (D19) — distinct from its cross-project contribution total"
+            title="Open work this standing contributor took on THIS project — distinct from its cross-project contribution total"
           >
             {resolvedHere.count > 0
               ? `Took ${resolvedHere.count} item${resolvedHere.count === 1 ? '' : 's'} here · last ${relativeTime(resolvedHere.lastAt)}`
@@ -1537,7 +1537,7 @@ function CommissionDialog({
           ))}
         </select>
         <p className="mt-1.5 text-[11px] text-ink-faint">
-          The permission baseline (D14): a reader may read; writer &amp; maintainer may fire effects and
+          The permission baseline: a reader may read; writer &amp; maintainer may fire effects and
           reserve sub-goals; owner may also commission others.
         </p>
       </div>
@@ -1565,7 +1565,7 @@ function CommissionDialog({
           emptyText="This project admits no folders or repos."
         />
         <p className="text-[11px] text-ink-faint">
-          The Project’s admitted set is the wall (D12); unchecking narrows this Contributor’s reach below it.
+          The Project’s admitted set is the wall; unchecking narrows this Contributor’s reach below it.
         </p>
       </div>
     </FormDialog>
@@ -2002,9 +2002,16 @@ function WorkItemRow({
         }`}
       />
       <div className="min-w-0 flex-1">
-        <div className={`text-[13px] font-medium ${o.status === 'retracted' ? 'text-ink-faint line-through' : 'text-ink'}`}>
+        {/* The title is the door to the item's conversation (GitHub's issue-title-as-link)
+            — same destination as the comment-count link below, one more way in. */}
+        <button
+          onClick={() => setThreadOpen(true)}
+          className={`block max-w-full text-left text-[13px] font-medium hover:underline ${
+            o.status === 'retracted' ? 'text-ink-faint line-through' : 'text-ink'
+          }`}
+        >
           {o.subGoal}
-        </div>
+        </button>
         {/* S3 — the prose written to help a taker decide (server-stamped; empty for a
             native post today, carried on A2A/seeded items). Revealed, not hidden. */}
         {o.note && <p className="mt-0.5 text-[12px] leading-snug text-ink-soft">{o.note}</p>}
@@ -3370,11 +3377,16 @@ function CommonsCardHead({
   title,
   subtitle,
   trailing,
+  onOpen,
 }: {
   icon: ReactNode
   title: string
   subtitle: ReactNode
   trailing?: ReactNode
+  /** When the card fronts a page / detail, the TITLE is the door (GitHub's
+   *  title-as-link) — the same handler as the card's explicit open affordance,
+   *  so every way in shares one destination. Absent = a non-navigating head. */
+  onOpen?: () => void
 }) {
   return (
     <div className="flex items-center gap-2.5">
@@ -3382,7 +3394,16 @@ function CommonsCardHead({
         {icon}
       </span>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[14px] font-medium text-ink">{title}</div>
+        {onOpen ? (
+          <button
+            onClick={onOpen}
+            className="block max-w-full truncate text-left text-[14px] font-medium text-ink hover:underline"
+          >
+            {title}
+          </button>
+        ) : (
+          <div className="truncate text-[14px] font-medium text-ink">{title}</div>
+        )}
         <div className="truncate text-[12px] text-ink-faint">{subtitle}</div>
       </div>
       {trailing}
@@ -3490,7 +3511,7 @@ function AgentCard({
           <div className="flex shrink-0 items-center gap-1.5">
             {agent.published && (
               <span
-                title="Published to the directory (D18) — any account may fork this definition"
+                title="Published to the directory — any account may fork this definition"
                 className="rounded-full bg-accent/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-accent"
               >
                 Published · v{agent.version ?? 1}
@@ -3530,7 +3551,7 @@ function AgentCard({
       {agent.contributions ? (
         <p className="mt-1 inline-flex items-center gap-1 text-[12px] text-emerald-700">
           <Award size={12} /> {agent.contributions} commissioned contribution
-          {agent.contributions === 1 ? '' : 's'} on the Commons (D13)
+          {agent.contributions === 1 ? '' : 's'} on the Commons
         </p>
       ) : null}
       <div className="mt-2 flex items-center gap-3">
@@ -3541,7 +3562,7 @@ function AgentCard({
           title={
             agent.published
               ? 'Remove this agent from the directory (copies already forked stay with their owners)'
-              : 'Share this agent’s definition (prompt · tools · instructions) in the directory — your model, authority, and budget are never shared (D18)'
+              : 'Share this agent’s definition (prompt · tools · instructions) in the directory — your model, authority, and budget are never shared'
           }
         >
           {agent.published ? 'Unpublish' : 'Publish to directory'}
@@ -3550,7 +3571,7 @@ function AgentCard({
           <button
             onClick={() => setCardModal({ url: a2aAgentCardUrl(agent.id), title: `A2A card — ${agent.label}` })}
             className={INLINE_ACTION_CLASS}
-            title="The machine-readable A2A Agent Card for this published definition (D20) — hand this URL to a foreign agent framework"
+            title="The machine-readable A2A Agent Card for this published definition — hand this URL to a foreign agent framework"
           >
             A2A card
           </button>
@@ -3566,7 +3587,7 @@ function AgentCard({
             onClick={() => setShowHistory((v) => !v)}
             className={INLINE_ACTION_CLASS}
             aria-expanded={showHistory}
-            title="This definition’s version history — who authored each version and why (D25)"
+            title="This definition’s version history — who authored each version and why"
           >
             <History size={12} /> {showHistory ? 'Hide history' : `History (${changelog.length})`}
           </button>
@@ -3576,7 +3597,7 @@ function AgentCard({
           <button
             onClick={() => setReviewing(true)}
             className={INLINE_ACTION_CLASS}
-            title="Review change proposals against this published definition (D25)"
+            title="Review change proposals against this published definition"
           >
             {openProposals.length > 0
               ? `Review ${openProposals.length} proposal${openProposals.length === 1 ? '' : 's'}`
@@ -5017,7 +5038,7 @@ function ProjectCommissionGroup({
         <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">{title}</span>
         {cap !== undefined && (
           <span
-            title={`Per-commissioner abuse cap (D13): ${list.length} of ${cap} commissions used`}
+            title={`Per-commissioner abuse cap: ${list.length} of ${cap} commissions used`}
             className={`shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium ${
               list.length >= cap ? 'bg-removed/10 text-removed' : 'bg-ink/5 text-ink-soft'
             }`}
@@ -5136,6 +5157,7 @@ function SharedProjectCard({
       <CommonsCardHead
         icon={<SquareKanban size={16} />}
         title={p.name}
+        onOpen={onOpen}
         subtitle={
           <>
             <OwnerLink ownerName={p.owner} own={p.own} onClick={onOwnerClick} />
@@ -5145,7 +5167,7 @@ function SharedProjectCard({
         trailing={
           p.openWorkCount > 0 ? (
             <span
-              title={`${p.openWorkCount} open work item${p.openWorkCount === 1 ? '' : 's'} awaiting a taker (D19)`}
+              title={`${p.openWorkCount} open work item${p.openWorkCount === 1 ? '' : 's'} awaiting a taker`}
               className="shrink-0 rounded-full bg-amber-500/10 px-2 py-px text-[11px] font-medium text-amber-700"
             >
               {p.openWorkCount} open
@@ -5313,7 +5335,7 @@ function OwnerProfilePage({
               {s.publishedAgents} published agent{s.publishedAgents === 1 ? '' : 's'}
             </span>
             {s.openWork > 0 && (
-              <span title="Open work items awaiting a taker across this workspace's shared projects (D19)">
+              <span title="Open work items awaiting a taker across this workspace's shared projects">
                 {s.openWork} open work item{s.openWork === 1 ? '' : 's'}
               </span>
             )}
@@ -5481,8 +5503,8 @@ function ImportAgentCardForm() {
         </button>
       </div>
       <p className="mt-1.5 text-[11px] text-ink-faint">
-        The card&rsquo;s definition becomes a private agent with lineage — capability never travels
-        (D20): you bind your own model, authority, and budget.
+        The card&rsquo;s definition becomes a private agent with lineage — capability never travels:
+        you bind your own model, authority, and budget.
       </p>
       {imported && (
         <p className="mt-1 text-[12px] text-emerald-700">
@@ -5528,6 +5550,7 @@ function PublishedAgentCard({
       <CommonsCardHead
         icon={<Bot size={16} />}
         title={entry.label}
+        onOpen={onView}
         subtitle={
           <>
             <OwnerLink ownerName={entry.owner} own={entry.own} onClick={onOwnerClick} />
@@ -5657,7 +5680,7 @@ function AgentDetailDialog({
         <button
           onClick={() => setShowCard(true)}
           className={INLINE_ACTION_CLASS}
-          title="This definition as a machine-readable A2A Agent Card (D20) — hand the URL to a foreign agent framework"
+          title="This definition as a machine-readable A2A Agent Card — hand the URL to a foreign agent framework"
         >
           A2A card
         </button>
@@ -5676,7 +5699,7 @@ function AgentDetailDialog({
       {/* S10 — the acts behind the contribution count (P8-redacted to shared projects). */}
       <AgentResolvedWork agentId={entry.id} onClose={onClose} />
       <p className="text-[11px] text-ink-faint">
-        Forking copies the definition — you grant your own model &amp; authority (D18).
+        Forking copies the definition — you grant your own model &amp; authority.
       </p>
       {/* D27 — the proposer's end of the conversation: their proposals against this
           definition (status, the owner's note, the thread). The owner sees all of
@@ -5862,7 +5885,7 @@ function AuditTab() {
         A server-side watch over <span className="font-medium text-ink">cross-user</span> effects — the
         agent-to-agent proxy, Project effects, and commissioned host invokes — recorded whether allowed
         or refused. A <span className="font-medium text-ink">detective backstop</span>, not the wall:
-        attenuation (D12) is what actually bounds reach.
+        attenuation is what actually bounds reach.
       </p>
       {entries.length === 0 ? (
         <Empty>No cross-user effects recorded yet.</Empty>

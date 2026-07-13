@@ -23,7 +23,8 @@ import { pushLocation, type NavLocation } from '../lib/nav'
 import type { FocusTarget } from '../lib/notificationDoor'
 import { rememberAttached } from '../lib/contextShortcuts'
 import { getPanelPref, setPanelPref } from '../lib/panelPrefs'
-import { loadViewLocation, saveViewLocation } from '../lib/viewMemory'
+import { loadViewLocation, saveViewLocation, type ViewLocation } from '../lib/viewMemory'
+import { pathForView, viewForPath, type RoutedView } from '../lib/urlRoutes'
 import { loadModelPrefs } from '../lib/modelPrefs'
 import type { ModelPick } from '../lib/models'
 import { parseFsRecentKey, DEFAULT_PROVIDER_ID } from '../../contract/index'
@@ -120,6 +121,25 @@ function strongestFocus(l: Live): PanelFocus | null {
     : l.workspaces[0]
       ? { kind: 'workspace', id: l.workspaces[0].id }
       : null
+}
+
+/** ── Boot address (src/lib/urlRoutes.ts) ─────────────────────────────────────
+ *  The URL the page LOADED at, consumed once per page load: a pasted /
+ *  bookmarked link opens exactly what it names, winning over the per-account
+ *  view memory (GitHub's rule — the address is a promise). Later mounts of the
+ *  hook (an account switch) get null and restore memory instead, then rewrite
+ *  the address to match. Module-level so React StrictMode double-mount and the
+ *  per-account remount can't consume it twice with different answers. */
+let bootViewPending = true
+let bootViewCache: RoutedView | null = null
+function takeBootView(): RoutedView | null {
+  if (bootViewPending) {
+    bootViewPending = false
+    bootViewCache = typeof window === 'undefined' ? null : viewForPath(window.location.pathname)
+  }
+  const v = bootViewCache
+  bootViewCache = null // one consumer applies it; everyone after boots normally
+  return v
 }
 
 /** ── Controller: the active session + its live workspace ───────────────────
@@ -973,7 +993,21 @@ export function useSessionWorkspace() {
   // effect so a restore always settles ahead of the first save.
   useEffect(() => {
     if (!viewScope.current || restoreSettled.current) return
-    const loc = loadViewLocation(viewScope.current)
+    // The boot address wins over memory (a pasted link opens what it names);
+    // it maps onto the same ViewLocation shape so ONE apply path serves both.
+    const routed = takeBootView()
+    const loc: ViewLocation | undefined = routed
+      ? routed.loc.kind === 'session'
+        ? { kind: 'session', sessionId: routed.loc.sessionId }
+        : {
+            kind: 'section',
+            section: routed.loc.section,
+            subview: routed.subview,
+            projectId: routed.loc.projectId,
+            scheduleId: routed.loc.scheduleId,
+            ownerName: routed.loc.ownerName ?? null,
+          }
+      : loadViewLocation(viewScope.current)
     if (!loc) {
       restoreSettled.current = true
       return
@@ -1016,7 +1050,50 @@ export function useSessionWorkspace() {
           }
         : { kind: 'session', sessionId: activeId },
     )
+    // …and mirror the location into the address bar (src/lib/urlRoutes.ts): every
+    // page has ONE canonical URL, so it's shareable / bookmarkable and the browser's
+    // own Back/Forward work. Arriving VIA the address (boot deep link, popstate)
+    // lands with the path already current, so the equality guard keeps those from
+    // minting a duplicate history entry.
+    const path = pathForView(
+      activeSection
+        ? { kind: 'section', section: activeSection, projectId: focusProjectId, scheduleId: focusScheduleId, ownerName: focusOwnerName }
+        : { kind: 'session', sessionId: activeId, title: '' },
+      activeSubview,
+    )
+    if (window.location.pathname !== path) window.history.pushState(null, '', path)
   }, [activeId, activeSection, activeSubview, focusProjectId, focusScheduleId, focusOwnerName])
+
+  // Browser Back/Forward: re-parse the address it moved to and show that page.
+  // Not recorded in the in-app back stack while applying (`restoring`) — the two
+  // histories stay parallel, and the URL-sync effect above sees pathname already
+  // equal to the restored page's path, so no new entry is pushed.
+  useEffect(() => {
+    const onPop = () => {
+      const routed = viewForPath(window.location.pathname)
+      restoring.current = true
+      if (!routed) {
+        newSession() // the root — the fresh draft
+      } else if (routed.loc.kind === 'session') {
+        const sid = routed.loc.sessionId
+        void loadSession(sid)
+          .then(() => selectSession(sid))
+          .catch(() => {}) // gone / foreign → stay put (the address was a dead link)
+      } else {
+        const l = routed.loc
+        if (l.ownerName) openOwner(l.ownerName)
+        else if (l.projectId) openProject(l.projectId)
+        else if (l.scheduleId) openSchedule(l.scheduleId)
+        else {
+          openSection(l.section)
+          if (routed.subview) openSubview(routed.subview)
+        }
+      }
+      restoring.current = false
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [newSession, selectSession, openOwner, openProject, openSchedule, openSection, openSubview])
 
   // ── Notification doors (docs/notification-routing.md) ─────────────────────
   // A bell lands on the EXACT sub-entity its act touched: these navigate to the

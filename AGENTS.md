@@ -396,6 +396,24 @@ the mock?
   Locked by `tests/rail-panes.test.ts` (fold combos + flex promotion, fit-to-avail clamp,
   min floors both drag directions, no clamp-leak into storage) and
   `tests/resize-handle.test.ts` + `e2e/keyboard-resize.spec.ts` (the keyboard path).
+- **Every page has a canonical URL — the address bar is a projection of the nav
+  model.** GitHub's navigation rule (a link is the coordination primitive:
+  shareable, bookmarkable, open-in-new-tab-able) applied to this shell:
+  `src/lib/urlRoutes.ts` is the ONE pure two-way mapping (NavLocation + sub-view ↔
+  path — `/s/:id`, `/:section[/:subview]`, `/projects/:id`, `/scheduled/:id`,
+  `/u/:name`; a registered sub-view id is a reserved word beating a detail id), and
+  the controller owns the History sync: pushState mirrors every navigation
+  (equality-guarded), popstate applies browser Back/Forward (page + sub-view,
+  parallel to — never recorded in — the in-app back stack), and the **boot address
+  is consumed once per page load, winning over per-account view memory** (a pasted
+  link opens what it names; an account switch restores memory and rewrites the
+  address). Transient focus (a highlighted item / comment) is not page identity and
+  stays out of the URL. When adding a page kind, extend the mapping + its
+  round-trip test — never parse or mint a path anywhere else. Locked by
+  `tests/url-routes.test.ts`; spec row ADAPT-15. Companion rule — **titles are
+  doors**: a card / list row fronting a page makes its TITLE the primary click
+  target (GitHub's title-as-link), wired to the same handler as the explicit open
+  affordance (`CommonsCardHead`'s `onOpen`; the work-item title opens its thread).
 - **The entity page is the shared surface — capability shapes affordances, not
   location.** A shared Project (and any future shared entity) has ONE canonical page
   serving owner and visitor alike, GitHub-repo-style: what differs is which controls
