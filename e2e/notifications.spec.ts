@@ -4,7 +4,7 @@ import { agentBindings } from './agent-bindings.ts'
 /** D24 — the bell, end to end through the rendered UI: a visitor watches a shared
  *  project; the owner posts a work item; the visitor's bell badges live (the
  *  tenant-targeted SSE), the inbox row names the act, and clicking it deep-links
- *  to the project page and clears the badge. */
+ *  to the work item's own page (COMMONS-24) and clears the badge. */
 
 const STAMP = Date.now().toString(36)
 const PROJECT = `Belled project ${STAMP}`
@@ -62,15 +62,15 @@ test('watch a shared project → the owner acts → the watcher’s bell rings, 
   const row = panel.getByRole('button', { name: new RegExp(ITEM) })
   await expect(row).toBeVisible()
 
-  // The row is a door: it opens the project page and marks ITSELF read (other
-  // specs' rows may keep the global badge — assert the row's own dot, not the badge).
+  // The row is a door: it opens the work item's OWN page (COMMONS-24 — the
+  // issue-page analog: the item title is the heading, the project name a door,
+  // the timeline + composer the body) and marks ITSELF read (other specs' rows
+  // may keep the global badge — assert the row's own dot, not the badge).
   await row.click()
-  await expect(watcher.page.getByRole('heading', { name: PROJECT })).toBeVisible()
-  // The work.posted door is the BARE-ROW focus arm (no comment to read): the item is
-  // on the focused page and its thread stays COLLAPSED — distinct from the comment
-  // arm (next test), which auto-expands. Locks that branch (review R9, finding 3).
-  await expect(watcher.page.getByText(ITEM).first()).toBeVisible()
-  await expect(watcher.page.getByLabel(`Comment on ${ITEM}`)).toHaveCount(0)
+  await expect(watcher.page.getByRole('heading', { name: ITEM })).toBeVisible()
+  // Two project doors exist by design (the back button + the meta line) — any one proves the page.
+  await expect(watcher.page.getByRole('button', { name: PROJECT }).first()).toBeVisible()
+  await expect(watcher.page.getByLabel(`Comment on ${ITEM}`)).toBeVisible()
   await watcher.page.getByRole('complementary').getByLabel(/Notifications/).click()
   await expect(
     watcher.page.getByRole('dialog', { name: 'Notifications' }).getByRole('button', { name: new RegExp(ITEM) }).getByLabel('Unread'),
@@ -126,10 +126,10 @@ test('a work.commented bell opens the project ON the item’s thread, auto-expan
     .getByRole('button', { name: new RegExp(`commented on .*${IT}`) })
     .click()
 
-  // The door FOCUSES: the project page opens AND the item's thread is auto-expanded
-  // to the comment — no manual expand. (threadOpen defaults closed, so the comment
-  // being visible here can only be the R4 focus consumption.)
-  await expect(owner.page.getByRole('heading', { name: P })).toBeVisible()
+  // The door lands ON the item's page (COMMONS-24) with the comment in its
+  // timeline — the `…/issues/42#issuecomment-99` shape: the item is the heading
+  // and the anchored comment is on screen with no manual expand.
+  await expect(owner.page.getByRole('heading', { name: IT })).toBeVisible()
   await expect(owner.page.getByText(CMT)).toBeVisible()
 
   await owner.context.close()

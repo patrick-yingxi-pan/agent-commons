@@ -81,6 +81,7 @@ import { CopyButton } from './CopyButton'
 import { CheckboxRow, DefaultBadge, DefaultToggle } from './Checkbox'
 import { Spinner } from './Spinner'
 import { resolveBackLabel, type NavLocation } from '../lib/nav'
+import { SECTION_SUBVIEWS } from '../lib/subviews'
 import { usePendingFocus, useFocusFlash } from '../lib/focusContext'
 import { relativeTime } from '../lib/relativeTime'
 import { Chip } from './Chip'
@@ -509,9 +510,13 @@ function ProjectsSection({
  *  the production fix is server-owned id minting (docs/shared-resource-coordination). */
 function uniqueProjectId(name: string, taken: Set<string>): string {
   const base = slug(name) || 'project'
-  if (!taken.has(base)) return base
+  // The projects sub-view ids are RESERVED WORDS in the address grammar
+  // (`/projects/mine` is the "Yours" facet — spec ADAPT-15), so a project may
+  // never mint one as its id or its URL would parse as the facet instead.
+  const reserved = new Set([...taken, ...(SECTION_SUBVIEWS.projects ?? []).map((v) => v.id)])
+  if (!reserved.has(base)) return base
   let n = 2
-  while (taken.has(`${base}-${n}`)) n += 1
+  while (reserved.has(`${base}-${n}`)) n += 1
   return `${base}-${n}`
 }
 
@@ -2249,7 +2254,10 @@ function WorkItemPage({
           </span>
           <span>
             · in{' '}
-            <button onClick={onBack} className="font-medium text-ink-soft hover:underline">
+            <button
+              onClick={() => rel.navigate('projects', project.id)}
+              className="font-medium text-ink-soft hover:underline"
+            >
               {project.name}
             </button>
           </span>

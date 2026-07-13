@@ -1191,7 +1191,12 @@ export function useSessionWorkspace() {
   const goBack = useCallback(() => {
     const h = historyRef.current
     if (h.length === 0) {
-      // Nothing recorded — fall back to the current section's list (drop a detail).
+      // Nothing recorded — fall back one STRUCTURAL level: a work-item page drops
+      // to its project page (GitHub: issue → repo), any other detail to the list.
+      if (sectionRef.current && focusWorkItemRef.current) {
+        setFocusWorkItemId(null)
+        return
+      }
       if (sectionRef.current && (focusProjectRef.current || focusScheduleRef.current || focusOwnerRef.current)) {
         setFocusProjectId(null)
         setFocusScheduleId(null)
@@ -1213,10 +1218,13 @@ export function useSessionWorkspace() {
   // detail page) that section's list. Null when there's nowhere to go back to.
   const backTo = useMemo<NavLocation | null>(() => {
     if (history.length > 0) return history[history.length - 1]
+    // Structural fallbacks mirror goBack: item page → its project page → the list.
+    if (activeSection && focusWorkItemId && focusProjectId)
+      return { kind: 'section', section: activeSection, projectId: focusProjectId, scheduleId: null, ownerName: null }
     if (activeSection && (focusProjectId || focusScheduleId || focusOwnerName))
       return { kind: 'section', section: activeSection, projectId: null, scheduleId: null, ownerName: null }
     return null
-  }, [history, activeSection, focusProjectId, focusScheduleId, focusOwnerName])
+  }, [history, activeSection, focusProjectId, focusScheduleId, focusOwnerName, focusWorkItemId])
 
   // ── Recents row-menu edits (pin / rename / archive / delete) ──────────────
   // List-level mutations; the sidebar reflects them through the live session
