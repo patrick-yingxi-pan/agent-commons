@@ -121,6 +121,7 @@ function route(e: ServerEvent): void {
     // as a published card renders, so the bell's door must refetch it or open stale.
     case 'proposal.changed':
       invalidate(keys.agentProposals(e.agentId))
+      invalidate(keys.myWork) // an authored proposal's verdict rides the Your-work dashboard
       break
     // A Project's Contributor roster changed — possibly a cross-tenant arrival (P8).
     // The roster count also rides the directory card ("N contributors", D17).
@@ -183,6 +184,7 @@ function route(e: ServerEvent): void {
       // Open-work counts + activity ride profiles and search hits too (D21/D22).
       invalidatePrefix(keys.ownerProfile())
       invalidatePrefix(keys.search())
+      invalidate(keys.myWork) // a posted item's lifecycle rides the Your-work dashboard
       break
     default:
       break

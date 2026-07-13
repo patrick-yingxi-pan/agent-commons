@@ -509,6 +509,12 @@ export function buildRouter(): Router {
   r.get('/me/orgs', ({ req, res }) => {
     sendJson(res, accounts.orgsOf(store.identity(req.headers).user.id))
   })
+  // "Your work" (COMMONS-25) — the caller's coordination dashboard: items THEY
+  // posted + proposals THEY authored. No parameters: tenancy IS the filter, so
+  // there is nothing here a caller could widen.
+  r.get('/me/work', ({ req, res }) => {
+    sendJson(res, store.myWork(store.identity(req.headers).tenant.id))
+  })
   r.get('/me/invites', ({ req, res }) => {
     sendJson(res, accounts.myInvites(store.identity(req.headers).user.email))
   })

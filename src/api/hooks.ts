@@ -7,7 +7,7 @@ import { useQuery, resetAll, invalidate, type QueryState } from './cache.ts'
 import { API_BASE, apiDelete, apiGet, apiPost, apiUrl } from './client.ts'
 import { keys, paths } from './keys.ts'
 import { switchAccount, refreshAccount, accountGeneration, type Account } from './account.ts'
-import type { AuthAccount, MyInvite, MyOrg, OrgInviteRow, OrgMemberRow, Tenant as TenantT } from '../../contract/index.ts'
+import type { AuthAccount, MyInvite, MyOrg, MyWork, OrgInviteRow, OrgMemberRow, Tenant as TenantT } from '../../contract/index.ts'
 import type {
   Runner,
   Agent,
@@ -97,6 +97,13 @@ export function useMyOrgs(enabled = true): QueryState<MyOrg[]> {
  *  a credential-less identity has none). Surfaced in the chip menu (the v1 door). */
 export function useMyInvites(enabled = true): QueryState<MyInvite[]> {
   return useQuery(keys.meInvites, () => apiGet<MyInvite[]>(paths.meInvites), enabled)
+}
+
+/** The caller's coordination dashboard (`GET /me/work`, COMMONS-25) — items they
+ *  posted + proposals they authored, open first. Live on `openwork.changed` /
+ *  `proposal.changed` (events.ts invalidates the key). */
+export function useMyWork(enabled = true): QueryState<MyWork> {
+  return useQuery(keys.myWork, () => apiGet<MyWork>(paths.meWork), enabled)
 }
 
 /** An org's roster — any seat may read (the org page's member panel). */

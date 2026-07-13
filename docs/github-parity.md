@@ -111,10 +111,14 @@ lived in a sidebar column. Two refinements closed the worst of it:
   The D24 bell now lands on the page, comment anchored — GitHub's
   `…/issues/42#issuecomment-99` shape end-to-end.
 
+- **"Your work" landed** (COMMONS-25) — the GitHub your-issues / your-PRs dashboard:
+  `GET /me/work` (tenancy IS the filter; entity-page redactions and visibility walls),
+  surfaced as the Agents hub's **Your work** sub-view (`/agents/work`), every row a
+  door to the item's page or the proposal's review.
+
 Still open from that evaluation (judged real but lesser): the published-agent
 definition renders as a modal, not a page (its versions/changelog/proposals argue for
-one); no cross-cutting "your open proposals / posted items" view; identity texture on
-bylines (avatar/handle beyond the display name).
+one); identity texture on bylines (avatar/handle beyond the display name).
 
 ### Deferred — evaluated at Wave 4's close, judged enrichment (not a current gap)
 

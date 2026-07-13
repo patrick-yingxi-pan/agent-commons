@@ -202,6 +202,33 @@ export interface PostWorkItemCommentRequest {
   body: string
 }
 
+/** One row of the caller's cross-cutting "Your work" view: a work item THEY
+ *  posted, decorated with the door coordinate the dashboard needs (the project's
+ *  name — the id is already on the item). Same public redaction as the backlog. */
+export interface MyWorkItem extends OpenSubGoal {
+  projectName: string
+}
+
+/** A change proposal the caller AUTHORED against a published definition,
+ *  decorated with the definition's public face (label + owner display name) so
+ *  the dashboard row can name and open it. Same redaction as the review read.
+ *  (An intersection, not `extends` — `AgentChangeProposal` lives in workers.ts,
+ *  which already imports this module; the alias keeps the type cycle inert.) */
+export type MyWorkProposal = import('./workers.ts').AgentChangeProposal & {
+  agentId: string
+  agentLabel: string
+  agentOwner: string
+}
+
+/** Answer of `GET /v1/me/work` — the caller's coordination dashboard (the GitHub
+ *  "your issues / your pull requests" analog): everything they are waiting on or
+ *  following to a verdict, open items first. Both lists are the caller's OWN acts
+ *  — tenancy is the filter itself, never a parameter. */
+export interface MyWork {
+  posted: MyWorkItem[]
+  proposals: MyWorkProposal[]
+}
+
 /** Body of `POST /v1/projects/:id/open-subgoals` — post a work item. */
 export interface PostOpenSubGoalRequest {
   subGoal: string

@@ -12,6 +12,8 @@ export const keys = {
   /** The caller's org seats + pending invitations (FWD-6 — orgs as namespaces). */
   meOrgs: 'me-orgs',
   meInvites: 'me-invites',
+  /** The caller's coordination dashboard (COMMONS-25) — posted items + authored proposals. */
+  myWork: 'my-work',
   orgMembers: (orgId: string) => `org-members:${orgId}`,
   orgInvites: (orgId: string) => `org-invites:${orgId}`,
   providers: 'providers',
@@ -91,6 +93,7 @@ export const paths = {
   orgs: '/orgs',
   meOrgs: '/me/orgs',
   meInvites: '/me/invites',
+  meWork: '/me/work',
   orgMembers: (orgId: string) => `/orgs/${orgId}/members`,
   orgInvites: (orgId: string) => `/orgs/${orgId}/invites`,
   /** Reattach to a live server-owned turn (multi-account §5.2): replay after

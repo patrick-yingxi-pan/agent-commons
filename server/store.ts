@@ -75,7 +75,7 @@ import { ConflictError, ValidationError } from './conflict.ts'
 import { LimitError } from './limit.ts'
 import { scopeMatches } from './runner-runtime.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../contract/index.ts'
-import type { Agent, AgentChangeProposal, AgentDirectoryEntry, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelInfo, ModelProvider, OpenSubGoal, OwnerActivity, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState, WorkItemComment } from '../contract/index.ts'
+import type { Agent, AgentChangeProposal, AgentDirectoryEntry, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelInfo, ModelProvider, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, OwnerActivity, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState, WorkItemComment } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, SEED_PROVIDERS, SEED_PROVIDER_CONFIGS, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
@@ -3505,6 +3505,43 @@ export const store = {
     const items = openSubGoals.filter((o) => o.projectId === projectId)
     const band = (o: OpenSubGoal) => (o.status === 'open' ? 0 : 1)
     return [...items].sort((a, b) => band(a) - band(b) || b.postedAt - a.postedAt).map(publicOpenSubGoal)
+  },
+  /** The caller's cross-cutting "Your work" dashboard (the GitHub your-issues /
+   *  your-PRs analog): work items THEY posted across projects they can still see,
+   *  and change proposals THEY authored against still-published definitions.
+   *  Tenancy IS the filter (`postedByTenant` / `proposedByTenant` — the private
+   *  authorization anchors, matched server-side and redacted on the way out, same
+   *  as every other read). Visibility mirrors the entity pages': an unshared
+   *  project's item and an unpublished definition's proposal drop off with the
+   *  public face they rode on (never a side-channel that outlives the wall).
+   *  Open items first, newest within each band. */
+  myWork(tenantId: string): MyWork {
+    const posted: MyWorkItem[] = []
+    for (const o of openSubGoals) {
+      if (o.postedByTenant !== tenantId) continue
+      const project = findProject(o.projectId)
+      if (!project) continue
+      const owner = project.tenantId ?? defaultTenantId()
+      const reads = owner === tenantId || accounts.seatIn(tenantId, owner) !== undefined
+      if (!reads && project.shared !== true) continue
+      posted.push({ ...publicOpenSubGoal(o), projectName: project.name })
+    }
+    const band = (o: OpenSubGoal) => (o.status === 'open' ? 0 : 1)
+    posted.sort((a, b) => band(a) - band(b) || b.postedAt - a.postedAt)
+
+    const proposals: MyWorkProposal[] = []
+    const dir = new Map(this.agentDirectory(tenantId).map((e) => [e.id, e]))
+    for (const [agentId, list] of AGENT_PROPOSALS) {
+      const entry = dir.get(agentId)
+      if (!entry) continue // unpublished ⇒ the public face (and the proposer's read) is gone
+      for (const p of list) {
+        if (p.proposedByTenant !== tenantId) continue
+        proposals.push({ ...publicProposal(p), agentId, agentLabel: entry.label, agentOwner: entry.owner })
+      }
+    }
+    const pband = (p: MyWorkProposal) => (p.status === 'open' ? 0 : 1)
+    proposals.sort((a, b) => pband(a) - pband(b) || b.at - a.at)
+    return { posted, proposals }
   },
   /** Post a work item onto a Project's backlog (D19) — the issues-tray act — then
    *  dispatch it to the Project's standing Contributors synchronously. Returns the item

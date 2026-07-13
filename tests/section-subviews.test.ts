@@ -29,7 +29,7 @@ test('each section’s child ids ARE its own switch keys (the body filters on th
   assert.deepEqual(SECTION_SUBVIEWS.models.map((s) => s.id), ['builtin', 'registered', 'session'])
   assert.deepEqual(SECTION_SUBVIEWS.projects.map((s) => s.id), ['mine', 'shared'])
   // Agents: its NON-default surfaces — the worker list is the section row, not a child.
-  assert.deepEqual(SECTION_SUBVIEWS.agents.map((s) => s.id), ['prompts', 'commissions', 'discover', 'audit'])
+  assert.deepEqual(SECTION_SUBVIEWS.agents.map((s) => s.id), ['work', 'prompts', 'commissions', 'discover', 'audit'])
   for (const subs of Object.values(SECTION_SUBVIEWS)) {
     const ids = subs.map((s) => s.id)
     assert.equal(new Set(ids).size, ids.length, 'child ids unique per section')

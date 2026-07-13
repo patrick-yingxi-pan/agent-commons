@@ -155,6 +155,7 @@ import {
   useCommissions,
   useCommissionAuthority,
   useOpenSubGoals,
+  useMyWork,
   useOwnerProfile,
   useMyOrgs,
   useOrgMembers,
@@ -223,6 +224,7 @@ export function SectionView({
   onNewSession,
   onOpenProject,
   onOpenSchedule,
+  onOpenProposal,
   onBack,
   backTo,
   railCollapsed = false,
@@ -244,6 +246,9 @@ export function SectionView({
    *  source of truth (the focus id below) and is recorded in navigation history. */
   onOpenProject: (id: string) => void
   onOpenSchedule: (id: string) => void
+  /** Open a change proposal on its review surface (the bell's door, reused by the
+   *  Your-work dashboard rows). */
+  onOpenProposal: (agentId: string, proposalId: string, ownerName: string | null) => void
   /** Pop navigation history (the dynamic "back"), and where it leads — so a detail
    *  back button returns to where you came from and can name that destination. */
   onBack: () => void
@@ -290,6 +295,7 @@ export function SectionView({
         owner={focusOwnerName}
         subview={subview ?? 'agents'}
         onOpenProject={onOpenProject}
+        onOpenProposal={onOpenProposal}
         onBack={onBack}
         backTo={backTo}
       />
@@ -3370,12 +3376,13 @@ function StatusPill({ tone, label }: { tone: 'ok' | 'warn' | 'bad' | 'neutral'; 
  *  binds a provider + prompt; a commission binds an Agent to a Project), so they read as
  *  ONE surface — its sub-views live in the rail's drill-in menu (lib/subviews), not an
  *  in-page segmented control, so all of the app's section navigation lives in one place. */
-type CommonsTab = 'agents' | 'prompts' | 'commissions' | 'discover' | 'audit'
+type CommonsTab = 'agents' | 'work' | 'prompts' | 'commissions' | 'discover' | 'audit'
 
 function AgentCommonsSection({
   owner,
   subview,
   onOpenProject,
+  onOpenProposal,
   onBack,
   backTo,
 }: {
@@ -3385,6 +3392,8 @@ function AgentCommonsSection({
    *  ('agents') when the section is on its default (rail subview null). */
   subview: string
   onOpenProject: (id: string) => void
+  /** Open a change proposal on its review surface (the same door the bell uses). */
+  onOpenProposal: (agentId: string, proposalId: string, ownerName: string | null) => void
   onBack: () => void
   backTo: NavLocation | null
 }) {
@@ -3409,6 +3418,7 @@ function AgentCommonsSection({
       </p>
       <div className="mt-1">
         {tab === 'agents' && <AgentsTab />}
+        {tab === 'work' && <YourWorkTab onOpenProposal={onOpenProposal} />}
         {tab === 'prompts' && <PromptsTab />}
         {tab === 'commissions' && <CommissionsTab />}
         {tab === 'discover' && <DiscoverTab />}
@@ -3658,6 +3668,92 @@ function CommonsCardHead({
         <div className="truncate text-[12px] text-ink-faint">{subtitle}</div>
       </div>
       {trailing}
+    </div>
+  )
+}
+
+/** "Your work" (COMMONS-25) — the caller's coordination dashboard, the GitHub
+ *  "your issues / your pull requests" analog: everything they're waiting on or
+ *  following to a verdict. Two bands, both the caller's OWN acts (`GET /me/work`
+ *  — tenancy is the filter server-side): work items they POSTED across shared
+ *  projects (open first — "awaiting a taker" is the thing you check on), and
+ *  change proposals they AUTHORED against published definitions. Every row is a
+ *  DOOR to the entity's own surface — the item's page, the proposal's review —
+ *  so the dashboard answers "where was that?" without re-finding it by hand. */
+function YourWorkTab({ onOpenProposal }: { onOpenProposal: (agentId: string, proposalId: string, ownerName: string | null) => void }) {
+  const work = useMyWork().data
+  const rel = useRelations()
+  const myName = useMe().data?.tenant.name
+  if (!work) return <Empty>Loading your work…</Empty>
+  const statusDot = (s: string) =>
+    s === 'open' ? 'bg-amber-500' : s === 'done' || s === 'merged' ? 'bg-emerald-500' : 'bg-line-strong'
+  return (
+    <div className="space-y-5">
+      <section>
+        <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+          Work items you posted
+        </div>
+        {work.posted.length === 0 ? (
+          <Empty>Nothing posted yet — post a work item on a shared project and follow it here.</Empty>
+        ) : (
+          <div className="space-y-1.5">
+            {work.posted.map((o) => (
+              <div key={o.id} className="flex items-start gap-2.5 rounded-lg border border-line bg-surface px-3 py-2">
+                <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${statusDot(o.status)}`} />
+                <div className="min-w-0 flex-1">
+                  <button
+                    onClick={() => rel.navigate('projects', o.projectId, o.id)}
+                    className={`block max-w-full truncate text-left text-[13px] font-medium hover:underline ${
+                      o.status === 'retracted' ? 'text-ink-faint line-through' : 'text-ink'
+                    }`}
+                  >
+                    {o.subGoal}
+                  </button>
+                  <div className="text-[11px] text-ink-faint">
+                    in{' '}
+                    <button onClick={() => rel.navigate('projects', o.projectId)} className="font-medium hover:underline">
+                      {o.projectName}
+                    </button>{' '}
+                    · {o.status === 'open' ? 'awaiting a taker' : o.status} · {relativeTime(o.postedAt)}
+                    {(o.comments?.length ?? 0) > 0
+                      ? ` · ${o.comments!.length} comment${o.comments!.length === 1 ? '' : 's'}`
+                      : ''}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+      <section>
+        <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+          Proposals you opened
+        </div>
+        {work.proposals.length === 0 ? (
+          <Empty>No change proposals yet — propose a change from a published definition in Discover.</Empty>
+        ) : (
+          <div className="space-y-1.5">
+            {work.proposals.map((p) => (
+              <div key={p.id} className="flex items-start gap-2.5 rounded-lg border border-line bg-surface px-3 py-2">
+                <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${statusDot(p.status)}`} />
+                <div className="min-w-0 flex-1">
+                  <button
+                    onClick={() => onOpenProposal(p.agentId, p.id, p.agentOwner === myName ? null : p.agentOwner)}
+                    className="block max-w-full truncate text-left text-[13px] font-medium text-ink hover:underline"
+                  >
+                    {p.note.trim() || `Change to ${p.agentLabel}`}
+                  </button>
+                  <div className="text-[11px] text-ink-faint">
+                    on {p.agentLabel} · by{' '}
+                    <OwnerLink bare ownerName={p.agentOwner} onClick={() => rel.navigate('agents', p.agentOwner)} /> ·{' '}
+                    {p.status} · {relativeTime(p.at)}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   )
 }

@@ -400,6 +400,7 @@ function Workspace() {
                   onNewSession={() => newSession()}
                   onOpenProject={openProject}
                   onOpenSchedule={openSchedule}
+                  onOpenProposal={openProposal}
                   onBack={goBack}
                   backTo={backTo}
                   railCollapsed={!leftOpen && !railOverlay}

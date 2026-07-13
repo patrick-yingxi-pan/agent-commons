@@ -50,6 +50,7 @@ export const SECTION_SUBVIEWS: Partial<Record<SectionId, SubView[]>> = {
   // the section row itself opens the worker-agents list (the default), so listing "Agents"
   // again as a child would duplicate it.
   agents: [
+    { id: 'work', label: 'Your work' },
     { id: 'prompts', label: 'Prompts' },
     { id: 'commissions', label: 'Commissions' },
     { id: 'discover', label: 'Discover' },
