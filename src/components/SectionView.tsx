@@ -436,8 +436,12 @@ function ProjectsSection({
   const mine = sorted.filter((p) => p.own !== false && !isOrgRow(p))
   const sharedWithYou = sorted.filter((p) => p.own === false && !isOrgRow(p))
 
+  // Single-column on every tier (surface-from-nature: a text-led entity list is a
+  // scannable, comparable LIST — GitHub's repo-list idiom; multi-column is for
+  // thumbnail-led GALLERIES like Artifacts). Also unifies with the commons band:
+  // the same entity read as 2-col cards under "Yours" but 1-col in Discover.
   const grid = (items: Project[]) => (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+    <div className="space-y-3">
       {items.map((p) => (
         <ProjectCard
           key={p.id}
@@ -620,7 +624,7 @@ function ProjectCard({
   return (
     <button
       onClick={onOpen}
-      className="flex min-h-[150px] flex-col rounded-2xl border border-line bg-surface p-5 text-left shadow-sm transition hover:border-line-strong hover:shadow"
+      className="flex min-h-[150px] w-full flex-col rounded-2xl border border-line bg-surface p-5 text-left shadow-sm transition hover:border-line-strong hover:shadow"
     >
       <div className="text-[15px] font-semibold text-ink">{project.name}</div>
       {project.own === false && (
