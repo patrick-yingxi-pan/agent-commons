@@ -636,6 +636,7 @@ function Workspace() {
           onOpenProject={openProject}
           onOpenSchedule={openSchedule}
           onOpenOwner={openOwner}
+          onOpenAgentPage={openAgentPage}
           onClose={() => setSearchOpen(false)}
         />
       )}

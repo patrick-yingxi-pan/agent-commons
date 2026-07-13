@@ -28,6 +28,29 @@ export function profileTitle(name: string, own: boolean | undefined): string {
  *  workspace's already-public rows, identical for every viewer (D21). */
 export const PROFILE_TAGLINE = 'Public workspace profile — everything this workspace shares.'
 
+/** ── The workspace identity mark (identity texture — the avatar's role) ───────
+ *  GitHub's avatar does heavy byline disambiguation; this system stores no images,
+ *  so the mark is DERIVED, deterministically, from the one identity fact that is
+ *  public — the display name: same name ⇒ same mark, on every surface, every
+ *  clone, every viewer (nothing fabricated, nothing stored, nothing to leak).
+ *  Rendered by <WorkspaceMark> (PublicFace.tsx) and worn wherever the name is a
+ *  door (<OwnerLink>) plus the profile header. Distinct on purpose from the
+ *  SIGNED-IN-account discs (AccountMenu / AuthScreen / Message — accent-colored:
+ *  their role is "you", not "which namespace"). */
+
+/** Deterministic hue (0–359) hashed from the display name — the mark's color. */
+export function identityHue(name: string): number {
+  let h = 0
+  for (let i = 0; i < name.length; i += 1) h = (h * 31 + name.charCodeAt(i)) >>> 0
+  return h % 360
+}
+
+/** The mark's letter: the name's first visible character, uppercased ('?' when
+ *  the name is blank — the honest unknown, like bylineLabel's fallback). */
+export function identityInitial(name: string): string {
+  return name.trim().charAt(0).toUpperCase() || '?'
+}
+
 /** ── The agent-actor cue (FWD-5 Phase 3 — agents as principals) ──────────────
  *  Wherever an act's WHO is a worker AGENT (a resolution's credit line, a
  *  comment whose `authorKind` is 'agent'), the byline wears the Bot badge and

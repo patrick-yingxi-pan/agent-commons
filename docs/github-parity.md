@@ -121,8 +121,16 @@ lived in a sidebar column. Two refinements closed the worst of it:
   record, Fork / A2A card / Propose doors, and "Your proposals" — with every door
   (directory cards, profile activity, the proposer-side bell) routing to it.
 
-Still open from that evaluation (judged real but lesser): identity texture on
-bylines (avatar/handle beyond the display name).
+- **Identity texture landed** — the avatar's role without fabricating or storing
+  images: a deterministic **workspace mark** (hue + initial hashed from the display
+  name — same name ⇒ same mark on every surface and clone) worn by every owner door
+  (`<OwnerLink>`) and at page scale on the profile header. One primitive
+  (`WorkspaceMark`, the public-face funnel), `aria-hidden` (the NAME stays the
+  accessible identity), locked by `tests/public-face.test.ts`. The signed-in-account
+  discs (AccountMenu / AuthScreen) stay accent-colored on purpose — "you" is a
+  different role than "which namespace".
+
+With that, every gap from the 2026-07-13 UI evaluation is closed.
 
 ### Deferred — evaluated at Wave 4's close, judged enrichment (not a current gap)
 

@@ -52,6 +52,7 @@ export function SearchPanel({
   onOpenProject,
   onOpenSchedule,
   onOpenOwner,
+  onOpenAgentPage,
   onClose,
 }: {
   sessions: Session[]
@@ -60,6 +61,8 @@ export function SearchPanel({
   onOpenProject: (id: string) => void
   onOpenSchedule: (id: string) => void
   onOpenOwner: (name: string) => void
+  /** A published definition's own page (COMMONS-26) — the publishedAgent hit's door. */
+  onOpenAgentPage: (agentId: string) => void
   onClose: () => void
 }) {
   const [q, setQ] = useState('')
@@ -140,8 +143,9 @@ export function SearchPanel({
         case 'owner':
           return go(() => onOpenOwner(hit.id))
         case 'publishedAgent':
-          // Its public face (card + detail + fork) lives on the owner's profile.
-          return go(() => (hit.ref ? onOpenOwner(hit.ref) : onOpenSection('agents')))
+          // The definition's OWN page (COMMONS-26) — the canonical door, like every
+          // other hit landing on its entity's page.
+          return go(() => onOpenAgentPage(hit.id))
         case 'openWork':
           // The backlog lives on the project page — `ref` carries the projectId.
           return go(() => (hit.ref ? onOpenProject(hit.ref) : onOpenSection('projects')))
@@ -170,7 +174,7 @@ export function SearchPanel({
     }))
 
     return [...serverGroups, { label: 'Pages', items: pageResults }].filter((g) => g.items.length > 0)
-  }, [needle, sessions, server.data, onSelectSession, onOpenSection, onOpenProject, onOpenSchedule, onOpenOwner, onClose])
+  }, [needle, sessions, server.data, onSelectSession, onOpenSection, onOpenProject, onOpenSchedule, onOpenOwner, onOpenAgentPage, onClose])
 
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups])
 

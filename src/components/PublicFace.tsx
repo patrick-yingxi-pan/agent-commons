@@ -7,7 +7,32 @@
  *  fails if a component re-hardcodes the cue). */
 import { Award, Bot, GitFork, Globe } from 'lucide-react'
 import type { PrincipalKind } from '../../contract/index.ts'
-import { AGENT_ACTOR_TITLE, agentActorLabel, bylineLabel, SHARED_MARKER } from '../lib/publicFace'
+import { AGENT_ACTOR_TITLE, agentActorLabel, bylineLabel, identityHue, identityInitial, SHARED_MARKER } from '../lib/publicFace'
+
+/** The workspace identity mark — the avatar's role, derived deterministically from
+ *  the display name (identityHue / identityInitial): a small tinted disc with the
+ *  name's initial, so bylines disambiguate at a glance the way GitHub avatars do.
+ *  `aria-hidden` — pure texture; the NAME stays the accessible identity. Worn by
+ *  <OwnerLink> automatically; pass a larger `size` for headers (the profile page). */
+export function WorkspaceMark({ name, size = 13 }: { name?: string; size?: number }) {
+  const n = name ?? 'this workspace'
+  const hue = identityHue(n)
+  return (
+    <span
+      aria-hidden
+      style={{
+        width: size,
+        height: size,
+        fontSize: Math.max(8, Math.round(size * 0.55)),
+        backgroundColor: `hsl(${hue} 50% 88%)`,
+        color: `hsl(${hue} 45% 32%)`,
+      }}
+      className="inline-flex shrink-0 select-none items-center justify-center rounded-full font-semibold leading-none"
+    >
+      {identityInitial(n)}
+    </span>
+  )
+}
 
 /** The one owner-door style — an underlined owner name that opens "everything this
  *  workspace shares". Local to this module on purpose: consumers use <OwnerLink>,
@@ -37,10 +62,12 @@ export function OwnerLink({
         e.stopPropagation()
         onClick()
       }}
-      className={OWNER_LINK_CLASS}
+      className={`inline-flex items-center gap-1 align-bottom ${OWNER_LINK_CLASS}`}
       title="Show everything this workspace shares"
     >
-      {bare ? label.replace(/^by /, '') : label}
+      {/* The identity mark rides every owner door (aria-hidden — texture, not name). */}
+      <WorkspaceMark name={ownerName} />
+      <span>{bare ? label.replace(/^by /, '') : label}</span>
     </button>
   )
 }

@@ -8,7 +8,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { AGENT_ACTOR_TITLE, agentActorLabel, bylineLabel, profileTitle, SHARED_MARKER } from '../src/lib/publicFace.ts'
+import { AGENT_ACTOR_TITLE, agentActorLabel, bylineLabel, identityHue, identityInitial, profileTitle, SHARED_MARKER } from '../src/lib/publicFace.ts'
 
 const src = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
 
@@ -51,4 +51,25 @@ test('the agent-actor cue has one home — components route through <AgentActor>
   const publicFace = src('../src/components/PublicFace.tsx')
   assert.ok(publicFace.includes('AGENT_ACTOR_TITLE'), 'the badge component references the one tooltip source')
   assert.ok(publicFace.includes('agentActorLabel'), 'and the one label source')
+})
+
+test('the workspace identity mark is derived, deterministic, and bounded', () => {
+  // Same name ⇒ same mark, everywhere — the whole point (no stored avatar state).
+  assert.equal(identityHue('Acme, Inc.'), identityHue('Acme, Inc.'))
+  assert.ok(identityHue('Personal') >= 0 && identityHue('Personal') < 360)
+  // Different names should usually differ (spot-check the demo roster's names).
+  const roster = ['Personal', 'Acme, Inc.', 'GrowthWorks', 'Northlight', 'Harbor Support', 'Rei Lab']
+  assert.ok(new Set(roster.map(identityHue)).size >= roster.length - 1, 'the demo roster disambiguates')
+  assert.equal(identityInitial('ada lab'), 'A')
+  assert.equal(identityInitial('  émile'), 'É')
+  assert.equal(identityInitial('   '), '?', 'a blank name reads honestly, like bylineLabel')
+})
+
+test('the mark has one home — <WorkspaceMark> in PublicFace; no component hand-rolls a name-hashed color', () => {
+  const publicFace = src('../src/components/PublicFace.tsx')
+  assert.ok(publicFace.includes('identityHue') && publicFace.includes('identityInitial'), 'the component derives from the one source')
+  assert.ok(/aria-hidden/.test(publicFace), 'the mark is texture — the NAME stays the accessible identity')
+  const sectionView = src('../src/components/SectionView.tsx')
+  assert.ok(!/identityHue|identityInitial/.test(sectionView), 'components wear <WorkspaceMark>, never re-derive the mark')
+  assert.ok(sectionView.includes('<WorkspaceMark'), 'the profile header wears the shared mark')
 })

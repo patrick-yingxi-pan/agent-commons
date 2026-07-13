@@ -75,7 +75,7 @@ import { AddContextButton } from './AddContextButton'
 import { AddTrigger } from './AddTrigger'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { profileTitle, PROFILE_TAGLINE } from '../lib/publicFace'
-import { ActorByline, AgentActor, Byline, CreditLine, OwnerLink } from './PublicFace'
+import { ActorByline, AgentActor, Byline, CreditLine, OwnerLink, WorkspaceMark } from './PublicFace'
 import { TextDiff } from './TextDiff'
 import { CopyButton } from './CopyButton'
 import { CheckboxRow, DefaultBadge, DefaultToggle } from './Checkbox'
@@ -5675,9 +5675,9 @@ function OwnerProfilePage({
     <Page>
       <BackButton to={backTo} onBack={onBack} />
       <header className="flex items-start gap-3.5">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-emerald-600/10 text-emerald-700">
-          <Globe size={22} />
-        </div>
+        {/* The identity mark at page scale — the same derived mark every byline
+            wears (identity texture; the Globe stays the SHARED-entity cue). */}
+        <WorkspaceMark name={profile.name} size={48} />
         <div className="min-w-0">
           <h1 className="font-serif text-2xl font-semibold text-ink">
             {profileTitle(profile.name, profile.own)}
