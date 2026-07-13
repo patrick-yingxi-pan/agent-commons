@@ -48,7 +48,7 @@ test('propose → review side-by-side → merge: the definition evolves and cred
     .getByRole('button', { name: 'View definition' })
     .last()
     .click()
-  await expect(proposer.page.getByRole('dialog').getByText('v1', { exact: false })).toBeVisible()
+  await expect(proposer.page.getByRole('heading', { name: AGENT })).toBeVisible() // the definition's own page
   await proposer.page.getByRole('button', { name: 'Propose a change' }).click()
   await proposer.page.getByLabel('Proposed system prompt').fill(NEW_PROMPT)
   await proposer.page.getByLabel('Proposal note').fill(NOTE)

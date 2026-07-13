@@ -224,9 +224,9 @@ test('a proposal.merged bell opens the owner’s profile ON Your-proposals, focu
 
   // Proposer's inbox note text is unique; give the SSE a beat to deliver the bell.
 
-  // Proposer: the proposal.merged bell is the door — clicking it opens the OWNER's
-  // profile with the agent's public detail, "Your proposals" focused on the proposal
-  // (its note + the merged status are visible in the dialog — no manual drill-in).
+  // Proposer: the proposal.merged bell is the door — clicking it opens the
+  // definition's OWN page (COMMONS-26), "Your proposals" focused on the proposal
+  // (its note + the merged status are visible on the page — no manual drill-in).
   await expect(proposer.page.getByRole('complementary').getByLabel(/Notifications \(\d+ unread\)/)).toBeVisible({ timeout: 10_000 })
   await proposer.page.getByRole('complementary').getByLabel(/Notifications/).click()
   await proposer.page
@@ -234,18 +234,17 @@ test('a proposal.merged bell opens the owner’s profile ON Your-proposals, focu
     .getByRole('button', { name: new RegExp(`merged your proposal into .*${AGENT}`) })
     .click()
 
-  const detail = proposer.page.getByRole('dialog', { name: AGENT })
-  await expect(detail).toBeVisible()
-  await expect(detail.getByText(/Your proposals/)).toBeVisible()
+  await expect(proposer.page.getByRole('heading', { name: AGENT })).toBeVisible()
+  await expect(proposer.page.getByText(/Your proposals/)).toBeVisible()
   // The proposal row's own note (exact — the merge also echoes it into the changelog).
-  await expect(detail.getByText(NOTE, { exact: true })).toBeVisible()
+  await expect(proposer.page.getByText(NOTE, { exact: true })).toBeVisible()
   // The VERDICT is visible too — the row's merged status pill. This is the review
   // fix's regression lock: the queue was prefetched before the owner merged, and
   // without the `proposal.changed` push the door opened the stale 'open' copy.
-  await expect(detail.getByText('merged', { exact: true }).first()).toBeVisible()
+  await expect(proposer.page.getByText('merged', { exact: true }).first()).toBeVisible()
   // Surface-audit S1: the proposer can now review THEIR OWN change (the diff's
   // proposed column), not just its note — the shared ProposalFieldDiff renders here.
-  await expect(detail.getByText(NEW_PROMPT).first()).toBeVisible()
+  await expect(proposer.page.getByText(NEW_PROMPT).first()).toBeVisible()
 
   await owner.context.close()
   await proposer.context.close()

@@ -100,6 +100,7 @@ function Workspace() {
     focusScheduleId,
     focusOwnerName,
     focusWorkItemId,
+    focusAgentId,
     pendingFocus,
     live,
     typing,
@@ -123,6 +124,7 @@ function Workspace() {
     openProject,
     openSchedule,
     openOwner,
+    openAgentPage,
     openWorkItemPage,
     openWorkItem,
     openProposal,
@@ -408,6 +410,8 @@ function Workspace() {
                   focusScheduleId={focusScheduleId}
                   focusOwnerName={focusOwnerName}
                   focusWorkItemId={focusWorkItemId}
+                  focusAgentId={focusAgentId}
+                  onOpenAgentPage={openAgentPage}
                 />
               </FocusContext.Provider>
             ) : (

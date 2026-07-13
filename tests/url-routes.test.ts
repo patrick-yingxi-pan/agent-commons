@@ -66,6 +66,15 @@ test('a work item page round-trips through /projects/:id/work/:itemId', () => {
   assert.equal(viewForPath('/projects/p_42/work/'), null)
 })
 
+test('a published definition page round-trips through /agents/:id; sub-view ids stay reserved', () => {
+  const loc = section({ section: 'agents', agentId: 'agent-7' })
+  const path = pathForView(loc, null)
+  assert.equal(path, '/agents/agent-7')
+  assert.deepEqual(viewForPath(path), { loc: { ...loc, agentId: 'agent-7' }, subview: null })
+  // /agents/work is the "Your work" sub-view, never an agent whose id collides with it.
+  assert.deepEqual(viewForPath('/agents/work'), { loc: section({ section: 'agents' }), subview: 'work' })
+})
+
 test('a workspace profile lives under /u/ and survives names needing encoding', () => {
   const loc = section({ section: 'agents', ownerName: 'Acme, Inc.' })
   const path = pathForView(loc, null)

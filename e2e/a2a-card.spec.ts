@@ -49,14 +49,13 @@ test('the "A2A card" trigger opens a presented viewer, not a raw-JSON tab', asyn
   await dialog.getByRole('button', { name: 'Done' }).click()
   await expect(dialog).toBeHidden()
 
-  // ── Site 2: the Discover detail (visitor-facing published-agent surface) ────
+  // ── Site 2: the definition's own PAGE (COMMONS-26 — the visitor-facing surface) ─
   await page.getByRole('button', { name: 'Discover' }).click()
   await expect(page.getByText(AGENT).first()).toBeVisible()
   await page.locator('div').filter({ hasText: AGENT }).getByRole('button', { name: 'View definition' }).last().click()
-  const detail = page.getByRole('dialog').filter({ hasText: 'Fork this definition' })
-  await expect(detail).toBeVisible()
+  await expect(page.getByRole('heading', { name: AGENT })).toBeVisible()
   const pagesBefore2 = context.pages().length
-  await detail.getByRole('button', { name: 'A2A card' }).click()
+  await page.getByRole('button', { name: 'A2A card' }).click()
   const cardDialog = page.getByRole('dialog', { name: new RegExp(`A2A card — ${AGENT}`) })
   await expect(cardDialog).toBeVisible()
   expect(context.pages().length).toBe(pagesBefore2)

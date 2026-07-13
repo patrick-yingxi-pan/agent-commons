@@ -22,6 +22,8 @@ export type ViewLocation =
       /** A work item's page under its project. Optional so blobs saved before the
        *  field existed stay loadable; absent ≡ null. */
       workItemId?: string | null
+      /** A published definition's page (same back-compat rule). */
+      agentId?: string | null
     }
 
 const KEY = 'claude-ui.view.v1'

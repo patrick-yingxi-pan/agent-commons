@@ -27,6 +27,9 @@ export type NavLocation =
       /** A work item's own page under its project (the issue-page analog) — requires
        *  `projectId`. Optional for the same back-compat reason; absent ≡ null. */
       workItemId?: string | null
+      /** A published definition's own page under the agents section (the repo-page
+       *  analog, COMMONS-26). Optional for the same back-compat reason; absent ≡ null. */
+      agentId?: string | null
     }
 
 /** The display name for each cross-cutting section (its list page). */
@@ -52,7 +55,8 @@ export function sameLocation(a: NavLocation, b: NavLocation): boolean {
       a.projectId === b.projectId &&
       a.scheduleId === b.scheduleId &&
       (a.ownerName ?? null) === (b.ownerName ?? null) &&
-      (a.workItemId ?? null) === (b.workItemId ?? null)
+      (a.workItemId ?? null) === (b.workItemId ?? null) &&
+      (a.agentId ?? null) === (b.agentId ?? null)
     )
   return false
 }

@@ -116,9 +116,13 @@ lived in a sidebar column. Two refinements closed the worst of it:
   surfaced as the Agents hub's **Your work** sub-view (`/agents/work`), every row a
   door to the item's page or the proposal's review.
 
-Still open from that evaluation (judged real but lesser): the published-agent
-definition renders as a modal, not a page (its versions/changelog/proposals argue for
-one); identity texture on bylines (avatar/handle beyond the display name).
+- **The published definition got its own page** (COMMONS-26) — `/agents/:id`, the
+  repo-page analog replacing the detail modal: the D18 public face, changelog, track
+  record, Fork / A2A card / Propose doors, and "Your proposals" — with every door
+  (directory cards, profile activity, the proposer-side bell) routing to it.
+
+Still open from that evaluation (judged real but lesser): identity texture on
+bylines (avatar/handle beyond the display name).
 
 ### Deferred — evaluated at Wave 4's close, judged enrichment (not a current gap)
 

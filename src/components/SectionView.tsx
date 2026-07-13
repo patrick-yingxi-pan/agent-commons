@@ -232,6 +232,8 @@ export function SectionView({
   focusScheduleId = null,
   focusOwnerName = null,
   focusWorkItemId = null,
+  focusAgentId = null,
+  onOpenAgentPage,
 }: {
   section: SectionId
   /** The active sub-view (lib/subviews) the rail drilled into — the section body
@@ -268,6 +270,10 @@ export function SectionView({
   /** A work item's own page under the open project (the issue-page analog) —
    *  meaningful only with `focusProjectId`; null = the project page itself. */
   focusWorkItemId?: string | null
+  /** A published definition's own page under Agents (COMMONS-26); null = hub/profile. */
+  focusAgentId?: string | null
+  /** Open a published definition's page — the one door every card routes through. */
+  onOpenAgentPage: (agentId: string) => void
 }) {
   const body =
     section === 'projects' ? (
@@ -293,9 +299,11 @@ export function SectionView({
       // null. The content sections below instead take the raw sub-view (a group id or null).
       <AgentCommonsSection
         owner={focusOwnerName}
+        agentId={focusAgentId}
         subview={subview ?? 'agents'}
         onOpenProject={onOpenProject}
         onOpenProposal={onOpenProposal}
+        onOpenAgentPage={onOpenAgentPage}
         onBack={onBack}
         backTo={backTo}
       />
@@ -3380,20 +3388,25 @@ type CommonsTab = 'agents' | 'work' | 'prompts' | 'commissions' | 'discover' | '
 
 function AgentCommonsSection({
   owner,
+  agentId,
   subview,
   onOpenProject,
   onOpenProposal,
+  onOpenAgentPage,
   onBack,
   backTo,
 }: {
   /** A workspace profile to show instead of the hub (D21) — null = the hub. */
   owner: string | null
+  /** A published definition's own page (COMMONS-26) — null = the hub / profile. */
+  agentId: string | null
   /** The active hub sub-view — a CommonsTab id, defaulting to the worker-agents surface
    *  ('agents') when the section is on its default (rail subview null). */
   subview: string
   onOpenProject: (id: string) => void
   /** Open a change proposal on its review surface (the same door the bell uses). */
   onOpenProposal: (agentId: string, proposalId: string, ownerName: string | null) => void
+  onOpenAgentPage: (agentId: string) => void
   onBack: () => void
   backTo: NavLocation | null
 }) {
@@ -3403,8 +3416,19 @@ function AgentCommonsSection({
   // on its default surface in the same update that sets the focus target, and a
   // component-side reset routed through the openSubview funnel would CLEAR that
   // pendingFocus. The controller is the single source of the reset.
+  if (agentId) {
+    return <AgentPublicPage agentId={agentId} onBack={onBack} backTo={backTo} />
+  }
   if (owner) {
-    return <OwnerProfilePage name={owner} onOpenProject={onOpenProject} onBack={onBack} backTo={backTo} />
+    return (
+      <OwnerProfilePage
+        name={owner}
+        onOpenProject={onOpenProject}
+        onOpenAgentPage={onOpenAgentPage}
+        onBack={onBack}
+        backTo={backTo}
+      />
+    )
   }
   return (
     <Page>
@@ -3421,7 +3445,7 @@ function AgentCommonsSection({
         {tab === 'work' && <YourWorkTab onOpenProposal={onOpenProposal} />}
         {tab === 'prompts' && <PromptsTab />}
         {tab === 'commissions' && <CommissionsTab />}
-        {tab === 'discover' && <DiscoverTab />}
+        {tab === 'discover' && <DiscoverTab onOpenAgentPage={onOpenAgentPage} />}
         {tab === 'audit' && <AuditTab />}
       </div>
     </Page>
@@ -5417,13 +5441,12 @@ function ProjectCommissionGroup({
  *  never widens visibility (each entry is the row's existing public face), and ranking
  *  is a policy this prototype doesn't take. One debounced-enough search box filters
  *  both directories (substring on name/description, server-side). */
-function DiscoverTab() {
+function DiscoverTab({ onOpenAgentPage }: { onOpenAgentPage: (agentId: string) => void }) {
   const rel = useRelations()
   const [q, setQ] = useState('')
   const query = q.trim() || undefined
   const projects = useProjectDirectory(query).data ?? []
   const agents = useAgentDirectory(query).data ?? []
-  const [detail, setDetail] = useState<AgentDirectoryEntry | null>(null)
   // Every owner byline is a DOOR to the workspace's profile page (D21) — the one
   // "everything this workspace shares" surface (it subsumed the old filter chip).
   const openOwner = (name: string) => rel.navigate('agents', name)
@@ -5472,7 +5495,7 @@ function DiscoverTab() {
               <PublishedAgentCard
                 key={a.id}
                 entry={a}
-                onView={() => setDetail(a)}
+                onView={() => onOpenAgentPage(a.id)}
                 onOwnerClick={() => openOwner(a.owner)}
               />
             ))}
@@ -5481,7 +5504,6 @@ function DiscoverTab() {
       </div>
 
       <ImportAgentCardForm />
-      {detail && <AgentDetailDialog entry={detail} onClose={() => setDetail(null)} />}
     </div>
   )
 }
@@ -5623,31 +5645,19 @@ function OrgMemberPanel({ org }: { org: NonNullable<OwnerProfile['org']> }) {
 function OwnerProfilePage({
   name,
   onOpenProject,
+  onOpenAgentPage,
   onBack,
   backTo,
 }: {
   name: string
   onOpenProject: (id: string) => void
+  onOpenAgentPage: (agentId: string) => void
   onBack: () => void
   backTo: NavLocation | null
 }) {
   const rel = useRelations()
   const state = useOwnerProfile(name)
   const profile = state.data
-  const [detail, setDetail] = useState<AgentDirectoryEntry | null>(null)
-  // Notification door (R5b): a proposal.* bell whose recipient is the PROPOSER (not
-  // the owner) lands here — auto-open the target agent's public detail with "Your
-  // proposals" focused on the proposal. Consumed once, once the profile has loaded.
-  const [proposalFocus, setProposalFocus] = useState<string | null>(null)
-  const { pending, consume } = usePendingFocus()
-  useEffect(() => {
-    if (!pending?.agentId || !pending?.proposalId || !profile) return
-    const target = profile.agents.find((a) => a.id === pending.agentId)
-    if (!target) return
-    setDetail(target)
-    setProposalFocus(pending.proposalId)
-    consume()
-  }, [pending, profile, consume])
   if (!profile) {
     return (
       <Page>
@@ -5724,7 +5734,7 @@ function OwnerProfilePage({
                 <PublishedAgentCard
                   key={a.id}
                   entry={a}
-                  onView={() => setDetail(a)}
+                  onView={() => onOpenAgentPage(a.id)}
                   onOwnerClick={() => rel.navigate('agents', a.owner)}
                 />
               ))}
@@ -5754,7 +5764,17 @@ function OwnerProfilePage({
                     // posted/resolved project doors) — same role ⇒ same affordance.
                     <span className="min-w-0">
                       Authored <span className="font-medium text-ink">v{a.version}</span> of{' '}
-                      {a.owner ? (
+                      {a.agentId ? (
+                        // The definition now has its OWN page (COMMONS-26) — the truer door
+                        // than the owner's profile the pre-page S9 link settled for.
+                        <button
+                          onClick={() => onOpenAgentPage(a.agentId!)}
+                          className={INLINE_ACTION_CLASS}
+                          title={`Open ${a.agentLabel}`}
+                        >
+                          {a.agentLabel}
+                        </button>
+                      ) : a.owner ? (
                         <button
                           onClick={() => rel.navigate('agents', a.owner!)}
                           className={INLINE_ACTION_CLASS}
@@ -5789,16 +5809,6 @@ function OwnerProfilePage({
         </div>
       </div>
 
-      {detail && (
-        <AgentDetailDialog
-          entry={detail}
-          focusProposalId={proposalFocus}
-          onClose={() => {
-            setDetail(null)
-            setProposalFocus(null)
-          }}
-        />
-      )}
     </Page>
   )
 }
@@ -5932,110 +5942,150 @@ function PublishedAgentCard({
   )
 }
 
-/** The public detail of a published Agent — the entity page behind the directory card:
- *  the FULL definition (prompt / instructions / tools — exactly the D18 public face,
- *  nothing more), the public track record, and both doors out: Fork (the human act)
- *  and the A2A card link (the same fact, machine-readable — D20). What is structurally
- *  absent mirrors the wire: no authority, budget, or provider binding to show. */
-function AgentDetailDialog({
-  entry,
-  onClose,
-  focusProposalId = null,
+/** The public PAGE of a published Agent (COMMONS-26) — the repo-page analog behind
+ *  every directory card, replacing the old detail dialog (a published definition is
+ *  a versioned lifecycle entity — versions, changelog, proposals, forks — and the
+ *  surface-from-nature rule gives that a page, not a modal): the FULL definition
+ *  (prompt / instructions / tools — exactly the D18 public face, nothing more), the
+ *  changelog, the public track record, and the doors out — Fork (the human act),
+ *  the A2A card (the same fact, machine-readable — D20), Propose a change (the
+ *  fork's inverse, in a dialog: a transient act). One page for every viewer;
+ *  what is structurally absent mirrors the wire (no authority, budget, provider).
+ *  Addressable at /agents/:id (ADAPT-15); a proposal.* bell for the PROPOSER lands
+ *  here with their proposal focused (the pending-focus consumption, R5b). */
+function AgentPublicPage({
+  agentId,
+  onBack,
+  backTo,
 }: {
-  entry: AgentDirectoryEntry
-  onClose: () => void
-  /** A notification door (R5b) opened this detail focused on one of Your proposals. */
-  focusProposalId?: string | null
+  agentId: string
+  onBack: () => void
+  backTo: NavLocation | null
 }) {
   const rel = useRelations()
+  const entries = useAgentDirectory(undefined)
+  const entry = (entries.data ?? []).find((e) => e.id === agentId) ?? null
   const [busy, setBusy] = useState(false)
+  const [forked, setForked] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // D25: the detail carries the propose-a-change door — one dialog, two modes.
   const [proposing, setProposing] = useState(false)
   const [showCard, setShowCard] = useState(false)
+  // R5b — a proposal bell landed here: focus that proposal in "Your proposals".
+  const [proposalFocus, setProposalFocus] = useState<string | null>(null)
+  const { pending, consume } = usePendingFocus()
+  useEffect(() => {
+    if (!entry || pending?.agentId !== entry.id || !pending?.proposalId) return
+    setProposalFocus(pending.proposalId)
+    consume()
+  }, [pending, entry, consume])
+
+  if (!entry) {
+    return (
+      <Page>
+        <BackButton to={backTo} onBack={onBack} />
+        {entries.data ? (
+          // The 404 face: an unpublished definition is indistinguishable from one
+          // that never existed (existence-hiding, D18).
+          <Empty>This definition isn’t in the directory — unpublished, or it never existed.</Empty>
+        ) : null}
+      </Page>
+    )
+  }
+
   const fork = async () => {
-    if (busy) return
+    if (busy || forked) return
     setBusy(true)
     setError(null)
     try {
       await forkAgent(entry.id)
-      onClose()
+      setForked(true)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not fork this agent.')
+    } finally {
       setBusy(false)
     }
   }
-  if (proposing) {
-    return <ProposeChangeDialog entry={entry} onBack={() => setProposing(false)} onClose={onClose} />
-  }
+
   return (
-    <FormDialog
-      title={entry.label}
-      icon={<Bot size={18} />}
-      submitLabel="Fork this definition"
-      submitIcon={<GitFork size={15} />}
-      canSubmit={!busy}
-      onSubmit={fork}
-      onClose={onClose}
-      error={error}
-    >
-      <p className="text-[12px] text-ink-faint">
-        {/* The owner byline is a profile door like every other byline (S12/S13's
-            parity rule) — close the dialog first, the resolved-work rows' pattern. */}
-        <OwnerLink
-          ownerName={entry.owner}
-          own={entry.own}
-          onClick={() => {
-            onClose()
-            rel.navigate('agents', entry.owner)
-          }}
-        />{' '}
-        · v{entry.version}
-      </p>
-      <FormField label="System prompt">
-        <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-panel-2 p-2.5 font-sans text-[12px] leading-relaxed text-ink-soft">
-          {entry.systemPrompt}
-        </pre>
-      </FormField>
-      {entry.instructions && (
-        <FormField label="Instructions">
-          <p className="max-h-24 overflow-y-auto rounded-lg border border-line bg-panel-2 p-2.5 text-[12px] leading-relaxed text-ink-soft">
-            {entry.instructions}
-          </p>
-        </FormField>
-      )}
-      <FormField label={`Tools (${entry.tools.length})`}>
-        <div className="flex flex-wrap gap-1.5">
-          {entry.tools.length === 0 ? (
-            <span className="text-[12px] text-ink-faint">No tools — a prose-only definition.</span>
-          ) : (
-            entry.tools.map((t) => (
-              <span key={t} className="rounded-md bg-panel-2 px-1.5 py-0.5 text-[11px] text-ink-soft">
-                {t}
-              </span>
-            ))
+    <Page>
+      <BackButton to={backTo} onBack={onBack} />
+      <div className="mx-auto w-full max-w-2xl">
+        <header className="flex items-start gap-3.5">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-panel-2 text-ink-soft">
+            <Bot size={22} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h1 className="font-serif text-2xl font-semibold text-ink">{entry.label}</h1>
+            <p className="mt-0.5 text-[12px] text-ink-faint">
+              <OwnerLink ownerName={entry.owner} own={entry.own} onClick={() => rel.navigate('agents', entry.owner)} />
+              {' · '}v{entry.version} · <CreditLine contributions={entry.contributions} forks={entry.forks} />
+            </p>
+          </div>
+          <button
+            onClick={fork}
+            disabled={busy || forked}
+            title="Forking copies the definition — you grant your own model & authority."
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[13px] font-medium transition ${
+              forked ? 'text-emerald-700' : 'text-ink-soft hover:border-line-strong hover:text-ink'
+            } disabled:cursor-default`}
+          >
+            <GitFork size={14} /> {forked ? 'Forked ✓' : 'Fork'}
+          </button>
+        </header>
+
+        <div className="mt-5 space-y-4">
+          <FormField label="System prompt">
+            <pre className="whitespace-pre-wrap rounded-lg border border-line bg-panel-2 p-3 font-sans text-[12px] leading-relaxed text-ink-soft">
+              {entry.systemPrompt}
+            </pre>
+          </FormField>
+          {entry.instructions && (
+            <FormField label="Instructions">
+              <p className="rounded-lg border border-line bg-panel-2 p-3 text-[12px] leading-relaxed text-ink-soft">
+                {entry.instructions}
+              </p>
+            </FormField>
           )}
+          <FormField label={`Tools (${entry.tools.length})`}>
+            <div className="flex flex-wrap gap-1.5">
+              {entry.tools.length === 0 ? (
+                <span className="text-[12px] text-ink-faint">No tools — a prose-only definition.</span>
+              ) : (
+                entry.tools.map((t) => (
+                  <span key={t} className="rounded-md bg-panel-2 px-1.5 py-0.5 text-[11px] text-ink-soft">
+                    {t}
+                  </span>
+                ))
+              )}
+            </div>
+          </FormField>
+          {(entry.changelog?.length ?? 0) > 0 && (
+            <FormField label={`Changelog (${entry.changelog!.length})`}>
+              <ChangelogList changelog={entry.changelog!} />
+            </FormField>
+          )}
+          <p className="flex items-center gap-3 text-[11px] text-ink-faint">
+            <button
+              onClick={() => setShowCard(true)}
+              className={INLINE_ACTION_CLASS}
+              title="This definition as a machine-readable A2A Agent Card — hand the URL to a foreign agent framework"
+            >
+              A2A card
+            </button>
+            {/* D25 — the fork's inverse: send an improvement BACK to the owner. */}
+            <button onClick={() => setProposing(true)} className={INLINE_ACTION_CLASS}>
+              Propose a change
+            </button>
+          </p>
+          {/* S10 — the acts behind the contribution count (P8-redacted to shared projects). */}
+          <AgentResolvedWork agentId={entry.id} onClose={() => {}} />
+          {/* D27 — the proposer's end of the conversation: their proposals against this
+              definition (status, the owner's note, the thread). The owner sees all of
+              them here too — the same rows their review dialog resolves. */}
+          <YourProposals entry={entry} focusProposalId={proposalFocus} />
+          {error && <p className="text-[12px] text-removed">{error}</p>}
         </div>
-      </FormField>
-      {(entry.changelog?.length ?? 0) > 0 && (
-        <FormField label={`Changelog (${entry.changelog!.length})`}>
-          <ChangelogList changelog={entry.changelog!} />
-        </FormField>
-      )}
-      <p className="flex items-center gap-3 text-[11px] text-ink-faint">
-        <CreditLine contributions={entry.contributions} forks={entry.forks} />
-        <button
-          onClick={() => setShowCard(true)}
-          className={INLINE_ACTION_CLASS}
-          title="This definition as a machine-readable A2A Agent Card — hand the URL to a foreign agent framework"
-        >
-          A2A card
-        </button>
-        {/* D25 — the fork's inverse: send an improvement BACK to the owner. */}
-        <button onClick={() => setProposing(true)} className={INLINE_ACTION_CLASS}>
-          Propose a change
-        </button>
-      </p>
+      </div>
       {showCard && (
         <A2aCardDialog
           url={a2aAgentCardUrl(entry.id)}
@@ -6043,16 +6093,8 @@ function AgentDetailDialog({
           onClose={() => setShowCard(false)}
         />
       )}
-      {/* S10 — the acts behind the contribution count (P8-redacted to shared projects). */}
-      <AgentResolvedWork agentId={entry.id} onClose={onClose} />
-      <p className="text-[11px] text-ink-faint">
-        Forking copies the definition — you grant your own model &amp; authority.
-      </p>
-      {/* D27 — the proposer's end of the conversation: their proposals against this
-          definition (status, the owner's note, the thread). The owner sees all of
-          them here too — the same rows their review dialog resolves. */}
-      <YourProposals entry={entry} focusProposalId={focusProposalId} />
-    </FormDialog>
+      {proposing && <ProposeChangeDialog entry={entry} onBack={() => setProposing(false)} onClose={() => setProposing(false)} />}
+    </Page>
   )
 }
 
