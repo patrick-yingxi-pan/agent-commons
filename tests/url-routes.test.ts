@@ -75,6 +75,15 @@ test('a published definition page round-trips through /agents/:id; sub-view ids 
   assert.deepEqual(viewForPath('/agents/work'), { loc: section({ section: 'agents' }), subview: 'work' })
 })
 
+test('a saved context detail round-trips through /contexts/:id; kind ids stay reserved', () => {
+  const loc = section({ section: 'contexts', contextId: 'linear' })
+  const path = pathForView(loc, null)
+  assert.equal(path, '/contexts/linear')
+  assert.deepEqual(viewForPath(path), { loc: { ...loc, contextId: 'linear' }, subview: null })
+  // /contexts/connector is the kind facet, never a context whose id collides with it.
+  assert.deepEqual(viewForPath('/contexts/connector'), { loc: section({ section: 'contexts' }), subview: 'connector' })
+})
+
 test('a workspace profile lives under /u/ and survives names needing encoding', () => {
   const loc = section({ section: 'agents', ownerName: 'Acme, Inc.' })
   const path = pathForView(loc, null)

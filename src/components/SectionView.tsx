@@ -150,6 +150,7 @@ import {
   API_BASE,
   useAgents,
   useAgentDirectory,
+  useAgentForks,
   useAgentResolvedWork,
   useAuditLog,
   useCommissions,
@@ -233,6 +234,7 @@ export function SectionView({
   focusOwnerName = null,
   focusWorkItemId = null,
   focusAgentId = null,
+  focusContextId = null,
   onOpenAgentPage,
 }: {
   section: SectionId
@@ -272,6 +274,8 @@ export function SectionView({
   focusWorkItemId?: string | null
   /** A published definition's own page under Agents (COMMONS-26); null = hub/profile. */
   focusAgentId?: string | null
+  /** A saved context's detail page under Contexts (ADAPT-15); null = the list. */
+  focusContextId?: string | null
   /** Open a published definition's page — the one door every card routes through. */
   onOpenAgentPage: (agentId: string) => void
 }) {
@@ -290,7 +294,7 @@ export function SectionView({
     ) : section === 'artifacts' ? (
       <ArtifactsSection subview={subview} onOpenSession={onOpenSession} />
     ) : section === 'contexts' ? (
-      <ContextsSection subview={subview} />
+      <ContextsSection subview={subview} contextId={focusContextId} onBack={onBack} backTo={backTo} />
     ) : section === 'models' ? (
       <ModelsSection subview={subview} />
     ) : section === 'agents' ? (
@@ -1145,11 +1149,36 @@ function ProjectScheduleRow({
  *  pill, with a hover-revealed ✕ that unscopes it (mirroring the composer's
  *  single-chip remove). The meta (branch, file count, …) surfaces as the hover
  *  tooltip since the pill itself only shows the label. */
+/** Resolve a connector / tool NAME against the viewer's OWN saved-context registry
+ *  (by id or label, case-insensitive) and return a door to its detail page
+ *  (/contexts/:id) — or undefined when it doesn't resolve (a foreign reach label, a
+ *  folder scope with no saved entry): capability shapes affordances, so a name that
+ *  isn't the viewer's registry entry stays honest text (S18). One funnel for every
+ *  registry-chip door — the project chip, the contributor reach, the routine toolbox. */
+function useContextDoor(): (name: string) => (() => void) | undefined {
+  const rel = useRelations()
+  const items = useSavedContexts().data?.contexts ?? SAVED_CONTEXTS
+  return (name: string) => {
+    const n = name.trim().toLowerCase()
+    const hit = items.find((c) => c.id.toLowerCase() === n || c.label.toLowerCase() === n)
+    return hit ? () => rel.navigate('contexts', hit.id) : undefined
+  }
+}
+
 function ProjectContextChip({ ctx, onRemove }: { ctx: ProjectContext; onRemove: () => void }) {
   const CIcon = CONTEXT_ICON[ctx.kind]
+  // The chip is a DOOR to the context's own page when it resolves in the viewer's
+  // registry (S18); otherwise Chip renders its display-only, non-interactive form.
+  const door = useContextDoor()(ctx.label)
   return (
     <div className="group/chip relative inline-flex">
-      <Chip icon={<CIcon size={12} />} tone={projectContextTone(ctx.kind)} active={false} hint={ctx.meta || ctx.label}>
+      <Chip
+        icon={<CIcon size={12} />}
+        tone={projectContextTone(ctx.kind)}
+        active={false}
+        hint={door ? `Open ${ctx.label} in Contexts` : ctx.meta || ctx.label}
+        onClick={door}
+      >
         {ctx.label}
       </Chip>
       <button
@@ -1404,14 +1433,11 @@ function ContributorRow({
 }) {
   const reach = useCommissionAuthority(commission.id).data
   // Post-clamp the connectors are always a concrete set (the Project admits a concrete
-  // list); show them as the visible isolation boundary.
+  // list); show them as the visible isolation boundary. Each connector that resolves
+  // in the VIEWER's registry is a door to its context page (S18); a foreign name
+  // stays text — capability shapes affordances.
   const connectors = reach?.connectors ?? []
-  const reachLabel =
-    reach === undefined
-      ? 'Resolving reach…'
-      : connectors.length === 0
-        ? 'Reaches no connectors on this project'
-        : `Reaches ${connectors.join(' · ')}`
+  const contextDoor = useContextDoor()
   // The Project backs the re-grant editor (its admitted connectors are the D12 wall).
   const project = useRelations()
     .allProjects()
@@ -1452,7 +1478,32 @@ function ContributorRow({
             </span>
           ) : null}
         </div>
-        <div className="text-[11px] text-ink-faint">{reachLabel}</div>
+        <div className="text-[11px] text-ink-faint">
+          {reach === undefined ? (
+            'Resolving reach…'
+          ) : connectors.length === 0 ? (
+            'Reaches no connectors on this project'
+          ) : (
+            <>
+              Reaches{' '}
+              {connectors.map((name, i) => {
+                const door = contextDoor(name)
+                return (
+                  <span key={name}>
+                    {i > 0 && ' · '}
+                    {door ? (
+                      <button onClick={door} className={INLINE_ACTION_CLASS} title={`Open ${name} in Contexts`}>
+                        {name}
+                      </button>
+                    ) : (
+                      name
+                    )}
+                  </span>
+                )
+              })}
+            </>
+          )}
+        </div>
         {/* S8 — the acts this STANDING contributor produced HERE (D19), so the row shows
             local output, not just the cross-project Award total that misreads as local. */}
         {resolvedHere && (
@@ -3017,16 +3068,28 @@ function AddContextRow({ ctx, onAdd }: { ctx: SavedContext; onAdd: () => void })
 
 /** The Contexts filter (in-page, the shared SubTabs primitive): the tab ids ARE the
  *  SavedContextKind values, so the body switches on the choice directly. */
-function ContextsSection({ subview }: { subview: string | null }) {
+function ContextsSection({
+  subview,
+  contextId,
+  onBack,
+  backTo,
+}: {
+  subview: string | null
+  /** The open detail (null = the list) — nav-owned (ADAPT-15: the detail was once
+   *  component state with no address; now it's a page at /contexts/:id). */
+  contextId: string | null
+  onBack: () => void
+  backTo: NavLocation | null
+}) {
+  const rel = useRelations()
   // The base list is server-owned: a connect / disconnect routes through the server,
   // which broadcasts `connector.status`, so the row's auth state reconciles here and
   // on every other client. Fall back to the seed while the first fetch is in flight.
   const saved = useSavedContexts()
   const items = saved.data?.contexts ?? SAVED_CONTEXTS
   const [query, setQuery] = useState('')
-  // Which group headers are folded shut, and which context is opened in detail.
+  // Which group headers are folded shut.
   const [folded, setFolded] = useState<Set<SavedContextKind>>(new Set())
-  const [openId, setOpenId] = useState<string | null>(null)
 
   // Add / remove / connect all route through the SERVER (the registry is the
   // system of record — these once lived in component state and silently
@@ -3049,17 +3112,20 @@ function ContextsSection({ subview }: { subview: string | null }) {
       return next
     })
 
-  // Clicking a row drills into the same detail a session shows for that context.
-  const open = openId ? (items.find((c) => c.id === openId) ?? null) : null
+  // Clicking a row drills into the same detail a session shows for that context —
+  // through the controller (rel.navigate), so the page has an address and history.
+  // A stale id (removed context, dead link) degrades to the list.
+  const open = contextId ? (items.find((c) => c.id === contextId) ?? null) : null
   if (open)
     return (
       <ContextDetail
         ctx={open}
-        onBack={() => setOpenId(null)}
+        onBack={onBack}
+        backTo={backTo}
         onToggle={() => toggle(open.id)}
         onRemove={() => {
           remove(open.id)
-          setOpenId(null)
+          onBack()
         }}
       />
     )
@@ -3113,7 +3179,7 @@ function ContextsSection({ subview }: { subview: string | null }) {
                         key={c.id}
                         ctx={c}
                         first={i === 0}
-                        onOpen={() => setOpenId(c.id)}
+                        onOpen={() => rel.navigate('contexts', c.id)}
                         onToggle={() => toggle(c.id)}
                         onRemove={() => remove(c.id)}
                       />
@@ -3225,11 +3291,13 @@ function ContextRow({
 function ContextDetail({
   ctx,
   onBack,
+  backTo,
   onToggle,
   onRemove,
 }: {
   ctx: SavedContext
   onBack: () => void
+  backTo: NavLocation | null
   onToggle: () => void
   onRemove: () => void
 }) {
@@ -3244,10 +3312,13 @@ function ContextDetail({
 
   return (
     <Page>
-      {/* The Contexts detail is only ever reached from the Contexts list, so back
-          is always that list — a fixed location handed to the shared BackButton so
-          all three detail pages share one cue. */}
-      <BackButton to={{ kind: 'section', section: 'contexts', projectId: null, scheduleId: null }} onBack={onBack} />
+      {/* Back follows real history (the detail is now addressable, ADAPT-15 — a
+          chip door can arrive from a project page or a contributor row, not just
+          the Contexts list); the structural fallback is that list. */}
+      <BackButton
+        to={backTo ?? { kind: 'section', section: 'contexts', projectId: null, scheduleId: null }}
+        onBack={onBack}
+      />
 
       <header className="mb-6 flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
@@ -3451,7 +3522,7 @@ function AgentCommonsSection({
   // component-side reset routed through the openSubview funnel would CLEAR that
   // pendingFocus. The controller is the single source of the reset.
   if (agentId) {
-    return <AgentPublicPage agentId={agentId} onBack={onBack} backTo={backTo} />
+    return <AgentPublicPage agentId={agentId} onOpenAgent={onOpenAgentPage} onBack={onBack} backTo={backTo} />
   }
   if (owner) {
     return (
@@ -3475,7 +3546,7 @@ function AgentCommonsSection({
         <span className="font-medium text-ink">Models</span> section.
       </p>
       <div className="mt-1">
-        {tab === 'agents' && <AgentsTab />}
+        {tab === 'agents' && <AgentsTab onOpenPage={onOpenAgentPage} />}
         {tab === 'work' && <YourWorkTab onOpenProposal={onOpenProposal} />}
         {tab === 'prompts' && <PromptsTab />}
         {tab === 'commissions' && <CommissionsTab />}
@@ -3819,7 +3890,7 @@ function YourWorkTab({ onOpenProposal }: { onOpenProposal: (agentId: string, pro
 /** Worker Agents (D6) — label, the provider it runs on, its tool count, and its
  *  authority grant ceiling (D8). Read-only here; create / edit / delete land in a
  *  later slice. */
-function AgentsTab() {
+function AgentsTab({ onOpenPage }: { onOpenPage: (agentId: string) => void }) {
   const agents = useAgents().data ?? []
   const providers = useProviders().data ?? []
   // Every creatable agent names its provider (the strict-API rule); only definition-
@@ -3834,7 +3905,7 @@ function AgentsTab() {
         <Empty>No agents yet.</Empty>
       ) : (
         agents.map((a) => (
-          <AgentCard key={a.id} agent={a} providerLabel={providerLabel(a.providerId)} onEdit={() => setEditing(a)} />
+          <AgentCard key={a.id} agent={a} providerLabel={providerLabel(a.providerId)} onEdit={() => setEditing(a)} onOpenPage={onOpenPage} />
         ))
       )}
       {editing && <AgentDialog agent={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
@@ -3846,10 +3917,14 @@ function AgentCard({
   agent,
   providerLabel,
   onEdit,
+  onOpenPage,
 }: {
   agent: Agent
   providerLabel: string
   onEdit: () => void
+  /** Door to this definition's PUBLIC page (published agents only — the page is the
+   *  directory's face, so an unpublished agent has none and its count stays text). */
+  onOpenPage: (agentId: string) => void
 }) {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -3954,10 +4029,24 @@ function AgentCard({
         </p>
       )}
       {agent.contributions ? (
-        <p className="mt-1 inline-flex items-center gap-1 text-[12px] text-emerald-700">
-          <Award size={12} /> {agent.contributions} commissioned contribution
-          {agent.contributions === 1 ? '' : 's'} on the Commons
-        </p>
+        // S18 — the count is a door to its lineage where one exists: the public page's
+        // resolved-work list (published only; unpublished agents have no public page,
+        // so the count stays honest text).
+        agent.published ? (
+          <button
+            onClick={() => onOpenPage(agent.id)}
+            title="Open this agent's page — the resolved work behind this count"
+            className="mt-1 inline-flex items-center gap-1 text-[12px] text-emerald-700 underline underline-offset-2 transition hover:text-emerald-800"
+          >
+            <Award size={12} /> {agent.contributions} commissioned contribution
+            {agent.contributions === 1 ? '' : 's'} on the Commons
+          </button>
+        ) : (
+          <p className="mt-1 inline-flex items-center gap-1 text-[12px] text-emerald-700">
+            <Award size={12} /> {agent.contributions} commissioned contribution
+            {agent.contributions === 1 ? '' : 's'} on the Commons
+          </p>
+        )
       ) : null}
       <div className="mt-2 flex items-center gap-3">
         <button
@@ -4150,23 +4239,38 @@ function ProposalFieldDiff({
 /** A published definition's resolved-work TRACK RECORD (surface-audit S10) — the
  *  concrete acts behind its D13 contribution count (a number that is a lineage), the way
  *  a contribution graph links to the actual work. P8-REDACTED server-side to shared-
- *  Project resolutions; each row deep-links to the project it happened on (closing the
- *  detail dialog first). Reuses the changelog list's styling so the two read as one. */
-function AgentResolvedWork({ agentId, onClose }: { agentId: string; onClose: () => void }) {
+ *  Project resolutions. Each row is TWO doors (S18): the sub-goal opens the work item's
+ *  own page — its timeline IS the contribution's detail — and the project name opens
+ *  the project. Reuses the changelog list's styling so the two read as one. */
+function AgentResolvedWork({ agentId, totalContributions = 0 }: { agentId: string; totalContributions?: number }) {
   const rel = useRelations()
   const items = useAgentResolvedWork(agentId).data ?? []
-  if (items.length === 0) return null
+  // Hidden only when there is nothing to explain. A count with an empty PUBLIC list
+  // gets an honest empty state (like Public forks): the count also credits effects
+  // on private projects, which the P8 wall keeps out of this list.
+  if (items.length === 0 && totalContributions === 0) return null
+  if (items.length === 0)
+    return (
+      <FormField label="Resolved work (0)">
+        <p className="rounded-lg border border-line bg-panel-2 p-2.5 text-[11px] leading-snug text-ink-faint">
+          None publicly visible — the contribution count also credits work on private projects, which stays private.
+        </p>
+      </FormField>
+    )
   return (
     <FormField label={`Resolved work (${items.length})`}>
       <ul className="max-h-24 space-y-1 overflow-y-auto rounded-lg border border-line bg-panel-2 p-2.5 text-[11px] leading-snug text-ink-soft">
         {items.map((it, i) => (
           <li key={`${it.projectId}-${it.resolvedAt}-${i}`} className="flex items-baseline gap-1.5">
-            <span className="min-w-0 flex-1 truncate">{it.subGoal}</span>
             <button
-              onClick={() => {
-                onClose()
-                rel.navigate('projects', it.projectId)
-              }}
+              onClick={() => rel.navigate('projects', it.projectId, it.itemId)}
+              className={`min-w-0 flex-1 truncate text-left ${INLINE_ACTION_CLASS}`}
+              title="Open this work item — the contribution's own page"
+            >
+              {it.subGoal}
+            </button>
+            <button
+              onClick={() => rel.navigate('projects', it.projectId)}
               className={INLINE_ACTION_CLASS}
               title={`Open ${it.projectName}`}
             >
@@ -4176,6 +4280,54 @@ function AgentResolvedWork({ agentId, onClose }: { agentId: string; onClose: () 
           </li>
         ))}
       </ul>
+    </FormField>
+  )
+}
+
+/** The PUBLIC forks behind a definition's fork counter (D18/S18) — directory entries
+ *  whose lineage names this agent, each a door to that fork's own page. Deliberately
+ *  a SUBSET of the count: a fork lives in its owner's private registry until
+ *  published (GitHub's public-forks shape), and the empty state says so instead of
+ *  pretending the count is wrong. Hidden entirely when the count is 0. */
+function AgentPublicForks({
+  agentId,
+  totalForks,
+  onOpenAgent,
+}: {
+  agentId: string
+  totalForks: number
+  onOpenAgent: (agentId: string) => void
+}) {
+  const rel = useRelations()
+  const items = useAgentForks(agentId).data ?? []
+  if (totalForks === 0 && items.length === 0) return null
+  return (
+    <FormField label={`Public forks (${items.length})`}>
+      {items.length === 0 ? (
+        <p className="rounded-lg border border-line bg-panel-2 p-2.5 text-[11px] leading-snug text-ink-faint">
+          None published yet — a fork lives in its owner’s private registry until they publish it.
+        </p>
+      ) : (
+        <ul className="max-h-24 space-y-1 overflow-y-auto rounded-lg border border-line bg-panel-2 p-2.5 text-[11px] leading-snug text-ink-soft">
+          {items.map((f) => (
+            <li key={f.agentId} className="flex items-baseline gap-1.5">
+              <button
+                onClick={() => onOpenAgent(f.agentId)}
+                className={`min-w-0 truncate text-left ${INLINE_ACTION_CLASS}`}
+                title="Open this fork's page"
+              >
+                {f.label}
+              </button>
+              <span className="min-w-0 flex-1 truncate">
+                <OwnerLink ownerName={f.owner} own={f.own} onClick={() => rel.navigate('agents', f.owner)} />
+              </span>
+              {f.forkedAtVersion !== undefined && (
+                <span className="shrink-0 text-ink-faint">forked at v{f.forkedAtVersion}</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </FormField>
   )
 }
@@ -5692,6 +5844,9 @@ function OwnerProfilePage({
   const rel = useRelations()
   const state = useOwnerProfile(name)
   const profile = state.data
+  // S18 — the header's aggregate counts anchor to the Published-agents band, where
+  // each definition carries its own per-agent lineage doors.
+  const agentsBandRef = useRef<HTMLDivElement>(null)
   if (!profile) {
     return (
       <Page>
@@ -5718,7 +5873,14 @@ function OwnerProfilePage({
           </h1>
           <p className="mt-0.5 text-[13px] text-ink-soft">{PROFILE_TAGLINE}</p>
           <p className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-ink-faint">
-            <CreditLine contributions={s.contributions} forks={s.forks} />
+            {/* The aggregate counts sum this workspace's agents — the door lands on
+                the Published-agents band, whose cards carry the per-agent lineage. */}
+            <CreditLine
+              contributions={s.contributions}
+              forks={s.forks}
+              onContributions={() => agentsBandRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+              onForks={() => agentsBandRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+            />
             <span>
               {s.sharedProjects} shared project{s.sharedProjects === 1 ? '' : 's'}
             </span>
@@ -5756,7 +5918,7 @@ function OwnerProfilePage({
           )}
         </div>
 
-        <div>
+        <div ref={agentsBandRef}>
           <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
             Published agents
           </div>
@@ -5964,7 +6126,9 @@ function PublishedAgentCard({
         {entry.systemPrompt}
       </p>
       <p className="mt-1.5 flex items-center gap-3 text-[11px] text-ink-faint">
-        <CreditLine contributions={entry.contributions} forks={entry.forks} />
+        {/* On a card the counts are doors to the PAGE (where their lineage sections
+            live) — the "42 stars → stargazers" shape, one hop shallower. */}
+        <CreditLine contributions={entry.contributions} forks={entry.forks} onContributions={onView} onForks={onView} />
         {/* The card is a DOOR: the full public definition (and the A2A card link) lives
             one click in, like a repo page behind a search result. */}
         <button onClick={onView} className={INLINE_ACTION_CLASS}>
@@ -5989,15 +6153,25 @@ function PublishedAgentCard({
  *  here with their proposal focused (the pending-focus consumption, R5b). */
 function AgentPublicPage({
   agentId,
+  onOpenAgent,
   onBack,
   backTo,
 }: {
   agentId: string
+  /** Door to ANOTHER definition's page (a public fork row) — the same opener the
+   *  directory cards use, so lineage hops stay on canonical pages. */
+  onOpenAgent: (agentId: string) => void
   onBack: () => void
   backTo: NavLocation | null
 }) {
   const rel = useRelations()
   const entries = useAgentDirectory(undefined)
+  // S18 — the header counts are doors to their lineage SECTIONS on this page
+  // (contributions → resolved work, forks → public forks): same-page anchors.
+  const resolvedRef = useRef<HTMLDivElement>(null)
+  const forksRef = useRef<HTMLDivElement>(null)
+  const scrollTo = (ref: { current: HTMLDivElement | null }) =>
+    ref.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   const entry = (entries.data ?? []).find((e) => e.id === agentId) ?? null
   const [busy, setBusy] = useState(false)
   const [forked, setForked] = useState(false)
@@ -6055,7 +6229,12 @@ function AgentPublicPage({
                 <OwnerLink ownerName={entry.owner} own={entry.own} onClick={() => rel.navigate('agents', entry.owner)} />
                 {' '}· v{entry.version}
               </span>
-              <CreditLine contributions={entry.contributions} forks={entry.forks} />
+              <CreditLine
+                contributions={entry.contributions}
+                forks={entry.forks}
+                onContributions={() => scrollTo(resolvedRef)}
+                onForks={() => scrollTo(forksRef)}
+              />
             </p>
           </div>
           <button
@@ -6114,8 +6293,15 @@ function AgentPublicPage({
               Propose a change
             </button>
           </p>
-          {/* S10 — the acts behind the contribution count (P8-redacted to shared projects). */}
-          <AgentResolvedWork agentId={entry.id} onClose={() => {}} />
+          {/* S10/S18 — the acts behind the contribution count (P8-redacted to shared
+              projects), each row a door to the item's own page; then the public
+              forks behind the fork count. The header counts anchor here. */}
+          <div ref={resolvedRef}>
+            <AgentResolvedWork agentId={entry.id} totalContributions={entry.contributions} />
+          </div>
+          <div ref={forksRef}>
+            <AgentPublicForks agentId={entry.id} totalForks={entry.forks} onOpenAgent={onOpenAgent} />
+          </div>
           {/* D27 — the proposer's end of the conversation: their proposals against this
               definition (status, the owner's note, the thread). The owner sees all of
               them here too — the same rows their review dialog resolves. */}
@@ -7634,6 +7820,7 @@ function DeliveryPanel({ task }: { task: ScheduledTask }) {
  *  the routine's own fields. */
 function ContextToolsPanel({ task }: { task: ScheduledTask }) {
   const rel = useRelations()
+  const contextDoor = useContextDoor()
   const [picking, setPicking] = useState(false)
   const seen = new Set<string>()
   const tools: StepTool[] = []
@@ -7657,13 +7844,30 @@ function ContextToolsPanel({ task }: { task: ScheduledTask }) {
         <p className="text-[12px] text-ink-faint">No connectors yet.</p>
       ) : (
         <div className="space-y-2">
-          {tools.map((t) => (
-            <div key={t.id} className="flex items-center gap-2">
-              <ToolGlyph tool={t} size={15} />
-              <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{t.label}</span>
-              <StatusPill tone={t.needsAuth ? 'warn' : 'ok'} label={t.needsAuth ? 'Needs auth' : 'Connected'} />
-            </div>
-          ))}
+          {tools.map((t) => {
+            // The connector's name is a door to its own Contexts page when it
+            // resolves in the viewer's registry (S18); otherwise plain text.
+            const door = contextDoor(t.id) ?? contextDoor(t.label)
+            return (
+              <div key={t.id} className="flex items-center gap-2">
+                <ToolGlyph tool={t} size={15} />
+                {door ? (
+                  // Titles-are-doors styling (hover underline), keeping the row's
+                  // own type scale rather than the inline-action one.
+                  <button
+                    onClick={door}
+                    className="min-w-0 flex-1 truncate text-left text-[13px] text-ink transition hover:underline"
+                    title={`Open ${t.label} in Contexts`}
+                  >
+                    {t.label}
+                  </button>
+                ) : (
+                  <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{t.label}</span>
+                )}
+                <StatusPill tone={t.needsAuth ? 'warn' : 'ok'} label={t.needsAuth ? 'Needs auth' : 'Connected'} />
+              </div>
+            )
+          })}
         </div>
       )}
       <div className="relative mt-2.5 border-t border-line pt-2.5">

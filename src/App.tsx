@@ -101,6 +101,7 @@ function Workspace() {
     focusOwnerName,
     focusWorkItemId,
     focusAgentId,
+    focusContextId,
     pendingFocus,
     live,
     typing,
@@ -125,6 +126,7 @@ function Workspace() {
     openSchedule,
     openOwner,
     openAgentPage,
+    openContextPage,
     openWorkItemPage,
     openWorkItem,
     openProposal,
@@ -276,8 +278,9 @@ function Workspace() {
     [handleAddContext],
   )
   // The relations "View in …" deep-link. The second arg is an entity id whose
-  // meaning depends on the section: a project to expand, a schedule to open, or —
-  // under agents — a workspace display name whose public profile to show (D21).
+  // meaning depends on the section: a project to expand, a schedule to open, a
+  // saved context's detail, or — under agents — a workspace display name whose
+  // public profile to show (D21).
   const navigateToSection = useCallback(
     (section: SectionId, id?: string, subId?: string) =>
       section === 'projects' && id && subId
@@ -286,10 +289,12 @@ function Workspace() {
           ? openProject(id)
           : section === 'scheduled' && id
             ? openSchedule(id)
-            : section === 'agents' && id
-              ? openOwner(id)
-              : openSection(section),
-    [openProject, openWorkItemPage, openSchedule, openOwner, openSection],
+            : section === 'contexts' && id
+              ? openContextPage(id)
+              : section === 'agents' && id
+                ? openOwner(id)
+                : openSection(section),
+    [openProject, openWorkItemPage, openSchedule, openContextPage, openOwner, openSection],
   )
 
   return (
@@ -411,6 +416,7 @@ function Workspace() {
                   focusOwnerName={focusOwnerName}
                   focusWorkItemId={focusWorkItemId}
                   focusAgentId={focusAgentId}
+                  focusContextId={focusContextId}
                   onOpenAgentPage={openAgentPage}
                 />
               </FocusContext.Provider>

@@ -6,6 +6,7 @@
  *  same fact the same way (form follows function; tests/public-face.test.ts
  *  fails if a component re-hardcodes the cue). */
 import { Award, Bot, GitFork, Globe } from 'lucide-react'
+import type { ReactNode } from 'react'
 import type { PrincipalKind } from '../../contract/index.ts'
 import { AGENT_ACTOR_TITLE, agentActorLabel, bylineLabel, identityHue, identityInitial, SHARED_MARKER } from '../lib/publicFace'
 
@@ -130,20 +131,51 @@ export function ActorByline({
   return <OwnerLink bare ownerName={name} onClick={onOwnerClick} />
 }
 
+/** One CreditLine counter — a plain span, or (given a handler) a DOOR to the
+ *  count's lineage: a number that is a lineage should open the lineage. */
+function CreditStat({ title, onClick, children }: { title?: string; onClick?: () => void; children: ReactNode }) {
+  const cls = 'inline-flex items-center gap-1 whitespace-nowrap'
+  if (!onClick) return <span className={cls}>{children}</span>
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation()
+        onClick()
+      }}
+      title={title}
+      className={`${cls} underline decoration-line-strong underline-offset-2 transition hover:text-ink`}
+    >
+      {children}
+    </button>
+  )
+}
+
 /** The public track record — the same compact pair (contributions, forks) on a
  *  directory card and the agent page. Layout-SELF-CONTAINED (its own inline-flex
  *  gap): the ui-review sweep caught the pair butting together when a caller put
- *  it in a plain <p> — a composite cue must not depend on the caller's flex. */
-export function CreditLine({ contributions, forks }: { contributions: number; forks: number }) {
+ *  it in a plain <p> — a composite cue must not depend on the caller's flex.
+ *  `onContributions` / `onForks` (where given) make each count a door to its
+ *  lineage — the resolved-work list / the public-forks list. */
+export function CreditLine({
+  contributions,
+  forks,
+  onContributions,
+  onForks,
+}: {
+  contributions: number
+  forks: number
+  onContributions?: () => void
+  onForks?: () => void
+}) {
   return (
     <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-0.5">
       {/* Each counter is atomic (nowrap); when space runs out the PAIR wraps as units. */}
-      <span className="inline-flex items-center gap-1 whitespace-nowrap">
+      <CreditStat title="The resolved work behind this count" onClick={onContributions}>
         <Award size={11} /> {contributions} contribution{contributions === 1 ? '' : 's'}
-      </span>
-      <span className="inline-flex items-center gap-1 whitespace-nowrap">
+      </CreditStat>
+      <CreditStat title="The public forks of this definition" onClick={onForks}>
         <GitFork size={11} /> {forks} fork{forks === 1 ? '' : 's'}
-      </span>
+      </CreditStat>
     </span>
   )
 }

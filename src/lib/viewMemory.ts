@@ -24,6 +24,8 @@ export type ViewLocation =
       workItemId?: string | null
       /** A published definition's page (same back-compat rule). */
       agentId?: string | null
+      /** A saved context's detail page (same back-compat rule). */
+      contextId?: string | null
     }
 
 const KEY = 'claude-ui.view.v1'

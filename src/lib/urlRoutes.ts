@@ -19,6 +19,7 @@
  *                           the GitHub rule)
  *    /projects/:projectId   a project detail page
  *    /scheduled/:scheduleId a routine detail page
+ *    /contexts/:contextId   a saved context's detail page (kind ids are reserved)
  *
  *  Deliberately pure (type-only + pure-module imports) so `tests/` can lock the
  *  mapping without a DOM. Transient focus (a highlighted work item / comment) is
@@ -53,6 +54,7 @@ export function pathForView(loc: NavLocation, subview: string | null): string {
     return `/projects/${encodeURIComponent(loc.projectId)}/work/${encodeURIComponent(loc.workItemId)}`
   if (loc.projectId) return `/projects/${encodeURIComponent(loc.projectId)}`
   if (loc.scheduleId) return `/scheduled/${encodeURIComponent(loc.scheduleId)}`
+  if (loc.contextId) return `/contexts/${encodeURIComponent(loc.contextId)}`
   return subview ? `/${loc.section}/${encodeURIComponent(subview)}` : `/${loc.section}`
 }
 
@@ -96,5 +98,6 @@ export function viewForPath(pathname: string): RoutedView | null {
   if (section === 'projects') return { loc: { ...base, projectId: second }, subview: null }
   if (section === 'scheduled') return { loc: { ...base, scheduleId: second }, subview: null }
   if (section === 'agents') return { loc: { ...base, agentId: second }, subview: null }
+  if (section === 'contexts') return { loc: { ...base, contextId: second }, subview: null }
   return null
 }

@@ -1503,6 +1503,13 @@ export function buildRouter(): Router {
     if (out === undefined) return sendError(res, 'not_found', `No agent '${params.id}'`)
     sendJson(res, out)
   })
+  // The PUBLIC forks behind the fork counter (D18) — published forks only (the P8
+  // wall lives in the store); same existence-hiding 404 as resolved-work.
+  r.get('/agents/:id/forks', ({ req, res, params }) => {
+    const out = store.agentPublicForks(params.id, store.identity(req.headers).tenant.id)
+    if (out === undefined) return sendError(res, 'not_found', `No agent '${params.id}'`)
+    sendJson(res, out)
+  })
   // D27 — the proposal's discussion thread: its two parties only (anyone else gets
   // the same 404 the list read gives); open proposals only.
   r.post('/agents/:id/proposals/:pid/comments', async ({ req, res, params, body }) => {

@@ -75,7 +75,7 @@ import { ConflictError, ValidationError } from './conflict.ts'
 import { LimitError } from './limit.ts'
 import { scopeMatches } from './runner-runtime.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../contract/index.ts'
-import type { Agent, AgentChangeProposal, AgentDirectoryEntry, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelInfo, ModelProvider, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, OwnerActivity, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState, WorkItemComment } from '../contract/index.ts'
+import type { Agent, AgentChangeProposal, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelInfo, ModelProvider, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, OwnerActivity, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState, WorkItemComment } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, SEED_PROVIDERS, SEED_PROVIDER_CONFIGS, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
@@ -3158,9 +3158,32 @@ export const store = {
       const project = findProject(item.projectId)
       if (!project || project.shared !== true) continue // P8 REDACTION — private resolutions never leak
       if (COMMISSIONS.get(item.resolvedBy)?.agentId !== agentId) continue
-      out.push({ projectId: project.id, projectName: project.name, subGoal: item.subGoal, resolvedAt: item.resolvedAt ?? item.postedAt })
+      out.push({ projectId: project.id, projectName: project.name, itemId: item.id, subGoal: item.subGoal, resolvedAt: item.resolvedAt ?? item.postedAt })
     }
     return out.sort((a, b) => b.resolvedAt - a.resolvedAt)
+  },
+  /** The PUBLIC forks of a published definition (D18) — the enumerable subset behind
+   *  the fork counter. Same existence-hiding gate as `agentResolvedWork`. The P8 wall:
+   *  a fork is listed ONLY if it is itself PUBLISHED — an unpublished fork lives in its
+   *  owner's private registry and must never leak (so the count may exceed the list;
+   *  the asymmetry is honest, like GitHub hiding private forks). Owner is the public
+   *  display name, never a tenant id; `own` is computed viewer-relative. */
+  agentPublicForks(agentId: string, tenantId: string): AgentPublicFork[] | undefined {
+    const agent = WORKER_AGENTS.get(agentId)
+    if (!agent || !(agent.published === true || registryVisible(agent, tenantId))) return undefined
+    const out: AgentPublicFork[] = []
+    for (const a of WORKER_AGENTS.values()) {
+      if (a.published !== true || a.forkedFrom?.agentId !== agentId) continue // P8 — private forks never leak
+      const owner = a.tenantId ?? defaultTenantId()
+      out.push({
+        agentId: a.id,
+        label: a.label,
+        owner: tenantName(owner),
+        own: owner === tenantId,
+        ...(a.forkedFrom.version !== undefined ? { forkedAtVersion: a.forkedFrom.version } : {}),
+      })
+    }
+    return out.sort((a, b) => a.label.localeCompare(b.label))
   },
   /** Comment on a proposal's thread (D27) — writable by exactly its TWO parties
    *  (proposer ↔ owner, raw tenant ids), while open (the verdict ends the

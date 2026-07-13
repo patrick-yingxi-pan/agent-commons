@@ -176,6 +176,9 @@ export function useSessionWorkspace() {
   // And for a published definition's own page under the Agents section (the
   // repo-page analog, COMMONS-26); null = the hub / profile as the others say.
   const [focusAgentId, setFocusAgentId] = useState<string | null>(null)
+  // And for a saved context's detail page under the Contexts section (ADAPT-15:
+  // the detail was once component state with no address); null = the list.
+  const [focusContextId, setFocusContextId] = useState<string | null>(null)
   // A transient "highlight this on arrival" target, set by a notification door
   // (docs/notification-routing.md) and consumed once by the destination page (scroll
   // + highlight the work item / proposal). Deliberately SEPARATE from the nav state
@@ -251,6 +254,8 @@ export function useSessionWorkspace() {
   focusWorkItemRef.current = focusWorkItemId
   const focusAgentRef = useRef(focusAgentId)
   focusAgentRef.current = focusAgentId
+  const focusContextRef = useRef(focusContextId)
+  focusContextRef.current = focusContextId
 
   // ── Per-account view memory (src/lib/viewMemory.ts) ─────────────────────────
   // The scope freezes at first resolution: the Workspace is KEYED per account
@@ -317,7 +322,7 @@ export function useSessionWorkspace() {
   // leave, without depending on (and rebuilding from) changing state.
   const here = useCallback((): NavLocation => {
     return sectionRef.current
-      ? { kind: 'section', section: sectionRef.current, projectId: focusProjectRef.current, scheduleId: focusScheduleRef.current, ownerName: focusOwnerRef.current, workItemId: focusWorkItemRef.current, agentId: focusAgentRef.current }
+      ? { kind: 'section', section: sectionRef.current, projectId: focusProjectRef.current, scheduleId: focusScheduleRef.current, ownerName: focusOwnerRef.current, workItemId: focusWorkItemRef.current, agentId: focusAgentRef.current, contextId: focusContextRef.current }
       : { kind: 'session', sessionId: activeIdRef.current, title: activeSessionRef.current.title }
   }, [])
 
@@ -945,6 +950,7 @@ export function useSessionWorkspace() {
     setFocusOwnerName(null)
     setFocusWorkItemId(null)
     setFocusAgentId(null)
+    setFocusContextId(null)
     setPendingFocus(null) // a plain nav carries no focus intent — drop any stale target
   }, [record])
 
@@ -958,6 +964,7 @@ export function useSessionWorkspace() {
     setFocusOwnerName(null)
     setFocusWorkItemId(null)
     setFocusAgentId(null)
+    setFocusContextId(null)
     setPendingFocus(null)
   }, [])
 
@@ -974,6 +981,7 @@ export function useSessionWorkspace() {
     setFocusOwnerName(null)
     setFocusWorkItemId(null)
     setFocusAgentId(null)
+    setFocusContextId(null)
     setPendingFocus(null)
   }, [record])
 
@@ -988,6 +996,7 @@ export function useSessionWorkspace() {
     setFocusOwnerName(null)
     setFocusWorkItemId(null)
     setFocusAgentId(null)
+    setFocusContextId(null)
     setPendingFocus(null)
   }, [record])
 
@@ -1001,6 +1010,7 @@ export function useSessionWorkspace() {
     setFocusOwnerName(name)
     setFocusWorkItemId(null)
     setFocusAgentId(null)
+    setFocusContextId(null)
     setFocusProjectId(null)
     setFocusScheduleId(null)
     setPendingFocus(null)
@@ -1015,6 +1025,23 @@ export function useSessionWorkspace() {
     setActiveSection('agents')
     setActiveSubview(null)
     setFocusAgentId(agentId)
+    setFocusOwnerName(null)
+    setFocusProjectId(null)
+    setFocusScheduleId(null)
+    setFocusWorkItemId(null)
+    setFocusContextId(null)
+    setPendingFocus(null)
+  }, [record])
+
+  // A saved context's OWN page under the Contexts section (ADAPT-15) — every door
+  // to a set-up context lands here: the Contexts list row, a project's context
+  // chip, a contributor row's reach label, a pasted /contexts/:id address.
+  const openContextPage = useCallback((contextId: string) => {
+    record({ kind: 'section', section: 'contexts', projectId: null, scheduleId: null, ownerName: null, contextId })
+    setActiveSection('contexts')
+    setActiveSubview(null)
+    setFocusContextId(contextId)
+    setFocusAgentId(null)
     setFocusOwnerName(null)
     setFocusProjectId(null)
     setFocusScheduleId(null)
@@ -1035,6 +1062,7 @@ export function useSessionWorkspace() {
     setFocusOwnerName(null)
     setFocusWorkItemId(workItemId)
     setFocusAgentId(null)
+    setFocusContextId(null)
     setPendingFocus(null)
   }, [record])
 
@@ -1062,6 +1090,7 @@ export function useSessionWorkspace() {
             ownerName: routed.loc.ownerName ?? null,
             workItemId: routed.loc.workItemId ?? null,
             agentId: routed.loc.agentId ?? null,
+            contextId: routed.loc.contextId ?? null,
           }
       : loadViewLocation(viewScope.current)
     if (!loc) {
@@ -1079,6 +1108,7 @@ export function useSessionWorkspace() {
     }
     if (loc.ownerName) openOwner(loc.ownerName)
     else if (loc.agentId) openAgentPage(loc.agentId)
+    else if (loc.contextId) openContextPage(loc.contextId)
     else if (loc.projectId && loc.workItemId) openWorkItemPage(loc.projectId, loc.workItemId)
     else if (loc.projectId) openProject(loc.projectId)
     else if (loc.scheduleId) openSchedule(loc.scheduleId)
@@ -1087,7 +1117,7 @@ export function useSessionWorkspace() {
       if (loc.subview) openSubview(loc.subview)
     }
     restoreSettled.current = true
-  }, [me, selectSession, openOwner, openAgentPage, openWorkItemPage, openProject, openSchedule, openSection, openSubview])
+  }, [me, selectSession, openOwner, openAgentPage, openContextPage, openWorkItemPage, openProject, openSchedule, openSection, openSubview])
 
   // Save the location on every navigation — the thread, or the section page
   // with its sub-view / detail focus. Gated until the restore settles (the
@@ -1107,6 +1137,7 @@ export function useSessionWorkspace() {
             ownerName: focusOwnerName,
             workItemId: focusWorkItemId,
             agentId: focusAgentId,
+            contextId: focusContextId,
           }
         : { kind: 'session', sessionId: activeId },
     )
@@ -1117,12 +1148,12 @@ export function useSessionWorkspace() {
     // minting a duplicate history entry.
     const path = pathForView(
       activeSection
-        ? { kind: 'section', section: activeSection, projectId: focusProjectId, scheduleId: focusScheduleId, ownerName: focusOwnerName, workItemId: focusWorkItemId, agentId: focusAgentId }
+        ? { kind: 'section', section: activeSection, projectId: focusProjectId, scheduleId: focusScheduleId, ownerName: focusOwnerName, workItemId: focusWorkItemId, agentId: focusAgentId, contextId: focusContextId }
         : { kind: 'session', sessionId: activeId, title: '' },
       activeSubview,
     )
     if (window.location.pathname !== path) window.history.pushState(null, '', path)
-  }, [activeId, activeSection, activeSubview, focusProjectId, focusScheduleId, focusOwnerName, focusWorkItemId, focusAgentId])
+  }, [activeId, activeSection, activeSubview, focusProjectId, focusScheduleId, focusOwnerName, focusWorkItemId, focusAgentId, focusContextId])
 
   // Browser Back/Forward: re-parse the address it moved to and show that page.
   // Not recorded in the in-app back stack while applying (`restoring`) — the two
@@ -1143,6 +1174,7 @@ export function useSessionWorkspace() {
         const l = routed.loc
         if (l.ownerName) openOwner(l.ownerName)
         else if (l.agentId) openAgentPage(l.agentId)
+        else if (l.contextId) openContextPage(l.contextId)
         else if (l.projectId && l.workItemId) openWorkItemPage(l.projectId, l.workItemId)
         else if (l.projectId) openProject(l.projectId)
         else if (l.scheduleId) openSchedule(l.scheduleId)
@@ -1155,7 +1187,7 @@ export function useSessionWorkspace() {
     }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
-  }, [newSession, selectSession, openOwner, openAgentPage, openWorkItemPage, openProject, openSchedule, openSection, openSubview])
+  }, [newSession, selectSession, openOwner, openAgentPage, openContextPage, openWorkItemPage, openProject, openSchedule, openSection, openSubview])
 
   // ── Notification doors (docs/notification-routing.md) ─────────────────────
   // A bell lands on the EXACT sub-entity its act touched: these navigate to the
@@ -1187,6 +1219,7 @@ export function useSessionWorkspace() {
         setActiveSubview(null)
         setFocusOwnerName(null)
         setFocusAgentId(null)
+        setFocusContextId(null)
         setFocusProjectId(null)
         setFocusScheduleId(null)
         setFocusWorkItemId(null)
@@ -1205,6 +1238,7 @@ export function useSessionWorkspace() {
     setFocusOwnerName(null)
     setFocusWorkItemId(null)
     setFocusAgentId(null)
+    setFocusContextId(null)
     setFocusProjectId(null)
     setFocusScheduleId(null)
     setPendingFocus({ agentId })
@@ -1225,6 +1259,7 @@ export function useSessionWorkspace() {
       setFocusOwnerName(loc.ownerName ?? null)
       setFocusWorkItemId(loc.workItemId ?? null)
       setFocusAgentId(loc.agentId ?? null)
+      setFocusContextId(loc.contextId ?? null)
     }
   }, [selectSession])
 
@@ -1238,12 +1273,13 @@ export function useSessionWorkspace() {
         setFocusAgentId(null)
         return
       }
-      if (sectionRef.current && (focusProjectRef.current || focusScheduleRef.current || focusOwnerRef.current || focusAgentRef.current)) {
+      if (sectionRef.current && (focusProjectRef.current || focusScheduleRef.current || focusOwnerRef.current || focusAgentRef.current || focusContextRef.current)) {
         setFocusProjectId(null)
         setFocusScheduleId(null)
         setFocusOwnerName(null)
         setFocusWorkItemId(null)
         setFocusAgentId(null)
+        setFocusContextId(null)
       }
       return
     }
@@ -1263,10 +1299,10 @@ export function useSessionWorkspace() {
     // Structural fallbacks mirror goBack: item page → its project page → the list.
     if (activeSection && focusWorkItemId && focusProjectId)
       return { kind: 'section', section: activeSection, projectId: focusProjectId, scheduleId: null, ownerName: null }
-    if (activeSection && (focusProjectId || focusScheduleId || focusOwnerName || focusAgentId))
+    if (activeSection && (focusProjectId || focusScheduleId || focusOwnerName || focusAgentId || focusContextId))
       return { kind: 'section', section: activeSection, projectId: null, scheduleId: null, ownerName: null }
     return null
-  }, [history, activeSection, focusProjectId, focusScheduleId, focusOwnerName, focusWorkItemId, focusAgentId])
+  }, [history, activeSection, focusProjectId, focusScheduleId, focusOwnerName, focusWorkItemId, focusAgentId, focusContextId])
 
   // ── Recents row-menu edits (pin / rename / archive / delete) ──────────────
   // List-level mutations; the sidebar reflects them through the live session
@@ -1407,6 +1443,7 @@ export function useSessionWorkspace() {
     focusOwnerName,
     focusWorkItemId,
     focusAgentId,
+    focusContextId,
     pendingFocus,
     live,
     typing,
@@ -1433,6 +1470,7 @@ export function useSessionWorkspace() {
     openSchedule,
     openOwner,
     openAgentPage,
+    openContextPage,
     openWorkItemPage,
     openWorkItem,
     openProposal,

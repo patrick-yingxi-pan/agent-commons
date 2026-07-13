@@ -30,6 +30,9 @@ export type NavLocation =
       /** A published definition's own page under the agents section (the repo-page
        *  analog, COMMONS-26). Optional for the same back-compat reason; absent ≡ null. */
       agentId?: string | null
+      /** A saved context's detail page under the contexts section (ADAPT-15 — the
+       *  detail was once component state with no address). Absent ≡ null. */
+      contextId?: string | null
     }
 
 /** The display name for each cross-cutting section (its list page). */
@@ -56,7 +59,8 @@ export function sameLocation(a: NavLocation, b: NavLocation): boolean {
       a.scheduleId === b.scheduleId &&
       (a.ownerName ?? null) === (b.ownerName ?? null) &&
       (a.workItemId ?? null) === (b.workItemId ?? null) &&
-      (a.agentId ?? null) === (b.agentId ?? null)
+      (a.agentId ?? null) === (b.agentId ?? null) &&
+      (a.contextId ?? null) === (b.contextId ?? null)
     )
   return false
 }

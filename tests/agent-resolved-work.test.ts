@@ -51,6 +51,9 @@ test('each row is a public-face project door — no tenant id rides the wire', a
   const rec = (await record(a.id)).json as any[]
   const row = rec.find((r) => r.subGoal === `door-${n}`)
   assert.ok(row && row.projectId && row.projectName && typeof row.resolvedAt === 'number', 'carries the project door + when')
+  // S18 — the row also carries the work item's own id: the door to its canonical
+  // page (/projects/:id/work/:itemId), whose timeline is the contribution's detail.
+  assert.ok(typeof row.itemId === 'string' && row.itemId.length > 0, 'carries the work-item door (itemId)')
   assert.ok(rec.every((r) => !('tenantId' in r) && !('resolvedByTenant' in r)), 'no tenant id')
 })
 

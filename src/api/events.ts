@@ -95,6 +95,8 @@ function route(e: ServerEvent): void {
       // shared project must appear in an open Discover tab, a retracted one must leave.
       invalidatePrefix(keys.directoryProjects())
       invalidatePrefix(keys.directoryAgents())
+      // A publish/unpublish also moves every source's PUBLIC-forks list (D18).
+      invalidatePrefix(keys.agentForks())
       break
     // A connector's auth/setup state changed (the Contexts page connect/disconnect,
     // here or on another client/device), or a context was added to / removed from

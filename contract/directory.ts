@@ -161,8 +161,26 @@ export interface OwnerActivity {
 export interface AgentResolvedItem {
   projectId: string
   projectName: string
+  /** The resolved work item's own id — the row's door to the item's canonical page
+   *  (`/projects/:id/work/:itemId`), whose timeline IS the contribution's detail. */
+  itemId: string
   subGoal: string
   resolvedAt: number
+}
+
+/** One PUBLIC fork of a published definition (D18) — a directory entry whose
+ *  `forkedFrom` names this agent. Deliberately a SUBSET of the fork counter:
+ *  a fork lives in its owner's private registry until published, so this list
+ *  enumerates only the forks that are themselves public acts (GitHub's
+ *  public-forks shape — the count may honestly exceed the list). */
+export interface AgentPublicFork {
+  agentId: string
+  label: string
+  owner: string
+  /** Viewer-relative (computed, never stored): this fork is yours. */
+  own: boolean
+  /** The source version the fork was taken at. */
+  forkedAtVersion?: number
 }
 
 export interface OwnerProfileStats {

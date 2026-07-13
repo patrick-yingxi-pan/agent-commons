@@ -41,6 +41,9 @@ export const keys = {
   /** A published definition's resolved-work track record (D13/S10) — keyed per agent;
    *  no-arg = the family prefix (invalidated whole on `openwork.changed`). */
   agentResolvedWork: (agentId?: string) => (agentId ? `agent-resolved-work:${agentId}` : 'agent-resolved-work'),
+  /** A published definition's PUBLIC forks (D18) — keyed per agent; no-arg = the
+   *  family prefix (invalidated wherever the agent directory is: fork / publish moves it). */
+  agentForks: (agentId?: string) => (agentId ? `agent-forks:${agentId}` : 'agent-forks'),
   /** The caller's notification inbox (D24) + per-project watch state. */
   notifications: 'notifications',
   projectWatch: (projectId: string) => `project-watch:${projectId}`,
@@ -127,6 +130,7 @@ export const paths = {
   /** Change proposals against a published definition (D25). */
   agentProposals: (agentId: string) => `/agents/${encodeURIComponent(agentId)}/proposals`,
   agentResolvedWork: (agentId: string) => `/agents/${encodeURIComponent(agentId)}/resolved-work`,
+  agentForks: (agentId: string) => `/agents/${encodeURIComponent(agentId)}/forks`,
   agentProposalMerge: (agentId: string, pid: string) =>
     `/agents/${encodeURIComponent(agentId)}/proposals/${encodeURIComponent(pid)}/merge`,
   agentProposalDecline: (agentId: string, pid: string) =>

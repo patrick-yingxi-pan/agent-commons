@@ -406,7 +406,12 @@ export async function createAgent(input: CreateAgentRequest): Promise<Agent> {
 export async function updateAgent(id: string, patch: UpdateAgentRequest): Promise<Agent> {
   const agent = await apiPatch<Agent>(paths.agent(id), patch)
   invalidate(keys.workerAgents)
-  if ('published' in patch) invalidatePrefix(keys.directoryAgents())
+  // A publish flip moves the directory AND every source's public-forks list (a
+  // published fork appears on its source's page; an unpublished one leaves it).
+  if ('published' in patch) {
+    invalidatePrefix(keys.directoryAgents())
+    invalidatePrefix(keys.agentForks())
+  }
   return agent
 }
 

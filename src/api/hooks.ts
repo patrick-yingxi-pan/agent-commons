@@ -16,6 +16,7 @@ import type {
   Authority,
   Commission,
   AgentChangeProposal,
+  AgentPublicFork,
   AgentResolvedItem,
   AppNotification,
   OpenSubGoal,
@@ -359,6 +360,13 @@ export function useAgentProposals(agentId: string, enabled = true): QueryState<A
  *  fetch next to a count that moved). */
 export function useAgentResolvedWork(agentId: string, enabled = true): QueryState<AgentResolvedItem[]> {
   return useQuery(keys.agentResolvedWork(agentId), () => apiGet<AgentResolvedItem[]>(paths.agentResolvedWork(agentId)), enabled, true)
+}
+
+/** A published definition's PUBLIC forks (D18) — the enumerable subset behind the
+ *  fork counter (published forks only; a private fork stays redacted server-side,
+ *  so the count may honestly exceed this list). SWR like resolved-work. */
+export function useAgentForks(agentId: string, enabled = true): QueryState<AgentPublicFork[]> {
+  return useQuery(keys.agentForks(agentId), () => apiGet<AgentPublicFork[]>(paths.agentForks(agentId)), enabled, true)
 }
 
 /** The caller's notification inbox (D24), newest first — refreshed live by the
