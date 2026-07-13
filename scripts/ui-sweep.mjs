@@ -27,9 +27,13 @@
  */
 import { chromium } from 'playwright'
 import { mkdirSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { sep } from 'node:path'
 
 const BASE = process.env.UI_SWEEP_BASE ?? 'http://127.0.0.1:5173'
-const SHOTS = new URL('../.data/ui-sweep/', import.meta.url).pathname
+// fileURLToPath, not URL.pathname — the latter yields "/C:/…" on Windows, which
+// resolves to a doubled drive prefix (C:\C:\…) and an ENOENT before the sweep runs.
+const SHOTS = fileURLToPath(new URL('../.data/ui-sweep/', import.meta.url)) + sep
 mkdirSync(SHOTS, { recursive: true })
 
 const VIEWPORTS = [

@@ -73,3 +73,18 @@ test('the mark has one home — <WorkspaceMark> in PublicFace; no component hand
   assert.ok(!/identityHue|identityInitial/.test(sectionView), 'components wear <WorkspaceMark>, never re-derive the mark')
   assert.ok(sectionView.includes('<WorkspaceMark'), 'the profile header wears the shared mark')
 })
+
+test('UI-13 — CreditLine is layout-self-contained (its own flex root, no caller contract)', () => {
+  const publicFace = src('../src/components/PublicFace.tsx')
+  // The primitive carries its own container: the function body opens with an
+  // inline-flex gap-3 root, not a fragment relying on the caller's flex.
+  const creditLine = publicFace.slice(publicFace.indexOf('function CreditLine'))
+  assert.ok(
+    /return \(\s*<span className="inline-flex flex-wrap items-center gap-x-3/.test(creditLine),
+    'CreditLine roots its own wrapping inline-flex container (UI-13)',
+  )
+  assert.ok(
+    !publicFace.includes('Render inside a'),
+    'no layout contract on callers — the primitive is self-contained',
+  )
+})

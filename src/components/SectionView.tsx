@@ -6016,9 +6016,12 @@ function AgentPublicPage({
           </div>
           <div className="min-w-0 flex-1">
             <h1 className="font-serif text-2xl font-semibold text-ink">{entry.label}</h1>
-            <p className="mt-0.5 text-[12px] text-ink-faint">
-              <OwnerLink ownerName={entry.owner} own={entry.own} onClick={() => rel.navigate('agents', entry.owner)} />
-              {' · '}v{entry.version} · <CreditLine contributions={entry.contributions} forks={entry.forks} />
+            <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12px] text-ink-faint">
+              <span className="inline-flex items-center gap-1">
+                <OwnerLink ownerName={entry.owner} own={entry.own} onClick={() => rel.navigate('agents', entry.owner)} />
+                {' '}· v{entry.version}
+              </span>
+              <CreditLine contributions={entry.contributions} forks={entry.forks} />
             </p>
           </div>
           <button

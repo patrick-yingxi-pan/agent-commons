@@ -48,6 +48,8 @@ Candidate (not yet earned by an escape, noted for the sweep): centered **dialogs
 clamp themselves today (`max-w-[calc(100vw-16px)]` + `max-h` per dialog); if a
 dialog ever ships without one, extract a `DIALOG_SURFACE` funnel the same way.
 
+| UI-13 | **A composite cue primitive is layout-self-contained.** A shared primitive that renders MORE THAN ONE visual part (the CreditLine pair, any future multi-part cue) carries its own layout container (inline-flex + its gaps) instead of contracting callers to provide one — a "render inside a flex gap-3 row" doc-comment is not an invariant, and the first caller outside that idiom ships crowded pixels. | the primitive itself (`src/components/PublicFace.tsx` — `CreditLine`'s own `inline-flex gap-3` root) | `tests/public-face.test.ts` (source scan: CreditLine roots its own flex container; the caller-contract comment is gone) | The third `/ui-review` sweep (2026-07-13): the new agent page placed CreditLine in a plain `<p>` — "1 contribution / 1 fork" rendered butted together at every viewport; the primitive's layout contract lived only in a comment. |
+
 ## The ratchet procedure
 
 When a UI escape is confirmed (by a user report or a `/ui-review` sweep):

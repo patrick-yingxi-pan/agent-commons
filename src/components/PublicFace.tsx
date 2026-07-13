@@ -129,16 +129,19 @@ export function ActorByline({
 }
 
 /** The public track record — the same compact pair (contributions, forks) on a
- *  directory card and the agent detail. Render inside a `flex gap-3` text row. */
+ *  directory card and the agent page. Layout-SELF-CONTAINED (its own inline-flex
+ *  gap): the ui-review sweep caught the pair butting together when a caller put
+ *  it in a plain <p> — a composite cue must not depend on the caller's flex. */
 export function CreditLine({ contributions, forks }: { contributions: number; forks: number }) {
   return (
-    <>
-      <span className="inline-flex items-center gap-1">
+    <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-0.5">
+      {/* Each counter is atomic (nowrap); when space runs out the PAIR wraps as units. */}
+      <span className="inline-flex items-center gap-1 whitespace-nowrap">
         <Award size={11} /> {contributions} contribution{contributions === 1 ? '' : 's'}
       </span>
-      <span className="inline-flex items-center gap-1">
+      <span className="inline-flex items-center gap-1 whitespace-nowrap">
         <GitFork size={11} /> {forks} fork{forks === 1 ? '' : 's'}
       </span>
-    </>
+    </span>
   )
 }
