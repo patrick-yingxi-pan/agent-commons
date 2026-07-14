@@ -4947,15 +4947,13 @@ function RevealStep({ n, title, aside, last, children }: { n: number; title: str
 }
 
 /** A copyable one-liner — code scrolls inside its box with the bar itself hidden
- *  (the row stays draggable/scrollable; Copy carries the full text), so three
- *  stacked rows don't each grow a grey scrollbar pill. `hero` is the secret's
- *  stronger tone. */
-function CodeRow({ text, ariaLabel, hero, className = '' }: { text: string; ariaLabel: string; hero?: boolean; className?: string }) {
+ *  (the row stays draggable/scrollable; Copy carries the full text), so stacked
+ *  rows don't each grow a grey scrollbar pill. One uniform treatment: the secret
+ *  and the two command rows read as one family. */
+function CodeRow({ text, ariaLabel, className = '' }: { text: string; ariaLabel: string; className?: string }) {
   return (
-    <div className={`flex items-center gap-2 rounded-lg border px-3 ${hero ? 'border-line-strong bg-panel-2 py-2.5' : 'border-line bg-panel py-2'} ${className}`}>
-      <code
-        className={`no-scrollbar min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-ink ${hero ? 'text-[13px]' : 'text-[12px]'}`}
-      >
+    <div className={`flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2 ${className}`}>
+      <code className="no-scrollbar min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-[12px] text-ink">
         {text}
       </code>
       <CopyButton text={text} ariaLabel={ariaLabel} />
@@ -4967,12 +4965,12 @@ function CodeRow({ text, ariaLabel, hero, className = '' }: { text: string; aria
  *  it exists nowhere but this panel (the server keeps only a hash) — so dismissal is
  *  gated behind an explicit "I've saved it". Not the shared FormDialog: this is a
  *  reveal, not a form (no Cancel — there is nothing to cancel back to).
- *  Layout: the secret first as the hero row (the one thing that exists nowhere
- *  else — stronger tone than the step rows), then a vertical stepper (RevealStep)
- *  — install (shell toggle right-aligned on the step head) and connect — each a
- *  title + CodeRow + ONE short faint caption. Copy is pruned to the load-bearing
- *  minimum: the secret can't be recovered, and a relay session runs untrusted
- *  prompts; everything else was cut as noise. */
+ *  Layout: the secret first (the one thing that exists nowhere else), then a
+ *  vertical stepper (RevealStep) — install (shell toggle right-aligned on the step
+ *  head) and connect. All three copyable rows share ONE CodeRow treatment (same
+ *  font, tone, size), each step a title + CodeRow + ONE short faint caption. Copy
+ *  is pruned to the load-bearing minimum: the secret can't be recovered, and a
+ *  relay session runs untrusted prompts; everything else was cut as noise. */
 function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvider; secret: string; onClose: () => void }) {
   const [saved, setSaved] = useState(false)
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -5009,7 +5007,7 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
           <RelayBadge />
         </div>
         <div className="p-5">
-          <CodeRow hero text={secret} ariaLabel="Copy rendezvous secret" />
+          <CodeRow text={secret} ariaLabel="Copy rendezvous secret" />
           <p className="mt-1.5 text-[12px] text-ink-faint">
             <span className="font-semibold text-ink">Shown once</span> — copy it now; only its fingerprint is kept.
           </p>
