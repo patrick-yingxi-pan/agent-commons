@@ -5011,7 +5011,10 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
           <p className="mt-1.5 text-[12px] text-ink-faint">
             <span className="font-semibold text-ink">Shown once</span> — copy it now; only its fingerprint is kept.
           </p>
-          <div className="mt-5">
+          {/* A hairline separates the secret (the subject this panel reveals — the one
+              unrecoverable value) from the two steps that use it, so the secret reads
+              as the subject rather than an unnumbered step-0 above the stepper. */}
+          <div className="mt-5 border-t border-line pt-5">
             <RevealStep
               n={1}
               title="Install the connector"
