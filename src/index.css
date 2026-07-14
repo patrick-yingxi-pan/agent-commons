@@ -97,6 +97,17 @@ body {
   background-clip: content-box;
 }
 
+/* Opt a scroll container out of the bar entirely — for inline copy-to-clipboard
+   code chips where Copy is the action and a horizontal scrollbar is just noise
+   (the row still drag/wheel-scrolls). Unlayered on purpose: it must override the
+   unlayered `*` rule above, which a Tailwind @layer utility can't. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* Blinking cursor used by the fake streaming effect. */
 @keyframes caret-blink {
   0%,
