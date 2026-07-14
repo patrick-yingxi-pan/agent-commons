@@ -50,3 +50,16 @@ export function installRecipes(connectorUrl: string): InstallRecipe[] {
 export function defaultShellId(platform: string): ShellId {
   return /^win/i.test(platform) ? 'powershell' : 'posix'
 }
+
+/** The sentence the user pastes into the session that will do the thinking — the
+ *  model reads the url + secret out of it and passes them to the connector's
+ *  `start` tool (docs/delegated-cognition-provider.md §4.2).
+ *
+ *  This line CARRIES THE SECRET, and that is the whole point: it is the single
+ *  place the credential is ever displayed. The reveal panel used to print the raw
+ *  secret in a hero box AND embed it here — the same credential twice, which is
+ *  what made the panel feel heavy. One credential, one place, one thing to save.
+ *  Locked by tests/connector-serve.test.ts. */
+export function connectSentence(relayUrl: string, secret: string): string {
+  return `Connect to ${relayUrl} with secret ${secret} and start draining.`
+}

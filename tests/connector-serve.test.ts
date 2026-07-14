@@ -103,6 +103,25 @@ test('the panel recipes come from the one module, byte-exact per shell dialect',
   assert.ok(!panel.includes('curl -fsSL ${connectorUrl}'), 'the panel re-hardcodes an install command instead of rendering the module')
 })
 
+test('the credential is shown in exactly ONE place: inside the connect line', async () => {
+  // The connect line the user pastes ALREADY carries the secret. The reveal panel
+  // used to ALSO print the raw secret in its own box above it — the same credential
+  // twice, and the reason the dialog read as heavy. The line is the single artifact
+  // the user copies and saves, so the secret must appear only there.
+  const { connectSentence } = await import('../src/lib/connectorInstall.ts')
+  const url = 'https://relay.example/api/v1'
+  const secret = 'rv_live_TESTSECRET'
+  assert.equal(connectSentence(url, secret), `Connect to ${url} with secret ${secret} and start draining.`)
+  assert.ok(connectSentence(url, secret).includes(secret), 'the connect line must carry the secret — it IS the credential hand-off')
+
+  const panel = readFileSync(new URL('../src/components/SectionView.tsx', import.meta.url), 'utf8')
+  assert.ok(panel.includes('connectSentence(relayUrl, secret)'), 'the panel must build the connect line from the shared module')
+  // The standalone raw-secret reveal (its own code row + Copy) must stay gone: a
+  // second rendering of `secret` is the duplication this design removed.
+  assert.ok(!/ariaLabel="Copy rendezvous secret"/.test(panel), 'the panel re-added a standalone raw-secret copy row')
+  assert.ok(!/text=\{secret\}/.test(panel), 'the panel renders the bare secret outside the connect line')
+})
+
 test('the SERVED bytes run under plain node: latch, refuse a redirect, drain a round-trip', async () => {
   const { body } = await fetchServedConnector()
   const dir = mkdtempSync(join(tmpdir(), 'served-connector-'))

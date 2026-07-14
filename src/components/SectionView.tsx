@@ -167,6 +167,8 @@ import {
   useProjectSubGoals,
   useDispatchRuns,
   useProviders,
+  invalidate,
+  keys,
   useSavedContexts,
   useScheduleTemplates,
   useSchedules,
@@ -201,7 +203,7 @@ import {
   type SystemPromptEntry,
 } from '../../contract/index.ts'
 import { authorityLabel, providerPlanLabel } from '../lib/agentCommonsLabels'
-import { installRecipes, defaultShellId, type ShellId } from '../lib/connectorInstall'
+import { installRecipes, defaultShellId, connectSentence, type ShellId } from '../lib/connectorInstall'
 import { ArtifactThumb, ArtifactViewer, KIND_ICON, KIND_LABEL } from './artifactPreview'
 import { artifactMetaIsSpecific } from '../lib/artifactMeta'
 import { resolvedByCommission } from '../lib/commissionTrackRecord'
@@ -4965,16 +4967,39 @@ function CodeRow({ text, ariaLabel, className = '' }: { text: string; ariaLabel:
  *  it exists nowhere but this panel (the server keeps only a hash) — so dismissal is
  *  gated behind an explicit "I've saved it". Not the shared FormDialog: this is a
  *  reveal, not a form (no Cancel — there is nothing to cancel back to).
- *  Layout: the secret first (the one thing that exists nowhere else), then a
- *  vertical stepper (RevealStep) — install (shell toggle right-aligned on the step
- *  head) and connect. All three copyable rows share ONE CodeRow treatment (same
- *  font, tone, size), each step a title + CodeRow + ONE short faint caption. Copy
- *  is pruned to the load-bearing minimum: the secret can't be recovered, and a
- *  relay session runs untrusted prompts; everything else was cut as noise. */
+ *
+ *  ── Rethought around the JOB, not the artifact ──────────────────────────────
+ *  The user isn't here to collect a secret; they're here to bring this provider
+ *  ONLINE. Two facts reshape the panel:
+ *
+ *  1. **The connect line already carries the secret.** `connectSentence` IS
+ *     "Connect to <url> with secret rv_live_… and start draining". The panel used
+ *     to ALSO print the raw secret in its own box above — the same credential
+ *     twice, which is exactly what made this dialog feel heavy. The secret is now
+ *     shown in exactly ONE place: inside the line you paste. One credential, one
+ *     artifact to save, one thing to copy.
+ *  2. **The panel can prove it worked.** It used to end in a blind hand-off (paste
+ *     and hope). Now it watches the provider's live `online` flag while open and
+ *     flips to a Connected state the moment the far session latches — the natural
+ *     end of the job. And since a connected relay *demonstrates* the secret reached
+ *     its destination, it satisfies the save-gate outright: proof beats attestation.
+ *     Only a still-waiting panel needs the user to tick "I've saved it". */
 function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvider; secret: string; onClose: () => void }) {
   const [saved, setSaved] = useState(false)
   const dialogRef = useRef<HTMLDivElement>(null)
-  const guardedClose = () => saved && onClose()
+  // Liveness is stamped server-side per read (`relay.online`) with no push channel,
+  // so while this panel is open and still waiting, poll the registry. The poll stops
+  // the moment it connects (and on unmount) — it never runs in the background.
+  const live = useProviders().data?.find((p) => p.id === provider.id)
+  const connected = live?.online === true
+  useEffect(() => {
+    if (connected) return
+    const timer = setInterval(() => invalidate(keys.providers), 2000)
+    return () => clearInterval(timer)
+  }, [connected])
+  // Connecting proves the secret landed; short of that, the user attests they saved it.
+  const canClose = connected || saved
+  const guardedClose = () => canClose && onClose()
   useFocusTrap(dialogRef, guardedClose)
   // The externally dialable relay base: the same-origin `/api/v1` resolved to an
   // absolute URL (an absolute VITE_API_BASE passes through unchanged), so every
@@ -4985,16 +5010,16 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
   // repo — download the file, register it as an MCP server, done. Node ≥ 18.
   const connectorUrl = `${relayUrl}/connector`
   // The install recipe, PER SHELL DIALECT — a bash-only string silently breaks in
-  // PowerShell (`curl` is the Invoke-WebRequest alias; no `&&`). The recipes and
-  // their safety shape (temp-file + rename, silenced remove-first guard, `-s local`
-  // pinning) live in ONE module — src/lib/connectorInstall.ts — locked byte-exact
-  // by tests/connector-serve.test.ts; the toggle pre-selects the viewer's platform.
+  // PowerShell (`curl` is the Invoke-WebRequest alias; no `&&`). The recipes, the
+  // connect line, and their safety shape live in ONE module —
+  // src/lib/connectorInstall.ts — locked byte-exact by tests/connector-serve.test.ts;
+  // the toggle pre-selects the viewer's platform.
   const recipes = installRecipes(connectorUrl)
   const [shellId, setShellId] = useState<ShellId>(() => defaultShellId(navigator.platform))
   const recipe = recipes.find((r) => r.id === shellId) ?? recipes[0]!
-  const connectSentence = `Connect to ${relayUrl} with secret ${secret} and start draining.`
+  const connectLine = connectSentence(relayUrl, secret)
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-center px-4 pt-[14dvh]" onMouseDown={guardedClose} role="dialog" aria-modal="true" aria-label="Rendezvous secret">
+    <div className="fixed inset-0 z-50 flex justify-center px-4 pt-[14dvh]" onMouseDown={guardedClose} role="dialog" aria-modal="true" aria-label="Connect your session">
       <div className={`${SCRIM_CLASS} backdrop-blur-[1px]`} />
       <div
         ref={dialogRef}
@@ -5003,64 +5028,59 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
       >
         <div className="flex items-center gap-2 border-b border-line px-5 py-3.5">
           <KeyRound size={18} className="text-ink-soft" />
-          <span className="text-[15px] font-semibold text-ink">Your session’s rendezvous secret</span>
+          <span className="text-[15px] font-semibold text-ink">Connect your session</span>
           <RelayBadge />
         </div>
         <div className="p-5">
-          {/* The secret is the subject this panel reveals — the one unrecoverable value
-              (server keeps only a hash; Done is gated on saving it). It sits in its own
-              calm callout: the value on a subtle fill with its "shown once" warning, one
-              grouped block. The fill alone sets it apart from the plain command rows
-              below — no louder font, and no separate divider needed. */}
-          <div className="rounded-lg border border-line bg-panel-2 px-3 py-2.5">
-            <div className="flex items-center gap-2">
-              <code className="no-scrollbar min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-[12px] text-ink">
-                {secret}
-              </code>
-              <CopyButton text={secret} ariaLabel="Copy rendezvous secret" />
-            </div>
-            <p className="mt-2 text-[11px] text-ink-faint">
-              <span className="font-semibold text-ink">Shown once</span> — save it now; only its fingerprint is kept.
+          <RevealStep
+            n={1}
+            title="Install the connector"
+            aside={
+              // The negative margin cancels the toggle's height above the 20px
+              // title/disc, so the header row stays 20px tall and the disc centers
+              // on the title (an inflated row would drop the title below the disc).
+              <div className="-my-1">
+                <SubTabs size="sm" tabs={recipes.map((r) => ({ id: r.id, label: r.label }))} active={recipe.id} onChange={setShellId} />
+              </div>
+            }
+          >
+            <CodeRow className="mt-2" text={recipe.command} ariaLabel="Copy install command" />
+            <p className="mt-1.5 text-[12px] text-ink-faint">
+              Once per machine (Node 18+), or{' '}
+              <a href={connectorUrl} download="session-relay.mjs" className="font-medium text-accent hover:underline">
+                download the file
+              </a>
+              .
             </p>
-          </div>
-          <div className="mt-6">
-            <RevealStep
-              n={1}
-              title="Install the connector"
-              aside={
-                // The negative margin cancels the toggle's height above the 20px
-                // title/disc, so the header row stays 20px tall and the disc centers
-                // on the title (an inflated row would drop the title below the disc).
-                <div className="-my-1">
-                  <SubTabs size="sm" tabs={recipes.map((r) => ({ id: r.id, label: r.label }))} active={recipe.id} onChange={setShellId} />
-                </div>
-              }
-            >
-              <CodeRow className="mt-2" text={recipe.command} ariaLabel="Copy install command" />
-              <p className="mt-1.5 text-[12px] text-ink-faint">
-                Once per machine (Node 18+), or{' '}
-                <a href={connectorUrl} download="session-relay.mjs" className="font-medium text-accent hover:underline">
-                  download the file
-                </a>
-                .
-              </p>
-            </RevealStep>
-            <RevealStep n={2} title="Connect a fresh session" last>
-              <CodeRow className="mt-2" text={connectSentence} ariaLabel="Copy connect sentence" />
-              <p className="mt-1.5 text-[12px] leading-relaxed text-ink-faint">
-                Use a <span className="font-medium text-ink-soft">dedicated session without dangerous tools</span> —
-                relayed prompts are untrusted text. Rotate the secret when you retire the session.
-              </p>
-            </RevealStep>
-          </div>
-          <CheckboxRow checked={saved} onToggle={() => setSaved(!saved)} className="mt-4 text-[13px] text-ink">
-            I’ve saved the secret somewhere safe
-          </CheckboxRow>
+          </RevealStep>
+          <RevealStep n={2} title="Paste into a fresh session" last>
+            <CodeRow className="mt-2" text={connectLine} ariaLabel="Copy connect line" />
+            <p className="mt-1.5 text-[12px] leading-relaxed text-ink-faint">
+              <span className="font-semibold text-ink">Shown once</span> — this line carries your secret. Use a{' '}
+              <span className="font-medium text-ink-soft">dedicated session without dangerous tools</span>: relayed
+              prompts are untrusted text.
+            </p>
+          </RevealStep>
+          {connected ? (
+            <p className="mt-4 flex items-center gap-2 rounded-lg border border-line bg-added-bg px-3 py-2 text-[12px] font-medium text-added">
+              <CheckCircle2 size={14} className="shrink-0" />
+              Connected — “{provider.label}” is answering.
+            </p>
+          ) : (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+              <CheckboxRow checked={saved} onToggle={() => setSaved(!saved)} className="text-[13px] text-ink">
+                I’ve saved the connect line
+              </CheckboxRow>
+              <span className="flex items-center gap-1.5 text-[11px] text-ink-faint">
+                <Spinner size={11} /> Waiting for your session…
+              </span>
+            </div>
+          )}
         </div>
         <div className="flex shrink-0 items-center justify-end border-t border-line bg-panel px-5 py-3">
           <button
             onClick={onClose}
-            disabled={!saved}
+            disabled={!canClose}
             className="rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Done

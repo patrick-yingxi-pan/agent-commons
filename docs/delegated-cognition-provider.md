@@ -226,6 +226,29 @@ pasting. Different sessions can type different URLs/secrets — one registration
 any number of relays (one per session; the blocking loop parks a session inside a
 single tool call).
 
+### 4.3 The reveal panel — one credential, one place; and it proves it worked
+
+The panel (`RelaySecretPanel`) is framed around the user's actual job — *bring this
+provider online* — not around the artifact. Two consequences, both non-obvious enough
+to write down, because the panel spent several iterations getting here:
+
+- **The connect sentence IS the credential hand-off, so the secret is shown exactly
+  once — inside it.** The panel used to print the raw secret in its own hero box
+  *and* embed it in the connect line below: the same credential rendered twice. That
+  duplication was the whole reason the dialog read as noisy (every attempt to "clean
+  it up" was really fighting the redundancy). The line is the single artifact the user
+  copies and saves, so it is the single place the secret appears. `connectSentence()`
+  lives in `src/lib/connectorInstall.ts` beside the install recipes; the one-place rule
+  is locked by `tests/connector-serve.test.ts` ("the credential is shown in exactly ONE
+  place"), which fails if a standalone raw-secret row is ever re-added.
+- **Proof beats attestation.** The panel used to end in a blind hand-off — paste, close,
+  squint at the provider's dot. It now polls the registry while open (`online` is stamped
+  per read from `relay.online`; there is no push channel) and flips to a **Connected**
+  state the moment the far session latches. A connected relay *demonstrates* the secret
+  reached its destination, so it satisfies the save-gate outright: the "I've saved the
+  connect line" checkbox — a self-attestation — is only asked of a panel that is still
+  waiting. The poll stops on connect and on unmount, so it never runs in the background.
+
 Two rules make the typed-credentials shape safe, both locked by
 `tests/relay-connector.test.ts` (spec MODEL-12):
 
