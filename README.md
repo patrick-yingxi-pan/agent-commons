@@ -1,4 +1,4 @@
-# Claude · Unified Workspace — a UI/UX proposal
+# Claude · Agent Commons — a UI/UX proposal
 
 > A working prototype arguing that the Claude desktop app's three top-level
 > tabs — **Chat**, **Cowork**, and **Code** — should collapse into **one

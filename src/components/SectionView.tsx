@@ -4612,17 +4612,17 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
         <select value={effectiveProviderId} onChange={(e) => onProvider(e.target.value)} className={FORM_INPUT_CLASS}>
           {providers.map((p) => (
             <option key={p.id} value={p.id}>
-              {/* The prose-only trade-off is visible at bind time (§4.6) — an <option>
+              {/* The transport is visible at bind time (§4.6) — an <option>
                   can't carry the badge, so the cue rides the label text. The default
                   flag rides the same way. */}
-              {`${p.label}${p.kind === 'session' ? ' · Session (prose-only)' : ''}${p.isDefault ? ' · Default' : ''}`}
+              {`${p.label}${p.kind === 'session' ? ' · Session' : ''}${p.isDefault ? ' · Default' : ''}`}
             </option>
           ))}
         </select>
         {providers.find((p) => p.id === effectiveProviderId)?.kind === 'session' && (
-          <span className="mt-1 flex items-start gap-1 text-[11px] text-amber-600">
+          <span className="mt-1 flex items-start gap-1 text-[11px] text-ink-soft">
             <AlertCircle size={12} className="mt-0.5 shrink-0" />
-            Prose-only: turns on this Agent will converse but can’t propose relation edits, escalations, or run tools.
+            Relay: your own AI session answers this Agent’s turns — tool calls are relayed through it (each still lands as a consent card here).
           </span>
         )}
       </FormField>
@@ -4769,16 +4769,18 @@ function ModelsSection({ subview }: { subview: string | null }) {
   )
 }
 
-/** The shared prose-only badge — a Session provider's limitation is *declared, not
+/** The shared relay badge — a Session provider's transport is *declared, not
  *  discovered* (docs/delegated-cognition-provider.md §4.6), so the same cue rides the
- *  provider card, the create panel, and the Agent picker's warning. */
-function ProseOnlyBadge() {
+ *  provider card, the create panel, and the secret dialog. Since the v2 framed
+ *  mailbox, relayed turns carry the full tool surface: the far session relays tool
+ *  calls back unexecuted, and each lands here as the same consent card. */
+function RelayBadge() {
   return (
     <span
-      title="Turns on your session converse only; they can’t propose relation edits, escalations, or run tools — the relay carries plain text, not tool calls."
+      title="Your own AI session answers this provider’s turns over a rendezvous relay. Tool calls are relayed through it unexecuted — each proposal still lands here as a consent card."
       className="rounded bg-panel-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-soft"
     >
-      Prose only
+      Relay
     </span>
   )
 }
@@ -4823,7 +4825,7 @@ function ProviderCard({ provider, onEdit }: { provider: ModelProvider; onEdit: (
       <CommonsCardHead
         icon={<Cpu size={16} />}
         title={provider.label}
-        subtitle={isSession ? 'Session · prose-only' : provider.modelFamily}
+        subtitle={isSession ? 'Session · relay' : provider.modelFamily}
         trailing={
           <div className="flex items-center gap-1.5">
             {provider.isDefault && <DefaultBadge />}
@@ -4838,7 +4840,7 @@ function ProviderCard({ provider, onEdit }: { provider: ModelProvider; onEdit: (
             {provider.online ? 'Session connected' : 'Offline — drain loop not running'}
           </span>
         )}
-        {isSession && <ProseOnlyBadge />}
+        {isSession && <RelayBadge />}
         {provider.effortLevels.map((e) => (
           <span key={e} className="rounded bg-panel-2 px-1.5 py-0.5 text-[10px] text-ink-faint">
             {e}
@@ -4952,7 +4954,7 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
         <div className="flex items-center gap-2 border-b border-line px-5 py-3.5">
           <KeyRound size={18} className="text-ink-soft" />
           <span className="text-[15px] font-semibold text-ink">Your session’s rendezvous secret</span>
-          <ProseOnlyBadge />
+          <RelayBadge />
         </div>
         <div className="space-y-3 p-5">
           <p className="text-[13px] text-ink-soft">
@@ -4985,9 +4987,10 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
             <p className="mt-1.5 text-[12px] text-ink-faint">
               The first credentials the connector hears bind it for good — later attempts to redirect it are refused.
               Use a <span className="font-medium text-ink-soft">dedicated session without dangerous tools</span> —
-              relayed prompts are outside text, and the connector instructs the model to answer in prose only, never to
-              execute what a prompt asks. That session’s transcript will contain the secret, so rotate it when you
-              retire the session. “{provider.label}” goes green here while the loop runs.
+              relayed prompts are outside text, and the connector instructs the model to answer in prose or relay tool
+              calls back unexecuted, never to execute what a prompt asks. That session’s transcript will contain the
+              secret, so rotate it when you retire the session. “{provider.label}” goes green here while the connector
+              runs (it keeps the channel alive itself, even while your session is idle).
             </p>
           </div>
           <CheckboxRow checked={saved} onToggle={() => setSaved(!saved)} className="text-[13px] text-ink">
@@ -5354,10 +5357,11 @@ function ProviderDialog({ provider, onClose }: { provider: ModelProvider | null;
           {isSession && (
             <span className="mt-1.5 flex items-start gap-1.5 text-[11px] text-ink-faint">
               <span className="mt-0.5 shrink-0">
-                <ProseOnlyBadge />
+                <RelayBadge />
               </span>
               An AI session you already run does the thinking — nothing to dial, no key. You get a one-time rendezvous
-              secret and a drain loop to start; turns converse only (no relation cards, escalations, or tools).
+              secret and a drain loop to start; tool calls are relayed through your session unexecuted, so relation
+              cards and escalations still land here as consent prompts.
             </span>
           )}
         </FormField>

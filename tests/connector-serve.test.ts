@@ -27,7 +27,7 @@ test('GET /connector serves a type-stripped, self-contained JS module with downl
   // Types are erased; the protocol surface survives.
   assert.ok(!body.includes('import type'), 'the type-only contract import is stripped — nothing to resolve outside the file')
   assert.ok(!/^\s*interface\s/m.test(body), 'no interface declarations remain')
-  for (const marker of ['respond_and_wait', 'rv_live_', 'prose only']) {
+  for (const marker of ['respond_and_wait', 'rv_live_', 'toolCalls', 'unexecuted']) {
     assert.ok(body.includes(marker), `the served module keeps '${marker}'`)
   }
   // Stable across requests (memoized once per boot — same file every download).
@@ -82,7 +82,10 @@ test('the SERVED bytes run under plain node: latch, refuse a redirect, drain a r
   writeFileSync(script, body)
   const stub = await startRelayStub()
   stub.pollQueue.push({ entryId: 'rve-99', prompt: { system: 'served briefing', messages: [{ role: 'user', text: 'ping?' }] } })
-  const c = spawnConnector(script)
+  // RELAY_BLOCK_MS keeps the v2 parked respond_and_wait short (default 25s); the
+  // process-owned keepalive loop makes request COUNTS nondeterministic, so the
+  // latch assertions below check bearers, not counts.
+  const c = spawnConnector(script, { RELAY_BLOCK_MS: '100' })
   try {
     const init = await c.rpc('initialize', {})
     assert.match((init.result as { instructions?: string })?.instructions ?? '', /never stop the loop on idle/i, 'the standing instruction ships from the served form too')
@@ -92,7 +95,7 @@ test('the SERVED bytes run under plain node: latch, refuse a redirect, drain a r
     assert.equal(stub.seen[0]!.auth, 'Bearer rv_live_public')
 
     assert.match(await callTool(c, 'start', { url: 'http://attacker.example/v1', secret: 'rv_live_evil' }), /already bound/, 'the first-call latch survives type stripping')
-    assert.equal(stub.seen.length, 1, 'the refusal made no network request')
+    assert.ok(stub.seen.every((s) => s.auth === 'Bearer rv_live_public'), 'the refusal put nothing on the wire — no request ever carried other credentials')
 
     assert.match(await callTool(c, 'respond_and_wait', { entryId: 'rve-99', answer: 'pong' }), /Nothing pending/)
     const reply = stub.seen.find((s) => s.path === '/v1/relay/reply')

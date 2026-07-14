@@ -488,7 +488,7 @@ the mock?
   gauge's disc dropping back once space is freed. Design reference for later, not
   built: [`docs/context-compaction.md`](docs/context-compaction.md).
 
-- **Delegated-cognition providers ("Session providers") — v1 now BUILT.** A D9
+- **Delegated-cognition providers ("Session providers") — v2 now BUILT.** A D9
   extension: a Model provider our backend *can't dial* (firewalled / key-less / no
   API) whose cognition is performed by an **AI session the user already runs** —
   reached by the session draining a one-entry mailbox we host at a one-time
@@ -500,12 +500,18 @@ the mock?
   one MCP connector (`connector/relay-connector.ts` — `npm run connector` from a
   clone, or downloaded from the product itself: `GET /api/v1/connector` serves it
   type-stripped as one self-contained `session-relay.mjs`, spec MODEL-14) driven by
-  a blocking `respond_and_wait` loop; v1 is prose-only (`toolUse:false`), locked by
-  `tests/relay.test.ts` (spec rows MODEL-10/-11). Providers are first-class
-  **Models** (rail section + every model picker reads the live registry; a session's
-  pick routes its turns — spec MODEL-13). The design log — three passes,
-  ending in the simplification the implementation follows verbatim — and the v2
-  checklist: [`docs/delegated-cognition-provider.md`](docs/delegated-cognition-provider.md).
+  a blocking `respond_and_wait` loop. v2 (2026-07-14) added the **framed mailbox**
+  — relayed prompts declare the turn's tool surface, the far session relays tool
+  calls back *unexecuted* (`toolCalls`), and each lands as the identical
+  consent-gated proposal (`toolUse:true`, spec MODEL-18) — and the
+  **process-owned keepalive**: the connector itself long-polls from the latch
+  onward, so the relay survives indefinite idle without a daemon (spec MODEL-19).
+  Locked by `tests/relay.test.ts`, `tests/relay-migrate.test.ts`,
+  `tests/relay-connector.test.ts` (spec rows MODEL-10/-11/-18/-19). Providers are
+  first-class **Models** (rail section + every model picker reads the live
+  registry; a session's pick routes its turns — spec MODEL-13). The design log —
+  four passes, the fourth (§9.1) being the v2 build — and what remains:
+  [`docs/delegated-cognition-provider.md`](docs/delegated-cognition-provider.md).
 
 - **Principals & namespaces — decided 2026-07-12, now BUILT (all four phases).**
   Identity follows the GitHub/Hugging Face model *plus agents*: the person is the

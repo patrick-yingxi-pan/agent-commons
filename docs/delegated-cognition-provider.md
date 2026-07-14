@@ -1,14 +1,27 @@
 # Delegated-cognition providers ("Session providers") — a D9 extension
 
-> **Status: v1 BUILT** (the §9 scope, exactly as the third pass simplified it):
+> **Status: v2 BUILT** (2026-07-14 — the fourth pass, §9.1): the two headline §10
+> items landed. **Structured tool-use over the mailbox** — `RelayPrompt` declares
+> the turn's tool surface, the far session relays calls back *unexecuted*
+> (`toolCalls` on `/relay/reply`), `relayReply` runs the same tool-use loop
+> `generateReply` runs (one offer/settle per round over the unchanged slot
+> protocol) and every relayed call lands as the identical consent-gated proposal;
+> mint now stamps `toolUse:true` (pre-v2 snapshots normalise up on rehydrate).
+> **Connector-owned liveness** — the connector process runs ONE background drain
+> loop from the latch onward (idle-floored, backoff on network failure), so the
+> relay stays online through indefinite idle without a daemon; prompts arriving
+> while the model is away are buffered and handed to its next call. Locked by
+> `tests/relay.test.ts`, `tests/relay-migrate.test.ts`,
+> `tests/relay-connector.test.ts`; ledger rows MODEL-10/-11/-18/-19 in
+> [`docs/spec/06-model-and-tools.md`](spec/06-model-and-tools.md).
+>
+> **v1 BUILT** before it (the §9 scope, exactly as the third pass simplified it):
 > `server/relay.ts` (the one-entry slot + `relayReply`), the relay routes + pre-turn
 > gates in `server/routes/index.ts`, the mint/rotate branches in `server/store.ts`,
 > the wire types in `contract/relay.ts`, the user-side connector in
 > `connector/relay-connector.ts`, and the UI affordances (kind toggle, one-time
-> secret panel, status dot, prose-only badges, provenance chip, waiting state, tour
-> gate). Locked by `tests/relay.test.ts`; ledger rows MODEL-10/-11 in
-> [`docs/spec/06-model-and-tools.md`](spec/06-model-and-tools.md). **§10** (the v2
-> checklist) remains open.
+> secret panel, status dot, relay badges, provenance chip, waiting state, tour
+> gate). **§10** holds what remains.
 >
 > The rest of this document is the design log that got there: it extends **D9 —
 > Model providers** in [`agent-commons.md`](agent-commons.md), building on **slice
@@ -544,8 +557,11 @@ layered and admittedly soft at the top:
 4. rotate-as-kill-switch (§7.5) is the incident response.
 
 Model compliance with (1) is best-effort — that is the accepted residue, recorded
-here the way §6.4 records inbound prose. The v2 `toolUse:true` work inherits this as
-its hardest half: *relay-not-execute* (§10) is this wall, formalised.
+here the way §6.4 records inbound prose. The v2 `toolUse:true` work inherited this as
+its hardest half: *relay-not-execute* (§9.1) is this wall, formalised — the standing
+instruction and the `toolCalls` tool schema both carry it, and the structural answer
+path (calls ride the MCP tool arguments, not prose) leaves the far model nothing to
+"execute" on our behalf even when it wanted to.
 
 ## 8. Accepted trade-offs
 
@@ -579,7 +595,57 @@ masked-on-read, kill-switch DELETE/rotate — §7.5, the outbound-injection wall
 provenance chip, the "Waiting on your session…" state, the tour-launch gate — §7.7/§7.8);
 (7) the shipped user-side MCP connector exposing `start` / `respond_and_wait` (entry-keyed,
 refusal-is-a-reply, tagged-error submit, the prose-only standing instruction — §7.6/§7.9).
-No consent-gated proposals on a relay turn — that is the whole reason v1 is prose-only.
+No consent-gated proposals on a relay turn — that was the whole reason v1 was prose-only.
+
+## 9.1 The v2 pass (2026-07-14) — the framed mailbox + the process-owned keepalive
+
+Two field reports drove it: *"session-relay doesn't support function calls"* and
+*"the relay became unreachable after some idle time."* Both were v1's known seams
+(§10's headline item; §5's caveat 2), and both resolve without touching the slot
+protocol:
+
+- **Structured tool-use** (`toolUse:true`). The prompt document grew a `tools`
+  field (the Agent's explicit grant + the session's attached connector tools —
+  exactly `generateReply`'s list, `input_schema` renamed `inputSchema`), and the
+  reply grew `toolCalls` — **exactly one** of `completion`/`toolCalls`/`error`
+  per reply (ambiguity 400s; ids are server-minted `rtc-…`, never trusted from
+  the wire). `relayReply` became the same tool-use loop `generateReply` runs:
+  each round is one offer/settle through the *unchanged* one-entry slot, the
+  relayed calls execute into the identical consent-gated proposals (relation
+  cards / escalations / connector activities), and a follow-up entry carries the
+  whole exchange (`toolCalls` + `toolResults` turns — the mailbox stays
+  stateless across entries). One `RELAY_TIMEOUT_MS` deadline spans all rounds; a
+  far session that never concludes stops at a round cap, and calls against a
+  tool-less prompt refuse honestly — both to the relay fallback, slot freed.
+  **Relay-not-execute** is enforced structurally where possible (the calls ride
+  `respond_and_wait`'s validated `toolCalls` argument — there is no prose channel
+  to smuggle an "executed result" through) and instructed where not (the
+  standing WALL: relay verbatim, never run, never fabricate). The D3 collision
+  (§10's old caveat) dissolves the same way: the connector still proxies no
+  model — it ferries *our* tool calls back to *us*; execution never leaves the
+  backend, so the co-located agent never becomes a model proxy.
+- **Connector-owned liveness.** v1 put the keepalive in the model's hands (a
+  poll only ever happened inside a model-invoked tool call), so an idle session
+  meant a dead channel at `RELAY_TTL_MS`. v2 moves it into the connector
+  *process* — one background drain loop from the latch onward (idle re-polls
+  floored at 500ms against fast-idle servers; transient network failures retried
+  with capped backoff — the binding-by-secret protocol makes every retry a clean
+  rebind), so the relay stays online for as long as the process lives, and the
+  MCP host keeps it alive for the life of the session: the connector IS the
+  daemon. The honest residue: *staying connected* ≠ *answering* — a prompt that
+  arrives while no model call is parked is buffered (depth 1, matching the slot)
+  and delivered on the model's next `respond_and_wait`; nothing can make an idle
+  session generate (that would need MCP sampling), so the turn waits for the
+  model or falls back at `relayReply`'s deadline. The model-facing call still
+  returns the idle sentinel after `RELAY_BLOCK_MS` (default 25s) to respect host
+  tool timeouts, and the process exits when the host closes stdin so an orphan
+  never polls forever.
+- **The capability stamp flipped, code-owned.** The relay's tool-use capability
+  is the *mailbox's*, not a probed endpoint's — so the mint wall now demands an
+  explicit `toolUse` boolean (the §6.3 no-unset-default rule, kept) and stamps
+  `true`; a pre-v2 snapshot's `toolUse:false` session config is normalised up on
+  rehydrate (the P9 code-owned-stamp rule; `tests/relay-migrate.test.ts`). The
+  UI's prose-only badges retired into a **Relay** badge.
 
 ## 10. Open items (what remains — the v2 checklist)
 
@@ -589,11 +655,10 @@ in §7 (lease/abort/slot-release → §7.1; stale submits → §7.1; degenerate 
 §7.2/§7.3; the tour → §7.7; streaming → §7.8, deferred below). What remains is
 genuine v2 work, each a real feature, not polish:
 
-- **Structured tool-use over the mailbox** → `toolUse:true`. Needs a framed mailbox carrying
-  `tool_use`/`tool_result` blocks end-to-end **and** enforced *relay-not-execute* discipline (the
-  far session must relay our tool calls unexecuted, not fulfill `create_project`/`connect_repo`
-  itself and claim success). This is the whole reason v1 is prose-only; it also collides with D3
-  ("the co-located agent is not a model proxy") and must be reconciled.
+- ~~**Structured tool-use over the mailbox**~~ → **BUILT** (§9.1): the framed mailbox
+  carries the tool surface out and `toolCalls`/`toolResults` turns back; relay-not-execute
+  is structural (the validated `toolCalls` argument) + instructed (the WALL); the D3
+  collision dissolved — execution never leaves the backend.
 - **True token streaming** — a chunked `submit` (`entryId` + seq, relayed as SSE deltas as they
   land). Structurally unavailable over the v1 MCP tool loop (§7.8), so it needs a connector-side
   side-channel, not just a flag.
@@ -616,9 +681,10 @@ The slot round-trip (offer → poll → submit → streamed reply, through `rela
 relay liveness lifecycle (connect-by-first-poll, TTL reap, socket-or-in-flight — a relay
 mid-generation with no parked socket is **not** reaped); the turn-path **offline fast-fail**
 (fallback in milliseconds, and a follow-up send is *not* 409 — the `turns.ts` slot freed); the
-**bearer wall** constant-time + rotate/delete invalidation; the **`toolUse:false`
-default-inversion** regression lock (a relay turn never carries a `tools` param — trivially so,
-since `relayReply` has no tools path at all); **tenant-scoped dispatch** (a completion never
+**bearer wall** constant-time + rotate/delete invalidation; the **explicit-capability
+stamp** regression lock (mint refuses an unset `toolUse`; since v2 the stamp is `true` and
+a tool-less *Agent* still yields a tool-less prompt — an empty surface is an absent field,
+never an empty array); **tenant-scoped dispatch** (a completion never
 reaches another tenant's turn); and **hashed-secret restart recovery** (the connector re-binds
 after a simulated reboot from the held secret alone — no enrollment call exists to have
 forgotten — and no plaintext secret is in the persisted snapshot).

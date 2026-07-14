@@ -68,7 +68,7 @@ test('propose → review side-by-side → merge: the definition evolves and cred
     .click()
   const review = owner.page.getByRole('dialog', { name: `Proposals — ${AGENT}` })
   // The side-by-side: current (the default toolkit body) vs proposed.
-  await expect(review.getByText(/You are Claude in the Unified Workspace/).first()).toBeVisible()
+  await expect(review.getByText(/You are Claude in the Agent Commons/).first()).toBeVisible()
   await expect(review.getByText(NEW_PROMPT)).toBeVisible()
   await expect(review.getByText(NOTE)).toBeVisible()
   await review.getByRole('button', { name: 'Merge' }).click()

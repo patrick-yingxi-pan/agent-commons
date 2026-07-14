@@ -863,9 +863,10 @@ export function buildRouter(): Router {
     // A Session provider (docs/delegated-cognition-provider.md): nothing to dial, so no
     // endpoint config and no conformance probe — instead the server mints the rendezvous
     // secret here and answers with it EXACTLY ONCE (only its hash survives, on the
-    // server-only config). The mint stamps `toolUse:false` (prose-only — inverting the
-    // dangerous unset-means-tools default) and the caller's tenant (forced scoping; the
-    // store's mint wall re-asserts both).
+    // server-only config). The mint stamps the capability EXPLICITLY (never left to the
+    // unset default): `toolUse:true` since the v2 framed mailbox — the relay's tool-use
+    // capability is the MAILBOX's, code-owned, not probed — plus the caller's tenant
+    // (forced scoping; the store's mint wall re-asserts both).
     if (input.kind === 'session') {
       if (input.config) return sendError(res, 'bad_request', 'A Session provider has no endpoint — omit `config`.')
       if (input.models) return sendError(res, 'bad_request', 'A Session provider has no model catalog — omit `models`.')
@@ -882,7 +883,7 @@ export function buildRouter(): Router {
             kind: 'session',
             secretHint: relaySecretHint(secret),
           },
-          { kind: 'session', capabilities: { toolUse: false }, secretHash: hashRelaySecret(secret) },
+          { kind: 'session', capabilities: { toolUse: true }, secretHash: hashRelaySecret(secret) },
           tenantId,
         )
         // The request flagged the new entry as the caller's default (the UI shortcut) —
@@ -1045,16 +1046,48 @@ export function buildRouter(): Router {
   // The connector's answer, keyed to its entry (§7.1): the live entry settles the
   // turn; anything else is 410 Gone — settled or gone, drop it and poll on. An
   // explicit `error` (or an empty completion, normalised in relayReply) fails the
-  // turn to its fallback; a refusal from the far model is a *completion*.
+  // turn to its fallback; a refusal from the far model is a *completion*; relayed
+  // `toolCalls` continue the tool-use loop (v2) — validated for shape here, ids
+  // minted server-side (never trusted from the wire), and exactly ONE of the three
+  // answer forms is accepted (strict core: an ambiguous reply is refused loudly,
+  // never resolved by precedence).
   r.post('/relay/reply', async ({ req, res, body }) => {
     const providerId = relayAuth(req, res)
     if (!providerId) return
-    const { entryId, completion, error } = await body<RelayReplyRequest>()
+    const { entryId, completion, toolCalls, error } = await body<RelayReplyRequest>()
     if (!entryId || typeof entryId !== 'string') return sendError(res, 'bad_request', 'entryId is required')
-    const outcome: RelayOutcome =
-      typeof error === 'string' && error
-        ? { kind: 'error', reason: error }
-        : { kind: 'completion', text: typeof completion === 'string' ? completion : '' }
+    const forms = [typeof completion === 'string', toolCalls !== undefined, typeof error === 'string' && !!error]
+    if (forms.filter(Boolean).length > 1) {
+      return sendError(res, 'bad_request', 'Send exactly one of completion, toolCalls, or error.')
+    }
+    let outcome: RelayOutcome
+    if (toolCalls !== undefined) {
+      const MAX_CALLS = 8
+      const valid =
+        Array.isArray(toolCalls) &&
+        toolCalls.length > 0 &&
+        toolCalls.length <= MAX_CALLS &&
+        toolCalls.every(
+          (c) =>
+            c &&
+            typeof c === 'object' &&
+            typeof (c as { name?: unknown }).name === 'string' &&
+            (c as { name: string }).name.length > 0 &&
+            ((c as { input?: unknown }).input === undefined ||
+              (typeof (c as { input?: unknown }).input === 'object' && !Array.isArray((c as { input?: unknown }).input) && (c as { input?: unknown }).input !== null)),
+        )
+      if (!valid) {
+        return sendError(res, 'bad_request', `toolCalls must be 1–${MAX_CALLS} entries of { name, input? } — relay the prompt's calls verbatim.`)
+      }
+      outcome = {
+        kind: 'toolCalls',
+        calls: toolCalls.map((c, i) => ({ id: `rtc-${entryId}-${i}`, name: c.name, input: (c.input as Record<string, unknown>) ?? {} })),
+      }
+    } else if (typeof error === 'string' && error) {
+      outcome = { kind: 'error', reason: error }
+    } else {
+      outcome = { kind: 'completion', text: typeof completion === 'string' ? completion : '' }
+    }
     if (store.relay.submit(providerId, entryId, outcome) === 'gone') {
       return sendError(res, 'gone', 'That prompt is settled or gone — drop this answer and poll again.')
     }
@@ -2309,40 +2342,34 @@ export function buildRouter(): Router {
       },
     }
     try {
+      // The live Agent Commons registries, so a confirmed "commission the agent I
+      // just made" / "create an agent on <provider>" resolves the names the model
+      // proposes against what currently exists (server/model/tools.ts). Tenant-scoped
+      // (F2/PD9): the model only resolves against the caller's own + the shared seeds.
+      // Shared by BOTH transports — a relayed tool call resolves against the same
+      // registries a dial-out one does.
+      const commons = {
+        // isDefault rides along so create_agent can pre-select the caller's
+        // default-else-first binding when the model names none — the same
+        // shortcut the New-agent dialog applies (contract `defaultEntry`).
+        providers: store.listProviders(tenantId).map((p) => ({ id: p.id, label: p.label, isDefault: p.isDefault })),
+        systemPrompts: store.listSystemPrompts(tenantId).map((p) => ({ id: p.id, label: p.label, isDefault: p.isDefault })),
+        agents: store.listAgents(tenantId).map((a) => ({ id: a.id, label: a.label })),
+        commissions: store.listCommissions(undefined, tenantId).map((c) => ({ id: c.id, agentId: c.agentId, projectId: c.projectId })),
+      }
+      // P6: the session's attached connector/MCP contexts become callable tools for
+      // this turn (server/model/connectorTools.ts derives them; non-connector
+      // contexts are ignored). Only what's attached is reachable — on either transport.
+      const contexts = store.sessionContexts(params.id)
       // The transport dispatch (docs/delegated-cognition-provider.md §6.5): dial-out
       // Messages (`generateReply`, N providers, zero provider code) vs the rendezvous
-      // relay (`relayReply` — the user's own session answers; prose-only, its own
-      // deadline, never `MODEL_TIMEOUT_MS`). One `if` where a loopback shim isn't.
+      // relay (`relayReply` — the user's own session answers over the framed mailbox,
+      // relaying tool calls unexecuted; its own deadline, never `MODEL_TIMEOUT_MS`).
+      // One `if` where a loopback shim isn't.
       const { message, usage, outcome } =
         provider.kind === 'session'
-          ? await relayReply(session, agent, text ?? '', replyHandlers, ac.signal, store.relay, turnProviderId!)
-          : await generateReply(
-              session,
-              agent,
-              text ?? '',
-              replyHandlers,
-              ac.signal,
-              turnConfig,
-              // The live Agent Commons registries, so a confirmed "commission the agent I
-              // just made" / "create an agent on <provider>" resolves the names the model
-              // proposes against what currently exists (server/model/tools.ts). Tenant-scoped
-              // (F2/PD9): the model only resolves against the caller's own + the shared seeds.
-              (() => {
-                return {
-                  // isDefault rides along so create_agent can pre-select the caller's
-                  // default-else-first binding when the model names none — the same
-                  // shortcut the New-agent dialog applies (contract `defaultEntry`).
-                  providers: store.listProviders(tenantId).map((p) => ({ id: p.id, label: p.label, isDefault: p.isDefault })),
-                  systemPrompts: store.listSystemPrompts(tenantId).map((p) => ({ id: p.id, label: p.label, isDefault: p.isDefault })),
-                  agents: store.listAgents(tenantId).map((a) => ({ id: a.id, label: a.label })),
-                  commissions: store.listCommissions(undefined, tenantId).map((c) => ({ id: c.id, agentId: c.agentId, projectId: c.projectId })),
-                }
-              })(),
-              // P6: the session's attached connector/MCP contexts become callable tools for
-              // this turn (server/model/connectorTools.ts derives them; non-connector
-              // contexts are ignored). Only what's attached is reachable.
-              store.sessionContexts(params.id),
-            )
+          ? await relayReply(session, agent, text ?? '', replyHandlers, ac.signal, store.relay, turnProviderId!, commons, contexts)
+          : await generateReply(session, agent, text ?? '', replyHandlers, ac.signal, turnConfig, commons, contexts)
       // Meter the real tokens this turn consumed (even ephemeral turns —
       // they hit the model too), so the composer's plan-usage rings reflect use.
       store.recordUsage(usage.inputTokens, usage.outputTokens, tenantId)

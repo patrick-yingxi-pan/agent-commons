@@ -1257,6 +1257,16 @@ function rehydrate(s: PersistedState): void {
   for (const [id, config] of SEED_PROVIDER_CONFIGS) {
     if (!PROVIDER_CONFIGS.has(id) && MODEL_PROVIDERS.has(id)) PROVIDER_CONFIGS.set(id, config)
   }
+  // A relay's tool-use capability is the MAILBOX's — code-owned, like the seed
+  // stamps above. A pre-v2 snapshot minted its Session providers `toolUse:false`
+  // (the prose-only mailbox); the v2 framed mailbox relays tool calls, so restored
+  // session configs are normalised up rather than pinning old relays to a
+  // capability the code no longer has.
+  for (const [id, config] of PROVIDER_CONFIGS) {
+    if (config.kind === 'session' && config.capabilities?.toolUse !== true) {
+      PROVIDER_CONFIGS.set(id, { ...config, capabilities: { ...config.capabilities, toolUse: true } })
+    }
+  }
   replaceMap(SYSTEM_PROMPT_LIB, s.systemPrompts)
   replaceMap(REGISTRY_DEFAULTS, s.registryDefaults)
   replaceMap(WORKER_AGENTS, s.agents)
@@ -2033,10 +2043,12 @@ export const store = {
     }
     // The session-kind walls (docs/delegated-cognition-provider.md §6.3/§6.4), belt at
     // the mint seam like the two above: a relay has nothing to dial (an endpoint config
-    // on it is a confusion, refused loudly), MUST carry `toolUse:false` explicitly (the
-    // unset default reads as tools-on — the dangerous inversion), carries the hashed
-    // secret it authenticates by, and is forced tenant-scoped (a shared relay would
-    // route one tenant's prompts to another tenant's session model).
+    // on it is a confusion, refused loudly), MUST carry an explicit `toolUse` boolean
+    // (the capability is the MAILBOX's, code-owned — v2 relays tool calls, so the route
+    // stamps `true`; leaving it to the unset default would silently mean tools-on, the
+    // dangerous inversion §6.3 refuses), carries the hashed secret it authenticates by,
+    // and is forced tenant-scoped (a shared relay would route one tenant's prompts to
+    // another tenant's session model).
     if (config.kind === 'session') {
       if (config.baseURL || config.apiKeyEnv) {
         throw new ProviderProbeError('A Session provider has no endpoint to dial — it must not carry a baseURL or credential.')
@@ -2044,8 +2056,8 @@ export const store = {
       if (input.models) {
         throw new ProviderProbeError('A Session provider has no model catalog — its cognition is whatever session drains its mailbox.')
       }
-      if (config.capabilities?.toolUse !== false) {
-        throw new ProviderProbeError('A Session provider must be minted prose-only (capabilities.toolUse === false).')
+      if (typeof config.capabilities?.toolUse !== 'boolean') {
+        throw new ProviderProbeError('A Session provider must be minted with an explicit toolUse capability — never the unset default.')
       }
       if (!config.secretHash) {
         throw new ProviderProbeError('A Session provider must carry the hash of its rendezvous secret.')

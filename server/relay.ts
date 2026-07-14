@@ -21,8 +21,22 @@
  *  exceed the poll window), `RELAY_TIMEOUT_MS` (relayReply's own turn deadline —
  *  `MODEL_TIMEOUT_MS` never sees a relay turn). */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
-import type { Agent, RelayPollResult, RelayPrompt, ServerEvent } from '../contract/index.ts'
+import type {
+  Agent,
+  EscalationProposal,
+  RelationOp,
+  RelayPollResult,
+  RelayPrompt,
+  RelayPromptTurn,
+  RelayToolCall,
+  RelayToolDefinition,
+  ServerEvent,
+  SessionContext,
+  ToolActivity,
+} from '../contract/index.ts'
 import { systemPrompt, type ReplyHandlers, type ReplyResult, type ReplySession } from './generate.ts'
+import { TOOL_DEFINITIONS, executeTool, type ToolContext } from './model/tools.ts'
+import { deriveConnectorTools, runConnectorTool } from './model/connectorTools.ts'
 import { chunkText } from './model/replies.ts'
 import { positiveNumberEnv } from './env.ts'
 
@@ -53,9 +67,14 @@ export function sameSecretHash(a: string, b: string): boolean {
   return ab.length === bb.length && timingSafeEqual(ab, bb)
 }
 
-/** How a relayed turn resolves: the far session's prose (a refusal is a reply),
- *  or the connector's own explicit failure (§7.6). */
-export type RelayOutcome = { kind: 'completion'; text: string } | { kind: 'error'; reason: string }
+/** How a relayed entry resolves: the far session's prose (a refusal is a reply),
+ *  its relayed-unexecuted tool calls (v2 — the loop continues with a follow-up
+ *  entry carrying the executed results), or the connector's own explicit
+ *  failure (§7.6). */
+export type RelayOutcome =
+  | { kind: 'completion'; text: string }
+  | { kind: 'toolCalls'; calls: RelayToolCall[] }
+  | { kind: 'error'; reason: string }
 
 interface InflightTurn {
   entryId: string
@@ -249,18 +268,33 @@ export class RelayRuntime {
  *  The `kind:'session'` sibling of `generateReply`, behind the exact same seam
  *  (`ReplyHandlers` in, `ReplyResult` out) so the messages route around it doesn't
  *  change. No Messages impersonation anywhere (§6.5): it owns its own deadline
- *  (`RELAY_TIMEOUT_MS`), knows its relay as a plain argument, streams the whole
- *  completion via `chunkText` (v1 has no token streaming — the reply arrives when
- *  the far session answers), and estimates usage (~4 chars/token — the backend
- *  never sees the far session's real meter). Degrades to the relay-specific
- *  fallback copy on deadline or error — mid-turn included, which the shared
- *  `fallbackReply` couldn't say. */
+ *  (`RELAY_TIMEOUT_MS`, spanning the WHOLE turn — every tool round shares it),
+ *  knows its relay as a plain argument, streams the whole completion via
+ *  `chunkText` (no token streaming — the reply arrives when the far session
+ *  answers), and estimates usage (~4 chars/token — the backend never sees the
+ *  far session's real meter). Degrades to the relay-specific fallback copy on
+ *  deadline or error — mid-turn included, which the shared `fallbackReply`
+ *  couldn't say.
+ *
+ *  v2 runs the same tool-use loop `generateReply` runs, over the mailbox: the
+ *  prompt document declares the turn's tools (the Agent's allowlist + the
+ *  session's attached connectors); the far session RELAYS tool calls back
+ *  unexecuted (`toolCalls` — the relay-not-execute discipline); the backend
+ *  executes each into the identical consent-gated proposal a dial-out turn
+ *  produces and offers a follow-up entry carrying the `toolResults`; the loop
+ *  ends on prose. One offer/settle per round — the slot protocol is unchanged. */
 
 const FALLBACK_TIMEOUT =
   'Your delegated session didn’t answer in time — make sure its drain loop is still running, then try again.'
 const FALLBACK_DEGENERATE =
   'Your delegated session couldn’t produce a reply just now (its connector reported an error or an empty answer). Check the session and try again.'
 const FALLBACK_BUSY = 'Your delegated session is still answering another turn — try again when it finishes.'
+const FALLBACK_LOOP =
+  'Your delegated session kept relaying tool calls without concluding — the turn was stopped. Try again, or simplify the request.'
+
+/** Tool rounds per turn (matching `generateReply`'s call→results→prose shape,
+ *  with headroom) — a runaway far session can't spin the mailbox forever. */
+const MAX_TOOL_ROUNDS = 4
 
 /** Stream a local relay-fallback message — the relay mirror of `fallbackReply`. */
 function relayFallback(handlers: ReplyHandlers, content: string): ReplyResult {
@@ -272,6 +306,11 @@ function relayFallback(handlers: ReplyHandlers, content: string): ReplyResult {
 
 const estimateTokens = (s: string): number => Math.ceil(s.length / 4)
 
+/** ~4-chars/token estimate over the whole document — prose turns plus the JSON
+ *  weight of relayed calls/results (the far session read those too). */
+const turnChars = (t: RelayPromptTurn): number =>
+  (t.text?.length ?? 0) + (t.toolCalls ? JSON.stringify(t.toolCalls).length : 0) + (t.toolResults ? JSON.stringify(t.toolResults).length : 0)
+
 export async function relayReply(
   session: ReplySession,
   agent: Agent,
@@ -280,54 +319,120 @@ export async function relayReply(
   signal: AbortSignal | undefined,
   relay: RelayRuntime,
   providerId: string,
+  commons?: ToolContext['commons'],
+  connectorContexts: SessionContext[] = [],
 ): Promise<ReplyResult> {
+  // The turn's callable surface — the exact list `generateReply` declares: the
+  // Agent's allowlist plus the session's attached connector/MCP tools (P6;
+  // authority stays structural — only what's attached is reachable). Renamed to
+  // the wire's `inputSchema` so the contract stays SDK-shape-free.
+  const ctx: ToolContext = { session: { id: session.id, title: session.title }, commons }
+  const agentTools = TOOL_DEFINITIONS.filter((t) => agent.tools.includes(t.name))
+  const { definitions: connectorDefs, bindings: connectorBindings } = deriveConnectorTools(connectorContexts)
+  const tools: RelayToolDefinition[] = [...agentTools, ...connectorDefs].map((t) => ({
+    name: t.name,
+    description: t.description,
+    inputSchema: t.input_schema as unknown as Record<string, unknown>,
+  }))
+  const system = systemPrompt(session, agent)
   // The prompt survives as a document, not a string (§7.4): system framing apart
-  // from the turns, built from the same inputs `generateReply` receives. v1 is
-  // prose-only, so a turn is exactly `system` + one user turn — near-lossless.
-  const prompt: RelayPrompt = {
-    system: systemPrompt(session, agent),
-    messages: [{ role: 'user', text: text.trim() || '(the user sent an empty message)' }],
-  }
-  const offer = relay.offer(providerId, prompt)
-  // The pre-turn gate refused busy before anything persisted; this catches only
-  // the enqueue race behind it.
-  if (!offer) return relayFallback(handlers, FALLBACK_BUSY)
+  // from the turns. The loop appends a relayed-calls turn + an executed-results
+  // turn per round, so every follow-up entry carries the WHOLE exchange — the
+  // mailbox is stateless across entries by design.
+  const turns: RelayPromptTurn[] = [{ role: 'user', text: text.trim() || '(the user sent an empty message)' }]
 
+  // The consent-gated proposals the relayed tool calls accumulate — identical
+  // collection to `generateReply`'s.
+  const relationOps: RelationOp[] = []
+  const toolActivities: ToolActivity[] = []
+  let escalation: EscalationProposal | undefined
+
+  // ONE deadline spans the whole turn — tool rounds share it, so a chatty far
+  // session can't stretch a turn to rounds × timeout.
   const timeoutMs = positiveNumberEnv(process.env.RELAY_TIMEOUT_MS, 120_000)
-  const raced = await new Promise<RelayOutcome | 'timeout' | 'cancelled'>((resolve) => {
-    const timer = setTimeout(() => resolve('timeout'), timeoutMs)
-    ;(timer as { unref?: () => void }).unref?.()
-    const onAbort = () => resolve('cancelled')
-    signal?.addEventListener('abort', onAbort, { once: true })
-    void offer.completion.then((o) => {
-      clearTimeout(timer)
-      signal?.removeEventListener('abort', onAbort)
-      resolve(o)
-    })
-  })
+  const startedAt = Date.now()
 
-  if (raced === 'cancelled') {
-    relay.clear(providerId, offer.entryId) // a late submit meets 410, never a wrong turn
-    throw new Error('relay turn cancelled') // the route's catch reads the signal, persists nothing
-  }
-  if (raced === 'timeout') {
-    relay.clear(providerId, offer.entryId)
-    return relayFallback(handlers, FALLBACK_TIMEOUT)
-  }
-  // An explicit connector error, and an empty/whitespace completion normalised to
-  // one, both fall back — final, no redelivery (§7.6). A refusal is a completion.
-  if (raced.kind === 'error' || !raced.text.trim()) return relayFallback(handlers, FALLBACK_DEGENERATE)
+  for (let round = 0; ; round += 1) {
+    const offer = relay.offer(providerId, { system, messages: turns, ...(tools.length ? { tools } : {}) })
+    // The pre-turn gate refused busy before anything persisted; this catches only
+    // the enqueue race behind it (and a rival turn slipping between rounds).
+    if (!offer) return relayFallback(handlers, FALLBACK_BUSY)
 
-  const content = raced.text
-  const id = `msg_relay_${Date.now().toString(36)}`
-  handlers.onStart(id)
-  for (const c of chunkText(content)) handlers.onDelta(c)
-  return {
-    message: { id, role: 'assistant', content },
-    usage: {
-      inputTokens: estimateTokens(prompt.system) + estimateTokens(prompt.messages.map((m) => m.text).join('\n')),
-      outputTokens: estimateTokens(content),
-    },
-    outcome: 'ok',
+    const remaining = timeoutMs - (Date.now() - startedAt)
+    const raced =
+      remaining <= 0
+        ? 'timeout'
+        : await new Promise<RelayOutcome | 'timeout' | 'cancelled'>((resolve) => {
+            const timer = setTimeout(() => resolve('timeout'), remaining)
+            ;(timer as { unref?: () => void }).unref?.()
+            const onAbort = () => resolve('cancelled')
+            signal?.addEventListener('abort', onAbort, { once: true })
+            void offer.completion.then((o) => {
+              clearTimeout(timer)
+              signal?.removeEventListener('abort', onAbort)
+              resolve(o)
+            })
+          })
+
+    if (raced === 'cancelled') {
+      relay.clear(providerId, offer.entryId) // a late submit meets 410, never a wrong turn
+      throw new Error('relay turn cancelled') // the route's catch reads the signal, persists nothing
+    }
+    if (raced === 'timeout') {
+      relay.clear(providerId, offer.entryId)
+      return relayFallback(handlers, FALLBACK_TIMEOUT)
+    }
+    // An explicit connector error, and an empty/whitespace completion normalised to
+    // one, both fall back — final, no redelivery (§7.6). A refusal is a completion.
+    if (raced.kind === 'error' || (raced.kind === 'completion' && !raced.text.trim())) {
+      return relayFallback(handlers, FALLBACK_DEGENERATE)
+    }
+
+    if (raced.kind === 'toolCalls') {
+      // Relayed calls against a tool-less prompt, or a far session that never
+      // concludes, both stop the turn honestly rather than spinning the slot.
+      if (!tools.length || round >= MAX_TOOL_ROUNDS - 1) return relayFallback(handlers, FALLBACK_LOOP)
+      const results = raced.calls.map((call) => {
+        // A connector/MCP tool (P6) executes into a ToolActivity; anything else is a
+        // built-in resource / relation / escalation tool — the same dispatch (and the
+        // same honest "proposed, not done" wording) as `generateReply`'s.
+        const activity = runConnectorTool(call.name, connectorBindings, call.id)
+        if (activity) {
+          toolActivities.push(activity)
+          const content =
+            activity.status === 'proposed' ? 'Proposed to the user — awaiting their confirmation; not executed yet.' : activity.summary
+          return { toolCallId: call.id, content }
+        }
+        // `executeTool` answers an unknown name with a no-effect summary — fed back
+        // so the far model can correct itself next round instead of failing the turn.
+        const effect = executeTool(call.name, call.input ?? {}, ctx)
+        if (effect.relationOps) relationOps.push(...effect.relationOps)
+        if (effect.escalation) escalation = effect.escalation
+        return { toolCallId: call.id, content: effect.summary }
+      })
+      turns.push({ role: 'assistant', toolCalls: raced.calls }, { role: 'user', toolResults: results })
+      continue
+    }
+
+    // Prose — the turn concludes, carrying whatever proposals the rounds built.
+    const content = raced.text
+    const id = `msg_relay_${Date.now().toString(36)}`
+    handlers.onStart(id)
+    for (const c of chunkText(content)) handlers.onDelta(c)
+    return {
+      message: {
+        id,
+        role: 'assistant',
+        content,
+        relationActions: relationOps.length ? relationOps : undefined,
+        escalation,
+        toolActivities: toolActivities.length ? toolActivities : undefined,
+      },
+      usage: {
+        inputTokens: estimateTokens(system) + turns.reduce((sum, t) => sum + Math.ceil(turnChars(t) / 4), 0),
+        outputTokens: estimateTokens(content),
+      },
+      outcome: 'ok',
+    }
   }
 }

@@ -89,7 +89,7 @@ function SectionLabel({ children }: { children: ReactNode }) {
 
 /** A provider row's caption — its nature, from its own registry entry. */
 function providerBlurb(p: ModelProvider): string {
-  if (p.kind === 'session') return 'Your own AI session answers — prose only.'
+  if (p.kind === 'session') return 'Your own AI session answers — tool calls relayed through it.'
   const count = p.models?.length
   return count ? `${count} model${count === 1 ? '' : 's'} from its catalog.` : 'Endpoint-configured model (no catalog).'
 }
@@ -211,7 +211,7 @@ export function ModelPickerMenu({
       {levels.length === 0 && (
         <p className="px-3 pb-2 text-[11px] leading-snug text-ink-soft">
           {provider?.kind === 'session'
-            ? 'This provider declares no effort levels and answers in prose only.'
+            ? 'This provider declares no effort levels — your own session answers its turns.'
             : activeModel
               ? 'This model runs at a single effort — no levels to pick.'
               : 'This provider declares no effort levels.'}

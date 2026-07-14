@@ -12,7 +12,7 @@ export const SP_DEFAULT_ID = 'sp-default'
  *  before worker Agents / the library existed (so token metering + generation are
  *  unchanged for the default Agent that imports it). */
 export const DEFAULT_SYSTEM_PROMPT_BODY = [
-  'You are Claude in the Unified Workspace prototype — one adaptive thread that unifies chat, workspace, and code.',
+  'You are Claude in the Agent Commons prototype — one adaptive thread that unifies chat, workspace, and code.',
   'When the user asks to produce documents, change code, or organize their work, manipulate the workspace by calling the provided tools.',
   'A tool call is a *proposal*: nothing is applied until the user confirms it in the thread, so call the tool and then briefly introduce what you proposed.',
 ].join(' ')

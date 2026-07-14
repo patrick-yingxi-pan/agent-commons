@@ -1,12 +1,16 @@
 /** ── Locking tests: the delegated-cognition relay (Session providers) ────────
- *  docs/delegated-cognition-provider.md §11. The whole v1 surface: the mint
- *  branch (probe skipped, toolUse:false stamped, forced tenant scoping, one-time
+ *  docs/delegated-cognition-provider.md §11. The v1 surface: the mint branch
+ *  (probe skipped, explicit capability stamp, forced tenant scoping, one-time
  *  secret), the slot round-trip through relayReply, the pre-persist gates
  *  (relay_offline / relay_busy), entry-keyed anti-poisoning (410), newest-wins
  *  preemption, socket-or-in-flight liveness, rotate/delete as a kill switch,
  *  degenerate completions, relayReply's own clock (MODEL_TIMEOUT_MS never governs
  *  a relay turn), binding-by-secret restart recovery, and the no-plaintext
- *  persistence invariant. Everything runs in-memory against the real router. */
+ *  persistence invariant. Plus the v2 framed mailbox: the declared tool surface,
+ *  the relayed-unexecuted tool-call loop (executed into the same consent-gated
+ *  proposals a dial-out turn produces), the strict reply validation, the round
+ *  cap, and the toolUse:true capability normalisation. Everything runs in-memory
+ *  against the real router. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { call, callRaw } from './helpers/http.ts'
@@ -59,7 +63,7 @@ async function withEnv(vars: Record<string, string>, run: () => Promise<void>) {
 
 // ── The mint branch ───────────────────────────────────────────────────────────
 
-test('minting a Session provider: one-time secret, masked hint, prose-only stamp, no probe', async () => {
+test('minting a Session provider: one-time secret, masked hint, explicit capability stamp, no probe', async () => {
   const p = await mintSessionProvider('Mint test')
   assert.ok(p.secret.startsWith('rv_live_'), 'the rendezvous secret is minted server-side')
   assert.equal(p.secretHint, p.secret.slice(-4), 'the row carries only the masked tail')
@@ -70,10 +74,13 @@ test('minting a Session provider: one-time secret, masked hint, prose-only stamp
   assert.equal(read.json.secret, undefined, 'the secret is one-time-shown, never re-readable')
   assert.equal(read.json.secretHint, p.secretHint)
   assert.equal(read.json.online, false, 'a fresh relay is offline until its connector polls')
-  // The default-inversion lock (§6.3): the server-only config is stamped prose-only.
+  // The explicit-stamp lock (§6.3): the capability is the MAILBOX's, code-owned —
+  // the v2 framed mailbox relays tool calls, so the mint stamps `toolUse:true`
+  // EXPLICITLY (never left to the unset default, which would silently mean the
+  // same thing — the dangerous inversion the wall refuses).
   const config = store.providerConfig(p.id)
   assert.equal(config.kind, 'session')
-  assert.equal(config.capabilities?.toolUse, false, 'toolUse:false is stamped explicitly, never left to the unset default')
+  assert.equal(config.capabilities?.toolUse, true, 'toolUse:true is stamped explicitly, never left to the unset default')
 })
 
 test('a Session provider registration refuses an endpoint config (nothing to dial)', async () => {
@@ -149,7 +156,7 @@ test('a turn on an offline relay refuses fast (relay_offline 503) and persists n
 
 // ── The slot round-trip ───────────────────────────────────────────────────────
 
-test('the round-trip: offer → poll → reply → streamed turn (prose-only, estimated usage)', async () => {
+test('the round-trip: offer → poll → reply → streamed turn (estimated usage)', async () => {
   const p = await mintSessionProvider('Round trip')
   const { sessionId } = await sessionOnProvider(p.id)
   await withEnv({ RELAY_POLL_MS: '2000', RELAY_TIMEOUT_MS: '3000', MODEL_TIMEOUT_MS: '50' }, async () => {
@@ -161,8 +168,9 @@ test('the round-trip: offer → poll → reply → streamed turn (prose-only, es
     assert.equal(pulled.status, 200)
     assert.ok(pulled.json.entryId, 'the prompt is entry-keyed')
     // The prompt survives as a document (§7.4): system apart from the turns — and
-    // carries no tool surface whatsoever (the toolUse:false regression lock is
-    // structural here: there is no `tools` field to even omit).
+    // carries no tool surface, because THIS Agent grants none (the fixture omits
+    // `tools` ⇒ the minimal-risk empty set, INV-9): an empty surface is an absent
+    // field, never an empty array pretending to offer something.
     assert.equal(typeof pulled.json.prompt.system, 'string')
     assert.deepEqual(Object.keys(pulled.json.prompt).sort(), ['messages', 'system'])
     assert.equal(pulled.json.prompt.messages[0].text, 'What is our Q3 focus?')
@@ -389,14 +397,149 @@ test('a Session provider is tenant-scoped: invisible to another tenant, and its 
   assert.equal(store.eventVisibleToTenant({ type: 'relay.connected', providerId: p.id }, 'tenant-zeta'), false)
 })
 
+// ── v2: structured tool-use over the mailbox ─────────────────────────────────
+
+/** A session whose Agent carries an EXPLICIT tool grant (INV-9: unset = none),
+ *  so the relayed prompt declares a callable surface. */
+async function sessionWithTools(providerId: string, tools: string[]) {
+  const agent = await call('POST', '/agents', { label: `relay-tools-${providerId}`, providerId, systemPromptId: 'sp-default', tools })
+  assert.equal(agent.status, 200)
+  const session = await call('POST', '/sessions', { firstMessage: undefined })
+  assert.equal(session.status, 200)
+  store.setSessionAgent(session.json.id, agent.json.id)
+  return { sessionId: session.json.id as string }
+}
+
+test('the tool-use loop over the mailbox: declared tools → relayed calls → executed results → prose + consent proposals', async () => {
+  const p = await mintSessionProvider('Tool loop')
+  const { sessionId } = await sessionWithTools(p.id, ['create_project', 'save_artifact'])
+  await withEnv({ RELAY_POLL_MS: '2000', RELAY_TIMEOUT_MS: '5000' }, async () => {
+    const parked = call('GET', '/relay/poll', undefined, auth(p.secret))
+    await sleep(10)
+    const send = callRaw('POST', `/sessions/${sessionId}/messages`, { text: 'Create a project called Relay Proto' })
+    const round1 = await parked
+    // The prompt declares the turn's callable surface — the Agent's explicit grant,
+    // renamed to the wire's `inputSchema` (the contract stays SDK-shape-free).
+    assert.ok(Array.isArray(round1.json.prompt.tools), 'the prompt document declares the tools')
+    assert.deepEqual(
+      round1.json.prompt.tools.map((t: { name: string }) => t.name).sort(),
+      ['create_project', 'save_artifact'],
+      'exactly the Agent’s grant — nothing widened',
+    )
+    assert.equal(round1.json.prompt.tools[0].inputSchema.type, 'object', 'each tool carries its input schema')
+
+    // The far session RELAYS a call back, unexecuted; the platform executes it and
+    // offers a follow-up entry carrying the result.
+    const relayed = await call(
+      'POST',
+      '/relay/reply',
+      { entryId: round1.json.entryId, toolCalls: [{ name: 'create_project', input: { name: 'Relay Proto' } }] },
+      auth(p.secret),
+    )
+    assert.equal(relayed.status, 200)
+    const round2 = await call('GET', '/relay/poll', undefined, auth(p.secret))
+    assert.equal(round2.status, 200)
+    assert.ok(round2.json.entryId, 'the follow-up is a fresh entry through the same slot protocol')
+    assert.notEqual(round2.json.entryId, round1.json.entryId)
+    const msgs = round2.json.prompt.messages as Array<Record<string, any>>
+    const callsTurn = msgs.find((m) => m.toolCalls)
+    const resultsTurn = msgs.find((m) => m.toolResults)
+    assert.ok(callsTurn && resultsTurn, 'the follow-up document carries the relayed calls AND the executed results')
+    assert.equal(callsTurn!.toolCalls[0].name, 'create_project')
+    assert.match(callsTurn!.toolCalls[0].id, /^rtc-/, 'call ids are server-minted, never trusted from the wire')
+    assert.equal(resultsTurn!.toolResults[0].toolCallId, callsTurn!.toolCalls[0].id, 'the result keys back to the minted id')
+    assert.match(resultsTurn!.toolResults[0].content, /awaiting the user/i, 'the result is honest — proposed, not done')
+
+    // Conclude with prose; the turn lands with the SAME consent-gated escalation a
+    // dial-out create_project produces.
+    await call('POST', '/relay/reply', { entryId: round2.json.entryId, completion: 'Proposed the Relay Proto project — confirm to create it.' }, auth(p.secret))
+    const result = await send
+    const fs = frames(result.body)
+    const escalation = fs.find((f) => f.type === 'message.escalation')
+    assert.ok(escalation, 'the relayed tool call landed as a consent-gated escalation')
+    assert.equal(escalation!.escalation.kind, 'project')
+    assert.equal(escalation!.escalation.project.name, 'Relay Proto')
+    const end = fs.find((f) => f.type === 'message.end')
+    assert.equal(end?.message.content, 'Proposed the Relay Proto project — confirm to create it.')
+  })
+})
+
+test('an ambiguous or malformed reply is refused loudly (400) and settles nothing', async () => {
+  const p = await mintSessionProvider('Reply validation')
+  const { sessionId } = await sessionWithTools(p.id, ['create_project'])
+  await withEnv({ RELAY_POLL_MS: '2000', RELAY_TIMEOUT_MS: '3000' }, async () => {
+    const parked = call('GET', '/relay/poll', undefined, auth(p.secret))
+    await sleep(10)
+    const send = callRaw('POST', `/sessions/${sessionId}/messages`, { text: 'go' })
+    const pulled = await parked
+    for (const bad of [
+      { completion: 'x', toolCalls: [{ name: 'create_project' }] }, // ambiguous — two answer forms
+      { toolCalls: [] }, // an empty relay answers nothing
+      { toolCalls: [{ name: '' }] },
+      { toolCalls: [{ name: 'create_project', input: [1, 2] }] }, // input must be an object
+      { toolCalls: 'create_project' }, // not an array
+    ]) {
+      const r = await call('POST', '/relay/reply', { entryId: pulled.json.entryId, ...bad }, auth(p.secret))
+      assert.equal(r.status, 400, `refused: ${JSON.stringify(bad)}`)
+    }
+    // Nothing settled — the entry is still live; a clean prose reply lands.
+    const good = await call('POST', '/relay/reply', { entryId: pulled.json.entryId, completion: 'fine' }, auth(p.secret))
+    assert.equal(good.status, 200)
+    assert.match((await send).body, /fine/)
+  })
+})
+
+test('a far session that never concludes is stopped at the round cap — honest fallback, slot freed', async () => {
+  const p = await mintSessionProvider('Round cap')
+  const { sessionId } = await sessionWithTools(p.id, ['create_project'])
+  await withEnv({ RELAY_POLL_MS: '2000', RELAY_TIMEOUT_MS: '5000' }, async () => {
+    const parked = call('GET', '/relay/poll', undefined, auth(p.secret))
+    await sleep(10)
+    const send = callRaw('POST', `/sessions/${sessionId}/messages`, { text: 'loop forever' })
+    let pulled = await parked
+    // Rounds 0..2 accept relayed calls and re-offer; round 3's calls trip the cap.
+    for (let i = 0; i < 4; i += 1) {
+      const r = await call('POST', '/relay/reply', { entryId: pulled.json.entryId, toolCalls: [{ name: 'create_project', input: { name: `P${i}` } }] }, auth(p.secret))
+      assert.equal(r.status, 200)
+      if (i < 3) {
+        pulled = await call('GET', '/relay/poll', undefined, auth(p.secret))
+        assert.ok(pulled.json.entryId, `round ${i + 1} re-offered`)
+      }
+    }
+    assert.match((await send).body, /kept relaying tool calls/, 'the runaway loop degrades to the specific fallback')
+    // The one-live-turn slot released — a retry is not 409.
+    assert.notEqual((await callRaw('POST', `/sessions/${sessionId}/messages`, { text: 'retry' })).status, 409)
+  })
+})
+
+test('relayed calls against a tool-less prompt stop the turn honestly (nothing was offered)', async () => {
+  const p = await mintSessionProvider('No surface')
+  const { sessionId } = await sessionOnProvider(p.id) // no tool grant ⇒ no tools declared
+  await withEnv({ RELAY_POLL_MS: '2000', RELAY_TIMEOUT_MS: '3000' }, async () => {
+    const parked = call('GET', '/relay/poll', undefined, auth(p.secret))
+    await sleep(10)
+    const send = callRaw('POST', `/sessions/${sessionId}/messages`, { text: 'try tools' })
+    const pulled = await parked
+    assert.equal(pulled.json.prompt.tools, undefined, 'no tools were declared')
+    const r = await call('POST', '/relay/reply', { entryId: pulled.json.entryId, toolCalls: [{ name: 'create_project', input: { name: 'X' } }] }, auth(p.secret))
+    assert.equal(r.status, 200, 'the submit is accepted — it settles the entry')
+    assert.match((await send).body, /kept relaying tool calls/, 'but the turn refuses to execute what was never offered')
+  })
+})
+
+// (The pre-v2 capability normalisation on rehydrate is locked by
+// tests/relay-migrate.test.ts — it needs the real boot path in its own process.)
+
 // ── The shipped connector carries the outbound-injection wall (§7.9) ─────────
 
-test('the user-side connector ships the prose-only / never-execute standing instruction', async () => {
+test('the user-side connector ships the relay-not-execute standing instruction + the process-owned keepalive', async () => {
   const { readFileSync } = await import('node:fs')
   const { fileURLToPath } = await import('node:url')
   // fileURLToPath, not `.pathname` (Windows: `/C:/…` resolves to a phantom `C:\C:\…`).
   const source = readFileSync(fileURLToPath(new URL('../connector/relay-connector.ts', import.meta.url)), 'utf8') as string
-  assert.match(source, /prose only/i, 'the standing instruction names the prose-only wall')
-  assert.match(source, /never execute/i, '…and the never-execute wall (outbound injection, §7.9)')
+  assert.match(source, /never execute/i, 'the never-execute wall (outbound injection, §7.9)')
+  assert.match(source, /unexecuted/i, '…and the v2 relay-not-execute discipline (calls pass through, never run or fabricated)')
   assert.match(source, /respond_and_wait/, 'the blocking drain tool is the connector’s core')
+  assert.match(source, /drainLoop/, 'the process-owned keepalive loop exists — liveness no longer rides the model’s calls')
+  assert.match(source, /process\.stdin\.on\('end', \(\) => process\.exit/, 'and dies with its host, so an orphan never polls forever')
 })
