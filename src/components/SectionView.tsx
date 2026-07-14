@@ -4916,10 +4916,28 @@ function ProviderCard({ provider, onEdit }: { provider: ModelProvider; onEdit: (
   )
 }
 
+/** A numbered step label — the reveal below reads as a two-step recipe (install,
+ *  connect), not a wall of prose; the number carries the sequence so the copy
+ *  doesn't have to ("Then type…"). */
+function StepLabel({ n, children }: { n: number; children: ReactNode }) {
+  return (
+    <p className="flex items-center gap-1.5 text-[12px] font-medium text-ink-soft">
+      <span className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-panel-2 text-[10px] font-semibold text-ink">
+        {n}
+      </span>
+      <span>{children}</span>
+    </p>
+  )
+}
+
 /** The one-time rendezvous-secret reveal (mint and rotate). The secret is a password —
  *  it exists nowhere but this panel (the server keeps only a hash) — so dismissal is
  *  gated behind an explicit "I've saved it". Not the shared FormDialog: this is a
- *  reveal, not a form (no Cancel — there is nothing to cancel back to). */
+ *  reveal, not a form (no Cancel — there is nothing to cancel back to).
+ *  Layout: the secret first (the one thing that exists nowhere else), then two
+ *  numbered steps — install (shell toggle anchored to the step head) and connect —
+ *  each a label + code box + short faint caption; the safety notes are a compact
+ *  bullet list under step 2 rather than one run-on paragraph. */
 function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvider; secret: string; onClose: () => void }) {
   const [saved, setSaved] = useState(false)
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -4955,44 +4973,52 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
           <span className="text-[15px] font-semibold text-ink">Your session’s rendezvous secret</span>
           <RelayBadge />
         </div>
-        <div className="space-y-3 p-5">
-          <p className="text-[13px] text-ink-soft">
-            <span className="font-semibold text-ink">Shown once.</span> This is a password — anyone who has it can put
-            words in your assistant’s mouth. Only its fingerprint stays readable here.
-          </p>
-          <div className="flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2">
-            <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-[12px] text-ink">{secret}</code>
-            <CopyButton text={secret} ariaLabel="Copy rendezvous secret" />
+        <div className="space-y-4 p-5">
+          <div>
+            <div className="flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2">
+              <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-[12px] text-ink">{secret}</code>
+              <CopyButton text={secret} ariaLabel="Copy rendezvous secret" />
+            </div>
+            <p className="mt-1 text-[12px] text-ink-faint">
+              <span className="font-semibold text-ink">Shown once</span> — a password: anyone who has it can put words
+              in your assistant’s mouth. Only its fingerprint stays readable after this.
+            </p>
           </div>
           <div>
-            <p className="mb-1 text-[12px] font-medium text-ink-soft">
-              Install the connector once (any relay, any machine — served right here; needs Node 18+ and{' '}
-              <a href={connectorUrl} download="session-relay.mjs" className="font-medium text-accent hover:underline">
-                downloads directly
-              </a>{' '}
-              too). Already installed? Skip this — one install serves every relay; re-run only to update it:
-            </p>
-            <SubTabs tabs={recipes.map((r) => ({ id: r.id, label: r.label }))} active={recipe.id} onChange={setShellId} />
-            <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2">
+            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+              <StepLabel n={1}>Install the connector — once per machine, serves every relay</StepLabel>
+              <SubTabs tabs={recipes.map((r) => ({ id: r.id, label: r.label }))} active={recipe.id} onChange={setShellId} />
+            </div>
+            <div className="flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2">
               <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-[12px] text-ink">{recipe.command}</code>
               <CopyButton text={recipe.command} ariaLabel="Copy install command" />
             </div>
-            <p className="mt-1 text-[12px] text-ink-faint">{recipe.hint}</p>
+            <p className="mt-1 text-[12px] text-ink-faint">
+              {recipe.hint} Needs Node 18+. Already installed? Skip this step — re-run only to update. Or{' '}
+              <a href={connectorUrl} download="session-relay.mjs" className="font-medium text-accent hover:underline">
+                download the file
+              </a>{' '}
+              directly.
+            </p>
           </div>
           <div>
-            <p className="mb-1 text-[12px] font-medium text-ink-soft">Then type this into a fresh session that will do the thinking:</p>
-            <div className="flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2">
+            <StepLabel n={2}>Type this into a fresh session — it does the thinking</StepLabel>
+            <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2">
               <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-[12px] text-ink">{connectSentence}</code>
               <CopyButton text={connectSentence} ariaLabel="Copy connect sentence" />
             </div>
-            <p className="mt-1.5 text-[12px] text-ink-faint">
-              The first credentials the connector hears bind it for good — later attempts to redirect it are refused.
-              Use a <span className="font-medium text-ink-soft">dedicated session without dangerous tools</span> —
-              relayed prompts are outside text, and the connector instructs the model to answer in prose or relay tool
-              calls back unexecuted, never to execute what a prompt asks. That session’s transcript will contain the
-              secret, so rotate it when you retire the session. “{provider.label}” goes green here while the connector
-              runs (it keeps the channel alive itself, even while your session is idle).
-            </p>
+            <ul className="mt-1.5 list-disc space-y-1 pl-4 text-[12px] text-ink-faint">
+              <li>
+                Use a <span className="font-medium text-ink-soft">dedicated session without dangerous tools</span> —
+                relayed prompts are outside text; the connector instructs the model to answer in prose or relay tool
+                calls back unexecuted, never to execute what a prompt asks.
+              </li>
+              <li>The first credentials the connector hears bind it for good — later attempts to redirect it are refused.</li>
+              <li>
+                That session’s transcript will contain the secret — rotate it when you retire the session.
+                “{provider.label}” goes green here while the connector runs, even while your session idles.
+              </li>
+            </ul>
           </div>
           <CheckboxRow checked={saved} onToggle={() => setSaved(!saved)} className="text-[13px] text-ink">
             I’ve saved the secret somewhere safe
