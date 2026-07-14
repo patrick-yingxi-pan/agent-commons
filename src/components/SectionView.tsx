@@ -5007,14 +5007,23 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
           <RelayBadge />
         </div>
         <div className="p-5">
-          <CodeRow text={secret} ariaLabel="Copy rendezvous secret" />
-          <p className="mt-1.5 text-[12px] text-ink-faint">
-            <span className="font-semibold text-ink">Shown once</span> — copy it now; only its fingerprint is kept.
-          </p>
-          {/* A hairline separates the secret (the subject this panel reveals — the one
-              unrecoverable value) from the two steps that use it, so the secret reads
-              as the subject rather than an unnumbered step-0 above the stepper. */}
-          <div className="mt-5 border-t border-line pt-5">
+          {/* The secret is the subject this panel reveals — the one unrecoverable value
+              (server keeps only a hash; Done is gated on saving it). It sits in its own
+              calm callout: the value on a subtle fill with its "shown once" warning, one
+              grouped block. The fill alone sets it apart from the plain command rows
+              below — no louder font, and no separate divider needed. */}
+          <div className="rounded-lg border border-line bg-panel-2 px-3 py-2.5">
+            <div className="flex items-center gap-2">
+              <code className="no-scrollbar min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-[12px] text-ink">
+                {secret}
+              </code>
+              <CopyButton text={secret} ariaLabel="Copy rendezvous secret" />
+            </div>
+            <p className="mt-2 text-[11px] text-ink-faint">
+              <span className="font-semibold text-ink">Shown once</span> — save it now; only its fingerprint is kept.
+            </p>
+          </div>
+          <div className="mt-6">
             <RevealStep
               n={1}
               title="Install the connector"
