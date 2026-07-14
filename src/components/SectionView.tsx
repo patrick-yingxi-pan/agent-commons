@@ -3558,19 +3558,26 @@ function AgentCommonsSection({
   )
 }
 
-/** A segmented control — the in-page toggle behind the Audit log's all/denied filter.
- *  (Section-level grouping now lives in the rail's disclosure tree, not an in-page bar.) */
+/** A segmented control — the in-page toggle behind the Audit log's all/denied filter
+ *  and the secret reveal's shell-dialect switch. (Section-level grouping now lives in
+ *  the rail's disclosure tree, not an in-page bar.) `size='sm'` is a compact variant
+ *  for when the toggle sits beside a heavier element and should read as secondary —
+ *  same primitive, one size token. */
 function SubTabs<T extends string>({
   tabs,
   active,
   onChange,
+  size = 'md',
 }: {
   tabs: { id: T; label: string }[]
   active: T
   onChange: (id: T) => void
+  size?: 'sm' | 'md'
 }) {
+  const pad = size === 'sm' ? 'p-0.5' : 'p-1'
+  const btn = size === 'sm' ? 'px-2 py-0.5 text-[11px]' : 'px-3 py-1 text-[13px]'
   return (
-    <div className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-lg border border-line bg-surface p-1 shadow-sm">
+    <div className={`inline-flex max-w-full flex-wrap items-center gap-1 rounded-lg border border-line bg-surface shadow-sm ${pad}`}>
       {tabs.map((t) => {
         const on = t.id === active
         return (
@@ -3578,7 +3585,7 @@ function SubTabs<T extends string>({
             key={t.id}
             onClick={() => onChange(t.id)}
             aria-pressed={on}
-            className={`rounded-md px-3 py-1 text-[13px] font-medium transition ${
+            className={`rounded-md font-medium transition ${btn} ${
               on ? 'bg-ink text-canvas shadow-sm' : 'text-ink-soft hover:text-ink'
             }`}
           >
@@ -4930,7 +4937,7 @@ function RevealStep({ n, title, aside, last, children }: { n: number; title: str
       </div>
       <div className={`min-w-0 flex-1 ${last ? '' : 'pb-5'}`}>
         <div className="flex min-h-5 flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
-          <p className="text-[13px] font-medium text-ink">{title}</p>
+          <p className="text-[15px] font-semibold leading-5 text-ink">{title}</p>
           {aside}
         </div>
         {children}
@@ -5010,7 +5017,14 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
             <RevealStep
               n={1}
               title="Install the connector"
-              aside={<SubTabs tabs={recipes.map((r) => ({ id: r.id, label: r.label }))} active={recipe.id} onChange={setShellId} />}
+              aside={
+                // The negative margin cancels the toggle's height above the 20px
+                // title/disc, so the header row stays 20px tall and the disc centers
+                // on the title (an inflated row would drop the title below the disc).
+                <div className="-my-1">
+                  <SubTabs size="sm" tabs={recipes.map((r) => ({ id: r.id, label: r.label }))} active={recipe.id} onChange={setShellId} />
+                </div>
+              }
             >
               <CodeRow className="mt-2" text={recipe.command} ariaLabel="Copy install command" />
               <p className="mt-1.5 text-[12px] leading-relaxed text-ink-faint">
