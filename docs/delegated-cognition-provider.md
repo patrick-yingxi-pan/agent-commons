@@ -162,8 +162,25 @@ with no per-relay configuration. Two install forms, same file:
     mv ~/session-relay.mjs.tmp ~/session-relay.mjs && \
     (claude mcp remove -s local session-relay >/dev/null 2>&1; \
      claude mcp add -s local session-relay -- node ~/session-relay.mjs)
-  # bash/zsh. Claude Desktop / Windows: the same command/args in claude_desktop_config.json
+  # bash/zsh — also WSL and Git Bash on Windows.
   ```
+
+  The panel offers the recipe **per shell dialect** (pre-selecting the viewer's
+  platform), because the bash form breaks silently in PowerShell — there `curl`
+  is the `Invoke-WebRequest` alias (`-fsSL` is a parameter-binding error),
+  PowerShell 5.1 has no `&&` and no bash subshell, and streams silence
+  differently. The PowerShell dialect keeps the same shape:
+
+  ```powershell
+  curl.exe -fsSL https://<host>/api/v1/connector -o "$HOME\session-relay.mjs.tmp"; if ($?) {
+    Move-Item -Force "$HOME\session-relay.mjs.tmp" "$HOME\session-relay.mjs";
+    claude mcp remove -s local session-relay *> $null; claude mcp add -s local session-relay -- node "$HOME\session-relay.mjs" }
+  # Claude Desktop: the same command/args in claude_desktop_config.json instead of `claude mcp add`.
+  ```
+
+  Both dialects come from one module — `src/lib/connectorInstall.ts` — so they
+  can't drift apart; each preserves the three safety properties below in its own
+  idiom (`&&`+`mv` ⇔ `if ($?)`+`Move-Item -Force`; `>/dev/null 2>&1` ⇔ `*> $null`).
 
   The recipe is **re-run-safe by design** — `claude mcp add` refuses a name that
   already exists (there is no overwrite flag), so a second mint, or refreshing the

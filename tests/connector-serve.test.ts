@@ -41,17 +41,20 @@ test('every install recipe is re-run-safe: remove-first guard, scope-pinned, dow
   // copy of the recipe in the repo must therefore (a) pin BOTH sides to `-s local`
   // (an unpinned remove wedges on multi-scope state and silently relocates a
   // user-/project-scope install) and (b) guard each add with the fully-silenced
-  // remove (its not-found chatter isn't reliably on stderr). The panel's copyable
-  // command is additionally locked byte-exact: `curl -fsSL` makes an HTTP error a
-  // *failed* download, and the temp-file + `mv` keeps a dropped re-download from
-  // truncating the file a working registration points at.
+  // remove (its not-found chatter isn't reliably on stderr). The guard has one
+  // legal shape per shell dialect — POSIX silences with `>/dev/null 2>&1`,
+  // PowerShell with `*> $null` (there `curl` is the Invoke-WebRequest alias and
+  // `&&`/subshells don't exist, which is why the dialects diverge at all).
   const RECIPE_FILES = [
-    '../src/components/SectionView.tsx',
+    '../src/lib/connectorInstall.ts',
     '../connector/relay-connector.ts',
     '../docs/delegated-cognition-provider.md',
     '../docs/spec/06-model-and-tools.md',
   ]
-  const GUARD = '(claude mcp remove -s local session-relay >/dev/null 2>&1; claude mcp add -s local session-relay'
+  const GUARDS = [
+    '(claude mcp remove -s local session-relay >/dev/null 2>&1; claude mcp add -s local session-relay',
+    'claude mcp remove -s local session-relay *> $null; claude mcp add -s local session-relay',
+  ]
   // An *invocation* names the server; prose mentions of the bare command don't count.
   const INVOCATION = /claude mcp add(?: -s \S+)? session-relay/g
   for (const file of RECIPE_FILES) {
@@ -63,16 +66,41 @@ test('every install recipe is re-run-safe: remove-first guard, scope-pinned, dow
     for (const inv of invocations) {
       assert.equal(inv, 'claude mcp add -s local session-relay', `${file}: install invocation not scope-pinned: '${inv}'`)
     }
-    const guarded = text.split(GUARD).length - 1
+    const guarded = GUARDS.reduce((n, g) => n + text.split(g).length - 1, 0)
     assert.equal(guarded, invocations.length, `${file}: ${invocations.length - guarded} of ${invocations.length} install invocations lack the remove-first guard`)
   }
-  const panel = readFileSync(new URL('../src/components/SectionView.tsx', import.meta.url), 'utf8')
-  assert.ok(
-    panel.includes(
-      'curl -fsSL ${connectorUrl} -o ~/session-relay.mjs.tmp && mv ~/session-relay.mjs.tmp ~/session-relay.mjs && (claude mcp remove -s local session-relay >/dev/null 2>&1; claude mcp add -s local session-relay -- node ~/session-relay.mjs)',
-    ),
-    'the panel installCommand drifted from the locked byte-exact shape',
+})
+
+test('the panel recipes come from the one module, byte-exact per shell dialect', async () => {
+  // ONE source of truth for the copyable command: the panel must render
+  // src/lib/connectorInstall.ts, not re-hardcode a string (the drift that made the
+  // recipe bash-only in the first place). The module's output is locked byte-exact:
+  // `curl -fsSL` / `curl.exe -fsSL` make an HTTP error a *failed* download, and the
+  // temp-file + rename keeps a dropped re-download from truncating the file a
+  // working registration points at — `&&`+`mv` on POSIX, `if ($?)`+`Move-Item` in
+  // PowerShell, where a bare `curl` would hit the Invoke-WebRequest alias.
+  const { installRecipes, defaultShellId } = await import('../src/lib/connectorInstall.ts')
+  const url = 'https://relay.example/api/v1/connector'
+  const byId = new Map(installRecipes(url).map((r) => [r.id, r.command]))
+  assert.equal(
+    byId.get('posix'),
+    `curl -fsSL ${url} -o ~/session-relay.mjs.tmp && mv ~/session-relay.mjs.tmp ~/session-relay.mjs && (claude mcp remove -s local session-relay >/dev/null 2>&1; claude mcp add -s local session-relay -- node ~/session-relay.mjs)`,
+    'the POSIX recipe drifted from the locked byte-exact shape',
   )
+  assert.equal(
+    byId.get('powershell'),
+    `curl.exe -fsSL ${url} -o "$HOME\\session-relay.mjs.tmp"; if ($?) { Move-Item -Force "$HOME\\session-relay.mjs.tmp" "$HOME\\session-relay.mjs"; claude mcp remove -s local session-relay *> $null; claude mcp add -s local session-relay -- node "$HOME\\session-relay.mjs" }`,
+    'the PowerShell recipe drifted from the locked byte-exact shape',
+  )
+  // The platform pre-selection is convenience only, but must not misfire ('darwin'
+  // must not read as Windows) — both recipes stay offered regardless.
+  assert.equal(defaultShellId('Win32'), 'powershell')
+  assert.equal(defaultShellId('MacIntel'), 'posix')
+  assert.equal(defaultShellId('Linux x86_64'), 'posix')
+  assert.equal(defaultShellId('darwin'), 'posix')
+  const panel = readFileSync(new URL('../src/components/SectionView.tsx', import.meta.url), 'utf8')
+  assert.ok(panel.includes("from '../lib/connectorInstall'"), 'the panel no longer reads the shared recipe module')
+  assert.ok(!panel.includes('curl -fsSL ${connectorUrl}'), 'the panel re-hardcodes an install command instead of rendering the module')
 })
 
 test('the SERVED bytes run under plain node: latch, refuse a redirect, drain a round-trip', async () => {

@@ -201,6 +201,7 @@ import {
   type SystemPromptEntry,
 } from '../../contract/index.ts'
 import { authorityLabel, providerPlanLabel } from '../lib/agentCommonsLabels'
+import { installRecipes, defaultShellId, type ShellId } from '../lib/connectorInstall'
 import { ArtifactThumb, ArtifactViewer, KIND_ICON, KIND_LABEL } from './artifactPreview'
 import { artifactMetaIsSpecific } from '../lib/artifactMeta'
 import { resolvedByCommission } from '../lib/commissionTrackRecord'
@@ -4932,16 +4933,14 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
   // one self-contained plain-JS module, so a hosted user needs nothing from the
   // repo — download the file, register it as an MCP server, done. Node ≥ 18.
   const connectorUrl = `${relayUrl}/connector`
-  // Re-run-safe on purpose: `claude mcp add` refuses a name that already exists (no
-  // overwrite flag), so a second mint or a connector refresh would error mid-recipe.
-  // Each piece is deliberate: the temp-file + `mv` keeps a dropped download from
-  // truncating the file a working registration points at; the remove-first guard is
-  // silenced on BOTH streams (its not-found chatter isn't reliably on stderr) while
-  // the add stays audible; and `-s local` pins both sides to one scope, so the recipe
-  // can never hit the multi-scope disambiguation refusal or silently relocate an
-  // install the user made with `-s user`/`-s project`. Locked (all copies of the
-  // recipe, this string exactly) by tests/connector-serve.test.ts.
-  const installCommand = `curl -fsSL ${connectorUrl} -o ~/session-relay.mjs.tmp && mv ~/session-relay.mjs.tmp ~/session-relay.mjs && (claude mcp remove -s local session-relay >/dev/null 2>&1; claude mcp add -s local session-relay -- node ~/session-relay.mjs)`
+  // The install recipe, PER SHELL DIALECT — a bash-only string silently breaks in
+  // PowerShell (`curl` is the Invoke-WebRequest alias; no `&&`). The recipes and
+  // their safety shape (temp-file + rename, silenced remove-first guard, `-s local`
+  // pinning) live in ONE module — src/lib/connectorInstall.ts — locked byte-exact
+  // by tests/connector-serve.test.ts; the toggle pre-selects the viewer's platform.
+  const recipes = installRecipes(connectorUrl)
+  const [shellId, setShellId] = useState<ShellId>(() => defaultShellId(navigator.platform))
+  const recipe = recipes.find((r) => r.id === shellId) ?? recipes[0]!
   const connectSentence = `Connect to ${relayUrl} with secret ${secret} and start draining.`
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-center px-4 pt-[14dvh]" onMouseDown={guardedClose} role="dialog" aria-modal="true" aria-label="Rendezvous secret">
@@ -4973,10 +4972,12 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
               </a>{' '}
               too). Already installed? Skip this — one install serves every relay; re-run only to update it:
             </p>
-            <div className="flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2">
-              <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-[12px] text-ink">{installCommand}</code>
-              <CopyButton text={installCommand} ariaLabel="Copy install command" />
+            <SubTabs tabs={recipes.map((r) => ({ id: r.id, label: r.label }))} active={recipe.id} onChange={setShellId} />
+            <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2">
+              <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-[12px] text-ink">{recipe.command}</code>
+              <CopyButton text={recipe.command} ariaLabel="Copy install command" />
             </div>
+            <p className="mt-1 text-[12px] text-ink-faint">{recipe.hint}</p>
           </div>
           <div>
             <p className="mb-1 text-[12px] font-medium text-ink-soft">Then type this into a fresh session that will do the thinking:</p>
