@@ -25,8 +25,6 @@ export interface InstallRecipe {
   id: ShellId
   /** Short pill label for the shell toggle. */
   label: string
-  /** One-line caption naming where this dialect applies (and its gotcha). */
-  hint: string
   command: string
 }
 
@@ -35,13 +33,12 @@ export function installRecipes(connectorUrl: string): InstallRecipe[] {
     {
       id: 'posix',
       label: 'bash / zsh',
-      hint: 'macOS, Linux, WSL, and Git Bash on Windows.',
       command: `curl -fsSL ${connectorUrl} -o ~/session-relay.mjs.tmp && mv ~/session-relay.mjs.tmp ~/session-relay.mjs && (claude mcp remove -s local session-relay >/dev/null 2>&1; claude mcp add -s local session-relay -- node ~/session-relay.mjs)`,
     },
     {
       id: 'powershell',
       label: 'PowerShell',
-      hint: 'Windows PowerShell / pwsh — curl.exe on purpose: bare `curl` is the Invoke-WebRequest alias there.',
+      // curl.exe on purpose: bare `curl` is the Invoke-WebRequest alias in PowerShell.
       command: `curl.exe -fsSL ${connectorUrl} -o "$HOME\\session-relay.mjs.tmp"; if ($?) { Move-Item -Force "$HOME\\session-relay.mjs.tmp" "$HOME\\session-relay.mjs"; claude mcp remove -s local session-relay *> $null; claude mcp add -s local session-relay -- node "$HOME\\session-relay.mjs" }`,
     },
   ]

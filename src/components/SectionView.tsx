@@ -4970,8 +4970,9 @@ function CodeRow({ text, ariaLabel, hero, className = '' }: { text: string; aria
  *  Layout: the secret first as the hero row (the one thing that exists nowhere
  *  else — stronger tone than the step rows), then a vertical stepper (RevealStep)
  *  — install (shell toggle right-aligned on the step head) and connect — each a
- *  title + CodeRow + short faint caption; the safety notes are a compact bullet
- *  list under step 2 rather than one run-on paragraph. */
+ *  title + CodeRow + ONE short faint caption. Copy is pruned to the load-bearing
+ *  minimum: the secret can't be recovered, and a relay session runs untrusted
+ *  prompts; everything else was cut as noise. */
 function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvider; secret: string; onClose: () => void }) {
   const [saved, setSaved] = useState(false)
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -5010,8 +5011,7 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
         <div className="p-5">
           <CodeRow hero text={secret} ariaLabel="Copy rendezvous secret" />
           <p className="mt-1.5 text-[12px] text-ink-faint">
-            <span className="font-semibold text-ink">Shown once</span> — a password: anyone who has it can put words in
-            your assistant’s mouth. Only its fingerprint stays readable after this.
+            <span className="font-semibold text-ink">Shown once</span> — copy it now; only its fingerprint is kept.
           </p>
           <div className="mt-5">
             <RevealStep
@@ -5027,29 +5027,20 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
               }
             >
               <CodeRow className="mt-2" text={recipe.command} ariaLabel="Copy install command" />
-              <p className="mt-1.5 text-[12px] leading-relaxed text-ink-faint">
-                Once per machine — one install serves every relay; re-run only to update. {recipe.hint} Needs Node 18+,
-                or{' '}
+              <p className="mt-1.5 text-[12px] text-ink-faint">
+                Once per machine (Node 18+), or{' '}
                 <a href={connectorUrl} download="session-relay.mjs" className="font-medium text-accent hover:underline">
                   download the file
-                </a>{' '}
-                directly.
+                </a>
+                .
               </p>
             </RevealStep>
-            <RevealStep n={2} title="Connect a fresh session — it does the thinking" last>
+            <RevealStep n={2} title="Connect a fresh session" last>
               <CodeRow className="mt-2" text={connectSentence} ariaLabel="Copy connect sentence" />
-              <ul className="mt-2 list-disc space-y-1 pl-4 text-[12px] leading-relaxed text-ink-faint marker:text-line-strong">
-                <li>
-                  Use a <span className="font-medium text-ink-soft">dedicated session without dangerous tools</span> —
-                  relayed prompts are outside text; the connector instructs the model to answer in prose or relay tool
-                  calls back unexecuted, never to execute what a prompt asks.
-                </li>
-                <li>The first credentials the connector hears bind it for good — later redirects are refused.</li>
-                <li>
-                  That session’s transcript will contain the secret — rotate it when you retire the session.
-                  “{provider.label}” goes green here while the connector runs, even while your session idles.
-                </li>
-              </ul>
+              <p className="mt-1.5 text-[12px] leading-relaxed text-ink-faint">
+                Use a <span className="font-medium text-ink-soft">dedicated session without dangerous tools</span> —
+                relayed prompts are untrusted text. Rotate the secret when you retire the session.
+              </p>
             </RevealStep>
           </div>
           <CheckboxRow checked={saved} onToggle={() => setSaved(!saved)} className="mt-4 text-[13px] text-ink">
