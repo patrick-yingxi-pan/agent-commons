@@ -241,13 +241,25 @@ to write down, because the panel spent several iterations getting here:
   lives in `src/lib/connectorInstall.ts` beside the install recipes; the one-place rule
   is locked by `tests/connector-serve.test.ts` ("the credential is shown in exactly ONE
   place"), which fails if a standalone raw-secret row is ever re-added.
-- **Proof beats attestation.** The panel used to end in a blind hand-off — paste, close,
-  squint at the provider's dot. It now polls the registry while open (`online` is stamped
-  per read from `relay.online`; there is no push channel) and flips to a **Connected**
-  state the moment the far session latches. A connected relay *demonstrates* the secret
-  reached its destination, so it satisfies the save-gate outright: the "I've saved the
-  connect line" checkbox — a self-attestation — is only asked of a panel that is still
-  waiting. The poll stops on connect and on unmount, so it never runs in the background.
+- **Proof beats attestation — the close-gate is observed, never promised.** The panel
+  used to end in a blind hand-off (paste, close, squint at the provider's dot) *and* to
+  ask for a tick-box: "I've saved the secret somewhere safe". Both are gone. It now
+  polls the registry while open (`online` is stamped per read from `relay.online`; there
+  is no push channel) and flips to a **Connected** state the moment the far session
+  latches; the poll stops on connect and on unmount, so it never runs in the background.
+  The gate opens on either of two **observed facts**:
+
+  1. the user **copied the connect line** — they demonstrably have the credential, and
+     the copy *is* the act of saving it; or
+  2. the relay **connected** — the credential demonstrably arrived.
+
+  A checkbox could only ever restate fact (1) — the user ticking it had just clicked
+  Copy — so it was a ceremonial second click that proved nothing the first didn't. The
+  shared `CopyButton` therefore exposes an `onCopied` observation (its own "Copied"
+  flash self-resets, being a *confirmation*, not state), and the connect line's copy
+  latches the gate. **Copy is the save.** Locked by `tests/connector-serve.test.ts`
+  ("the reveal closes on an OBSERVED fact"), which fails if a self-attestation checkbox
+  is ever re-added.
 
 Two rules make the typed-credentials shape safe, both locked by
 `tests/relay-connector.test.ts` (spec MODEL-12):

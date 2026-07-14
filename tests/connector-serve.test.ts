@@ -122,6 +122,26 @@ test('the credential is shown in exactly ONE place: inside the connect line', as
   assert.ok(!/text=\{secret\}/.test(panel), 'the panel renders the bare secret outside the connect line')
 })
 
+test('the reveal closes on an OBSERVED fact, never on a self-attestation checkbox', () => {
+  // Copying the connect line IS taking the credential — we watch it happen. A
+  // checkbox asking the user to confirm the copy they just made is a ceremonial
+  // second click that proves nothing extra, so the gate opens on either observed
+  // fact: the line was copied, or the relay connected. If someone re-adds an
+  // "I've saved it" checkbox, this fails.
+  const panel = readFileSync(new URL('../src/components/SectionView.tsx', import.meta.url), 'utf8')
+  const reveal = panel.slice(panel.indexOf('function RelaySecretPanel'), panel.indexOf('The A2A Agent Card viewer'))
+  assert.ok(reveal.length > 0, 'the reveal panel moved — retarget this scan')
+  assert.ok(!/saved the connect line|saved the secret|CheckboxRow/.test(reveal), 'the reveal re-added a self-attestation gate')
+  assert.ok(reveal.includes('const canClose = connected || tookLine'), 'the close-gate must read the two observed facts')
+  assert.ok(/onCopied=\{\(\) => setTookLine\(true\)\}/.test(reveal), "the connect line's copy must open the gate")
+
+  // The observation hook lives on the ONE shared copy primitive, so any copy
+  // affordance can report itself rather than a component hand-rolling a listener.
+  const copyButton = readFileSync(new URL('../src/components/CopyButton.tsx', import.meta.url), 'utf8')
+  assert.ok(/onCopied\?: \(\) => void/.test(copyButton), 'CopyButton must expose the copy observation')
+  assert.ok(/onCopied\?\.\(\)/.test(copyButton), 'CopyButton must actually fire it on click')
+})
+
 test('the SERVED bytes run under plain node: latch, refuse a redirect, drain a round-trip', async () => {
   const { body } = await fetchServedConnector()
   const dir = mkdtempSync(join(tmpdir(), 'served-connector-'))

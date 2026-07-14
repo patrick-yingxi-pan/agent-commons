@@ -4952,13 +4952,24 @@ function RevealStep({ n, title, aside, last, children }: { n: number; title: str
  *  (the row stays draggable/scrollable; Copy carries the full text), so stacked
  *  rows don't each grow a grey scrollbar pill. One uniform treatment: the secret
  *  and the two command rows read as one family. */
-function CodeRow({ text, ariaLabel, className = '' }: { text: string; ariaLabel: string; className?: string }) {
+function CodeRow({
+  text,
+  ariaLabel,
+  className = '',
+  onCopied,
+}: {
+  text: string
+  ariaLabel: string
+  className?: string
+  /** Told when the user takes this row's text (see CopyButton.onCopied). */
+  onCopied?: () => void
+}) {
   return (
     <div className={`flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2 ${className}`}>
       <code className="no-scrollbar min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-[12px] text-ink">
         {text}
       </code>
-      <CopyButton text={text} ariaLabel={ariaLabel} />
+      <CopyButton text={text} ariaLabel={ariaLabel} onCopied={onCopied} />
     </div>
   )
 }
@@ -4981,11 +4992,17 @@ function CodeRow({ text, ariaLabel, className = '' }: { text: string; ariaLabel:
  *  2. **The panel can prove it worked.** It used to end in a blind hand-off (paste
  *     and hope). Now it watches the provider's live `online` flag while open and
  *     flips to a Connected state the moment the far session latches — the natural
- *     end of the job. And since a connected relay *demonstrates* the secret reached
- *     its destination, it satisfies the save-gate outright: proof beats attestation.
- *     Only a still-waiting panel needs the user to tick "I've saved it". */
+ *     end of the job.
+ *  3. **The close-gate is observed, never attested.** There is no "I've saved it"
+ *     checkbox. Ticking one only ever restated what the Copy click already proved —
+ *     a ceremonial second click. So the gate opens on either of two OBSERVED facts:
+ *     the user copied the connect line (they have the credential), or the relay
+ *     connected (the credential demonstrably arrived). Copy IS the save. */
 function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvider; secret: string; onClose: () => void }) {
-  const [saved, setSaved] = useState(false)
+  // Taking the line IS saving it — the copy is the act, observed. The old panel asked
+  // for the copy AND a checkbox attesting to the copy: a ceremonial second click that
+  // proved nothing the first didn't. So the Copy on the connect line satisfies the gate.
+  const [tookLine, setTookLine] = useState(false)
   const dialogRef = useRef<HTMLDivElement>(null)
   // Liveness is stamped server-side per read (`relay.online`) with no push channel,
   // so while this panel is open and still waiting, poll the registry. The poll stops
@@ -4997,8 +5014,9 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
     const timer = setInterval(() => invalidate(keys.providers), 2000)
     return () => clearInterval(timer)
   }, [connected])
-  // Connecting proves the secret landed; short of that, the user attests they saved it.
-  const canClose = connected || saved
+  // Two proofs, no promises: the relay connecting shows the secret reached its
+  // destination; short of that, copying the connect line shows the user has it.
+  const canClose = connected || tookLine
   const guardedClose = () => canClose && onClose()
   useFocusTrap(dialogRef, guardedClose)
   // The externally dialable relay base: the same-origin `/api/v1` resolved to an
@@ -5054,7 +5072,8 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
             </p>
           </RevealStep>
           <RevealStep n={2} title="Paste into a fresh session" last>
-            <CodeRow className="mt-2" text={connectLine} ariaLabel="Copy connect line" />
+            {/* Copying this row IS the save — it satisfies the close-gate (see above). */}
+            <CodeRow className="mt-2" text={connectLine} ariaLabel="Copy connect line" onCopied={() => setTookLine(true)} />
             <p className="mt-1.5 text-[12px] leading-relaxed text-ink-faint">
               <span className="font-semibold text-ink">Shown once</span> — this line carries your secret. Use a{' '}
               <span className="font-medium text-ink-soft">dedicated session without dangerous tools</span>: relayed
@@ -5067,17 +5086,14 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
               Connected — “{provider.label}” is answering.
             </p>
           ) : (
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-              <CheckboxRow checked={saved} onToggle={() => setSaved(!saved)} className="text-[13px] text-ink">
-                I’ve saved the connect line
-              </CheckboxRow>
-              <span className="flex items-center gap-1.5 text-[11px] text-ink-faint">
-                <Spinner size={11} /> Waiting for your session…
-              </span>
-            </div>
+            <p className="mt-4 flex items-center gap-1.5 text-[11px] text-ink-faint">
+              <Spinner size={11} /> Waiting for your session…
+            </p>
           )}
         </div>
-        <div className="flex shrink-0 items-center justify-end border-t border-line bg-panel px-5 py-3">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-line bg-panel px-5 py-3">
+          {/* The gate names itself only while it's shut — no nagging once it's open. */}
+          <span className="text-[12px] text-ink-faint">{canClose ? '' : 'Copy the connect line to continue.'}</span>
           <button
             onClick={onClose}
             disabled={!canClose}

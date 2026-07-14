@@ -13,6 +13,7 @@ export function CopyButton({
   label = 'Copy',
   copiedLabel = 'Copied',
   ariaLabel,
+  onCopied,
 }: {
   /** The exact string written to the clipboard. */
   text: string
@@ -22,6 +23,12 @@ export function CopyButton({
   copiedLabel?: string
   /** Accessible name when the visible label alone isn't specific enough. */
   ariaLabel?: string
+  /** Fired when the user actually takes the text. The button's own "Copied" flash
+   *  self-resets (it's a confirmation, not a state), so a caller that needs to KNOW
+   *  the copy happened — e.g. a one-time-secret reveal whose close-gate is satisfied
+   *  by taking the credential rather than by ticking a box promising you did — must
+   *  be told. Observation, not attestation. */
+  onCopied?: () => void
 }) {
   const [copied, setCopied] = useState(false)
   // Self-reset so the button doesn't sit on a stale "Copied" — the modern default.
@@ -36,6 +43,7 @@ export function CopyButton({
       onClick={() => {
         void navigator.clipboard?.writeText(text)
         setCopied(true)
+        onCopied?.()
       }}
       aria-label={ariaLabel ?? label}
       className={COPY_BUTTON_CLASS}
