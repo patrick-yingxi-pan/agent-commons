@@ -491,7 +491,22 @@ function Workspace() {
                 onOpenNotifications={withRailClose(() => setNotifOpen(true))}
                 onOpenOwner={withRailClose(openOwner)}
                 onSplitView={tier === 'wide' ? splitView : undefined}
-                onCloseView={tier === 'wide' && focusedClosable ? closeFocused : undefined}
+                onCloseView={
+                  tier === 'wide' && focusedClosable
+                    ? () =>
+                        closeFocused((promoted) => {
+                          // Closing the PRIMARY tile: the singleton controller
+                          // navigates onto the surviving pane's content, so the
+                          // address bar honestly names what remains on screen.
+                          if (promoted.kind === 'msession') selectSession(promoted.id)
+                          else if (promoted.kind === 'msection') {
+                            openSection(promoted.id)
+                            openSubview(promoted.sub ?? null)
+                          }
+                          // an mpicker promotes silently — the controller stays put
+                        })
+                    : undefined
+                }
                 resizable={!railOverlay}
                 railW={leftW}
                 onResizeStart={startResize}

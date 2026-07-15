@@ -134,8 +134,10 @@ export function Sidebar({
    *  only, where there's room to tile. Acts on the focused pane, duplicating
    *  its content beside ('row') or below ('col') it. */
   onSplitView?: (dir: 'row' | 'col') => void
-  /** Close the FOCUSED pane — the third button of the split cluster. Passed only
-   *  while a closable (secondary) pane is focused; the primary never closes. */
+  /** Close the FOCUSED pane — the third button of the split cluster, offered
+   *  whenever split panes exist. Homogeneous: a secondary pane collapses;
+   *  closing the primary tile relocates the primary role into the surviving
+   *  pane (its content promotes into the controller, so the URL follows). */
   onCloseView?: () => void
   /** Drag-to-resize wiring; the parent owns the width and clamps it. On the
    *  narrow tier the rail is a fixed-width drawer, so the handle is dropped. */
@@ -462,7 +464,8 @@ export function Sidebar({
           </>
         )}
         {/* Close the focused pane — same cluster, same target (the focused pane),
-            offered only while a closable secondary pane is focused. */}
+            offered whenever split panes exist. Panes are homogeneous: the
+            primary's tile closes too (its role relocates — see useMainSplit). */}
         {onCloseView && (
           <button
             onClick={onCloseView}

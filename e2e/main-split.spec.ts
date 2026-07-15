@@ -1,9 +1,10 @@
 /** The MAIN workspace split, focused-pane model (universal split, ADAPT-17):
  *  the rail's split/close cluster (beside the bell) acts on the FOCUSED pane —
- *  the split buttons DUPLICATE it (no picker, no per-pane chrome), the close
- *  button (offered only while a secondary pane is focused) removes it; rail
- *  navigation retargets the focused pane; the URL never follows a secondary
- *  pane. The tree math is locked by tests/main-split.test.ts;
+ *  the split buttons DUPLICATE it (no picker, no per-pane chrome), and close
+ *  is HOMOGENEOUS: a secondary pane collapses, while closing the primary tile
+ *  relocates the primary role into the surviving pane (its content promotes
+ *  into the controller, so the URL follows what remains); rail navigation
+ *  retargets the focused pane; the URL never follows a secondary pane. The tree math is locked by tests/main-split.test.ts;
  *  this locks the wiring. */
 import { test, expect } from '@playwright/test'
 
@@ -41,16 +42,36 @@ test('split duplicates the focused conversation; the rail retargets the focused 
   await expect(page.getByRole('separator', { name: 'Resize view panes (root)' })).toBeVisible()
 
   // No per-pane chrome at all: close lives in the rail cluster and acts on the
-  // FOCUSED pane. It is offered only while a secondary pane is focused — focus
-  // the primary and it withdraws; focus pane b and closing it dissolves the
-  // frame. (dispatchEvent: focus rides pointer-down capture, and actionability
-  // would wait forever on the thread's continuous animations.)
-  await page.locator('[data-main-pane="a"]').dispatchEvent('pointerdown')
-  await expect(page.locator('[data-close-view]')).toHaveCount(0)
+  // FOCUSED pane — homogeneously. Focus pane b (secondary) and close: it
+  // collapses, the frame dissolves, the primary conversation survives.
+  // (dispatchEvent: focus rides pointer-down capture, and actionability would
+  // wait forever on the thread's continuous animations.)
   await paneB.dispatchEvent('pointerdown')
   await page.locator('[data-close-view]').click()
   await expect(page.locator('[data-main-split]')).toHaveCount(0)
   await expect(page.getByText('token refresh logic').first()).toBeVisible()
+})
+
+test('closing the focused PRIMARY tile is homogeneous: the survivor promotes and the URL follows', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 })
+  await page.goto('/s/auth-refactor')
+  await expect(page.getByText('token refresh logic').first()).toBeVisible()
+
+  // Split (duplicate takes focus), retarget the duplicate at Projects.
+  await page.locator('[data-split-view="row"]').click()
+  await page.locator('nav[aria-label="Sections"]').getByText('Projects', { exact: true }).click()
+  const paneB = page.locator('[data-main-pane="b"]')
+  await expect(paneB.getByText('Platform hardening').first()).toBeVisible()
+
+  // Focus the PRIMARY tile and close it: the close button is offered (panes
+  // are equals), the Projects pane's content promotes into the controller —
+  // the frame dissolves onto Projects and the ADDRESS follows what survived.
+  await page.locator('[data-main-pane="a"]').dispatchEvent('pointerdown')
+  await expect(page.locator('[data-close-view]')).toBeVisible()
+  await page.locator('[data-close-view]').click()
+  await expect(page.locator('[data-main-split]')).toHaveCount(0)
+  await expect(page.getByText('Platform hardening').first()).toBeVisible()
+  await expect(page).toHaveURL(/\/projects$/)
 })
 
 test('focus moves on pointer-down, and the split buttons act on the focused pane', async ({ page }) => {

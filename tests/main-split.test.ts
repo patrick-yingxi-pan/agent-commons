@@ -5,7 +5,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { panes, prunePanes, splitPane, pane } from '../src/lib/splitFrame.ts'
-import { PRIMARY, closeMainPane, newMainPicker, type MainPaneContent, type MainSplitNode } from '../src/lib/mainSplit.ts'
+import { PRIMARY, closeMainPane, closePrimaryPane, newMainPicker, type MainPaneContent, type MainSplitNode } from '../src/lib/mainSplit.ts'
 
 const projects: MainPaneContent = { kind: 'msection', id: 'projects' }
 const artifacts: MainPaneContent = { kind: 'msection', id: 'artifacts' }
@@ -47,7 +47,37 @@ test('an msection pane carries its facet (`sub`) through the JSON round-trip —
 
 test('closeMainPane guards the primary: a tree that lost its primary dissolves rather than strand panes', () => {
   const tree = splitPane(pane(PRIMARY), '', 'row', projects) as MainSplitNode
-  // Closing the PRIMARY itself (the UI refuses; the rule still holds) leaves a
-  // primary-less tree — which dissolves to the plain surface, never a trap.
+  // Closing the PRIMARY through the plain rule (the UI routes it through
+  // closePrimaryPane instead) leaves a primary-less tree — which dissolves to
+  // the plain surface, never a trap.
   assert.equal(closeMainPane(tree, 'a'), null)
+})
+
+// ── Homogeneous close: the primary's TILE closes; its ROLE relocates ─────────
+
+test('closePrimaryPane, two panes: the survivor promotes and the frame dissolves', () => {
+  const tree = splitPane(pane(PRIMARY), '', 'row', projects) as MainSplitNode
+  const res = closePrimaryPane(tree, 'a')
+  assert.ok(res)
+  assert.equal(res!.tree, null, 'one pane left → the frame dissolves to the plain surface')
+  assert.deepEqual(res!.promoted, projects, 'the survivor’s content is handed up for the controller to navigate onto')
+})
+
+test('closePrimaryPane, nested sibling subtree: the first inheriting pane promotes and is re-stamped primary', () => {
+  // split(primary@a, split(projects@ba, artifacts@bb)) — close the primary tile.
+  const tree = splitPane(splitPane(pane(PRIMARY), '', 'row', projects), 'b', 'col', artifacts)
+  const res = closePrimaryPane(tree, 'a')
+  assert.ok(res && res.tree, 'two panes remain a tree')
+  assert.deepEqual(res!.promoted, projects, 'the subtree’s first pane is the successor')
+  assert.deepEqual(
+    panes(res!.tree).map((p) => p.content.kind),
+    ['primary', 'msection'],
+    'exactly one primary again — the invariant holds through the relocation',
+  )
+})
+
+test('closePrimaryPane refuses a non-primary path (those close through closeMainPane)', () => {
+  const tree = splitPane(pane(PRIMARY), '', 'row', projects) as MainSplitNode
+  assert.equal(closePrimaryPane(tree, 'b'), null)
+  assert.equal(closePrimaryPane(tree, 'zz'), null)
 })

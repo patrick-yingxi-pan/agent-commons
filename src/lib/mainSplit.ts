@@ -20,7 +20,7 @@
 import type { SectionId } from '../types'
 // Extension-qualified: this module is node-tested (tests/main-split.test.ts),
 // and Node's native TS resolves runtime imports only with the explicit .ts.
-import { closePane, panes, type SplitNode } from './splitFrame.ts'
+import { closePane, nodeAt, panes, replacePane, type SplitNode } from './splitFrame.ts'
 
 export type MainPaneContent =
   | { kind: 'primary'; id: 'primary' }
@@ -48,6 +48,31 @@ export function closeMainPane(tree: MainSplitNode, path: string): MainSplitNode 
   if (!next) return null
   if (next.kind === 'pane' || !panes(next).some((p) => p.content.kind === 'primary')) return null
   return next
+}
+
+/** Close the PRIMARY pane's tile — the homogeneity rule (panes are equals to
+ *  the user; the primary is an implementation detail): the primary ROLE
+ *  survives (it is where the URL lives) by RELOCATING into the pane that
+ *  inherits the freed space. That successor's content is returned as
+ *  `promoted` — the caller navigates the singleton controller onto it, so the
+ *  address honestly names what the surviving tile shows — and its leaf is
+ *  re-stamped `primary`. Returns null when `path` isn't the primary pane
+ *  (close those with `closeMainPane`); `tree: null` when only the promoted
+ *  pane remained (the frame dissolves to the plain surface). */
+export function closePrimaryPane(
+  tree: MainSplitNode,
+  path: string,
+): { tree: MainSplitNode | null; promoted: MainPaneContent } | null {
+  const node = nodeAt(tree, path)
+  if (!node || node.kind !== 'pane' || node.content.kind !== 'primary') return null
+  const collapsed = closePane(tree, path)
+  if (!collapsed) return null // a lone-primary tree shouldn't exist; nothing to promote
+  // The successor: the first pane of the subtree that took the primary's slot
+  // (it sits at the closed pane's parent path after the collapse).
+  const parentPath = path.slice(0, -1)
+  const successor = panes(collapsed).find((p) => p.path.startsWith(parentPath)) ?? panes(collapsed)[0]!
+  const next = replacePane(collapsed, successor.path, PRIMARY)
+  return { tree: next.kind === 'pane' ? null : next, promoted: successor.content }
 }
 
 /** ── Per-account persistence (the uiPrefs scoping pattern) ─────────────────── */

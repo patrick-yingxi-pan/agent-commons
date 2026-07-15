@@ -24,6 +24,7 @@ import { nodeAt, pane, panes, replacePane, setRatio, splitPane as splitLeaf, typ
 import {
   PRIMARY,
   closeMainPane as closeMain,
+  closePrimaryPane,
   getMainSplitPref,
   setMainSplitPref,
   type MainPaneContent,
@@ -133,18 +134,38 @@ export function useMainSplit() {
   )
 
   /** Close the FOCUSED pane — the rail's close button, beside the split pair.
-   *  Offered only while `focusedClosable` (a secondary pane is focused): the
-   *  primary can't close (it is where the URL lives). */
-  const closeFocused = useCallback(() => {
-    const t = treeRef.current
-    const node = t ? nodeAt(t, focusedRef.current) : undefined
-    if (t && node?.kind === 'pane' && node.content.kind !== 'primary') commit(closeMain(t, focusedRef.current))
-  }, [commit])
+   *  Homogeneous across panes: a secondary pane simply collapses; closing the
+   *  PRIMARY tile relocates the primary role into the pane inheriting its
+   *  space — that pane's content is handed to `onPromote` (the caller
+   *  navigates the singleton controller onto it, so the URL honestly names
+   *  what survives) and its leaf is re-stamped primary. */
+  const closeFocused = useCallback(
+    (onPromote?: (content: MainPaneContent) => void) => {
+      const t = treeRef.current
+      if (!t) return
+      const path = focusedRef.current
+      const node = nodeAt(t, path)
+      if (node?.kind !== 'pane') return
+      if (node.content.kind === 'primary') {
+        const res = closePrimaryPane(t, path)
+        if (!res) return
+        onPromote?.(res.promoted)
+        commit(res.tree)
+        // Focus follows the relocated primary (the surviving tile).
+        focusedRef.current = primaryPath(treeRef.current)
+        setFocusedPane(focusedRef.current)
+      } else {
+        commit(closeMain(t, path))
+      }
+    },
+    [commit],
+  )
 
   // Whether the rail's close button applies right now (derived per render —
-  // focus and tree are both state, so this stays in step).
+  // focus and tree are both state, so this stays in step): any focused pane,
+  // primary included (homogeneity — the role relocates, the tile closes).
   const focusedNode = mainTree ? nodeAt(mainTree, focusedPane) : undefined
-  const focusedClosable = focusedNode?.kind === 'pane' && focusedNode.content.kind !== 'primary'
+  const focusedClosable = focusedNode?.kind === 'pane'
 
   const setMainRatio = useCallback(
     (path: string, ratio: number) => {
