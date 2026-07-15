@@ -72,9 +72,14 @@ UI components read through `src/api` hooks and write through commands; nothing
 else knows a URL, header, or SSE event name. Documented exceptions, both
 foreign-by-nature: the UI-host filesystem source (a web server can't read the
 browser's disk), and the A2A card viewer's fetch of a FOREIGN instance's
-agent-card URL (`src/components/SectionView.tsx` — routing it through the api
-client would attach OUR identity headers to an untrusted host; keeping it out
-is the correct posture, found by this rule's first run, 2026-07-15).
+agent-card URL (`src/components/SectionView.tsx`, found by this rule's first
+run, 2026-07-15). The card fetch stays outside the client because the client
+is origin-PINNED (`API_BASE` + path — it cannot address a foreign host, and
+generalizing it to absolute URLs would erode the pin this rule checks), its
+post-processing assumes OUR backend (the `x-resolved-tenant` identity-echo
+tripwire, the account-generation drop, the error taxonomy — meaningless
+against a foreign host), and in header-identity deployments a generalized
+client would spray credentials cross-origin.
 **Detection:** `node --test tests/contract-boundaries.test.ts`; grep
 `fetch(`/`EventSource` outside `src/api/` — a hit is either on this exception
 list or a finding.
