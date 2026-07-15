@@ -464,6 +464,21 @@ the mock?
   resources through tools), not prototype shortcuts a production system would have
   to unwind.
 
+### Active build
+
+- **The universal split workspace — decided 2026-07-15, phases landing.** The
+  owner's direction: a Chrome-split-view-like tiling of the MAIN workspace
+  surface — arbitrarily many panes, row/col nesting, each pane displaying
+  anything the single surface can (a conversation with its OWN composer and
+  streaming turn, any section page, a context panel), fully independent, with
+  the existing right-panel split frame (ADAPT-16) absorbed at the end. The
+  architecture (per-session conversation store replacing the singleton
+  controller's session half; generic split tree; focused-pane URL semantics)
+  and the 5-phase backlog live in
+  [`docs/design/universal-split-workspace.md`](docs/design/universal-split-workspace.md)
+  — consult it before touching `useSessionWorkspace.ts`, the split libs, or
+  the panel components, and land work as its phases, each with tests.
+
 ### Open exploration (forward-looking — a design log, not shipped behavior)
 
 - **Capability-broker architecture.** A worked-through future direction in which the
