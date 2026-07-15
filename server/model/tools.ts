@@ -34,16 +34,24 @@ import type {
  *  of "this session". */
 export interface ToolContext {
   session: { id: string; title: string }
-  /** The live Agent Commons registries (docs/agent-commons.md, D6/D9/D10), supplied by
-   *  the route from the store. The Agent Commons CRUD tools resolve the model's named
-   *  provider / prompt / agent against *what currently exists* — including entities
-   *  created earlier in the same conversation — not just the seed. Absent in unit calls
-   *  that don't exercise those tools. */
+  /** The live registries (docs/agent-commons.md, D6/D9/D10), supplied by the route
+   *  from the store. Every name a tool call carries resolves against *what currently
+   *  exists* for the caller's tenant — including entities created earlier in the same
+   *  conversation (a runtime project lives in `graph.extraProjects`, not the seed) —
+   *  never against a seed-only mirror. Absent in unit calls that don't exercise
+   *  those tools (the resolvers then fall back to the seed catalogs as the list
+   *  source, but still refuse an unmatched name — INV-9). */
   commons?: {
     providers: { id: string; label: string; isDefault?: boolean }[]
     systemPrompts: { id: string; label: string; isDefault?: boolean }[]
     agents: { id: string; label: string }[]
     commissions: { id: string; agentId: string; projectId: string }[]
+    /** Live projects — created (`graph.extraProjects`) first, then seeds. */
+    projects?: { id: string; name: string; defaultRole?: ProjectRole }[]
+    /** Live artifacts — saved-out extras first, then seeds. */
+    artifacts?: { id: string; name: string }[]
+    /** Live routines (runtime-created included). */
+    schedules?: { id: string; name: string; cadence: string }[]
   }
 }
 
@@ -71,24 +79,42 @@ interface ToolSpec {
 
 // ── Resolvers — turn the model's *names* into real graph ids ──────────────────
 // The model proposes in human terms ("file under Insights dashboard"); the
-// backend resolves that to the concrete id the graph uses. Case-insensitive,
-// with a sensible fallback so a loosely-named request still lands.
+// backend resolves that to the concrete id the graph uses. Case-insensitive:
+// exact match first, then contains. An UNMATCHED name resolves to nothing — the
+// tool refuses loudly ("proposed nothing", fed back to the model so it can
+// correct itself) instead of silently substituting a default entity. That
+// silent-default class is exactly INV-9's target: a `[0]` fallback once turned
+// "unfile from Vibe Coding Guide" into "file under Insights dashboard" (a
+// runtime-created project the seed-only list couldn't see, so the resolver
+// defaulted). The list source is the LIVE registry the route supplies
+// (ctx.commons — created entities included), with the seed catalogs only as the
+// unit-call fallback.
 
 const str = (v: unknown, fallback = ''): string => (typeof v === 'string' ? v : fallback)
-const bool = (v: unknown): boolean => v === true
+/** The wire declares these flags as STRING properties ("Set \"true\" to …"), so
+ *  accept the declared shape as well as a genuine boolean — `v === true` alone
+ *  silently dropped every `remove: "true"` a model sent, turning unfile into file. */
+const bool = (v: unknown): boolean => v === true || (typeof v === 'string' && v.trim().toLowerCase() === 'true')
 
-function resolveProject(name: string) {
+function byName<T extends { name: string }>(list: T[], name: string): T | undefined {
   const n = name.trim().toLowerCase()
-  return PROJECTS.find((p) => p.name.toLowerCase() === n) ?? PROJECTS.find((p) => p.name.toLowerCase().includes(n) && n) ?? PROJECTS[0]
+  if (!n) return undefined
+  return list.find((x) => x.name.toLowerCase() === n) ?? list.find((x) => x.name.toLowerCase().includes(n))
 }
-function resolveArtifact(name: string) {
-  const n = name.trim().toLowerCase()
-  return ALL_ARTIFACTS.find((a) => a.name.toLowerCase() === n) ?? ALL_ARTIFACTS.find((a) => a.name.toLowerCase().includes(n) && n) ?? ALL_ARTIFACTS[0]
+function resolveProject(name: string, ctx: ToolContext) {
+  return byName(ctx.commons?.projects ?? PROJECTS, name)
 }
-function resolveSchedule(name: string) {
-  const n = name.trim().toLowerCase()
-  return SCHEDULED_TASKS.find((s) => s.name.toLowerCase() === n) ?? SCHEDULED_TASKS.find((s) => s.name.toLowerCase().includes(n) && n) ?? SCHEDULED_TASKS[0]
+function resolveArtifact(name: string, ctx: ToolContext) {
+  return byName(ctx.commons?.artifacts ?? ALL_ARTIFACTS, name)
 }
+function resolveSchedule(name: string, ctx: ToolContext) {
+  return byName(ctx.commons?.schedules ?? SCHEDULED_TASKS, name)
+}
+/** The uniform refusal for an unmatched name — a no-effect summary the model can
+ *  read and correct, never a substituted entity. */
+const noMatch = (kind: string, name: string): ToolEffect => ({
+  summary: `No ${kind} matching "${name}" — proposed nothing. Name an existing ${kind} exactly.`,
+})
 function resolveConnector(name: string): { id: string; label: string; kind?: Connector['kind'] } {
   const n = name.trim().toLowerCase()
   return (
@@ -226,7 +252,8 @@ const TOOLS: ToolSpec[] = [
     },
     required: ['project'],
     build: (input, ctx) => {
-      const p = resolveProject(str(input.project))
+      const p = resolveProject(str(input.project), ctx)
+      if (!p) return noMatch('project', str(input.project))
       const op: RelationOp = bool(input.remove)
         ? { kind: 'file-session', sessionId: ctx.session.id, sessionTitle: ctx.session.title, projectId: null, projectName: p.name }
         : { kind: 'file-session', sessionId: ctx.session.id, sessionTitle: ctx.session.title, projectId: p.id, projectName: p.name }
@@ -245,7 +272,10 @@ const TOOLS: ToolSpec[] = [
     },
     required: ['name'],
     build: (input, ctx) => {
-      const project = str(input.project) ? resolveProject(str(input.project)) : undefined
+      // An optional-but-NAMED project must still resolve — saving without the
+      // project the caller asked for would be a silent normalization (INV-9).
+      const project = str(input.project) ? resolveProject(str(input.project), ctx) : undefined
+      if (str(input.project) && !project) return noMatch('project', str(input.project))
       const op: RelationOp = {
         kind: 'save-artifact',
         artifact: { name: str(input.name, 'session-recap.md'), kind: resolveKind(input.kind), meta: str(input.meta, '1 page'), excerpt: str(input.excerpt) || undefined },
@@ -266,9 +296,11 @@ const TOOLS: ToolSpec[] = [
       remove: { type: 'string', description: 'Set "true" to remove the artifact from its project instead.' },
     },
     required: ['artifact'],
-    build: (input) => {
-      const a = resolveArtifact(str(input.artifact))
-      const p = resolveProject(str(input.project))
+    build: (input, ctx) => {
+      const a = resolveArtifact(str(input.artifact), ctx)
+      if (!a) return noMatch('artifact', str(input.artifact))
+      const p = resolveProject(str(input.project), ctx)
+      if (!p) return noMatch('project', str(input.project))
       const op: RelationOp = bool(input.remove)
         ? { kind: 'refile-artifact', artifactId: a.id, artifactName: a.name, projectId: null, projectName: p.name }
         : { kind: 'refile-artifact', artifactId: a.id, artifactName: a.name, projectId: p.id, projectName: p.name }
@@ -294,9 +326,10 @@ const TOOLS: ToolSpec[] = [
       project: { type: 'string', description: 'The project to scope it to.' },
     },
     required: ['connector', 'project'],
-    build: (input) => {
+    build: (input, ctx) => {
       const c = resolveConnector(str(input.connector))
-      const p = resolveProject(str(input.project))
+      const p = resolveProject(str(input.project), ctx)
+      if (!p) return noMatch('project', str(input.project))
       const context: ProjectContext = { kind: 'connector', label: c.label, meta: 'connected' }
       return { relationOps: [{ kind: 'scope-context', projectId: p.id, projectName: p.name, context }], summary: `Proposed scoping ${c.label} to ${p.name}; awaiting confirmation.` }
     },
@@ -309,8 +342,9 @@ const TOOLS: ToolSpec[] = [
       project: { type: 'string', description: 'The project to remove it from.' },
     },
     required: ['context', 'project'],
-    build: (input) => {
-      const p = resolveProject(str(input.project))
+    build: (input, ctx) => {
+      const p = resolveProject(str(input.project), ctx)
+      if (!p) return noMatch('project', str(input.project))
       const label = str(input.context)
       return { relationOps: [{ kind: 'unscope-context', projectId: p.id, projectName: p.name, contextLabel: label }], summary: `Proposed removing ${label} from ${p.name}; awaiting confirmation.` }
     },
@@ -323,8 +357,9 @@ const TOOLS: ToolSpec[] = [
       instructions: { type: 'string', description: 'The new instructions text.' },
     },
     required: ['project', 'instructions'],
-    build: (input) => {
-      const p = resolveProject(str(input.project))
+    build: (input, ctx) => {
+      const p = resolveProject(str(input.project), ctx)
+      if (!p) return noMatch('project', str(input.project))
       return { relationOps: [{ kind: 'set-project-instructions', projectId: p.id, projectName: p.name, instructions: str(input.instructions) }], summary: `Proposed updating ${p.name}'s instructions; awaiting confirmation.` }
     },
   },
@@ -336,8 +371,9 @@ const TOOLS: ToolSpec[] = [
       readme: { type: 'string', description: 'The new README text (plain text).' },
     },
     required: ['project', 'readme'],
-    build: (input) => {
-      const p = resolveProject(str(input.project))
+    build: (input, ctx) => {
+      const p = resolveProject(str(input.project), ctx)
+      if (!p) return noMatch('project', str(input.project))
       return { relationOps: [{ kind: 'set-project-readme', projectId: p.id, projectName: p.name, readme: str(input.readme) }], summary: `Proposed updating ${p.name}'s README; awaiting confirmation.` }
     },
   },
@@ -350,9 +386,11 @@ const TOOLS: ToolSpec[] = [
       remove: { type: 'string', description: 'Set "true" to unlink instead.' },
     },
     required: ['schedule', 'project'],
-    build: (input) => {
-      const s = resolveSchedule(str(input.schedule))
-      const p = resolveProject(str(input.project))
+    build: (input, ctx) => {
+      const s = resolveSchedule(str(input.schedule), ctx)
+      if (!s) return noMatch('schedule', str(input.schedule))
+      const p = resolveProject(str(input.project), ctx)
+      if (!p) return noMatch('project', str(input.project))
       const op: RelationOp = bool(input.remove)
         ? { kind: 'link-schedule-project', scheduleId: s.id, scheduleName: s.name, projectId: null, projectName: p.name }
         : { kind: 'link-schedule-project', scheduleId: s.id, scheduleName: s.name, projectId: p.id, projectName: p.name }
@@ -367,8 +405,9 @@ const TOOLS: ToolSpec[] = [
       context: { type: 'string', description: 'The source context label, e.g. "brand-kit/".' },
     },
     required: ['artifact', 'context'],
-    build: (input) => {
-      const a = resolveArtifact(str(input.artifact))
+    build: (input, ctx) => {
+      const a = resolveArtifact(str(input.artifact), ctx)
+      if (!a) return noMatch('artifact', str(input.artifact))
       const label = str(input.context)
       return { relationOps: [{ kind: 'set-artifact-source', artifactId: a.id, artifactName: a.name, contextLabel: label }], summary: `Proposed noting ${a.name} derives from ${label}; awaiting confirmation.` }
     },
@@ -381,8 +420,9 @@ const TOOLS: ToolSpec[] = [
       session_label: { type: 'string', description: 'What to label the session it opens each run.' },
     },
     required: ['schedule'],
-    build: (input) => {
-      const s = resolveSchedule(str(input.schedule))
+    build: (input, ctx) => {
+      const s = resolveSchedule(str(input.schedule), ctx)
+      if (!s) return noMatch('schedule', str(input.schedule))
       return { relationOps: [{ kind: 'set-schedule-session', scheduleId: s.id, scheduleName: s.name, cadence: s.cadence, sessionLabel: str(input.session_label, 'New session') }], summary: `Proposed having ${s.name} open a fresh session each run; awaiting confirmation.` }
     },
   },
@@ -394,8 +434,9 @@ const TOOLS: ToolSpec[] = [
       artifact: { type: 'string', description: 'The artifact it saves each run, e.g. "triage-digest.md".' },
     },
     required: ['schedule'],
-    build: (input) => {
-      const s = resolveSchedule(str(input.schedule))
+    build: (input, ctx) => {
+      const s = resolveSchedule(str(input.schedule), ctx)
+      if (!s) return noMatch('schedule', str(input.schedule))
       return { relationOps: [{ kind: 'set-schedule-artifact', scheduleId: s.id, scheduleName: s.name, cadence: s.cadence, artifactName: str(input.artifact, 'digest.md') }], summary: `Proposed having ${s.name} save ${str(input.artifact, 'a digest')} each run; awaiting confirmation.` }
     },
   },
@@ -407,8 +448,9 @@ const TOOLS: ToolSpec[] = [
       tool: { type: 'string', description: 'The tool/connector to add, e.g. "Slack".' },
     },
     required: ['schedule', 'tool'],
-    build: (input) => {
-      const s = resolveSchedule(str(input.schedule))
+    build: (input, ctx) => {
+      const s = resolveSchedule(str(input.schedule), ctx)
+      if (!s) return noMatch('schedule', str(input.schedule))
       const c = resolveConnector(str(input.tool))
       const tool: StepTool = { id: c.id, label: c.label, tone: 'connector' }
       return { relationOps: [{ kind: 'schedule-add-tool', scheduleId: s.id, scheduleName: s.name, cadence: s.cadence, tool }], summary: `Proposed letting ${s.name} use ${c.label} each run; awaiting confirmation.` }
@@ -524,7 +566,8 @@ const TOOLS: ToolSpec[] = [
     required: ['agent', 'project'],
     build: (input, ctx) => {
       const agent = byLabel(ctx.commons?.agents, str(input.agent))
-      const p = resolveProject(str(input.project))
+      const p = resolveProject(str(input.project), ctx)
+      if (!p) return noMatch('project', str(input.project))
       if (!agent) {
         return { summary: `No worker agent matching "${str(input.agent)}" — proposed nothing.` }
       }
@@ -555,7 +598,8 @@ const TOOLS: ToolSpec[] = [
     required: ['agent', 'project'],
     build: (input, ctx) => {
       const agent = byLabel(ctx.commons?.agents, str(input.agent))
-      const p = resolveProject(str(input.project))
+      const p = resolveProject(str(input.project), ctx)
+      if (!p) return noMatch('project', str(input.project))
       const commission = agent && (ctx.commons?.commissions ?? []).find((c) => c.agentId === agent.id && c.projectId === p.id)
       if (!agent || !commission) {
         return { summary: `No commission of "${str(input.agent)}" on ${p.name} to remove — proposed nothing.` }
@@ -593,8 +637,9 @@ const TOOLS: ToolSpec[] = [
       cap: { type: 'number', description: 'The maximum number of active commissions — a non-negative integer.' },
     },
     required: ['project', 'cap'],
-    build: (input) => {
-      const p = resolveProject(str(input.project))
+    build: (input, ctx) => {
+      const p = resolveProject(str(input.project), ctx)
+      if (!p) return noMatch('project', str(input.project))
       const n = Number(input.cap)
       if (!Number.isInteger(n) || n < 0) {
         return { summary: `"${String(input.cap)}" is not a valid commission cap (a non-negative integer) — proposed nothing.` }

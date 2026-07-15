@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { describeOp, opKey, relationContentPreview, type RelationContentPreview, type RelationOp } from '../data/relations'
 import { useRelations } from '../controller/useRelations'
+import { resolveMessageRelation } from '../api'
 import { SECTION_LABELS } from '../lib/nav'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { renderRich } from '../lib/rich'
@@ -50,18 +51,44 @@ const RELATION_ICON: Record<string, LucideIcon> = {
 /** The inline confirmation prompt: Claude proposes one or more relation edits,
  *  and the user confirms (or declines) each, right inside the conversation.
  *  Per-action edits confirm one-off; a recurring schedule's effect is a standing
- *  approval ("approve for all runs") that then executes unprompted. */
-export function RelationActionCard({ ops }: { ops: RelationOp[] }) {
+ *  approval ("approve for all runs") that then executes unprompted.
+ *
+ *  A resolution is HISTORY, so it lives on the record: when the card knows its
+ *  message (`sessionId` + `messageId`), each confirm / "not now" also writes the
+ *  verdict to the message (`relationsResolved`, keyed by `opKey`) — the graph
+ *  derivation alone reads the CURRENT relation, so a later op that moves it on
+ *  (refile elsewhere, a newer filing) flipped an already-confirmed card back to
+ *  pending on reload. The verdict can't be un-happened by later edits. */
+export function RelationActionCard({
+  ops,
+  sessionId,
+  messageId,
+  resolved,
+}: {
+  ops: RelationOp[]
+  /** The message the proposal rode in on — enables the persisted verdict. */
+  sessionId?: string
+  messageId?: string
+  /** The persisted verdicts (`Message.relationsResolved`), when loaded. */
+  resolved?: Record<string, 'confirmed' | 'skipped'>
+}) {
   const { applyOp, navigate, isStandingApproved, appliedInGraph, readmeForProject, instructionsForProject } =
     useRelations()
   const [done, setDone] = useState<Set<string>>(new Set())
   const [skipped, setSkipped] = useState<Set<string>>(new Set())
 
+  const persistVerdict = (key: string, verdict: 'confirmed' | 'skipped') => {
+    if (sessionId && messageId) void resolveMessageRelation(sessionId, messageId, key, verdict).catch(() => {})
+  }
   const confirm = (op: RelationOp) => {
     applyOp(op)
     setDone((prev) => new Set(prev).add(opKey(op)))
+    persistVerdict(opKey(op), 'confirmed')
   }
-  const skip = (key: string) => setSkipped((prev) => new Set(prev).add(key))
+  const skip = (key: string) => {
+    setSkipped((prev) => new Set(prev).add(key))
+    persistVerdict(key, 'skipped')
+  }
 
   return (
     <div className="mt-2.5 overflow-hidden rounded-xl border border-line bg-panel-2/30 shadow-sm">
@@ -83,8 +110,15 @@ export function RelationActionCard({ ops }: { ops: RelationOp[] }) {
           // ops derive the same remount-proof state from the GRAPH (the record of
           // what was applied): a reopened thread must not re-offer a confirmed
           // edit as pending. Non-derivable ops keep the in-memory fallback.
-          const isDone = done.has(key) || (standing && isStandingApproved(key)) || appliedInGraph(op) === true
-          const isSkipped = skipped.has(key)
+          // The persisted verdict (the record of what the user resolved) wins over
+          // the graph derivation (the current relation): a confirmed edit stays
+          // confirmed after reloads AND after later ops move the relation on.
+          const isDone =
+            resolved?.[key] === 'confirmed' ||
+            done.has(key) ||
+            (standing && isStandingApproved(key)) ||
+            appliedInGraph(op) === true
+          const isSkipped = !isDone && (resolved?.[key] === 'skipped' || skipped.has(key))
           const cadence = 'cadence' in op ? op.cadence : ''
           // S2 — for a content-bearing op (README / instructions / prompt / agent /
           // project body), the actual text being written, so consent isn't given blind.

@@ -1,9 +1,10 @@
 import { motion } from 'framer-motion'
-import { Radio } from 'lucide-react'
-import type { Message as MessageT } from '../types'
+import { ArrowRight, Check, Radio } from 'lucide-react'
+import type { EscalationProposal, Message as MessageT } from '../types'
 import { renderRich } from '../lib/rich'
 import { driverByline } from '../lib/driverByline'
 import { useAgents, useProviders } from '../api'
+import { useRelations } from '../controller/useRelations'
 import { ClaudeMark } from './ClaudeMark'
 import { RelationActionCard } from './RelationActionCard'
 import { ToolActivityCard } from './ToolActivityCard'
@@ -22,6 +23,35 @@ function useIsRelayed(message: MessageT): boolean {
     message.providerId ??
     (message.agentId ? agents.find((a) => a.id === message.agentId)?.providerId : undefined)
   return !!providerId && providers.find((p) => p.id === providerId)?.kind === 'session'
+}
+
+/** The applied face of a persisted escalation proposal (today: `create_project`)
+ *  — a confirmed line with a JUMP LINK, derived from the record (the project
+ *  exists in the graph), so it survives reloads exactly like the pending card
+ *  (C28) does. Approval deliberately does NOT navigate: being yanked to the
+ *  project page mid-conversation broke the flow, so the link waits here to be
+ *  followed at will (the same "View in …" shape the relation card uses — form
+ *  follows function). Renders nothing while the proposal is pending (the inline
+ *  consent prompt owns that state) or for panel escalations, whose approval is
+ *  already visible in place (the panel opens). */
+function EscalationOutcome({ escalation }: { escalation: EscalationProposal }) {
+  const { isCreatedProject, navigate } = useRelations()
+  if (escalation.kind !== 'project' || !isCreatedProject(escalation.project.id)) return null
+  return (
+    <div className="mt-2 flex items-center gap-2 text-[12px]">
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-600">
+        <Check size={12} />
+      </span>
+      <span className="font-medium text-ink">Created the {escalation.project.name} project</span>
+      <button
+        onClick={() => navigate('projects', escalation.project.id)}
+        className="inline-flex items-center gap-1 font-medium text-accent-strong transition hover:gap-1.5"
+      >
+        Open project
+        <ArrowRight size={13} />
+      </button>
+    </div>
+  )
 }
 
 export function MessageRow({ message, sessionId }: { message: MessageT; sessionId: string }) {
@@ -88,8 +118,14 @@ export function MessageRow({ message, sessionId }: { message: MessageT; sessionI
           {message.toolActivities && message.toolActivities.length > 0 && (
             <ToolActivityCard activities={message.toolActivities} sessionId={sessionId} />
           )}
+          {message.escalation && <EscalationOutcome escalation={message.escalation} />}
           {message.relationActions && message.relationActions.length > 0 && (
-            <RelationActionCard ops={message.relationActions} />
+            <RelationActionCard
+              ops={message.relationActions}
+              sessionId={sessionId}
+              messageId={message.id}
+              resolved={message.relationsResolved}
+            />
           )}
         </div>
       </div>

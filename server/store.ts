@@ -46,6 +46,7 @@ import {
   applyGraphOp,
   connectorsFor,
   emptyGraph,
+  opKey,
   recentEntries,
   runPrompt,
   runRecap,
@@ -2527,6 +2528,28 @@ export const store = {
     const session = SESSIONS.find((s) => s.id === id)
     if (!session) return undefined
     applyMessage(session, message)
+    emit({ type: 'session.updated', session })
+    persist()
+    return session
+  },
+  /** Record the user's verdict on ONE proposed relation edit (keyed by `opKey`)
+   *  on the message that carried it — the consent card's resolution, persisted so
+   *  a reload (or a later op that moves the relation on) can't flip a resolved
+   *  card back to pending. Returns undefined when the session/message doesn't
+   *  exist or the message carries no proposal under that key (a verdict must
+   *  name a real proposal — never minted onto arbitrary messages). */
+  resolveMessageRelation(
+    sessionId: string,
+    messageId: string,
+    key: string,
+    verdict: 'confirmed' | 'skipped',
+  ): Session | undefined {
+    const session = SESSIONS.find((s) => s.id === sessionId)
+    const message = session?.messages?.find((m) => m.id === messageId)
+    if (!session || !message) return undefined
+    if (!(message.relationActions ?? []).some((op) => opKey(op) === key)) return undefined
+    message.relationsResolved = { ...message.relationsResolved, [key]: verdict }
+    session.updatedAt = Date.now()
     emit({ type: 'session.updated', session })
     persist()
     return session

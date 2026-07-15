@@ -640,8 +640,10 @@ export function useSessionWorkspace() {
       const esc = pending.escalation
       if (esc.kind === 'project') {
         // A project escalation creates a real project (a server-backed relation
-        // op), optionally filing this session into it, then walks the user to the
-        // project's page so the change is visible.
+        // op), optionally filing this session into it. The user STAYS in the
+        // thread — being yanked to the project page mid-conversation broke the
+        // flow they were in; the message's confirmed card (EscalationOutcome)
+        // carries an "Open project" link to follow at will.
         applyRelationOp({
           kind: 'create-project',
           projectId: esc.project.id,
@@ -649,21 +651,12 @@ export function useSessionWorkspace() {
           projectDescription: esc.project.description,
           ...(esc.fileSession ? { sessionId: activeSession.id, sessionTitle: activeSession.title } : {}),
         })
-        // Same as openProject, inlined to avoid referencing that later const —
-        // recording the thread first so the project page's back returns to it.
-        record({ kind: 'section', section: 'projects', projectId: esc.project.id, scheduleId: null, ownerName: null })
-        setActiveSection('projects')
-        setFocusProjectId(esc.project.id)
-        setFocusScheduleId(null)
-        setFocusOwnerName(null)
-        setFocusWorkItemId(null)
-        setFocusAgentId(null)
       } else {
         applyEscalation(esc, workspaceRoot)
       }
       setPendingEscalation(null)
     },
-    [applyEscalation, activeSession, record],
+    [applyEscalation, activeSession],
   )
 
   // A turn streams from the backend (POST /sessions/:id/messages) through the real

@@ -148,14 +148,12 @@ test('unresolvedEscalation: a persisted project proposal resurfaces until its cr
   }
   const pending = unresolvedEscalation(session, live, emptyGraph())
   assert.deepEqual(pending, { messageId: 'm-a', escalation: esc }, 'pending on a fresh graph')
-  // Project created but the session not filed — the op the approval submits
-  // includes the filing, so the proposal is still pending.
+  // Applied = the project EXISTS — deliberately not the filing: once created,
+  // a later unfile/refile is the user moving on, and re-offering the create
+  // card would un-happen that decision (observed live: unfiling a session
+  // resurfaced the already-approved create prompt).
   const created = apply([{ kind: 'create-project', projectId: 'p-vibe', projectName: 'Vibe Coding Guide', projectDescription: 'd' }])
-  assert.notEqual(unresolvedEscalation(session, live, created), null, 'created-but-unfiled stays pending')
-  const applied = apply([
-    { kind: 'create-project', projectId: 'p-vibe', projectName: 'Vibe Coding Guide', projectDescription: 'd', sessionId: 's-relay', sessionTitle: 'Vibe Coding Guide chat' },
-  ])
-  assert.equal(unresolvedEscalation(session, live, applied), null, 'applied ⇒ nothing to resurface')
+  assert.equal(unresolvedEscalation(session, live, created), null, 'created ⇒ resolved, filed or not')
   assert.equal(unresolvedEscalation(session, live, undefined), null, 'no graph loaded ⇒ never re-offer blind')
 })
 
@@ -203,6 +201,34 @@ test('the controller resurfaces the held proposal at BOTH reconcile sites — th
     /if \(held\) setPendingEscalation\(\(prev\) => prev \?\? held\)/,
     'resurfacing never stomps a live-stream pending proposal',
   )
+})
+
+// ── C29 — resolutions are history: verdicts persist; approval never navigates ──
+// The verdict on a consent card (confirm / "not now") is recorded on the message
+// (`relationsResolved`), so a reload — or a LATER op that moves the relation on —
+// can't flip a resolved card back to pending (the graph derivation reads the
+// CURRENT relation; the verdict reads what the user resolved). And approving a
+// project escalation STAYS in the thread: the confirmed card carries an "Open
+// project" jump link instead of yanking the user to the project page.
+
+test('the consent card reads + writes the persisted verdict (C29)', () => {
+  const card = stripComments(read(join(ROOT, 'src', 'components', 'RelationActionCard.tsx')))
+  assert.match(card, /resolved\?\.\[key\] === 'confirmed'/, 'the persisted confirm wins over graph state')
+  assert.match(card, /resolved\?\.\[key\] === 'skipped'/, 'the persisted skip renders too')
+  assert.match(card, /resolveMessageRelation\(sessionId, messageId, key, verdict\)/, 'each verdict is written to the record')
+  const msg = stripComments(read(join(ROOT, 'src', 'components', 'Message.tsx')))
+  assert.match(msg, /resolved=\{message\.relationsResolved\}/, 'the message passes its persisted verdicts to the card')
+})
+
+test('approving a project escalation stays in the thread; the confirmed card carries the jump link (C29)', () => {
+  const controller = stripComments(read(join(ROOT, 'src', 'controller', 'useSessionWorkspace.ts')))
+  const block = controller.slice(controller.indexOf('const approveEscalation'), controller.indexOf('const handleSend'))
+  assert.doesNotMatch(block, /setActiveSection/, 'approval no longer navigates away from the conversation')
+  assert.doesNotMatch(block, /setFocusProjectId/, 'no project-page focus is forced on approval')
+  const msg = stripComments(read(join(ROOT, 'src', 'components', 'Message.tsx')))
+  assert.match(msg, /function EscalationOutcome/, 'the applied face of the proposal renders on its message')
+  assert.match(msg, /isCreatedProject\(escalation\.project\.id\)/, 'applied-ness derives from the record (remount-proof)')
+  assert.match(msg, /navigate\('projects', escalation\.project\.id\)/, 'the jump link is there to follow at will')
 })
 
 test('a saved artifact stamps its producing session ID — the stable join for "From ‹conversation›" (N3)', () => {

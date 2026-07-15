@@ -172,6 +172,8 @@ export const paths = {
   toolActivity: (id: string, activityId: string) =>
     `/sessions/${encodeURIComponent(id)}/tool-activities/${encodeURIComponent(activityId)}`,
   sessionCompact: (id: string) => `/sessions/${encodeURIComponent(id)}/compact`,
+  messageRelations: (id: string, messageId: string) =>
+    `/sessions/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/relations`,
   dispatch: '/dispatch',
   savedContexts: '/saved-contexts',
   savedContext: (id: string) => `/saved-contexts/${encodeURIComponent(id)}`,

@@ -2348,6 +2348,7 @@ export function buildRouter(): Router {
       // (F2/PD9): the model only resolves against the caller's own + the shared seeds.
       // Shared by BOTH transports — a relayed tool call resolves against the same
       // registries a dial-out one does.
+      const graphNow = store.relationGraph(tenantId)
       const commons = {
         // isDefault rides along so create_agent can pre-select the caller's
         // default-else-first binding when the model names none — the same
@@ -2356,6 +2357,17 @@ export function buildRouter(): Router {
         systemPrompts: store.listSystemPrompts(tenantId).map((p) => ({ id: p.id, label: p.label, isDefault: p.isDefault })),
         agents: store.listAgents(tenantId).map((a) => ({ id: a.id, label: a.label })),
         commissions: store.listCommissions(undefined, tenantId).map((c) => ({ id: c.id, agentId: c.agentId, projectId: c.projectId })),
+        // The LIVE entity registries the relation tools resolve names against —
+        // created entities (the graph extras) first, then the seeds, so "file this
+        // under ‹a project Claude created two turns ago›" resolves (a seed-only
+        // list once defaulted that to the wrong project — INV-9).
+        projects: [...graphNow.extraProjects, ...store.listProjects(tenantId)].map((p) => ({
+          id: p.id,
+          name: p.name,
+          defaultRole: p.defaultRole,
+        })),
+        artifacts: [...graphNow.extraArtifacts, ...store.listArtifacts(tenantId)].map((a) => ({ id: a.id, name: a.name })),
+        schedules: store.listSchedules(tenantId).map((s) => ({ id: s.id, name: s.name, cadence: s.cadence })),
       }
       // P6: the session's attached connector/MCP contexts become callable tools for
       // this turn (server/model/connectorTools.ts derives them; non-connector
@@ -2454,6 +2466,24 @@ export function buildRouter(): Router {
       return sendError(res, 'not_found', `No live turn '${params.turnId}' on session '${params.id}'`)
     }
     turns.cancel(params.turnId)
+    sendJson(res, { ok: true })
+  })
+
+  // Record the user's verdict on ONE proposed relation edit (the consent card's
+  // resolution) on the message that carried it — server-owned, so a reload or a
+  // later superseding op can't flip a resolved card back to pending. The key is
+  // the contract's `opKey`; the verdict is exactly confirmed | skipped (a
+  // proposal has no third outcome — an unresolved one simply stays pending).
+  r.post('/sessions/:id/messages/:messageId/relations', async ({ req, res, params, body }) => {
+    if (denyForeignSession(req, res, params.id)) return
+    const { key, verdict } = await body<{ key?: string; verdict?: string }>()
+    if (!key || (verdict !== 'confirmed' && verdict !== 'skipped')) {
+      return sendError(res, 'bad_request', `A verdict needs an op key and 'confirmed' | 'skipped'`)
+    }
+    const session = store.resolveMessageRelation(params.id, params.messageId, key, verdict)
+    if (!session) {
+      return sendError(res, 'not_found', `No proposal '${key}' on message '${params.messageId}' of session '${params.id}'`)
+    }
     sendJson(res, { ok: true })
   })
 

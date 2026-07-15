@@ -141,6 +141,14 @@ export interface Message {
    *  relation-op tool calls (server/model/tools.ts). Typed as `RelationOp[]`
    *  (contract/relations.ts); kept loose here to avoid a type-import cycle. */
   relationActions?: import('./relations.ts').RelationOp[]
+  /** The user's verdict on each proposed relation edit, keyed by `opKey` — the
+   *  consent card's resolution, SERVER-OWNED so it survives reloads and later
+   *  superseding ops (a graph-derived "applied" flips back to pending the moment
+   *  another op moves the relation on — the verdict is history, the graph is
+   *  now). Written by POST /sessions/:id/messages/:messageId/relations when the
+   *  user confirms or skips; absent = still pending (or resolved before this
+   *  field existed, where the graph derivation still covers the common case). */
+  relationsResolved?: Record<string, 'confirmed' | 'skipped'>
   /** Connector / MCP tools the model called this turn, with the (mock) result fed
    *  back to it (P6 — an attached connector/MCP contributes callable tools). Unlike
    *  `escalation` / `relationActions`, a *read* result only surfaced data, so it needs

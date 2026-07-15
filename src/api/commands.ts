@@ -626,6 +626,19 @@ export async function compactSession(sessionId: string): Promise<Session> {
   return session
 }
 
+/** Record the user's verdict on one proposed relation edit (the consent card's
+ *  confirm / "not now") on the message that carried it — server-owned, so the
+ *  card's resolution survives reloads and later superseding ops. Fire-and-forget
+ *  shape: the card flips optimistically; the session push reconciles. */
+export async function resolveMessageRelation(
+  sessionId: string,
+  messageId: string,
+  key: string,
+  verdict: 'confirmed' | 'skipped',
+): Promise<void> {
+  await apiPost(paths.messageRelations(sessionId, messageId), { key, verdict })
+}
+
 // ── Session contexts (the attachment of record) ─────────────────────────────
 
 /** Attach a context to a session — the persisted binding every effect routed

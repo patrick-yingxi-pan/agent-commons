@@ -142,6 +142,17 @@ function matchKeywords(text: string): ToolCall[] {
       calls.push({ name: 'attach_context', input: { connector } })
     }
   }
+  // ── Unfile the session from its project ───────────────────────────────────
+  // "Remove/unfile this session (conversation/thread) from the X project" — the
+  // subject is the SESSION, so this must run before the unscope-context pattern
+  // below (whose greedy label grab would otherwise capture "this session" as a
+  // context label and propose the wrong edit entirely).
+  if (!calls.length && /\b(?:remove|unfile|take)\b.*?\b(?:this|the)\s+(?:session|conversation|thread)\b.*?\b(?:from|out of)\b/i.test(text)) {
+    // Its own grab (not the shared toProject): the unfile phrasing also says
+    // "out of the X project", which the to/onto/from/off grab doesn't cover.
+    const unfileProject = grab(/\b(?:from|out of)\s+(?:the\s+)?["“]?([A-Za-z0-9][A-Za-z0-9 -]*?)["”]?(?:\s+project)?(?:[.,!]|$)/i)
+    if (unfileProject) calls.push({ name: 'file_session', input: { project: unfileProject, remove: 'true' } })
+  }
   // "Drop/remove Figma from the Growth experiments project." Anchored on the
   // project vocabulary, so an innocent edit ("remove the last paragraph from
   // the doc") never becomes a relation proposal.

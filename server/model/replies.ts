@@ -23,7 +23,7 @@ export function finalReplyText(toolNames: string[]): string {
     return 'Connecting your repo and the GitHub connector. I branched, made the change, and ran the tests — the diff’s on the right. Approve to attach it to this session.'
   }
   if (toolNames.includes('create_project')) {
-    return "Good idea — I'll spin up a project so everything this effort produces sits under one roof. Approve below and I'll take you straight to it."
+    return "Good idea — I'll spin up a project so everything this effort produces sits under one roof. Approve below; you'll get a link to open it whenever you like."
   }
   // Agent Commons CRUD proposals (provider / prompt / agent / commission) — their own
   // consent line; the card carries the detail, and nothing is created or assigned yet.

@@ -156,6 +156,7 @@ export function unresolvedEscalation(
   live: Live,
   graph: RelationGraph | undefined,
 ): { messageId: string; escalation: EscalationProposal } | null {
+  void session // kept in the signature: the panel checks may grow session-shaped reads
   for (let i = live.messages.length - 1; i >= 0; i -= 1) {
     const m = live.messages[i]
     if (m.role !== 'assistant' || !m.escalation) continue
@@ -163,12 +164,16 @@ export function unresolvedEscalation(
     const held = { messageId: m.id, escalation: esc }
     if (esc.kind === 'project') {
       if (!graph) return null
+      // Applied = the PROJECT EXISTS — deliberately not the filing: approval
+      // creates the project (and files atomically when asked), so a missing
+      // filing later means the user MOVED ON (unfiled, refiled elsewhere), and
+      // re-offering the create card would un-happen their decision. Same
+      // derivation `EscalationOutcome` renders the confirmed face from.
       const applied = opAppliedInGraph(graph, {
         kind: 'create-project',
         projectId: esc.project.id,
         projectName: esc.project.name,
         projectDescription: esc.project.description,
-        ...(esc.fileSession ? { sessionId: session.id, sessionTitle: session.title } : {}),
       })
       return applied === false ? held : null
     }

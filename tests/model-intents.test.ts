@@ -39,6 +39,24 @@ test('every relation/escalation tool in the catalog is reachable by a free-typed
   assert.deepEqual(missing, [], `tools with no working keyword phrase: ${missing.join(', ')}`)
 })
 
+test('an unfile ask targets the SESSION, never a context — remove:"true" rides the call', () => {
+  // The observed relay bug's phrase shape: the subject is "this session", so it
+  // must become a file_session removal — the unscope-context pattern's greedy
+  // label grab once captured "this session" as a context label instead.
+  for (const phrase of [
+    'Please remove this session from the Vibe Coding Guide project.',
+    'Unfile this conversation from the Growth experiments project',
+    'Take this thread out of the Vibe Coding Guide project',
+  ]) {
+    const call = matchIntents(phrase).at(0)
+    assert.equal(call?.name, 'file_session', `${phrase} → file_session (got ${call?.name})`)
+    assert.equal(call?.input.remove, 'true', 'the removal flag rides the call (the declared string shape)')
+    assert.ok(String(call?.input.project).length > 0, 'the project the user named rides the call')
+  }
+  // The context-unscope phrasing still routes to unscope_context, untouched.
+  assert.equal(matchIntents('Drop Figma from the Growth experiments project').at(0)?.name, 'unscope_context')
+})
+
 test('the panel escalations match free-typed asks (chat → workspace / repo growth)', () => {
   assert.equal(matchIntents(PHRASES.open_workspace).at(0)?.name, 'open_workspace')
   const repo = matchIntents(PHRASES.connect_repo).at(0)
