@@ -196,10 +196,16 @@ test('the controller resurfaces the held proposal at BOTH reconcile sites — th
   const controller = stripComments(read(join(ROOT, 'src', 'controller', 'useSessionWorkspace.ts')))
   const sites = controller.split('unresolvedEscalation(s, ').length - 1
   assert.equal(sites, 2, 'the select-time reconcile AND the session-push reconcile both derive the held proposal')
+  // Resurfacing never stomps a live-stream pending proposal: holdEscalation is
+  // the store's keep-the-first-prompt door (universal split Phase 1 moved the
+  // held escalation into the per-session conversation store).
+  const holds = controller.split('conversations.holdEscalation(').length - 1
+  assert.equal(holds, 2, 'both sites resurface through the store’s non-stomping hold')
+  const core = stripComments(read(join(ROOT, 'src', 'controller', 'conversationCore.ts')))
   assert.match(
-    controller,
-    /if \(held\) setPendingEscalation\(\(prev\) => prev \?\? held\)/,
-    'resurfacing never stomps a live-stream pending proposal',
+    core,
+    /update\(id, \(s\) => \(s\.pendingEscalation \? s : \{ \.\.\.s, pendingEscalation: held \}\)\)/,
+    'holdEscalation keeps an already-held prompt (C28)',
   )
 })
 

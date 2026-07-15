@@ -111,12 +111,17 @@ collapses); prune at render, never in storage.
 
 ## 3. Phases (each lands green, with tests)
 
-1. **Conversation store extraction** — pure refactor, zero UI change: the
-   per-session state and turn pipeline move into `conversationStore.ts`;
-   `useSessionWorkspace` consumes it for its one active session. Lock: all
-   existing tests + e2e pass unchanged; new unit tests for the store's keyed
-   isolation (two sessions stream independently; two subscribers to one
-   session see one state).
+1. **Conversation store extraction** — ✅ **LANDED 2026-07-15**: the
+   per-session state and turn pipeline live in `conversationCore.ts` (pure,
+   transport-injected) + `conversationStore.ts` (the api wiring + React hook);
+   `useSessionWorkspace` subscribes for its one active session. Epochs replaced
+   the global runId (streams keep landing in their keyed entry across
+   navigation; only a reset of the same session stales them); sends serialize
+   per session, not globally; `adopt` moves the draft's optimistic state under
+   the materialized id. Locked by `tests/conversation-store.test.ts` (keyed
+   isolation, epoch staleness, reconcile-without-stale, adopt-once, failure
+   copy, C28 hold, settle hook, keyed notification); all pre-existing tests +
+   the full e2e suite pass unchanged.
 2. **Generic pane tree + section panes** — `splitFrame.ts` generalizes over
    the content type (the right-panel frame keeps working through the same
    lib); the main area becomes a tree whose leaves host fully-interactive

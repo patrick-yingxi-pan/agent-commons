@@ -106,13 +106,15 @@ test('session pushes reach the controller through the one narrow seam (one-door 
   assert.match(eventCase(events, 'session.contexts.changed'), /notifySessionPush\(e\.sessionId\)/)
   const controller = src('src', 'controller', 'useSessionWorkspace.ts')
   assert.match(controller, /onSessionPush\(\(sessionId\) => \{/, 'the controller subscribes')
+  // The mid-stream guard reads the SESSION'S OWN entry now (universal split
+  // Phase 1: the generation flags live in the keyed conversation store).
   assert.match(
     controller,
-    /if \(busyRef\.current \|\| typingRef\.current\) return/,
+    /if \(entry\.busy \|\| entry\.typing\) return/,
     'a mid-stream thread is never stomped by a reconcile',
   )
   const push = controller.slice(controller.indexOf('onSessionPush(('))
-  assert.match(push.slice(0, 700), /loadSession\(sessionId\)/, 'the reconcile is the same server read selectSession uses')
+  assert.match(push.slice(0, 900), /loadSession\(sessionId\)/, 'the reconcile is the same server read selectSession uses')
 })
 
 // ── Seed-mirror reads replaced by the live registry (C12/C22/C23/C24) ─────────

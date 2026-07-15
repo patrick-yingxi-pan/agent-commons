@@ -70,6 +70,37 @@ test('gated: the front door and the self-authenticated machine edges stay open',
   })
 })
 
+test('gated: the D28 peer registry is owner-admin — anonymous mint/list/revoke are walled, the card stays open', async () => {
+  await gated(async () => {
+    // The /a2a/ prefix opens card DISCOVERY, but the peer-credential REGISTRY sits
+    // under it as an owner operation and must NOT inherit that openness — else an
+    // anonymous caller could self-mint a "verified" peer, enumerate the roster, or
+    // revoke a live peer. All three refuse with the gate's generic 401.
+    const mint = await call('POST', '/a2a/peers', { name: 'Impostor' })
+    assert.equal(mint.status, 401, 'anonymous mint is walled')
+    assert.match(mint.json.error.message, /sign in/i, "the gate's refusal, not a handler error")
+    assert.equal((await call('GET', '/a2a/peers')).status, 401, 'anonymous list is walled')
+    assert.equal((await call('DELETE', '/a2a/peers/peer-1')).status, 401, 'anonymous revoke is walled')
+    // The card discovery read on the SAME prefix is still open (the carve-out is
+    // surgical — it closes only /a2a/peers, not /a2a/).
+    assert.notEqual((await call('GET', '/a2a/card')).status, 401, 'card discovery stays open')
+  })
+})
+
+test('gated: a signed-in principal reaches the peer registry (the owner path still works)', async () => {
+  const email = `peer-admin-${Date.now()}@gate.example`
+  const signup = await call('POST', '/auth/signup', { name: 'Peer Admin', email, password: 'peer-password-1' })
+  assert.equal(signup.status, 200)
+  const cookie = signup.headers['set-cookie']!.split(';')[0]!
+  await gated(async () => {
+    const list = await call('GET', '/a2a/peers', undefined, { cookie })
+    assert.equal(list.status, 200, 'signed in, the owner reaches the registry')
+    const mint = await call('POST', '/a2a/peers', { name: 'Real Peer' }, { cookie })
+    assert.equal(mint.status, 200, 'and can mint')
+    assert.ok(mint.json.token, 'the one-time token is returned to the owner')
+  })
+})
+
 test('gated: a verified session passes the wall and reads its OWN world', async () => {
   const email = `gate-user-${Date.now()}@gate.example`
   const signup = await call('POST', '/auth/signup', { name: 'Gate User', email, password: 'gate-password-1' })

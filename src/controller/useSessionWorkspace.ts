@@ -48,20 +48,17 @@ import {
   createSession,
   deleteSession as deleteSessionCmd,
   detachContext,
-  invalidate,
   keys,
   peek,
   loadSession,
   patchSession,
   persistWorkspace,
-  cancelTurn,
   onAccountSwitch,
   useMe,
   onSessionPush,
-  reattachTurn,
-  sendMessage,
   compactSession,
 } from '../api'
+import { conversations, useConversation } from './conversationStore'
 import type {
   AddedContext,
   AttachContextRequest,
@@ -73,14 +70,6 @@ import type {
   SectionId,
   Session,
 } from '../types'
-
-/** A held escalation proposal — the result of the model's panel-producing tool
- *  call (open_workspace / connect_repo / create_project), waiting on the inline
- *  consent prompt. Carries the message it rode in on (for scrolling/anchoring). */
-interface PendingEscalation {
-  messageId: string
-  escalation: EscalationProposal
-}
 
 /** Map an attached `AddedContext` to the persistent binding(s) it should create —
  *  the *attachment of record* the effect-mediation path resolves against
@@ -185,8 +174,11 @@ function takeBootView(): RoutedView | null {
 export function useSessionWorkspace() {
   // The app opens on a fresh draft — a single empty thread + composer (ADAPT-1).
   const [activeId, setActiveId] = useState(DRAFT_ID)
-  const [live, setLive] = useState<Live>(EMPTY_LIVE)
-  const [typing, setTyping] = useState(false)
+  // The ACTIVE session's conversation state — read from the keyed per-session
+  // store (universal split Phase 1: the session half lives in
+  // conversationStore.ts so any pane can host a conversation; this singleton
+  // hook now subscribes to just its active one).
+  const { live, typing, busy, liveTurn, sendFailure, pendingEscalation } = useConversation(activeId)
   // Which attached context the right-hand sidebar is showing (null = closed).
   const [focus, setFocus] = useState<PanelFocus | null>(null)
   // The panel area's split tree (ADAPT-16) — null = no frame (the legacy single
@@ -232,41 +224,17 @@ export function useSessionWorkspace() {
   // nav action pushes the page it leaves; goBack pops. (See lib/nav.ts.)
   const [history, setHistory] = useState<NavLocation[]>([])
 
-  const [busy, setBusy] = useState(false)
-  // The server-owned turn currently streaming into THIS client (multi-account
-  // P0/P6c) — the handle the stop button cancels with. Null between turns.
-  const [liveTurn, setLiveTurn] = useState<{ sessionId: string; turnId: string } | null>(null)
-  // An escalating beat holds here until the user consents: the model's tool call
-  // produced an escalation proposal (streamed as `message.escalation`), and it
-  // applies only on approval. Null = nothing pending.
-  const [pendingEscalation, setPendingEscalation] = useState<PendingEscalation | null>(null)
-  const pendingEscalationRef = useRef(pendingEscalation)
-  pendingEscalationRef.current = pendingEscalation
   // Server sessions this client resolved that aren't in the static seed mirror —
   // a draft made real on its first send, or any session opened by id (a run
   // session from the Scheduled rail, a thread from another device): the reconcile
   // read upserts here, so ALL sessions resolve through one chain (seed mirror →
   // this) with no per-kind synthesis. Consulted until the next reload reseeds.
   const [extraSessions, setExtraSessions] = useState<Session[]>([])
-  // Free-typed sends run one-at-a-time through this chain: the backend enforces one
-  // live turn per session (server/turns.ts), so a rapid second send queues behind
-  // the first instead of being refused with 409 conflict.
-  const sendChain = useRef<Promise<void>>(Promise.resolve())
 
   // Timer bookkeeping so switching sessions cancels in-flight callbacks.
   const runId = useRef(0)
   const timers = useRef<ReturnType<typeof setTimeout>[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
-  // Mirror of `live` for reads inside event handlers (handleAddContext has empty
-  // deps and must not close over a stale snapshot).
-  const liveRef = useRef(live)
-  liveRef.current = live
-  // Mirrors of the generation flags, so the push-reconcile effect (stable deps)
-  // can tell whether a local stream is mid-flight without a stale closure.
-  const typingRef = useRef(typing)
-  typingRef.current = typing
-  const busyRef = useRef(busy)
-  busyRef.current = busy
   // handleSend, reachable from callbacks defined before it (retryInterrupted).
   const handleSendRef = useRef<((text: string) => void) | null>(null)
   // Mirror of the open panel, so the toggle (focusContext) can compute the next panel
@@ -398,73 +366,16 @@ export function useSessionWorkspace() {
   // messages, so the assistant shell isn't present yet (the id-guard on
   // message.start keeps a replayed shell from ever duplicating). Ends with the
   // same authoritative message.end the original stream carries; a 404 means the
-  // turn persisted while we were away (reattachTurn refetches the session).
-  const reattachToTurn = useCallback((sid: string, turnId: string, myRun: number) => {
-    const stale = () => activeIdRef.current !== sid || runId.current !== myRun
-    setTyping(true)
-    setBusy(true)
-    setLiveTurn({ sessionId: sid, turnId })
-    void reattachTurn(sid, turnId, 0, {
-      onStart: (_id, message) => {
-        if (stale()) return
-        setTyping(false)
-        setLive((l) => (l.messages.some((m) => m.id === message.id) ? l : { ...l, messages: [...l.messages, message] }))
-      },
-      onDelta: (messageId, chunk) => {
-        if (stale()) return
-        setLive((l) => ({
-          ...l,
-          messages: l.messages.map((m) => (m.id === messageId ? { ...m, content: m.content + chunk } : m)),
-        }))
-      },
-      onRelations: (messageId, relationActions) => {
-        if (stale()) return
-        setLive((l) => ({
-          ...l,
-          messages: l.messages.map((m) => (m.id === messageId ? { ...m, relationActions } : m)),
-        }))
-      },
-      onToolActivity: (messageId, toolActivities) => {
-        if (stale()) return
-        setLive((l) => ({
-          ...l,
-          messages: l.messages.map((m) => (m.id === messageId ? { ...m, toolActivities } : m)),
-        }))
-      },
-      onEscalation: (messageId, escalation) => {
-        if (stale()) return
-        setPendingEscalation({ messageId, escalation })
-      },
-      onEnd: (message) => {
-        if (stale()) return
-        setLive((l) => ({ ...l, messages: l.messages.map((m) => (m.id === message.id ? message : m)) }))
-        invalidate(keys.usage(sid))
-      },
-    })
-      .catch(() => {})
-      .finally(() => {
-        // However the stream ended (message.end, 404→refetch, or a drop), the
-        // local streaming affordances stand down; the record is the authority.
-        if (stale()) return
-        setTyping(false)
-        setBusy(false)
-        setLiveTurn(null)
-      })
-  }, [])
+  // turn persisted while we were away (the store's reattach refetches the session).
+  // The streaming turn pipeline (send / reattach / stop) lives in the keyed
+  // conversation store now — the hook only routes the active session at it.
 
   // The deliberate stop (design §5.2/§6.5): cancel the SERVER-owned turn — the
   // partial persists and the open stream ends with its message.end, which is
   // what clears busy/typing (the button doesn't fake the stop locally).
   const stopTurn = useCallback(() => {
-    const t = liveTurn
-    if (t) void cancelTurn(t.sessionId, t.turnId).catch(() => {})
-  }, [liveTurn])
-
-  // Why the last send was refused/failed, when the server said so (the pre-persist
-  // gates: relay_offline / relay_busy / limit_exceeded carry user-facing copy —
-  // "Your session isn't answering — start its drain loop and retry"). Shown by the
-  // interrupted affordance in place of its generic line; cleared on the next send.
-  const [sendFailure, setSendFailure] = useState<string | null>(null)
+    conversations.stop(activeIdRef.current)
+  }, [])
 
   // A thread whose last word is the USER'S with nothing generating — the
   // orphaned-turn state (server restarted mid-turn, or the send failed): offer
@@ -477,7 +388,7 @@ export function useSessionWorkspace() {
     live.messages.length > 0 &&
     live.messages[live.messages.length - 1].role === 'user'
   const retryInterrupted = useCallback(() => {
-    const last = [...liveRef.current.messages].reverse().find((m) => m.role === 'user')
+    const last = [...conversations.get(activeIdRef.current).live.messages].reverse().find((m) => m.role === 'user')
     if (last?.content) handleSendRef.current?.(last.content)
   }, [])
 
@@ -503,9 +414,6 @@ export function useSessionWorkspace() {
       record({ kind: 'session', sessionId: id, title: '' })
       clearTimers()
       const myRun = runId.current
-      setTyping(false)
-      setBusy(false)
-      setLiveTurn(null)
       setActiveSection(null)
       setActiveId(id)
       // Switching sessions abandons any context staged on the (now-left) draft, so it
@@ -516,7 +424,11 @@ export function useSessionWorkspace() {
         extraSessionsRef.current.find((s) => s.id === id) ??
         DRAFT_SESSION
       const nextLive = liveFromSession(session)
-      setLive(nextLive)
+      // Reset THIS session's conversation entry (fresh flags, no held escalation)
+      // and stale any of its older streams; other sessions' streams keep landing
+      // in their own entries (the store's epoch model).
+      conversations.reset(id, nextLive)
+      const since = conversations.epoch(id)
       // Restore the session's remembered panel (FWD-2 / PD34): a stored focus, or null
       // (the user left it closed) — both honoured over the auto-open. With no stored
       // choice, fall back to the strongest present context (the original behaviour).
@@ -534,18 +446,18 @@ export function useSessionWorkspace() {
         id === DRAFT_ID ? null : prunePanes(getSplitPref(id), paneContentAlive(l, !!session.scheduledRunOf))
       splitTreeRef.current = restoreSplit(nextLive)
       setSplitTreeState(splitTreeRef.current)
-      setPendingEscalation(null)
       // Reconcile the full live session from the server (the system of record): a
       // persisted turn AND any persisted runtime attaches (workspace/repo/connector/
       // file) reappear. Skip the unsaved draft (it has no server row yet). Guarded
-      // by runId so a fast re-switch can't clobber.
+      // by runId (this client hasn't navigated) AND the entry's epoch (the store's
+      // reconcile refuses to clobber a newer reset of the same session).
       if (id !== DRAFT_ID) {
         loadSession(id)
           .then((s) => {
             upsertExtraSession(s)
             if (runId.current !== myRun) return
             const reconciled = liveFromSession(s)
-            setLive(reconciled)
+            if (!conversations.reconcile(id, since, reconciled)) return
             setFocus(restoreFocus(reconciled))
             splitTreeRef.current = restoreSplit(reconciled)
             setSplitTreeState(splitTreeRef.current)
@@ -554,16 +466,16 @@ export function useSessionWorkspace() {
             // this, any reopen/reload dropped the card and the proposal could
             // never be approved (the relay transport's long turns hit this).
             const held = unresolvedEscalation(s, reconciled, peek<RelationGraph>(keys.relations))
-            if (held) setPendingEscalation((prev) => prev ?? held)
+            if (held) conversations.holdEscalation(id, held)
             // A turn is still generating server-side (multi-account §6.5): the
             // thread would otherwise sit silently on its user message. Resume
             // rendering the stream — replayed from the top, then the live tail.
-            if (s.activeTurnId) reattachToTurn(id, s.activeTurnId, myRun)
+            if (s.activeTurnId) conversations.reattach(id, s.activeTurnId)
           })
           .catch(() => {})
       }
     },
-    [clearTimers, record, reattachToTurn, upsertExtraSession],
+    [clearTimers, record, upsertExtraSession],
   )
 
   // An account switch changes whose world this client renders (multi-account
@@ -581,8 +493,11 @@ export function useSessionWorkspace() {
         leftAccount.current = true
         // Drop the sessions resolved for the OLD account — they're another
         // tenant's threads (run sessions included), and keeping them would let a
-        // history-back render foreign content the server would now 404.
+        // history-back render foreign content the server would now 404 — and
+        // every conversation entry with them (the keyed store is per client,
+        // not per account).
         setExtraSessions([])
+        conversations.clearAll()
         selectSession(DRAFT_ID)
       }),
     [selectSession],
@@ -598,20 +513,23 @@ export function useSessionWorkspace() {
     () =>
       onSessionPush((sessionId) => {
         if (sessionId !== activeIdRef.current || sessionId === DRAFT_ID) return
-        if (busyRef.current || typingRef.current) return
+        const entry = conversations.get(sessionId)
+        if (entry.busy || entry.typing) return
         const myRun = runId.current
+        const since = conversations.epoch(sessionId)
         loadSession(sessionId)
           .then((s) => {
             upsertExtraSession(s)
             if (runId.current !== myRun || activeIdRef.current !== sessionId) return
-            if (busyRef.current || typingRef.current) return
+            const now = conversations.get(sessionId)
+            if (now.busy || now.typing) return
             const pushed = liveFromSession(s)
-            setLive(pushed)
+            if (!conversations.reconcile(sessionId, since, pushed)) return
             // Same C28 resurfacing as the select-time reconcile: a turn that
             // finished while this client wasn't streaming it (another device,
             // a detached view) may carry an unresolved escalation proposal.
             const held = unresolvedEscalation(s, pushed, peek<RelationGraph>(keys.relations))
-            if (held) setPendingEscalation((prev) => prev ?? held)
+            if (held) conversations.holdEscalation(sessionId, held)
           })
           .catch(() => {})
       }),
@@ -625,7 +543,7 @@ export function useSessionWorkspace() {
   // only once the user approves (see approveEscalation), never automatically.
   const applyEscalation = useCallback(
     (esc: EscalationProposal, workspaceRoot?: string) => {
-      const l = liveRef.current
+      const l = conversations.get(activeIdRef.current).live
       const next: Live = { ...l }
       // Guard the id-keyed pushes so a replayed beat can't duplicate a panel.
       if (esc.kind === 'workspace' && !l.workspaces.some((w) => w.id === 'ws-demo')) {
@@ -654,7 +572,7 @@ export function useSessionWorkspace() {
         ]
         next.connectors = esc.connectors.reduce(withConnector, l.connectors)
       }
-      setLive(next)
+      conversations.setLive(activeIdRef.current, next)
       // The grown context's panel opens — into the split frame's first pane when
       // one is up (ADAPT-16; inlined non-persisting route: routeToPane is defined
       // later in the hook, and the restore-time prune reconciles storage anyway).
@@ -704,7 +622,7 @@ export function useSessionWorkspace() {
   // recoverable "denied" view) and never reaches here.
   const approveEscalation = useCallback(
     (workspaceRoot?: string) => {
-      const pending = pendingEscalationRef.current
+      const pending = conversations.get(activeIdRef.current).pendingEscalation
       if (!pending) return
       const esc = pending.escalation
       if (esc.kind === 'project') {
@@ -723,7 +641,7 @@ export function useSessionWorkspace() {
       } else {
         applyEscalation(esc, workspaceRoot)
       }
-      setPendingEscalation(null)
+      conversations.patch(activeIdRef.current, { pendingEscalation: null })
     },
     [applyEscalation, activeSession],
   )
@@ -757,26 +675,29 @@ export function useSessionWorkspace() {
       return { providerId: pick.providerId, modelId }
     }
     const draftModel = sanitizePick(draftPickRef.current)
-    // The send generation at dispatch time. Any session switch / re-select bumps
-    // runId (via clearTimers), which invalidates this stream — so a reconcile
-    // triggered by re-selecting this same session mid-stream can't be clobbered by,
-    // or duplicate against, the still-arriving deltas.
-    const myRun = runId.current
     const userMsg: Message = { id: `u-${Date.now()}`, role: 'user', content: text }
-    setLive((l) => ({ ...l, messages: [...l.messages, userMsg] }))
-    setTyping(true)
-    setBusy(true)
-    setSendFailure(null) // a fresh send stands the previous refusal copy down
+    // The optimistic user turn + the generation flags land on the DISPATCH-TIME
+    // entry (the draft's, before materialization — `adopt` moves them under the
+    // real id below). A fresh send stands the previous refusal copy down.
+    conversations.update(startId, (s) => ({
+      ...s,
+      typing: true,
+      busy: true,
+      sendFailure: null,
+      live: { ...s.live, messages: [...s.live.messages, userMsg] },
+    }))
     // The turn runs async so an unsaved draft is first materialized into a real,
     // persisted session (the server mints its id + titles it from this message).
     // The reply then streams under that id and the backend persists the turn —
     // making "send" a real, durable operation rather than client-only state.
     //
-    // Sends are SERIALIZED through one chain: the backend enforces one live turn
-    // per session (server/turns.ts — a concurrent send is 409 conflict), so a
-    // rapid second message waits for the first turn to finish instead of being
-    // refused. The user message already rendered above, so nothing looks stuck.
-    sendChain.current = sendChain.current.then(async () => {
+    // Sends SERIALIZE PER SESSION (the store's chain): the backend enforces one
+    // live turn per session (server/turns.ts — a concurrent send is 409
+    // conflict), so a rapid second message waits for the first turn to finish
+    // instead of being refused. The user message already rendered above, so
+    // nothing looks stuck. Different sessions run concurrently — the store's
+    // epoch model keeps each stream landing in its own entry.
+    void (async () => {
       let sid = startId
       if (sid === DRAFT_ID) {
         try {
@@ -822,6 +743,10 @@ export function useSessionWorkspace() {
           if (latePick.providerId !== draftModel.providerId || latePick.modelId !== draftModel.modelId) {
             void patchSession(sid, { providerId: latePick.providerId ?? '', modelId: latePick.modelId ?? '' })
           }
+          // The draft entry's optimistic state (its user turn(s), its flags)
+          // moves under the real id — once; a coalesced second send finds the
+          // draft slot already blank and adopt() skips it.
+          conversations.adopt(DRAFT_ID, sid)
           // Adopt the new id only if the user is still on the draft — don't yank
           // them back if they navigated away while it was materializing.
           if (activeIdRef.current === DRAFT_ID) {
@@ -835,68 +760,14 @@ export function useSessionWorkspace() {
           sid = startId
         }
       }
-      // Ignore stream events that arrive after the user switched away — or
-      // re-selected this same session (which bumps runId and re-reconciles).
-      const stale = () => activeIdRef.current !== sid || runId.current !== myRun
-      await sendMessage(sid, text, {
-        onStart: (_id, message, turnId) => {
-          if (stale()) return
-          setTyping(false)
-          if (turnId) setLiveTurn({ sessionId: sid, turnId })
-          setLive((l) => ({ ...l, messages: [...l.messages, message] }))
-        },
-        onDelta: (messageId, chunk) => {
-          if (stale()) return
-          setLive((l) => ({
-            ...l,
-            messages: l.messages.map((m) => (m.id === messageId ? { ...m, content: m.content + chunk } : m)),
-          }))
-        },
-        onRelations: (messageId, relationActions) => {
-          if (stale()) return
-          setLive((l) => ({
-            ...l,
-            messages: l.messages.map((m) => (m.id === messageId ? { ...m, relationActions } : m)),
-          }))
-        },
-        // A free-typed turn can also call an attached connector/MCP tool (P6) —
-        // surface the (mock) result as activity under the message; a read is not gated.
-        onToolActivity: (messageId, toolActivities) => {
-          if (stale()) return
-          setLive((l) => ({
-            ...l,
-            messages: l.messages.map((m) => (m.id === messageId ? { ...m, toolActivities } : m)),
-          }))
-        },
-        // A free-typed turn can also call a panel-producing tool (e.g. "create a
-        // project") — surface the inline consent prompt; it applies
-        // only on approval.
-        onEscalation: (messageId, escalation) => {
-          if (stale()) return
-          setPendingEscalation({ messageId, escalation })
-        },
-        onEnd: (message) => {
-          if (stale()) return
-          setLive((l) => ({ ...l, messages: l.messages.map((m) => (m.id === message.id ? message : m)) }))
-          setTyping(false)
-          setBusy(false)
-          setLiveTurn(null)
-          // The turn consumed real tokens, and a persisted turn grew the thread's
-          // context — refresh the usage gauge for this session.
-          invalidate(keys.usage(sid))
-        },
-      }).catch((err: unknown) => {
-        if (stale()) return
-        setTyping(false)
-        setBusy(false)
-        setLiveTurn(null)
-        // Keep the server's refusal copy (a gate's 503/429 message) for the
-        // interrupted affordance — distinct, actionable copy over a generic line.
-        setSendFailure(err instanceof Error && err.message ? err.message : null)
-      })
-      // A rejection must never escape into the chain itself: a rejected chain would
-      // silently skip every subsequent send (`.then` on a rejected promise never runs).
-    }).catch(() => {})
+      // The turn streams through the store's shared pipeline: relation cards,
+      // escalation prompts, connector tool activity, the settle flags, and the
+      // usage-gauge refresh all land in the SESSION'S OWN entry — however the
+      // user navigates meanwhile (the epoch model; a reset of this session is
+      // the only thing that stales the stream). Server refusal copy (a gate's
+      // 503/429) lands as the entry's sendFailure for the retry affordance.
+      void conversations.sendTurn(sid, text)
+    })()
   }, [])
   handleSendRef.current = handleSend
 
@@ -976,8 +847,8 @@ export function useSessionWorkspace() {
     // A draft can't persist its binding yet (no server id) — hold it so it's flushed
     // onto the real session when the draft materializes on first send (see handleSend).
     else if (id === DRAFT_ID) pendingDraftContexts.current.push(ctx)
-    const next = addContextToLive(liveRef.current, ctx)
-    setLive(next)
+    const next = addContextToLive(conversations.get(id).live, ctx)
+    conversations.setLive(id, next)
     persistLive(id, next)
     // Open the newly attached context's sidebar so you see what you added — and remember
     // it as this session's panel choice (FWD-2), so reopening restores it. With a
@@ -1081,8 +952,6 @@ export function useSessionWorkspace() {
   const newSession = useCallback((seed?: AddedContext) => {
     record({ kind: 'session', sessionId: DRAFT_ID, title: '' })
     clearTimers()
-    setTyping(false)
-    setBusy(false)
     setActiveSection(null)
     setActiveId(DRAFT_ID)
     // A fresh draft must re-materialize on its first send — don't reuse the
@@ -1098,15 +967,14 @@ export function useSessionWorkspace() {
     if (seed) {
       rememberAttached(seed) // promote into the Add-context recents, like a manual attach
       const seeded = addContextToLive(EMPTY_LIVE, seed)
-      setLive(seeded)
+      conversations.reset(DRAFT_ID, seeded) // fresh flags, no held escalation
       setFocus(focusForAdded(seed, seeded))
       pendingDraftContexts.current = [seed]
     } else {
-      setLive(EMPTY_LIVE)
+      conversations.reset(DRAFT_ID, EMPTY_LIVE)
       setFocus(null)
       pendingDraftContexts.current = []
     }
-    setPendingEscalation(null)
   }, [clearTimers, record])
 
   // "New from repo / folder / connector…" — a per-mode entry point that starts a
@@ -1115,7 +983,7 @@ export function useSessionWorkspace() {
   // build one new thread) instead of resetting to yet another draft.
   const newSessionWith = useCallback(
     (ctx: AddedContext) => {
-      if (activeIdRef.current === DRAFT_ID && liveRef.current.messages.length === 0) {
+      if (activeIdRef.current === DRAFT_ID && conversations.get(DRAFT_ID).live.messages.length === 0) {
         handleAddContext(ctx)
       } else {
         newSession(ctx)
@@ -1524,8 +1392,8 @@ export function useSessionWorkspace() {
   const removeAttachment = useCallback((attId: string) => {
     const id = activeIdRef.current
     if (persistableSession(id)) void detachContext(id, attId).catch(() => {})
-    const next = removeAttachmentFromLive(liveRef.current, attId)
-    setLive(next)
+    const next = removeAttachmentFromLive(conversations.get(id).live, attId)
+    conversations.setLive(id, next)
     persistLive(id, next)
   }, [persistableSession, persistLive])
 
@@ -1535,8 +1403,8 @@ export function useSessionWorkspace() {
   // (no source) are never touched, so a workspace that still holds them stays.
   const removeFolder = useCallback((sourceId: string) => {
     const id = activeIdRef.current
-    const next = removeFolderFromLive(liveRef.current, sourceId)
-    setLive(next)
+    const next = removeFolderFromLive(conversations.get(id).live, sourceId)
+    conversations.setLive(id, next)
     // Detach this folder's own binding-of-record — keyed by its source id, the same
     // id attach used (Primitive 1) — so it goes away even when other folders remain
     // in the shared workspace (each folder is its own attachment now, not a shared
@@ -1555,8 +1423,8 @@ export function useSessionWorkspace() {
     // by id (the binding id pairs with the chip's focus id). Fire-and-forget, and
     // gated on persistableSession so it stays in step with the binding write.
     if (persistableSession(id)) for (const f of focuses) void detachContext(id, f.id).catch(() => {})
-    const next = removeContextsFromLive(liveRef.current, focuses)
-    setLive(next)
+    const next = removeContextsFromLive(conversations.get(id).live, focuses)
+    conversations.setLive(id, next)
     persistLive(id, next)
   }, [persistableSession, persistLive])
 
@@ -1624,7 +1492,7 @@ export function useSessionWorkspace() {
     try {
       const updated = await compactSession(sid)
       if (activeIdRef.current !== sid) return // navigated away mid-request
-      setLive((l) => ({ ...l, messages: updated.messages ?? [] }))
+      conversations.setLive(sid, (l) => ({ ...l, messages: updated.messages ?? [] }))
     } catch {
       /* leave the thread as-is; the user can retry */
     }
