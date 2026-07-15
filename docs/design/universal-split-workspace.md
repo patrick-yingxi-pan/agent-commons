@@ -132,9 +132,18 @@ collapses); prune at render, never in storage.
    (`closeMainPane`), per-account persistence, URL parity (a pane's local
    navigation never touches the address). Spec row ADAPT-17; locked by
    `tests/main-split.test.ts` + `e2e/main-split.spec.ts`.
-3. **Multi-conversation panes** — any pane hosts a conversation through the
-   store: own composer, own streaming turn, shared state for duplicate panes;
-   focused-pane URL semantics.
+3. **Multi-conversation panes** — ✅ **LANDED 2026-07-15**: the picker offers
+   every conversation; `ConversationPane` renders the thread through the keyed
+   store (`usePaneConversation` — the primary's open recipe without its
+   navigation), with a lean own composer (`dispatchTurn`: optimistic turn +
+   flags + per-session chain; stop included) streaming independently of the
+   primary. Consent applies through ONE funnel (`applyEscalationToLive` /
+   `escalationBinding` / `approvalView` — the controller refactored onto it).
+   Deliberately deferred to Phase 5 polish: the full composer in panes
+   (context chips, model picker, usage gauge), pane focus driving the URL, and
+   pruning a deleted session's pane live. Locked by
+   `tests/conversation-store.test.ts` (dispatchTurn),
+   `tests/escalation-funnel.test.ts`, `e2e/main-split.spec.ts`.
 4. **Fold the right panel in** — `context-panel` view kind; chip clicks open
    sibling panes; ADAPT-16 surface retired with tree migration.
 5. **Hardening** — the ADAPT-11 ladder, spec rows (new ADAPT row superseding

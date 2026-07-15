@@ -5,6 +5,9 @@ import {
   DRAFT_SESSION,
   EMPTY_LIVE,
   addContextToLive,
+  applyEscalationToLive,
+  approvalView,
+  escalationBinding,
   focusForAdded,
   folderLabel,
   liveFromSession,
@@ -14,7 +17,6 @@ import {
   repoIdForLabel,
   slug,
   unresolvedEscalation,
-  withConnector,
   workspaceOf,
   workspaceNameFor,
   type Live,
@@ -543,35 +545,10 @@ export function useSessionWorkspace() {
   // only once the user approves (see approveEscalation), never automatically.
   const applyEscalation = useCallback(
     (esc: EscalationProposal, workspaceRoot?: string) => {
-      const l = conversations.get(activeIdRef.current).live
-      const next: Live = { ...l }
-      // Guard the id-keyed pushes so a replayed beat can't duplicate a panel.
-      if (esc.kind === 'workspace' && !l.workspaces.some((w) => w.id === 'ws-demo')) {
-        next.workspaces = [
-          ...l.workspaces,
-          {
-            id: 'ws-demo',
-            label: workspaceRoot ? folderLabel(workspaceRoot) : workspaceNameFor(activeSession),
-            artifacts: esc.artifacts,
-          },
-        ]
-      }
-      if (esc.kind === 'repo' && !l.repos.some((r) => r.id === 'repo-demo')) {
-        next.repos = [
-          ...l.repos,
-          {
-            id: 'repo-demo',
-            label: esc.remote,
-            origin: 'github',
-            remote: esc.remote,
-            branch: esc.branch,
-            files: esc.files,
-            diff: esc.diff,
-            terminal: esc.terminal,
-          },
-        ]
-        next.connectors = esc.connectors.reduce(withConnector, l.connectors)
-      }
+      // The one shared apply funnel (data/liveSession — split panes approve
+      // through the same rules; id-guarded, so a replayed beat can't duplicate).
+      const label = workspaceRoot ? folderLabel(workspaceRoot) : workspaceNameFor(activeSession)
+      const next = applyEscalationToLive(conversations.get(activeIdRef.current).live, esc, label)
       conversations.setLive(activeIdRef.current, next)
       // The grown context's panel opens — into the split frame's first pane when
       // one is up (ADAPT-16; inlined non-persisting route: routeToPane is defined
@@ -601,16 +578,8 @@ export function useSessionWorkspace() {
       const id = activeIdRef.current
       const session = SESSIONS.find((s) => s.id === id) ?? extraSessionsRef.current.find((s) => s.id === id)
       if (id !== DRAFT_ID && session && esc.kind !== 'project') {
-        const binding: AttachContextRequest =
-          esc.kind === 'workspace'
-            ? {
-                id: 'ws-demo',
-                type: 'folder',
-                label: workspaceRoot ? folderLabel(workspaceRoot) : workspaceNameFor(activeSession),
-                scope: workspaceRoot ?? '*',
-              }
-            : { id: 'repo-demo', type: 'repo', label: esc.remote, scope: '*' }
-        void attachContext(id, binding).catch(() => {})
+        const binding = escalationBinding(esc, label, workspaceRoot)
+        if (binding) void attachContext(id, binding).catch(() => {})
         void persistWorkspace(id, workspaceOf(next)).catch(() => {})
       }
     },
@@ -1469,17 +1438,10 @@ export function useSessionWorkspace() {
   // The view-facing shape of the held consent prompt: which escalation is
   // pending plus what the prompt needs to render (a workspace beat's root
   // choices; a repo beat's service name). Null when nothing is pending.
-  const pendingApproval = useMemo(() => {
-    if (!pendingEscalation) return null
-    const esc = pendingEscalation.escalation
-    if (esc.kind === 'workspace') {
-      return { kind: 'workspace', rootChoices: esc.rootChoices.length ? esc.rootChoices : ['~/'] } as const
-    }
-    if (esc.kind === 'project') {
-      return { kind: 'project', projectName: esc.project.name } as const
-    }
-    return { kind: 'repo', connectorLabel: esc.connectorLabel } as const
-  }, [pendingEscalation])
+  const pendingApproval = useMemo(
+    () => (pendingEscalation ? approvalView(pendingEscalation.escalation) : null),
+    [pendingEscalation],
+  )
 
   // Context compaction (P5 / BROKER-EXP-3): ask the backend (server-owned) to archive the
   // older messages behind a summary marker, then swap our live messages to the returned

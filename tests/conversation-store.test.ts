@@ -134,6 +134,23 @@ test('adopt moves the draft entry under the real id — once; a blank recreation
   assert.equal(store.get('real-1').live.messages[0]?.content, 'first')
 })
 
+test('dispatchTurn (the pane path) appends the optimistic user turn, flags, and streams — in one call', async () => {
+  const { transport, sends } = fakeTransport()
+  const store = createConversationStore(transport, empty)
+  void store.dispatchTurn('s', 'from a pane')
+  assert.equal(store.get('s').live.messages.at(-1)?.content, 'from a pane', 'the user turn rendered at dispatch')
+  assert.equal(store.get('s').typing, true)
+  assert.equal(store.get('s').busy, true)
+  await tick()
+  assert.equal(sends[0]?.text, 'from a pane')
+  // Two panes dispatching to DIFFERENT sessions run concurrently (the multi-pane requirement).
+  void store.dispatchTurn('t', 'other pane')
+  await tick()
+  assert.equal(sends.length, 2)
+  // …and their optimistic user messages got distinct ids (no same-millisecond collision).
+  assert.notEqual(store.get('s').live.messages.at(-1)?.id, store.get('t').live.messages.at(-1)?.id)
+})
+
 test('a failed send lands the refusal copy in the entry and settles the flags', async () => {
   const store = createConversationStore(
     {

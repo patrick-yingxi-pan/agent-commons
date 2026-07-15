@@ -237,6 +237,24 @@ export function createConversationStore(transport: ConversationTransport, empty:
     )
   }
 
+  /** The whole send in one call — the PANE path (a real session, no draft
+   *  materialization): the optimistic user turn + the generation flags land on
+   *  the entry, then the turn streams. The singleton hook keeps its own
+   *  dispatch (its optimistic writes may target the draft entry that `adopt`
+   *  later moves). */
+  let userSeq = 0
+  const dispatchTurn = (id: string, text: string): Promise<void> => {
+    const userMsg: Message = { id: `u-${Date.now().toString(36)}-${(userSeq += 1)}`, role: 'user', content: text }
+    update(id, (s) => ({
+      ...s,
+      typing: true,
+      busy: true,
+      sendFailure: null,
+      live: { ...s.live, messages: [...s.live.messages, userMsg] },
+    }))
+    return sendTurn(id, text)
+  }
+
   /** Stream one sent turn into the keyed entry. Serialized per session; the
    *  caller set the optimistic flags (typing/busy + the user message) at
    *  dispatch, possibly on a different (draft) id that `adopt` moved here. */
@@ -285,6 +303,7 @@ export function createConversationStore(transport: ConversationTransport, empty:
     holdEscalation,
     clearAll,
     sendTurn,
+    dispatchTurn,
     reattach,
     stop,
   }

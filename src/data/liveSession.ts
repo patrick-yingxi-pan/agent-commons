@@ -240,6 +240,63 @@ export function addContextToLive(l: Live, ctx: AddedContext): Live {
   }
 }
 
+/** Apply an APPROVED escalation's panels to the live session (the model half of
+ *  the consent flow): attach the workspace (labelled with the user-chosen root)
+ *  or the repo + its connectors. Id-guarded, so a replayed beat can't duplicate
+ *  a panel. ONE funnel for every conversation surface — the primary thread's
+ *  controller and a split pane's approval both apply through here (universal
+ *  split Phase 3). A 'project' escalation doesn't touch the live state (it is a
+ *  relation op); callers route it to applyRelationOp. */
+export function applyEscalationToLive(l: Live, esc: EscalationProposal, workspaceLabel: string): Live {
+  const next: Live = { ...l }
+  if (esc.kind === 'workspace' && !l.workspaces.some((w) => w.id === 'ws-demo')) {
+    next.workspaces = [...l.workspaces, { id: 'ws-demo', label: workspaceLabel, artifacts: esc.artifacts }]
+  }
+  if (esc.kind === 'repo' && !l.repos.some((r) => r.id === 'repo-demo')) {
+    next.repos = [
+      ...l.repos,
+      {
+        id: 'repo-demo',
+        label: esc.remote,
+        origin: 'github',
+        remote: esc.remote,
+        branch: esc.branch,
+        files: esc.files,
+        diff: esc.diff,
+        terminal: esc.terminal,
+      },
+    ]
+    next.connectors = esc.connectors.reduce(withConnector, l.connectors)
+  }
+  return next
+}
+
+/** The binding-of-record an approved escalation persists (the same two-facet
+ *  write a manual attach does) — null for a 'project' escalation (no panel). */
+export function escalationBinding(
+  esc: EscalationProposal,
+  workspaceLabel: string,
+  workspaceRoot?: string,
+): { id: string; type: 'folder' | 'repo'; label: string; scope: string } | null {
+  if (esc.kind === 'workspace') return { id: 'ws-demo', type: 'folder', label: workspaceLabel, scope: workspaceRoot ?? '*' }
+  if (esc.kind === 'repo') return { id: 'repo-demo', type: 'repo', label: esc.remote, scope: '*' }
+  return null
+}
+
+/** The view-facing shape of a held consent prompt — what the EscalationPrompt
+ *  needs to render (a workspace beat's root choices; a repo beat's service
+ *  name; a project beat's name). The shared derivation for the primary thread
+ *  and the split panes. */
+export function approvalView(esc: EscalationProposal) {
+  if (esc.kind === 'workspace') {
+    return { kind: 'workspace', rootChoices: esc.rootChoices.length ? esc.rootChoices : ['~/'] } as const
+  }
+  if (esc.kind === 'project') {
+    return { kind: 'project', projectName: esc.project.name } as const
+  }
+  return { kind: 'repo', connectorLabel: esc.connectorLabel } as const
+}
+
 /** The panel to open for a just-attached context, so you see what you added — the
  *  shared rule for the manual attach funnel and the pre-attached entry shortcuts
  *  (FWD-1). `live` is the post-attach state (a folder merges into the shared

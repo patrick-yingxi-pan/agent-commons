@@ -349,8 +349,13 @@ function Workspace() {
     splitMainPane(primary?.path ?? '', 'row')
   }, [mainTree, splitMainPane])
   const mainPaneNav = useMemo<MainPaneNav>(
-    () => ({ onOpenSession: selectSession, onNewSession: () => newSession(), onOpenProposal: openProposal }),
-    [selectSession, newSession, openProposal],
+    () => ({
+      onOpenSession: selectSession,
+      onNewSession: () => newSession(),
+      onOpenProposal: openProposal,
+      sessionLabel: (id) => sessions.find((s) => s.id === id)?.title ?? 'Conversation',
+    }),
+    [selectSession, newSession, openProposal, sessions],
   )
 
   // The live size of the open thread's Messages — so the composer's usage gauge

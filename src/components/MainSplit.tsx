@@ -9,15 +9,21 @@
  *  ONE keyboard-operable ResizeHandle, named per path (UI-11). Wide tier only
  *  (the caller gates, ADAPT-11): overlay tiers render the primary surface
  *  alone and the tree persists. */
-import { useRef, useState, type ReactNode } from 'react'
-import { Columns2, Rows2, X } from 'lucide-react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { ArrowUp, Columns2, MessageSquare, Rows2, Square, X } from 'lucide-react'
 import { ResizeHandle } from './ResizeHandle'
 import { SectionView } from './SectionView'
+import { MessageRow, TypingRow } from './Message'
+import { EscalationPrompt } from './EscalationPrompt'
 import { SECTION_META } from '../lib/sections'
 import { clampRatio, type SplitDir } from '../lib/splitFrame'
 import type { MainPaneContent, MainSplitNode } from '../lib/mainSplit'
 import type { NavLocation } from '../lib/nav'
 import type { SectionId } from '../types'
+import { useSessions, applyRelationOp, attachContext, persistWorkspace } from '../api'
+import { conversations } from '../controller/conversationStore'
+import { usePaneConversation } from '../controller/usePaneConversation'
+import { applyEscalationToLive, approvalView, escalationBinding, folderLabel, workspaceOf } from '../data/liveSession'
 
 /** Global doors a pane hands off to the PRIMARY surface (opening a thread from
  *  a pane's session list shows it where conversations live — the primary). */
@@ -25,6 +31,8 @@ export interface MainPaneNav {
   onOpenSession: (id: string) => void
   onNewSession: () => void
   onOpenProposal: (agentId: string, proposalId: string, ownerName: string | null) => void
+  /** A session's display title (the live rows) — pane strips + picker labels. */
+  sessionLabel: (id: string) => string
 }
 
 /** The gate App renders: no tree (or an overlay tier) passes the primary
@@ -118,7 +126,14 @@ function Branch(props: BranchProps) {
 
   if (node.kind === 'pane') {
     const c = node.content
-    const label = c.kind === 'primary' ? primaryLabel : c.kind === 'msection' ? SECTION_META[c.id].label : c.kind === 'msession' ? 'Conversation' : 'New pane'
+    const label =
+      c.kind === 'primary'
+        ? primaryLabel
+        : c.kind === 'msection'
+          ? SECTION_META[c.id].label
+          : c.kind === 'msession'
+            ? props.nav.sessionLabel(c.id)
+            : 'New pane'
     return (
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-canvas" data-main-pane={path || 'root'}>
         <div className="flex h-8 shrink-0 items-center gap-1 border-b border-line bg-surface/60 px-2.5">
@@ -156,6 +171,8 @@ function Branch(props: BranchProps) {
             props.renderPrimary()
           ) : c.kind === 'msection' ? (
             <SectionPane section={c.id} nav={props.nav} />
+          ) : c.kind === 'msession' ? (
+            <ConversationPane sessionId={c.id} nav={props.nav} />
           ) : (
             <MainPicker onPick={(content) => props.onFillPane(path, content)} />
           )}
@@ -264,9 +281,140 @@ function SectionPane({ section, nav }: { section: SectionId; nav: MainPaneNav })
   )
 }
 
-/** The empty pane's content picker — every section page; conversations join in
- *  Phase 3. */
+/** ── An independent conversation in a pane (universal split Phase 3) ─────────
+ *  Driven by the keyed conversation store: its OWN composer, its own streaming
+ *  turn (the server's one-live-turn-per-session slot is the concurrency wall),
+ *  its own consent prompts — fully interactive beside the primary. Two panes
+ *  on one session share one entry (the store dedupes by key). The escalation
+ *  approval applies through the SAME funnels the primary uses
+ *  (applyEscalationToLive / escalationBinding) — one consent flow, two hosts. */
+function ConversationPane({ sessionId, nav }: { sessionId: string; nav: MainPaneNav }) {
+  const conv = usePaneConversation(sessionId)
+  const bottomRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }, [conv.live.messages, conv.typing, conv.pendingEscalation])
+
+  const pendingApproval = conv.pendingEscalation ? approvalView(conv.pendingEscalation.escalation) : null
+  const approve = (workspaceRoot?: string) => {
+    const pending = conversations.get(sessionId).pendingEscalation
+    if (!pending) return
+    const esc = pending.escalation
+    if (esc.kind === 'project') {
+      applyRelationOp({
+        kind: 'create-project',
+        projectId: esc.project.id,
+        projectName: esc.project.name,
+        projectDescription: esc.project.description,
+        ...(esc.fileSession ? { sessionId, sessionTitle: nav.sessionLabel(sessionId) } : {}),
+      })
+    } else {
+      const label = workspaceRoot ? folderLabel(workspaceRoot) : `${nav.sessionLabel(sessionId)} files`
+      const next = applyEscalationToLive(conversations.get(sessionId).live, esc, label)
+      conversations.setLive(sessionId, next)
+      const binding = escalationBinding(esc, label, workspaceRoot)
+      if (binding) void attachContext(sessionId, binding).catch(() => {})
+      void persistWorkspace(sessionId, workspaceOf(next)).catch(() => {})
+    }
+    conversations.patch(sessionId, { pendingEscalation: null })
+  }
+
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-conversation-pane={sessionId}>
+      <div className="flex-1 overflow-y-auto">
+        <div className="py-4">
+          {conv.live.messages.map((m) => (
+            <MessageRow key={m.id} message={m} sessionId={sessionId} />
+          ))}
+          {conv.typing && <TypingRow />}
+          {pendingApproval && (
+            <EscalationPrompt
+              key={pendingApproval.kind}
+              kind={pendingApproval.kind}
+              rootChoices={pendingApproval.kind === 'workspace' ? pendingApproval.rootChoices : undefined}
+              connectorLabel={pendingApproval.kind === 'repo' ? pendingApproval.connectorLabel : undefined}
+              projectName={pendingApproval.kind === 'project' ? pendingApproval.projectName : undefined}
+              onApprove={approve}
+            />
+          )}
+          <div ref={bottomRef} />
+        </div>
+      </div>
+      <PaneComposer
+        busy={conv.busy}
+        failure={conv.sendFailure}
+        onSend={(text) => void conversations.dispatchTurn(sessionId, text)}
+        onStop={() => conversations.stop(sessionId)}
+      />
+    </div>
+  )
+}
+
+/** The pane's lean composer — send / stop / the server's refusal copy. (The
+ *  full composer's context chips, model picker, and usage gauge remain the
+ *  primary surface's for now — the Phase 5 polish list.) */
+function PaneComposer({
+  busy,
+  failure,
+  onSend,
+  onStop,
+}: {
+  busy: boolean
+  failure: string | null
+  onSend: (text: string) => void
+  onStop: () => void
+}) {
+  const [value, setValue] = useState('')
+  const send = () => {
+    const text = value.trim()
+    if (!text || busy) return
+    setValue('')
+    onSend(text)
+  }
+  return (
+    <div className="shrink-0 border-t border-line p-2.5">
+      {failure && <div className="px-1 pb-1.5 text-[12px] text-removed">{failure}</div>}
+      <div className="flex items-end gap-1.5 rounded-xl border border-line bg-panel px-2.5 py-1.5">
+        <textarea
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              send()
+            }
+          }}
+          placeholder={busy ? 'Claude is replying…' : 'Reply in this conversation…'}
+          rows={1}
+          className="max-h-32 min-h-6 w-full resize-none bg-transparent text-sm text-ink outline-none placeholder:text-ink-faint"
+          data-pane-composer
+        />
+        {busy ? (
+          <button
+            onClick={onStop}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-ink text-white transition hover:bg-ink/85"
+            title="Stop"
+          >
+            <Square size={12} fill="currentColor" />
+          </button>
+        ) : (
+          <button
+            onClick={send}
+            disabled={!value.trim()}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent text-white transition enabled:hover:brightness-95 disabled:opacity-40"
+            title="Send"
+          >
+            <ArrowUp size={14} />
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** The empty pane's content picker — every section page and every conversation. */
 function MainPicker({ onPick }: { onPick: (content: MainPaneContent) => void }) {
+  const sessions = useSessions().data ?? []
   return (
     <div className="flex h-full w-full min-w-0 flex-col overflow-hidden bg-canvas" data-main-picker>
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
@@ -287,6 +435,22 @@ function MainPicker({ onPick }: { onPick: (content: MainPaneContent) => void }) 
             </button>
           )
         })}
+        {sessions.length > 0 && (
+          <>
+            <div className="px-1 pb-2 pt-3 text-[12px] font-medium text-ink-faint">Conversations</div>
+            {sessions.slice(0, 12).map((s) => (
+              <button
+                key={s.id}
+                onClick={() => onPick({ kind: 'msession', id: s.id })}
+                className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-ink transition hover:bg-surface"
+                data-pick-session={s.id}
+              >
+                <MessageSquare size={16} className="shrink-0 text-ink-soft" />
+                <span className="truncate font-medium">{s.title}</span>
+              </button>
+            ))}
+          </>
+        )}
       </div>
     </div>
   )

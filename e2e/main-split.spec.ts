@@ -39,3 +39,26 @@ test('split the view → pick Projects → pane-local detail; the URL stays the 
   await expect(page.locator('[data-main-split]')).toHaveCount(0)
   await expect(page.locator('textarea')).toBeVisible()
 })
+
+test('a conversation pane is fully independent: its own composer streams its own reply (Phase 3)', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 })
+  await page.goto('/')
+
+  await page.locator('[data-split-view]').click()
+  // Pick a seeded conversation into the new pane.
+  await page.locator('[data-pick-session="auth-refactor"]').click()
+  const pane = page.locator('[data-conversation-pane="auth-refactor"]')
+  await expect(pane.getByText('token refresh logic').first()).toBeVisible()
+
+  // Send FROM THE PANE — the reply streams into the pane's thread…
+  const composer = pane.locator('[data-pane-composer]')
+  await composer.fill('quick pane check')
+  await composer.press('Enter')
+  await expect(pane.getByText('quick pane check')).toBeVisible()
+  await expect(pane.getByText(/local mock|workspace/).last()).toBeVisible({ timeout: 15_000 })
+
+  // …while the PRIMARY (the fresh draft) is untouched and the URL never moved.
+  // (The e2e stack runs an isolated store, so the persisted turn is run-local.)
+  await expect(page.locator('[data-main-pane="a"]').getByText('quick pane check')).toHaveCount(0)
+  expect(new URL(page.url()).pathname).toBe('/')
+})
