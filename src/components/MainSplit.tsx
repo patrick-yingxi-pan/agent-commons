@@ -13,22 +13,41 @@
  *  ResizeHandle, named per path (UI-11). Wide tier only (the caller gates,
  *  ADAPT-11): overlay tiers render the primary surface alone and the tree
  *  persists. */
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowUp, MessageSquare, Square } from 'lucide-react'
+import { useCallback, useRef, useState, type ReactNode } from 'react'
+import { MessageSquare } from 'lucide-react'
 import { ResizeHandle } from './ResizeHandle'
 import { SectionView } from './SectionView'
 import { SessionTitleBar } from './SessionTitleBar'
-import { MessageRow, TypingRow } from './Message'
-import { EscalationPrompt } from './EscalationPrompt'
+import { ConversationView } from './ConversationView'
 import { SECTION_META } from '../lib/sections'
 import { clampRatio } from '../lib/splitFrame'
+import { rememberAttached } from '../lib/contextShortcuts'
 import type { MainPaneContent, MainSplitNode } from '../lib/mainSplit'
 import type { NavLocation } from '../lib/nav'
-import type { SectionId } from '../types'
-import { useSessions, applyRelationOp, attachContext, persistWorkspace } from '../api'
+import type { AddedContext, PanelFocus, SectionId } from '../types'
+import type { ModelPick } from '../lib/models'
+import {
+  useSessions,
+  applyRelationOp,
+  attachContext,
+  detachContext,
+  compactSession,
+  patchSession,
+  persistWorkspace,
+} from '../api'
 import { conversations } from '../controller/conversationStore'
 import { usePaneConversation } from '../controller/usePaneConversation'
-import { applyEscalationToLive, approvalView, escalationBinding, folderLabel, workspaceOf } from '../data/liveSession'
+import {
+  addContextToLive,
+  applyEscalationToLive,
+  approvalView,
+  bindingsFor,
+  escalationBinding,
+  folderLabel,
+  removeContextsFromLive,
+  removeFolderFromLive,
+  workspaceOf,
+} from '../data/liveSession'
 
 /** Global doors a pane hands off to the PRIMARY surface (opening a thread from
  *  a pane's session list shows it where conversations live — the primary). */
@@ -40,6 +59,11 @@ export interface MainPaneNav {
    *  routine) — global navigation, so they land on the primary surface. */
   onOpenProject: (id: string) => void
   onOpenSchedule: (id: string) => void
+  /** A pane composer's context-chip click. The right panel is scoped to the
+   *  PRIMARY session until Phase 4 folds it into the tree — so the App opens
+   *  the panel directly when the pane shows the primary's session (the
+   *  duplicate case), and otherwise brings the session to the primary first. */
+  onOpenSessionContext: (sessionId: string, focus: PanelFocus) => void
   /** A session's display title (the live rows) — pane title bars + picker labels. */
   sessionLabel: (id: string) => string
 }
@@ -259,143 +283,130 @@ function SectionPane({ section, initialSub, nav }: { section: SectionId; initial
   )
 }
 
-/** ── An independent conversation in a pane (universal split Phase 3) ─────────
- *  Driven by the keyed conversation store: its OWN composer, its own streaming
- *  turn (the server's one-live-turn-per-session slot is the concurrency wall),
- *  its own consent prompts — fully interactive beside the primary. Two panes
- *  on one session share one entry (the store dedupes by key). The escalation
- *  approval applies through the SAME funnels the primary uses
- *  (applyEscalationToLive / escalationBinding) — one consent flow, two hosts. */
+/** ── An independent conversation in a pane (universal split Phases 3+5) ──────
+ *  The SAME fully-fledged ConversationView the primary mounts — two panes on
+ *  one session are two views in sync with the same keyed model (the store
+ *  dedupes by key; the server's one-live-turn-per-session slot is the
+ *  concurrency wall). This component is only the pane's CONTROLLER: the
+ *  per-session command adapter — send/stop/retry through the store, attach /
+ *  remove / compact / model-pick through the same shared funnels the singleton
+ *  controller uses (bindingsFor, addContextToLive, workspaceOf, the escalation
+ *  apply funnel), never a parallel implementation. */
 function ConversationPane({ sessionId, nav }: { sessionId: string; nav: MainPaneNav }) {
   const conv = usePaneConversation(sessionId)
-  const bottomRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [conv.live.messages, conv.typing, conv.pendingEscalation])
-
-  const pendingApproval = conv.pendingEscalation ? approvalView(conv.pendingEscalation.escalation) : null
-  const approve = (workspaceRoot?: string) => {
-    const pending = conversations.get(sessionId).pendingEscalation
-    if (!pending) return
-    const esc = pending.escalation
-    if (esc.kind === 'project') {
-      applyRelationOp({
-        kind: 'create-project',
-        projectId: esc.project.id,
-        projectName: esc.project.name,
-        projectDescription: esc.project.description,
-        ...(esc.fileSession ? { sessionId, sessionTitle: nav.sessionLabel(sessionId) } : {}),
-      })
-    } else {
-      const label = workspaceRoot ? folderLabel(workspaceRoot) : `${nav.sessionLabel(sessionId)} files`
-      const next = applyEscalationToLive(conversations.get(sessionId).live, esc, label)
-      conversations.setLive(sessionId, next)
-      const binding = escalationBinding(esc, label, workspaceRoot)
-      if (binding) void attachContext(sessionId, binding).catch(() => {})
-      void persistWorkspace(sessionId, workspaceOf(next)).catch(() => {})
-    }
-    conversations.patch(sessionId, { pendingEscalation: null })
-  }
-
-  // The SAME title bar the primary surface wears (panes are homogeneous): live
-  // title + home breadcrumb. A session outside the live list (a run session)
-  // falls back to a title-only shell.
   const row = (useSessions().data ?? []).find((s) => s.id === sessionId)
+
+  const approve = useCallback(
+    (workspaceRoot?: string) => {
+      const pending = conversations.get(sessionId).pendingEscalation
+      if (!pending) return
+      const esc = pending.escalation
+      if (esc.kind === 'project') {
+        applyRelationOp({
+          kind: 'create-project',
+          projectId: esc.project.id,
+          projectName: esc.project.name,
+          projectDescription: esc.project.description,
+          ...(esc.fileSession ? { sessionId, sessionTitle: nav.sessionLabel(sessionId) } : {}),
+        })
+      } else {
+        const label = workspaceRoot ? folderLabel(workspaceRoot) : `${nav.sessionLabel(sessionId)} files`
+        const next = applyEscalationToLive(conversations.get(sessionId).live, esc, label)
+        conversations.setLive(sessionId, next)
+        const binding = escalationBinding(esc, label, workspaceRoot)
+        if (binding) void attachContext(sessionId, binding).catch(() => {})
+        void persistWorkspace(sessionId, workspaceOf(next)).catch(() => {})
+      }
+      conversations.patch(sessionId, { pendingEscalation: null })
+    },
+    [sessionId, nav],
+  )
+
+  // The attach / remove funnels, session-parametric — the same building blocks
+  // the singleton controller composes (a pane session is always real, so there
+  // is no draft-buffering branch).
+  const addContext = useCallback(
+    (ctx: AddedContext) => {
+      rememberAttached(ctx)
+      for (const b of bindingsFor(ctx)) void attachContext(sessionId, b).catch(() => {})
+      const next = addContextToLive(conversations.get(sessionId).live, ctx)
+      conversations.setLive(sessionId, next)
+      void persistWorkspace(sessionId, workspaceOf(next)).catch(() => {})
+    },
+    [sessionId],
+  )
+  const removeContexts = useCallback(
+    (focuses: PanelFocus[]) => {
+      for (const f of focuses) void detachContext(sessionId, f.id).catch(() => {})
+      const next = removeContextsFromLive(conversations.get(sessionId).live, focuses)
+      conversations.setLive(sessionId, next)
+      void persistWorkspace(sessionId, workspaceOf(next)).catch(() => {})
+    },
+    [sessionId],
+  )
+  const removeFolder = useCallback(
+    (sourceId: string) => {
+      void detachContext(sessionId, sourceId).catch(() => {})
+      const next = removeFolderFromLive(conversations.get(sessionId).live, sourceId)
+      conversations.setLive(sessionId, next)
+      void persistWorkspace(sessionId, workspaceOf(next)).catch(() => {})
+    },
+    [sessionId],
+  )
+
+  const retry = useCallback(() => {
+    const last = [...conversations.get(sessionId).live.messages].reverse().find((m) => m.role === 'user')
+    if (last?.content) void conversations.dispatchTurn(sessionId, last.content)
+  }, [sessionId])
+
+  const compact = useCallback(async () => {
+    try {
+      const updated = await compactSession(sessionId)
+      conversations.setLive(sessionId, (l) => ({ ...l, messages: updated.messages ?? [] }))
+    } catch {
+      /* leave the thread as-is; the user can retry */
+    }
+  }, [sessionId])
+
+  // The session's two-level model pick, straight off the live row (the same
+  // PATCH the primary's picker writes — one wire, two views).
+  const modelPick: ModelPick = { providerId: row?.providerId, modelId: row?.modelId }
+  const selectModel = useCallback(
+    (pick: ModelPick) => {
+      void patchSession(sessionId, { providerId: pick.providerId ?? '', modelId: pick.modelId ?? '' })
+    },
+    [sessionId],
+  )
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-conversation-pane={sessionId}>
+      {/* The SAME title bar the primary wears (a run session outside the live
+          list falls back to a title-only shell). */}
       <SessionTitleBar
         session={row ?? { id: sessionId, title: nav.sessionLabel(sessionId) }}
         onOpenProject={nav.onOpenProject}
         onOpenSchedule={nav.onOpenSchedule}
       />
-      <div className="flex-1 overflow-y-auto">
-        <div className="py-4">
-          {conv.live.messages.map((m) => (
-            <MessageRow key={m.id} message={m} sessionId={sessionId} />
-          ))}
-          {conv.typing && <TypingRow />}
-          {pendingApproval && (
-            <EscalationPrompt
-              key={pendingApproval.kind}
-              kind={pendingApproval.kind}
-              rootChoices={pendingApproval.kind === 'workspace' ? pendingApproval.rootChoices : undefined}
-              connectorLabel={pendingApproval.kind === 'repo' ? pendingApproval.connectorLabel : undefined}
-              projectName={pendingApproval.kind === 'project' ? pendingApproval.projectName : undefined}
-              onApprove={approve}
-            />
-          )}
-          <div ref={bottomRef} />
-        </div>
-      </div>
-      <PaneComposer
+      <ConversationView
+        sessionId={sessionId}
+        live={conv.live}
+        typing={conv.typing}
         busy={conv.busy}
-        failure={conv.sendFailure}
+        streaming={!!(conv.busy && conv.liveTurn)}
+        sendFailure={conv.sendFailure}
+        pendingApproval={conv.pendingEscalation ? approvalView(conv.pendingEscalation.escalation) : null}
+        onApprove={approve}
         onSend={(text) => void conversations.dispatchTurn(sessionId, text)}
         onStop={() => conversations.stop(sessionId)}
+        onRetry={retry}
+        onCompact={row ? compact : undefined}
+        modelPick={modelPick}
+        onSelectModel={row ? selectModel : undefined}
+        onAddContext={addContext}
+        onOpenContext={(f) => nav.onOpenSessionContext(sessionId, f)}
+        onRemoveContexts={removeContexts}
+        onRemoveFolder={removeFolder}
       />
-    </div>
-  )
-}
-
-/** The pane's lean composer — send / stop / the server's refusal copy. (The
- *  full composer's context chips, model picker, and usage gauge remain the
- *  primary surface's for now — the Phase 5 polish list.) */
-function PaneComposer({
-  busy,
-  failure,
-  onSend,
-  onStop,
-}: {
-  busy: boolean
-  failure: string | null
-  onSend: (text: string) => void
-  onStop: () => void
-}) {
-  const [value, setValue] = useState('')
-  const send = () => {
-    const text = value.trim()
-    if (!text || busy) return
-    setValue('')
-    onSend(text)
-  }
-  return (
-    <div className="shrink-0 border-t border-line p-2.5">
-      {failure && <div className="px-1 pb-1.5 text-[12px] text-removed">{failure}</div>}
-      <div className="flex items-end gap-1.5 rounded-xl border border-line bg-panel px-2.5 py-1.5">
-        <textarea
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              send()
-            }
-          }}
-          placeholder={busy ? 'Claude is replying…' : 'Reply in this conversation…'}
-          rows={1}
-          className="max-h-32 min-h-6 w-full resize-none bg-transparent text-sm text-ink outline-none placeholder:text-ink-faint"
-          data-pane-composer
-        />
-        {busy ? (
-          <button
-            onClick={onStop}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-ink text-white transition hover:bg-ink/85"
-            title="Stop"
-          >
-            <Square size={12} fill="currentColor" />
-          </button>
-        ) : (
-          <button
-            onClick={send}
-            disabled={!value.trim()}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent text-white transition enabled:hover:brightness-95 disabled:opacity-40"
-            title="Send"
-          >
-            <ArrowUp size={14} />
-          </button>
-        )}
-      </div>
     </div>
   )
 }

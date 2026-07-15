@@ -114,7 +114,9 @@ test('a duplicated conversation pane is fully independent: its own composer stre
   await expect(page.locator('[data-main-pane="a"] [data-session-title-bar]').getByText('Refactor auth middleware')).toBeVisible()
 
   // Send FROM THE PANE — the reply streams into the pane's thread…
-  const composer = pane.locator('[data-pane-composer]')
+  // The pane carries the FULL composer now (the shared ConversationView) — its
+  // textarea is the same primitive the primary's composer renders.
+  const composer = pane.locator('textarea')
   await composer.fill('quick pane check')
   await composer.press('Enter')
   await expect(pane.getByText('quick pane check')).toBeVisible()

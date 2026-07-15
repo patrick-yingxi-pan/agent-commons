@@ -5,6 +5,7 @@ import {
   DRAFT_SESSION,
   EMPTY_LIVE,
   addContextToLive,
+  bindingsFor,
   applyEscalationToLive,
   approvalView,
   escalationBinding,
@@ -83,41 +84,8 @@ import type {
  *  folder's binding-of-record (and its scope). `scope` is the resource boundary
  *  (a path for folder / repo, `'*'` otherwise); files / photos expand to one
  *  binding per attachment. */
-function bindingsFor(ctx: AddedContext): AttachContextRequest[] {
-  switch (ctx.kind) {
-    case 'folder': {
-      // The folder key is source-qualified (`<source>::<path>`); its scope is the
-      // path within the source, and `source` records which host it came from.
-      const folderId = ctx.artifacts[0]?.source?.id ?? slug(ctx.label)
-      const scope = parseFsRecentKey(folderId)?.entryId ?? ctx.label
-      return [{ id: folderId, type: 'folder', label: ctx.label, scope, source: ctx.source }]
-    }
-    case 'repo':
-      return [{ id: repoIdForLabel(ctx.label), type: 'repo', label: ctx.label, scope: ctx.path ?? '*' }]
-    case 'connector':
-      return [{ id: ctx.connector.id, type: 'connector', label: ctx.connector.label, scope: '*' }]
-    case 'mcp':
-      return [{ id: ctx.connector.id, type: 'mcp', label: ctx.connector.label, scope: '*' }]
-    case 'files':
-      return ctx.attachments.map((a): AttachContextRequest => ({
-        id: a.id,
-        type: 'files',
-        label: a.label,
-        scope: parseFsRecentKey(a.id)?.entryId ?? '*',
-        source: a.source,
-      }))
-    case 'photos':
-      return ctx.attachments.map((a): AttachContextRequest => ({
-        id: a.id,
-        type: 'photos',
-        label: a.label,
-        scope: parseFsRecentKey(a.id)?.entryId ?? '*',
-        source: a.source,
-      }))
-    default:
-      return []
-  }
-}
+// bindingsFor moved to data/liveSession.ts (the model layer) so the split
+// panes' attach path shares the exact mapping — imported above.
 
 /** Whether a pane's content still exists in the session — the split-frame prune
  *  predicate (a detached repo / removed connector collapses its pane). File and

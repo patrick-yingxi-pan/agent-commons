@@ -139,11 +139,19 @@ collapses); prune at render, never in storage.
    flags + per-session chain; stop included) streaming independently of the
    primary. Consent applies through ONE funnel (`applyEscalationToLive` /
    `escalationBinding` / `approvalView` — the controller refactored onto it).
-   Deliberately deferred to Phase 5 polish: the full composer in panes
-   (context chips, model picker, usage gauge), pane focus driving the URL, and
-   pruning a deleted session's pane live. Locked by
-   `tests/conversation-store.test.ts` (dispatchTurn),
+   Locked by `tests/conversation-store.test.ts` (dispatchTurn),
    `tests/escalation-funnel.test.ts`, `e2e/main-split.spec.ts`.
+   **Homogeneous views landed 2026-07-15** (the owner's rule: refactor first —
+   a session is a well-factored view, so panes and primary must render the
+   same one): the fully-fledged conversation surface is ONE component,
+   `src/components/ConversationView.tsx` (thread + compaction + stop/retry +
+   the FULL composer: context chips, add-context pickers, model picker, usage
+   gauge, relay-wait state derived internally), mounted by the primary AND
+   every `ConversationPane` — two panes on one session are two views in sync
+   with the same keyed model. The pane's controller is a thin command adapter
+   over the SAME shared funnels (`bindingsFor` moved into `data/liveSession.ts`;
+   attach/remove/compact/model-pick session-parametric). Still open here:
+   pane focus driving the URL, and pruning a deleted session's pane live.
 4. **Fold the right panel in** — `context-panel` view kind; chip clicks open
    sibling panes; ADAPT-16 surface retired with tree migration.
 5. **Hardening** — the ADAPT-11 ladder, spec rows (new ADAPT row superseding

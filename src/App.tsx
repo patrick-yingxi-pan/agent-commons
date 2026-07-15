@@ -6,10 +6,6 @@ import { AuthScreen } from './components/auth/AuthScreen'
 import { useAuthScreen } from './controller/useAuthScreen'
 import { setUiPrefScope } from './lib/uiPrefs'
 import type { Capabilities, Identity } from '../contract/index.ts'
-import { Composer } from './components/Composer'
-import { MessageRow, TypingRow } from './components/Message'
-import { CompactionAffordance } from './components/CompactionAffordance'
-import { TurnControls } from './components/TurnControls'
 import { WorkspacePanel } from './components/WorkspacePanel'
 import { RunsPanel } from './components/RunsPanel'
 import { SplitFrame, type PaneOption } from './components/SplitFrame'
@@ -17,17 +13,16 @@ import { PaneChromeContext, type PaneChrome } from './components/paneChrome'
 import type { PaneContent } from './lib/splitFrame'
 import { MainSplitGate, type MainPaneNav } from './components/MainSplit'
 import { SessionTitleBar } from './components/SessionTitleBar'
+import { ConversationView } from './components/ConversationView'
 import { useMainSplit } from './controller/useMainSplit'
 import { setMainSplitScope } from './lib/mainSplit'
 import { SectionView } from './components/SectionView'
 import { AttachmentPanel } from './components/AttachmentPanel'
 import { ConnectorPanel } from './components/ConnectorPanel'
-import { EscalationPrompt } from './components/EscalationPrompt'
 import { SearchPanel } from './components/SearchPanel'
 import { NotificationsPanel } from './components/NotificationsPanel'
 import { AddContextButton } from './components/AddContextButton'
-import { useAgents, useCapabilities, useMe, useProviders, useSessions, useServerEvents } from './api'
-import { estimateTokens } from '../contract/index.ts'
+import { useCapabilities, useMe, useProviders, useSessions, useServerEvents } from './api'
 import { useSessionWorkspace } from './controller/useSessionWorkspace'
 import { useLayout } from './controller/useLayout'
 import { RelationsProvider } from './controller/useRelations'
@@ -118,10 +113,8 @@ function Workspace() {
     isDraft,
     busy,
     liveTurn,
-    interrupted,
     sendFailure,
     pendingApproval,
-    bottomRef,
     focusedWorkspace,
     focusedRepo,
     focusedConnector,
@@ -167,23 +160,9 @@ function Workspace() {
     setPaneRatio,
   } = useSessionWorkspace()
 
-  // The delegated-cognition affordances (docs/delegated-cognition-provider.md):
-  // resolve a session's driver → provider kind (the client mirror of the server's
-  // resolution — an unset agentId means the seeded default Agent). Feeds the
-  // "Waiting on your session…" state (§7.8 — a relayed reply arrives whole, so the
-  // UI says who it's waiting on instead of faking a token stream).
-  const agents = useAgents().data ?? []
+  // (The relay wait state — "Waiting on your session…" — is derived inside
+  // ConversationView now, once for every host.)
   const providers = useProviders().data ?? []
-  // A session's provider resolves the way the server routes the turn: the session's
-  // own model pick (`providerId` — the composer selector) wins, else its Agent's.
-  const sessionProviderKind = useCallback(
-    (session?: { agentId?: string; providerId?: string }) => {
-      const agent = agents.find((a) => a.id === (session?.agentId ?? 'agent-default'))
-      const providerId = session?.providerId ?? agent?.providerId
-      return providers.find((p) => p.id === providerId)?.kind
-    },
-    [agents, providers],
-  )
   // Resolve the active session's driver + model pick from the SERVER row when one
   // exists (the useSessions cache refreshes on session.updated — a hand-off or model
   // switch lands there). A run session isn't in that list (it surfaces through the
@@ -204,7 +183,6 @@ function Workspace() {
   // registered-models section instead of silently no-oping.
   const modelPickWritable =
     isDraft || sessions.some((s) => s.id === activeId) || !!activeSession.scheduledRunOf
-  const onRelay = sessionProviderKind({ agentId: activeRow.agentId, providerId: activePick.providerId }) === 'session'
 
   // The DRAFT's usage overlay: no server row exists to resolve its pick, so the
   // strip resolves the picked provider+model against the live registry here —
@@ -367,18 +345,19 @@ function Workspace() {
       onOpenProposal: openProposal,
       onOpenProject: openProject,
       onOpenSchedule: openSchedule,
+      // A pane composer's chip click: the right panel is scoped to the PRIMARY
+      // session until Phase 4 folds it into the tree — same session (the
+      // duplicate case) opens the panel directly; a different one comes to the
+      // primary first (its remembered panel restores with it).
+      onOpenSessionContext: (sessionId, f) => {
+        if (sessionId === activeId) focusContext(f)
+        else selectSession(sessionId)
+      },
       sessionLabel: (id) => sessions.find((s) => s.id === id)?.title ?? 'Conversation',
     }),
-    [selectSession, newSession, openProposal, openProject, openSchedule, sessions],
+    [selectSession, newSession, openProposal, openProject, openSchedule, sessions, activeId, focusContext],
   )
 
-  // The live size of the open thread's Messages — so the composer's usage gauge
-  // (and its context breakdown) fills in real time as the conversation grows.
-  // The fixed config categories are added by the breakdown.
-  const messageTokens = useMemo(
-    () => live.messages.reduce((n, m) => n + estimateTokens(m.content), 0),
-    [live.messages],
-  )
 
   // A notification door's transient focus target, handed to the SectionView subtree
   // by context (docs/notification-routing.md). Memoized so the value identity only
@@ -599,87 +578,40 @@ function Workspace() {
                     inert={panelOverlay && panelOpen}
                     className="flex min-w-0 flex-1 flex-col"
                   >
-                    <div className="flex-1 overflow-y-auto">
-                      {live.messages.length === 0 && !typing ? (
+                    {/* The ONE conversation surface — the same fully-fledged
+                        view every split pane mounts; only the command wiring
+                        is the primary's (draft-materializing send, the right
+                        panel's chip focus). */}
+                    <ConversationView
+                      sessionId={activeId}
+                      draft={isDraft}
+                      live={live}
+                      typing={typing}
+                      busy={busy}
+                      streaming={!!(busy && liveTurn && liveTurn.sessionId === activeId)}
+                      sendFailure={sendFailure}
+                      pendingApproval={pendingApproval}
+                      onApprove={approveEscalation}
+                      onSend={handleSend}
+                      onStop={stopTurn}
+                      onRetry={retryInterrupted}
+                      onCompact={compact}
+                      modelPick={activePick}
+                      onSelectModel={modelPickWritable ? selectModel : undefined}
+                      usageModel={draftModelRef}
+                      focus={focus}
+                      onAddContext={handleAddContext}
+                      onOpenContext={focusContext}
+                      onRemoveContexts={removeContexts}
+                      onRemoveFolder={removeFolder}
+                      empty={
                         <EmptyState
                           mode={isDraft ? 'draft' : 'empty'}
                           live={live}
                           onNewSessionWith={newSessionWith}
                         />
-                      ) : (
-                        <div className={!leftOpen && !railOverlay && isDraft ? 'pb-4 pt-14' : 'py-4'}>
-                          {live.messages.map((m) => (
-                            <MessageRow key={m.id} message={m} sessionId={activeId} />
-                          ))}
-                          <AnimatePresence>
-                            {typing && <TypingRow waitingOn={onRelay ? 'Waiting on your session…' : undefined} />}
-                          </AnimatePresence>
-                          {/* Claude asks before it escalates: this consent prompt
-                              gates attaching a workspace / repo (see the controller). */}
-                          {pendingApproval && (
-                            <EscalationPrompt
-                              key={pendingApproval.kind}
-                              kind={pendingApproval.kind}
-                              rootChoices={
-                                pendingApproval.kind === 'workspace'
-                                  ? pendingApproval.rootChoices
-                                  : undefined
-                              }
-                              connectorLabel={
-                                pendingApproval.kind === 'repo'
-                                  ? pendingApproval.connectorLabel
-                                  : undefined
-                              }
-                              projectName={
-                                pendingApproval.kind === 'project'
-                                  ? pendingApproval.projectName
-                                  : undefined
-                              }
-                              onApprove={approveEscalation}
-                            />
-                          )}
-                          <div ref={bottomRef} />
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Compaction (P5): offered once the open thread is long enough to be
-                        worth compacting; hides itself after (the thread is short again). Only
-                        a persisted, real session — a draft has nothing durable to archive —
-                        and only BETWEEN turns: compacting mid-stream would swap out live.messages
-                        and drop the still-streaming reply, so gate on !busy && !typing. */}
-                    {!isDraft && !busy && !typing && live.messages.length > 6 && (
-                      <CompactionAffordance onCompact={compact} />
-                    )}
-
-                    {/* Live-turn affordances (multi-account §6.5): the deliberate stop
-                        while a turn streams; the fresh-send retry when a thread's last
-                        word is the user's with nothing generating (an orphaned turn). */}
-                    {busy && liveTurn && liveTurn.sessionId === activeId && (
-                      <TurnControls mode="streaming" onStop={stopTurn} onRetry={retryInterrupted} />
-                    )}
-                    {interrupted && (
-                      <TurnControls mode="interrupted" reason={sendFailure} onStop={stopTurn} onRetry={retryInterrupted} />
-                    )}
-
-                    <Composer
-                      sessionId={activeId}
-                      modelPick={activePick}
-                      onSelectModel={modelPickWritable ? selectModel : undefined}
-                      usageModel={draftModelRef}
-                      messageTokens={messageTokens}
-                      workspaces={live.workspaces}
-                      repos={live.repos}
-                      connectors={live.connectors}
-                      attachments={live.attachments}
-                      focus={focus}
-                      disabled={busy}
-                      disabledLabel={onRelay ? 'Waiting on your session…' : undefined}
-                      onSend={handleSend}
-                      onAddContext={handleAddContext}
-                      onOpenContext={focusContext}
-                      onRemoveContexts={removeContexts}
-                      onRemoveFolder={removeFolder}
+                      }
+                      threadPadClass={!leftOpen && !railOverlay && isDraft ? 'pb-4 pt-14' : 'py-4'}
                     />
                   </section>
 

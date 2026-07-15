@@ -1,5 +1,6 @@
 import type {
   AddedContext,
+  AttachContextRequest,
   Attachment,
   Connector,
   EscalationProposal,
@@ -60,6 +61,53 @@ export function withConnector(list: Connector[], c: Connector): Connector[] {
 // rules) and re-exported for the existing `../data/liveSession` import sites.
 import { repoIdForLabel, slug } from '../../contract/ids.ts'
 export { repoIdForLabel, slug }
+import { parseFsRecentKey } from '../../contract/index.ts'
+
+/** The persistent binding(s) an attached context writes through to the server
+ *  (Primitive 1 — the binding-of-record the effect-mediation path resolves
+ *  against). ONE mapping for every host of the attach funnel — the singleton
+ *  controller and the split panes alike — so the two can't drift. Repos and
+ *  connectors / attachments key on their own id. A folder keys on its OWN
+ *  source id (the id its artifacts carry, which removeFolder detaches by) —
+ *  NOT the shared workspace panel id — so attaching a second folder doesn't
+ *  overwrite the first folder's binding-of-record (and its scope). `scope` is
+ *  the resource boundary (a path for folder / repo, `'*'` otherwise);
+ *  files / photos expand to one binding per attachment. */
+export function bindingsFor(ctx: AddedContext): AttachContextRequest[] {
+  switch (ctx.kind) {
+    case 'folder': {
+      // The folder key is source-qualified (`<source>::<path>`); its scope is the
+      // path within the source, and `source` records which host it came from.
+      const folderId = ctx.artifacts[0]?.source?.id ?? slug(ctx.label)
+      const scope = parseFsRecentKey(folderId)?.entryId ?? ctx.label
+      return [{ id: folderId, type: 'folder', label: ctx.label, scope, source: ctx.source }]
+    }
+    case 'repo':
+      return [{ id: repoIdForLabel(ctx.label), type: 'repo', label: ctx.label, scope: ctx.path ?? '*' }]
+    case 'connector':
+      return [{ id: ctx.connector.id, type: 'connector', label: ctx.connector.label, scope: '*' }]
+    case 'mcp':
+      return [{ id: ctx.connector.id, type: 'mcp', label: ctx.connector.label, scope: '*' }]
+    case 'files':
+      return ctx.attachments.map((a): AttachContextRequest => ({
+        id: a.id,
+        type: 'files',
+        label: a.label,
+        scope: parseFsRecentKey(a.id)?.entryId ?? '*',
+        source: a.source,
+      }))
+    case 'photos':
+      return ctx.attachments.map((a): AttachContextRequest => ({
+        id: a.id,
+        type: 'photos',
+        label: a.label,
+        scope: parseFsRecentKey(a.id)?.entryId ?? '*',
+        source: a.source,
+      }))
+    default:
+      return []
+  }
+}
 
 // Branch names for the seed sessions that carry a repo. Demo seed data, not a
 // general registry — context attached at runtime brings its own branch (see the

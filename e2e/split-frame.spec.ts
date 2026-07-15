@@ -28,7 +28,9 @@ test('split → picker → two panes; the divider steps by keyboard; closing dis
 
   // The seeded repo session restores its panel on select (the responsive.spec door).
   await page.locator('aside').getByText('Refactor auth middleware').first().click()
-  const splitRight = page.locator('button[title="Split right"]')
+  // [data-split] is the PANEL header's split button (the rail's main-split
+  // cluster carries the same title — [data-split-view] — so scope by attr).
+  const splitRight = page.locator('[data-split="row"]')
   await expect(splitRight, 'the docked panel offers Split right on the wide tier').toBeVisible()
   await splitRight.click()
 
@@ -68,5 +70,5 @@ test('split → picker → two panes; the divider steps by keyboard; closing dis
   // still shows the repo and offers the split buttons again).
   await page.locator('[data-split-pane="b"] button[title="Close"]').click()
   await expect(page.locator('[data-split-frame]')).toHaveCount(0)
-  await expect(page.locator('button[title="Split right"]')).toBeVisible()
+  await expect(page.locator('[data-split="row"]')).toBeVisible()
 })
