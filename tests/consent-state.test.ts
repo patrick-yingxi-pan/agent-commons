@@ -10,6 +10,10 @@
  *   - C27 — an approved workspace/repo escalation on a REAL session persisted
  *     nothing: a reload dropped what the user had just consented to grow. The
  *     apply now writes the same two facets as a manual attach.
+ *   - C28 — a persisted escalation proposal (message.escalation) had no
+ *     remount-proof pending state: any load path dropped the consent card, so a
+ *     relay-turn "create a project" could never be approved. `unresolvedEscalation`
+ *     (src/data/liveSession.ts) re-derives it from the record at both reconciles.
  *   - N3 — a saved artifact stamps its producing session's ID (the stable join),
  *     so renaming the conversation no longer breaks "From ‹conversation›". */
 import { test } from 'node:test'
@@ -18,6 +22,8 @@ import { join } from 'node:path'
 import { ROOT, read, stripComments } from './helpers/source.ts'
 import { emptyGraph, applyGraphOp, opAppliedInGraph } from '../contract/graph.ts'
 import type { RelationOp } from '../contract/relations.ts'
+import type { EscalationProposal } from '../contract/entities.ts'
+import { EMPTY_LIVE, unresolvedEscalation, type Live } from '../src/data/liveSession.ts'
 
 const mint = () => 'a-minted'
 const apply = (ops: RelationOp[]) => ops.reduce((g, op) => applyGraphOp(g, op, mint, 7), emptyGraph())
@@ -116,6 +122,87 @@ test('an approved escalation on a real session persists BOTH facets, like a manu
   assert.match(block, /esc\.kind !== 'project'/, 'project escalations take the relation-op path instead')
   assert.match(block, /void attachContext\(id, binding\)/, 'the binding-of-record is written')
   assert.match(block, /void persistWorkspace\(id, workspaceOf\(next\)\)/, 'the panels write through')
+})
+
+// ── C28 — a persisted escalation proposal must survive a reload ──────────────
+// The proposal is persisted on its assistant message, but the pending consent
+// card lived only in controller state set by the live stream event: any load
+// path (reopen, reload, reattach-after-finish — the relay transport's long
+// turns made this the common case) showed the reply text and silently dropped
+// the card, so the proposal could never be approved. `unresolvedEscalation`
+// derives the still-pending proposal from the RECORD, mirroring C25.
+
+test('unresolvedEscalation: a persisted project proposal resurfaces until its create-project op is in the graph (C28)', () => {
+  const session = { id: 's-relay', title: 'Vibe Coding Guide chat' }
+  const esc: EscalationProposal = {
+    kind: 'project',
+    project: { id: 'p-vibe', name: 'Vibe Coding Guide', description: 'd' },
+    fileSession: true,
+  }
+  const live: Live = {
+    ...EMPTY_LIVE,
+    messages: [
+      { id: 'm-u', role: 'user', content: 'create a project' },
+      { id: 'm-a', role: 'assistant', content: 'Proposed.', escalation: esc },
+    ],
+  }
+  const pending = unresolvedEscalation(session, live, emptyGraph())
+  assert.deepEqual(pending, { messageId: 'm-a', escalation: esc }, 'pending on a fresh graph')
+  // Project created but the session not filed — the op the approval submits
+  // includes the filing, so the proposal is still pending.
+  const created = apply([{ kind: 'create-project', projectId: 'p-vibe', projectName: 'Vibe Coding Guide', projectDescription: 'd' }])
+  assert.notEqual(unresolvedEscalation(session, live, created), null, 'created-but-unfiled stays pending')
+  const applied = apply([
+    { kind: 'create-project', projectId: 'p-vibe', projectName: 'Vibe Coding Guide', projectDescription: 'd', sessionId: 's-relay', sessionTitle: 'Vibe Coding Guide chat' },
+  ])
+  assert.equal(unresolvedEscalation(session, live, applied), null, 'applied ⇒ nothing to resurface')
+  assert.equal(unresolvedEscalation(session, live, undefined), null, 'no graph loaded ⇒ never re-offer blind')
+})
+
+test('unresolvedEscalation: workspace/repo proposals read applied-ness off the session panels (C28)', () => {
+  const session = { id: 's1', title: 'S' }
+  const ws: EscalationProposal = { kind: 'workspace', rootChoices: ['~/x'], artifacts: [] }
+  const wsLive: Live = { ...EMPTY_LIVE, messages: [{ id: 'm1', role: 'assistant', content: 'x', escalation: ws }] }
+  assert.equal(unresolvedEscalation(session, wsLive, emptyGraph())?.escalation.kind, 'workspace', 'no workspace attached ⇒ pending')
+  assert.equal(
+    unresolvedEscalation(session, { ...wsLive, workspaces: [{ id: 'w', label: 'w/', artifacts: [] }] }, emptyGraph()),
+    null,
+    'workspace attached ⇒ applied',
+  )
+  const repo: EscalationProposal = {
+    kind: 'repo',
+    connectorLabel: 'GitHub',
+    remote: 'o/r',
+    branch: 'main',
+    files: [],
+    diff: [],
+    terminal: [],
+    connectors: [],
+  }
+  const repoLive: Live = { ...EMPTY_LIVE, messages: [{ id: 'm1', role: 'assistant', content: 'x', escalation: repo }] }
+  assert.equal(unresolvedEscalation(session, repoLive, emptyGraph())?.escalation.kind, 'repo', 'no repo attached ⇒ pending')
+  assert.equal(
+    unresolvedEscalation(
+      session,
+      { ...repoLive, repos: [{ id: 'r', label: 'o/r', origin: 'github', remote: 'o/r', branch: 'main', files: [], diff: [], terminal: [] }] },
+      emptyGraph(),
+    ),
+    null,
+    'repo attached ⇒ applied',
+  )
+  // Only the NEWEST proposal is considered — a resolved older one can't shadow it.
+  assert.equal(unresolvedEscalation(session, { ...EMPTY_LIVE, messages: [] }, emptyGraph()), null, 'no proposal ⇒ nothing pending')
+})
+
+test('the controller resurfaces the held proposal at BOTH reconcile sites — the record is the authority (C28)', () => {
+  const controller = stripComments(read(join(ROOT, 'src', 'controller', 'useSessionWorkspace.ts')))
+  const sites = controller.split('unresolvedEscalation(s, ').length - 1
+  assert.equal(sites, 2, 'the select-time reconcile AND the session-push reconcile both derive the held proposal')
+  assert.match(
+    controller,
+    /if \(held\) setPendingEscalation\(\(prev\) => prev \?\? held\)/,
+    'resurfacing never stomps a live-stream pending proposal',
+  )
 })
 
 test('a saved artifact stamps its producing session ID — the stable join for "From ‹conversation›" (N3)', () => {

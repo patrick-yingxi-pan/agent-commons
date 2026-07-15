@@ -1,4 +1,16 @@
-import type { AddedContext, Attachment, Connector, Message, PanelFocus, Repo, Session, Workspace } from '../types'
+import type {
+  AddedContext,
+  Attachment,
+  Connector,
+  EscalationProposal,
+  Message,
+  PanelFocus,
+  RelationGraph,
+  Repo,
+  Session,
+  Workspace,
+} from '../types'
+import { opAppliedInGraph } from '../../contract/graph.ts'
 
 /** ── Model: the live session ──────────────────────────────────────────────
  *  Pure domain logic for the unit a user works in. A `Session` (sessions.ts) is
@@ -124,6 +136,46 @@ export function liveFromSession(session: Session): Live {
     connectors: session.connectors ?? [],
     attachments: [],
   }
+}
+
+/** ── Resurfacing a held escalation (C28) ─────────────────────────────────────
+ *  An escalation proposal is PERSISTED on the assistant message that carried it,
+ *  but the pending consent card once lived only in controller state set by the
+ *  live stream event — so any load path (reopen, reload, reattach-after-finish,
+ *  the relay transport's long turns) showed the reply text and silently dropped
+ *  the card, leaving the proposal unapprovable. The record is the authority
+ *  (C25's rule): derive the still-pending proposal FROM the loaded session —
+ *  the newest assistant-carried escalation whose effect isn't applied yet.
+ *  Applied-ness reads the same records the approval writes: a project escalation
+ *  is the `create-project` op `approveEscalation` submits (`opAppliedInGraph`);
+ *  a workspace/repo escalation lands panels on the session itself. With no graph
+ *  loaded a project proposal returns null — never re-offer what may already be
+ *  approved. */
+export function unresolvedEscalation(
+  session: Pick<Session, 'id' | 'title'>,
+  live: Live,
+  graph: RelationGraph | undefined,
+): { messageId: string; escalation: EscalationProposal } | null {
+  for (let i = live.messages.length - 1; i >= 0; i -= 1) {
+    const m = live.messages[i]
+    if (m.role !== 'assistant' || !m.escalation) continue
+    const esc = m.escalation
+    const held = { messageId: m.id, escalation: esc }
+    if (esc.kind === 'project') {
+      if (!graph) return null
+      const applied = opAppliedInGraph(graph, {
+        kind: 'create-project',
+        projectId: esc.project.id,
+        projectName: esc.project.name,
+        projectDescription: esc.project.description,
+        ...(esc.fileSession ? { sessionId: session.id, sessionTitle: session.title } : {}),
+      })
+      return applied === false ? held : null
+    }
+    if (esc.kind === 'workspace') return live.workspaces.length ? null : held
+    return live.repos.length ? null : held
+  }
+  return null
 }
 
 /** The session's panels alone (no messages) — the server-owned `SessionWorkspace`

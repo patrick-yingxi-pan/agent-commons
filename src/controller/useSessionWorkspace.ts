@@ -13,6 +13,7 @@ import {
   removeFolderFromLive,
   repoIdForLabel,
   slug,
+  unresolvedEscalation,
   withConnector,
   workspaceOf,
   workspaceNameFor,
@@ -55,6 +56,7 @@ import type {
   Message,
   ModelProvider,
   PanelFocus,
+  RelationGraph,
   SectionId,
   Session,
 } from '../types'
@@ -496,6 +498,12 @@ export function useSessionWorkspace() {
             const reconciled = liveFromSession(s)
             setLive(reconciled)
             setFocus(restoreFocus(reconciled))
+            // A persisted-but-unresolved escalation proposal resurfaces as the
+            // pending consent card (C28) — the record is the authority; without
+            // this, any reopen/reload dropped the card and the proposal could
+            // never be approved (the relay transport's long turns hit this).
+            const held = unresolvedEscalation(s, reconciled, peek<RelationGraph>(keys.relations))
+            if (held) setPendingEscalation((prev) => prev ?? held)
             // A turn is still generating server-side (multi-account §6.5): the
             // thread would otherwise sit silently on its user message. Resume
             // rendering the stream — replayed from the top, then the live tail.
@@ -546,7 +554,13 @@ export function useSessionWorkspace() {
             upsertExtraSession(s)
             if (runId.current !== myRun || activeIdRef.current !== sessionId) return
             if (busyRef.current || typingRef.current) return
-            setLive(liveFromSession(s))
+            const pushed = liveFromSession(s)
+            setLive(pushed)
+            // Same C28 resurfacing as the select-time reconcile: a turn that
+            // finished while this client wasn't streaming it (another device,
+            // a detached view) may carry an unresolved escalation proposal.
+            const held = unresolvedEscalation(s, pushed, peek<RelationGraph>(keys.relations))
+            if (held) setPendingEscalation((prev) => prev ?? held)
           })
           .catch(() => {})
       }),
