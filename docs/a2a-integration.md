@@ -113,6 +113,21 @@ lineage, ready to be bound), and it exercises the real outbound HTTP path.
   `securitySchemes` in the card and verify callers. Accepted: authentication is
   orthogonal to the mapping, and the walls behind the endpoint don't trust the
   caller anyway.
+- **The auth gate opens the `/a2a/` prefix for DISCOVERY + peer-authenticated
+  acts, but NOT the D28 peer registry.** Card reads (`/a2a/card`,
+  `/a2a/agents/:id/card`) must be public — that's the discovery convention, and a
+  card exposes only what the directory already redacts to (never capability). The
+  JSON-RPC act endpoints (`/a2a/projects|agents/:id`) carry their own peer bearer
+  (`A2A_REQUIRE_AUTH`). But `POST·GET·DELETE /a2a/peers` — minting, listing, and
+  revoking peer credentials — is an **instance-owner** operation, so it is carved
+  out of the open prefix (`GATE_CLOSED_PREFIX` in `server/routes/index.ts`) and
+  stays behind the sign-in wall: left open, an anonymous caller could self-mint a
+  "verified" peer under any name (defeating the attribution `A2A_REQUIRE_AUTH`
+  buys), enumerate the roster, or revoke a live peer by id. Found + closed
+  2026-07-15; locked by `tests/auth-gate.test.ts`. Residual (prototype identity
+  model): the registry is instance-GLOBAL, so any signed-in principal reaches it —
+  a production deployment gates it behind an instance-admin role, the same way it
+  adds the egress allowlist for card import.
 - ~~`tasks/cancel` is unsupported: the backlog has no retract-item act yet in *any*
   dialect.~~ **Resolved as predicted (D23):** the backlog grew a native retract act
   and A2A got it for free through the same store method — `tasks/cancel` now maps
