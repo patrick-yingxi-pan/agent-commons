@@ -73,8 +73,13 @@ test('arrow keys resize the rail and a rail pane through the focused separator, 
   expect(Math.abs((stored.railSectionsH ?? 0) - h1), 'stored pane height matches the rendered one').toBeLessThanOrEqual(1)
 })
 
-test('the panel separator takes RAPID keyboard steps at full size, announces its value, and persists', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 1000 })
+test('the overlay panel separator takes RAPID keyboard steps, announces its value, and persists', async ({ page }) => {
+  // The width-animated docked PanelShell — the one divider whose strip rides a
+  // width-animated motion.div — now renders only on the MEDIUM overlay tier (the
+  // wide tier folds the panel into the universal tree as a context pane whose
+  // split node owns geometry, ADAPT-16→ADAPT-17; narrow is a takeover). So the
+  // swallowed-step regression lives here now.
+  await page.setViewportSize({ width: 768, height: 1000 })
   await page.goto('/')
 
   // The seeded repo session restores its panel on select (same door responsive.spec uses).

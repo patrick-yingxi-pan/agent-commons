@@ -1,6 +1,6 @@
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { motion } from 'framer-motion'
-import { Columns2, Rows2, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import { ResizeHandle } from './ResizeHandle'
 import { PaneChromeContext } from './paneChrome'
 import { clamp, getLayout, setLayout } from '../lib/uiPrefs'
@@ -39,9 +39,10 @@ export function PanelShell({
 }) {
   const { tier } = useViewport()
   const takeover = tier === 'narrow'
-  // The split frame's chrome adaptation (ADAPT-16, src/components/paneChrome.ts):
-  // embedded panes fill their split node instead of owning width/motion, the X
-  // retargets at the pane, and split buttons appear when a handler is provided.
+  // The universal-tree pane adaptation (src/components/paneChrome.ts): an embedded
+  // panel fills its split node instead of owning width / motion, and shows no
+  // close X of its own (the rail cluster closes the focused pane). Default (the
+  // overlay tiers' docked / takeover shell) keeps its width, slide, and X.
   const chrome = useContext(PaneChromeContext)
   const [width, setWidth] = useState(() =>
     clamp(getLayout('rightW', defaultWidth()), PANEL_MIN, PANEL_MAX),
@@ -88,34 +89,13 @@ export function PanelShell({
       {count != null && <span className="shrink-0 text-[11px] text-ink-faint">{count}</span>}
       <div className="ml-auto flex shrink-0 items-center gap-1">
         {headerRight}
-        {chrome.onSplit && (
-          <>
-            <button
-              onClick={() => chrome.onSplit!('row')}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-ink-soft transition hover:bg-surface hover:text-ink"
-              title="Split right"
-              data-split="row"
-            >
-              <Columns2 size={15} />
-            </button>
-            <button
-              onClick={() => chrome.onSplit!('col')}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-ink-soft transition hover:bg-surface hover:text-ink"
-              title="Split down"
-              data-split="col"
-            >
-              <Rows2 size={15} />
-            </button>
-          </>
-        )}
-        {/* Close: the docked / takeover shell always carries its own X (it IS the
-            panel's chrome). A pane-mounted panel shows one ONLY when the frame
-            wires a pane-close (the legacy ADAPT-16 split frame does) — the
-            universal tree does NOT (the rail cluster closes the focused pane,
-            homogeneously with every other pane), so it renders no per-pane X. */}
-        {(!chrome.embedded || chrome.onClosePane) && (
+        {/* Close: the docked / takeover shell carries its own X (it IS the panel's
+            chrome). An embedded panel (a universal-tree context pane) renders no
+            per-pane X — the rail cluster closes the focused pane, homogeneously
+            with every other pane. */}
+        {!chrome.embedded && (
           <button
-            onClick={chrome.onClosePane ?? onClose}
+            onClick={onClose}
             className={`flex items-center justify-center rounded-lg text-ink-soft transition hover:bg-surface hover:text-ink ${
               takeover ? 'h-9 w-9' : 'h-7 w-7'
             }`}

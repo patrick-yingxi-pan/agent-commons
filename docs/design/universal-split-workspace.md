@@ -83,16 +83,30 @@ Consequences that fall out correctly:
   parallel-histories rule, now per focused pane; pane-local back stacks are a
   Phase 5 refinement).
 
-### 2.4 The right panel folds in (Phase 4)
+### 2.4 The right panel folds in (Phase 4 — LANDED 2026-07-15)
 
-A context chip click today opens the session-scoped right panel (or routes
-into the ADAPT-16 frame). End state: it opens/focuses a **sibling
-`context-panel` pane** in the universal tree, scoped to its conversation. The
-ADAPT-16 frame's persisted trees migrate (its `PaneContent` embeds into the
-universal vocabulary with the owning session id stamped); `PaneChromeContext` —
-the chrome adapter that lets the existing panels render inside any pane —
-carries over unchanged. ADAPT-16's spec row is superseded, not deleted
-(history stays honest).
+A context chip / attach / approved-escalation sets the active session's `focus`
+(one per-session source of truth, remembered by `panelPrefs`, FWD-2). On the WIDE
+tier the App effect **projects `focus` into the universal tree** as a
+`context-panel` pane beside the primary (`setPrimaryContext` →
+`setPrimaryContextTree`); the pane is marked `primary` and located by that flag,
+so it survives any tree rearrangement, swaps in place on a session switch, and is
+removed when `focus` clears (the rail cluster's close routes a `primary` context
+pane back to `closePanel`). Rendering is edge-to-edge through the ONE `PanelShell`
+(`embedded` via the trimmed `paneChrome` — no own width / slide / close X). The
+separate ADAPT-16 right frame and its per-session split memory are **retired**;
+the reusable tree math (`splitFrame.ts`) and per-account tree persistence live on.
+ADAPT-16's spec row is superseded, not deleted (history stays honest).
+
+**Why a render-projection of `focus` rather than a stored context pane per
+session?** `focus` is per-session and cross-tier (it also drives the non-wide
+overlay, so resizing wide↔narrow keeps the panel open); the per-account tree
+holds the user's explicit tiling. Keeping ONE source of truth (`focus`) and
+deriving the wide-tier pane from it avoids a second store to reconcile — the
+`primary` marker is what lets that derived pane still be a first-class,
+rail-managed pane. A DUPLICATED context pane drops the marker and becomes an
+independent PINNED pane the tree owns outright (the ADAPT-16 multi-pane capability,
+now via the universal split).
 
 ### 2.5 Degradation (ADAPT-11)
 
@@ -152,11 +166,35 @@ collapses); prune at render, never in storage.
    over the SAME shared funnels (`bindingsFor` moved into `data/liveSession.ts`;
    attach/remove/compact/model-pick session-parametric). Still open here:
    pane focus driving the URL, and pruning a deleted session's pane live.
-4. **Fold the right panel in** — `context-panel` view kind; chip clicks open
-   sibling panes; ADAPT-16 surface retired with tree migration.
-5. **Hardening** — the ADAPT-11 ladder, spec rows (new ADAPT row superseding
-   ADAPT-16's frame surface), the e2e matrix (split × navigate × stream ×
-   reload × tiers), `/ui-review` sweep, README/AGENTS.md updates.
+4. **Fold the right panel in** — ✅ **LANDED 2026-07-15**: the right context
+   panel is a `context-panel` pane in the ONE main tree
+   (`src/components/ContextPanelView.tsx` — the panel-side twin of
+   `ConversationView`), resolved against its OWNING session's keyed live and
+   mutated through the SHARED `useSessionContextCommands` funnel that
+   `ConversationPane` also uses (so the mapping can't fork). The active session's
+   `focus` projects into the tree on the WIDE tier (`useMainSplit.setPrimaryContext`
+   → `setPrimaryContextTree`); the pane is marked `primary` and found by that FLAG
+   not by position, so splitting the primary never orphans it, it self-heals on a
+   session switch, and the rail cluster's close clears its driver (`focus`) so tree
+   and `focus` stay in step. A context pane DUPLICATED via the rail drops the flag →
+   an independent PINNED pane (the old ADAPT-16 multi-pane frame, for free). The
+   NON-WIDE tiers keep the docked / takeover overlay (ADAPT-11 — the tree doesn't
+   tile there; App's overlay path renders `focus` as before). Retired with the
+   frame: `SplitFrame.tsx`, the per-session `claude-ui.split.v1` memory, and
+   `paneChrome`'s `onSplit` / `onClosePane` chrome; the tree math (`splitFrame.ts`)
+   and per-account tree persistence (`claude-ui.mainsplit.v1`) live on. ADAPT-16's
+   spec row is **superseded** (kept, not deleted — history stays honest). Locked by
+   `tests/main-split.test.ts` (context-panel vocabulary / identity / dedup /
+   aliveness / prune, `setPrimaryContextTree`, the primary-close guard) and
+   `e2e/main-split.spec.ts` (the fold-in tiling + rail close; the split-mechanics
+   tests close the auto-tiled panel first).
+5. **Hardening** — the ADAPT-11 degradation matrix, the remaining spec/doc rows,
+   the e2e matrix (split × navigate × stream × reload × tiers), the pages-in-panes
+   audit (section pages already single-column on every tier), `/ui-review` sweep,
+   README/AGENTS.md updates, and the deferred **live prune** (`mainPaneKeep` wired
+   at render / restore — a deleted session's or detached context's pane collapses;
+   today the primary context pane self-heals via `focus`, a pinned one shows a quiet
+   "no longer attached" placeholder until closed).
 
 ## 4. Decisions locked by the owner (2026-07-15)
 

@@ -23,7 +23,7 @@ import type { SectionId } from '../types'
 import type { Live } from '../data/liveSession'
 // Extension-qualified: this module is node-tested (tests/main-split.test.ts),
 // and Node's native TS resolves runtime imports only with the explicit .ts.
-import { closePane, nodeAt, panes, replacePane, type PaneContent, type SplitNode } from './splitFrame.ts'
+import { closePane, nodeAt, pane, panes, replacePane, splitPane, type PaneContent, type SplitNode } from './splitFrame.ts'
 
 export type MainPaneContent =
   | { kind: 'primary'; id: 'primary' }
@@ -37,8 +37,12 @@ export type MainPaneContent =
   // no longer a separate right frame that splits its own inner view (ADAPT-16,
   // retired). `id` is the stable (session, panel) identity, so a chip re-click
   // focuses the existing pane instead of tiling a duplicate; `panel` is the
-  // PaneContent the ContextPanelView renders.
-  | { kind: 'context-panel'; id: string; sessionId: string; panel: PaneContent }
+  // PaneContent the ContextPanelView renders. `primary` marks the ONE pane the
+  // active session's `focus` drives (auto-open + per-session memory, FWD-2) — it
+  // is found by this flag, not by position, so splitting the primary can never
+  // orphan it; a context pane DUPLICATED via the rail drops the flag and becomes
+  // an independent PINNED pane (the old ADAPT-16 multi-pane tiling, for free).
+  | { kind: 'context-panel'; id: string; sessionId: string; panel: PaneContent; primary?: boolean }
   // Legacy: pre-duplicate-split blobs may still hold empty picker panes; the
   // UI renders them but nothing mints them anymore (a split now DUPLICATES
   // the focused pane — no picker step).
@@ -73,13 +77,24 @@ export function mainPaneKeep(
 export const contextPaneId = (sessionId: string, panel: PaneContent): string =>
   `${sessionId} ${panel.kind} ${panel.id}`
 
-/** Construct a context-panel pane's content for a session + panel. */
-export const contextPaneContent = (sessionId: string, panel: PaneContent): MainPaneContent => ({
+/** Construct a context-panel pane's content for a session + panel. `primary`
+ *  marks the active session's focus-driven pane (exactly one at a time). */
+export const contextPaneContent = (
+  sessionId: string,
+  panel: PaneContent,
+  opts?: { primary?: boolean },
+): MainPaneContent => ({
   kind: 'context-panel',
   id: contextPaneId(sessionId, panel),
   sessionId,
   panel,
+  ...(opts?.primary ? { primary: true } : {}),
 })
+
+/** Strip the `primary` marker off a content value (a context pane duplicated via
+ *  the rail becomes an independent PINNED pane; every other kind is unchanged). */
+export const unpinnedContent = (c: MainPaneContent): MainPaneContent =>
+  c.kind === 'context-panel' && c.primary ? { kind: 'context-panel', id: c.id, sessionId: c.sessionId, panel: c.panel } : c
 
 /** Whether a context panel's content still exists in the session — the prune
  *  predicate a detached repo / removed connector fails (its pane collapses).
@@ -132,12 +147,64 @@ export function closePrimaryPane(
   if (!node || node.kind !== 'pane' || node.content.kind !== 'primary') return null
   const collapsed = closePane(tree, path)
   if (!collapsed) return null // a lone-primary tree shouldn't exist; nothing to promote
-  // The successor: the first pane of the subtree that took the primary's slot
-  // (it sits at the closed pane's parent path after the collapse).
+  // The successor: the first pane that took the primary's slot — but a
+  // `context-panel` pane is NOT a navigable surface (it can't become the URL
+  // owner), so it's skipped. Prefer a pane in the freed subtree; else any
+  // non-context pane; refuse when only context panes remain (nothing to promote
+  // to — the close is a no-op, e.g. [primary | its own context pane]).
   const parentPath = path.slice(0, -1)
-  const successor = panes(collapsed).find((p) => p.path.startsWith(parentPath)) ?? panes(collapsed)[0]!
+  const promotable = panes(collapsed).filter((p) => p.content.kind !== 'context-panel')
+  const successor = promotable.find((p) => p.path.startsWith(parentPath)) ?? promotable[0]
+  if (!successor) return null
   const next = replacePane(collapsed, successor.path, PRIMARY)
   return { tree: next.kind === 'pane' ? null : next, promoted: successor.content }
+}
+
+/** ── The active session's context panel, as a pane in the ONE tree ───────────
+ *  (universal split Phase 4.) The primary conversation's open panel (its
+ *  `focus`) is a `context-panel` pane marked `primary` — found by that flag, not
+ *  by position, so the user's own tiling never orphans it. */
+
+/** The active session's focus-driven context pane (the one marked `primary`), or
+ *  null when the panel is closed. At most one exists at a time. */
+export function findPrimaryContext(
+  tree: MainSplitNode | null,
+): { path: string; content: Extract<MainPaneContent, { kind: 'context-panel' }> } | null {
+  const p = panes(tree).find((x) => x.content.kind === 'context-panel' && x.content.primary)
+  return p ? { path: p.path, content: p.content as Extract<MainPaneContent, { kind: 'context-panel' }> } : null
+}
+
+/** The tree WITHOUT the active session's focus-driven context pane — persisted
+ *  instead of the live tree so the TRANSIENT projection of `focus` never lands in
+ *  storage (the "clamp-at-render, never-in-storage" posture): on reload the tree
+ *  restores its user-created panes (conversations, sections, PINNED context
+ *  panes) and the sync effect re-derives the primary context pane from `focus`,
+ *  so no wrong-session panel flashes and there is no per-focus-toggle churn. */
+export function withoutPrimaryContext(tree: MainSplitNode | null): MainSplitNode | null {
+  const existing = findPrimaryContext(tree)
+  return existing && tree ? closeMainPane(tree, existing.path) : tree
+}
+
+/** Reconcile the active session's context pane to `panel` (null = closed) — the
+ *  pure edit `useMainSplit.setPrimaryContext` commits from the focus-sync effect.
+ *  Returns the tree UNCHANGED when already in the desired state (no needless
+ *  render / persist). Adding one splits the primary pane; removing one collapses
+ *  its split; switching sessions or panels replaces it in place. */
+export function setPrimaryContextTree(
+  tree: MainSplitNode | null,
+  sessionId: string,
+  panel: PaneContent | null,
+): MainSplitNode | null {
+  const existing = findPrimaryContext(tree)
+  if (!panel) return existing && tree ? closeMainPane(tree, existing.path) : tree
+  const content = contextPaneContent(sessionId, panel, { primary: true })
+  if (existing && tree) {
+    return existing.content.id === content.id ? tree : replacePane(tree, existing.path, content)
+  }
+  // No panel yet: split the primary pane, adding the context pane beside it.
+  const base = tree ?? pane(PRIMARY)
+  const primaryPath = panes(base).find((x) => x.content.kind === 'primary')?.path ?? ''
+  return splitPane(base, primaryPath, 'row', content)
 }
 
 /** ── Per-account persistence (the uiPrefs scoping pattern) ─────────────────── */

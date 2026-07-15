@@ -20,13 +20,17 @@
  *  pane dissolves the tree; closing the primary itself is refused by the UI
  *  (its pane has no X — the primary is where the URL lives, ADAPT-15). */
 import { useCallback, useRef, useState } from 'react'
-import { nodeAt, pane, panes, replacePane, setRatio, splitPane as splitLeaf, type SplitDir } from '../lib/splitFrame'
+import { nodeAt, pane, panes, replacePane, setRatio, splitPane as splitLeaf, type PaneContent, type SplitDir } from '../lib/splitFrame'
 import {
   PRIMARY,
   closeMainPane as closeMain,
   closePrimaryPane,
+  findPrimaryContext,
   getMainSplitPref,
   setMainSplitPref,
+  setPrimaryContextTree,
+  unpinnedContent,
+  withoutPrimaryContext,
   type MainPaneContent,
   type MainSplitNode,
 } from '../lib/mainSplit'
@@ -50,11 +54,15 @@ export function useMainSplit() {
   focusedRef.current = focusedPane
 
   /** Commit a tree edit: render + persist, and reconcile the focus cursor —
-   *  a path that no longer names a pane falls back to the primary. */
+   *  a path that no longer names a pane falls back to the primary. Persistence
+   *  STRIPS the active session's focus-driven context pane (`withoutPrimaryContext`)
+   *  — it is a transient projection of `focus`, re-derived on boot by the sync
+   *  effect, so storing it would churn on every toggle and flash a wrong-session
+   *  panel on reload (never-in-storage). */
   const commit = useCallback((next: MainSplitNode | null) => {
     treeRef.current = next
     setMainTreeState(next)
-    setMainSplitPref(next)
+    setMainSplitPref(withoutPrimaryContext(next))
     const focused = focusedRef.current
     if (!next || nodeAt(next, focused)?.kind !== 'pane') {
       focusedRef.current = primaryPath(next)
@@ -89,8 +97,11 @@ export function useMainSplit() {
       const path = t ? focusedRef.current : ''
       const node = t ? nodeAt(t, path) : pane(PRIMARY)
       if (!node || node.kind !== 'pane') return
+      // Duplicating a context panel makes an INDEPENDENT pinned pane (the primary
+      // marker drops, so the focus-driven one stays unique) — this is how the
+      // universal split replaces ADAPT-16's multi-pane frame (two repo views).
       const dup: MainPaneContent | null =
-        node.content.kind === 'primary' ? primaryDuplicate : { ...node.content }
+        node.content.kind === 'primary' ? primaryDuplicate : unpinnedContent({ ...node.content })
       if (!dup) return
       commit(splitLeaf(t ?? pane(PRIMARY), path, dir, dup))
       // The new pane (the split's second half) takes focus, ready to retarget.
@@ -138,9 +149,20 @@ export function useMainSplit() {
    *  PRIMARY tile relocates the primary role into the pane inheriting its
    *  space — that pane's content is handed to `onPromote` (the caller
    *  navigates the singleton controller onto it, so the URL honestly names
-   *  what survives) and its leaf is re-stamped primary. */
+   *  what survives) and its leaf is re-stamped primary. Closing the active
+   *  session's `primary` CONTEXT pane instead clears its driver via
+   *  `onCloseActiveContext(panel)` (the caller's `closePanel` / runs toggle) so
+   *  the setPrimaryContext effect removes it — keeping `focus` and the tree in
+   *  step (detected off the pane's MARKER, not App's possibly-stale focus state,
+   *  and passing the closed panel so the caller can fall back to the run switcher
+   *  on a run session). When the focused PRIMARY has nothing promotable (its only
+   *  sibling is its own context pane), the close means "close that context panel"
+   *  — routed to the SAME callback, so a lone-thread panel's Close isn't a no-op. */
   const closeFocused = useCallback(
-    (onPromote?: (content: MainPaneContent) => void) => {
+    (
+      onPromote?: (content: MainPaneContent) => void,
+      onCloseActiveContext?: (panel: PaneContent) => void,
+    ) => {
       const t = treeRef.current
       if (!t) return
       const path = focusedRef.current
@@ -148,12 +170,20 @@ export function useMainSplit() {
       if (node?.kind !== 'pane') return
       if (node.content.kind === 'primary') {
         const res = closePrimaryPane(t, path)
-        if (!res) return
-        onPromote?.(res.promoted)
-        commit(res.tree)
-        // Focus follows the relocated primary (the surviving tile).
-        focusedRef.current = primaryPath(treeRef.current)
-        setFocusedPane(focusedRef.current)
+        if (res) {
+          onPromote?.(res.promoted)
+          commit(res.tree)
+          // Focus follows the relocated primary (the surviving tile).
+          focusedRef.current = primaryPath(treeRef.current)
+          setFocusedPane(focusedRef.current)
+        } else {
+          // Nothing promotable — the primary's only sibling is its own context
+          // pane. Closing the primary means closing that panel.
+          const cp = findPrimaryContext(t)
+          if (cp) onCloseActiveContext?.(cp.content.panel)
+        }
+      } else if (node.content.kind === 'context-panel' && node.content.primary) {
+        onCloseActiveContext?.(node.content.panel)
       } else {
         commit(closeMain(t, path))
       }
@@ -175,6 +205,19 @@ export function useMainSplit() {
     [commit],
   )
 
+  /** Reconcile the active session's context pane to `panel` (null = closed) —
+   *  the focus-sync effect (App) drives this from the session's `focus` on the
+   *  wide tier. Idempotent: `setPrimaryContextTree` returns the same tree when
+   *  already in the desired state, so no needless render / persist. */
+  const setPrimaryContext = useCallback(
+    (sessionId: string, panel: PaneContent | null) => {
+      const t = treeRef.current
+      const next = setPrimaryContextTree(t, sessionId, panel)
+      if (next !== t) commit(next)
+    },
+    [commit],
+  )
+
   return {
     mainTree,
     focusedPane,
@@ -183,6 +226,7 @@ export function useMainSplit() {
     focusPrimary,
     splitFocused,
     routeToFocused,
+    setPrimaryContext,
     fillMainPane,
     closeMainPane,
     closeFocused,

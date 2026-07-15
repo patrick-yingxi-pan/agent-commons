@@ -1,23 +1,21 @@
-/** ── Pane chrome context (spec ADAPT-16) ─────────────────────────────────────
- *  How the split frame re-dresses the existing panels without touching them:
- *  every context panel (workspace/repo, connector, attachments, runs) renders
- *  through the ONE PanelShell, so the frame provides this context and PanelShell
- *  adapts — `embedded` drops the shell's own width/motion (the pane's split node
- *  owns geometry), `onClosePane` retargets the shell's X at the pane, and
- *  `onSplit` (also provided OUTSIDE the frame, on the wide tier's single docked
- *  panel) puts the split-right / split-down buttons in the header. Default `{}`
- *  = the legacy docked shell, byte-identical to before the frame existed. */
+/** ── Pane chrome context (universal split Phase 4) ───────────────────────────
+ *  How a context panel renders EDGE TO EDGE inside a universal-tree pane without
+ *  touching the panel bodies: every context panel (workspace/repo, connector,
+ *  attachments, runs) renders through the ONE PanelShell, so ContextPanelView
+ *  provides this context and PanelShell adapts — `embedded` drops the shell's own
+ *  width / slide animation (the pane's split node owns geometry) AND its own
+ *  close X (the rail cluster closes the focused pane, homogeneous with every
+ *  other pane). Default `{}` = the legacy docked / takeover shell (the overlay
+ *  tiers, ADAPT-11), byte-identical to before context panels folded into the tree.
+ *
+ *  (The old split-frame's `onSplit` / `onClosePane` chrome was retired with the
+ *  ADAPT-16 right frame — the universal split's rail cluster owns split + close.) */
 import { createContext } from 'react'
-import type { SplitDir } from '../lib/splitFrame'
 
 export interface PaneChrome {
-  /** Rendered inside a split-frame pane: fill the parent, no own width/motion. */
+  /** Rendered inside a universal-tree pane: fill the parent, no own width /
+   *  motion, and no per-pane close X (the rail cluster closes it). */
   embedded?: boolean
-  /** Offer split-right / split-down header buttons (wide tier only — the caller
-   *  gates; the overlay tiers have no room to tile). */
-  onSplit?: (dir: SplitDir) => void
-  /** Override the shell's close button (close THIS pane, not the whole panel). */
-  onClosePane?: () => void
 }
 
 export const PaneChromeContext = createContext<PaneChrome>({})

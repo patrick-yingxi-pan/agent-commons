@@ -81,19 +81,17 @@ test('every call site names its divider, and no two names collide', () => {
     'Resize Sections pane',
     'Resize panel',
     'Resize sidebar',
-    'Resize split frame',
   ])
   assert.equal(new Set(labels).size, labels.length, 'separator names are pairwise distinct')
   // The pane gutter forwards its label into the shared handle rather than
   // hardcoding one (the funnel stays the single naming door).
   const sidebar = read(join(ROOT, 'src', 'components', 'Sidebar.tsx'))
   assert.match(sidebar, /<ResizeHandle\s+side="bottom"\s+label=\{label\}/)
-  // The split frames' pane dividers name themselves per split-node PATH (a
-  // template label) — pairwise distinct by construction, so they satisfy the
-  // same no-collision rule the static names above pin. Two frames, two
-  // distinct template prefixes (right panel vs the main workspace split).
-  const splitFrame = read(join(ROOT, 'src', 'components', 'SplitFrame.tsx'))
-  assert.match(splitFrame, /label=\{`Resize split panes \(\$\{path \|\| 'root'\}\)`\}/)
+  // The universal split's pane dividers name themselves per split-node PATH (a
+  // template label) — pairwise distinct by construction, so they satisfy the same
+  // no-collision rule the static names above pin. (The old right-frame's "Resize
+  // split panes" dividers retired with ADAPT-16 — the tree now hosts every pane,
+  // context panels included.)
   const mainSplit = read(join(ROOT, 'src', 'components', 'MainSplit.tsx'))
   assert.match(mainSplit, /label=\{`Resize view panes \(\$\{path \|\| 'root'\}\)`\}/)
 })

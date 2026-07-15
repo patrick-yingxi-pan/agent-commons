@@ -8,8 +8,6 @@ import { setUiPrefScope } from './lib/uiPrefs'
 import type { Capabilities, Identity } from '../contract/index.ts'
 import { WorkspacePanel } from './components/WorkspacePanel'
 import { RunsPanel } from './components/RunsPanel'
-import { SplitFrame, type PaneOption } from './components/SplitFrame'
-import { PaneChromeContext, type PaneChrome } from './components/paneChrome'
 import type { PaneContent } from './lib/splitFrame'
 import { MainSplitGate, type MainPaneNav } from './components/MainSplit'
 import { SessionTitleBar } from './components/SessionTitleBar'
@@ -152,12 +150,6 @@ function Workspace() {
     removeFolder,
     closePanel,
     approveEscalation,
-    splitTree,
-    splitActivePanel,
-    splitPaneAt,
-    fillPane,
-    closePaneAt,
-    setPaneRatio,
   } = useSessionWorkspace()
 
   // (The relay wait state — "Waiting on your session…" — is derived inside
@@ -247,73 +239,18 @@ function Workspace() {
   // — drives the overlay scrim on small viewports (FWD-3).
   const panelOpen = !!focus || (isRunSession && runsPanelOpen && !!activeSession.scheduledRunOf)
 
-  // ── The split frame (ADAPT-16): what a new pane may show, how a pane renders,
-  //    and the chrome the single docked panel gets on the wide tier (the split
-  //    buttons that create the first frame). Duplicates are allowed on purpose —
-  //    two panes of the same repo are files beside diff.
-  const paneOptions = useMemo<PaneOption[]>(() => {
-    const opts: PaneOption[] = []
-    for (const w of live.workspaces) opts.push({ content: { kind: 'workspace', id: w.id }, label: 'Workspace — drafts & artifacts' })
-    for (const r of live.repos) opts.push({ content: { kind: 'repo', id: r.id }, label: `Repository — ${r.label}` })
-    for (const c of live.connectors) opts.push({ content: { kind: 'connector', id: c.id }, label: c.label })
-    const firstFile = live.attachments.find((a) => a.kind === 'file')
-    if (firstFile) opts.push({ content: { kind: 'file', id: firstFile.id }, label: 'Files' })
-    const firstPhoto = live.attachments.find((a) => a.kind === 'photo')
-    if (firstPhoto) opts.push({ content: { kind: 'photo', id: firstPhoto.id }, label: 'Photos' })
-    if (activeSession.scheduledRunOf) opts.push({ content: { kind: 'runs', id: activeSession.scheduledRunOf.taskId }, label: 'Scheduled runs' })
-    return opts
-  }, [live, activeSession.scheduledRunOf])
-
-  const renderPane = useCallback(
-    (content: PaneContent) => {
-      switch (content.kind) {
-        case 'workspace': {
-          const w = live.workspaces.find((x) => x.id === content.id)
-          return w ? <WorkspacePanel mode="workspace" workspace={w} onClose={closePanel} onRemoveFolder={removeFolder} /> : null
-        }
-        case 'repo': {
-          const r = live.repos.find((x) => x.id === content.id)
-          return r ? <WorkspacePanel mode="repo" repo={r} onClose={closePanel} onRemoveFolder={removeFolder} /> : null
-        }
-        case 'connector': {
-          const c = live.connectors.find((x) => x.id === content.id)
-          return c ? (
-            <ConnectorPanel connector={c} onClose={closePanel} onDisconnect={() => removeContexts([{ kind: 'connector', id: c.id }])} />
-          ) : null
-        }
-        case 'file':
-        case 'photo':
-          return (
-            <AttachmentPanel
-              kind={content.kind}
-              items={live.attachments.filter((a) => a.kind === content.kind)}
-              initialId={content.id}
-              onClose={closePanel}
-              onRemove={removeAttachment}
-            />
-          )
-        case 'runs':
-          return (
-            <RunsPanel
-              taskId={content.id}
-              activeRunSessionId={activeId}
-              onSelectRun={selectSession}
-              onOpenRoutine={openSchedule}
-              onClose={() => setRunsPanelOpen(false)}
-            />
-          )
-        default:
-          return null
-      }
-    },
-    [live, closePanel, removeFolder, removeContexts, removeAttachment, activeId, selectSession, openSchedule],
-  )
-
-  // The single docked panel's chrome: on the wide tier its header offers the
-  // split buttons that mint the first frame. Overlay tiers have no room to tile.
-  const singlePanelChrome = useMemo<PaneChrome>(
-    () => (tier === 'wide' ? { onSplit: splitActivePanel } : {}),
-    [tier, splitActivePanel],
+  // ── The active session's context panel as a tree pane (universal split P4) ──
+  // Its open `focus` (or the run switcher for a run session — the default panel)
+  // becomes a real context PANE beside the primary on the wide tier, closed and
+  // split by the rail cluster like every pane. The overlay tiers dock it instead.
+  const primaryPanel = useMemo<PaneContent | null>(
+    () =>
+      focus
+        ? { kind: focus.kind, id: focus.id }
+        : isRunSession && runsPanelOpen && activeSession.scheduledRunOf
+          ? { kind: 'runs', id: activeSession.scheduledRunOf.taskId }
+          : null,
+    [focus, isRunSession, runsPanelOpen, activeSession.scheduledRunOf],
   )
 
   // ── The MAIN workspace split (universal split, focused-pane model) ──────────
@@ -321,8 +258,26 @@ function Workspace() {
   // controller's); independent panes tile beside it on the wide tier. The rail's
   // two split buttons act on the FOCUSED pane, duplicating its content; rail
   // navigation retargets the focused pane when it isn't the primary.
-  const { mainTree, focusedPane, focusedClosable, focusMainPane, focusPrimary, splitFocused, routeToFocused, fillMainPane, closeFocused, setMainRatio } =
-    useMainSplit()
+  const {
+    mainTree,
+    focusedPane,
+    focusedClosable,
+    focusMainPane,
+    focusPrimary,
+    splitFocused,
+    routeToFocused,
+    setPrimaryContext,
+    fillMainPane,
+    closeFocused,
+    setMainRatio,
+  } = useMainSplit()
+
+  // Project the active session's panel into the universal tree on the WIDE tier
+  // (a real context pane beside the primary); the overlay tiers dock it, so the
+  // tree carries no primary context pane there. One source of truth (`focus`).
+  useEffect(() => {
+    setPrimaryContext(activeId, tier === 'wide' ? primaryPanel : null)
+  }, [setPrimaryContext, activeId, tier, primaryPanel])
   // What "duplicate the primary" means right now: the active section page, or
   // the active conversation. A fresh draft has no duplicable identity yet — the
   // split is a no-op until the thread materializes (or a section opens).
@@ -345,10 +300,10 @@ function Workspace() {
       onOpenProposal: openProposal,
       onOpenProject: openProject,
       onOpenSchedule: openSchedule,
-      // A pane composer's chip click: the right panel is scoped to the PRIMARY
-      // session until Phase 4 folds it into the tree — same session (the
-      // duplicate case) opens the panel directly; a different one comes to the
-      // primary first (its remembered panel restores with it).
+      // A pane composer's chip click: the active session's context panel is the
+      // one tied to `focus` (the tree's primary context pane) — same session
+      // toggles it there; a different one comes to the primary first (its
+      // remembered panel restores with it, then tiles).
       onOpenSessionContext: (sessionId, f) => {
         if (sessionId === activeId) focusContext(f)
         else selectSession(sessionId)
@@ -476,17 +431,29 @@ function Workspace() {
                 onCloseView={
                   tier === 'wide' && focusedClosable
                     ? () =>
-                        closeFocused((promoted) => {
-                          // Closing the PRIMARY tile: the singleton controller
-                          // navigates onto the surviving pane's content, so the
-                          // address bar honestly names what remains on screen.
-                          if (promoted.kind === 'msession') selectSession(promoted.id)
-                          else if (promoted.kind === 'msection') {
-                            openSection(promoted.id)
-                            openSubview(promoted.sub ?? null)
-                          }
-                          // an mpicker promotes silently — the controller stays put
-                        })
+                        closeFocused(
+                          (promoted) => {
+                            // Closing the PRIMARY tile: the singleton controller
+                            // navigates onto the surviving pane's content, so the
+                            // address bar honestly names what remains on screen.
+                            if (promoted.kind === 'msession') selectSession(promoted.id)
+                            else if (promoted.kind === 'msection') {
+                              openSection(promoted.id)
+                              openSubview(promoted.sub ?? null)
+                            }
+                            // an mpicker / pinned context pane promotes silently
+                          },
+                          (panel) => {
+                            // The active session's context panel: clear its driver so
+                            // the setPrimaryContext effect removes its pane (panelPref
+                            // remembers it closed, FWD-2). Closing the RUN SWITCHER
+                            // hides it; closing an attached-context panel on a run
+                            // session clears `focus` but LEAVES runsPanelOpen, so the
+                            // run switcher falls back in (matching the overlay tiers).
+                            if (panel.kind === 'runs') setRunsPanelOpen(false)
+                            else closePanel()
+                          },
+                        )
                     : undefined
                 }
                 resizable={!railOverlay}
@@ -615,113 +582,93 @@ function Workspace() {
                     />
                   </section>
 
-                  {/* Below a wide window the panel overlays the thread as a drawer (FWD-3):
-                      a scrim dims + dismisses the conversation behind it, and the panel
-                      group is positioned absolutely so it doesn't squeeze the thread. On
-                      narrow the panel takes over the whole thread area (no scrim — nothing
-                      shows beside it; its close button dismisses). On a wide window the
-                      wrapper is a layout-neutral `flex shrink-0` group, keeping the panels
-                      as in-flow flex siblings of the thread (the original side-by-side
-                      layout) — each PanelShell is already `shrink-0` with its own width,
-                      so the extra wrapper changes nothing visually. */}
-                  {tier === 'medium' && panelOpen && (
-                    <div
-                      className={`${SCRIM_CLASS} z-20`}
-                      aria-hidden
-                      onClick={() => {
-                        closePanel()
-                        setRunsPanelOpen(false)
-                      }}
-                    />
-                  )}
-                  <div
-                    className={
-                      !panelOverlay
-                        ? 'flex shrink-0'
-                        : railOverlay
-                          ? // The takeover wrapper spans the whole thread even when no
-                            // panel is open (it must stay mounted for exit animations),
-                            // so it must not eat the thread's taps while empty.
-                            `absolute inset-0 z-30 flex ${panelOpen ? '' : 'pointer-events-none'}`
-                          : 'absolute inset-y-0 right-0 z-30 flex'
-                    }
-                  >
-                  {/* The split frame (ADAPT-16): once the user splits, the wide
-                      tier tiles panes here instead of the single panel below —
-                      the tree persists per session; the overlay tiers keep the
-                      focused single panel (no room to tile). */}
-                  {tier === 'wide' && splitTree ? (
-                    <SplitFrame
-                      tree={splitTree}
-                      options={paneOptions}
-                      renderPane={renderPane}
-                      onSplitPane={splitPaneAt}
-                      onFillPane={fillPane}
-                      onClosePane={closePaneAt}
-                      onRatio={setPaneRatio}
-                    />
-                  ) : (
-                  <PaneChromeContext.Provider value={singlePanelChrome}>
-                  {/* One focused-context sidebar at a time, chosen by the active chip.
-                      One keyed WorkspacePanel serves both workspace and repo so the
-                      body morphs when you switch between the two. */}
-                  <AnimatePresence>
-                    {(focusedWorkspace || focusedRepo) && (
-                      <WorkspacePanel
-                        key="ws"
-                        mode={focusedRepo ? 'repo' : 'workspace'}
-                        workspace={focusedWorkspace}
-                        repo={focusedRepo}
-                        onClose={closePanel}
-                        onRemoveFolder={removeFolder}
-                      />
-                    )}
-                  </AnimatePresence>
-
-                  {/* A scheduled-run session's run switcher — its default right
-                      panel. Yields to a focused-context panel (so a chip click
-                      still works) and can be dismissed per session. */}
-                  <AnimatePresence>
-                    {isRunSession && !focus && runsPanelOpen && activeSession.scheduledRunOf && (
-                      <RunsPanel
-                        key="runs"
-                        taskId={activeSession.scheduledRunOf.taskId}
-                        activeRunSessionId={activeId}
-                        onSelectRun={selectSession}
-                        onOpenRoutine={openSchedule}
-                        onClose={() => setRunsPanelOpen(false)}
-                      />
-                    )}
-                  </AnimatePresence>
-
-                  <AnimatePresence>
-                    {focusedConnector && (
-                      <ConnectorPanel
-                        key="conn"
-                        connector={focusedConnector}
-                        onClose={closePanel}
-                        onDisconnect={() =>
-                          removeContexts([{ kind: 'connector', id: focusedConnector.id }])
+                  {/* The active session's context panel. On the WIDE tier it is a
+                      context PANE in the universal tree (setPrimaryContext) — nothing
+                      renders here. On the overlay tiers (medium drawer / narrow
+                      takeover) it docks over the thread as before (ADAPT-11): a medium
+                      scrim dims + dismisses; narrow takes over the whole thread area
+                      (its own close button dismisses). The wrapper stays mounted while
+                      the tier holds so AnimatePresence exit animations run. */}
+                  {panelOverlay && (
+                    <>
+                      {tier === 'medium' && panelOpen && (
+                        <div
+                          className={`${SCRIM_CLASS} z-20`}
+                          aria-hidden
+                          onClick={() => {
+                            closePanel()
+                            setRunsPanelOpen(false)
+                          }}
+                        />
+                      )}
+                      <div
+                        className={
+                          railOverlay
+                            ? // Spans the whole thread even when no panel is open (kept
+                              // mounted for exit animations) — must not eat taps while empty.
+                              `absolute inset-0 z-30 flex ${panelOpen ? '' : 'pointer-events-none'}`
+                            : 'absolute inset-y-0 right-0 z-30 flex'
                         }
-                      />
-                    )}
-                  </AnimatePresence>
+                      >
+                        {/* One focused-context sidebar at a time, chosen by the active
+                            chip. One keyed WorkspacePanel serves both workspace and repo
+                            so the body morphs when you switch between the two. */}
+                        <AnimatePresence>
+                          {(focusedWorkspace || focusedRepo) && (
+                            <WorkspacePanel
+                              key="ws"
+                              mode={focusedRepo ? 'repo' : 'workspace'}
+                              workspace={focusedWorkspace}
+                              repo={focusedRepo}
+                              onClose={closePanel}
+                              onRemoveFolder={removeFolder}
+                            />
+                          )}
+                        </AnimatePresence>
 
-                  <AnimatePresence>
-                    {(focus?.kind === 'file' || focus?.kind === 'photo') && (
-                      <AttachmentPanel
-                        key="att"
-                        kind={focus.kind}
-                        items={live.attachments.filter((a) => a.kind === focus.kind)}
-                        initialId={focus.id}
-                        onClose={closePanel}
-                        onRemove={removeAttachment}
-                      />
-                    )}
-                  </AnimatePresence>
-                  </PaneChromeContext.Provider>
+                        {/* A scheduled-run session's run switcher — its default panel.
+                            Yields to a focused-context panel (a chip click still works). */}
+                        <AnimatePresence>
+                          {isRunSession && !focus && runsPanelOpen && activeSession.scheduledRunOf && (
+                            <RunsPanel
+                              key="runs"
+                              taskId={activeSession.scheduledRunOf.taskId}
+                              activeRunSessionId={activeId}
+                              onSelectRun={selectSession}
+                              onOpenRoutine={openSchedule}
+                              onClose={() => setRunsPanelOpen(false)}
+                            />
+                          )}
+                        </AnimatePresence>
+
+                        <AnimatePresence>
+                          {focusedConnector && (
+                            <ConnectorPanel
+                              key="conn"
+                              connector={focusedConnector}
+                              onClose={closePanel}
+                              onDisconnect={() =>
+                                removeContexts([{ kind: 'connector', id: focusedConnector.id }])
+                              }
+                            />
+                          )}
+                        </AnimatePresence>
+
+                        <AnimatePresence>
+                          {(focus?.kind === 'file' || focus?.kind === 'photo') && (
+                            <AttachmentPanel
+                              key="att"
+                              kind={focus.kind}
+                              items={live.attachments.filter((a) => a.kind === focus.kind)}
+                              initialId={focus.id}
+                              onClose={closePanel}
+                              onRemove={removeAttachment}
+                            />
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    </>
                   )}
-                  </div>
                 </div>
               </>
             )}

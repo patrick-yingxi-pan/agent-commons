@@ -6,12 +6,26 @@
  *  into the controller, so the URL follows what remains); rail navigation
  *  retargets the focused pane; the URL never follows a secondary pane. The tree math is locked by tests/main-split.test.ts;
  *  this locks the wiring. */
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
+
+/** A repo / workspace session auto-tiles its context PANEL as a pane in the
+ *  universal tree on the wide tier now (ADAPT-16 folded into ADAPT-17, Phase 4).
+ *  Close it so the conversation-split mechanics below start from a clean single
+ *  primary: focus the context pane, then the rail cluster's close clears it. */
+async function clearAutoPanel(page: Page) {
+  const ctx = page.locator('[data-context-pane]')
+  if ((await ctx.count()) === 0) return
+  await ctx.first().dispatchEvent('pointerdown')
+  await page.locator('[data-close-view]').click()
+  await expect(page.locator('[data-context-pane]')).toHaveCount(0)
+  await expect(page.locator('[data-main-split]')).toHaveCount(0)
+}
 
 test('split duplicates the focused conversation; the rail retargets the focused pane; close dissolves', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto('/s/auth-refactor')
   await expect(page.getByText('token refresh logic').first()).toBeVisible()
+  await clearAutoPanel(page)
 
   // The rail offers BOTH directions on the wide tier, next to the bell.
   await expect(page.locator('[data-split-view="col"]')).toBeVisible()
@@ -56,6 +70,7 @@ test('closing the focused PRIMARY tile is homogeneous: the survivor promotes and
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto('/s/auth-refactor')
   await expect(page.getByText('token refresh logic').first()).toBeVisible()
+  await clearAutoPanel(page)
 
   // Split (duplicate takes focus), retarget the duplicate at Projects.
   await page.locator('[data-split-view="row"]').click()
@@ -78,6 +93,7 @@ test('focus moves on pointer-down, and the split buttons act on the focused pane
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto('/s/auth-refactor')
   await expect(page.getByText('token refresh logic').first()).toBeVisible()
+  await clearAutoPanel(page)
 
   // Split down: the duplicate below takes focus.
   await page.locator('[data-split-view="col"]').click()
@@ -100,6 +116,7 @@ test('a duplicated conversation pane is fully independent: its own composer stre
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto('/s/auth-refactor')
   await expect(page.getByText('token refresh logic').first()).toBeVisible()
+  await clearAutoPanel(page)
 
   // Split, then retarget the focused duplicate at a DIFFERENT seeded session
   // via the rail's Recents list.
@@ -124,5 +141,36 @@ test('a duplicated conversation pane is fully independent: its own composer stre
 
   // …while the PRIMARY (auth-refactor) is untouched and the URL never moved.
   await expect(page.locator('[data-main-pane="a"]').getByText('quick pane check')).toHaveCount(0)
+  expect(new URL(page.url()).pathname).toBe('/s/auth-refactor')
+})
+
+test('the right panel folds into the tree: a repo session tiles its context PANEL beside the conversation (ADAPT-16 → ADAPT-17)', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 })
+  await page.goto('/s/auth-refactor')
+  await expect(page.getByText('token refresh logic').first()).toBeVisible()
+
+  // The right panel is no longer a separate frame that splits its own inner
+  // view — it's a `context-panel` PANE in the ONE universal main tree, beside
+  // the conversation, auto-tiled from the session's remembered/strongest context.
+  await expect(page.locator('[data-split-frame]'), 'the ADAPT-16 frame is retired').toHaveCount(0)
+  await expect(page.locator('[data-main-split]')).toBeVisible()
+  const ctx = page.locator('[data-context-pane]')
+  await expect(ctx).toBeVisible()
+  // Its identity is (owning session, panel): the auth-refactor repo.
+  await expect(ctx).toHaveAttribute('data-context-pane', /^auth-refactor repo/)
+  // The panel body renders (the Repository header) and the conversation is beside it.
+  await expect(ctx.getByText('Repository')).toBeVisible()
+  await expect(page.locator('[data-main-pane="a"]').getByText('token refresh logic').first()).toBeVisible()
+
+  // Closed by the rail cluster like every other pane (no per-pane X). After
+  // auto-open focus sits on the PRIMARY (not the panel), and the rail Close still
+  // closes the panel — it routes to the active context pane rather than no-oping
+  // (the primary tile has nothing promotable but its own context sibling). The
+  // panel dissolves; the conversation stays; the URL never moved (ADAPT-15).
+  await expect(page.locator('[data-main-pane="a"]')).toHaveAttribute('data-focused', 'true')
+  await page.locator('[data-close-view]').click()
+  await expect(page.locator('[data-context-pane]')).toHaveCount(0)
+  await expect(page.locator('[data-main-split]')).toHaveCount(0)
+  await expect(page.getByText('token refresh logic').first()).toBeVisible()
   expect(new URL(page.url()).pathname).toBe('/s/auth-refactor')
 })
