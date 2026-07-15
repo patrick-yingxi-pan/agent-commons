@@ -76,12 +76,23 @@ test('every call site names its divider, and no two names collide', () => {
   // the prop required; this pins the SPECIFIC names so a rename that collides
   // (two separators reading the same) fails loudly.
   const labels = [...components.matchAll(/label="(Resize [^"]+)"/g)].map((m) => m[1])
-  assert.deepEqual(labels.sort(), ['Resize Scheduled pane', 'Resize Sections pane', 'Resize panel', 'Resize sidebar'])
+  assert.deepEqual(labels.sort(), [
+    'Resize Scheduled pane',
+    'Resize Sections pane',
+    'Resize panel',
+    'Resize sidebar',
+    'Resize split frame',
+  ])
   assert.equal(new Set(labels).size, labels.length, 'separator names are pairwise distinct')
   // The pane gutter forwards its label into the shared handle rather than
   // hardcoding one (the funnel stays the single naming door).
   const sidebar = read(join(ROOT, 'src', 'components', 'Sidebar.tsx'))
   assert.match(sidebar, /<ResizeHandle\s+side="bottom"\s+label=\{label\}/)
+  // The split frame's pane dividers name themselves per split-node PATH (a
+  // template label) — pairwise distinct by construction, so they satisfy the
+  // same no-collision rule the static names above pin.
+  const splitFrame = read(join(ROOT, 'src', 'components', 'SplitFrame.tsx'))
+  assert.match(splitFrame, /label=\{`Resize split panes \(\$\{path \|\| 'root'\}\)`\}/)
 })
 
 test('a gesture persists the value it just produced — the move handler refreshes the ref, and onEnd reads it', () => {

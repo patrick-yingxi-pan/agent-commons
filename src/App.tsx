@@ -12,6 +12,9 @@ import { CompactionAffordance } from './components/CompactionAffordance'
 import { TurnControls } from './components/TurnControls'
 import { WorkspacePanel } from './components/WorkspacePanel'
 import { RunsPanel } from './components/RunsPanel'
+import { SplitFrame, type PaneOption } from './components/SplitFrame'
+import { PaneChromeContext, type PaneChrome } from './components/paneChrome'
+import type { PaneContent } from './lib/splitFrame'
 import { SectionView } from './components/SectionView'
 import { AttachmentPanel } from './components/AttachmentPanel'
 import { ConnectorPanel } from './components/ConnectorPanel'
@@ -151,6 +154,12 @@ function Workspace() {
     removeFolder,
     closePanel,
     approveEscalation,
+    splitTree,
+    splitActivePanel,
+    splitPaneAt,
+    fillPane,
+    closePaneAt,
+    setPaneRatio,
   } = useSessionWorkspace()
 
   // The delegated-cognition affordances (docs/delegated-cognition-provider.md):
@@ -254,6 +263,75 @@ function Workspace() {
   // Whether a right panel is currently showing (a focused context, or the run switcher)
   // — drives the overlay scrim on small viewports (FWD-3).
   const panelOpen = !!focus || (isRunSession && runsPanelOpen && !!activeSession.scheduledRunOf)
+
+  // ── The split frame (ADAPT-16): what a new pane may show, how a pane renders,
+  //    and the chrome the single docked panel gets on the wide tier (the split
+  //    buttons that create the first frame). Duplicates are allowed on purpose —
+  //    two panes of the same repo are files beside diff.
+  const paneOptions = useMemo<PaneOption[]>(() => {
+    const opts: PaneOption[] = []
+    for (const w of live.workspaces) opts.push({ content: { kind: 'workspace', id: w.id }, label: 'Workspace — drafts & artifacts' })
+    for (const r of live.repos) opts.push({ content: { kind: 'repo', id: r.id }, label: `Repository — ${r.label}` })
+    for (const c of live.connectors) opts.push({ content: { kind: 'connector', id: c.id }, label: c.label })
+    const firstFile = live.attachments.find((a) => a.kind === 'file')
+    if (firstFile) opts.push({ content: { kind: 'file', id: firstFile.id }, label: 'Files' })
+    const firstPhoto = live.attachments.find((a) => a.kind === 'photo')
+    if (firstPhoto) opts.push({ content: { kind: 'photo', id: firstPhoto.id }, label: 'Photos' })
+    if (activeSession.scheduledRunOf) opts.push({ content: { kind: 'runs', id: activeSession.scheduledRunOf.taskId }, label: 'Scheduled runs' })
+    return opts
+  }, [live, activeSession.scheduledRunOf])
+
+  const renderPane = useCallback(
+    (content: PaneContent) => {
+      switch (content.kind) {
+        case 'workspace': {
+          const w = live.workspaces.find((x) => x.id === content.id)
+          return w ? <WorkspacePanel mode="workspace" workspace={w} onClose={closePanel} onRemoveFolder={removeFolder} /> : null
+        }
+        case 'repo': {
+          const r = live.repos.find((x) => x.id === content.id)
+          return r ? <WorkspacePanel mode="repo" repo={r} onClose={closePanel} onRemoveFolder={removeFolder} /> : null
+        }
+        case 'connector': {
+          const c = live.connectors.find((x) => x.id === content.id)
+          return c ? (
+            <ConnectorPanel connector={c} onClose={closePanel} onDisconnect={() => removeContexts([{ kind: 'connector', id: c.id }])} />
+          ) : null
+        }
+        case 'file':
+        case 'photo':
+          return (
+            <AttachmentPanel
+              kind={content.kind}
+              items={live.attachments.filter((a) => a.kind === content.kind)}
+              initialId={content.id}
+              onClose={closePanel}
+              onRemove={removeAttachment}
+            />
+          )
+        case 'runs':
+          return (
+            <RunsPanel
+              taskId={content.id}
+              activeRunSessionId={activeId}
+              onSelectRun={selectSession}
+              onOpenRoutine={openSchedule}
+              onClose={() => setRunsPanelOpen(false)}
+            />
+          )
+        default:
+          return null
+      }
+    },
+    [live, closePanel, removeFolder, removeContexts, removeAttachment, activeId, selectSession, openSchedule],
+  )
+
+  // The single docked panel's chrome: on the wide tier its header offers the
+  // split buttons that mint the first frame. Overlay tiers have no room to tile.
+  const singlePanelChrome = useMemo<PaneChrome>(
+    () => (tier === 'wide' ? { onSplit: splitActivePanel } : {}),
+    [tier, splitActivePanel],
+  )
 
   // The live size of the open thread's Messages — so the composer's usage gauge
   // (and its context breakdown) fills in real time as the conversation grows.
@@ -557,6 +635,22 @@ function Workspace() {
                           : 'absolute inset-y-0 right-0 z-30 flex'
                     }
                   >
+                  {/* The split frame (ADAPT-16): once the user splits, the wide
+                      tier tiles panes here instead of the single panel below —
+                      the tree persists per session; the overlay tiers keep the
+                      focused single panel (no room to tile). */}
+                  {tier === 'wide' && splitTree ? (
+                    <SplitFrame
+                      tree={splitTree}
+                      options={paneOptions}
+                      renderPane={renderPane}
+                      onSplitPane={splitPaneAt}
+                      onFillPane={fillPane}
+                      onClosePane={closePaneAt}
+                      onRatio={setPaneRatio}
+                    />
+                  ) : (
+                  <PaneChromeContext.Provider value={singlePanelChrome}>
                   {/* One focused-context sidebar at a time, chosen by the active chip.
                       One keyed WorkspacePanel serves both workspace and repo so the
                       body morphs when you switch between the two. */}
@@ -614,6 +708,8 @@ function Workspace() {
                       />
                     )}
                   </AnimatePresence>
+                  </PaneChromeContext.Provider>
+                  )}
                   </div>
                 </div>
               </>

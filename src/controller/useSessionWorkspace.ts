@@ -23,7 +23,20 @@ import { sameFocus } from '../lib/focus'
 import { pushLocation, type NavLocation } from '../lib/nav'
 import type { FocusTarget } from '../lib/notificationDoor'
 import { rememberAttached } from '../lib/contextShortcuts'
-import { getPanelPref, setPanelPref } from '../lib/panelPrefs'
+import { getPanelPref, setPanelPref, getSplitPref, setSplitPref } from '../lib/panelPrefs'
+import {
+  findPane,
+  pane,
+  panes,
+  prunePanes,
+  replacePane,
+  setRatio,
+  splitPane as splitLeaf,
+  closePane as closeLeaf,
+  type PaneContent,
+  type SplitDir,
+  type SplitNode,
+} from '../lib/splitFrame'
 import { loadViewLocation, saveViewLocation, type ViewLocation } from '../lib/viewMemory'
 import { pathForView, viewForPath, type RoutedView } from '../lib/urlRoutes'
 import { loadModelPrefs } from '../lib/modelPrefs'
@@ -115,6 +128,27 @@ function bindingsFor(ctx: AddedContext): AttachContextRequest[] {
   }
 }
 
+/** Whether a pane's content still exists in the session — the split-frame prune
+ *  predicate (a detached repo / removed connector collapses its pane). File and
+ *  photo panes show the kind's collection (their id is only the initial
+ *  selection), so they survive while ANY attachment of that kind remains. */
+function paneContentAlive(l: Live, isRunSession: boolean) {
+  return (c: PaneContent): boolean =>
+    c.kind === 'workspace'
+      ? l.workspaces.some((w) => w.id === c.id)
+      : c.kind === 'repo'
+        ? l.repos.some((r) => r.id === c.id)
+        : c.kind === 'connector'
+          ? l.connectors.some((x) => x.id === c.id)
+          : c.kind === 'runs'
+            ? isRunSession
+            : l.attachments.some((a) => a.kind === c.kind)
+}
+
+/** Picker panes need distinct ids only so React keys don't collide. */
+let pickerSeq = 0
+const newPicker = (): PaneContent => ({ kind: 'picker', id: `pk-${(pickerSeq += 1)}` })
+
 /** The strongest present context to auto-open when a session opens — a repo if
  *  there is one, else a workspace, else nothing (the panel stays closed). */
 function strongestFocus(l: Live): PanelFocus | null {
@@ -155,6 +189,12 @@ export function useSessionWorkspace() {
   const [typing, setTyping] = useState(false)
   // Which attached context the right-hand sidebar is showing (null = closed).
   const [focus, setFocus] = useState<PanelFocus | null>(null)
+  // The panel area's split tree (ADAPT-16) — null = no frame (the legacy single
+  // panel above). Client state, persisted per session like the focus; rendered
+  // only on the wide tier (the overlay tiers show the focused single panel).
+  const [splitTree, setSplitTreeState] = useState<SplitNode | null>(null)
+  const splitTreeRef = useRef(splitTree)
+  splitTreeRef.current = splitTree
   // Which cross-cutting tool is open in the main area (null = the session).
   const [activeSection, setActiveSection] = useState<SectionId | null>(null)
   // Which sub-view of the active section is selected — the rail's drill-in menu and
@@ -485,6 +525,15 @@ export function useSessionWorkspace() {
         return pref !== undefined ? pref : strongestFocus(l)
       }
       setFocus(restoreFocus(nextLive))
+      // Restore the session's split frame (ADAPT-16), pruned AT RENDER against what
+      // this load can see — storage stays untouched (the reconcile below re-restores
+      // from the pref once runtime attaches arrive, so a partial first paint can't
+      // lose panes for good). Inlined ref+state write: the persisting setter isn't
+      // wanted here (and is defined later in the hook).
+      const restoreSplit = (l: Live): SplitNode | null =>
+        id === DRAFT_ID ? null : prunePanes(getSplitPref(id), paneContentAlive(l, !!session.scheduledRunOf))
+      splitTreeRef.current = restoreSplit(nextLive)
+      setSplitTreeState(splitTreeRef.current)
       setPendingEscalation(null)
       // Reconcile the full live session from the server (the system of record): a
       // persisted turn AND any persisted runtime attaches (workspace/repo/connector/
@@ -498,6 +547,8 @@ export function useSessionWorkspace() {
             const reconciled = liveFromSession(s)
             setLive(reconciled)
             setFocus(restoreFocus(reconciled))
+            splitTreeRef.current = restoreSplit(reconciled)
+            setSplitTreeState(splitTreeRef.current)
             // A persisted-but-unresolved escalation proposal resurfaces as the
             // pending consent card (C28) — the record is the authority; without
             // this, any reopen/reload dropped the card and the proposal could
@@ -604,8 +655,26 @@ export function useSessionWorkspace() {
         next.connectors = esc.connectors.reduce(withConnector, l.connectors)
       }
       setLive(next)
-      if (esc.kind === 'workspace') setFocus({ kind: 'workspace', id: 'ws-demo' })
-      if (esc.kind === 'repo') setFocus({ kind: 'repo', id: 'repo-demo' })
+      // The grown context's panel opens — into the split frame's first pane when
+      // one is up (ADAPT-16; inlined non-persisting route: routeToPane is defined
+      // later in the hook, and the restore-time prune reconciles storage anyway).
+      const grown: PanelFocus | null =
+        esc.kind === 'workspace'
+          ? { kind: 'workspace', id: 'ws-demo' }
+          : esc.kind === 'repo'
+            ? { kind: 'repo', id: 'repo-demo' }
+            : null
+      if (grown) {
+        const t = splitTreeRef.current
+        if (t && !findPane(t, { kind: grown.kind, id: grown.id })) {
+          const first = panes(t)[0]
+          if (first) {
+            splitTreeRef.current = replacePane(t, first.path, { kind: grown.kind, id: grown.id })
+            setSplitTreeState(splitTreeRef.current)
+          }
+        }
+        setFocus(grown)
+      }
       // An approved escalation on a REAL session persists through the same two
       // facets as a manual attach (handleAddContext): the binding-of-record the
       // effect-mediation path resolves against, and the panel write-through — or
@@ -852,6 +921,41 @@ export function useSessionWorkspace() {
     void persistWorkspace(id, workspaceOf(next)).catch(() => {})
   }, [persistableSession])
 
+  // ── The split frame (ADAPT-16) ───────────────────────────────────────────────
+  // showSplitTree updates the render (and the ref, for pre-render readers) WITHOUT
+  // persisting — the restore/prune paths use it, so a transient prune against a
+  // not-yet-reconciled live can never clobber the stored tree (the clamp-at-render,
+  // never-in-storage rule). setSplitTree is the user-edit path: it also persists.
+  const showSplitTree = useCallback((t: SplitNode | null) => {
+    splitTreeRef.current = t
+    setSplitTreeState(t)
+  }, [])
+  const setSplitTree = useCallback(
+    (t: SplitNode | null) => {
+      showSplitTree(t)
+      if (persistableSession(activeIdRef.current)) setSplitPref(activeIdRef.current, t)
+    },
+    [showSplitTree, persistableSession],
+  )
+
+  /** While a frame is up, anything that would open a panel (a chip click, an
+   *  attach, an approved escalation) routes INTO it: an already-visible content
+   *  is left alone (it's on screen); anything else retargets the first pane.
+   *  Returns false when no frame exists (the caller runs the legacy path). */
+  const routeToPane = useCallback(
+    (f: PanelFocus): boolean => {
+      const t = splitTreeRef.current
+      if (!t) return false
+      const content: PaneContent = { kind: f.kind, id: f.id }
+      if (!findPane(t, content)) {
+        const first = panes(t)[0]
+        if (first) setSplitTree(replacePane(t, first.path, content))
+      }
+      return true
+    },
+    [setSplitTree],
+  )
+
   // Manually attach context to the open thread — the same escalation Claude can
   // propose, but user-driven. Every context type funnels through here, and the
   // newly attached context's sidebar opens so you see what you added.
@@ -876,25 +980,96 @@ export function useSessionWorkspace() {
     setLive(next)
     persistLive(id, next)
     // Open the newly attached context's sidebar so you see what you added — and remember
-    // it as this session's panel choice (FWD-2), so reopening restores it.
+    // it as this session's panel choice (FWD-2), so reopening restores it. With a
+    // split frame up, the new context routes into the frame instead (ADAPT-16).
     const f = focusForAdded(ctx, next)
     if (f) {
-      setFocus(f)
-      if (persistableSession(id)) setPanelPref(id, f)
+      if (routeToPane(f)) {
+        setFocus(f)
+      } else {
+        setFocus(f)
+        if (persistableSession(id)) setPanelPref(id, f)
+      }
     }
-  }, [persistableSession, persistLive])
+  }, [persistableSession, persistLive, routeToPane])
+
+
+  /** Split the single docked panel into a frame: the current content keeps the
+   *  first half, a picker takes the second. (The per-pane split path below covers
+   *  an existing frame.) */
+  const splitActivePanel = useCallback(
+    (dir: SplitDir) => {
+      if (splitTreeRef.current) return
+      const f = focusRef.current
+      const runOf = activeSessionRef.current?.scheduledRunOf
+      const seed: PaneContent | null = f ? { kind: f.kind, id: f.id } : runOf ? { kind: 'runs', id: runOf.taskId } : null
+      if (!seed) return
+      setSplitTree(splitLeaf(pane(seed), '', dir, newPicker()))
+    },
+    [setSplitTree],
+  )
+
+  const splitPaneAt = useCallback(
+    (path: string, dir: SplitDir) => {
+      const t = splitTreeRef.current
+      if (t) setSplitTree(splitLeaf(t, path, dir, newPicker()))
+    },
+    [setSplitTree],
+  )
+
+  const fillPane = useCallback(
+    (path: string, content: PaneContent) => {
+      const t = splitTreeRef.current
+      if (t) setSplitTree(replacePane(t, path, content))
+    },
+    [setSplitTree],
+  )
+
+  const closePaneAt = useCallback(
+    (path: string) => {
+      const t = splitTreeRef.current
+      if (!t) return
+      const next = closeLeaf(t, path)
+      if (next && next.kind === 'pane') {
+        // One pane left — the frame dissolves back to the legacy single panel,
+        // showing what that pane showed (a lone picker/runs pane closes to none:
+        // a run session's switcher shows by default anyway).
+        setSplitTree(null)
+        const c = next.content
+        const f: PanelFocus | null = c.kind === 'picker' || c.kind === 'runs' ? null : { kind: c.kind, id: c.id }
+        setFocus(f)
+        if (persistableSession(activeIdRef.current)) setPanelPref(activeIdRef.current, f)
+      } else {
+        setSplitTree(next)
+      }
+    },
+    [setSplitTree, persistableSession],
+  )
+
+  const setPaneRatio = useCallback(
+    (path: string, ratio: number) => {
+      const t = splitTreeRef.current
+      if (t) setSplitTree(setRatio(t, path, ratio))
+    },
+    [setSplitTree],
+  )
 
   // Clicking a chip toggles its sidebar — and remembers the choice for this session
   // (FWD-2), so reopening the thread restores it. Persist only on this explicit toggle
   // (and closePanel / attach), never via a generic focus watcher — a transient auto-close
   // of a not-yet-loaded panel during a session load must not overwrite the stored choice.
+  // With a split frame up, the click routes into the frame instead of toggling.
   const focusContext = useCallback(
     (f: PanelFocus) => {
+      if (routeToPane(f)) {
+        setFocus(f)
+        return
+      }
       const next = sameFocus(focusRef.current, f) ? null : f
       setFocus(next)
       if (persistableSession(activeIdRef.current)) setPanelPref(activeIdRef.current, next)
     },
-    [persistableSession],
+    [persistableSession, routeToPane],
   )
 
   // "New session" opens a blank thread with the composer ready, like the desktop
@@ -913,6 +1088,9 @@ export function useSessionWorkspace() {
     // A fresh draft must re-materialize on its first send — don't reuse the
     // previous draft's (now resolved) session.
     draftMaterializing.current = null
+    // A fresh draft has no split frame (nothing attached yet to tile).
+    splitTreeRef.current = null
+    setSplitTreeState(null)
     // …and starts back on the preferred default model (the Customize pick —
     // provider and/or concrete catalog model; no pick = the inherit default).
     const prefs = loadModelPrefs()
@@ -1396,6 +1574,16 @@ export function useSessionWorkspace() {
     if (!valid) setFocus(null)
   }, [focus, live])
 
+  // Collapse split panes whose content no longer exists (the frame's mirror of the
+  // effect above). Render-only — never persisted, so a transient live state can't
+  // rewrite the stored tree (the restore prune re-derives from the pref).
+  useEffect(() => {
+    const t = splitTreeRef.current
+    if (!t) return
+    const pruned = prunePanes(t, paneContentAlive(live, !!activeSession.scheduledRunOf))
+    if (pruned !== t) showSplitTree(pruned)
+  }, [live, activeSession, showSplitTree])
+
   const focusedWorkspace =
     focus?.kind === 'workspace' ? live.workspaces.find((w) => w.id === focus.id) : undefined
   const focusedRepo = focus?.kind === 'repo' ? live.repos.find((r) => r.id === focus.id) : undefined
@@ -1404,9 +1592,11 @@ export function useSessionWorkspace() {
 
   const closePanel = useCallback(() => {
     setFocus(null)
+    // Close-all semantics: a scrim tap / explicit close also drops the split frame.
+    if (splitTreeRef.current) setSplitTree(null)
     // Remember the closed state for this session (FWD-2), so it stays closed on reopen.
     if (persistableSession(activeIdRef.current)) setPanelPref(activeIdRef.current, null)
-  }, [persistableSession])
+  }, [persistableSession, setSplitTree])
 
   // The view-facing shape of the held consent prompt: which escalation is
   // pending plus what the prompt needs to render (a workspace beat's root
@@ -1503,5 +1693,12 @@ export function useSessionWorkspace() {
     removeFolder,
     closePanel,
     approveEscalation,
+    // The split frame (ADAPT-16)
+    splitTree,
+    splitActivePanel,
+    splitPaneAt,
+    fillPane,
+    closePaneAt,
+    setPaneRatio,
   }
 }

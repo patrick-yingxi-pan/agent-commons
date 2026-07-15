@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { motion } from 'framer-motion'
-import { X } from 'lucide-react'
+import { Columns2, Rows2, X } from 'lucide-react'
 import { ResizeHandle } from './ResizeHandle'
+import { PaneChromeContext } from './paneChrome'
 import { clamp, getLayout, setLayout } from '../lib/uiPrefs'
 import { PANEL_MIN, PANEL_MAX, panelWidthFor, useViewport } from '../lib/viewport'
 
@@ -38,6 +39,10 @@ export function PanelShell({
 }) {
   const { tier } = useViewport()
   const takeover = tier === 'narrow'
+  // The split frame's chrome adaptation (ADAPT-16, src/components/paneChrome.ts):
+  // embedded panes fill their split node instead of owning width/motion, the X
+  // retargets at the pane, and split buttons appear when a handler is provided.
+  const chrome = useContext(PaneChromeContext)
   const [width, setWidth] = useState(() =>
     clamp(getLayout('rightW', defaultWidth()), PANEL_MIN, PANEL_MAX),
   )
@@ -79,8 +84,28 @@ export function PanelShell({
       {count != null && <span className="shrink-0 text-[11px] text-ink-faint">{count}</span>}
       <div className="ml-auto flex shrink-0 items-center gap-1">
         {headerRight}
+        {chrome.onSplit && (
+          <>
+            <button
+              onClick={() => chrome.onSplit!('row')}
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-ink-soft transition hover:bg-surface hover:text-ink"
+              title="Split right"
+              data-split="row"
+            >
+              <Columns2 size={15} />
+            </button>
+            <button
+              onClick={() => chrome.onSplit!('col')}
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-ink-soft transition hover:bg-surface hover:text-ink"
+              title="Split down"
+              data-split="col"
+            >
+              <Rows2 size={15} />
+            </button>
+          </>
+        )}
         <button
-          onClick={onClose}
+          onClick={chrome.onClosePane ?? onClose}
           className={`flex items-center justify-center rounded-lg text-ink-soft transition hover:bg-surface hover:text-ink ${
             takeover ? 'h-9 w-9' : 'h-7 w-7'
           }`}
@@ -91,6 +116,17 @@ export function PanelShell({
       </div>
     </div>
   )
+
+  // Inside a split-frame pane: the pane's node owns geometry — plain fill, no
+  // width state, no slide animation (the frame mounts/unmounts panes in place).
+  if (chrome.embedded) {
+    return (
+      <div className="flex h-full w-full min-w-0 flex-col overflow-hidden bg-panel">
+        {header}
+        <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+      </div>
+    )
+  }
 
   if (takeover) {
     return (
