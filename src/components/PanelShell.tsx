@@ -79,7 +79,11 @@ export function PanelShell({
     <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-1.5">
       <span className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-ink">
         <span className="shrink-0">{icon}</span>
-        <span className="truncate">{title}</span>
+        {/* A squeezed pane truncates the title — keep the full value reachable
+            (A-7: truncate with the value on `title`, string titles only). */}
+        <span className="truncate" title={typeof title === 'string' ? title : undefined}>
+          {title}
+        </span>
       </span>
       {count != null && <span className="shrink-0 text-[11px] text-ink-faint">{count}</span>}
       <div className="ml-auto flex shrink-0 items-center gap-1">

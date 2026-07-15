@@ -69,11 +69,18 @@ properties). No UI or server code re-declares a wire shape.
 
 ### F-2 · One door to the backend
 UI components read through `src/api` hooks and write through commands; nothing
-else knows a URL, header, or SSE event name. (Documented exception: the
-UI-host filesystem source, client-owned by nature.)
+else knows a URL, header, or SSE event name. Documented exceptions, both
+foreign-by-nature: the UI-host filesystem source (a web server can't read the
+browser's disk), and the A2A card viewer's fetch of a FOREIGN instance's
+agent-card URL (`src/components/SectionView.tsx` — routing it through the api
+client would attach OUR identity headers to an untrusted host; keeping it out
+is the correct posture, found by this rule's first run, 2026-07-15).
 **Detection:** `node --test tests/contract-boundaries.test.ts`; grep
-`fetch(`/`EventSource` outside `src/api/`.
-**Fix:** add the hook/command in `src/api`, route the component through it (INV-6).
+`fetch(`/`EventSource` outside `src/api/` — a hit is either on this exception
+list or a finding.
+**Fix:** add the hook/command in `src/api`, route the component through it
+(INV-6) — unless the target is genuinely not our backend, in which case list
+it here with the reason.
 
 ### F-3 · Every write-path absence means something, or is refused
 For every NEW request field: classify its absence as **inherit**, **fixed

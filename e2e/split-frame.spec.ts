@@ -56,6 +56,14 @@ test('split → picker → two panes; the divider steps by keyboard; closing dis
   const now = Number(await divider.getAttribute('aria-valuenow'))
   expect(now, 'the separator announces the trailing pane share, off the 50% default').toBeLessThan(50)
 
+  // The absolute pane floor (rulebook judgment finding, 2026-07-15): the 15%
+  // ratio clamp alone let a deep drag crush a pane to a sliver — flexbox min
+  // sizes now floor a row pane at ~200px regardless of ratio.
+  for (let i = 0; i < 15; i += 1) await page.keyboard.press('Shift+ArrowRight')
+  const paneB = page.locator('[data-split-pane="b"]')
+  const squeezed = await settled(page, paneB, 'width')
+  expect(squeezed, 'a deep drag cannot crush a pane below its usable floor').toBeGreaterThanOrEqual(190)
+
   // Closing pane b dissolves the frame back to the legacy single panel (which
   // still shows the repo and offers the split buttons again).
   await page.locator('[data-split-pane="b"] button[title="Close"]').click()

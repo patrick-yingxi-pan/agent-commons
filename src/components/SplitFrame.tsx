@@ -142,6 +142,15 @@ function Branch({
 
   const row = node.dir === 'row'
   const ratio = clampRatio(node.ratio)
+  // Absolute pane floors, applied at RENDER (storage keeps the raw ratio — the
+  // clamp-at-render rule): the 15% ratio floor alone lets a deep drag squeeze a
+  // pane below any usable width (found by the first rulebook judgment pass —
+  // tab strips and headers crushed at ~100px). Flexbox resolves the conflict:
+  // a percentage basis never shrinks a child under its min. Chosen so two
+  // panes always fit at FRAME_MIN (2×200 < 480); a deliberately deep nest can
+  // still clip at the frame edge (overflow-hidden), which reads better than
+  // sliver panes.
+  const minStyle = row ? { minWidth: 200 } : { minHeight: 120 }
   const child = (n: SplitNode, p: string) => (
     <Branch
       node={n}
@@ -156,12 +165,12 @@ function Branch({
   )
   return (
     <div ref={ref} className={`flex min-h-0 min-w-0 flex-1 ${row ? 'flex-row' : 'flex-col'}`}>
-      <div className="flex min-h-0 min-w-0" style={{ flex: `${ratio} 1 0%` }}>
+      <div className="flex min-h-0 min-w-0" style={{ flex: `${ratio} 1 0%`, ...minStyle }}>
         {child(node.a, `${path}a`)}
       </div>
       <div
         className={`relative flex min-h-0 min-w-0 ${row ? 'border-l' : 'border-t'} border-line`}
-        style={{ flex: `${1 - ratio} 1 0%` }}
+        style={{ flex: `${1 - ratio} 1 0%`, ...minStyle }}
       >
         {/* The divider rides the SECOND child's leading edge, so its value grows
             as the client coordinate shrinks — matching the left/top slope the
