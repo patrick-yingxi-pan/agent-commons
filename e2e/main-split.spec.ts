@@ -1,8 +1,9 @@
 /** The MAIN workspace split, focused-pane model (universal split, ADAPT-17):
- *  the rail's two split buttons (beside the bell) DUPLICATE the focused pane —
- *  no picker, no per-pane chrome; rail navigation retargets the focused pane;
- *  a hover-revealed floating ✕ closes a secondary pane; the URL never follows
- *  a secondary pane. The tree math is locked by tests/main-split.test.ts;
+ *  the rail's split/close cluster (beside the bell) acts on the FOCUSED pane —
+ *  the split buttons DUPLICATE it (no picker, no per-pane chrome), the close
+ *  button (offered only while a secondary pane is focused) removes it; rail
+ *  navigation retargets the focused pane; the URL never follows a secondary
+ *  pane. The tree math is locked by tests/main-split.test.ts;
  *  this locks the wiring. */
 import { test, expect } from '@playwright/test'
 
@@ -39,10 +40,15 @@ test('split duplicates the focused conversation; the rail retargets the focused 
   // The main-pane divider is a named, keyboard-operable separator (UI-11).
   await expect(page.getByRole('separator', { name: 'Resize view panes (root)' })).toBeVisible()
 
-  // No per-pane chrome: the only floating affordance is the hover-revealed ✕ on
-  // the secondary pane; closing it dissolves the frame back to the plain surface.
-  await paneB.hover()
-  await paneB.locator('button[title="Close pane"]').click()
+  // No per-pane chrome at all: close lives in the rail cluster and acts on the
+  // FOCUSED pane. It is offered only while a secondary pane is focused — focus
+  // the primary and it withdraws; focus pane b and closing it dissolves the
+  // frame. (dispatchEvent: focus rides pointer-down capture, and actionability
+  // would wait forever on the thread's continuous animations.)
+  await page.locator('[data-main-pane="a"]').dispatchEvent('pointerdown')
+  await expect(page.locator('[data-close-view]')).toHaveCount(0)
+  await paneB.dispatchEvent('pointerdown')
+  await page.locator('[data-close-view]').click()
   await expect(page.locator('[data-main-split]')).toHaveCount(0)
   await expect(page.getByText('token refresh logic').first()).toBeVisible()
 })

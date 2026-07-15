@@ -342,7 +342,7 @@ function Workspace() {
   // controller's); independent panes tile beside it on the wide tier. The rail's
   // two split buttons act on the FOCUSED pane, duplicating its content; rail
   // navigation retargets the focused pane when it isn't the primary.
-  const { mainTree, focusedPane, focusMainPane, focusPrimary, splitFocused, routeToFocused, fillMainPane, closeMainPane, setMainRatio } =
+  const { mainTree, focusedPane, focusedClosable, focusMainPane, focusPrimary, splitFocused, routeToFocused, fillMainPane, closeFocused, setMainRatio } =
     useMainSplit()
   // What "duplicate the primary" means right now: the active section page, or
   // the active conversation. A fresh draft has no duplicable identity yet — the
@@ -491,6 +491,7 @@ function Workspace() {
                 onOpenNotifications={withRailClose(() => setNotifOpen(true))}
                 onOpenOwner={withRailClose(openOwner)}
                 onSplitView={tier === 'wide' ? splitView : undefined}
+                onCloseView={tier === 'wide' && focusedClosable ? closeFocused : undefined}
                 resizable={!railOverlay}
                 railW={leftW}
                 onResizeStart={startResize}
@@ -533,7 +534,6 @@ function Workspace() {
               nav={mainPaneNav}
               onFocusPane={focusMainPane}
               onFillPane={fillMainPane}
-              onClosePane={closeMainPane}
               onRatio={setMainRatio}
             >
             {activeSection ? (

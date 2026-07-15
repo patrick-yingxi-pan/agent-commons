@@ -5,16 +5,16 @@
  *  `msection` panes are INDEPENDENT, fully interactive section pages with
  *  pane-local navigation (SectionPane below); `msession` panes independent
  *  conversations. NO per-pane chrome (the 2026-07-15 redesign): panes render
- *  their content edge to edge — the rail's two split buttons act on the
+ *  their content edge to edge — the rail's split/close cluster acts on the
  *  FOCUSED pane (pointer-down focuses; the focused pane wears a subtle inset
- *  accent ring), a hover-revealed floating ✕ closes a secondary pane, and rail
- *  navigation retargets the focused pane. The primary can't close: it is where
- *  the URL lives (ADAPT-15). Dividers are the ONE keyboard-operable
+ *  accent ring), and rail navigation retargets the focused pane. Close lives
+ *  in that same rail cluster (no per-pane affordance at all); the primary
+ *  can't close: it is where the URL lives (ADAPT-15). Dividers are the ONE keyboard-operable
  *  ResizeHandle, named per path (UI-11). Wide tier only (the caller gates,
  *  ADAPT-11): overlay tiers render the primary surface alone and the tree
  *  persists. */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowUp, MessageSquare, Square, X } from 'lucide-react'
+import { ArrowUp, MessageSquare, Square } from 'lucide-react'
 import { ResizeHandle } from './ResizeHandle'
 import { SectionView } from './SectionView'
 import { MessageRow, TypingRow } from './Message'
@@ -49,7 +49,6 @@ export function MainSplitGate({
   nav,
   onFocusPane,
   onFillPane,
-  onClosePane,
   onRatio,
 }: {
   tree: MainSplitNode | null
@@ -58,7 +57,6 @@ export function MainSplitGate({
   nav: MainPaneNav
   onFocusPane: (path: string) => void
   onFillPane: (path: string, content: MainPaneContent) => void
-  onClosePane: (path: string) => void
   onRatio: (path: string, ratio: number) => void
 }) {
   if (!tree) return <>{children}</>
@@ -70,7 +68,6 @@ export function MainSplitGate({
       nav={nav}
       onFocusPane={onFocusPane}
       onFillPane={onFillPane}
-      onClosePane={onClosePane}
       onRatio={onRatio}
     />
   )
@@ -83,7 +80,6 @@ export function MainSplit({
   nav,
   onFocusPane,
   onFillPane,
-  onClosePane,
   onRatio,
 }: {
   tree: MainSplitNode
@@ -92,7 +88,6 @@ export function MainSplit({
   nav: MainPaneNav
   onFocusPane: (path: string) => void
   onFillPane: (path: string, content: MainPaneContent) => void
-  onClosePane: (path: string) => void
   onRatio: (path: string, ratio: number) => void
 }) {
   return (
@@ -105,7 +100,6 @@ export function MainSplit({
         nav={nav}
         onFocusPane={onFocusPane}
         onFillPane={onFillPane}
-        onClosePane={onClosePane}
         onRatio={onRatio}
       />
     </div>
@@ -120,12 +114,11 @@ interface BranchProps {
   nav: MainPaneNav
   onFocusPane: (path: string) => void
   onFillPane: (path: string, content: MainPaneContent) => void
-  onClosePane: (path: string) => void
   onRatio: (path: string, ratio: number) => void
 }
 
 function Branch(props: BranchProps) {
-  const { node, path, focusedPane, onFocusPane, onClosePane, onRatio } = props
+  const { node, path, focusedPane, onFocusPane, onRatio } = props
   const ref = useRef<HTMLDivElement>(null)
 
   if (node.kind === 'pane') {
@@ -133,11 +126,12 @@ function Branch(props: BranchProps) {
     const focused = focusedPane === path
     return (
       <div
-        // No per-pane chrome: content edge to edge. Pointer-down anywhere
-        // focuses the pane (capture — a click on a button inside still counts);
-        // the focused pane wears a subtle inset accent ring so "the split
-        // buttons and rail act HERE" is always legible.
-        className={`group/mainpane relative flex min-h-0 min-w-0 flex-1 flex-col bg-canvas ${
+        // No per-pane chrome AT ALL: content edge to edge (close lives in the
+        // rail cluster beside the split buttons). Pointer-down anywhere focuses
+        // the pane (capture — a click on a button inside still counts); the
+        // focused pane wears a subtle inset accent ring so "the rail cluster
+        // acts HERE" is always legible.
+        className={`relative flex min-h-0 min-w-0 flex-1 flex-col bg-canvas ${
           focused ? 'ring-1 ring-inset ring-accent/35' : ''
         }`}
         data-main-pane={path || 'root'}
@@ -152,18 +146,6 @@ function Branch(props: BranchProps) {
           <ConversationPane sessionId={c.id} nav={props.nav} />
         ) : (
           <MainPicker onPick={(content) => props.onFillPane(path, content)} />
-        )}
-        {c.kind !== 'primary' && (
-          // The one affordance floating over content: a hover-revealed close on
-          // secondary panes (absolutely positioned — reserves no width; named
-          // group so a row's own hover reveals inside the pane stay theirs).
-          <button
-            onClick={() => onClosePane(path)}
-            className="absolute right-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-md border border-line bg-panel/95 text-ink-faint opacity-0 shadow-sm transition hover:text-ink focus-visible:opacity-100 group-hover/mainpane:opacity-100"
-            title="Close pane"
-          >
-            <X size={13} />
-          </button>
         )}
       </div>
     )

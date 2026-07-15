@@ -28,6 +28,7 @@ import {
   Bell,
   Search,
   Trash2,
+  X,
 } from 'lucide-react'
 import type { ScheduledTask, Session, SectionId } from '../types'
 import { ResizeHandle } from './ResizeHandle'
@@ -88,6 +89,7 @@ export function Sidebar({
   onOpenNotifications,
   onOpenOwner,
   onSplitView,
+  onCloseView,
   resizable = true,
   railW,
   onResizeStart,
@@ -132,6 +134,9 @@ export function Sidebar({
    *  only, where there's room to tile. Acts on the focused pane, duplicating
    *  its content beside ('row') or below ('col') it. */
   onSplitView?: (dir: 'row' | 'col') => void
+  /** Close the FOCUSED pane — the third button of the split cluster. Passed only
+   *  while a closable (secondary) pane is focused; the primary never closes. */
+  onCloseView?: () => void
   /** Drag-to-resize wiring; the parent owns the width and clamps it. On the
    *  narrow tier the rail is a fixed-width drawer, so the handle is dropped. */
   resizable?: boolean
@@ -455,6 +460,19 @@ export function Sidebar({
               <Rows2 size={18} />
             </button>
           </>
+        )}
+        {/* Close the focused pane — same cluster, same target (the focused pane),
+            offered only while a closable secondary pane is focused. */}
+        {onCloseView && (
+          <button
+            onClick={onCloseView}
+            title="Close pane"
+            aria-label="Close pane"
+            data-close-view
+            className={`flex h-8 w-8 items-center justify-center rounded-lg text-ink-soft transition ${SIDEBAR_HOVER} hover:text-ink`}
+          >
+            <X size={18} />
+          </button>
         )}
       </div>
 

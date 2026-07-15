@@ -132,6 +132,20 @@ export function useMainSplit() {
     [commit],
   )
 
+  /** Close the FOCUSED pane — the rail's close button, beside the split pair.
+   *  Offered only while `focusedClosable` (a secondary pane is focused): the
+   *  primary can't close (it is where the URL lives). */
+  const closeFocused = useCallback(() => {
+    const t = treeRef.current
+    const node = t ? nodeAt(t, focusedRef.current) : undefined
+    if (t && node?.kind === 'pane' && node.content.kind !== 'primary') commit(closeMain(t, focusedRef.current))
+  }, [commit])
+
+  // Whether the rail's close button applies right now (derived per render —
+  // focus and tree are both state, so this stays in step).
+  const focusedNode = mainTree ? nodeAt(mainTree, focusedPane) : undefined
+  const focusedClosable = focusedNode?.kind === 'pane' && focusedNode.content.kind !== 'primary'
+
   const setMainRatio = useCallback(
     (path: string, ratio: number) => {
       const t = treeRef.current
@@ -143,12 +157,14 @@ export function useMainSplit() {
   return {
     mainTree,
     focusedPane,
+    focusedClosable,
     focusMainPane,
     focusPrimary,
     splitFocused,
     routeToFocused,
     fillMainPane,
     closeMainPane,
+    closeFocused,
     setMainRatio,
   }
 }
