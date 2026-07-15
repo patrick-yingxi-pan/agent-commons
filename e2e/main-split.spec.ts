@@ -108,6 +108,11 @@ test('a duplicated conversation pane is fully independent: its own composer stre
   const pane = page.locator('[data-conversation-pane="dashboard-perf"]')
   await expect(pane).toBeVisible()
 
+  // Homogeneous title bars: the pane wears the SAME SessionTitleBar the primary
+  // wears — with several conversations tiled, each names itself.
+  await expect(pane.locator('[data-session-title-bar]').getByText('Dashboard query performance')).toBeVisible()
+  await expect(page.locator('[data-main-pane="a"] [data-session-title-bar]').getByText('Refactor auth middleware')).toBeVisible()
+
   // Send FROM THE PANE — the reply streams into the pane's thread…
   const composer = pane.locator('[data-pane-composer]')
   await composer.fill('quick pane check')

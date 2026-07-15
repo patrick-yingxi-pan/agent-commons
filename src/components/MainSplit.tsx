@@ -17,6 +17,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowUp, MessageSquare, Square } from 'lucide-react'
 import { ResizeHandle } from './ResizeHandle'
 import { SectionView } from './SectionView'
+import { SessionTitleBar } from './SessionTitleBar'
 import { MessageRow, TypingRow } from './Message'
 import { EscalationPrompt } from './EscalationPrompt'
 import { SECTION_META } from '../lib/sections'
@@ -35,7 +36,11 @@ export interface MainPaneNav {
   onOpenSession: (id: string) => void
   onNewSession: () => void
   onOpenProposal: (agentId: string, proposalId: string, ownerName: string | null) => void
-  /** A session's display title (the live rows) — pane strips + picker labels. */
+  /** The title bar's breadcrumb doors (a pane conversation's home project /
+   *  routine) — global navigation, so they land on the primary surface. */
+  onOpenProject: (id: string) => void
+  onOpenSchedule: (id: string) => void
+  /** A session's display title (the live rows) — pane title bars + picker labels. */
   sessionLabel: (id: string) => string
 }
 
@@ -292,8 +297,18 @@ function ConversationPane({ sessionId, nav }: { sessionId: string; nav: MainPane
     conversations.patch(sessionId, { pendingEscalation: null })
   }
 
+  // The SAME title bar the primary surface wears (panes are homogeneous): live
+  // title + home breadcrumb. A session outside the live list (a run session)
+  // falls back to a title-only shell.
+  const row = (useSessions().data ?? []).find((s) => s.id === sessionId)
+
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-conversation-pane={sessionId}>
+      <SessionTitleBar
+        session={row ?? { id: sessionId, title: nav.sessionLabel(sessionId) }}
+        onOpenProject={nav.onOpenProject}
+        onOpenSchedule={nav.onOpenSchedule}
+      />
       <div className="flex-1 overflow-y-auto">
         <div className="py-4">
           {conv.live.messages.map((m) => (

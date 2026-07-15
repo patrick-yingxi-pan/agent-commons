@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
-import { CalendarClock, Folder, PanelLeft } from 'lucide-react'
+import { PanelLeft } from 'lucide-react'
 import { Sidebar } from './components/Sidebar'
 import { AuthScreen } from './components/auth/AuthScreen'
 import { useAuthScreen } from './controller/useAuthScreen'
@@ -16,6 +16,7 @@ import { SplitFrame, type PaneOption } from './components/SplitFrame'
 import { PaneChromeContext, type PaneChrome } from './components/paneChrome'
 import type { PaneContent } from './lib/splitFrame'
 import { MainSplitGate, type MainPaneNav } from './components/MainSplit'
+import { SessionTitleBar } from './components/SessionTitleBar'
 import { useMainSplit } from './controller/useMainSplit'
 import { setMainSplitScope } from './lib/mainSplit'
 import { SectionView } from './components/SectionView'
@@ -29,7 +30,7 @@ import { useAgents, useCapabilities, useMe, useProviders, useSessions, useServer
 import { estimateTokens } from '../contract/index.ts'
 import { useSessionWorkspace } from './controller/useSessionWorkspace'
 import { useLayout } from './controller/useLayout'
-import { RelationsProvider, useRelations } from './controller/useRelations'
+import { RelationsProvider } from './controller/useRelations'
 import { railWidthCss, useViewport } from './lib/viewport'
 import { pickedModel, pickedProvider, type ModelPick } from './lib/models'
 import { FocusContext } from './lib/focusContext'
@@ -364,9 +365,11 @@ function Workspace() {
       onOpenSession: selectSession,
       onNewSession: () => newSession(),
       onOpenProposal: openProposal,
+      onOpenProject: openProject,
+      onOpenSchedule: openSchedule,
       sessionLabel: (id) => sessions.find((s) => s.id === id)?.title ?? 'Conversation',
     }),
-    [selectSession, newSession, openProposal, sessions],
+    [selectSession, newSession, openProposal, openProject, openSchedule, sessions],
   )
 
   // The live size of the open thread's Messages — so the composer's usage gauge
@@ -850,69 +853,6 @@ function NarrowBar({ title, onOpenRail }: { title: string; onOpenRail: () => voi
       <span className="min-w-0 truncate font-serif text-[15px] font-semibold text-ink">
         {title}
       </span>
-    </div>
-  )
-}
-
-/** The session title bar's home-project breadcrumb — reads the *live* relation
- *  graph (so an AI "file this session" edit updates it immediately) rather than
- *  the static seed. Lives below the provider so it can call useRelations. */
-function SessionTitleBar({
-  session,
-  leftOpen,
-  leading,
-  onOpenProject,
-  onOpenSchedule,
-}: {
-  session: Session
-  leftOpen: boolean
-  /** Narrow tier: the in-flow rail toggle, rendered at the bar's left. */
-  leading?: React.ReactNode
-  onOpenProject: (id: string) => void
-  onOpenSchedule: (id: string) => void
-}) {
-  const { projectForSessionId } = useRelations()
-  // A scheduled run's session belongs to its routine, not a project — the server
-  // tags the run session with `scheduledRunOf`, so the breadcrumb links back to
-  // the routine without a client-side lookup.
-  const runOf = session.scheduledRunOf
-  const homeProject = runOf ? undefined : projectForSessionId(session.id)
-  return (
-    <div
-      className={`flex min-h-[52px] items-center gap-1.5 border-b border-line bg-canvas/80 py-2 pr-4 ${
-        leading ? 'pl-2' : leftOpen ? 'pl-4' : 'pl-14'
-      }`}
-    >
-      {leading}
-      <div className="flex min-w-0 flex-col justify-center gap-0.5">
-      <span className="truncate font-serif text-[15px] font-semibold leading-tight text-ink">
-        {session.title}
-      </span>
-      {runOf && (
-        <button
-          onClick={() => onOpenSchedule(runOf.taskId)}
-          title={`Open the ${runOf.taskName} routine`}
-          className="inline-flex w-fit items-center gap-1 text-[12px] text-ink-faint transition hover:text-ink"
-        >
-          <CalendarClock size={12} className="shrink-0" />
-          <span>
-            Scheduled run of <span className="font-medium">{runOf.taskName}</span>
-          </span>
-        </button>
-      )}
-      {homeProject && (
-        <button
-          onClick={() => onOpenProject(homeProject.id)}
-          title={`Open ${homeProject.name}`}
-          className="inline-flex w-fit items-center gap-1 text-[12px] text-ink-faint transition hover:text-ink"
-        >
-          <Folder size={12} className="shrink-0" />
-          <span>
-            In <span className="font-medium">{homeProject.name}</span>
-          </span>
-        </button>
-      )}
-      </div>
     </div>
   )
 }
