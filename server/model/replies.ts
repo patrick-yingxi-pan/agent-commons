@@ -15,7 +15,17 @@
  *  confirm-card gate, so they share one consent line distinct from the relation edits. */
 const COMMONS_TOOLS = ['create_provider', 'create_system_prompt', 'create_agent', 'commission_agent', 'uncommission_agent']
 
-export function finalReplyText(toolNames: string[]): string {
+export function finalReplyText(toolNames: string[], toolResults: string[] = []): string {
+  // Every call REFUSED (the executor's loud "proposed nothing" — an unmatched
+  // name, a missing registry): say so honestly instead of narrating a consent
+  // card that doesn't exist. A real model reads its tool_results the same way.
+  if (toolResults.length && toolResults.every((r) => /proposed nothing/i.test(r))) {
+    const reasons = toolResults
+      .map((r) => r.split(/\s+—\s+proposed nothing/i)[0])
+      .map((r) => r.charAt(0).toLowerCase() + r.slice(1))
+      .join('; ')
+    return `I couldn't propose that — ${reasons}. Check the exact name and ask again.`
+  }
   if (toolNames.includes('open_workspace')) {
     return 'Opening a workspace with a first pass of drafts on the right, grouped by source. Pick a folder to open it.'
   }

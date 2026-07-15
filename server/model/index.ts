@@ -76,6 +76,17 @@ function priorToolNames(messages: ReqMessage[]): string[] {
     .filter(Boolean)
 }
 
+/** The `tool_result` texts the backend fed back — a real model reads these before
+ *  its final prose (an executor REFUSAL must not be narrated as a proposal), so
+ *  the mock does too. */
+function priorToolResults(messages: ReqMessage[]): string[] {
+  const last = [...messages].reverse().find((m) => m.role === 'user')
+  if (!last || !Array.isArray(last.content)) return []
+  return last.content
+    .filter((b): b is { type: 'tool_result'; content?: unknown } => b.type === 'tool_result')
+    .map((b) => (typeof b.content === 'string' ? b.content : JSON.stringify(b.content ?? '')))
+}
+
 function readBody(req: import('node:http').IncomingMessage): Promise<string> {
   return new Promise((res) => {
     const chunks: Uint8Array[] = []
@@ -106,7 +117,7 @@ function toolUseBlocks(messages: ReqMessage[], availableToolNames: string[]): Ar
 
 /** The prose for a text turn (no tools, or the post-tool second turn). */
 function replyText(messages: ReqMessage[]): string {
-  if (isToolResultTurn(messages)) return finalReplyText(priorToolNames(messages))
+  if (isToolResultTurn(messages)) return finalReplyText(priorToolNames(messages), priorToolResults(messages))
   return plainReplyText(lastUserText(messages))
 }
 

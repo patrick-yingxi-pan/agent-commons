@@ -176,6 +176,14 @@ test('E2E: filing under a project created EARLIER in the conversation resolves i
   assert.match(body, /"projectId":"p-file-e2e"/, 'resolved to the runtime project, not a seed default')
 })
 
+test('E2E: an all-refused turn answers honestly — no consent-card narration over an empty proposal', async () => {
+  const s = store.createSession('refusal prose')
+  const { body } = await callRaw('POST', `/sessions/${s.id}/messages`, { text: 'Attach FooBar CRM to this session', ephemeral: true })
+  assert.doesNotMatch(body, /"type":"message\.relations"/, 'nothing was proposed')
+  assert.doesNotMatch(body, /confirm below/i, 'the prose does not narrate a card that does not exist')
+  assert.match(body, /no connector matching/i, 'the refusal reason reaches the user')
+})
+
 // ── I3 — the consent card's verdict persists on the message record ────────────
 test('the verdict route stamps relationsResolved on the message; it survives a re-read (I3)', async () => {
   const s = store.createSession('verdict persistence')
