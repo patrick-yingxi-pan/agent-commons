@@ -122,11 +122,16 @@ collapses); prune at render, never in storage.
    isolation, epoch staleness, reconcile-without-stale, adopt-once, failure
    copy, C28 hold, settle hook, keyed notification); all pre-existing tests +
    the full e2e suite pass unchanged.
-2. **Generic pane tree + section panes** — `splitFrame.ts` generalizes over
-   the content type (the right-panel frame keeps working through the same
-   lib); the main area becomes a tree whose leaves host fully-interactive
-   section pages (per-pane nav state) beside the (still single) conversation
-   pane. Split/close/resize/persist/picker.
+2. **Generic pane tree + section panes** — ✅ **LANDED 2026-07-15**:
+   `splitFrame.ts` is generic over the content type (default type argument —
+   the right-panel frame's call sites unchanged); the main surface tiles
+   through `MainSplitGate` (the pre-split JSX passes through as children —
+   byte-identical when no tree), with `SectionPane` hosting fully-interactive
+   section pages on pane-local nav state and the rail's **Split the view**
+   button minting the first frame. Exactly-one-primary invariant
+   (`closeMainPane`), per-account persistence, URL parity (a pane's local
+   navigation never touches the address). Spec row ADAPT-17; locked by
+   `tests/main-split.test.ts` + `e2e/main-split.spec.ts`.
 3. **Multi-conversation panes** — any pane hosts a conversation through the
    store: own composer, own streaming turn, shared state for duplicate panes;
    focused-pane URL semantics.

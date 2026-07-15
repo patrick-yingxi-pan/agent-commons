@@ -88,11 +88,14 @@ test('every call site names its divider, and no two names collide', () => {
   // hardcoding one (the funnel stays the single naming door).
   const sidebar = read(join(ROOT, 'src', 'components', 'Sidebar.tsx'))
   assert.match(sidebar, /<ResizeHandle\s+side="bottom"\s+label=\{label\}/)
-  // The split frame's pane dividers name themselves per split-node PATH (a
+  // The split frames' pane dividers name themselves per split-node PATH (a
   // template label) — pairwise distinct by construction, so they satisfy the
-  // same no-collision rule the static names above pin.
+  // same no-collision rule the static names above pin. Two frames, two
+  // distinct template prefixes (right panel vs the main workspace split).
   const splitFrame = read(join(ROOT, 'src', 'components', 'SplitFrame.tsx'))
   assert.match(splitFrame, /label=\{`Resize split panes \(\$\{path \|\| 'root'\}\)`\}/)
+  const mainSplit = read(join(ROOT, 'src', 'components', 'MainSplit.tsx'))
+  assert.match(mainSplit, /label=\{`Resize view panes \(\$\{path \|\| 'root'\}\)`\}/)
 })
 
 test('a gesture persists the value it just produced — the move handler refreshes the ref, and onEnd reads it', () => {

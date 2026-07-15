@@ -13,6 +13,7 @@ import {
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
+  Columns2,
   FolderInput,
   FolderMinus,
   PanelLeftClose,
@@ -85,6 +86,7 @@ export function Sidebar({
   onOpenSearch,
   onOpenNotifications,
   onOpenOwner,
+  onSplitView,
   resizable = true,
   railW,
   onResizeStart,
@@ -122,6 +124,9 @@ export function Sidebar({
   onOpenNotifications: () => void
   /** Door to a namespace page (FWD-6 — the chip menu's Organizations rows). */
   onOpenOwner?: (name: string) => void
+  /** Split the main view into panes (universal split) — passed on the wide tier
+   *  only, where there's room to tile. */
+  onSplitView?: () => void
   /** Drag-to-resize wiring; the parent owns the width and clamps it. On the
    *  narrow tier the rail is a fixed-width drawer, so the handle is dropped. */
   resizable?: boolean
@@ -421,6 +426,19 @@ export function Sidebar({
             </span>
           )}
         </button>
+        {/* Split the main view (universal split, wide tier only — the parent
+            passes the handler when there's room to tile). */}
+        {onSplitView && (
+          <button
+            onClick={onSplitView}
+            title="Split the view"
+            aria-label="Split the view"
+            data-split-view
+            className={`flex h-8 w-8 items-center justify-center rounded-lg text-ink-soft transition ${SIDEBAR_HOVER} hover:text-ink`}
+          >
+            <Columns2 size={18} />
+          </button>
+        )}
       </div>
 
       {/* New session — pinned above the pane stack, in a labeled <nav> so e2e's

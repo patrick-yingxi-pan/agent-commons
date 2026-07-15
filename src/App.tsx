@@ -15,6 +15,10 @@ import { RunsPanel } from './components/RunsPanel'
 import { SplitFrame, type PaneOption } from './components/SplitFrame'
 import { PaneChromeContext, type PaneChrome } from './components/paneChrome'
 import type { PaneContent } from './lib/splitFrame'
+import { MainSplitGate, type MainPaneNav } from './components/MainSplit'
+import { useMainSplit } from './controller/useMainSplit'
+import { panes as splitPanes } from './lib/splitFrame'
+import { setMainSplitScope } from './lib/mainSplit'
 import { SectionView } from './components/SectionView'
 import { AttachmentPanel } from './components/AttachmentPanel'
 import { ConnectorPanel } from './components/ConnectorPanel'
@@ -74,6 +78,7 @@ export default function App() {
   // the last-known identity mid-switch, so the remount fires exactly when the
   // NEW /me resolves — the old account's instance never renders as the new one.
   setUiPrefScope(ident.user.id)
+  setMainSplitScope(ident.user.id) // the main split tree is per account, like the layout blob
   return <Workspace key={ident.user.id} />
 }
 
@@ -333,6 +338,21 @@ function Workspace() {
     [tier, splitActivePanel],
   )
 
+  // ── The MAIN workspace split (universal split Phase 2) ──────────────────────
+  // The primary pane is the surface below (thread or section — the singleton
+  // controller's); independent section panes tile beside it on the wide tier.
+  const { mainTree, splitMainPane, fillMainPane, closeMainPane, setMainRatio } = useMainSplit()
+  // The rail's "Split the view" button splits the PRIMARY pane (minting the
+  // first frame when none exists — path '' is the lone primary then).
+  const splitView = useCallback(() => {
+    const primary = splitPanes(mainTree).find((p) => p.content.kind === 'primary')
+    splitMainPane(primary?.path ?? '', 'row')
+  }, [mainTree, splitMainPane])
+  const mainPaneNav = useMemo<MainPaneNav>(
+    () => ({ onOpenSession: selectSession, onNewSession: () => newSession(), onOpenProposal: openProposal }),
+    [selectSession, newSession, openProposal],
+  )
+
   // The live size of the open thread's Messages — so the composer's usage gauge
   // (and its context breakdown) fills in real time as the conversation grows.
   // The fixed config categories are added by the breakdown.
@@ -443,6 +463,7 @@ function Workspace() {
                 onOpenSearch={withRailClose(() => setSearchOpen(true))}
                 onOpenNotifications={withRailClose(() => setNotifOpen(true))}
                 onOpenOwner={withRailClose(openOwner)}
+                onSplitView={tier === 'wide' ? splitView : undefined}
                 resizable={!railOverlay}
                 railW={leftW}
                 onResizeStart={startResize}
@@ -475,6 +496,19 @@ function Workspace() {
                 onOpenRail={openLeft}
               />
             )}
+            {/* The universal main split (Phase 2): a tree tiles the surface
+                below as the PRIMARY pane beside independent section panes;
+                no tree (or an overlay tier — no room, ADAPT-11) passes it
+                through untouched. */}
+            <MainSplitGate
+              tree={tier === 'wide' ? mainTree : null}
+              primaryLabel={activeSection ? SECTION_META[activeSection].label : isDraft ? 'New session' : activeSession.title}
+              nav={mainPaneNav}
+              onSplitPane={splitMainPane}
+              onFillPane={fillMainPane}
+              onClosePane={closeMainPane}
+              onRatio={setMainRatio}
+            >
             {activeSection ? (
               <FocusContext.Provider value={focusCtx}>
                 <SectionView
@@ -714,6 +748,7 @@ function Workspace() {
                 </div>
               </>
             )}
+            </MainSplitGate>
           </main>
         </div>
       </div>
