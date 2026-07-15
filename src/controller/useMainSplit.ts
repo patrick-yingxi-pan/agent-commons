@@ -1,84 +1,154 @@
-/** ── The main workspace split's controller (universal split Phase 2) ─────────
- *  Owns the MAIN surface's split tree: the `primary` pane (the singleton
- *  controller's surface — thread or section page) plus any number of
- *  independent panes (section pages now; conversations in Phase 3), row/col
- *  nested. Per-account persisted (src/lib/mainSplit.ts); `null` = no split —
- *  the app renders exactly as before, so every pre-split path is untouched.
+/** ── The main workspace split's controller (universal split Phases 2–4) ──────
+ *  Owns the MAIN surface's split tree — the `primary` pane (the singleton
+ *  controller's surface) plus any number of independent panes (section pages,
+ *  conversations), row/col nested — AND the FOCUSED-pane cursor the whole
+ *  interaction model turns on (the 2026-07-15 redesign):
  *
- *  Invariant: every tree holds EXACTLY ONE `primary` pane. Splitting mints
- *  pickers; closing the primary's sibling(s) down to one pane dissolves the
- *  tree; closing the primary itself is refused by the UI (its pane has no X —
- *  the primary is where rail navigation lands and what the URL names). */
-import { useCallback, useState } from 'react'
-import { panes, prunePanes, replacePane, setRatio, splitPane as splitLeaf, type SplitDir } from '../lib/splitFrame'
+ *    • The rail's two split buttons act on the FOCUSED pane, duplicating its
+ *      content in place — no picker step, no per-pane chrome. The new pane
+ *      takes focus, ready to be retargeted.
+ *    • Rail navigation (a section, a facet, a recent conversation) lands in
+ *      the focused pane: the primary navigates the singleton controller as
+ *      always; a secondary pane is REPLACED in place (`routeToFocused`).
+ *
+ *  Focus is a transient cursor, not layout — in-memory only, reconciled to the
+ *  primary whenever its pane vanishes. The tree is per-account persisted
+ *  (src/lib/mainSplit.ts); `null` = no split — the app renders exactly as
+ *  before, so every pre-split path is untouched.
+ *
+ *  Invariant: every tree holds EXACTLY ONE `primary` pane. Closing down to one
+ *  pane dissolves the tree; closing the primary itself is refused by the UI
+ *  (its pane has no X — the primary is where the URL lives, ADAPT-15). */
+import { useCallback, useRef, useState } from 'react'
+import { nodeAt, pane, panes, replacePane, setRatio, splitPane as splitLeaf, type SplitDir } from '../lib/splitFrame'
 import {
   PRIMARY,
   closeMainPane as closeMain,
   getMainSplitPref,
-  newMainPicker,
   setMainSplitPref,
   type MainPaneContent,
   type MainSplitNode,
 } from '../lib/mainSplit'
 
+const primaryPath = (t: MainSplitNode | null): string =>
+  panes(t).find((p) => p.content.kind === 'primary')?.path ?? ''
+
 export function useMainSplit() {
   // Restore per account (the Workspace remounts keyed by account, so this
-  // initializer re-runs against the right blob). Prune at render, storage
-  // untouched: a tree without its primary (a corrupt blob) is dropped.
+  // initializer re-runs against the right blob). A tree without its primary
+  // (a corrupt blob) is dropped.
   const [mainTree, setMainTreeState] = useState<MainSplitNode | null>(() => {
-    const stored = prunePanes(getMainSplitPref(), (c) => c.kind !== 'msession') // msession panes land in Phase 3
+    const stored = getMainSplitPref()
     return stored && panes(stored).some((p) => p.content.kind === 'primary') ? stored : null
   })
+  const treeRef = useRef(mainTree)
+  treeRef.current = mainTree
 
-  const setMainTree = useCallback((t: MainSplitNode | null) => {
-    setMainTreeState(t)
-    setMainSplitPref(t)
+  const [focusedPane, setFocusedPane] = useState<string>(() => primaryPath(treeRef.current))
+  const focusedRef = useRef(focusedPane)
+  focusedRef.current = focusedPane
+
+  /** Commit a tree edit: render + persist, and reconcile the focus cursor —
+   *  a path that no longer names a pane falls back to the primary. */
+  const commit = useCallback((next: MainSplitNode | null) => {
+    treeRef.current = next
+    setMainTreeState(next)
+    setMainSplitPref(next)
+    const focused = focusedRef.current
+    if (!next || nodeAt(next, focused)?.kind !== 'pane') {
+      focusedRef.current = primaryPath(next)
+      setFocusedPane(focusedRef.current)
+    }
   }, [])
 
-  /** Split a pane (the primary included) — the new sibling opens as a picker. */
-  const splitMainPane = useCallback(
-    (path: string, dir: SplitDir) => {
-      setMainTreeState((t) => {
-        const next = t
-          ? splitLeaf(t, path, dir, newMainPicker())
-          : // No tree yet: the first split wraps the primary surface.
-            splitLeaf({ kind: 'pane', content: PRIMARY }, '', dir, newMainPicker())
-        setMainSplitPref(next)
-        return next
-      })
+  /** Focus a pane (pointer-down anywhere in it). Stale paths are ignored. */
+  const focusMainPane = useCallback((path: string) => {
+    const t = treeRef.current
+    if (t && nodeAt(t, path)?.kind === 'pane' && focusedRef.current !== path) {
+      focusedRef.current = path
+      setFocusedPane(path)
+    }
+  }, [])
+
+  /** Pull focus back to the primary pane (a rail action that must land on the
+   *  singleton surface — e.g. "New session"). */
+  const focusPrimary = useCallback(() => {
+    focusedRef.current = primaryPath(treeRef.current)
+    setFocusedPane(focusedRef.current)
+  }, [])
+
+  /** Split the FOCUSED pane (the rail's two buttons): the new sibling is a
+   *  DUPLICATE of what's focused — no picker. Duplicating the primary needs
+   *  the caller to say what it currently shows (`primaryDuplicate`: the active
+   *  section or conversation as an independent pane); null means the primary
+   *  has no duplicable identity yet (a fresh draft) and the split is a no-op. */
+  const splitFocused = useCallback(
+    (dir: SplitDir, primaryDuplicate: MainPaneContent | null) => {
+      const t = treeRef.current
+      const path = t ? focusedRef.current : ''
+      const node = t ? nodeAt(t, path) : pane(PRIMARY)
+      if (!node || node.kind !== 'pane') return
+      const dup: MainPaneContent | null =
+        node.content.kind === 'primary' ? primaryDuplicate : { ...node.content }
+      if (!dup) return
+      commit(splitLeaf(t ?? pane(PRIMARY), path, dir, dup))
+      // The new pane (the split's second half) takes focus, ready to retarget.
+      focusedRef.current = `${path}b`
+      setFocusedPane(focusedRef.current)
     },
-    [],
+    [commit],
   )
 
+  /** Rail navigation while a SECONDARY pane is focused: replace its content in
+   *  place. Returns false when the primary is focused (or no tree exists) —
+   *  the caller then runs the normal singleton navigation. */
+  const routeToFocused = useCallback(
+    (content: MainPaneContent): boolean => {
+      const t = treeRef.current
+      if (!t) return false
+      const path = focusedRef.current
+      const node = nodeAt(t, path)
+      if (!node || node.kind !== 'pane' || node.content.kind === 'primary') return false
+      commit(replacePane(t, path, content))
+      return true
+    },
+    [commit],
+  )
+
+  /** Fill a legacy picker pane (pre-duplicate blobs may still hold one). */
   const fillMainPane = useCallback(
     (path: string, content: MainPaneContent) => {
-      setMainTreeState((t) => {
-        if (!t) return t
-        const next = replacePane(t, path, content)
-        setMainSplitPref(next)
-        return next
-      })
+      const t = treeRef.current
+      if (t) commit(replacePane(t, path, content))
     },
-    [],
+    [commit],
   )
 
-  const closeMainPane = useCallback((path: string) => {
-    setMainTreeState((t) => {
-      if (!t) return t
-      const next = closeMain(t, path)
-      setMainSplitPref(next)
-      return next
-    })
-  }, [])
+  const closeMainPane = useCallback(
+    (path: string) => {
+      const t = treeRef.current
+      if (t) commit(closeMain(t, path))
+    },
+    [commit],
+  )
 
-  const setMainRatio = useCallback((path: string, ratio: number) => {
-    setMainTreeState((t) => {
-      if (!t) return t
-      const next = setRatio(t, path, ratio)
-      setMainSplitPref(next)
-      return next
-    })
-  }, [])
+  const setMainRatio = useCallback(
+    (path: string, ratio: number) => {
+      const t = treeRef.current
+      if (t) commit(setRatio(t, path, ratio))
+    },
+    [commit],
+  )
 
-  return { mainTree, setMainTree, splitMainPane, fillMainPane, closeMainPane, setMainRatio }
+  return {
+    mainTree,
+    focusedPane,
+    focusMainPane,
+    focusPrimary,
+    splitFocused,
+    routeToFocused,
+    fillMainPane,
+    closeMainPane,
+    setMainRatio,
+  }
 }

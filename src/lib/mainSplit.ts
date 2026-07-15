@@ -24,8 +24,13 @@ import { closePane, panes, type SplitNode } from './splitFrame.ts'
 
 export type MainPaneContent =
   | { kind: 'primary'; id: 'primary' }
-  | { kind: 'msection'; id: SectionId }
+  // `sub` seeds the pane's local sub-view (a rail facet click routing into a
+  // focused pane carries the facet along) — pane-local state after that.
+  | { kind: 'msection'; id: SectionId; sub?: string | null }
   | { kind: 'msession'; id: string }
+  // Legacy: pre-duplicate-split blobs may still hold empty picker panes; the
+  // UI renders them but nothing mints them anymore (a split now DUPLICATES
+  // the focused pane — no picker step).
   | { kind: 'mpicker'; id: string }
 
 export type MainSplitNode = SplitNode<MainPaneContent>

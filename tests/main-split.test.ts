@@ -37,6 +37,14 @@ test('closeMainPane keeps the primary invariant: down to one pane the tree disso
   assert.deepEqual(panes(two).map((p) => p.content.kind), ['primary', 'msection'])
 })
 
+test('an msection pane carries its facet (`sub`) through the JSON round-trip — the rail-routes-a-facet case', () => {
+  const faceted: MainPaneContent = { kind: 'msection', id: 'projects', sub: 'mine' }
+  const tree = splitPane(pane(PRIMARY), '', 'row', faceted)
+  const revived = JSON.parse(JSON.stringify(tree)) as MainSplitNode
+  const leaf = panes(revived).find((p) => p.content.kind === 'msection')
+  assert.equal(leaf && leaf.content.kind === 'msection' ? leaf.content.sub : undefined, 'mine')
+})
+
 test('closeMainPane guards the primary: a tree that lost its primary dissolves rather than strand panes', () => {
   const tree = splitPane(pane(PRIMARY), '', 'row', projects) as MainSplitNode
   // Closing the PRIMARY itself (the UI refuses; the rule still holds) leaves a

@@ -17,7 +17,6 @@ import { PaneChromeContext, type PaneChrome } from './components/paneChrome'
 import type { PaneContent } from './lib/splitFrame'
 import { MainSplitGate, type MainPaneNav } from './components/MainSplit'
 import { useMainSplit } from './controller/useMainSplit'
-import { panes as splitPanes } from './lib/splitFrame'
 import { setMainSplitScope } from './lib/mainSplit'
 import { SectionView } from './components/SectionView'
 import { AttachmentPanel } from './components/AttachmentPanel'
@@ -338,16 +337,28 @@ function Workspace() {
     [tier, splitActivePanel],
   )
 
-  // ── The MAIN workspace split (universal split Phase 2) ──────────────────────
+  // ── The MAIN workspace split (universal split, focused-pane model) ──────────
   // The primary pane is the surface below (thread or section — the singleton
-  // controller's); independent section panes tile beside it on the wide tier.
-  const { mainTree, splitMainPane, fillMainPane, closeMainPane, setMainRatio } = useMainSplit()
-  // The rail's "Split the view" button splits the PRIMARY pane (minting the
-  // first frame when none exists — path '' is the lone primary then).
-  const splitView = useCallback(() => {
-    const primary = splitPanes(mainTree).find((p) => p.content.kind === 'primary')
-    splitMainPane(primary?.path ?? '', 'row')
-  }, [mainTree, splitMainPane])
+  // controller's); independent panes tile beside it on the wide tier. The rail's
+  // two split buttons act on the FOCUSED pane, duplicating its content; rail
+  // navigation retargets the focused pane when it isn't the primary.
+  const { mainTree, focusedPane, focusMainPane, focusPrimary, splitFocused, routeToFocused, fillMainPane, closeMainPane, setMainRatio } =
+    useMainSplit()
+  // What "duplicate the primary" means right now: the active section page, or
+  // the active conversation. A fresh draft has no duplicable identity yet — the
+  // split is a no-op until the thread materializes (or a section opens).
+  const splitView = useCallback(
+    (dir: 'row' | 'col') =>
+      splitFocused(
+        dir,
+        activeSection
+          ? { kind: 'msection', id: activeSection, sub: activeSubview }
+          : !isDraft
+            ? { kind: 'msession', id: activeId }
+            : null,
+      ),
+    [splitFocused, activeSection, activeSubview, isDraft, activeId],
+  )
   const mainPaneNav = useMemo<MainPaneNav>(
     () => ({
       onOpenSession: selectSession,
@@ -451,13 +462,24 @@ function Workspace() {
                 activeId={activeId}
                 activeSection={activeSection}
                 activeSubview={activeSubview}
-                onSelect={withRailClose(selectSession)}
-                onNewSession={withRailClose(() => newSession())}
-                // Section / sub-view handlers stay UNwrapped: the rail decides when to
-                // close the narrow drawer (a leaf navigates → close; drilling into a
-                // section's sub-menu keeps it open), via onLeafNavigate below.
-                onOpenSection={openSection}
-                onOpenSubview={openSubview}
+                onSelect={withRailClose((id: string) => {
+                  if (!routeToFocused({ kind: 'msession', id })) selectSession(id)
+                })}
+                onNewSession={withRailClose(() => {
+                  focusPrimary() // a fresh draft lives on the singleton surface
+                  newSession()
+                })}
+                // Section / sub-view handlers stay UNwrapped by withRailClose: the rail
+                // decides when to close the narrow drawer (a leaf navigates → close;
+                // drilling into a section's sub-menu keeps it open), via onLeafNavigate
+                // below. With a SECONDARY pane focused, both retarget that pane instead
+                // (the focused-pane routing); the primary navigates as always.
+                onOpenSection={(id) => {
+                  if (!routeToFocused({ kind: 'msection', id })) openSection(id)
+                }}
+                onOpenSubview={(section, sub) => {
+                  if (!routeToFocused({ kind: 'msection', id: section, sub })) openSubview(sub)
+                }}
                 onLeafNavigate={railOverlay ? closeLeft : undefined}
                 onOpenSchedule={withRailClose(openSchedule)}
                 onPinSession={pinSession}
@@ -507,9 +529,9 @@ function Workspace() {
                 through untouched. */}
             <MainSplitGate
               tree={tier === 'wide' ? mainTree : null}
-              primaryLabel={activeSection ? SECTION_META[activeSection].label : isDraft ? 'New session' : activeSession.title}
+              focusedPane={focusedPane}
               nav={mainPaneNav}
-              onSplitPane={splitMainPane}
+              onFocusPane={focusMainPane}
               onFillPane={fillMainPane}
               onClosePane={closeMainPane}
               onRatio={setMainRatio}

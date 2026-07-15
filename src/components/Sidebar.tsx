@@ -14,6 +14,7 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   Columns2,
+  Rows2,
   FolderInput,
   FolderMinus,
   PanelLeftClose,
@@ -103,7 +104,10 @@ export function Sidebar({
   onNewSession: () => void
   onOpenSection: (s: SectionId) => void
   /** Switch the active section's sub-view (a rail drill-in row). */
-  onOpenSubview: (id: string) => void
+  /** A facet (sub-view) pick — carries its SECTION so the parent can route the
+   *  pair into a focused split pane (the primary path ignores the section: the
+   *  tree row already opened it). */
+  onOpenSubview: (section: SectionId, id: string) => void
   /** Dismiss the narrow-tier rail drawer after a *leaf* navigation (a sub-view, or a
    *  section with no sub-views). Undefined off the narrow tier. Drilling into a
    *  section's sub-menu deliberately does NOT call this — the menu must stay visible. */
@@ -125,8 +129,9 @@ export function Sidebar({
   /** Door to a namespace page (FWD-6 — the chip menu's Organizations rows). */
   onOpenOwner?: (name: string) => void
   /** Split the main view into panes (universal split) — passed on the wide tier
-   *  only, where there's room to tile. */
-  onSplitView?: () => void
+   *  only, where there's room to tile. Acts on the focused pane, duplicating
+   *  its content beside ('row') or below ('col') it. */
+  onSplitView?: (dir: 'row' | 'col') => void
   /** Drag-to-resize wiring; the parent owns the width and clamps it. On the
    *  narrow tier the rail is a fixed-width drawer, so the handle is dropped. */
   resizable?: boolean
@@ -188,7 +193,7 @@ export function Sidebar({
   // dismiss the narrow drawer (a child is a leaf — it navigates).
   const onChildClick = (id: SectionId, subviewId: string) => {
     if (activeSection !== id) onOpenSection(id)
-    onOpenSubview(subviewId)
+    onOpenSubview(id, subviewId)
     onLeafNavigate?.()
   }
   // The bell's badge (D24) — live via the tenant-targeted notification.changed event.
@@ -427,17 +432,29 @@ export function Sidebar({
           )}
         </button>
         {/* Split the main view (universal split, wide tier only — the parent
-            passes the handler when there's room to tile). */}
+            passes the handler when there's room to tile). Two directions, one
+            per button; both act on the FOCUSED pane, duplicating its content. */}
         {onSplitView && (
-          <button
-            onClick={onSplitView}
-            title="Split the view"
-            aria-label="Split the view"
-            data-split-view
-            className={`flex h-8 w-8 items-center justify-center rounded-lg text-ink-soft transition ${SIDEBAR_HOVER} hover:text-ink`}
-          >
-            <Columns2 size={18} />
-          </button>
+          <>
+            <button
+              onClick={() => onSplitView('row')}
+              title="Split right"
+              aria-label="Split right"
+              data-split-view="row"
+              className={`flex h-8 w-8 items-center justify-center rounded-lg text-ink-soft transition ${SIDEBAR_HOVER} hover:text-ink`}
+            >
+              <Columns2 size={18} />
+            </button>
+            <button
+              onClick={() => onSplitView('col')}
+              title="Split down"
+              aria-label="Split down"
+              data-split-view="col"
+              className={`flex h-8 w-8 items-center justify-center rounded-lg text-ink-soft transition ${SIDEBAR_HOVER} hover:text-ink`}
+            >
+              <Rows2 size={18} />
+            </button>
+          </>
         )}
       </div>
 

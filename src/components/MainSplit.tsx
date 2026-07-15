@@ -1,22 +1,26 @@
-/** ── The MAIN workspace split frame (universal split Phase 2) ────────────────
+/** ── The MAIN workspace split frame (universal split Phases 2–4) ─────────────
  *  Tiles the main surface right of the rail into the split tree
  *  (src/lib/mainSplit.ts vocabulary): the `primary` pane renders the singleton
  *  controller's surface (injected as a closure — the pre-split JSX untouched);
  *  `msection` panes are INDEPENDENT, fully interactive section pages with
- *  pane-local navigation (SectionPane below); `mpicker` panes choose. Every
- *  pane wears a slim strip (label + split/close — the primary can't close: it
- *  is where rail navigation lands and what the URL names). Dividers are the
- *  ONE keyboard-operable ResizeHandle, named per path (UI-11). Wide tier only
- *  (the caller gates, ADAPT-11): overlay tiers render the primary surface
- *  alone and the tree persists. */
+ *  pane-local navigation (SectionPane below); `msession` panes independent
+ *  conversations. NO per-pane chrome (the 2026-07-15 redesign): panes render
+ *  their content edge to edge — the rail's two split buttons act on the
+ *  FOCUSED pane (pointer-down focuses; the focused pane wears a subtle inset
+ *  accent ring), a hover-revealed floating ✕ closes a secondary pane, and rail
+ *  navigation retargets the focused pane. The primary can't close: it is where
+ *  the URL lives (ADAPT-15). Dividers are the ONE keyboard-operable
+ *  ResizeHandle, named per path (UI-11). Wide tier only (the caller gates,
+ *  ADAPT-11): overlay tiers render the primary surface alone and the tree
+ *  persists. */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowUp, Columns2, MessageSquare, Rows2, Square, X } from 'lucide-react'
+import { ArrowUp, MessageSquare, Square, X } from 'lucide-react'
 import { ResizeHandle } from './ResizeHandle'
 import { SectionView } from './SectionView'
 import { MessageRow, TypingRow } from './Message'
 import { EscalationPrompt } from './EscalationPrompt'
 import { SECTION_META } from '../lib/sections'
-import { clampRatio, type SplitDir } from '../lib/splitFrame'
+import { clampRatio } from '../lib/splitFrame'
 import type { MainPaneContent, MainSplitNode } from '../lib/mainSplit'
 import type { NavLocation } from '../lib/nav'
 import type { SectionId } from '../types'
@@ -41,18 +45,18 @@ export interface MainPaneNav {
 export function MainSplitGate({
   tree,
   children,
-  primaryLabel,
+  focusedPane,
   nav,
-  onSplitPane,
+  onFocusPane,
   onFillPane,
   onClosePane,
   onRatio,
 }: {
   tree: MainSplitNode | null
   children: ReactNode
-  primaryLabel: string
+  focusedPane: string
   nav: MainPaneNav
-  onSplitPane: (path: string, dir: SplitDir) => void
+  onFocusPane: (path: string) => void
   onFillPane: (path: string, content: MainPaneContent) => void
   onClosePane: (path: string) => void
   onRatio: (path: string, ratio: number) => void
@@ -61,10 +65,10 @@ export function MainSplitGate({
   return (
     <MainSplit
       tree={tree}
-      primaryLabel={primaryLabel}
       renderPrimary={() => children}
+      focusedPane={focusedPane}
       nav={nav}
-      onSplitPane={onSplitPane}
+      onFocusPane={onFocusPane}
       onFillPane={onFillPane}
       onClosePane={onClosePane}
       onRatio={onRatio}
@@ -74,19 +78,19 @@ export function MainSplitGate({
 
 export function MainSplit({
   tree,
-  primaryLabel,
   renderPrimary,
+  focusedPane,
   nav,
-  onSplitPane,
+  onFocusPane,
   onFillPane,
   onClosePane,
   onRatio,
 }: {
   tree: MainSplitNode
-  primaryLabel: string
   renderPrimary: () => ReactNode
+  focusedPane: string
   nav: MainPaneNav
-  onSplitPane: (path: string, dir: SplitDir) => void
+  onFocusPane: (path: string) => void
   onFillPane: (path: string, content: MainPaneContent) => void
   onClosePane: (path: string) => void
   onRatio: (path: string, ratio: number) => void
@@ -96,10 +100,10 @@ export function MainSplit({
       <Branch
         node={tree}
         path=""
-        primaryLabel={primaryLabel}
         renderPrimary={renderPrimary}
+        focusedPane={focusedPane}
         nav={nav}
-        onSplitPane={onSplitPane}
+        onFocusPane={onFocusPane}
         onFillPane={onFillPane}
         onClosePane={onClosePane}
         onRatio={onRatio}
@@ -111,72 +115,56 @@ export function MainSplit({
 interface BranchProps {
   node: MainSplitNode
   path: string
-  primaryLabel: string
   renderPrimary: () => ReactNode
+  focusedPane: string
   nav: MainPaneNav
-  onSplitPane: (path: string, dir: SplitDir) => void
+  onFocusPane: (path: string) => void
   onFillPane: (path: string, content: MainPaneContent) => void
   onClosePane: (path: string) => void
   onRatio: (path: string, ratio: number) => void
 }
 
 function Branch(props: BranchProps) {
-  const { node, path, primaryLabel, onSplitPane, onClosePane, onRatio } = props
+  const { node, path, focusedPane, onFocusPane, onClosePane, onRatio } = props
   const ref = useRef<HTMLDivElement>(null)
 
   if (node.kind === 'pane') {
     const c = node.content
-    const label =
-      c.kind === 'primary'
-        ? primaryLabel
-        : c.kind === 'msection'
-          ? SECTION_META[c.id].label
-          : c.kind === 'msession'
-            ? props.nav.sessionLabel(c.id)
-            : 'New pane'
+    const focused = focusedPane === path
     return (
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-canvas" data-main-pane={path || 'root'}>
-        <div className="flex h-8 shrink-0 items-center gap-1 border-b border-line bg-surface/60 px-2.5">
-          <span className="truncate text-[12px] font-medium text-ink-soft">{label}</span>
-          <div className="ml-auto flex shrink-0 items-center">
-            <button
-              onClick={() => onSplitPane(path, 'row')}
-              className="flex h-6 w-6 items-center justify-center rounded-md text-ink-faint transition hover:bg-surface hover:text-ink"
-              title="Split right"
-              data-main-split-btn="row"
-            >
-              <Columns2 size={14} />
-            </button>
-            <button
-              onClick={() => onSplitPane(path, 'col')}
-              className="flex h-6 w-6 items-center justify-center rounded-md text-ink-faint transition hover:bg-surface hover:text-ink"
-              title="Split down"
-              data-main-split-btn="col"
-            >
-              <Rows2 size={14} />
-            </button>
-            {c.kind !== 'primary' && (
-              <button
-                onClick={() => onClosePane(path)}
-                className="flex h-6 w-6 items-center justify-center rounded-md text-ink-faint transition hover:bg-surface hover:text-ink"
-                title="Close pane"
-              >
-                <X size={14} />
-              </button>
-            )}
-          </div>
-        </div>
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {c.kind === 'primary' ? (
-            props.renderPrimary()
-          ) : c.kind === 'msection' ? (
-            <SectionPane section={c.id} nav={props.nav} />
-          ) : c.kind === 'msession' ? (
-            <ConversationPane sessionId={c.id} nav={props.nav} />
-          ) : (
-            <MainPicker onPick={(content) => props.onFillPane(path, content)} />
-          )}
-        </div>
+      <div
+        // No per-pane chrome: content edge to edge. Pointer-down anywhere
+        // focuses the pane (capture — a click on a button inside still counts);
+        // the focused pane wears a subtle inset accent ring so "the split
+        // buttons and rail act HERE" is always legible.
+        className={`group/mainpane relative flex min-h-0 min-w-0 flex-1 flex-col bg-canvas ${
+          focused ? 'ring-1 ring-inset ring-accent/35' : ''
+        }`}
+        data-main-pane={path || 'root'}
+        data-focused={focused || undefined}
+        onPointerDownCapture={() => onFocusPane(path)}
+      >
+        {c.kind === 'primary' ? (
+          props.renderPrimary()
+        ) : c.kind === 'msection' ? (
+          <SectionPane key={`${c.id}:${c.sub ?? ''}`} section={c.id} initialSub={c.sub ?? null} nav={props.nav} />
+        ) : c.kind === 'msession' ? (
+          <ConversationPane sessionId={c.id} nav={props.nav} />
+        ) : (
+          <MainPicker onPick={(content) => props.onFillPane(path, content)} />
+        )}
+        {c.kind !== 'primary' && (
+          // The one affordance floating over content: a hover-revealed close on
+          // secondary panes (absolutely positioned — reserves no width; named
+          // group so a row's own hover reveals inside the pane stay theirs).
+          <button
+            onClick={() => onClosePane(path)}
+            className="absolute right-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-md border border-line bg-panel/95 text-ink-faint opacity-0 shadow-sm transition hover:text-ink focus-visible:opacity-100 group-hover/mainpane:opacity-100"
+            title="Close pane"
+          >
+            <X size={13} />
+          </button>
+        )}
       </div>
     )
   }
@@ -231,8 +219,11 @@ interface PaneFocusState {
 }
 const NO_FOCUS: PaneFocusState = { projectId: null, scheduleId: null, ownerName: null, workItemId: null, agentId: null, contextId: null }
 
-function SectionPane({ section, nav }: { section: SectionId; nav: MainPaneNav }) {
-  const [subview, setSubview] = useState<string | null>(null)
+function SectionPane({ section, initialSub, nav }: { section: SectionId; initialSub?: string | null; nav: MainPaneNav }) {
+  // Seeded from the routed content (a rail facet click carries its facet in),
+  // pane-local after that (the Branch keys this component on section+sub, so a
+  // re-route resets cleanly).
+  const [subview, setSubview] = useState<string | null>(initialSub ?? null)
   const [focus, setFocus] = useState<PaneFocusState>(NO_FOCUS)
   const [stack, setStack] = useState<PaneFocusState[]>([])
 
