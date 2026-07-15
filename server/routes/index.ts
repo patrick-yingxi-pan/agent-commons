@@ -165,23 +165,11 @@ export function buildRouter(): Router {
   // "Meaningful data before sign-in" is the failure this exists to prevent.
   const GATE_OPEN_EXACT = new Set(['/capabilities', '/me', '/healthz', '/readyz', '/metrics', '/connector'])
   const GATE_OPEN_PREFIX = ['/auth/', '/a2a/', '/relay/']
-  // Owner-admin routes that sit UNDER an open machine-edge prefix but are NOT part
-  // of the machine edge, so the coarse prefix must not open them. The D28
-  // peer-credential registry (mint / list / revoke — POST·GET·DELETE /a2a/peers)
-  // is an INSTANCE-OWNER operation, not a discovery read (the card) or a
-  // peer-authenticated act (the JSON-RPC /a2a/agents|projects endpoints, which
-  // carry their own bearer): left open, anonymous callers could mint a "verified"
-  // peer under any name (defeating the very attribution A2A_REQUIRE_AUTH buys),
-  // enumerate the owner's peer roster, or revoke a live peer by id. So it stays
-  // behind the wall — a signed-in principal only — even though /a2a/ is open.
-  const GATE_CLOSED_PREFIX = ['/a2a/peers']
-  const underClosed = (path: string): boolean => GATE_CLOSED_PREFIX.some((p) => path === p || path.startsWith(`${p}/`))
   r.use((ctx) => {
     if (!store.capabilities().features.authGate) return true
     if (store.identity(ctx.req.headers).via !== 'default') return true
     const path = ctx.url.pathname
-    const open = (GATE_OPEN_EXACT.has(path) || GATE_OPEN_PREFIX.some((p) => path.startsWith(p))) && !underClosed(path)
-    if (open) return true
+    if (GATE_OPEN_EXACT.has(path) || GATE_OPEN_PREFIX.some((p) => path.startsWith(p))) return true
     sendError(ctx.res, 'unauthorized', 'Sign in to use this backend (AUTH_GATE is on).')
     return false
   })
