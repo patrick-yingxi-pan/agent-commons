@@ -19,33 +19,29 @@ import { ResizeHandle } from './ResizeHandle'
 import { SectionView } from './SectionView'
 import { SessionTitleBar } from './SessionTitleBar'
 import { ConversationView } from './ConversationView'
+import { ContextPanelView } from './ContextPanelView'
 import { SECTION_META } from '../lib/sections'
 import { clampRatio } from '../lib/splitFrame'
-import { rememberAttached } from '../lib/contextShortcuts'
 import type { MainPaneContent, MainSplitNode } from '../lib/mainSplit'
 import type { NavLocation } from '../lib/nav'
-import type { AddedContext, PanelFocus, SectionId } from '../types'
+import type { PanelFocus, SectionId } from '../types'
 import type { ModelPick } from '../lib/models'
 import {
   useSessions,
   applyRelationOp,
   attachContext,
-  detachContext,
   compactSession,
   patchSession,
   persistWorkspace,
 } from '../api'
 import { conversations } from '../controller/conversationStore'
 import { usePaneConversation } from '../controller/usePaneConversation'
+import { useSessionContextCommands } from '../controller/useSessionContextCommands'
 import {
-  addContextToLive,
   applyEscalationToLive,
   approvalView,
-  bindingsFor,
   escalationBinding,
   folderLabel,
-  removeContextsFromLive,
-  removeFolderFromLive,
   workspaceOf,
 } from '../data/liveSession'
 
@@ -173,6 +169,13 @@ function Branch(props: BranchProps) {
           <SectionPane key={`${c.id}:${c.sub ?? ''}`} section={c.id} initialSub={c.sub ?? null} nav={props.nav} />
         ) : c.kind === 'msession' ? (
           <ConversationPane sessionId={c.id} nav={props.nav} />
+        ) : c.kind === 'context-panel' ? (
+          <ContextPanelView
+            sessionId={c.sessionId}
+            panel={c.panel}
+            onOpenSession={props.nav.onOpenSession}
+            onOpenSchedule={props.nav.onOpenSchedule}
+          />
         ) : (
           <MainPicker onPick={(content) => props.onFillPane(path, content)} />
         )}
@@ -322,37 +325,11 @@ function ConversationPane({ sessionId, nav }: { sessionId: string; nav: MainPane
     [sessionId, nav],
   )
 
-  // The attach / remove funnels, session-parametric — the same building blocks
-  // the singleton controller composes (a pane session is always real, so there
-  // is no draft-buffering branch).
-  const addContext = useCallback(
-    (ctx: AddedContext) => {
-      rememberAttached(ctx)
-      for (const b of bindingsFor(ctx)) void attachContext(sessionId, b).catch(() => {})
-      const next = addContextToLive(conversations.get(sessionId).live, ctx)
-      conversations.setLive(sessionId, next)
-      void persistWorkspace(sessionId, workspaceOf(next)).catch(() => {})
-    },
-    [sessionId],
-  )
-  const removeContexts = useCallback(
-    (focuses: PanelFocus[]) => {
-      for (const f of focuses) void detachContext(sessionId, f.id).catch(() => {})
-      const next = removeContextsFromLive(conversations.get(sessionId).live, focuses)
-      conversations.setLive(sessionId, next)
-      void persistWorkspace(sessionId, workspaceOf(next)).catch(() => {})
-    },
-    [sessionId],
-  )
-  const removeFolder = useCallback(
-    (sourceId: string) => {
-      void detachContext(sessionId, sourceId).catch(() => {})
-      const next = removeFolderFromLive(conversations.get(sessionId).live, sourceId)
-      conversations.setLive(sessionId, next)
-      void persistWorkspace(sessionId, workspaceOf(next)).catch(() => {})
-    },
-    [sessionId],
-  )
+  // The attach / remove funnels, session-parametric — the SAME hook a
+  // context-panel pane's remove affordances use (useSessionContextCommands), so
+  // the mapping can't fork per host. A pane session is always real (no
+  // draft-buffering branch).
+  const { addContext, removeContexts, removeFolder } = useSessionContextCommands(sessionId)
 
   const retry = useCallback(() => {
     const last = [...conversations.get(sessionId).live.messages].reverse().find((m) => m.role === 'user')

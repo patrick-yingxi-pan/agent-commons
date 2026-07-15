@@ -40,6 +40,10 @@ import {
   type SplitDir,
   type SplitNode,
 } from '../lib/splitFrame'
+// The aliveness rule is shared with the universal main tree (mainSplit.ts) — ONE
+// copy, so the legacy right-frame prune and the new context-pane prune can't
+// drift (universal split Phase 4; the legacy frame retires in a later phase).
+import { paneContentAlive } from '../lib/mainSplit'
 import { loadViewLocation, saveViewLocation, type ViewLocation } from '../lib/viewMemory'
 import { pathForView, viewForPath, type RoutedView } from '../lib/urlRoutes'
 import { loadModelPrefs } from '../lib/modelPrefs'
@@ -87,22 +91,10 @@ import type {
 // bindingsFor moved to data/liveSession.ts (the model layer) so the split
 // panes' attach path shares the exact mapping — imported above.
 
-/** Whether a pane's content still exists in the session — the split-frame prune
- *  predicate (a detached repo / removed connector collapses its pane). File and
- *  photo panes show the kind's collection (their id is only the initial
- *  selection), so they survive while ANY attachment of that kind remains. */
-function paneContentAlive(l: Live, isRunSession: boolean) {
-  return (c: PaneContent): boolean =>
-    c.kind === 'workspace'
-      ? l.workspaces.some((w) => w.id === c.id)
-      : c.kind === 'repo'
-        ? l.repos.some((r) => r.id === c.id)
-        : c.kind === 'connector'
-          ? l.connectors.some((x) => x.id === c.id)
-          : c.kind === 'runs'
-            ? isRunSession
-            : l.attachments.some((a) => a.kind === c.kind)
-}
+// `paneContentAlive` (the pane-content prune predicate) now lives in
+// lib/mainSplit.ts and is imported above — ONE aliveness rule for both the
+// legacy right-frame prune (restoreSplit / pruneSplitTree) and the universal
+// tree's context panes.
 
 /** Picker panes need distinct ids only so React keys don't collide. */
 let pickerSeq = 0

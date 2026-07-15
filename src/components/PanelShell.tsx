@@ -108,15 +108,22 @@ export function PanelShell({
             </button>
           </>
         )}
-        <button
-          onClick={chrome.onClosePane ?? onClose}
-          className={`flex items-center justify-center rounded-lg text-ink-soft transition hover:bg-surface hover:text-ink ${
-            takeover ? 'h-9 w-9' : 'h-7 w-7'
-          }`}
-          title="Close"
-        >
-          <X size={takeover ? 18 : 16} />
-        </button>
+        {/* Close: the docked / takeover shell always carries its own X (it IS the
+            panel's chrome). A pane-mounted panel shows one ONLY when the frame
+            wires a pane-close (the legacy ADAPT-16 split frame does) — the
+            universal tree does NOT (the rail cluster closes the focused pane,
+            homogeneously with every other pane), so it renders no per-pane X. */}
+        {(!chrome.embedded || chrome.onClosePane) && (
+          <button
+            onClick={chrome.onClosePane ?? onClose}
+            className={`flex items-center justify-center rounded-lg text-ink-soft transition hover:bg-surface hover:text-ink ${
+              takeover ? 'h-9 w-9' : 'h-7 w-7'
+            }`}
+            title="Close"
+          >
+            <X size={takeover ? 18 : 16} />
+          </button>
+        )}
       </div>
     </div>
   )

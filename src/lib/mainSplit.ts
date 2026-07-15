@@ -18,9 +18,12 @@
  *  the blob keys on the resolved user id, restore prunes at render, storage is
  *  never rewritten by a clamp. */
 import type { SectionId } from '../types'
+// `Live` is type-only (erased at runtime) — no cycle, and Node's native TS never
+// loads data/liveSession to run this node-tested module.
+import type { Live } from '../data/liveSession'
 // Extension-qualified: this module is node-tested (tests/main-split.test.ts),
 // and Node's native TS resolves runtime imports only with the explicit .ts.
-import { closePane, nodeAt, panes, replacePane, type SplitNode } from './splitFrame.ts'
+import { closePane, nodeAt, panes, replacePane, type PaneContent, type SplitNode } from './splitFrame.ts'
 
 export type MainPaneContent =
   | { kind: 'primary'; id: 'primary' }
@@ -28,12 +31,74 @@ export type MainPaneContent =
   // focused pane carries the facet along) — pane-local state after that.
   | { kind: 'msection'; id: SectionId; sub?: string | null }
   | { kind: 'msession'; id: string }
+  // A session's context panel as a FULL pane (universal split Phase 4): the
+  // workspace / repo / connector / files / photos / run switcher, scoped to its
+  // OWNING session (`sessionId`) and resolved against that session's keyed live —
+  // no longer a separate right frame that splits its own inner view (ADAPT-16,
+  // retired). `id` is the stable (session, panel) identity, so a chip re-click
+  // focuses the existing pane instead of tiling a duplicate; `panel` is the
+  // PaneContent the ContextPanelView renders.
+  | { kind: 'context-panel'; id: string; sessionId: string; panel: PaneContent }
   // Legacy: pre-duplicate-split blobs may still hold empty picker panes; the
   // UI renders them but nothing mints them anymore (a split now DUPLICATES
   // the focused pane — no picker step).
   | { kind: 'mpicker'; id: string }
 
 export type MainSplitNode = SplitNode<MainPaneContent>
+
+/** The main tree's prune predicate: conversation / section / primary panes are
+ *  always kept (their content is a live registry read); a `context-panel` pane
+ *  is kept only while its panel still resolves against its OWNING session's live
+ *  (a detached repo / removed connector collapses it). `liveFor` returns a
+ *  session's live (or undefined if it's gone — the pane collapses); `isRun` says
+ *  whether a session is a scheduled-run session (the runs panel needs one). The
+ *  render passes this to `prunePanes` (splitFrame) — prune AT render, never in
+ *  storage. */
+export function mainPaneKeep(
+  liveFor: (sessionId: string) => Live | undefined,
+  isRun: (sessionId: string) => boolean,
+): (c: MainPaneContent) => boolean {
+  return (c) => {
+    if (c.kind !== 'context-panel') return true
+    const l = liveFor(c.sessionId)
+    return !!l && paneContentAlive(l, isRun(c.sessionId))(c.panel)
+  }
+}
+
+/** A context-panel pane's stable identity: its owning session + which panel.
+ *  Two panes of the same (session, panel) collide on this id, so `findPane`
+ *  focuses the existing pane instead of tiling a duplicate. Space-joined —
+ *  session and panel ids are slugs (`auth-refactor`, `repo-demo`), never spaced,
+ *  so the parts can't alias across the boundary. */
+export const contextPaneId = (sessionId: string, panel: PaneContent): string =>
+  `${sessionId} ${panel.kind} ${panel.id}`
+
+/** Construct a context-panel pane's content for a session + panel. */
+export const contextPaneContent = (sessionId: string, panel: PaneContent): MainPaneContent => ({
+  kind: 'context-panel',
+  id: contextPaneId(sessionId, panel),
+  sessionId,
+  panel,
+})
+
+/** Whether a context panel's content still exists in the session — the prune
+ *  predicate a detached repo / removed connector fails (its pane collapses).
+ *  File / photo panes show the KIND's collection (their id is only the initial
+ *  selection), so they survive while any attachment of that kind remains; a runs
+ *  pane needs a run session. Shared with the legacy frame's prune
+ *  (useSessionWorkspace) so there is ONE aliveness rule. */
+export function paneContentAlive(l: Live, isRunSession: boolean) {
+  return (c: PaneContent): boolean =>
+    c.kind === 'workspace'
+      ? l.workspaces.some((w) => w.id === c.id)
+      : c.kind === 'repo'
+        ? l.repos.some((r) => r.id === c.id)
+        : c.kind === 'connector'
+          ? l.connectors.some((x) => x.id === c.id)
+          : c.kind === 'runs'
+            ? isRunSession
+            : l.attachments.some((a) => a.kind === c.kind)
+}
 
 export const PRIMARY: MainPaneContent = { kind: 'primary', id: 'primary' }
 

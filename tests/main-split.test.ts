@@ -4,11 +4,28 @@
  *  primary-pane invariant the close rule keeps. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { panes, prunePanes, splitPane, pane } from '../src/lib/splitFrame.ts'
-import { PRIMARY, closeMainPane, closePrimaryPane, newMainPicker, type MainPaneContent, type MainSplitNode } from '../src/lib/mainSplit.ts'
+import { findPane, panes, prunePanes, splitPane, pane, type PaneContent } from '../src/lib/splitFrame.ts'
+import {
+  PRIMARY,
+  closeMainPane,
+  closePrimaryPane,
+  contextPaneContent,
+  contextPaneId,
+  mainPaneKeep,
+  newMainPicker,
+  paneContentAlive,
+  type MainPaneContent,
+  type MainSplitNode,
+} from '../src/lib/mainSplit.ts'
+import type { Live } from '../src/data/liveSession.ts'
 
 const projects: MainPaneContent = { kind: 'msection', id: 'projects' }
 const artifacts: MainPaneContent = { kind: 'msection', id: 'artifacts' }
+
+/** A minimal live for the aliveness/prune checks — only the arrays the predicate
+ *  reads. */
+const liveWith = (o: Partial<Live>): Live =>
+  ({ workspaces: [], repos: [], connectors: [], attachments: [], ...o }) as Live
 
 test('the generic tree instantiates with the main vocabulary (Phase 2 of the one split model)', () => {
   const tree = splitPane(splitPane(pane(PRIMARY), '', 'row', projects), 'b', 'col', artifacts)
@@ -80,4 +97,83 @@ test('closePrimaryPane refuses a non-primary path (those close through closeMain
   const tree = splitPane(pane(PRIMARY), '', 'row', projects) as MainSplitNode
   assert.equal(closePrimaryPane(tree, 'b'), null)
   assert.equal(closePrimaryPane(tree, 'zz'), null)
+})
+
+// ── Context panels as FULL panes (universal split Phase 4) ───────────────────
+
+const repoPanel: PaneContent = { kind: 'repo', id: 'repo-demo' }
+const wsPanel: PaneContent = { kind: 'workspace', id: 'ws-demo' }
+
+test('a context-panel pane tiles in the SAME tree as conversations and sections', () => {
+  const tree = splitPane(pane(PRIMARY), '', 'row', contextPaneContent('auth-refactor', repoPanel))
+  assert.deepEqual(
+    panes(tree).map((p) => p.content.kind),
+    ['primary', 'context-panel'],
+    'one generic tree hosts every view kind — no separate right frame',
+  )
+})
+
+test('context-pane identity dedups on (session, panel): a chip re-click focuses, never duplicates', () => {
+  const a = contextPaneContent('auth-refactor', repoPanel)
+  const b = contextPaneContent('auth-refactor', repoPanel)
+  assert.equal(a.id, b.id, 'same session + same panel → same id')
+  // findPane matches on (kind, id), so an existing pane is found and re-focused.
+  const tree = splitPane(pane(PRIMARY), '', 'row', a)
+  assert.equal(findPane(tree, b), 'b', 'the second click finds the first pane')
+  // A different session or a different panel is a distinct pane.
+  assert.notEqual(a.id, contextPaneContent('dashboard-perf', repoPanel).id)
+  assert.notEqual(a.id, contextPaneContent('auth-refactor', wsPanel).id)
+})
+
+test('paneContentAlive: a detached repo dies; files survive on the KIND; runs need a run session', () => {
+  const withRepo = paneContentAlive(liveWith({ repos: [{ id: 'repo-demo' } as Live['repos'][number]] }), false)
+  assert.equal(withRepo(repoPanel), true)
+  assert.equal(withRepo({ kind: 'repo', id: 'gone' }), false, 'a detached repo collapses its pane')
+
+  const withFile = paneContentAlive(
+    liveWith({ attachments: [{ kind: 'file', id: 'f2' } as Live['attachments'][number]] }),
+    false,
+  )
+  // The pane's id was the initially-clicked file; it survives on ANY file remaining.
+  assert.equal(withFile({ kind: 'file', id: 'f1-clicked' }), true)
+  assert.equal(withFile({ kind: 'photo', id: 'p1' }), false)
+
+  assert.equal(paneContentAlive(liveWith({}), true)({ kind: 'runs', id: 't1' }), true)
+  assert.equal(paneContentAlive(liveWith({}), false)({ kind: 'runs', id: 't1' }), false)
+})
+
+test('mainPaneKeep + prunePanes: a context pane collapses when its panel or session vanishes; siblings stay', () => {
+  // primary | context(auth-refactor,repo) | context(dead-session,ws) | projects
+  const tree = splitPane(
+    splitPane(
+      splitPane(pane(PRIMARY), '', 'row', contextPaneContent('auth-refactor', repoPanel)),
+      'b',
+      'row',
+      contextPaneContent('dead-session', wsPanel),
+    ),
+    'bb',
+    'row',
+    projects,
+  )
+  const liveFor = (id: string): Live | undefined =>
+    id === 'auth-refactor' ? liveWith({ repos: [{ id: 'repo-demo' } as Live['repos'][number]] }) : undefined
+  const pruned = prunePanes(tree, mainPaneKeep(liveFor, () => false))
+  assert.deepEqual(
+    panes(pruned).map((p) => p.content.kind),
+    ['primary', 'context-panel', 'msection'],
+    'the live repo pane + primary + section stayed; the gone-session context pane pruned away',
+  )
+  // The surviving context pane is the auth-refactor one (its repo is live).
+  const cp = panes(pruned).find((p) => p.content.kind === 'context-panel')
+  assert.equal(cp?.content.kind === 'context-panel' ? cp.content.sessionId : '', 'auth-refactor')
+})
+
+test('a context-panel pane round-trips JSON (sessionId + panel survive persistence)', () => {
+  const tree = splitPane(pane(PRIMARY), '', 'row', contextPaneContent('auth-refactor', repoPanel))
+  const revived = JSON.parse(JSON.stringify(tree)) as MainSplitNode
+  const leaf = panes(revived).find((p) => p.content.kind === 'context-panel')
+  assert.ok(leaf && leaf.content.kind === 'context-panel')
+  assert.equal(leaf!.content.kind === 'context-panel' && leaf!.content.sessionId, 'auth-refactor')
+  assert.deepEqual(leaf!.content.kind === 'context-panel' ? leaf!.content.panel : null, repoPanel)
+  assert.equal(leaf!.content.id, contextPaneId('auth-refactor', repoPanel))
 })
