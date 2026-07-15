@@ -64,6 +64,7 @@ import { AuthorityError } from '../authority.ts'
 import { ConflictError, ValidationError } from '../conflict.ts'
 import { LimitError } from '../limit.ts'
 import { TOOL_NAMES } from '../model/tools.ts'
+import { CONNECTOR_OPTIONS } from '../data/contextOptions.ts'
 import { A2A_ERROR, DEFAULT_PROVIDER_ID, isMonotonic, isProjectEffectMonotonic, PROJECT_EFFECT_TYPES, PROJECT_ROLES } from '../../contract/index.ts'
 import type {
   A2aDataPart,
@@ -2368,6 +2369,15 @@ export function buildRouter(): Router {
         })),
         artifacts: [...graphNow.extraArtifacts, ...store.listArtifacts(tenantId)].map((a) => ({ id: a.id, name: a.name })),
         schedules: store.listSchedules(tenantId).map((s) => ({ id: s.id, name: s.name, cadence: s.cadence })),
+        // The Contexts registry (user-saved connectors/MCP servers — custom ones
+        // included) merged over the Add-context catalog, deduped by id.
+        connectors: (() => {
+          const byId = new Map(CONNECTOR_OPTIONS.map((c) => [c.id, { id: c.id, label: c.label, kind: c.kind }]))
+          for (const c of store.savedContexts().contexts) {
+            if (c.kind === 'connector' || c.kind === 'mcp') byId.set(c.id, { id: c.id, label: c.label, kind: c.connectorKind })
+          }
+          return [...byId.values()]
+        })(),
       }
       // P6: the session's attached connector/MCP contexts become callable tools for
       // this turn (server/model/connectorTools.ts derives them; non-connector

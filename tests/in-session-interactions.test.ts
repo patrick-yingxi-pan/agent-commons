@@ -38,6 +38,7 @@ const LIVE: ToolContext = {
     projects: [{ id: 'p-vibe-coding-guide', name: 'Vibe Coding Guide' }],
     artifacts: [{ id: 'art-x', name: 'vibe-outline.md' }],
     schedules: [{ id: 'sch-x', name: 'Nightly vibe digest', cadence: 'daily' }],
+    connectors: [{ id: 'mcp-custom', label: 'My Custom MCP' }],
   },
 }
 const SEED_ONLY: ToolContext = { session: LIVE.session }
@@ -67,7 +68,8 @@ const LIVE_RESOLUTION: Array<{ tool: string; input: Record<string, unknown>; exp
   { tool: 'file_session', input: { project: 'Vibe Coding Guide' }, expect: (op) => assert.equal(op.projectId, 'p-vibe-coding-guide') },
   { tool: 'save_artifact', input: { name: 'n.md', project: 'Vibe Coding Guide' }, expect: (op) => assert.equal(op.projectId, 'p-vibe-coding-guide') },
   { tool: 'refile_artifact', input: { artifact: 'vibe-outline.md', project: 'Vibe Coding Guide' }, expect: (op) => assert.equal(op.artifactId, 'art-x') },
-  { tool: 'scope_context', input: { connector: 'Figma', project: 'Vibe Coding Guide' }, expect: (op) => assert.equal(op.projectId, 'p-vibe-coding-guide') },
+  { tool: 'attach_context', input: { connector: 'My Custom MCP' }, expect: (op) => assert.equal(op.connectorId, 'mcp-custom') },
+  { tool: 'scope_context', input: { connector: 'My Custom MCP', project: 'Vibe Coding Guide' }, expect: (op) => assert.equal(op.projectId, 'p-vibe-coding-guide') },
   { tool: 'unscope_context', input: { context: 'Figma', project: 'Vibe Coding Guide' }, expect: (op) => assert.equal(op.projectId, 'p-vibe-coding-guide') },
   { tool: 'set_project_instructions', input: { project: 'Vibe Coding Guide', instructions: 'x' }, expect: (op) => assert.equal(op.projectId, 'p-vibe-coding-guide') },
   { tool: 'set_project_readme', input: { project: 'Vibe Coding Guide', readme: 'x' }, expect: (op) => assert.equal(op.projectId, 'p-vibe-coding-guide') },
@@ -75,7 +77,7 @@ const LIVE_RESOLUTION: Array<{ tool: string; input: Record<string, unknown>; exp
   { tool: 'set_artifact_source', input: { artifact: 'vibe-outline.md', context: 'kit/' }, expect: (op) => assert.equal(op.artifactId, 'art-x') },
   { tool: 'set_schedule_session', input: { schedule: 'Nightly vibe digest' }, expect: (op) => assert.equal(op.scheduleId, 'sch-x') },
   { tool: 'set_schedule_artifact', input: { schedule: 'Nightly vibe digest', artifact: 'd.md' }, expect: (op) => assert.equal(op.scheduleId, 'sch-x') },
-  { tool: 'schedule_add_tool', input: { schedule: 'Nightly vibe digest', tool: 'Slack' }, expect: (op) => assert.equal(op.scheduleId, 'sch-x') },
+  { tool: 'schedule_add_tool', input: { schedule: 'Nightly vibe digest', tool: 'My Custom MCP' }, expect: (op) => assert.equal(op.scheduleId, 'sch-x') },
   { tool: 'commission_agent', input: { agent: 'Scout', project: 'Vibe Coding Guide' }, expect: (op) => assert.equal(op.projectId, 'p-vibe-coding-guide') },
   { tool: 'uncommission_agent', input: { agent: 'Scout', project: 'Vibe Coding Guide' }, expect: (op) => assert.equal(op.commissionId, 'com-1') },
   { tool: 'set_commission_cap', input: { project: 'Vibe Coding Guide', cap: 2 }, expect: (op) => assert.equal(op.projectId, 'p-vibe-coding-guide') },
@@ -95,7 +97,13 @@ const REFUSALS: Array<{ tool: string; input: Record<string, unknown> }> = [
   { tool: 'save_artifact', input: { name: 'n.md', project: 'No Such Project' } },
   { tool: 'refile_artifact', input: { artifact: 'no-such.md', project: 'Vibe Coding Guide' } },
   { tool: 'refile_artifact', input: { artifact: 'vibe-outline.md', project: 'No Such Project' } },
-  { tool: 'scope_context', input: { connector: 'Figma', project: 'No Such Project' } },
+  { tool: 'scope_context', input: { connector: 'My Custom MCP', project: 'No Such Project' } },
+  // A connector name that matches nothing REFUSES — resolveConnector once minted
+  // `{ id: slug(name), label: name }` on a miss, attaching a phantom connector
+  // with no capability behind it (the catalog is a closed registry).
+  { tool: 'attach_context', input: { connector: 'FooBar CRM' } },
+  { tool: 'scope_context', input: { connector: 'FooBar CRM', project: 'Vibe Coding Guide' } },
+  { tool: 'schedule_add_tool', input: { schedule: 'Nightly vibe digest', tool: 'FooBar CRM' } },
   { tool: 'unscope_context', input: { context: 'Figma', project: 'No Such Project' } },
   { tool: 'set_project_instructions', input: { project: 'No Such Project', instructions: 'x' } },
   { tool: 'set_project_readme', input: { project: 'No Such Project', readme: 'x' } },

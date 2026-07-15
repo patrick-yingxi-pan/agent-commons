@@ -52,6 +52,9 @@ export interface ToolContext {
     artifacts?: { id: string; name: string }[]
     /** Live routines (runtime-created included). */
     schedules?: { id: string; name: string; cadence: string }[]
+    /** Live connectors/MCP servers — the Contexts registry (user-saved custom
+     *  servers included) merged over the Add-context catalog. */
+    connectors?: { id: string; label: string; kind?: Connector['kind'] }[]
   }
 }
 
@@ -115,12 +118,21 @@ function resolveSchedule(name: string, ctx: ToolContext) {
 const noMatch = (kind: string, name: string): ToolEffect => ({
   summary: `No ${kind} matching "${name}" — proposed nothing. Name an existing ${kind} exactly.`,
 })
-function resolveConnector(name: string): { id: string; label: string; kind?: Connector['kind'] } {
+/** Connectors resolve like every other name (exact, then contains) against the
+ *  LIVE Contexts registry (user-saved connectors/MCP servers) merged over the
+ *  Add-context catalog — and an unmatched name REFUSES like the rest. This once
+ *  minted `{ id: slug(name), label: name }` on a miss: not a wrong existing
+ *  entity (the mint echoed the caller's own words), but approving it attached a
+ *  phantom chip with no capability behind it — the connector catalog is a
+ *  closed registry, so an unknown name is the model's error to correct, not an
+ *  entry to invent. If ad-hoc connectors ever become a feature, they get their
+ *  own explicit tool whose consent card says the connector is new (INV-9:
+ *  conveniences live at the edge, visibly). */
+function resolveConnector(name: string, ctx: ToolContext): { id: string; label: string; kind?: Connector['kind'] } | undefined {
   const n = name.trim().toLowerCase()
-  return (
-    CONNECTOR_OPTIONS.find((c) => c.label.toLowerCase() === n) ??
-    CONNECTOR_OPTIONS.find((c) => c.label.toLowerCase().includes(n) && n) ?? { id: slug(name), label: name }
-  )
+  if (!n) return undefined
+  const list = ctx.commons?.connectors ?? CONNECTOR_OPTIONS
+  return list.find((c) => c.label.toLowerCase() === n) ?? list.find((c) => c.label.toLowerCase().includes(n))
 }
 const ARTIFACT_KINDS: ArtifactKind[] = ['doc', 'email', 'image', 'slide', 'sheet']
 function resolveKind(v: unknown): ArtifactKind {
@@ -313,7 +325,8 @@ const TOOLS: ToolSpec[] = [
     properties: { connector: { type: 'string', description: 'The connector to attach, e.g. "Linear".' } },
     required: ['connector'],
     build: (input, ctx) => {
-      const c = resolveConnector(str(input.connector))
+      const c = resolveConnector(str(input.connector), ctx)
+      if (!c) return noMatch('connector', str(input.connector))
       const op: RelationOp = { kind: 'attach-context', sessionTitle: ctx.session.title, connectorId: c.id, connectorLabel: c.label, connectorKind: c.kind }
       return { relationOps: [op], summary: `Proposed attaching ${c.label} to this session; awaiting confirmation.` }
     },
@@ -327,7 +340,8 @@ const TOOLS: ToolSpec[] = [
     },
     required: ['connector', 'project'],
     build: (input, ctx) => {
-      const c = resolveConnector(str(input.connector))
+      const c = resolveConnector(str(input.connector), ctx)
+      if (!c) return noMatch('connector', str(input.connector))
       const p = resolveProject(str(input.project), ctx)
       if (!p) return noMatch('project', str(input.project))
       const context: ProjectContext = { kind: 'connector', label: c.label, meta: 'connected' }
@@ -451,7 +465,8 @@ const TOOLS: ToolSpec[] = [
     build: (input, ctx) => {
       const s = resolveSchedule(str(input.schedule), ctx)
       if (!s) return noMatch('schedule', str(input.schedule))
-      const c = resolveConnector(str(input.tool))
+      const c = resolveConnector(str(input.tool), ctx)
+      if (!c) return noMatch('connector', str(input.tool))
       const tool: StepTool = { id: c.id, label: c.label, tone: 'connector' }
       return { relationOps: [{ kind: 'schedule-add-tool', scheduleId: s.id, scheduleName: s.name, cadence: s.cadence, tool }], summary: `Proposed letting ${s.name} use ${c.label} each run; awaiting confirmation.` }
     },
