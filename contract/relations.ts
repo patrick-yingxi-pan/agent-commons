@@ -174,7 +174,14 @@ export type RelationOp =
   // the ids are optional in the type only for proposals persisted before that
   // strictness — the apply funnel refuses them. `tools` absent = the empty set
   // (minimal risk; the builder grants the full catalog explicitly and says so).
-  | { kind: 'create-agent'; label: string; providerId?: string; providerLabel?: string; systemPromptId?: string; systemPromptLabel?: string; instructions?: string; tools?: string[] }
+  // `newPrompt` is the same-turn chaining form: when the model proposed the prompt
+  // with create_system_prompt in the SAME turn (so no library id exists yet), the
+  // agent proposal BUNDLES the prompt's full payload — one consent card creates
+  // both. Still concrete (the card shows the body verbatim), so INV-9 holds; the
+  // apply funnel reuses an identically-labelled library prompt rather than
+  // duplicating (the create-project exists-check pattern). Exactly one of
+  // `systemPromptId` / `newPrompt` is present on a well-formed proposal.
+  | { kind: 'create-agent'; label: string; providerId?: string; providerLabel?: string; systemPromptId?: string; systemPromptLabel?: string; newPrompt?: { label: string; body: string; targetFamily: string }; instructions?: string; tools?: string[] }
   // D7/D13 — commission an Agent onto a Project (the agent→Project leaf of the cascade).
   // `role` is stamped concrete by the builder (the Project's defaultRole, else writer —
   // shown on the card); optional in the type only for pre-strictness proposals, which
@@ -439,7 +446,12 @@ export function describeOp(op: RelationOp): OpDescription {
       }
     case 'create-agent': {
       const on = op.providerLabel ? ` on **${op.providerLabel}**` : ''
-      const withPrompt = op.systemPromptLabel ? ` with the **${op.systemPromptLabel}** prompt` : ''
+      // A bundled same-turn prompt is part of what's being approved — say so.
+      const withPrompt = op.newPrompt
+        ? ` with the new **${op.newPrompt.label}** prompt (added to the library)`
+        : op.systemPromptLabel
+          ? ` with the **${op.systemPromptLabel}** prompt`
+          : ''
       // The tool grant is part of what's being approved (INV-9: absent = NO tools),
       // so the card states it rather than leaving the grant implicit.
       const granting = op.tools?.length ? `, granting **${op.tools.length} tools**` : ', granting no tools'
@@ -544,7 +556,13 @@ export function relationContentPreview(
     case 'create-prompt':
       return { label: 'Prompt body', proposed: op.body }
     case 'create-agent':
-      return op.instructions ? { label: 'Instructions', proposed: op.instructions } : null
+      // A bundled new prompt is the card's biggest payload — the user must be able
+      // to read what they're adding to the library before confirming.
+      return op.newPrompt
+        ? { label: 'New prompt body', proposed: op.newPrompt.body }
+        : op.instructions
+          ? { label: 'Instructions', proposed: op.instructions }
+          : null
     case 'create-project':
       return op.projectDescription ? { label: 'Description', proposed: op.projectDescription } : null
     default:

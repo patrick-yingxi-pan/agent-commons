@@ -173,6 +173,51 @@ test('create_agent with a NAMED-but-unknown provider/prompt proposes nothing (no
   assert.match(badPrompt.summary, /no library system prompt matching/i)
 })
 
+// ── Same-turn chaining: create_system_prompt → create_agent in ONE turn ───────
+// A just-proposed prompt has no library id (ids mint at apply), so the agent
+// proposal BUNDLES it as `newPrompt` and consumes the stand-alone prompt card —
+// one confirm creates both. This is the "patrick's assistant" relay regression:
+// the agent proposal used to vanish ("proposed nothing") whenever the model
+// chained the two tools in the same turn.
+test('create_agent bundles a same-turn pending create-prompt named by label', () => {
+  const pending: RelationOp[] = [{ kind: 'create-prompt', label: "Patrick's helper", body: 'Help Patrick.', targetFamily: 'claude' }]
+  const e = executeTool('create_agent', { label: "patrick's assistant", system_prompt: "Patrick's helper" }, { ...ctxCommons, pending })
+  const op = e.relationOps![0] as Extract<RelationOp, { kind: 'create-agent' }>
+  assert.equal(op.kind, 'create-agent')
+  assert.equal(op.systemPromptId, undefined, 'no library id exists yet')
+  assert.deepEqual(op.newPrompt, { label: "Patrick's helper", body: 'Help Patrick.', targetFamily: 'claude' })
+  assert.equal(pending.length, 0, 'the stand-alone prompt proposal was consumed into the agent card')
+  assert.match(e.summary, /bundling/i)
+})
+
+test('create_agent with no named prompt prefers the turn-pending prompt over the standing default', () => {
+  const pending: RelationOp[] = [{ kind: 'create-prompt', label: 'Fresh prompt', body: 'B.', targetFamily: 'claude' }]
+  const e = executeTool('create_agent', { label: 'Solo' }, { ...ctxCommons, pending })
+  const op = e.relationOps![0] as Extract<RelationOp, { kind: 'create-agent' }>
+  assert.deepEqual(op.newPrompt, { label: 'Fresh prompt', body: 'B.', targetFamily: 'claude' })
+  assert.equal(op.systemPromptId, undefined)
+  assert.equal(pending.length, 0)
+})
+
+test('create_agent still refuses a NAMED prompt that matches neither library nor pending', () => {
+  const pending: RelationOp[] = [{ kind: 'create-prompt', label: 'Unrelated', body: 'B.', targetFamily: 'claude' }]
+  const e = executeTool('create_agent', { label: 'Solo', system_prompt: 'No Such Prompt' }, { ...ctxCommons, pending })
+  assert.equal(e.relationOps, undefined)
+  assert.match(e.summary, /no library system prompt matching/i)
+  assert.equal(pending.length, 1, 'an unrelated pending proposal is left alone')
+})
+
+test('create_agent with an EMPTY library bundles the same-turn prompt (the chained-create flow)', () => {
+  const emptyLib: ToolContext = {
+    ...ctxCommons,
+    commons: { ...ctxCommons.commons!, systemPrompts: [] },
+    pending: [{ kind: 'create-prompt', label: 'Bootstrap', body: 'Start here.', targetFamily: 'claude' }],
+  }
+  const e = executeTool('create_agent', { label: 'First agent' }, emptyLib)
+  const op = e.relationOps![0] as Extract<RelationOp, { kind: 'create-agent' }>
+  assert.equal(op.newPrompt?.label, 'Bootstrap')
+})
+
 test('commission_agent → a commission-agent op resolving the agent (live) + project (seed)', () => {
   const e = executeTool('commission_agent', { agent: 'Scout', project: 'Insights dashboard' }, ctxCommons)
   const op = e.relationOps![0]

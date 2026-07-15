@@ -33,11 +33,14 @@ function matchKeywords(text: string): ToolCall[] {
   // captures just "Insights"), as well as the prior "project" word / punctuation / end.
   const toProject = grab(/\b(?:to|onto|from|off)\s+(?:the\s+)?["“]?([A-Za-z0-9][A-Za-z0-9 -]*?)["”]?(?:\s+project)?(?:\s+as\s+|[.,!]|$)/i)
   const asRole = grab(/\bas\s+(?:an?\s+)?(owner|maintainer|writer|reader)\b/i)
-  const uncommissionAgent = grab(/\b(?:uncommission|un-commission)\s+(?:the\s+)?([A-Za-z0-9][A-Za-z0-9 -]*?)\s+(?:from|off)\b/i)
-  const commissionAgent = grab(/\b(?:commission|assign)\s+(?:the\s+)?([A-Za-z0-9][A-Za-z0-9 -]*?)\s+(?:to|onto)\b/i)
+  // Labels admit apostrophes (straight and curly) — "patrick's assistant" is a
+  // perfectly good agent name; without them the class stopped the capture at
+  // "patrick" and the tool call carried a truncated label.
+  const uncommissionAgent = grab(/\b(?:uncommission|un-commission)\s+(?:the\s+)?([A-Za-z0-9][A-Za-z0-9 '’-]*?)\s+(?:from|off)\b/i)
+  const commissionAgent = grab(/\b(?:commission|assign)\s+(?:the\s+)?([A-Za-z0-9][A-Za-z0-9 '’-]*?)\s+(?:to|onto)\b/i)
   // Hand-off (D16) — distinct verbs (hand / switch / pass … to X) from commission, so the
   // two never collide; the agent label follows the (possibly lazy-skipped) "to".
-  const handoffAgent = grab(/\b(?:hand|switch|pass)\b.*?\bto\s+(?:the\s+)?([A-Za-z0-9][A-Za-z0-9 -]*?)(?:\s+agent)?(?:[.,!]|$)/i)
+  const handoffAgent = grab(/\b(?:hand|switch|pass)\b.*?\bto\s+(?:the\s+)?([A-Za-z0-9][A-Za-z0-9 '’-]*?)(?:\s+agent)?(?:[.,!]|$)/i)
   // Set a commission cap (D13) — anchored on commission/contributor vocabulary + a number,
   // so it never collides with the bare commission/hand-off patterns (which carry no count).
   // Two shapes: noun-first ("commission cap on Insights to 3") and noun-last ("cap Insights
@@ -59,14 +62,14 @@ function matchKeywords(text: string): ToolCall[] {
   }
   // Create a worker agent: "create a (worker) agent called X (on PROVIDER) (with the PROMPT prompt)".
   if (!calls.length && wantsCreate && /\bagent\b/.test(t)) {
-    const label = grab(/\bagent\s+(?:called\s+|named\s+)?["“]?([A-Za-z0-9][A-Za-z0-9 -]*?)["”]?(?:\s+(?:on|with|that|using)\b|[.,!]|$)/i) ?? 'New agent'
+    const label = grab(/\bagent\s+(?:called\s+|named\s+)?["“]?([A-Za-z0-9][A-Za-z0-9 '’-]*?)["”]?(?:\s+(?:on|with|that|using)\b|[.,!]|$)/i) ?? 'New agent'
     const provider = grab(/\bon\s+(?:the\s+)?["“]?([A-Za-z0-9][A-Za-z0-9 -]*?)["”]?(?:\s+(?:with|provider|that|using)\b|[.,!]|$)/i)
     const systemPrompt = grab(/\bwith\s+(?:the\s+)?["“]?([A-Za-z0-9][A-Za-z0-9 -]*?)["”]?\s+(?:system\s+)?prompt\b/i)
     calls.push({ name: 'create_agent', input: { label, ...(provider ? { provider } : {}), ...(systemPrompt ? { system_prompt: systemPrompt } : {}) } })
   }
   // Add a system prompt: "add a system prompt called X (saying \"…\")".
   if (!calls.length && wantsCreate && /\bprompt\b/.test(t)) {
-    const label = grab(/\bprompt\s+(?:called\s+|named\s+)?["“]?([A-Za-z0-9][A-Za-z0-9 -]*?)["”]?(?:\s+(?:for|that|saying|[.,!])|$)/i) ?? 'New prompt'
+    const label = grab(/\bprompt\s+(?:called\s+|named\s+)?["“]?([A-Za-z0-9][A-Za-z0-9 '’-]*?)["”]?(?:\s+(?:for|that|saying|[.,!])|$)/i) ?? 'New prompt'
     const body = grab(/(?:saying|that says|body)\s+["“]([^"”]+)["”]/i) ?? grab(/["“]([^"”]{8,})["”]/)
     calls.push({ name: 'create_system_prompt', input: { label, ...(body ? { body } : {}) } })
   }

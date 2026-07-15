@@ -4095,25 +4095,42 @@ export const store = {
       case 'create-prompt':
         this.createSystemPrompt({ label: op.label, body: op.body, targetFamily: op.targetFamily }, tenantId)
         break
-      case 'create-agent':
+      case 'create-agent': {
         // The tool builder stamps concrete bindings on every proposal (default-else-
         // first when the model named none), so the consent card the user confirmed
-        // already NAMED the provider + prompt. A proposal without them (a stale
-        // pre-strictness one) is refused like any other invalid create — never
-        // silently resolved to a default.
-        if (!op.providerId || !op.systemPromptId) {
+        // already NAMED the provider + prompt — by library id, or as a bundled
+        // same-turn `newPrompt` payload (the card showed its body). A proposal with
+        // neither (a stale pre-strictness one) is refused like any other invalid
+        // create — never silently resolved to a default.
+        if (!op.providerId || (!op.systemPromptId && !op.newPrompt)) {
           throw new ValidationError('This proposal predates the required provider/prompt bindings — ask for it again.')
+        }
+        let promptId = op.systemPromptId
+        if (!promptId && op.newPrompt) {
+          // Materialise the bundled prompt — reusing an identically-labelled library
+          // entry the tenant can already see (a replayed op, or the stand-alone
+          // prompt card confirmed by an older client) rather than minting a
+          // duplicate: the create-project exists-check pattern.
+          const label = op.newPrompt.label.trim().toLowerCase()
+          const existing = [...SYSTEM_PROMPT_LIB.values()].find(
+            (p) => p.label.trim().toLowerCase() === label && (p.tenantId === undefined || p.tenantId === tenantId),
+          )
+          promptId = (existing ?? this.createSystemPrompt(
+            { label: op.newPrompt.label, body: op.newPrompt.body, targetFamily: op.newPrompt.targetFamily },
+            tenantId,
+          )).id
         }
         this.createAgentFromRequest({
           label: op.label,
           providerId: op.providerId,
-          systemPromptId: op.systemPromptId,
+          systemPromptId: promptId!,
           instructions: op.instructions,
           // Absent on a stale proposal ⇒ the empty set (minimal risk) — unlike the
           // bindings above, absence here has an honest meaning, so no refusal.
           tools: op.tools,
         }, tenantId)
         break
+      }
       case 'commission-agent':
         if (!WORKER_AGENTS.has(op.agentId)) {
           throw new ConflictError(`No agent '${op.agentId}' to commission — it may have been removed.`)

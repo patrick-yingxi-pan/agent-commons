@@ -53,6 +53,48 @@ test('create-agent op mints a worker agent bound to the named provider + prompt'
   assert.equal(agent?.tools.length, 0, 'an omitted tool grant is the empty set')
 })
 
+test('create-agent op with a bundled newPrompt materialises the prompt THEN the agent (same-turn chaining)', async () => {
+  const provider = store.createProvider({ label: 'Bundle provider', modelFamily: 'claude', effortLevels: ['Low'] })
+  const res = await apply({
+    kind: 'create-agent',
+    label: "patrick's assistant",
+    providerId: provider.id,
+    providerLabel: provider.label,
+    newPrompt: { label: "Patrick's helper", body: 'Help Patrick.', targetFamily: 'claude' },
+  })
+  assert.equal(res.status, 200)
+  const prompt = store.listSystemPrompts().find((p) => p.label === "Patrick's helper")
+  assert.ok(prompt, 'the bundled prompt landed in the library')
+  const agent = store.listAgents().find((a) => a.label === "patrick's assistant")
+  assert.ok(agent, 'the agent exists')
+  assert.equal(agent?.systemPromptId, prompt?.id, 'bound to the just-materialised prompt')
+  assert.equal(agent?.systemPrompt, 'Help Patrick.')
+})
+
+test('create-agent newPrompt reuses an identically-labelled library prompt instead of duplicating', async () => {
+  const provider = store.createProvider({ label: 'Reuse provider', modelFamily: 'claude', effortLevels: ['Low'] })
+  const existing = store.createSystemPrompt({ label: 'Already here', body: 'Original body.', targetFamily: 'claude' })
+  const res = await apply({
+    kind: 'create-agent',
+    label: 'Reuse agent',
+    providerId: provider.id,
+    providerLabel: provider.label,
+    newPrompt: { label: 'already here', body: 'Different body.', targetFamily: 'claude' },
+  })
+  assert.equal(res.status, 200)
+  const copies = store.listSystemPrompts().filter((p) => p.label.toLowerCase() === 'already here')
+  assert.equal(copies.length, 1, 'no duplicate library entry')
+  const agent = store.listAgents().find((a) => a.label === 'Reuse agent')
+  assert.equal(agent?.systemPromptId, existing.id, 'bound to the existing entry')
+  assert.equal(agent?.systemPrompt, 'Original body.', 'the existing body wins — the exists-check pattern')
+})
+
+test('create-agent op with NEITHER systemPromptId NOR newPrompt is refused (strict apply)', async () => {
+  const provider = store.createProvider({ label: 'Strict provider', modelFamily: 'claude', effortLevels: ['Low'] })
+  const res = await apply({ kind: 'create-agent', label: 'Unbound', providerId: provider.id, providerLabel: provider.label })
+  assert.equal(res.status, 400)
+})
+
 test('commission-agent op commissions through the leaf funnel; uncommission-agent removes it', async () => {
   const agent = store.createAgent({ label: 'Commission target', systemPrompt: 'p', tools: [], instructions: '' })
 

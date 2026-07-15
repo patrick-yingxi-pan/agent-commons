@@ -342,8 +342,10 @@ export async function relayReply(
   const turns: RelayPromptTurn[] = [{ role: 'user', text: text.trim() || '(the user sent an empty message)' }]
 
   // The consent-gated proposals the relayed tool calls accumulate — identical
-  // collection to `generateReply`'s.
+  // collection to `generateReply`'s (including the same-turn chaining window:
+  // ctx.pending lets create_agent bundle a prompt proposed in an earlier round).
   const relationOps: RelationOp[] = []
+  ctx.pending = relationOps
   const toolActivities: ToolActivity[] = []
   let escalation: EscalationProposal | undefined
 

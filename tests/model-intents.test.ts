@@ -123,6 +123,18 @@ test('keyword fallback: create_agent carries the resolved provider + prompt name
   assert.equal(call?.input.system_prompt, 'Deep research')
 })
 
+test('keyword fallback: labels with apostrophes survive the capture ("patrick\'s assistant" is not truncated)', () => {
+  const agent = matchIntents("Create an agent called patrick's assistant").at(0)
+  assert.equal(agent?.name, 'create_agent')
+  assert.equal(agent?.input.label, "patrick's assistant")
+  const prompt = matchIntents('Add a system prompt called Patrick’s helper saying "Help Patrick."').at(0)
+  assert.equal(prompt?.name, 'create_system_prompt')
+  assert.equal(prompt?.input.label, 'Patrick’s helper')
+  const commission = matchIntents("Commission patrick's assistant to the Insights dashboard project").at(0)
+  assert.equal(commission?.name, 'commission_agent')
+  assert.equal((commission?.input as any).agent, "patrick's assistant")
+})
+
 test('every Agent Commons CRUD tool is exercised by a keyword pattern (none ships unexercised)', () => {
   const exercised = new Set(
     [

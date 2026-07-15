@@ -326,6 +326,10 @@ export async function generateReply(
     const relationOps: RelationOp[] = []
     const toolActivities: ToolActivity[] = []
     let escalation: EscalationProposal | undefined
+    // Same-turn chaining: later tools see (and may consume) the proposals built
+    // by earlier calls of this turn — e.g. create_agent bundling a just-proposed
+    // system prompt into one card.
+    ctx.pending = relationOps
     const toolResults = toolUses.map((tu) => {
       // A connector/MCP tool (P6) executes into a ToolActivity (mock result); anything
       // else is a built-in resource / relation / escalation tool.

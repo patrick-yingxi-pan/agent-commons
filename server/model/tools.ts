@@ -56,6 +56,13 @@ export interface ToolContext {
      *  servers included) merged over the Add-context catalog. */
     connectors?: { id: string; label: string; kind?: Connector['kind'] }[]
   }
+  /** The turn's accumulated proposals SO FAR (the live array the reply loop
+   *  collects into) — lets a later tool in the same turn chain onto an earlier
+   *  one that the registries can't see yet because nothing is applied until the
+   *  user confirms. `create_agent` uses it to bundle a same-turn
+   *  `create_system_prompt` proposal into its own consent card (consuming the
+   *  separate prompt card, so one confirm creates both). */
+  pending?: RelationOp[]
 }
 
 /** What executing one tool produces: the consent-gated side-effect(s) plus a
@@ -511,7 +518,7 @@ const TOOLS: ToolSpec[] = [
   {
     name: 'create_agent',
     description:
-      'Create a worker Agent — a reusable bundle of a Model provider + a system prompt + instructions that drives conversations. Use when the user asks to create or set up a worker agent. The user confirms before it is created.',
+      'Create a worker Agent — a reusable bundle of a Model provider + a system prompt + instructions that drives conversations. Use when the user asks to create or set up a worker agent. If no suitable library prompt exists, call create_system_prompt FIRST in this same turn and then name that prompt here — the agent proposal bundles its creation into one confirmation. The user confirms before it is created.',
     properties: {
       label: { type: 'string', description: 'The agent name, e.g. "Research scout".' },
       provider: { type: 'string', description: 'The Model provider it runs on, e.g. "Anthropic". Optional — the user’s default (or first) registered provider when unnamed.' },
@@ -530,7 +537,24 @@ const TOOLS: ToolSpec[] = [
       const wantProvider = str(input.provider).trim()
       const wantPrompt = str(input.system_prompt).trim()
       const provider = wantProvider ? byLabel(ctx.commons?.providers, wantProvider) : defaultEntry(ctx.commons?.providers ?? [])
-      const prompt = wantPrompt ? byLabel(ctx.commons?.systemPrompts, wantPrompt) : defaultEntry(ctx.commons?.systemPrompts ?? [])
+      // The prompt binding resolves in order: the library (a named entry by label,
+      // an unnamed one only after the same-turn check below), then the TURN'S OWN
+      // pending create_system_prompt proposals — a prompt the model just proposed
+      // has no library id yet (ids mint at apply), so it rides the agent proposal
+      // inline as `newPrompt` and its separate card is CONSUMED: one confirm
+      // creates both, and confirmation order can't strand the agent.
+      const pendingPrompts = (ctx.pending ?? []).filter(
+        (op): op is Extract<RelationOp, { kind: 'create-prompt' }> => op.kind === 'create-prompt',
+      )
+      const samePending = wantPrompt
+        ? pendingPrompts.find((p) => p.label.trim().toLowerCase() === wantPrompt.toLowerCase())
+        : pendingPrompts.at(-1) // unnamed: the just-proposed prompt is the stronger signal than a standing default
+      const prompt = wantPrompt
+        ? (byLabel(ctx.commons?.systemPrompts, wantPrompt) ?? undefined)
+        : samePending
+          ? undefined
+          : defaultEntry(ctx.commons?.systemPrompts ?? [])
+      const bundled = !prompt && samePending ? samePending : undefined
       if (!provider) {
         return {
           summary: wantProvider
@@ -538,13 +562,18 @@ const TOOLS: ToolSpec[] = [
             : 'No model providers are registered — proposed nothing.',
         }
       }
-      if (!prompt) {
+      if (!prompt && !bundled) {
         return {
           summary: wantPrompt
-            ? `No library system prompt matching "${wantPrompt}" — proposed nothing.`
-            : 'No system prompts are in the library — proposed nothing.',
+            ? `No library system prompt matching "${wantPrompt}" — proposed nothing. Call create_system_prompt first (in this same turn), then create the agent naming that prompt.`
+            : 'No system prompts are in the library — proposed nothing. Call create_system_prompt first (in this same turn), then create the agent.',
         }
       }
+      if (bundled && ctx.pending) {
+        // Consume the stand-alone prompt card — the agent card now carries it.
+        ctx.pending.splice(ctx.pending.indexOf(bundled), 1)
+      }
+      const promptLabel = prompt?.label ?? bundled!.label
       return {
         relationOps: [
           {
@@ -552,8 +581,9 @@ const TOOLS: ToolSpec[] = [
             label,
             providerId: provider.id,
             providerLabel: provider.label,
-            systemPromptId: prompt.id,
-            systemPromptLabel: prompt.label,
+            ...(prompt
+              ? { systemPromptId: prompt.id, systemPromptLabel: prompt.label }
+              : { newPrompt: { label: bundled!.label, body: bundled!.body, targetFamily: bundled!.targetFamily } }),
             instructions: str(input.instructions) || undefined,
             // The tool grant is explicit (an absent grant means NO tools — the
             // minimal-risk default): a conversationally-created agent gets the full
@@ -561,7 +591,9 @@ const TOOLS: ToolSpec[] = [
             tools: [...TOOL_NAMES],
           },
         ],
-        summary: `Proposed creating the ${label} worker agent on ${provider.label} with the ${prompt.label} prompt and the full tool catalog; awaiting confirmation.`,
+        summary: bundled
+          ? `Proposed creating the ${label} worker agent on ${provider.label}, bundling the just-proposed ${promptLabel} prompt into the same confirmation (its separate proposal was folded in), with the full tool catalog; awaiting confirmation.`
+          : `Proposed creating the ${label} worker agent on ${provider.label} with the ${promptLabel} prompt and the full tool catalog; awaiting confirmation.`,
       }
     },
   },
