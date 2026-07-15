@@ -204,3 +204,38 @@ collapses); prune at render, never in storage.
   pages, and (by integration) the context panels.
 - **One mechanism** — the right panel is absorbed; no parallel split systems
   at end state.
+
+## 5. Lessons from the build (Phases 1–4, generalizable)
+
+- **Unify two systems of different SCOPE by picking one source and PROJECTING the
+  other — never persist the projection.** The context panel was per-session
+  (`focus`, cross-tier, FWD-2 memory); the split tree is per-account. Folding them
+  kept `focus` as the single source and *derived* the wide-tier context pane from
+  it at render (via the `primary` MARKER, so the derived pane is still a
+  first-class rail-managed pane). Persisting that transient derivation caused
+  churn + a wrong-session flash on reload (a review finding) — stripped before
+  persist (`withoutPrimaryContext`). The rule: **transient/derived state is
+  clamped/projected at render, never written to storage** (the same rule the rail
+  width and the old frame's prune follow).
+- **Locate a managed pane by an intrinsic MARKER, not by position.** Finding the
+  primary context pane by an adjacency heuristic would have orphaned it the moment
+  the user split the primary; a `primary:true` flag (found by `findPrimaryContext`)
+  survives any tree rearrangement, and a *duplicate* simply drops the flag to
+  become an independent pinned pane.
+- **A change to a DEFAULT/auto behavior ripples into every test that assumed the
+  old initial state.** Auto-tiling a repo session's context pane changed the split
+  tests' starting layout (they expected a lone primary); the fix was to reset to a
+  clean primary (`clearAutoPanel`) rather than re-encode the new counts everywhere.
+- **When a UI element's TIER presence changes, its tier-specific tests move with
+  it.** Retiring the wide docked panel moved the width-animated resize handle to
+  the medium overlay — so its keyboard-resize regression test moved to 768px.
+- **`node --test` can't catch React hook-order (Rules-of-Hooks) bugs — no DOM.**
+  A pre-existing one surfaced only via a dev-console check during manual
+  verification. Dev-mode console inspection (or a console-error e2e assertion) is
+  the only net for that class; keep verifying observable UI changes in the running
+  app, not just by tests.
+- **A literal control char in an edit is a real hazard.** A NUL character
+  (intended as a template-literal separator, written via a unicode escape) landed
+  as an actual NUL byte, flipping the file to git-"binary" and would have shipped
+  NULs into a `data-*` DOM attribute. Use a real, id-safe separator (a space, for
+  slug ids); a "binary" diff on a `.ts` file is the tell.

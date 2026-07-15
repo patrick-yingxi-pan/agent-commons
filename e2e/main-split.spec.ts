@@ -144,6 +144,36 @@ test('a duplicated conversation pane is fully independent: its own composer stre
   expect(new URL(page.url()).pathname).toBe('/s/auth-refactor')
 })
 
+test('a section page + its detail render correctly in a HALF-WIDTH pane — no horizontal overflow (pages are pane-safe, UI-9)', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 })
+  await page.goto('/s/auth-refactor')
+  await expect(page.getByText('token refresh logic').first()).toBeVisible()
+  await clearAutoPanel(page)
+
+  // Split, then retarget the focused pane at a content-dense section page — the
+  // SAME SectionView the primary mounts (single-column on every tier, no
+  // viewport-width assumption), now in a pane ~half the viewport wide.
+  await page.locator('[data-split-view="row"]').click()
+  await page.locator('nav[aria-label="Sections"]').getByText('Projects', { exact: true }).click()
+  const paneB = page.locator('[data-main-pane="b"]')
+  await expect(paneB.getByText('Platform hardening').first()).toBeVisible()
+
+  const paneBox = (await paneB.boundingBox())!
+  expect(paneBox.width, 'the pane is roughly half-width').toBeLessThan(760)
+  // Nothing overflows horizontally — not the document, not the pane itself. A
+  // page that assumed the full viewport width would blow past the pane here.
+  const docHScroll = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)
+  expect(docHScroll, 'no document horizontal scroll with a section tiled in a pane').toBe(false)
+  const listHScroll = await paneB.evaluate((el) => el.scrollWidth > el.clientWidth + 1)
+  expect(listHScroll, 'the section list fits the pane (inner scrollers aside)').toBe(false)
+
+  // A DETAIL page opens INSIDE the pane (pane-local nav) and fits too.
+  await paneB.getByText('Platform hardening').first().click()
+  await expect(paneB.getByText('The platform team')).toBeVisible()
+  const detailHScroll = await paneB.evaluate((el) => el.scrollWidth > el.clientWidth + 1)
+  expect(detailHScroll, 'the project DETAIL page fits the pane').toBe(false)
+})
+
 test('the right panel folds into the tree: a repo session tiles its context PANEL beside the conversation (ADAPT-16 → ADAPT-17)', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto('/s/auth-refactor')
