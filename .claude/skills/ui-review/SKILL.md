@@ -11,6 +11,12 @@ affect (not the cells you edited), **check** each against named invariants, and
 **judge** what invariants can't express. Never review from memory of what you
 changed — memory produces plan-shaped checklists, which is how escapes happen.
 
+The full oracle catalog — the earned invariants PLUS the exhaustive rubric
+tier (function F-rules and aesthetic A-rules, each with its mechanical
+detection and fix procedure, and the severity/fix policy) — is
+[docs/review-rulebook.md](../../../docs/review-rulebook.md). Run this skill's
+sweep as the rulebook's phases 1–3; triage and ratchet per its §3–§4.
+
 ## 1 · Derive the cell matrix from the diff
 
 - `git diff --name-only <base>` (or the uncommitted diff). For each changed file

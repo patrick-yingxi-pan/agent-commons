@@ -288,6 +288,12 @@ the mock?
   (`.claude/skills/ui-review/SKILL.md`). After a UI change, review against that
   ledger — sweep the surfaces × viewports the *diff* could affect, not the spots
   you edited — and ratchet every confirmed escape into a new funnel + lock + row.
+  The **exhaustive** oracle catalog above the earned ledger — function (F-·) and
+  aesthetic (A-·) rules, each with a mechanical detection + fix procedure, the
+  severity policy, and the five-phase review-and-fix process — is
+  [`docs/review-rulebook.md`](docs/review-rulebook.md) (structure locked by
+  `tests/review-rulebook.test.ts`); rulebook rules promote into the earned
+  ledgers when an escape confirms them.
 - **Registries have one home and live points-of-use.** Every account-level registry
   (Model providers → the **Models** rail section; worker agents / prompts /
   commissions → the **Agents** hub; saved connectors & repos → **Contexts**) is
