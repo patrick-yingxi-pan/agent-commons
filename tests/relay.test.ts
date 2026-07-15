@@ -172,7 +172,8 @@ test('the round-trip: offer → poll → reply → streamed turn (estimated usag
     // `tools` ⇒ the minimal-risk empty set, INV-9): an empty surface is an absent
     // field, never an empty array pretending to offer something.
     assert.equal(typeof pulled.json.prompt.system, 'string')
-    assert.deepEqual(Object.keys(pulled.json.prompt).sort(), ['messages', 'system'])
+    // …plus the framing content hash (v3 dedupe) — no toolsHash, since no tools.
+    assert.deepEqual(Object.keys(pulled.json.prompt).sort(), ['messages', 'system', 'systemHash'])
     assert.equal(pulled.json.prompt.messages[0].text, 'What is our Q3 focus?')
 
     // MODEL_TIMEOUT_MS (50ms) must NOT govern this turn — answer well past it.
@@ -461,6 +462,90 @@ test('the tool-use loop over the mailbox: declared tools → relayed calls → e
     assert.equal(escalation!.escalation.project.name, 'Relay Proto')
     const end = fs.find((f) => f.type === 'message.end')
     assert.equal(end?.message.content, 'Proposed the Relay Proto project — confirm to create it.')
+  })
+})
+
+// ── v3: the framing dedupe (context-window economy) ───────────────────────────
+
+test('v3 framing dedupe: a poll advertising cached hashes gets pruned bodies; a fresh poll gets full ones', async () => {
+  const p = await mintSessionProvider('Framing dedupe')
+  const { sessionId } = await sessionWithTools(p.id, ['create_project'])
+  await withEnv({ RELAY_POLL_MS: '2000', RELAY_TIMEOUT_MS: '3000' }, async () => {
+    // Turn 1 — a fresh connector advertises nothing: full bodies + content hashes.
+    const parked1 = call('GET', '/relay/poll', undefined, auth(p.secret))
+    await sleep(10)
+    const send1 = callRaw('POST', `/sessions/${sessionId}/messages`, { text: 'turn one' })
+    const r1 = await parked1
+    const prompt1 = r1.json.prompt
+    assert.equal(typeof prompt1.system, 'string', 'full framing on first contact')
+    assert.match(prompt1.systemHash, /^[0-9a-f]{16}$/, 'the framing is content-addressed')
+    assert.ok(Array.isArray(prompt1.tools))
+    assert.match(prompt1.toolsHash, /^[0-9a-f]{16}$/)
+    await call('POST', '/relay/reply', { entryId: r1.json.entryId, completion: 'one' }, auth(p.secret))
+    await send1
+
+    // Turn 2 — the poll advertises both hashes (the connector's cache): the bodies
+    // are stripped at delivery; the hashes always ride.
+    const parked2 = call('GET', `/relay/poll?have=${prompt1.systemHash},${prompt1.toolsHash}`, undefined, auth(p.secret))
+    await sleep(10)
+    const send2 = callRaw('POST', `/sessions/${sessionId}/messages`, { text: 'turn two' })
+    const r2 = await parked2
+    assert.equal(r2.json.prompt.system, undefined, 'the advertised system body is omitted')
+    assert.equal(r2.json.prompt.tools, undefined, 'the advertised tool schemas are omitted')
+    assert.equal(r2.json.prompt.systemHash, prompt1.systemHash)
+    assert.equal(r2.json.prompt.toolsHash, prompt1.toolsHash)
+    await call('POST', '/relay/reply', { entryId: r2.json.entryId, completion: 'two' }, auth(p.secret))
+    await send2
+
+    // Turn 3 — a RESTARTED connector (empty cache, no `have`), through the
+    // poll-after-offer delivery path this time: full bodies again. Both
+    // reconnection cases degrade to resend, never to a hole.
+    const send3 = callRaw('POST', `/sessions/${sessionId}/messages`, { text: 'turn three' })
+    await sleep(30)
+    const r3 = await call('GET', '/relay/poll', undefined, auth(p.secret))
+    assert.equal(typeof r3.json.prompt.system, 'string', 'a fresh connector gets the full framing back')
+    assert.ok(Array.isArray(r3.json.prompt.tools))
+    await call('POST', '/relay/reply', { entryId: r3.json.entryId, completion: 'three' }, auth(p.secret))
+    await send3
+  })
+})
+
+// ── Same-turn chaining over the mailbox (MODEL-20 × the framed relay) ─────────
+
+test('a far session chaining create_system_prompt + create_agent lands ONE bundled agent proposal', async () => {
+  const p = await mintSessionProvider('Chained create')
+  const { sessionId } = await sessionWithTools(p.id, ['create_system_prompt', 'create_agent'])
+  await withEnv({ RELAY_POLL_MS: '2000', RELAY_TIMEOUT_MS: '5000' }, async () => {
+    const parked = call('GET', '/relay/poll', undefined, auth(p.secret))
+    await sleep(10)
+    const send = callRaw('POST', `/sessions/${sessionId}/messages`, { text: "Create an agent called patrick's assistant" })
+    const round1 = await parked
+    // The far session chains the two creates in one relayed reply — the exact
+    // shape that used to strand the agent ("no library prompt — proposed nothing").
+    await call(
+      'POST',
+      '/relay/reply',
+      {
+        entryId: round1.json.entryId,
+        toolCalls: [
+          { name: 'create_system_prompt', input: { label: "Patrick's helper", body: 'Help Patrick.' } },
+          { name: 'create_agent', input: { label: "patrick's assistant", system_prompt: "Patrick's helper" } },
+        ],
+      },
+      auth(p.secret),
+    )
+    const round2 = await call('GET', '/relay/poll', undefined, auth(p.secret))
+    const results = (round2.json.prompt.messages as Array<Record<string, any>>).find((m) => m.toolResults)!.toolResults
+    assert.match(results[1].content, /bundling/i, 'the agent tool reports the fold-in to the far model')
+    await call('POST', '/relay/reply', { entryId: round2.json.entryId, completion: 'Proposed the agent — confirm to create it.' }, auth(p.secret))
+    const fs = frames((await send).body)
+    const relations = fs.find((f) => f.type === 'message.relations')
+    assert.ok(relations, 'the turn carries relation proposals')
+    assert.equal(relations!.relationActions.length, 1, 'ONE card — the stand-alone prompt proposal was consumed')
+    const op = relations!.relationActions[0]
+    assert.equal(op.kind, 'create-agent')
+    assert.equal(op.label, "patrick's assistant")
+    assert.deepEqual(op.newPrompt, { label: "Patrick's helper", body: 'Help Patrick.', targetFamily: 'claude' })
   })
 })
 

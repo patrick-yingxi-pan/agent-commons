@@ -1029,10 +1029,15 @@ export function buildRouter(): Router {
   // `{superseded:true}` when a newer poll preempted this one (newest wins) or the
   // secret rotated away. A dropped socket unparks via `abandon`, so a zombie
   // connection neither wedges the slot nor leaks the handler.
-  r.get('/relay/poll', async ({ req, res }) => {
+  r.get('/relay/poll', async ({ req, res, url }) => {
     const providerId = relayAuth(req, res)
     if (!providerId) return
-    const { result, abandon } = store.relay.poll(providerId)
+    // `have` advertises the framing/tool hashes the connector holds cached (v3
+    // dedupe) — a delivered prompt omits exactly those bodies. Absent (a fresh
+    // or restarted connector) ⇒ full bodies; malformed entries are just hashes
+    // that will never match, so no validation wall is needed here.
+    const have = new Set((url.searchParams.get('have') ?? '').split(',').map((h) => h.trim()).filter(Boolean))
+    const { result, abandon } = store.relay.poll(providerId, have)
     req.on('close', abandon)
     const outcome = await result
     // The long-poll's client may have vanished during the park (that's what

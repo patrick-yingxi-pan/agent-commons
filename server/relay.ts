@@ -67,6 +67,28 @@ export function sameSecretHash(a: string, b: string): boolean {
   return ab.length === bb.length && timingSafeEqual(ab, bb)
 }
 
+/** ── Framing dedupe (v3) ─────────────────────────────────────────────────────
+ *  Content address for the prompt's near-invariant parts (system framing, tool
+ *  schemas): SHA-256, truncated — a cache key, not a credential, so 16 hex chars
+ *  (64 bits) are plenty against accidental collision. Deterministic across
+ *  restarts by construction (pure content hash), which is what makes the
+ *  connector's cache survive a backend restart. */
+export function hashRelayContent(content: string): string {
+  return createHash('sha256').update(content).digest('hex').slice(0, 16)
+}
+
+/** Strip the bodies a puller already holds — decided at DELIVERY time (per
+ *  puller, against the hashes its poll advertised), never at build time: the
+ *  same in-flight prompt must deliver full to a fresh connector and pruned to a
+ *  warm one, whichever shows up. */
+function deliverPrompt(prompt: RelayPrompt, have: ReadonlySet<string>): RelayPrompt {
+  if (!have.size) return prompt
+  const pruned = { ...prompt }
+  if (prompt.system !== undefined && have.has(prompt.systemHash)) delete pruned.system
+  if (prompt.tools !== undefined && prompt.toolsHash && have.has(prompt.toolsHash)) delete pruned.tools
+  return pruned
+}
+
 /** How a relayed entry resolves: the far session's prose (a refusal is a reply),
  *  its relayed-unexecuted tool calls (v2 — the loop continues with a follow-up
  *  entry carrying the executed results), or the connector's own explicit
@@ -87,6 +109,9 @@ interface InflightTurn {
 interface ParkedPoll {
   resolve: (r: RelayPollResult) => void
   timer: ReturnType<typeof setTimeout>
+  /** The framing/tool hashes this puller advertised as cached — bodies it
+   *  already holds are stripped from whatever prompt it is handed. */
+  have: ReadonlySet<string>
 }
 
 let entrySeq = 0
@@ -177,7 +202,7 @@ export class RelayRuntime {
       this.parked.delete(providerId)
       clearTimeout(parked.timer)
       turn.taken = true
-      parked.resolve({ entryId, prompt })
+      parked.resolve({ entryId, prompt: deliverPrompt(prompt, parked.have) })
     }
     return { entryId, completion }
   }
@@ -188,12 +213,12 @@ export class RelayRuntime {
    *  zombie socket must not lock out the restarted loop) or the relay retires.
    *  `abandon` is the socket-close hook: it unparks AND resolves, so the route
    *  handler never dangles. */
-  poll(providerId: string): { result: Promise<RelayPollResult>; abandon: () => void } {
+  poll(providerId: string, have: ReadonlySet<string> = new Set()): { result: Promise<RelayPollResult>; abandon: () => void } {
     this.markSeen(providerId)
     const turn = this.inflight.get(providerId)
     if (turn && !turn.taken) {
       turn.taken = true
-      return { result: Promise.resolve({ entryId: turn.entryId, prompt: turn.prompt }), abandon: () => {} }
+      return { result: Promise.resolve({ entryId: turn.entryId, prompt: deliverPrompt(turn.prompt, have) }), abandon: () => {} }
     }
     const prev = this.parked.get(providerId)
     if (prev) {
@@ -208,6 +233,7 @@ export class RelayRuntime {
     const parked: ParkedPoll = {
       resolve: resolveResult,
       timer: setTimeout(() => this.unpark(providerId, parked, { idle: true }), this.pollWindowMs()),
+      have,
     }
     ;(parked.timer as { unref?: () => void }).unref?.()
     this.parked.set(providerId, parked)
@@ -335,6 +361,10 @@ export async function relayReply(
     inputSchema: t.input_schema as unknown as Record<string, unknown>,
   }))
   const system = systemPrompt(session, agent)
+  // Content-address the near-invariant parts once per turn (v3 framing dedupe):
+  // delivery strips whichever bodies the pulling connector already holds.
+  const systemHash = hashRelayContent(system)
+  const toolsHash = tools.length ? hashRelayContent(JSON.stringify(tools)) : undefined
   // The prompt survives as a document, not a string (§7.4): system framing apart
   // from the turns. The loop appends a relayed-calls turn + an executed-results
   // turn per round, so every follow-up entry carries the WHOLE exchange — the
@@ -355,7 +385,7 @@ export async function relayReply(
   const startedAt = Date.now()
 
   for (let round = 0; ; round += 1) {
-    const offer = relay.offer(providerId, { system, messages: turns, ...(tools.length ? { tools } : {}) })
+    const offer = relay.offer(providerId, { system, systemHash, messages: turns, ...(tools.length ? { tools, toolsHash } : {}) })
     // The pre-turn gate refused busy before anything persisted; this catches only
     // the enqueue race behind it (and a rival turn slipping between rounds).
     if (!offer) return relayFallback(handlers, FALLBACK_BUSY)

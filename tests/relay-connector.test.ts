@@ -153,6 +153,84 @@ test('v2 tool relay: declared tools render into the document; toolCalls ride the
   }
 })
 
+test('v3 framing dedupe: the connector caches by hash, advertises on the poll, and renders references not reprints', async () => {
+  const stub = await startRelayStub()
+  const TOOLS = [{ name: 'create_project', description: 'Create a new project.', inputSchema: { type: 'object' } }]
+  stub.pollQueue.push({
+    entryId: 'rve-a',
+    prompt: { system: 'the long briefing text', systemHash: 'aaaa111122223333', messages: [{ role: 'user', text: 'first ask' }], tools: TOOLS, toolsHash: 'bbbb111122223333' },
+  })
+  const c = spawnConnector()
+  try {
+    const doc1 = await callTool(c, 'start', { url: stub.url, secret: 'rv_live_dedupe' })
+    assert.match(doc1, /the long briefing text/, 'first contact renders the full framing')
+    assert.match(doc1, /create_project — Create a new project\./, 'and the full tool schemas')
+
+    // From now on every poll advertises the cached hashes.
+    await callTool(c, 'respond_and_wait', { entryId: 'rve-a', answer: 'ok' })
+    const advertisedPoll = stub.seen.filter((s) => s.path.includes('/relay/poll?have=')).at(-1)
+    assert.ok(advertisedPoll, 'the poll advertises the cache')
+    assert.ok(advertisedPoll!.path.includes('aaaa111122223333') && advertisedPoll!.path.includes('bbbb111122223333'), 'both hashes ride the advertisement')
+
+    // A pruned prompt (as the server sends once advertised) renders one-line
+    // references to what the session already read — never a reprint.
+    stub.pollQueue.push({
+      entryId: 'rve-b',
+      prompt: { systemHash: 'aaaa111122223333', messages: [{ role: 'user', text: 'second ask' }], toolsHash: 'bbbb111122223333' },
+    })
+    await new Promise((r) => setTimeout(r, 1_300)) // let the drain loop collect it
+    const doc2 = await callTool(c, 'respond_and_wait', {})
+    assert.match(doc2, /entry rve-b/)
+    assert.match(doc2, /unchanged — identical to the briefing relayed with entry rve-a/, 'the framing is a reference')
+    assert.match(doc2, /the same 1 tools declared with entry rve-a/, 'the tools are a reference')
+    assert.ok(!doc2.includes('the long briefing text'), 'the briefing body is not reprinted')
+    assert.ok(!doc2.includes('Create a new project.'), 'the schemas are not reprinted')
+    assert.match(doc2, /"toolCalls": \[\{ "name": "<tool>", "input": \{ … \} \}\]/, 'the relay instructions still declare the tool path — the surface is unchanged, only its printing')
+  } finally {
+    c.close()
+    await stub.close()
+  }
+})
+
+test('v3 suffix rendering: a follow-up entry re-carrying the exchange prints only the new turns', async () => {
+  const stub = await startRelayStub()
+  const first = { role: 'user', text: 'organize this' }
+  stub.pollQueue.push({
+    entryId: 'rve-c',
+    prompt: { system: 's', systemHash: 'cccc111122223333', messages: [first], tools: [{ name: 'create_project', description: 'd', inputSchema: {} }], toolsHash: 'dddd111122223333' },
+  })
+  const c = spawnConnector()
+  try {
+    const doc1 = await callTool(c, 'start', { url: stub.url, secret: 'rv_live_suffix' })
+    assert.match(doc1, /organize this/)
+    await callTool(c, 'respond_and_wait', { entryId: 'rve-c', toolCalls: [{ name: 'create_project', input: { name: 'X' } }] })
+    // The platform's follow-up entry re-carries the WHOLE exchange (the mailbox is
+    // stateless across entries) — the connector prints only the new suffix.
+    stub.pollQueue.push({
+      entryId: 'rve-d',
+      prompt: {
+        systemHash: 'cccc111122223333',
+        toolsHash: 'dddd111122223333',
+        messages: [
+          first,
+          { role: 'assistant', toolCalls: [{ id: 'rtc-1', name: 'create_project', input: { name: 'X' } }] },
+          { role: 'user', toolResults: [{ toolCallId: 'rtc-1', content: 'Proposed to the user — awaiting confirmation.' }] },
+        ],
+      },
+    })
+    await new Promise((r) => setTimeout(r, 1_300)) // let the drain loop collect it
+    const doc2 = await callTool(c, 'respond_and_wait', {})
+    assert.match(doc2, /continuing the exchange of entry rve-c/, 'the follow-up names the exchange it continues')
+    assert.match(doc2, /first 1 turn\(s\) are unchanged/, 'and how much is elided')
+    assert.match(doc2, /new turns only/)
+    assert.match(doc2, /awaiting confirmation/, 'the executed results — the actual news — are printed')
+    assert.ok(!doc2.includes('organize this'), 'the already-read turn prefix is not reprinted')
+  } finally {
+    c.close()
+    await stub.close()
+  }
+})
+
 test('the keepalive loop is the process’s, not the model’s: polling continues with no tool call in flight', async () => {
   const stub = await startRelayStub()
   const c = spawnConnector()

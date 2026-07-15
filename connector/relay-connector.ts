@@ -75,7 +75,7 @@
  *
  *  Hand-rolled MCP (stdio, newline-delimited JSON-RPC) — the repo's few-deps rule
  *  extends here: no SDK, ~300 lines, Node 26 runs the TypeScript natively. */
-import type { RelayPollResult, RelayPrompt, RelayPromptTurn } from '../contract/relay.ts'
+import type { RelayPollResult, RelayPrompt, RelayPromptTurn, RelayToolDefinition } from '../contract/relay.ts'
 
 // The backend mounts its API at API_BASE_PATH (`/api/v1`) — a bare `/v1` 404s.
 const DEFAULT_URL = 'http://127.0.0.1:8787/api/v1'
@@ -115,6 +115,71 @@ const BLOCK_MS = (() => {
   return Number.isFinite(n) && n > 0 ? n : 25_000
 })()
 
+/** ── Framing cache (v3 — the context-window economy) ─────────────────────────
+ *  The system framing and tool schemas are near-invariant across a relay's
+ *  prompts, yet the far session used to re-read them in full every entry. The
+ *  connector caches both by the server's content hash, advertises what it holds
+ *  on every poll (`?have=…` — the server then omits those bodies), and renders
+ *  a short "unchanged — see entry X above" marker instead of re-printing text
+ *  the session already has in context. A body is cached exactly when it first
+ *  arrives (which is also when it is first shown), so an omitted body is always
+ *  something this session has already read; a restarted connector starts empty,
+ *  advertises nothing, and receives full bodies again — no state is assumed at
+ *  either end across reconnects. */
+const MAX_CACHED = 32 // per cache — oldest evicted; the server just resends full
+const framingCache = new Map<string, { body: string; entryId: string }>()
+const toolsCache = new Map<string, { tools: RelayToolDefinition[]; entryId: string }>()
+
+function remember<V>(cache: Map<string, V>, hash: string, value: V): void {
+  cache.set(hash, value)
+  if (cache.size > MAX_CACHED) cache.delete(cache.keys().next().value!)
+}
+
+function advertised(): string {
+  return [...framingCache.keys(), ...toolsCache.keys()].join(',')
+}
+
+/** A pulled prompt with its omitted bodies resolved from the cache. `systemFrom` /
+ *  `toolsFrom` name the entry that first carried (and showed) the body — set only
+ *  when the server omitted it, i.e. when the session has already read it. */
+interface ReceivedPrompt {
+  entryId: string
+  prompt: RelayPrompt
+  system: string
+  systemFrom?: string
+  tools?: RelayToolDefinition[]
+  toolsFrom?: string
+}
+
+function resolvePrompt(entryId: string, prompt: RelayPrompt): ReceivedPrompt {
+  let system: string
+  let systemFrom: string | undefined
+  if (prompt.system !== undefined) {
+    system = prompt.system
+    // Hash-less prompts (a pre-v3 backend) simply never cache — full bodies flow
+    // as before; the dedupe is a pure optimisation, not a protocol requirement.
+    if (prompt.systemHash) remember(framingCache, prompt.systemHash, { body: system, entryId })
+  } else {
+    // The server omits only what this connector advertised, so a miss is a
+    // defensive path (an eviction race at most) — degrade to an honest note,
+    // rendered as the body, never a dangling "see above" reference.
+    const hit = framingCache.get(prompt.systemHash)
+    system = hit?.body ?? '(the platform omitted the system framing as already delivered — answer from the framing shown earlier in this session)'
+    systemFrom = hit?.entryId
+  }
+  let tools: RelayToolDefinition[] | undefined
+  let toolsFrom: string | undefined
+  if (prompt.tools !== undefined) {
+    tools = prompt.tools
+    if (prompt.toolsHash) remember(toolsCache, prompt.toolsHash, { tools, entryId })
+  } else if (prompt.toolsHash) {
+    const hit = toolsCache.get(prompt.toolsHash)
+    tools = hit?.tools
+    toolsFrom = hit?.entryId
+  }
+  return { entryId, prompt, system, systemFrom, tools, toolsFrom }
+}
+
 /** ── Relay HTTP (the only two wire shapes the connector speaks) ────────────── */
 async function relayFetch(path: string, init?: { method?: string; body?: string }): Promise<{ status: number; json: unknown }> {
   if (!bound) throw new Error('no relay bound')
@@ -136,29 +201,56 @@ function renderTurn(t: RelayPromptTurn): string {
   return `[${t.role}]\n${t.text ?? ''}`
 }
 
+/** What the previous render showed — the key for suffix rendering: a follow-up
+ *  entry in the same tool-use turn re-carries the WHOLE exchange on the wire
+ *  (the mailbox is stateless across entries by design), but the session already
+ *  read the earlier turns, so only the new suffix is printed. */
+let lastShown: { entryId: string; systemHash: string; toolsHash?: string; msgs: string[] } | null = null
+
 /** Render the prompt document with explicit delimiters, framed by the standing
  *  instruction, and tell the model exactly how to answer (entry-keyed): prose via
- *  `answer`, or the prompt's tool calls relayed verbatim via `toolCalls`. */
-function renderPrompt(entryId: string, prompt: RelayPrompt): string {
-  const sections = [
-    `A prompt arrived (entry ${entryId}). ${WALL}`,
-    '───── relayed briefing (system) ─────',
-    prompt.system,
-  ]
-  if (prompt.tools?.length) {
+ *  `answer`, or the prompt's tool calls relayed verbatim via `toolCalls`.
+ *  Everything already in the session's context (framing, tools, an unchanged
+ *  turn prefix) renders as a one-line reference instead of a reprint. */
+function renderPrompt(r: ReceivedPrompt): string {
+  const { entryId, prompt } = r
+  const msgs = prompt.messages.map((t) => JSON.stringify(t))
+  const continues =
+    lastShown !== null &&
+    lastShown.systemHash === prompt.systemHash &&
+    lastShown.toolsHash === prompt.toolsHash &&
+    msgs.length > lastShown.msgs.length &&
+    lastShown.msgs.every((m, i) => m === msgs[i])
+  const sections: string[] = []
+  if (continues) {
     sections.push(
-      '───── relayed tools (RELAY these — do not execute them yourself) ─────',
-      prompt.tools.map((t) => `${t.name} — ${t.description}\n  input schema: ${JSON.stringify(t.inputSchema)}`).join('\n'),
+      `A follow-up prompt arrived (entry ${entryId}), continuing the exchange of entry ${lastShown!.entryId} — ` +
+        `the briefing, the tools, and the first ${lastShown!.msgs.length} turn(s) are unchanged (as shown above). ${WALL}`,
+      '───── relayed conversation (new turns only) ─────',
+      prompt.messages.slice(lastShown!.msgs.length).map(renderTurn).join('\n\n'),
+      '───── end of relayed prompt ─────',
     )
+  } else {
+    sections.push(`A prompt arrived (entry ${entryId}). ${WALL}`, '───── relayed briefing (system) ─────')
+    sections.push(r.systemFrom ? `(unchanged — identical to the briefing relayed with entry ${r.systemFrom}, shown above; reuse it.)` : r.system)
+    if (r.tools?.length) {
+      sections.push('───── relayed tools (RELAY these — do not execute them yourself) ─────')
+      sections.push(
+        r.toolsFrom
+          ? `(unchanged — the same ${r.tools.length} tools declared with entry ${r.toolsFrom} apply; their schemas are shown above.)`
+          : r.tools.map((t) => `${t.name} — ${t.description}\n  input schema: ${JSON.stringify(t.inputSchema)}`).join('\n'),
+      )
+    }
+    sections.push('───── relayed conversation ─────', prompt.messages.map(renderTurn).join('\n\n'), '───── end of relayed prompt ─────')
   }
-  sections.push('───── relayed conversation ─────', prompt.messages.map(renderTurn).join('\n\n'), '───── end of relayed prompt ─────')
   sections.push(
-    prompt.tools?.length
+    r.tools?.length
       ? `Generate your answer now. To answer in prose, call respond_and_wait with { "entryId": "${entryId}", "answer": "<your full answer>" }. ` +
           `If (and only if) the right answer is to use one of the relayed tools, do NOT run anything yourself — relay the calls with ` +
           `{ "entryId": "${entryId}", "toolCalls": [{ "name": "<tool>", "input": { … } }] } and the platform will execute them and send you the results.`
       : `Generate your answer now, then submit it by calling respond_and_wait with { "entryId": "${entryId}", "answer": "<your full answer>" }.`,
   )
+  lastShown = { entryId, systemHash: prompt.systemHash, toolsHash: prompt.toolsHash, msgs }
   return sections.join('\n\n')
 }
 
@@ -168,7 +260,7 @@ function renderPrompt(entryId: string, prompt: RelayPrompt): string {
  *  a parked respond_and_wait is handed the prompt the instant it arrives. */
 
 let stopped: string | null = null // the stop-reason message, once terminal
-let buffered: { entryId: string; prompt: RelayPrompt } | null = null
+let buffered: ReceivedPrompt | null = null
 let waiter: ((text: string) => void) | null = null
 let loopRunning = false
 
@@ -194,7 +286,10 @@ async function drainLoop(): Promise<void> {
   while (bound && !stopped) {
     try {
       const startedPoll = Date.now()
-      const polled = await relayFetch('/relay/poll')
+      // Advertise the cached framing/tool hashes — the server omits those bodies
+      // from whatever prompt this poll is handed (v3 dedupe).
+      const have = advertised()
+      const polled = await relayFetch(`/relay/poll${have ? `?have=${have}` : ''}`)
       backoff = 1_000
       if (polled.status === 401) {
         stopped = ROTATED
@@ -202,10 +297,15 @@ async function drainLoop(): Promise<void> {
       }
       const result = polled.json as RelayPollResult
       if ('entryId' in result) {
-        // Deliver now if a model call is parked; buffer otherwise (the far model
-        // will collect it on its next call — the platform's turn deadline governs
-        // how long that may take).
-        if (!handOver(renderPrompt(result.entryId, result.prompt))) buffered = result
+        // Resolve omitted bodies against the cache AT RECEIPT (the cache must be
+        // populated before the next poll advertises), then deliver now if a model
+        // call is parked; buffer otherwise (the far model will collect it on its
+        // next call — the platform's turn deadline governs how long that may take).
+        const received = resolvePrompt(result.entryId, result.prompt)
+        // Render only at actual delivery (renderPrompt records what was shown,
+        // for suffix rendering) — a buffered prompt renders on the model's call.
+        if (waiter) handOver(renderPrompt(received))
+        else buffered = received
       } else if ('superseded' in result) {
         stopped = SUPERSEDED
         break
@@ -253,7 +353,7 @@ async function drain(entryId?: string, answer?: string, toolCalls?: Array<{ name
   if (buffered) {
     const b = buffered
     buffered = null
-    return renderPrompt(b.entryId, b.prompt)
+    return renderPrompt(b)
   }
   return await new Promise<string>((resolve) => {
     // A stale parked call (a host retry) is superseded by the newcomer — resolve

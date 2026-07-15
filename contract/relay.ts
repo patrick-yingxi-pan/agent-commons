@@ -53,11 +53,33 @@ export interface RelayPromptTurn {
  *  (The far session double-wraps — this `system` arrives as *content* inside a
  *  session that has its own system prompt; an accepted trade-off.) `tools` is
  *  the turn's callable surface (the Agent's allowlist + the session's attached
- *  connectors) — absent only when the turn offers none. */
+ *  connectors) — absent only when the turn offers none.
+ *
+ *  ── Framing dedupe (v3 — the context-window economy) ─────────────────────────
+ *  The system framing and the tool schemas are near-invariant across a relay's
+ *  turns, yet the far session re-READ them in every relayed prompt — pure
+ *  context-window burn. Both are therefore content-addressed: `systemHash` /
+ *  `toolsHash` are always present, and the BODIES (`system`, `tools`) are
+ *  omitted exactly when the delivering poll advertised those hashes as cached
+ *  (`GET /relay/poll?have=h1,h2,…`). The connector advertises only what it
+ *  actually holds, so an omitted body is always recoverable connector-side —
+ *  and both reconnection cases degrade to full resend, never to a hole: a
+ *  restarted connector has an empty cache and advertises nothing; a restarted
+ *  backend re-derives the same hashes from the same content, so the connector's
+ *  cache stays valid. The turns are NEVER pruned on the wire (the mailbox stays
+ *  stateless across entries, §7.4) — the connector dedupes their *presentation*
+ *  instead (suffix rendering for a continued tool-round exchange). */
 export interface RelayPrompt {
-  system: string
+  /** The full system framing — omitted when the delivering poll advertised
+   *  `systemHash` (the connector renders from its cache instead). */
+  system?: string
+  /** Content hash of the system framing (always present — the cache key). */
+  systemHash: string
   messages: RelayPromptTurn[]
   tools?: RelayToolDefinition[]
+  /** Content hash of the declared tool surface — present iff the turn offers
+   *  tools (mirrors `tools`' presence rule; survives body omission). */
+  toolsHash?: string
 }
 
 /** `GET /relay/poll` resolves with exactly one of:
@@ -65,7 +87,9 @@ export interface RelayPrompt {
  *  - `idle` — the bounded long-poll window elapsed with nothing to do; the
  *    connector must immediately poll again (the §4.2 re-call sentinel);
  *  - `superseded` — a newer poll with the same secret took this parked slot
- *    (newest-wins, §7.3) or the secret was rotated; this loop should stop. */
+ *    (newest-wins, §7.3) or the secret was rotated; this loop should stop.
+ *  The poll may carry `?have=<hash,…>` — the framing/tool hashes the connector
+ *  holds cached; a delivered prompt omits exactly those bodies (see RelayPrompt). */
 export type RelayPollResult =
   | { entryId: string; prompt: RelayPrompt }
   | { idle: true }

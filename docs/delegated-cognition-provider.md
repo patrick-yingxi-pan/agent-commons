@@ -1,6 +1,14 @@
 # Delegated-cognition providers ("Session providers") — a D9 extension
 
-> **Status: v2 BUILT** (2026-07-14 — the fourth pass, §9.1): the two headline §10
+> **Status: v3 BUILT** (2026-07-15 — the fifth pass, §9.2): the **framing
+> dedupe** — the system prompt and tool schemas are content-addressed
+> (`systemHash`/`toolsHash`), omitted at delivery when the poll advertises them
+> cached (`?have=…`), and rendered connector-side as "unchanged — see entry X"
+> references; within-turn follow-ups suffix-render only the new turns. The far
+> session stops re-reading its framing every entry; reconnection at either end
+> degrades to a full resend, never a hole. Spec row MODEL-21.
+>
+> **v2 BUILT** (2026-07-14 — the fourth pass, §9.1): the two headline §10
 > items landed. **Structured tool-use over the mailbox** — `RelayPrompt` declares
 > the turn's tool surface, the far session relays calls back *unexecuted*
 > (`toolCalls` on `/relay/reply`), `relayReply` runs the same tool-use loop
@@ -698,6 +706,39 @@ protocol:
   `true`; a pre-v2 snapshot's `toolUse:false` session config is normalised up on
   rehydrate (the P9 code-owned-stamp rule; `tests/relay-migrate.test.ts`). The
   UI's prose-only badges retired into a **Relay** badge.
+
+## 9.2 The v3 pass (2026-07-15) — the framing dedupe (context-window economy)
+
+A field report drove it: *"is it necessary to pass the system prompt and tool
+schemas every time?"* It wasn't — they are near-invariant across a relay's
+turns, yet the far session re-read both in full with every relayed prompt, and
+every within-turn follow-up entry re-printed the whole exchange. Two pieces, no
+change to the slot protocol:
+
+- **Content-addressed framing.** `RelayPrompt` always carries `systemHash` /
+  `toolsHash` (SHA-256, 16 hex); the *bodies* are omitted exactly when the
+  delivering poll advertised those hashes as cached (`GET /relay/poll?have=…`).
+  Stripping happens at **delivery time**, per puller — the same in-flight prompt
+  serves a warm connector pruned and a fresh one full. The connector caches by
+  hash at first receipt (which is also first showing, so a reference always
+  points at text the session actually read), advertises only what it holds
+  (capped LRU-ish — an eviction just means a full resend), and renders an
+  omitted body as a one-line "unchanged — see entry X above" reference.
+  **Reconnection at both ends degrades to resend, never a hole**: a restarted
+  connector advertises nothing (empty cache → full bodies); a restarted backend
+  re-derives identical hashes from identical content, so the connector's cache
+  stays valid. No state is *assumed* across the wire — the advertisement is the
+  only coupling, refreshed every poll.
+- **Suffix rendering.** The wire keeps re-carrying the whole exchange in
+  follow-up entries (the mailbox stays stateless across entries — §7.4 holds);
+  the *presentation* dedupes instead: when a new entry's framing hashes match
+  and its turns extend what the connector last showed, only the new turns are
+  printed, headed by "continuing the exchange of entry X". Pure connector-side;
+  a restarted connector simply prints everything again.
+
+Spec row MODEL-21; locked by `tests/relay.test.ts` (pruned vs full delivery,
+both delivery paths, reconnect resend) and `tests/relay-connector.test.ts`
+(advertisement, reference + suffix rendering).
 
 ## 10. Open items (what remains — the v2 checklist)
 

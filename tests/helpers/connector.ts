@@ -32,8 +32,11 @@ export async function startRelayStub(): Promise<RelayStub> {
     req.on('end', () => {
       seen.push({ method: req.method ?? '', path: req.url ?? '', auth: req.headers.authorization, body })
       res.setHeader('content-type', 'application/json')
-      if (req.url?.endsWith('/relay/poll')) res.end(JSON.stringify(pollQueue.shift() ?? { idle: true }))
-      else if (req.url?.endsWith('/relay/reply')) res.end(JSON.stringify({ ok: true }))
+      // Route on the PATHNAME — the connector's poll may carry `?have=…` (the v3
+      // framing-dedupe advertisement), which `seen.path` preserves for assertions.
+      const pathname = new URL(req.url ?? '', 'http://relay-stub').pathname
+      if (pathname.endsWith('/relay/poll')) res.end(JSON.stringify(pollQueue.shift() ?? { idle: true }))
+      else if (pathname.endsWith('/relay/reply')) res.end(JSON.stringify({ ok: true }))
       else {
         res.statusCode = 404
         res.end('{}')
