@@ -53,6 +53,7 @@ import {
 import type { AddedContext, ArtifactKind, Connector, SavedContext, SavedContextKind, SectionId } from '../types'
 import { SECTION_META } from '../lib/sections'
 import { FOLD_HEADER_CLASS } from '../lib/foldHeader'
+import { PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../lib/pageHeader'
 import { connectorIconFor } from '../lib/connectors'
 import { CHIP_TONES, type ChipTone } from '../lib/capabilities'
 import { addedToProjectContexts, contextsToConnectors, projectContextTone } from '../lib/projectContext'
@@ -747,9 +748,9 @@ function ProjectDetail({
     <Page>
       <BackButton to={backTo} onBack={onBack} />
 
-      <header className="mb-6 flex items-start justify-between gap-3">
+      <header className={PAGE_HEADER_CLASS}>
         <div className="min-w-0">
-          <h1 className="font-serif text-2xl font-semibold text-ink">{project.name}</h1>
+          <h1 className={PAGE_TITLE_CLASS}>{project.name}</h1>
           {(project.shared === true || !own) && (
             <div className="mt-1">
               {/* The owner name is a DOOR to the workspace's profile page (D21) —
@@ -2332,7 +2333,7 @@ function WorkItemPage({
       <BackButton to={backTo} onBack={onBack} />
       <div className="mx-auto w-full max-w-2xl">
         <div className="flex items-start justify-between gap-3">
-          <h1 className="font-serif text-[24px] leading-tight text-ink">{o.subGoal}</h1>
+          <h1 className={PAGE_TITLE_CLASS}>{o.subGoal}</h1>
           {mayRetract && (
             <button
               onClick={retract}
@@ -3323,14 +3324,14 @@ function ContextDetail({
         onBack={onBack}
       />
 
-      <header className="mb-6 flex items-start justify-between gap-3">
+      <header className={PAGE_HEADER_CLASS}>
         <div className="flex min-w-0 items-start gap-3">
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-panel-2 text-ink-soft">
             <Icon size={20} />
           </span>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h1 className="truncate font-serif text-2xl font-semibold text-ink">{ctx.label}</h1>
+              <h1 className={`${PAGE_TITLE_CLASS} truncate`}>{ctx.label}</h1>
               {isRepo && (
                 <span className="shrink-0 rounded bg-panel-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-soft">
                   {ctx.origin === 'local' ? 'Local' : 'GitHub'}
@@ -5963,12 +5964,13 @@ function OwnerProfilePage({
   return (
     <Page>
       <BackButton to={backTo} onBack={onBack} />
-      <header className="flex items-start gap-3.5">
+      <header className={PAGE_HEADER_CLASS}>
+        <div className="flex min-w-0 items-start gap-3.5">
         {/* The identity mark at page scale — the same derived mark every byline
             wears (identity texture; the Globe stays the SHARED-entity cue). */}
         <WorkspaceMark name={profile.name} size={48} />
         <div className="min-w-0">
-          <h1 className="font-serif text-2xl font-semibold text-ink">
+          <h1 className={PAGE_TITLE_CLASS}>
             {profileTitle(profile.name, profile.own)}
           </h1>
           <p className="mt-0.5 text-[13px] text-ink-soft">{PROFILE_TAGLINE}</p>
@@ -5994,9 +5996,10 @@ function OwnerProfilePage({
             )}
           </p>
         </div>
+        </div>
       </header>
 
-      <div className="mt-6 space-y-6">
+      <div className="space-y-6">
         {profile.org && <OrgMemberPanel org={profile.org} />}
         <div>
           <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
@@ -6318,12 +6321,13 @@ function AgentPublicPage({
     <Page>
       <BackButton to={backTo} onBack={onBack} />
       <div className="mx-auto w-full max-w-2xl">
-        <header className="flex items-start gap-3.5">
+        <header className={PAGE_HEADER_CLASS}>
+          <div className="flex min-w-0 flex-1 items-start gap-3.5">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-panel-2 text-ink-soft">
             <Bot size={22} />
           </div>
           <div className="min-w-0 flex-1">
-            <h1 className="font-serif text-2xl font-semibold text-ink">{entry.label}</h1>
+            <h1 className={PAGE_TITLE_CLASS}>{entry.label}</h1>
             <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12px] text-ink-faint">
               <span className="inline-flex items-center gap-1">
                 <OwnerLink ownerName={entry.owner} own={entry.own} onClick={() => rel.navigate('agents', entry.owner)} />
@@ -6337,6 +6341,7 @@ function AgentPublicPage({
               />
             </p>
           </div>
+          </div>
           <button
             onClick={fork}
             disabled={busy || forked}
@@ -6349,7 +6354,7 @@ function AgentPublicPage({
           </button>
         </header>
 
-        <div className="mt-5 space-y-4">
+        <div className="space-y-4">
           <FormField label="System prompt">
             <pre className="whitespace-pre-wrap rounded-lg border border-line bg-panel-2 p-3 font-sans text-[12px] leading-relaxed text-ink-soft">
               {entry.systemPrompt}
@@ -6658,25 +6663,23 @@ function GenericSection({ section }: { section: SectionId }) {
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-3xl px-6 py-6">
-        <header className="mb-5 flex items-start justify-between gap-3 max-sm:mb-3">
-          <div>
-            {/* Below sm the shell's NarrowBar already carries the section title. */}
-            <div className="flex items-center gap-2 max-sm:hidden">
-              <h1 className="font-serif text-2xl font-semibold text-ink">{meta.label}</h1>
-              {meta.beta && (
-                <span className="rounded-full bg-accent-tint px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent-strong">
-                  Beta
-                </span>
-              )}
-            </div>
-            <p className="mt-1 text-sm text-ink-soft max-sm:mt-0">{meta.subtitle}</p>
-          </div>
+        <PageHeader
+          title={meta.label}
+          badge={
+            meta.beta ? (
+              <span className="rounded-full bg-accent-tint px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent-strong">
+                Beta
+              </span>
+            ) : undefined
+          }
+          subtitle={meta.subtitle}
+        >
           {section === 'dispatch' && (
             <PrimaryButton icon={<Plus size={15} />} onClick={() => setCreating(true)}>
               New dispatch
             </PrimaryButton>
           )}
-        </header>
+        </PageHeader>
 
         {section === 'dispatch' && <DispatchView />}
         {section === 'customize' && <CustomizeView />}
@@ -7206,7 +7209,7 @@ function ScheduledDetail({
     <Page>
       <BackButton to={backTo} onBack={onBack} />
 
-      <header className="mb-6 flex items-start justify-between gap-3">
+      <header className={PAGE_HEADER_CLASS}>
         <div className="flex min-w-0 items-start gap-3">
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-panel-2 text-ink-soft">
             <DeliveryIcon size={20} />
@@ -7231,7 +7234,7 @@ function ScheduledDetail({
                     }
                   }}
                   aria-label="Routine name"
-                  className="min-w-0 max-w-full rounded-md border border-accent bg-surface px-1.5 py-0.5 font-serif text-2xl font-semibold leading-tight text-ink outline-none"
+                  className={`${PAGE_TITLE_CLASS} min-w-0 max-w-full rounded-md border border-accent bg-surface px-1.5 py-0.5 outline-none`}
                 />
               ) : (
                 <button
@@ -7242,7 +7245,7 @@ function ScheduledDetail({
                   title="Rename routine"
                   className="group flex min-w-0 items-center gap-1.5 rounded-md text-left transition hover:bg-panel-2/60"
                 >
-                  <h1 className="truncate font-serif text-2xl font-semibold leading-tight text-ink">{task.name}</h1>
+                  <h1 className={`${PAGE_TITLE_CLASS} truncate`}>{task.name}</h1>
                   <Pencil size={14} className={`shrink-0 text-ink-faint ${HOVER_CUE}`} />
                 </button>
               )}
@@ -8503,12 +8506,28 @@ function Page({ children }: { children: ReactNode }) {
   )
 }
 
-function PageHeader({ title, children }: { title: string; children?: ReactNode }) {
+function PageHeader({
+  title,
+  badge,
+  subtitle,
+  children,
+}: {
+  title: string
+  badge?: ReactNode
+  subtitle?: ReactNode
+  children?: ReactNode
+}) {
   return (
-    <header className="mb-5 flex flex-wrap items-center justify-between gap-3 max-sm:mb-3">
-      {/* Below sm the shell's NarrowBar already carries the section title —
-          repeating it here would read twice on one screen. */}
-      <h1 className="font-serif text-2xl font-semibold text-ink max-sm:hidden">{title}</h1>
+    <header className={PAGE_HEADER_CLASS}>
+      <div className="min-w-0">
+        {/* Below sm the shell's NarrowBar already carries the section title —
+            repeating it here would read twice on one screen. */}
+        <div className="flex items-center gap-2 max-sm:hidden">
+          <h1 className={PAGE_TITLE_CLASS}>{title}</h1>
+          {badge}
+        </div>
+        {subtitle && <p className="mt-1 text-sm text-ink-soft max-sm:mt-0">{subtitle}</p>}
+      </div>
       {children && <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2.5">{children}</div>}
     </header>
   )

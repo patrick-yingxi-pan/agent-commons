@@ -1,0 +1,59 @@
+/** Page-title headers share one styling source (src/lib/pageHeader.ts): every
+ *  full page — hub pages and detail pages alike — opens with the SAME title
+ *  look and container rhythm (form follows function: one role ⇒ one look).
+ *  Before the module, the one role wore four title spellings (a dropped
+ *  font-semibold, a stray text-[24px]) and three margins — copy-paste drift.
+ *  These lock:
+ *    1. the title class carries the full look (family/size/weight/color),
+ *    2. the container wraps (a header must survive a half-width pane, UI-9)
+ *       and keeps one bottom rhythm,
+ *    3. the look is defined once — no component re-hardcodes or re-drifts it,
+ *    4. the consumers source their styling from the shared module.
+ *  Out of scope BY DESIGN: SessionTitleBar and PanelShell are compact chrome
+ *  BARS (border-b, fixed height, sans) — a different role from a page's title
+ *  block; don't sweep them into this primitive. */
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { join } from 'node:path'
+import { ROOT, read, concatSource } from './helpers/source.ts'
+import { PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../src/lib/pageHeader.ts'
+
+test('the page title class carries the one full look', () => {
+  for (const piece of ['font-serif', 'text-2xl', 'font-semibold', 'leading-tight', 'text-ink']) {
+    assert.ok(PAGE_TITLE_CLASS.includes(piece), `the title look keeps "${piece}"`)
+  }
+})
+
+test('the page header container wraps (pane-safe, UI-9) and keeps one rhythm', () => {
+  for (const piece of ['flex-wrap', 'items-start', 'justify-between', 'mb-6', 'max-sm:mb-3']) {
+    assert.ok(PAGE_HEADER_CLASS.includes(piece), `the container keeps "${piece}"`)
+  }
+})
+
+test('the page-title look is defined once — no component re-hardcodes or re-drifts it', () => {
+  const moduleSrc = read(join(ROOT, 'src', 'lib', 'pageHeader.ts'))
+  assert.ok(moduleSrc.includes('font-serif text-2xl'), 'the shared module owns the title literal')
+  const components = concatSource('src/components')
+  // The canonical spelling must come from the constant, never inline…
+  assert.ok(
+    !components.includes('font-serif text-2xl'),
+    'no component re-hardcodes the page-title look — it must come from lib/pageHeader',
+  )
+  // …and the drift spellings that motivated the module stay dead (the work-item
+  // page once shipped text-[24px] with the weight silently dropped).
+  assert.ok(!components.includes('text-[24px]'), 'the text-[24px] drift spelling stays dead')
+})
+
+test('the page-header consumers source their styling from the shared module', () => {
+  const src = read(join(ROOT, 'src', 'components', 'SectionView.tsx'))
+  assert.match(src, /from\s+'(\.\.\/)+lib\/pageHeader'/, 'SectionView imports the shared page-header module')
+  for (const symbol of ['PAGE_TITLE_CLASS', 'PAGE_HEADER_CLASS']) {
+    assert.ok(src.includes(symbol), `SectionView uses ${symbol}`)
+  }
+  // Every page header consumes the shared container: the hub PageHeader, the
+  // detail pages (project / context / schedule / owner profile / agent). A new
+  // page that hand-rolls its header shows up as a missing consumption here
+  // only if it also inlines the title look — which the grep above catches.
+  const uses = src.match(/PAGE_TITLE_CLASS/g)?.length ?? 0
+  assert.ok(uses >= 8, `the title constant is consumed across the pages (${uses} uses)`)
+})

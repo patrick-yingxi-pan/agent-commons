@@ -260,7 +260,10 @@ the mock?
   them onto a single shared component/token rather than hand-restyling one to match.
   Embodied by `src/lib/inlineAction.ts` + `src/components/AddTrigger.tsx` (every
   "+ Add ‹thing›" picker-opener) and `src/lib/foldHeader.ts` (every foldable section
-  header) and `src/lib/scrim.ts` (every dimmed overlay backdrop — the tier scrims and
+  header) and `src/lib/pageHeader.ts` (every PAGE's opening title block — hub and
+  detail pages share one title look + container rhythm; the chrome bars
+  `SessionTitleBar`/`PanelShell` are a different role, deliberately distinct)
+  and `src/lib/scrim.ts` (every dimmed overlay backdrop — the tier scrims and
   the dialog scrims alike) and `src/lib/popover.ts` (every anchored popover surface —
   chrome + the stay-inside-the-viewport containment, applied by
   `src/lib/usePopoverShift.ts` / `clampLeft`) and `src/lib/copyButton.ts` +
@@ -273,8 +276,8 @@ the mock?
   never settles);
   each shared cue is locked by a test
   that fails if a component re-hardcodes it (`tests/addTrigger.test.ts`,
-  `tests/foldHeader.test.ts`, `tests/scrim.test.ts`, `tests/popover.test.ts`,
-  `tests/copy-button.test.ts`, `tests/spinner.test.ts`).
+  `tests/foldHeader.test.ts`, `tests/pageHeader.test.ts`, `tests/scrim.test.ts`,
+  `tests/popover.test.ts`, `tests/copy-button.test.ts`, `tests/spinner.test.ts`).
   The same rule governs
   shared *behaviour*, not just styling: every popover / dropdown / menu dismisses on
   outside-click + Escape through one hook, `src/lib/useDismissable.ts` (locked by
