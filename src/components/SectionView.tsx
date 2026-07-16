@@ -778,7 +778,7 @@ function ProjectDetail({
         </div>
       </header>
 
-      <div className="flex flex-col gap-6 lg:flex-row">
+      <div className="flex flex-col gap-6 @3xl:flex-row">
         {/* Main panel — the project's recent sessions. */}
         <div className="min-w-0 flex-1">
           {/* The README (D26) — the PUBLIC "about", read by owner and visitor alike;
@@ -843,7 +843,7 @@ function ProjectDetail({
             attached context); a visitor's projection redacts all of it (P8), so
             the rail renders only for the owner and the visitor page is one column. */}
         {own && (
-        <aside className="w-full shrink-0 space-y-4 lg:w-72">
+        <aside className="w-full shrink-0 space-y-4 @3xl:w-72">
           <ProjectInstructions project={project} />
 
           {/* Sharing — the owner's audience/onboarding CONFIGURATION (S17): it used
@@ -2574,7 +2574,7 @@ function ArtifactsSection({ subview, onOpenSession }: { subview: string | null; 
                   onToggle={() => foldGroup(g.id)}
                 />
                 {!isFolded && (
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-2 @4xl:grid-cols-3">
                     {g.items.map((a) => {
                       // A just-created artifact carries a temporary optimistic id until the
                       // server's authoritative `art-live-*` id replaces it on reconcile. Don't
@@ -3362,7 +3362,7 @@ function ContextDetail({
         </div>
       </header>
 
-      <div className="flex flex-col gap-6 lg:flex-row">
+      <div className="flex flex-col gap-6 @3xl:flex-row">
         <div className="min-w-0 flex-1">
           <div className="rounded-xl border border-line bg-surface p-4 shadow-sm">
             {isRepo ? (
@@ -3373,7 +3373,7 @@ function ContextDetail({
           </div>
         </div>
 
-        <aside className="w-full shrink-0 space-y-4 lg:w-72">
+        <aside className="w-full shrink-0 space-y-4 @3xl:w-72">
           <SidePanel title="Usage" icon={<Clock size={14} />}>
             <div className="space-y-2 text-[13px] text-ink">
               <div className="flex items-center justify-between">
@@ -7289,14 +7289,14 @@ function ScheduledDetail({
         </div>
       </header>
 
-      <div className="flex flex-col gap-6 lg:flex-row">
+      <div className="flex flex-col gap-6 @3xl:flex-row">
         <div className="min-w-0 flex-1 space-y-4">
           <PromptCard prompt={task.prompt} onSave={(prompt) => void updateSchedule(task.id, { prompt })} />
           <WorkflowCard task={task} run={shownRun} running={running} />
           <RunHistoryCard task={task} onOpenRun={(runId) => onOpenSession(runSessionId(task.id, runId))} />
         </div>
 
-        <aside className="w-full shrink-0 space-y-4 lg:w-72">
+        <aside className="w-full shrink-0 space-y-4 @3xl:w-72">
           <SchedulePanel task={task} />
 
           <DeliveryPanel task={task} />
@@ -8500,7 +8500,12 @@ function FoldGroupHeader({
 
 function Page({ children }: { children: ReactNode }) {
   return (
-    <div className="flex-1 overflow-y-auto">
+    // A @container: page-INTERNAL layout switches (a detail's side column, a
+    // card grid's column count) gate on THIS element's width — a page renders
+    // full-surface or in a half-width split pane, so a viewport breakpoint
+    // (`lg:`) is the wrong variable (UI-9 generalized: at a 1280px window,
+    // `lg:` held two columns inside a 500px pane and squeezed both).
+    <div className="flex-1 overflow-y-auto @container">
       <div className="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6 sm:py-6">{children}</div>
     </div>
   )

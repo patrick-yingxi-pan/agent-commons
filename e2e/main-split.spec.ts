@@ -172,6 +172,17 @@ test('a section page + its detail render correctly in a HALF-WIDTH pane — no h
   await expect(paneB.getByText('The platform team')).toBeVisible()
   const detailHScroll = await paneB.evaluate((el) => el.scrollWidth > el.clientWidth + 1)
   expect(detailHScroll, 'the project DETAIL page fits the pane').toBe(false)
+
+  // And the detail's side column STACKS below the main column — the layout
+  // gates on the PANE's container width, not the (wide) viewport (UI-9
+  // generalized: `lg:flex-row` used to hold two squeezed columns here).
+  const stacked = await paneB.evaluate((el) => {
+    const aside = el.querySelector('aside')
+    if (!aside) return 'no-aside'
+    const main = aside.parentElement!.firstElementChild!
+    return aside.getBoundingClientRect().top >= main.getBoundingClientRect().bottom - 4
+  })
+  expect(stacked, 'the detail side column stacks in a half-width pane').toBe(true)
 })
 
 test('an entity door inside a pane-hosted section page stays IN THE PANE (the nav-bridge override)', async ({ page }) => {
