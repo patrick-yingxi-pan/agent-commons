@@ -243,7 +243,7 @@ function Workspace() {
   // Its open `focus` (or the run switcher for a run session — the default panel)
   // becomes a real context PANE beside the primary on the wide tier, closed and
   // split by the rail cluster like every pane. The overlay tiers dock it instead.
-  const primaryPanel = useMemo<PaneContent | null>(
+  const activePanel = useMemo<PaneContent | null>(
     () =>
       focus
         ? { kind: focus.kind, id: focus.id }
@@ -266,7 +266,7 @@ function Workspace() {
     focusPrimary,
     splitFocused,
     routeToFocused,
-    setPrimaryContext,
+    setFocusDrivenContext,
     fillMainPane,
     closeFocused,
     setMainRatio,
@@ -274,10 +274,10 @@ function Workspace() {
 
   // Project the active session's panel into the universal tree on the WIDE tier
   // (a real context pane beside the primary); the overlay tiers dock it, so the
-  // tree carries no primary context pane there. One source of truth (`focus`).
+  // tree carries no focus-driven context pane there. One source of truth (`focus`).
   useEffect(() => {
-    setPrimaryContext(activeId, tier === 'wide' ? primaryPanel : null)
-  }, [setPrimaryContext, activeId, tier, primaryPanel])
+    setFocusDrivenContext(activeId, tier === 'wide' ? activePanel : null)
+  }, [setFocusDrivenContext, activeId, tier, activePanel])
   // What "duplicate the primary" means right now: the active section page, or
   // the active conversation. A fresh draft has no duplicable identity yet — the
   // split is a no-op until the thread materializes (or a section opens).
@@ -301,7 +301,7 @@ function Workspace() {
       onOpenProject: openProject,
       onOpenSchedule: openSchedule,
       // A pane composer's chip click: the active session's context panel is the
-      // one tied to `focus` (the tree's primary context pane) — same session
+      // one tied to `focus` (the tree's focus-driven context pane) — same session
       // toggles it there; a different one comes to the primary first (its
       // remembered panel restores with it, then tiles).
       onOpenSessionContext: (sessionId, f) => {
@@ -445,7 +445,7 @@ function Workspace() {
                           },
                           (panel) => {
                             // The active session's context panel: clear its driver so
-                            // the setPrimaryContext effect removes its pane (panelPref
+                            // the setFocusDrivenContext effect removes its pane (panelPref
                             // remembers it closed, FWD-2). Closing the RUN SWITCHER
                             // hides it; closing an attached-context panel on a run
                             // session clears `focus` but LEAVES runsPanelOpen, so the
@@ -583,7 +583,7 @@ function Workspace() {
                   </section>
 
                   {/* The active session's context panel. On the WIDE tier it is a
-                      context PANE in the universal tree (setPrimaryContext) — nothing
+                      context PANE in the universal tree (setFocusDrivenContext) — nothing
                       renders here. On the overlay tiers (medium drawer / narrow
                       takeover) it docks over the thread as before (ADAPT-11): a medium
                       scrim dims + dismisses; narrow takes over the whole thread area

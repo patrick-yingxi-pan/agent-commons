@@ -118,7 +118,7 @@ export function useSessionWorkspace() {
   const { live, typing, busy, liveTurn, sendFailure, pendingEscalation } = useConversation(activeId)
   // Which attached context the right-hand sidebar is showing (null = closed).
   // On the WIDE tier this `focus` drives the active session's context PANE in the
-  // universal main tree (App projects it via setPrimaryContext); on the overlay
+  // universal main tree (App projects it via setFocusDrivenContext); on the overlay
   // tiers it drives the docked / takeover panel. One per-session source of truth,
   // remembered by panelPrefs (FWD-2). The legacy right-frame split tree (ADAPT-16)
   // is retired — several context panes now tile through the universal split.
@@ -374,7 +374,7 @@ export function useSessionWorkspace() {
       }
       setFocus(restoreFocus(nextLive))
       // The active session's context panel rides its `focus` (restored above);
-      // the wide tier projects it into the universal tree (App's setPrimaryContext
+      // the wide tier projects it into the universal tree (App's setFocusDrivenContext
       // effect), the overlay tiers render it docked. No separate frame to restore.
       // Reconcile the full live session from the server (the system of record): a
       // persisted turn AND any persisted runtime attaches (workspace/repo/connector/
@@ -477,7 +477,7 @@ export function useSessionWorkspace() {
       const next = applyEscalationToLive(conversations.get(activeIdRef.current).live, esc, label)
       conversations.setLive(activeIdRef.current, next)
       // The grown context's panel opens by setting `focus` — the wide tier's
-      // setPrimaryContext effect then tiles it as a context pane, the overlay
+      // setFocusDrivenContext effect then tiles it as a context pane, the overlay
       // tiers dock it. (One source of truth; no inline tree edit.)
       const grown: PanelFocus | null =
         esc.kind === 'workspace'
@@ -701,7 +701,7 @@ export function useSessionWorkspace() {
     conversations.setLive(id, next)
     persistLive(id, next)
     // Open the newly attached context's panel so you see what you added — and
-    // remember it (FWD-2). On the wide tier the setPrimaryContext effect (App)
+    // remember it (FWD-2). On the wide tier the setFocusDrivenContext effect (App)
     // tiles it as a context pane; the overlay tiers dock it.
     const f = focusForAdded(ctx, next)
     if (f) {
@@ -1226,7 +1226,7 @@ export function useSessionWorkspace() {
     focus?.kind === 'connector' ? live.connectors.find((c) => c.id === focus.id) : undefined
 
   const closePanel = useCallback(() => {
-    // Clears the active session's panel — on the wide tier the setPrimaryContext
+    // Clears the active session's panel — on the wide tier the setFocusDrivenContext
     // effect (App) then removes its context pane; the overlay tiers hide the
     // docked panel. Remember the closed state (FWD-2) so it stays closed on reopen.
     setFocus(null)

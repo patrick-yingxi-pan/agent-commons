@@ -11,13 +11,13 @@ import {
   closePrimaryPane,
   contextPaneContent,
   contextPaneId,
-  findPrimaryContext,
+  findFocusDrivenContext,
   mainPaneKeep,
   newMainPicker,
   paneContentAlive,
-  setPrimaryContextTree,
+  setFocusDrivenContextTree,
   unpinnedContent,
-  withoutPrimaryContext,
+  withoutFocusDrivenContext,
   type MainPaneContent,
   type MainSplitNode,
 } from '../src/lib/mainSplit.ts'
@@ -186,47 +186,47 @@ test('a context-panel pane round-trips JSON (sessionId + panel survive persisten
 
 const panelOf = (c: MainPaneContent) => (c.kind === 'context-panel' ? c : null)
 
-test('setPrimaryContextTree opens the panel from a lone primary: [primary | context], marked primary', () => {
-  const tree = setPrimaryContextTree(null, 'auth-refactor', repoPanel)
+test('setFocusDrivenContextTree opens the panel from a lone primary: [primary | context], marked focusDriven', () => {
+  const tree = setFocusDrivenContextTree(null, 'auth-refactor', repoPanel)
   assert.deepEqual(
     panes(tree).map((p) => p.content.kind),
     ['primary', 'context-panel'],
   )
   const ctx = panes(tree).find((p) => p.content.kind === 'context-panel')!
-  assert.equal(panelOf(ctx.content)?.primary, true, 'the focus-driven pane is marked primary')
-  assert.deepEqual(findPrimaryContext(tree)?.content.panel, repoPanel)
+  assert.equal(panelOf(ctx.content)?.focusDriven, true, 'the focus-driven pane is marked focusDriven')
+  assert.deepEqual(findFocusDrivenContext(tree)?.content.panel, repoPanel)
 })
 
-test('setPrimaryContextTree is a no-op when the panel is already open to the same (session, panel)', () => {
-  const tree = setPrimaryContextTree(null, 'auth-refactor', repoPanel)
-  assert.equal(setPrimaryContextTree(tree, 'auth-refactor', repoPanel), tree, 'same state → same reference (no churn/persist)')
+test('setFocusDrivenContextTree is a no-op when the panel is already open to the same (session, panel)', () => {
+  const tree = setFocusDrivenContextTree(null, 'auth-refactor', repoPanel)
+  assert.equal(setFocusDrivenContextTree(tree, 'auth-refactor', repoPanel), tree, 'same state → same reference (no churn/persist)')
 })
 
-test('setPrimaryContextTree swaps the panel in place on a session/panel change', () => {
-  const tree = setPrimaryContextTree(null, 'auth-refactor', repoPanel)
-  const swapped = setPrimaryContextTree(tree, 'dashboard-perf', wsPanel)!
+test('setFocusDrivenContextTree swaps the panel in place on a session/panel change', () => {
+  const tree = setFocusDrivenContextTree(null, 'auth-refactor', repoPanel)
+  const swapped = setFocusDrivenContextTree(tree, 'dashboard-perf', wsPanel)!
   assert.equal(panes(swapped).length, 2, 'still two panes — replaced, not added')
-  const ctx = findPrimaryContext(swapped)!
+  const ctx = findFocusDrivenContext(swapped)!
   assert.equal(ctx.content.sessionId, 'dashboard-perf')
   assert.deepEqual(ctx.content.panel, wsPanel)
 })
 
-test('setPrimaryContextTree(null panel) closes the panel; a lone primary dissolves the tree', () => {
-  const tree = setPrimaryContextTree(null, 'auth-refactor', repoPanel)
-  assert.equal(setPrimaryContextTree(tree, 'auth-refactor', null), null, 'closing the only extra pane → plain surface')
+test('setFocusDrivenContextTree(null panel) closes the panel; a lone primary dissolves the tree', () => {
+  const tree = setFocusDrivenContextTree(null, 'auth-refactor', repoPanel)
+  assert.equal(setFocusDrivenContextTree(tree, 'auth-refactor', null), null, 'closing the only extra pane → plain surface')
 })
 
 test('splitting the primary never ORPHANS its context pane (found by flag, not position)', () => {
   // Open the panel, then the user duplicates the primary (a section pane joins).
-  const opened = setPrimaryContextTree(null, 'auth-refactor', repoPanel)!
+  const opened = setFocusDrivenContextTree(null, 'auth-refactor', repoPanel)!
   const primaryPath = panes(opened).find((p) => p.content.kind === 'primary')!.path
   const withDup = splitPane(opened, primaryPath, 'row', projects)
   // The context pane is no longer the primary's positional neighbor…
-  const found = findPrimaryContext(withDup)
+  const found = findFocusDrivenContext(withDup)
   assert.ok(found, 'still found by its primary flag')
   assert.deepEqual(found!.content.panel, repoPanel)
   // …and reconciling the SAME focus adds no duplicate.
-  const again = setPrimaryContextTree(withDup, 'auth-refactor', repoPanel)
+  const again = setFocusDrivenContextTree(withDup, 'auth-refactor', repoPanel)
   assert.equal(again, withDup, 'no duplicate context pane minted after the primary split')
   assert.equal(
     panes(withDup).filter((p) => p.content.kind === 'context-panel').length,
@@ -236,7 +236,7 @@ test('splitting the primary never ORPHANS its context pane (found by flag, not p
 
 test('closePrimaryPane skips context panes (they cannot become the primary surface)', () => {
   // [primary | context] — closing the primary has nothing promotable → refused.
-  const onlyCtx = setPrimaryContextTree(null, 'auth-refactor', repoPanel)!
+  const onlyCtx = setFocusDrivenContextTree(null, 'auth-refactor', repoPanel)!
   const pPath = panes(onlyCtx).find((p) => p.content.kind === 'primary')!.path
   assert.equal(closePrimaryPane(onlyCtx, pPath), null, 'a context pane is not a navigable surface')
 
@@ -249,26 +249,26 @@ test('closePrimaryPane skips context panes (they cannot become the primary surfa
   assert.equal(res!.promoted.kind, 'msection')
 })
 
-test('withoutPrimaryContext strips the TRANSIENT focus pane from storage but keeps PINNED context panes', () => {
+test('withoutFocusDrivenContext strips the TRANSIENT focus pane from storage but keeps PINNED context panes', () => {
   // [primary | context(primary)] then a pinned context pane beside the primary.
-  const t1 = setPrimaryContextTree(null, 'S1', repoPanel)!
+  const t1 = setFocusDrivenContextTree(null, 'S1', repoPanel)!
   const primaryPath = panes(t1).find((p) => p.content.kind === 'primary')!.path
-  const pinned = unpinnedContent(contextPaneContent('S1', wsPanel, { primary: true }))
+  const pinned = unpinnedContent(contextPaneContent('S1', wsPanel, { focusDriven: true }))
   const t2 = splitPane(t1, primaryPath, 'row', pinned)
-  const persisted = withoutPrimaryContext(t2)
+  const persisted = withoutFocusDrivenContext(t2)
   const kinds = panes(persisted).map((p) => p.content.kind)
   assert.ok(kinds.includes('primary') && kinds.includes('context-panel'), 'the pinned pane persists beside the primary')
-  assert.equal(findPrimaryContext(persisted), null, 'the transient focus-driven pane is gone from storage')
+  assert.equal(findFocusDrivenContext(persisted), null, 'the transient focus-driven pane is gone from storage')
   // A lone [primary | primary-context] persists as null (nothing user-created).
-  assert.equal(withoutPrimaryContext(t1), null)
+  assert.equal(withoutFocusDrivenContext(t1), null)
 })
 
-test('unpinnedContent strips the primary flag (a duplicated context pane becomes an independent pinned pane)', () => {
-  const pinned = unpinnedContent(contextPaneContent('auth-refactor', repoPanel, { primary: true }))
-  assert.equal(panelOf(pinned)?.primary, undefined)
-  // findPrimaryContext then ignores it — a pinned pane is not the focus-driven one.
+test('unpinnedContent strips the focusDriven flag (a duplicated context pane becomes an independent pinned pane)', () => {
+  const pinned = unpinnedContent(contextPaneContent('auth-refactor', repoPanel, { focusDriven: true }))
+  assert.equal(panelOf(pinned)?.focusDriven, undefined)
+  // findFocusDrivenContext then ignores it — a pinned pane is not the focus-driven one.
   const tree = splitPane(pane(PRIMARY), '', 'row', pinned)
-  assert.equal(findPrimaryContext(tree), null)
+  assert.equal(findFocusDrivenContext(tree), null)
   // Non-context content is returned unchanged.
   assert.deepEqual(unpinnedContent(projects), projects)
 })
