@@ -110,10 +110,10 @@ function takeBootView(): RoutedView | null {
  *  the domain rules it calls live in data/liveSession.ts (model). */
 export function useSessionWorkspace(split?: {
   /** The FOCUSED pane's canonical path (universal split Phase 6: the address
-   *  bar is a projection of the focused pane) — 'singleton' when the primary
-   *  pane (or a non-page pane: context panel, picker) is focused: derive from
-   *  this hook's own nav state; otherwise the concrete path. */
-  focusedPath?: string | 'singleton'
+   *  bar is a projection of the focused pane) — 'keep' when a pane with no
+   *  canonical location is focused (a picker, the background): the address
+   *  stays as-is (page identity didn't change). */
+  focusedPath?: string | 'keep'
   /** Apply a popstate-routed view to the focused SECONDARY pane (browser
    *  Back/Forward retarget the focused pane, like every navigation); false =
    *  not handled (the primary is focused) — the singleton applies it. */
@@ -124,6 +124,11 @@ export function useSessionWorkspace(split?: {
    *  it as before. (Transient highlight targets stay singleton-only until
    *  the pane FocusContext lands — the page still opens on the entity.) */
   routeDoor?: (section: SectionId, seed: PaneSeed) => boolean
+  /** A SESSION door (a palette hit, a notifications row, the boot address, the
+   *  restore memory) lands in the focused pane too; false = unhandled. */
+  routeSession?: (sessionId: string) => boolean
+  /** A bare-section door (palette "Pages", a relation card's section jump). */
+  routeSection?: (section: SectionId, sub?: string | null) => boolean
 }) {
   // Ref'd so the popstate listener (bound once) reads the CURRENT callback.
   const splitRef = useRef(split)
@@ -362,6 +367,13 @@ export function useSessionWorkspace(split?: {
 
   const selectSession = useCallback(
     (id: string) => {
+      // A session door lands in the FOCUSED pane (Phase 6 — the pane's own
+      // open recipe seeds/reconciles/reattaches; this hook's singleton copy
+      // below only serves as the pre-split fallback). NEVER while this
+      // account is being LEFT: routing commits (and PERSISTS) into the
+      // outgoing account's tree — the switch's land-on-draft must not
+      // clobber the blob the next visit restores.
+      if (!leftAccount.current && splitRef.current?.routeSession?.(id)) return
       // Record the page we're leaving so back can return to it (title irrelevant
       // for the dedupe check — it's only used to skip re-selecting this session).
       record({ kind: 'session', sessionId: id, title: '' })
@@ -680,6 +692,10 @@ export function useSessionWorkspace(split?: {
     // coalesce handle so the first send re-materializes.
     if (seed) rememberAttached(seed) // promote into the Add-context recents, like a manual attach
     draft.reset(seed)
+    // The fresh draft lands in the FOCUSED pane like every navigation (the
+    // reset above already ran — the pane shows the seeded entry). Never while
+    // LEAVING the account (see selectSession).
+    if (!leftAccount.current) splitRef.current?.routeSession?.(DRAFT_ID)
   }, [clearTimers, record])
 
   // "New from repo / folder / connector…" — a per-mode entry point that starts a
@@ -700,6 +716,7 @@ export function useSessionWorkspace(split?: {
   // Opening a section from the rail always lands on its top level, so clear any
   // project a previous deep-link had focused.
   const openSection = useCallback((s: SectionId) => {
+    if (splitRef.current?.routeSection?.(s)) return
     record({ kind: 'section', section: s, projectId: null, scheduleId: null, ownerName: null })
     setActiveSection(s)
     setActiveSubview(null) // each section body maps null to its own default (all / worker list)
@@ -858,6 +875,11 @@ export function useSessionWorkspace(split?: {
           }
       : loadViewLocation(viewScope.current)
     if (!loc) {
+      // No address, no memory: the tree must still show a first page — the
+      // fresh draft (ADAPT-1). Pre-Phase-6 the singleton state booted here
+      // implicitly; with panes the ONLY render path, the mint is explicit.
+      draft.reset()
+      splitRef.current?.routeSession?.(DRAFT_ID)
       restoreSettled.current = true
       return
     }
@@ -911,19 +933,19 @@ export function useSessionWorkspace(split?: {
     // lands with the path already current, so the equality guard keeps those from
     // minting a duplicate history entry.
     //
-    // The address projects the FOCUSED pane (Phase 6): a focused secondary
-    // page pane's canonical path wins; the primary — and a focused NON-page
-    // pane (context panel, picker) — derive from this hook's state as before.
-    const focusedPath = split?.focusedPath ?? 'singleton'
+    // The address projects the FOCUSED pane (Phase 6): a page pane's canonical
+    // path wins ('keep' = a non-page pane is focused — the address stays);
+    // with no split input at all, the pre-split singleton derivation applies.
+    const focusedPath = split?.focusedPath
+    if (focusedPath === 'keep') return
     const path =
-      focusedPath !== 'singleton'
-        ? focusedPath
-        : pathForView(
-            activeSection
-              ? { kind: 'section', section: activeSection, projectId: focusProjectId, scheduleId: focusScheduleId, ownerName: focusOwnerName, workItemId: focusWorkItemId, agentId: focusAgentId, contextId: focusContextId }
-              : { kind: 'session', sessionId: activeId, title: '' },
-            activeSubview,
-          )
+      focusedPath ??
+      pathForView(
+        activeSection
+          ? { kind: 'section', section: activeSection, projectId: focusProjectId, scheduleId: focusScheduleId, ownerName: focusOwnerName, workItemId: focusWorkItemId, agentId: focusAgentId, contextId: focusContextId }
+          : { kind: 'session', sessionId: activeId, title: '' },
+        activeSubview,
+      )
     if (window.location.pathname !== path) window.history.pushState(null, '', path)
   }, [activeId, activeSection, activeSubview, focusProjectId, focusScheduleId, focusOwnerName, focusWorkItemId, focusAgentId, focusContextId, split?.focusedPath])
 

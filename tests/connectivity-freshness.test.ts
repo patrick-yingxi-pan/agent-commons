@@ -130,7 +130,11 @@ test('the open thread’s title bar renders the LIVE session row (a rename shows
   // singleton surface): its title bar must read the cache-refreshed row from
   // useSessions, never a creation-time snapshot.
   const split = src('src', 'components', 'MainSplit.tsx')
-  assert.match(split, /const row = \(useSessions\(\)\.data \?\? \[\]\)\.find\(\(s\) => s\.id === sessionId\)/, 'the pane resolves the LIVE row')
+  assert.match(
+    split,
+    /\(useSessions\(\)\.data \?\? \[\]\)\.find\(\(s\) => s\.id === sessionId\) \?\? peek<Session>\(keys\.session\(sessionId\)\)/,
+    'the pane resolves the LIVE row (list, falling back to the loadSession cache for run sessions)',
+  )
   assert.match(split, /<SessionTitleBar\s+session=\{row \?\?/, 'the title bar gets the cache-refreshed row (with the draft/run fallback)')
 })
 

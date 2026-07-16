@@ -10,7 +10,7 @@
 import { useEffect } from 'react'
 import { SESSIONS } from '../data/sessions'
 import { DRAFT_ID, liveFromSession, unresolvedEscalation, type Live } from '../data/liveSession'
-import { keys, loadSession, peek } from '../api'
+import { keys, loadSession, onSessionPush, peek } from '../api'
 import { getPanelPref } from '../lib/panelPrefs'
 import { conversations, useConversation } from './conversationStore'
 import type { ConversationState } from './conversationCore'
@@ -69,6 +69,27 @@ export function usePaneConversation(sessionId: string): ConversationState {
       })
       .catch(() => {})
   }, [sessionId])
+
+  // Cross-client freshness: another client's change to THIS session (a context
+  // attached, a turn persisted) re-reconciles the open pane — the same guards
+  // as the mount-time read (never stomp a mid-stream entry). Every visible
+  // pane subscribes for its own session (the singleton used to cover only the
+  // one active thread).
+  useEffect(
+    () =>
+      onSessionPush((sid) => {
+        if (sid !== sessionId || sessionId === DRAFT_ID) return
+        const since = conversations.epoch(sessionId)
+        loadSession(sessionId)
+          .then((s) => {
+            const now = conversations.get(sessionId)
+            if (now.busy || now.typing) return
+            conversations.reconcile(sessionId, since, liveFromSession(s))
+          })
+          .catch(() => {})
+      }),
+    [sessionId],
+  )
 
   return conv
 }

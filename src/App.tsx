@@ -124,20 +124,22 @@ function Workspace() {
   const focusedContentRef = useRef(focusedContent)
   focusedContentRef.current = focusedContent
 
-  // The focused pane's canonical path: a conversation or section pane has one;
-  // the background — and a NON-PAGE pane (a context panel, a picker: a panel
-  // is not a page, so the address keeps naming the page you're on) — defer to
-  // the singleton's derivation.
-  const focusedPath = useMemo((): string | 'singleton' => {
+  // The focused pane's canonical path: a conversation or section pane has its
+  // own; a CONTEXT pane addresses as its OWNING conversation (a panel is not
+  // a page — the address names the page it belongs to); a picker or the
+  // background keeps the current address ('keep': no push at all — the old
+  // 'defer to the singleton' fallback derived from state nothing updates now).
+  const focusedPath = useMemo((): string | 'keep' => {
     const c = focusedContent
-    if (!c) return 'singleton'
+    if (!c) return 'keep'
     if (c.kind === 'msession') return pathForView({ kind: 'session', sessionId: c.id, title: '' }, null)
+    if (c.kind === 'context-panel') return pathForView({ kind: 'session', sessionId: c.sessionId, title: '' }, null)
     if (c.kind === 'msection')
       return pathForView(
         { kind: 'section', section: c.id, projectId: null, scheduleId: null, ownerName: null, workItemId: null, agentId: null, contextId: null },
         c.sub ?? null,
       )
-    return 'singleton'
+    return 'keep'
   }, [focusedContent])
 
   // Browser Back/Forward retarget the FOCUSED pane (like every navigation);
@@ -146,7 +148,13 @@ function Workspace() {
   // (the detail lift is the Phase 6 fidelity fast-follow).
   const applyRouteToFocused = useCallback(
     (routed: RoutedView | null): boolean => {
-      if (!routed) return routeToFocused({ kind: 'msession', id: DRAFT_ID })
+      if (!routed) {
+        // The root = a FRESH draft (like every other draft door): reset first,
+        // or the coalesce handle would append the next send to the PREVIOUS
+        // materialized session.
+        draft.reset()
+        return routeToFocused({ kind: 'msession', id: DRAFT_ID })
+      }
       if (routed.loc.kind === 'session') return routeToFocused({ kind: 'msession', id: routed.loc.sessionId })
       return routeToFocused({ kind: 'msection', id: routed.loc.section, sub: routed.subview ?? null })
     },
@@ -159,6 +167,13 @@ function Workspace() {
   // singleton opens it as before).
   const routeDoor = useCallback(
     (section: SectionId, seed: PaneSeed): boolean => routeToFocused({ kind: 'msection', id: section, seed }),
+    [routeToFocused],
+  )
+  // A session door (palette hit, notifications row, boot address, restore
+  // memory) and a bare-section door land in the focused pane the same way.
+  const routeSession = useCallback((id: string): boolean => routeToFocused({ kind: 'msession', id }), [routeToFocused])
+  const routeSection = useCallback(
+    (section: SectionId, sub?: string | null): boolean => routeToFocused({ kind: 'msection', id: section, sub: sub ?? null }),
     [routeToFocused],
   )
 
@@ -219,7 +234,7 @@ function Workspace() {
     removeFolder,
     closePanel,
     approveEscalation,
-  } = useSessionWorkspace({ focusedPath, applyRouteToFocused, routeDoor })
+  } = useSessionWorkspace({ focusedPath, applyRouteToFocused, routeDoor, routeSession, routeSection })
 
   // (The relay wait state — "Waiting on your session…" — is derived inside
   // ConversationView now, once for every host.)
@@ -296,45 +311,10 @@ function Workspace() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // ── Boot: the tree is the ONLY surface (Phase 6) ─────────────────────────────
-  // An empty boot opens the fresh draft (ADAPT-1); a deep link opens what it
-  // names (the boot address wins over the per-account tree only when the tree
-  // is empty — a restored layout IS the remembered place). Once per mount
-  // (the Workspace remounts keyed by account, so a switch re-runs this).
-  const booted = useRef(false)
-  useEffect(() => {
-    if (booted.current) return
-    booted.current = true
-    if (mainTree) return
-    const routed = viewForPath(window.location.pathname)
-    if (!routed) {
-      draft.reset()
-      routeToFocused({ kind: 'msession', id: DRAFT_ID })
-    } else if (routed.loc.kind === 'session') {
-      routeToFocused({ kind: 'msession', id: routed.loc.sessionId })
-    } else {
-      const l = routed.loc
-      routeToFocused({
-        kind: 'msection',
-        id: l.section,
-        sub: routed.subview ?? null,
-        seed: {
-          ...(l.projectId ? { projectId: l.projectId } : {}),
-          ...(l.workItemId ? { workItemId: l.workItemId } : {}),
-          ...(l.scheduleId ? { scheduleId: l.scheduleId } : {}),
-          ...(l.ownerName ? { ownerName: l.ownerName } : {}),
-          ...(l.agentId ? { agentId: l.agentId } : {}),
-          ...(l.contextId ? { contextId: l.contextId } : {}),
-        },
-      })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // Re-open the run switcher whenever the focused conversation changes.
-  useEffect(() => {
-    setRunsPanelOpen(true)
-  }, [focusedContent?.kind === 'msession' ? focusedContent.id : null])
+  // (Boot lives in the workspace hook's restore effect — the consume-once boot
+  // address, the per-account memory, and the fresh-draft default all apply
+  // through the routeSession/routeSection/routeDoor bridges, which MINT the
+  // first pane when only the background shows.)
 
   // ── The FOCUSED conversation's context panel as a tree pane (Phase 6) ───────
   // The focused pane's session + its STORE-held `focus` (or the run switcher
@@ -349,6 +329,13 @@ function Workspace() {
       : focusedContent?.kind === 'context-panel'
         ? focusedContent.sessionId
         : null
+
+  // Re-open the run switcher when the focused CONVERSATION changes — keyed on
+  // the session (stable across a conversation and its own context pane), so a
+  // focus hop between the two can't resurrect a just-closed switcher.
+  useEffect(() => {
+    setRunsPanelOpen(true)
+  }, [focusedSessionId])
   const focusedConv = useConversation(focusedSessionId ?? DRAFT_ID)
   const focusedRow = focusedSessionId
     ? (sessions.find((s) => s.id === focusedSessionId) ?? peek<Session>(keys.session(focusedSessionId)))
@@ -366,12 +353,18 @@ function Workspace() {
             : null,
     [focusedSessionId, focusedFocus, focusedRunOf, runsPanelOpen],
   )
+  // LATCHED while the focused session's row resolves (a run opened from the
+  // runs panel, a session not in the list yet): an unresolved row reads as
+  // "no panel" and would DISSOLVE + re-form the tree, remounting everything
+  // (the projection-latch rule — a transient unknown is not a definitive
+  // absence). The reconcile notify re-renders App, so the latch releases.
+  const focusedResolving = !!focusedSessionId && focusedSessionId !== DRAFT_ID && !focusedRow
   useEffect(() => {
     // No conversation focused (a section pane, the background) — leave the
     // tree as-is: an absent subject is not a "close the panel" instruction.
-    if (!focusedSessionId) return
+    if (!focusedSessionId || focusedResolving) return
     setFocusDrivenContext(focusedSessionId, tier === 'wide' ? activePanel : null)
-  }, [setFocusDrivenContext, focusedSessionId, tier, activePanel])
+  }, [setFocusDrivenContext, focusedSessionId, tier, activePanel, focusedResolving])
   // Split duplicates the FOCUSED pane's own content (every page equally —
   // the controller reads the leaf; no caller-supplied "what the primary
   // shows" since there is no primary).
@@ -384,8 +377,13 @@ function Workspace() {
       // pane hosts the session (like every navigation).
       onOpenSession: (id) => {
         const c = focusedContentRef.current
-        if (c?.kind === 'context-panel') adoptDraftPanes(c.sessionId, id)
-        else routeToFocused({ kind: 'msession', id })
+        if (c?.kind === 'context-panel') {
+          // A run-switcher row: the OWNING conversation retargets in place —
+          // and the panel itself swaps to the NEW session immediately (the
+          // projection can't heal it while the panel keeps focus).
+          adoptDraftPanes(c.sessionId, id)
+          setFocusDrivenContext(id, c.panel)
+        } else routeToFocused({ kind: 'msession', id })
       },
       onNewSession: () => {
         draft.reset()

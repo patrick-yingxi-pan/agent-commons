@@ -54,6 +54,9 @@ function fakeDeps(opts?: { failCreate?: boolean }) {
         lives.set(id, live)
         log.push(`reset:${id}`)
       },
+      setLive: (id, live) => {
+        lives.set(id, live)
+      },
       setFocus: (id, f) => {
         focuses.set(id, f)
       },
@@ -135,6 +138,17 @@ test('unreachable server: the turn streams against the draft id, and a retry re-
   // The coalesce handle was dropped, so a retry attempts a fresh createSession.
   await draft.sendDraftTurn('retry', () => ({}))
   assert.equal(log.filter((l) => l.startsWith('create:')).length, 2)
+})
+
+test('addSeed STACKS onto a fresh seeded draft (several picks build ONE thread) and all flush on send', async () => {
+  const { deps, log } = fakeDeps()
+  const draft = createDraftController(deps)
+  draft.addSeed({ kind: 'repo', label: 'acme/api' } as never) // fresh blank → reset+seed
+  draft.addSeed({ kind: 'connector', connector: { id: 'c1', kind: 'connector', name: 'Slack' } } as never) // stacks
+  await draft.sendDraftTurn('go', () => ({}))
+  const attaches = log.filter((l) => l.startsWith('attach:real-1'))
+  assert.equal(attaches.length >= 2, true, `both seeds flushed before the turn (${attaches.join(', ')})`)
+  assert.ok(log.indexOf(attaches[0]!) < log.indexOf('send:real-1:go'), 'flush precedes the stream')
 })
 
 test('reset seeds the draft entry and opens the seed panel; blank reset closes it', () => {

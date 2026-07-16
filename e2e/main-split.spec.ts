@@ -234,13 +234,28 @@ test('New session lands in the FOCUSED pane and materializes in place — the pr
   const composer = paneB.locator('textarea')
   await composer.fill('draft in a pane')
   await composer.press('Enter')
-  await expect(paneB.getByText('draft in a pane')).toBeVisible()
+  // (.first(): the materialized session is TITLED from the first message, so
+  // the text appears in the pane's title bar AND the thread — both correct.)
+  await expect(paneB.getByText('draft in a pane').first()).toBeVisible()
   await expect(paneB.locator('[data-conversation-pane]')).not.toHaveAttribute('data-conversation-pane', 'draft', { timeout: 15_000 })
   await expect(paneB.getByText(/local mock|workspace/).last()).toBeVisible({ timeout: 15_000 })
   await expect(page.locator('[data-main-pane="a"]').getByText('token refresh logic').first()).toBeVisible()
   const materialized = new URL(page.url()).pathname
   expect(materialized).toMatch(/^\/s\//)
   expect(materialized).not.toBe('/s/auth-refactor')
+})
+
+test('a RETURNING visitor’s deep link opens what it names (the boot address wins over the restored tree)', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 })
+  // First visit persists a tree (the fresh draft pane) — every returning
+  // browser has one, so the deep link must route INTO the restored tree
+  // rather than being swallowed by it (the pre-fix bug: the address applied
+  // to the retired singleton and was then silently rewritten).
+  await page.goto('/')
+  await expect(page.getByText('What should we work on?')).toBeVisible()
+  await page.goto('/s/auth-refactor')
+  await expect(page.getByText('token refresh logic').first()).toBeVisible()
+  expect(new URL(page.url()).pathname).toBe('/s/auth-refactor')
 })
 
 test('the fresh draft is an EQUAL page: a lone draft splits, and every view of it is identical', async ({ page }) => {

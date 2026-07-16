@@ -47,6 +47,7 @@ export interface DraftDeps {
     adopt: (from: string, to: string) => void
     sendTurn: (id: string, text: string) => Promise<void>
     reset: (id: string, live: Live) => void
+    setLive: (id: string, live: Live) => void
     setFocus: (id: string, f: PanelFocus | null) => void
   }
 }
@@ -82,6 +83,21 @@ export function createDraftController(deps: DraftDeps) {
    *  send (the FWD-1 pending buffer rule). */
   const clearBuffer = (): void => {
     pendingContexts = []
+  }
+
+  /** The FWD-1 launcher's multi-add rule: on an already-fresh EMPTY draft the
+   *  context STACKS (several picks build ONE new thread — attach + buffer +
+   *  panel), anything else starts a fresh seeded draft. */
+  const addSeed = (ctx: AddedContext): void => {
+    const entry = deps.store.get(DRAFT_ID)
+    if (entry.live.messages.length === 0 && (entry.live.repos.length || entry.live.workspaces.length || entry.live.connectors.length || entry.live.attachments.length)) {
+      const next = addContextToLive(entry.live, ctx)
+      deps.store.setLive(DRAFT_ID, next)
+      deps.store.setFocus(DRAFT_ID, focusForAdded(ctx, next))
+      pendingContexts.push(ctx)
+    } else {
+      reset(ctx)
+    }
   }
 
   /** Start a fresh draft (New session): blank or pre-seeded with one context
@@ -165,5 +181,5 @@ export function createDraftController(deps: DraftDeps) {
     await deps.store.sendTurn(sid, text)
   }
 
-  return { bufferContext, clearBuffer, reset, sendDraftTurn, sanitizePick }
+  return { addSeed, bufferContext, clearBuffer, reset, sendDraftTurn, sanitizePick }
 }

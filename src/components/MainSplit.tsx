@@ -13,7 +13,7 @@
  *  ResizeHandle, named per path (UI-11). Wide tier only (the caller gates,
  *  ADAPT-11): overlay tiers render the primary surface alone and the tree
  *  persists. */
-import { useCallback, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
 import { MessageSquare } from 'lucide-react'
 import { ResizeHandle } from './ResizeHandle'
 import { SectionView } from './SectionView'
@@ -28,12 +28,19 @@ import type { PanelFocus, SectionId } from '../types'
 import type { ModelPick } from '../lib/models'
 import {
   useSessions,
+  useProviders,
   applyRelationOp,
   attachContext,
   compactSession,
+  keys,
   patchSession,
+  peek,
   persistWorkspace,
 } from '../api'
+import { pickedModel, pickedProvider } from '../lib/models'
+import { loadModelPrefs } from '../lib/modelPrefs'
+import { setPanelPref } from '../lib/panelPrefs'
+import type { Session } from '../types'
 import { conversations } from '../controller/conversationStore'
 import { usePaneConversation } from '../controller/usePaneConversation'
 import { useSessionContextCommands } from '../controller/useSessionContextCommands'
@@ -48,7 +55,6 @@ import {
   workspaceOf,
 } from '../data/liveSession'
 import { draft } from '../controller/draftController'
-import { loadModelPrefs } from '../lib/modelPrefs'
 import { EmptyState } from './EmptyState'
 
 /** Global doors a pane hands off to the PRIMARY surface (opening a thread from
@@ -423,14 +429,39 @@ function SectionPane({
  *  apply funnel), never a parallel implementation. */
 function ConversationPane({ sessionId, nav }: { sessionId: string; nav: MainPaneNav }) {
   const conv = usePaneConversation(sessionId)
-  const row = (useSessions().data ?? []).find((s) => s.id === sessionId)
+  // The LIVE row — with the loadSession-cache fallback for rows the list
+  // doesn't carry (run sessions): title, routine breadcrumb, compact, and the
+  // writable model pick all resolve for them too.
+  const row =
+    (useSessions().data ?? []).find((s) => s.id === sessionId) ?? peek<Session>(keys.session(sessionId))
   const isDraft = sessionId === DRAFT_ID
+  const providers = useProviders().data ?? []
+
+  // The DRAFT's model pick is held locally (no server row to PATCH) — seeded
+  // from the Customize default prefs, WRITABLE (the composer's picker), and
+  // read at dispatch by the funnel. The usage strip resolves it against the
+  // live registry (identity + context window; absent = honest unknown).
+  const [draftPick, setDraftPick] = useState<ModelPick>(() => {
+    const prefs = loadModelPrefs()
+    return { providerId: prefs.providerId, modelId: prefs.modelId }
+  })
+  const draftPickRef = useRef(draftPick)
+  draftPickRef.current = draftPick
+  const draftModelRef = useMemo(() => {
+    if (!isDraft) return undefined
+    const provider = pickedProvider(providers, draftPick)
+    if (!provider) return undefined
+    const model = pickedModel(provider, draftPick)
+    return {
+      providerId: provider.id,
+      providerLabel: provider.label,
+      ...(model ? { modelId: model.id, modelLabel: model.label, windowTokens: model.contextWindow } : {}),
+    }
+  }, [isDraft, providers, draftPick])
 
   // A pane-hosted DRAFT sends through the SHARED draft funnel (draftCore.ts —
-  // the singleton's exact flow: coalesced materialization, FWD-1 flush before
-  // the turn, FWD-2 focus carry). This host's `onAdopted` retargets every
-  // draft pane to the real id; the model pick is the Customize default (the
-  // draft pick UI lives on the singleton until the primary dissolves).
+  // coalesced materialization, FWD-1 flush before the turn, FWD-2 focus
+  // carry). This host's `onAdopted` retargets every draft pane to the real id.
   const sendDraft = useCallback(
     (text: string) => {
       conversations.update(DRAFT_ID, (s) => ({
@@ -440,10 +471,9 @@ function ConversationPane({ sessionId, nav }: { sessionId: string; nav: MainPane
         sendFailure: null,
         live: { ...s.live, messages: [...s.live.messages, { id: `u-${Date.now()}`, role: 'user' as const, content: text }] },
       }))
-      const prefs = loadModelPrefs()
       void draft.sendDraftTurn(
         text,
-        () => ({ providerId: prefs.providerId, modelId: prefs.modelId }),
+        () => draftPickRef.current,
         undefined,
         (realId) => nav.onDraftAdopted(realId),
       )
@@ -468,6 +498,19 @@ function ConversationPane({ sessionId, nav }: { sessionId: string; nav: MainPane
         const label = workspaceRoot ? folderLabel(workspaceRoot) : `${nav.sessionLabel(sessionId)} files`
         const next = applyEscalationToLive(conversations.get(sessionId).live, esc, label)
         conversations.setLive(sessionId, next)
+        // The escalation's payoff: the GROWN context's panel opens (the wide
+        // tier tiles it beside this pane; the overlay tiers dock it) — and the
+        // choice is remembered (FWD-2).
+        const grown: PanelFocus | null =
+          esc.kind === 'workspace'
+            ? { kind: 'workspace', id: 'ws-demo' }
+            : esc.kind === 'repo'
+              ? { kind: 'repo', id: 'repo-demo' }
+              : null
+        if (grown) {
+          conversations.setFocus(sessionId, grown)
+          if (sessionId !== DRAFT_ID) setPanelPref(sessionId, grown)
+        }
         const binding = escalationBinding(esc, label, workspaceRoot)
         if (binding) void attachContext(sessionId, binding).catch(() => {})
         void persistWorkspace(sessionId, workspaceOf(next)).catch(() => {})
@@ -497,12 +540,13 @@ function ConversationPane({ sessionId, nav }: { sessionId: string; nav: MainPane
     }
   }, [sessionId])
 
-  // The session's two-level model pick, straight off the live row (the same
-  // PATCH the primary's picker writes — one wire, two views).
-  const modelPick: ModelPick = { providerId: row?.providerId, modelId: row?.modelId }
+  // The session's two-level model pick: the draft's local hold, or the live
+  // row's persisted fields (the same PATCH every picker writes — one wire).
+  const modelPick: ModelPick = isDraft ? draftPick : { providerId: row?.providerId, modelId: row?.modelId }
   const selectModel = useCallback(
     (pick: ModelPick) => {
-      void patchSession(sessionId, { providerId: pick.providerId ?? '', modelId: pick.modelId ?? '' })
+      if (sessionId === DRAFT_ID) setDraftPick(pick)
+      else void patchSession(sessionId, { providerId: pick.providerId ?? '', modelId: pick.modelId ?? '' })
     },
     [sessionId],
   )
@@ -531,7 +575,9 @@ function ConversationPane({ sessionId, nav }: { sessionId: string; nav: MainPane
         onRetry={retry}
         onCompact={row ? compact : undefined}
         modelPick={modelPick}
-        onSelectModel={row ? selectModel : undefined}
+        onSelectModel={isDraft || row ? selectModel : undefined}
+        usageModel={draftModelRef}
+        focus={conv.focus}
         onAddContext={addContext}
         onOpenContext={(f) => nav.onOpenSessionContext(sessionId, f)}
         onRemoveContexts={removeContexts}
@@ -543,7 +589,7 @@ function ConversationPane({ sessionId, nav }: { sessionId: string; nav: MainPane
           <EmptyState
             mode={isDraft ? 'draft' : 'empty'}
             live={conv.live}
-            onNewSessionWith={isDraft ? (ctx) => draft.reset(ctx) : undefined}
+            onNewSessionWith={isDraft ? (ctx) => draft.addSeed(ctx) : undefined}
           />
         }
       />
