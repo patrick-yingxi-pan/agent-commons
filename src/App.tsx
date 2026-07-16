@@ -275,9 +275,20 @@ function Workspace() {
   // Project the active session's panel into the universal tree on the WIDE tier
   // (a real context pane beside the primary); the overlay tiers dock it, so the
   // tree carries no focus-driven context pane there. One source of truth (`focus`).
+  //
+  // LATCHED while the active row resolves: a session door can land before its
+  // server row loads (a run opened from the runs panel, a recents row for an
+  // unlisted session) — `activeSession` falls back to the draft shell for a
+  // frame, which read as "no panel" and DISSOLVED the tree, remounting the
+  // whole main area (thread scroll, the runs list, every pane) before the
+  // resolved row re-formed it. A not-yet-resolved row is "unknown", not
+  // "closed": hold the previous projection; resolution re-projects IN PLACE
+  // (replacePane — same position, no remount).
+  const activeResolving = !isDraft && activeSession.id !== activeId
   useEffect(() => {
+    if (activeResolving) return
     setFocusDrivenContext(activeId, tier === 'wide' ? activePanel : null)
-  }, [setFocusDrivenContext, activeId, tier, activePanel])
+  }, [setFocusDrivenContext, activeId, tier, activePanel, activeResolving])
   // What "duplicate the primary" means right now: the active section page, or
   // the active conversation. A fresh draft has no duplicable identity yet — the
   // split is a no-op until the thread materializes (or a section opens).

@@ -174,6 +174,44 @@ test('a section page + its detail render correctly in a HALF-WIDTH pane — no h
   expect(detailHScroll, 'the project DETAIL page fits the pane').toBe(false)
 })
 
+test('switching runs from the runs panel swaps the context pane IN PLACE — no tree dissolve, no main-area remount', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 })
+  await page.goto('/')
+  // Open the scheduled routine's latest run from the rail: a run session tiles
+  // the run-switcher panel as a context pane (the runs panel).
+  await page.locator('aside').getByText('Triage new GitHub').first().click()
+  const ctx = page.locator('[data-context-pane]')
+  await expect(ctx).toHaveAttribute('data-context-pane', /^srun-.* runs /)
+  const firstUrl = new URL(page.url()).pathname
+  expect(firstUrl).toMatch(/^\/s\/srun-/)
+
+  // Stamp identity probes on the pane containers and the run rows. A run
+  // session's row RESOLVES ASYNC on open — the projection must hold (not
+  // project a transient "no panel") or the tree dissolves and everything
+  // remounts (the regression this locks: thread + runs list flashed and lost
+  // their scroll on every run click).
+  await page.evaluate(() => {
+    document.querySelectorAll('[data-main-pane]').forEach((el, i) => {
+      ;(el as HTMLElement & { __probe?: string }).__probe = `pane${i}`
+    })
+  })
+  // Click a DIFFERENT run (the rows name their recency; pick the last).
+  await ctx.getByRole('button').filter({ hasText: /steps/ }).last().click()
+  await expect
+    .poll(async () => new URL(page.url()).pathname, { message: 'the click navigates to another run session' })
+    .not.toBe(firstUrl)
+  await expect(ctx).toHaveAttribute('data-context-pane', /^srun-.* runs /)
+
+  // The tree never dissolved: the SAME pane containers are still mounted.
+  const probes = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-main-pane]')].map(
+      (el) => (el as HTMLElement & { __probe?: string }).__probe ?? 'REMOUNTED',
+    ),
+  )
+  expect(probes, 'pane containers survived the run switch (swap in place, not dissolve/re-form)').toEqual(['pane0', 'pane1'])
+  await expect(page.locator('[data-main-split]')).toHaveCount(1)
+})
+
 test('the right panel folds into the tree: a repo session tiles its context PANEL beside the conversation (ADAPT-16 → ADAPT-17)', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto('/s/auth-refactor')
