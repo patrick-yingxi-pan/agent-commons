@@ -115,6 +115,7 @@ function Workspace() {
     routeToFocused,
     setFocusDrivenContext,
     adoptDraftPanes,
+    reportPaneAt,
     fillMainPane,
     closeFocused,
     setMainRatio,
@@ -134,11 +135,25 @@ function Workspace() {
     if (!c) return 'keep'
     if (c.kind === 'msession') return pathForView({ kind: 'session', sessionId: c.id, title: '' }, null)
     if (c.kind === 'context-panel') return pathForView({ kind: 'session', sessionId: c.sessionId, title: '' }, null)
-    if (c.kind === 'msection')
+    if (c.kind === 'msection') {
+      // The pane's REPORTED live location (`at`) wins — its deep page
+      // (/projects/:id, /u/:name…) round-trips; the door seed covers the
+      // pre-report frame.
+      const loc = c.at ?? { sub: c.sub ?? null, ...(c.seed ?? {}) }
       return pathForView(
-        { kind: 'section', section: c.id, projectId: null, scheduleId: null, ownerName: null, workItemId: null, agentId: null, contextId: null },
-        c.sub ?? null,
+        {
+          kind: 'section',
+          section: c.id,
+          projectId: loc.projectId ?? null,
+          scheduleId: loc.scheduleId ?? null,
+          ownerName: loc.ownerName ?? null,
+          workItemId: loc.workItemId ?? null,
+          agentId: loc.agentId ?? null,
+          contextId: loc.contextId ?? null,
+        },
+        loc.sub ?? null,
       )
+    }
     return 'keep'
   }, [focusedContent])
 
@@ -156,7 +171,20 @@ function Workspace() {
         return routeToFocused({ kind: 'msession', id: DRAFT_ID })
       }
       if (routed.loc.kind === 'session') return routeToFocused({ kind: 'msession', id: routed.loc.sessionId })
-      return routeToFocused({ kind: 'msection', id: routed.loc.section, sub: routed.subview ?? null })
+      const l = routed.loc
+      return routeToFocused({
+        kind: 'msection',
+        id: l.section,
+        sub: routed.subview ?? null,
+        seed: {
+          ...(l.projectId ? { projectId: l.projectId } : {}),
+          ...(l.workItemId ? { workItemId: l.workItemId } : {}),
+          ...(l.scheduleId ? { scheduleId: l.scheduleId } : {}),
+          ...(l.ownerName ? { ownerName: l.ownerName } : {}),
+          ...(l.agentId ? { agentId: l.agentId } : {}),
+          ...(l.contextId ? { contextId: l.contextId } : {}),
+        },
+      })
     },
     [routeToFocused],
   )
@@ -595,6 +623,7 @@ function Workspace() {
                     nav={mainPaneNav}
                     onFocusPane={focusMainPane}
                     onFillPane={fillMainPane}
+                    onReportAt={reportPaneAt}
                     onRatio={setMainRatio}
                   />
                 </FocusContext.Provider>

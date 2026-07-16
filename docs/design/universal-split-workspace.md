@@ -248,11 +248,17 @@ collapses); prune at render, never in storage.
       drafts fully pane-equal (writable pick, `addSeed` multi-add). The
       review pass (2 adversarial agents over the flip commit) surfaced and
       fixed 11 findings — see commit b299656.
-   5. Section-pane deep-nav lifted into tree content (`/projects/:id`
-      round-trips from a focused pane — the "equality first, fidelity
-      follows" fast-follow), per-pane notification highlight targets, the
-      dead singleton-surface pruning in App/useSessionWorkspace, the
-      narrow-tier rail toggle on panel-only surfaces. Docs/spec reconciled
+   5. ✅ **Deep-URL fidelity LANDED 2026-07-16** — a section pane REPORTS its
+      live location (`PaneAt`: sub-view + open detail) into its tree leaf via
+      a REV-STABLE update (`updatePaneContent` — the pane must not remount
+      from describing itself; `replacePane`'s rev bump stays route-only): the
+      URL projects the focused pane's deep page (`/projects/:id`,
+      `/u/:name`…), popstate/boot seed it back, persistence restores the pane
+      to the same spot on reload (locked by a boots-twice e2e, per the
+      lesson). Initial state = `at ?? seed`; `at` is NOT in the pane's key.
+      Still open: per-pane notification highlight targets, the dead
+      singleton-surface pruning in App/useSessionWorkspace, the narrow-tier
+      rail toggle on panel-only surfaces, live prune. Docs/spec reconciled
       2026-07-16 (ADAPT-15/17 restated to the equal-panes model).
 
 ## 4. Decisions locked by the owner (2026-07-15)

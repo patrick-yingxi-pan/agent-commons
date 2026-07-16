@@ -13,7 +13,7 @@
  *  ResizeHandle, named per path (UI-11). Wide tier only (the caller gates,
  *  ADAPT-11): overlay tiers render the primary surface alone and the tree
  *  persists. */
-import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { MessageSquare } from 'lucide-react'
 import { ResizeHandle } from './ResizeHandle'
 import { SectionView } from './SectionView'
@@ -22,7 +22,7 @@ import { ConversationView } from './ConversationView'
 import { ContextPanelView } from './ContextPanelView'
 import { SECTION_META } from '../lib/sections'
 import { clampRatio, nodeAt, panes } from '../lib/splitFrame'
-import type { MainPaneContent, MainSplitNode } from '../lib/mainSplit'
+import type { MainPaneContent, MainSplitNode, PaneAt } from '../lib/mainSplit'
 import type { NavLocation } from '../lib/nav'
 import type { PanelFocus, SectionId } from '../types'
 import type { ModelPick } from '../lib/models'
@@ -108,6 +108,7 @@ export function MainSplitGate({
   nav,
   onFocusPane,
   onFillPane,
+  onReportAt,
   onRatio,
 }: {
   tree: MainSplitNode | null
@@ -117,6 +118,7 @@ export function MainSplitGate({
   nav: MainPaneNav
   onFocusPane: (path: string) => void
   onFillPane: (path: string, content: MainPaneContent) => void
+  onReportAt: (path: string, at: PaneAt) => void
   onRatio: (path: string, ratio: number) => void
 }) {
   if (!tree) return <Background />
@@ -132,7 +134,7 @@ export function MainSplitGate({
     if (!leaf) return <Background />
     return (
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-canvas" data-main-pane={leaf.path || 'root'} data-focused>
-        <PaneBody content={leaf.content} path={leaf.path} rev={leaf.rev} nav={nav} onFillPane={onFillPane} />
+        <PaneBody content={leaf.content} path={leaf.path} rev={leaf.rev} nav={nav} onFillPane={onFillPane} onReportAt={onReportAt} />
       </div>
     )
   }
@@ -143,6 +145,7 @@ export function MainSplitGate({
       nav={nav}
       onFocusPane={onFocusPane}
       onFillPane={onFillPane}
+      onReportAt={onReportAt}
       onRatio={onRatio}
     />
   )
@@ -154,6 +157,7 @@ export function MainSplit({
   nav,
   onFocusPane,
   onFillPane,
+  onReportAt,
   onRatio,
 }: {
   tree: MainSplitNode
@@ -161,6 +165,7 @@ export function MainSplit({
   nav: MainPaneNav
   onFocusPane: (path: string) => void
   onFillPane: (path: string, content: MainPaneContent) => void
+  onReportAt: (path: string, at: PaneAt) => void
   onRatio: (path: string, ratio: number) => void
 }) {
   return (
@@ -172,11 +177,16 @@ export function MainSplit({
         nav={nav}
         onFocusPane={onFocusPane}
         onFillPane={onFillPane}
+        onReportAt={onReportAt}
         onRatio={onRatio}
       />
     </div>
   )
 }
+
+/** A reported location minus its sub-view — the detail seed a fresh mount
+ *  re-initializes from. */
+const seedOfAt = ({ sub: _sub, ...seed }: PaneAt): PaneSeed => seed
 
 /** ONE leaf renderer for every host — the tiled Branch and the overlay tiers'
  *  focused-pane-only view render the identical content (no fork). */
@@ -186,6 +196,7 @@ function PaneBody({
   rev,
   nav,
   onFillPane,
+  onReportAt,
 }: {
   content: MainPaneContent
   path: string
@@ -194,18 +205,23 @@ function PaneBody({
   rev?: number
   nav: MainPaneNav
   onFillPane: (path: string, content: MainPaneContent) => void
+  onReportAt: (path: string, at: PaneAt) => void
 }) {
   return c.kind === 'msection' ? (
     <SectionPane
       // Keyed on the full seed + the leaf revision so ANY re-route (a rail
       // facet, a cross-section retarget, a same-section re-click) resets the
-      // pane-local nav cleanly.
+      // pane-local nav cleanly. `at` (the pane's REPORTED live location) is
+      // deliberately NOT in the key — the pane must not remount from
+      // describing itself; a fresh mount initializes from it instead (a
+      // reload restores the pane to the same deep spot).
       key={`${c.id}:${c.sub ?? ''}:${c.seed ? JSON.stringify(c.seed) : ''}:${rev ?? 0}`}
       section={c.id}
-      initialSub={c.sub ?? null}
-      initialFocus={c.seed}
+      initialSub={c.at ? (c.at.sub ?? null) : (c.sub ?? null)}
+      initialFocus={c.at ? seedOfAt(c.at) : c.seed}
       nav={nav}
       onRetarget={(content) => onFillPane(path, content)}
+      onAt={(at) => onReportAt(path, at)}
     />
   ) : c.kind === 'msession' ? (
     <ConversationPane sessionId={c.id} nav={nav} />
@@ -228,6 +244,7 @@ interface BranchProps {
   nav: MainPaneNav
   onFocusPane: (path: string) => void
   onFillPane: (path: string, content: MainPaneContent) => void
+  onReportAt: (path: string, at: PaneAt) => void
   onRatio: (path: string, ratio: number) => void
 }
 
@@ -252,7 +269,7 @@ function Branch(props: BranchProps) {
         data-focused={focused || undefined}
         onPointerDownCapture={() => onFocusPane(path)}
       >
-        <PaneBody content={c} path={path} rev={node.rev} nav={props.nav} onFillPane={props.onFillPane} />
+        <PaneBody content={c} path={path} rev={node.rev} nav={props.nav} onFillPane={props.onFillPane} onReportAt={props.onReportAt} />
       </div>
     )
   }
@@ -313,6 +330,7 @@ function SectionPane({
   initialFocus,
   nav,
   onRetarget,
+  onAt,
 }: {
   section: SectionId
   initialSub?: string | null
@@ -323,6 +341,9 @@ function SectionPane({
   /** Rewrite THIS pane's leaf (a cross-section entity door: the pane
    *  navigates to the target section with the detail open — never the primary). */
   onRetarget: (content: MainPaneContent) => void
+  /** Report the pane's LIVE location (sub-view + open detail) up into the
+   *  tree — the URL projects it, persistence restores it (Phase 6 step 4). */
+  onAt?: (at: PaneAt) => void
 }) {
   // Seeded from the routed content (a rail facet click carries its facet in,
   // a cross-section door carries its detail), pane-local after that (the
@@ -341,6 +362,23 @@ function SectionPane({
   // back stack without a stale closure.
   const focusRef = useRef(focus)
   focusRef.current = focus
+
+  // Report the pane's LIVE location up into the tree content (rev-stable, so
+  // this can't remount the pane) — the URL projects the focused pane's deep
+  // page and a reload restores it. Ref'd callback: nav identity churn must
+  // not re-fire the effect.
+  const onAtRef = useRef(onAt)
+  onAtRef.current = onAt
+  useEffect(() => {
+    const seed: PaneSeed = {}
+    if (focus.projectId) seed.projectId = focus.projectId
+    if (focus.scheduleId) seed.scheduleId = focus.scheduleId
+    if (focus.ownerName) seed.ownerName = focus.ownerName
+    if (focus.workItemId) seed.workItemId = focus.workItemId
+    if (focus.agentId) seed.agentId = focus.agentId
+    if (focus.contextId) seed.contextId = focus.contextId
+    onAtRef.current?.({ sub: subview, ...seed })
+  }, [subview, focus])
 
   // The pane-local nav bridge (ADAPT-17's pane-locality rule): every entity
   // door below — owner bylines, context rows, work-item links, "View in …" —

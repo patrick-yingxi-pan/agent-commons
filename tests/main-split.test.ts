@@ -6,7 +6,7 @@
  *  conversation, and the legacy-primary blob migration. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { findPane, panes, prunePanes, splitPane, pane, type PaneContent } from '../src/lib/splitFrame.ts'
+import { findPane, nodeAt, panes, prunePanes, replacePane, splitPane, pane, updatePaneContent, type PaneContent } from '../src/lib/splitFrame.ts'
 import {
   closeMainPane,
   contextPaneContent,
@@ -87,6 +87,28 @@ test('migrateMainSplit strips legacy {kind:"primary"} leaves — the sibling inh
   // A modern tree passes through untouched (same reference).
   const modern = splitPane(pane(auth), '', 'row', projects)
   assert.equal(migrateMainSplit(modern), modern)
+})
+
+test('a pane REPORTS its live location rev-stably: `at` lands in the content, `rev` untouched (no self-remount)', () => {
+  const tree = splitPane(pane(auth), '', 'row', projects)
+  // A ROUTE bumps rev (land fresh)…
+  const routed = replacePane(tree, 'b', { kind: 'msection', id: 'projects', sub: 'mine' })
+  const revAfterRoute = (nodeAt(routed, 'b') as { rev?: number }).rev
+  assert.equal(revAfterRoute, 1, 'a route bumps the leaf revision')
+  // …while the pane's own report of its live location must NOT (updatePaneContent).
+  const reported = updatePaneContent(routed, 'b', {
+    kind: 'msection',
+    id: 'projects',
+    sub: 'mine',
+    at: { sub: 'mine', projectId: 'p-1' },
+  })
+  const leaf = nodeAt(reported, 'b') as { rev?: number; content: MainPaneContent }
+  assert.equal(leaf.content.kind === 'msection' && leaf.content.at?.projectId, 'p-1', 'the live location landed')
+  assert.equal(leaf.rev, revAfterRoute, 'rev untouched by the report — the pane never remounts from describing itself')
+  // `at` round-trips persistence — a reload restores the pane's deep spot.
+  const revived = JSON.parse(JSON.stringify(reported)) as MainSplitNode
+  const rleaf = panes(revived).find((p) => p.path === 'b')!
+  assert.deepEqual(rleaf.content.kind === 'msection' ? rleaf.content.at : null, { sub: 'mine', projectId: 'p-1' })
 })
 
 test('retargetDraftPanes follows the materialized draft by CONTENT match — duplicates too; no-op returns the same tree', () => {

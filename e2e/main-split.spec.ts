@@ -56,12 +56,17 @@ test('split duplicates the focused conversation; the rail retargets the focused 
   await paneB.dispatchEvent('pointerdown')
   await expect(page).toHaveURL(/\/projects$/)
 
-  // Pane-local navigation: a project detail opens INSIDE the pane; the URL
-  // stays at the pane's section address (the deep-detail lift is the Phase 6
-  // fidelity fast-follow).
+  // Pane-local navigation: a project detail opens INSIDE the pane — and the
+  // pane REPORTS its live location, so the address deepens to /projects/:id
+  // (full URL fidelity from a focused pane, Phase 6 step 4).
   await paneB.getByText('Platform hardening').first().click()
   await expect(paneB.getByText('The platform team')).toBeVisible()
-  await expect(page).toHaveURL(/\/projects$/)
+  await expect(page).toHaveURL(/\/projects\/[^/]+$/)
+  // Hopping to pane a and back restores the DEEP address, not the section root.
+  await page.locator('[data-main-pane="a"]').dispatchEvent('pointerdown')
+  await expect(page).toHaveURL(/\/s\/auth-refactor$/)
+  await paneB.dispatchEvent('pointerdown')
+  await expect(page).toHaveURL(/\/projects\/[^/]+$/)
 
   // The main-pane divider is a named, keyboard-operable separator (UI-11).
   await expect(page.getByRole('separator', { name: 'Resize view panes (root)' })).toBeVisible()
@@ -258,6 +263,23 @@ test('a RETURNING visitor’s deep link opens what it names (the boot address wi
   expect(new URL(page.url()).pathname).toBe('/s/auth-refactor')
 })
 
+test('a RELOAD restores a pane to its deep page — the reported location persists and round-trips', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 })
+  await page.goto('/projects')
+  await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible()
+  await page.getByText('Platform hardening').first().click()
+  await expect(page.getByText('The platform team')).toBeVisible()
+  await expect(page).toHaveURL(/\/projects\/[^/]+$/)
+  const deep = new URL(page.url()).pathname
+
+  // The boots-twice rule (the Phase 6 lesson): the persisted tree carries the
+  // pane's reported location, so a reload lands back ON the detail page with
+  // the same address — not the section root.
+  await page.reload()
+  await expect(page.getByText('The platform team')).toBeVisible()
+  expect(new URL(page.url()).pathname).toBe(deep)
+})
+
 test('the fresh draft is an EQUAL page: a lone draft splits, and every view of it is identical', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto('/')
@@ -300,10 +322,10 @@ test('an entity door inside a pane-hosted section page stays IN THE PANE (the na
   await paneB.getByRole('button').filter({ hasText: 'GitHub' }).first().click()
   await expect(paneB.getByText('Disconnect').first()).toBeVisible()
 
-  // The primary is untouched; the address names the focused pane's SECTION
-  // (its pane-local detail is below page granularity until the deep-nav lift).
+  // The primary is untouched; the address names the focused pane's DEEP page
+  // (the connector's detail — the pane reports its live location).
   await expect(page.locator('[data-main-pane="a"]').getByText('token refresh logic').first()).toBeVisible()
-  expect(new URL(page.url()).pathname).toBe('/contexts')
+  expect(new URL(page.url()).pathname).toMatch(/^\/contexts\/[^/]+$/)
 })
 
 test('an entity DOOR (the ⌘K palette) lands in the FOCUSED pane, detail open — the primary untouched', async ({ page }) => {

@@ -17,7 +17,7 @@
  *  the first pane whenever its own pane vanishes. The tree is per-account
  *  persisted (src/lib/mainSplit.ts). */
 import { useCallback, useRef, useState } from 'react'
-import { nodeAt, pane, panes, replacePane, setRatio, splitPane as splitLeaf, type PaneContent, type SplitDir } from '../lib/splitFrame'
+import { nodeAt, pane, panes, replacePane, setRatio, splitPane as splitLeaf, updatePaneContent, type PaneContent, type SplitDir } from '../lib/splitFrame'
 import {
   closeMainPane as closeMain,
   findFocusDrivenContext,
@@ -29,6 +29,7 @@ import {
   withoutFocusDrivenContext,
   type MainPaneContent,
   type MainSplitNode,
+  type PaneAt,
 } from '../lib/mainSplit'
 
 const firstPanePath = (t: MainSplitNode | null): string => panes(t)[0]?.path ?? ''
@@ -189,6 +190,23 @@ export function useMainSplit() {
     [commit],
   )
 
+  /** A section pane REPORTS its live location (sub-view + open detail) — a
+   *  rev-STABLE content update (the pane must not remount from describing
+   *  itself), equality-guarded so redundant reports never commit/persist.
+   *  The URL projects it; a reload restores the pane to the same spot. */
+  const reportPaneAt = useCallback(
+    (path: string, at: PaneAt) => {
+      const t = treeRef.current
+      if (!t) return
+      const node = nodeAt(t, path)
+      if (node?.kind !== 'pane' || node.content.kind !== 'msection') return
+      const prev = node.content.at
+      if (prev && JSON.stringify(prev) === JSON.stringify(at)) return
+      commit(updatePaneContent(t, path, { ...node.content, at }))
+    },
+    [commit],
+  )
+
   /** A pane-hosted draft materialized: retarget every draft conversation pane
    *  to the real id (content match — duplicates follow too). */
   const adoptDraftPanes = useCallback(
@@ -210,6 +228,7 @@ export function useMainSplit() {
     routeToFocused,
     setFocusDrivenContext,
     adoptDraftPanes,
+    reportPaneAt,
     fillMainPane,
     closeMainPane,
     closeFocused,

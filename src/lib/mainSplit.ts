@@ -30,8 +30,12 @@ export type MainPaneContent =
   // focused pane carries the facet along); `seed` seeds the pane's open DETAIL
   // (a cross-section door inside a pane — an owner byline, a linked context —
   // retargets the pane's leaf to the target section WITH the detail open,
-  // src/lib/paneNav.ts). Both are seeds: pane-local state after mount.
-  | { kind: 'msection'; id: SectionId; sub?: string | null; seed?: PaneSeed }
+  // src/lib/paneNav.ts). Both are seeds: pane-local state after mount — which
+  // the pane REPORTS back as `at` (its live sub-view + open detail, written
+  // rev-stably so the pane never remounts from describing itself): the URL
+  // projects it (`/projects/:id` from a focused pane), persistence restores
+  // it, and a fresh mount initializes from `at ?? seed`.
+  | { kind: 'msection'; id: SectionId; sub?: string | null; seed?: PaneSeed; at?: PaneAt }
   | { kind: 'msession'; id: string }
   // A session's context panel as a FULL pane (universal split Phase 4): the
   // workspace / repo / connector / files / photos / run switcher, scoped to its
@@ -49,6 +53,9 @@ export type MainPaneContent =
   // UI renders them but nothing mints them anymore (a split now DUPLICATES
   // the focused pane — no picker step).
   | { kind: 'mpicker'; id: string }
+
+/** A section pane's LIVE location — the sub-view + open detail it reports. */
+export type PaneAt = { sub: string | null } & PaneSeed
 
 export type MainSplitNode = SplitNode<MainPaneContent>
 

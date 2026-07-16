@@ -119,6 +119,13 @@ export function replacePane<C extends PaneId>(root: SplitNode<C>, path: string, 
   )
 }
 
+/** Update a pane's content WITHOUT bumping `rev` — for reflecting a pane's own
+ *  LIVE state back into the tree (its reported location): the pane must not
+ *  remount from describing itself (replacePane's bump is for ROUTES). */
+export function updatePaneContent<C extends PaneId>(root: SplitNode<C>, path: string, content: C): SplitNode<C> {
+  return editAt(root, path, (node) => (node.kind === 'pane' ? { ...node, content } : node))
+}
+
 /** Set a split's ratio (clamped against the constant bounds). */
 export function setRatio<C extends PaneId>(root: SplitNode<C>, path: string, ratio: number): SplitNode<C> {
   return editAt(root, path, (node) => (node.kind === 'split' ? { ...node, ratio: clampRatio(ratio) } : node))
