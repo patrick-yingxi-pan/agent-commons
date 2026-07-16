@@ -9,7 +9,7 @@
  *  duplicate pane can't stale its twin's stream. */
 import { useEffect } from 'react'
 import { SESSIONS } from '../data/sessions'
-import { liveFromSession, unresolvedEscalation } from '../data/liveSession'
+import { DRAFT_ID, liveFromSession, unresolvedEscalation } from '../data/liveSession'
 import { keys, loadSession, peek } from '../api'
 import { conversations, useConversation } from './conversationStore'
 import type { ConversationState } from './conversationCore'
@@ -19,6 +19,10 @@ export function usePaneConversation(sessionId: string): ConversationState {
   const conv = useConversation(sessionId)
 
   useEffect(() => {
+    // The DRAFT has no server row (it materializes on first send through the
+    // draft funnel) — nothing to seed or reconcile; the pane just renders the
+    // store entry the New-session door reset.
+    if (sessionId === DRAFT_ID) return
     const entry = conversations.get(sessionId)
     const pristine = entry.live.messages.length === 0 && !entry.busy && !entry.typing
     // Seed a pristine entry from the local mirror so the thread paints at once

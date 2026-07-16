@@ -27,6 +27,7 @@ import {
   closePrimaryPane,
   findFocusDrivenContext,
   getMainSplitPref,
+  retargetDraftPanes,
   setMainSplitPref,
   setFocusDrivenContextTree,
   unpinnedContent,
@@ -218,6 +219,17 @@ export function useMainSplit() {
     [commit],
   )
 
+  /** A pane-hosted draft materialized: retarget every draft conversation pane
+   *  to the real id (content match — duplicates follow too). */
+  const adoptDraftPanes = useCallback(
+    (draftId: string, realId: string) => {
+      const t = treeRef.current
+      const next = retargetDraftPanes(t, draftId, realId)
+      if (next !== t) commit(next)
+    },
+    [commit],
+  )
+
   return {
     mainTree,
     focusedPane,
@@ -227,6 +239,7 @@ export function useMainSplit() {
     splitFocused,
     routeToFocused,
     setFocusDrivenContext,
+    adoptDraftPanes,
     fillMainPane,
     closeMainPane,
     closeFocused,

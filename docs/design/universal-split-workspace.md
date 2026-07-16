@@ -227,10 +227,15 @@ collapses); prune at render, never in storage.
       node-tested) + `draftController.ts` (the app instance): coalesce,
       FWD-1 buffer + flush-before-send, FWD-2 focus carry, late-pick
       sanitize, adopt, degradation. One flow for every draft host.
-      (b) — a `ConversationPane` hosts the draft: `msession` pane of
-      `DRAFT_ID` dispatches through the funnel; `onAdopted` rewrites the
-      pane's own tree leaf (every draft-id pane retargets by CONTENT match,
-      not path, so duplicates survive).
+      (b) ✅ **LANDED 2026-07-16** — a `ConversationPane` hosts the draft:
+      "New session" routes the fresh draft INTO the focused pane
+      (`routeToFocused` + `draft.reset()`; the primary path unchanged when
+      the primary is focused), the pane dispatches through the shared funnel,
+      and `onDraftAdopted` retargets every draft-id pane to the real id by
+      CONTENT match (`retargetDraftPanes` — duplicates follow; same-reference
+      no-op). Locked by `tests/main-split.test.ts` (retarget) +
+      `e2e/main-split.spec.ts` (New session lands in the focused pane and
+      materializes in place; the primary keeps its content; URL unmoved).
    4. URL follows focus — `useMainSplit` exposes `focusedContent`; the
       pushState effect sources the address from it; popstate + boot retarget
       the focused pane; focus falls back to the pane inheriting a closed

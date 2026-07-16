@@ -40,12 +40,15 @@ import { useSessionContextCommands } from '../controller/useSessionContextComman
 import { SectionNavOverride, useRelations } from '../controller/useRelations'
 import { paneNavTarget, type PaneSeed } from '../lib/paneNav'
 import {
+  DRAFT_ID,
   applyEscalationToLive,
   approvalView,
   escalationBinding,
   folderLabel,
   workspaceOf,
 } from '../data/liveSession'
+import { draft } from '../controller/draftController'
+import { loadModelPrefs } from '../lib/modelPrefs'
 
 /** Global doors a pane hands off to the PRIMARY surface (opening a thread from
  *  a pane's session list shows it where conversations live — the primary). */
@@ -64,6 +67,9 @@ export interface MainPaneNav {
   onOpenSessionContext: (sessionId: string, focus: PanelFocus) => void
   /** A session's display title (the live rows) — pane title bars + picker labels. */
   sessionLabel: (id: string) => string
+  /** A pane-hosted DRAFT materialized (its first send ran the shared draft
+   *  funnel): the App retargets every draft pane to the real id. */
+  onDraftAdopted: (realId: string) => void
 }
 
 /** The gate App renders: no tree (or an overlay tier) passes the primary
@@ -357,6 +363,32 @@ function SectionPane({
 function ConversationPane({ sessionId, nav }: { sessionId: string; nav: MainPaneNav }) {
   const conv = usePaneConversation(sessionId)
   const row = (useSessions().data ?? []).find((s) => s.id === sessionId)
+  const isDraft = sessionId === DRAFT_ID
+
+  // A pane-hosted DRAFT sends through the SHARED draft funnel (draftCore.ts —
+  // the singleton's exact flow: coalesced materialization, FWD-1 flush before
+  // the turn, FWD-2 focus carry). This host's `onAdopted` retargets every
+  // draft pane to the real id; the model pick is the Customize default (the
+  // draft pick UI lives on the singleton until the primary dissolves).
+  const sendDraft = useCallback(
+    (text: string) => {
+      conversations.update(DRAFT_ID, (s) => ({
+        ...s,
+        typing: true,
+        busy: true,
+        sendFailure: null,
+        live: { ...s.live, messages: [...s.live.messages, { id: `u-${Date.now()}`, role: 'user' as const, content: text }] },
+      }))
+      const prefs = loadModelPrefs()
+      void draft.sendDraftTurn(
+        text,
+        () => ({ providerId: prefs.providerId, modelId: prefs.modelId }),
+        undefined,
+        (realId) => nav.onDraftAdopted(realId),
+      )
+    },
+    [nav],
+  )
 
   const approve = useCallback(
     (workspaceRoot?: string) => {
@@ -419,7 +451,7 @@ function ConversationPane({ sessionId, nav }: { sessionId: string; nav: MainPane
       {/* The SAME title bar the primary wears (a run session outside the live
           list falls back to a title-only shell). */}
       <SessionTitleBar
-        session={row ?? { id: sessionId, title: nav.sessionLabel(sessionId) }}
+        session={row ?? { id: sessionId, title: isDraft ? 'New session' : nav.sessionLabel(sessionId) }}
         onOpenProject={nav.onOpenProject}
         onOpenSchedule={nav.onOpenSchedule}
       />
@@ -432,7 +464,7 @@ function ConversationPane({ sessionId, nav }: { sessionId: string; nav: MainPane
         sendFailure={conv.sendFailure}
         pendingApproval={conv.pendingEscalation ? approvalView(conv.pendingEscalation.escalation) : null}
         onApprove={approve}
-        onSend={(text) => void conversations.dispatchTurn(sessionId, text)}
+        onSend={isDraft ? sendDraft : (text) => void conversations.dispatchTurn(sessionId, text)}
         onStop={() => conversations.stop(sessionId)}
         onRetry={retry}
         onCompact={row ? compact : undefined}

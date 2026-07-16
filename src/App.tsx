@@ -29,7 +29,8 @@ import { pickedModel, pickedProvider, type ModelPick } from './lib/models'
 import { FocusContext } from './lib/focusContext'
 import { SCRIM_CLASS } from './lib/scrim'
 import { SECTION_META } from './lib/sections'
-import type { Live } from './data/liveSession'
+import { DRAFT_ID, type Live } from './data/liveSession'
+import { draft } from './controller/draftController'
 import type { AddedContext, Connector, SectionId, Session } from './types'
 
 /** The shell: decides WHICH top-level surface renders — the full-screen auth
@@ -267,6 +268,7 @@ function Workspace() {
     splitFocused,
     routeToFocused,
     setFocusDrivenContext,
+    adoptDraftPanes,
     fillMainPane,
     closeFocused,
     setMainRatio,
@@ -320,8 +322,11 @@ function Workspace() {
         else selectSession(sessionId)
       },
       sessionLabel: (id) => sessions.find((s) => s.id === id)?.title ?? 'Conversation',
+      // A pane-hosted draft materialized: every draft pane follows the entry
+      // to the real id (content match — a duplicated draft pane follows too).
+      onDraftAdopted: (realId) => adoptDraftPanes(DRAFT_ID, realId),
     }),
-    [selectSession, newSession, openProposal, openProject, openSchedule, sessions, activeId, focusContext],
+    [selectSession, newSession, openProposal, openProject, openSchedule, sessions, activeId, focusContext, adoptDraftPanes],
   )
 
 
@@ -414,8 +419,17 @@ function Workspace() {
                   if (!routeToFocused({ kind: 'msession', id })) selectSession(id)
                 })}
                 onNewSession={withRailClose(() => {
-                  focusPrimary() // a fresh draft lives on the singleton surface
-                  newSession()
+                  // New session lands in the FOCUSED pane (the focused-pane
+                  // routing every rail door follows): a focused SECONDARY pane
+                  // hosts the fresh draft itself — reset the shared draft
+                  // entry, retarget the pane; the primary keeps its content.
+                  // With the primary focused (or no tree), the singleton path
+                  // runs as always.
+                  draft.reset()
+                  if (!routeToFocused({ kind: 'msession', id: DRAFT_ID })) {
+                    focusPrimary() // a fresh draft lives on the singleton surface
+                    newSession()
+                  }
                 })}
                 // Section / sub-view handlers stay UNwrapped by withRailClose: the rail
                 // decides when to close the narrow drawer (a leaf navigates → close;

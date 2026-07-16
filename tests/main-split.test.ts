@@ -15,6 +15,7 @@ import {
   mainPaneKeep,
   newMainPicker,
   paneContentAlive,
+  retargetDraftPanes,
   setFocusDrivenContextTree,
   unpinnedContent,
   withoutFocusDrivenContext,
@@ -101,6 +102,21 @@ test('closePrimaryPane refuses a non-primary path (those close through closeMain
   const tree = splitPane(pane(PRIMARY), '', 'row', projects) as MainSplitNode
   assert.equal(closePrimaryPane(tree, 'b'), null)
   assert.equal(closePrimaryPane(tree, 'zz'), null)
+})
+
+test('retargetDraftPanes follows the materialized draft by CONTENT match — duplicates too; no-op returns the same tree', () => {
+  const draftPane: MainPaneContent = { kind: 'msession', id: 'draft' }
+  // [primary | [draft | draft]] — a duplicated draft pane must follow too.
+  const tree = splitPane(splitPane(pane(PRIMARY), '', 'row', draftPane), 'b', 'col', draftPane)
+  const next = retargetDraftPanes(tree, 'draft', 'sess-9')!
+  assert.deepEqual(
+    panes(next).map((p) => (p.content.kind === 'msession' ? p.content.id : p.content.kind)),
+    ['primary', 'sess-9', 'sess-9'],
+    'every draft conversation pane retargeted to the real id',
+  )
+  // Nothing showing the draft → the SAME reference back (no needless commit/persist).
+  assert.equal(retargetDraftPanes(next, 'draft', 'sess-9'), next)
+  assert.equal(retargetDraftPanes(null, 'draft', 'sess-9'), null)
 })
 
 // ── Context panels as FULL panes (universal split Phase 4) ───────────────────

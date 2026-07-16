@@ -185,6 +185,36 @@ test('a section page + its detail render correctly in a HALF-WIDTH pane — no h
   expect(stacked, 'the detail side column stacks in a half-width pane').toBe(true)
 })
 
+test('New session lands in the FOCUSED pane and materializes in place — the primary keeps its content', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 })
+  await page.goto('/s/auth-refactor')
+  await expect(page.getByText('token refresh logic').first()).toBeVisible()
+  await clearAutoPanel(page)
+
+  // Split (the duplicate takes focus), then New session: the FOCUSED pane
+  // hosts the fresh draft — the primary conversation stays put (it used to
+  // always snap the draft onto the primary, regardless of focus).
+  await page.locator('[data-split-view="row"]').click()
+  await page.getByRole('button', { name: 'New session' }).click()
+  const paneB = page.locator('[data-main-pane="b"]')
+  await expect(paneB.locator('[data-conversation-pane="draft"]')).toBeVisible()
+  await expect(paneB.locator('[data-session-title-bar]').getByText('New session')).toBeVisible()
+  await expect(page.locator('[data-main-pane="a"]').getByText('token refresh logic').first()).toBeVisible()
+  expect(new URL(page.url()).pathname).toBe('/s/auth-refactor')
+
+  // Sending FROM the draft pane materializes it IN PLACE through the shared
+  // draft funnel: the pane retargets to the real session id and the reply
+  // streams there; the URL still never moved (pane-local, ADAPT-15).
+  const composer = paneB.locator('textarea')
+  await composer.fill('draft in a pane')
+  await composer.press('Enter')
+  await expect(paneB.getByText('draft in a pane')).toBeVisible()
+  await expect(paneB.locator('[data-conversation-pane]')).not.toHaveAttribute('data-conversation-pane', 'draft', { timeout: 15_000 })
+  await expect(paneB.getByText(/local mock|workspace/).last()).toBeVisible({ timeout: 15_000 })
+  await expect(page.locator('[data-main-pane="a"]').getByText('token refresh logic').first()).toBeVisible()
+  expect(new URL(page.url()).pathname).toBe('/s/auth-refactor')
+})
+
 test('an entity door inside a pane-hosted section page stays IN THE PANE (the nav-bridge override)', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto('/s/auth-refactor')

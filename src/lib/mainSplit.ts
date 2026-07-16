@@ -121,6 +121,32 @@ export function paneContentAlive(l: Live, isRunSession: boolean) {
 
 export const PRIMARY: MainPaneContent = { kind: 'primary', id: 'primary' }
 
+/** Retarget every DRAFT conversation pane to the materialized session id — by
+ *  CONTENT match, not path, so a duplicated draft pane retargets too. The
+ *  draft entry `adopt`ed to the real id in the store; the pane leaves showing
+ *  it must follow or they'd render the now-blank draft slot. Returns the tree
+ *  unchanged (same reference) when nothing shows the draft. */
+export function retargetDraftPanes(
+  tree: MainSplitNode | null,
+  draftId: string,
+  realId: string,
+): MainSplitNode | null {
+  if (!tree) return tree
+  let changed = false
+  const walk = (n: MainSplitNode): MainSplitNode => {
+    if (n.kind === 'pane') {
+      if (n.content.kind === 'msession' && n.content.id === draftId) {
+        changed = true
+        return { ...n, content: { kind: 'msession', id: realId } }
+      }
+      return n
+    }
+    return { ...n, a: walk(n.a), b: walk(n.b) }
+  }
+  const next = walk(tree)
+  return changed ? next : tree
+}
+
 let mainPickerSeq = 0
 export const newMainPicker = (): MainPaneContent => ({ kind: 'mpicker', id: `mpk-${(mainPickerSeq += 1)}` })
 
