@@ -256,6 +256,16 @@ collapses); prune at render, never in storage.
   pages, and (by integration) the context panels.
 - **One mechanism** — the right panel is absorbed; no parallel split systems
   at end state.
+- **Every page equal in one background (2026-07-16, the owner's formulation
+  of the Phase 6 end state):** *"Every page is equally displayed in the main
+  'background' and supports the same functionality: split in two directions
+  and close. When the last page is closed, only the background is
+  displayed."* Consequences: no privileged pane at all (the `{kind:'primary'}`
+  placeholder dies — panes are the ONLY render path); every pane, the fresh
+  DRAFT included, splits and closes; the tree may reach ZERO panes — an empty
+  background surface (not an implicit un-split primary) is a legal state, and
+  the rail's doors repopulate it. This settles the previously-open fork
+  "can the last pane close" with: yes, to the background.
 
 ## 5. Lessons from the build (Phases 1–4, generalizable)
 
