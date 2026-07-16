@@ -107,7 +107,20 @@ function takeBootView(): RoutedView | null {
  *  Owns all session, live-context, panel-focus, and section state, plus every
  *  handler the view binds to. App.tsx is a thin view over what this returns;
  *  the domain rules it calls live in data/liveSession.ts (model). */
-export function useSessionWorkspace() {
+export function useSessionWorkspace(split?: {
+  /** The FOCUSED pane's canonical path (universal split Phase 6: the address
+   *  bar is a projection of the focused pane) — 'singleton' when the primary
+   *  pane (or a non-page pane: context panel, picker) is focused: derive from
+   *  this hook's own nav state; otherwise the concrete path. */
+  focusedPath?: string | 'singleton'
+  /** Apply a popstate-routed view to the focused SECONDARY pane (browser
+   *  Back/Forward retarget the focused pane, like every navigation); false =
+   *  not handled (the primary is focused) — the singleton applies it. */
+  applyRouteToFocused?: (routed: RoutedView | null) => boolean
+}) {
+  // Ref'd so the popstate listener (bound once) reads the CURRENT callback.
+  const splitRef = useRef(split)
+  splitRef.current = split
   // The app opens on a fresh draft — a single empty thread + composer (ADAPT-1).
   const [activeId, setActiveId] = useState(DRAFT_ID)
   // The ACTIVE session's conversation state — read from the keyed per-session
@@ -884,14 +897,22 @@ export function useSessionWorkspace() {
     // own Back/Forward work. Arriving VIA the address (boot deep link, popstate)
     // lands with the path already current, so the equality guard keeps those from
     // minting a duplicate history entry.
-    const path = pathForView(
-      activeSection
-        ? { kind: 'section', section: activeSection, projectId: focusProjectId, scheduleId: focusScheduleId, ownerName: focusOwnerName, workItemId: focusWorkItemId, agentId: focusAgentId, contextId: focusContextId }
-        : { kind: 'session', sessionId: activeId, title: '' },
-      activeSubview,
-    )
+    //
+    // The address projects the FOCUSED pane (Phase 6): a focused secondary
+    // page pane's canonical path wins; the primary — and a focused NON-page
+    // pane (context panel, picker) — derive from this hook's state as before.
+    const focusedPath = split?.focusedPath ?? 'singleton'
+    const path =
+      focusedPath !== 'singleton'
+        ? focusedPath
+        : pathForView(
+            activeSection
+              ? { kind: 'section', section: activeSection, projectId: focusProjectId, scheduleId: focusScheduleId, ownerName: focusOwnerName, workItemId: focusWorkItemId, agentId: focusAgentId, contextId: focusContextId }
+              : { kind: 'session', sessionId: activeId, title: '' },
+            activeSubview,
+          )
     if (window.location.pathname !== path) window.history.pushState(null, '', path)
-  }, [activeId, activeSection, activeSubview, focusProjectId, focusScheduleId, focusOwnerName, focusWorkItemId, focusAgentId, focusContextId])
+  }, [activeId, activeSection, activeSubview, focusProjectId, focusScheduleId, focusOwnerName, focusWorkItemId, focusAgentId, focusContextId, split?.focusedPath])
 
   // Browser Back/Forward: re-parse the address it moved to and show that page.
   // Not recorded in the in-app back stack while applying (`restoring`) — the two
@@ -900,6 +921,10 @@ export function useSessionWorkspace() {
   useEffect(() => {
     const onPop = () => {
       const routed = viewForPath(window.location.pathname)
+      // A focused SECONDARY pane takes the routed view (Back/Forward retarget
+      // the focused pane, like every navigation); the singleton path below
+      // applies it to the primary as before.
+      if (splitRef.current?.applyRouteToFocused?.(routed)) return
       restoring.current = true
       if (!routed) {
         newSession() // the root — the fresh draft

@@ -197,6 +197,10 @@ export function useMainSplit() {
   // primary included (homogeneity — the role relocates, the tile closes).
   const focusedNode = mainTree ? nodeAt(mainTree, focusedPane) : undefined
   const focusedClosable = focusedNode?.kind === 'pane'
+  /** The focused pane's content (undefined = no tree / stale path) — the URL
+   *  derives the address from this (Phase 6: the address bar is a projection
+   *  of the FOCUSED pane, not of a designated primary). */
+  const focusedContent = focusedNode?.kind === 'pane' ? focusedNode.content : undefined
 
   const setMainRatio = useCallback(
     (path: string, ratio: number) => {
@@ -234,6 +238,7 @@ export function useMainSplit() {
     mainTree,
     focusedPane,
     focusedClosable,
+    focusedContent,
     focusMainPane,
     focusPrimary,
     splitFocused,

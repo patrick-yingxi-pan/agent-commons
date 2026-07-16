@@ -32,6 +32,7 @@ import { SCRIM_CLASS } from './lib/scrim'
 import { SECTION_META } from './lib/sections'
 import { DRAFT_ID, type Live } from './data/liveSession'
 import { draft } from './controller/draftController'
+import { pathForView, type RoutedView } from './lib/urlRoutes'
 import type { AddedContext, Connector, SectionId, Session } from './types'
 
 /** The shell: decides WHICH top-level surface renders — the full-screen auth
@@ -95,6 +96,55 @@ function Workspace() {
   useServerEvents()
   const sessions = useSessions().data ?? []
 
+  // ── The MAIN workspace split (universal split, focused-pane model) ──────────
+  // Called BEFORE the workspace hook: the address bar projects the FOCUSED
+  // pane (Phase 6), so the workspace's URL-sync effect takes the focused
+  // pane's canonical path — and popstate its retarget — as inputs.
+  const {
+    mainTree,
+    focusedPane,
+    focusedClosable,
+    focusedContent,
+    focusMainPane,
+    focusPrimary,
+    splitFocused,
+    routeToFocused,
+    setFocusDrivenContext,
+    adoptDraftPanes,
+    fillMainPane,
+    closeFocused,
+    setMainRatio,
+  } = useMainSplit()
+
+  // The focused pane's canonical path: a conversation or section pane has one;
+  // the primary — and a NON-PAGE pane (a context panel, a picker: a panel is
+  // not a page, so the address keeps naming the page you're on) — defer to
+  // the singleton's derivation.
+  const focusedPath = useMemo((): string | 'singleton' => {
+    const c = focusedContent
+    if (!c || c.kind === 'primary') return 'singleton'
+    if (c.kind === 'msession') return pathForView({ kind: 'session', sessionId: c.id, title: '' }, null)
+    if (c.kind === 'msection')
+      return pathForView(
+        { kind: 'section', section: c.id, projectId: null, scheduleId: null, ownerName: null, workItemId: null, agentId: null, contextId: null },
+        c.sub ?? null,
+      )
+    return 'singleton'
+  }, [focusedContent])
+
+  // Browser Back/Forward retarget the FOCUSED pane (like every navigation);
+  // returns false with the primary focused — the singleton applies it then.
+  // Section deep-detail URLs land at section+facet granularity in a pane
+  // (the detail lift is the Phase 6 fidelity fast-follow).
+  const applyRouteToFocused = useCallback(
+    (routed: RoutedView | null): boolean => {
+      if (!routed) return routeToFocused({ kind: 'msession', id: DRAFT_ID })
+      if (routed.loc.kind === 'session') return routeToFocused({ kind: 'msession', id: routed.loc.sessionId })
+      return routeToFocused({ kind: 'msection', id: routed.loc.section, sub: routed.subview ?? null })
+    },
+    [routeToFocused],
+  )
+
   const {
     activeId,
     activeSection,
@@ -152,7 +202,7 @@ function Workspace() {
     removeFolder,
     closePanel,
     approveEscalation,
-  } = useSessionWorkspace()
+  } = useSessionWorkspace({ focusedPath, applyRouteToFocused })
 
   // (The relay wait state — "Waiting on your session…" — is derived inside
   // ConversationView now, once for every host.)
@@ -255,25 +305,8 @@ function Workspace() {
     [focus, isRunSession, runsPanelOpen, activeSession.scheduledRunOf],
   )
 
-  // ── The MAIN workspace split (universal split, focused-pane model) ──────────
-  // The primary pane is the surface below (thread or section — the singleton
-  // controller's); independent panes tile beside it on the wide tier. The rail's
-  // two split buttons act on the FOCUSED pane, duplicating its content; rail
-  // navigation retargets the focused pane when it isn't the primary.
-  const {
-    mainTree,
-    focusedPane,
-    focusedClosable,
-    focusMainPane,
-    focusPrimary,
-    splitFocused,
-    routeToFocused,
-    setFocusDrivenContext,
-    adoptDraftPanes,
-    fillMainPane,
-    closeFocused,
-    setMainRatio,
-  } = useMainSplit()
+  // (useMainSplit is called above the workspace hook — the URL derives from
+  // the focused pane, so the workspace's address effect consumes it.)
 
   // Project the active session's panel into the universal tree on the WIDE tier
   // (a real context pane beside the primary); the overlay tiers dock it, so the

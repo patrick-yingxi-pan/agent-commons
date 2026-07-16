@@ -3,9 +3,11 @@
  *  the split buttons DUPLICATE it (no picker, no per-pane chrome), and close
  *  is HOMOGENEOUS: a secondary pane collapses, while closing the primary tile
  *  relocates the primary role into the surviving pane (its content promotes
- *  into the controller, so the URL follows what remains); rail navigation
- *  retargets the focused pane; the URL never follows a secondary pane. The tree math is locked by tests/main-split.test.ts;
- *  this locks the wiring. */
+ *  into the controller); rail navigation retargets the focused pane; and the
+ *  ADDRESS BAR PROJECTS THE FOCUSED PANE (Phase 6): retargeting or focusing a
+ *  page pane rewrites the URL to its canonical location; a focused NON-page
+ *  pane (a context panel) defers to the page you're on. The tree math is
+ *  locked by tests/main-split.test.ts; this locks the wiring. */
 import { test, expect, type Page } from '@playwright/test'
 
 /** A repo / workspace session auto-tiles its context PANEL as a pane in the
@@ -40,17 +42,26 @@ test('split duplicates the focused conversation; the rail retargets the focused 
   await expect(paneB).toHaveAttribute('data-focused', 'true')
 
   // Rail navigation lands in the FOCUSED pane: clicking Projects retargets pane
-  // b in place — the primary (and the address bar) never move.
-  const before = page.url()
+  // b in place — the primary keeps its content, and the ADDRESS follows the
+  // focused pane to its canonical location (URL-follows-focus, Phase 6).
   await page.locator('nav[aria-label="Sections"]').getByText('Projects', { exact: true }).click()
   await expect(paneB.getByText('Platform hardening').first()).toBeVisible()
-  expect(page.url()).toBe(before)
+  await expect(page).toHaveURL(/\/projects$/)
   await expect(page.locator('[data-main-pane="a"]').getByText('token refresh logic').first()).toBeVisible()
 
-  // Pane-local navigation: a project detail opens INSIDE the pane; the URL stays.
+  // Focus hopping IS a navigation: clicking into pane a (the conversation)
+  // rewrites the address to ITS location; back into pane b, to the section's.
+  await page.locator('[data-main-pane="a"]').dispatchEvent('pointerdown')
+  await expect(page).toHaveURL(/\/s\/auth-refactor$/)
+  await paneB.dispatchEvent('pointerdown')
+  await expect(page).toHaveURL(/\/projects$/)
+
+  // Pane-local navigation: a project detail opens INSIDE the pane; the URL
+  // stays at the pane's section address (the deep-detail lift is the Phase 6
+  // fidelity fast-follow).
   await paneB.getByText('Platform hardening').first().click()
   await expect(paneB.getByText('The platform team')).toBeVisible()
-  expect(page.url()).toBe(before)
+  await expect(page).toHaveURL(/\/projects$/)
 
   // The main-pane divider is a named, keyboard-operable separator (UI-11).
   await expect(page.getByRole('separator', { name: 'Resize view panes (root)' })).toBeVisible()
@@ -139,9 +150,10 @@ test('a duplicated conversation pane is fully independent: its own composer stre
   await expect(pane.getByText('quick pane check')).toBeVisible()
   await expect(pane.getByText(/local mock|workspace/).last()).toBeVisible({ timeout: 15_000 })
 
-  // …while the PRIMARY (auth-refactor) is untouched and the URL never moved.
+  // …while the PRIMARY (auth-refactor) is untouched; the address names the
+  // FOCUSED pane's session (URL-follows-focus).
   await expect(page.locator('[data-main-pane="a"]').getByText('quick pane check')).toHaveCount(0)
-  expect(new URL(page.url()).pathname).toBe('/s/auth-refactor')
+  expect(new URL(page.url()).pathname).toBe('/s/dashboard-perf')
 })
 
 test('a section page + its detail render correctly in a HALF-WIDTH pane — no horizontal overflow (pages are pane-safe, UI-9)', async ({ page }) => {
@@ -200,11 +212,12 @@ test('New session lands in the FOCUSED pane and materializes in place — the pr
   await expect(paneB.locator('[data-conversation-pane="draft"]')).toBeVisible()
   await expect(paneB.locator('[data-session-title-bar]').getByText('New session')).toBeVisible()
   await expect(page.locator('[data-main-pane="a"]').getByText('token refresh logic').first()).toBeVisible()
-  expect(new URL(page.url()).pathname).toBe('/s/auth-refactor')
+  // The focused pane IS the fresh draft — the address projects it (the root).
+  expect(new URL(page.url()).pathname).toBe('/')
 
   // Sending FROM the draft pane materializes it IN PLACE through the shared
-  // draft funnel: the pane retargets to the real session id and the reply
-  // streams there; the URL still never moved (pane-local, ADAPT-15).
+  // draft funnel: the pane retargets to the real session id, the reply
+  // streams there, and the ADDRESS follows the focused pane onto the real id.
   const composer = paneB.locator('textarea')
   await composer.fill('draft in a pane')
   await composer.press('Enter')
@@ -212,7 +225,9 @@ test('New session lands in the FOCUSED pane and materializes in place — the pr
   await expect(paneB.locator('[data-conversation-pane]')).not.toHaveAttribute('data-conversation-pane', 'draft', { timeout: 15_000 })
   await expect(paneB.getByText(/local mock|workspace/).last()).toBeVisible({ timeout: 15_000 })
   await expect(page.locator('[data-main-pane="a"]').getByText('token refresh logic').first()).toBeVisible()
-  expect(new URL(page.url()).pathname).toBe('/s/auth-refactor')
+  const materialized = new URL(page.url()).pathname
+  expect(materialized).toMatch(/^\/s\//)
+  expect(materialized).not.toBe('/s/auth-refactor')
 })
 
 test('the fresh draft is an EQUAL page: a lone draft splits, and every view of it is identical', async ({ page }) => {
@@ -257,10 +272,10 @@ test('an entity door inside a pane-hosted section page stays IN THE PANE (the na
   await paneB.getByRole('button').filter({ hasText: 'GitHub' }).first().click()
   await expect(paneB.getByText('Disconnect').first()).toBeVisible()
 
-  // The primary is untouched and the URL never moved (ADAPT-15: pane-local
-  // navigation is not page identity).
+  // The primary is untouched; the address names the focused pane's SECTION
+  // (its pane-local detail is below page granularity until the deep-nav lift).
   await expect(page.locator('[data-main-pane="a"]').getByText('token refresh logic').first()).toBeVisible()
-  expect(new URL(page.url()).pathname).toBe('/s/auth-refactor')
+  expect(new URL(page.url()).pathname).toBe('/contexts')
 })
 
 test('switching runs from the runs panel swaps the context pane IN PLACE — no tree dissolve, no main-area remount', async ({ page }) => {
