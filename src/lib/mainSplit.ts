@@ -1,18 +1,17 @@
 /** ── The MAIN workspace split — view vocabulary + per-account persistence ────
- *  (universal split Phase 2, docs/design/universal-split-workspace.md §2.1.)
- *  The main surface right of the rail tiles into a split tree
- *  (src/lib/splitFrame.ts, instantiated with this vocabulary):
+ *  (universal split, docs/design/universal-split-workspace.md §2.1 + the
+ *  Phase 6 equal-pages model.) The main surface right of the rail IS a split
+ *  tree of equal pages (src/lib/splitFrame.ts, instantiated here) — no
+ *  privileged pane; `null` = the empty BACKGROUND (a legal state the rail's
+ *  doors repopulate):
  *
- *  - `primary`  — THE controller-driven surface (the active conversation or the
- *                 active section page): exactly what the un-split app shows,
- *                 rendered by the same JSX. Exactly one primary pane exists in
- *                 any tree; rail/palette navigation lands here, and its
- *                 location is the address bar's (ADAPT-15 unchanged).
- *  - `msection` — an INDEPENDENT section page (Projects, Artifacts, …) with its
- *                 own pane-local navigation state (sub-view, open detail) —
+ *  - `msession` — a conversation (the fresh DRAFT included), fully
+ *                 interactive through the keyed per-session store.
+ *  - `msection` — a section page (Projects, Artifacts, …) with its own
+ *                 pane-local navigation state (sub-view, open detail) —
  *                 fully interactive; global data through the shared api hooks.
- *  - `msession` — an independent conversation (Phase 3; the store is ready).
- *  - `mpicker`  — an empty pane awaiting the user's choice.
+ *  - `context-panel` — a session's context panel as a full pane.
+ *  - `mpicker`  — legacy empty pane (pre-duplicate blobs only).
  *
  *  Persistence is PER ACCOUNT (the tree spans sessions), scoped like uiPrefs:
  *  the blob keys on the resolved user id, restore prunes at render, storage is
@@ -24,10 +23,9 @@ import type { PaneSeed } from './paneNav.ts'
 import type { Live } from '../data/liveSession'
 // Extension-qualified: this module is node-tested (tests/main-split.test.ts),
 // and Node's native TS resolves runtime imports only with the explicit .ts.
-import { closePane, nodeAt, pane, panes, replacePane, splitPane, type PaneContent, type SplitNode } from './splitFrame.ts'
+import { closePane, panes, replacePane, splitPane, type PaneContent, type SplitNode } from './splitFrame.ts'
 
 export type MainPaneContent =
-  | { kind: 'primary'; id: 'primary' }
   // `sub` seeds the pane's local sub-view (a rail facet click routing into a
   // focused pane carries the facet along); `seed` seeds the pane's open DETAIL
   // (a cross-section door inside a pane — an owner byline, a linked context —
@@ -54,8 +52,8 @@ export type MainPaneContent =
 
 export type MainSplitNode = SplitNode<MainPaneContent>
 
-/** The main tree's prune predicate: conversation / section / primary panes are
- *  always kept (their content is a live registry read); a `context-panel` pane
+/** The main tree's prune predicate: conversation / section panes are always
+ *  kept (their content is a live registry read); a `context-panel` pane
  *  is kept only while its panel still resolves against its OWNING session's live
  *  (a detached repo / removed connector collapses it). `liveFor` returns a
  *  session's live (or undefined if it's gone — the pane collapses); `isRun` says
@@ -119,8 +117,6 @@ export function paneContentAlive(l: Live, isRunSession: boolean) {
             : l.attachments.some((a) => a.kind === c.kind)
 }
 
-export const PRIMARY: MainPaneContent = { kind: 'primary', id: 'primary' }
-
 /** Retarget every DRAFT conversation pane to the materialized session id — by
  *  CONTENT match, not path, so a duplicated draft pane retargets too. The
  *  draft entry `adopt`ed to the real id in the store; the pane leaves showing
@@ -150,44 +146,12 @@ export function retargetDraftPanes(
 let mainPickerSeq = 0
 export const newMainPicker = (): MainPaneContent => ({ kind: 'mpicker', id: `mpk-${(mainPickerSeq += 1)}` })
 
-/** Close a pane, keeping the MAIN tree's invariant: the tree exists to hold
- *  more than the primary — down to one pane (or, guarded, a tree that somehow
- *  lost its primary) it dissolves to null and the plain surface returns. */
+/** Close a pane — the ONE close rule, every pane equal (Phase 6, the owner's
+ *  model): the sibling inherits the freed slot; closing the LAST pane returns
+ *  null — the empty BACKGROUND surface, a legal state the rail's doors
+ *  repopulate (not an implicit un-split "primary"). */
 export function closeMainPane(tree: MainSplitNode, path: string): MainSplitNode | null {
-  const next = closePane(tree, path)
-  if (!next) return null
-  if (next.kind === 'pane' || !panes(next).some((p) => p.content.kind === 'primary')) return null
-  return next
-}
-
-/** Close the PRIMARY pane's tile — the homogeneity rule (panes are equals to
- *  the user; the primary is an implementation detail): the primary ROLE
- *  survives (it is where the URL lives) by RELOCATING into the pane that
- *  inherits the freed space. That successor's content is returned as
- *  `promoted` — the caller navigates the singleton controller onto it, so the
- *  address honestly names what the surviving tile shows — and its leaf is
- *  re-stamped `primary`. Returns null when `path` isn't the primary pane
- *  (close those with `closeMainPane`); `tree: null` when only the promoted
- *  pane remained (the frame dissolves to the plain surface). */
-export function closePrimaryPane(
-  tree: MainSplitNode,
-  path: string,
-): { tree: MainSplitNode | null; promoted: MainPaneContent } | null {
-  const node = nodeAt(tree, path)
-  if (!node || node.kind !== 'pane' || node.content.kind !== 'primary') return null
-  const collapsed = closePane(tree, path)
-  if (!collapsed) return null // a lone-primary tree shouldn't exist; nothing to promote
-  // The successor: the first pane that took the primary's slot — but a
-  // `context-panel` pane is NOT a navigable surface (it can't become the URL
-  // owner), so it's skipped. Prefer a pane in the freed subtree; else any
-  // non-context pane; refuse when only context panes remain (nothing to promote
-  // to — the close is a no-op, e.g. [primary | its own context pane]).
-  const parentPath = path.slice(0, -1)
-  const promotable = panes(collapsed).filter((p) => p.content.kind !== 'context-panel')
-  const successor = promotable.find((p) => p.path.startsWith(parentPath)) ?? promotable[0]
-  if (!successor) return null
-  const next = replacePane(collapsed, successor.path, PRIMARY)
-  return { tree: next.kind === 'pane' ? null : next, promoted: successor.content }
+  return closePane(tree, path)
 }
 
 /** ── The active session's context panel, as a pane in the ONE tree ───────────
@@ -218,8 +182,9 @@ export function withoutFocusDrivenContext(tree: MainSplitNode | null): MainSplit
 /** Reconcile the active session's context pane to `panel` (null = closed) — the
  *  pure edit `useMainSplit.setFocusDrivenContext` commits from the focus-sync effect.
  *  Returns the tree UNCHANGED when already in the desired state (no needless
- *  render / persist). Adding one splits the primary pane; removing one collapses
- *  its split; switching sessions or panels replaces it in place. */
+ *  render / persist). Adding one splits the OWNING conversation's pane (the
+ *  msession pane showing `sessionId` — no pane showing it, no projection);
+ *  removing one collapses its split; a session/panel change replaces in place. */
 export function setFocusDrivenContextTree(
   tree: MainSplitNode | null,
   sessionId: string,
@@ -231,10 +196,10 @@ export function setFocusDrivenContextTree(
   if (existing && tree) {
     return existing.content.id === content.id ? tree : replacePane(tree, existing.path, content)
   }
-  // No panel yet: split the primary pane, adding the context pane beside it.
-  const base = tree ?? pane(PRIMARY)
-  const primaryPath = panes(base).find((x) => x.content.kind === 'primary')?.path ?? ''
-  return splitPane(base, primaryPath, 'row', content)
+  if (!tree) return tree // background — no conversation pane to anchor beside
+  const anchor = panes(tree).find((x) => x.content.kind === 'msession' && x.content.id === sessionId)?.path
+  if (anchor === undefined) return tree // the session isn't displayed
+  return splitPane(tree, anchor, 'row', content)
 }
 
 /** ── Per-account persistence (the uiPrefs scoping pattern) ─────────────────── */
@@ -251,9 +216,25 @@ const key = () => (scope ? `${KEY_BASE}.${scope}` : KEY_BASE)
 export function getMainSplitPref(): MainSplitNode | null {
   try {
     const raw = localStorage.getItem(key())
-    return raw ? (JSON.parse(raw) as MainSplitNode) : null
+    if (!raw) return null
+    return migrateMainSplit(JSON.parse(raw) as MainSplitNode)
   } catch {
     return null
+  }
+}
+
+/** Legacy-blob migration (pre-Phase 6): stored trees carried a
+ *  `{kind:'primary'}` placeholder pane — a late-bound alias of the retired
+ *  singleton surface, meaningless without one. Strip those leaves (the
+ *  sibling inherits the slot); the boot flow re-opens the remembered page as
+ *  a concrete pane. Exported for its lock (tests/main-split.test.ts). */
+export function migrateMainSplit(tree: MainSplitNode | null): MainSplitNode | null {
+  let next = tree
+  // Re-collect after each close — paths shift as leaves collapse.
+  for (;;) {
+    const legacy = panes(next).find((p) => (p.content as { kind: string }).kind === 'primary')
+    if (!legacy || !next) return next
+    next = closePane(next, legacy.path)
   }
 }
 

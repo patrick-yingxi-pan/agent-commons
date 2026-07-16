@@ -12,6 +12,7 @@ import type { PaneContent } from './lib/splitFrame'
 import { MainSplitGate, type MainPaneNav } from './components/MainSplit'
 import { SessionTitleBar } from './components/SessionTitleBar'
 import { EmptyState } from './components/EmptyState'
+import { OverlayPanelDock } from './components/OverlayPanelDock'
 import { ConversationView } from './components/ConversationView'
 import { useMainSplit } from './controller/useMainSplit'
 import { setMainSplitScope } from './lib/mainSplit'
@@ -21,7 +22,10 @@ import { ConnectorPanel } from './components/ConnectorPanel'
 import { SearchPanel } from './components/SearchPanel'
 import { NotificationsPanel } from './components/NotificationsPanel'
 import { AddContextButton } from './components/AddContextButton'
-import { useCapabilities, useMe, useProviders, useSessions, useServerEvents } from './api'
+import { keys, peek, useCapabilities, useMe, useProviders, useSessions, useServerEvents } from './api'
+import { conversations, useConversation } from './controller/conversationStore'
+import { sameFocus } from './lib/focus'
+import { setPanelPref } from './lib/panelPrefs'
 import { useSessionWorkspace } from './controller/useSessionWorkspace'
 import { useLayout } from './controller/useLayout'
 import { RelationsProvider } from './controller/useRelations'
@@ -32,7 +36,7 @@ import { SCRIM_CLASS } from './lib/scrim'
 import { SECTION_META } from './lib/sections'
 import { DRAFT_ID, type Live } from './data/liveSession'
 import { draft } from './controller/draftController'
-import { pathForView, type RoutedView } from './lib/urlRoutes'
+import { pathForView, viewForPath, type RoutedView } from './lib/urlRoutes'
 import type { PaneSeed } from './lib/paneNav'
 import type { AddedContext, Connector, SectionId, Session } from './types'
 
@@ -107,7 +111,6 @@ function Workspace() {
     focusedClosable,
     focusedContent,
     focusMainPane,
-    focusPrimary,
     splitFocused,
     routeToFocused,
     setFocusDrivenContext,
@@ -117,13 +120,17 @@ function Workspace() {
     setMainRatio,
   } = useMainSplit()
 
+  // Mirror for stable callbacks (mainPaneNav must not rebuild per focus hop).
+  const focusedContentRef = useRef(focusedContent)
+  focusedContentRef.current = focusedContent
+
   // The focused pane's canonical path: a conversation or section pane has one;
-  // the primary — and a NON-PAGE pane (a context panel, a picker: a panel is
-  // not a page, so the address keeps naming the page you're on) — defer to
+  // the background — and a NON-PAGE pane (a context panel, a picker: a panel
+  // is not a page, so the address keeps naming the page you're on) — defer to
   // the singleton's derivation.
   const focusedPath = useMemo((): string | 'singleton' => {
     const c = focusedContent
-    if (!c || c.kind === 'primary') return 'singleton'
+    if (!c) return 'singleton'
     if (c.kind === 'msession') return pathForView({ kind: 'session', sessionId: c.id, title: '' }, null)
     if (c.kind === 'msection')
       return pathForView(
@@ -289,87 +296,120 @@ function Workspace() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // Re-open the run switcher whenever the open session changes.
+  // ── Boot: the tree is the ONLY surface (Phase 6) ─────────────────────────────
+  // An empty boot opens the fresh draft (ADAPT-1); a deep link opens what it
+  // names (the boot address wins over the per-account tree only when the tree
+  // is empty — a restored layout IS the remembered place). Once per mount
+  // (the Workspace remounts keyed by account, so a switch re-runs this).
+  const booted = useRef(false)
+  useEffect(() => {
+    if (booted.current) return
+    booted.current = true
+    if (mainTree) return
+    const routed = viewForPath(window.location.pathname)
+    if (!routed) {
+      draft.reset()
+      routeToFocused({ kind: 'msession', id: DRAFT_ID })
+    } else if (routed.loc.kind === 'session') {
+      routeToFocused({ kind: 'msession', id: routed.loc.sessionId })
+    } else {
+      const l = routed.loc
+      routeToFocused({
+        kind: 'msection',
+        id: l.section,
+        sub: routed.subview ?? null,
+        seed: {
+          ...(l.projectId ? { projectId: l.projectId } : {}),
+          ...(l.workItemId ? { workItemId: l.workItemId } : {}),
+          ...(l.scheduleId ? { scheduleId: l.scheduleId } : {}),
+          ...(l.ownerName ? { ownerName: l.ownerName } : {}),
+          ...(l.agentId ? { agentId: l.agentId } : {}),
+          ...(l.contextId ? { contextId: l.contextId } : {}),
+        },
+      })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Re-open the run switcher whenever the focused conversation changes.
   useEffect(() => {
     setRunsPanelOpen(true)
-  }, [activeId])
+  }, [focusedContent?.kind === 'msession' ? focusedContent.id : null])
 
-  // A scheduled routine's run *is* a session — the backend tags it with the
-  // routine it belongs to, which is what the run-switcher panel keys off.
-  const isRunSession = !!activeSession.scheduledRunOf
-  // Whether a right panel is currently showing (a focused context, or the run switcher)
-  // — drives the overlay scrim on small viewports (FWD-3).
-  const panelOpen = !!focus || (isRunSession && runsPanelOpen && !!activeSession.scheduledRunOf)
-
-  // ── The active session's context panel as a tree pane (universal split P4) ──
-  // Its open `focus` (or the run switcher for a run session — the default panel)
-  // becomes a real context PANE beside the primary on the wide tier, closed and
-  // split by the rail cluster like every pane. The overlay tiers dock it instead.
+  // ── The FOCUSED conversation's context panel as a tree pane (Phase 6) ───────
+  // The focused pane's session + its STORE-held `focus` (or the run switcher
+  // for a run session — the row read live, falling back to the loadSession
+  // cache for rows the list doesn't carry) drive the projection: a real
+  // context PANE beside the conversation on the wide tier; the overlay tiers
+  // dock it (OverlayPanelDock). A focused CONTEXT pane keeps projecting for
+  // its OWNING session, so closing/re-opening panels doesn't flap.
+  const focusedSessionId =
+    focusedContent?.kind === 'msession'
+      ? focusedContent.id
+      : focusedContent?.kind === 'context-panel'
+        ? focusedContent.sessionId
+        : null
+  const focusedConv = useConversation(focusedSessionId ?? DRAFT_ID)
+  const focusedRow = focusedSessionId
+    ? (sessions.find((s) => s.id === focusedSessionId) ?? peek<Session>(keys.session(focusedSessionId)))
+    : undefined
+  const focusedRunOf = focusedRow?.scheduledRunOf
+  const focusedFocus = focusedSessionId ? focusedConv.focus : null
   const activePanel = useMemo<PaneContent | null>(
     () =>
-      focus
-        ? { kind: focus.kind, id: focus.id }
-        : isRunSession && runsPanelOpen && activeSession.scheduledRunOf
-          ? { kind: 'runs', id: activeSession.scheduledRunOf.taskId }
-          : null,
-    [focus, isRunSession, runsPanelOpen, activeSession.scheduledRunOf],
+      !focusedSessionId
+        ? null
+        : focusedFocus
+          ? { kind: focusedFocus.kind, id: focusedFocus.id }
+          : focusedRunOf && runsPanelOpen
+            ? { kind: 'runs', id: focusedRunOf.taskId }
+            : null,
+    [focusedSessionId, focusedFocus, focusedRunOf, runsPanelOpen],
   )
-
-  // (useMainSplit is called above the workspace hook — the URL derives from
-  // the focused pane, so the workspace's address effect consumes it.)
-
-  // Project the active session's panel into the universal tree on the WIDE tier
-  // (a real context pane beside the primary); the overlay tiers dock it, so the
-  // tree carries no focus-driven context pane there. One source of truth (`focus`).
-  //
-  // LATCHED while the active row resolves: a session door can land before its
-  // server row loads (a run opened from the runs panel, a recents row for an
-  // unlisted session) — `activeSession` falls back to the draft shell for a
-  // frame, which read as "no panel" and DISSOLVED the tree, remounting the
-  // whole main area (thread scroll, the runs list, every pane) before the
-  // resolved row re-formed it. A not-yet-resolved row is "unknown", not
-  // "closed": hold the previous projection; resolution re-projects IN PLACE
-  // (replacePane — same position, no remount).
-  const activeResolving = !isDraft && activeSession.id !== activeId
   useEffect(() => {
-    if (activeResolving) return
-    setFocusDrivenContext(activeId, tier === 'wide' ? activePanel : null)
-  }, [setFocusDrivenContext, activeId, tier, activePanel, activeResolving])
-  // What "duplicate the primary" means right now: the active section page, or
-  // the active conversation — the DRAFT included (every page splits equally):
-  // duplicating a fresh draft tiles a second view of the same draft entry; a
-  // send in either materializes both (adopt + retargetDraftPanes).
-  const splitView = useCallback(
-    (dir: 'row' | 'col') =>
-      splitFocused(
-        dir,
-        activeSection
-          ? { kind: 'msection', id: activeSection, sub: activeSubview }
-          : { kind: 'msession', id: activeId },
-      ),
-    [splitFocused, activeSection, activeSubview, isDraft, activeId],
-  )
+    // No conversation focused (a section pane, the background) — leave the
+    // tree as-is: an absent subject is not a "close the panel" instruction.
+    if (!focusedSessionId) return
+    setFocusDrivenContext(focusedSessionId, tier === 'wide' ? activePanel : null)
+  }, [setFocusDrivenContext, focusedSessionId, tier, activePanel])
+  // Split duplicates the FOCUSED pane's own content (every page equally —
+  // the controller reads the leaf; no caller-supplied "what the primary
+  // shows" since there is no primary).
+  const splitView = splitFocused
   const mainPaneNav = useMemo<MainPaneNav>(
     () => ({
-      onOpenSession: selectSession,
-      onNewSession: () => newSession(),
+      // A session door: with a CONTEXT pane focused (the run switcher's row
+      // click), the OWNING conversation's pane retargets in place — its
+      // context pane self-heals via the projection; otherwise the focused
+      // pane hosts the session (like every navigation).
+      onOpenSession: (id) => {
+        const c = focusedContentRef.current
+        if (c?.kind === 'context-panel') adoptDraftPanes(c.sessionId, id)
+        else routeToFocused({ kind: 'msession', id })
+      },
+      onNewSession: () => {
+        draft.reset()
+        routeToFocused({ kind: 'msession', id: DRAFT_ID })
+      },
       onOpenProposal: openProposal,
       onOpenProject: openProject,
       onOpenSchedule: openSchedule,
-      // A pane composer's chip click: the active session's context panel is the
-      // one tied to `focus` (the tree's focus-driven context pane) — same session
-      // toggles it there; a different one comes to the primary first (its
-      // remembered panel restores with it, then tiles).
+      // A pane composer's chip click toggles ITS session's STORE focus — the
+      // wide tier tiles the panel beside that conversation (the projection),
+      // the overlay tiers dock it; remembered per session (FWD-2).
       onOpenSessionContext: (sessionId, f) => {
-        if (sessionId === activeId) focusContext(f)
-        else selectSession(sessionId)
+        const next = sameFocus(conversations.get(sessionId).focus, f) ? null : f
+        conversations.setFocus(sessionId, next)
+        if (sessionId !== DRAFT_ID) setPanelPref(sessionId, next)
       },
       sessionLabel: (id) => sessions.find((s) => s.id === id)?.title ?? 'Conversation',
       // A pane-hosted draft materialized: every draft pane follows the entry
       // to the real id (content match — a duplicated draft pane follows too).
       onDraftAdopted: (realId) => adoptDraftPanes(DRAFT_ID, realId),
+      // The narrow tier's in-flow rail toggle rides the conversation title bar.
+      railToggle: railOverlay ? <RailOpenButton onClick={openLeft} /> : undefined,
     }),
-    [selectSession, newSession, openProposal, openProject, openSchedule, sessions, activeId, focusContext, adoptDraftPanes],
+    [routeToFocused, openProposal, openProject, openSchedule, sessions, adoptDraftPanes, railOverlay, openLeft],
   )
 
 
@@ -463,16 +503,11 @@ function Workspace() {
                 })}
                 onNewSession={withRailClose(() => {
                   // New session lands in the FOCUSED pane (the focused-pane
-                  // routing every rail door follows): a focused SECONDARY pane
-                  // hosts the fresh draft itself — reset the shared draft
-                  // entry, retarget the pane; the primary keeps its content.
-                  // With the primary focused (or no tree), the singleton path
-                  // runs as always.
+                  // routing every door follows): reset the shared draft entry
+                  // and retarget the pane — on the background this mints the
+                  // first pane.
                   draft.reset()
-                  if (!routeToFocused({ kind: 'msession', id: DRAFT_ID })) {
-                    focusPrimary() // a fresh draft lives on the singleton surface
-                    newSession()
-                  }
+                  routeToFocused({ kind: 'msession', id: DRAFT_ID })
                 })}
                 // Section / sub-view handlers stay UNwrapped by withRailClose: the rail
                 // decides when to close the narrow drawer (a leaf navigates → close;
@@ -499,29 +534,21 @@ function Workspace() {
                 onCloseView={
                   tier === 'wide' && focusedClosable
                     ? () =>
-                        closeFocused(
-                          (promoted) => {
-                            // Closing the PRIMARY tile: the singleton controller
-                            // navigates onto the surviving pane's content, so the
-                            // address bar honestly names what remains on screen.
-                            if (promoted.kind === 'msession') selectSession(promoted.id)
-                            else if (promoted.kind === 'msection') {
-                              openSection(promoted.id)
-                              openSubview(promoted.sub ?? null)
-                            }
-                            // an mpicker / pinned context pane promotes silently
-                          },
-                          (panel) => {
-                            // The active session's context panel: clear its driver so
-                            // the setFocusDrivenContext effect removes its pane (panelPref
-                            // remembers it closed, FWD-2). Closing the RUN SWITCHER
-                            // hides it; closing an attached-context panel on a run
-                            // session clears `focus` but LEAVES runsPanelOpen, so the
-                            // run switcher falls back in (matching the overlay tiers).
-                            if (panel.kind === 'runs') setRunsPanelOpen(false)
-                            else closePanel()
-                          },
-                        )
+                        closeFocused((panel) => {
+                          // The focus-driven context panel: clear its OWNING
+                          // session's STORE focus so the projection removes the
+                          // pane (panelPref remembers it closed, FWD-2). Closing
+                          // the RUN SWITCHER hides it; closing an attached-context
+                          // panel on a run session clears `focus` but LEAVES
+                          // runsPanelOpen, so the run switcher falls back in.
+                          const c = focusedContentRef.current
+                          const sid = c?.kind === 'context-panel' ? c.sessionId : null
+                          if (panel.kind === 'runs') setRunsPanelOpen(false)
+                          else if (sid) {
+                            conversations.setFocus(sid, null)
+                            if (sid !== DRAFT_ID) setPanelPref(sid, null)
+                          }
+                        })
                     : undefined
                 }
                 resizable={!railOverlay}
@@ -540,200 +567,55 @@ function Workspace() {
             inert={railOverlay && leftOpen}
             className="flex min-w-0 flex-1 flex-col"
           >
-            {/* Narrow tier: surfaces without their own title bar (section
-                pages) get a slim header row that HOUSES the rail toggle —
-                in-flow, so content scrolls under nothing. Conversations — the
-                DRAFT included (it wears the same SessionTitleBar as every
-                session now, homogeneity) — embed the toggle in their title
-                bar instead. */}
-            {railOverlay && activeSection && (
-              <NarrowBar title={SECTION_META[activeSection].label} onOpenRail={openLeft} />
+            {/* Narrow tier: a focused SECTION pane has no title bar of its own
+                — a slim header row HOUSES the rail toggle (in-flow, so content
+                scrolls under nothing). Conversations — the DRAFT included —
+                embed the toggle in their SessionTitleBar instead. */}
+            {railOverlay && focusedContent?.kind === 'msection' && (
+              <NarrowBar title={SECTION_META[focusedContent.id].label} onOpenRail={openLeft} />
             )}
-            {/* The universal main split (Phase 2): a tree tiles the surface
-                below as the PRIMARY pane beside independent section panes;
-                no tree (or an overlay tier — no room, ADAPT-11) passes it
-                through untouched. */}
-            <MainSplitGate
-              tree={tier === 'wide' ? mainTree : null}
-              focusedPane={focusedPane}
-              nav={mainPaneNav}
-              onFocusPane={focusMainPane}
-              onFillPane={fillMainPane}
-              onRatio={setMainRatio}
-            >
-            {activeSection ? (
-              <FocusContext.Provider value={focusCtx}>
-                <SectionView
-                  section={activeSection}
-                  subview={activeSubview}
-                  onOpenSubview={openSubview}
-                  onOpenSession={selectSession}
-                  onNewSession={() => newSession()}
-                  onOpenProject={openProject}
-                  onOpenSchedule={openSchedule}
-                  onOpenProposal={openProposal}
-                  onBack={goBack}
-                  backTo={backTo}
-                  railCollapsed={!leftOpen && !railOverlay}
-                  focusProjectId={focusProjectId}
-                  focusScheduleId={focusScheduleId}
-                  focusOwnerName={focusOwnerName}
-                  focusWorkItemId={focusWorkItemId}
-                  focusAgentId={focusAgentId}
-                  focusContextId={focusContextId}
-                  onOpenAgentPage={openAgentPage}
+            {/* The universal main split — panes are the ONLY render path
+                (Phase 6, the owner's equal-pages model): the wide tier tiles
+                the tree; the overlay tiers render the FOCUSED pane alone
+                (ADAPT-11); no tree = the background. */}
+            <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+              {/* While the docked panel overlays the focused pane (medium
+                  drawer / narrow takeover), the covered content is inert
+                  (UI-8) — it leaves the tab order / accessibility tree. */}
+              <section
+                inert={tier !== 'wide' && !!(focusedFocus || (focusedRunOf && runsPanelOpen))}
+                className="flex min-h-0 min-w-0 flex-1 flex-col"
+              >
+                {/* ONE transient notification-door focus for every pane — a
+                    bell's highlight target reaches whichever pane the door
+                    landed in (consumed once, docs/notification-routing.md). */}
+                <FocusContext.Provider value={focusCtx}>
+                  <MainSplitGate
+                    tree={mainTree}
+                    overlay={tier !== 'wide'}
+                    focusedPane={focusedPane}
+                    nav={mainPaneNav}
+                    onFocusPane={focusMainPane}
+                    onFillPane={fillMainPane}
+                    onRatio={setMainRatio}
+                  />
+                </FocusContext.Provider>
+              </section>
+              {/* The focused conversation's context panel on the OVERLAY tiers
+                  (medium drawer / narrow takeover, ADAPT-11) — keyed on the
+                  FOCUSED pane's session and its STORE-held focus (no singleton;
+                  the wide tier tiles it as a context pane instead). */}
+              {tier !== 'wide' && (
+                <OverlayPanelDock
+                  sessionId={focusedContent?.kind === 'msession' ? focusedContent.id : null}
+                  tier={tier}
+                  runsPanelOpen={runsPanelOpen}
+                  onCloseRuns={() => setRunsPanelOpen(false)}
+                  onSelectRun={(id) => routeToFocused({ kind: 'msession', id })}
+                  onOpenRoutine={openSchedule}
                 />
-              </FocusContext.Provider>
-            ) : (
-              <>
-                <SessionTitleBar
-                  // The LIVE row (the useSessions cache, refreshed on session.updated),
-                  // not the controller's creation-time snapshot — a rename must appear
-                  // here the moment it appears on the sidebar row. The DRAFT wears the
-                  // same bar as every conversation surface (homogeneity — a pane-hosted
-                  // draft shows it too), titled until the first send names the session.
-                  session={isDraft ? { ...activeRow, id: DRAFT_ID, title: 'New session' } : activeRow}
-                  leftOpen={leftOpen}
-                  leading={railOverlay ? <RailOpenButton onClick={openLeft} /> : undefined}
-                  onOpenProject={openProject}
-                  onOpenSchedule={openSchedule}
-                />
-
-                <div className="relative flex min-h-0 flex-1">
-                  <section
-                    // While the panel overlays the thread (medium drawer or
-                    // narrow takeover), the covered thread is inert (UI-8).
-                    inert={panelOverlay && panelOpen}
-                    className="flex min-w-0 flex-1 flex-col"
-                  >
-                    {/* The ONE conversation surface — the same fully-fledged
-                        view every split pane mounts; only the command wiring
-                        is the primary's (draft-materializing send, the right
-                        panel's chip focus). */}
-                    <ConversationView
-                      sessionId={activeId}
-                      draft={isDraft}
-                      live={live}
-                      typing={typing}
-                      busy={busy}
-                      streaming={!!(busy && liveTurn && liveTurn.sessionId === activeId)}
-                      sendFailure={sendFailure}
-                      pendingApproval={pendingApproval}
-                      onApprove={approveEscalation}
-                      onSend={handleSend}
-                      onStop={stopTurn}
-                      onRetry={retryInterrupted}
-                      onCompact={compact}
-                      modelPick={activePick}
-                      onSelectModel={modelPickWritable ? selectModel : undefined}
-                      usageModel={draftModelRef}
-                      focus={focus}
-                      onAddContext={handleAddContext}
-                      onOpenContext={focusContext}
-                      onRemoveContexts={removeContexts}
-                      onRemoveFolder={removeFolder}
-                      empty={
-                        <EmptyState
-                          mode={isDraft ? 'draft' : 'empty'}
-                          live={live}
-                          onNewSessionWith={newSessionWith}
-                        />
-                      }
-                      threadPadClass="py-4"
-                    />
-                  </section>
-
-                  {/* The active session's context panel. On the WIDE tier it is a
-                      context PANE in the universal tree (setFocusDrivenContext) — nothing
-                      renders here. On the overlay tiers (medium drawer / narrow
-                      takeover) it docks over the thread as before (ADAPT-11): a medium
-                      scrim dims + dismisses; narrow takes over the whole thread area
-                      (its own close button dismisses). The wrapper stays mounted while
-                      the tier holds so AnimatePresence exit animations run. */}
-                  {panelOverlay && (
-                    <>
-                      {tier === 'medium' && panelOpen && (
-                        <div
-                          className={`${SCRIM_CLASS} z-20`}
-                          aria-hidden
-                          onClick={() => {
-                            closePanel()
-                            setRunsPanelOpen(false)
-                          }}
-                        />
-                      )}
-                      <div
-                        className={
-                          railOverlay
-                            ? // Spans the whole thread even when no panel is open (kept
-                              // mounted for exit animations) — must not eat taps while empty.
-                              `absolute inset-0 z-30 flex ${panelOpen ? '' : 'pointer-events-none'}`
-                            : 'absolute inset-y-0 right-0 z-30 flex'
-                        }
-                      >
-                        {/* One focused-context sidebar at a time, chosen by the active
-                            chip. One keyed WorkspacePanel serves both workspace and repo
-                            so the body morphs when you switch between the two. */}
-                        <AnimatePresence>
-                          {(focusedWorkspace || focusedRepo) && (
-                            <WorkspacePanel
-                              key="ws"
-                              mode={focusedRepo ? 'repo' : 'workspace'}
-                              workspace={focusedWorkspace}
-                              repo={focusedRepo}
-                              onClose={closePanel}
-                              onRemoveFolder={removeFolder}
-                            />
-                          )}
-                        </AnimatePresence>
-
-                        {/* A scheduled-run session's run switcher — its default panel.
-                            Yields to a focused-context panel (a chip click still works). */}
-                        <AnimatePresence>
-                          {isRunSession && !focus && runsPanelOpen && activeSession.scheduledRunOf && (
-                            <RunsPanel
-                              key="runs"
-                              taskId={activeSession.scheduledRunOf.taskId}
-                              activeRunSessionId={activeId}
-                              onSelectRun={selectSession}
-                              onOpenRoutine={openSchedule}
-                              onClose={() => setRunsPanelOpen(false)}
-                            />
-                          )}
-                        </AnimatePresence>
-
-                        <AnimatePresence>
-                          {focusedConnector && (
-                            <ConnectorPanel
-                              key="conn"
-                              connector={focusedConnector}
-                              onClose={closePanel}
-                              onDisconnect={() =>
-                                removeContexts([{ kind: 'connector', id: focusedConnector.id }])
-                              }
-                            />
-                          )}
-                        </AnimatePresence>
-
-                        <AnimatePresence>
-                          {(focus?.kind === 'file' || focus?.kind === 'photo') && (
-                            <AttachmentPanel
-                              key="att"
-                              kind={focus.kind}
-                              items={live.attachments.filter((a) => a.kind === focus.kind)}
-                              initialId={focus.id}
-                              onClose={closePanel}
-                              onRemove={removeAttachment}
-                            />
-                          )}
-                        </AnimatePresence>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </>
-            )}
-            </MainSplitGate>
+              )}
+            </div>
           </main>
         </div>
       </div>

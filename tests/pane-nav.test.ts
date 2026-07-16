@@ -15,7 +15,6 @@ import assert from 'node:assert/strict'
 import { paneNavTarget, seedFor } from '../src/lib/paneNav.ts'
 import { panes, splitPane, pane } from '../src/lib/splitFrame.ts'
 import type { MainPaneContent, MainSplitNode } from '../src/lib/mainSplit.ts'
-import { PRIMARY } from '../src/lib/mainSplit.ts'
 
 test('seedFor mirrors the root bridge mapping (App.navigateToSection), shape for shape', () => {
   assert.deepEqual(seedFor('projects', 'p1'), { projectId: 'p1' })
@@ -59,7 +58,7 @@ test('a bare section jump falls through to the root bridge (the pane cannot host
 
 test('an msection seed survives the JSON persistence round-trip', () => {
   const seeded: MainPaneContent = { kind: 'msection', id: 'agents', seed: { ownerName: 'nova' } }
-  const tree = splitPane(pane(PRIMARY), '', 'row', seeded)
+  const tree = splitPane(pane<MainPaneContent>({ kind: 'msession', id: 'auth-refactor' }), '', 'row', seeded)
   const revived = JSON.parse(JSON.stringify(tree)) as MainSplitNode
   const leaf = panes(revived).find((p) => p.content.kind === 'msection')
   assert.deepEqual(leaf && leaf.content.kind === 'msection' ? leaf.content.seed : null, { ownerName: 'nova' })

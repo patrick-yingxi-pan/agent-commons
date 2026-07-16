@@ -11,16 +11,16 @@
 import { test, expect, type Page } from '@playwright/test'
 
 /** A repo / workspace session auto-tiles its context PANEL as a pane in the
- *  universal tree on the wide tier now (ADAPT-16 folded into ADAPT-17, Phase 4).
- *  Close it so the conversation-split mechanics below start from a clean single
- *  primary: focus the context pane, then the rail cluster's close clears it. */
+ *  universal tree on the wide tier (ADAPT-16 folded into ADAPT-17). Close it so
+ *  the split mechanics below start from a clean single conversation pane
+ *  (Phase 6: ONE pane is a normal tree — the container remains). */
 async function clearAutoPanel(page: Page) {
   const ctx = page.locator('[data-context-pane]')
   if ((await ctx.count()) === 0) return
   await ctx.first().dispatchEvent('pointerdown')
   await page.locator('[data-close-view]').click()
   await expect(page.locator('[data-context-pane]')).toHaveCount(0)
-  await expect(page.locator('[data-main-split]')).toHaveCount(0)
+  await expect(page.locator('[data-main-pane]')).toHaveCount(1)
 }
 
 test('split duplicates the focused conversation; the rail retargets the focused pane; close dissolves', async ({ page }) => {
@@ -73,11 +73,11 @@ test('split duplicates the focused conversation; the rail retargets the focused 
   // wait forever on the thread's continuous animations.)
   await paneB.dispatchEvent('pointerdown')
   await page.locator('[data-close-view]').click()
-  await expect(page.locator('[data-main-split]')).toHaveCount(0)
+  await expect(page.locator('[data-main-pane]')).toHaveCount(1)
   await expect(page.getByText('token refresh logic').first()).toBeVisible()
 })
 
-test('closing the focused PRIMARY tile is homogeneous: the survivor promotes and the URL follows', async ({ page }) => {
+test('ONE close rule for every page; closing the LAST page leaves the BACKGROUND, and the rail repopulates it', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto('/s/auth-refactor')
   await expect(page.getByText('token refresh logic').first()).toBeVisible()
@@ -89,15 +89,28 @@ test('closing the focused PRIMARY tile is homogeneous: the survivor promotes and
   const paneB = page.locator('[data-main-pane="b"]')
   await expect(paneB.getByText('Platform hardening').first()).toBeVisible()
 
-  // Focus the PRIMARY tile and close it: the close button is offered (panes
-  // are equals), the Projects pane's content promotes into the controller —
-  // the frame dissolves onto Projects and the ADDRESS follows what survived.
+  // Close the CONVERSATION pane (every pane closes equally — no privileged
+  // tile): Projects inherits the whole surface, focus falls to it, and the
+  // ADDRESS follows the surviving focused pane.
   await page.locator('[data-main-pane="a"]').dispatchEvent('pointerdown')
   await expect(page.locator('[data-close-view]')).toBeVisible()
   await page.locator('[data-close-view]').click()
-  await expect(page.locator('[data-main-split]')).toHaveCount(0)
+  await expect(page.locator('[data-main-pane]')).toHaveCount(1)
   await expect(page.getByText('Platform hardening').first()).toBeVisible()
   await expect(page).toHaveURL(/\/projects$/)
+
+  // Closing the LAST page leaves the BACKGROUND (the owner's model: the tree
+  // may reach zero panes — not an implicit un-split surface)…
+  await page.locator('[data-close-view]').click()
+  await expect(page.locator('[data-main-background]')).toBeVisible()
+  await expect(page.locator('[data-main-pane]')).toHaveCount(0)
+
+  // …and the rail repopulates it: New session mints the first pane (a fresh
+  // draft, the address at the root).
+  await page.getByRole('button', { name: 'New session' }).click()
+  await expect(page.locator('[data-conversation-pane="draft"]')).toBeVisible()
+  await expect(page.getByText('What should we work on?')).toBeVisible()
+  expect(new URL(page.url()).pathname).toBe('/')
 })
 
 test('focus moves on pointer-down, and the split buttons act on the focused pane', async ({ page }) => {
@@ -234,7 +247,7 @@ test('the fresh draft is an EQUAL page: a lone draft splits, and every view of i
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto('/')
   await expect(page.getByText('What should we work on?')).toBeVisible()
-  await expect(page.locator('[data-main-split]')).toHaveCount(0)
+  await expect(page.locator('[data-main-pane]')).toHaveCount(1)
 
   // A lone fresh draft SPLITS like any page (it used to be the one view that
   // couldn't — "no duplicable identity"): the duplicate is a second view of
@@ -356,14 +369,14 @@ test('the right panel folds into the tree: a repo session tiles its context PANE
   await expect(page.locator('[data-main-pane="a"]').getByText('token refresh logic').first()).toBeVisible()
 
   // Closed by the rail cluster like every other pane (no per-pane X). After
-  // auto-open focus sits on the PRIMARY (not the panel), and the rail Close still
-  // closes the panel — it routes to the active context pane rather than no-oping
-  // (the primary tile has nothing promotable but its own context sibling). The
-  // panel dissolves; the conversation stays; the URL never moved (ADAPT-15).
+  // auto-open focus sits on the CONVERSATION (not the panel); closing the
+  // focused context pane routes to its driver (`focus` clears), the panel
+  // collapses, the conversation remains alone; the URL never moved.
   await expect(page.locator('[data-main-pane="a"]')).toHaveAttribute('data-focused', 'true')
+  await page.locator('[data-context-pane]').dispatchEvent('pointerdown')
   await page.locator('[data-close-view]').click()
   await expect(page.locator('[data-context-pane]')).toHaveCount(0)
-  await expect(page.locator('[data-main-split]')).toHaveCount(0)
+  await expect(page.locator('[data-main-pane]')).toHaveCount(1)
   await expect(page.getByText('token refresh logic').first()).toBeVisible()
   expect(new URL(page.url()).pathname).toBe('/s/auth-refactor')
 })

@@ -987,9 +987,11 @@ export function useSessionWorkspace(split?: {
   // comment added nothing; the per-comment anchor is a work-item-only affordance.)
   const openProposal = useCallback(
     (agentId: string, proposalId: string, ownerName: string | null) => {
+      setPendingFocus({ agentId, proposalId })
       if (ownerName) {
         openAgentPage(agentId)
       } else {
+        if (splitRef.current?.routeDoor?.('agents', {})) return
         record({ kind: 'section', section: 'agents', projectId: null, scheduleId: null, ownerName: null })
         setActiveSection('agents')
         setActiveSubview(null)
@@ -1000,7 +1002,6 @@ export function useSessionWorkspace(split?: {
         setFocusScheduleId(null)
         setFocusWorkItemId(null)
       }
-      setPendingFocus({ agentId, proposalId })
     },
     [record, openAgentPage],
   )
@@ -1008,6 +1009,8 @@ export function useSessionWorkspace(split?: {
   // The source agent (agent.forked) — the recipient is its owner, so their own
   // Agents hub, with the card highlighted. Never the fork (the leak-wall).
   const openAgent = useCallback((agentId: string) => {
+    setPendingFocus({ agentId })
+    if (splitRef.current?.routeDoor?.('agents', {})) return
     record({ kind: 'section', section: 'agents', projectId: null, scheduleId: null, ownerName: null })
     setActiveSection('agents')
     setActiveSubview(null)

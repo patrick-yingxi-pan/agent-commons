@@ -21,7 +21,7 @@ import { SessionTitleBar } from './SessionTitleBar'
 import { ConversationView } from './ConversationView'
 import { ContextPanelView } from './ContextPanelView'
 import { SECTION_META } from '../lib/sections'
-import { clampRatio } from '../lib/splitFrame'
+import { clampRatio, nodeAt, panes } from '../lib/splitFrame'
 import type { MainPaneContent, MainSplitNode } from '../lib/mainSplit'
 import type { NavLocation } from '../lib/nav'
 import type { PanelFocus, SectionId } from '../types'
@@ -71,14 +71,33 @@ export interface MainPaneNav {
   /** A pane-hosted DRAFT materialized (its first send ran the shared draft
    *  funnel): the App retargets every draft pane to the real id. */
   onDraftAdopted: (realId: string) => void
+  /** The narrow tier's in-flow rail toggle — a conversation's title bar HOUSES
+   *  it (ADAPT-11: content must never slide under a floating control);
+   *  undefined on the other tiers. */
+  railToggle?: ReactNode
 }
 
-/** The gate App renders: no tree (or an overlay tier) passes the primary
- *  surface through UNTOUCHED — the pre-split app, byte-identical; a tree tiles
- *  it as the primary pane beside the independent ones. */
+/** The empty BACKGROUND — what shows when the last page closes (the owner's
+ *  equal-pages model: the tree may reach zero panes; the rail's doors — New
+ *  session, a section, a recent — repopulate it). */
+function Background() {
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-canvas" data-main-background>
+      <p className="max-w-xs text-center text-sm leading-relaxed text-ink-faint">
+        No pages open. Start a new session or open anything from the sidebar.
+      </p>
+    </div>
+  )
+}
+
+/** The gate App renders — panes are the ONLY render path (Phase 6, no
+ *  privileged surface): `null` tree = the background; the overlay tiers
+ *  (medium/narrow — no room to tile, ADAPT-11) render the FOCUSED pane alone,
+ *  full-surface (the tree persists and re-tiles on return to wide); the wide
+ *  tier tiles the whole tree. */
 export function MainSplitGate({
   tree,
-  children,
+  overlay,
   focusedPane,
   nav,
   onFocusPane,
@@ -86,18 +105,34 @@ export function MainSplitGate({
   onRatio,
 }: {
   tree: MainSplitNode | null
-  children: ReactNode
+  /** True on the medium/narrow tiers — render the focused pane only. */
+  overlay: boolean
   focusedPane: string
   nav: MainPaneNav
   onFocusPane: (path: string) => void
   onFillPane: (path: string, content: MainPaneContent) => void
   onRatio: (path: string, ratio: number) => void
 }) {
-  if (!tree) return <>{children}</>
+  if (!tree) return <Background />
+  if (overlay) {
+    const focusedNode = nodeAt(tree, focusedPane)
+    const fallback = panes(tree)[0]
+    const leaf =
+      focusedNode?.kind === 'pane'
+        ? { content: focusedNode.content, path: focusedPane, rev: focusedNode.rev }
+        : fallback
+          ? { ...fallback, rev: (nodeAt(tree, fallback.path) as { rev?: number } | null)?.rev }
+          : null
+    if (!leaf) return <Background />
+    return (
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-canvas" data-main-pane={leaf.path || 'root'} data-focused>
+        <PaneBody content={leaf.content} path={leaf.path} rev={leaf.rev} nav={nav} onFillPane={onFillPane} />
+      </div>
+    )
+  }
   return (
     <MainSplit
       tree={tree}
-      renderPrimary={() => children}
       focusedPane={focusedPane}
       nav={nav}
       onFocusPane={onFocusPane}
@@ -109,7 +144,6 @@ export function MainSplitGate({
 
 export function MainSplit({
   tree,
-  renderPrimary,
   focusedPane,
   nav,
   onFocusPane,
@@ -117,7 +151,6 @@ export function MainSplit({
   onRatio,
 }: {
   tree: MainSplitNode
-  renderPrimary: () => ReactNode
   focusedPane: string
   nav: MainPaneNav
   onFocusPane: (path: string) => void
@@ -129,7 +162,6 @@ export function MainSplit({
       <Branch
         node={tree}
         path=""
-        renderPrimary={renderPrimary}
         focusedPane={focusedPane}
         nav={nav}
         onFocusPane={onFocusPane}
@@ -140,10 +172,52 @@ export function MainSplit({
   )
 }
 
+/** ONE leaf renderer for every host — the tiled Branch and the overlay tiers'
+ *  focused-pane-only view render the identical content (no fork). */
+function PaneBody({
+  content: c,
+  path,
+  rev,
+  nav,
+  onFillPane,
+}: {
+  content: MainPaneContent
+  path: string
+  /** The leaf's replace revision — a re-route to content-equal state still
+   *  lands fresh (rail section re-click → section root). */
+  rev?: number
+  nav: MainPaneNav
+  onFillPane: (path: string, content: MainPaneContent) => void
+}) {
+  return c.kind === 'msection' ? (
+    <SectionPane
+      // Keyed on the full seed + the leaf revision so ANY re-route (a rail
+      // facet, a cross-section retarget, a same-section re-click) resets the
+      // pane-local nav cleanly.
+      key={`${c.id}:${c.sub ?? ''}:${c.seed ? JSON.stringify(c.seed) : ''}:${rev ?? 0}`}
+      section={c.id}
+      initialSub={c.sub ?? null}
+      initialFocus={c.seed}
+      nav={nav}
+      onRetarget={(content) => onFillPane(path, content)}
+    />
+  ) : c.kind === 'msession' ? (
+    <ConversationPane sessionId={c.id} nav={nav} />
+  ) : c.kind === 'context-panel' ? (
+    <ContextPanelView
+      sessionId={c.sessionId}
+      panel={c.panel}
+      onOpenSession={nav.onOpenSession}
+      onOpenSchedule={nav.onOpenSchedule}
+    />
+  ) : (
+    <MainPicker onPick={(content) => onFillPane(path, content)} />
+  )
+}
+
 interface BranchProps {
   node: MainSplitNode
   path: string
-  renderPrimary: () => ReactNode
   focusedPane: string
   nav: MainPaneNav
   onFocusPane: (path: string) => void
@@ -172,31 +246,7 @@ function Branch(props: BranchProps) {
         data-focused={focused || undefined}
         onPointerDownCapture={() => onFocusPane(path)}
       >
-        {c.kind === 'primary' ? (
-          props.renderPrimary()
-        ) : c.kind === 'msection' ? (
-          <SectionPane
-            // Keyed on the full seed so a re-route (a rail facet, a
-            // cross-section retarget) resets the pane-local nav cleanly.
-            key={`${c.id}:${c.sub ?? ''}:${c.seed ? JSON.stringify(c.seed) : ''}`}
-            section={c.id}
-            initialSub={c.sub ?? null}
-            initialFocus={c.seed}
-            nav={props.nav}
-            onRetarget={(content) => props.onFillPane(path, content)}
-          />
-        ) : c.kind === 'msession' ? (
-          <ConversationPane sessionId={c.id} nav={props.nav} />
-        ) : c.kind === 'context-panel' ? (
-          <ContextPanelView
-            sessionId={c.sessionId}
-            panel={c.panel}
-            onOpenSession={props.nav.onOpenSession}
-            onOpenSchedule={props.nav.onOpenSchedule}
-          />
-        ) : (
-          <MainPicker onPick={(content) => props.onFillPane(path, content)} />
-        )}
+        <PaneBody content={c} path={path} rev={node.rev} nav={props.nav} onFillPane={props.onFillPane} />
       </div>
     )
   }
@@ -335,8 +385,16 @@ function SectionPane({
         }}
         onOpenSession={nav.onOpenSession}
         onNewSession={nav.onNewSession}
-        onOpenProject={(id) => navigate({ projectId: id })}
-        onOpenSchedule={(id) => navigate({ scheduleId: id })}
+        // Same-section doors push the pane's own detail focus; CROSS-section
+        // doors (a profile page's project card, a project's routine row)
+        // retarget the pane's leaf to the target section WITH the detail open
+        // (the pane-locality rule — never a hub-root bounce).
+        onOpenProject={(id) =>
+          section === 'projects' ? navigate({ projectId: id }) : onRetarget({ kind: 'msection', id: 'projects', seed: { projectId: id } })
+        }
+        onOpenSchedule={(id) =>
+          section === 'scheduled' ? navigate({ scheduleId: id }) : onRetarget({ kind: 'msection', id: 'scheduled', seed: { scheduleId: id } })
+        }
         onOpenProposal={nav.onOpenProposal}
         onBack={onBack}
         backTo={backTo}
@@ -346,7 +404,9 @@ function SectionPane({
         focusWorkItemId={focus.workItemId}
         focusAgentId={focus.agentId}
         focusContextId={focus.contextId}
-        onOpenAgentPage={(id) => navigate({ agentId: id })}
+        onOpenAgentPage={(id) =>
+          section === 'agents' ? navigate({ agentId: id }) : onRetarget({ kind: 'msection', id: 'agents', seed: { agentId: id } })
+        }
       />
     </SectionNavOverride.Provider>
   )
@@ -453,6 +513,7 @@ function ConversationPane({ sessionId, nav }: { sessionId: string; nav: MainPane
           list falls back to a title-only shell). */}
       <SessionTitleBar
         session={row ?? { id: sessionId, title: isDraft ? 'New session' : nav.sessionLabel(sessionId) }}
+        leading={nav.railToggle}
         onOpenProject={nav.onOpenProject}
         onOpenSchedule={nav.onOpenSchedule}
       />

@@ -36,7 +36,11 @@ export interface PaneContent {
 }
 
 export type SplitNode<C extends PaneId = PaneContent> =
-  | { kind: 'pane'; content: C }
+  // `rev` bumps on every explicit replace (routeToFocused / a door): a
+  // re-route to CONTENT-EQUAL state still means "land fresh" (a rail section
+  // re-click returns to the section root, not the pane's old local detail) —
+  // the render keys on it so the page remounts.
+  | { kind: 'pane'; content: C; rev?: number }
   | { kind: 'split'; dir: SplitDir; ratio: number; a: SplitNode<C>; b: SplitNode<C> }
 
 /** Constant ratio bounds — a pane can shrink to 15% of its split's axis, no
@@ -110,7 +114,9 @@ export function closePane<C extends PaneId>(root: SplitNode<C>, path: string): S
 /** Replace the content of the pane at `path` (the picker filling in, or a chip
  *  click retargeting the active pane). */
 export function replacePane<C extends PaneId>(root: SplitNode<C>, path: string, content: C): SplitNode<C> {
-  return editAt(root, path, (node) => (node.kind === 'pane' ? { kind: 'pane', content } : node))
+  return editAt(root, path, (node) =>
+    node.kind === 'pane' ? { kind: 'pane', content, rev: (node.rev ?? 0) + 1 } : node,
+  )
 }
 
 /** Set a split's ratio (clamped against the constant bounds). */

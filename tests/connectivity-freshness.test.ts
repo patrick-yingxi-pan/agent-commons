@@ -126,10 +126,12 @@ test('the rail reads the LIVE project registry, not the seed-only /projects mirr
 })
 
 test('the open thread’s title bar renders the LIVE session row (a rename shows immediately)', () => {
-  const app = src('src', 'App.tsx')
-  // The draft branch decorates the SAME live row (id/title only) — the
-  // cache-refreshed `activeRow` still flows through for real sessions.
-  assert.match(app, /<SessionTitleBar[\s\S]{0,700}?session=\{isDraft \? \{ \.\.\.activeRow[\s\S]{0,120}?: activeRow\}/, 'the title bar gets the cache-refreshed row')
+  // Every conversation renders through ConversationPane now (Phase 6 — no
+  // singleton surface): its title bar must read the cache-refreshed row from
+  // useSessions, never a creation-time snapshot.
+  const split = src('src', 'components', 'MainSplit.tsx')
+  assert.match(split, /const row = \(useSessions\(\)\.data \?\? \[\]\)\.find\(\(s\) => s\.id === sessionId\)/, 'the pane resolves the LIVE row')
+  assert.match(split, /<SessionTitleBar\s+session=\{row \?\?/, 'the title bar gets the cache-refreshed row (with the draft/run fallback)')
 })
 
 test('the session→project breadcrumb resolves runtime-created projects too', () => {
