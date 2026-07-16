@@ -3,7 +3,6 @@ import { SESSIONS } from '../data/sessions'
 import {
   DRAFT_ID,
   DRAFT_SESSION,
-  EMPTY_LIVE,
   addContextToLive,
   bindingsFor,
   applyEscalationToLive,
@@ -31,11 +30,10 @@ import { loadViewLocation, saveViewLocation, type ViewLocation } from '../lib/vi
 import { pathForView, viewForPath, type RoutedView } from '../lib/urlRoutes'
 import { loadModelPrefs } from '../lib/modelPrefs'
 import type { ModelPick } from '../lib/models'
-import { parseFsRecentKey, DEFAULT_PROVIDER_ID } from '../../contract/index'
+import { parseFsRecentKey } from '../../contract/index'
 import {
   applyRelationOp,
   attachContext,
-  createSession,
   deleteSession as deleteSessionCmd,
   detachContext,
   keys,
@@ -49,6 +47,7 @@ import {
   compactSession,
 } from '../api'
 import { conversations, useConversation } from './conversationStore'
+import { draft } from './draftController'
 import type {
   AddedContext,
   AttachContextRequest,
@@ -222,15 +221,10 @@ export function useSessionWorkspace() {
   const leftAccount = useRef(false)
   const historyRef = useRef(history)
   historyRef.current = history
-  // The in-flight draft → real materialization, so two quick sends on a fresh draft
-  // coalesce into ONE session instead of racing to create two. Reset when a new
-  // draft begins (newSession) or the materialization fails.
-  const draftMaterializing = useRef<Promise<Session> | null>(null)
-  // Contexts attached while on the (not-yet-real) draft — a pre-attached entry
-  // shortcut (FWD-1) or a manual attach before the first send. The draft can't
-  // persist a binding (it has no server id yet), so these are held and flushed onto
-  // the real session the moment the draft materializes, so they survive a reload.
-  const pendingDraftContexts = useRef<AddedContext[]>([])
+  // The draft → real materialization (the coalesce handle, the FWD-1 pending
+  // context buffer, the flush ordering) lives in the shared draft funnel
+  // (`draft`, controller/draftController.ts) — ONE flow for every host of the
+  // draft, not a singleton-private implementation (universal split Phase 6).
   // The draft's model pick (the composer's selector on a not-yet-real session) —
   // same holding pattern as the contexts above: the draft can't PATCH a server row,
   // so the pick rides the materialization (`createSession(text, providerId,
@@ -357,7 +351,7 @@ export function useSessionWorkspace() {
       setActiveId(id)
       // Switching sessions abandons any context staged on the (now-left) draft, so it
       // can't later be flushed onto a different session's first send (FWD-1 pending buffer).
-      pendingDraftContexts.current = []
+      draft.clearBuffer()
       const session =
         SESSIONS.find((c) => c.id === id) ??
         extraSessionsRef.current.find((s) => s.id === id) ??
@@ -542,31 +536,10 @@ export function useSessionWorkspace() {
   // free-typed "organize" request is a real round-trip.
   const handleSend = useCallback((text: string) => {
     const startId = activeIdRef.current
-    // The draft's panel choice at dispatch (captured synchronously, before the
-    // materialize await, so a mid-flight navigation can't make us read another
-    // session's focus). Carried onto the real session below so an explicitly-closed
-    // panel on a pre-attached draft (FWD-1) survives the draft→real transition (FWD-2).
-    const draftFocus = focusRef.current
-    // The draft's model pick at dispatch (same synchronous capture as the focus
-    // above), sanitized against the live registry: a stale pick — e.g. a Customize
-    // default whose provider was deleted, or a model its catalog dropped —
-    // degrades to the inherit default instead of failing the materialization (the
-    // server 404s an unknown providerId and 400s an off-catalog modelId). The
-    // same sanitize guards the post-materialize flush below, so a rejected stale
-    // pick can't sneak back in through the late-write path.
-    const sanitizePick = (pick: ModelPick): ModelPick => {
-      const known = peek<ModelProvider[]>(keys.providers)
-      if (!known) return pick // registry not loaded — let the server arbitrate
-      const provider = known.find((p) => p.id === (pick.providerId ?? DEFAULT_PROVIDER_ID))
-      if (pick.providerId && !provider) return {}
-      const modelId = pick.modelId && provider?.models?.some((m) => m.id === pick.modelId) ? pick.modelId : undefined
-      return { providerId: pick.providerId, modelId }
-    }
-    const draftModel = sanitizePick(draftPickRef.current)
     const userMsg: Message = { id: `u-${Date.now()}`, role: 'user', content: text }
     // The optimistic user turn + the generation flags land on the DISPATCH-TIME
-    // entry (the draft's, before materialization — `adopt` moves them under the
-    // real id below). A fresh send stands the previous refusal copy down.
+    // entry (the draft's, before materialization — the funnel's `adopt` moves
+    // them under the real id). A fresh send stands the previous refusal copy down.
     conversations.update(startId, (s) => ({
       ...s,
       typing: true,
@@ -574,88 +547,28 @@ export function useSessionWorkspace() {
       sendFailure: null,
       live: { ...s.live, messages: [...s.live.messages, userMsg] },
     }))
-    // The turn runs async so an unsaved draft is first materialized into a real,
-    // persisted session (the server mints its id + titles it from this message).
-    // The reply then streams under that id and the backend persists the turn —
-    // making "send" a real, durable operation rather than client-only state.
-    //
-    // Sends SERIALIZE PER SESSION (the store's chain): the backend enforces one
-    // live turn per session (server/turns.ts — a concurrent send is 409
-    // conflict), so a rapid second message waits for the first turn to finish
-    // instead of being refused. The user message already rendered above, so
-    // nothing looks stuck. Different sessions run concurrently — the store's
-    // epoch model keeps each stream landing in its own entry.
-    void (async () => {
-      let sid = startId
-      if (sid === DRAFT_ID) {
-        try {
-          // Coalesce a rapid second send on the same fresh draft into the first
-          // materialization (the composer isn't disabled while streaming), so two
-          // quick messages land in ONE session rather than creating two.
-          const pending = draftMaterializing.current ?? createSession(text, draftModel.providerId, draftModel.modelId)
-          draftMaterializing.current = pending
-          const created = await pending
-          sid = created.id
-          setExtraSessions((prev) => (prev.some((s) => s.id === created.id) ? prev : [created, ...prev]))
-          // Flush any contexts pre-attached to the draft (a FWD-1 entry shortcut or a
-          // manual attach before first send) onto the now-real session: persist each
-          // binding-of-record and the assembled panels, so they survive a reload —
-          // the binding writes the draft deliberately skipped (persistableSession=false).
-          const seeded = pendingDraftContexts.current
-          if (seeded.length) {
-            // Await the binding writes BEFORE the turn streams: generation derives an
-            // attached connector/MCP's tools from the session's server-side contexts
-            // (P6), so a pre-attached draft must have its bindings landed before the
-            // first send — otherwise the message races ahead and the tools aren't
-            // declared for that turn.
-            await Promise.all(seeded.flatMap((ctx) => bindingsFor(ctx).map((b) => attachContext(sid, b).catch(() => {}))))
-            // Build the panels from the SAME seeded contexts, not `liveRef.current` — a
-            // navigation while createSession was in flight would have replaced the live
-            // state, so reading the ref here could persist another session's panels onto
-            // `sid` (and desync them from the bindings written above). Deriving both faces
-            // from `seeded` keeps the persisted binding-of-record and panels in lock-step.
-            const seededLive = seeded.reduce((l, ctx) => addContextToLive(l, ctx), EMPTY_LIVE)
-            void persistWorkspace(sid, workspaceOf(seededLive)).catch(() => {})
-            pendingDraftContexts.current = []
-          }
-          // Carry the draft's panel choice onto the now-real session (FWD-2): the draft
-          // couldn't persist a pref (no server id), so an explicitly-closed panel on a
-          // pre-attached draft would otherwise be re-opened by strongestFocus on reopen.
-          setPanelPref(sid, draftFocus)
-          // A model pick changed WHILE materializing (the composer stayed live) went to
-          // the draft slot after the capture above — flush it onto the real session,
-          // the same late-write treatment the pre-attached contexts get. Sanitized
-          // like the capture, so a stale pref the dispatch just dropped isn't
-          // re-PATCHed here (it would 404 on every fresh-draft send).
-          const latePick = sanitizePick(draftPickRef.current)
-          if (latePick.providerId !== draftModel.providerId || latePick.modelId !== draftModel.modelId) {
-            void patchSession(sid, { providerId: latePick.providerId ?? '', modelId: latePick.modelId ?? '' })
-          }
-          // The draft entry's optimistic state (its user turn(s), its flags)
-          // moves under the real id — once; a coalesced second send finds the
-          // draft slot already blank and adopt() skips it.
-          conversations.adopt(DRAFT_ID, sid)
-          // Adopt the new id only if the user is still on the draft — don't yank
-          // them back if they navigated away while it was materializing.
+    // The turn streams through the store's shared pipeline (sends serialize PER
+    // SESSION; different sessions run concurrently — the epoch model keeps each
+    // stream landing in its own entry). A DRAFT send routes through the shared
+    // draft funnel (draftCore.ts): materialize (coalesced) → flush the FWD-1
+    // seeds before the turn → carry the panel choice (FWD-2) → flush a late
+    // model pick → adopt the entry — this host only re-points its active id,
+    // and only if the user is still on the draft (no yank-back).
+    if (startId === DRAFT_ID) {
+      void draft.sendDraftTurn(
+        text,
+        () => draftPickRef.current,
+        (created) => setExtraSessions((prev) => (prev.some((s) => s.id === created.id) ? prev : [created, ...prev])),
+        (sid) => {
           if (activeIdRef.current === DRAFT_ID) {
             setActiveId(sid)
             activeIdRef.current = sid
           }
-        } catch {
-          // Couldn't materialize (server unreachable) — stream against the draft id;
-          // the reply still renders, it just isn't persisted (graceful degradation).
-          draftMaterializing.current = null // let a retry re-materialize
-          sid = startId
-        }
-      }
-      // The turn streams through the store's shared pipeline: relation cards,
-      // escalation prompts, connector tool activity, the settle flags, and the
-      // usage-gauge refresh all land in the SESSION'S OWN entry — however the
-      // user navigates meanwhile (the epoch model; a reset of this session is
-      // the only thing that stales the stream). Server refusal copy (a gate's
-      // 503/429) lands as the entry's sendFailure for the retry affordance.
-      void conversations.sendTurn(sid, text)
-    })()
+        },
+      )
+    } else {
+      void conversations.sendTurn(startId, text)
+    }
   }, [])
   handleSendRef.current = handleSend
 
@@ -697,9 +610,10 @@ export function useSessionWorkspace() {
     // Both gate on persistableSession so a draft/demo doesn't persist an orphan
     // binding the panel write (persistLive) deliberately skips.
     if (persistableSession(id)) for (const b of bindingsFor(ctx)) void attachContext(id, b).catch(() => {})
-    // A draft can't persist its binding yet (no server id) — hold it so it's flushed
-    // onto the real session when the draft materializes on first send (see handleSend).
-    else if (id === DRAFT_ID) pendingDraftContexts.current.push(ctx)
+    // A draft can't persist its binding yet (no server id) — the funnel buffers
+    // it and flushes onto the real session when the draft materializes on
+    // first send (draftCore.sendDraftTurn).
+    else if (id === DRAFT_ID) draft.bufferContext(ctx)
     const next = addContextToLive(conversations.get(id).live, ctx)
     conversations.setLive(id, next)
     persistLive(id, next)
@@ -737,24 +651,15 @@ export function useSessionWorkspace() {
     clearTimers()
     setActiveSection(null)
     setActiveId(DRAFT_ID)
-    // A fresh draft must re-materialize on its first send — don't reuse the
-    // previous draft's (now resolved) session.
-    draftMaterializing.current = null
     // …and starts back on the preferred default model (the Customize pick —
     // provider and/or concrete catalog model; no pick = the inherit default).
     const prefs = loadModelPrefs()
     setDraftPick({ providerId: prefs.providerId, modelId: prefs.modelId })
-    if (seed) {
-      rememberAttached(seed) // promote into the Add-context recents, like a manual attach
-      const seeded = addContextToLive(EMPTY_LIVE, seed)
-      conversations.reset(DRAFT_ID, seeded) // fresh flags, no held escalation
-      conversations.setFocus(DRAFT_ID, focusForAdded(seed, seeded))
-      pendingDraftContexts.current = [seed]
-    } else {
-      conversations.reset(DRAFT_ID, EMPTY_LIVE)
-      conversations.setFocus(DRAFT_ID, null)
-      pendingDraftContexts.current = []
-    }
+    // The draft funnel resets: fresh entry (seeded when the launcher carried a
+    // context — its panel opens), a cleared FWD-1 buffer, and a dropped
+    // coalesce handle so the first send re-materializes.
+    if (seed) rememberAttached(seed) // promote into the Add-context recents, like a manual attach
+    draft.reset(seed)
   }, [clearTimers, record])
 
   // "New from repo / folder / connector…" — a per-mode entry point that starts a
