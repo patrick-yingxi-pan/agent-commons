@@ -33,6 +33,7 @@ import { SECTION_META } from './lib/sections'
 import { DRAFT_ID, type Live } from './data/liveSession'
 import { draft } from './controller/draftController'
 import { pathForView, type RoutedView } from './lib/urlRoutes'
+import type { PaneSeed } from './lib/paneNav'
 import type { AddedContext, Connector, SectionId, Session } from './types'
 
 /** The shell: decides WHICH top-level surface renders — the full-screen auth
@@ -145,6 +146,15 @@ function Workspace() {
     [routeToFocused],
   )
 
+  // An entity door (a notification bell, a palette hit, a relation card's
+  // "View in …") lands in the FOCUSED pane, its detail page open (the pane
+  // seed) — like every navigation; false with the primary focused (the
+  // singleton opens it as before).
+  const routeDoor = useCallback(
+    (section: SectionId, seed: PaneSeed): boolean => routeToFocused({ kind: 'msection', id: section, seed }),
+    [routeToFocused],
+  )
+
   const {
     activeId,
     activeSection,
@@ -202,7 +212,7 @@ function Workspace() {
     removeFolder,
     closePanel,
     approveEscalation,
-  } = useSessionWorkspace({ focusedPath, applyRouteToFocused })
+  } = useSessionWorkspace({ focusedPath, applyRouteToFocused, routeDoor })
 
   // (The relay wait state — "Waiting on your session…" — is derived inside
   // ConversationView now, once for every host.)

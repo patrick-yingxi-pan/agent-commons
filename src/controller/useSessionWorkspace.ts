@@ -22,6 +22,7 @@ import {
   type Live,
 } from '../data/liveSession'
 import { sameFocus } from '../lib/focus'
+import type { PaneSeed } from '../lib/paneNav'
 import { pushLocation, type NavLocation } from '../lib/nav'
 import type { FocusTarget } from '../lib/notificationDoor'
 import { rememberAttached } from '../lib/contextShortcuts'
@@ -117,6 +118,12 @@ export function useSessionWorkspace(split?: {
    *  Back/Forward retarget the focused pane, like every navigation); false =
    *  not handled (the primary is focused) — the singleton applies it. */
   applyRouteToFocused?: (routed: RoutedView | null) => boolean
+  /** An entity DOOR (a notification bell, a palette hit, a relation card's
+   *  "View in …") lands in the FOCUSED pane, seeded with its detail — like
+   *  every navigation; false = the primary is focused, the singleton opens
+   *  it as before. (Transient highlight targets stay singleton-only until
+   *  the pane FocusContext lands — the page still opens on the entity.) */
+  routeDoor?: (section: SectionId, seed: PaneSeed) => boolean
 }) {
   // Ref'd so the popstate listener (bound once) reads the CURRENT callback.
   const splitRef = useRef(split)
@@ -724,6 +731,7 @@ export function useSessionWorkspace(split?: {
   // route through here, so the detail target is one source of truth (focusProjectId)
   // and every entry is recorded in history for back.
   const openProject = useCallback((projectId: string) => {
+    if (splitRef.current?.routeDoor?.('projects', { projectId })) return
     record({ kind: 'section', section: 'projects', projectId, scheduleId: null, ownerName: null })
     setActiveSection('projects')
     setActiveSubview(null)
@@ -739,6 +747,7 @@ export function useSessionWorkspace(split?: {
   // Open a routine's detail page. Reached from a run session's breadcrumb, a
   // project's routine row, or the Scheduled list — all through here (see openProject).
   const openSchedule = useCallback((scheduleId: string) => {
+    if (splitRef.current?.routeDoor?.('scheduled', { scheduleId })) return
     record({ kind: 'section', section: 'scheduled', projectId: null, scheduleId, ownerName: null })
     setActiveSection('scheduled')
     setActiveSubview(null)
@@ -755,6 +764,7 @@ export function useSessionWorkspace(split?: {
   // directory card, a shared project's header, a search hit), all through here,
   // so the open profile is one source of truth and every entry lands in history.
   const openOwner = useCallback((name: string) => {
+    if (splitRef.current?.routeDoor?.('agents', { ownerName: name })) return
     record({ kind: 'section', section: 'agents', projectId: null, scheduleId: null, ownerName: name })
     setActiveSection('agents')
     setActiveSubview(null)
@@ -772,6 +782,7 @@ export function useSessionWorkspace(split?: {
   // directory card's title / "View definition", a profile's agent card, the
   // proposer-side proposal bell, a pasted /agents/:id address.
   const openAgentPage = useCallback((agentId: string) => {
+    if (splitRef.current?.routeDoor?.('agents', { agentId })) return
     record({ kind: 'section', section: 'agents', projectId: null, scheduleId: null, ownerName: null, agentId })
     setActiveSection('agents')
     setActiveSubview(null)
@@ -788,6 +799,7 @@ export function useSessionWorkspace(split?: {
   // to a set-up context lands here: the Contexts list row, a project's context
   // chip, a contributor row's reach label, a pasted /contexts/:id address.
   const openContextPage = useCallback((contextId: string) => {
+    if (splitRef.current?.routeDoor?.('contexts', { contextId })) return
     record({ kind: 'section', section: 'contexts', projectId: null, scheduleId: null, ownerName: null, contextId })
     setActiveSection('contexts')
     setActiveSubview(null)
@@ -805,6 +817,7 @@ export function useSessionWorkspace(split?: {
   // mentioned bell (which then anchors the comment it names via the pending focus,
   // GitHub's `#issuecomment`), a pasted /projects/:id/work/:item address.
   const openWorkItemPage = useCallback((projectId: string, workItemId: string) => {
+    if (splitRef.current?.routeDoor?.('projects', { projectId, workItemId })) return
     record({ kind: 'section', section: 'projects', projectId, scheduleId: null, ownerName: null, workItemId })
     setActiveSection('projects')
     setActiveSubview(null)

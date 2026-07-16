@@ -278,6 +278,27 @@ test('an entity door inside a pane-hosted section page stays IN THE PANE (the na
   expect(new URL(page.url()).pathname).toBe('/contexts')
 })
 
+test('an entity DOOR (the ⌘K palette) lands in the FOCUSED pane, detail open — the primary untouched', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 })
+  await page.goto('/s/auth-refactor')
+  await expect(page.getByText('token refresh logic').first()).toBeVisible()
+  await clearAutoPanel(page)
+
+  // Split; the focused duplicate is where doors land now.
+  await page.locator('[data-split-view="row"]').click()
+  const paneB = page.locator('[data-main-pane="b"]')
+  await expect(paneB).toHaveAttribute('data-focused', 'true')
+
+  // A palette hit is a DOOR from the chrome (not a pane click, so focus stays
+  // on pane b): it opens the project DETAIL inside the focused pane, seeded.
+  await page.getByRole('button', { name: 'Search', exact: true }).click()
+  const palette = page.getByRole('dialog', { name: 'Search' })
+  await palette.getByRole('textbox').fill('Platform hardening')
+  await palette.getByRole('button', { name: /Platform hardening/ }).first().click()
+  await expect(paneB.getByText('The platform team')).toBeVisible()
+  await expect(page.locator('[data-main-pane="a"]').getByText('token refresh logic').first()).toBeVisible()
+})
+
 test('switching runs from the runs panel swaps the context pane IN PLACE — no tree dissolve, no main-area remount', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto('/')
