@@ -27,6 +27,7 @@
  *  chain serialized those too, a restriction no pane model can keep. */
 import type { EscalationProposal, Message } from '../../contract/index'
 import type { Live } from '../data/liveSession'
+import type { PanelFocus } from '../types'
 
 /** A held mid-turn escalation proposal — applies only on user approval. */
 export interface PendingEscalation {
@@ -45,6 +46,10 @@ export interface ConversationState {
   /** The server's refusal copy for the last failed send (the pre-persist gates). */
   sendFailure: string | null
   pendingEscalation: PendingEscalation | null
+  /** Which attached context this session's right panel is showing (null = closed).
+   *  Per-session so EVERY pane derives its OWN context panel (universal split
+   *  Phase 6) — remembered across reopen by `panelPrefs` (FWD-2). */
+  focus: PanelFocus | null
 }
 
 /** The streaming callbacks a turn dispatches — structurally the api layer's
@@ -86,6 +91,7 @@ export function createConversationStore(transport: ConversationTransport, empty:
     liveTurn: null,
     sendFailure: null,
     pendingEscalation: null,
+    focus: null,
   })
 
   /** The entry for a session, created blank on demand. The returned object is
@@ -126,6 +132,10 @@ export function createConversationStore(transport: ConversationTransport, empty:
 
   const patch = (id: string, p: Partial<ConversationState>): void => update(id, (s) => ({ ...s, ...p }))
 
+  /** Set which context panel this session shows (null = closed) — per-session
+   *  focus, read by every pane to derive its own context pane (Phase 6). */
+  const setFocus = (id: string, focus: PanelFocus | null): void => patch(id, { focus })
+
   const setLive = (id: string, next: Live | ((l: Live) => Live)): void =>
     update(id, (s) => ({ ...s, live: typeof next === 'function' ? next(s.live) : next }))
 
@@ -160,7 +170,9 @@ export function createConversationStore(transport: ConversationTransport, empty:
     // Nothing to move — including the BLANK entry a subscriber's lazy get()
     // recreates after a first adopt already moved the state (the coalesced
     // second send of one materialization must not clobber the real entry).
-    if (!s || (s.live.messages.length === 0 && !s.busy && !s.typing && !s.pendingEscalation)) return
+    // An open panel (`focus`) counts as state worth moving: a recreated blank
+    // entry always has focus null, so the coalesce-skip is unaffected.
+    if (!s || (s.live.messages.length === 0 && !s.busy && !s.typing && !s.pendingEscalation && !s.focus)) return
     bump(from)
     states.set(to, s)
     states.delete(from)
@@ -294,6 +306,7 @@ export function createConversationStore(transport: ConversationTransport, empty:
     get,
     subscribe,
     patch,
+    setFocus,
     setLive,
     update,
     epoch,

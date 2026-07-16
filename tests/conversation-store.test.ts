@@ -193,6 +193,43 @@ test('stop cancels the entry’s server-owned turn; reattach resumes and settles
   assert.deepEqual(settledFor, ['s'], 'the settle hook (usage refresh) fired for the session')
 })
 
+test('focus is per session (Phase 6): keyed isolation, adopt carries it, reset clears it', () => {
+  const { transport } = fakeTransport()
+  const store = createConversationStore(transport, empty)
+  // Keyed isolation — every pane derives its OWN context panel from its
+  // session's focus; setting one session's never touches another's.
+  store.setFocus('a', { kind: 'repo', id: 'repo-1' })
+  store.setFocus('b', { kind: 'workspace', id: 'ws-1' })
+  assert.deepEqual(store.get('a').focus, { kind: 'repo', id: 'repo-1' })
+  assert.deepEqual(store.get('b').focus, { kind: 'workspace', id: 'ws-1' })
+  // Toggle-to-closed is a plain null write.
+  store.setFocus('b', null)
+  assert.equal(store.get('b').focus, null)
+  assert.deepEqual(store.get('a').focus, { kind: 'repo', id: 'repo-1' }, 'closing b leaves a untouched')
+  // Draft materialization: the draft's panel choice rides adopt onto the real id
+  // (the FWD-2 carry the singleton used to hand-roll via a dispatch-time capture).
+  store.setFocus('draft', { kind: 'connector', id: 'c-1' })
+  store.update('draft', (s) => ({ ...s, live: { ...EMPTY, messages: [user('u1', 'first')] } }))
+  store.adopt('draft', 'real-9')
+  assert.deepEqual(store.get('real-9').focus, { kind: 'connector', id: 'c-1' }, 'focus moved with the entry')
+  assert.equal(store.get('draft').focus, null, 'the draft slot is blank again')
+  // A focus-only entry is NOT blank — adopt moves it (the store contract; no
+  // UI path hits this today, but the blank-guard must count every state field).
+  store.setFocus('draft2', { kind: 'repo', id: 'r-2' })
+  store.adopt('draft2', 'real-10')
+  assert.deepEqual(store.get('real-10').focus, { kind: 'repo', id: 'r-2' }, 'a focus-only entry still moves')
+  // A select-time reset seeds a fresh entry — focus starts closed (the caller
+  // restores the remembered pref explicitly, panelPrefs / FWD-2).
+  store.setFocus('s', { kind: 'repo', id: 'r' })
+  store.reset('s', EMPTY)
+  assert.equal(store.get('s').focus, null)
+  // setFocus notifies the entry's subscribers (a pane re-renders its panel).
+  let notified = 0
+  store.subscribe('a', () => (notified += 1))
+  store.setFocus('a', null)
+  assert.equal(notified, 1)
+})
+
 test('subscribe notifies on the entry’s changes only; clearAll drops every conversation', () => {
   const { transport } = fakeTransport()
   const store = createConversationStore(transport, empty)

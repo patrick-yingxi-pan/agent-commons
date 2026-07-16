@@ -115,14 +115,13 @@ export function useSessionWorkspace() {
   // store (universal split Phase 1: the session half lives in
   // conversationStore.ts so any pane can host a conversation; this singleton
   // hook now subscribes to just its active one).
-  const { live, typing, busy, liveTurn, sendFailure, pendingEscalation } = useConversation(activeId)
-  // Which attached context the right-hand sidebar is showing (null = closed).
-  // On the WIDE tier this `focus` drives the active session's context PANE in the
-  // universal main tree (App projects it via setFocusDrivenContext); on the overlay
-  // tiers it drives the docked / takeover panel. One per-session source of truth,
-  // remembered by panelPrefs (FWD-2). The legacy right-frame split tree (ADAPT-16)
-  // is retired — several context panes now tile through the universal split.
-  const [focus, setFocus] = useState<PanelFocus | null>(null)
+  const { live, typing, busy, liveTurn, sendFailure, pendingEscalation, focus } = useConversation(activeId)
+  // `focus` (destructured above) is which attached context the active session's
+  // right panel shows (null = closed) — now PER-SESSION in the keyed store
+  // (Phase 6), so every pane derives its OWN context panel. On the WIDE tier the
+  // App effect projects it into the universal tree (setFocusDrivenContext); the
+  // overlay tiers dock it. Remembered across reopen by panelPrefs (FWD-2). The
+  // legacy right-frame split tree (ADAPT-16) is retired.
   // Which cross-cutting tool is open in the main area (null = the session).
   const [activeSection, setActiveSection] = useState<SectionId | null>(null)
   // Which sub-view of the active section is selected — the rail's drill-in menu and
@@ -181,6 +180,10 @@ export function useSessionWorkspace() {
   // user switched sessions is ignored rather than landing in the wrong thread.
   const activeIdRef = useRef(activeId)
   activeIdRef.current = activeId
+  // The active session's panel focus, written through to the keyed store (Phase 6).
+  // Callers targeting a SPECIFIC session (select, newSession, attach) call
+  // conversations.setFocus(id, …) directly.
+  const setFocus = useCallback((f: PanelFocus | null) => conversations.setFocus(activeIdRef.current, f), [])
   // Mirror of materialized sessions for reads inside event handlers (selectSession
   // has stable deps and must not close over a stale snapshot).
   const extraSessionsRef = useRef(extraSessions)
@@ -372,7 +375,7 @@ export function useSessionWorkspace() {
         const pref = id === DRAFT_ID ? undefined : getPanelPref(id)
         return pref !== undefined ? pref : strongestFocus(l)
       }
-      setFocus(restoreFocus(nextLive))
+      conversations.setFocus(id, restoreFocus(nextLive))
       // The active session's context panel rides its `focus` (restored above);
       // the wide tier projects it into the universal tree (App's setFocusDrivenContext
       // effect), the overlay tiers render it docked. No separate frame to restore.
@@ -388,7 +391,7 @@ export function useSessionWorkspace() {
             if (runId.current !== myRun) return
             const reconciled = liveFromSession(s)
             if (!conversations.reconcile(id, since, reconciled)) return
-            setFocus(restoreFocus(reconciled))
+            conversations.setFocus(id, restoreFocus(reconciled))
             // A persisted-but-unresolved escalation proposal resurfaces as the
             // pending consent card (C28) — the record is the authority; without
             // this, any reopen/reload dropped the card and the proposal could
@@ -745,11 +748,11 @@ export function useSessionWorkspace() {
       rememberAttached(seed) // promote into the Add-context recents, like a manual attach
       const seeded = addContextToLive(EMPTY_LIVE, seed)
       conversations.reset(DRAFT_ID, seeded) // fresh flags, no held escalation
-      setFocus(focusForAdded(seed, seeded))
+      conversations.setFocus(DRAFT_ID, focusForAdded(seed, seeded))
       pendingDraftContexts.current = [seed]
     } else {
       conversations.reset(DRAFT_ID, EMPTY_LIVE)
-      setFocus(null)
+      conversations.setFocus(DRAFT_ID, null)
       pendingDraftContexts.current = []
     }
   }, [clearTimers, record])
