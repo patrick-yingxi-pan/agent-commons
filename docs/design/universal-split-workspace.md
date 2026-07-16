@@ -195,6 +195,38 @@ collapses); prune at render, never in storage.
    at render / restore — a deleted session's or detached context's pane collapses;
    today the primary context pane self-heals via `focus`, a pinned one shows a quiet
    "no longer attached" placeholder until closed).
+6. **Dissolve the primary (owner-approved 2026-07-16: the FULL store-backed
+   dissolve)** — no `{kind:'primary'}` at all: every pane an equal store-backed
+   view, the singleton reduced to a pure app shell (URL/boot/account/memory),
+   the URL following the FOCUSED pane, drafts opening in a pane. Sequenced so
+   the app stays green at every commit — each step lands with tests + review:
+   1. ✅ **LANDED 2026-07-16** — rename the context-panel `primary` FLAG to
+      `focusDriven` (frees the word for the pane KIND being deleted; the two
+      concepts were homonyms — a rename hazard the mapping flagged).
+   2. ✅ **LANDED 2026-07-16** — `focus` moves into the keyed per-session store
+      (`ConversationState.focus`, `conversations.setFocus`): one per-session
+      source any pane can read; `adopt` carries the panel choice; the
+      singleton's `useState` + hand-rolled dispatch-time capture retired.
+   3. (a) ✅ **LANDED 2026-07-16** — the draft funnel extracted from
+      `handleSend` into `draftCore.ts` (pure, dependency-injected,
+      node-tested) + `draftController.ts` (the app instance): coalesce,
+      FWD-1 buffer + flush-before-send, FWD-2 focus carry, late-pick
+      sanitize, adopt, degradation. One flow for every draft host.
+      (b) — a `ConversationPane` hosts the draft: `msession` pane of
+      `DRAFT_ID` dispatches through the funnel; `onAdopted` rewrites the
+      pane's own tree leaf (every draft-id pane retargets by CONTENT match,
+      not path, so duplicates survive).
+   4. URL follows focus — `useMainSplit` exposes `focusedContent`; the
+      pushState effect sources the address from it; popstate + boot retarget
+      the focused pane; focus falls back to the pane inheriting a closed
+      pane's space. Then dissolve `{kind:'primary'}`: concrete panes only,
+      `MainSplitGate`/`renderPrimary` injection deleted, unified close
+      (close any pane; dissolve at one), legacy-blob migration on restore,
+      the test-inventory rewrite (3 URL-never-follows assertions invert).
+   5. Section-pane deep-nav lifted into tree content (`/projects/:id`
+      round-trips from a focused pane — the "equality first, fidelity
+      follows" fast-follow), per-pane notification focus, docs/spec
+      reconcile (ADAPT-15/16/17 restated; this ledger updated).
 
 ## 4. Decisions locked by the owner (2026-07-15)
 
