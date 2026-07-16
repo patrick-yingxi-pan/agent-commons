@@ -215,6 +215,29 @@ test('New session lands in the FOCUSED pane and materializes in place — the pr
   expect(new URL(page.url()).pathname).toBe('/s/auth-refactor')
 })
 
+test('the fresh draft is an EQUAL page: a lone draft splits, and every view of it is identical', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 })
+  await page.goto('/')
+  await expect(page.getByText('What should we work on?')).toBeVisible()
+  await expect(page.locator('[data-main-split]')).toHaveCount(0)
+
+  // A lone fresh draft SPLITS like any page (it used to be the one view that
+  // couldn't — "no duplicable identity"): the duplicate is a second view of
+  // the same draft entry.
+  await page.locator('[data-split-view="row"]').click()
+  await expect(page.locator('[data-main-pane]')).toHaveCount(2)
+
+  // Homogeneous: BOTH views wear the SessionTitleBar ("New session") and the
+  // SAME empty-state surface with the FWD-1 launcher — a draft looks identical
+  // wherever it renders.
+  for (const p of ['a', 'b']) {
+    const pane = page.locator(`[data-main-pane="${p}"]`)
+    await expect(pane.locator('[data-session-title-bar]').getByText('New session')).toBeVisible()
+    await expect(pane.getByText('What should we work on?')).toBeVisible()
+    await expect(pane.getByText('Start with a repo, folder, or connector…')).toBeVisible()
+  }
+})
+
 test('an entity door inside a pane-hosted section page stays IN THE PANE (the nav-bridge override)', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto('/s/auth-refactor')

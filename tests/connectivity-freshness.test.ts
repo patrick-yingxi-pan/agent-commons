@@ -127,7 +127,9 @@ test('the rail reads the LIVE project registry, not the seed-only /projects mirr
 
 test('the open thread’s title bar renders the LIVE session row (a rename shows immediately)', () => {
   const app = src('src', 'App.tsx')
-  assert.match(app, /<SessionTitleBar\s+session=\{activeRow\}/, 'the title bar gets the cache-refreshed row')
+  // The draft branch decorates the SAME live row (id/title only) — the
+  // cache-refreshed `activeRow` still flows through for real sessions.
+  assert.match(app, /<SessionTitleBar[\s\S]{0,700}?session=\{isDraft \? \{ \.\.\.activeRow[\s\S]{0,120}?: activeRow\}/, 'the title bar gets the cache-refreshed row')
 })
 
 test('the session→project breadcrumb resolves runtime-created projects too', () => {

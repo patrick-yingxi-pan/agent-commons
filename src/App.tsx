@@ -11,6 +11,7 @@ import { RunsPanel } from './components/RunsPanel'
 import type { PaneContent } from './lib/splitFrame'
 import { MainSplitGate, type MainPaneNav } from './components/MainSplit'
 import { SessionTitleBar } from './components/SessionTitleBar'
+import { EmptyState } from './components/EmptyState'
 import { ConversationView } from './components/ConversationView'
 import { useMainSplit } from './controller/useMainSplit'
 import { setMainSplitScope } from './lib/mainSplit'
@@ -292,17 +293,16 @@ function Workspace() {
     setFocusDrivenContext(activeId, tier === 'wide' ? activePanel : null)
   }, [setFocusDrivenContext, activeId, tier, activePanel, activeResolving])
   // What "duplicate the primary" means right now: the active section page, or
-  // the active conversation. A fresh draft has no duplicable identity yet — the
-  // split is a no-op until the thread materializes (or a section opens).
+  // the active conversation — the DRAFT included (every page splits equally):
+  // duplicating a fresh draft tiles a second view of the same draft entry; a
+  // send in either materializes both (adopt + retargetDraftPanes).
   const splitView = useCallback(
     (dir: 'row' | 'col') =>
       splitFocused(
         dir,
         activeSection
           ? { kind: 'msection', id: activeSection, sub: activeSubview }
-          : !isDraft
-            ? { kind: 'msession', id: activeId }
-            : null,
+          : { kind: 'msession', id: activeId },
       ),
     [splitFocused, activeSection, activeSubview, isDraft, activeId],
   )
@@ -497,21 +497,14 @@ function Workspace() {
             inert={railOverlay && leftOpen}
             className="flex min-w-0 flex-1 flex-col"
           >
-            {/* Narrow tier: surfaces without their own title bar (sections, a
-                draft) get a slim header row that HOUSES the rail toggle —
-                in-flow, so content scrolls under nothing. Regular sessions embed
-                the same toggle in their existing title bar instead. */}
-            {railOverlay && (activeSection || isDraft) && (
-              <NarrowBar
-                title={
-                  activeSection
-                    ? SECTION_META[activeSection].label
-                    : isDraft
-                      ? 'New session'
-                      : activeSession.title
-                }
-                onOpenRail={openLeft}
-              />
+            {/* Narrow tier: surfaces without their own title bar (section
+                pages) get a slim header row that HOUSES the rail toggle —
+                in-flow, so content scrolls under nothing. Conversations — the
+                DRAFT included (it wears the same SessionTitleBar as every
+                session now, homogeneity) — embed the toggle in their title
+                bar instead. */}
+            {railOverlay && activeSection && (
+              <NarrowBar title={SECTION_META[activeSection].label} onOpenRail={openLeft} />
             )}
             {/* The universal main split (Phase 2): a tree tiles the surface
                 below as the PRIMARY pane beside independent section panes;
@@ -550,18 +543,18 @@ function Workspace() {
               </FocusContext.Provider>
             ) : (
               <>
-                {!isDraft && (
-                  <SessionTitleBar
-                    // The LIVE row (the useSessions cache, refreshed on session.updated),
-                    // not the controller's creation-time snapshot — a rename must appear
-                    // here the moment it appears on the sidebar row.
-                    session={activeRow}
-                    leftOpen={leftOpen}
-                    leading={railOverlay ? <RailOpenButton onClick={openLeft} /> : undefined}
-                    onOpenProject={openProject}
-                    onOpenSchedule={openSchedule}
-                  />
-                )}
+                <SessionTitleBar
+                  // The LIVE row (the useSessions cache, refreshed on session.updated),
+                  // not the controller's creation-time snapshot — a rename must appear
+                  // here the moment it appears on the sidebar row. The DRAFT wears the
+                  // same bar as every conversation surface (homogeneity — a pane-hosted
+                  // draft shows it too), titled until the first send names the session.
+                  session={isDraft ? { ...activeRow, id: DRAFT_ID, title: 'New session' } : activeRow}
+                  leftOpen={leftOpen}
+                  leading={railOverlay ? <RailOpenButton onClick={openLeft} /> : undefined}
+                  onOpenProject={openProject}
+                  onOpenSchedule={openSchedule}
+                />
 
                 <div className="relative flex min-h-0 flex-1">
                   <section
@@ -603,7 +596,7 @@ function Workspace() {
                           onNewSessionWith={newSessionWith}
                         />
                       }
-                      threadPadClass={!leftOpen && !railOverlay && isDraft ? 'pb-4 pt-14' : 'py-4'}
+                      threadPadClass="py-4"
                     />
                   </section>
 
@@ -761,54 +754,6 @@ function NarrowBar({ title, onOpenRail }: { title: string; onOpenRail: () => voi
   )
 }
 
-function EmptyState({
-  mode,
-  live,
-  onNewSessionWith,
-}: {
-  mode: 'draft' | 'empty'
-  /** The draft's live context (drives the launcher's "Added" ticks). Draft mode only. */
-  live?: Live
-  /** Start a new chat with a context pre-attached (FWD-1). Draft mode only. */
-  onNewSessionWith?: (ctx: AddedContext) => void
-}) {
-  if (mode === 'draft') {
-    return (
-      <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-        <div className="max-w-md">
-          <div className="font-serif text-xl font-semibold text-ink">What should we work on?</div>
-          <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-            Start typing below. Attach a folder, a repo, or a connector and this one session grows a
-            workspace or a code panel as the work needs it — no tabs, no lost context.
-          </p>
-          {live && onNewSessionWith && (
-            // Pre-attached entry shortcuts (FWD-1): start this thread already holding a
-            // repo / folder / connector — the old per-mode "New Code/Cowork" entries as
-            // shortcuts, not tabs. Reuses the one attach funnel + picker.
-            <div className="mt-4 flex justify-center">
-              <AddContextButton
-                variant="inline"
-                label="Start with a repo, folder, or connector…"
-                onAttach={onNewSessionWith}
-                connectors={live.connectors}
-                repos={live.repos}
-                attachments={live.attachments}
-                workspaces={live.workspaces}
-              />
-            </div>
-          )}
-        </div>
-      </div>
-    )
-  }
-  return (
-    <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-      <div className="max-w-sm">
-        <div className="font-serif text-lg font-semibold text-ink">No messages yet</div>
-        <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-          Start typing below to pick this session back up.
-        </p>
-      </div>
-    </div>
-  )
-}
+// EmptyState moved to src/components/EmptyState.tsx — ONE empty conversation
+// surface for every host (the singleton AND a pane-hosted draft), so a draft
+// looks identical wherever it renders.

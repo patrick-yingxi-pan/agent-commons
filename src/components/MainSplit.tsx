@@ -49,6 +49,7 @@ import {
 } from '../data/liveSession'
 import { draft } from '../controller/draftController'
 import { loadModelPrefs } from '../lib/modelPrefs'
+import { EmptyState } from './EmptyState'
 
 /** Global doors a pane hands off to the PRIMARY surface (opening a thread from
  *  a pane's session list shows it where conversations live — the primary). */
@@ -474,6 +475,16 @@ function ConversationPane({ sessionId, nav }: { sessionId: string; nav: MainPane
         onOpenContext={(f) => nav.onOpenSessionContext(sessionId, f)}
         onRemoveContexts={removeContexts}
         onRemoveFolder={removeFolder}
+        empty={
+          // The SAME empty surface the singleton host renders (one primitive —
+          // a draft looks identical wherever it lives). The FWD-1 launcher
+          // reseeds the shared draft entry; every draft view follows.
+          <EmptyState
+            mode={isDraft ? 'draft' : 'empty'}
+            live={conv.live}
+            onNewSessionWith={isDraft ? (ctx) => draft.reset(ctx) : undefined}
+          />
+        }
       />
     </div>
   )
