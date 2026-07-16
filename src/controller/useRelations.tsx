@@ -84,6 +84,15 @@ export interface RelationsValue {
 
 const RelationsContext = createContext<RelationsValue | null>(null)
 
+/** Pane-scoped override of the nav bridge (universal split, ADAPT-17's
+ *  pane-locality rule): a split pane hosting a section page provides its own
+ *  `navigate` here, and every `useRelations()` consumer BELOW it — owner
+ *  bylines, context rows, work-item links, "View in …" — lands in the pane
+ *  instead of driving the primary. The data half of the relations value is
+ *  untouched (one store); only the nav concern is pane-scoped. Default null =
+ *  the root bridge (the primary controller) — the un-split app is unchanged. */
+export const SectionNavOverride = createContext<RelationsValue['navigate'] | null>(null)
+
 export function RelationsProvider({
   attachConnector,
   navigate,
@@ -164,5 +173,9 @@ export function RelationsProvider({
 export function useRelations(): RelationsValue {
   const ctx = useContext(RelationsContext)
   if (!ctx) throw new Error('useRelations must be used within a RelationsProvider')
-  return ctx
+  // Compose the nearest pane's nav override (see SectionNavOverride above): the
+  // one funnel that makes EVERY entity door pane-local when pane-hosted, with
+  // zero per-callsite wiring.
+  const override = useContext(SectionNavOverride)
+  return useMemo(() => (override ? { ...ctx, navigate: override } : ctx), [ctx, override])
 }

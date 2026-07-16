@@ -174,6 +174,31 @@ test('a section page + its detail render correctly in a HALF-WIDTH pane — no h
   expect(detailHScroll, 'the project DETAIL page fits the pane').toBe(false)
 })
 
+test('an entity door inside a pane-hosted section page stays IN THE PANE (the nav-bridge override)', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 })
+  await page.goto('/s/auth-refactor')
+  await expect(page.getByText('token refresh logic').first()).toBeVisible()
+  await clearAutoPanel(page)
+
+  // Split, retarget the focused pane at Contexts.
+  await page.locator('[data-split-view="row"]').click()
+  await page.locator('nav[aria-label="Sections"]').getByText('Contexts', { exact: true }).click()
+  const paneB = page.locator('[data-main-pane="b"]')
+  await expect(paneB.getByPlaceholder(/Search contexts/)).toBeVisible()
+
+  // Click a connector row: its detail page opens INSIDE the pane — this door
+  // routes through the useRelations().navigate bridge, which the pane's
+  // SectionNavOverride resolves pane-locally (it used to escape and open the
+  // detail on the PRIMARY, the reported bug).
+  await paneB.getByRole('button').filter({ hasText: 'GitHub' }).first().click()
+  await expect(paneB.getByText('Disconnect').first()).toBeVisible()
+
+  // The primary is untouched and the URL never moved (ADAPT-15: pane-local
+  // navigation is not page identity).
+  await expect(page.locator('[data-main-pane="a"]').getByText('token refresh logic').first()).toBeVisible()
+  expect(new URL(page.url()).pathname).toBe('/s/auth-refactor')
+})
+
 test('switching runs from the runs panel swaps the context pane IN PLACE — no tree dissolve, no main-area remount', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto('/')

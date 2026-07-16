@@ -82,6 +82,21 @@ Consequences that fall out correctly:
 - Browser Back/Forward walk the focused pane's history (the existing
   parallel-histories rule, now per focused pane; pane-local back stacks are a
   Phase 5 refinement).
+- **Entity doors inside a pane stay in the pane** (landed 2026-07-16). Section
+  pages route every entity door — owner bylines, context rows, work-item
+  links, "View in …" — through ONE bridge (`useRelations().navigate`), whose
+  root lands on the primary. A pane-hosted section page provides the
+  `SectionNavOverride` that `useRelations()` composes, resolving the bridge
+  against the pane via the pure mapper `src/lib/paneNav.ts`: a same-section
+  target pushes the pane's own detail focus (back stack works); a
+  cross-section target RETARGETS the pane's leaf, seeded with the detail
+  (`msection.seed`); a bare section jump falls through to the root. One
+  funnel — 22 escape doors fixed with zero per-callsite edits (the owner
+  report: a Contexts pane's connector row opened its detail on the primary).
+  Conversation doors (open thread / new session / proposal) still hand off
+  deliberately. Locked by `tests/pane-nav.test.ts` (the mapping mirrors
+  `App.navigateToSection` shape for shape) + `e2e/main-split.spec.ts`
+  (verified to fail without the override).
 
 ### 2.4 The right panel folds in (Phase 4 — LANDED 2026-07-15)
 

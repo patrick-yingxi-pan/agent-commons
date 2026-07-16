@@ -18,6 +18,7 @@
  *  the blob keys on the resolved user id, restore prunes at render, storage is
  *  never rewritten by a clamp. */
 import type { SectionId } from '../types'
+import type { PaneSeed } from './paneNav.ts'
 // `Live` is type-only (erased at runtime) — no cycle, and Node's native TS never
 // loads data/liveSession to run this node-tested module.
 import type { Live } from '../data/liveSession'
@@ -28,8 +29,11 @@ import { closePane, nodeAt, pane, panes, replacePane, splitPane, type PaneConten
 export type MainPaneContent =
   | { kind: 'primary'; id: 'primary' }
   // `sub` seeds the pane's local sub-view (a rail facet click routing into a
-  // focused pane carries the facet along) — pane-local state after that.
-  | { kind: 'msection'; id: SectionId; sub?: string | null }
+  // focused pane carries the facet along); `seed` seeds the pane's open DETAIL
+  // (a cross-section door inside a pane — an owner byline, a linked context —
+  // retargets the pane's leaf to the target section WITH the detail open,
+  // src/lib/paneNav.ts). Both are seeds: pane-local state after mount.
+  | { kind: 'msection'; id: SectionId; sub?: string | null; seed?: PaneSeed }
   | { kind: 'msession'; id: string }
   // A session's context panel as a FULL pane (universal split Phase 4): the
   // workspace / repo / connector / files / photos / run switcher, scoped to its

@@ -37,6 +37,8 @@ import {
 import { conversations } from '../controller/conversationStore'
 import { usePaneConversation } from '../controller/usePaneConversation'
 import { useSessionContextCommands } from '../controller/useSessionContextCommands'
+import { SectionNavOverride, useRelations } from '../controller/useRelations'
+import { paneNavTarget, type PaneSeed } from '../lib/paneNav'
 import {
   applyEscalationToLive,
   approvalView,
@@ -166,7 +168,16 @@ function Branch(props: BranchProps) {
         {c.kind === 'primary' ? (
           props.renderPrimary()
         ) : c.kind === 'msection' ? (
-          <SectionPane key={`${c.id}:${c.sub ?? ''}`} section={c.id} initialSub={c.sub ?? null} nav={props.nav} />
+          <SectionPane
+            // Keyed on the full seed so a re-route (a rail facet, a
+            // cross-section retarget) resets the pane-local nav cleanly.
+            key={`${c.id}:${c.sub ?? ''}:${c.seed ? JSON.stringify(c.seed) : ''}`}
+            section={c.id}
+            initialSub={c.sub ?? null}
+            initialFocus={c.seed}
+            nav={props.nav}
+            onRetarget={(content) => props.onFillPane(path, content)}
+          />
         ) : c.kind === 'msession' ? (
           <ConversationPane sessionId={c.id} nav={props.nav} />
         ) : c.kind === 'context-panel' ? (
@@ -233,18 +244,64 @@ interface PaneFocusState {
 }
 const NO_FOCUS: PaneFocusState = { projectId: null, scheduleId: null, ownerName: null, workItemId: null, agentId: null, contextId: null }
 
-function SectionPane({ section, initialSub, nav }: { section: SectionId; initialSub?: string | null; nav: MainPaneNav }) {
-  // Seeded from the routed content (a rail facet click carries its facet in),
-  // pane-local after that (the Branch keys this component on section+sub, so a
-  // re-route resets cleanly).
+function SectionPane({
+  section,
+  initialSub,
+  initialFocus,
+  nav,
+  onRetarget,
+}: {
+  section: SectionId
+  initialSub?: string | null
+  /** Seeds the open DETAIL (a cross-section door retargeted this pane's leaf
+   *  with the target entity — src/lib/paneNav.ts). */
+  initialFocus?: PaneSeed
+  nav: MainPaneNav
+  /** Rewrite THIS pane's leaf (a cross-section entity door: the pane
+   *  navigates to the target section with the detail open — never the primary). */
+  onRetarget: (content: MainPaneContent) => void
+}) {
+  // Seeded from the routed content (a rail facet click carries its facet in,
+  // a cross-section door carries its detail), pane-local after that (the
+  // Branch keys this component on section+sub+seed, so a re-route resets
+  // cleanly).
   const [subview, setSubview] = useState<string | null>(initialSub ?? null)
-  const [focus, setFocus] = useState<PaneFocusState>(NO_FOCUS)
+  const [focus, setFocus] = useState<PaneFocusState>({ ...NO_FOCUS, ...initialFocus })
   const [stack, setStack] = useState<PaneFocusState[]>([])
 
   const navigate = (next: Partial<PaneFocusState>) => {
     setStack((s) => [...s, focus])
     setFocus({ ...NO_FOCUS, ...next })
   }
+
+  // Mirror of the open detail, so the stable pane bridge below can push the
+  // back stack without a stale closure.
+  const focusRef = useRef(focus)
+  focusRef.current = focus
+
+  // The pane-local nav bridge (ADAPT-17's pane-locality rule): every entity
+  // door below — owner bylines, context rows, work-item links, "View in …" —
+  // resolves against THIS pane through the SectionNavOverride that
+  // useRelations() composes. Same-section targets push the pane's own detail
+  // focus; cross-section targets retarget the pane's leaf (seeded); a shape
+  // the pane can't host (a bare section jump) falls through to the root
+  // bridge. SectionPane itself sits ABOVE its own override, so this
+  // useRelations() reads the ROOT navigate.
+  const rootNavigate = useRelations().navigate
+  const paneNavigate = useCallback(
+    (target: SectionId, id?: string, subId?: string) => {
+      const t = paneNavTarget(section, target, id, subId)
+      if (t.kind === 'focus') {
+        setStack((s) => [...s, focusRef.current])
+        setFocus({ ...NO_FOCUS, ...t.focus })
+      } else if (t.kind === 'retarget') {
+        onRetarget({ kind: 'msection', id: t.section, seed: t.seed })
+      } else {
+        rootNavigate(target, id, subId)
+      }
+    },
+    [section, onRetarget, rootNavigate],
+  )
   const onBack = () => {
     setStack((s) => {
       const prev = s.at(-1)
@@ -261,28 +318,30 @@ function SectionPane({ section, initialSub, nav }: { section: SectionId; initial
         : null
 
   return (
-    <SectionView
-      section={section}
-      subview={subview}
-      onOpenSubview={(id) => {
-        setSubview(id)
-        setFocus(NO_FOCUS)
-      }}
-      onOpenSession={nav.onOpenSession}
-      onNewSession={nav.onNewSession}
-      onOpenProject={(id) => navigate({ projectId: id })}
-      onOpenSchedule={(id) => navigate({ scheduleId: id })}
-      onOpenProposal={nav.onOpenProposal}
-      onBack={onBack}
-      backTo={backTo}
-      focusProjectId={focus.projectId}
-      focusScheduleId={focus.scheduleId}
-      focusOwnerName={focus.ownerName}
-      focusWorkItemId={focus.workItemId}
-      focusAgentId={focus.agentId}
-      focusContextId={focus.contextId}
-      onOpenAgentPage={(id) => navigate({ agentId: id })}
-    />
+    <SectionNavOverride.Provider value={paneNavigate}>
+      <SectionView
+        section={section}
+        subview={subview}
+        onOpenSubview={(id) => {
+          setSubview(id)
+          setFocus(NO_FOCUS)
+        }}
+        onOpenSession={nav.onOpenSession}
+        onNewSession={nav.onNewSession}
+        onOpenProject={(id) => navigate({ projectId: id })}
+        onOpenSchedule={(id) => navigate({ scheduleId: id })}
+        onOpenProposal={nav.onOpenProposal}
+        onBack={onBack}
+        backTo={backTo}
+        focusProjectId={focus.projectId}
+        focusScheduleId={focus.scheduleId}
+        focusOwnerName={focus.ownerName}
+        focusWorkItemId={focus.workItemId}
+        focusAgentId={focus.agentId}
+        focusContextId={focus.contextId}
+        onOpenAgentPage={(id) => navigate({ agentId: id })}
+      />
+    </SectionNavOverride.Provider>
   )
 }
 
