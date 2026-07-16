@@ -469,20 +469,26 @@ the mock?
 
 ### Active build
 
-- **The universal split workspace — decided 2026-07-15, Phases 1–4 LANDED.** The
-  owner's direction: a Chrome-split-view-like tiling of the MAIN workspace
-  surface — arbitrarily many panes, row/col nesting, each pane displaying
-  anything the single surface can (a conversation with its OWN composer and
-  streaming turn, any section page, a context panel), fully independent, with
-  the old right-panel split frame (ADAPT-16) **folded into that one tree** (Phase 4).
-  On the wide tier a session's context panel is a `context-panel` PANE beside the
-  conversation (rail-cluster closed/split, edge-to-edge — the same type as every
-  other pane, not a separate frame that splits its own inner view); the overlay
-  tiers keep the docked/takeover panel (ADAPT-11). The architecture (per-session
-  conversation store replacing the singleton controller's session half; generic
-  split tree; focused-pane URL semantics; `focus`→tree projection via the `primary`
-  marker) and the phase backlog — Phase 5 hardening remains (live prune, the full
-  degradation matrix) — live in
+- **The universal split workspace — Phases 1–6 LANDED (the equal-pages model,
+  2026-07-16).** The owner's locked end state: *"every page is equally
+  displayed in the main background and supports the same functionality: split
+  in two directions and close; when the last page is closed, only the
+  background is displayed."* The split tree is the ONLY render path — no
+  privileged pane kind (the `{kind:'primary'}` singleton surface is dissolved;
+  legacy blobs migrate): conversations (the fresh DRAFT included, through the
+  shared draft funnel `draftCore.ts`), section pages, and context panels are
+  equal store-backed panes; a `null` tree is the BACKGROUND, repopulated by
+  the rail's doors. Every navigation — rail clicks, palette hits, notification
+  bells, popstate, the boot address, restore memory — lands in the FOCUSED
+  pane, and **the address bar projects the focused pane** (a focus hop IS a
+  navigation; a context pane addresses as its owning conversation). Wide tiles
+  the tree; the overlay tiers render the focused pane alone with the
+  `OverlayPanelDock` docked panel (ADAPT-11). Remaining (design doc Phase 5
+  list): section deep-nav lifted into tree content for `/projects/:id`
+  fidelity, live prune, dead singleton-surface pruning. The architecture,
+  phase ledger, and the generalized LESSONS (implicit defaults, the
+  projection-latch pattern, lifecycle-flagged bridges, boots-twice testing)
+  live in
   [`docs/design/universal-split-workspace.md`](docs/design/universal-split-workspace.md)
   — consult it before touching `useSessionWorkspace.ts`, the split libs, or
   the panel components, and land work as its phases, each with tests.

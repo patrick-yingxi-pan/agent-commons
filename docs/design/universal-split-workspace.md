@@ -236,17 +236,24 @@ collapses); prune at render, never in storage.
       no-op). Locked by `tests/main-split.test.ts` (retarget) +
       `e2e/main-split.spec.ts` (New session lands in the focused pane and
       materializes in place; the primary keeps its content; URL unmoved).
-   4. URL follows focus — `useMainSplit` exposes `focusedContent`; the
-      pushState effect sources the address from it; popstate + boot retarget
-      the focused pane; focus falls back to the pane inheriting a closed
-      pane's space. Then dissolve `{kind:'primary'}`: concrete panes only,
-      `MainSplitGate`/`renderPrimary` injection deleted, unified close
-      (close any pane; dissolve at one), legacy-blob migration on restore,
-      the test-inventory rewrite (3 URL-never-follows assertions invert).
+   4. ✅ **LANDED 2026-07-16** — URL follows focus (`focusedContent` → the
+      address; a focus hop IS a navigation; a context pane addresses as its
+      OWNING conversation; picker/background keep the address), entity doors
+      land in the focused pane (`routeDoor`/`routeSession`/`routeSection` —
+      the six detail doors, palette hits, bells, the boot address, restore
+      memory), and **the dissolve itself**: `{kind:'primary'}` deleted,
+      `PaneBody` the one leaf renderer, the BACKGROUND at zero panes, ONE
+      close rule, `migrateMainSplit` for legacy blobs, the overlay tiers
+      rendering the focused pane (+ `OverlayPanelDock` off the store focus),
+      drafts fully pane-equal (writable pick, `addSeed` multi-add). The
+      review pass (2 adversarial agents over the flip commit) surfaced and
+      fixed 11 findings — see commit b299656.
    5. Section-pane deep-nav lifted into tree content (`/projects/:id`
       round-trips from a focused pane — the "equality first, fidelity
-      follows" fast-follow), per-pane notification focus, docs/spec
-      reconcile (ADAPT-15/16/17 restated; this ledger updated).
+      follows" fast-follow), per-pane notification highlight targets, the
+      dead singleton-surface pruning in App/useSessionWorkspace, the
+      narrow-tier rail toggle on panel-only surfaces. Docs/spec reconciled
+      2026-07-16 (ADAPT-15/17 restated to the equal-panes model).
 
 ## 4. Decisions locked by the owner (2026-07-15)
 
@@ -267,7 +274,38 @@ collapses); prune at render, never in storage.
   the rail's doors repopulate it. This settles the previously-open fork
   "can the last pane close" with: yes, to the background.
 
-## 5. Lessons from the build (Phases 1–4, generalizable)
+## 5. Lessons from the build (Phases 1–6, generalizable)
+
+Phase 6 (the dissolve) added four:
+
+- **Deleting a privileged component surfaces every behavior it provided
+  IMPLICITLY.** The singleton surface didn't just render — it *defaulted*: the
+  boot's fresh draft existed because singleton state initialized to it, with
+  no explicit step anywhere. When panes became the only render path, a
+  no-address no-memory boot landed on the bare background. Generalized: before
+  deleting a default-owner, enumerate not only its explicit behaviors but the
+  states that exist merely because it initializes them — each needs an
+  explicit new home.
+- **A projection latch is a PATTERN, not a one-off fix — it recurs every time
+  the projection is re-keyed.** The "unresolved row is unknown, not absent"
+  latch was built for the singleton projection, then silently LOST when the
+  projection re-keyed to the focused session, and the identical dissolve/
+  re-form bug returned. When a guard exists to protect an effect from a
+  transient input, moving the effect must move the guard — name the pattern in
+  the code so a rewrite can't drop it.
+- **Bridged fallbacks must respect lifecycle flags.** Routing `selectSession`
+  through the pane bridge was right for every door — and wrong for the ONE
+  caller running during account TEARDOWN (`onAccountSwitch`'s land-on-draft),
+  which persisted a draft pane into the OUTGOING account's tree blob. A
+  callback that both renders and PERSISTS must check "is this instance being
+  left?" before writing.
+- **A test suite that always boots clean is structurally blind to
+  returning-visitor bugs.** Every e2e context starts with fresh localStorage,
+  so "the deep link dies when a tree is already persisted" could never fail in
+  CI — it shipped and only adversarial review caught it. Lock at least one
+  boots-twice flow per persisted-state feature.
+
+### From Phases 1–4
 
 - **Unify two systems of different SCOPE by picking one source and PROJECTING the
   other — never persist the projection.** The context panel was per-session
