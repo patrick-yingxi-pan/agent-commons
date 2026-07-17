@@ -73,7 +73,6 @@ import { STEP_TOOLS } from '../lib/stepTools'
 import { cleanSteps, moveStep, removeStep } from '../lib/steps'
 import { ConnectorDetailBody } from './ConnectorPanel'
 import { AddContextButton } from './AddContextButton'
-import { AddTrigger } from './AddTrigger'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { profileTitle, PROFILE_TAGLINE } from '../lib/publicFace'
 import { ActorByline, AgentActor, Byline, CreditLine, OwnerLink, WorkspaceMark } from './PublicFace'
@@ -215,7 +214,8 @@ import { POPOVER_SURFACE } from '../lib/popover'
 import { usePopoverShift } from '../lib/usePopoverShift'
 import { useRelations } from '../controller/useRelations'
 import { runSessionId, slug } from '../../contract/ids.ts'
-import { HOVER_REVEAL, HOVER_CUE } from '../lib/hoverReveal'
+import { HOVER_REVEAL, HOVER_CUE, SECTION_REVEAL, SECTION_REVEAL_GROUP } from '../lib/hoverReveal'
+import { SectionAction } from './SectionAction'
 
 /** The main area when a cross-cutting tool (Projects, Artifacts, …) is open
  *  instead of a conversation. All content is mock — this is a clickable demo.
@@ -854,7 +854,18 @@ function ProjectDetail({
           </SidePanel>
 
           {own && (
-          <SidePanel title="Scheduled" icon={<Clock size={14} />}>
+          <SidePanel
+            title="Scheduled"
+            icon={<Clock size={14} />}
+            revealActions={!hasSchedules}
+            actions={
+              <ProjectScheduleAdd
+                linkedIds={new Set(realSchedules.map((t) => t.id))}
+                onCreate={createSchedule}
+                onLink={linkSchedule}
+              />
+            }
+          >
             {!hasSchedules ? (
               <p className="text-[12px] text-ink-faint">No scheduled runs yet.</p>
             ) : (
@@ -889,16 +900,25 @@ function ProjectDetail({
                 ))}
               </div>
             )}
-            <ProjectScheduleAdd
-              linkedIds={new Set(realSchedules.map((t) => t.id))}
-              onCreate={createSchedule}
-              onLink={linkSchedule}
-            />
           </SidePanel>
           )}
 
           {own && (
-          <SidePanel title="Context" icon={<Folder size={14} />}>
+          <SidePanel
+            title="Context"
+            icon={<Folder size={14} />}
+            revealActions={contexts.length === 0}
+            actions={
+              <AddContextButton
+                variant="section"
+                onAttach={attachToProject}
+                connectors={contextsToConnectors(contexts)}
+                repos={[]}
+                attachments={[]}
+                workspaces={[]}
+              />
+            }
+          >
             {contexts.length === 0 ? (
               <p className="text-[12px] text-ink-faint">No context attached yet.</p>
             ) : (
@@ -908,16 +928,6 @@ function ProjectDetail({
                 ))}
               </div>
             )}
-            <div className="mt-2.5 border-t border-line pt-2.5">
-              <AddContextButton
-                variant="inline"
-                onAttach={attachToProject}
-                connectors={contextsToConnectors(contexts)}
-                repos={[]}
-                attachments={[]}
-                workspaces={[]}
-              />
-            </div>
           </SidePanel>
           )}
         </aside>
@@ -943,21 +953,22 @@ function ProjectReadme({ project, own }: { project: Project; own: boolean }) {
   }
   return (
     <div className="mb-6">
-      <div className="flex items-center gap-2">
-        <PanelLabel>About</PanelLabel>
-        {own && !editing && (
-          <button
-            onClick={() => {
-              setDraft(current)
-              setEditing(true)
-            }}
-            className={`mb-2.5 ${INLINE_ACTION_CLASS}`}
-            title="The public README — every viewer of a shared project reads this"
-          >
-            <Pencil size={12} /> Edit
-          </button>
-        )}
-      </div>
+      <MainSection
+        title="About"
+        revealActions={!current}
+        actions={
+          own && !editing ? (
+            <SectionAction
+              label="Edit README — public, every viewer reads this"
+              icon={<Pencil size={13} />}
+              onClick={() => {
+                setDraft(current)
+                setEditing(true)
+              }}
+            />
+          ) : undefined
+        }
+      >
       {editing ? (
         <div>
           <textarea
@@ -997,6 +1008,7 @@ function ProjectReadme({ project, own }: { project: Project; own: boolean }) {
           No README yet — the public “about” a visitor reads first.
         </p>
       )}
+      </MainSection>
     </div>
   )
 }
@@ -1031,7 +1043,20 @@ function ProjectInstructions({ project }: { project: Project }) {
   }, [editing])
 
   return (
-    <SidePanel title="Instructions" icon={<FileText size={14} />}>
+    <SidePanel
+      title="Instructions"
+      icon={<FileText size={14} />}
+      revealActions={!current}
+      actions={
+        !editing ? (
+          <SectionAction
+            label={current ? 'Edit instructions' : 'Add instructions'}
+            icon={<Pencil size={13} />}
+            onClick={startEdit}
+          />
+        ) : undefined
+      }
+    >
       {editing ? (
         <div>
           <textarea
@@ -1069,10 +1094,6 @@ function ProjectInstructions({ project }: { project: Project }) {
           ) : (
             <p className="text-[12px] text-ink-faint">No custom instructions yet.</p>
           )}
-          <button onClick={startEdit} className={`mt-2.5 ${INLINE_ACTION_CLASS}`}>
-            <Pencil size={12} />
-            {current ? 'Edit' : 'Add instructions'}
-          </button>
         </div>
       )}
     </SidePanel>
@@ -1196,10 +1217,11 @@ function ProjectContextChip({ ctx, onRemove }: { ctx: ProjectContext; onRemove: 
   )
 }
 
-/** The Scheduled card's create / link control — a "+ Add routine" trigger whose
- *  popover offers a template to spin up a NEW routine (pre-linked to this project)
- *  or an existing unlinked routine to LINK in. Both run on existing primitives:
- *  create = addScheduleFromSeed → link-schedule-project; link = link-schedule-project. */
+/** The Scheduled card's create / link control — the header's "Add routine" verb,
+ *  whose popover offers a template to spin up a NEW routine (pre-linked to this
+ *  project) or an existing unlinked routine to LINK in. Both run on existing
+ *  primitives: create = addScheduleFromSeed → link-schedule-project; link =
+ *  link-schedule-project. */
 function ProjectScheduleAdd({
   linkedIds,
   onCreate,
@@ -1217,8 +1239,8 @@ function ProjectScheduleAdd({
   const linkable = allSchedules.filter((t) => !linkedIds.has(t.id))
 
   return (
-    <div ref={ref} className="relative mt-2.5 border-t border-line pt-2.5">
-      <AddTrigger label="Add routine" open={open} onClick={() => setOpen((o) => !o)} />
+    <div ref={ref} className="relative">
+      <SectionAction label="Add routine" icon={<Plus size={14} />} onClick={() => setOpen((o) => !o)} open={open} />
 
       {open && (
         <div
@@ -1351,7 +1373,13 @@ function ContributorsPanel({ project }: { project: Project }) {
   const available = agents.filter((a) => !commissionedIds.has(a.id))
 
   return (
-    <MainSection title="Contributors">
+    <MainSection
+      title="Contributors"
+      revealActions={commissions.length === 0}
+      actions={
+        <CommissionAdd projectId={project.id} available={available} joinRole={project.defaultRole ?? 'writer'} />
+      }
+    >
       {commissions.length === 0 ? (
         <p className="text-[12px] text-ink-faint">No agents commissioned yet.</p>
       ) : (
@@ -1367,7 +1395,6 @@ function ContributorsPanel({ project }: { project: Project }) {
           ))}
         </CardList>
       )}
-      <CommissionAdd projectId={project.id} available={available} joinRole={project.defaultRole ?? 'writer'} />
     </MainSection>
   )
 }
@@ -1676,7 +1703,7 @@ function CommissionDialog({
   )
 }
 
-/** The "Commission an agent" picker — the inline-add primitive (AddTrigger), listing
+/** The "Commission an agent" picker — the Contributors header's verb, listing
  *  the Agents not already contributing. Picking one POSTs a commission (inheriting the
  *  Agent's grant) and the panel refreshes via the commissions cache. The role is
  *  stated, not implied (INV-9 — the request must name one): `joinRole` is the
@@ -1705,17 +1732,22 @@ function CommissionAdd({ projectId, available, joinRole }: { projectId: string; 
   }
 
   return (
-    // Below the carded list in a MAIN-column section (S17): no rail-panel hairline,
-    // and the popover anchors LEFT (under the trigger, not the far column edge).
-    <div ref={ref} className="relative mt-2.5">
-      <AddTrigger label="Commission an agent" open={open} onClick={() => setOpen((o) => !o)} />
+    // The section header's verb (S17) — the popover anchors under the header's
+    // right edge, where the trigger now lives.
+    <div ref={ref} className="relative">
+      <SectionAction
+        label="Commission an agent"
+        icon={<Plus size={14} />}
+        onClick={() => setOpen((o) => !o)}
+        open={open}
+      />
 
       {open && (
         <div
           ref={popRef}
           role="dialog"
           aria-label="Commission an agent"
-          className={`absolute left-0 top-full z-30 mt-1.5 w-[280px] p-2 ${POPOVER_SURFACE}`}
+          className={`absolute right-0 top-full z-30 mt-1.5 w-[280px] p-2 ${POPOVER_SURFACE}`}
         >
           {available.length === 0 ? (
             <p className="px-1.5 py-1 text-[12px] text-ink-faint">Every agent is already a Contributor.</p>
@@ -1782,6 +1814,9 @@ function CoordinationPanel({ project }: { project: Project }) {
   const ownAgentById = new Map(agents.map((a) => [a.id, a]))
   const ownCommissions = commissions.filter((c) => ownAgentById.has(c.agentId))
   const [holder, setHolder] = useState(VIEWER_PRINCIPAL)
+  // The claim form is ON DEMAND — the section header's verb discloses it (the
+  // always-open form read as noise on a page you're only reading).
+  const [claiming, setClaiming] = useState(false)
 
   const claim = async () => {
     const subGoal = draft.trim()
@@ -1793,6 +1828,7 @@ function CoordinationPanel({ project }: { project: Project }) {
       const as = holder === VIEWER_PRINCIPAL || ownCommissions.some((c) => c.id === holder) ? holder : VIEWER_PRINCIPAL
       await reserveSubGoal(project.id, as, subGoal)
       setDraft('')
+      setClaiming(false)
     } catch {
       // The guardian refused it — another Contributor holds this sub-goal. Conflict is a
       // question, not an abort: prompt to pick a different one (D11).
@@ -1804,7 +1840,20 @@ function CoordinationPanel({ project }: { project: Project }) {
 
   return (
     <>
-    <MainSection title="Coordination">
+    <MainSection
+      title="Coordination"
+      revealActions={subGoals.length === 0 || claiming}
+      actions={
+        guarded ? (
+          <SectionAction
+            label="Claim a sub-goal"
+            icon={<Plus size={14} />}
+            onClick={() => setClaiming((v) => !v)}
+            expanded={claiming}
+          />
+        ) : undefined
+      }
+    >
       {!guarded ? (
         <p className="text-[12px] text-ink-faint">This project isn’t a guarded resource.</p>
       ) : (
@@ -1836,6 +1885,7 @@ function CoordinationPanel({ project }: { project: Project }) {
             </CardList>
           )}
 
+          {claiming && (
           <div className="mt-2.5">
             {ownCommissions.length > 0 && (
               <select
@@ -1855,12 +1905,16 @@ function CoordinationPanel({ project }: { project: Project }) {
             )}
             <div className="flex items-center gap-1.5">
               <input
+                autoFocus
                 value={draft}
                 onChange={(e) => {
                   setDraft(e.target.value)
                   setConflict(null)
                 }}
-                onKeyDown={(e) => e.key === 'Enter' && claim()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') claim()
+                  if (e.key === 'Escape') setClaiming(false)
+                }}
                 placeholder="Claim a sub-goal…"
                 className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
               />
@@ -1879,6 +1933,7 @@ function CoordinationPanel({ project }: { project: Project }) {
               </p>
             )}
           </div>
+          )}
         </>
       )}
     </MainSection>
@@ -1887,11 +1942,7 @@ function CoordinationPanel({ project }: { project: Project }) {
         inside Coordination, one level deeper than its nature (the issues tray, a
         first-class backlog) warrants. Same guardian gate as before: posting routes
         through the guardian walls, so an unguarded project has no backlog. */}
-    {guarded && (
-      <MainSection title="Open work">
-        <OpenWorkList projectId={project.id} ownerCanModerate={project.own !== false} />
-      </MainSection>
-    )}
+    {guarded && <OpenWorkList projectId={project.id} ownerCanModerate={project.own !== false} />}
     </>
   )
 }
@@ -1926,6 +1977,9 @@ function OpenWorkList({ projectId, ownerCanModerate }: { projectId: string; owne
   const [target, setTarget] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // The post form is ON DEMAND, disclosed by the section header's verb — the
+  // backlog reads as a backlog, not as a permanently-open form.
+  const [composing, setComposing] = useState(false)
 
   const post = async () => {
     if (busy || !subGoal.trim() || !target.trim()) return
@@ -1935,6 +1989,7 @@ function OpenWorkList({ projectId, ownerCanModerate }: { projectId: string; owne
       await postOpenSubGoal(projectId, { subGoal: subGoal.trim(), type, target: target.trim() })
       setSubGoal('')
       setTarget('')
+      setComposing(false)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not post this work item.')
     } finally {
@@ -1943,9 +1998,18 @@ function OpenWorkList({ projectId, ownerCanModerate }: { projectId: string; owne
   }
 
   return (
-    // The section heading comes from the caller's <MainSection> (S17) — this is
-    // just the carded backlog + the post form.
-    <div>
+    <MainSection
+      title="Open work"
+      revealActions={items.length === 0 || composing}
+      actions={
+        <SectionAction
+          label="Post a work item"
+          icon={<Plus size={14} />}
+          onClick={() => setComposing((v) => !v)}
+          expanded={composing}
+        />
+      }
+    >
       {items.length === 0 ? (
         <p className="text-[12px] text-ink-faint">
           Nothing posted. Post a work item — a standing contributor may take it unprompted.
@@ -1959,10 +2023,13 @@ function OpenWorkList({ projectId, ownerCanModerate }: { projectId: string; owne
           ))}
         </CardList>
       )}
+      {composing && (
       <div className="mt-2 space-y-1.5">
         <input
+          autoFocus
           value={subGoal}
           onChange={(e) => setSubGoal(e.target.value)}
+          onKeyDown={(e) => e.key === 'Escape' && setComposing(false)}
           placeholder="Post a work item (sub-goal)…"
           aria-label="Work item sub-goal"
           className="w-full rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
@@ -1983,7 +2050,10 @@ function OpenWorkList({ projectId, ownerCanModerate }: { projectId: string; owne
           <input
             value={target}
             onChange={(e) => setTarget(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && post()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') post()
+              if (e.key === 'Escape') setComposing(false)
+            }}
             placeholder="Target (connector / descriptor)…"
             aria-label="Effect target"
             className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
@@ -1998,7 +2068,8 @@ function OpenWorkList({ projectId, ownerCanModerate }: { projectId: string; owne
         </div>
         {error && <p className="text-[11px] text-removed">{error}</p>}
       </div>
-    </div>
+      )}
+    </MainSection>
   )
 }
 
@@ -7336,22 +7407,14 @@ function PromptCard({ prompt, onSave }: { prompt: string; onSave: (prompt: strin
   }, [editing])
 
   return (
-    <div className="rounded-xl border border-line bg-surface p-4 shadow-sm">
-      <div className="flex items-center justify-between">
+    <div className={`rounded-xl border border-line bg-surface p-4 shadow-sm ${SECTION_REVEAL_GROUP}`}>
+      <div className="flex items-center justify-between gap-2">
         <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Instruction</span>
         {!editing && (
-          <div className="flex items-center gap-0.5">
-            <Tooltip label="Edit">
-              <button
-                onClick={startEdit}
-                aria-label="Edit instruction"
-                className="flex h-6 w-6 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink-soft"
-              >
-                <Pencil size={13} />
-              </button>
-            </Tooltip>
+          <SectionActions>
+            <SectionAction label="Edit instruction" icon={<Pencil size={13} />} onClick={startEdit} />
             <CopyButton text={prompt} ariaLabel="Copy instruction" />
-          </div>
+          </SectionActions>
         )}
       </div>
       {editing ? (
@@ -7475,23 +7538,19 @@ function WorkflowCard({ task, run, running }: { task: ScheduledTask; run: Schedu
       : 'idle'
 
   return (
-    <div className="rounded-xl border border-line bg-surface shadow-sm">
-      <div className="flex items-center justify-between border-b border-line px-4 py-3">
+    <div className={`rounded-xl border border-line bg-surface shadow-sm ${SECTION_REVEAL_GROUP}`}>
+      <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
         <span className="text-[13px] font-semibold text-ink">Workflow</span>
         {editing ? (
           <span className="text-[12px] font-medium text-ink-faint">Editing steps</span>
         ) : (
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2">
             <span className="text-[12px] text-ink-faint">
               {task.steps.length} step{task.steps.length === 1 ? '' : 's'} · runs top to bottom
             </span>
-            <button
-              onClick={() => setEditing(true)}
-              className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] font-medium text-ink-faint transition hover:bg-panel-2 hover:text-ink"
-            >
-              <Pencil size={12} />
-              Edit
-            </button>
+            <SectionActions>
+              <SectionAction label="Edit steps" icon={<Pencil size={13} />} onClick={() => setEditing(true)} />
+            </SectionActions>
           </div>
         )}
       </div>
@@ -7658,10 +7717,15 @@ function StepToolPicker({
   onPick,
   onClose,
   tools = STEP_TOOLS,
+  align = 'left',
 }: {
   onPick: (tool: StepTool) => void
   onClose: () => void
   tools?: StepTool[]
+  /** Which trigger edge the drop hugs: 'left' under an in-content trigger,
+   *  'right' under a header-cluster verb at the panel's right edge (else the
+   *  200px list floats off into the page gutter beside the panel). */
+  align?: 'left' | 'right'
 }) {
   // Mounted only while open (the parent conditionally renders it), so the dismiss
   // listeners should be live for its whole lifetime — pass open=true.
@@ -7676,7 +7740,9 @@ function StepToolPicker({
       }}
       role="dialog"
       aria-label="Pick a tool"
-      className={`absolute left-0 top-full z-30 mt-1 max-h-[240px] w-[200px] overflow-y-auto p-1 ${POPOVER_SURFACE}`}
+      className={`absolute top-full z-30 mt-1 max-h-[240px] w-[200px] overflow-y-auto p-1 ${
+        align === 'right' ? 'right-0' : 'left-0'
+      } ${POPOVER_SURFACE}`}
     >
       {tools.length === 0 && (
         <div className="px-2 py-3 text-center text-[12px] text-ink-faint">Every tool is already here.</div>
@@ -7829,7 +7895,15 @@ function DeliveryPanel({ task }: { task: ScheduledTask }) {
   const displayTarget = override ?? task.delivery.target
 
   return (
-    <SidePanel title="Delivers to" icon={<SendHorizontal size={14} />}>
+    <SidePanel
+      title="Delivers to"
+      icon={<SendHorizontal size={14} />}
+      actions={
+        !editing && !preApproved ? (
+          <SectionAction label="Edit destination" icon={<Pencil size={13} />} onClick={startEdit} />
+        ) : undefined
+      }
+    >
       {editing ? (
         <div>
           <div className="relative inline-block">
@@ -7899,13 +7973,7 @@ function DeliveryPanel({ task }: { task: ScheduledTask }) {
               </p>
             </>
           ) : (
-            <>
-              {task.delivery.note && <p className="mt-2 text-[12px] leading-relaxed text-ink-soft">{task.delivery.note}</p>}
-              <button onClick={startEdit} className={`mt-2 ${INLINE_ACTION_CLASS}`}>
-                <Pencil size={12} />
-                Edit destination
-              </button>
-            </>
+            task.delivery.note && <p className="mt-2 text-[12px] leading-relaxed text-ink-soft">{task.delivery.note}</p>
           )}
         </>
       )}
@@ -7946,7 +8014,24 @@ function ContextToolsPanel({ task }: { task: ScheduledTask }) {
   }
 
   return (
-    <SidePanel title="Context & tools" icon={<Plug size={14} />}>
+    <SidePanel
+      title="Context & tools"
+      icon={<Plug size={14} />}
+      revealActions={tools.length === 0}
+      actions={
+        <div className="relative">
+          <SectionAction
+            label="Add tool"
+            icon={<Plus size={14} />}
+            onClick={() => setPicking((p) => !p)}
+            open={picking}
+          />
+          {picking && (
+            <StepToolPicker align="right" tools={addable} onPick={addTool} onClose={() => setPicking(false)} />
+          )}
+        </div>
+      }
+    >
       {tools.length === 0 ? (
         <p className="text-[12px] text-ink-faint">No connectors yet.</p>
       ) : (
@@ -7977,10 +8062,6 @@ function ContextToolsPanel({ task }: { task: ScheduledTask }) {
           })}
         </div>
       )}
-      <div className="relative mt-2.5 border-t border-line pt-2.5">
-        <AddTrigger label="Add tool" open={picking} onClick={() => setPicking((p) => !p)} />
-        {picking && <StepToolPicker tools={addable} onPick={addTool} onClose={() => setPicking(false)} />}
-      </div>
     </SidePanel>
   )
 }
@@ -8014,7 +8095,21 @@ const TIMEZONES = [
 function SchedulePanel({ task }: { task: ScheduledTask }) {
   const [editing, setEditing] = useState(false)
   return (
-    <SidePanel title="Schedule" icon={<Clock size={14} />}>
+    <SidePanel
+      title="Schedule"
+      icon={<Clock size={14} />}
+      actions={
+        <div className="relative">
+          <SectionAction
+            label="Edit schedule"
+            icon={<Pencil size={13} />}
+            onClick={() => setEditing((v) => !v)}
+            open={editing}
+          />
+          {editing && <CadenceEditor task={task} onClose={() => setEditing(false)} />}
+        </div>
+      }
+    >
       <div className="space-y-2 text-[13px] text-ink">
         <div className="flex items-center justify-between gap-2">
           <span className="text-ink-soft">Cadence</span>
@@ -8031,19 +8126,11 @@ function SchedulePanel({ task }: { task: ScheduledTask }) {
           </div>
         )}
       </div>
-      <div className="relative mt-2.5 flex items-center justify-between gap-2 border-t border-line pt-2.5">
-        <button
-          onClick={() => setEditing((v) => !v)}
-          aria-haspopup="dialog"
-          aria-expanded={editing}
-          className={INLINE_ACTION_CLASS}
-        >
-          <Pencil size={12} />
-          Edit schedule
-        </button>
-        {task.startedLabel && <span className="truncate text-[11px] text-ink-faint">{task.startedLabel}</span>}
-        {editing && <CadenceEditor task={task} onClose={() => setEditing(false)} />}
-      </div>
+      {task.startedLabel && (
+        <div className="mt-2.5 truncate border-t border-line pt-2.5 text-[11px] text-ink-faint">
+          {task.startedLabel}
+        </div>
+      )}
     </SidePanel>
   )
 }
@@ -8632,20 +8719,49 @@ function Dropdown({
   )
 }
 
-function PanelLabel({ children }: { children: ReactNode }) {
+function PanelLabel({ children, flush }: { children: ReactNode; flush?: boolean }) {
   return (
-    <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+    <div className={`${flush ? '' : 'mb-2 '}text-[11px] font-semibold uppercase tracking-wide text-ink-faint`}>
       {children}
     </div>
   )
 }
 
-function SidePanel({ title, icon, children }: { title: string; icon: ReactNode; children: ReactNode }) {
+/** A section header's right-aligned verb cluster — hover-revealed (SECTION_REVEAL),
+ *  pinned visible via `revealed` when the section is empty (the action then IS the
+ *  content). Negative block margin swallows the h-6 buttons' extra height so a
+ *  header with actions keeps the exact rhythm of one without. */
+function SectionActions({ children, revealed }: { children: ReactNode; revealed?: boolean }) {
   return (
-    <div className="rounded-xl border border-line bg-surface p-4 shadow-sm">
-      <div className="mb-2.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-        {icon}
-        {title}
+    <div className={`-my-1.5 flex shrink-0 items-center gap-0.5 ${SECTION_REVEAL} ${revealed ? 'opacity-100' : ''}`}>
+      {children}
+    </div>
+  )
+}
+
+function SidePanel({
+  title,
+  icon,
+  actions,
+  revealActions,
+  children,
+}: {
+  title: string
+  icon: ReactNode
+  /** Header verbs (SectionAction buttons / popover triggers), hover-revealed. */
+  actions?: ReactNode
+  /** Pin the verbs visible — pass "the section is empty" (discoverability). */
+  revealActions?: boolean
+  children: ReactNode
+}) {
+  return (
+    <div className={`rounded-xl border border-line bg-surface p-4 shadow-sm ${SECTION_REVEAL_GROUP}`}>
+      <div className="mb-2.5 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+          {icon}
+          {title}
+        </div>
+        {actions && <SectionActions revealed={revealActions}>{actions}</SectionActions>}
       </div>
       {children}
     </div>
@@ -8655,11 +8771,25 @@ function SidePanel({ title, icon, children }: { title: string; icon: ReactNode; 
 /** A MAIN-column section (S17) — the Recent-sessions idiom shared: a bare uppercase
  *  heading (PanelLabel) with the content below it, NOT a boxed card. SidePanel (the
  *  heading INSIDE the box) is the rail panel's chrome; a main-column section wearing
- *  it reads as a stray rail panel. The section's list cards through <CardList>. */
-function MainSection({ title, children }: { title: string; children: ReactNode }) {
+ *  it reads as a stray rail panel. The section's list cards through <CardList>.
+ *  `actions`/`revealActions`: the same header verb cluster SidePanel carries. */
+function MainSection({
+  title,
+  actions,
+  revealActions,
+  children,
+}: {
+  title: string
+  actions?: ReactNode
+  revealActions?: boolean
+  children: ReactNode
+}) {
   return (
-    <section>
-      <PanelLabel>{title}</PanelLabel>
+    <section className={SECTION_REVEAL_GROUP}>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <PanelLabel flush>{title}</PanelLabel>
+        {actions && <SectionActions revealed={revealActions}>{actions}</SectionActions>}
+      </div>
       {children}
     </section>
   )

@@ -30,6 +30,7 @@ import type {
   Workspace,
 } from '../types'
 import { AddTrigger } from './AddTrigger'
+import { SectionAction } from './SectionAction'
 import { PhotoThumb } from './PhotoThumb'
 import { GITHUB_CONNECTOR, GITHUB_CONNECTOR_ID } from '../lib/connectors'
 import { repoIdForLabel } from '../data/liveSession'
@@ -98,8 +99,10 @@ export function AddContextButton({
   workspaces: Workspace[]
   /** The trigger's shape. 'icon' (default) is the composer's 32×32 plus button;
    *  'inline' is the shared "+ Add context" text trigger (AddTrigger), so on a
-   *  surface that sits beside an "Add routine"-style control the two match. */
-  variant?: 'icon' | 'inline'
+   *  surface that sits beside an "Add routine"-style control the two match;
+   *  'section' is the compact section-header verb (SectionAction), for a
+   *  panel-header action cluster — its popover drops BELOW the trigger. */
+  variant?: 'icon' | 'inline' | 'section'
   /** The inline trigger's label (icon variant is icon-only). */
   label?: string
 }) {
@@ -151,6 +154,8 @@ export function AddContextButton({
           onClick={toggle}
           title="Add context — files, folders, repos, connectors, MCP servers"
         />
+      ) : variant === 'section' ? (
+        <SectionAction label={label} icon={<Plus size={14} />} onClick={toggle} open={open} />
       ) : (
         <button
           onClick={toggle}
@@ -171,7 +176,9 @@ export function AddContextButton({
           ref={popRef}
           role="dialog"
           aria-label="Add context"
-          className={`absolute bottom-full left-0 z-20 mb-2 w-[340px] overflow-hidden ${POPOVER_SURFACE}`}
+          className={`absolute z-20 w-[340px] overflow-hidden ${
+            variant === 'section' ? 'right-0 top-full mt-1.5' : 'bottom-full left-0 mb-2'
+          } ${POPOVER_SURFACE}`}
         >
           {activeType === null ? (
             <div className="p-2">

@@ -82,8 +82,13 @@ async function commission(page: Page, agentLabel: string) {
     .click()
 }
 
-/** Claim a sub-goal from the Coordination panel AS one of your commissioned agents. */
+/** Claim a sub-goal from the Coordination panel AS one of your commissioned agents.
+ *  The claim form is ON DEMAND — the section header's verb toggles it, and a
+ *  CONFLICT leaves it open (re-reason, don't abort) — so disclose only when the
+ *  form isn't already up, lest the toggle close it. */
 async function claimAs(page: Page, agentLabel: string, subGoal: string) {
+  if (!(await page.getByPlaceholder('Claim a sub-goal…').isVisible()))
+    await page.getByRole('button', { name: 'Claim a sub-goal' }).click()
   await page.getByTestId('claim-as').selectOption({ label: `Claim as: ${agentLabel}` })
   await page.getByPlaceholder('Claim a sub-goal…').fill(subGoal)
   await page.getByRole('button', { name: 'Claim', exact: true }).click()

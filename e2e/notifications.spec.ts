@@ -49,7 +49,9 @@ test('watch a shared project → the owner acts → the watcher’s bell rings, 
   await watch.click()
   await expect(watcher.page.getByRole('button', { name: 'Watching', exact: true })).toBeVisible()
 
-  // Owner posts a work item — the public act.
+  // Owner posts a work item — the public act. (The post form is on demand —
+  // the Open-work header's verb discloses it.)
+  await owner.page.getByRole('button', { name: 'Post a work item' }).click()
   await owner.page.getByPlaceholder('Post a work item (sub-goal)…').fill(ITEM)
   await owner.page.getByLabel('Effect target').fill('budget:demo')
   await owner.page.getByRole('button', { name: 'Post', exact: true }).click()
@@ -97,6 +99,7 @@ test('a work.commented bell opens the project ON the item’s thread, auto-expan
   const share = owner.page.getByTestId('share-toggle')
   await share.click()
   await expect(share).toHaveAttribute('aria-pressed', 'true')
+  await owner.page.getByRole('button', { name: 'Post a work item' }).click()
   await owner.page.getByPlaceholder('Post a work item (sub-goal)…').fill(IT)
   await owner.page.getByLabel('Effect target').fill('budget:demo')
   await owner.page.getByRole('button', { name: 'Post', exact: true }).click()

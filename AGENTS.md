@@ -266,7 +266,12 @@ the mock?
   copies. When you find two controls doing the same job rendered differently, unify
   them onto a single shared component/token rather than hand-restyling one to match.
   Embodied by `src/lib/inlineAction.ts` + `src/components/AddTrigger.tsx` (every
-  "+ Add ‹thing›" picker-opener) and `src/lib/foldHeader.ts` (every foldable section
+  "+ Add ‹thing›" picker-opener) and `src/lib/sectionAction.ts` +
+  `src/components/SectionAction.tsx` (every SECTION HEADER's verb — edit/add/post/
+  commission — one compact icon button in the header's right-aligned cluster,
+  hover-revealed via `SECTION_REVEAL` in `src/lib/hoverReveal.ts`, pinned visible
+  when the section is empty; locked by `tests/sectionAction.test.ts`) and
+  `src/lib/foldHeader.ts` (every foldable section
   header) and `src/lib/pageHeader.ts` (every PAGE's opening title block — hub and
   detail pages share one title look + container rhythm; the chrome bars
   `SessionTitleBar`/`PanelShell` are a different role, deliberately distinct)

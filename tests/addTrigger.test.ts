@@ -1,14 +1,16 @@
-/** The small inline panel-foot actions — the "+ Add ‹thing›" picker openers
- *  (project page **Add routine** / **Add context**, schedule page **Add tool**) and
- *  the Pencil edit-toggles (**Add instructions**, **Edit destination**, **Edit
- *  schedule**) — are logically parallel, so they must look parallel. They share one
- *  styling source (src/lib/inlineAction.ts); the "+ Add" ones additionally share one
- *  component (src/components/AddTrigger.tsx) so they're identical by construction
- *  rather than by copy-paste. These lock that:
+/** The small inline text actions (src/lib/inlineAction.ts) — quiet ghost text
+ *  buttons like the notifications "Mark all read", the work-item thread toggle,
+ *  and the "+ Add context" trigger a picker-less surface embeds (EmptyState) —
+ *  share one styling source so parallel roles look parallel. The "+ Add" text
+ *  form additionally shares one component (src/components/AddTrigger.tsx) so
+ *  copies are identical by construction. (The panel-FOOT add/edit triggers this
+ *  module once styled — Add routine / Add tool / Edit destination… — moved into
+ *  their section HEADERS as icon verbs; that funnel is lib/sectionAction.ts +
+ *  tests/sectionAction.test.ts.) These lock that:
  *    1. the shared class is a real inline text-button cue,
  *    2. the AddTrigger component sources its styling from the shared module,
- *    3. all three "+ Add" triggers render through AddTrigger,
- *    4. SectionView's edit-toggles source the same shared class,
+ *    3. the inline "+ Add context" trigger renders through AddTrigger,
+ *    4. SectionView's inline text actions source the same shared class,
  *    5. the class is defined once — no component re-hardcodes the literal. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -28,22 +30,16 @@ test('the AddTrigger component sources its styling from the shared module', () =
   assert.ok(src.includes('INLINE_ACTION_CLASS'), 'wears the shared class')
 })
 
-test('all three "+ Add" triggers (Add routine, Add context, Add tool) render through AddTrigger', () => {
-  const consumers = ['src/components/SectionView.tsx', 'src/components/AddContextButton.tsx']
-  for (const rel of consumers) {
-    const src = read(join(ROOT, ...rel.split('/')))
-    assert.match(src, /from\s+'\.\/AddTrigger'/, `${rel} imports the shared trigger component`)
-    assert.ok(src.includes('<AddTrigger'), `${rel} renders <AddTrigger>`)
-  }
-  // SectionView carries two of them (Add routine + Add tool); AddContextButton the third.
-  const section = read(join(ROOT, 'src', 'components', 'SectionView.tsx'))
-  assert.ok((section.match(/<AddTrigger/g) ?? []).length >= 2, 'SectionView renders both its add-triggers through it')
+test('the inline "+ Add context" trigger renders through AddTrigger', () => {
+  const src = read(join(ROOT, 'src', 'components', 'AddContextButton.tsx'))
+  assert.match(src, /from\s+'\.\/AddTrigger'/, 'AddContextButton imports the shared trigger component')
+  assert.ok(src.includes('<AddTrigger'), 'AddContextButton renders <AddTrigger> for its inline variant')
 })
 
-test('the edit-toggles source the same shared inline-action class', () => {
+test('the inline text actions source the same shared inline-action class', () => {
   const section = read(join(ROOT, 'src', 'components', 'SectionView.tsx'))
   assert.match(section, /from\s+'(\.\.\/)+lib\/inlineAction'/, 'SectionView imports the shared class')
-  assert.ok(section.includes('INLINE_ACTION_CLASS'), 'and applies it to its inline edit-toggles')
+  assert.ok(section.includes('INLINE_ACTION_CLASS'), 'and applies it to its inline text actions')
 })
 
 test('the inline-action class is defined once — no component re-hardcodes the literal', () => {
