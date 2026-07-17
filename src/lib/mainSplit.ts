@@ -17,7 +17,7 @@
  *  the blob keys on the resolved user id, restore prunes at render, storage is
  *  never rewritten by a clamp. */
 import type { SectionId } from '../types'
-import type { PaneSeed } from './paneNav.ts'
+import { locOfSeed, type PaneSeed } from './paneNav.ts'
 // `Live` is type-only (erased at runtime) — no cycle, and Node's native TS never
 // loads data/liveSession to run this node-tested module.
 import type { Live } from '../data/liveSession'
@@ -81,19 +81,7 @@ export function paneLocationPath(c: MainPaneContent): string | null {
     // (/projects/:id, /u/:name…) round-trips; the door seed covers the
     // pre-report frame.
     const loc = c.at ?? { sub: c.sub ?? null, ...(c.seed ?? {}) }
-    return pathForView(
-      {
-        kind: 'section',
-        section: c.id,
-        projectId: loc.projectId ?? null,
-        scheduleId: loc.scheduleId ?? null,
-        ownerName: loc.ownerName ?? null,
-        workItemId: loc.workItemId ?? null,
-        agentId: loc.agentId ?? null,
-        contextId: loc.contextId ?? null,
-      },
-      loc.sub ?? null,
-    )
+    return pathForView({ kind: 'section', section: c.id, ...locOfSeed(loc) }, loc.sub ?? null)
   }
   return null
 }

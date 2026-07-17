@@ -385,14 +385,24 @@ export function focusValidIn(l: Live, focus: PanelFocus): boolean {
   }
 }
 
+/** Bucket a remove's PanelFocus targets by context kind — the ONE id-grouping
+ *  `removeContextsFromLive` filters by AND the draft funnel's buffer purge
+ *  mirrors (the purge must drop exactly the seeds the remove dropped, or a
+ *  removed chip re-attaches at materialization). */
+export function bucketFocuses(focuses: PanelFocus[]): {
+  wsIds: Set<string>
+  repoIds: Set<string>
+  connIds: Set<string>
+  attIds: Set<string>
+} {
+  const ids = (kind: PanelFocus['kind']) => new Set(focuses.filter((f) => f.kind === kind).map((f) => f.id))
+  return { wsIds: ids('workspace'), repoIds: ids('repo'), connIds: ids('connector'), attIds: new Set([...ids('file'), ...ids('photo')]) }
+}
+
 /** Remove one or more attached contexts in a single update (a repo + its orphaned
  *  GitHub connector, a connector + its dependent repos, or just a connector). */
 export function removeContextsFromLive(l: Live, focuses: PanelFocus[]): Live {
-  const ids = (kind: PanelFocus['kind']) => new Set(focuses.filter((f) => f.kind === kind).map((f) => f.id))
-  const wsIds = ids('workspace')
-  const repoIds = ids('repo')
-  const connIds = ids('connector')
-  const attIds = new Set([...ids('file'), ...ids('photo')])
+  const { wsIds, repoIds, connIds, attIds } = bucketFocuses(focuses)
   return {
     ...l,
     workspaces: l.workspaces.filter((w) => !wsIds.has(w.id)),

@@ -105,7 +105,9 @@ test('session pushes reach the panes through the one narrow seam (one-door holds
   assert.match(eventCase(events, 'session.updated'), /notifySessionPush\(e\.session\.id\)/)
   assert.match(eventCase(events, 'session.contexts.changed'), /notifySessionPush\(e\.sessionId\)/)
   // Every visible conversation subscribes for its own session now (Phase 6 —
-  // the pane controller replaced the singleton's one-active-thread watcher).
+  // the pane controller replaced the singleton's one-active-thread watcher),
+  // and the push re-read runs the SAME shared reconcile tail as the mount
+  // recipe (reconcileNow — one loadSession, one mid-stream guard).
   const controller = src('src', 'controller', 'usePaneConversation.ts')
   assert.match(controller, /onSessionPush\(\(sid\) => \{/, 'each pane subscribes')
   // The mid-stream guard reads the SESSION'S OWN entry (the generation flags
@@ -116,7 +118,7 @@ test('session pushes reach the panes through the one narrow seam (one-door holds
     'a mid-stream thread is never stomped by a reconcile',
   )
   const push = controller.slice(controller.indexOf('onSessionPush(('))
-  assert.match(push.slice(0, 900), /loadSession\(sessionId\)/, 'the reconcile is the same server read the mount recipe uses')
+  assert.match(push.slice(0, 300), /reconcileNow\(sessionId\)/, 'the push re-read is the same shared server reconcile the mount recipe uses')
 })
 
 // ── Seed-mirror reads replaced by the live registry (C12/C22/C23/C24) ─────────
@@ -131,7 +133,7 @@ test('the open thread’s title bar renders the LIVE session row (a rename shows
   // Every conversation renders through ConversationPane now (Phase 6 — no
   // singleton surface): its title bar must read the cache-refreshed row from
   // useSessions, never a creation-time snapshot.
-  const split = src('src', 'components', 'MainSplit.tsx')
+  const split = src('src', 'components', 'ConversationPane.tsx')
   assert.match(
     split,
     /\(useSessions\(\)\.data \?\? \[\]\)\.find\(\(s\) => s\.id === sessionId\) \?\? peek<Session>\(keys\.session\(sessionId\)\)/,

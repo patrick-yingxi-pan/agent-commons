@@ -5,10 +5,11 @@ import { AuthScreen } from './components/auth/AuthScreen'
 import { useAuthScreen } from './controller/useAuthScreen'
 import { setUiPrefScope } from './lib/uiPrefs'
 import type { Capabilities, Identity } from '../contract/index.ts'
-import { panes, type PaneContent } from './lib/splitFrame'
+import type { PaneContent } from './lib/splitFrame'
 import { MainSplitGate, type MainPaneNav } from './components/MainSplit'
 import { OverlayPanelDock } from './components/OverlayPanelDock'
 import { useMainSplit } from './controller/useMainSplit'
+import { useShellRoutes } from './controller/useShellRoutes'
 import { hostsSession, paneLocationPath, setMainSplitScope } from './lib/mainSplit'
 import { SearchPanel } from './components/SearchPanel'
 import { NotificationsPanel } from './components/NotificationsPanel'
@@ -20,18 +21,11 @@ import { useSessionWorkspace } from './controller/useSessionWorkspace'
 import { useLayout } from './controller/useLayout'
 import { RelationsProvider } from './controller/useRelations'
 import { railWidthCss, useViewport } from './lib/viewport'
-import type { PendingFocus } from './lib/focusContext'
+import { NO_PENDING_FOCUS } from './lib/focusContext'
 import { SCRIM_CLASS } from './lib/scrim'
 import { SECTION_META } from './lib/sections'
 import { DRAFT_ID } from './data/liveSession'
-import { draft } from './controller/draftController'
-import type { RoutedView } from './lib/urlRoutes'
-import type { PaneSeed } from './lib/paneNav'
 import type { SectionId, Session } from './types'
-
-/** The empty focus-context value panes OUTSIDE a notification door's landing
- *  pane receive (one frozen object — stable identity, no per-render churn). */
-const NO_PENDING_FOCUS: PendingFocus = { pending: null, consume: () => {} }
 
 /** The shell: decides WHICH top-level surface renders — the full-screen auth
  *  flow (multi-account §12) or the workspace. The auth screen shows when the
@@ -131,99 +125,11 @@ function Workspace() {
     [focusedContent],
   )
 
-  // Browser Back/Forward and the boot address retarget the FOCUSED pane
-  // (like every navigation). null routes the root — a fresh draft.
-  const applyRouteToFocused = useCallback(
-    (routed: RoutedView | null): void => {
-      if (!routed) {
-        // The root = a FRESH draft (like every other draft door): reset first,
-        // or the coalesce handle would append the next send to the PREVIOUS
-        // materialized session.
-        draft.reset()
-        routeToFocused({ kind: 'msession', id: DRAFT_ID })
-        return
-      }
-      if (routed.loc.kind === 'session') {
-        routeToFocused({ kind: 'msession', id: routed.loc.sessionId })
-        return
-      }
-      const l = routed.loc
-      routeToFocused({
-        kind: 'msection',
-        id: l.section,
-        sub: routed.subview ?? null,
-        seed: {
-          ...(l.projectId ? { projectId: l.projectId } : {}),
-          ...(l.workItemId ? { workItemId: l.workItemId } : {}),
-          ...(l.scheduleId ? { scheduleId: l.scheduleId } : {}),
-          ...(l.ownerName ? { ownerName: l.ownerName } : {}),
-          ...(l.agentId ? { agentId: l.agentId } : {}),
-          ...(l.contextId ? { contextId: l.contextId } : {}),
-        },
-      })
-    },
-    [routeToFocused],
-  )
-
-  // An entity door (a notification bell, a palette hit, a relation card's
-  // "View in …") lands in the FOCUSED pane, its detail page open (the pane
-  // seed) — like every navigation. The LANDING pane is recorded so a
-  // notification door's transient highlight (set right after the route)
-  // reaches exactly the pane it landed in — not a duplicate pane showing
-  // the same page (per-pane focus targets, docs/notification-routing.md).
-  const notifPaneRef = useRef<string>('')
-  const routeDoor = useCallback(
-    (section: SectionId, seed: PaneSeed): void => {
-      notifPaneRef.current = routeToFocused({ kind: 'msection', id: section, seed })
-    },
-    [routeToFocused],
-  )
-  // A session door (palette hit, notifications row, boot address) and a
-  // bare-section door land in the focused pane the same way.
-  const routeSession = useCallback(
-    (id: string): void => {
-      routeToFocused({ kind: 'msession', id })
-    },
-    [routeToFocused],
-  )
-  const routeSection = useCallback(
-    (section: SectionId, sub?: string | null): void => {
-      routeToFocused({ kind: 'msection', id: section, sub: sub ?? null })
-    },
-    [routeToFocused],
-  )
-  // Boot fallback (ADAPT-1): neither a boot address nor the restored
-  // per-account tree filled the background — mint the fresh draft.
-  const mintIfEmpty = useCallback((): void => {
-    if (!mainTree) {
-      draft.reset()
-      routeToFocused({ kind: 'msession', id: DRAFT_ID })
-    }
-  }, [mainTree, routeToFocused])
-  // The BOOT address applies with a DEDUP the live navigations don't have: the
-  // address the page loaded at was the FOCUSED pane's projection, but the
-  // focus cursor is transient (not persisted) and boots at the FIRST pane —
-  // routing the address blindly would clobber pane #1 with a copy of the pane
-  // the user was actually focused on (a reload destroyed multi-pane layouts).
-  // If a restored pane already SHOWS the boot address, focus it instead; only
-  // an address nothing shows routes (into the focused pane, minting on the
-  // background). Live doors deliberately keep no dedup — duplicates are legal
-  // (split IS duplicate); this is only reconciling the address with the tree
-  // it was projected from.
-  const applyBootRoute = useCallback(
-    (routed: RoutedView | null): void => {
-      if (routed && mainTree) {
-        const target = window.location.pathname
-        const match = panes(mainTree).find((p) => paneLocationPath(p.content) === target)
-        if (match) {
-          focusMainPane(match.path)
-          return
-        }
-      }
-      applyRouteToFocused(routed)
-    },
-    [mainTree, focusMainPane, applyRouteToFocused],
-  )
+  // The route bridges — how an ADDRESSED navigation (boot, popstate, a door)
+  // becomes a focused-pane edit (controller/useShellRoutes.ts: the boot
+  // dedup, the total routing, the notification landing-pane record).
+  const { applyRouteToFocused, applyBootRoute, routeDoor, routeSession, routeSection, mintIfEmpty, notifPaneRef } =
+    useShellRoutes({ mainTree, routeToFocused, focusMainPane })
 
   const {
     pendingFocus,

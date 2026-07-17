@@ -1,77 +1,45 @@
-/** ── The MAIN workspace split frame (universal split Phases 2–4) ─────────────
+/** ── The MAIN workspace split frame (universal split, the equal-pages model) ─
  *  Tiles the main surface right of the rail into the split tree
- *  (src/lib/mainSplit.ts vocabulary): the `primary` pane renders the singleton
- *  controller's surface (injected as a closure — the pre-split JSX untouched);
- *  `msection` panes are INDEPENDENT, fully interactive section pages with
- *  pane-local navigation (SectionPane below); `msession` panes independent
- *  conversations. NO per-pane chrome (the 2026-07-15 redesign): panes render
- *  their content edge to edge — the rail's split/close cluster acts on the
- *  FOCUSED pane (pointer-down focuses; the focused pane wears a subtle inset
- *  accent ring), and rail navigation retargets the focused pane. Close lives
- *  in that same rail cluster (no per-pane affordance at all); the primary
- *  can't close: it is where the URL lives (ADAPT-15). Dividers are the ONE keyboard-operable
- *  ResizeHandle, named per path (UI-11). Wide tier only (the caller gates,
- *  ADAPT-11): overlay tiers render the primary surface alone and the tree
- *  persists. */
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { MessageSquare } from 'lucide-react'
+ *  (src/lib/mainSplit.ts vocabulary). Panes are the ONLY render path — no
+ *  privileged pane kind (Phase 6 dissolved the `primary` singleton):
+ *  `msession` panes are independent conversations (the DRAFT included, via
+ *  the shared draft funnel), `msection` panes independent section pages with
+ *  pane-local navigation (SectionPane), `context-panel` panes a session's
+ *  attached context (ContextPanelView), and a `null` tree is the BACKGROUND.
+ *  NO per-pane chrome: panes render edge to edge — the rail's split/close
+ *  cluster acts on the FOCUSED pane (pointer-down focuses; the focused pane
+ *  wears a subtle inset accent ring), rail navigation retargets it, and ONE
+ *  close rule covers every pane (the sibling inherits the slot; closing the
+ *  last pane leaves the background). The address bar projects the focused
+ *  pane (ADAPT-15). Dividers are the ONE keyboard-operable ResizeHandle,
+ *  named per path (UI-11). The overlay tiers (ADAPT-11) render the focused
+ *  pane alone via MainSplitGate; the tree persists and re-tiles on wide. */
+import { useRef, type ReactNode } from 'react'
 import { ResizeHandle } from './ResizeHandle'
-import { SectionView } from './SectionView'
-import { SessionTitleBar } from './SessionTitleBar'
-import { ConversationView } from './ConversationView'
+import { SectionPane } from './SectionPane'
+import { ConversationPane } from './ConversationPane'
 import { ContextPanelView } from './ContextPanelView'
-import { SECTION_META } from '../lib/sections'
+import { MainPicker } from './MainPicker'
 import { clampRatio, nodeAt, panes } from '../lib/splitFrame'
 import type { MainPaneContent, MainSplitNode, PaneAt } from '../lib/mainSplit'
-import type { NavLocation } from '../lib/nav'
-import type { PanelFocus, SectionId } from '../types'
-import type { ModelPick } from '../lib/models'
-import {
-  useSessions,
-  useProviders,
-  applyRelationOp,
-  attachContext,
-  compactSession,
-  keys,
-  patchSession,
-  peek,
-  persistWorkspace,
-} from '../api'
-import { pickedModel, pickedProvider } from '../lib/models'
-import { loadModelPrefs } from '../lib/modelPrefs'
-import { setPanelPref } from '../lib/panelPrefs'
-import type { Session } from '../types'
-import { conversations } from '../controller/conversationStore'
-import { usePaneConversation } from '../controller/usePaneConversation'
-import { useSessionContextCommands } from '../controller/useSessionContextCommands'
-import { SectionNavOverride, useRelations } from '../controller/useRelations'
+import type { PanelFocus } from '../types'
 import { FocusContext, type PendingFocus } from '../lib/focusContext'
-import { paneNavTarget, type PaneSeed } from '../lib/paneNav'
-import {
-  DRAFT_ID,
-  applyEscalationToLive,
-  approvalView,
-  escalationBinding,
-  folderLabel,
-  workspaceOf,
-} from '../data/liveSession'
-import { draft } from '../controller/draftController'
-import { EmptyState } from './EmptyState'
+import type { PaneSeed } from '../lib/paneNav'
 
-/** Global doors a pane hands off to the PRIMARY surface (opening a thread from
- *  a pane's session list shows it where conversations live — the primary). */
+/** The doors a pane hands to the SHELL — each lands its target in the FOCUSED
+ *  pane, like every navigation (the equal-pages model has no primary). */
 export interface MainPaneNav {
   onOpenSession: (id: string) => void
   onNewSession: () => void
   onOpenProposal: (agentId: string, proposalId: string, ownerName: string | null) => void
   /** The title bar's breadcrumb doors (a pane conversation's home project /
-   *  routine) — global navigation, so they land on the primary surface. */
+   *  routine) — entity doors, landing in the focused pane. */
   onOpenProject: (id: string) => void
   onOpenSchedule: (id: string) => void
-  /** A pane composer's context-chip click. The right panel is scoped to the
-   *  PRIMARY session until Phase 4 folds it into the tree — so the App opens
-   *  the panel directly when the pane shows the primary's session (the
-   *  duplicate case), and otherwise brings the session to the primary first. */
+  /** A pane composer's context-chip click: toggles ITS session's STORE-held
+   *  `focus` — the wide tier tiles the panel beside that conversation (the
+   *  focus projection), the overlay tiers dock it; remembered per session
+   *  (FWD-2). */
   onOpenSessionContext: (sessionId: string, focus: PanelFocus) => void
   /** A session's display title (the live rows) — pane title bars + picker labels. */
   sessionLabel: (id: string) => string
@@ -329,380 +297,6 @@ function Branch(props: BranchProps) {
   )
 }
 
-/** ── An independent section page, navigation scoped to its pane ──────────────
- *  Fully interactive: it reads the same live registries every section page
- *  reads (the api hooks are global), but its sub-view, open detail, and back
- *  stack are PANE-LOCAL — navigating inside one pane never moves another (and
- *  never touches the URL: the address stays the primary's, ADAPT-15).
- *  Conversation doors (open a thread, new session) hand off to the primary
- *  surface — where conversations live until Phase 3. */
-interface PaneFocusState {
-  projectId: string | null
-  scheduleId: string | null
-  ownerName: string | null
-  workItemId: string | null
-  agentId: string | null
-  contextId: string | null
-}
-const NO_FOCUS: PaneFocusState = { projectId: null, scheduleId: null, ownerName: null, workItemId: null, agentId: null, contextId: null }
-
-function SectionPane({
-  section,
-  initialSub,
-  initialFocus,
-  nav,
-  onRetarget,
-  onAt,
-}: {
-  section: SectionId
-  initialSub?: string | null
-  /** Seeds the open DETAIL (a cross-section door retargeted this pane's leaf
-   *  with the target entity — src/lib/paneNav.ts). */
-  initialFocus?: PaneSeed
-  nav: MainPaneNav
-  /** Rewrite THIS pane's leaf (a cross-section entity door: the pane
-   *  navigates to the target section with the detail open — never the primary). */
-  onRetarget: (content: MainPaneContent) => void
-  /** Report the pane's LIVE location (sub-view + open detail) up into the
-   *  tree — the URL projects it, persistence restores it (Phase 6 step 4). */
-  onAt?: (at: PaneAt) => void
-}) {
-  // Seeded from the routed content (a rail facet click carries its facet in,
-  // a cross-section door carries its detail), pane-local after that (the
-  // Branch keys this component on section+sub+seed, so a re-route resets
-  // cleanly).
-  const [subview, setSubview] = useState<string | null>(initialSub ?? null)
-  const [focus, setFocus] = useState<PaneFocusState>({ ...NO_FOCUS, ...initialFocus })
-  const [stack, setStack] = useState<PaneFocusState[]>([])
-
-  const navigate = (next: Partial<PaneFocusState>) => {
-    setStack((s) => [...s, focus])
-    setFocus({ ...NO_FOCUS, ...next })
-  }
-
-  // Mirror of the open detail, so the stable pane bridge below can push the
-  // back stack without a stale closure.
-  const focusRef = useRef(focus)
-  focusRef.current = focus
-
-  // Report the pane's LIVE location up into the tree content (rev-stable, so
-  // this can't remount the pane) — the URL projects the focused pane's deep
-  // page and a reload restores it. Ref'd callback: nav identity churn must
-  // not re-fire the effect.
-  const onAtRef = useRef(onAt)
-  onAtRef.current = onAt
-  useEffect(() => {
-    const seed: PaneSeed = {}
-    if (focus.projectId) seed.projectId = focus.projectId
-    if (focus.scheduleId) seed.scheduleId = focus.scheduleId
-    if (focus.ownerName) seed.ownerName = focus.ownerName
-    if (focus.workItemId) seed.workItemId = focus.workItemId
-    if (focus.agentId) seed.agentId = focus.agentId
-    if (focus.contextId) seed.contextId = focus.contextId
-    onAtRef.current?.({ sub: subview, ...seed })
-  }, [subview, focus])
-
-  // The pane-local nav bridge (ADAPT-17's pane-locality rule): every entity
-  // door below — owner bylines, context rows, work-item links, "View in …" —
-  // resolves against THIS pane through the SectionNavOverride that
-  // useRelations() composes. Same-section targets push the pane's own detail
-  // focus; cross-section targets retarget the pane's leaf (seeded); a shape
-  // the pane can't host (a bare section jump) falls through to the root
-  // bridge. SectionPane itself sits ABOVE its own override, so this
-  // useRelations() reads the ROOT navigate.
-  const rootNavigate = useRelations().navigate
-  const paneNavigate = useCallback(
-    (target: SectionId, id?: string, subId?: string) => {
-      const t = paneNavTarget(section, target, id, subId)
-      if (t.kind === 'focus') {
-        setStack((s) => [...s, focusRef.current])
-        setFocus({ ...NO_FOCUS, ...t.focus })
-      } else if (t.kind === 'retarget') {
-        onRetarget({ kind: 'msection', id: t.section, seed: t.seed })
-      } else {
-        rootNavigate(target, id, subId)
-      }
-    },
-    [section, onRetarget, rootNavigate],
-  )
-  const onBack = () => {
-    setStack((s) => {
-      const prev = s.at(-1)
-      setFocus(prev ?? NO_FOCUS)
-      return s.slice(0, -1)
-    })
-  }
-  const top = stack.at(-1)
-  const backTo: NavLocation | null =
-    stack.length > 0
-      ? { kind: 'section', section, projectId: top?.projectId ?? null, scheduleId: top?.scheduleId ?? null, ownerName: top?.ownerName ?? null }
-      : focus.projectId || focus.scheduleId || focus.ownerName || focus.agentId || focus.contextId
-        ? { kind: 'section', section, projectId: null, scheduleId: null, ownerName: null }
-        : null
-
-  return (
-    <SectionNavOverride.Provider value={paneNavigate}>
-      <SectionView
-        section={section}
-        subview={subview}
-        onOpenSubview={(id) => {
-          setSubview(id)
-          setFocus(NO_FOCUS)
-        }}
-        onOpenSession={nav.onOpenSession}
-        onNewSession={nav.onNewSession}
-        // Same-section doors push the pane's own detail focus; CROSS-section
-        // doors (a profile page's project card, a project's routine row)
-        // retarget the pane's leaf to the target section WITH the detail open
-        // (the pane-locality rule — never a hub-root bounce).
-        onOpenProject={(id) =>
-          section === 'projects' ? navigate({ projectId: id }) : onRetarget({ kind: 'msection', id: 'projects', seed: { projectId: id } })
-        }
-        onOpenSchedule={(id) =>
-          section === 'scheduled' ? navigate({ scheduleId: id }) : onRetarget({ kind: 'msection', id: 'scheduled', seed: { scheduleId: id } })
-        }
-        onOpenProposal={nav.onOpenProposal}
-        onBack={onBack}
-        backTo={backTo}
-        focusProjectId={focus.projectId}
-        focusScheduleId={focus.scheduleId}
-        focusOwnerName={focus.ownerName}
-        focusWorkItemId={focus.workItemId}
-        focusAgentId={focus.agentId}
-        focusContextId={focus.contextId}
-        onOpenAgentPage={(id) =>
-          section === 'agents' ? navigate({ agentId: id }) : onRetarget({ kind: 'msection', id: 'agents', seed: { agentId: id } })
-        }
-      />
-    </SectionNavOverride.Provider>
-  )
-}
-
-/** ── An independent conversation in a pane (universal split Phases 3+5) ──────
- *  The SAME fully-fledged ConversationView the primary mounts — two panes on
- *  one session are two views in sync with the same keyed model (the store
- *  dedupes by key; the server's one-live-turn-per-session slot is the
- *  concurrency wall). This component is only the pane's CONTROLLER: the
- *  per-session command adapter — send/stop/retry through the store, attach /
- *  remove / compact / model-pick through the same shared funnels the singleton
- *  controller uses (bindingsFor, addContextToLive, workspaceOf, the escalation
- *  apply funnel), never a parallel implementation. */
-function ConversationPane({ sessionId, nav }: { sessionId: string; nav: MainPaneNav }) {
-  const conv = usePaneConversation(sessionId)
-  // The LIVE row — with the loadSession-cache fallback for rows the list
-  // doesn't carry (run sessions): title, routine breadcrumb, compact, and the
-  // writable model pick all resolve for them too.
-  const row =
-    (useSessions().data ?? []).find((s) => s.id === sessionId) ?? peek<Session>(keys.session(sessionId))
-  const isDraft = sessionId === DRAFT_ID
-  const providers = useProviders().data ?? []
-
-  // The DRAFT's model pick is held locally (no server row to PATCH) — seeded
-  // from the Customize default prefs, WRITABLE (the composer's picker), and
-  // read at dispatch by the funnel. The usage strip resolves it against the
-  // live registry (identity + context window; absent = honest unknown).
-  const [draftPick, setDraftPick] = useState<ModelPick>(() => {
-    const prefs = loadModelPrefs()
-    return { providerId: prefs.providerId, modelId: prefs.modelId }
-  })
-  const draftPickRef = useRef(draftPick)
-  draftPickRef.current = draftPick
-  const draftModelRef = useMemo(() => {
-    if (!isDraft) return undefined
-    const provider = pickedProvider(providers, draftPick)
-    if (!provider) return undefined
-    const model = pickedModel(provider, draftPick)
-    return {
-      providerId: provider.id,
-      providerLabel: provider.label,
-      ...(model ? { modelId: model.id, modelLabel: model.label, windowTokens: model.contextWindow } : {}),
-    }
-  }, [isDraft, providers, draftPick])
-
-  // A pane-hosted DRAFT sends through the SHARED draft funnel (draftCore.ts —
-  // coalesced materialization, FWD-1 flush before the turn, FWD-2 focus
-  // carry). This host's `onAdopted` retargets every draft pane to the real id.
-  const sendDraft = useCallback(
-    (text: string) => {
-      conversations.update(DRAFT_ID, (s) => ({
-        ...s,
-        typing: true,
-        busy: true,
-        sendFailure: null,
-        live: { ...s.live, messages: [...s.live.messages, { id: `u-${Date.now()}`, role: 'user' as const, content: text }] },
-      }))
-      void draft.sendDraftTurn(
-        text,
-        () => draftPickRef.current,
-        undefined,
-        (realId) => nav.onDraftAdopted(realId),
-      )
-    },
-    [nav],
-  )
-
-  const approve = useCallback(
-    (workspaceRoot?: string) => {
-      const pending = conversations.get(sessionId).pendingEscalation
-      if (!pending) return
-      const esc = pending.escalation
-      if (esc.kind === 'project') {
-        applyRelationOp({
-          kind: 'create-project',
-          projectId: esc.project.id,
-          projectName: esc.project.name,
-          projectDescription: esc.project.description,
-          ...(esc.fileSession ? { sessionId, sessionTitle: nav.sessionLabel(sessionId) } : {}),
-        })
-      } else {
-        const label = workspaceRoot ? folderLabel(workspaceRoot) : `${nav.sessionLabel(sessionId)} files`
-        const next = applyEscalationToLive(conversations.get(sessionId).live, esc, label)
-        conversations.setLive(sessionId, next)
-        // The escalation's payoff: the GROWN context's panel opens (the wide
-        // tier tiles it beside this pane; the overlay tiers dock it) — and the
-        // choice is remembered (FWD-2).
-        const grown: PanelFocus | null =
-          esc.kind === 'workspace'
-            ? { kind: 'workspace', id: 'ws-demo' }
-            : esc.kind === 'repo'
-              ? { kind: 'repo', id: 'repo-demo' }
-              : null
-        if (grown) {
-          conversations.setFocus(sessionId, grown)
-          if (sessionId !== DRAFT_ID) setPanelPref(sessionId, grown)
-        }
-        const binding = escalationBinding(esc, label, workspaceRoot)
-        if (binding) void attachContext(sessionId, binding).catch(() => {})
-        void persistWorkspace(sessionId, workspaceOf(next)).catch(() => {})
-      }
-      conversations.patch(sessionId, { pendingEscalation: null })
-    },
-    [sessionId, nav],
-  )
-
-  // The attach / remove funnels, session-parametric — the SAME hook a
-  // context-panel pane's remove affordances use (useSessionContextCommands), so
-  // the mapping can't fork per host. A pane session is always real (no
-  // draft-buffering branch).
-  const { addContext, removeContexts, removeFolder } = useSessionContextCommands(sessionId)
-
-  const retry = useCallback(() => {
-    const last = [...conversations.get(sessionId).live.messages].reverse().find((m) => m.role === 'user')
-    if (last?.content) void conversations.dispatchTurn(sessionId, last.content)
-  }, [sessionId])
-
-  const compact = useCallback(async () => {
-    try {
-      const updated = await compactSession(sessionId)
-      conversations.setLive(sessionId, (l) => ({ ...l, messages: updated.messages ?? [] }))
-    } catch {
-      /* leave the thread as-is; the user can retry */
-    }
-  }, [sessionId])
-
-  // The session's two-level model pick: the draft's local hold, or the live
-  // row's persisted fields (the same PATCH every picker writes — one wire).
-  const modelPick: ModelPick = isDraft ? draftPick : { providerId: row?.providerId, modelId: row?.modelId }
-  const selectModel = useCallback(
-    (pick: ModelPick) => {
-      if (sessionId === DRAFT_ID) setDraftPick(pick)
-      else void patchSession(sessionId, { providerId: pick.providerId ?? '', modelId: pick.modelId ?? '' })
-    },
-    [sessionId],
-  )
-
-  return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-conversation-pane={sessionId}>
-      {/* The SAME title bar the primary wears (a run session outside the live
-          list falls back to a title-only shell). */}
-      <SessionTitleBar
-        session={row ?? { id: sessionId, title: isDraft ? 'New session' : nav.sessionLabel(sessionId) }}
-        leading={nav.railToggle}
-        onOpenProject={nav.onOpenProject}
-        onOpenSchedule={nav.onOpenSchedule}
-      />
-      <ConversationView
-        sessionId={sessionId}
-        live={conv.live}
-        typing={conv.typing}
-        busy={conv.busy}
-        streaming={!!(conv.busy && conv.liveTurn)}
-        sendFailure={conv.sendFailure}
-        pendingApproval={conv.pendingEscalation ? approvalView(conv.pendingEscalation.escalation) : null}
-        onApprove={approve}
-        onSend={isDraft ? sendDraft : (text) => void conversations.dispatchTurn(sessionId, text)}
-        onStop={() => conversations.stop(sessionId)}
-        onRetry={retry}
-        onCompact={row ? compact : undefined}
-        modelPick={modelPick}
-        onSelectModel={isDraft || row ? selectModel : undefined}
-        usageModel={draftModelRef}
-        focus={conv.focus}
-        // A DRAFT has no server row to bind against — its attach AND removes
-        // route through the draft funnel (FWD-1: buffered / purged, panel
-        // opened / cleared, flushed onto the real session at materialization).
-        // The composer attach STACKS (draft.attach) — never the launcher's
-        // reset semantic, which would wipe an in-progress draft thread. A real
-        // session takes the shared server-backed funnel.
-        onAddContext={isDraft ? (ctx) => draft.attach(ctx) : addContext}
-        onOpenContext={(f) => nav.onOpenSessionContext(sessionId, f)}
-        onRemoveContexts={isDraft ? (fs) => draft.removeContexts(fs) : removeContexts}
-        onRemoveFolder={isDraft ? (id) => draft.removeFolder(id) : removeFolder}
-        empty={
-          // The SAME empty surface the singleton host renders (one primitive —
-          // a draft looks identical wherever it lives). The FWD-1 launcher
-          // reseeds the shared draft entry; every draft view follows.
-          <EmptyState
-            mode={isDraft ? 'draft' : 'empty'}
-            live={conv.live}
-            onNewSessionWith={isDraft ? (ctx) => draft.addSeed(ctx) : undefined}
-          />
-        }
-      />
-    </div>
-  )
-}
-
-/** The empty pane's content picker — every section page and every conversation. */
-function MainPicker({ onPick }: { onPick: (content: MainPaneContent) => void }) {
-  const sessions = useSessions().data ?? []
-  return (
-    <div className="flex h-full w-full min-w-0 flex-col overflow-hidden bg-canvas" data-main-picker>
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
-        <div className="px-1 pb-2 text-[12px] font-medium text-ink-faint">Choose what this pane shows</div>
-        {(Object.keys(SECTION_META) as SectionId[]).map((id) => {
-          const meta = SECTION_META[id]
-          return (
-            <button
-              key={id}
-              onClick={() => onPick({ kind: 'msection', id })}
-              className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-ink transition hover:bg-surface"
-            >
-              <meta.Icon size={16} className="shrink-0 text-ink-soft" />
-              <span className="min-w-0">
-                <span className="block truncate font-medium">{meta.label}</span>
-                <span className="block truncate text-[12px] text-ink-faint">{meta.subtitle}</span>
-              </span>
-            </button>
-          )
-        })}
-        {sessions.length > 0 && (
-          <>
-            <div className="px-1 pb-2 pt-3 text-[12px] font-medium text-ink-faint">Conversations</div>
-            {sessions.slice(0, 12).map((s) => (
-              <button
-                key={s.id}
-                onClick={() => onPick({ kind: 'msession', id: s.id })}
-                className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-ink transition hover:bg-surface"
-                data-pick-session={s.id}
-              >
-                <MessageSquare size={16} className="shrink-0 text-ink-soft" />
-                <span className="truncate font-medium">{s.title}</span>
-              </button>
-            ))}
-          </>
-        )}
-      </div>
-    </div>
-  )
-}
+/* SectionPane, ConversationPane and MainPicker live in their own files now
+ * (./SectionPane, ./ConversationPane, ./MainPicker) — this file is only the
+ * frame: the gate, the tree renderer, and the one shared leaf renderer. */

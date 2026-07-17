@@ -45,7 +45,11 @@ export interface SessionContextCommands {
 
 /** Post-remove guard: a focus pointing at a context no longer in `next` clears
  *  (and the cleared state is remembered, FWD-2 — reopening must not resurrect
- *  a panel whose subject is gone). */
+ *  a panel whose subject is gone). The draft funnel applies the same RULE
+ *  (focusValidIn — the one shared source) in its own `reconcileFocus`; the
+ *  appliers stay separate deliberately: draftCore is pure/dependency-injected
+ *  and a draft has no panel pref to remember, so unifying them would couple
+ *  the pure core to app modules for a four-line wrapper. */
 function clearDanglingFocus(sessionId: string, next: Live) {
   const focus = conversations.get(sessionId).focus
   if (focus && !focusValidIn(next, focus)) {

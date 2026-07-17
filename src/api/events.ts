@@ -20,40 +20,40 @@ import { activeAccount, onAccountSwitch } from './account.ts'
 let source: EventSource | null = null
 let knownEpoch: string | null = null
 
-/** Session-scoped push fan-out for the CONTROLLER. The open thread is controller
- *  state (not a `useQuery` read), so cache invalidation alone can't heal it — a
- *  context attached on another client, or a rename, would stay invisible until
- *  the session was re-selected. Callbacks get the session id whose server-side
- *  state moved; the controller decides whether that's the open thread and how to
- *  reconcile. One narrow, event-shape-free seam, so the one-door rule holds
- *  (nothing outside src/api knows an SSE event type). */
-type SessionPushListener = (sessionId: string) => void
-const sessionPushListeners = new Set<SessionPushListener>()
-export function onSessionPush(fn: SessionPushListener): () => void {
-  sessionPushListeners.add(fn)
-  return () => {
-    sessionPushListeners.delete(fn)
+/** A narrow, event-shape-free listener seam (subscribe + notify) — the one
+ *  shape every controller-facing fan-out below uses, so the one-door rule
+ *  holds (nothing outside src/api knows an SSE event type). */
+function makeSeam<Args extends unknown[]>() {
+  const listeners = new Set<(...args: Args) => void>()
+  return {
+    on(fn: (...args: Args) => void): () => void {
+      listeners.add(fn)
+      return () => {
+        listeners.delete(fn)
+      }
+    },
+    notify(...args: Args): void {
+      for (const fn of listeners) fn(...args)
+    },
   }
 }
-function notifySessionPush(sessionId: string): void {
-  for (const fn of sessionPushListeners) fn(sessionId)
-}
+
+/** Session-scoped push fan-out for the pane controllers. An open thread is
+ *  controller state (not a `useQuery` read), so cache invalidation alone can't
+ *  heal it — a context attached on another client, or a rename, would stay
+ *  invisible until the session was reopened. Callbacks get the session id
+ *  whose server-side state moved; each pane decides whether that's its
+ *  session and how to reconcile. */
+const sessionPush = makeSeam<[sessionId: string]>()
+export const onSessionPush = sessionPush.on
+const notifySessionPush = sessionPush.notify
 
 /** The definitive GONE-signal fan-out (`session.removed`) — the live-prune
  *  seam: the split controller drops every pane hosting the removed session
- *  (a `session.updated` push can only say "refetch", never "deleted"). Same
- *  narrow, event-shape-free shape as onSessionPush. */
-type SessionRemovedListener = (sessionId: string) => void
-const sessionRemovedListeners = new Set<SessionRemovedListener>()
-export function onSessionRemoved(fn: SessionRemovedListener): () => void {
-  sessionRemovedListeners.add(fn)
-  return () => {
-    sessionRemovedListeners.delete(fn)
-  }
-}
-function notifySessionRemoved(sessionId: string): void {
-  for (const fn of sessionRemovedListeners) fn(sessionId)
-}
+ *  (a `session.updated` push can only say "refetch", never "deleted"). */
+const sessionRemoved = makeSeam<[sessionId: string]>()
+export const onSessionRemoved = sessionRemoved.on
+const notifySessionRemoved = sessionRemoved.notify
 
 /** The single place an ambient event becomes a cache mutation. */
 function route(e: ServerEvent): void {

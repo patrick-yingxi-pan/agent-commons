@@ -19,7 +19,12 @@ export interface PendingFocus {
   consume: () => void
 }
 
-export const FocusContext = createContext<PendingFocus>({ pending: null, consume: () => {} })
+/** The empty value — the context default AND what panes outside a notification
+ *  door's landing pane receive (one frozen object: stable identity, no
+ *  per-render churn). */
+export const NO_PENDING_FOCUS: PendingFocus = { pending: null, consume: () => {} }
+
+export const FocusContext = createContext<PendingFocus>(NO_PENDING_FOCUS)
 
 export const usePendingFocus = (): PendingFocus => useContext(FocusContext)
 

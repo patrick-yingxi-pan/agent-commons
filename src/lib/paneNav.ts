@@ -34,6 +34,36 @@ export interface PaneSeed {
   contextId?: string
 }
 
+/** The ONE list of detail-id keys a pane location carries — every mapping that
+ *  copies these fields (a routed URL → a pane seed, a pane's live location →
+ *  its canonical NavLocation, a page's focus state → its reported seed) walks
+ *  THIS list, so adding a detail kind is a one-line change here instead of a
+ *  hunt across three hand-copied field lists. */
+export const PANE_SEED_KEYS = ['projectId', 'scheduleId', 'ownerName', 'workItemId', 'agentId', 'contextId'] as const
+type SeedKey = (typeof PANE_SEED_KEYS)[number]
+// Compile-time lock: the key list and PaneSeed stay in lock-step — adding a
+// detail id to one without the other fails typecheck here.
+const _seedKeysCoverPaneSeed: keyof PaneSeed extends SeedKey ? (SeedKey extends keyof PaneSeed ? true : never) : never = true
+void _seedKeysCoverPaneSeed
+
+/** A location-ish object (a parsed RoutedView loc, a page's focus state — any
+ *  shape carrying the detail keys as string | null | undefined) → the compact
+ *  PaneSeed (only present, non-empty ids ride). */
+export function seedOfLoc(loc: Partial<Record<SeedKey, string | null | undefined>>): PaneSeed {
+  const seed: PaneSeed = {}
+  for (const k of PANE_SEED_KEYS) {
+    const v = loc[k]
+    if (v) seed[k] = v
+  }
+  return seed
+}
+
+/** The inverse projection: a PaneSeed-ish location → the explicit
+ *  null-carrying detail fields a section NavLocation requires. */
+export function locOfSeed(seed: Partial<Record<SeedKey, string | null | undefined>>): Record<SeedKey, string | null> {
+  return Object.fromEntries(PANE_SEED_KEYS.map((k) => [k, seed[k] ?? null])) as Record<SeedKey, string | null>
+}
+
 export type PaneNavTarget =
   | { kind: 'focus'; focus: PaneSeed }
   | { kind: 'retarget'; section: SectionId; seed: PaneSeed }

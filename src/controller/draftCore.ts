@@ -29,6 +29,7 @@ import type { ModelPick } from '../lib/models'
 import {
   addContextToLive,
   bindingsFor,
+  bucketFocuses,
   focusForAdded,
   focusValidIn,
   removeContextsFromLive,
@@ -117,7 +118,11 @@ export function createDraftController(deps: DraftDeps) {
     pendingContexts = pendingContexts.map(keep).filter((c): c is AddedContext => c !== null)
   }
 
-  /** Clear the draft's panel if it pointed at what a remove just dropped. */
+  /** Clear the draft's panel if it pointed at what a remove just dropped —
+   *  the same RULE as the real-session funnel's clearDanglingFocus
+   *  (focusValidIn, the one shared source); this applier stays separate
+   *  because the core is dependency-injected and a draft has no panel pref
+   *  to remember. */
   const reconcileFocus = (next: Live): void => {
     const focus = deps.store.get(DRAFT_ID).focus
     if (focus && !focusValidIn(next, focus)) deps.store.setFocus(DRAFT_ID, null)
@@ -128,11 +133,9 @@ export function createDraftController(deps: DraftDeps) {
    *  (a draft has no row — the real-session funnel's detach/persist would
    *  just 404). */
   const removeContexts = (focuses: PanelFocus[]): void => {
-    const ids = (kind: PanelFocus['kind']) => new Set(focuses.filter((f) => f.kind === kind).map((f) => f.id))
-    const wsIds = ids('workspace')
-    const repoIds = ids('repo')
-    const connIds = ids('connector')
-    const attIds = new Set([...ids('file'), ...ids('photo')])
+    // The SAME bucketing the live remove filters by (bucketFocuses) — the
+    // purge below can't drift from the remove semantics it mirrors.
+    const { wsIds, repoIds, connIds, attIds } = bucketFocuses(focuses)
     const next = removeContextsFromLive(deps.store.get(DRAFT_ID).live, focuses)
     deps.store.setLive(DRAFT_ID, next)
     purgeBuffer((ctx) => {

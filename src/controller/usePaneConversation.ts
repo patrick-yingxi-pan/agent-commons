@@ -14,7 +14,7 @@ import { keys, loadSession, onSessionPush, peek } from '../api'
 import { getPanelPref } from '../lib/panelPrefs'
 import { conversations, useConversation } from './conversationStore'
 import type { ConversationState } from './conversationCore'
-import type { PanelFocus, RelationGraph } from '../types'
+import type { PanelFocus, RelationGraph, Session } from '../types'
 
 /** The strongest attached context — the auto-open target when a session has
  *  no remembered panel choice (FWD-2's fallback). */
@@ -24,6 +24,28 @@ function strongestFocus(l: Live): PanelFocus | null {
     : l.workspaces[0]
       ? { kind: 'workspace', id: l.workspaces[0].id }
       : null
+}
+
+/** The ONE server-reconcile tail both effects below share: load the session,
+ *  refuse to stomp a mid-stream entry, land the reconciled live, and resurface
+ *  a persisted-but-unresolved escalation proposal (C28 — the record is the
+ *  authority; holdEscalation never stomps a prompt already held). The two
+ *  callers differ only in their `after` follow-up — extracting the tail is
+ *  what keeps them from diverging (before the Phase 6 hardening, a
+ *  hand-copied push tail silently missed the C28 resurface). */
+function reconcileNow(sessionId: string, after?: (s: Session, reconciled: Live) => void): void {
+  const since = conversations.epoch(sessionId)
+  loadSession(sessionId)
+    .then((s) => {
+      const now = conversations.get(sessionId)
+      if (now.busy || now.typing) return
+      const reconciled = liveFromSession(s)
+      if (!conversations.reconcile(sessionId, since, reconciled)) return
+      const held = unresolvedEscalation(s, reconciled, peek<RelationGraph>(keys.relations))
+      if (held) conversations.holdEscalation(sessionId, held)
+      after?.(s, reconciled)
+    })
+    .catch(() => {})
 }
 
 export function usePaneConversation(sessionId: string): ConversationState {
@@ -47,54 +69,29 @@ export function usePaneConversation(sessionId: string): ConversationState {
       const pref = getPanelPref(sessionId)
       conversations.setFocus(sessionId, pref !== undefined ? pref : strongestFocus(conversations.get(sessionId).live))
     }
-    const since = conversations.epoch(sessionId)
-    loadSession(sessionId)
-      .then((s) => {
-        // Never stomp a mid-stream entry (the primary may be streaming this
-        // very session) — the push-reconcile guard, applied here too.
-        const now = conversations.get(sessionId)
-        if (now.busy || now.typing) return
-        const reconciled = liveFromSession(s)
-        if (!conversations.reconcile(sessionId, since, reconciled)) return
-        // The reconciled live may reveal contexts the seed lacked — re-run the
-        // panel restore ONLY while nothing is open (a user toggle mid-load, or
-        // the seed restore above, must not be clobbered).
-        if (pristine && !conversations.get(sessionId).focus) {
-          const pref = getPanelPref(sessionId)
-          conversations.setFocus(sessionId, pref !== undefined ? pref : strongestFocus(reconciled))
-        }
-        const held = unresolvedEscalation(s, reconciled, peek<RelationGraph>(keys.relations))
-        if (held) conversations.holdEscalation(sessionId, held)
-        if (s.activeTurnId && !conversations.get(sessionId).liveTurn) conversations.reattach(sessionId, s.activeTurnId)
-      })
-      .catch(() => {})
+    reconcileNow(sessionId, (s, reconciled) => {
+      // The reconciled live may reveal contexts the seed lacked — re-run the
+      // panel restore ONLY while nothing is open (a user toggle mid-load, or
+      // the seed restore above, must not be clobbered).
+      if (pristine && !conversations.get(sessionId).focus) {
+        const pref = getPanelPref(sessionId)
+        conversations.setFocus(sessionId, pref !== undefined ? pref : strongestFocus(reconciled))
+      }
+      // A turn still generating server-side: resume rendering its stream
+      // (replay from the top, then the live tail — invariant I1).
+      if (s.activeTurnId && !conversations.get(sessionId).liveTurn) conversations.reattach(sessionId, s.activeTurnId)
+    })
   }, [sessionId])
 
   // Cross-client freshness: another client's change to THIS session (a context
-  // attached, a turn persisted) re-reconciles the open pane — the same guards
-  // as the mount-time read (never stomp a mid-stream entry). Every visible
-  // pane subscribes for its own session (the singleton used to cover only the
-  // one active thread).
+  // attached, a turn persisted) re-reconciles the open pane through the SAME
+  // tail as the mount-time read. Every visible pane subscribes for its own
+  // session (the singleton used to cover only the one active thread).
   useEffect(
     () =>
       onSessionPush((sid) => {
         if (sid !== sessionId || sessionId === DRAFT_ID) return
-        const since = conversations.epoch(sessionId)
-        loadSession(sessionId)
-          .then((s) => {
-            const now = conversations.get(sessionId)
-            if (now.busy || now.typing) return
-            const pushed = liveFromSession(s)
-            if (!conversations.reconcile(sessionId, since, pushed)) return
-            // Same C28 resurfacing as the mount-time reconcile: a turn that
-            // finished while this client wasn't streaming it (another device,
-            // a detached view) may carry an unresolved escalation proposal —
-            // the record is the authority, and holdEscalation never stomps a
-            // prompt already held.
-            const held = unresolvedEscalation(s, pushed, peek<RelationGraph>(keys.relations))
-            if (held) conversations.holdEscalation(sessionId, held)
-          })
-          .catch(() => {})
+        reconcileNow(sessionId)
       }),
     [sessionId],
   )

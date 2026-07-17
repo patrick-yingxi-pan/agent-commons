@@ -86,17 +86,18 @@ test('the shared attach funnel opens the panel; every remove funnel clears a dan
 })
 
 test('the notification-door focus target is PER PANE — only the landing pane sees it', () => {
+  const routes = stripComments(read(join(ROOT, 'src', 'controller', 'useShellRoutes.ts')))
+  assert.match(routes, /notifPaneRef\.current = routeToFocused\(/, "routeDoor records the door's landing pane")
   const app = stripComments(read(join(ROOT, 'src', 'App.tsx')))
-  assert.match(app, /notifPaneRef\.current = routeToFocused\(/, "routeDoor records the door's landing pane")
   assert.match(
     app,
     /pendingFocus && path === notifPaneRef\.current \? focusCtx : NO_PENDING_FOCUS/,
     'focusCtxFor answers only for the landing pane',
   )
   assert.ok(!app.includes('<FocusContext.Provider'), 'no app-wide provider — the pane-scoped one replaced it')
-  const split = stripComments(read(join(ROOT, 'src', 'components', 'MainSplit.tsx')))
+  const frame = stripComments(read(join(ROOT, 'src', 'components', 'MainSplit.tsx')))
   assert.match(
-    split,
+    frame,
     /<FocusContext\.Provider value=\{nav\.focusCtxFor\(path\)\}>\{body\}<\/FocusContext\.Provider>/,
     'PaneBody provides the pane-scoped focus context',
   )
@@ -113,7 +114,7 @@ test("the narrow tier's rail toggle reaches EVERY focused surface (a title-bar-l
 })
 
 test("a DRAFT pane's composer attach AND removes route through the draft funnel, not a server bind", () => {
-  const split = stripComments(read(join(ROOT, 'src', 'components', 'MainSplit.tsx')))
+  const split = stripComments(read(join(ROOT, 'src', 'components', 'ConversationPane.tsx')))
   assert.match(
     split,
     /onAddContext=\{isDraft \? \(ctx\) => draft\.attach\(ctx\) : addContext\}/,

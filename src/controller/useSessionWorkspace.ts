@@ -27,7 +27,7 @@
  *      it stays out of the URL and out of the tree.
  *    • Session ROW mutations (pin / rename / archive / delete) — list-level
  *      writes with no pane of their own. */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DRAFT_ID } from '../data/liveSession'
 import type { PaneSeed } from '../lib/paneNav'
 import type { FocusTarget } from '../lib/notificationDoor'
@@ -253,29 +253,22 @@ export function useSessionWorkspace(split?: {
     splitRef.current?.routeSection?.(s, sub ?? null)
     setPendingFocus(null)
   }, [])
-  const openProject = useCallback((projectId: string) => {
-    splitRef.current?.routeDoor?.('projects', { projectId })
-    setPendingFocus(null)
-  }, [])
-  const openSchedule = useCallback((scheduleId: string) => {
-    splitRef.current?.routeDoor?.('scheduled', { scheduleId })
-    setPendingFocus(null)
-  }, [])
-  const openOwner = useCallback((name: string) => {
-    splitRef.current?.routeDoor?.('agents', { ownerName: name })
-    setPendingFocus(null)
-  }, [])
-  const openAgentPage = useCallback((agentId: string) => {
-    splitRef.current?.routeDoor?.('agents', { agentId })
-    setPendingFocus(null)
-  }, [])
-  const openContextPage = useCallback((contextId: string) => {
-    splitRef.current?.routeDoor?.('contexts', { contextId })
-    setPendingFocus(null)
-  }, [])
-  const openWorkItemPage = useCallback((projectId: string, workItemId: string) => {
-    splitRef.current?.routeDoor?.('projects', { projectId, workItemId })
-    setPendingFocus(null)
+  // The detail doors share one shape — route the section with its detail seed,
+  // drop any stale highlight — so they're minted from one factory (stable:
+  // splitRef and the setState are both stable, so the memo never rebuilds).
+  const { openProject, openSchedule, openOwner, openAgentPage, openContextPage, openWorkItemPage } = useMemo(() => {
+    const door = (section: SectionId, seed: PaneSeed) => {
+      splitRef.current?.routeDoor?.(section, seed)
+      setPendingFocus(null)
+    }
+    return {
+      openProject: (projectId: string) => door('projects', { projectId }),
+      openSchedule: (scheduleId: string) => door('scheduled', { scheduleId }),
+      openOwner: (name: string) => door('agents', { ownerName: name }),
+      openAgentPage: (agentId: string) => door('agents', { agentId }),
+      openContextPage: (contextId: string) => door('contexts', { contextId }),
+      openWorkItemPage: (projectId: string, workItemId: string) => door('projects', { projectId, workItemId }),
+    }
   }, [])
 
   // ── Notification doors (docs/notification-routing.md): the page opens on
