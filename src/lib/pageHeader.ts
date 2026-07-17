@@ -21,6 +21,16 @@
 /** The one page-title look. */
 export const PAGE_TITLE_CLASS = 'font-serif text-2xl font-semibold leading-tight text-ink'
 
+/** The one back control: a compact circular ghost icon-button sitting INLINE on
+ *  the title line — the first element of the header's identity group — so back +
+ *  title read as one unit. (It once floated as a small "← Label" eyebrow a full
+ *  margin above the title — the owner read it as disconnected chrome.) The
+ *  destination stays NAMED via title/aria-label ("Back to ‹live label›"); h-8
+ *  optically centers on the text-2xl leading-tight title line; -ml-2 hangs the
+ *  arrow into the page gutter so the title keeps the content edge. */
+export const PAGE_BACK_CLASS =
+  '-ml-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-ink-soft transition hover:bg-panel-2 hover:text-ink'
+
 /** The one page-header container: a left identity group and an optional right
  *  action cluster, wrap-friendly (a header must survive a half-width split
  *  pane, UI-9), one bottom rhythm. */

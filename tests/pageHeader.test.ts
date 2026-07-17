@@ -16,7 +16,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { ROOT, read, concatSource } from './helpers/source.ts'
-import { PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../src/lib/pageHeader.ts'
+import { PAGE_BACK_CLASS, PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../src/lib/pageHeader.ts'
 
 test('the page title class carries the one full look', () => {
   for (const piece of ['font-serif', 'text-2xl', 'font-semibold', 'leading-tight', 'text-ink']) {
@@ -42,6 +42,26 @@ test('the page-title look is defined once — no component re-hardcodes or re-dr
   // …and the drift spellings that motivated the module stay dead (the work-item
   // page once shipped text-[24px] with the weight silently dropped).
   assert.ok(!components.includes('text-[24px]'), 'the text-[24px] drift spelling stays dead')
+})
+
+test('the back control is an inline round arrow ON the title line — never a floating eyebrow', () => {
+  // The one look: a circular ghost icon-button sized to the title line, hanging
+  // into the gutter so the title keeps the content edge.
+  for (const piece of ['rounded-full', 'h-8 w-8', 'shrink-0', '-ml-2']) {
+    assert.ok(PAGE_BACK_CLASS.includes(piece), `the back control keeps "${piece}"`)
+  }
+  const src = read(join(ROOT, 'src', 'components', 'SectionView.tsx'))
+  assert.ok(src.includes('PAGE_BACK_CLASS'), 'the shared BackButton consumes the primitive')
+  // The destination stays NAMED even though the visible label is gone (the
+  // arrow alone must still announce where it goes).
+  assert.match(src, /aria-label=\{`Back to \$\{label\}`\}/, 'the arrow announces its destination')
+  // The retired stacked-eyebrow spelling (a small "← Label" line floating a
+  // margin above the title) stays dead across components.
+  const components = concatSource('src/components')
+  assert.ok(
+    !components.includes('mb-4 inline-flex max-w-full items-center gap-1.5'),
+    'no component re-hardcodes the floating-eyebrow back button',
+  )
 })
 
 test('the page-header consumers source their styling from the shared module', () => {

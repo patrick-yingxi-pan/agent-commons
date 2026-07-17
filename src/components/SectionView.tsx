@@ -53,7 +53,7 @@ import {
 import type { AddedContext, ArtifactKind, Connector, SavedContext, SavedContextKind, SectionId } from '../types'
 import { SECTION_META } from '../lib/sections'
 import { FOLD_HEADER_CLASS } from '../lib/foldHeader'
-import { PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../lib/pageHeader'
+import { PAGE_BACK_CLASS, PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../lib/pageHeader'
 import { connectorIconFor } from '../lib/connectors'
 import { CHIP_TONES, type ChipTone } from '../lib/capabilities'
 import { addedToProjectContexts, contextsToConnectors, projectContextTone } from '../lib/projectContext'
@@ -334,7 +334,9 @@ export function SectionView({
 
 /** The dynamic back button — returns to the previous page in navigation history
  *  (not a fixed structural parent) and names that destination, resolving the live
- *  project / routine name. Shared by the detail pages so the cue is identical. */
+ *  project / routine name. Shared by the detail pages so the cue is identical:
+ *  a circular ghost arrow sitting INLINE on the title line (PAGE_BACK_CLASS —
+ *  the pageHeader primitive), the destination named in the tooltip/aria-label. */
 function BackButton({ to, onBack }: { to: NavLocation | null; onBack: () => void }) {
   const projects = useRelations().allProjects()
   const schedules = useSchedules().data ?? []
@@ -343,13 +345,8 @@ function BackButton({ to, onBack }: { to: NavLocation | null; onBack: () => void
     schedule: Object.fromEntries(schedules.map((s) => [s.id, s.name])),
   })
   return (
-    <button
-      onClick={onBack}
-      title={`Back to ${label}`}
-      className="mb-4 inline-flex max-w-full items-center gap-1.5 text-[13px] font-medium text-ink-soft transition hover:text-ink"
-    >
-      <ArrowLeft size={15} className="shrink-0" />
-      <span className="truncate">{label}</span>
+    <button onClick={onBack} title={`Back to ${label}`} aria-label={`Back to ${label}`} className={PAGE_BACK_CLASS}>
+      <ArrowLeft size={17} className="shrink-0" />
     </button>
   )
 }
@@ -746,10 +743,10 @@ function ProjectDetail({
 
   return (
     <Page>
-      <BackButton to={backTo} onBack={onBack} />
-
       <header className={PAGE_HEADER_CLASS}>
-        <div className="min-w-0">
+        <div className="flex min-w-0 items-start gap-3">
+          <BackButton to={backTo} onBack={onBack} />
+          <div className="min-w-0">
           <h1 className={PAGE_TITLE_CLASS}>{project.name}</h1>
           {(project.shared === true || !own) && (
             <div className="mt-1">
@@ -765,6 +762,7 @@ function ProjectDetail({
             </div>
           )}
           <p className="mt-1 text-sm text-ink-soft">{project.description}</p>
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {/* Watch (D24) — on shared projects, for owner and visitor alike: watching
@@ -2261,7 +2259,9 @@ function WorkItemPage({
   if (!o) {
     return (
       <Page>
-        <BackButton to={backTo} onBack={onBack} />
+        <div className="mb-4">
+          <BackButton to={backTo} onBack={onBack} />
+        </div>
         <Empty>This work item no longer exists on “{project.name}”.</Empty>
       </Page>
     )
@@ -2330,10 +2330,12 @@ function WorkItemPage({
 
   return (
     <Page>
-      <BackButton to={backTo} onBack={onBack} />
       <div className="mx-auto w-full max-w-2xl">
         <div className="flex items-start justify-between gap-3">
-          <h1 className={PAGE_TITLE_CLASS}>{o.subGoal}</h1>
+          <div className="flex min-w-0 items-start gap-3">
+            <BackButton to={backTo} onBack={onBack} />
+            <h1 className={PAGE_TITLE_CLASS}>{o.subGoal}</h1>
+          </div>
           {mayRetract && (
             <button
               onClick={retract}
@@ -3316,16 +3318,15 @@ function ContextDetail({
 
   return (
     <Page>
-      {/* Back follows real history (the detail is now addressable, ADAPT-15 — a
-          chip door can arrive from a project page or a contributor row, not just
-          the Contexts list); the structural fallback is that list. */}
-      <BackButton
-        to={backTo ?? { kind: 'section', section: 'contexts', projectId: null, scheduleId: null }}
-        onBack={onBack}
-      />
-
       <header className={PAGE_HEADER_CLASS}>
         <div className="flex min-w-0 items-start gap-3">
+          {/* Back follows real history (the detail is now addressable, ADAPT-15 — a
+              chip door can arrive from a project page or a contributor row, not just
+              the Contexts list); the structural fallback is that list. */}
+          <BackButton
+            to={backTo ?? { kind: 'section', section: 'contexts', projectId: null, scheduleId: null }}
+            onBack={onBack}
+          />
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-panel-2 text-ink-soft">
             <Icon size={20} />
           </span>
@@ -5951,7 +5952,9 @@ function OwnerProfilePage({
   if (!profile) {
     return (
       <Page>
-        <BackButton to={backTo} onBack={onBack} />
+        <div className="mb-4">
+          <BackButton to={backTo} onBack={onBack} />
+        </div>
         {state.error ? (
           // The 404 face: a workspace that shares nothing is indistinguishable
           // from one that doesn't exist (existence-hiding, D21).
@@ -5963,9 +5966,9 @@ function OwnerProfilePage({
   const s = profile.stats
   return (
     <Page>
-      <BackButton to={backTo} onBack={onBack} />
       <header className={PAGE_HEADER_CLASS}>
         <div className="flex min-w-0 items-start gap-3.5">
+        <BackButton to={backTo} onBack={onBack} />
         {/* The identity mark at page scale — the same derived mark every byline
             wears (identity texture; the Globe stays the SHARED-entity cue). */}
         <WorkspaceMark name={profile.name} size={48} />
@@ -6293,7 +6296,9 @@ function AgentPublicPage({
   if (!entry) {
     return (
       <Page>
-        <BackButton to={backTo} onBack={onBack} />
+        <div className="mb-4">
+          <BackButton to={backTo} onBack={onBack} />
+        </div>
         {entries.data ? (
           // The 404 face: an unpublished definition is indistinguishable from one
           // that never existed (existence-hiding, D18).
@@ -6319,10 +6324,10 @@ function AgentPublicPage({
 
   return (
     <Page>
-      <BackButton to={backTo} onBack={onBack} />
       <div className="mx-auto w-full max-w-2xl">
         <header className={PAGE_HEADER_CLASS}>
           <div className="flex min-w-0 flex-1 items-start gap-3.5">
+          <BackButton to={backTo} onBack={onBack} />
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-panel-2 text-ink-soft">
             <Bot size={22} />
           </div>
@@ -7207,10 +7212,9 @@ function ScheduledDetail({
 
   return (
     <Page>
-      <BackButton to={backTo} onBack={onBack} />
-
       <header className={PAGE_HEADER_CLASS}>
         <div className="flex min-w-0 items-start gap-3">
+          <BackButton to={backTo} onBack={onBack} />
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-panel-2 text-ink-soft">
             <DeliveryIcon size={20} />
           </span>
