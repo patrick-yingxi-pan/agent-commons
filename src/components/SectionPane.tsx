@@ -3,15 +3,24 @@
  *  reads the same live registries every section page reads (the api hooks are
  *  global), but its sub-view, open detail, and back stack are PANE-LOCAL —
  *  navigating inside one pane never moves another. The pane REPORTS its live
- *  location up into the tree (`onAt`, rev-stable), so the URL projects the
- *  focused pane's deep page and a reload restores it (ADAPT-15). */
+ *  location (`onAt`, rev-stable) AND its in-section back stack (`hist`) up
+ *  into the tree, so the URL projects the focused pane's deep page, a reload
+ *  restores it (ADAPT-15), and a door LEAVING the pane can fold the whole
+ *  in-section history into the target's carried back stack (ADAPT-18).
+ *
+ *  The back affordance walks two stacks as one chain: the local stack first
+ *  (in-section detail hops), then the CARRIED stack (`backOut`, the pages
+ *  before this pane's current section — a cross-section door, a conversation
+ *  this page was opened from), then the structural fallback (the section
+ *  root). */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { SectionView } from './SectionView'
-import type { MainPaneNav } from './MainSplit'
+import type { MainPaneNav, PaneBackOut } from './MainSplit'
 import type { MainPaneContent, PaneAt } from '../lib/mainSplit'
 import type { NavLocation } from '../lib/nav'
 import type { SectionId } from '../types'
-import { SectionNavOverride, useRelations } from '../controller/useRelations'
+import { navLocationOfLoc } from '../lib/paneHistory'
+import { SectionNavOverride } from '../controller/useRelations'
 import { paneNavTarget, seedOfLoc, type PaneSeed } from '../lib/paneNav'
 
 interface PaneFocusState {
@@ -28,22 +37,34 @@ export function SectionPane({
   section,
   initialSub,
   initialFocus,
+  initialStack,
   nav,
   onRetarget,
   onAt,
+  backOut,
 }: {
   section: SectionId
   initialSub?: string | null
   /** Seeds the open DETAIL (a cross-section door retargeted this pane's leaf
    *  with the target entity — src/lib/paneNav.ts). */
   initialFocus?: PaneSeed
+  /** Rehydrates the in-section back stack on a RESTORE mount (the persisted
+   *  `hist` — without it a reload silently shortened the back walk). */
+  initialStack?: PaneSeed[]
   nav: MainPaneNav
   /** Rewrite THIS pane's leaf (a cross-section entity door: the pane
-   *  navigates to the target section with the detail open — never another). */
+   *  navigates to the target section with the detail open — never another).
+   *  The host (PaneBody) pushes the outgoing page onto the target's back
+   *  stack (ADAPT-18). */
   onRetarget: (content: MainPaneContent) => void
-  /** Report the pane's LIVE location (sub-view + open detail) up into the
-   *  tree — the URL projects it, persistence restores it (Phase 6 step 4). */
-  onAt?: (at: PaneAt) => void
+  /** Report the pane's LIVE location (sub-view + open detail) and its
+   *  in-section back stack up into the tree — the URL projects the location,
+   *  persistence restores both, and a door leaving the pane folds the stack
+   *  into the carried history (Phase 6 step 4 + ADAPT-18). */
+  onAt?: (at: PaneAt, hist: PaneSeed[]) => void
+  /** The CARRIED back stack's top (the page before this section) — the back
+   *  affordance continues into it once the local stack is spent. */
+  backOut?: PaneBackOut
 }) {
   // Seeded from the routed content (a rail facet click carries its facet in,
   // a cross-section door carries its detail), pane-local after that (the
@@ -51,7 +72,9 @@ export function SectionPane({
   // cleanly).
   const [subview, setSubview] = useState<string | null>(initialSub ?? null)
   const [focus, setFocus] = useState<PaneFocusState>({ ...NO_FOCUS, ...initialFocus })
-  const [stack, setStack] = useState<PaneFocusState[]>([])
+  const [stack, setStack] = useState<PaneFocusState[]>(() =>
+    (initialStack ?? []).map((s) => ({ ...NO_FOCUS, ...s })),
+  )
 
   const navigate = (next: Partial<PaneFocusState>) => {
     setStack((s) => [...s, focus])
@@ -63,40 +86,44 @@ export function SectionPane({
   const focusRef = useRef(focus)
   focusRef.current = focus
 
-  // Report the pane's LIVE location up into the tree content (rev-stable, so
-  // this can't remount the pane) — the URL projects the focused pane's deep
-  // page and a reload restores it. Ref'd callback: nav identity churn must
-  // not re-fire the effect.
+  // Report the pane's LIVE location + in-section stack up into the tree
+  // content (rev-stable, so this can't remount the pane) — the URL projects
+  // the focused pane's deep page and a reload restores it; a door leaving the
+  // pane folds the stack into its push (ADAPT-18). Ref'd callback: nav
+  // identity churn must not re-fire the effect.
   const onAtRef = useRef(onAt)
   onAtRef.current = onAt
   useEffect(() => {
-    onAtRef.current?.({ sub: subview, ...seedOfLoc(focus) })
-  }, [subview, focus])
+    onAtRef.current?.({ sub: subview, ...seedOfLoc(focus) }, stack.map(seedOfLoc))
+  }, [subview, focus, stack])
 
   // The pane-local nav bridge (ADAPT-17's pane-locality rule): every entity
   // door below — owner bylines, context rows, work-item links, "View in …" —
   // resolves against THIS pane through the SectionNavOverride that
   // useRelations() composes. Same-section targets push the pane's own detail
-  // focus; cross-section targets retarget the pane's leaf (seeded); a shape
-  // the pane can't host (a bare section jump) falls through to the root
-  // bridge. SectionPane itself sits ABOVE its own override, so this
-  // useRelations() reads the ROOT navigate.
-  const rootNavigate = useRelations().navigate
+  // focus (a bare same-section jump returns to the root); cross-section
+  // targets retarget the pane's leaf, seeded — the host pushes the outgoing
+  // page onto the carried stack. Total: no door leaves the pane (the
+  // equal-pages model has no primary to fall through to).
   const paneNavigate = useCallback(
     (target: SectionId, id?: string, subId?: string) => {
       const t = paneNavTarget(section, target, id, subId)
       if (t.kind === 'focus') {
         setStack((s) => [...s, focusRef.current])
         setFocus({ ...NO_FOCUS, ...t.focus })
-      } else if (t.kind === 'retarget') {
-        onRetarget({ kind: 'msection', id: t.section, seed: t.seed })
       } else {
-        rootNavigate(target, id, subId)
+        onRetarget({ kind: 'msection', id: t.section, seed: t.seed })
       }
     },
-    [section, onRetarget, rootNavigate],
+    [section, onRetarget],
   )
+  // Back walks the chain: the local stack, then the carried stack (backOut —
+  // popped by the host WITHOUT a push), then the structural section root.
   const onBack = () => {
+    if (stack.length === 0 && backOut) {
+      backOut.go()
+      return
+    }
     setStack((s) => {
       const prev = s.at(-1)
       setFocus(prev ?? NO_FOCUS)
@@ -107,9 +134,11 @@ export function SectionPane({
   const backTo: NavLocation | null =
     stack.length > 0
       ? { kind: 'section', section, projectId: top?.projectId ?? null, scheduleId: top?.scheduleId ?? null, ownerName: top?.ownerName ?? null }
-      : focus.projectId || focus.scheduleId || focus.ownerName || focus.agentId || focus.contextId
-        ? { kind: 'section', section, projectId: null, scheduleId: null, ownerName: null }
-        : null
+      : backOut
+        ? navLocationOfLoc(backOut.loc)
+        : focus.projectId || focus.scheduleId || focus.ownerName || focus.agentId || focus.contextId
+          ? { kind: 'section', section, projectId: null, scheduleId: null, ownerName: null }
+          : null
 
   return (
     <SectionNavOverride.Provider value={paneNavigate}>

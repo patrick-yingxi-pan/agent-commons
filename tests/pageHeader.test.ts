@@ -50,11 +50,20 @@ test('the back control is an inline round arrow ON the title line — never a fl
   for (const piece of ['rounded-full', 'h-8 w-8', 'shrink-0', '-ml-2']) {
     assert.ok(PAGE_BACK_CLASS.includes(piece), `the back control keeps "${piece}"`)
   }
-  const src = read(join(ROOT, 'src', 'components', 'SectionView.tsx'))
+  // The shared BackButton (its own module since ADAPT-18 — the conversation
+  // title bar wears the same control) consumes the primitive and NAMES its
+  // destination (the arrow alone must still announce where it goes).
+  const src = read(join(ROOT, 'src', 'components', 'BackButton.tsx'))
   assert.ok(src.includes('PAGE_BACK_CLASS'), 'the shared BackButton consumes the primitive')
-  // The destination stays NAMED even though the visible label is gone (the
-  // arrow alone must still announce where it goes).
   assert.match(src, /aria-label=\{`Back to \$\{label\}`\}/, 'the arrow announces its destination')
+  // Every surface that shows a back affordance renders the ONE component —
+  // the section pages (details + the hub PageHeader) and the conversation
+  // title bar alike (ADAPT-18: a session opened from a page goes back too).
+  for (const consumer of ['SectionView.tsx', 'SessionTitleBar.tsx']) {
+    const c = read(join(ROOT, 'src', 'components', consumer))
+    assert.match(c, /from\s+'\.\/BackButton'/, `${consumer} imports the shared BackButton`)
+    assert.ok(c.includes('<BackButton'), `${consumer} renders <BackButton>`)
+  }
   // The retired stacked-eyebrow spelling (a small "← Label" line floating a
   // margin above the title) stays dead across components.
   const components = concatSource('src/components')

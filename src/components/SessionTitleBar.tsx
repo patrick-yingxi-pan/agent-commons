@@ -10,7 +10,9 @@
 import type { ReactNode } from 'react'
 import { CalendarClock, Folder } from 'lucide-react'
 import type { Session } from '../types'
+import type { NavLocation } from '../lib/nav'
 import { useRelations } from '../controller/useRelations'
+import { BackButton } from './BackButton'
 import { RunHistoryMenu } from './RunHistoryMenu'
 
 /** The slice of a Session the bar reads — a pane without the full server row
@@ -21,6 +23,7 @@ export function SessionTitleBar({
   session,
   leftOpen = true,
   leading,
+  back,
   onOpenProject,
   onOpenSchedule,
   onSelectRun,
@@ -31,6 +34,9 @@ export function SessionTitleBar({
   leftOpen?: boolean
   /** Narrow tier: the in-flow rail toggle, rendered at the bar's left. */
   leading?: ReactNode
+  /** A conversation opened from a PAGE (ADAPT-18): the bar leads with the one
+   *  back control (BackButton), returning to — and naming — that origin. */
+  back?: { to: NavLocation; onBack: () => void }
   onOpenProject: (id: string) => void
   onOpenSchedule: (id: string) => void
   /** A scheduled-run session's sibling-run navigation — the floating
@@ -52,6 +58,7 @@ export function SessionTitleBar({
       data-session-title-bar
     >
       {leading}
+      {back && <BackButton to={back.to} onBack={back.onBack} />}
       <div className="flex min-w-0 flex-col justify-center gap-0.5">
         <span className="truncate font-serif text-[15px] font-semibold leading-tight text-ink">
           {session.title}

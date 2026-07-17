@@ -7,14 +7,16 @@
  *  pane does with a bridge call, and `SectionPane` provides it as the nav
  *  override every `useRelations()` consumer below it composes in.
  *
- *  Three outcomes:
+ *  Two outcomes (total — every door stays in the pane; the equal-pages model
+ *  has no primary to fall through to, and an in-pane door must carry the
+ *  pane's back history, ADAPT-18):
  *  - `focus`    — the target renders inside the pane's CURRENT section: push it
- *                 onto the pane's own detail focus (back stack works).
+ *                 onto the pane's own detail focus (back stack works). A bare
+ *                 same-section jump is the empty focus — back to the root.
  *  - `retarget` — a cross-section door: rewrite the pane's leaf to the target
- *                 section, seeding the detail (`msection.seed`) — the pane
- *                 navigates, not the primary.
- *  - `global`   — a shape the pane can't host (a bare section jump with no
- *                 entity): fall through to the root bridge (the primary).
+ *                 section, seeding the detail (`msection.seed`; a bare section
+ *                 jump seeds nothing — the section root) — the pane navigates,
+ *                 never another.
  *
  *  The id→detail mapping MIRRORS the root bridge (`App.navigateToSection`):
  *  projects+subId → a work item; projects → a project; scheduled → a routine;
@@ -67,7 +69,6 @@ export function locOfSeed(seed: Partial<Record<SeedKey, string | null | undefine
 export type PaneNavTarget =
   | { kind: 'focus'; focus: PaneSeed }
   | { kind: 'retarget'; section: SectionId; seed: PaneSeed }
-  | { kind: 'global' }
 
 /** The root bridge's id→detail mapping, shared by both outcomes. Null = the
  *  call names no entity detail (a bare section jump). */
@@ -87,7 +88,6 @@ export function paneNavTarget(
   id?: string,
   subId?: string,
 ): PaneNavTarget {
-  const seed = seedFor(section, id, subId)
-  if (!seed) return { kind: 'global' }
+  const seed = seedFor(section, id, subId) ?? {}
   return section === current ? { kind: 'focus', focus: seed } : { kind: 'retarget', section, seed }
 }

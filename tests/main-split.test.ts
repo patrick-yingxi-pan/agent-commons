@@ -144,6 +144,19 @@ test('retargetDraftPanes follows the materialized draft by CONTENT match — dup
   // Nothing showing the draft → the SAME reference back (no needless commit/persist).
   assert.equal(retargetDraftPanes(next, 'draft', 'sess-9'), next)
   assert.equal(retargetDraftPanes(null, 'draft', 'sess-9'), null)
+  // The adoption SPREADS the content — a carried back stack (ADAPT-18)
+  // survives it (a rebuild once dropped every extra field).
+  const carried = retargetDraftPanes(
+    pane<MainPaneContent>({ kind: 'msession', id: 'draft', back: [{ kind: 'msection', id: 'projects' }] }),
+    'draft',
+    'sess-9',
+  )!
+  const adopted = panes(carried)[0].content
+  assert.deepEqual(
+    adopted.kind === 'msession' ? adopted.back : null,
+    [{ kind: 'msection', id: 'projects' }],
+    'the back history rides through the draft adoption',
+  )
 })
 
 // ── Context panels as FULL panes (universal split Phase 4) ───────────────────

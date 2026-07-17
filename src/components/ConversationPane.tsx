@@ -11,7 +11,8 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { SessionTitleBar } from './SessionTitleBar'
 import { ConversationView } from './ConversationView'
 import { EmptyState } from './EmptyState'
-import type { MainPaneNav } from './MainSplit'
+import type { MainPaneNav, PaneBackOut } from './MainSplit'
+import { navLocationOfLoc } from '../lib/paneHistory'
 import { useSessions, useSchedules, useProviders, compactSession, keys, patchSession, peek } from '../api'
 import { runSessionId } from '../../contract/ids.ts'
 import { pickedModel, pickedProvider, type ModelPick } from '../lib/models'
@@ -24,7 +25,18 @@ import { draft } from '../controller/draftController'
 import { DRAFT_ID, approvalView } from '../data/liveSession'
 import type { Session } from '../types'
 
-export function ConversationPane({ sessionId, nav }: { sessionId: string; nav: MainPaneNav }) {
+export function ConversationPane({
+  sessionId,
+  nav,
+  backOut,
+}: {
+  sessionId: string
+  nav: MainPaneNav
+  /** The carried back stack's top (ADAPT-18) — non-null when this
+   *  conversation was opened from a PAGE (a session row, a run row): the
+   *  title bar leads with the back control naming that origin. */
+  backOut?: PaneBackOut
+}) {
   const conv = usePaneConversation(sessionId)
   // The LIVE row — with the loadSession-cache fallback for rows the list
   // doesn't carry (run sessions): title, routine breadcrumb, compact, and the
@@ -141,6 +153,7 @@ export function ConversationPane({ sessionId, nav }: { sessionId: string; nav: M
           }
         }
         leading={nav.railToggle}
+        back={backOut ? { to: navLocationOfLoc(backOut.loc), onBack: backOut.go } : undefined}
         onOpenProject={nav.onOpenProject}
         onOpenSchedule={nav.onOpenSchedule}
         // A run session's floating run-history click-down (UI-15): selecting a

@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { useContext, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import {
   AlertCircle,
-  ArrowLeft,
   Award,
   BarChart3,
   Bell,
@@ -53,7 +52,7 @@ import {
 import type { AddedContext, ArtifactKind, Connector, SavedContext, SavedContextKind, SectionId } from '../types'
 import { SECTION_META } from '../lib/sections'
 import { FOLD_HEADER_CLASS } from '../lib/foldHeader'
-import { PAGE_BACK_CLASS, PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../lib/pageHeader'
+import { PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../lib/pageHeader'
 import { connectorIconFor } from '../lib/connectors'
 import { CHIP_TONES, type ChipTone } from '../lib/capabilities'
 import { addedToProjectContexts, contextsToConnectors, projectContextTone } from '../lib/projectContext'
@@ -80,7 +79,8 @@ import { TextDiff } from './TextDiff'
 import { CopyButton } from './CopyButton'
 import { CheckboxRow, DefaultBadge, DefaultToggle } from './Checkbox'
 import { Spinner } from './Spinner'
-import { resolveBackLabel, type NavLocation } from '../lib/nav'
+import { BackButton, PageBackContext } from './BackButton'
+import type { NavLocation } from '../lib/nav'
 import { SECTION_SUBVIEWS } from '../lib/subviews'
 import { usePendingFocus, useFocusFlash } from '../lib/focusContext'
 import { relativeTime } from '../lib/relativeTime'
@@ -328,28 +328,20 @@ export function SectionView({
       <GenericSection section={section} />
     )
   return (
-    <div className={`flex min-h-0 flex-1 flex-col ${railCollapsed ? 'pl-8' : ''}`}>{body}</div>
+    // The hub pages' back state (ADAPT-18): when history exists — a bare
+    // in-page door landed here, or the local stack popped back to the list —
+    // the shared PageHeader leads with the one back control. Detail pages
+    // render BackButton from their props directly.
+    <PageBackContext.Provider value={backTo ? { to: backTo, onBack } : null}>
+      <div className={`flex min-h-0 flex-1 flex-col ${railCollapsed ? 'pl-8' : ''}`}>{body}</div>
+    </PageBackContext.Provider>
   )
 }
 
-/** The dynamic back button — returns to the previous page in navigation history
- *  (not a fixed structural parent) and names that destination, resolving the live
- *  project / routine name. Shared by the detail pages so the cue is identical:
- *  a circular ghost arrow sitting INLINE on the title line (PAGE_BACK_CLASS —
- *  the pageHeader primitive), the destination named in the tooltip/aria-label. */
-function BackButton({ to, onBack }: { to: NavLocation | null; onBack: () => void }) {
-  const projects = useRelations().allProjects()
-  const schedules = useSchedules().data ?? []
-  const label = resolveBackLabel(to, {
-    project: Object.fromEntries(projects.map((p) => [p.id, p.name])),
-    schedule: Object.fromEntries(schedules.map((s) => [s.id, s.name])),
-  })
-  return (
-    <button onClick={onBack} title={`Back to ${label}`} aria-label={`Back to ${label}`} className={PAGE_BACK_CLASS}>
-      <ArrowLeft size={17} className="shrink-0" />
-    </button>
-  )
-}
+/* The dynamic back button — returns to the previous page in navigation history
+ * (not a fixed structural parent) and names that destination — now lives in
+ * src/components/BackButton.tsx (ADAPT-18): the conversation title bar wears
+ * the same control for a session opened from a page, so it left this file. */
 
 /* ─────────────────────────── Projects ─────────────────────────── */
 
@@ -8613,16 +8605,24 @@ function PageHeader({
   subtitle?: ReactNode
   children?: ReactNode
 }) {
+  // A hub reached through an in-page door carries the back affordance too
+  // (ADAPT-18) — the identical control the detail pages lead with. Rendered
+  // OUTSIDE the max-sm:hidden title (the NarrowBar carries the title below
+  // sm, but back must stay reachable there).
+  const back = useContext(PageBackContext)
   return (
     <header className={PAGE_HEADER_CLASS}>
-      <div className="min-w-0">
-        {/* Below sm the shell's NarrowBar already carries the section title —
-            repeating it here would read twice on one screen. */}
-        <div className="flex items-center gap-2 max-sm:hidden">
-          <h1 className={PAGE_TITLE_CLASS}>{title}</h1>
-          {badge}
+      <div className="flex min-w-0 items-start gap-1">
+        {back && <BackButton to={back.to} onBack={back.onBack} />}
+        <div className="min-w-0">
+          {/* Below sm the shell's NarrowBar already carries the section title —
+              repeating it here would read twice on one screen. */}
+          <div className="flex items-center gap-2 max-sm:hidden">
+            <h1 className={PAGE_TITLE_CLASS}>{title}</h1>
+            {badge}
+          </div>
+          {subtitle && <p className="mt-1 text-sm text-ink-soft max-sm:mt-0">{subtitle}</p>}
         </div>
-        {subtitle && <p className="mt-1 text-sm text-ink-soft max-sm:mt-0">{subtitle}</p>}
       </div>
       {children && <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2.5">{children}</div>}
     </header>

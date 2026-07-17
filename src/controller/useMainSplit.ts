@@ -18,6 +18,8 @@
  *  persisted (src/lib/mainSplit.ts). */
 import { useCallback, useRef, useState } from 'react'
 import { nodeAt, pane, panes, prunePanes, replacePane, setRatio, splitPane as splitLeaf, updatePaneContent, type PaneContent, type SplitDir } from '../lib/splitFrame'
+import { scrubBackStacks, withBackPush } from '../lib/paneHistory'
+import type { PaneSeed } from '../lib/paneNav'
 import {
   closeMainPane as closeMain,
   findFocusDrivenContext,
@@ -34,7 +36,13 @@ import {
 
 const firstPanePath = (t: MainSplitNode | null): string => panes(t)[0]?.path ?? ''
 
-export function useMainSplit() {
+export function useMainSplit(opts?: {
+  /** Resolves a session's display title at back-PUSH time (the carried title
+   *  of an msession back entry — nav.ts's "resolved when you leave it"). */
+  sessionTitle?: (id: string) => string
+}) {
+  const optsRef = useRef(opts)
+  optsRef.current = opts
   // Restore per account (the Workspace remounts keyed by account, so this
   // initializer re-runs against the right blob; legacy primary leaves were
   // stripped by the migration in getMainSplitPref).
@@ -101,9 +109,13 @@ export function useMainSplit() {
    *  a stale focus path (a race with a concurrent tree edit) reconciles to
    *  the first pane and lands there — a door never silently no-ops. Returns
    *  the LANDING pane's path (the notification doors scope their transient
-   *  highlight to exactly the pane they landed in). */
+   *  highlight to exactly the pane they landed in). `push` marks a door that
+   *  ORIGINATED inside the replaced pane's content (ADAPT-18): the outgoing
+   *  page — with its whole history chain — is pushed onto the target's back
+   *  stack, so the landing page carries a back affordance to its origin.
+   *  Chrome doors omit it and reset the stack. */
   const routeToFocused = useCallback(
-    (content: MainPaneContent): string => {
+    (content: MainPaneContent, push?: boolean): string => {
       const t = treeRef.current
       if (!t) {
         commit(pane(content))
@@ -117,7 +129,12 @@ export function useMainSplit() {
         focusedRef.current = path
         setFocusedPane(path)
       }
-      commit(replacePane(t, path, content))
+      const node = nodeAt(t, path)
+      const landing =
+        push && node?.kind === 'pane' && content.kind !== 'context-panel'
+          ? withBackPush(node.content, content, optsRef.current?.sessionTitle)
+          : content
+      commit(replacePane(t, path, landing))
       return path
     },
     [commit],
@@ -200,14 +217,25 @@ export function useMainSplit() {
    *  itself), equality-guarded so redundant reports never commit/persist.
    *  The URL projects it; a reload restores the pane to the same spot. */
   const reportPaneAt = useCallback(
-    (path: string, at: PaneAt) => {
+    (path: string, at: PaneAt, hist: PaneSeed[], rev: number) => {
       const t = treeRef.current
       if (!t) return
       const node = nodeAt(t, path)
       if (node?.kind !== 'pane' || node.content.kind !== 'msection') return
-      const prev = node.content.at
-      if (prev && JSON.stringify(prev) === JSON.stringify(at)) return
-      commit(updatePaneContent(t, path, { ...node.content, at }))
+      // A report is stamped with the leaf REVISION its pane instance rendered
+      // under. A stale instance's late effect (StrictMode re-runs its report
+      // after a route already replaced the leaf) must not write its old
+      // location onto the fresh content — the boot route would silently lose
+      // to the page it was overriding (the bare-address-over-deep-at bug).
+      if ((node.rev ?? 0) !== rev) return
+      const prev = node.content
+      if (
+        prev.at &&
+        JSON.stringify(prev.at) === JSON.stringify(at) &&
+        JSON.stringify(prev.hist ?? []) === JSON.stringify(hist)
+      )
+        return
+      commit(updatePaneContent(t, path, { ...node.content, at, hist }))
     },
     [commit],
   )
@@ -220,7 +248,10 @@ export function useMainSplit() {
   const pruneMainPanes = useCallback(
     (keep: (c: MainPaneContent) => boolean) => {
       const t = treeRef.current
-      const next = prunePanes(t, keep)
+      // Panes first, then the surviving panes' BACK stacks (ADAPT-18): a gone
+      // subject must vanish from history too, or the back affordance would
+      // walk into a dead thread.
+      const next = scrubBackStacks(prunePanes(t, keep), keep)
       if (next !== t) commit(next)
     },
     [commit],

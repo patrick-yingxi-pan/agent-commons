@@ -29,6 +29,18 @@ import type { Live } from '../data/liveSession'
 import { closePane, panes, replacePane, splitPane, type PaneContent, type SplitNode } from './splitFrame.ts'
 import { pathForView } from './urlRoutes.ts'
 
+/** ── One entry of a pane's BACK history (the back-history rule, ADAPT-18) ────
+ *  The page a pane showed before an IN-PAGE door replaced it: a section page
+ *  (its sub-view + open detail, the shape a fresh mount reseeds from) or a
+ *  conversation (its title carried — resolved when you leave it, the nav.ts
+ *  session-title rule, since a run session may be in no list to look up
+ *  later). Doors clicked INSIDE pane content push the origin onto the
+ *  target's `back`; chrome doors (rail, palette, notifications) reset it.
+ *  Plain JSON — the stack persists with the tree. */
+export type PaneLoc =
+  | { kind: 'msection'; id: SectionId; sub?: string | null; seed?: PaneSeed }
+  | { kind: 'msession'; id: string; title?: string }
+
 export type MainPaneContent =
   // `sub` seeds the pane's local sub-view (a rail facet click routing into a
   // focused pane carries the facet along); `seed` seeds the pane's open DETAIL
@@ -38,9 +50,13 @@ export type MainPaneContent =
   // the pane REPORTS back as `at` (its live sub-view + open detail, written
   // rev-stably so the pane never remounts from describing itself): the URL
   // projects it (`/projects/:id` from a focused pane), persistence restores
-  // it, and a fresh mount initializes from `at ?? seed`.
-  | { kind: 'msection'; id: SectionId; sub?: string | null; seed?: PaneSeed; at?: PaneAt }
-  | { kind: 'msession'; id: string }
+  // it, and a fresh mount initializes from `at ?? seed`. `hist` is the pane's
+  // REPORTED in-section back stack (the detail pages behind the live one),
+  // reported rev-stably beside `at` so a door leaving the pane can fold the
+  // whole in-section history into the target's `back` (src/lib/paneHistory.ts).
+  // `back` is the carried CROSS-page history the back affordance walks.
+  | { kind: 'msection'; id: SectionId; sub?: string | null; seed?: PaneSeed; at?: PaneAt; hist?: PaneSeed[]; back?: PaneLoc[] }
+  | { kind: 'msession'; id: string; back?: PaneLoc[] }
   // A session's context panel as a FULL pane (universal split Phase 4): the
   // workspace / repo / connector / files / photos, scoped to its
   // OWNING session (`sessionId`) and resolved against that session's keyed live —
@@ -158,7 +174,9 @@ export function retargetDraftPanes(
     if (n.kind === 'pane') {
       if (n.content.kind === 'msession' && n.content.id === draftId) {
         changed = true
-        return { ...n, content: { kind: 'msession', id: realId } }
+        // Spread, not rebuild: the pane's carried back history (ADAPT-18)
+        // must survive the adoption.
+        return { ...n, content: { ...n.content, id: realId } }
       }
       return n
     }

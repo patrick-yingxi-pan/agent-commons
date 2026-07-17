@@ -435,6 +435,24 @@ the mock?
   doors**: a card / list row fronting a page makes its TITLE the primary click
   target (GitHub's title-as-link), wired to the same handler as the explicit open
   affordance (`CommonsCardHead`'s `onOpen`; the work-item title opens its thread).
+- **The back-history rule — an in-page door carries its origin; browser Back is
+  per-page** (owner directive 2026-07-17, spec ADAPT-18). Every page opened by
+  clicking WITHIN a page carries a back affordance to the page that opened it —
+  across section boundaries and across the page↔conversation line (a session row
+  opens a conversation whose title bar leads with back; a breadcrumb opens a
+  project page whose back names the conversation). Mechanism: the pane's content
+  carries a `back` stack of `PaneLoc`s (`src/lib/paneHistory.ts` is the model;
+  `PaneBody` in `MainSplit.tsx` is the ONE push funnel for pane-originated doors);
+  chrome doors (rail / palette / notifications) RESET the stack — top-level
+  navigation starts fresh, GitHub's top-nav rule. The affordance is the one
+  `BackButton` (`src/components/BackButton.tsx`) on detail pages, hub `PageHeader`s
+  (when history exists), and the `SessionTitleBar`. Browser Back/Forward apply
+  per page too (`planPop`): pop the focused pane's own back top, else REFOCUS the
+  pane already showing the address (never clobber with a duplicate), else plain
+  route. When adding a door, decide which side of the page/chrome line it's on —
+  in-page doors must route through the pane funnel (or a push-flagged shell door),
+  never bare `routeToFocused`. Locked by `tests/pane-history.test.ts` +
+  `e2e/back-history.spec.ts`.
 - **The entity page is the shared surface — capability shapes affordances, not
   location.** A shared Project (and any future shared entity) has ONE canonical page
   serving owner and visitor alike, GitHub-repo-style: what differs is which controls

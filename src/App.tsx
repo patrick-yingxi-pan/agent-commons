@@ -13,7 +13,7 @@ import { useShellRoutes } from './controller/useShellRoutes'
 import { hostsSession, paneLocationPath, setMainSplitScope } from './lib/mainSplit'
 import { SearchPanel } from './components/SearchPanel'
 import { NotificationsPanel } from './components/NotificationsPanel'
-import { onSessionRemoved, useCapabilities, useMe, useSessions, useServerEvents } from './api'
+import { keys, onSessionRemoved, peek, useCapabilities, useMe, useSessions, useServerEvents } from './api'
 import { conversations, useConversation } from './controller/conversationStore'
 import { sameFocus } from './lib/focus'
 import { setPanelPref } from './lib/panelPrefs'
@@ -25,7 +25,7 @@ import { NO_PENDING_FOCUS } from './lib/focusContext'
 import { SCRIM_CLASS } from './lib/scrim'
 import { SECTION_META } from './lib/sections'
 import { DRAFT_ID } from './data/liveSession'
-import type { SectionId } from './types'
+import type { SectionId, Session } from './types'
 
 /** The shell: decides WHICH top-level surface renders — the full-screen auth
  *  flow (multi-account §12) or the workspace. The auth screen shows when the
@@ -87,6 +87,18 @@ function Workspace() {
   useServerEvents()
   const sessions = useSessions().data ?? []
 
+  // A session's display title from the live rows (falling back to the
+  // loadSession cache for run sessions outside the list) — the pane title
+  // bars, the picker labels, AND the back-history push (ADAPT-18: an msession
+  // back entry carries its title, resolved when you leave it).
+  const sessionLabel = useCallback(
+    (id: string) =>
+      id === DRAFT_ID
+        ? 'New session'
+        : (sessions.find((s) => s.id === id)?.title ?? peek<Session>(keys.session(id))?.title ?? 'Conversation'),
+    [sessions],
+  )
+
   // ── The MAIN workspace split (universal split, focused-pane model) ──────────
   // Called BEFORE the workspace hook: the address bar projects the FOCUSED
   // pane (Phase 6), so the workspace's URL-sync effect takes the focused
@@ -107,7 +119,7 @@ function Workspace() {
     closeMainPane,
     closeFocused,
     setMainRatio,
-  } = useMainSplit()
+  } = useMainSplit({ sessionTitle: sessionLabel })
 
   // Mirror for stable callbacks (mainPaneNav must not rebuild per focus hop).
   const focusedContentRef = useRef(focusedContent)
@@ -125,8 +137,8 @@ function Workspace() {
   // The route bridges — how an ADDRESSED navigation (boot, popstate, a door)
   // becomes a focused-pane edit (controller/useShellRoutes.ts: the boot
   // dedup, the total routing, the notification landing-pane record).
-  const { applyRouteToFocused, applyBootRoute, routeDoor, routeSession, routeSection, mintIfEmpty, notifPaneRef } =
-    useShellRoutes({ mainTree, routeToFocused, focusMainPane })
+  const { applyRouteToFocused, applyPopRoute, applyBootRoute, routeDoor, routeSession, routeSection, mintIfEmpty, notifPaneRef } =
+    useShellRoutes({ mainTree, focusedPane, routeToFocused, focusMainPane, fillMainPane })
 
   const {
     pendingFocus,
@@ -147,7 +159,7 @@ function Workspace() {
     renameSession,
     archiveSession,
     deleteSession,
-  } = useSessionWorkspace({ focusedPath, applyRouteToFocused, applyBootRoute, routeDoor, routeSession, routeSection, mintIfEmpty })
+  } = useSessionWorkspace({ focusedPath, applyRouteToFocused, applyPopRoute, applyBootRoute, routeDoor, routeSession, routeSection, mintIfEmpty })
 
   // LIVE PRUNE, the delete half: deleting a session evicts EVERY pane it
   // hosts — its conversation panes and its context panes alike (hostsSession),
@@ -285,10 +297,15 @@ function Workspace() {
     () => ({
       // A session door from inside a pane (a section page's session list, the
       // title bar's run-history click-down): the FOCUSED pane hosts the
-      // session, like every navigation.
+      // session, like every navigation. NOTE: PaneBody OVERRIDES this door —
+      // and the two breadcrumb doors below — with a self-fill that pushes the
+      // origin onto the target's back stack (ADAPT-18); these shell versions
+      // are the fallback for hosts without a tree path.
       onOpenSession: (id) => routeToFocused({ kind: 'msession', id }),
       onNewSession: newSession,
-      onOpenProposal: openProposal,
+      // A proposal row inside a page: pane-originated, so the origin rides
+      // the target's back stack (the chrome doors omit the push).
+      onOpenProposal: (agentId, proposalId, ownerName) => openProposal(agentId, proposalId, ownerName, true),
       onOpenProject: openProject,
       onOpenSchedule: openSchedule,
       // A pane composer's chip click toggles ITS session's STORE focus — the
@@ -299,7 +316,7 @@ function Workspace() {
         conversations.setFocus(sessionId, next)
         if (sessionId !== DRAFT_ID) setPanelPref(sessionId, next)
       },
-      sessionLabel: (id) => sessions.find((s) => s.id === id)?.title ?? 'Conversation',
+      sessionLabel,
       // A pane-hosted draft materialized: every draft pane follows the entry
       // to the real id (content match — a duplicated draft pane follows too).
       onDraftAdopted: (realId) => adoptDraftPanes(DRAFT_ID, realId),
@@ -321,7 +338,7 @@ function Workspace() {
       // The narrow tier's in-flow rail toggle rides the conversation title bar.
       railToggle: railOverlay ? <RailOpenButton onClick={openLeft} /> : undefined,
     }),
-    [routeToFocused, newSession, openProposal, openProject, openSchedule, sessions, adoptDraftPanes, focusCtxFor, closeMainPane, railOverlay, openLeft],
+    [routeToFocused, newSession, openProposal, openProject, openSchedule, sessionLabel, adoptDraftPanes, focusCtxFor, closeMainPane, railOverlay, openLeft],
   )
 
 

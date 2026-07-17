@@ -14,16 +14,18 @@
  *  pane (ADAPT-15). Dividers are the ONE keyboard-operable ResizeHandle,
  *  named per path (UI-11). The overlay tiers (ADAPT-11) render the focused
  *  pane alone via MainSplitGate; the tree persists and re-tiles on wide. */
-import { useRef, type ReactNode } from 'react'
+import { useCallback, useMemo, useRef, type ReactNode } from 'react'
 import { ResizeHandle } from './ResizeHandle'
 import { SectionPane } from './SectionPane'
 import { ConversationPane } from './ConversationPane'
 import { ContextPanelView } from './ContextPanelView'
 import { clampRatio, nodeAt, panes } from '../lib/splitFrame'
-import type { MainPaneContent, MainSplitNode, PaneAt } from '../lib/mainSplit'
-import type { PanelFocus } from '../types'
+import type { MainPaneContent, MainSplitNode, PaneAt, PaneLoc } from '../lib/mainSplit'
+import { contentForLoc, withBackPush } from '../lib/paneHistory'
+import type { PanelFocus, SectionId } from '../types'
 import { FocusContext, type PendingFocus } from '../lib/focusContext'
-import type { PaneSeed } from '../lib/paneNav'
+import { SectionNavOverride } from '../controller/useRelations'
+import { seedFor, type PaneSeed } from '../lib/paneNav'
 
 /** The doors a pane hands to the SHELL — each lands its target in the FOCUSED
  *  pane, like every navigation (the equal-pages model has no primary). */
@@ -98,7 +100,7 @@ export function MainSplitGate({
   nav: MainPaneNav
   onFocusPane: (path: string) => void
   onFillPane: (path: string, content: MainPaneContent) => void
-  onReportAt: (path: string, at: PaneAt) => void
+  onReportAt: (path: string, at: PaneAt, hist: PaneSeed[], rev: number) => void
   onRatio: (path: string, ratio: number) => void
 }) {
   if (!tree) return <Background />
@@ -145,7 +147,7 @@ export function MainSplit({
   nav: MainPaneNav
   onFocusPane: (path: string) => void
   onFillPane: (path: string, content: MainPaneContent) => void
-  onReportAt: (path: string, at: PaneAt) => void
+  onReportAt: (path: string, at: PaneAt, hist: PaneSeed[], rev: number) => void
   onRatio: (path: string, ratio: number) => void
 }) {
   return (
@@ -168,8 +170,22 @@ export function MainSplit({
  *  re-initializes from. */
 const seedOfAt = ({ sub: _sub, ...seed }: PaneAt): PaneSeed => seed
 
+/** The pane's back affordance: the carried stack's top (`loc` — resolves the
+ *  label) and the pop (`go` — fills the pane with it, stack shortened). */
+export interface PaneBackOut {
+  loc: PaneLoc
+  go: () => void
+}
+
 /** ONE leaf renderer for every host — the tiled Branch and the overlay tiers'
- *  focused-pane-only view render the identical content (no fork). */
+ *  focused-pane-only view render the identical content (no fork). It is also
+ *  the ONE funnel for the back-history rule (ADAPT-18): every door that
+ *  originates INSIDE this pane's content — a session row, a title-bar
+ *  breadcrumb, a relation card's "View in …", a cross-section retarget —
+ *  replaces the pane through `fillWith`, which pushes the outgoing page (with
+ *  its whole history chain) onto the target's back stack. The shell's chrome
+ *  doors (rail, palette, notifications) never come through here and reset the
+ *  stack instead. */
 function PaneBody({
   content: c,
   path,
@@ -185,8 +201,40 @@ function PaneBody({
   rev?: number
   nav: MainPaneNav
   onFillPane: (path: string, content: MainPaneContent) => void
-  onReportAt: (path: string, at: PaneAt) => void
+  onReportAt: (path: string, at: PaneAt, hist: PaneSeed[], rev: number) => void
 }) {
+  const fillWith = useCallback(
+    (target: MainPaneContent) => onFillPane(path, withBackPush(c, target, nav.sessionLabel)),
+    [c, path, nav, onFillPane],
+  )
+  const paneNav = useMemo<MainPaneNav>(
+    () => ({
+      ...nav,
+      onOpenSession: (id) => fillWith({ kind: 'msession', id }),
+      onOpenProject: (id) => fillWith({ kind: 'msection', id: 'projects', seed: { projectId: id } }),
+      onOpenSchedule: (id) => fillWith({ kind: 'msection', id: 'scheduled', seed: { scheduleId: id } }),
+    }),
+    [nav, fillWith],
+  )
+  // The pane-level relations bridge: entity doors inside CONVERSATION and
+  // panel content (a relation card's "View in …") land in THIS pane with the
+  // origin pushed. SectionPane nests its own override below for section
+  // pages, so same-section targets keep pushing its local detail focus.
+  const relNav = useCallback(
+    (section: SectionId, id?: string, subId?: string) => {
+      const seed = seedFor(section, id, subId)
+      fillWith({ kind: 'msection', id: section, ...(seed ? { seed } : {}) })
+    },
+    [fillWith],
+  )
+  // The back affordance pops WITHOUT a push — walking history must not grow it.
+  const backOut = useMemo<PaneBackOut | undefined>(() => {
+    const stack = c.kind === 'context-panel' ? undefined : c.back
+    if (!stack?.length) return undefined
+    const top = stack[stack.length - 1]
+    return { loc: top, go: () => onFillPane(path, contentForLoc(top, stack.slice(0, -1))) }
+  }, [c, path, onFillPane])
+
   const body = c.kind === 'msection' ? (
     <SectionPane
       // Keyed on the full seed + the leaf revision so ANY re-route (a rail
@@ -194,17 +242,26 @@ function PaneBody({
       // pane-local nav cleanly. `at` (the pane's REPORTED live location) is
       // deliberately NOT in the key — the pane must not remount from
       // describing itself; a fresh mount initializes from it instead (a
-      // reload restores the pane to the same deep spot).
+      // reload restores the pane to the same deep spot). `back` stays out
+      // too: history changes never remount the page carrying them.
       key={`${c.id}:${c.sub ?? ''}:${c.seed ? JSON.stringify(c.seed) : ''}:${rev ?? 0}`}
       section={c.id}
       initialSub={c.at ? (c.at.sub ?? null) : (c.sub ?? null)}
       initialFocus={c.at ? seedOfAt(c.at) : c.seed}
-      nav={nav}
-      onRetarget={(content) => onFillPane(path, content)}
-      onAt={(at) => onReportAt(path, at)}
+      // A RESTORE mount (the reported `at` present — a reload, a tier hop)
+      // rehydrates the persisted in-section stack too, so the back walk
+      // survives; a door-seeded mount starts it empty.
+      initialStack={c.at ? c.hist : undefined}
+      nav={paneNav}
+      onRetarget={fillWith}
+      // Reports are stamped with the leaf revision this instance rendered
+      // under, so a stale instance's late report can't overwrite a route
+      // that already replaced the leaf (reportPaneAt drops mismatches).
+      onAt={(at, hist) => onReportAt(path, at, hist, rev ?? 0)}
+      backOut={backOut}
     />
   ) : c.kind === 'msession' ? (
-    <ConversationPane sessionId={c.id} nav={nav} />
+    <ConversationPane sessionId={c.id} nav={paneNav} backOut={backOut} />
   ) : (
     <ContextPanelView
       sessionId={c.sessionId}
@@ -212,13 +269,16 @@ function PaneBody({
       onGone={nav.onPaneSubjectGone ? () => nav.onPaneSubjectGone!(path, c) : undefined}
     />
   )
+  // Every pane content resolves the relations nav bridge against ITSELF
+  // (ADAPT-17's pane-locality, extended to conversations and panels).
+  const scoped = <SectionNavOverride.Provider value={relNav}>{body}</SectionNavOverride.Provider>
   // The notification-door focus target, scoped to THIS pane (nav.focusCtxFor
   // answers non-null only for the pane the door landed in) — without a host
   // bridge the default empty context stands.
   return nav.focusCtxFor ? (
-    <FocusContext.Provider value={nav.focusCtxFor(path)}>{body}</FocusContext.Provider>
+    <FocusContext.Provider value={nav.focusCtxFor(path)}>{scoped}</FocusContext.Provider>
   ) : (
-    body
+    scoped
   )
 }
 
@@ -229,7 +289,7 @@ interface BranchProps {
   nav: MainPaneNav
   onFocusPane: (path: string) => void
   onFillPane: (path: string, content: MainPaneContent) => void
-  onReportAt: (path: string, at: PaneAt) => void
+  onReportAt: (path: string, at: PaneAt, hist: PaneSeed[], rev: number) => void
   onRatio: (path: string, ratio: number) => void
 }
 

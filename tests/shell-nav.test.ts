@@ -98,8 +98,8 @@ test('the notification-door focus target is PER PANE — only the landing pane s
   const frame = stripComments(read(join(ROOT, 'src', 'components', 'MainSplit.tsx')))
   assert.match(
     frame,
-    /<FocusContext\.Provider value=\{nav\.focusCtxFor\(path\)\}>\{body\}<\/FocusContext\.Provider>/,
-    'PaneBody provides the pane-scoped focus context',
+    /<FocusContext\.Provider value=\{nav\.focusCtxFor\(path\)\}>\{scoped\}<\/FocusContext\.Provider>/,
+    'PaneBody provides the pane-scoped focus context (around the nav-scoped body)',
   )
 })
 

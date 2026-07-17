@@ -27,22 +27,30 @@ import { DRAFT_ID } from '../data/liveSession'
 import { draft } from './draftController'
 import { panes } from '../lib/splitFrame'
 import { paneLocationPath, type MainPaneContent, type MainSplitNode } from '../lib/mainSplit'
+import { planPop } from '../lib/paneHistory'
 import { seedOfLoc, type PaneSeed } from '../lib/paneNav'
-import type { RoutedView } from '../lib/urlRoutes'
+import { pathForView, type RoutedView } from '../lib/urlRoutes'
 import type { SectionId } from '../types'
 
 export function useShellRoutes({
   mainTree,
+  focusedPane,
   routeToFocused,
   focusMainPane,
+  fillMainPane,
 }: {
   mainTree: MainSplitNode | null
-  /** The split controller's total router — returns the LANDING pane's path. */
-  routeToFocused: (content: MainPaneContent) => string
+  /** The focused-pane cursor — the popstate planner's "whose back stack". */
+  focusedPane: string
+  /** The split controller's total router — returns the LANDING pane's path.
+   *  `push` = the door originated inside the replaced pane (ADAPT-18). */
+  routeToFocused: (content: MainPaneContent, push?: boolean) => string
   focusMainPane: (path: string) => void
+  /** Replace a pane BY PATH without a history push — the popstate pop arm. */
+  fillMainPane: (path: string, content: MainPaneContent) => void
 }) {
-  // Browser Back/Forward and the boot address retarget the FOCUSED pane
-  // (like every navigation). null routes the root — a fresh draft.
+  // The boot address (and the popstate planner's fallback arm) retargets the
+  // FOCUSED pane, like every navigation. null routes the root — a fresh draft.
   const applyRouteToFocused = useCallback(
     (routed: RoutedView | null): void => {
       if (!routed) {
@@ -66,13 +74,36 @@ export function useShellRoutes({
   // An entity door (a notification bell, a palette hit, a relation card's
   // "View in …") lands in the FOCUSED pane, its detail page open (the pane
   // seed) — recording the landing pane for the notification highlight.
+  // `push` marks a door that originated INSIDE pane content (a proposal row
+  // on an agent page): the origin rides the target's back stack (ADAPT-18).
   const notifPaneRef = useRef<string>('')
   const routeDoor = useCallback(
-    (section: SectionId, seed: PaneSeed): void => {
-      notifPaneRef.current = routeToFocused({ kind: 'msection', id: section, seed })
+    (section: SectionId, seed: PaneSeed, push?: boolean): void => {
+      notifPaneRef.current = routeToFocused({ kind: 'msection', id: section, seed }, push)
     },
     [routeToFocused],
   )
+  // Browser Back/Forward, PER PAGE (ADAPT-18, src/lib/paneHistory.ts): the
+  // canonical address the history moved to first tries the focused pane's own
+  // back top (an in-page hop — pop it, the deeper chain survives), then a
+  // pane already showing the address (a focus hop's entry — refocus it, never
+  // clobber the focused pane with a duplicate), then the plain focused-pane
+  // route (a fresh landing, like every navigation).
+  const applyPopRoute = useCallback(
+    (routed: RoutedView | null): void => {
+      if (!routed) {
+        applyRouteToFocused(null)
+        return
+      }
+      const target = pathForView(routed.loc, routed.subview ?? null)
+      const plan = planPop(mainTree, focusedPane, target)
+      if (plan.kind === 'pop') fillMainPane(plan.path, plan.content)
+      else if (plan.kind === 'focus') focusMainPane(plan.path)
+      else applyRouteToFocused(routed)
+    },
+    [mainTree, focusedPane, fillMainPane, focusMainPane, applyRouteToFocused],
+  )
+
   // A session door (palette hit, notifications row, boot address) and a
   // bare-section door land in the focused pane the same way.
   const routeSession = useCallback(
@@ -118,5 +149,5 @@ export function useShellRoutes({
     [mainTree, focusMainPane, applyRouteToFocused],
   )
 
-  return { applyRouteToFocused, applyBootRoute, routeDoor, routeSession, routeSection, mintIfEmpty, notifPaneRef }
+  return { applyRouteToFocused, applyPopRoute, applyBootRoute, routeDoor, routeSession, routeSection, mintIfEmpty, notifPaneRef }
 }

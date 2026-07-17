@@ -67,9 +67,13 @@ export function useSessionWorkspace(split?: {
    *  the focused pane) — 'keep' when a pane with no canonical location is
    *  focused (a picker, the background): the address stays as-is. */
   focusedPath?: string | 'keep'
-  /** Apply a routed view (popstate) to the focused pane — null routes the
-   *  root (a fresh draft). */
+  /** Apply a routed view to the focused pane — null routes the root (a fresh
+   *  draft). The popstate planner's fallback arm and the boot route share it. */
   applyRouteToFocused?: (routed: RoutedView | null) => void
+  /** Apply a popstate address PER PAGE (ADAPT-18): pop the focused pane's own
+   *  back top, else refocus a pane already showing the address, else fall
+   *  back to the plain focused-pane route. */
+  applyPopRoute?: (routed: RoutedView | null) => void
   /** Apply the BOOT address: same routing, plus the boot dedup — a restored
    *  pane already showing the address is FOCUSED instead of routed over
    *  (the address was the focused pane's own projection; the transient focus
@@ -80,8 +84,9 @@ export function useSessionWorkspace(split?: {
   applyBootRoute?: (routed: RoutedView | null) => boolean
   /** An entity DOOR (a notification bell, a palette hit, a relation card's
    *  "View in …") lands in the FOCUSED pane, seeded with its detail — like
-   *  every navigation. */
-  routeDoor?: (section: SectionId, seed: PaneSeed) => void
+   *  every navigation. `push` = the door originated inside pane content
+   *  (ADAPT-18: the origin rides the target's back stack). */
+  routeDoor?: (section: SectionId, seed: PaneSeed, push?: boolean) => void
   /** A SESSION door (a palette hit, a notifications row) lands in the
    *  focused pane too. */
   routeSession?: (sessionId: string) => void
@@ -214,18 +219,23 @@ export function useSessionWorkspace(split?: {
   // a since-deleted session — a dead link must stay a dead click, never a
   // blank pseudo-conversation routed into (and persisted with) the tree.
   useEffect(() => {
+    // Per-page application (ADAPT-18): pop the focused pane's own back top /
+    // refocus the pane already showing the address / plain-route — falling
+    // back to the plain route where no planner is wired.
+    const apply = (routed: RoutedView | null) =>
+      (splitRef.current?.applyPopRoute ?? splitRef.current?.applyRouteToFocused)?.(routed)
     const onPop = () => {
       const routed = viewForPath(window.location.pathname)
       if (routed?.loc.kind === 'session' && routed.loc.sessionId !== DRAFT_ID) {
         const sid = routed.loc.sessionId
         loadSession(sid)
           .then(() => {
-            if (!leftAccount.current) splitRef.current?.applyRouteToFocused?.(routed)
+            if (!leftAccount.current) apply(routed)
           })
           .catch(() => {}) // gone / foreign → stay put (the address was a dead link)
         return
       }
-      splitRef.current?.applyRouteToFocused?.(routed)
+      apply(routed)
     }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
@@ -298,9 +308,11 @@ export function useSessionWorkspace(split?: {
   // A change proposal on the agent's review surface (proposal.* bells).
   // `ownerName` null ⇒ the caller OWNS the agent ⇒ their Agents hub (the
   // review queue); else the definition's own PAGE (COMMONS-26), where "Your
-  // proposals" lives — with the proposal focused on arrival.
-  const openProposal = useCallback((agentId: string, proposalId: string, ownerName: string | null) => {
-    splitRef.current?.routeDoor?.('agents', ownerName ? { agentId } : {})
+  // proposals" lives — with the proposal focused on arrival. `push` marks the
+  // pane-originated call sites (a proposal row inside a page, ADAPT-18); the
+  // notification panel's chrome door omits it.
+  const openProposal = useCallback((agentId: string, proposalId: string, ownerName: string | null, push?: boolean) => {
+    splitRef.current?.routeDoor?.('agents', ownerName ? { agentId } : {}, push)
     setPendingFocus({ agentId, proposalId })
   }, [])
 

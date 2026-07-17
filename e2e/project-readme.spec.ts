@@ -32,8 +32,9 @@ test('the owner writes the README; the visitor reads it on the same page, withou
   await share.click()
   await expect(share).toHaveAttribute('aria-pressed', 'true')
 
-  // Owner: write the About through the page's own editor.
-  await owner.page.getByRole('button', { name: 'Edit', exact: true }).first().click()
+  // Owner: write the About through the page's own editor (the About section's
+  // header verb — the hover-revealed SectionAction, named in full).
+  await owner.page.getByRole('button', { name: /^Edit README/ }).click()
   await owner.page.getByLabel('Project README').fill(README)
   await owner.page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(owner.page.getByText(README)).toBeVisible()
@@ -44,6 +45,7 @@ test('the owner writes the README; the visitor reads it on the same page, withou
   await visitor.page.getByText(PROJECT).first().click()
   await expect(visitor.page.getByText(README)).toBeVisible()
   await expect(visitor.page.getByLabel('Project README')).toHaveCount(0)
+  await expect(visitor.page.getByRole('button', { name: /^Edit README/ })).toHaveCount(0)
   const about = visitor.page.getByRole('main').getByText('About')
   await expect(about).toBeVisible()
 

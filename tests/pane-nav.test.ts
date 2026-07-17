@@ -7,7 +7,10 @@
  *       shape for shape — the two must never diverge,
  *    2. a same-section target lands as pane FOCUS (in-place, back stack),
  *    3. a cross-section target RETARGETS the pane (never the primary),
- *    4. a bare section jump (no entity) falls through to the root bridge,
+ *    4. a bare section jump (no entity) stays IN THE PANE too — the section
+ *       root (ADAPT-18: total in-pane routing, so every in-page door can
+ *       carry the pane's back history; the equal-pages model has no primary
+ *       to fall through to),
  *    5. the msection `seed` a retarget mints survives the JSON persistence
  *       round-trip. */
 import { test } from 'node:test'
@@ -51,9 +54,18 @@ test('a cross-section entity door RETARGETS the pane, seeded with the detail', (
   })
 })
 
-test('a bare section jump falls through to the root bridge (the pane cannot host it)', () => {
-  assert.deepEqual(paneNavTarget('projects', 'artifacts'), { kind: 'global' })
-  assert.deepEqual(paneNavTarget('projects', 'artifacts', 'a1'), { kind: 'global' }, 'an unmapped detail too')
+test('a bare section jump stays in the pane — the section root, never a fall-through', () => {
+  // Cross-section: retarget to the target's root (empty seed) — the host
+  // pushes the outgoing page onto the carried back stack (ADAPT-18).
+  assert.deepEqual(paneNavTarget('projects', 'artifacts'), { kind: 'retarget', section: 'artifacts', seed: {} })
+  assert.deepEqual(
+    paneNavTarget('projects', 'artifacts', 'a1'),
+    { kind: 'retarget', section: 'artifacts', seed: {} },
+    'an unmapped detail lands at the root too',
+  )
+  // Same-section: the empty focus — back to the pane's own root, through the
+  // local stack (back returns to the detail you left).
+  assert.deepEqual(paneNavTarget('projects', 'projects'), { kind: 'focus', focus: {} })
 })
 
 test('an msection seed survives the JSON persistence round-trip', () => {
