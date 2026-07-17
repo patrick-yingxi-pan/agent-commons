@@ -12,7 +12,7 @@ import { useMainSplit } from './controller/useMainSplit'
 import { hostsSession, paneLocationPath, setMainSplitScope } from './lib/mainSplit'
 import { SearchPanel } from './components/SearchPanel'
 import { NotificationsPanel } from './components/NotificationsPanel'
-import { keys, peek, useCapabilities, useMe, useSessions, useServerEvents } from './api'
+import { keys, onSessionRemoved, peek, useCapabilities, useMe, useSessions, useServerEvents } from './api'
 import { conversations, useConversation } from './controller/conversationStore'
 import { sameFocus } from './lib/focus'
 import { setPanelPref } from './lib/panelPrefs'
@@ -20,7 +20,7 @@ import { useSessionWorkspace } from './controller/useSessionWorkspace'
 import { useLayout } from './controller/useLayout'
 import { RelationsProvider } from './controller/useRelations'
 import { railWidthCss, useViewport } from './lib/viewport'
-import { FocusContext } from './lib/focusContext'
+import type { PendingFocus } from './lib/focusContext'
 import { SCRIM_CLASS } from './lib/scrim'
 import { SECTION_META } from './lib/sections'
 import { DRAFT_ID } from './data/liveSession'
@@ -28,6 +28,10 @@ import { draft } from './controller/draftController'
 import type { RoutedView } from './lib/urlRoutes'
 import type { PaneSeed } from './lib/paneNav'
 import type { SectionId, Session } from './types'
+
+/** The empty focus-context value panes OUTSIDE a notification door's landing
+ *  pane receive (one frozen object — stable identity, no per-render churn). */
+const NO_PENDING_FOCUS: PendingFocus = { pending: null, consume: () => {} }
 
 /** The shell: decides WHICH top-level surface renders — the full-screen auth
  *  flow (multi-account §12) or the workspace. The auth screen shows when the
@@ -163,16 +167,29 @@ function Workspace() {
 
   // An entity door (a notification bell, a palette hit, a relation card's
   // "View in …") lands in the FOCUSED pane, its detail page open (the pane
-  // seed) — like every navigation.
+  // seed) — like every navigation. The LANDING pane is recorded so a
+  // notification door's transient highlight (set right after the route)
+  // reaches exactly the pane it landed in — not a duplicate pane showing
+  // the same page (per-pane focus targets, docs/notification-routing.md).
+  const notifPaneRef = useRef<string>('')
   const routeDoor = useCallback(
-    (section: SectionId, seed: PaneSeed): void => routeToFocused({ kind: 'msection', id: section, seed }),
+    (section: SectionId, seed: PaneSeed): void => {
+      notifPaneRef.current = routeToFocused({ kind: 'msection', id: section, seed })
+    },
     [routeToFocused],
   )
   // A session door (palette hit, notifications row, boot address) and a
   // bare-section door land in the focused pane the same way.
-  const routeSession = useCallback((id: string): void => routeToFocused({ kind: 'msession', id }), [routeToFocused])
+  const routeSession = useCallback(
+    (id: string): void => {
+      routeToFocused({ kind: 'msession', id })
+    },
+    [routeToFocused],
+  )
   const routeSection = useCallback(
-    (section: SectionId, sub?: string | null): void => routeToFocused({ kind: 'msection', id: section, sub: sub ?? null }),
+    (section: SectionId, sub?: string | null): void => {
+      routeToFocused({ kind: 'msection', id: section, sub: sub ?? null })
+    },
     [routeToFocused],
   )
   // Boot fallback (ADAPT-1): neither a boot address nor the restored
@@ -240,6 +257,13 @@ function Workspace() {
     },
     [deleteSession, pruneMainPanes],
   )
+  // …and the CROSS-CLIENT half: another client's delete arrives as the
+  // definitive `session.removed` gone-signal — prune here too (this client's
+  // own delete echoes through the same seam; the prune is idempotent).
+  useEffect(
+    () => onSessionRemoved((id) => pruneMainPanes((c) => !hostsSession(c, id))),
+    [pruneMainPanes],
+  )
 
   // ── The rail's active highlight derives from the FOCUSED pane (the live
   // source — the pre-split singleton's activeId/activeSection froze at their
@@ -260,6 +284,20 @@ function Workspace() {
         ? focusedContent.at.sub
         : (focusedContent.sub ?? null)
       : null
+
+  // The narrow tier's slim header (NarrowBar) covers every focused surface
+  // that has no title bar of its own — null = a conversation is focused (its
+  // SessionTitleBar houses the rail toggle instead).
+  const narrowBarTitle: string | null =
+    focusedContent?.kind === 'msection'
+      ? SECTION_META[focusedContent.id].label
+      : focusedContent?.kind === 'context-panel'
+        ? (sessions.find((s) => s.id === focusedContent.sessionId)?.title ?? 'Context')
+        : focusedContent?.kind === 'mpicker'
+          ? 'Choose content'
+          : !focusedContent
+            ? '' // the BACKGROUND — the bar is the rail toggle's only home here
+            : null
 
   // Responsive layout ladder (FWD-3 / PD35): below a wide window the right panel
   // would crush the conversation column, so it overlays as a drawer (with a scrim)
@@ -353,6 +391,18 @@ function Workspace() {
   // the controller reads the leaf; no caller-supplied "what the primary
   // shows" since there is no primary).
   const splitView = splitFocused
+  // A notification door's transient focus target, handed to the SectionView
+  // subtree by context (docs/notification-routing.md) — PER PANE: only the
+  // pane the door LANDED in (notifPaneRef, recorded by routeDoor) sees the
+  // pending target, so a duplicate pane showing the same page can't steal
+  // (or double-fire) the highlight. Memoized so the value identity only
+  // changes when the target actually changes — not every App render.
+  const focusCtx = useMemo(() => ({ pending: pendingFocus, consume: consumeFocus }), [pendingFocus, consumeFocus])
+  const focusCtxFor = useCallback(
+    (path: string) => (pendingFocus && path === notifPaneRef.current ? focusCtx : NO_PENDING_FOCUS),
+    [pendingFocus, focusCtx],
+  )
+
   const mainPaneNav = useMemo<MainPaneNav>(
     () => ({
       // A session door: with a CONTEXT pane focused (the run switcher's row
@@ -385,6 +435,8 @@ function Workspace() {
       // A pane-hosted draft materialized: every draft pane follows the entry
       // to the real id (content match — a duplicated draft pane follows too).
       onDraftAdopted: (realId) => adoptDraftPanes(DRAFT_ID, realId),
+      // The per-pane notification-focus provider (see focusCtxFor above).
+      focusCtxFor,
       // LIVE PRUNE: a context pane reported its subject definitively
       // detached. A PINNED pane closes via the tree; the focus-driven pane
       // clears its DRIVER (closing the projection would just be
@@ -401,14 +453,9 @@ function Workspace() {
       // The narrow tier's in-flow rail toggle rides the conversation title bar.
       railToggle: railOverlay ? <RailOpenButton onClick={openLeft} /> : undefined,
     }),
-    [routeToFocused, newSession, openProposal, openProject, openSchedule, sessions, adoptDraftPanes, closeMainPane, railOverlay, openLeft],
+    [routeToFocused, newSession, openProposal, openProject, openSchedule, sessions, adoptDraftPanes, focusCtxFor, closeMainPane, railOverlay, openLeft],
   )
 
-
-  // A notification door's transient focus target, handed to the SectionView subtree
-  // by context (docs/notification-routing.md). Memoized so the value identity only
-  // changes when the target actually changes — not every App render.
-  const focusCtx = useMemo(() => ({ pending: pendingFocus, consume: consumeFocus }), [pendingFocus, consumeFocus])
 
   // The one bridge the relations store needs from the shell: the "View in …"
   // deep-link nav (an attach-context op attaches inside its own card —
@@ -543,12 +590,16 @@ function Workspace() {
             inert={railOverlay && leftOpen}
             className="flex min-w-0 flex-1 flex-col"
           >
-            {/* Narrow tier: a focused SECTION pane has no title bar of its own
-                — a slim header row HOUSES the rail toggle (in-flow, so content
-                scrolls under nothing). Conversations — the DRAFT included —
-                embed the toggle in their SessionTitleBar instead. */}
-            {railOverlay && focusedContent?.kind === 'msection' && (
-              <NarrowBar title={SECTION_META[focusedContent.id].label} onOpenRail={openLeft} />
+            {/* Narrow tier: every focused surface WITHOUT its own title bar
+                gets the slim header row HOUSING the rail toggle (in-flow, so
+                content scrolls under nothing) — a section page, a pinned
+                context pane (titled after its owning conversation), a legacy
+                picker, and the BACKGROUND (without it, "open from the
+                sidebar" was advice the narrow tier gave with no way to open
+                the sidebar). Conversations — the DRAFT included — embed the
+                toggle in their SessionTitleBar instead. */}
+            {railOverlay && narrowBarTitle !== null && (
+              <NarrowBar title={narrowBarTitle} onOpenRail={openLeft} />
             )}
             {/* The universal main split — panes are the ONLY render path
                 (Phase 6, the owner's equal-pages model): the wide tier tiles
@@ -562,21 +613,20 @@ function Workspace() {
                 inert={tier !== 'wide' && !!(focusedFocus || (focusedRunOf && runsPanelOpen))}
                 className="flex min-h-0 min-w-0 flex-1 flex-col"
               >
-                {/* ONE transient notification-door focus for every pane — a
-                    bell's highlight target reaches whichever pane the door
-                    landed in (consumed once, docs/notification-routing.md). */}
-                <FocusContext.Provider value={focusCtx}>
-                  <MainSplitGate
-                    tree={mainTree}
-                    overlay={tier !== 'wide'}
-                    focusedPane={focusedPane}
-                    nav={mainPaneNav}
-                    onFocusPane={focusMainPane}
-                    onFillPane={fillMainPane}
-                    onReportAt={reportPaneAt}
-                    onRatio={setMainRatio}
-                  />
-                </FocusContext.Provider>
+                {/* The notification-door focus target is provided PER PANE
+                    (PaneBody, via nav.focusCtxFor) — the highlight reaches
+                    exactly the pane the door landed in (consumed once,
+                    docs/notification-routing.md). */}
+                <MainSplitGate
+                  tree={mainTree}
+                  overlay={tier !== 'wide'}
+                  focusedPane={focusedPane}
+                  nav={mainPaneNav}
+                  onFocusPane={focusMainPane}
+                  onFillPane={fillMainPane}
+                  onReportAt={reportPaneAt}
+                  onRatio={setMainRatio}
+                />
               </section>
               {/* The focused conversation's context panel on the OVERLAY tiers
                   (medium drawer / narrow takeover, ADAPT-11) — keyed on the

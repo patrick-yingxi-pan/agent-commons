@@ -143,6 +143,16 @@ export interface SessionUpdatedEvent {
   type: 'session.updated'
   session: Session
 }
+/** A session was DELETED — the definitive gone-signal (a `session.updated`
+ *  can't say "removed": its receiver only refetches lists, and a run session
+ *  isn't in any list to vanish from). Carries the full removed row so the
+ *  fan-out's tenant gate resolves visibility exactly like `session.updated`
+ *  (the row is no longer resolvable by id). Receivers prune every pane
+ *  hosting it (live prune) and invalidate its caches. */
+export interface SessionRemovedEvent {
+  type: 'session.removed'
+  session: Session
+}
 /** A session's attached contexts changed — attached or detached (Primitive 1 of
  *  docs/shared-resource-coordination.md). Carries the full list so the cache can
  *  upsert without a refetch. */
@@ -303,6 +313,7 @@ export type ServerEvent =
   | ConnectorStatusEvent
   | SavedContextChangedEvent
   | SessionUpdatedEvent
+  | SessionRemovedEvent
   | SessionContextsChangedEvent
   | RunnerConnectedEvent
   | RunnerDisconnectedEvent

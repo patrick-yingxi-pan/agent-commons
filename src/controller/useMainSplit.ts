@@ -99,15 +99,17 @@ export function useMainSplit() {
   /** EVERY navigation lands in the focused pane: replace its content in
    *  place — or MINT the first pane when only the background shows. TOTAL:
    *  a stale focus path (a race with a concurrent tree edit) reconciles to
-   *  the first pane and lands there — a door never silently no-ops. */
+   *  the first pane and lands there — a door never silently no-ops. Returns
+   *  the LANDING pane's path (the notification doors scope their transient
+   *  highlight to exactly the pane they landed in). */
   const routeToFocused = useCallback(
-    (content: MainPaneContent): void => {
+    (content: MainPaneContent): string => {
       const t = treeRef.current
       if (!t) {
         commit(pane(content))
         focusedRef.current = ''
         setFocusedPane('')
-        return
+        return ''
       }
       let path = focusedRef.current
       if (nodeAt(t, path)?.kind !== 'pane') {
@@ -116,6 +118,7 @@ export function useMainSplit() {
         setFocusedPane(path)
       }
       commit(replacePane(t, path, content))
+      return path
     },
     [commit],
   )

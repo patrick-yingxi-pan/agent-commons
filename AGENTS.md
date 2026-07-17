@@ -491,12 +491,15 @@ the mock?
   `ConversationPane`, context mutations in `useSessionContextCommands`, the
   rail highlight derives from the FOCUSED pane, and the per-account view
   memory IS the persisted split tree (`viewMemory.ts` retired). LIVE PRUNE
-  landed (2026-07-17): deleting a session evicts every pane it hosts, and a
-  pinned context pane whose subject was detached self-collapses once its
-  entry is server-reconciled (the `reconciled` authority latch). Remaining
-  (design doc step 7 tail): per-pane notification highlight targets, the
-  narrow-tier rail toggle on panel-only surfaces, cross-client delete
-  pruning. The architecture, phase ledger, and the
+  landed (2026-07-17): deleting a session evicts every pane it hosts — on
+  every client (the `session.removed` wire event is the definitive
+  gone-signal) — and a pinned context pane whose subject was detached
+  self-collapses once its entry is server-reconciled (the `reconciled`
+  authority latch). The tail is closed (step 8): the NarrowBar houses the
+  narrow tier's rail toggle on every title-bar-less surface (background
+  included), and a notification bell's highlight is scoped to the pane the
+  door landed in. **Phases 1–8 complete — the punch list is empty.** The
+  architecture, phase ledger, and the
   generalized LESSONS (implicit defaults, the projection-latch pattern,
   lifecycle-flagged bridges, boots-twice testing, stale readers of a
   dissolved authority, total routing primitives) live in

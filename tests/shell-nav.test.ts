@@ -59,7 +59,8 @@ test("the rail's active highlight derives from the FOCUSED pane, not a singleton
   // …and the derivation covers all three pane kinds: a conversation, its
   // context pane (highlighting the OWNING session), and a section pane's
   // REPORTED live sub-view (`at`, falling back to the door's seed).
-  const block = app.slice(app.indexOf('const railActiveSessionId'), app.indexOf('// Responsive layout ladder'))
+  // Slice to the next CODE anchor (comments are stripped above).
+  const block = app.slice(app.indexOf('const railActiveSessionId'), app.indexOf('const narrowBarTitle'))
   assert.match(block, /'msession'/, 'a conversation pane highlights its session row')
   assert.match(block, /'context-panel'/, 'a context pane highlights its owning conversation')
   assert.match(block, /at\.sub/, "a section pane's highlight follows its reported location")
@@ -82,6 +83,33 @@ test('the shared attach funnel opens the panel; every remove funnel clears a dan
   const clears = cmds.split('clearDanglingFocus(sessionId, next)').length - 1
   assert.equal(clears, 3, 'removeContexts, removeFolder and removeAttachment all clear a dangling focus')
   assert.match(cmds, /focusValidIn\(next, focus\)/, 'the guard is the shared pure rule')
+})
+
+test('the notification-door focus target is PER PANE — only the landing pane sees it', () => {
+  const app = stripComments(read(join(ROOT, 'src', 'App.tsx')))
+  assert.match(app, /notifPaneRef\.current = routeToFocused\(/, "routeDoor records the door's landing pane")
+  assert.match(
+    app,
+    /pendingFocus && path === notifPaneRef\.current \? focusCtx : NO_PENDING_FOCUS/,
+    'focusCtxFor answers only for the landing pane',
+  )
+  assert.ok(!app.includes('<FocusContext.Provider'), 'no app-wide provider — the pane-scoped one replaced it')
+  const split = stripComments(read(join(ROOT, 'src', 'components', 'MainSplit.tsx')))
+  assert.match(
+    split,
+    /<FocusContext\.Provider value=\{nav\.focusCtxFor\(path\)\}>\{body\}<\/FocusContext\.Provider>/,
+    'PaneBody provides the pane-scoped focus context',
+  )
+})
+
+test("the narrow tier's rail toggle reaches EVERY focused surface (a title-bar-less pane included)", () => {
+  const app = stripComments(read(join(ROOT, 'src', 'App.tsx')))
+  // Slice to the next CODE anchor (comments are stripped above).
+  const block = app.slice(app.indexOf('const narrowBarTitle'), app.indexOf('const { tier } = useViewport()'))
+  assert.match(block, /'msection'/, 'section pages get the NarrowBar')
+  assert.match(block, /'context-panel'/, 'a pinned context pane gets it (titled after its conversation)')
+  assert.match(block, /'mpicker'/, 'a legacy picker gets it')
+  assert.match(block, /!focusedContent\s*\?\s*''/, 'the BACKGROUND gets it — its "open from the sidebar" advice needs a sidebar toggle')
 })
 
 test("a DRAFT pane's composer attach AND removes route through the draft funnel, not a server bind", () => {

@@ -50,6 +50,13 @@ test('eventVisibleToTenant gates the SSE fan-out — session/audit events are te
   assert.equal(store.eventVisibleToTenant(updated, 'tenant-evt'), true)
   assert.equal(store.eventVisibleToTenant(updated, 'tenant-other'), false)
 
+  // session.removed carries the REMOVED row (no longer resolvable by id) →
+  // gated exactly like session.updated: a delete is only observable where
+  // the session itself was.
+  const removed = { type: 'session.removed', session: owned } as const
+  assert.equal(store.eventVisibleToTenant(removed, 'tenant-evt'), true)
+  assert.equal(store.eventVisibleToTenant(removed, 'tenant-other'), false)
+
   // session.contexts.changed carries only the id → resolved via the session's tenant.
   const ctxChanged = { type: 'session.contexts.changed', sessionId: owned.id, contexts: [] } as const
   assert.equal(store.eventVisibleToTenant(ctxChanged, 'tenant-evt'), true)
@@ -85,5 +92,23 @@ test('sessionVisibleToTenant is the per-id read guard', () => {
     store.sessionVisibleToTenant({ id: 'srun-x', title: 'run', caps: [], preview: '' }, 'tenant-personal'),
     true,
     'an untenanted (run/seed) session belongs to the default tenant',
+  )
+})
+
+test('removeSession broadcasts the definitive session.removed gone-signal (live prune, cross-client)', () => {
+  const doomed = store.createSession('doomed thread', 'tenant-evt')
+  const seen: string[] = []
+  const off = store.subscribe((e) => {
+    if (e.type === 'session.removed' || e.type === 'session.updated') seen.push(`${e.type}:${e.session.id}`)
+  })
+  try {
+    assert.equal(store.removeSession(doomed.id), true)
+  } finally {
+    off()
+  }
+  assert.deepEqual(
+    seen.filter((s) => s.endsWith(doomed.id)),
+    [`session.removed:${doomed.id}`],
+    'a delete says REMOVED (definitive), not "updated" (a refetch hint a receiver cannot derive deletion from)',
   )
 })

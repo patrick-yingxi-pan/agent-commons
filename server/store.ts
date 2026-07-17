@@ -1664,6 +1664,11 @@ export const store = {
     switch (e.type) {
       case 'session.updated':
         return this.sessionVisibleToTenant(e.session, tenantId)
+      // The removed row rides the event (it's no longer resolvable by id) —
+      // gated exactly like session.updated, so a delete is only observable
+      // where the session itself was.
+      case 'session.removed':
+        return this.sessionVisibleToTenant(e.session, tenantId)
       case 'session.contexts.changed': {
         const s = SESSIONS.find((x) => x.id === e.sessionId)
         return s ? rowVisibleTo(s, tenantId) : seedVisibleTo(tenantId)
@@ -2635,7 +2640,12 @@ export const store = {
         }
       }
     }
-    emit({ type: 'session.updated', session: removed })
+    // The definitive gone-signal (not `session.updated`, which only says
+    // "refetch" — a receiver can't derive deletion from a refetched list,
+    // and a run session isn't in any list to vanish from). Every client
+    // prunes the removed session's panes live (the cross-client half of the
+    // live-prune rule).
+    emit({ type: 'session.removed', session: removed })
     persist()
     return true
   },

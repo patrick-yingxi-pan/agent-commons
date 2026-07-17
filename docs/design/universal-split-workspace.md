@@ -327,11 +327,32 @@ collapses); prune at render, never in storage.
         `tests/main-split.test.ts` (prune unit), the reconciled-latch lock
         in `tests/conversation-store.test.ts`, and verified live (pin a
         duplicate of a repo panel, remove the repo → both context panes
-        collapse, no re-projection loop). Still open: per-pane notification
-        highlight targets, the narrow-tier rail toggle on panel-only
-        surfaces, cross-client delete pruning (another client's delete
-        surfaces as a 404 ghost until reopened — needs a definitive
-        gone-signal on the wire).
+        collapse, no re-projection loop).
+   8. ✅ **The tail — LANDED 2026-07-17.** The three remaining items, closing
+      the phase:
+      • **Cross-client delete prune** — a new `session.removed` wire event
+        (the definitive gone-signal; `session.updated` can only say
+        "refetch", and a run session isn't in any list to vanish from):
+        `store.removeSession` emits it (gated exactly like session.updated —
+        a delete is only observable where the session was), the client
+        routes it (invalidate + a new `onSessionRemoved` seam mirroring
+        `onSessionPush`), and App prunes every hosting pane. This client's
+        own delete echoes through the same seam (idempotent). Locked by the
+        emit + tenancy locks in `tests/session-tenancy.test.ts`; verified
+        live (raw-API DELETE → the SSE round-trip collapsed the pane).
+      • **The narrow-tier rail toggle on panel-only surfaces** — NarrowBar
+        now covers every focused surface without its own title bar: section
+        pages (as before), a pinned context pane (titled after its owning
+        conversation), a legacy picker, and the BACKGROUND (whose "open from
+        the sidebar" advice previously had no way to open the sidebar).
+      • **Per-pane notification highlight targets** — `routeToFocused`
+        reports its LANDING path; `routeDoor` records it; `focusCtxFor`
+        (App) answers the pending target only for that pane, and `PaneBody`
+        provides the pane-scoped `FocusContext` — so a duplicate pane
+        showing the same page can no longer steal or double-fire a bell's
+        flash. Locked by `tests/shell-nav.test.ts`.
+      Phases 1–8 complete: nothing remains open on the universal-split
+      punch list.
 
 ## 4. Decisions locked by the owner (2026-07-15)
 

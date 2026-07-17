@@ -45,6 +45,7 @@ import { conversations } from '../controller/conversationStore'
 import { usePaneConversation } from '../controller/usePaneConversation'
 import { useSessionContextCommands } from '../controller/useSessionContextCommands'
 import { SectionNavOverride, useRelations } from '../controller/useRelations'
+import { FocusContext, type PendingFocus } from '../lib/focusContext'
 import { paneNavTarget, type PaneSeed } from '../lib/paneNav'
 import {
   DRAFT_ID,
@@ -81,6 +82,11 @@ export interface MainPaneNav {
    *  it (ADAPT-11: content must never slide under a floating control);
    *  undefined on the other tiers. */
   railToggle?: ReactNode
+  /** The notification-door focus target, PER PANE: PaneBody provides
+   *  `focusCtxFor(path)` to its subtree — only the pane the door LANDED in
+   *  sees a pending target, so a duplicate pane showing the same page can't
+   *  steal or double-fire the highlight (docs/notification-routing.md). */
+  focusCtxFor?: (path: string) => PendingFocus
   /** LIVE PRUNE: a pane reports its SUBJECT is definitively gone (a context
    *  pane whose context was detached, once its session's entry is
    *  server-reconciled). The host closes a PINNED pane via the tree; a
@@ -214,7 +220,7 @@ function PaneBody({
   onFillPane: (path: string, content: MainPaneContent) => void
   onReportAt: (path: string, at: PaneAt) => void
 }) {
-  return c.kind === 'msection' ? (
+  const body = c.kind === 'msection' ? (
     <SectionPane
       // Keyed on the full seed + the leaf revision so ANY re-route (a rail
       // facet, a cross-section retarget, a same-section re-click) resets the
@@ -242,6 +248,14 @@ function PaneBody({
     />
   ) : (
     <MainPicker onPick={(content) => onFillPane(path, content)} />
+  )
+  // The notification-door focus target, scoped to THIS pane (nav.focusCtxFor
+  // answers non-null only for the pane the door landed in) — without a host
+  // bridge the default empty context stands.
+  return nav.focusCtxFor ? (
+    <FocusContext.Provider value={nav.focusCtxFor(path)}>{body}</FocusContext.Provider>
+  ) : (
+    body
   )
 }
 

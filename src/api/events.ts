@@ -39,6 +39,22 @@ function notifySessionPush(sessionId: string): void {
   for (const fn of sessionPushListeners) fn(sessionId)
 }
 
+/** The definitive GONE-signal fan-out (`session.removed`) — the live-prune
+ *  seam: the split controller drops every pane hosting the removed session
+ *  (a `session.updated` push can only say "refetch", never "deleted"). Same
+ *  narrow, event-shape-free shape as onSessionPush. */
+type SessionRemovedListener = (sessionId: string) => void
+const sessionRemovedListeners = new Set<SessionRemovedListener>()
+export function onSessionRemoved(fn: SessionRemovedListener): () => void {
+  sessionRemovedListeners.add(fn)
+  return () => {
+    sessionRemovedListeners.delete(fn)
+  }
+}
+function notifySessionRemoved(sessionId: string): void {
+  for (const fn of sessionRemovedListeners) fn(sessionId)
+}
+
 /** The single place an ambient event becomes a cache mutation. */
 function route(e: ServerEvent): void {
   switch (e.type) {
@@ -66,6 +82,14 @@ function route(e: ServerEvent): void {
     case 'session.contexts.changed':
       invalidate(keys.sessionContexts(e.sessionId))
       notifySessionPush(e.sessionId)
+      break
+    // A session was DELETED (this client's own action echoes too — the prune
+    // is idempotent): refresh the lists, drop the by-id caches, and tell the
+    // split controller so every pane hosting it collapses (live prune).
+    case 'session.removed':
+      invalidate(keys.sessions)
+      invalidate(keys.session(e.session.id))
+      notifySessionRemoved(e.session.id)
       break
     // A scheduled run fired / advanced a step / finished (run-now or the daemon) —
     // the schedules (their run lists) are now stale. This is the ambient-push that
