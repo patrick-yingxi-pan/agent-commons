@@ -234,6 +234,13 @@ the mock?
   spec reference rots; the named locking tests are what prove the behavior.
 - **Run `npm run typecheck` and `node --test` before declaring a change done.**
   Verify UI changes in the running app, not just by reading code.
+- **Review the diff before every commit, then commit and push.** The standing
+  flow for every change (owner directive, 2026-07-17): implement → tests green →
+  run a code-review pass over the working diff (adversarial review for
+  substantial changes, an inline pass for small ones) → fix confirmed findings →
+  commit → push. Landed work is never left uncommitted, and no commit lands
+  unreviewed — the Phase 6 dissolve review caught eleven real bugs the full test
+  suite had missed, so the gate is default, not opt-in.
 - **Git:** this repo commits and pushes straight to `main` over HTTPS.
 
 ### Design decisions (locked in)

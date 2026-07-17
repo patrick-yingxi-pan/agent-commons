@@ -16,6 +16,9 @@ Essentials:
   behavior against regression (see `AGENTS.md` conventions).
 - **Verify:** `npm run typecheck`, `node --test` (and `npm run build`) before
   declaring a change done; verify UI changes in the running app.
+- **Review, then land:** every change ends with a code-review pass over the
+  diff (fix confirmed findings), then commit + push — no unreviewed commits,
+  no uncommitted finished work (see `AGENTS.md` conventions).
 - **The contract is load-bearing:** `contract/*.ts` is imported verbatim by both
   the UI and the server — don't break that type-identity.
 - **Mock by design:** no real model; seed data in `server/data/`. Don't file
