@@ -24,6 +24,7 @@ import type { Live } from '../data/liveSession'
 // Extension-qualified: this module is node-tested (tests/main-split.test.ts),
 // and Node's native TS resolves runtime imports only with the explicit .ts.
 import { closePane, panes, replacePane, splitPane, type PaneContent, type SplitNode } from './splitFrame.ts'
+import { pathForView } from './urlRoutes.ts'
 
 export type MainPaneContent =
   // `sub` seeds the pane's local sub-view (a rail facet click routing into a
@@ -58,6 +59,37 @@ export type MainPaneContent =
 export type PaneAt = { sub: string | null } & PaneSeed
 
 export type MainSplitNode = SplitNode<MainPaneContent>
+
+/** A pane's canonical URL path (ADAPT-15) — the ONE content→address rule: the
+ *  focused-pane URL projection reads it, and the boot dedup matches the boot
+ *  address against every restored pane with it (an address already on screen
+ *  FOCUSES its pane instead of clobbering another). A conversation or section
+ *  pane has its own path; a CONTEXT pane addresses as its OWNING conversation
+ *  (a panel is not a page); a picker / unknown content has none (null). */
+export function paneLocationPath(c: MainPaneContent): string | null {
+  if (c.kind === 'msession') return pathForView({ kind: 'session', sessionId: c.id, title: '' }, null)
+  if (c.kind === 'context-panel') return pathForView({ kind: 'session', sessionId: c.sessionId, title: '' }, null)
+  if (c.kind === 'msection') {
+    // The pane's REPORTED live location (`at`) wins — its deep page
+    // (/projects/:id, /u/:name…) round-trips; the door seed covers the
+    // pre-report frame.
+    const loc = c.at ?? { sub: c.sub ?? null, ...(c.seed ?? {}) }
+    return pathForView(
+      {
+        kind: 'section',
+        section: c.id,
+        projectId: loc.projectId ?? null,
+        scheduleId: loc.scheduleId ?? null,
+        ownerName: loc.ownerName ?? null,
+        workItemId: loc.workItemId ?? null,
+        agentId: loc.agentId ?? null,
+        contextId: loc.contextId ?? null,
+      },
+      loc.sub ?? null,
+    )
+  }
+  return null
+}
 
 /** The main tree's prune predicate: conversation / section panes are always
  *  kept (their content is a live registry read); a `context-panel` pane

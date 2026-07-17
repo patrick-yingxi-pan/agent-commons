@@ -256,10 +256,60 @@ collapses); prune at render, never in storage.
       `/u/:name`…), popstate/boot seed it back, persistence restores the pane
       to the same spot on reload (locked by a boots-twice e2e, per the
       lesson). Initial state = `at ?? seed`; `at` is NOT in the pane's key.
-      Still open: per-pane notification highlight targets, the dead
-      singleton-surface pruning in App/useSessionWorkspace, the narrow-tier
-      rail toggle on panel-only surfaces, live prune. Docs/spec reconciled
-      2026-07-16 (ADAPT-15/17 restated to the equal-panes model).
+      Docs/spec reconciled 2026-07-16 (ADAPT-15/17 restated to the
+      equal-panes model).
+   6. ✅ **The singleton PRUNED — LANDED 2026-07-17.** `useSessionWorkspace`
+      rewritten as the slim SHELL controller (boot address, URL projection,
+      popstate, account-switch store reset, notification `pendingFocus`, the
+      entity doors, session row mutations) — every conversation-owned member
+      deleted (~1,000 lines): send/stop/retry/compact, the model pick, the
+      escalation funnels, the context add/removes, panel focus, the in-app
+      history stack, `extraSessions`, the auto-scroll ref. `routeToFocused`
+      made TOTAL (a stale focus path lands in the first pane — doors never
+      silently no-op), so every `if (!route(...)) fallback` collapsed. The
+      per-account VIEW MEMORY blob (`viewMemory.ts`) retired: the persisted
+      split tree IS the view memory (the account-switch e2e passes unchanged
+      on the tree alone). Pruning exposed — and fixed — five stale readers
+      of the dissolved authority (see Lessons): the rail's active highlight
+      (froze at boot; now derived from the FOCUSED pane, aria-current
+      stamped), the relation card's attach-context (attached to "the active
+      session" = the stale draft; now session-scoped through
+      `useSessionContextCommands(sessionId)`), attach-opens-panel +
+      remove-clears-dangling-focus (re-homed INTO the shared funnel,
+      `focusForAdded`/`focusValidIn`), the C28 push-reconcile resurface
+      (added to `usePaneConversation`'s push site), and a DRAFT pane's
+      composer attach (bound a nonexistent server row; now routes
+      `draft.addSeed`). Locked by `tests/shell-nav.test.ts` (the no-grow-back
+      ratchet + the five re-homes), `tests/focusForAdded.test.ts`
+      (`focusValidIn`), and the rail-highlight e2e in
+      `e2e/main-split.spec.ts`. The adversarial review pass (2 agents over
+      the prune diff) surfaced six more, all fixed: **the boot dedup** (the
+      HIGH one — the boot address is the FOCUSED pane's projection but the
+      transient focus cursor boots at the first pane, so a reload of a
+      multi-pane tree routed pane B's address INTO pane A and destroyed the
+      layout; `applyBootRoute` now FOCUSES a restored pane already showing
+      the address — locked by a fail-verified reload e2e), the **boot-target
+      URL latch** (the URL effect ran in the same commit as the boot route
+      with the restored tree's stale focusedPath and pushed it OVER the boot
+      address — pushes hold until the projection catches the canonical
+      target), **popstate session validation restored** (history can hold
+      another account's or a deleted thread's address; a dead link stays a
+      dead click instead of persisting a blank pseudo-conversation into the
+      tree), the **StrictMode double-mount guard** (`bootValidation` — the
+      second effect run follows the in-flight session validation instead of
+      consuming a now-null boot view and minting a draft over it), the
+      **account-leak gates** (a late async boot callback could route — and
+      persist — into the NEXT account's tree scope; every arm gates on
+      `leftAccount`), and the **draft funnel semantics** (the composer
+      attach re-home had picked `addSeed`, whose launcher reset WIPED an
+      in-progress draft thread — `draft.attach` always stacks; draft chip /
+      folder removes route through new `draft.removeContexts`/`removeFolder`
+      that purge the FWD-1 buffer, so a removed seed can't re-attach at
+      materialization, instead of 404ing the real-session funnel). Still
+      open: per-pane notification highlight targets, the narrow-tier rail
+      toggle on panel-only surfaces, live prune (any pane hosting a deleted
+      session collapses at render; today only the FOCUSED pane evicts, on
+      delete).
 
 ## 4. Decisions locked by the owner (2026-07-15)
 
@@ -310,6 +360,29 @@ Phase 6 (the dissolve) added four:
   so "the deep link dies when a tree is already persisted" could never fail in
   CI — it shipped and only adversarial review caught it. Lock at least one
   boots-twice flow per persisted-state feature.
+
+Step 6 (the prune) added two more:
+
+- **Dissolving an authority leaves STALE READERS — enumerate every consumer of
+  the old state, not just its writers.** The dissolve rerouted every WRITE
+  (doors → panes) but left five READERS quietly consuming the now-frozen
+  singleton state: the rail highlight (`activeId`/`activeSection` never moved
+  again → no row ever highlighted), the view-memory save (recorded the boot
+  draft forever), the relations attach bridge (attached to "the active
+  session" = the draft), and two funnel side effects that lived in the
+  singleton's composition rather than the shared command (attach-opens-panel,
+  remove-clears-focus) plus one reconcile site (C28 push resurface) that the
+  pane copy had silently dropped. Generalized: when a source of truth is
+  dissolved, grep for every READ of it and re-derive each from the new source
+  — and when a shared funnel replaces a privileged composition, diff the two
+  member-by-member; anything the old composition did AROUND the shared core
+  (side effects, guards, resurfacing) must move INTO the funnel or it is
+  simply gone. The dead code was never the risk; the half-alive code was.
+- **Make a routing primitive TOTAL instead of guarding every caller.** While
+  `routeToFocused` could return false, every door needed an `if (!route())
+  fallback` — and the fallbacks were the dead singleton. Reconciling the
+  stale-path edge INSIDE the primitive (land in the first pane) deleted the
+  whole caller-side guard genus at once.
 
 ### From Phases 1–4
 

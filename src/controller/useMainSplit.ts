@@ -97,22 +97,25 @@ export function useMainSplit() {
   )
 
   /** EVERY navigation lands in the focused pane: replace its content in
-   *  place — or MINT the first pane when only the background shows. Returns
-   *  true always (kept boolean for its callers' try-first shape). */
+   *  place — or MINT the first pane when only the background shows. TOTAL:
+   *  a stale focus path (a race with a concurrent tree edit) reconciles to
+   *  the first pane and lands there — a door never silently no-ops. */
   const routeToFocused = useCallback(
-    (content: MainPaneContent): boolean => {
+    (content: MainPaneContent): void => {
       const t = treeRef.current
       if (!t) {
         commit(pane(content))
         focusedRef.current = ''
         setFocusedPane('')
-        return true
+        return
       }
-      const path = focusedRef.current
-      const node = nodeAt(t, path)
-      if (!node || node.kind !== 'pane') return false
+      let path = focusedRef.current
+      if (nodeAt(t, path)?.kind !== 'pane') {
+        path = firstPanePath(t)
+        focusedRef.current = path
+        setFocusedPane(path)
+      }
       commit(replacePane(t, path, content))
-      return true
     },
     [commit],
   )

@@ -417,3 +417,59 @@ test('the right panel folds into the tree: a repo session tiles its context PANE
   await expect(page.getByText('token refresh logic').first()).toBeVisible()
   expect(new URL(page.url()).pathname).toBe('/s/auth-refactor')
 })
+
+test("the rail's active highlight tracks the FOCUSED pane (UI-12 — no singleton mirror)", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 })
+  await page.goto('/s/auth-refactor')
+  await expect(page.getByText('token refresh logic').first()).toBeVisible()
+  await clearAutoPanel(page)
+
+  // The open conversation's Recents row is marked current (aria-current rides
+  // the shared active cue — the singleton's frozen activeId once left the rail
+  // highlighting nothing after the first pane-routed navigation).
+  const rail = page.getByRole('complementary')
+  const sessionRow = rail.getByRole('button', { name: 'Refactor auth middleware', exact: true })
+  await expect(sessionRow).toHaveAttribute('aria-current', 'page')
+
+  // Split; retarget the focused duplicate at Projects — the SECTION row takes
+  // the highlight and the conversation row drops it (the focused pane is now a
+  // section page).
+  await page.locator('[data-split-view="row"]').click()
+  await page.locator('nav[aria-label="Sections"]').getByText('Projects', { exact: true }).click()
+  const sectionRow = rail.locator('nav[aria-label="Sections"]').getByRole('button', { name: 'Projects', exact: true })
+  await expect(sectionRow).toHaveAttribute('aria-current', 'page')
+  await expect(sessionRow).not.toHaveAttribute('aria-current', 'page')
+
+  // A focus hop IS a navigation for the rail too: focusing the conversation
+  // pane moves the highlight back to its session row.
+  await page.locator('[data-main-pane="a"]').dispatchEvent('pointerdown')
+  await expect(sessionRow).toHaveAttribute('aria-current', 'page')
+  await expect(sectionRow).not.toHaveAttribute('aria-current', 'page')
+})
+
+test('reload of a MULTI-pane layout keeps every pane: the boot address FOCUSES the pane already showing it (boot dedup)', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 })
+  await page.goto('/s/auth-refactor')
+  await expect(page.getByText('token refresh logic').first()).toBeVisible()
+  await clearAutoPanel(page)
+
+  // Split; retarget the duplicate at Projects; focus stays on pane B, so the
+  // ADDRESS names the SECOND pane — the reload crux: the focus cursor is not
+  // persisted (boots at the first pane), so a blind boot route would clobber
+  // pane A with a copy of pane B's content and destroy the layout.
+  await page.locator('[data-split-view="row"]').click()
+  await page.locator('nav[aria-label="Sections"]').getByText('Projects', { exact: true }).click()
+  const paneB = page.locator('[data-main-pane="b"]')
+  await expect(paneB.getByText('Platform hardening').first()).toBeVisible()
+  await expect(page).toHaveURL(/\/projects$/)
+
+  await page.reload()
+
+  // Both panes survive — the conversation intact in pane A, Projects in pane
+  // B — and the boot address re-FOCUSED the pane that projected it.
+  await expect(page.locator('[data-main-pane]')).toHaveCount(2)
+  await expect(page.locator('[data-main-pane="a"]').getByText('token refresh logic').first()).toBeVisible()
+  await expect(paneB.getByText('Platform hardening').first()).toBeVisible()
+  await expect(paneB).toHaveAttribute('data-focused', 'true')
+  await expect(page).toHaveURL(/\/projects$/)
+})

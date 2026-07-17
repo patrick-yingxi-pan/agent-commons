@@ -861,7 +861,11 @@ function SectionTreeRow({
       ) : (
         <span className="w-5 shrink-0" aria-hidden />
       )}
-      <button onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-2.5 py-1.5 text-left">
+      <button
+        onClick={onOpen}
+        aria-current={active ? 'page' : undefined}
+        className="flex min-w-0 flex-1 items-center gap-2.5 py-1.5 text-left"
+      >
         <span className="shrink-0">{icon}</span>
         <span className="min-w-0 flex-1 truncate">{label}</span>
         {beta && (
@@ -954,6 +958,7 @@ function SessionRow({
         <button
           onClick={onSelect}
           title={session.preview}
+          aria-current={active ? 'page' : undefined}
           className="min-w-0 flex-1 truncate text-left text-[13px] text-ink"
         >
           {session.title}

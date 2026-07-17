@@ -33,8 +33,10 @@ test('a work item reveals its note and a lifecycle timestamp (S3)', async ({ pag
   expect(posted.ok()).toBeTruthy()
 
   // Re-open the project page so the Open-work list fetches the API-posted item.
+  // (Rail-scoped: the reload restores the detail page in place — boot dedup —
+  // whose "Back to Projects" button also carries the accessible name.)
   await page.reload()
-  await page.getByRole('button', { name: 'Projects', exact: true }).click()
+  await page.locator('nav[aria-label="Sections"]').getByRole('button', { name: 'Projects', exact: true }).click()
   await page.getByText(NAME).first().click()
 
   // The row reveals the note (S3) …
@@ -90,7 +92,7 @@ test('a standing resolution renders the attribution chain: agent + owner door (F
   expect(posted.status).toBe('done')
 
   await page.reload()
-  await page.getByRole('button', { name: 'Projects', exact: true }).click()
+  await page.locator('nav[aria-label="Sections"]').getByRole('button', { name: 'Projects', exact: true }).click()
   await page.getByText(NAME).first().click()
 
   // WHO — the agent's badge-and-label (text)…

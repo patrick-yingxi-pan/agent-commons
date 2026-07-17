@@ -117,11 +117,13 @@ test('the instructions resolver is overlay-or-seed — a consent preview diffs a
 })
 
 test('an approved escalation on a real session persists BOTH facets, like a manual attach (C27)', () => {
-  const controller = stripComments(read(join(ROOT, 'src', 'controller', 'useSessionWorkspace.ts')))
-  const block = controller.slice(controller.indexOf('const applyEscalation'), controller.indexOf('const approveEscalation'))
-  assert.match(block, /esc\.kind !== 'project'/, 'project escalations take the relation-op path instead')
-  assert.match(block, /void attachContext\(id, binding\)/, 'the binding-of-record is written')
-  assert.match(block, /void persistWorkspace\(id, workspaceOf\(next\)\)/, 'the panels write through')
+  // Every conversation approves through ConversationPane's `approve` now
+  // (Phase 6 — the singleton controller's applyEscalation funnel is retired).
+  const pane = stripComments(read(join(ROOT, 'src', 'components', 'MainSplit.tsx')))
+  const block = pane.slice(pane.indexOf('const approve = useCallback'), pane.indexOf('const retry ='))
+  assert.match(block, /esc\.kind === 'project'/, 'project escalations take the relation-op path instead')
+  assert.match(block, /void attachContext\(sessionId, binding\)/, 'the binding-of-record is written')
+  assert.match(block, /void persistWorkspace\(sessionId, workspaceOf\(next\)\)/, 'the panels write through')
 })
 
 // ── C28 — a persisted escalation proposal must survive a reload ──────────────
@@ -193,9 +195,12 @@ test('unresolvedEscalation: workspace/repo proposals read applied-ness off the s
 })
 
 test('the controller resurfaces the held proposal at BOTH reconcile sites — the record is the authority (C28)', () => {
-  const controller = stripComments(read(join(ROOT, 'src', 'controller', 'useSessionWorkspace.ts')))
+  // Every pane runs the open recipe through usePaneConversation now (Phase 6):
+  // BOTH its reconcile sites — the mount-time read and the session-push
+  // re-read — must derive the still-pending proposal from the record.
+  const controller = stripComments(read(join(ROOT, 'src', 'controller', 'usePaneConversation.ts')))
   const sites = controller.split('unresolvedEscalation(s, ').length - 1
-  assert.equal(sites, 2, 'the select-time reconcile AND the session-push reconcile both derive the held proposal')
+  assert.equal(sites, 2, 'the mount-time reconcile AND the session-push reconcile both derive the held proposal')
   // Resurfacing never stomps a live-stream pending proposal: holdEscalation is
   // the store's keep-the-first-prompt door (universal split Phase 1 moved the
   // held escalation into the per-session conversation store).
@@ -227,10 +232,10 @@ test('the consent card reads + writes the persisted verdict (C29)', () => {
 })
 
 test('approving a project escalation stays in the thread; the confirmed card carries the jump link (C29)', () => {
-  const controller = stripComments(read(join(ROOT, 'src', 'controller', 'useSessionWorkspace.ts')))
-  const block = controller.slice(controller.indexOf('const approveEscalation'), controller.indexOf('const handleSend'))
-  assert.doesNotMatch(block, /setActiveSection/, 'approval no longer navigates away from the conversation')
-  assert.doesNotMatch(block, /setFocusProjectId/, 'no project-page focus is forced on approval')
+  const pane = stripComments(read(join(ROOT, 'src', 'components', 'MainSplit.tsx')))
+  const block = pane.slice(pane.indexOf('const approve = useCallback'), pane.indexOf('const retry ='))
+  assert.ok(block.includes("kind: 'create-project'"), 'the approve funnel is the one under test')
+  assert.doesNotMatch(block, /onRetarget|nav\.onOpen|navigate\(/, 'approval never navigates away from the conversation')
   const msg = stripComments(read(join(ROOT, 'src', 'components', 'Message.tsx')))
   assert.match(msg, /function EscalationOutcome/, 'the applied face of the proposal renders on its message')
   assert.match(msg, /isCreatedProject\(escalation\.project\.id\)/, 'applied-ness derives from the record (remount-proof)')

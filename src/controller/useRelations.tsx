@@ -1,7 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react'
 import type {
   ArtifactItem,
-  Connector,
   Project,
   ProjectContext,
   RelationGraph,
@@ -94,12 +93,9 @@ const RelationsContext = createContext<RelationsValue | null>(null)
 export const SectionNavOverride = createContext<RelationsValue['navigate'] | null>(null)
 
 export function RelationsProvider({
-  attachConnector,
   navigate,
   children,
 }: {
-  /** Attaches a connector to the live session (wired to the session controller). */
-  attachConnector?: (c: Connector) => void
   /** Opens a cross-cutting section, optionally a specific entity (and sub-entity). */
   navigate?: (section: SectionId, id?: string, subId?: string) => void
   children: ReactNode
@@ -112,15 +108,16 @@ export function RelationsProvider({
 
   const applyOp = useCallback(
     (op: RelationOp) => {
-      if (op.kind === 'attach-context') {
-        attachConnector?.({ id: op.connectorId, label: op.connectorLabel, kind: op.connectorKind })
-        return
-      }
+      // attach-context is a SESSION mutation, not a graph op: the consent card
+      // attaches it to its OWN session (useSessionContextCommands — the
+      // equal-panes model has no "active session" for a root bridge to guess).
+      // Reaching here without one is a wiring error; never POST it as a graph op.
+      if (op.kind === 'attach-context') return
       // Optimistic + canonical; a failed POST leaves the optimistic patch, which
       // the next /relations fetch (or a server event) reconciles.
       void applyRelationOp(op)
     },
-    [attachConnector],
+    [],
   )
 
   const value = useMemo<RelationsValue>(() => {

@@ -21,6 +21,8 @@ import {
 } from 'lucide-react'
 import { describeOp, opKey, relationContentPreview, type RelationContentPreview, type RelationOp } from '../data/relations'
 import { useRelations } from '../controller/useRelations'
+import { useSessionContextCommands } from '../controller/useSessionContextCommands'
+import { DRAFT_ID } from '../data/liveSession'
 import { resolveMessageRelation } from '../api'
 import { SECTION_LABELS } from '../lib/nav'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
@@ -74,6 +76,12 @@ export function RelationActionCard({
 }) {
   const { applyOp, navigate, isStandingApproved, appliedInGraph, readmeForProject, instructionsForProject } =
     useRelations()
+  // An attach-context op attaches to THIS card's session (the message it rode
+  // in on names it) through the session-parametric funnel — the pre-split root
+  // bridge attached to "the active session", an authority the equal-panes model
+  // dissolved (universal split Phase 6). A card always rides a real message,
+  // so sessionId is present in practice; DRAFT_ID only anchors the hook call.
+  const { addContext } = useSessionContextCommands(sessionId ?? DRAFT_ID)
   const [done, setDone] = useState<Set<string>>(new Set())
   const [skipped, setSkipped] = useState<Set<string>>(new Set())
 
@@ -81,7 +89,11 @@ export function RelationActionCard({
     if (sessionId && messageId) void resolveMessageRelation(sessionId, messageId, key, verdict).catch(() => {})
   }
   const confirm = (op: RelationOp) => {
-    applyOp(op)
+    if (op.kind === 'attach-context' && sessionId) {
+      addContext({ kind: op.connectorKind === 'mcp' ? 'mcp' : 'connector', connector: { id: op.connectorId, label: op.connectorLabel, kind: op.connectorKind } })
+    } else {
+      applyOp(op)
+    }
     setDone((prev) => new Set(prev).add(opKey(op)))
     persistVerdict(opKey(op), 'confirmed')
   }

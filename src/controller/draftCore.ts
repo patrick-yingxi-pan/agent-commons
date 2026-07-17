@@ -26,7 +26,20 @@ import type { AddedContext, PanelFocus } from '../types'
 import type { ModelPick } from '../lib/models'
 // Extension-qualified: this module is node-tested (tests/draft-core.test.ts),
 // and Node's native TS resolves runtime imports only with the explicit .ts.
-import { addContextToLive, bindingsFor, focusForAdded, workspaceOf, DRAFT_ID, EMPTY_LIVE, type Live } from '../data/liveSession.ts'
+import {
+  addContextToLive,
+  bindingsFor,
+  focusForAdded,
+  focusValidIn,
+  removeContextsFromLive,
+  removeFolderFromLive,
+  repoIdForLabel,
+  slug,
+  workspaceOf,
+  DRAFT_ID,
+  EMPTY_LIVE,
+  type Live,
+} from '../data/liveSession.ts'
 
 /** What the draft funnel needs from the outside world — the api commands in
  *  the app, a fake in tests. */
@@ -85,16 +98,73 @@ export function createDraftController(deps: DraftDeps) {
     pendingContexts = []
   }
 
+  /** A COMPOSER attach on the draft: always STACKS — optimistic live + panel
+   *  open + the FWD-1 buffer — and NEVER resets the entry. Resetting is a
+   *  launcher semantic (addSeed / New session); reaching a reset from the
+   *  composer would wipe an in-progress draft thread (e.g. the degraded send
+   *  that streams against the draft when the server is unreachable). */
+  const attach = (ctx: AddedContext): void => {
+    const next = addContextToLive(deps.store.get(DRAFT_ID).live, ctx)
+    deps.store.setLive(DRAFT_ID, next)
+    deps.store.setFocus(DRAFT_ID, focusForAdded(ctx, next))
+    pendingContexts.push(ctx)
+  }
+
+  /** Drop a buffered seed that no longer contributes to the draft's live —
+   *  the FWD-1 buffer mirrors every remove, or a removed chip's seed would
+   *  silently RE-ATTACH to the materialized session on first send. */
+  const purgeBuffer = (keep: (ctx: AddedContext) => AddedContext | null): void => {
+    pendingContexts = pendingContexts.map(keep).filter((c): c is AddedContext => c !== null)
+  }
+
+  /** Clear the draft's panel if it pointed at what a remove just dropped. */
+  const reconcileFocus = (next: Live): void => {
+    const focus = deps.store.get(DRAFT_ID).focus
+    if (focus && !focusValidIn(next, focus)) deps.store.setFocus(DRAFT_ID, null)
+  }
+
+  /** Remove attached contexts from the draft (the composer's chip remove) —
+   *  optimistic live + buffer purge + dangling-panel clear; no server writes
+   *  (a draft has no row — the real-session funnel's detach/persist would
+   *  just 404). */
+  const removeContexts = (focuses: PanelFocus[]): void => {
+    const ids = (kind: PanelFocus['kind']) => new Set(focuses.filter((f) => f.kind === kind).map((f) => f.id))
+    const wsIds = ids('workspace')
+    const repoIds = ids('repo')
+    const connIds = ids('connector')
+    const attIds = new Set([...ids('file'), ...ids('photo')])
+    const next = removeContextsFromLive(deps.store.get(DRAFT_ID).live, focuses)
+    deps.store.setLive(DRAFT_ID, next)
+    purgeBuffer((ctx) => {
+      if (ctx.kind === 'folder') return wsIds.size ? null : ctx // the one shared workspace dropped ⇒ every folder seed goes
+      if (ctx.kind === 'repo') return repoIds.has(repoIdForLabel(ctx.label)) ? null : ctx
+      if (ctx.kind === 'connector' || ctx.kind === 'mcp') return connIds.has(ctx.connector.id) ? null : ctx
+      if (ctx.kind === 'files' || ctx.kind === 'photos') {
+        const left = ctx.attachments.filter((a) => !attIds.has(a.id))
+        return left.length ? { ...ctx, attachments: left } : null
+      }
+      return ctx
+    })
+    reconcileFocus(next)
+  }
+
+  /** Remove one source folder from the draft's shared workspace (and its seed). */
+  const removeFolder = (sourceId: string): void => {
+    const next = removeFolderFromLive(deps.store.get(DRAFT_ID).live, sourceId)
+    deps.store.setLive(DRAFT_ID, next)
+    purgeBuffer((ctx) =>
+      ctx.kind === 'folder' && (ctx.artifacts[0]?.source?.id ?? slug(ctx.label)) === sourceId ? null : ctx,
+    )
+    reconcileFocus(next)
+  }
+
   /** The FWD-1 launcher's multi-add rule: on an already-fresh EMPTY draft the
    *  context STACKS (several picks build ONE new thread — attach + buffer +
    *  panel), anything else starts a fresh seeded draft. */
   const addSeed = (ctx: AddedContext): void => {
     const entry = deps.store.get(DRAFT_ID)
     if (entry.live.messages.length === 0 && (entry.live.repos.length || entry.live.workspaces.length || entry.live.connectors.length || entry.live.attachments.length)) {
-      const next = addContextToLive(entry.live, ctx)
-      deps.store.setLive(DRAFT_ID, next)
-      deps.store.setFocus(DRAFT_ID, focusForAdded(ctx, next))
-      pendingContexts.push(ctx)
+      attach(ctx)
     } else {
       reset(ctx)
     }
@@ -181,5 +251,5 @@ export function createDraftController(deps: DraftDeps) {
     await deps.store.sendTurn(sid, text)
   }
 
-  return { addSeed, bufferContext, clearBuffer, reset, sendDraftTurn, sanitizePick }
+  return { addSeed, attach, removeContexts, removeFolder, bufferContext, clearBuffer, reset, sendDraftTurn, sanitizePick }
 }

@@ -100,21 +100,23 @@ test('the directories + the resolved-work list revalidate on mount — another t
 
 // ── The controller reconciles the OPEN thread with server pushes (C26) ─────────
 
-test('session pushes reach the controller through the one narrow seam (one-door holds)', () => {
+test('session pushes reach the panes through the one narrow seam (one-door holds)', () => {
   const events = src('src', 'api', 'events.ts')
   assert.match(eventCase(events, 'session.updated'), /notifySessionPush\(e\.session\.id\)/)
   assert.match(eventCase(events, 'session.contexts.changed'), /notifySessionPush\(e\.sessionId\)/)
-  const controller = src('src', 'controller', 'useSessionWorkspace.ts')
-  assert.match(controller, /onSessionPush\(\(sessionId\) => \{/, 'the controller subscribes')
-  // The mid-stream guard reads the SESSION'S OWN entry now (universal split
-  // Phase 1: the generation flags live in the keyed conversation store).
+  // Every visible conversation subscribes for its own session now (Phase 6 —
+  // the pane controller replaced the singleton's one-active-thread watcher).
+  const controller = src('src', 'controller', 'usePaneConversation.ts')
+  assert.match(controller, /onSessionPush\(\(sid\) => \{/, 'each pane subscribes')
+  // The mid-stream guard reads the SESSION'S OWN entry (the generation flags
+  // live in the keyed conversation store).
   assert.match(
     controller,
-    /if \(entry\.busy \|\| entry\.typing\) return/,
+    /if \(now\.busy \|\| now\.typing\) return/,
     'a mid-stream thread is never stomped by a reconcile',
   )
   const push = controller.slice(controller.indexOf('onSessionPush(('))
-  assert.match(push.slice(0, 900), /loadSession\(sessionId\)/, 'the reconcile is the same server read selectSession uses')
+  assert.match(push.slice(0, 900), /loadSession\(sessionId\)/, 'the reconcile is the same server read the mount recipe uses')
 })
 
 // ── Seed-mirror reads replaced by the live registry (C12/C22/C23/C24) ─────────

@@ -65,8 +65,9 @@ re-renders never re-fire.
 
 ### 2. Nav entry points that set page + focus together
 
-New controller methods, each recording the page in history via the existing
-`openProject / openOwner / openSection` (so "back" still works) **and** setting
+New controller methods, each routing the page into the FOCUSED pane via the
+existing `openProject / openOwner / openSection` doors (Phase 6 — every door
+is pane-routed; browser Back works off the address bar) **and** setting
 `pendingFocus`:
 
 - `openWorkItem(projectId, workItemId, commentId?)` → project page + focus the item.

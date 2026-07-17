@@ -84,7 +84,15 @@ export function usePaneConversation(sessionId: string): ConversationState {
           .then((s) => {
             const now = conversations.get(sessionId)
             if (now.busy || now.typing) return
-            conversations.reconcile(sessionId, since, liveFromSession(s))
+            const pushed = liveFromSession(s)
+            if (!conversations.reconcile(sessionId, since, pushed)) return
+            // Same C28 resurfacing as the mount-time reconcile: a turn that
+            // finished while this client wasn't streaming it (another device,
+            // a detached view) may carry an unresolved escalation proposal —
+            // the record is the authority, and holdEscalation never stomps a
+            // prompt already held.
+            const held = unresolvedEscalation(s, pushed, peek<RelationGraph>(keys.relations))
+            if (held) conversations.holdEscalation(sessionId, held)
           })
           .catch(() => {})
       }),

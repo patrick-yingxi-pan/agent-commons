@@ -616,10 +616,16 @@ function ConversationPane({ sessionId, nav }: { sessionId: string; nav: MainPane
         onSelectModel={isDraft || row ? selectModel : undefined}
         usageModel={draftModelRef}
         focus={conv.focus}
-        onAddContext={addContext}
+        // A DRAFT has no server row to bind against — its attach AND removes
+        // route through the draft funnel (FWD-1: buffered / purged, panel
+        // opened / cleared, flushed onto the real session at materialization).
+        // The composer attach STACKS (draft.attach) — never the launcher's
+        // reset semantic, which would wipe an in-progress draft thread. A real
+        // session takes the shared server-backed funnel.
+        onAddContext={isDraft ? (ctx) => draft.attach(ctx) : addContext}
         onOpenContext={(f) => nav.onOpenSessionContext(sessionId, f)}
-        onRemoveContexts={removeContexts}
-        onRemoveFolder={removeFolder}
+        onRemoveContexts={isDraft ? (fs) => draft.removeContexts(fs) : removeContexts}
+        onRemoveFolder={isDraft ? (id) => draft.removeFolder(id) : removeFolder}
         empty={
           // The SAME empty surface the singleton host renders (one primitive —
           // a draft looks identical wherever it lives). The FWD-1 launcher

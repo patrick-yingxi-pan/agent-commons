@@ -481,14 +481,22 @@ the mock?
   the rail's doors. Every navigation — rail clicks, palette hits, notification
   bells, popstate, the boot address, restore memory — lands in the FOCUSED
   pane, and **the address bar projects the focused pane** (a focus hop IS a
-  navigation; a context pane addresses as its owning conversation). Wide tiles
-  the tree; the overlay tiers render the focused pane alone with the
-  `OverlayPanelDock` docked panel (ADAPT-11). Remaining (design doc Phase 5
-  list): section deep-nav lifted into tree content for `/projects/:id`
-  fidelity, live prune, dead singleton-surface pruning. The architecture,
-  phase ledger, and the generalized LESSONS (implicit defaults, the
-  projection-latch pattern, lifecycle-flagged bridges, boots-twice testing)
-  live in
+  navigation; a context pane addresses as its owning conversation; a section
+  pane REPORTS its deep location — `/projects/:id` fidelity round-trips). Wide
+  tiles the tree; the overlay tiers render the focused pane alone with the
+  `OverlayPanelDock` docked panel (ADAPT-11). The singleton controller is
+  PRUNED (2026-07-17): `useSessionWorkspace.ts` is now only the SHELL's nav
+  controller (boot address, URL projection, popstate, account switch,
+  notification focus, doors) — conversations live in `usePaneConversation` +
+  `ConversationPane`, context mutations in `useSessionContextCommands`, the
+  rail highlight derives from the FOCUSED pane, and the per-account view
+  memory IS the persisted split tree (`viewMemory.ts` retired). Remaining
+  (design doc step 6 tail): live prune (a deleted session's panes collapse at
+  render), per-pane notification highlight targets, the narrow-tier rail
+  toggle on panel-only surfaces. The architecture, phase ledger, and the
+  generalized LESSONS (implicit defaults, the projection-latch pattern,
+  lifecycle-flagged bridges, boots-twice testing, stale readers of a
+  dissolved authority, total routing primitives) live in
   [`docs/design/universal-split-workspace.md`](docs/design/universal-split-workspace.md)
   — consult it before touching `useSessionWorkspace.ts`, the split libs, or
   the panel components, and land work as its phases, each with tests.

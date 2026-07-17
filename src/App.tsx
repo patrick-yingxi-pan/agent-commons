@@ -1,28 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AnimatePresence } from 'framer-motion'
 import { PanelLeft } from 'lucide-react'
 import { Sidebar } from './components/Sidebar'
 import { AuthScreen } from './components/auth/AuthScreen'
 import { useAuthScreen } from './controller/useAuthScreen'
 import { setUiPrefScope } from './lib/uiPrefs'
 import type { Capabilities, Identity } from '../contract/index.ts'
-import { WorkspacePanel } from './components/WorkspacePanel'
-import { RunsPanel } from './components/RunsPanel'
-import type { PaneContent } from './lib/splitFrame'
+import { panes, type PaneContent } from './lib/splitFrame'
 import { MainSplitGate, type MainPaneNav } from './components/MainSplit'
-import { SessionTitleBar } from './components/SessionTitleBar'
-import { EmptyState } from './components/EmptyState'
 import { OverlayPanelDock } from './components/OverlayPanelDock'
-import { ConversationView } from './components/ConversationView'
 import { useMainSplit } from './controller/useMainSplit'
-import { setMainSplitScope } from './lib/mainSplit'
-import { SectionView } from './components/SectionView'
-import { AttachmentPanel } from './components/AttachmentPanel'
-import { ConnectorPanel } from './components/ConnectorPanel'
+import { paneLocationPath, setMainSplitScope } from './lib/mainSplit'
 import { SearchPanel } from './components/SearchPanel'
 import { NotificationsPanel } from './components/NotificationsPanel'
-import { AddContextButton } from './components/AddContextButton'
-import { keys, peek, useCapabilities, useMe, useProviders, useSessions, useServerEvents } from './api'
+import { keys, peek, useCapabilities, useMe, useSessions, useServerEvents } from './api'
 import { conversations, useConversation } from './controller/conversationStore'
 import { sameFocus } from './lib/focus'
 import { setPanelPref } from './lib/panelPrefs'
@@ -30,15 +20,14 @@ import { useSessionWorkspace } from './controller/useSessionWorkspace'
 import { useLayout } from './controller/useLayout'
 import { RelationsProvider } from './controller/useRelations'
 import { railWidthCss, useViewport } from './lib/viewport'
-import { pickedModel, pickedProvider, type ModelPick } from './lib/models'
 import { FocusContext } from './lib/focusContext'
 import { SCRIM_CLASS } from './lib/scrim'
 import { SECTION_META } from './lib/sections'
-import { DRAFT_ID, type Live } from './data/liveSession'
+import { DRAFT_ID } from './data/liveSession'
 import { draft } from './controller/draftController'
-import { pathForView, viewForPath, type RoutedView } from './lib/urlRoutes'
+import type { RoutedView } from './lib/urlRoutes'
 import type { PaneSeed } from './lib/paneNav'
-import type { AddedContext, Connector, SectionId, Session } from './types'
+import type { SectionId, Session } from './types'
 
 /** The shell: decides WHICH top-level surface renders — the full-screen auth
  *  flow (multi-account §12) or the workspace. The auth screen shows when the
@@ -74,19 +63,21 @@ export default function App() {
   // THIS account (a plain module set — idempotent per render — done before the
   // children whose useState initializers read it can mount), and the Workspace
   // is KEYED by the account, so a switch remounts it: every mount-time read
-  // (rail width, pane folds/heights, panel width, the saved view location in
-  // useSessionWorkspace) re-runs against the account's own blobs. `ident` holds
-  // the last-known identity mid-switch, so the remount fires exactly when the
-  // NEW /me resolves — the old account's instance never renders as the new one.
+  // (rail width, pane folds/heights, panel width, the persisted split TREE —
+  // which IS the account's view memory since Phase 6) re-runs against the
+  // account's own blobs. `ident` holds the last-known identity mid-switch, so
+  // the remount fires exactly when the NEW /me resolves — the old account's
+  // instance never renders as the new one.
   setUiPrefScope(ident.user.id)
   setMainSplitScope(ident.user.id) // the main split tree is per account, like the layout blob
   return <Workspace key={ident.user.id} />
 }
 
-/** The View: composes the product chrome from two controllers — the session +
- *  its live workspace, and the rail layout — holding only local view chrome
- *  (the search palette toggle). All business logic lives in the controllers
- *  (controller/) and the model (data/). */
+/** The View: composes the product chrome from three controllers — the main
+ *  split (the tree of equal panes + the focused-pane cursor), the shell nav
+ *  (boot / URL / popstate / account switch / doors), and the rail layout —
+ *  holding only local view chrome (the search palette toggle). All business
+ *  logic lives in the controllers (controller/) and the model (data/). */
 function Workspace() {
   const [searchOpen, setSearchOpen] = useState(false)
   // The notification inbox overlay (D24) — the rail bell's panel.
@@ -125,54 +116,33 @@ function Workspace() {
   const focusedContentRef = useRef(focusedContent)
   focusedContentRef.current = focusedContent
 
-  // The focused pane's canonical path: a conversation or section pane has its
-  // own; a CONTEXT pane addresses as its OWNING conversation (a panel is not
-  // a page — the address names the page it belongs to); a picker or the
-  // background keeps the current address ('keep': no push at all — the old
-  // 'defer to the singleton' fallback derived from state nothing updates now).
-  const focusedPath = useMemo((): string | 'keep' => {
-    const c = focusedContent
-    if (!c) return 'keep'
-    if (c.kind === 'msession') return pathForView({ kind: 'session', sessionId: c.id, title: '' }, null)
-    if (c.kind === 'context-panel') return pathForView({ kind: 'session', sessionId: c.sessionId, title: '' }, null)
-    if (c.kind === 'msection') {
-      // The pane's REPORTED live location (`at`) wins — its deep page
-      // (/projects/:id, /u/:name…) round-trips; the door seed covers the
-      // pre-report frame.
-      const loc = c.at ?? { sub: c.sub ?? null, ...(c.seed ?? {}) }
-      return pathForView(
-        {
-          kind: 'section',
-          section: c.id,
-          projectId: loc.projectId ?? null,
-          scheduleId: loc.scheduleId ?? null,
-          ownerName: loc.ownerName ?? null,
-          workItemId: loc.workItemId ?? null,
-          agentId: loc.agentId ?? null,
-          contextId: loc.contextId ?? null,
-        },
-        loc.sub ?? null,
-      )
-    }
-    return 'keep'
-  }, [focusedContent])
+  // The focused pane's canonical path (the ONE content→address rule,
+  // paneLocationPath): a conversation or section pane has its own; a CONTEXT
+  // pane addresses as its OWNING conversation; a picker or the background
+  // keeps the current address ('keep': no push at all).
+  const focusedPath = useMemo(
+    (): string | 'keep' => (focusedContent ? (paneLocationPath(focusedContent) ?? 'keep') : 'keep'),
+    [focusedContent],
+  )
 
-  // Browser Back/Forward retarget the FOCUSED pane (like every navigation);
-  // returns false with the primary focused — the singleton applies it then.
-  // Section deep-detail URLs land at section+facet granularity in a pane
-  // (the detail lift is the Phase 6 fidelity fast-follow).
+  // Browser Back/Forward and the boot address retarget the FOCUSED pane
+  // (like every navigation). null routes the root — a fresh draft.
   const applyRouteToFocused = useCallback(
-    (routed: RoutedView | null): boolean => {
+    (routed: RoutedView | null): void => {
       if (!routed) {
         // The root = a FRESH draft (like every other draft door): reset first,
         // or the coalesce handle would append the next send to the PREVIOUS
         // materialized session.
         draft.reset()
-        return routeToFocused({ kind: 'msession', id: DRAFT_ID })
+        routeToFocused({ kind: 'msession', id: DRAFT_ID })
+        return
       }
-      if (routed.loc.kind === 'session') return routeToFocused({ kind: 'msession', id: routed.loc.sessionId })
+      if (routed.loc.kind === 'session') {
+        routeToFocused({ kind: 'msession', id: routed.loc.sessionId })
+        return
+      }
       const l = routed.loc
-      return routeToFocused({
+      routeToFocused({
         kind: 'msection',
         id: l.section,
         sub: routed.subview ?? null,
@@ -191,48 +161,57 @@ function Workspace() {
 
   // An entity door (a notification bell, a palette hit, a relation card's
   // "View in …") lands in the FOCUSED pane, its detail page open (the pane
-  // seed) — like every navigation; false with the primary focused (the
-  // singleton opens it as before).
+  // seed) — like every navigation.
   const routeDoor = useCallback(
-    (section: SectionId, seed: PaneSeed): boolean => routeToFocused({ kind: 'msection', id: section, seed }),
+    (section: SectionId, seed: PaneSeed): void => routeToFocused({ kind: 'msection', id: section, seed }),
     [routeToFocused],
   )
-  // A session door (palette hit, notifications row, boot address, restore
-  // memory) and a bare-section door land in the focused pane the same way.
-  const routeSession = useCallback((id: string): boolean => routeToFocused({ kind: 'msession', id }), [routeToFocused])
+  // A session door (palette hit, notifications row, boot address) and a
+  // bare-section door land in the focused pane the same way.
+  const routeSession = useCallback((id: string): void => routeToFocused({ kind: 'msession', id }), [routeToFocused])
   const routeSection = useCallback(
-    (section: SectionId, sub?: string | null): boolean => routeToFocused({ kind: 'msection', id: section, sub: sub ?? null }),
+    (section: SectionId, sub?: string | null): void => routeToFocused({ kind: 'msection', id: section, sub: sub ?? null }),
     [routeToFocused],
+  )
+  // Boot fallback (ADAPT-1): neither a boot address nor the restored
+  // per-account tree filled the background — mint the fresh draft.
+  const mintIfEmpty = useCallback((): void => {
+    if (!mainTree) {
+      draft.reset()
+      routeToFocused({ kind: 'msession', id: DRAFT_ID })
+    }
+  }, [mainTree, routeToFocused])
+  // The BOOT address applies with a DEDUP the live navigations don't have: the
+  // address the page loaded at was the FOCUSED pane's projection, but the
+  // focus cursor is transient (not persisted) and boots at the FIRST pane —
+  // routing the address blindly would clobber pane #1 with a copy of the pane
+  // the user was actually focused on (a reload destroyed multi-pane layouts).
+  // If a restored pane already SHOWS the boot address, focus it instead; only
+  // an address nothing shows routes (into the focused pane, minting on the
+  // background). Live doors deliberately keep no dedup — duplicates are legal
+  // (split IS duplicate); this is only reconciling the address with the tree
+  // it was projected from.
+  const applyBootRoute = useCallback(
+    (routed: RoutedView | null): void => {
+      if (routed && mainTree) {
+        const target = window.location.pathname
+        const match = panes(mainTree).find((p) => paneLocationPath(p.content) === target)
+        if (match) {
+          focusMainPane(match.path)
+          return
+        }
+      }
+      applyRouteToFocused(routed)
+    },
+    [mainTree, focusMainPane, applyRouteToFocused],
   )
 
   const {
-    activeId,
-    activeSection,
-    activeSubview,
-    focusProjectId,
-    focusScheduleId,
-    focusOwnerName,
-    focusWorkItemId,
-    focusAgentId,
-    focusContextId,
     pendingFocus,
-    live,
-    typing,
-    focus,
-    activeSession,
-    isDraft,
-    busy,
-    liveTurn,
-    sendFailure,
-    pendingApproval,
-    focusedWorkspace,
-    focusedRepo,
-    focusedConnector,
-    selectSession,
+    consumeFocus,
+    openSession,
     newSession,
-    newSessionWith,
     openSection,
-    openSubview,
     openProject,
     openSchedule,
     openOwner,
@@ -242,68 +221,45 @@ function Workspace() {
     openWorkItem,
     openProposal,
     openAgent,
-    consumeFocus,
-    goBack,
-    backTo,
     pinSession,
     renameSession,
     archiveSession,
     deleteSession,
-    selectModel,
-    draftPick,
-    handleSend,
-    stopTurn,
-    retryInterrupted,
-    compact,
-    handleAddContext,
-    focusContext,
-    removeContexts,
-    removeAttachment,
-    removeFolder,
-    closePanel,
-    approveEscalation,
-  } = useSessionWorkspace({ focusedPath, applyRouteToFocused, routeDoor, routeSession, routeSection })
+  } = useSessionWorkspace({ focusedPath, applyRouteToFocused, applyBootRoute, routeDoor, routeSession, routeSection, mintIfEmpty })
 
-  // (The relay wait state — "Waiting on your session…" — is derived inside
-  // ConversationView now, once for every host.)
-  const providers = useProviders().data ?? []
-  // Resolve the active session's driver + model pick from the SERVER row when one
-  // exists (the useSessions cache refreshes on session.updated — a hand-off or model
-  // switch lands there). A run session isn't in that list (it surfaces through the
-  // Scheduled rail), but the controller's activeSession IS its reconciled server
-  // row, so the same fields resolve; a draft falls back to the local shell and the
-  // not-yet-persisted pick held by the controller.
-  const activeRow = sessions.find((s) => s.id === activeId) ?? activeSession
-  // The active two-level model pick (provider + catalog model) — the draft's local
-  // hold, or the server row's persisted fields.
-  const activePick: ModelPick = useMemo(
-    () => (isDraft ? draftPick : { providerId: activeRow.providerId, modelId: activeRow.modelId }),
-    [isDraft, draftPick, activeRow.providerId, activeRow.modelId],
+  // Deleting the session a pane is SHOWING evicts it to a fresh draft — the
+  // focused pane here; a full any-pane live prune is the tree's own rule.
+  const deleteSessionAndEvict = useCallback(
+    (id: string) => {
+      deleteSession(id)
+      const c = focusedContentRef.current
+      if ((c?.kind === 'msession' && c.id === id) || (c?.kind === 'context-panel' && c.sessionId === id)) {
+        draft.reset()
+        routeToFocused({ kind: 'msession', id: DRAFT_ID })
+      }
+    },
+    [deleteSession, routeToFocused],
   )
-  // A model pick needs somewhere to live: a draft (held locally) or a real server
-  // row (PATCHed). Every non-draft session is a server row through the one mint
-  // funnel — run sessions included — so the pick is writable everywhere; only an
-  // id whose reconcile read hasn't resolved yet (no row to PATCH) omits the
-  // registered-models section instead of silently no-oping.
-  const modelPickWritable =
-    isDraft || sessions.some((s) => s.id === activeId) || !!activeSession.scheduledRunOf
 
-  // The DRAFT's usage overlay: no server row exists to resolve its pick, so the
-  // strip resolves the picked provider+model against the live registry here —
-  // identity for the popover's model line, window for the context gauge (absent =
-  // unknown-capacity, e.g. a Session provider). A real session reads the server
-  // snapshot instead (same resolution, done authoritatively server-side).
-  const draftModelRef = useMemo(() => {
-    if (!isDraft) return undefined
-    const provider = pickedProvider(providers, draftPick)
-    if (!provider) return undefined
-    const model = pickedModel(provider, draftPick)
-    return {
-      providerId: provider.id,
-      providerLabel: provider.label,
-      ...(model ? { modelId: model.id, modelLabel: model.label, windowTokens: model.contextWindow } : {}),
-    }
-  }, [isDraft, providers, draftPick])
+  // ── The rail's active highlight derives from the FOCUSED pane (the live
+  // source — the pre-split singleton's activeId/activeSection froze at their
+  // boot defaults once every door routed into panes). A context pane
+  // highlights its OWNING conversation; a section pane highlights its
+  // section + the sub-view it REPORTS (`at` — its live location, falling
+  // back to the door's seed for the pre-report frame).
+  const railActiveSessionId =
+    focusedContent?.kind === 'msession'
+      ? focusedContent.id
+      : focusedContent?.kind === 'context-panel'
+        ? focusedContent.sessionId
+        : ''
+  const railActiveSection = focusedContent?.kind === 'msection' ? focusedContent.id : null
+  const railActiveSubview =
+    focusedContent?.kind === 'msection'
+      ? focusedContent.at
+        ? focusedContent.at.sub
+        : (focusedContent.sub ?? null)
+      : null
 
   // Responsive layout ladder (FWD-3 / PD35): below a wide window the right panel
   // would crush the conversation column, so it overlays as a drawer (with a scrim)
@@ -339,10 +295,10 @@ function Workspace() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // (Boot lives in the workspace hook's restore effect — the consume-once boot
-  // address, the per-account memory, and the fresh-draft default all apply
-  // through the routeSession/routeSection/routeDoor bridges, which MINT the
-  // first pane when only the background shows.)
+  // (Boot lives in the shell controller's effect — the consume-once boot
+  // address applies through applyRouteToFocused; with no address the
+  // per-account persisted TREE stands as the view memory, and mintIfEmpty
+  // provides the fresh-draft default when nothing fills the background.)
 
   // ── The FOCUSED conversation's context panel as a tree pane (Phase 6) ───────
   // The focused pane's session + its STORE-held `focus` (or the run switcher
@@ -413,10 +369,7 @@ function Workspace() {
           setFocusDrivenContext(id, c.panel)
         } else routeToFocused({ kind: 'msession', id })
       },
-      onNewSession: () => {
-        draft.reset()
-        routeToFocused({ kind: 'msession', id: DRAFT_ID })
-      },
+      onNewSession: newSession,
       onOpenProposal: openProposal,
       onOpenProject: openProject,
       onOpenSchedule: openSchedule,
@@ -435,7 +388,7 @@ function Workspace() {
       // The narrow tier's in-flow rail toggle rides the conversation title bar.
       railToggle: railOverlay ? <RailOpenButton onClick={openLeft} /> : undefined,
     }),
-    [routeToFocused, openProposal, openProject, openSchedule, sessions, adoptDraftPanes, railOverlay, openLeft],
+    [routeToFocused, newSession, openProposal, openProject, openSchedule, sessions, adoptDraftPanes, railOverlay, openLeft],
   )
 
 
@@ -444,15 +397,12 @@ function Workspace() {
   // changes when the target actually changes — not every App render.
   const focusCtx = useMemo(() => ({ pending: pendingFocus, consume: consumeFocus }), [pendingFocus, consumeFocus])
 
-  // Bridges the relations store needs: attaching a context to the live session
-  // (for the AI's `attach-context` op) and the "View in …" deep-link nav.
-  // Memoized so the RelationsProvider value (which deps on these) doesn't rebuild
-  // every render — otherwise every useRelations consumer re-renders on each App
-  // render. handleAddContext / openProject / openSection are stable callbacks.
-  const attachConnector = useCallback(
-    (c: Connector) => handleAddContext({ kind: c.kind === 'mcp' ? 'mcp' : 'connector', connector: c }),
-    [handleAddContext],
-  )
+  // The one bridge the relations store needs from the shell: the "View in …"
+  // deep-link nav (an attach-context op attaches inside its own card —
+  // useSessionContextCommands — since the equal-panes model has no "active
+  // session" for a root bridge to target). Memoized so the RelationsProvider
+  // value doesn't rebuild every render — otherwise every useRelations consumer
+  // re-renders on each App render.
   // The relations "View in …" deep-link. The second arg is an entity id whose
   // meaning depends on the section: a project to expand, a schedule to open, a
   // saved context's detail, or — under agents — a workspace display name whose
@@ -474,7 +424,7 @@ function Workspace() {
   )
 
   return (
-    <RelationsProvider attachConnector={attachConnector} navigate={navigateToSection}>
+    <RelationsProvider navigate={navigateToSection}>
     <div className="flex h-dvh flex-col overflow-hidden bg-canvas text-ink">
       {/* ===== The product — no top bar; the rail owns its toggle ===== */}
       <div className="relative flex min-h-0 flex-1 flex-col">
@@ -521,37 +471,24 @@ function Workspace() {
             <div style={{ width: railWidthCss(tier, leftW) }} className="h-full">
               <Sidebar
                 sessions={sessions}
-                activeId={activeId}
-                activeSection={activeSection}
-                activeSubview={activeSubview}
-                onSelect={withRailClose((id: string) => {
-                  if (!routeToFocused({ kind: 'msession', id })) selectSession(id)
-                })}
-                onNewSession={withRailClose(() => {
-                  // New session lands in the FOCUSED pane (the focused-pane
-                  // routing every door follows): reset the shared draft entry
-                  // and retarget the pane — on the background this mints the
-                  // first pane.
-                  draft.reset()
-                  routeToFocused({ kind: 'msession', id: DRAFT_ID })
-                })}
+                activeId={railActiveSessionId}
+                activeSection={railActiveSection}
+                activeSubview={railActiveSubview}
+                onSelect={withRailClose(openSession)}
+                onNewSession={withRailClose(newSession)}
                 // Section / sub-view handlers stay UNwrapped by withRailClose: the rail
                 // decides when to close the narrow drawer (a leaf navigates → close;
                 // drilling into a section's sub-menu keeps it open), via onLeafNavigate
-                // below. With a SECONDARY pane focused, both retarget that pane instead
-                // (the focused-pane routing); the primary navigates as always.
-                onOpenSection={(id) => {
-                  if (!routeToFocused({ kind: 'msection', id })) openSection(id)
-                }}
-                onOpenSubview={(section, sub) => {
-                  if (!routeToFocused({ kind: 'msection', id: section, sub })) openSubview(sub)
-                }}
+                // below. Every door retargets the FOCUSED pane (the focused-pane
+                // routing) — on the background it mints the first pane.
+                onOpenSection={(id) => openSection(id)}
+                onOpenSubview={(section, sub) => openSection(section, sub)}
                 onLeafNavigate={railOverlay ? closeLeft : undefined}
                 onOpenSchedule={withRailClose(openSchedule)}
                 onPinSession={pinSession}
                 onRenameSession={renameSession}
                 onArchiveSession={archiveSession}
-                onDeleteSession={deleteSession}
+                onDeleteSession={deleteSessionAndEvict}
                 onToggleCollapse={toggleLeft}
                 onOpenSearch={withRailClose(() => setSearchOpen(true))}
                 onOpenNotifications={withRailClose(() => setNotifOpen(true))}
@@ -662,7 +599,7 @@ function Workspace() {
       {searchOpen && (
         <SearchPanel
           sessions={sessions}
-          onSelectSession={selectSession}
+          onSelectSession={openSession}
           onOpenSection={openSection}
           onOpenProject={openProject}
           onOpenSchedule={openSchedule}

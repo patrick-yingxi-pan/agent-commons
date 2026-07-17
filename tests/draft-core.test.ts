@@ -159,3 +159,49 @@ test('reset seeds the draft entry and opens the seed panel; blank reset closes i
   draft.reset()
   assert.equal(focuses.get(DRAFT_ID), null, 'a blank draft starts with the panel closed')
 })
+
+test('attach (the composer semantic) STACKS and never resets — a mid-thread draft attach keeps its messages', async () => {
+  const { deps, log } = fakeDeps()
+  const draft = createDraftController(deps)
+  // A degraded send left messages ON the draft entry (server unreachable) —
+  // the exact state addSeed's launcher reset would have wiped.
+  deps.store.setLive(DRAFT_ID, {
+    ...EMPTY_LIVE,
+    messages: [{ id: 'u1', role: 'user', content: 'hello' }],
+  } as Live)
+  draft.attach({ kind: 'connector', connector: { id: 'c1', kind: 'connector', name: 'Slack' } } as never)
+  const live = deps.store.get(DRAFT_ID).live
+  assert.equal(live.messages.length, 1, 'the in-progress thread survives the attach')
+  assert.equal(live.connectors.length, 1, 'the context landed optimistically')
+  assert.ok(!log.some((l) => l.startsWith('reset:')), 'attach never routes through reset')
+  // …and the attach buffered, so it flushes onto the materialized session.
+  await draft.sendDraftTurn('go', () => ({}))
+  assert.ok(log.some((l) => l.startsWith('attach:real-1')), 'the attach flushed at materialization')
+})
+
+test('removeContexts purges the FWD-1 buffer — a removed chip never re-attaches at materialization', async () => {
+  const { deps, log, focuses } = fakeDeps()
+  const draft = createDraftController(deps)
+  draft.attach({ kind: 'connector', connector: { id: 'c1', kind: 'connector', name: 'Slack' } } as never)
+  assert.ok(focuses.get(DRAFT_ID), 'the attach opened its panel')
+  draft.removeContexts([{ kind: 'connector', id: 'c1' }])
+  assert.equal(deps.store.get(DRAFT_ID).live.connectors.length, 0, 'the chip is gone from the live')
+  assert.equal(focuses.get(DRAFT_ID), null, 'the dangling panel cleared (focusValidIn)')
+  await draft.sendDraftTurn('go', () => ({}))
+  assert.equal(log.some((l) => l.startsWith('attach:')), false, 'nothing stale flushed onto the real session')
+})
+
+test('removeFolder purges exactly the removed folder seed; other seeds still flush', async () => {
+  const { deps, log } = fakeDeps()
+  const draft = createDraftController(deps)
+  draft.attach({
+    kind: 'folder',
+    label: 'docs',
+    artifacts: [{ id: 'a1', name: 'x', source: { id: 'src-docs' } }],
+  } as never)
+  draft.attach({ kind: 'connector', connector: { id: 'c1', kind: 'connector', name: 'Slack' } } as never)
+  draft.removeFolder('src-docs')
+  await draft.sendDraftTurn('go', () => ({}))
+  const attaches = log.filter((l) => l.startsWith('attach:real-1'))
+  assert.equal(attaches.length, 1, 'only the surviving connector seed flushed')
+})

@@ -368,6 +368,23 @@ export function focusForAdded(ctx: AddedContext, live: Live): PanelFocus | null 
   }
 }
 
+/** Whether a panel focus still names a context PRESENT in `live` — the guard
+ *  every remove funnel runs so a session's open panel can't dangle on a context
+ *  that was just detached (the pane projection would otherwise keep rendering
+ *  the "no longer attached" placeholder forever). Pure; shared by every host. */
+export function focusValidIn(l: Live, focus: PanelFocus): boolean {
+  switch (focus.kind) {
+    case 'workspace':
+      return l.workspaces.some((w) => w.id === focus.id)
+    case 'repo':
+      return l.repos.some((r) => r.id === focus.id)
+    case 'connector':
+      return l.connectors.some((c) => c.id === focus.id)
+    default:
+      return l.attachments.some((a) => a.id === focus.id)
+  }
+}
+
 /** Remove one or more attached contexts in a single update (a repo + its orphaned
  *  GitHub connector, a connector + its dependent repos, or just a connector). */
 export function removeContextsFromLive(l: Live, focuses: PanelFocus[]): Live {

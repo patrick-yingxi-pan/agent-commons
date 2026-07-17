@@ -98,8 +98,10 @@ test('the section body + controller route through the registry; a section lands 
   const sectionView = read(join(ROOT, 'src', 'components', 'SectionView.tsx'))
   assert.match(sectionView, /subview \?\? 'agents'/, 'the Agents hub maps the null default to its worker-list surface')
   assert.match(sectionView, /ContextsSection subview=\{subview\}/, 'content sections filter on the tree-selected sub-view')
+  // A bare-section door routes sub-view NULL into the focused pane (Phase 6);
+  // each section body maps null to its own default (asserted above).
   const controller = read(join(ROOT, 'src', 'controller', 'useSessionWorkspace.ts'))
-  assert.match(controller, /setActiveSubview\(null\)/, 'opening a section lands on its default (null) sub-view')
+  assert.match(controller, /routeSection\?\.\(s, sub \?\? null\)/, 'opening a section lands on its default (null) sub-view')
 })
 
 test('facet grouping lives in the rail tree, NOT a duplicated in-page filter bar', () => {
