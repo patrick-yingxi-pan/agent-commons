@@ -64,10 +64,16 @@ const clients = new Map<string, Anthropic>()
 function clientFor(config: ProviderConfig = {}): Anthropic {
   const base = config.baseURL ?? process.env.ANTHROPIC_BASE_URL ?? `http://127.0.0.1:${process.env.MODEL_PORT ?? 8788}`
   // The credential is resolved from the config's env-var *reference* (never a stored
-  // raw key). A declared-but-unset var falls through to the ambient key — against a
-  // real endpoint the registration probe then fails auth, so the mistake surfaces at
-  // mint, not silently at turn time.
-  const key = (config.apiKeyEnv ? process.env[config.apiKeyEnv] : undefined) ?? process.env.ANTHROPIC_API_KEY ?? 'mock-no-key-needed'
+  // raw key). The ambient `ANTHROPIC_API_KEY` is the credential for the AMBIENT
+  // endpoint ONLY: a config that supplies its OWN `baseURL` must never inherit it,
+  // or the platform's real key would be sent (as `x-api-key`) to a caller-supplied
+  // URL — the exact exfiltration the `validApiKeyEnv` prefix wall exists to prevent
+  // (`server/data/providers.ts`). Such a config gets its declared `PROVIDER_*` value
+  // or the no-key sentinel, nothing else. Only the default (ambient-endpoint) config
+  // falls back to the ambient key.
+  const declared = config.apiKeyEnv ? process.env[config.apiKeyEnv] : undefined
+  const ambientKey = config.baseURL ? undefined : process.env.ANTHROPIC_API_KEY
+  const key = declared ?? ambientKey ?? 'mock-no-key-needed'
   const cacheKey = `${base}\u0000${key}`
   let client = clients.get(cacheKey)
   if (!client) {
@@ -330,7 +336,16 @@ export async function generateReply(
     // by earlier calls of this turn — e.g. create_agent bundling a just-proposed
     // system prompt into one card.
     ctx.pending = relationOps
+    // Defense in depth against a non-conformant endpoint: only EXECUTE a tool the
+    // turn actually declared. A real endpoint never emits an undeclared `tool_use`,
+    // but a buggy/hostile one could — and executing it would bypass the agent's
+    // tool-grant allowlist (the wall `agentTools` builds above). An undeclared name
+    // is refused back to the model, never run.
+    const declaredNames = new Set(tools.map((t) => t.name))
     const toolResults = toolUses.map((tu) => {
+      if (!declaredNames.has(tu.name)) {
+        return { type: 'tool_result' as const, tool_use_id: tu.id, content: `Tool '${tu.name}' was not offered this turn and was not executed.`, is_error: true }
+      }
       // A connector/MCP tool (P6) executes into a ToolActivity (mock result); anything
       // else is a built-in resource / relation / escalation tool.
       const activity = runConnectorTool(tu.name, connectorBindings, tu.id)
@@ -387,6 +402,27 @@ export async function generateReply(
     }
   } catch (err) {
     if (signal?.aborted) throw err // the turn was cancelled — let the route persist the partial
+    // If prose ALREADY streamed to the live viewer (a turn-1 answer, or a partial
+    // turn-2) before the failure, the persisted message must CONTINUE it, not
+    // replace it with the bare apology — otherwise the live view (streamed prose +
+    // apology) and the system of record (apology only) diverge on reload. Append a
+    // short failure note to what streamed and keep the accumulated tool effects.
+    if (fullText) {
+      const note = '\n\n_(I couldn’t finish that turn — the model endpoint became unreachable. Please try again.)_'
+      for (const c of chunkText(note)) handlers.onDelta(c)
+      return {
+        message: {
+          id: assistantId,
+          role: 'assistant',
+          content: fullText + note,
+          relationActions: relationOps.length ? relationOps : undefined,
+          escalation,
+          toolActivities: toolActivities.length ? toolActivities : undefined,
+        },
+        usage,
+        outcome: 'fallback',
+      }
+    }
     return fallbackReply(assistantId, handlers)
   }
 }

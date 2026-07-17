@@ -102,12 +102,19 @@ export function applyGraphOp(
       // artifact's own seed projectId.
       return { ...graph, artifactProject: { ...graph.artifactProject, [op.artifactId]: op.projectId ?? '' } }
     case 'save-artifact': {
+      const source = op.sessionTitle ?? 'Created here'
+      // Replay guard (the create-project pattern — keep the shared reducer safe for
+      // ANY op producer): a second apply of the same save (two clients confirming
+      // one pending card before the SSE invalidate lands, distinct request ids)
+      // must not mint a duplicate. Identity = the (name + source) `opAppliedInGraph`
+      // already defines.
+      if (graph.extraArtifacts.some((a) => a.name === op.artifact.name && a.source === source)) return graph
       const id = mintArtifactId()
       const pid = op.projectId ?? ''
       // A user-created artifact (no session) cites a neutral source rather than a
       // conversation title; an AI save-out passes the real session title + id (the
       // id is the stable join the gallery's "From ‹conversation›" door resolves by).
-      const item = artifactFromDraft(op.artifact, id, op.sessionTitle ?? 'Created here', pid, now, op.sessionId)
+      const item = artifactFromDraft(op.artifact, id, source, pid, now, op.sessionId)
       return {
         ...graph,
         extraArtifacts: [item, ...graph.extraArtifacts],
@@ -247,12 +254,12 @@ export function opAppliedInGraph(graph: RelationGraph, op: RelationOp): boolean 
     case 'scope-context':
       return (graph.projectContexts[op.projectId] ?? []).some((c) => c.label === op.context.label)
     case 'unscope-context':
-      // Applied ⇔ the label is absent from a project the graph knows. (A vacuous
-      // unscope — never scoped — reads applied too: the effect holds.)
-      return (
-        op.projectId in graph.projectContexts &&
-        !(graph.projectContexts[op.projectId] ?? []).some((c) => c.label === op.contextLabel)
-      )
+      // Applied ⇔ the label is absent from the project's contexts. An ABSENT key (a
+      // runtime-created project that never scoped anything) means the label is
+      // absent too ⇒ applied — the vacuous-unscope case the comment names. The old
+      // `op.projectId in graph.projectContexts` guard wrongly held it pending
+      // forever on exactly those projects, re-offering a confirmed card on reopen.
+      return !(graph.projectContexts[op.projectId] ?? []).some((c) => c.label === op.contextLabel)
     case 'set-project-instructions':
       return graph.projectInstructions?.[op.projectId] === op.instructions
     case 'set-project-readme':

@@ -295,6 +295,14 @@ async function drainLoop(): Promise<void> {
         stopped = ROTATED
         break
       }
+      // Any other HTTP error (a typo'd URL → 404, a proxy 5xx, an HTML error page)
+      // parses to `{}` and would otherwise fall through to the idle branch and
+      // re-poll at the 500ms floor FOREVER, silently, behind the permanent latch —
+      // the user's only remedy a process kill. Route it into the backoff path (and
+      // say so) like a thrown network error.
+      if (polled.status >= 400) {
+        throw new Error(`relay endpoint returned HTTP ${polled.status} (check the relay URL)`)
+      }
       const result = polled.json as RelayPollResult
       if ('entryId' in result) {
         // Resolve omitted bodies against the cache AT RECEIPT (the cache must be
@@ -334,6 +342,12 @@ async function drain(entryId?: string, answer?: string, toolCalls?: Array<{ name
   if (stopped) return stopped
   if (entryId && answer !== undefined && toolCalls !== undefined) {
     return 'Pass either answer (prose) or toolCalls (relayed calls), not both — then call respond_and_wait again.'
+  }
+  // An answer/toolCalls WITHOUT an entryId can't be submitted (the entryId names
+  // the parked turn) — silently parking it would let the model believe it
+  // answered while the relay turn dies at its deadline. Correct it explicitly.
+  if (!entryId && (answer !== undefined || toolCalls !== undefined)) {
+    return 'To submit an answer you must pass the entryId you were handed with the prompt — then call respond_and_wait again.'
   }
   if (entryId && (answer !== undefined || toolCalls !== undefined)) {
     const body = JSON.stringify(toolCalls !== undefined ? { entryId, toolCalls } : { entryId, completion: answer })

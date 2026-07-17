@@ -60,7 +60,17 @@ export function sendJson(res: ServerResponse, body: unknown, status = 200): void
  *  static-asset byte path in server/index.ts: write the Buffer verbatim so binary
  *  isn't corrupted by a UTF-8 round-trip. */
 export function sendBytes(res: ServerResponse, bytes: Uint8Array, contentType: string): void {
-  res.writeHead(200, { ...BASE_HEADERS, 'Content-Type': contentType })
+  // Served content renders as an `<img src>`, never as a navigated document — so
+  // a hostile SVG (script in the served tree, or a writable CONTEXT_*_ROOT) must
+  // not execute as same-origin HTML if the URL is opened directly. `nosniff`
+  // pins the declared type, and a `sandbox` CSP neutralizes any active content in
+  // the byte payload without affecting `<img>` decoding.
+  res.writeHead(200, {
+    ...BASE_HEADERS,
+    'Content-Type': contentType,
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': 'sandbox',
+  })
   // `end` accepts a string in the ambient types; the Buffer's bytes are written
   // verbatim at runtime (same as the static-asset path). Cast through unknown.
   res.end(bytes as unknown as string)

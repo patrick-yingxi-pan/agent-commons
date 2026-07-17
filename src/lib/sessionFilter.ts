@@ -141,12 +141,21 @@ function sortRows(rows: Session[], by: SortBy) {
 /** Calendar-relative bucket for the "Date" grouping. `order` fixes the section
  *  sequence (newest first); the label is what the header shows. */
 function dateBucket(updatedAt: number | undefined, now: number): { key: string; label: string; order: number } {
-  const startOfToday = new Date(now).setHours(0, 0, 0, 0)
+  // Boundaries are CALENDAR days, not fixed 24h subtractions: a DST transition day
+  // spans 23 or 25 hours, so `startOfToday − N*24h` lands at the wrong wall-clock
+  // moment (a session from yesterday 00:30 fell into "Previous 7 days" the day
+  // after fall-back). Step back N calendar days, then to local midnight.
+  const startNDaysAgo = (n: number): number => {
+    const d = new Date(now)
+    d.setHours(0, 0, 0, 0)
+    d.setDate(d.getDate() - n)
+    return d.getTime()
+  }
   const ms = updatedAt ?? 0
-  if (ms >= startOfToday) return { key: 'today', label: 'Today', order: 0 }
-  if (ms >= startOfToday - DAY) return { key: 'yesterday', label: 'Yesterday', order: 1 }
-  if (ms >= startOfToday - 7 * DAY) return { key: 'week', label: 'Previous 7 days', order: 2 }
-  if (ms >= startOfToday - 30 * DAY) return { key: 'month', label: 'Previous 30 days', order: 3 }
+  if (ms >= startNDaysAgo(0)) return { key: 'today', label: 'Today', order: 0 }
+  if (ms >= startNDaysAgo(1)) return { key: 'yesterday', label: 'Yesterday', order: 1 }
+  if (ms >= startNDaysAgo(7)) return { key: 'week', label: 'Previous 7 days', order: 2 }
+  if (ms >= startNDaysAgo(30)) return { key: 'month', label: 'Previous 30 days', order: 3 }
   return { key: 'older', label: 'Older', order: 4 }
 }
 

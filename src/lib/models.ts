@@ -145,6 +145,10 @@ export function parseModelChoice(label: string, providers: ModelProvider[]): { p
   const fallback = providers.find((p) => p.id === DEFAULT_PROVIDER_ID)
   const model = (fallback?.models ?? []).find((m) => label.includes(m.label) || label.includes(shortModelLabel(m.label)))
   const levels = effortLevelsFor(fallback, model)
-  const effort = levels.find((l) => new RegExp(`·\\s*${l}\\b`, 'i').test(label))
+  // Effort levels are a provider's OWN catalog strings (caller-suppliable via
+  // POST/PATCH /providers), so they may carry regex metacharacters — a level of
+  // `C++` or `A+` would make an unescaped interpolation throw and crash the
+  // picker's render. Match on the segment after the `·`, no regex.
+  const effort = levels.find((l) => label.split('·').some((seg) => seg.trim().toLowerCase() === l.toLowerCase()))
   return { pick: { ...(model ? { modelId: model.id } : {}) }, ...(effort ? { effort } : {}) }
 }

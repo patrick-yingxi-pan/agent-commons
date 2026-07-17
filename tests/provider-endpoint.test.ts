@@ -152,3 +152,20 @@ test('probeProviderEndpoint refuses an out-of-policy credential reference before
   )
   assert.equal(seen.length, hitsBefore, 'the endpoint was never contacted — the referenced secret never left the server')
 })
+
+test('a custom-endpoint provider NEVER inherits the ambient ANTHROPIC_API_KEY (credential exfiltration wall)', async () => {
+  // With the real key present, a config that supplies its own baseURL but no
+  // apiKeyEnv must NOT send the platform's key to that caller-supplied endpoint.
+  const prior = process.env.ANTHROPIC_API_KEY
+  process.env.ANTHROPIC_API_KEY = 'sk-ant-REAL-secret'
+  try {
+    const hitsBefore = seen.length
+    await probeProviderEndpoint({ baseURL: recorderUrl }) // no apiKeyEnv → the no-key sentinel, not the ambient secret
+    const sent = seen.slice(hitsBefore)
+    assert.ok(sent.length > 0, 'the endpoint WAS contacted (a valid, if key-less, config)')
+    assert.ok(sent.every((r) => r.apiKey !== 'sk-ant-REAL-secret'), 'the ambient key never reached the custom endpoint')
+  } finally {
+    if (prior === undefined) delete process.env.ANTHROPIC_API_KEY
+    else process.env.ANTHROPIC_API_KEY = prior
+  }
+})

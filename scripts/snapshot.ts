@@ -23,6 +23,7 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { dataFile, type PersistedState } from '../server/persist.ts'
+import { backendKind } from '../server/persistence/index.ts'
 
 /** The live store path — the SAME resolver the server reads/writes through
  *  (persist.ts owns the DATA_FILE-or-`.data/store.json` rule), imported rather
@@ -401,6 +402,17 @@ async function main(): Promise<void> {
   const [cmd, ...rest] = process.argv.slice(2)
   const args = rest.filter((a) => !a.startsWith('-'))
   const flags = rest.filter((a) => a.startsWith('-'))
+  // This tool operates on the JSON store file directly. Under a non-JSON backend
+  // (`PERSIST_BACKEND=sqlite`) the server never reads that file, so save/restore
+  // are misleading no-ops and `build` is WORSE — it boots the store against the
+  // live SQLite DB (only `DATA_FILE` is repointed, not `DATABASE_PATH`) and
+  // persists its playground mutations INTO the live DB before failing. Refuse up
+  // front rather than corrupt the live store.
+  if (backendKind() !== 'json' && (cmd === 'save' || cmd === 'restore' || cmd === 'build')) {
+    console.error(`snapshot: this tool is JSON-backend only, but PERSIST_BACKEND=${process.env.PERSIST_BACKEND}. Unset it to operate on .data/store.json.`)
+    process.exitCode = 1
+    return
+  }
   try {
     switch (cmd) {
       case 'save':

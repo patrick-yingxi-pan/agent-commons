@@ -57,3 +57,13 @@ test('sending to an unknown id does not create or persist anything', async () =>
   const got = await call('GET', '/sessions/ghost-unknown')
   assert.equal(got.status, 404, 'but no session was materialized')
 })
+
+test('GET /usage?session runs the foreign-session wall — a cross-tenant id is 404, not a token oracle', async () => {
+  // Tenant A materializes a session; tenant B must not read its context breakdown
+  // (token counts, resolved model) through the usage gauge.
+  const { json: session } = await call('POST', '/sessions', { firstMessage: 'private thread' }, { 'x-tenant-id': 'tenant-usage-oracle-a' })
+  const own = await call('GET', `/usage?session=${session.id}`, undefined, { 'x-tenant-id': 'tenant-usage-oracle-a' })
+  assert.equal(own.status, 200, 'the owner reads its own session usage')
+  const foreign = await call('GET', `/usage?session=${session.id}`, undefined, { 'x-tenant-id': 'tenant-usage-oracle-b' })
+  assert.equal(foreign.status, 404, 'a foreign tenant is refused — the same wall every by-id session route runs')
+})

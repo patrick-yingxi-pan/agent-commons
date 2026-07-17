@@ -110,7 +110,10 @@ export function estimateTokens(text: string): number {
 
 /** Format a token count for the gauge label: '850' · '12.3k' · '1.4M'. */
 export function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  // Promote at the ROUNDING boundary, not the raw one: 999,999 rounds to 1000.0k,
+  // which should read '1.0M'. `toFixed(1)` rounds half-up, so anything ≥ 999,950
+  // renders '1000.0k' in the k-branch — bump it into the M-branch.
+  if (n >= 999_950) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
   return String(Math.round(n))
 }

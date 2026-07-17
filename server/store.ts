@@ -275,6 +275,17 @@ function publicPeer(p: StoredA2aPeer): A2aPeer {
 const MAX_OPEN_PROPOSALS = 20
 const MAX_PROPOSAL_PROMPT_CHARS = 8000
 const MAX_PROPOSAL_NOTE_CHARS = 2000
+// Open-work backlog bounds — the SAME D23 posture. The backlog is the one
+// cross-tenant-WRITABLE store (any tenant posts to any shared project, and the
+// A2A edge accepts posts by default), and each post rewrites the whole
+// snapshot, so an uncapped count/field is an unbounded-growth primitive against
+// another tenant's project + the on-disk store. Cap the open count per project
+// and every free-text field.
+// Generous — the goal is only to prevent UNBOUNDED accumulation on a shared
+// project (and its snapshot); the tighter anti-spam bound is the per-tenant
+// notification inbox cap (200), which governs the fan-out a poster can inflict.
+const MAX_OPEN_WORK_PER_PROJECT = 1000
+const MAX_WORK_FIELD_CHARS = 2000
 
 /** The one redaction seam stored → wire: drop the proposer's raw tenant id and the
  *  act principals (FWD-5 Phase 1); serve display names + principal KINDs only. */
@@ -1739,6 +1750,18 @@ export const store = {
       case 'proposal.changed':
         // A proposal is a two-party negotiation (D25) — only proposer + owner streams.
         return e.parties.includes(tenantId)
+      case 'reservation.changed': {
+        // `resourceId` is `${guardianId}[:${subGoal}]` — the sub-goal suffix is free
+        // text (a private Project's claim name). It once fell through the global
+        // default, broadcasting that name to every tenant's stream (the run.* leak
+        // class, C31). Gate on the OWNING Project like openwork.changed: everyone
+        // while shared, owner-only while private; an unresolvable guardian (a bare
+        // context-element key with no project) stays flagship-scoped.
+        const guardianId = e.resourceId.split(':')[0]
+        const p = PROJECTS.find((x) => x.guardianId === guardianId) ?? graph.extraProjects.find((x) => x.guardianId === guardianId)
+        if (!p) return seedVisibleTo(tenantId)
+        return p.shared === true || rowVisibleTo(p, tenantId)
+      }
       default:
         return true
     }
@@ -3615,14 +3638,21 @@ export const store = {
    *  dispatch it to the Project's standing Contributors synchronously. Returns the item
    *  in its post-dispatch state: `done` when a standing Commission took it, `open` when
    *  none could (it stays visible in the backlog). The route validates visibility. */
-  postOpenSubGoal(projectId: string, req: PostOpenSubGoalRequest, tenantId: string, principal: PrincipalRef | undefined, via?: 'a2a', verifiedPeer?: string): OpenSubGoal {
+  postOpenSubGoal(projectId: string, req: PostOpenSubGoalRequest, tenantId: string, principal: PrincipalRef | undefined, via?: 'a2a', verifiedPeer?: string): OpenSubGoal | 'capped' {
+    // The backlog is a bounded queue, not a blob store: refuse once the project
+    // holds too many OPEN items (a hostile poster otherwise grows another
+    // tenant's backlog + the snapshot without limit), and cap every free-text
+    // field at the post funnel (the proposeAgentChange pattern).
+    if (openSubGoals.filter((o) => o.projectId === projectId && o.status === 'open').length >= MAX_OPEN_WORK_PER_PROJECT) {
+      return 'capped'
+    }
     const item: StoredOpenSubGoal = {
       id: `work-${(openSubGoalSeq += 1)}`,
       projectId,
-      subGoal: req.subGoal,
+      subGoal: req.subGoal.slice(0, MAX_WORK_FIELD_CHARS),
       type: req.type,
-      target: req.target,
-      note: req.note ?? '',
+      target: req.target.slice(0, MAX_WORK_FIELD_CHARS),
+      note: (req.note ?? '').slice(0, MAX_WORK_FIELD_CHARS),
       // D28: a verified peer's REGISTERED name is the attribution (never the
       // caller-supplied dev-seam headers); the stamp marks it verified.
       postedBy: verifiedPeer ?? tenantName(tenantId),

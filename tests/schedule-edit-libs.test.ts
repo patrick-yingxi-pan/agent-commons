@@ -107,3 +107,19 @@ test('parseModelChoice degrades an unrecognized label to the inherit default (ne
   assert.deepEqual(parseModelChoice('Some Unknown Model', PROVIDERS).pick, {})
   assert.deepEqual(parseModelChoice('', PROVIDERS).pick, {})
 })
+
+test('parseModelChoice does not choke on effort levels carrying regex metacharacters (caller-suppliable)', () => {
+  // A provider's effort levels are its OWN catalog strings (POST/PATCH /providers),
+  // so a level like `C++` once made an unescaped RegExp interpolation THROW and
+  // crash the picker's render. The match is now a plain segment compare.
+  const providers = [
+    {
+      id: 'provider-anthropic',
+      label: 'Default',
+      models: [{ id: 'm1', label: 'Model One', effortLevels: ['C++', 'A+', '(fast)'] }],
+    },
+  ] as unknown as Parameters<typeof parseModelChoice>[1]
+  assert.doesNotThrow(() => parseModelChoice('Model One · C++', providers))
+  assert.equal(parseModelChoice('Model One · C++', providers).effort, 'C++', 'the metachar level still matches')
+  assert.equal(parseModelChoice('Model One · A+', providers).effort, 'A+')
+})

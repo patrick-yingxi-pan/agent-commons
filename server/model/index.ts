@@ -106,10 +106,19 @@ function sse(res: import('node:http').ServerResponse, type: string, data: unknow
  *  matched), or `null` to return text. Built-in catalog intents first; failing those,
  *  a connector/MCP tool declared in *this* request (P6 — per-session tools the backend
  *  derived from the attached contexts). */
-function toolUseBlocks(messages: ReqMessage[], availableToolNames: string[]): Array<{ id: string; name: string; input: unknown }> | null {
+function toolUseBlocks(messages: ReqMessage[], availableToolNames: string[], toolsDeclared: boolean): Array<{ id: string; name: string; input: unknown }> | null {
   if (isToolResultTurn(messages)) return null // second turn → prose
   const text = lastUserText(messages)
-  const calls = matchIntents(text)
+  // Wire fidelity: a real Anthropic endpoint only emits `tool_use` for tools the
+  // request DECLARED. When the caller sent a `tools` array (the generate.ts path
+  // always does — even the empty grant `tools: []`), obey it, so an agent's
+  // restricted/empty allowlist can't be widened by the keyword matcher. A request
+  // with NO `tools` key at all is the standalone-mock dev convenience: fire the
+  // full intent catalog (backward compatible; the real security wall is the
+  // declared-set guard in generate.ts's executor).
+  const declared = new Set(availableToolNames)
+  const matched = matchIntents(text)
+  const calls = toolsDeclared ? matched.filter((c) => declared.has(c.name)) : matched
   const all = calls.length ? calls : matchConnectorTools(text, availableToolNames)
   if (!all.length) return null
   return all.map((c) => ({ id: nextToolId(), name: c.name, input: c.input }))
@@ -157,7 +166,7 @@ function handleMessages(req: import('node:http').IncomingMessage, res: import('n
     const inputTokens = promptChars >> 2
     const id = nextMessageId()
     const availableToolNames = (body.tools ?? []).map((t) => t.name)
-    const tools = toolUseBlocks(messages, availableToolNames)
+    const tools = toolUseBlocks(messages, availableToolNames, body.tools !== undefined)
 
     // ── Non-streaming: one JSON Message (tool_use or text) ───────────────────
     if (!body.stream) {

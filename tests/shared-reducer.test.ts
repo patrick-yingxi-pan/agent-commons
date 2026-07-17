@@ -10,6 +10,7 @@ import {
   applyGraphOp,
   describeOp,
   emptyGraph,
+  opAppliedInGraph,
   opKey,
   repoIdForLabel,
   slug,
@@ -132,6 +133,25 @@ test('save-artifact mints a fresh id, prepends the artifact, and files it under 
   assert.equal(art.name, 'Brief')
   assert.equal(art.id, 'art-test-1', 'the injected minter assigns the id (server uses a stable one, client a temp)')
   assert.equal(g.artifactProject[art.id], 'p1', 'filed under the project when one is given')
+})
+
+test('save-artifact is REPLAY-SAFE: re-applying the same save (a concurrent double-confirm) mints no duplicate', () => {
+  const op: RelationOp = { kind: 'save-artifact', artifact: { name: 'Brief', kind: 'doc', meta: 'm' }, sessionId: 's1', sessionTitle: 'S', projectId: 'p1' }
+  const g1 = applyGraphOp(emptyGraph(), op, mintIds())
+  const g2 = applyGraphOp(g1, op, mintIds())
+  assert.equal(g2.extraArtifacts.length, 1, 'the second apply of the same (name + source) is a no-op')
+  assert.equal(g2, g1, 'and returns the same graph reference (no needless churn)')
+})
+
+test('opAppliedInGraph: unscope-context reads APPLIED on a runtime-created project that never scoped anything (the vacuous case)', () => {
+  // A create-project seeds no projectContexts key; an unscope on it is vacuously
+  // satisfied (the label is absent). The old `in` guard held it pending forever,
+  // re-offering a confirmed card on reopen.
+  const g = applyGraphOp(emptyGraph(), { kind: 'create-project', projectId: 'p-new', projectName: 'New' }, mintIds())
+  assert.equal(opAppliedInGraph(g, { kind: 'unscope-context', projectId: 'p-new', contextLabel: 'Figma' }), true)
+  // Still reads NOT-applied while the label is present…
+  const scoped = applyGraphOp(g, { kind: 'scope-context', projectId: 'p-new', context: { label: 'Figma', kind: 'connector', meta: '' } }, mintIds())
+  assert.equal(opAppliedInGraph(scoped, { kind: 'unscope-context', projectId: 'p-new', contextLabel: 'Figma' }), false)
 })
 
 test('a sessionless save-artifact (the "New artifact" button) mints with a neutral source and files under a project', () => {

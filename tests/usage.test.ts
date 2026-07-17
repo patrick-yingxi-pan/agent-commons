@@ -16,6 +16,9 @@ test('estimateTokens / formatTokens: rough token math + human labels', () => {
   assert.equal(formatTokens(850), '850')
   assert.equal(formatTokens(12_300), '12.3k')
   assert.equal(formatTokens(1_400_000), '1.4M')
+  // The rounding boundary: 999,999 must not render '1000.0k' — it promotes to '1.0M'.
+  assert.equal(formatTokens(999_999), '1.0M')
+  assert.equal(formatTokens(999_400), '999.4k')
 })
 
 test('the meter accumulates real token usage into the rolling windows', () => {

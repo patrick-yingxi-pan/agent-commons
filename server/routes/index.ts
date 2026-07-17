@@ -719,6 +719,13 @@ export function buildRouter(): Router {
     if (typeof request.sessionId !== 'string' || typeof request.contextId !== 'string') {
       return sendError(res, 'bad_request', 'sessionId and contextId are required (context mediation)')
     }
+    // The caller must OWN the named session before we resolve its context bindings
+    // and execute a real capability in that context's scope — otherwise a tenant
+    // that learns another tenant's (sessionId, contextId) is a confused deputy on
+    // that context's host. The commissioned path adds `commissionActorDenied`
+    // below; this closes the legacy single-tenant path (same wall every by-id
+    // session route runs).
+    if (denyForeignSession(req, res, request.sessionId)) return
     const commandId = request.commandId ?? store.journal.mintCommandId()
     // Idempotency: a retry of an already-recorded command replays the effect.
     const prior = store.journal.find(runner.id, commandId)
@@ -831,7 +838,11 @@ export function buildRouter(): Router {
 
   // The runner's authoritative effect log (read-through). `?since=<seq>` returns
   // only the tail after a sequence number — the audit/projection read (D2/D3).
-  r.get('/runners/:id/effects', ({ res, params, url }) => {
+  r.get('/runners/:id/effects', ({ req, res, params, url }) => {
+    // The authoritative effect log (every host op's target + output) is runner-
+    // identity data, not tenant-scoped — gated by the SAME enrollment token as the
+    // lifecycle routes, or any signed-in tenant could read another's host activity.
+    if (!enrollmentAllowed(req)) return sendError(res, 'forbidden', 'runner enrollment requires a valid token')
     if (!store.registry.get(params.id)) return sendError(res, 'not_found', `No runner '${params.id}'`)
     const since = Number(url.searchParams.get('since') ?? 0) || 0
     sendJson(res, store.journal.log(params.id, since))
@@ -840,7 +851,11 @@ export function buildRouter(): Router {
   // A runner replays its outbox — effects it executed out-of-band (via the
   // co-located fast path, or while the server was unreachable). Merged idempotently
   // by commandId, then projected; returns what was newly projected + the cursor.
-  r.post('/runners/:id/sync', async ({ res, params, body }) => {
+  r.post('/runners/:id/sync', async ({ req, res, params, body }) => {
+    // Merging into the runner's AUTHORITATIVE log (the D2/D3 system of record audit
+    // and projection trust) is a runner-identity write — the same enrollment gate
+    // as heartbeat, or any signed-in tenant could inject fabricated effects.
+    if (!enrollmentAllowed(req)) return sendError(res, 'forbidden', 'runner enrollment requires a valid token')
     if (!store.registry.get(params.id)) return sendError(res, 'not_found', `No runner '${params.id}'`)
     const { effects } = await body<SyncEffectsRequest>()
     if (!Array.isArray(effects)) return sendError(res, 'bad_request', 'effects is required')
@@ -1507,7 +1522,9 @@ export function buildRouter(): Router {
     }
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     const who = store.identity(req.headers)
-    sendJson(res, store.postOpenSubGoal(params.id, { ...input, subGoal: input.subGoal.trim() }, who.tenant.id, userPrincipal(who)))
+    const out = store.postOpenSubGoal(params.id, { ...input, subGoal: input.subGoal.trim() }, who.tenant.id, userPrincipal(who))
+    if (out === 'capped') return sendError(res, 'conflict', 'This project’s backlog is at its open-item cap')
+    sendJson(res, out)
   })
   // D23 — the item's flat discussion thread: anyone who can SEE the project may
   // comment (the same wall as reading the backlog); attribution is the display name.
@@ -1740,6 +1757,7 @@ export function buildRouter(): Router {
       }
       const note = typeof data?.note === 'string' ? data.note : undefined
       const item = store.postOpenSubGoal(params.id, { subGoal, type, target, note }, store.identity(req.headers).tenant.id, undefined, 'a2a', peer?.name)
+      if (item === 'capped') return rpcError(res, id, A2A_ERROR.invalidParams, 'This project’s backlog is at its open-item cap')
       return rpcResult(res, id, taskFromOpenSubGoal(item))
     }
     if (rpc.method === 'tasks/get') {
@@ -2630,9 +2648,14 @@ export function buildRouter(): Router {
   // ── Usage (composer gauge: context window + plan limit windows) ────────────
   r.get('/usage', ({ req, res, url }) => {
     // Per-tenant plan windows (F2/PD9): the gauge shows the caller's own usage, not a
-    // global aggregate. The context breakdown is session-scoped as before.
+    // global aggregate. The context breakdown is session-scoped — and that session
+    // read runs the SAME visibility wall every other by-id session route runs, or
+    // `?session=<foreign id>` would be a cross-tenant token/model oracle (sequential
+    // ids make it enumerable).
+    const session = url.searchParams.get('session') ?? undefined
+    if (session && denyForeignSession(req, res, session)) return
     const tenantId = store.identity(req.headers).tenant.id
-    sendJson(res, store.usage(url.searchParams.get('session') ?? undefined, tenantId))
+    sendJson(res, store.usage(session, tenantId))
   })
 
   // ── Artifact bodies + schedule templates ──────────────────────────────────
