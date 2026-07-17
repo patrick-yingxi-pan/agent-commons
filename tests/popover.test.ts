@@ -80,6 +80,7 @@ const ANCHORED = [
   'src/components/Composer.tsx',
   'src/components/artifactPreview.tsx',
   'src/components/SectionView.tsx',
+  'src/components/RunHistoryMenu.tsx',
 ]
 
 /** Portal-fixed menus: position themselves, so they clamp via clampLeft. */

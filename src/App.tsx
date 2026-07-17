@@ -13,7 +13,7 @@ import { useShellRoutes } from './controller/useShellRoutes'
 import { hostsSession, paneLocationPath, setMainSplitScope } from './lib/mainSplit'
 import { SearchPanel } from './components/SearchPanel'
 import { NotificationsPanel } from './components/NotificationsPanel'
-import { keys, onSessionRemoved, peek, useCapabilities, useMe, useSessions, useServerEvents } from './api'
+import { onSessionRemoved, useCapabilities, useMe, useSessions, useServerEvents } from './api'
 import { conversations, useConversation } from './controller/conversationStore'
 import { sameFocus } from './lib/focus'
 import { setPanelPref } from './lib/panelPrefs'
@@ -25,7 +25,7 @@ import { NO_PENDING_FOCUS } from './lib/focusContext'
 import { SCRIM_CLASS } from './lib/scrim'
 import { SECTION_META } from './lib/sections'
 import { DRAFT_ID } from './data/liveSession'
-import type { SectionId, Session } from './types'
+import type { SectionId } from './types'
 
 /** The shell: decides WHICH top-level surface renders — the full-screen auth
  *  flow (multi-account §12) or the workspace. The auth screen shows when the
@@ -80,9 +80,6 @@ function Workspace() {
   const [searchOpen, setSearchOpen] = useState(false)
   // The notification inbox overlay (D24) — the rail bell's panel.
   const [notifOpen, setNotifOpen] = useState(false)
-  // A scheduled-run session's right panel (the run switcher) is open by default;
-  // closing it is per-session, so switching threads re-opens it.
-  const [runsPanelOpen, setRunsPanelOpen] = useState(true)
 
   // Subscribe to the backend's ambient event stream (scheduled runs, standing
   // approvals, connector status). The session list now comes from the server —
@@ -199,11 +196,9 @@ function Workspace() {
       ? SECTION_META[focusedContent.id].label
       : focusedContent?.kind === 'context-panel'
         ? (sessions.find((s) => s.id === focusedContent.sessionId)?.title ?? 'Context')
-        : focusedContent?.kind === 'mpicker'
-          ? 'Choose content'
-          : !focusedContent
-            ? '' // the BACKGROUND — the bar is the rail toggle's only home here
-            : null
+        : !focusedContent
+          ? '' // the BACKGROUND — the bar is the rail toggle's only home here
+          : null
 
   // Responsive layout ladder (FWD-3 / PD35): below a wide window the right panel
   // would crush the conversation column, so it overlays as a drawer (with a scrim)
@@ -245,12 +240,12 @@ function Workspace() {
   // provides the fresh-draft default when nothing fills the background.)
 
   // ── The FOCUSED conversation's context panel as a tree pane (Phase 6) ───────
-  // The focused pane's session + its STORE-held `focus` (or the run switcher
-  // for a run session — the row read live, falling back to the loadSession
-  // cache for rows the list doesn't carry) drive the projection: a real
-  // context PANE beside the conversation on the wide tier; the overlay tiers
-  // dock it (OverlayPanelDock). A focused CONTEXT pane keeps projecting for
-  // its OWNING session, so closing/re-opening panels doesn't flap.
+  // The focused pane's session + its STORE-held `focus` drive the projection:
+  // a real context PANE beside the conversation on the wide tier; the overlay
+  // tiers dock it (OverlayPanelDock). A focused CONTEXT pane keeps projecting
+  // for its OWNING session, so closing/re-opening panels doesn't flap. (A
+  // scheduled-run session's run history is NOT a panel — it floats as the
+  // title bar's click-down, UI-15.)
   const focusedSessionId =
     focusedContent?.kind === 'msession'
       ? focusedContent.id
@@ -258,41 +253,18 @@ function Workspace() {
         ? focusedContent.sessionId
         : null
 
-  // Re-open the run switcher when the focused CONVERSATION changes — keyed on
-  // the session (stable across a conversation and its own context pane), so a
-  // focus hop between the two can't resurrect a just-closed switcher.
-  useEffect(() => {
-    setRunsPanelOpen(true)
-  }, [focusedSessionId])
   const focusedConv = useConversation(focusedSessionId ?? DRAFT_ID)
-  const focusedRow = focusedSessionId
-    ? (sessions.find((s) => s.id === focusedSessionId) ?? peek<Session>(keys.session(focusedSessionId)))
-    : undefined
-  const focusedRunOf = focusedRow?.scheduledRunOf
   const focusedFocus = focusedSessionId ? focusedConv.focus : null
   const activePanel = useMemo<PaneContent | null>(
-    () =>
-      !focusedSessionId
-        ? null
-        : focusedFocus
-          ? { kind: focusedFocus.kind, id: focusedFocus.id }
-          : focusedRunOf && runsPanelOpen
-            ? { kind: 'runs', id: focusedRunOf.taskId }
-            : null,
-    [focusedSessionId, focusedFocus, focusedRunOf, runsPanelOpen],
+    () => (focusedSessionId && focusedFocus ? { kind: focusedFocus.kind, id: focusedFocus.id } : null),
+    [focusedSessionId, focusedFocus],
   )
-  // LATCHED while the focused session's row resolves (a run opened from the
-  // runs panel, a session not in the list yet): an unresolved row reads as
-  // "no panel" and would DISSOLVE + re-form the tree, remounting everything
-  // (the projection-latch rule — a transient unknown is not a definitive
-  // absence). The reconcile notify re-renders App, so the latch releases.
-  const focusedResolving = !!focusedSessionId && focusedSessionId !== DRAFT_ID && !focusedRow
   useEffect(() => {
     // No conversation focused (a section pane, the background) — leave the
     // tree as-is: an absent subject is not a "close the panel" instruction.
-    if (!focusedSessionId || focusedResolving) return
+    if (!focusedSessionId) return
     setFocusDrivenContext(focusedSessionId, tier === 'wide' ? activePanel : null)
-  }, [setFocusDrivenContext, focusedSessionId, tier, activePanel, focusedResolving])
+  }, [setFocusDrivenContext, focusedSessionId, tier, activePanel])
   // Split duplicates the FOCUSED pane's own content (every page equally —
   // the controller reads the leaf; no caller-supplied "what the primary
   // shows" since there is no primary).
@@ -311,20 +283,10 @@ function Workspace() {
 
   const mainPaneNav = useMemo<MainPaneNav>(
     () => ({
-      // A session door: with a CONTEXT pane focused (the run switcher's row
-      // click), the OWNING conversation's pane retargets in place — its
-      // context pane self-heals via the projection; otherwise the focused
-      // pane hosts the session (like every navigation).
-      onOpenSession: (id) => {
-        const c = focusedContentRef.current
-        if (c?.kind === 'context-panel') {
-          // A run-switcher row: the OWNING conversation retargets in place —
-          // and the panel itself swaps to the NEW session immediately (the
-          // projection can't heal it while the panel keeps focus).
-          adoptDraftPanes(c.sessionId, id)
-          setFocusDrivenContext(id, c.panel)
-        } else routeToFocused({ kind: 'msession', id })
-      },
+      // A session door from inside a pane (a section page's session list, the
+      // title bar's run-history click-down): the FOCUSED pane hosts the
+      // session, like every navigation.
+      onOpenSession: (id) => routeToFocused({ kind: 'msession', id }),
       onNewSession: newSession,
       onOpenProposal: openProposal,
       onOpenProject: openProject,
@@ -463,17 +425,13 @@ function Workspace() {
                 onCloseView={
                   tier === 'wide' && focusedClosable
                     ? () =>
-                        closeFocused((panel) => {
+                        closeFocused(() => {
                           // The focus-driven context panel: clear its OWNING
                           // session's STORE focus so the projection removes the
-                          // pane (panelPref remembers it closed, FWD-2). Closing
-                          // the RUN SWITCHER hides it; closing an attached-context
-                          // panel on a run session clears `focus` but LEAVES
-                          // runsPanelOpen, so the run switcher falls back in.
+                          // pane (panelPref remembers it closed, FWD-2).
                           const c = focusedContentRef.current
                           const sid = c?.kind === 'context-panel' ? c.sessionId : null
-                          if (panel.kind === 'runs') setRunsPanelOpen(false)
-                          else if (sid) {
+                          if (sid) {
                             conversations.setFocus(sid, null)
                             if (sid !== DRAFT_ID) setPanelPref(sid, null)
                           }
@@ -516,7 +474,7 @@ function Workspace() {
                   drawer / narrow takeover), the covered content is inert
                   (UI-8) — it leaves the tab order / accessibility tree. */}
               <section
-                inert={tier !== 'wide' && !!(focusedFocus || (focusedRunOf && runsPanelOpen))}
+                inert={tier !== 'wide' && !!focusedFocus}
                 className="flex min-h-0 min-w-0 flex-1 flex-col"
               >
                 {/* The notification-door focus target is provided PER PANE
@@ -542,10 +500,6 @@ function Workspace() {
                 <OverlayPanelDock
                   sessionId={focusedContent?.kind === 'msession' ? focusedContent.id : null}
                   tier={tier}
-                  runsPanelOpen={runsPanelOpen}
-                  onCloseRuns={() => setRunsPanelOpen(false)}
-                  onSelectRun={(id) => routeToFocused({ kind: 'msession', id })}
-                  onOpenRoutine={openSchedule}
                 />
               )}
             </div>

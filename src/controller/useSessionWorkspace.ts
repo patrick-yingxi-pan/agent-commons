@@ -73,8 +73,11 @@ export function useSessionWorkspace(split?: {
   /** Apply the BOOT address: same routing, plus the boot dedup — a restored
    *  pane already showing the address is FOCUSED instead of routed over
    *  (the address was the focused pane's own projection; the transient focus
-   *  cursor boots at the first pane, so a blind route would clobber it). */
-  applyBootRoute?: (routed: RoutedView | null) => void
+   *  cursor boots at the first pane, so a blind route would clobber it).
+   *  Returns false when it DEDUPED (focused an existing pane) — the boot
+   *  latch must release immediately then, since no focusedPath change will
+   *  re-run the URL effect to release it. */
+  applyBootRoute?: (routed: RoutedView | null) => boolean
   /** An entity DOOR (a notification bell, a palette hit, a relation card's
    *  "View in …") lands in the FOCUSED pane, seeded with its detail — like
    *  every navigation. */
@@ -143,7 +146,17 @@ export function useSessionWorkspace(split?: {
       // Latch the canonical target FIRST — the URL effect must hold pushes
       // until the routed page projects into focusedPath.
       bootTarget.current = pathForView(r.loc, r.subview ?? null)
-      ;(splitRef.current?.applyBootRoute ?? splitRef.current?.applyRouteToFocused)?.(r)
+      const bootRoute = splitRef.current?.applyBootRoute
+      if (bootRoute) {
+        // DEDUPED (an existing pane already shows the address): the projection
+        // matches by construction, and if that pane was already focused no
+        // focusedPath change will ever re-run the URL effect — release the
+        // latch now or every later push stays held (the reload-then-navigate
+        // address freeze).
+        if (!bootRoute(r)) bootTarget.current = null
+      } else {
+        splitRef.current?.applyRouteToFocused?.(r)
+      }
     }
     if (routed.loc.kind === 'session' && routed.loc.sessionId !== DRAFT_ID) {
       // A session address is VALIDATED first — a dead link (deleted / foreign)

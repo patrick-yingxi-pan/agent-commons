@@ -349,42 +349,42 @@ test('an entity DOOR (the ⌘K palette) lands in the FOCUSED pane, detail open �
   await expect(page.locator('[data-main-pane="a"]').getByText('token refresh logic').first()).toBeVisible()
 })
 
-test('switching runs from the runs panel swaps the context pane IN PLACE — no tree dissolve, no main-area remount', async ({ page }) => {
+test('a run session is ONE surface: run history floats as a click-down, never a second pane (UI-15)', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto('/')
-  // Open the scheduled routine's latest run from the rail: a run session tiles
-  // the run-switcher panel as a context pane (the runs panel).
+  // Open the scheduled routine's latest run from the rail: the run SESSION
+  // fills the focused pane ALONE — no run-switcher pane tiles beside it (the
+  // old two-split-windows look this locks out).
   await page.locator('aside').getByText('Triage new GitHub').first().click()
-  const ctx = page.locator('[data-context-pane]')
-  await expect(ctx).toHaveAttribute('data-context-pane', /^srun-.* runs /)
+  await expect(page).toHaveURL(/\/s\/srun-/)
+  await expect(page.locator('[data-context-pane]'), 'no runs pane tiles beside the thread').toHaveCount(0)
+  await expect(page.locator('[data-main-pane]')).toHaveCount(1)
   const firstUrl = new URL(page.url()).pathname
-  expect(firstUrl).toMatch(/^\/s\/srun-/)
 
-  // Stamp identity probes on the pane containers and the run rows. A run
-  // session's row RESOLVES ASYNC on open — the projection must hold (not
-  // project a transient "no panel") or the tree dissolves and everything
-  // remounts (the regression this locks: thread + runs list flashed and lost
-  // their scroll on every run click).
-  await page.evaluate(() => {
-    document.querySelectorAll('[data-main-pane]').forEach((el, i) => {
-      ;(el as HTMLElement & { __probe?: string }).__probe = `pane${i}`
-    })
-  })
-  // Click a DIFFERENT run (the rows name their recency; pick the last).
-  await ctx.getByRole('button').filter({ hasText: /steps/ }).last().click()
+  // RELOAD on the run session's own address: the boot dedup FOCUSES the
+  // restored pane (already focused — no focusedPath change), so the boot
+  // latch must self-release or every later URL push stays held (the
+  // reload-then-navigate address freeze this run-switch would then hit).
+  await page.reload()
+  await expect(page.locator('[data-session-title-bar]')).toBeVisible()
+
+  // The title bar carries the floating run-history click-down.
+  const bar = page.locator('[data-session-title-bar]')
+  await bar.getByRole('button', { name: 'Run history' }).click()
+  const menu = page.locator('[data-run-history]')
+  await expect(menu).toBeVisible()
+
+  // Selecting a DIFFERENT run retargets the SAME pane in place: the URL moves
+  // to the sibling run's session, the layout stays one pane, and the popover
+  // dismissed on selection.
+  await menu.getByRole('button').filter({ hasText: /steps/ }).last().click()
   await expect
     .poll(async () => new URL(page.url()).pathname, { message: 'the click navigates to another run session' })
     .not.toBe(firstUrl)
-  await expect(ctx).toHaveAttribute('data-context-pane', /^srun-.* runs /)
-
-  // The tree never dissolved: the SAME pane containers are still mounted.
-  const probes = await page.evaluate(() =>
-    [...document.querySelectorAll('[data-main-pane]')].map(
-      (el) => (el as HTMLElement & { __probe?: string }).__probe ?? 'REMOUNTED',
-    ),
-  )
-  expect(probes, 'pane containers survived the run switch (swap in place, not dissolve/re-form)').toEqual(['pane0', 'pane1'])
-  await expect(page.locator('[data-main-split]')).toHaveCount(1)
+  expect(new URL(page.url()).pathname).toMatch(/^\/s\/srun-/)
+  await expect(menu).toHaveCount(0)
+  await expect(page.locator('[data-main-pane]')).toHaveCount(1)
+  await expect(page.locator('[data-context-pane]')).toHaveCount(0)
 })
 
 test('the right panel folds into the tree: a repo session tiles its context PANEL beside the conversation (ADAPT-16 → ADAPT-17)', async ({ page }) => {

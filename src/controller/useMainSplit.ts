@@ -123,7 +123,8 @@ export function useMainSplit() {
     [commit],
   )
 
-  /** Fill a legacy picker pane (pre-duplicate blobs may still hold one). */
+  /** Replace a pane's content BY PATH (a section pane retargeting its own
+   *  leaf on a cross-section door). */
   const fillMainPane = useCallback(
     (path: string, content: MainPaneContent) => {
       const t = treeRef.current
@@ -144,20 +145,18 @@ export function useMainSplit() {
    *  pane (the owner's equal-pages model): the sibling inherits the slot;
    *  closing the LAST pane leaves the background. The one special case is
    *  the `focusDriven` CONTEXT pane — a transient projection of its session's
-   *  `focus`, so closing it clears the DRIVER via `onCloseActiveContext(panel)`
-   *  (the caller's `closePanel` / runs toggle) and the sync effect removes
-   *  the pane — keeping `focus` and the tree in step (detected off the pane's
-   *  MARKER, and passing the closed panel so the caller can fall back to the
-   *  run switcher on a run session). */
+   *  `focus`, so closing it clears the DRIVER via `onCloseActiveContext` (the
+   *  caller's `closePanel`) and the sync effect removes the pane — keeping
+   *  `focus` and the tree in step (detected off the pane's MARKER). */
   const closeFocused = useCallback(
-    (onCloseActiveContext?: (panel: PaneContent) => void) => {
+    (onCloseActiveContext?: () => void) => {
       const t = treeRef.current
       if (!t) return
       const path = focusedRef.current
       const node = nodeAt(t, path)
       if (node?.kind !== 'pane') return
       if (node.content.kind === 'context-panel' && node.content.focusDriven) {
-        onCloseActiveContext?.(node.content.panel)
+        onCloseActiveContext?.()
       } else {
         commit(closeMain(t, path))
       }

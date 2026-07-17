@@ -11,7 +11,10 @@
  *                 pane-local navigation state (sub-view, open detail) —
  *                 fully interactive; global data through the shared api hooks.
  *  - `context-panel` — a session's context panel as a full pane.
- *  - `mpicker`  — legacy empty pane (pre-duplicate blobs only).
+ *
+ *  Every kind is CONTENT (UI-15): choosers and switchers are floating chrome,
+ *  never panes — the retired `mpicker` picker panes and `runs`-switcher
+ *  context panes migrate out of persisted blobs (migrateMainSplit).
  *
  *  Persistence is PER ACCOUNT (the tree spans sessions), scoped like uiPrefs:
  *  the blob keys on the resolved user id, restore prunes at render, storage is
@@ -39,7 +42,7 @@ export type MainPaneContent =
   | { kind: 'msection'; id: SectionId; sub?: string | null; seed?: PaneSeed; at?: PaneAt }
   | { kind: 'msession'; id: string }
   // A session's context panel as a FULL pane (universal split Phase 4): the
-  // workspace / repo / connector / files / photos / run switcher, scoped to its
+  // workspace / repo / connector / files / photos, scoped to its
   // OWNING session (`sessionId`) and resolved against that session's keyed live —
   // no longer a separate right frame that splits its own inner view (ADAPT-16,
   // retired). `id` is the stable (session, panel) identity, so a chip re-click
@@ -50,10 +53,6 @@ export type MainPaneContent =
   // orphan it; a context pane DUPLICATED via the rail drops the flag and becomes
   // an independent PINNED pane (the old ADAPT-16 multi-pane tiling, for free).
   | { kind: 'context-panel'; id: string; sessionId: string; panel: PaneContent; focusDriven?: boolean }
-  // Legacy: pre-duplicate-split blobs may still hold empty picker panes; the
-  // UI renders them but nothing mints them anymore (a split now DUPLICATES
-  // the focused pane — no picker step).
-  | { kind: 'mpicker'; id: string }
 
 /** A section pane's LIVE location — the sub-view + open detail it reports. */
 export type PaneAt = { sub: string | null } & PaneSeed
@@ -90,18 +89,14 @@ export function paneLocationPath(c: MainPaneContent): string | null {
  *  kept (their content is a live registry read); a `context-panel` pane
  *  is kept only while its panel still resolves against its OWNING session's live
  *  (a detached repo / removed connector collapses it). `liveFor` returns a
- *  session's live (or undefined if it's gone — the pane collapses); `isRun` says
- *  whether a session is a scheduled-run session (the runs panel needs one). The
+ *  session's live (or undefined if it's gone — the pane collapses). The
  *  render passes this to `prunePanes` (splitFrame) — prune AT render, never in
  *  storage. */
-export function mainPaneKeep(
-  liveFor: (sessionId: string) => Live | undefined,
-  isRun: (sessionId: string) => boolean,
-): (c: MainPaneContent) => boolean {
+export function mainPaneKeep(liveFor: (sessionId: string) => Live | undefined): (c: MainPaneContent) => boolean {
   return (c) => {
     if (c.kind !== 'context-panel') return true
     const l = liveFor(c.sessionId)
-    return !!l && paneContentAlive(l, isRun(c.sessionId))(c.panel)
+    return !!l && paneContentAlive(l)(c.panel)
   }
 }
 
@@ -135,10 +130,8 @@ export const unpinnedContent = (c: MainPaneContent): MainPaneContent =>
 /** Whether a context panel's content still exists in the session — the prune
  *  predicate a detached repo / removed connector fails (its pane collapses).
  *  File / photo panes show the KIND's collection (their id is only the initial
- *  selection), so they survive while any attachment of that kind remains; a runs
- *  pane needs a run session. Shared with the legacy frame's prune
- *  (useSessionWorkspace) so there is ONE aliveness rule. */
-export function paneContentAlive(l: Live, isRunSession: boolean) {
+ *  selection), so they survive while any attachment of that kind remains. */
+export function paneContentAlive(l: Live) {
   return (c: PaneContent): boolean =>
     c.kind === 'workspace'
       ? l.workspaces.some((w) => w.id === c.id)
@@ -146,9 +139,7 @@ export function paneContentAlive(l: Live, isRunSession: boolean) {
         ? l.repos.some((r) => r.id === c.id)
         : c.kind === 'connector'
           ? l.connectors.some((x) => x.id === c.id)
-          : c.kind === 'runs'
-            ? isRunSession
-            : l.attachments.some((a) => a.kind === c.kind)
+          : l.attachments.some((a) => a.kind === c.kind)
 }
 
 /** Retarget every DRAFT conversation pane to the materialized session id — by
@@ -176,9 +167,6 @@ export function retargetDraftPanes(
   const next = walk(tree)
   return changed ? next : tree
 }
-
-let mainPickerSeq = 0
-export const newMainPicker = (): MainPaneContent => ({ kind: 'mpicker', id: `mpk-${(mainPickerSeq += 1)}` })
 
 /** Close a pane — the ONE close rule, every pane equal (Phase 6, the owner's
  *  model): the sibling inherits the freed slot; closing the LAST pane returns
@@ -257,16 +245,27 @@ export function getMainSplitPref(): MainSplitNode | null {
   }
 }
 
-/** Legacy-blob migration (pre-Phase 6): stored trees carried a
- *  `{kind:'primary'}` placeholder pane — a late-bound alias of the retired
- *  singleton surface, meaningless without one. Strip those leaves (the
- *  sibling inherits the slot); the boot flow re-opens the remembered page as
- *  a concrete pane. Exported for its lock (tests/main-split.test.ts). */
+/** Legacy-blob migration: stored trees may carry pane kinds later builds
+ *  retired — the `{kind:'primary'}` placeholder (pre-Phase 6, an alias of the
+ *  dissolved singleton surface), `mpicker` chooser panes (pre-duplicate-split
+ *  blobs), and `context-panel` panes holding the retired `runs` switcher (now
+ *  the title bar's floating run-history click-down — UI-15: a chooser is
+ *  chrome, never a pane). Strip those leaves (the sibling inherits the slot);
+ *  the boot flow re-opens the remembered page as a concrete pane. Exported
+ *  for its lock (tests/main-split.test.ts). */
 export function migrateMainSplit(tree: MainSplitNode | null): MainSplitNode | null {
+  const retired = (c: MainPaneContent): boolean => {
+    const kind = (c as { kind: string }).kind
+    return (
+      kind === 'primary' ||
+      kind === 'mpicker' ||
+      (kind === 'context-panel' && ((c as { panel?: { kind?: string } }).panel?.kind as string) === 'runs')
+    )
+  }
   let next = tree
   // Re-collect after each close — paths shift as leaves collapse.
   for (;;) {
-    const legacy = panes(next).find((p) => (p.content as { kind: string }).kind === 'primary')
+    const legacy = panes(next).find((p) => retired(p.content))
     if (!legacy || !next) return next
     next = closePane(next, legacy.path)
   }

@@ -96,18 +96,24 @@ export function useShellRoutes({
     }
   }, [mainTree, routeToFocused])
   // The boot dedup (see the header) — an address a restored pane already
-  // shows FOCUSES that pane instead of routing over another.
+  // shows FOCUSES that pane instead of routing over another. Returns whether
+  // it ROUTED (true) or merely focused an existing pane (false): a dedup means
+  // the projection already matches the address, so the caller's boot latch has
+  // nothing to hold — and, when the matched pane was already focused, no
+  // focusedPath change would ever re-run the URL effect to release it (the
+  // reload-then-navigate address freeze).
   const applyBootRoute = useCallback(
-    (routed: RoutedView | null): void => {
+    (routed: RoutedView | null): boolean => {
       if (routed && mainTree) {
         const target = window.location.pathname
         const match = panes(mainTree).find((p) => paneLocationPath(p.content) === target)
         if (match) {
           focusMainPane(match.path)
-          return
+          return false
         }
       }
       applyRouteToFocused(routed)
+      return true
     },
     [mainTree, focusMainPane, applyRouteToFocused],
   )

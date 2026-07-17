@@ -1,7 +1,7 @@
 /** ── Pane chrome context (universal split Phase 4) ───────────────────────────
  *  How a context panel renders EDGE TO EDGE inside a universal-tree pane without
  *  touching the panel bodies: every context panel (workspace/repo, connector,
- *  attachments, runs) renders through the ONE PanelShell, so ContextPanelView
+ *  attachments) renders through the ONE PanelShell, so ContextPanelView
  *  provides this context and PanelShell adapts — `embedded` drops the shell's own
  *  width / slide animation (the pane's split node owns geometry) AND its own
  *  close X (the rail cluster closes the focused pane, homogeneous with every

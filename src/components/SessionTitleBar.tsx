@@ -11,6 +11,7 @@ import type { ReactNode } from 'react'
 import { CalendarClock, Folder } from 'lucide-react'
 import type { Session } from '../types'
 import { useRelations } from '../controller/useRelations'
+import { RunHistoryMenu } from './RunHistoryMenu'
 
 /** The slice of a Session the bar reads — a pane without the full server row
  *  (a run session outside the list) can pass a shell. */
@@ -22,6 +23,7 @@ export function SessionTitleBar({
   leading,
   onOpenProject,
   onOpenSchedule,
+  onSelectRun,
 }: {
   session: TitleBarSession
   /** Primary-surface indent: false reserves room for the floating rail-reopen
@@ -31,6 +33,10 @@ export function SessionTitleBar({
   leading?: ReactNode
   onOpenProject: (id: string) => void
   onOpenSchedule: (id: string) => void
+  /** A scheduled-run session's sibling-run navigation — the floating
+   *  run-history click-down at the bar's right (UI-15: a switcher is chrome,
+   *  never a pane). Selecting a run opens its session in place. */
+  onSelectRun?: (sessionId: string) => void
 }) {
   const { projectForSessionId } = useRelations()
   // A scheduled run's session belongs to its routine, not a project — the server
@@ -75,6 +81,9 @@ export function SessionTitleBar({
           </button>
         )}
       </div>
+      {runOf && onSelectRun && (
+        <RunHistoryMenu taskId={runOf.taskId} activeRunSessionId={session.id} onSelectRun={onSelectRun} />
+      )}
     </div>
   )
 }

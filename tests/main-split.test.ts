@@ -15,7 +15,6 @@ import {
   hostsSession,
   mainPaneKeep,
   migrateMainSplit,
-  newMainPicker,
   paneContentAlive,
   retargetDraftPanes,
   setFocusDrivenContextTree,
@@ -43,13 +42,13 @@ test('the generic tree instantiates with the main vocabulary — every pane an E
   )
 })
 
-test('mpicker panes survive pruning (the generic picker rule covers both vocabularies)', () => {
-  const tree = splitPane(splitPane(pane(auth), '', 'row', newMainPicker()), 'a', 'col', projects)
+test('prunePanes keeps exactly what the predicate keeps — no kind is special-cased (UI-15: no chooser panes exist)', () => {
+  const tree = splitPane(splitPane(pane(auth), '', 'row', artifacts), 'a', 'col', projects)
   const pruned = prunePanes(tree, (c) => c.kind !== 'msection')
   assert.deepEqual(
     panes(pruned).map((p) => p.content.kind),
-    ['msession', 'mpicker'],
-    'the section pane pruned away; the conversation and the picker stayed',
+    ['msession'],
+    'both section panes pruned away; only the conversation stayed',
   )
 })
 
@@ -75,7 +74,7 @@ test('an msection pane carries its facet (`sub`) through the JSON round-trip —
   assert.equal(leaf && leaf.content.kind === 'msection' ? leaf.content.sub : undefined, 'mine')
 })
 
-test('migrateMainSplit strips legacy {kind:"primary"} leaves — the sibling inherits; a lone legacy pane → null', () => {
+test('migrateMainSplit strips every retired leaf kind — primary, mpicker, and runs-switcher context panes', () => {
   const legacyPrimary = { kind: 'primary', id: 'primary' } as unknown as MainPaneContent
   // A pre-Phase-6 blob: [primary | projects].
   const legacy = splitPane(pane(legacyPrimary), '', 'row', projects)
@@ -85,6 +84,26 @@ test('migrateMainSplit strips legacy {kind:"primary"} leaves — the sibling inh
   // A blob that was ONLY the primary migrates to null — the boot flow re-opens
   // the remembered page as a concrete pane.
   assert.equal(migrateMainSplit(pane(legacyPrimary)), null)
+  // A pre-UI-15 blob may hold CHOOSER panes — the mpicker picker and the
+  // runs-switcher context pane (now the title bar's floating click-down).
+  // Both strip; their content siblings survive.
+  const mpicker = { kind: 'mpicker', id: 'mpk-1' } as unknown as MainPaneContent
+  const runsPane = {
+    kind: 'context-panel',
+    id: 'srun-1 runs t1',
+    sessionId: 'srun-1',
+    panel: { kind: 'runs', id: 't1' },
+  } as unknown as MainPaneContent
+  const choosers = splitPane(splitPane(pane(auth), '', 'row', mpicker), 'b', 'col', runsPane)
+  const clean = migrateMainSplit(choosers)
+  assert.deepEqual(
+    panes(clean).map((p) => p.content.kind),
+    ['msession'],
+    'both chooser leaves stripped; the conversation inherits',
+  )
+  // A REAL context pane is untouched — only the runs switcher is retired.
+  const modernCtx = splitPane(pane(auth), '', 'row', contextPaneContent('auth-refactor', { kind: 'repo', id: 'repo-demo' }))
+  assert.equal(migrateMainSplit(modernCtx), modernCtx)
   // A modern tree passes through untouched (same reference).
   const modern = splitPane(pane(auth), '', 'row', projects)
   assert.equal(migrateMainSplit(modern), modern)
@@ -153,21 +172,17 @@ test('context-pane identity dedups on (session, panel): a chip re-click focuses,
   assert.notEqual(a.id, contextPaneContent('auth-refactor', wsPanel).id)
 })
 
-test('paneContentAlive: a detached repo dies; files survive on the KIND; runs need a run session', () => {
-  const withRepo = paneContentAlive(liveWith({ repos: [{ id: 'repo-demo' } as Live['repos'][number]] }), false)
+test('paneContentAlive: a detached repo dies; files survive on the KIND', () => {
+  const withRepo = paneContentAlive(liveWith({ repos: [{ id: 'repo-demo' } as Live['repos'][number]] }))
   assert.equal(withRepo(repoPanel), true)
   assert.equal(withRepo({ kind: 'repo', id: 'gone' }), false, 'a detached repo collapses its pane')
 
   const withFile = paneContentAlive(
     liveWith({ attachments: [{ kind: 'file', id: 'f2' } as Live['attachments'][number]] }),
-    false,
   )
   // The pane's id was the initially-clicked file; it survives on ANY file remaining.
   assert.equal(withFile({ kind: 'file', id: 'f1-clicked' }), true)
   assert.equal(withFile({ kind: 'photo', id: 'p1' }), false)
-
-  assert.equal(paneContentAlive(liveWith({}), true)({ kind: 'runs', id: 't1' }), true)
-  assert.equal(paneContentAlive(liveWith({}), false)({ kind: 'runs', id: 't1' }), false)
 })
 
 test('mainPaneKeep + prunePanes: a context pane collapses when its panel or session vanishes; siblings stay', () => {
@@ -185,7 +200,7 @@ test('mainPaneKeep + prunePanes: a context pane collapses when its panel or sess
   )
   const liveFor = (id: string): Live | undefined =>
     id === 'auth-refactor' ? liveWith({ repos: [{ id: 'repo-demo' } as Live['repos'][number]] }) : undefined
-  const pruned = prunePanes(tree, mainPaneKeep(liveFor, () => false))
+  const pruned = prunePanes(tree, mainPaneKeep(liveFor))
   assert.deepEqual(
     panes(pruned).map((p) => p.content.kind),
     ['msession', 'context-panel', 'msection'],

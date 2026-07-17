@@ -1,7 +1,7 @@
 /** ── The ONE context-panel surface (universal split Phase 4) ─────────────────
  *  The panel-side twin of ConversationView: the fully-fledged view of a
- *  session's attached context — workspace / repo / connector / files / photos /
- *  the run switcher — resolved against the OWNING session's keyed live (so a
+ *  session's attached context — workspace / repo / connector / files / photos
+ *  — resolved against the OWNING session's keyed live (so a
  *  context pane tracks ITS session's attaches, not the primary's) and rendered
  *  edge to edge in its pane. It is a FULL pane in the one main split tree, no
  *  longer a separate right frame that split its own inner view (ADAPT-16,
@@ -17,7 +17,6 @@ import { PaneChromeContext, type PaneChrome } from './paneChrome'
 import { WorkspacePanel } from './WorkspacePanel'
 import { ConnectorPanel } from './ConnectorPanel'
 import { AttachmentPanel } from './AttachmentPanel'
-import { RunsPanel } from './RunsPanel'
 import { usePaneConversation } from '../controller/usePaneConversation'
 import { useSessionContextCommands } from '../controller/useSessionContextCommands'
 import { contextPaneId } from '../lib/mainSplit'
@@ -32,16 +31,10 @@ const noop = () => {}
 export function ContextPanelView({
   sessionId,
   panel,
-  onOpenSession,
-  onOpenSchedule,
   onGone,
 }: {
   sessionId: string
   panel: PaneContent
-  /** Global doors the run switcher hands off (open a run session / its routine)
-   *  — these land on the primary surface where conversations live. */
-  onOpenSession: (id: string) => void
-  onOpenSchedule: (taskId: string) => void
   /** LIVE PRUNE: called once the panel's subject is DEFINITIVELY gone — the
    *  owning session's entry reflects a server read (`reconciled`, the
    *  authority latch) and the panel no longer resolves in it. The tree host
@@ -81,16 +74,6 @@ export function ContextPanelView({
             onRemove={removeAttachment}
           />
         )
-      case 'runs':
-        return (
-          <RunsPanel
-            taskId={panel.id}
-            activeRunSessionId={sessionId}
-            onSelectRun={onOpenSession}
-            onOpenRoutine={onOpenSchedule}
-            onClose={noop}
-          />
-        )
       default:
         return null
     }
@@ -99,8 +82,7 @@ export function ContextPanelView({
   // LIVE PRUNE: an unresolvable panel is only DEFINITIVELY gone once the
   // session's entry reflects a server read (`reconciled` — the authority
   // latch; a mirror-seeded live missing a runtime attach is a transient
-  // unknown, never a prune signal). The run switcher (`runs`) always renders,
-  // so it never reports gone.
+  // unknown, never a prune signal).
   const gone = !body && reconciled
   useEffect(() => {
     if (gone) onGone?.()

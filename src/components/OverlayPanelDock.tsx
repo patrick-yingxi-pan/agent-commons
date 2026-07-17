@@ -8,61 +8,27 @@
 import { AnimatePresence } from 'framer-motion'
 import { conversations, useConversation } from '../controller/conversationStore'
 import { useSessionContextCommands } from '../controller/useSessionContextCommands'
-import { useSessions } from '../api'
 import { setPanelPref } from '../lib/panelPrefs'
 import { SCRIM_CLASS } from '../lib/scrim'
 import { DRAFT_ID } from '../data/liveSession'
 import { WorkspacePanel } from './WorkspacePanel'
-import { RunsPanel } from './RunsPanel'
 import { ConnectorPanel } from './ConnectorPanel'
 import { AttachmentPanel } from './AttachmentPanel'
 
 export function OverlayPanelDock({
   sessionId,
   tier,
-  runsPanelOpen,
-  onCloseRuns,
-  onSelectRun,
-  onOpenRoutine,
 }: {
   /** The focused pane's session (null = a section/panel pane is focused — no dock). */
   sessionId: string | null
   tier: 'medium' | 'narrow'
-  runsPanelOpen: boolean
-  onCloseRuns: () => void
-  onSelectRun: (sessionId: string) => void
-  onOpenRoutine: (taskId: string) => void
 }) {
   if (!sessionId) return null
-  return (
-    <Dock
-      sessionId={sessionId}
-      tier={tier}
-      runsPanelOpen={runsPanelOpen}
-      onCloseRuns={onCloseRuns}
-      onSelectRun={onSelectRun}
-      onOpenRoutine={onOpenRoutine}
-    />
-  )
+  return <Dock sessionId={sessionId} tier={tier} />
 }
 
-function Dock({
-  sessionId,
-  tier,
-  runsPanelOpen,
-  onCloseRuns,
-  onSelectRun,
-  onOpenRoutine,
-}: {
-  sessionId: string
-  tier: 'medium' | 'narrow'
-  runsPanelOpen: boolean
-  onCloseRuns: () => void
-  onSelectRun: (sessionId: string) => void
-  onOpenRoutine: (taskId: string) => void
-}) {
+function Dock({ sessionId, tier }: { sessionId: string; tier: 'medium' | 'narrow' }) {
   const { live, focus } = useConversation(sessionId)
-  const row = (useSessions().data ?? []).find((s) => s.id === sessionId)
   const { removeContexts, removeFolder } = useSessionContextCommands(sessionId)
 
   const closePanel = () => {
@@ -74,20 +40,12 @@ function Dock({
   const focusedWorkspace = focus?.kind === 'workspace' ? live.workspaces.find((w) => w.id === focus.id) : undefined
   const focusedRepo = focus?.kind === 'repo' ? live.repos.find((r) => r.id === focus.id) : undefined
   const focusedConnector = focus?.kind === 'connector' ? live.connectors.find((c) => c.id === focus.id) : undefined
-  const isRunSession = !!row?.scheduledRunOf
-  const panelOpen = !!focus || (isRunSession && runsPanelOpen)
+  const panelOpen = !!focus
 
   return (
     <>
       {tier === 'medium' && panelOpen && (
-        <div
-          className={`${SCRIM_CLASS} z-20`}
-          aria-hidden
-          onClick={() => {
-            closePanel()
-            onCloseRuns()
-          }}
-        />
+        <div className={`${SCRIM_CLASS} z-20`} aria-hidden onClick={closePanel} />
       )}
       <div
         className={
@@ -110,21 +68,6 @@ function Dock({
               repo={focusedRepo}
               onClose={closePanel}
               onRemoveFolder={removeFolder}
-            />
-          )}
-        </AnimatePresence>
-
-        {/* A scheduled-run session's run switcher — its default panel.
-            Yields to a focused-context panel (a chip click still works). */}
-        <AnimatePresence>
-          {isRunSession && !focus && runsPanelOpen && row?.scheduledRunOf && (
-            <RunsPanel
-              key="runs"
-              taskId={row.scheduledRunOf.taskId}
-              activeRunSessionId={sessionId}
-              onSelectRun={onSelectRun}
-              onOpenRoutine={onOpenRoutine}
-              onClose={onCloseRuns}
             />
           )}
         </AnimatePresence>

@@ -41,7 +41,7 @@ One split tree spans the whole workspace surface right of the rail. Leaves are
 |---|---|---|
 | `conversation` | one session: thread + composer + consent cards | full — its own composer, its own streaming turn, its own escalation cards |
 | `section` | a section page (Projects, Artifacts, Contexts, Models, Agents, Scheduled, …) with its own sub-view and detail focus (a project page, an agent page, …) | full — per-pane local nav state; global data through the shared api hooks |
-| `context-panel` | a session-scoped context panel (workspace / repo / connector / files / photos / runs), referencing `(sessionId, focus)` | full — the same panels the right frame hosts today (Phase 4) |
+| `context-panel` | a session-scoped context panel (workspace / repo / connector / files / photos), referencing `(sessionId, focus)` — CONTENT only: a chooser/switcher is floating chrome, never a pane (UI-15, step 9) | full — the same panels the right frame hosts today (Phase 4) |
 
 Splits nest arbitrarily (row/col binary tree, ratio per split — the
 `splitFrame.ts` model, generalized over the content type). Dividers are the ONE
@@ -353,6 +353,26 @@ collapses); prune at render, never in storage.
         flash. Locked by `tests/shell-nav.test.ts`.
       Phases 1–8 complete: nothing remains open on the universal-split
       punch list.
+   9. ✅ **Choosers out of the pane vocabulary — LANDED 2026-07-17 (UI-15).**
+      Owner report: opening a scheduled run read as "two split windows" —
+      the run-history LIST tiled as a `runs` context pane beside the thread.
+      The rule it earned (docs/ui-invariants.md UI-15): **a chooser is
+      chrome, never a pane** — navigation among siblings floats as a
+      click-down; panes hold content. The runs pane, its overlay dock, and
+      its App plumbing (`runsPanelOpen`, the runs projection fallback, the
+      run-switcher branch in `onOpenSession`/close) are gone; run switching
+      is `RunHistoryMenu`, a title-bar popover on the shared funnel whose
+      selection retargets the hosting pane through the ONE session door. The
+      dormant `mpicker`/`picker` chooser kinds retired with it (nothing
+      minted them since duplicate-on-split); `migrateMainSplit` strips all
+      chooser leaves from legacy blobs. The row-resolution projection LATCH
+      retired too — with the runs fallback gone the projection reads only
+      STORE state (`focus`), which has no transient-unknown window (the
+      latch lesson below stays: it applies whenever a projection reads an
+      async-resolving input). Locked by `tests/run-history.test.ts`,
+      the migration + single-arg aliveness locks in
+      `tests/main-split.test.ts`, and the rewritten one-pane run e2e in
+      `e2e/main-split.spec.ts`.
 
 ## 4. Decisions locked by the owner (2026-07-15)
 

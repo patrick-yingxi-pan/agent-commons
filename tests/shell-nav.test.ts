@@ -109,7 +109,6 @@ test("the narrow tier's rail toggle reaches EVERY focused surface (a title-bar-l
   const block = app.slice(app.indexOf('const narrowBarTitle'), app.indexOf('const { tier } = useViewport()'))
   assert.match(block, /'msection'/, 'section pages get the NarrowBar')
   assert.match(block, /'context-panel'/, 'a pinned context pane gets it (titled after its conversation)')
-  assert.match(block, /'mpicker'/, 'a legacy picker gets it')
   assert.match(block, /!focusedContent\s*\?\s*''/, 'the BACKGROUND gets it — its "open from the sidebar" advice needs a sidebar toggle')
 })
 

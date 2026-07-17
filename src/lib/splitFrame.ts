@@ -26,12 +26,13 @@ export interface PaneId {
   id: string
 }
 
-/** What one RIGHT-PANEL pane shows (the ADAPT-16 frame's vocabulary). The
- *  first five mirror PanelFocus kinds; 'runs' is the scheduled-run switcher
- *  (today the one panel that exists WITHOUT a focus); 'picker' is an empty
- *  pane awaiting the user's choice of content. */
+/** What one CONTEXT-PANEL pane shows — the kinds mirror PanelFocus: real
+ *  attached CONTENT only, never a chooser or a switcher (UI-15,
+ *  docs/ui-invariants.md — navigation lists float as popovers; the retired
+ *  'runs' switcher and 'picker' kinds migrate out of persisted trees in
+ *  mainSplit's migrateMainSplit). */
 export interface PaneContent {
-  kind: 'workspace' | 'repo' | 'connector' | 'file' | 'photo' | 'runs' | 'picker'
+  kind: 'workspace' | 'repo' | 'connector' | 'file' | 'photo'
   id: string
 }
 
@@ -132,12 +133,11 @@ export function setRatio<C extends PaneId>(root: SplitNode<C>, path: string, rat
 }
 
 /** Drop panes whose content no longer exists (a detached repo, a removed
- *  connector, a deleted session), collapsing their splits — 'picker'-kind
- *  panes always survive (they name nothing). Returns null when nothing
- *  keepable remains. */
+ *  connector, a deleted session), collapsing their splits. Returns null when
+ *  nothing keepable remains. */
 export function prunePanes<C extends PaneId>(root: SplitNode<C> | null, keep: (content: C) => boolean): SplitNode<C> | null {
   if (!root) return null
-  if (root.kind === 'pane') return root.content.kind.endsWith('picker') || keep(root.content) ? root : null
+  if (root.kind === 'pane') return keep(root.content) ? root : null
   const a = prunePanes(root.a, keep)
   const b = prunePanes(root.b, keep)
   if (a && b) return a === root.a && b === root.b ? root : { ...root, a, b }

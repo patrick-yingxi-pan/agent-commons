@@ -19,7 +19,6 @@ import { ResizeHandle } from './ResizeHandle'
 import { SectionPane } from './SectionPane'
 import { ConversationPane } from './ConversationPane'
 import { ContextPanelView } from './ContextPanelView'
-import { MainPicker } from './MainPicker'
 import { clampRatio, nodeAt, panes } from '../lib/splitFrame'
 import type { MainPaneContent, MainSplitNode, PaneAt } from '../lib/mainSplit'
 import type { PanelFocus } from '../types'
@@ -206,16 +205,12 @@ function PaneBody({
     />
   ) : c.kind === 'msession' ? (
     <ConversationPane sessionId={c.id} nav={nav} />
-  ) : c.kind === 'context-panel' ? (
+  ) : (
     <ContextPanelView
       sessionId={c.sessionId}
       panel={c.panel}
-      onOpenSession={nav.onOpenSession}
-      onOpenSchedule={nav.onOpenSchedule}
       onGone={nav.onPaneSubjectGone ? () => nav.onPaneSubjectGone!(path, c) : undefined}
     />
-  ) : (
-    <MainPicker onPick={(content) => onFillPane(path, content)} />
   )
   // The notification-door focus target, scoped to THIS pane (nav.focusCtxFor
   // answers non-null only for the pane the door landed in) — without a host
@@ -297,6 +292,6 @@ function Branch(props: BranchProps) {
   )
 }
 
-/* SectionPane, ConversationPane and MainPicker live in their own files now
- * (./SectionPane, ./ConversationPane, ./MainPicker) — this file is only the
+/* SectionPane and ConversationPane live in their own files
+ * (./SectionPane, ./ConversationPane) — this file is only the
  * frame: the gate, the tree renderer, and the one shared leaf renderer. */

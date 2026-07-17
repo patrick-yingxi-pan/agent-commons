@@ -12,7 +12,8 @@ import { SessionTitleBar } from './SessionTitleBar'
 import { ConversationView } from './ConversationView'
 import { EmptyState } from './EmptyState'
 import type { MainPaneNav } from './MainSplit'
-import { useSessions, useProviders, compactSession, keys, patchSession, peek } from '../api'
+import { useSessions, useSchedules, useProviders, compactSession, keys, patchSession, peek } from '../api'
+import { runSessionId } from '../../contract/ids.ts'
 import { pickedModel, pickedProvider, type ModelPick } from '../lib/models'
 import { loadModelPrefs } from '../lib/modelPrefs'
 import { conversations } from '../controller/conversationStore'
@@ -32,6 +33,22 @@ export function ConversationPane({ sessionId, nav }: { sessionId: string; nav: M
     (useSessions().data ?? []).find((s) => s.id === sessionId) ?? peek<Session>(keys.session(sessionId))
   const isDraft = sessionId === DRAFT_ID
   const providers = useProviders().data ?? []
+
+  // A run session's row isn't in the sessions list, and on its FIRST visit it
+  // isn't in the loadSession cache either — but its ROUTINE identity already
+  // sits in the live schedules registry (the run-history click-down that
+  // navigated here read it). Deriving `scheduledRunOf` from that registry
+  // keeps the title, breadcrumb, and run switcher mounted across a run switch
+  // instead of blinking out until the server row resolves (UI-12: read the
+  // live source).
+  const schedules = useSchedules().data ?? []
+  const runOfFallback = useMemo(() => {
+    if (row) return undefined
+    for (const t of schedules) {
+      if (t.runs.some((r) => runSessionId(t.id, r.id) === sessionId)) return { taskId: t.id, taskName: t.name }
+    }
+    return undefined
+  }, [row, schedules, sessionId])
 
   // The DRAFT's model pick is held locally (no server row to PATCH) — seeded
   // from the Customize default prefs, WRITABLE (the composer's picker), and
@@ -116,10 +133,20 @@ export function ConversationPane({ sessionId, nav }: { sessionId: string; nav: M
       {/* The SAME title bar every conversation wears (a run session outside
           the live list falls back to a title-only shell). */}
       <SessionTitleBar
-        session={row ?? { id: sessionId, title: isDraft ? 'New session' : nav.sessionLabel(sessionId) }}
+        session={
+          row ?? {
+            id: sessionId,
+            title: isDraft ? 'New session' : (runOfFallback?.taskName ?? nav.sessionLabel(sessionId)),
+            scheduledRunOf: runOfFallback,
+          }
+        }
         leading={nav.railToggle}
         onOpenProject={nav.onOpenProject}
         onOpenSchedule={nav.onOpenSchedule}
+        // A run session's floating run-history click-down (UI-15): selecting a
+        // sibling run retargets THIS pane in place — the same session door as
+        // every navigation.
+        onSelectRun={nav.onOpenSession}
       />
       <ConversationView
         sessionId={sessionId}
