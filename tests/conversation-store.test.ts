@@ -120,6 +120,26 @@ test('reconcile replaces live WITHOUT staling the stream, and refuses after a re
   assert.equal(store.get('s').live.messages.length, 0)
 })
 
+test('clearAll BUMPS epochs (monotonic), staling an in-flight stream that captured since===0 — the account-switch fence', async () => {
+  const { transport, sends } = fakeTransport()
+  const store = createConversationStore(transport, empty)
+  // A stream on a session whose epoch was never bumped captures since === 0 (the
+  // just-adopted-draft case: adopt leaves the target epoch untouched).
+  assert.equal(store.epoch('s'), 0)
+  void store.sendTurn('s', 'q')
+  await tick()
+  sends[0]!.handlers.onStart?.('m', shell('m'))
+  sends[0]!.handlers.onDelta?.('m', 'from old account')
+  assert.equal(store.get('s').live.messages.at(-1)?.content, 'from old account')
+  // Account switch: clearAll must BUMP (not clear) the epoch, or it would rewind
+  // to 0 and the outgoing account's still-running stream would keep writing into
+  // the NEW account's store.
+  store.clearAll()
+  assert.ok(store.epoch('s') > 0, 'the epoch advanced, it was not rewound to 0')
+  sends[0]!.handlers.onDelta?.('m', ' MUST NOT land')
+  assert.equal(store.get('s').live.messages.length, 0, "the old account's post-switch deltas are refused")
+})
+
 test('reconciled is the AUTHORITY latch: false until a server read lands; reset clears it (live prune gates on it)', () => {
   const { transport } = fakeTransport()
   const store = createConversationStore(transport, empty)

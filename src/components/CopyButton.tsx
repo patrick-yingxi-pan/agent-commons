@@ -37,18 +37,29 @@ export function CopyButton({
     const t = setTimeout(() => setCopied(false), 1600)
     return () => clearTimeout(t)
   }, [copied])
+  const [failed, setFailed] = useState(false)
+  const doCopy = async () => {
+    // Confirm "Copied" (and fire onCopied — the secret-reveal close-gate depends on
+    // it) only when the write actually SUCCEEDS. A rejected/absent clipboard
+    // (NotAllowedError, no `navigator.clipboard`) must not falsely satisfy the gate.
+    try {
+      if (!navigator.clipboard) throw new Error('clipboard unavailable')
+      await navigator.clipboard.writeText(text)
+      setFailed(false)
+      setCopied(true)
+      onCopied?.()
+    } catch {
+      setFailed(true)
+    }
+  }
   return (
     <button
       type="button"
-      onClick={() => {
-        void navigator.clipboard?.writeText(text)
-        setCopied(true)
-        onCopied?.()
-      }}
+      onClick={() => void doCopy()}
       aria-label={ariaLabel ?? label}
       className={COPY_BUTTON_CLASS}
     >
-      {copied ? copiedLabel : label}
+      {copied ? copiedLabel : failed ? 'Copy failed' : label}
     </button>
   )
 }

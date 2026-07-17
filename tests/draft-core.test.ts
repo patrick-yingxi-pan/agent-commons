@@ -74,6 +74,31 @@ test('first send materializes, adopts, then streams under the real id — in tha
   assert.deepEqual(log, ['create:hello', 'adopt:draft->real-1', 'send:real-1:hello'])
 })
 
+test('a reset() DURING materialization orphans the send: the turn still lands, but the NEW draft is not adopted away', async () => {
+  // Control createSession so the reset lands mid-flight.
+  const { deps, log } = fakeDeps()
+  let release!: (s: Session) => void
+  deps.createSession = (text) => {
+    log.push(`create:${text}`)
+    return new Promise<Session>((r) => {
+      release = () => r(session('real-1'))
+    })
+  }
+  const draft = createDraftController(deps)
+  const adopted: string[] = []
+  const inflight = draft.sendDraftTurn('hello', () => ({}), undefined, (sid) => adopted.push(sid))
+  // The user starts a fresh draft (New session) while the first send is materializing.
+  draft.reset()
+  release(session('real-1'))
+  await inflight
+  // The turn still lands on the materialized session…
+  assert.ok(log.includes('send:real-1:hello'), 'the orphaned turn still reaches the server')
+  // …but the abandoned send must NOT adopt the fresh draft away or fire onAdopted
+  // (that would blank the user's new draft / retarget their pane to the old session).
+  assert.ok(!log.some((l) => l.startsWith('adopt:')), 'the fresh draft entry is not adopted away')
+  assert.deepEqual(adopted, [], 'onAdopted does not fire for the orphaned send')
+})
+
 test('a rapid second send COALESCES into the first materialization (one session, two turns)', async () => {
   const { deps, log, createdCount } = fakeDeps()
   const draft = createDraftController(deps)

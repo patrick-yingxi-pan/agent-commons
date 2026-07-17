@@ -88,8 +88,23 @@ export function ConversationView({
   threadPadClass?: string
 }) {
   const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const didMount = useRef(false)
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    // On FIRST render, always jump to the newest content (open the thread at the
+    // bottom, as before). After that, auto-scroll only when the viewport is already
+    // near the bottom — so a user who scrolled UP to re-read earlier messages isn't
+    // yanked back down on every streamed chunk; when they're following along, keep
+    // pinning to the bottom.
+    const el = scrollRef.current
+    if (didMount.current && el) {
+      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120
+      if (!nearBottom) return
+    }
+    // Instant on first paint (open AT the bottom, no animation to chase); smooth
+    // for subsequent streamed updates.
+    bottomRef.current?.scrollIntoView({ behavior: didMount.current ? 'smooth' : 'auto', block: 'end' })
+    didMount.current = true
   }, [live.messages, typing, pendingApproval])
 
   // The relay wait state, derived once for every host: the session's turn routes
@@ -116,7 +131,7 @@ export function ConversationView({
 
   return (
     <>
-      <div className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {live.messages.length === 0 && !typing && empty !== undefined ? (
           empty
         ) : (

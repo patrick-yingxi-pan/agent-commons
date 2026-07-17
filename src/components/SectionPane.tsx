@@ -120,15 +120,15 @@ export function SectionPane({
   // Back walks the chain: the local stack, then the carried stack (backOut —
   // popped by the host WITHOUT a push), then the structural section root.
   const onBack = () => {
-    if (stack.length === 0 && backOut) {
-      backOut.go()
+    if (stack.length === 0) {
+      if (backOut) backOut.go()
       return
     }
-    setStack((s) => {
-      const prev = s.at(-1)
-      setFocus(prev ?? NO_FOCUS)
-      return s.slice(0, -1)
-    })
+    // Pure state updates as SIBLINGS — never a setState inside another's updater
+    // (React StrictMode double-invokes updaters; a nested set is a hazard). `stack`
+    // is the current render's value, correct for this single synchronous handler.
+    setFocus(stack[stack.length - 1] ?? NO_FOCUS)
+    setStack((s) => s.slice(0, -1))
   }
   const top = stack.at(-1)
   const backTo: NavLocation | null =

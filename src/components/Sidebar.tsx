@@ -588,7 +588,11 @@ export function Sidebar({
                       <RoutineRow
                         key={t.id}
                         task={t}
-                        active={inSession && activeId.startsWith(`srun-${t.id}-`)}
+                        // Match the run session via the CONTRACT id-derivation, not a
+                        // hand-rolled `srun-${t.id}-` prefix — that false-positived
+                        // across task ids where one extends another (t1 vs t1-2:
+                        // srun-t1-2-r1 startsWith srun-t1-).
+                        active={inSession && t.runs.some((r) => runSessionId(t.id, r.id) === activeId)}
                         onOpen={() => openRoutine(t)}
                         menuItems={[
                           {
@@ -948,7 +952,9 @@ function SessionRow({
           onFocus={(e) => e.target.select()}
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') commit()
+            // Not the IME-composition-commit Enter (isComposing) — that would
+            // commit the rename mid-composition.
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing) commit()
             else if (e.key === 'Escape') setEditing(false)
           }}
           onBlur={commit}

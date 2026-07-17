@@ -85,6 +85,7 @@ export function ResizeHandle({
       const up = () => {
         window.removeEventListener('pointermove', move)
         window.removeEventListener('pointerup', up)
+        window.removeEventListener('pointercancel', up)
         document.body.style.cursor = ''
         document.body.style.userSelect = ''
         pointerActive.current = false
@@ -92,6 +93,11 @@ export function ResizeHandle({
       }
       window.addEventListener('pointermove', move)
       window.addEventListener('pointerup', up)
+      // pointercancel (a touch interrupted by a system gesture / orientation
+      // change mid-drag) must end the drag too — otherwise the move listener
+      // leaks, the body keeps cursor/user-select frozen, and pointerActive stays
+      // true, blocking the keyboard path and pinning the call site's dragging flag.
+      window.addEventListener('pointercancel', up)
     },
     [onStart, onMove, onEnd, horizontal],
   )

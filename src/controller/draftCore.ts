@@ -73,6 +73,13 @@ export function createDraftController(deps: DraftDeps) {
   let materializing: Promise<Session> | null = null
   /** Contexts attached to the draft before first send, awaiting the flush. */
   let pendingContexts: AddedContext[] = []
+  /** Bumped by every `reset()` — a generation stamp captured at dispatch. If it
+   *  moves across the materialization await, the draft the send began on was
+   *  ABANDONED (New session, an FWD-1 seed launch, the root route) and its
+   *  post-materialization steps must not fire against the NEW draft's live
+   *  state (flushing its seeds onto the wrong session, adopting its entry away,
+   *  retargeting the user's fresh pane). The turn still lands server-side. */
+  let resetGen = 0
 
   /** A stale pick — a deleted provider, a model its catalog dropped — degrades
    *  to the inherit default instead of failing the materialization (the server
@@ -180,6 +187,7 @@ export function createDraftController(deps: DraftDeps) {
    *  session. */
   const reset = (seed?: AddedContext): void => {
     materializing = null
+    resetGen += 1
     if (seed) {
       const seeded = addContextToLive(EMPTY_LIVE, seed)
       deps.store.reset(DRAFT_ID, seeded)
@@ -209,12 +217,21 @@ export function createDraftController(deps: DraftDeps) {
     // (now store-held, per-session) and the sanitized model pick.
     const draftFocus = deps.store.get(DRAFT_ID).focus
     const draftModel = sanitizePick(getPick())
+    const genAtDispatch = resetGen
     let sid: string = DRAFT_ID
     try {
       const pending = materializing ?? deps.createSession(text, draftModel.providerId, draftModel.modelId)
       materializing = pending
       const created = await pending
       sid = created.id
+      // The draft was RESET while materializing (New session / a seed launch /
+      // the root route): this send is orphaned — still land its turn on the
+      // materialized session server-side, but do NOT touch the current draft's
+      // live state (seeds, focus, entry, pane) which now belongs to a NEW draft.
+      if (resetGen !== genAtDispatch) {
+        await deps.store.sendTurn(sid, text)
+        return
+      }
       onSession?.(created)
       // Flush the pre-attached contexts BEFORE the turn streams: generation
       // derives an attached connector/MCP's tools from the session's

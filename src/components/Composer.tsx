@@ -367,7 +367,10 @@ export function Composer({
               e.target.style.height = Math.min(e.target.scrollHeight, cap) + 'px'
             }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
+              // Ignore the Enter that COMMITS an IME composition (Chinese/Japanese/
+              // Korean input) — it carries isComposing, and sending the half-composed
+              // text mid-composition is the bug.
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault()
                 submit()
               }

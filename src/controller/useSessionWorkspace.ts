@@ -224,13 +224,20 @@ export function useSessionWorkspace(split?: {
     // back to the plain route where no planner is wired.
     const apply = (routed: RoutedView | null) =>
       (splitRef.current?.applyPopRoute ?? splitRef.current?.applyRouteToFocused)?.(routed)
+    // A monotonic token sequences the async session-validation arm: rapid
+    // Back/Back (or Back/Forward) across two session addresses fire independent
+    // loadSession calls that can resolve OUT OF ORDER — applying the earlier
+    // target last, leaving the pane disagreeing with the address bar. Only the
+    // LATEST pop's resolution applies.
+    let popToken = 0
     const onPop = () => {
+      const token = (popToken += 1)
       const routed = viewForPath(window.location.pathname)
       if (routed?.loc.kind === 'session' && routed.loc.sessionId !== DRAFT_ID) {
         const sid = routed.loc.sessionId
         loadSession(sid)
           .then(() => {
-            if (!leftAccount.current) apply(routed)
+            if (!leftAccount.current && token === popToken) apply(routed)
           })
           .catch(() => {}) // gone / foreign → stay put (the address was a dead link)
         return

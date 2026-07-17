@@ -1,4 +1,4 @@
-import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronRight, MoreVertical } from 'lucide-react'
 import type { Project } from '../types'
@@ -67,6 +67,21 @@ export function RowMenu({ ariaLabel, items }: { ariaLabel: string; items: RowMen
     const top =
       roomBelow >= POPOVER_EST_HEIGHT + M ? r.bottom + 6 : Math.max(M, r.top - POPOVER_EST_HEIGHT - 6)
     setPos({ left, top })
+  }, [open])
+
+  // The menu is position:fixed, computed ONCE from the trigger rect — the rail's
+  // panes scroll, so a scroll while open would leave it floating detached from its
+  // row. Close on any ancestor scroll (capture phase catches the inner scroller),
+  // and on window resize, rather than chase the anchor.
+  useEffect(() => {
+    if (!open) return
+    const onScrollOrResize = () => close()
+    window.addEventListener('scroll', onScrollOrResize, true)
+    window.addEventListener('resize', onScrollOrResize)
+    return () => {
+      window.removeEventListener('scroll', onScrollOrResize, true)
+      window.removeEventListener('resize', onScrollOrResize)
+    }
   }, [open])
 
   const run = (fn: () => void) => {

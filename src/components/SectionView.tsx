@@ -845,7 +845,8 @@ function ProjectDetail({
             <DefaultRolePicker project={project} />
           </SidePanel>
 
-          {own && (
+          {/* The whole aside is already owner-gated above — these panels don't
+              re-check `own` (the inner guards were dead-always-true). */}
           <SidePanel
             title="Scheduled"
             icon={<Clock size={14} />}
@@ -893,9 +894,7 @@ function ProjectDetail({
               </div>
             )}
           </SidePanel>
-          )}
 
-          {own && (
           <SidePanel
             title="Context"
             icon={<Folder size={14} />}
@@ -921,7 +920,6 @@ function ProjectDetail({
               </div>
             )}
           </SidePanel>
-          )}
         </aside>
         )}
       </div>
@@ -1154,7 +1152,7 @@ function ProjectScheduleRow({
           </button>
         </Tooltip>
         <RowMenu ariaLabel={`Actions for ${task.name}`} items={menu} />
-        <Toggle on={task.enabled} onToggle={onToggle} />
+        <Toggle on={task.enabled} onToggle={onToggle} ariaLabel={`${task.name} enabled`} />
       </div>
     </div>
   )
@@ -1821,10 +1819,17 @@ function CoordinationPanel({ project }: { project: Project }) {
       await reserveSubGoal(project.id, as, subGoal)
       setDraft('')
       setClaiming(false)
-    } catch {
-      // The guardian refused it — another Contributor holds this sub-goal. Conflict is a
-      // question, not an abort: prompt to pick a different one (D11).
-      setConflict(`"${subGoal}" is held by another Contributor — pick a different sub-goal.`)
+    } catch (e) {
+      // Only a CONFLICT (409) means another Contributor holds this sub-goal — a
+      // question, not an abort: prompt to pick a different one (D11). Any other
+      // failure (network, 401, 500) must surface its real message, not a false
+      // "held by another Contributor".
+      const msg = e instanceof Error ? e.message : ''
+      setConflict(
+        /conflict|at capacity|held by/i.test(msg)
+          ? `"${subGoal}" is held by another Contributor — pick a different sub-goal.`
+          : msg || 'Could not claim that sub-goal — please try again.',
+      )
     } finally {
       setBusy(false)
     }
@@ -2070,13 +2075,20 @@ function OpenWorkList({ projectId, ownerCanModerate }: { projectId: string; owne
  *  the caller's own subscription; the server walls it on visibility. */
 function WatchButton({ projectId }: { projectId: string }) {
   const state = useWatchState(projectId).data
+  const [failed, setFailed] = useState(false)
   const [busy, setBusy] = useState(false)
   const watching = state?.watching === true
   const toggle = async () => {
     if (busy || !state) return
     setBusy(true)
+    setFailed(false)
     try {
       await setProjectWatch(projectId, !watching)
+    } catch {
+      // The button renders purely from the server state, so a swallowed failure
+      // would leave it visually unchanged with no signal — flag it (the title
+      // reflects it) instead of an unhandled rejection.
+      setFailed(true)
     } finally {
       setBusy(false)
     }
@@ -2086,7 +2098,7 @@ function WatchButton({ projectId }: { projectId: string }) {
       onClick={toggle}
       disabled={busy || !state}
       aria-pressed={watching}
-      title={watching ? 'Stop receiving this project’s public acts' : 'Get this project’s public acts in your notifications'}
+      title={failed ? 'Couldn’t update — click to retry' : watching ? 'Stop receiving this project’s public acts' : 'Get this project’s public acts in your notifications'}
       className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[13px] font-medium transition disabled:opacity-45 ${
         watching
           ? 'border-accent/40 bg-accent-tint text-accent-strong'
@@ -2313,11 +2325,16 @@ function WorkItemPage({
 
   // A bell's comment anchor (docs/notification-routing.md): flash the named
   // comment on arrival — the page-level face of the backlog row's same behavior.
+  // The target id is SNAPSHOT into state via onActivate (like WorkItemRow), NOT
+  // read from `pending` at render: useFocusFlash consumes `pending` in the same
+  // effect that lights the flash, so by the paint that would highlight, `pending`
+  // is already null — reading it there yields null and the highlight never shows.
   const { pending } = usePendingFocus()
   const isFocus = !!o && pending?.projectId === project.id && pending?.workItemId === o.id
-  const anchorComment = isFocus ? (pending?.commentId ?? null) : null
+  const focusCommentId = isFocus ? (pending?.commentId ?? null) : null
+  const [anchorComment, setAnchorComment] = useState<string | null>(null)
   const anchorRef = useRef<HTMLDivElement>(null)
-  const flash = useFocusFlash(isFocus, anchorRef)
+  const flash = useFocusFlash(isFocus, anchorRef, () => setAnchorComment(focusCommentId))
 
   if (!o) {
     return (
@@ -4606,7 +4623,13 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
   const effectiveProviderId = providerId || defaultEntry(providers)?.id || ''
   const effectivePromptId = promptId || (bespokePrompt ? '' : defaultEntry(prompts)?.id || '')
   // What the grant checkbox shows: 'keep' reflects the agent's current grant.
-  const grantAll = toolChoice === 'all' || (toolChoice === 'keep' && !!agent && catalog.length > 0 && agent.tools.length === catalog.length)
+  // "Has the full catalog" is a SET test (every catalog tool granted), not a
+  // length compare — a same-size custom subset (or a grant carrying a stale tool
+  // not in the catalog) must not read as full.
+  const agentHasFullCatalog = !!agent && catalog.length > 0 && catalog.every((t) => agent.tools.includes(t))
+  // A custom subset worth PRESERVING when the user unchecks (neither empty nor full).
+  const agentHasCustomSubset = !!agent && agent.tools.length > 0 && !agentHasFullCatalog
+  const grantAll = toolChoice === 'all' || (toolChoice === 'keep' && agentHasFullCatalog)
   const canSubmit =
     label.trim().length > 0 &&
     !!effectiveProviderId &&
@@ -4743,17 +4766,21 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
         )}
       </FormField>
       <FormField label="Tools">
-        <CheckboxRow checked={grantAll} onToggle={() => setToolChoice(grantAll ? 'none' : 'all')}>
+        {/* Unchecking RETURNS to the preserved custom subset when the agent has
+            one (else it grants none) — so a check-then-uncheck can't silently
+            destroy the subset the hint below promises to keep. */}
+        <CheckboxRow checked={grantAll} onToggle={() => setToolChoice(grantAll ? (agentHasCustomSubset ? 'keep' : 'none') : 'all')}>
           <span className="text-[12px] leading-snug text-ink-soft">
             <span className="font-medium text-ink">Full tool catalog</span>
-            {catalog.length > 0 ? ` — all ${catalog.length} tools` : ''}. Unchecked grants{' '}
-            <span className="font-medium text-ink">no tools</span> (the agent converses but can’t
-            propose changes). Per-tool selection is a later refinement.
+            {catalog.length > 0 ? ` — all ${catalog.length} tools` : ''}.{' '}
+            {agentHasCustomSubset ? 'Unchecked keeps the current custom set' : (
+              <>Unchecked grants <span className="font-medium text-ink">no tools</span> (the agent converses but can’t propose changes)</>
+            )}. Per-tool selection is a later refinement.
           </span>
         </CheckboxRow>
-        {agent && toolChoice === 'keep' && !grantAll && agent.tools.length > 0 && (
+        {toolChoice === 'keep' && agentHasCustomSubset && (
           <span className="mt-1 block text-[11px] text-ink-faint">
-            Currently {agent.tools.length} of {catalog.length || '…'} tools — the custom set is kept unless you change this.
+            Currently {agent!.tools.length} of {catalog.length || '…'} tools — the custom set is kept unless you change this.
           </span>
         )}
       </FormField>
@@ -5241,7 +5268,12 @@ function A2aCardDialog({
   }, [url])
 
   const rawJson = card ? JSON.stringify(card, null, 2) : ''
-  const skills = Array.isArray(card?.skills) ? card!.skills : []
+  // A foreign card's `skills` array may hold non-objects (`[null]`, strings) — the
+  // render dereferences `s.id`/`s.name`, so drop any element that isn't an object
+  // (the "every field guarded at render" promise, extended to the elements).
+  const skills = (Array.isArray(card?.skills) ? card!.skills : []).filter(
+    (s): s is NonNullable<typeof s> => !!s && typeof s === 'object',
+  )
   const schemes =
     card?.securitySchemes && typeof card.securitySchemes === 'object' ? Object.entries(card.securitySchemes) : []
   const modes = card
@@ -5927,18 +5959,30 @@ function OrgMemberPanel({ org }: { org: NonNullable<OwnerProfile['org']> }) {
   const invites = useOrgInvites(org.id, isOwner).data ?? []
   const [email, setEmail] = useState('')
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
   const invite = async () => {
-    if (!email.trim()) return // the button disables; the Enter path gates here
+    if (busy || !email.trim()) return // the guard also blocks a double-fire (Enter + click)
+    setBusy(true)
     setError('')
-    const r = await inviteToOrg(org.id, email.trim())
-    if (r.ok) setEmail('')
-    else setError(r.message)
+    try {
+      const r = await inviteToOrg(org.id, email.trim())
+      if (r.ok) setEmail('')
+      else setError(r.message)
+    } finally {
+      setBusy(false)
+    }
   }
   // A revoke can race the invitee's accept — the result-object reports it in the
   // same message slot the invite path uses (the hook re-read the ledger already).
   const revoke = async (inviteId: string) => {
-    const r = await revokeOrgInvite(org.id, inviteId)
-    setError(r.ok ? '' : r.message)
+    if (busy) return
+    setBusy(true)
+    try {
+      const r = await revokeOrgInvite(org.id, inviteId)
+      setError(r.ok ? '' : r.message)
+    } finally {
+      setBusy(false)
+    }
   }
   const pending = invites.filter((i) => i.status === 'invited')
   return (
@@ -5977,12 +6021,12 @@ function OrgMemberPanel({ org }: { org: NonNullable<OwnerProfile['org']> }) {
             <input
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && void invite()}
+              onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && void invite()}
               placeholder="Invite by email…"
               aria-label="Invite by email"
               className={`${FORM_INPUT_CLASS} flex-1`}
             />
-            <button onClick={() => void invite()} disabled={!email.trim()} className={INLINE_ACTION_CLASS}>
+            <button onClick={() => void invite()} disabled={busy || !email.trim()} className={INLINE_ACTION_CLASS}>
               Invite
             </button>
           </div>
@@ -7119,7 +7163,7 @@ function ScheduledRow({
           </button>
         </div>
 
-        <Toggle on={task.enabled} onToggle={onToggle} />
+        <Toggle on={task.enabled} onToggle={onToggle} ariaLabel={`${task.name} enabled`} />
       </div>
     </div>
   )
@@ -7974,7 +8018,7 @@ function DeliveryPanel({ task }: { task: ScheduledTask }) {
           <Bell size={13} />
           Notify me on failure
         </span>
-        <Toggle on={notifyOnFail} onToggle={() => void updateSchedule(task.id, { notifyOnFailure: !notifyOnFail })} />
+        <Toggle on={notifyOnFail} onToggle={() => void updateSchedule(task.id, { notifyOnFailure: !notifyOnFail })} ariaLabel="Notify me on failure" />
       </label>
     </SidePanel>
   )
@@ -8821,9 +8865,15 @@ function DispatchStatus({ status }: { status: DispatchRun['status'] }) {
   return <CheckCircle2 size={17} className="mt-0.5 shrink-0 text-emerald-500" />
 }
 
-function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
+function Toggle({ on, onToggle, ariaLabel }: { on: boolean; onToggle: () => void; ariaLabel?: string }) {
   return (
     <button
+      type="button"
+      // A switch, announced as one: role + checked state so a screen reader says
+      // "‹name›, switch, on/off" instead of an unnamed, stateless button (WCAG 4.1.2).
+      role="switch"
+      aria-checked={on}
+      aria-label={ariaLabel}
       onClick={onToggle}
       className={`relative h-5 w-9 shrink-0 rounded-full transition ${on ? 'bg-accent' : 'bg-line-strong'}`}
       title={on ? 'Enabled' : 'Disabled'}
@@ -8888,7 +8938,7 @@ function ToggleCard({
     })
   return (
     <Card title={title} desc={desc}>
-      <Toggle on={on} onToggle={toggle} />
+      <Toggle on={on} onToggle={toggle} ariaLabel={title} />
     </Card>
   )
 }

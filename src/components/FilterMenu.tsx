@@ -1,4 +1,4 @@
-import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronRight, SlidersHorizontal } from 'lucide-react'
 import { useDismissable } from '../lib/useDismissable'
@@ -66,6 +66,20 @@ export function FilterMenu({ ariaLabel, rows }: { ariaLabel: string; rows: Filte
     const top =
       roomBelow >= POPOVER_EST_HEIGHT + M ? r.bottom + 6 : Math.max(M, r.top - POPOVER_EST_HEIGHT - 6)
     setPos({ left, top })
+  }, [open])
+
+  // Fixed-position popover computed once from the trigger rect: close on an
+  // ancestor scroll (capture phase) or resize rather than float detached from the
+  // sliders button when the rail scrolls (same rule as RowMenu).
+  useEffect(() => {
+    if (!open) return
+    const dismiss = () => setOpen(false)
+    window.addEventListener('scroll', dismiss, true)
+    window.addEventListener('resize', dismiss)
+    return () => {
+      window.removeEventListener('scroll', dismiss, true)
+      window.removeEventListener('resize', dismiss)
+    }
   }, [open])
 
   return (

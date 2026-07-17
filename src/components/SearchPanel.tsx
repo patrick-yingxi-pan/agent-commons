@@ -192,7 +192,9 @@ export function SearchPanel({
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
       setActive((a) => Math.max(a - 1, 0))
-    } else if (e.key === 'Enter') {
+    } else if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+      // Not the Enter that commits an IME composition (that keydown carries
+      // isComposing) — only a real submit opens the active hit.
       e.preventDefault()
       flat[active]?.run()
     }

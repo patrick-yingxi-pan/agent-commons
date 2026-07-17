@@ -94,7 +94,9 @@ export function ConversationPane({
         typing: true,
         busy: true,
         sendFailure: null,
-        live: { ...s.live, messages: [...s.live.messages, { id: `u-${Date.now()}`, role: 'user' as const, content: text }] },
+        // The SHARED optimistic-id mint (not a hand-rolled `u-${Date.now()}`) so a
+        // coalesced double-send can't collide on a React key / retry lookup.
+        live: { ...s.live, messages: [...s.live.messages, { id: conversations.nextUserMessageId(), role: 'user' as const, content: text }] },
       }))
       void draft.sendDraftTurn(
         text,

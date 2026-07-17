@@ -192,12 +192,18 @@ export function createConversationStore(transport: ConversationTransport, empty:
   const holdEscalation = (id: string, held: PendingEscalation): void =>
     update(id, (s) => (s.pendingEscalation ? s : { ...s, pendingEscalation: held }))
 
-  /** Account switch: drop every conversation — they're another tenant's. */
+  /** Account switch: drop every conversation — they're another tenant's. The
+   *  epochs are BUMPED, never cleared: an in-flight stream from the outgoing
+   *  account keeps its captured `since`, and no AbortSignal stops it, so the
+   *  staleness fence is the only guard — clearing the map would rewind every
+   *  epoch to 0 and let a stream that captured `since===0` (a just-adopted
+   *  draft, whose target epoch adopt leaves untouched) re-match and write into
+   *  the NEW account's store. Monotonic epochs make that re-match impossible. */
   const clearAll = (): void => {
-    const ids = [...states.keys()]
+    const ids = new Set([...states.keys(), ...epochs.keys()])
     states.clear()
-    epochs.clear()
     chains.clear()
+    for (const id of ids) bump(id)
     for (const id of ids) notify(id)
   }
 
@@ -262,8 +268,13 @@ export function createConversationStore(transport: ConversationTransport, empty:
    *  dispatch (its optimistic writes may target the draft entry that `adopt`
    *  later moves). */
   let userSeq = 0
+  /** The ONE optimistic user-message id mint — a per-mint sequence disambiguates
+   *  sends within the same millisecond (rapid double-send, a supported flow), so
+   *  no two optimistic turns collide on a React key or a `retry` lookup. The
+   *  draft path (ConversationPane) mints through this too, not a hand-rolled copy. */
+  const nextUserMessageId = (): string => `u-${Date.now().toString(36)}-${(userSeq += 1)}`
   const dispatchTurn = (id: string, text: string): Promise<void> => {
-    const userMsg: Message = { id: `u-${Date.now().toString(36)}-${(userSeq += 1)}`, role: 'user', content: text }
+    const userMsg: Message = { id: nextUserMessageId(), role: 'user', content: text }
     update(id, (s) => ({
       ...s,
       typing: true,
@@ -324,6 +335,7 @@ export function createConversationStore(transport: ConversationTransport, empty:
     clearAll,
     sendTurn,
     dispatchTurn,
+    nextUserMessageId,
     reattach,
     stop,
   }

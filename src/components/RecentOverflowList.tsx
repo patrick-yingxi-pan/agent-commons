@@ -69,6 +69,11 @@ export function FlyoutPanel({
       role="menu"
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
+      // Keep the flyout open while focus is INSIDE it (a keyboard user who reached
+      // an item), not just while hovered — the close timer fires on the trigger's
+      // blur otherwise, snapping it shut before focus lands.
+      onFocusCapture={onEnter}
+      onBlurCapture={onLeave}
       // The flyout is portaled to <body>, outside the popover's click-outside
       // wrapper — so swallow mousedown here, or picking an item would be read as
       // an outside click and tear the whole popover down before the click lands.

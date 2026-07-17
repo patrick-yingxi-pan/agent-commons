@@ -32,6 +32,12 @@ export default defineConfig({
     // can't be silently reused in the wrong mode / against the wrong store.
     baseURL: 'http://127.0.0.1:5183',
     trace: 'on-first-retry',
+    // Grant clipboard write so a Copy affordance's write actually SUCCEEDS in
+    // headless Chromium (an unfocused headless window otherwise rejects
+    // writeText) — CopyButton now honestly shows "Copy failed" on a real
+    // rejection, so the "Copied" confirmation the specs assert needs a working
+    // clipboard, exactly as a real focused browser provides.
+    permissions: ['clipboard-read', 'clipboard-write'],
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {

@@ -237,6 +237,11 @@ export function connectEvents(): void {
           console.error(`[events] identity echo mismatch: acting as tenant '${acct.tenantId}' but the stream resolved '${e.identity.tenantId}' — stream closed`)
           source?.close()
           source = null
+          // Don't route the wrong account's frames — but don't go permanently
+          // deaf either: a TRANSIENT mismatch (a cookie momentarily stale) must
+          // recover. Reconnect on a backoff; the next hello re-asserts identity
+          // and either aligns or closes again (throttled, never a hot loop).
+          setTimeout(connectEvents, 3000)
           return
         }
       }
