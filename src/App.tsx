@@ -9,7 +9,7 @@ import { panes, type PaneContent } from './lib/splitFrame'
 import { MainSplitGate, type MainPaneNav } from './components/MainSplit'
 import { OverlayPanelDock } from './components/OverlayPanelDock'
 import { useMainSplit } from './controller/useMainSplit'
-import { paneLocationPath, setMainSplitScope } from './lib/mainSplit'
+import { hostsSession, paneLocationPath, setMainSplitScope } from './lib/mainSplit'
 import { SearchPanel } from './components/SearchPanel'
 import { NotificationsPanel } from './components/NotificationsPanel'
 import { keys, peek, useCapabilities, useMe, useSessions, useServerEvents } from './api'
@@ -107,7 +107,9 @@ function Workspace() {
     setFocusDrivenContext,
     adoptDraftPanes,
     reportPaneAt,
+    pruneMainPanes,
     fillMainPane,
+    closeMainPane,
     closeFocused,
     setMainRatio,
   } = useMainSplit()
@@ -227,18 +229,16 @@ function Workspace() {
     deleteSession,
   } = useSessionWorkspace({ focusedPath, applyRouteToFocused, applyBootRoute, routeDoor, routeSession, routeSection, mintIfEmpty })
 
-  // Deleting the session a pane is SHOWING evicts it to a fresh draft — the
-  // focused pane here; a full any-pane live prune is the tree's own rule.
+  // LIVE PRUNE, the delete half: deleting a session evicts EVERY pane it
+  // hosts — its conversation panes and its context panes alike (hostsSession),
+  // not just the focused one. Deleting the last pane leaves the background,
+  // exactly like closing it (the one close rule).
   const deleteSessionAndEvict = useCallback(
     (id: string) => {
       deleteSession(id)
-      const c = focusedContentRef.current
-      if ((c?.kind === 'msession' && c.id === id) || (c?.kind === 'context-panel' && c.sessionId === id)) {
-        draft.reset()
-        routeToFocused({ kind: 'msession', id: DRAFT_ID })
-      }
+      pruneMainPanes((c) => !hostsSession(c, id))
     },
-    [deleteSession, routeToFocused],
+    [deleteSession, pruneMainPanes],
   )
 
   // ── The rail's active highlight derives from the FOCUSED pane (the live
@@ -385,10 +385,23 @@ function Workspace() {
       // A pane-hosted draft materialized: every draft pane follows the entry
       // to the real id (content match — a duplicated draft pane follows too).
       onDraftAdopted: (realId) => adoptDraftPanes(DRAFT_ID, realId),
+      // LIVE PRUNE: a context pane reported its subject definitively
+      // detached. A PINNED pane closes via the tree; the focus-driven pane
+      // clears its DRIVER (closing the projection would just be
+      // re-projected) — and forgets the choice (FWD-2), so reopening the
+      // session can't resurrect a panel whose subject is gone.
+      onPaneSubjectGone: (path, content) => {
+        if (content.kind === 'context-panel' && content.focusDriven) {
+          conversations.setFocus(content.sessionId, null)
+          if (content.sessionId !== DRAFT_ID) setPanelPref(content.sessionId, null)
+        } else {
+          closeMainPane(path)
+        }
+      },
       // The narrow tier's in-flow rail toggle rides the conversation title bar.
       railToggle: railOverlay ? <RailOpenButton onClick={openLeft} /> : undefined,
     }),
-    [routeToFocused, newSession, openProposal, openProject, openSchedule, sessions, adoptDraftPanes, railOverlay, openLeft],
+    [routeToFocused, newSession, openProposal, openProject, openSchedule, sessions, adoptDraftPanes, closeMainPane, railOverlay, openLeft],
   )
 
 

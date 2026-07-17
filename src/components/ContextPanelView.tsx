@@ -12,6 +12,7 @@
  *  live + shared api hooks; view = this component + the existing panel bodies;
  *  controller = the session-parametric mutation funnels (useSessionContextCommands,
  *  the same the composer's chip-remove uses — one funnel, no fork). */
+import { useEffect } from 'react'
 import { PaneChromeContext, type PaneChrome } from './paneChrome'
 import { WorkspacePanel } from './WorkspacePanel'
 import { ConnectorPanel } from './ConnectorPanel'
@@ -33,6 +34,7 @@ export function ContextPanelView({
   panel,
   onOpenSession,
   onOpenSchedule,
+  onGone,
 }: {
   sessionId: string
   panel: PaneContent
@@ -40,10 +42,16 @@ export function ContextPanelView({
    *  — these land on the primary surface where conversations live. */
   onOpenSession: (id: string) => void
   onOpenSchedule: (taskId: string) => void
+  /** LIVE PRUNE: called once the panel's subject is DEFINITIVELY gone — the
+   *  owning session's entry reflects a server read (`reconciled`, the
+   *  authority latch) and the panel no longer resolves in it. The tree host
+   *  closes this pane; hosts without a tree omit it and keep the quiet
+   *  placeholder. */
+  onGone?: () => void
 }) {
   // Ensure the OWNING session's live is loaded (the pane's open recipe — guarded
   // and deduped, so it never stomps a conversation pane already showing it).
-  const { live } = usePaneConversation(sessionId)
+  const { live, reconciled } = usePaneConversation(sessionId)
   const { removeContexts, removeFolder, removeAttachment } = useSessionContextCommands(sessionId)
 
   const body = (() => {
@@ -87,6 +95,16 @@ export function ContextPanelView({
         return null
     }
   })()
+
+  // LIVE PRUNE: an unresolvable panel is only DEFINITIVELY gone once the
+  // session's entry reflects a server read (`reconciled` — the authority
+  // latch; a mirror-seeded live missing a runtime attach is a transient
+  // unknown, never a prune signal). The run switcher (`runs`) always renders,
+  // so it never reports gone.
+  const gone = !body && reconciled
+  useEffect(() => {
+    if (gone) onGone?.()
+  }, [gone, onGone])
 
   return (
     <PaneChromeContext.Provider value={EMBEDDED}>

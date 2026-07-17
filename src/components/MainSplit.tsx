@@ -81,6 +81,13 @@ export interface MainPaneNav {
    *  it (ADAPT-11: content must never slide under a floating control);
    *  undefined on the other tiers. */
   railToggle?: ReactNode
+  /** LIVE PRUNE: a pane reports its SUBJECT is definitively gone (a context
+   *  pane whose context was detached, once its session's entry is
+   *  server-reconciled). The host closes a PINNED pane via the tree; a
+   *  focus-driven pane clears its DRIVER instead (`focus` — closing the
+   *  projection directly would just be re-projected). Undefined on hosts
+   *  without a tree (the overlay dock hides via `focus` already). */
+  onPaneSubjectGone?: (path: string, content: MainPaneContent) => void
 }
 
 /** The empty BACKGROUND — what shows when the last page closes (the owner's
@@ -231,6 +238,7 @@ function PaneBody({
       panel={c.panel}
       onOpenSession={nav.onOpenSession}
       onOpenSchedule={nav.onOpenSchedule}
+      onGone={nav.onPaneSubjectGone ? () => nav.onPaneSubjectGone!(path, c) : undefined}
     />
   ) : (
     <MainPicker onPick={(content) => onFillPane(path, content)} />

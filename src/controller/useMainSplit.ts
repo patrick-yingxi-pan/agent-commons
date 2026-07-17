@@ -17,7 +17,7 @@
  *  the first pane whenever its own pane vanishes. The tree is per-account
  *  persisted (src/lib/mainSplit.ts). */
 import { useCallback, useRef, useState } from 'react'
-import { nodeAt, pane, panes, replacePane, setRatio, splitPane as splitLeaf, updatePaneContent, type PaneContent, type SplitDir } from '../lib/splitFrame'
+import { nodeAt, pane, panes, prunePanes, replacePane, setRatio, splitPane as splitLeaf, updatePaneContent, type PaneContent, type SplitDir } from '../lib/splitFrame'
 import {
   closeMainPane as closeMain,
   findFocusDrivenContext,
@@ -210,6 +210,20 @@ export function useMainSplit() {
     [commit],
   )
 
+  /** LIVE PRUNE: drop every pane whose subject is definitively GONE (a
+   *  deleted session's conversation + context panes; a detached context's
+   *  pinned panel — reported by the pane once its entry is server-reconciled).
+   *  One rule with close: pruning the last pane leaves the background.
+   *  Same-ref no-op; `commit` reconciles a pruned-away focus cursor. */
+  const pruneMainPanes = useCallback(
+    (keep: (c: MainPaneContent) => boolean) => {
+      const t = treeRef.current
+      const next = prunePanes(t, keep)
+      if (next !== t) commit(next)
+    },
+    [commit],
+  )
+
   /** A pane-hosted draft materialized: retarget every draft conversation pane
    *  to the real id (content match — duplicates follow too). */
   const adoptDraftPanes = useCallback(
@@ -232,6 +246,7 @@ export function useMainSplit() {
     setFocusDrivenContext,
     adoptDraftPanes,
     reportPaneAt,
+    pruneMainPanes,
     fillMainPane,
     closeMainPane,
     closeFocused,

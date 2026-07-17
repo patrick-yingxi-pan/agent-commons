@@ -305,11 +305,33 @@ collapses); prune at render, never in storage.
       in-progress draft thread — `draft.attach` always stacks; draft chip /
       folder removes route through new `draft.removeContexts`/`removeFolder`
       that purge the FWD-1 buffer, so a removed seed can't re-attach at
-      materialization, instead of 404ing the real-session funnel). Still
-      open: per-pane notification highlight targets, the narrow-tier rail
-      toggle on panel-only surfaces, live prune (any pane hosting a deleted
-      session collapses at render; today only the FOCUSED pane evicts, on
-      delete).
+      materialization, instead of 404ing the real-session funnel).
+   7. ✅ **Live prune — LANDED 2026-07-17.** Two halves, one rule (a pane
+      whose subject is definitively GONE collapses; pruning the last pane
+      leaves the background, exactly like close):
+      • **The delete half** — deleting a session evicts EVERY pane it hosts
+        (`hostsSession` × `prunePanes` → `pruneMainPanes`), conversation and
+        context panes alike, not just the focused one (locked by a
+        fail-verified e2e: split a fresh session, delete from the rail →
+        the layout collapses to the background).
+      • **The detach half** — a PINNED context pane whose context was
+        removed self-reports gone (`ContextPanelView.onGone` →
+        `nav.onPaneSubjectGone`) and the tree closes it; the focus-driven
+        twin clears its DRIVER instead (closing the projection would just
+        be re-projected — the loop the door's split handling avoids) and
+        forgets the FWD-2 pref. The report gates on the new
+        `ConversationState.reconciled` AUTHORITY latch (set by the store's
+        server `reconcile`, cleared by `reset`): a mirror-seeded live
+        missing a runtime attach is a transient unknown, never a prune
+        signal — the projection-latch rule grew a store face. Locked by
+        `tests/main-split.test.ts` (prune unit), the reconciled-latch lock
+        in `tests/conversation-store.test.ts`, and verified live (pin a
+        duplicate of a repo panel, remove the repo → both context panes
+        collapse, no re-projection loop). Still open: per-pane notification
+        highlight targets, the narrow-tier rail toggle on panel-only
+        surfaces, cross-client delete pruning (another client's delete
+        surfaces as a 404 ghost until reopened — needs a definitive
+        gone-signal on the wire).
 
 ## 4. Decisions locked by the owner (2026-07-15)
 

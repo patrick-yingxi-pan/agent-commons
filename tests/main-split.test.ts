@@ -12,6 +12,7 @@ import {
   contextPaneContent,
   contextPaneId,
   findFocusDrivenContext,
+  hostsSession,
   mainPaneKeep,
   migrateMainSplit,
   newMainPicker,
@@ -290,4 +291,27 @@ test('unpinnedContent strips the focusDriven flag (a duplicated context pane bec
   assert.equal(findFocusDrivenContext(tree), null)
   // Non-context content is returned unchanged.
   assert.deepEqual(unpinnedContent(projects), projects)
+})
+
+test('LIVE PRUNE: deleting a session evicts EVERY pane it hosts — conversation and context panes alike', () => {
+  const ctxAuth: MainPaneContent = {
+    kind: 'context-panel',
+    id: 'auth-refactor repo repo-demo',
+    sessionId: 'auth-refactor',
+    panel: { kind: 'repo', id: 'repo-demo' },
+  }
+  // auth conversation | (auth's pinned context pane | projects)
+  let t: MainSplitNode = splitPane(pane(auth), '', 'row', ctxAuth)
+  t = splitPane(t, 'b', 'col', projects)
+  const pruned = prunePanes(t, (c) => !hostsSession(c, 'auth-refactor'))
+  assert.deepEqual(
+    panes(pruned).map((p) => p.content),
+    [projects],
+    'both auth panes collapsed; the unrelated page inherits the surface',
+  )
+  // Pruning the LAST panes leaves the background (null) — the one close rule.
+  assert.equal(prunePanes(pane(auth), (c) => !hostsSession(c, 'auth-refactor')), null)
+  // No pane hosts the session ⇒ the SAME tree reference (no needless commit/persist).
+  const untouched: MainSplitNode = splitPane(pane(projects), '', 'row', artifacts)
+  assert.equal(prunePanes(untouched, (c) => !hostsSession(c, 'gone-id')), untouched)
 })

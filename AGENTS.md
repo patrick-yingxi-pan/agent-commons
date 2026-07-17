@@ -490,10 +490,13 @@ the mock?
   notification focus, doors) — conversations live in `usePaneConversation` +
   `ConversationPane`, context mutations in `useSessionContextCommands`, the
   rail highlight derives from the FOCUSED pane, and the per-account view
-  memory IS the persisted split tree (`viewMemory.ts` retired). Remaining
-  (design doc step 6 tail): live prune (a deleted session's panes collapse at
-  render), per-pane notification highlight targets, the narrow-tier rail
-  toggle on panel-only surfaces. The architecture, phase ledger, and the
+  memory IS the persisted split tree (`viewMemory.ts` retired). LIVE PRUNE
+  landed (2026-07-17): deleting a session evicts every pane it hosts, and a
+  pinned context pane whose subject was detached self-collapses once its
+  entry is server-reconciled (the `reconciled` authority latch). Remaining
+  (design doc step 7 tail): per-pane notification highlight targets, the
+  narrow-tier rail toggle on panel-only surfaces, cross-client delete
+  pruning. The architecture, phase ledger, and the
   generalized LESSONS (implicit defaults, the projection-latch pattern,
   lifecycle-flagged bridges, boots-twice testing, stale readers of a
   dissolved authority, total routing primitives) live in

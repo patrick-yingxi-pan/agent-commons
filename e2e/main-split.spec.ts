@@ -473,3 +473,31 @@ test('reload of a MULTI-pane layout keeps every pane: the boot address FOCUSES t
   await expect(paneB).toHaveAttribute('data-focused', 'true')
   await expect(page).toHaveURL(/\/projects$/)
 })
+
+test('LIVE PRUNE: deleting a session evicts EVERY pane it hosts — the layout collapses to the background', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 })
+  await page.goto('/')
+
+  // Materialize a fresh session from the draft (its recents row is the newest).
+  await page.getByPlaceholder('Reply to Claude…').fill('prune me')
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/\/s\/(?!draft)[\w-]+$/)
+  const sessionPath = new URL(page.url()).pathname
+
+  // Split: two panes on the SAME session (the duplicate keeps the id).
+  await page.locator('[data-split-view="row"]').click()
+  await expect(page.locator('[data-main-pane]')).toHaveCount(2)
+
+  // Delete it from the recents row menu (the row is titled after the first
+  // message) — confirm inline.
+  const row = page.getByRole('button', { name: 'Actions for prune me' })
+  await row.click()
+  await page.getByRole('menuitem', { name: 'Delete' }).click()
+  await page.getByRole('button', { name: 'Delete', exact: true }).click()
+
+  // EVERY pane hosting the session collapsed — none linger as ghosts — and
+  // deleting the last pages leaves the BACKGROUND (the one close rule).
+  await expect(page.locator('[data-main-pane]')).toHaveCount(0)
+  await expect(page.locator('[data-main-background]')).toBeVisible()
+  expect(new URL(page.url()).pathname).toBe(sessionPath) // the address is corrected by the next navigation, not a forced draft
+})

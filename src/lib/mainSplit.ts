@@ -60,6 +60,13 @@ export type PaneAt = { sub: string | null } & PaneSeed
 
 export type MainSplitNode = SplitNode<MainPaneContent>
 
+/** Whether a pane's content is OWNED by `sessionId` — its conversation panes
+ *  and its context panes alike (the live-prune unit: deleting a session
+ *  evicts every pane it hosts, not just the focused one). */
+export function hostsSession(c: MainPaneContent, sessionId: string): boolean {
+  return (c.kind === 'msession' && c.id === sessionId) || (c.kind === 'context-panel' && c.sessionId === sessionId)
+}
+
 /** A pane's canonical URL path (ADAPT-15) — the ONE content→address rule: the
  *  focused-pane URL projection reads it, and the boot dedup matches the boot
  *  address against every restored pane with it (an address already on screen

@@ -120,6 +120,21 @@ test('reconcile replaces live WITHOUT staling the stream, and refuses after a re
   assert.equal(store.get('s').live.messages.length, 0)
 })
 
+test('reconciled is the AUTHORITY latch: false until a server read lands; reset clears it (live prune gates on it)', () => {
+  const { transport } = fakeTransport()
+  const store = createConversationStore(transport, empty)
+  store.reset('s', EMPTY)
+  assert.equal(store.get('s').reconciled, false, 'a mirror-seeded entry is a transient unknown, never prune-worthy')
+  assert.equal(store.reconcile('s', store.epoch('s'), EMPTY), true)
+  assert.equal(store.get('s').reconciled, true, 'a server read makes an absence definitive')
+  // An optimistic write keeps the authority (setLive is not a re-seed)…
+  store.setLive('s', { ...EMPTY, messages: [user('u1', 'q')] })
+  assert.equal(store.get('s').reconciled, true)
+  // …but a select-time reset re-seeds from the mirror: authority drops.
+  store.reset('s', EMPTY)
+  assert.equal(store.get('s').reconciled, false)
+})
+
 test('adopt moves the draft entry under the real id — once; a blank recreation cannot clobber', () => {
   const { transport } = fakeTransport()
   const store = createConversationStore(transport, empty)

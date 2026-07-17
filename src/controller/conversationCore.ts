@@ -50,6 +50,12 @@ export interface ConversationState {
    *  Per-session so EVERY pane derives its OWN context panel (universal split
    *  Phase 6) — remembered across reopen by `panelPrefs` (FWD-2). */
   focus: PanelFocus | null
+  /** Whether this entry has reflected a SERVER read (`reconcile`) — the
+   *  authority latch (the projection-latch rule's store face): a mirror-seeded
+   *  live missing a runtime attach is a transient unknown, but once the server
+   *  answered, an absence is definitive (the live-prune consumers gate on it).
+   *  Reset clears it; adopt carries it with the entry. */
+  reconciled: boolean
 }
 
 /** The streaming callbacks a turn dispatches — structurally the api layer's
@@ -92,6 +98,7 @@ export function createConversationStore(transport: ConversationTransport, empty:
     sendFailure: null,
     pendingEscalation: null,
     focus: null,
+    reconciled: false,
   })
 
   /** The entry for a session, created blank on demand. The returned object is
@@ -157,7 +164,7 @@ export function createConversationStore(transport: ConversationTransport, empty:
    *  slow read can't clobber a newer selection. */
   const reconcile = (id: string, since: number, live: Live): boolean => {
     if (epoch(id) !== since) return false
-    setLive(id, live)
+    update(id, (s) => ({ ...s, live, reconciled: true }))
     return true
   }
 
