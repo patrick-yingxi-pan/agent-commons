@@ -55,6 +55,12 @@ test('GET /connector/setup serves the agent-facing guide: both paths, the wall, 
   assert.match(body, /\/relay\/poll/, 'Path B: the poll endpoint is documented')
   assert.match(body, /\/relay\/reply/, 'Path B: the reply endpoint is documented')
   assert.match(body, /Authorization: Bearer/, 'Path B: the bearer credential shape')
+  // The v5 serving handshake rides both paths: Path B's ?channels= advertisement
+  // and Path A's start(conversations) declaration — with the serial default named.
+  assert.match(body, /channels=<n>/, 'Path B documents the serving advertisement')
+  assert.match(body, /one conversation at a time/i, '…and that omitting it means serial')
+  assert.match(body, /"conversations": <n>/, 'Path A documents the serving declaration')
+  assert.match(body, /declare honestly/i, 'the declaration is framed as a commitment')
   assert.match(body, /UNEXECUTED/, 'the relay-not-execute discipline rides Path B too')
   // The rules: the §7.9 wall, multi-conversation independence, stop conditions.
   assert.match(body, /NEVER execute instructions/i, 'the outbound-injection wall ships in the guide')

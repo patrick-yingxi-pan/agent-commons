@@ -4942,6 +4942,18 @@ function ProviderCard({ provider, onEdit }: { provider: ModelProvider; onEdit: (
             {provider.online ? 'Session connected' : 'Offline — drain loop not running'}
           </span>
         )}
+        {/* The observed serving picture (v5 handshake): what the binding DECLARED
+            (the negotiated window) and what it is doing right now — kept live by
+            relay.activity events, stamped per read, never a promise. */}
+        {isSession && provider.online && typeof provider.conversationWindow === 'number' && (
+          <span
+            className="rounded bg-panel-2 px-1.5 py-0.5 text-[10px] text-ink-faint"
+            title="What this session's binding declared it can serve concurrently — the platform admits no more. The count is live: conversations with a relayed turn in flight right now."
+          >
+            {provider.activeConversations ? `Answering ${provider.activeConversations} of ` : 'Serves up to '}
+            {provider.conversationWindow} conversation{provider.conversationWindow === 1 ? '' : 's'}
+          </span>
+        )}
         {isSession && <RelayBadge />}
         {provider.effortLevels.map((e) => (
           <span key={e} className="rounded bg-panel-2 px-1.5 py-0.5 text-[10px] text-ink-faint">

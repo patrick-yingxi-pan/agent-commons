@@ -173,8 +173,12 @@ function route(e: ServerEvent): void {
       break
     // A Session provider's drain loop bound or went quiet — re-read the providers
     // list so its computed `online` dot flips live (the relay mirror of runner.*).
+    // `relay.activity` (v5): an entry was delivered or settled — same re-read, so
+    // the card's serving picture (`activeConversations` / `conversationWindow`)
+    // tracks the far session's observed behavior.
     case 'relay.connected':
     case 'relay.disconnected':
+    case 'relay.activity':
       invalidate(keys.providers)
       break
     // A resource's reservation ledger changed (acquired / committed / released /

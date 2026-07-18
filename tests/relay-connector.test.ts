@@ -62,7 +62,9 @@ test('the first start latches; different credentials are refused without a netwo
     // Trailing slash on purpose: the latch normalizes, so a same-URL restart matches.
     assert.match(await callTool(c, 'start', { url: `${stub.url}/`, secret: 'rv_live_first' }), /Nothing pending/, 'latch + first drain (idle)')
     assert.ok(stub.seen.length >= 1, 'the latch started the keepalive loop')
-    assert.equal(stub.seen[0]!.path, '/v1/relay/poll')
+    // Every poll advertises the serving window (v5 handshake) — undeclared, the
+    // connector's own default (it queues and renders any number correctly).
+    assert.equal(stub.seen[0]!.path, '/v1/relay/poll?channels=4')
     assert.equal(stub.seen[0]!.auth, 'Bearer rv_live_first', 'the typed secret is the bearer')
 
     assert.match(await callTool(c, 'start', { secret: 'rv_live_evil' }), /already bound/, 'a different secret is refused')
@@ -168,7 +170,7 @@ test('v3 framing dedupe: the connector caches by hash, advertises on the poll, a
 
     // From now on every poll advertises the cached hashes.
     await callTool(c, 'respond_and_wait', { entryId: 'rve-a', answer: 'ok' })
-    const advertisedPoll = stub.seen.filter((s) => s.path.includes('/relay/poll?have=')).at(-1)
+    const advertisedPoll = stub.seen.filter((s) => s.path.includes('/relay/poll?') && s.path.includes('have=')).at(-1)
     assert.ok(advertisedPoll, 'the poll advertises the cache')
     assert.ok(advertisedPoll!.path.includes('aaaa111122223333') && advertisedPoll!.path.includes('bbbb111122223333'), 'both hashes ride the advertisement')
 
@@ -302,6 +304,30 @@ test('v4 queue: prompts arriving while the model is away queue up and deliver on
   }
 })
 
+test('v5 serving declaration: start(conversations) is advertised on every poll and LATCHES with the binding', async () => {
+  const stub = await startRelayStub()
+  const c = spawnConnector()
+  try {
+    assert.match(await callTool(c, 'start', { url: stub.url, secret: 'rv_live_decl', conversations: 2 }), /Nothing pending/)
+    assert.ok(stub.seen.length >= 1)
+    assert.ok(
+      stub.seen.every((s) => s.path.startsWith('/v1/relay/poll?channels=2')),
+      'the model’s declaration rides every poll — the backend never fans out beyond it',
+    )
+    // The declaration latches with the binding: a later differing value is the
+    // shape an injected relayed prompt would use to throttle or overload the
+    // relay — refused, and nothing changes on the wire.
+    assert.match(await callTool(c, 'start', { url: stub.url, secret: 'rv_live_decl', conversations: 8 }), /already bound/)
+    assert.ok(stub.seen.every((s) => s.path.startsWith('/v1/relay/poll?channels=2')), 'the wire still carries the latched declaration')
+    // Re-stating the SAME declaration (or none) is a normal re-drain, not a redirect.
+    assert.match(await callTool(c, 'start', { url: stub.url, secret: 'rv_live_decl', conversations: 2 }), /Nothing pending/)
+    assert.match(await callTool(c, 'start', { url: stub.url, secret: 'rv_live_decl' }), /Nothing pending/)
+  } finally {
+    c.close()
+    await stub.close()
+  }
+})
+
 test('the keepalive loop is the process’s, not the model’s: polling continues with no tool call in flight', async () => {
   const stub = await startRelayStub()
   const c = spawnConnector()
@@ -312,7 +338,7 @@ test('the keepalive loop is the process’s, not the model’s: polling continue
     const after = stub.seen.length
     await new Promise((r) => setTimeout(r, 1_300))
     assert.ok(stub.seen.length > after, 'polls continued while no model call was parked (the process-owned keepalive)')
-    assert.ok(stub.seen.every((s) => s.path === '/v1/relay/poll' && s.auth === 'Bearer rv_live_alive'))
+    assert.ok(stub.seen.every((s) => s.path.startsWith('/v1/relay/poll?channels=') && s.auth === 'Bearer rv_live_alive'))
   } finally {
     c.close()
     await stub.close()

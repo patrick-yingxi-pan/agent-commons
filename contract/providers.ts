@@ -73,6 +73,16 @@ export interface ModelProvider {
    *  currently bound — a parked poll or an in-flight turn (§7.3). The UI's status dot;
    *  live flips arrive as `relay.connected|disconnected` events. */
   online?: boolean
+  /** Session kind only, computed at read time (never stored): how many conversations
+   *  currently hold an in-flight relayed turn on this relay. The observed half of the
+   *  v5 serving handshake (§9.4) — kept live by `relay.activity` events. */
+  activeConversations?: number
+  /** Session kind only, computed at read time (never stored): the NEGOTIATED
+   *  concurrent-conversation ceiling — min(server cap, what the binding's polls
+   *  advertise via `?channels=`; an advertisement-less binding is serial, window 1,
+   *  because a pre-v4 connector can't hold two undelivered prompts). What the
+   *  pre-turn capacity gate actually enforces, shown so it's never a surprise. */
+  conversationWindow?: number
   /** Human label, shown wherever a provider is listed / chosen. */
   label: string
   /** Viewer-relative, stamped at serve time (like `online`) — never stored on the

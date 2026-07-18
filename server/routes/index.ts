@@ -1065,7 +1065,11 @@ export function buildRouter(): Router {
     // or restarted connector) ⇒ full bodies; malformed entries are just hashes
     // that will never match, so no validation wall is needed here.
     const have = new Set((url.searchParams.get('have') ?? '').split(',').map((h) => h.trim()).filter(Boolean))
-    const { result, abandon } = store.relay.poll(providerId, have)
+    // `channels` is the v5 serving-handshake advertisement: how many concurrent
+    // conversations the far side is prepared to serve. Absent/malformed ⇒ serial
+    // (window 1) — the runtime never fans out beyond what was confirmed.
+    const channelsRaw = url.searchParams.get('channels')
+    const { result, abandon } = store.relay.poll(providerId, have, channelsRaw === null ? undefined : Number(channelsRaw))
     req.on('close', abandon)
     const outcome = await result
     // The long-poll's client may have vanished during the park (that's what
@@ -2315,7 +2319,15 @@ export function buildRouter(): Router {
         return sendError(res, 'relay_busy', 'Your session is still answering this conversation’s previous turn — retry when it finishes.')
       }
       if (store.relay.atCapacity(relayId)) {
-        return sendError(res, 'relay_busy', 'Your session is already answering its maximum number of conversations — retry when one finishes.')
+        // The ceiling names itself: the NEGOTIATED window (what the binding's own
+        // polls advertised, bounded by the server cap) — a serial far side reads
+        // "limit 1", so the refusal is never a mystery.
+        const window = store.relay.window(relayId)
+        return sendError(
+          res,
+          'relay_busy',
+          `Your session is already answering its maximum number of conversations (limit ${window}) — retry when one finishes.`,
+        )
       }
     }
     // The relay prompt's self-contained history (v4): the channel's prior turns,

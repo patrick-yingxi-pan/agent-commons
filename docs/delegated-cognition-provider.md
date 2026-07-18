@@ -1,6 +1,17 @@
 # Delegated-cognition providers ("Session providers") — a D9 extension
 
-> **Status: v4 BUILT** (2026-07-18 — the sixth pass, §9.3): **any-agent
+> **Status: v5 BUILT** (2026-07-18 — the seventh pass, §9.4): **the serving
+> handshake.** v4's multi-session fan-out assumed the far side could take it;
+> v5 makes it confirmed, three layers deep: the binding **advertises** its
+> concurrent-conversation window on every poll (`?channels=` — silence means
+> SERIAL, so a pre-v4 connector is never fanned out to), the far **model
+> declares** its capacity at `start({conversations})` (latched with the binding,
+> like the credentials), and the platform **shows what it observes** —
+> `relay.activity` events keep live `activeConversations`/`conversationWindow`
+> stamps on the provider card ("Answering 2 of 4 conversations"). Admission =
+> min(server cap, advertisement). Spec row MODEL-24.
+>
+> **v4 BUILT** (2026-07-18 — the sixth pass, §9.3): **any-agent
 > onboarding + multi-session channels.** Onboarding inverted: the mint panel
 > hands the user ONE **bootstrap prompt**; the far agent fetches the
 > **agent-facing setup guide** (`GET /connector/setup`) and installs the
@@ -789,6 +800,58 @@ the far model itself fans out sub-agents. And carrying full history per entry
 spends wire bytes to buy statelessness — the §9.2 framing dedupe plus
 per-channel suffix rendering keep the far session's *context* cost flat, which
 is the scarce resource.
+
+## 9.4 The v5 pass (2026-07-18) — the serving handshake
+
+A field report drove it: *"whether the far model spawns sub-agents (or keeps up
+at all) is its own decision — do we have a handshake over the sessions to
+confirm, and avoid surprises?"* We didn't: v4 admitted `RELAY_MAX_INFLIGHT`
+concurrent conversations on **assumption**. Two concrete surprises lurked — a
+pre-v4 connector's depth-1 buffer silently **drops** a second undelivered
+prompt (its turn dies at the deadline, unexplained), and a serial far loop
+quietly ages every extra conversation toward fallback. The handshake makes
+serving capacity **negotiated, declared, and observed** — three layers, each
+matched to what its party can actually vouch for:
+
+- **The protocol layer — the advertisement** (connector → backend). Every poll
+  states how many concurrent conversations the far side is prepared to hold
+  (`GET /relay/poll?channels=<n>` — stateless per poll, like `have=`).
+  Admission = **min(`RELAY_MAX_INFLIGHT`, advertisement)**, and an
+  advertisement-less poll means **serial** (window 1): silence is the pre-v4
+  connectors' truth, so the backend never fans out to a binding that never
+  confirmed it can hold the fan-out (INV-9's shape — an absence never widens
+  what the far side is sent). Malformed values read as serial, never widened;
+  the capacity refusal names the negotiated limit ("limit N"). Rejected:
+  defaulting silence to the server cap (exactly the assumption that dropped
+  prompts), and a separate enrollment call (§7.3's no-enrollment ruling stands
+  — the advertisement rides the poll that IS the binding).
+- **The cognition layer — the declaration** (far model → connector,
+  `start({conversations})`). The connector guarantees queue/render correctness
+  for any count (so its own default advertisement is 4), but only the MODEL
+  knows whether it will keep up — serve strictly serially (1) or delegate each
+  prompt to a sub-agent (more). Its declaration **latches with the binding**,
+  exactly like the credentials (`RELAY_CONVERSATIONS` pre-latches): a later
+  differing value is the shape an injected relayed prompt would use to throttle
+  or overload the relay, so it is refused without a network request (the §7.9
+  wall's parameter-shaped cousin, again). The setup guide tells both paths to
+  "declare honestly" — Path B agents pass `?channels=` themselves.
+- **The observed layer — activity, shown** (backend → user). What can't be
+  attested is observed instead: the runtime emits `relay.activity` on every
+  entry **delivery** and **settle** (tenant-gated like `relay.connected` — how
+  busy someone's delegated session is must not leak across the wall), and
+  provider reads stamp `activeConversations` + `conversationWindow` (serve-time
+  computed, PATCH-forge-proof like `online`). The Models card renders it —
+  "Serves up to 4 conversations" / "Answering 2 of 4 conversations" — so the
+  negotiated ceiling and the far session's real behavior are visible where the
+  relay is managed, per invariant UI-12 (a live datum with a SYNC path).
+  Rejected: a per-reply "I delegated this to a sub-agent" attestation field —
+  unverifiable from our side of the rendezvous, and it would dress a claim as a
+  fact; the provenance chip already names the words as the far session's.
+
+What did NOT change: entry keying (already the per-turn confirmation — an
+answer names exactly the prompt it settles), the busy/offline pre-persist
+gates, binding-by-secret, and the continuation-round ceiling bypass (a
+mid-flight tool loop still finishes).
 
 ## 10. Open items (what remains — the v2 checklist)
 

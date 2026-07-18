@@ -223,7 +223,9 @@ test('two conversations run CONCURRENTLY over one relay; entry keys route each a
   const a = await sessionOnProvider(p.id)
   const b = await sessionOnProvider(p.id)
   await withEnv({ RELAY_POLL_MS: '2000', RELAY_TIMEOUT_MS: '5000' }, async () => {
-    const parkedA = call('GET', '/relay/poll', undefined, auth(p.secret))
+    // The polls ADVERTISE multi-conversation serving (v5 handshake) — without
+    // `?channels=` the backend treats the binding as serial and refuses B.
+    const parkedA = call('GET', '/relay/poll?channels=4', undefined, auth(p.secret))
     await sleep(10)
     const sendA = callRaw('POST', `/sessions/${a.sessionId}/messages`, { text: 'turn A' })
     const pulledA = await parkedA
@@ -231,7 +233,7 @@ test('two conversations run CONCURRENTLY over one relay; entry keys route each a
 
     // B is NOT refused while A is in flight (the v1 relay-wide busy is gone) —
     // its prompt is delivered to the next poll, tagged with ITS channel.
-    const parkedB = call('GET', '/relay/poll', undefined, auth(p.secret))
+    const parkedB = call('GET', '/relay/poll?channels=4', undefined, auth(p.secret))
     await sleep(10)
     const sendB = callRaw('POST', `/sessions/${b.sessionId}/messages`, { text: 'turn B' })
     const pulledB = await parkedB
@@ -253,14 +255,15 @@ test('the concurrency ceiling refuses a NEW conversation pre-persist (RELAY_MAX_
   const a = await sessionOnProvider(p.id)
   const b = await sessionOnProvider(p.id)
   await withEnv({ RELAY_POLL_MS: '2000', RELAY_TIMEOUT_MS: '3000', RELAY_MAX_INFLIGHT: '1' }, async () => {
-    const parked = call('GET', '/relay/poll', undefined, auth(p.secret))
+    // The binding advertises 4 — the SERVER cap still bounds the negotiation.
+    const parked = call('GET', '/relay/poll?channels=4', undefined, auth(p.secret))
     await sleep(10)
     const sendA = callRaw('POST', `/sessions/${a.sessionId}/messages`, { text: 'turn A' })
     const pulled = await parked
     const sendB = await callRaw('POST', `/sessions/${b.sessionId}/messages`, { text: 'turn B' })
     assert.equal(sendB.status, 503)
     assert.match(sendB.body, /relay_busy/)
-    assert.match(sendB.body, /maximum number of conversations/, 'the refusal names the ceiling')
+    assert.match(sendB.body, /maximum number of conversations \(limit 1\)/, 'the refusal names the NEGOTIATED ceiling')
     assert.equal(store.getSession(b.sessionId)?.messages?.length ?? 0, 0, 'B persisted nothing')
     await call('POST', '/relay/reply', { entryId: pulled.json.entryId, completion: 'answer A' }, auth(p.secret))
     assert.match((await sendA).body, /answer A/)
@@ -286,6 +289,96 @@ test('a continuation round bypasses the ceiling — a rival channel cannot fail 
     store.relay.clear(p.id, rival!.entryId)
     store.relay.clear(p.id, round2!.entryId)
   })
+})
+
+// ── v5: the serving handshake ────────────────────────────────────────────────
+
+test('no advertisement = SERIAL: a silent binding is never fanned out to (window 1)', async () => {
+  const p = await mintSessionProvider('Silent binding')
+  const a = await sessionOnProvider(p.id)
+  const b = await sessionOnProvider(p.id)
+  await withEnv({ RELAY_POLL_MS: '2000', RELAY_TIMEOUT_MS: '3000' }, async () => {
+    // A bare poll (a pre-v4 connector, whose depth-1 buffer would DROP a second
+    // undelivered prompt) advertises nothing — the negotiated window is 1.
+    const parked = call('GET', '/relay/poll', undefined, auth(p.secret))
+    await sleep(10)
+    const sendA = callRaw('POST', `/sessions/${a.sessionId}/messages`, { text: 'turn A' })
+    const pulled = await parked
+    const sendB = await callRaw('POST', `/sessions/${b.sessionId}/messages`, { text: 'turn B' })
+    assert.equal(sendB.status, 503, 'a second conversation refuses — nothing is sent the far side never confirmed it can hold')
+    assert.match(sendB.body, /limit 1/)
+    await call('POST', '/relay/reply', { entryId: pulled.json.entryId, completion: 'answer A' }, auth(p.secret))
+    assert.match((await sendA).body, /answer A/)
+  })
+})
+
+test('the negotiated window = min(server cap, advertisement); re-stated per poll; garbage reads as serial', async () => {
+  const p = await mintSessionProvider('Window negotiation')
+  await withEnv({ RELAY_POLL_MS: '40', RELAY_MAX_INFLIGHT: '4' }, async () => {
+    await call('GET', '/relay/poll?channels=2', undefined, auth(p.secret))
+    assert.equal(store.relay.window(p.id), 2, 'the declaration bounds the server cap')
+    await call('GET', '/relay/poll?channels=99', undefined, auth(p.secret))
+    assert.equal(store.relay.window(p.id), 4, 'the server cap bounds the declaration')
+    await call('GET', '/relay/poll?channels=bogus', undefined, auth(p.secret))
+    assert.equal(store.relay.window(p.id), 1, 'a malformed advertisement is serial, never widened')
+    await call('GET', '/relay/poll?channels=3', undefined, auth(p.secret))
+    assert.equal(store.relay.window(p.id), 3, 'the advertisement is stateless — every poll re-states it')
+  })
+})
+
+test('the observed serving picture: provider reads stamp window + active count; PATCH cannot forge them', async () => {
+  const p = await mintSessionProvider('Serving picture')
+  const { sessionId } = await sessionOnProvider(p.id)
+  await withEnv({ RELAY_POLL_MS: '2000', RELAY_TIMEOUT_MS: '3000' }, async () => {
+    const parked = call('GET', '/relay/poll?channels=3', undefined, auth(p.secret))
+    await sleep(10)
+    const idle = store.listProviders().find((x) => x.id === p.id)!
+    assert.equal(idle.conversationWindow, 3, 'the negotiated window is stamped at read time')
+    assert.equal(idle.activeConversations, 0, 'nothing in flight yet')
+
+    const send = callRaw('POST', `/sessions/${sessionId}/messages`, { text: 'observe me' })
+    const pulled = await parked
+    const busy = store.listProviders().find((x) => x.id === p.id)!
+    assert.equal(busy.activeConversations, 1, 'the in-flight turn is visible — observed, not attested')
+
+    // Server-stamped means forge-proof: a PATCH naming the fields changes nothing.
+    const patched = await call('PATCH', `/providers/${p.id}`, { activeConversations: 9, conversationWindow: 99 })
+    assert.equal(patched.status, 200)
+    const after = store.listProviders().find((x) => x.id === p.id)!
+    assert.equal(after.activeConversations, 1, 'the count stays computed')
+    assert.equal(after.conversationWindow, 3, 'the window stays negotiated')
+
+    await call('POST', '/relay/reply', { entryId: pulled.json.entryId, completion: 'seen' }, auth(p.secret))
+    await send
+    assert.equal(store.listProviders().find((x) => x.id === p.id)!.activeConversations, 0, 'settling drains the count')
+  })
+})
+
+test('relay.activity fires on delivery and settle, and is the owning tenant’s private signal', async () => {
+  const p = await mintSessionProvider('Activity events')
+  const { sessionId } = await sessionOnProvider(p.id)
+  const seen: string[] = []
+  const unsub = store.subscribe((e) => {
+    if (e.type === 'relay.activity' && e.providerId === p.id) seen.push(e.type)
+  })
+  try {
+    await withEnv({ RELAY_POLL_MS: '2000', RELAY_TIMEOUT_MS: '3000' }, async () => {
+      const parked = call('GET', '/relay/poll?channels=2', undefined, auth(p.secret))
+      await sleep(10)
+      const send = callRaw('POST', `/sessions/${sessionId}/messages`, { text: 'signal' })
+      const pulled = await parked
+      assert.equal(seen.length, 1, 'delivery emitted one activity signal')
+      await call('POST', '/relay/reply', { entryId: pulled.json.entryId, completion: 'done' }, auth(p.secret))
+      await send
+      assert.equal(seen.length, 2, 'settling emitted the second')
+    })
+  } finally {
+    unsub()
+  }
+  // Tenant privacy: routed like relay.connected — how busy someone's delegated
+  // session is must not be observable across the wall.
+  assert.equal(store.eventVisibleToTenant({ type: 'relay.activity', providerId: p.id }, store.defaultTenantId()), true)
+  assert.equal(store.eventVisibleToTenant({ type: 'relay.activity', providerId: p.id }, 'tenant-zeta'), false)
 })
 
 test('every relayed prompt is SELF-CONTAINED: it carries its conversation’s full prior history', async () => {

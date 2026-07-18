@@ -593,9 +593,14 @@ the mock?
   protocol over plain HTTP with no MCP at all (spec MODEL-22) — and added
   **multi-session channels**: one relay serves several UI sessions concurrently,
   every prompt self-contained (full per-conversation history), sub-agent
-  delegation advised (spec MODEL-23). Locked by `tests/relay.test.ts`,
+  delegation advised (spec MODEL-23). v5 (2026-07-18) added the **serving
+  handshake** — fan-out is negotiated (`?channels=` on every poll; silence =
+  serial), declared by the far model (`start({conversations})`, latched like the
+  credentials), and observed (`relay.activity` events; the card shows "Answering
+  X of Y conversations") — never assumed (spec MODEL-24). Locked by
+  `tests/relay.test.ts`,
   `tests/relay-migrate.test.ts`, `tests/relay-connector.test.ts`,
-  `tests/connector-serve.test.ts` (spec rows MODEL-10/-11/-18/-19/-21/-22/-23).
+  `tests/connector-serve.test.ts` (spec rows MODEL-10/-11/-18/-19/-21/-22/-23/-24).
   Providers are first-class **Models** (rail section + every model picker reads
   the live registry; a session's pick routes its turns — spec MODEL-13). The
   design log — six passes, each recording the ruling and the rejected

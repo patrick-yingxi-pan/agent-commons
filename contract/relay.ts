@@ -99,7 +99,13 @@ export interface RelayPrompt {
  *  - `superseded` — a newer poll with the same secret took this parked slot
  *    (newest-wins, §7.3) or the secret was rotated; this loop should stop.
  *  The poll may carry `?have=<hash,…>` — the framing/tool hashes the connector
- *  holds cached; a delivered prompt omits exactly those bodies (see RelayPrompt). */
+ *  holds cached; a delivered prompt omits exactly those bodies (see RelayPrompt).
+ *  It may also carry `?channels=<n>` — the v5 serving handshake's advertisement:
+ *  how many concurrent conversations the far side is prepared to serve (its
+ *  protocol capability × the model's latched declaration). Re-stated on EVERY
+ *  poll (stateless, like `have`); the backend admits min(its own cap, n), and an
+ *  advertisement-less poll means SERIAL — window 1 — because a pre-v4 connector's
+ *  depth-1 buffer genuinely drops a second undelivered prompt. */
 export type RelayPollResult =
   | { entryId: string; prompt: RelayPrompt }
   | { idle: true }

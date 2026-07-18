@@ -56,7 +56,12 @@ only to ${base}, and never print or send it anywhere else.
    \`{ "url": "<the relay URL from the user's message>", "secret": "rv_live_…" }\`
    and follow the tool results' own loop instructions (\`respond_and_wait\`).
    (The user's URL wins over any base shown in this guide — a proxy may have
-   rewritten what this page sees.)
+   rewritten what this page sees.) You may add \`"conversations": <n>\` — the
+   **serving declaration**: how many platform conversations you are prepared to
+   serve concurrently (1 = strictly serial; more if you will keep up, e.g. by
+   delegating each prompt to a sub-agent; default 4). The platform never opens
+   more concurrent conversations than you declared, and the declaration latches
+   with the first call — declare honestly.
 
 ### Path B — no MCP: drive the relay protocol directly
 
@@ -64,7 +69,10 @@ Nothing to install: any agent that can make HTTP requests can serve. Both
 endpoints live under the relay URL from the user's message (shown here as
 \`${base}\`) and authenticate with \`Authorization: Bearer <secret>\`.
 
-1. \`GET ${base}/relay/poll\` — long-polls (~25 s); answers with exactly one of:
+1. \`GET ${base}/relay/poll?channels=<n>\` — long-polls (~25 s). \`channels\` is
+   the **serving handshake**: how many platform conversations you are prepared
+   to serve concurrently — include it on every poll; omit it and the platform
+   sends you exactly one conversation at a time. It answers with one of:
    - \`{ "entryId": "…", "prompt": { … } }\` — a prompt to answer (see step 2);
    - \`{ "idle": true }\` — nothing pending; poll again immediately;
    - \`{ "superseded": true }\` — another connector took over, or the secret was

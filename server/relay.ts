@@ -137,6 +137,13 @@ export class RelayRuntime {
   private readonly inflight = new Map<string, Map<string, InflightTurn>>()
   private readonly parked = new Map<string, ParkedPoll>()
   private readonly lastSeen = new Map<string, number>()
+  /** The v5 serving handshake's far-side half: the concurrent-conversation count
+   *  the binding's polls advertise (`?channels=`), re-recorded on EVERY poll
+   *  (stateless, like the `have` hashes). Absent advertisement = 1 — a silent
+   *  far side is SERIAL (a pre-v4 connector's depth-1 buffer drops a second
+   *  undelivered prompt, so fanning out to it would lose turns). Transient,
+   *  like everything here. */
+  private readonly advertised = new Map<string, number>()
   /** Relays currently announced online (drives edge-triggered relay.* events). */
   private readonly announced = new Set<string>()
   private readonly reapTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -185,10 +192,30 @@ export class RelayRuntime {
     return false
   }
 
-  /** The relay-wide ceiling (v4): every channel slot is taken — the pre-turn
-   *  gate refuses a NEW conversation's turn until one settles. */
+  /** The NEGOTIATED concurrent-conversation ceiling (v5 handshake): the server
+   *  cap bounded by what the binding's polls advertise. No advertisement ⇒ 1. */
+  window(providerId: string): number {
+    return Math.min(this.maxInflight(), this.advertised.get(providerId) ?? 1)
+  }
+
+  /** How many conversations hold an in-flight turn right now (≤ one entry per
+   *  channel — the per-channel wall — so the entry count IS the channel count). */
+  activeConversations(providerId: string): number {
+    return this.turnsOf(providerId).size
+  }
+
+  /** The relay-wide ceiling (v4; negotiated since v5): every admitted slot is
+   *  taken — the pre-turn gate refuses a NEW conversation's turn until one
+   *  settles. */
   atCapacity(providerId: string): boolean {
-    return this.turnsOf(providerId).size >= this.maxInflight()
+    return this.turnsOf(providerId).size >= this.window(providerId)
+  }
+
+  /** The observed half of the v5 handshake: an entry was delivered or settled.
+   *  Thin by convention (the client re-reads the providers list for the
+   *  `activeConversations` / `conversationWindow` stamps). */
+  private notifyActivity(providerId: string): void {
+    this.emit({ type: 'relay.activity', providerId })
   }
 
   /** A connector activity (poll / reply) proves liveness: refresh `lastSeen`,
@@ -251,6 +278,9 @@ export class RelayRuntime {
       turn.taken = true
       parked.resolve({ entryId, prompt: deliverPrompt(prompt, parked.have) })
     }
+    // One signal per offer, delivered-on-the-spot or queued alike — the entry
+    // now COUNTS toward `activeConversations`, so the observers must hear it.
+    this.notifyActivity(providerId)
     return { entryId, completion }
   }
 
@@ -260,11 +290,20 @@ export class RelayRuntime {
    *  (newest wins — a zombie socket must not lock out the restarted loop) or the
    *  relay retires. `abandon` is the socket-close hook: it unparks AND resolves,
    *  so the route handler never dangles. */
-  poll(providerId: string, have: ReadonlySet<string> = new Set()): { result: Promise<RelayPollResult>; abandon: () => void } {
+  poll(
+    providerId: string,
+    have: ReadonlySet<string> = new Set(),
+    channels?: number,
+  ): { result: Promise<RelayPollResult>; abandon: () => void } {
+    // Record the advertisement EVERY poll (stateless, like `have`): a malformed
+    // or absent value reads as serial — the minimal-risk meaning (INV-9's shape:
+    // an absence never widens what the far side is sent).
+    this.advertised.set(providerId, Number.isFinite(channels) && channels! >= 1 ? Math.min(Math.floor(channels!), 16) : 1)
     this.markSeen(providerId)
     for (const turn of this.turnsOf(providerId).values()) {
       if (turn.taken) continue
       turn.taken = true
+      this.notifyActivity(providerId)
       return { result: Promise.resolve({ entryId: turn.entryId, prompt: deliverPrompt(turn.prompt, have) }), abandon: () => {} }
     }
     const prev = this.parked.get(providerId)
@@ -308,13 +347,14 @@ export class RelayRuntime {
     if (!turns || !turn) return 'gone'
     turns.delete(entryId)
     turn.settle(outcome)
+    this.notifyActivity(providerId)
     return 'accepted'
   }
 
   /** Drop an in-flight entry WITHOUT settling — `relayReply`'s own deadline or
    *  cancel path already resolved its race; a late submit now meets 410. */
   clear(providerId: string, entryId: string): void {
-    this.inflight.get(providerId)?.delete(entryId)
+    if (this.inflight.get(providerId)?.delete(entryId)) this.notifyActivity(providerId)
   }
 
   /** The kill switch (rotate / delete — §7.5): the parked poll is superseded on
@@ -328,6 +368,7 @@ export class RelayRuntime {
       turn.settle({ kind: 'error', reason: 'The relay was rotated or removed.' })
     }
     this.inflight.delete(providerId)
+    this.advertised.delete(providerId)
     this.lastSeen.delete(providerId)
     const timer = this.reapTimers.get(providerId)
     if (timer) clearTimeout(timer)

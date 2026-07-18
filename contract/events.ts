@@ -209,6 +209,16 @@ export interface RelayDisconnectedEvent {
   type: 'relay.disconnected'
   providerId: string
 }
+/** A relay's in-flight set changed — an entry was DELIVERED to the far session
+ *  or SETTLED (answered / timed out / cancelled). The observed half of the v5
+ *  serving handshake (docs/delegated-cognition-provider.md §9.4): the client
+ *  re-reads the providers list so the serve-time `activeConversations` /
+ *  `conversationWindow` stamps stay live — the user can SEE the far session
+ *  picking work up and finishing it, no attestation involved. */
+export interface RelayActivityEvent {
+  type: 'relay.activity'
+  providerId: string
+}
 
 /** The Dispatch feed changed — a one-off dispatch was kicked off, or one finished.
  *  The feed is small, so the client just re-reads it whole. */
@@ -322,6 +332,7 @@ export type ServerEvent =
   | ReservationChangedEvent
   | RelayConnectedEvent
   | RelayDisconnectedEvent
+  | RelayActivityEvent
   | DispatchChangedEvent
   | AuditEntryEvent
   | OpenWorkChangedEvent

@@ -1719,10 +1719,12 @@ export const store = {
         return p.shared === true || rowVisibleTo(p, tenantId)
       }
       case 'relay.connected':
-      case 'relay.disconnected': {
+      case 'relay.disconnected':
+      case 'relay.activity': {
         // A Session provider is forced tenant-scoped (the mint wall), so its liveness
-        // flips are that tenant's private signal — another tenant must not observe
-        // when someone's delegated session comes and goes. Gate on the provider row.
+        // flips — and its per-turn delivery/settle activity (v5) — are that tenant's
+        // private signal: another tenant must not observe when someone's delegated
+        // session comes and goes, nor how busy it is. Gate on the provider row.
         const p = MODEL_PROVIDERS.get(e.providerId)
         return (p?.tenantId ?? defaultTenantId()) === tenantId
       }
@@ -2022,7 +2024,11 @@ export const store = {
       .filter((p) => registryVisible(p, tenantId))
       .map((p) =>
         p.kind === 'session'
-          ? { ...p, online: relay.online(p.id) }
+          ? // The relay's live serving picture, stamped per read like `online`
+            // (v5 handshake, observed half): how many conversations hold an
+            // in-flight turn, and the negotiated admission window. Kept live by
+            // `relay.activity` events; never stored, stripped at every patch.
+            { ...p, online: relay.online(p.id), activeConversations: relay.activeConversations(p.id), conversationWindow: relay.window(p.id) }
           : // What an UNSET pick resolves to — the configured model (serve-time
             // stamp, like `online`), so the client's inherit display matches
             // what a turn actually runs (never `catalog[0]` guesswork).
@@ -2136,7 +2142,18 @@ export const store = {
     // server-stamped: a PATCH may rename/re-plan a provider but never flip its
     // kind or forge relay state. `isDefault` is a serve-time stamp too — the route
     // turns it into a setDefaultProvider call; it never lands on the entity.
-    const { kind: _kind, secretHint: _hint, online: _online, isDefault: _default, defaultModelId: _dm, models: patchModels, catalogSource: _src, ...safe } = patch
+    const {
+      kind: _kind,
+      secretHint: _hint,
+      online: _online,
+      activeConversations: _active,
+      conversationWindow: _window,
+      isDefault: _default,
+      defaultModelId: _dm,
+      models: patchModels,
+      catalogSource: _src,
+      ...safe
+    } = patch
     const next: ModelProvider = { ...current, ...safe, id: current.id }
     MODEL_PROVIDERS.set(id, next)
     reclampAgentsOf(next) // D8 runtime: a narrowed provider re-clamps its Agents (+ their commissions)
