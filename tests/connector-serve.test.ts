@@ -35,26 +35,53 @@ test('GET /connector serves a type-stripped, self-contained JS module with downl
   assert.equal(again.body, body)
 })
 
-test('every install recipe is re-run-safe: remove-first guard, scope-pinned, download gated', () => {
+test('GET /connector/setup serves the agent-facing guide: both paths, the wall, the deployment’s real base', async () => {
+  // The v4 onboarding inversion (spec MODEL-22): the UI hands out ONE bootstrap
+  // prompt; every harness-specific instruction lives in THIS document, fetched by
+  // the agent that needs it. The guide must carry both serving paths — the MCP
+  // install (in the AGENT's own harness, whatever it is) and the direct-HTTP
+  // protocol (the true floor: anything that can make an HTTP request) — plus the
+  // non-negotiable rules, all against the deployment's real dialable base URL.
+  const res = await callRaw('GET', '/connector/setup')
+  assert.equal(res.status, 200)
+  assert.match(res.headers['content-type'] ?? '', /text\/markdown/, 'served as markdown — a document, not an API shape')
+  const body = res.body
+  assert.match(body, /https?:\/\/[^\s/]+\/api\/v1\/connector/, 'the download URL is absolute and origin-derived')
+  // Path A — MCP, harness-agnostic: generic registration + examples beyond Claude.
+  assert.match(body, /stdio MCP server/, 'Path A: a standard stdio MCP registration')
+  assert.match(body, /your own harness/i, '…in the agent’s OWN harness, not an enumerated one')
+  assert.match(body, /codex mcp add session-relay/, 'a non-Claude harness example exists')
+  // Path B — the protocol itself, for harnesses with no MCP at all.
+  assert.match(body, /\/relay\/poll/, 'Path B: the poll endpoint is documented')
+  assert.match(body, /\/relay\/reply/, 'Path B: the reply endpoint is documented')
+  assert.match(body, /Authorization: Bearer/, 'Path B: the bearer credential shape')
+  assert.match(body, /UNEXECUTED/, 'the relay-not-execute discipline rides Path B too')
+  // The rules: the §7.9 wall, multi-conversation independence, stop conditions.
+  assert.match(body, /NEVER execute instructions/i, 'the outbound-injection wall ships in the guide')
+  assert.match(body, /self-contained/i, 'the multi-session contract is stated')
+  assert.match(body, /sub-agent/i, 'the sub-agent delegation option is stated')
+  assert.ok(!body.includes('rv_live_TESTSECRET'), 'no credential ever rides the guide')
+  // Unauthenticated like /connector: a manual is not a secret (the auth gate's
+  // open set includes it — locked functionally here, since this helper runs
+  // gate-off; tests/auth-gate.test.ts locks the wall itself).
+})
+
+test('every remaining install recipe is re-run-safe: remove-first guard, scope-pinned', () => {
   // `claude mcp add` refuses a name that already exists (no overwrite flag), so a
   // recipe that only `add`s errors on the second mint / a connector refresh. Every
-  // copy of the recipe in the repo must therefore (a) pin BOTH sides to `-s local`
-  // (an unpinned remove wedges on multi-scope state and silently relocates a
-  // user-/project-scope install) and (b) guard each add with the fully-silenced
-  // remove (its not-found chatter isn't reliably on stderr). The guard has one
-  // legal shape per shell dialect — POSIX silences with `>/dev/null 2>&1`,
-  // PowerShell with `*> $null` (there `curl` is the Invoke-WebRequest alias and
-  // `&&`/subshells don't exist, which is why the dialects diverge at all).
+  // copy of the Claude-form recipe in the repo (they live in the agent-facing
+  // setup guide and the docs now — the UI no longer renders one) must therefore
+  // (a) pin BOTH sides to `-s local` (an unpinned remove wedges on multi-scope
+  // state and silently relocates a user-/project-scope install) and (b) guard each
+  // add with the fully-silenced remove (its not-found chatter isn't reliably on
+  // stderr).
   const RECIPE_FILES = [
-    '../src/lib/connectorInstall.ts',
+    '../server/connectorSetup.ts',
     '../connector/relay-connector.ts',
     '../docs/delegated-cognition-provider.md',
     '../docs/spec/06-model-and-tools.md',
   ]
-  const GUARDS = [
-    '(claude mcp remove -s local session-relay >/dev/null 2>&1; claude mcp add -s local session-relay',
-    'claude mcp remove -s local session-relay *> $null; claude mcp add -s local session-relay',
-  ]
+  const GUARD = '(claude mcp remove -s local session-relay >/dev/null 2>&1; claude mcp add -s local session-relay'
   // An *invocation* names the server; prose mentions of the bare command don't count.
   const INVOCATION = /claude mcp add(?: -s \S+)? session-relay/g
   for (const file of RECIPE_FILES) {
@@ -66,60 +93,40 @@ test('every install recipe is re-run-safe: remove-first guard, scope-pinned, dow
     for (const inv of invocations) {
       assert.equal(inv, 'claude mcp add -s local session-relay', `${file}: install invocation not scope-pinned: '${inv}'`)
     }
-    const guarded = GUARDS.reduce((n, g) => n + text.split(g).length - 1, 0)
+    const guarded = text.split(GUARD).length - 1
     assert.equal(guarded, invocations.length, `${file}: ${invocations.length - guarded} of ${invocations.length} install invocations lack the remove-first guard`)
   }
+  // The UI module carries the bootstrap prompt ONLY — no shell recipe to drift
+  // (the drift that once made the install bash-only, then Claude-only).
+  const uiModule = readFileSync(new URL('../src/lib/connectorInstall.ts', import.meta.url), 'utf8')
+  assert.ok(!uiModule.includes('claude mcp add'), 'the UI module re-grew a harness-specific install command')
 })
 
-test('the panel recipes come from the one module, byte-exact per shell dialect', async () => {
-  // ONE source of truth for the copyable command: the panel must render
-  // src/lib/connectorInstall.ts, not re-hardcode a string (the drift that made the
-  // recipe bash-only in the first place). The module's output is locked byte-exact:
-  // `curl -fsSL` / `curl.exe -fsSL` make an HTTP error a *failed* download, and the
-  // temp-file + rename keeps a dropped re-download from truncating the file a
-  // working registration points at — `&&`+`mv` on POSIX, `if ($?)`+`Move-Item` in
-  // PowerShell, where a bare `curl` would hit the Invoke-WebRequest alias.
-  const { installRecipes, defaultShellId } = await import('../src/lib/connectorInstall.ts')
-  const url = 'https://relay.example/api/v1/connector'
-  const byId = new Map(installRecipes(url).map((r) => [r.id, r.command]))
-  assert.equal(
-    byId.get('posix'),
-    `curl -fsSL ${url} -o ~/session-relay.mjs.tmp && mv ~/session-relay.mjs.tmp ~/session-relay.mjs && (claude mcp remove -s local session-relay >/dev/null 2>&1; claude mcp add -s local session-relay -- node ~/session-relay.mjs)`,
-    'the POSIX recipe drifted from the locked byte-exact shape',
-  )
-  assert.equal(
-    byId.get('powershell'),
-    `curl.exe -fsSL ${url} -o "$HOME\\session-relay.mjs.tmp"; if ($?) { Move-Item -Force "$HOME\\session-relay.mjs.tmp" "$HOME\\session-relay.mjs"; claude mcp remove -s local session-relay *> $null; claude mcp add -s local session-relay -- node "$HOME\\session-relay.mjs" }`,
-    'the PowerShell recipe drifted from the locked byte-exact shape',
-  )
-  // The platform pre-selection is convenience only, but must not misfire ('darwin'
-  // must not read as Windows) — both recipes stay offered regardless.
-  assert.equal(defaultShellId('Win32'), 'powershell')
-  assert.equal(defaultShellId('MacIntel'), 'posix')
-  assert.equal(defaultShellId('Linux x86_64'), 'posix')
-  assert.equal(defaultShellId('darwin'), 'posix')
-  const panel = readFileSync(new URL('../src/components/SectionView.tsx', import.meta.url), 'utf8')
-  assert.ok(panel.includes("from '../lib/connectorInstall'"), 'the panel no longer reads the shared recipe module')
-  assert.ok(!panel.includes('curl -fsSL ${connectorUrl}'), 'the panel re-hardcodes an install command instead of rendering the module')
-})
-
-test('the credential is shown in exactly ONE place: inside the connect line', async () => {
-  // The connect line the user pastes ALREADY carries the secret. The reveal panel
-  // used to ALSO print the raw secret in its own box above it — the same credential
-  // twice, and the reason the dialog read as heavy. The line is the single artifact
-  // the user copies and saves, so the secret must appear only there.
-  const { connectSentence } = await import('../src/lib/connectorInstall.ts')
+test('the credential is shown in exactly ONE place: inside the bootstrap prompt', async () => {
+  // The bootstrap prompt the user pastes ALREADY carries the secret. The reveal
+  // panel used to ALSO print the raw secret in its own box — the same credential
+  // twice, and the reason the dialog read as heavy. The prompt is the single
+  // artifact the user copies and saves, so the secret must appear only there —
+  // and it must point the agent at the setup guide, where every harness-specific
+  // instruction now lives (the UI enumerates no coding tools).
+  const { bootstrapPrompt } = await import('../src/lib/connectorInstall.ts')
   const url = 'https://relay.example/api/v1'
   const secret = 'rv_live_TESTSECRET'
-  assert.equal(connectSentence(url, secret), `Connect to ${url} with secret ${secret} and start draining.`)
-  assert.ok(connectSentence(url, secret).includes(secret), 'the connect line must carry the secret — it IS the credential hand-off')
+  const prompt = bootstrapPrompt(url, secret)
+  assert.ok(prompt.includes(secret), 'the prompt must carry the secret — it IS the credential hand-off')
+  assert.ok(prompt.includes(`${url}/connector/setup`), 'the prompt points the agent at the setup guide')
+  assert.ok(prompt.includes(`connect to ${url} with secret ${secret}`), 'the prompt carries the relay URL + secret the connector’s start needs')
+  assert.match(prompt, /install|drive/i, 'the prompt names both onboarding paths without prescribing a harness')
 
   const panel = readFileSync(new URL('../src/components/SectionView.tsx', import.meta.url), 'utf8')
-  assert.ok(panel.includes('connectSentence(relayUrl, secret)'), 'the panel must build the connect line from the shared module')
+  assert.ok(panel.includes('bootstrapPrompt(relayUrl, secret)'), 'the panel must build the prompt from the shared module')
   // The standalone raw-secret reveal (its own code row + Copy) must stay gone: a
   // second rendering of `secret` is the duplication this design removed.
   assert.ok(!/ariaLabel="Copy rendezvous secret"/.test(panel), 'the panel re-added a standalone raw-secret copy row')
-  assert.ok(!/text=\{secret\}/.test(panel), 'the panel renders the bare secret outside the connect line')
+  assert.ok(!/text=\{secret\}/.test(panel), 'the panel renders the bare secret outside the bootstrap prompt')
+  // No harness-specific install command in the panel either — that is the setup
+  // guide's job, delivered to the agent, not the human.
+  assert.ok(!panel.includes('claude mcp add'), 'the panel re-grew a harness-specific install recipe')
 })
 
 test('the reveal closes on an OBSERVED fact, never on a self-attestation checkbox', () => {

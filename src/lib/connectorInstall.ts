@@ -1,65 +1,24 @@
-/** ── The connector install recipes, per shell (spec MODEL-14) ─────────────────
- *  ONE source of truth for the copyable "install the connector" command the mint
- *  panel shows — in every shell dialect we hand out. A single bash-only string
- *  breaks silently off-platform: in PowerShell `curl` is an alias for
- *  Invoke-WebRequest (`-fsSL` is a binding error), PowerShell 5.1 has no `&&` and
- *  no bash subshell, and `>/dev/null 2>&1` isn't how its streams silence. So each
- *  dialect gets its own carefully-shaped recipe, and the panel offers both.
+/** ── The bootstrap prompt (spec MODEL-22) ─────────────────────────────────────
+ *  ONE source of truth for the single artifact the mint panel hands the user: a
+ *  prompt they paste into the AI session that will do the thinking. The v4
+ *  onboarding inversion (docs/delegated-cognition-provider.md §9.3): the UI no
+ *  longer enumerates harness-specific install commands (a Claude-CLI recipe
+ *  silently excluded Codex / Cursor / opencode / any harness we've never heard
+ *  of — the opposite of the connector's last-resort purpose). Instead the
+ *  far AGENT onboards itself: the prompt points it at the agent-facing setup
+ *  guide (`GET /connector/setup`, server/connectorSetup.ts), where every
+ *  harness-specific instruction now lives — install the MCP connector its own
+ *  way, or drive the relay protocol directly with plain HTTP.
  *
- *  Every dialect must preserve the recipe's three safety properties (the reasons
- *  live in docs/delegated-cognition-provider.md §4.2, locked by
- *  tests/connector-serve.test.ts):
- *   1. download to a temp file, rename on success — a dropped re-download can't
- *      truncate the file a working registration points at (POSIX: `&&` + `mv`;
- *      PowerShell: `if ($?)` + `Move-Item -Force`);
- *   2. remove-first guard, fully silenced — `claude mcp add` refuses an existing
- *      name, so blind copy-paste must be idempotent and the first run mustn't
- *      look like it errored (POSIX: `>/dev/null 2>&1`; PowerShell: `*> $null`);
- *   3. both sides pinned `-s local` — never wedge on or relocate a user-/
- *      project-scope install.
- */
-
-export type ShellId = 'posix' | 'powershell'
-
-export interface InstallRecipe {
-  id: ShellId
-  /** Short pill label for the shell toggle. */
-  label: string
-  command: string
-}
-
-export function installRecipes(connectorUrl: string): InstallRecipe[] {
-  return [
-    {
-      id: 'posix',
-      label: 'bash / zsh',
-      command: `curl -fsSL ${connectorUrl} -o ~/session-relay.mjs.tmp && mv ~/session-relay.mjs.tmp ~/session-relay.mjs && (claude mcp remove -s local session-relay >/dev/null 2>&1; claude mcp add -s local session-relay -- node ~/session-relay.mjs)`,
-    },
-    {
-      id: 'powershell',
-      label: 'PowerShell',
-      // curl.exe on purpose: bare `curl` is the Invoke-WebRequest alias in PowerShell.
-      command: `curl.exe -fsSL ${connectorUrl} -o "$HOME\\session-relay.mjs.tmp"; if ($?) { Move-Item -Force "$HOME\\session-relay.mjs.tmp" "$HOME\\session-relay.mjs"; claude mcp remove -s local session-relay *> $null; claude mcp add -s local session-relay -- node "$HOME\\session-relay.mjs" }`,
-    },
-  ]
-}
-
-/** Pre-select the dialect the viewer's own machine most likely wants (a pure UI
- *  convenience — both recipes stay one click away). `navigator.platform` is
- *  'Win32' on Windows; anchored so 'darwin' can't match. */
-export function defaultShellId(platform: string): ShellId {
-  return /^win/i.test(platform) ? 'powershell' : 'posix'
-}
-
-/** The sentence the user pastes into the session that will do the thinking — the
- *  model reads the url + secret out of it and passes them to the connector's
- *  `start` tool (docs/delegated-cognition-provider.md §4.2).
- *
- *  This line CARRIES THE SECRET, and that is the whole point: it is the single
- *  place the credential is ever displayed. The reveal panel used to print the raw
- *  secret in a hero box AND embed it here — the same credential twice, which is
- *  what made the panel feel heavy. One credential, one place, one thing to save.
+ *  This prompt CARRIES THE SECRET, and that is the whole point: it is the single
+ *  place the credential is ever displayed (the one-credential/one-place rule the
+ *  old connect sentence established). One artifact to copy, one thing to save.
  *  Locked by tests/connector-serve.test.ts. */
-export function connectSentence(relayUrl: string, secret: string): string {
-  return `Connect to ${relayUrl} with secret ${secret} and start draining.`
+export function bootstrapPrompt(relayUrl: string, secret: string): string {
+  return (
+    `You're going to serve as the model behind one of my providers. Fetch ${relayUrl}/connector/setup and follow it: ` +
+    `set yourself up (install its relay connector into your own harness, or drive the relay protocol directly), then ` +
+    `connect to ${relayUrl} with secret ${secret} and start draining. The secret is a password — use it only against ` +
+    `that relay, and keep the loop running until I say stop.`
+  )
 }

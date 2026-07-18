@@ -75,6 +75,16 @@ export interface RelayPrompt {
   system?: string
   /** Content hash of the system framing (always present — the cache key). */
   systemHash: string
+  /** ── The channel (v4 — multi-session relays) ────────────────────────────────
+   *  The platform conversation this prompt belongs to. One relay now serves
+   *  several UI sessions CONCURRENTLY (one in-flight entry per channel, capped);
+   *  the channel is how the far side keeps them apart. Every prompt is
+   *  **self-contained** — `messages` carries the channel's full prior history,
+   *  not just the newest turn — so the far session needs no per-channel memory:
+   *  any executor (the drain session itself, or a fresh sub-agent per prompt)
+   *  can answer any entry from the document alone. Absent only from a pre-v4
+   *  backend; the connector then renders channel-less, as before. */
+  channel?: { id: string; title?: string }
   messages: RelayPromptTurn[]
   tools?: RelayToolDefinition[]
   /** Content hash of the declared tool surface — present iff the turn offers

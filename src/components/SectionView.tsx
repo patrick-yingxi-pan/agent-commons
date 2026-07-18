@@ -203,7 +203,7 @@ import {
   type SystemPromptEntry,
 } from '../../contract/index.ts'
 import { authorityLabel, providerPlanLabel } from '../lib/agentCommonsLabels'
-import { installRecipes, defaultShellId, connectSentence, type ShellId } from '../lib/connectorInstall'
+import { bootstrapPrompt } from '../lib/connectorInstall'
 import { ArtifactThumb, ArtifactViewer, KIND_ICON, KIND_LABEL } from './artifactPreview'
 import { artifactMetaIsSpecific } from '../lib/artifactMeta'
 import { resolvedByCommission } from '../lib/commissionTrackRecord'
@@ -5017,29 +5017,6 @@ function ProviderCard({ provider, onEdit }: { provider: ModelProvider; onEdit: (
   )
 }
 
-/** One step of the reveal's vertical stepper — a filled number disc, a hairline
- *  running down to the next disc (the sequence drawn, not narrated), title row with
- *  an optional right-aligned aside (step 1 parks the shell toggle there), content
- *  indented under the title. Local to the reveal; promote if a second surface
- *  grows a stepper. */
-function RevealStep({ n, title, aside, last, children }: { n: number; title: string; aside?: ReactNode; last?: boolean; children: ReactNode }) {
-  return (
-    <div className="flex gap-3">
-      <div className="flex flex-col items-center">
-        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-ink text-[11px] font-semibold text-canvas">{n}</span>
-        {!last && <span aria-hidden className="mt-1.5 w-px flex-1 bg-line" />}
-      </div>
-      <div className={`min-w-0 flex-1 ${last ? '' : 'pb-5'}`}>
-        <div className="flex min-h-5 flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
-          <p className="text-[15px] font-semibold leading-5 text-ink">{title}</p>
-          {aside}
-        </div>
-        {children}
-      </div>
-    </div>
-  )
-}
-
 /** A copyable one-liner — code scrolls inside its box with the bar itself hidden
  *  (the row stays draggable/scrollable; Copy carries the full text), so stacked
  *  rows don't each grow a grey scrollbar pill. One uniform treatment: the secret
@@ -5067,29 +5044,31 @@ function CodeRow({
 }
 
 /** The one-time rendezvous-secret reveal (mint and rotate). The secret is a password —
- *  it exists nowhere but this panel (the server keeps only a hash) — so dismissal is
- *  gated behind an explicit "I've saved it". Not the shared FormDialog: this is a
- *  reveal, not a form (no Cancel — there is nothing to cancel back to).
+ *  it exists nowhere but this panel (the server keeps only a hash). Not the shared
+ *  FormDialog: this is a reveal, not a form (no Cancel — there is nothing to cancel
+ *  back to).
  *
  *  ── Rethought around the JOB, not the artifact ──────────────────────────────
  *  The user isn't here to collect a secret; they're here to bring this provider
- *  ONLINE. Two facts reshape the panel:
+ *  ONLINE. Three facts shape the panel:
  *
- *  1. **The connect line already carries the secret.** `connectSentence` IS
- *     "Connect to <url> with secret rv_live_… and start draining". The panel used
- *     to ALSO print the raw secret in its own box above — the same credential
- *     twice, which is exactly what made this dialog feel heavy. The secret is now
- *     shown in exactly ONE place: inside the line you paste. One credential, one
- *     artifact to save, one thing to copy.
- *  2. **The panel can prove it worked.** It used to end in a blind hand-off (paste
- *     and hope). Now it watches the provider's live `online` flag while open and
- *     flips to a Connected state the moment the far session latches — the natural
- *     end of the job.
- *  3. **The close-gate is observed, never attested.** There is no "I've saved it"
- *     checkbox. Ticking one only ever restated what the Copy click already proved —
- *     a ceremonial second click. So the gate opens on either of two OBSERVED facts:
- *     the user copied the connect line (they have the credential), or the relay
- *     connected (the credential demonstrably arrived). Copy IS the save. */
+ *  1. **One artifact: the bootstrap prompt** (`bootstrapPrompt`, spec MODEL-22).
+ *     The panel used to walk the user through a harness-specific install (a
+ *     Claude-CLI recipe per shell dialect) plus a connect sentence — which
+ *     silently excluded every non-Claude harness (Codex, Cursor, opencode, ones
+ *     we've never heard of). Now the far AGENT onboards itself: the user pastes
+ *     ONE prompt into the session that will do the thinking; it fetches the
+ *     agent-facing setup guide (`GET /connector/setup`) and installs the
+ *     connector its own way — or drives the relay protocol directly over HTTP.
+ *     The prompt carries the secret, and it is the single place the credential
+ *     is ever displayed (one credential, one artifact to save).
+ *  2. **The panel can prove it worked.** It watches the provider's live `online`
+ *     flag while open and flips to a Connected state the moment the far session
+ *     latches — the natural end of the job.
+ *  3. **The close-gate is observed, never attested.** No "I've saved it"
+ *     checkbox — the gate opens on either of two OBSERVED facts: the user copied
+ *     the bootstrap prompt (they have the credential), or the relay connected
+ *     (the credential demonstrably arrived). Copy IS the save. */
 function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvider; secret: string; onClose: () => void }) {
   // Taking the line IS saving it — the copy is the act, observed. The old panel asked
   // for the copy AND a checkbox attesting to the copy: a ceremonial second click that
@@ -5115,19 +5094,12 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
   // absolute URL (an absolute VITE_API_BASE passes through unchanged), so every
   // command below is right in every deploy shape, not just default-port dev.
   const relayUrl = new URL(API_BASE, window.location.origin).href.replace(/\/$/, '')
-  // The public install (spec MODEL-14): the backend serves the connector itself as
-  // one self-contained plain-JS module, so a hosted user needs nothing from the
-  // repo — download the file, register it as an MCP server, done. Node ≥ 18.
+  // The human-clickable escape hatches for an agent that can't reach the network
+  // itself: the agent-facing setup guide (the same document the prompt tells the
+  // agent to fetch) and the raw connector download (spec MODEL-14).
+  const setupUrl = `${relayUrl}/connector/setup`
   const connectorUrl = `${relayUrl}/connector`
-  // The install recipe, PER SHELL DIALECT — a bash-only string silently breaks in
-  // PowerShell (`curl` is the Invoke-WebRequest alias; no `&&`). The recipes, the
-  // connect line, and their safety shape live in ONE module —
-  // src/lib/connectorInstall.ts — locked byte-exact by tests/connector-serve.test.ts;
-  // the toggle pre-selects the viewer's platform.
-  const recipes = installRecipes(connectorUrl)
-  const [shellId, setShellId] = useState<ShellId>(() => defaultShellId(navigator.platform))
-  const recipe = recipes.find((r) => r.id === shellId) ?? recipes[0]!
-  const connectLine = connectSentence(relayUrl, secret)
+  const prompt = bootstrapPrompt(relayUrl, secret)
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-center px-4 pt-[14dvh]" onMouseDown={guardedClose} role="dialog" aria-modal="true" aria-label="Connect your session">
       <div className={`${SCRIM_CLASS} backdrop-blur-[1px]`} />
@@ -5142,36 +5114,26 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
           <RelayBadge />
         </div>
         <div className="p-5">
-          <RevealStep
-            n={1}
-            title="Install the connector"
-            aside={
-              // The negative margin cancels the toggle's height above the 20px
-              // title/disc, so the header row stays 20px tall and the disc centers
-              // on the title (an inflated row would drop the title below the disc).
-              <div className="-my-1">
-                <SubTabs size="sm" tabs={recipes.map((r) => ({ id: r.id, label: r.label }))} active={recipe.id} onChange={setShellId} />
-              </div>
-            }
-          >
-            <CodeRow className="mt-2" text={recipe.command} ariaLabel="Copy install command" />
-            <p className="mt-1.5 text-[12px] text-ink-faint">
-              Once per machine (Node 18+), or{' '}
-              <a href={connectorUrl} download="session-relay.mjs" className="font-medium text-accent hover:underline">
-                download the file
-              </a>
-              .
-            </p>
-          </RevealStep>
-          <RevealStep n={2} title="Paste into a fresh session" last>
-            {/* Copying this row IS the save — it satisfies the close-gate (see above). */}
-            <CodeRow className="mt-2" text={connectLine} ariaLabel="Copy connect line" onCopied={() => setTookLine(true)} />
-            <p className="mt-1.5 text-[12px] leading-relaxed text-ink-faint">
-              <span className="font-semibold text-ink">Shown once</span> — this line carries your secret. Use a{' '}
-              <span className="font-medium text-ink-soft">dedicated session without dangerous tools</span>: relayed
-              prompts are untrusted text.
-            </p>
-          </RevealStep>
+          <p className="text-[15px] font-semibold leading-5 text-ink">Paste into the session that will do the thinking</p>
+          <p className="mt-1 text-[12px] leading-relaxed text-ink-soft">
+            Works in any agent — it fetches the setup guide and installs itself (MCP), or drives the relay protocol
+            directly.
+          </p>
+          {/* Copying this row IS the save — it satisfies the close-gate (see above). */}
+          <CodeRow className="mt-2" text={prompt} ariaLabel="Copy bootstrap prompt" onCopied={() => setTookLine(true)} />
+          <p className="mt-1.5 text-[12px] leading-relaxed text-ink-faint">
+            <span className="font-semibold text-ink">Shown once</span> — this prompt carries your secret. Use a{' '}
+            <span className="font-medium text-ink-soft">dedicated session without dangerous tools</span>: relayed
+            prompts are untrusted text. Installing by hand instead? Open the{' '}
+            <a href={setupUrl} target="_blank" rel="noreferrer" className="font-medium text-accent hover:underline">
+              setup guide
+            </a>{' '}
+            or{' '}
+            <a href={connectorUrl} download="session-relay.mjs" className="font-medium text-accent hover:underline">
+              download the connector
+            </a>
+            .
+          </p>
           {connected ? (
             <p className="mt-4 flex items-center gap-2 rounded-lg border border-line bg-added-bg px-3 py-2 text-[12px] font-medium text-added">
               <CheckCircle2 size={14} className="shrink-0" />
@@ -5185,7 +5147,7 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
         </div>
         <div className="flex shrink-0 items-center justify-between gap-3 border-t border-line bg-panel px-5 py-3">
           {/* The gate names itself only while it's shut — no nagging once it's open. */}
-          <span className="text-[12px] text-ink-faint">{canClose ? '' : 'Copy the connect line to continue.'}</span>
+          <span className="text-[12px] text-ink-faint">{canClose ? '' : 'Copy the prompt to continue.'}</span>
           <button
             onClick={onClose}
             disabled={!canClose}

@@ -1,6 +1,18 @@
 # Delegated-cognition providers ("Session providers") — a D9 extension
 
-> **Status: v3 BUILT** (2026-07-15 — the fifth pass, §9.2): the **framing
+> **Status: v4 BUILT** (2026-07-18 — the sixth pass, §9.3): **any-agent
+> onboarding + multi-session channels.** Onboarding inverted: the mint panel
+> hands the user ONE **bootstrap prompt**; the far agent fetches the
+> **agent-facing setup guide** (`GET /connector/setup`) and installs the
+> connector into its OWN harness — or drives the relay protocol directly over
+> plain HTTP (the true last-resort floor). The UI enumerates no coding tools.
+> And one relay now serves several UI sessions **concurrently**: one in-flight
+> entry per **channel** (capped by `RELAY_MAX_INFLIGHT`), every prompt
+> **self-contained** (it carries its conversation's full history), so the far
+> session needs no per-channel memory and may delegate each prompt to a
+> sub-agent. Spec rows MODEL-22/-23.
+>
+> **v3 BUILT** (2026-07-15 — the fifth pass, §9.2): the **framing
 > dedupe** — the system prompt and tool schemas are content-addressed
 > (`systemHash`/`toolsHash`), omitted at delivery when the poll advertises them
 > cached (`?have=…`), and rendered connector-side as "unchanged — see entry X"
@@ -153,86 +165,61 @@ in preference order:
    `respond_and_wait` returns idle, immediately call it again"). This seam is where the loop
    can stall; make the sentinel + instruction explicit.
 
-**The concrete recipe (as built).** The connector is
-`connector/relay-connector.ts`, a **generic** stdio MCP server — registered **once**,
-with no per-relay configuration. Two install forms, same file:
+**The concrete recipe (as built — inverted by the v4 pass, §9.3).** The connector
+is `connector/relay-connector.ts`, a **generic** stdio MCP server — registered
+**once**, with no per-relay configuration. Installation is **agent-driven**: the
+mint panel hands the user ONE **bootstrap prompt** (`bootstrapPrompt`,
+`src/lib/connectorInstall.ts`) —
 
-- **Public (no repo clone — spec MODEL-14).** The backend serves the connector
-  itself at `GET /api/v1/connector`: the checked-in TypeScript with its types erased
-  at request time (`node:module.stripTypeScriptTypes` — no build step, no drift), one
-  self-contained module whose only import was `import type`. The mint panel shows
-  this exact command with the deployment's real origin filled in (and a direct
-  download link). Needs any Node ≥ 18; unauthenticated by design — the connector is
-  a program, not a secret (the rendezvous secret it later presents is the credential):
+> You're going to serve as the model behind one of my providers. Fetch
+> `https://<host>/api/v1/connector/setup` and follow it: set yourself up (install
+> its relay connector into your own harness, or drive the relay protocol
+> directly), then connect to `<relay url>` with secret `rv_live_…` and start
+> draining. …
 
-  ```bash
-  curl -fsSL https://<host>/api/v1/connector -o ~/session-relay.mjs.tmp && \
-    mv ~/session-relay.mjs.tmp ~/session-relay.mjs && \
-    (claude mcp remove -s local session-relay >/dev/null 2>&1; \
-     claude mcp add -s local session-relay -- node ~/session-relay.mjs)
-  # bash/zsh — also WSL and Git Bash on Windows.
-  ```
+— and the far AGENT does the rest, guided by the **agent-facing setup guide**
+served at `GET /api/v1/connector/setup` (`server/connectorSetup.ts`, spec
+MODEL-22). Two onboarding paths live in that guide, both harness-agnostic:
 
-  The panel offers the recipe **per shell dialect** (pre-selecting the viewer's
-  platform), because the bash form breaks silently in PowerShell — there `curl`
-  is the `Invoke-WebRequest` alias (`-fsSL` is a parameter-binding error),
-  PowerShell 5.1 has no `&&` and no bash subshell, and streams silence
-  differently. The PowerShell dialect keeps the same shape:
+- **Path A — MCP install.** Download the connector from `GET /api/v1/connector`
+  (spec MODEL-14: the checked-in TypeScript with its types erased at request time
+  by `node:module.stripTypeScriptTypes` — no build step, no drift, one
+  self-contained module whose only import was `import type`; any Node ≥ 18;
+  unauthenticated by design — the connector is a program, not a secret), then
+  register it as a stdio MCP server named `session-relay` **in the agent's own
+  harness** — the guide shows example shapes (for Claude Code the re-run-safe
+  guarded form `(claude mcp remove -s local session-relay >/dev/null 2>&1;
+  claude mcp add -s local session-relay -- node ~/session-relay.mjs)` — remove
+  first because `claude mcp add` refuses an existing name, silenced so the first
+  run doesn't look like it errored, both sides pinned `-s local` so the recipe
+  never wedges on or relocates a user-/project-scope install; for Codex CLI
+  `codex mcp add session-relay -- node ~/session-relay.mjs`; for config-file
+  harnesses the `{"command","args"}` stanza) but prescribes none: a decent agent
+  knows how to register a standard MCP server in whatever it runs in. A
+  contributor swaps the command for `npm run connector` from a clone.
+- **Path B — no MCP: the protocol itself.** For a harness that speaks no MCP (or
+  can't take a registration mid-session), the guide documents the two-endpoint
+  wire directly — `GET /relay/poll` / `POST /relay/reply` with the secret as
+  bearer, the idle/superseded sentinels, entry-keyed answers, and the
+  relay-not-execute rule — so *anything that can make an HTTP request* can serve.
+  That is the connector's actual last-resort purpose, restored: the previous UI
+  (per-shell `claude mcp add` recipes) silently excluded every non-Claude
+  harness and every harness we've never heard of.
 
-  ```powershell
-  curl.exe -fsSL https://<host>/api/v1/connector -o "$HOME\session-relay.mjs.tmp"; if ($?) {
-    Move-Item -Force "$HOME\session-relay.mjs.tmp" "$HOME\session-relay.mjs";
-    claude mcp remove -s local session-relay *> $null; claude mcp add -s local session-relay -- node "$HOME\session-relay.mjs" }
-  # Claude Desktop: the same command/args in claude_desktop_config.json instead of `claude mcp add`.
-  ```
+Why the inversion (the v4 ruling): enumerating harness installs in the UI scales
+with the number of coding tools (Claude Code, Codex, Cursor, opencode, …) and
+still misses tomorrow's; the party that *knows* the harness is the agent itself.
+So the human-facing surface carries exactly one artifact (the prompt, which also
+carries the secret — §4.3's one-credential rule unchanged), and every
+harness-specific instruction lives server-side, delivered to the agent that needs
+it. Rejected: keeping a "supported harnesses" picker (drift + exclusion by
+construction), and burying the full setup text inside the prompt itself (bloats
+the one thing the user must copy; the guide is fetchable and versionless).
 
-  Both dialects come from one module — `src/lib/connectorInstall.ts` — so they
-  can't drift apart; each preserves the three safety properties below in its own
-  idiom (`&&`+`mv` ⇔ `if ($?)`+`Move-Item -Force`; `>/dev/null 2>&1` ⇔ `*> $null`).
-
-  The recipe is **re-run-safe by design** — `claude mcp add` refuses a name that
-  already exists (there is no overwrite flag), so a second mint, or refreshing the
-  connector after the deployment updates, would otherwise error mid-paste. Each
-  piece carries a reason:
-
-  - **Remove-first, silenced on both streams.** The guard makes blind copy-paste
-    idempotent; its "no server found" chatter (not reliably on stderr) is fully
-    suppressed so the *first* run doesn't look like it errored, while the `add`
-    stays audible — its success/failure line is the recipe's real outcome.
-  - **Both sides pinned `-s local`.** An unpinned `remove` refuses when the name
-    exists in two scopes (wedging the recipe back into the original bug) and
-    otherwise removes from *whatever* scope it finds — silently relocating an
-    install the user deliberately made with `-s user` or `-s project` onto local.
-    Pinned, the recipe manages only the local-scope entry and never touches the
-    others (a local entry shadows a user-scope one, so the add still lands).
-  - **Download to a temp file, `mv` on success.** `curl -o` writes in place, so a
-    dropped connection would truncate the file a *working* registration points
-    at; the rename keeps every failure mode on the safe side — bad download,
-    nothing changes.
-
-  (Already installed and current? The whole step is skippable — the connector is
-  generic, one registration serves every relay.)
-
-- **From a clone (contributors).** Same remove-first guard — this form hits the
-  identical "already exists" refusal on re-run (or when switching from the
-  downloaded form):
-
-  ```bash
-  (claude mcp remove -s local session-relay >/dev/null 2>&1; \
-   claude mcp add -s local session-relay -- npm --prefix /path/to/this/repo run connector)
-  ```
-
-Serving a relay is then one typed sentence per session: open a **fresh, dedicated
-session without dangerous tools** (the §7.9 wall) and type the connect sentence the
-mint panel shows —
-
-> Connect to `http://127.0.0.1:8787/api/v1` with secret `rv_live_…` and start draining.
-
-The model passes the URL + secret to `start`; the drain-loop standing instruction
-ships in the connector's MCP `initialize` `instructions` field, so nothing else needs
-pasting. Different sessions can type different URLs/secrets — one registration serves
-any number of relays (one per session; the blocking loop parks a session inside a
-single tool call).
+The drain-loop standing instruction still ships in the connector's MCP
+`initialize` `instructions` field, so beyond the bootstrap prompt nothing needs
+pasting. Different sessions can present different URLs/secrets — one registration
+serves any number of relays.
 
 ### 4.3 The reveal panel — one credential, one place; and it proves it worked
 
@@ -240,14 +227,15 @@ The panel (`RelaySecretPanel`) is framed around the user's actual job — *bring
 provider online* — not around the artifact. Two consequences, both non-obvious enough
 to write down, because the panel spent several iterations getting here:
 
-- **The connect sentence IS the credential hand-off, so the secret is shown exactly
+- **The bootstrap prompt IS the credential hand-off, so the secret is shown exactly
   once — inside it.** The panel used to print the raw secret in its own hero box
   *and* embed it in the connect line below: the same credential rendered twice. That
   duplication was the whole reason the dialog read as noisy (every attempt to "clean
-  it up" was really fighting the redundancy). The line is the single artifact the user
-  copies and saves, so it is the single place the secret appears. `connectSentence()`
-  lives in `src/lib/connectorInstall.ts` beside the install recipes; the one-place rule
-  is locked by `tests/connector-serve.test.ts` ("the credential is shown in exactly ONE
+  it up" was really fighting the redundancy). The prompt is the single artifact the
+  user copies and saves, so it is the single place the secret appears (the v4 pass
+  replaced the connect sentence with the richer bootstrap prompt — same one-place
+  rule). `bootstrapPrompt()` lives in `src/lib/connectorInstall.ts`; the rule is
+  locked by `tests/connector-serve.test.ts` ("the credential is shown in exactly ONE
   place"), which fails if a standalone raw-secret row is ever re-added.
 - **Proof beats attestation — the close-gate is observed, never promised.** The panel
   used to end in a blind hand-off (paste, close, squint at the provider's dot) *and* to
@@ -257,14 +245,14 @@ to write down, because the panel spent several iterations getting here:
   latches; the poll stops on connect and on unmount, so it never runs in the background.
   The gate opens on either of two **observed facts**:
 
-  1. the user **copied the connect line** — they demonstrably have the credential, and
-     the copy *is* the act of saving it; or
+  1. the user **copied the bootstrap prompt** — they demonstrably have the credential,
+     and the copy *is* the act of saving it; or
   2. the relay **connected** — the credential demonstrably arrived.
 
   A checkbox could only ever restate fact (1) — the user ticking it had just clicked
   Copy — so it was a ceremonial second click that proved nothing the first didn't. The
   shared `CopyButton` therefore exposes an `onCopied` observation (its own "Copied"
-  flash self-resets, being a *confirmation*, not state), and the connect line's copy
+  flash self-resets, being a *confirmation*, not state), and the prompt row's copy
   latches the gate. **Copy is the save.** Locked by `tests/connector-serve.test.ts`
   ("the reveal closes on an OBSERVED fact"), which fails if a self-attestation checkbox
   is ever re-added.
@@ -636,9 +624,10 @@ path (calls ride the MCP tool arguments, not prose) leaves the far model nothing
   its own system prompt (§7.4) — framing by courtesy, not a real system turn.
 - **Whole-reply latency.** The reply lands all at once, however long the far session took
   (§7.8) — the "Waiting on your session…" state, not token streaming, is the v1 experience.
-- **One turn at a time per relay.** A concurrent second turn on the same Session provider
-  refuses fast (`relay_busy`, §7.1) rather than queueing — matching the far session's own
-  single-threadedness.
+- **One turn at a time per CHANNEL** (per relay until v4 — §9.3). A conversation's
+  second turn refuses fast (`relay_busy`, §7.1) rather than queueing, and the relay
+  caps concurrent conversations (`RELAY_MAX_INFLIGHT`) — the far side drains one
+  prompt at a time, so unbounded fan-in would only queue invisible latency.
 
 ## 9. v1 scope (prose-only, `toolUse:false`)
 
@@ -740,6 +729,67 @@ Spec row MODEL-21; locked by `tests/relay.test.ts` (pruned vs full delivery,
 both delivery paths, reconnect resend) and `tests/relay-connector.test.ts`
 (advertisement, reference + suffix rendering).
 
+## 9.3 The v4 pass (2026-07-18) — any-agent onboarding + multi-session channels
+
+Two field reports drove it: *"the connector installation is Claude-specific —
+Codex/Cursor/opencode users can't serve a relay, which defeats the last-resort
+purpose"* and *"sessions opened in the UI should be independent contexts to the
+far model, like any ordinary provider."* Both resolve without touching the wire's
+auth, entry, or dedupe machinery:
+
+- **Onboarding inverted — the agent installs itself** (spec MODEL-22). The party
+  that knows how to register an MCP server in harness X *is the agent running in
+  harness X* — so the UI stops enumerating harnesses. The mint panel hands the
+  user ONE bootstrap prompt (`bootstrapPrompt`, `src/lib/connectorInstall.ts` —
+  it carries the secret, preserving §4.3's one-credential/one-place rule, and
+  points at the guide); the agent fetches `GET /connector/setup`
+  (`server/connectorSetup.ts`, unauthenticated like `/connector` — a manual is
+  not a secret) and follows **Path A** (download `/connector`, register it in
+  its own harness — thin examples, no prescriptions) or **Path B** (drive
+  `GET /relay/poll` / `POST /relay/reply` directly — the floor drops to
+  "anything that can make an HTTP request", MCP no longer required). The §7.9
+  wall, the multi-conversation contract, secret hygiene, and the stop conditions
+  ship in the guide, so a Path-B agent gets the same standing rules the MCP
+  connector's `initialize` instructions deliver. The per-shell install recipes
+  left the UI (`installRecipes`/`connectSentence` died; the guarded Claude form
+  survives as one *example* inside the guide).
+- **Multi-session relays — channels** (spec MODEL-23). The slot generalises:
+  per relay, at most one in-flight entry per **channel** (= UI session;
+  `RelayPrompt.channel = {id, title}`), several channels concurrently, capped by
+  `RELAY_MAX_INFLIGHT` (default 4). The pre-turn gate refuses only a channel's
+  own second turn or a NEW conversation beyond the cap (both `relay_busy`,
+  pre-persist, each with its own copy); `submit` already keys by entry, so
+  out-of-order answers route home untouched. One sub-ruling: a **continuation
+  round** (a tool round of a turn already underway — the channel held a slot
+  until its previous round settled) bypasses the ceiling, never the per-channel
+  wall — otherwise a rival channel filling the last slot between rounds would
+  fail a conversation mid-flight; the transient overshoot is bounded by the
+  turns already admitted. The enabling ruling: **every prompt
+  is self-contained** — `messages` now opens with the channel's full prior
+  history (snapshotted before the new user turn persists; the compaction
+  machinery bounds its growth), so the far session needs **no per-channel
+  memory**: any executor, including a fresh sub-agent per prompt, can answer any
+  entry from the document alone. That single property yields conversation
+  independence (nothing rides the drain session's own context), solves the drain
+  session's context-exhaustion (delegate each prompt to a sub-agent and the main
+  loop's context stays thin — the connector's instructions and the setup guide
+  both say so), and keeps the mailbox stateless. The connector's depth-1 buffer
+  became an arrival-order queue, and suffix rendering went per-channel
+  (interleaved conversations can't corrupt each other's continuity; an old
+  connector against a v4 backend just renders channel-less and in full — the
+  wire change is additive). Rejected: far-side session affinity (asking the
+  model to *hold* each conversation's context in its own window — fragile,
+  harness-specific, dies on connector restart) and multiplexing via multiple
+  relays per provider (N secrets to manage for what one mailbox can carry).
+
+The honest residue: one drain loop still *answers* serially — concurrency here
+is admission, not parallel generation (a busy far session ages other channels
+toward `relayReply`'s deadline; the cap keeps that bounded and visible), unless
+the far model itself fans out sub-agents. And carrying full history per entry
+spends wire bytes to buy statelessness — the §9.2 framing dedupe plus
+per-channel suffix rendering keep the far session's *context* cost flat, which
+is the scarce resource.
+
 ## 10. Open items (what remains — the v2 checklist)
 
 The first pass's "unresolved edge cases" block is gone: every item in it is now ruled
@@ -757,9 +807,11 @@ genuine v2 work, each a real feature, not polish:
   side-channel, not just a flag.
 - **Metered token ceilings** instead of the estimate (needs the far session to report real usage).
 - **Real effort→model binding** (today advisory).
-- **Per-relay turn queueing** — replace the v1 `relay_busy` refusal (§7.1) with a bounded queue
-  when concurrent sessions on one relay prove real. This is where the second pass's mailbox
-  state machine (leases, requeue, tombstone causes) earns its way back in, *if* it does.
+- ~~**Concurrent sessions on one relay**~~ → **BUILT** (§9.3): per-channel in-flight
+  entries, capped; self-contained prompts. What remains of the old "per-relay turn
+  queueing" item is only a bounded *same-channel* queue (today a channel's second
+  turn still refuses `relay_busy`) — build it if rapid-fire same-conversation sends
+  prove real; that is where leases/requeue would earn their way back in, *if* ever.
 - **Per-provider patience** — a `turnTimeoutMs` config override read by `relayReply` (§7.2);
   v1 uses one env default.
 - **Multi-puller concurrency** — several connectors draining one relay *concurrently*. v1's rule

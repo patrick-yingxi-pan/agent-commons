@@ -5,10 +5,14 @@
  *  `GET /relay/poll` with the rendezvous secret, receives a turn's prompt, lets
  *  its session's model generate, and posts the answer to `POST /relay/reply`.
  *
- *  Deliberately small (the third design pass): per relay there is at most **one
- *  in-flight prompt** (a slot, not a mailbox — a concurrent second turn refuses
- *  fast as `relay_busy`) and at most **one parked puller** (newest wins — a fresh
- *  poll preempts a zombie socket). Binding is presenting the secret: there is no
+ *  Deliberately small (the third design pass; widened per-channel by the v4
+ *  multi-session pass): per relay there is at most **one in-flight prompt per
+ *  CHANNEL** — a channel is a UI session, so distinct conversations run
+ *  concurrently (capped by `RELAY_MAX_INFLIGHT`) while a channel's own second
+ *  turn still refuses fast as `relay_busy` — and at most **one parked puller**
+ *  (newest wins — a fresh poll preempts a zombie socket). Every prompt is
+ *  self-contained (it carries its channel's full history), so the far session
+ *  needs no per-channel memory. Binding is presenting the secret: there is no
  *  enrollment protocol, so a laptop-sleep or backend-restart reconnect is the same
  *  act as connecting the first time. The durable identity is the provider row
  *  (its `secretHash`); everything here is transient, like the runner registry.
@@ -100,6 +104,9 @@ export type RelayOutcome =
 
 interface InflightTurn {
   entryId: string
+  /** The platform conversation this turn belongs to (v4 — one in-flight entry
+   *  per channel; the prompt's `channel.id`, '' for a channel-less prompt). */
+  channelId: string
   prompt: RelayPrompt
   /** Delivered to a puller (the generation gap) vs still waiting for one. */
   taken: boolean
@@ -116,11 +123,18 @@ interface ParkedPoll {
 
 let entrySeq = 0
 
+/** The allocation-free empty view `turnsOf` hands back for unknown relays. */
+const EMPTY_TURNS: ReadonlyMap<string, InflightTurn> = new Map()
+
 /** The transient half of every relay, keyed by provider id (the relay id IS the
- *  provider id — one session per provider, §7.3). Constructed by the store with
- *  its `emit`, like `RunnerRegistry`. */
+ *  provider id, §7.3). Since v4 a relay admits SEVERAL in-flight entries — one
+ *  per **channel** (UI session), capped by `RELAY_MAX_INFLIGHT` — so distinct
+ *  conversations run concurrently over one drain loop while a channel still
+ *  admits one turn at a time. Constructed by the store with its `emit`, like
+ *  `RunnerRegistry`. */
 export class RelayRuntime {
-  private readonly inflight = new Map<string, InflightTurn>()
+  /** providerId → entryId → turn (insertion order = delivery order). */
+  private readonly inflight = new Map<string, Map<string, InflightTurn>>()
   private readonly parked = new Map<string, ParkedPoll>()
   private readonly lastSeen = new Map<string, number>()
   /** Relays currently announced online (drives edge-triggered relay.* events). */
@@ -142,19 +156,39 @@ export class RelayRuntime {
   private pollWindowMs(): number {
     return positiveNumberEnv(process.env.RELAY_POLL_MS, 25_000)
   }
+  /** Concurrent-conversation ceiling per relay (v4): how many channels may hold
+   *  an in-flight entry at once. Guards the far session from a pile-up it can
+   *  only drain one prompt at a time; beyond it the pre-turn gate refuses busy. */
+  private maxInflight(): number {
+    return positiveNumberEnv(process.env.RELAY_MAX_INFLIGHT, 4)
+  }
+
+  /** Read-only view of a relay's in-flight turns — never allocates (reads for
+   *  unknown/retired relays must not seed the map; only `offer` creates). */
+  private turnsOf(providerId: string): ReadonlyMap<string, InflightTurn> {
+    return this.inflight.get(providerId) ?? EMPTY_TURNS
+  }
 
   /** Online = a parked puller OR an in-flight turn OR a fresh `lastSeen` (§7.3).
    *  The in-flight entry keeps a relay alive across the generation gap, when no
    *  socket is held; the TTL covers only the sub-second idle re-poll hop. */
   online(providerId: string): boolean {
-    if (this.parked.has(providerId) || this.inflight.has(providerId)) return true
+    if (this.parked.has(providerId) || this.turnsOf(providerId).size > 0) return true
     const seen = this.lastSeen.get(providerId)
     return seen !== undefined && this.now() - seen < this.ttlMs()
   }
 
-  /** One turn at a time per relay — the `relay_busy` pre-turn gate reads this. */
-  busy(providerId: string): boolean {
-    return this.inflight.has(providerId)
+  /** One turn at a time per CHANNEL (v4) — the `relay_busy` pre-turn gate reads
+   *  this for the sending session; other sessions' turns run concurrently. */
+  busy(providerId: string, channelId: string): boolean {
+    for (const turn of this.turnsOf(providerId).values()) if (turn.channelId === channelId) return true
+    return false
+  }
+
+  /** The relay-wide ceiling (v4): every channel slot is taken — the pre-turn
+   *  gate refuses a NEW conversation's turn until one settles. */
+  atCapacity(providerId: string): boolean {
+    return this.turnsOf(providerId).size >= this.maxInflight()
   }
 
   /** A connector activity (poll / reply) proves liveness: refresh `lastSeen`,
@@ -183,20 +217,33 @@ export class RelayRuntime {
     this.reapTimers.set(providerId, timer)
   }
 
-  /** Offer a turn's prompt to the relay's slot. Returns the entry + the completion
-   *  promise `relayReply` awaits, or `undefined` when a turn is already in flight
-   *  (the busy race the pre-turn gate usually catches first). If a puller is
-   *  parked, the prompt is handed over on the spot — the mailbox's symmetric
-   *  long-poll, degenerated to one entry. */
-  offer(providerId: string, prompt: RelayPrompt): { entryId: string; completion: Promise<RelayOutcome> } | undefined {
-    if (this.inflight.has(providerId)) return undefined
+  /** Offer a turn's prompt to the relay's mailbox. Returns the entry + the
+   *  completion promise `relayReply` awaits, or `undefined` when the prompt's
+   *  channel already has a turn in flight or the relay is at its concurrency
+   *  ceiling (the busy races the pre-turn gate usually catches first). A
+   *  `continuation` offer (a tool round of a turn already underway — the channel
+   *  held a slot until its previous round settled a moment ago) bypasses only
+   *  the CEILING, never the per-channel wall: without the bypass, a rival
+   *  channel filling the last slot between rounds would fail a mid-flight
+   *  conversation, and the transient overshoot is bounded by the number of
+   *  turns already admitted. If a puller is parked, the prompt is handed over
+   *  on the spot — a parked puller means no undelivered entry exists, so this
+   *  one is next. */
+  offer(providerId: string, prompt: RelayPrompt, continuation = false): { entryId: string; completion: Promise<RelayOutcome> } | undefined {
+    const channelId = prompt.channel?.id ?? ''
+    if (this.busy(providerId, channelId) || (!continuation && this.atCapacity(providerId))) return undefined
     const entryId = `rve-${(entrySeq += 1).toString(36)}-${this.now().toString(36)}`
     let settle!: (o: RelayOutcome) => void
     const completion = new Promise<RelayOutcome>((resolve) => {
       settle = resolve
     })
-    const turn: InflightTurn = { entryId, prompt, taken: false, settle }
-    this.inflight.set(providerId, turn)
+    const turn: InflightTurn = { entryId, channelId, prompt, taken: false, settle }
+    let turns = this.inflight.get(providerId)
+    if (!turns) {
+      turns = new Map()
+      this.inflight.set(providerId, turns)
+    }
+    turns.set(entryId, turn)
     const parked = this.parked.get(providerId)
     if (parked) {
       this.parked.delete(providerId)
@@ -207,16 +254,16 @@ export class RelayRuntime {
     return { entryId, completion }
   }
 
-  /** A connector's long-poll. Resolves with the pending prompt (now or when one
-   *  arrives), `{idle}` after the bounded window (the §4.2 re-call sentinel), or
-   *  `{superseded}` when a newer poll takes the parked slot (newest wins — a
-   *  zombie socket must not lock out the restarted loop) or the relay retires.
-   *  `abandon` is the socket-close hook: it unparks AND resolves, so the route
-   *  handler never dangles. */
+  /** A connector's long-poll. Resolves with the oldest undelivered prompt (now
+   *  or when one arrives), `{idle}` after the bounded window (the §4.2 re-call
+   *  sentinel), or `{superseded}` when a newer poll takes the parked slot
+   *  (newest wins — a zombie socket must not lock out the restarted loop) or the
+   *  relay retires. `abandon` is the socket-close hook: it unparks AND resolves,
+   *  so the route handler never dangles. */
   poll(providerId: string, have: ReadonlySet<string> = new Set()): { result: Promise<RelayPollResult>; abandon: () => void } {
     this.markSeen(providerId)
-    const turn = this.inflight.get(providerId)
-    if (turn && !turn.taken) {
+    for (const turn of this.turnsOf(providerId).values()) {
+      if (turn.taken) continue
       turn.taken = true
       return { result: Promise.resolve({ entryId: turn.entryId, prompt: deliverPrompt(turn.prompt, have) }), abandon: () => {} }
     }
@@ -256,32 +303,31 @@ export class RelayRuntime {
    *  network-retry duplicates (§7.1 — no recorded-ack cache to maintain). */
   submit(providerId: string, entryId: string, outcome: RelayOutcome): 'accepted' | 'gone' {
     this.markSeen(providerId)
-    const turn = this.inflight.get(providerId)
-    if (!turn || turn.entryId !== entryId) return 'gone'
-    this.inflight.delete(providerId)
+    const turns = this.inflight.get(providerId)
+    const turn = turns?.get(entryId)
+    if (!turns || !turn) return 'gone'
+    turns.delete(entryId)
     turn.settle(outcome)
     return 'accepted'
   }
 
-  /** Drop the in-flight entry WITHOUT settling — `relayReply`'s own deadline or
+  /** Drop an in-flight entry WITHOUT settling — `relayReply`'s own deadline or
    *  cancel path already resolved its race; a late submit now meets 410. */
   clear(providerId: string, entryId: string): void {
-    const turn = this.inflight.get(providerId)
-    if (turn && turn.entryId === entryId) this.inflight.delete(providerId)
+    this.inflight.get(providerId)?.delete(entryId)
   }
 
   /** The kill switch (rotate / delete — §7.5): the parked poll is superseded on
-   *  the spot, the in-flight turn fails to its fallback immediately (not at the
-   *  deadline), and the relay announces offline. A later poll re-binds only by
-   *  presenting whatever secret the provider row NOW carries. */
+   *  the spot, every in-flight turn fails to its fallback immediately (not at
+   *  the deadline), and the relay announces offline. A later poll re-binds only
+   *  by presenting whatever secret the provider row NOW carries. */
   retire(providerId: string): void {
     const parked = this.parked.get(providerId)
     if (parked) this.unpark(providerId, parked, { superseded: true })
-    const turn = this.inflight.get(providerId)
-    if (turn) {
-      this.inflight.delete(providerId)
+    for (const turn of this.turnsOf(providerId).values()) {
       turn.settle({ kind: 'error', reason: 'The relay was rotated or removed.' })
     }
+    this.inflight.delete(providerId)
     this.lastSeen.delete(providerId)
     const timer = this.reapTimers.get(providerId)
     if (timer) clearTimeout(timer)
@@ -314,7 +360,7 @@ const FALLBACK_TIMEOUT =
   'Your delegated session didn’t answer in time — make sure its drain loop is still running, then try again.'
 const FALLBACK_DEGENERATE =
   'Your delegated session couldn’t produce a reply just now (its connector reported an error or an empty answer). Check the session and try again.'
-const FALLBACK_BUSY = 'Your delegated session is still answering another turn — try again when it finishes.'
+const FALLBACK_BUSY = 'Your delegated session couldn’t take this turn — another turn claimed its slot first. Try again in a moment.'
 const FALLBACK_LOOP =
   'Your delegated session kept relaying tool calls without concluding — the turn was stopped. Try again, or simplify the request.'
 
@@ -347,6 +393,7 @@ export async function relayReply(
   providerId: string,
   commons?: ToolContext['commons'],
   connectorContexts: SessionContext[] = [],
+  history: RelayPromptTurn[] = [],
 ): Promise<ReplyResult> {
   // The turn's callable surface — the exact list `generateReply` declares: the
   // Agent's allowlist plus the session's attached connector/MCP tools (P6;
@@ -366,10 +413,14 @@ export async function relayReply(
   const systemHash = hashRelayContent(system)
   const toolsHash = tools.length ? hashRelayContent(JSON.stringify(tools)) : undefined
   // The prompt survives as a document, not a string (§7.4): system framing apart
-  // from the turns. The loop appends a relayed-calls turn + an executed-results
-  // turn per round, so every follow-up entry carries the WHOLE exchange — the
-  // mailbox is stateless across entries by design.
-  const turns: RelayPromptTurn[] = [{ role: 'user', text: text.trim() || '(the user sent an empty message)' }]
+  // from the turns. Since v4 the document opens with the CHANNEL's full prior
+  // history (multi-session relays: every entry is self-contained, so the far
+  // side needs no per-channel memory — any executor can answer any entry), then
+  // the new user turn; the loop appends a relayed-calls turn + an executed-
+  // results turn per round, so every follow-up entry carries the WHOLE exchange
+  // — the mailbox is stateless across entries by design.
+  const channel = { id: session.id, title: session.title }
+  const turns: RelayPromptTurn[] = [...history, { role: 'user', text: text.trim() || '(the user sent an empty message)' }]
 
   // The consent-gated proposals the relayed tool calls accumulate — identical
   // collection to `generateReply`'s (including the same-turn chaining window:
@@ -385,9 +436,13 @@ export async function relayReply(
   const startedAt = Date.now()
 
   for (let round = 0; ; round += 1) {
-    const offer = relay.offer(providerId, { system, systemHash, messages: turns, ...(tools.length ? { tools, toolsHash } : {}) })
+    // Rounds past the first are CONTINUATIONS: the channel held a slot until its
+    // previous round settled, so they bypass the concurrency ceiling — a rival
+    // channel grabbing the last slot between rounds must not fail a conversation
+    // already mid-flight (the per-channel wall still applies).
+    const offer = relay.offer(providerId, { system, systemHash, channel, messages: turns, ...(tools.length ? { tools, toolsHash } : {}) }, round > 0)
     // The pre-turn gate refused busy before anything persisted; this catches only
-    // the enqueue race behind it (and a rival turn slipping between rounds).
+    // the enqueue race behind it.
     if (!offer) return relayFallback(handlers, FALLBACK_BUSY)
 
     const remaining = timeoutMs - (Date.now() - startedAt)

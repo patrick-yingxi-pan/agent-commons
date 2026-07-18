@@ -567,10 +567,10 @@ the mock?
   gauge's disc dropping back once space is freed. Design reference for later, not
   built: [`docs/context-compaction.md`](docs/context-compaction.md).
 
-- **Delegated-cognition providers ("Session providers") — v2 now BUILT.** A D9
-  extension: a Model provider our backend *can't dial* (firewalled / key-less / no
-  API) whose cognition is performed by an **AI session the user already runs** —
-  reached by the session draining a one-entry mailbox we host at a one-time
+- **Delegated-cognition providers ("Session providers") — now BUILT through v4.**
+  A D9 extension: a Model provider our backend *can't dial* (firewalled / key-less /
+  no API) whose cognition is performed by an **AI session the user already runs** —
+  reached by the session draining a mailbox we host at a one-time
   **rendezvous secret**, the cognition-plane mirror of a Runner. Preserves "zero
   provider code" while inverting the transport (dial-out → rendezvous dial-in)
   *honestly*: the messages route dispatches session turns to a small `relayReply`
@@ -585,11 +585,21 @@ the mock?
   consent-gated proposal (`toolUse:true`, spec MODEL-18) — and the
   **process-owned keepalive**: the connector itself long-polls from the latch
   onward, so the relay survives indefinite idle without a daemon (spec MODEL-19).
-  Locked by `tests/relay.test.ts`, `tests/relay-migrate.test.ts`,
-  `tests/relay-connector.test.ts` (spec rows MODEL-10/-11/-18/-19). Providers are
-  first-class **Models** (rail section + every model picker reads the live
-  registry; a session's pick routes its turns — spec MODEL-13). The design log —
-  four passes, the fourth (§9.1) being the v2 build — and what remains:
+  v3 (2026-07-15) added the framing dedupe (content-addressed system/tools,
+  spec MODEL-21). v4 (2026-07-18) made onboarding **agent-driven and
+  harness-agnostic** — the mint panel hands out ONE bootstrap prompt; the far
+  agent fetches `GET /api/v1/connector/setup` and installs the connector into its
+  own harness (Claude Code, Codex, Cursor, opencode, …), or drives the relay
+  protocol over plain HTTP with no MCP at all (spec MODEL-22) — and added
+  **multi-session channels**: one relay serves several UI sessions concurrently,
+  every prompt self-contained (full per-conversation history), sub-agent
+  delegation advised (spec MODEL-23). Locked by `tests/relay.test.ts`,
+  `tests/relay-migrate.test.ts`, `tests/relay-connector.test.ts`,
+  `tests/connector-serve.test.ts` (spec rows MODEL-10/-11/-18/-19/-21/-22/-23).
+  Providers are first-class **Models** (rail section + every model picker reads
+  the live registry; a session's pick routes its turns — spec MODEL-13). The
+  design log — six passes, each recording the ruling and the rejected
+  alternative — and what remains:
   [`docs/delegated-cognition-provider.md`](docs/delegated-cognition-provider.md).
 
 - **Principals & namespaces — decided 2026-07-12, now BUILT (all four phases).**

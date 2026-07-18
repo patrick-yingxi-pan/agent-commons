@@ -231,6 +231,77 @@ test('v3 suffix rendering: a follow-up entry re-carrying the exchange prints onl
   }
 })
 
+test('v4 channels: prompts name their conversation; suffix continuity is PER-CHANNEL across interleaving', async () => {
+  const stub = await startRelayStub()
+  const c = spawnConnector()
+  try {
+    stub.pollQueue.push({
+      entryId: 'rve-a1',
+      prompt: { system: 's', systemHash: 'eeee111122223333', channel: { id: 'sess-a', title: 'Alpha docs' }, messages: [{ role: 'user', text: 'alpha one' }] },
+    })
+    const docA1 = await callTool(c, 'start', { url: stub.url, secret: 'rv_live_chan' })
+    assert.match(docA1, /for the conversation “Alpha docs” \[sess-a\]/, 'the prompt names its conversation')
+    assert.match(docA1, /self-contained/, 'the model is told the document stands alone')
+    assert.match(docA1, /sub-agent/, '…and that delegating it is fine')
+    await callTool(c, 'respond_and_wait', { entryId: 'rve-a1', answer: 'A1' })
+
+    // A DIFFERENT conversation interleaves — rendered in full (its own first
+    // contact), without disturbing channel A's continuity state.
+    stub.pollQueue.push({
+      entryId: 'rve-b1',
+      prompt: { systemHash: 'eeee111122223333', channel: { id: 'sess-b' }, messages: [{ role: 'user', text: 'beta one' }] },
+    })
+    await new Promise((r) => setTimeout(r, 1_300))
+    const docB1 = await callTool(c, 'respond_and_wait', {})
+    assert.match(docB1, /for the conversation sess-b \[sess-b\]/, 'a title-less channel falls back to its id')
+    assert.match(docB1, /beta one/)
+    await callTool(c, 'respond_and_wait', { entryId: 'rve-b1', answer: 'B1' })
+
+    // Channel A's next turn re-carries its whole history (self-contained wire);
+    // the connector still recognises it as a continuation OF A — B's interleaved
+    // render didn't corrupt the per-channel prefix.
+    stub.pollQueue.push({
+      entryId: 'rve-a2',
+      prompt: {
+        systemHash: 'eeee111122223333',
+        channel: { id: 'sess-a', title: 'Alpha docs' },
+        messages: [
+          { role: 'user', text: 'alpha one' },
+          { role: 'assistant', text: 'A1' },
+          { role: 'user', text: 'alpha two' },
+        ],
+      },
+    })
+    await new Promise((r) => setTimeout(r, 1_300))
+    const docA2 = await callTool(c, 'respond_and_wait', {})
+    assert.match(docA2, /continuing the exchange of entry rve-a1/, 'channel A continues from ITS last entry')
+    assert.match(docA2, /alpha two/)
+    assert.ok(!docA2.includes('alpha one'), 'the already-read prefix is not reprinted')
+  } finally {
+    c.close()
+    await stub.close()
+  }
+})
+
+test('v4 queue: prompts arriving while the model is away queue up and deliver one per call, in arrival order', async () => {
+  const stub = await startRelayStub()
+  const c = spawnConnector()
+  try {
+    await callTool(c, 'start', { url: stub.url, secret: 'rv_live_queue' })
+    // Two concurrent channels' prompts land while no model call is parked.
+    stub.pollQueue.push({ entryId: 'rve-q1', prompt: { system: 's', channel: { id: 'c1' }, messages: [{ role: 'user', text: 'first in' }] } })
+    stub.pollQueue.push({ entryId: 'rve-q2', prompt: { system: 's', channel: { id: 'c2' }, messages: [{ role: 'user', text: 'second in' }] } })
+    await new Promise((r) => setTimeout(r, 1_800)) // let the loop collect both
+    const doc1 = await callTool(c, 'respond_and_wait', {})
+    assert.match(doc1, /entry rve-q1/, 'the first arrival is delivered first')
+    const doc2 = await callTool(c, 'respond_and_wait', { entryId: 'rve-q1', answer: 'one' })
+    assert.match(doc2, /entry rve-q2/, 'the next call gets the next queued prompt — nothing dropped')
+  } finally {
+    c.close()
+    await stub.close()
+  }
+})
+
 test('the keepalive loop is the process’s, not the model’s: polling continues with no tool call in flight', async () => {
   const stub = await startRelayStub()
   const c = spawnConnector()

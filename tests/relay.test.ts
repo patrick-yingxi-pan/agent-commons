@@ -172,8 +172,10 @@ test('the round-trip: offer → poll → reply → streamed turn (estimated usag
     // `tools` ⇒ the minimal-risk empty set, INV-9): an empty surface is an absent
     // field, never an empty array pretending to offer something.
     assert.equal(typeof pulled.json.prompt.system, 'string')
-    // …plus the framing content hash (v3 dedupe) — no toolsHash, since no tools.
-    assert.deepEqual(Object.keys(pulled.json.prompt).sort(), ['messages', 'system', 'systemHash'])
+    // …plus the framing content hash (v3 dedupe — no toolsHash, since no tools)
+    // and the channel naming this conversation (v4 multi-session).
+    assert.deepEqual(Object.keys(pulled.json.prompt).sort(), ['channel', 'messages', 'system', 'systemHash'])
+    assert.equal(pulled.json.prompt.channel.id, sessionId, 'the prompt names its conversation')
     assert.equal(pulled.json.prompt.messages[0].text, 'What is our Q3 focus?')
 
     // MODEL_TIMEOUT_MS (50ms) must NOT govern this turn — answer well past it.
@@ -193,23 +195,122 @@ test('the round-trip: offer → poll → reply → streamed turn (estimated usag
   })
 })
 
-test('a second concurrent turn on the relay refuses (relay_busy 503) while the first is unharmed', async () => {
+test('one channel admits one turn at a time (relay_busy 503, pre-persist) while the first is unharmed', async () => {
   const p = await mintSessionProvider('Busy gate')
-  const first = await sessionOnProvider(p.id)
-  const second = await sessionOnProvider(p.id)
+  const { sessionId } = await sessionOnProvider(p.id)
   await withEnv({ RELAY_POLL_MS: '2000', RELAY_TIMEOUT_MS: '3000' }, async () => {
     const parked = call('GET', '/relay/poll', undefined, auth(p.secret))
     await sleep(10)
-    const sendA = callRaw('POST', `/sessions/${first.sessionId}/messages`, { text: 'turn A' })
+    const sendA = callRaw('POST', `/sessions/${sessionId}/messages`, { text: 'turn A' })
     const pulled = await parked
-    // While A is in flight, B refuses pre-persist.
-    const sendB = await callRaw('POST', `/sessions/${second.sessionId}/messages`, { text: 'turn B' })
+    const persisted = store.getSession(sessionId)?.messages?.length ?? 0
+    // While A is in flight, a second turn on the SAME conversation refuses pre-persist.
+    const sendB = await callRaw('POST', `/sessions/${sessionId}/messages`, { text: 'turn B' })
     assert.equal(sendB.status, 503)
     assert.match(sendB.body, /relay_busy/)
-    assert.equal(store.getSession(second.sessionId)?.messages?.length ?? 0, 0, 'B persisted nothing')
+    assert.match(sendB.body, /previous turn/, 'the refusal names the same-conversation cause')
+    assert.equal(store.getSession(sessionId)?.messages?.length ?? 0, persisted, 'B persisted nothing')
     await call('POST', '/relay/reply', { entryId: pulled.json.entryId, completion: 'answer A' }, auth(p.secret))
     const a = await sendA
     assert.match(a.body, /answer A/, 'turn A was unharmed by B’s refusal')
+  })
+})
+
+// ── v4: multi-session relays (channels) ──────────────────────────────────────
+
+test('two conversations run CONCURRENTLY over one relay; entry keys route each answer home', async () => {
+  const p = await mintSessionProvider('Concurrent channels')
+  const a = await sessionOnProvider(p.id)
+  const b = await sessionOnProvider(p.id)
+  await withEnv({ RELAY_POLL_MS: '2000', RELAY_TIMEOUT_MS: '5000' }, async () => {
+    const parkedA = call('GET', '/relay/poll', undefined, auth(p.secret))
+    await sleep(10)
+    const sendA = callRaw('POST', `/sessions/${a.sessionId}/messages`, { text: 'turn A' })
+    const pulledA = await parkedA
+    assert.equal(pulledA.json.prompt.channel.id, a.sessionId)
+
+    // B is NOT refused while A is in flight (the v1 relay-wide busy is gone) —
+    // its prompt is delivered to the next poll, tagged with ITS channel.
+    const parkedB = call('GET', '/relay/poll', undefined, auth(p.secret))
+    await sleep(10)
+    const sendB = callRaw('POST', `/sessions/${b.sessionId}/messages`, { text: 'turn B' })
+    const pulledB = await parkedB
+    assert.equal(pulledB.json.prompt.channel.id, b.sessionId)
+    assert.notEqual(pulledB.json.entryId, pulledA.json.entryId)
+
+    // Answer OUT OF ORDER (B first) — each completion settles only its own entry.
+    await call('POST', '/relay/reply', { entryId: pulledB.json.entryId, completion: 'answer B' }, auth(p.secret))
+    await call('POST', '/relay/reply', { entryId: pulledA.json.entryId, completion: 'answer A' }, auth(p.secret))
+    const [resA, resB] = await Promise.all([sendA, sendB])
+    assert.match(resA.body, /answer A/, 'A got A’s answer')
+    assert.ok(!resA.body.includes('answer B'), 'no cross-channel leak into A')
+    assert.match(resB.body, /answer B/, 'B got B’s answer')
+  })
+})
+
+test('the concurrency ceiling refuses a NEW conversation pre-persist (RELAY_MAX_INFLIGHT)', async () => {
+  const p = await mintSessionProvider('Capacity gate')
+  const a = await sessionOnProvider(p.id)
+  const b = await sessionOnProvider(p.id)
+  await withEnv({ RELAY_POLL_MS: '2000', RELAY_TIMEOUT_MS: '3000', RELAY_MAX_INFLIGHT: '1' }, async () => {
+    const parked = call('GET', '/relay/poll', undefined, auth(p.secret))
+    await sleep(10)
+    const sendA = callRaw('POST', `/sessions/${a.sessionId}/messages`, { text: 'turn A' })
+    const pulled = await parked
+    const sendB = await callRaw('POST', `/sessions/${b.sessionId}/messages`, { text: 'turn B' })
+    assert.equal(sendB.status, 503)
+    assert.match(sendB.body, /relay_busy/)
+    assert.match(sendB.body, /maximum number of conversations/, 'the refusal names the ceiling')
+    assert.equal(store.getSession(b.sessionId)?.messages?.length ?? 0, 0, 'B persisted nothing')
+    await call('POST', '/relay/reply', { entryId: pulled.json.entryId, completion: 'answer A' }, auth(p.secret))
+    assert.match((await sendA).body, /answer A/)
+  })
+})
+
+test('a continuation round bypasses the ceiling — a rival channel cannot fail a mid-flight tool loop', async () => {
+  const p = await mintSessionProvider('Continuation bypass')
+  const promptFor = (ch: string) => ({ system: 's', systemHash: 'a1b2c3d4e5f60718', channel: { id: ch }, messages: [{ role: 'user' as const, text: 'q' }] })
+  await withEnv({ RELAY_MAX_INFLIGHT: '1' }, async () => {
+    // Channel A's round 1 holds the only slot, settles (as between tool rounds)…
+    const round1 = store.relay.offer(p.id, promptFor('chan-a'))
+    assert.ok(round1)
+    store.relay.submit(p.id, round1!.entryId, { kind: 'completion', text: 'round 1' })
+    // …and a rival channel grabs it before round 2 is offered.
+    const rival = store.relay.offer(p.id, promptFor('chan-b'))
+    assert.ok(rival, 'the freed slot admits the rival')
+    assert.equal(store.relay.offer(p.id, promptFor('chan-a')), undefined, 'a NEW offer is refused at the ceiling')
+    const round2 = store.relay.offer(p.id, promptFor('chan-a'), true)
+    assert.ok(round2, 'the continuation round is admitted — the conversation already underway must finish')
+    // The per-channel wall is NOT bypassed: a continuation for a busy channel still refuses.
+    assert.equal(store.relay.offer(p.id, promptFor('chan-b'), true), undefined, 'continuation never doubles up a channel')
+    store.relay.clear(p.id, rival!.entryId)
+    store.relay.clear(p.id, round2!.entryId)
+  })
+})
+
+test('every relayed prompt is SELF-CONTAINED: it carries its conversation’s full prior history', async () => {
+  const p = await mintSessionProvider('Self-contained')
+  const { sessionId } = await sessionOnProvider(p.id)
+  await withEnv({ RELAY_POLL_MS: '2000', RELAY_TIMEOUT_MS: '3000' }, async () => {
+    // Turn 1 — no history yet.
+    const parked1 = call('GET', '/relay/poll', undefined, auth(p.secret))
+    await sleep(10)
+    const send1 = callRaw('POST', `/sessions/${sessionId}/messages`, { text: 'first question' })
+    const r1 = await parked1
+    assert.equal(r1.json.prompt.messages.length, 1, 'a fresh conversation has no history to carry')
+    await call('POST', '/relay/reply', { entryId: r1.json.entryId, completion: 'first answer' }, auth(p.secret))
+    await send1
+
+    // Turn 2 — the document re-carries the whole exchange, so ANY executor (a
+    // fresh sub-agent included) can answer it without per-channel memory.
+    const parked2 = call('GET', '/relay/poll', undefined, auth(p.secret))
+    await sleep(10)
+    const send2 = callRaw('POST', `/sessions/${sessionId}/messages`, { text: 'second question' })
+    const r2 = await parked2
+    const texts = (r2.json.prompt.messages as Array<{ role: string; text?: string }>).map((m) => `${m.role}:${m.text}`)
+    assert.deepEqual(texts, ['user:first question', 'assistant:first answer', 'user:second question'])
+    await call('POST', '/relay/reply', { entryId: r2.json.entryId, completion: 'second answer' }, auth(p.secret))
+    await send2
   })
 })
 

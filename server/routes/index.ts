@@ -53,6 +53,7 @@ import { pageParams, paginate, MAX_PAGE_LIMIT } from '../pagination.ts'
 import { RateLimiter } from '../ratelimit.ts'
 import { generateReply, probeProviderEndpoint, fetchProviderModels, resolvedModelId } from '../generate.ts'
 import { relayReply, mintRelaySecret, hashRelaySecret, relaySecretHint, type RelayOutcome } from '../relay.ts'
+import { renderConnectorSetup } from '../connectorSetup.ts'
 import { platformCard, agentCard, taskFromOpenSubGoal, rejectedAgentTask, rpcResult, rpcError } from '../a2a.ts'
 import { ProviderProbeError, type ProviderConfig } from '../data/providers.ts'
 import { turns, type TurnFrame } from '../turns.ts'
@@ -65,7 +66,7 @@ import { ConflictError, ValidationError } from '../conflict.ts'
 import { LimitError } from '../limit.ts'
 import { TOOL_NAMES } from '../model/tools.ts'
 import { CONNECTOR_OPTIONS } from '../data/contextOptions.ts'
-import { A2A_ERROR, DEFAULT_PROVIDER_ID, isMonotonic, isProjectEffectMonotonic, PROJECT_EFFECT_TYPES, PROJECT_ROLES } from '../../contract/index.ts'
+import { A2A_ERROR, API_BASE_PATH, DEFAULT_PROVIDER_ID, isMonotonic, isProjectEffectMonotonic, PROJECT_EFFECT_TYPES, PROJECT_ROLES } from '../../contract/index.ts'
 import type {
   A2aDataPart,
   A2aMessage,
@@ -163,7 +164,7 @@ export function buildRouter(): Router {
   // public artifact like the well-known card). Everything else refuses with a
   // loud 401 — the client-side gate (App.tsx) is chrome; this is the wall.
   // "Meaningful data before sign-in" is the failure this exists to prevent.
-  const GATE_OPEN_EXACT = new Set(['/capabilities', '/me', '/healthz', '/readyz', '/metrics', '/connector'])
+  const GATE_OPEN_EXACT = new Set(['/capabilities', '/me', '/healthz', '/readyz', '/metrics', '/connector', '/connector/setup'])
   const GATE_OPEN_PREFIX = ['/auth/', '/a2a/', '/relay/']
   // Owner-admin routes that sit UNDER an open machine-edge prefix but are NOT part
   // of the machine edge, so the coarse prefix must not open them. The D28
@@ -1142,6 +1143,16 @@ export function buildRouter(): Router {
     )
     res.setHeader('Content-Disposition', 'attachment; filename="session-relay.mjs"')
     sendText(res, connectorJs, 'text/javascript; charset=utf-8')
+  })
+  // The agent-facing SETUP GUIDE (spec MODEL-22): the far model fetches this and
+  // onboards ITSELF — install the connector into whatever harness it runs in
+  // (any standard stdio MCP registration), or drive the relay protocol directly
+  // when its harness speaks no MCP. All harness-specific instruction lives here,
+  // behind the mint panel's one bootstrap prompt, so the UI never enumerates
+  // coding tools and a harness we've never heard of still onboards. Same
+  // unauthenticated stance as `/connector`: a manual is not a secret.
+  r.get('/connector/setup', ({ res, url }) => {
+    sendText(res, renderConnectorSetup(`${url.origin}${API_BASE_PATH}`), 'text/markdown; charset=utf-8')
   })
 
   // ── Worker Agents (docs/agent-commons.md, D6) ──────────────────────────────
@@ -2291,18 +2302,32 @@ export function buildRouter(): Router {
     const turnModelId = provider.kind === 'session' ? undefined : resolvedModelId(turnConfig)
     // The relay pre-turn gate (docs/delegated-cognition-provider.md §7.2): a turn on a
     // Session provider refuses BEFORE the user turn persists — the spend gate's shape —
-    // when no drain loop is bound (offline) or another turn already holds the relay's
-    // one-entry slot (busy). Nothing half-writes; retry is free; a dead relay never
-    // wedges a turn to the deadline.
+    // when no drain loop is bound (offline), when THIS conversation's previous turn is
+    // still in flight, or when the relay is at its concurrent-conversation ceiling
+    // (v4 multi-session: other sessions' turns run concurrently, each channel one at a
+    // time). Nothing half-writes; retry is free; a dead relay never wedges a turn.
     if (provider.kind === 'session') {
       const relayId = turnProviderId
       if (!relayId || !store.relay.online(relayId)) {
         return sendError(res, 'relay_offline', 'Your session isn’t answering — start its drain loop and retry.')
       }
-      if (store.relay.busy(relayId)) {
-        return sendError(res, 'relay_busy', 'Your session is still answering another turn — retry when it finishes.')
+      if (store.relay.busy(relayId, params.id)) {
+        return sendError(res, 'relay_busy', 'Your session is still answering this conversation’s previous turn — retry when it finishes.')
+      }
+      if (store.relay.atCapacity(relayId)) {
+        return sendError(res, 'relay_busy', 'Your session is already answering its maximum number of conversations — retry when one finishes.')
       }
     }
+    // The relay prompt's self-contained history (v4): the channel's prior turns,
+    // snapshotted BEFORE the new user turn persists below (appendMessage swaps the
+    // array on this same session object). Dial-out turns don't read this — their
+    // endpoint transport is out of scope here.
+    const relayHistory =
+      provider.kind === 'session'
+        ? (known?.messages ?? [])
+            .filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content.trim().length > 0)
+            .map((m) => ({ role: m.role, text: m.content }))
+        : []
     // Spend-time enforcement (D8): once a plan window is exhausted for this Agent's
     // effective budget, refuse the turn (429) until it resets — the per-turn gate the
     // mint-time funnel doesn't give. Checked before persisting the user turn or streaming.
@@ -2425,7 +2450,7 @@ export function buildRouter(): Router {
       // One `if` where a loopback shim isn't.
       const { message, usage, outcome } =
         provider.kind === 'session'
-          ? await relayReply(session, agent, text ?? '', replyHandlers, ac.signal, store.relay, turnProviderId!, commons, contexts)
+          ? await relayReply(session, agent, text ?? '', replyHandlers, ac.signal, store.relay, turnProviderId!, commons, contexts, relayHistory)
           : await generateReply(session, agent, text ?? '', replyHandlers, ac.signal, turnConfig, commons, contexts)
       // Meter the real tokens this turn consumed (even ephemeral turns —
       // they hit the model too), so the composer's plan-usage rings reflect use.
