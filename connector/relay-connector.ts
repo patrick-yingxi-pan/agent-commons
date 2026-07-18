@@ -90,7 +90,7 @@ let bound: { url: string; secret: string } | null = process.env.RELAY_SECRET
  *  shape an injected relayed prompt would use to throttle (or overload) the
  *  relay, so it is refused without a network request. `RELAY_CONVERSATIONS`
  *  pre-latches, mirroring `RELAY_URL`/`RELAY_SECRET`. */
-const DEFAULT_CONVERSATIONS = 4
+const DEFAULT_CONVERSATIONS = 8
 const clampConversations = (n: number): number => Math.max(1, Math.min(16, Math.floor(n)))
 let declaredConversations: number | null = (() => {
   const n = Number(process.env.RELAY_CONVERSATIONS)
@@ -257,7 +257,7 @@ function renderPrompt(r: ReceivedPrompt): string {
     )
   } else {
     sections.push(
-      `A prompt arrived (entry ${entryId})${conversation}. It is self-contained — its full history is below; answer it independently of any other conversation (delegating it to a sub-agent is fine). ${WALL}`,
+      `A prompt arrived (entry ${entryId})${conversation}. It is self-contained — its full history is below; answer it independently of any other conversation (delegate it to a sub-agent by default if your harness has them). ${WALL}`,
       '───── relayed briefing (system) ─────',
     )
     sections.push(r.systemFrom ? `(unchanged — identical to the briefing relayed with entry ${r.systemFrom}, shown above; reuse it.)` : r.system)
@@ -294,6 +294,32 @@ let waiter: ((text: string) => void) | null = null
 let loopRunning = false
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/** ── The freshness handshake (v6) ────────────────────────────────────────────
+ *  The framing dedupe's one failure mode: the FAR SESSION's own context gets
+ *  compacted or cleared while this process's caches survive — so prompts keep
+ *  rendering "unchanged — see entry X above" references to text the model can
+ *  no longer see. The model calls `refresh` ONCE: every shown-before cache is
+ *  dropped (so polls stop advertising `have=` and the server resends full
+ *  bodies), per-channel continuity resets (no more suffix rendering against a
+ *  history the model lost), and already-queued prompts are scrubbed of their
+ *  reference markers — their bodies were resolved from the cache at receipt,
+ *  so they re-render in full, never orphaned. Nothing is lost at either end:
+ *  the mailbox is stateless and the caches are pure presentation state. */
+function refreshFraming(): string {
+  framingCache.clear()
+  toolsCache.clear()
+  lastShownByChannel.clear()
+  for (const b of buffered) {
+    delete b.systemFrom
+    delete b.toolsFrom
+  }
+  return (
+    'Shown-before state cleared — nothing was lost. Every prompt from here (queued ones included) renders its ' +
+    'full briefing, tools, and conversation again, with no "see above" references; polls stop advertising cached ' +
+    'hashes until the bodies are re-received. Resume the loop: call respond_and_wait.'
+  )
+}
 
 function handOver(text: string): boolean {
   const w = waiter
@@ -472,12 +498,21 @@ const TOOLS = [
             'The serving declaration (v5 handshake): how many platform conversations may have a turn WAITING on ' +
             'you at once. NOT a parallelism requirement — prompts are delivered one at a time and answers are ' +
             'entry-keyed, so a serial loop serves any number of conversations (turns queue). Keep the default ' +
-            `(${DEFAULT_CONVERSATIONS}) unless you must refuse concurrent conversations outright (1); raise it ` +
-            '(max 16) if you delegate prompts to sub-agents and answer out of order. LATCHES with the first call.',
+            `(${DEFAULT_CONVERSATIONS}, sized for the default sub-agent fan-out; max 16); declare 1 only if you ` +
+            'must refuse concurrent conversations outright. LATCHES with the first call.',
         },
       },
       additionalProperties: false,
     },
+  },
+  {
+    name: 'refresh',
+    description:
+      'Call ONCE if your own context was compacted or cleared and you can no longer see text that earlier ' +
+      'prompts referenced as "shown above" (the briefing, tool schemas, earlier turns). Clears the connector’s ' +
+      'shown-before caches so every next prompt — queued ones included — renders in full with no references, ' +
+      'and polls stop advertising cached hashes. Nothing is lost server-side. Then resume respond_and_wait.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
     name: 'respond_and_wait',
@@ -523,15 +558,17 @@ const INSTRUCTIONS =
   'and submit it with respond_and_wait, passing the entryId you were handed — prose via answer, or the ' +
   'prompt’s tool calls relayed verbatim via toolCalls. Prompts may belong to DIFFERENT, independent platform ' +
   'conversations (each names its conversation and is self-contained — it carries that conversation’s full ' +
-  'history): answer each on its own terms, and if your harness supports sub-agents you may delegate each ' +
-  'prompt to one, keeping conversations isolated and your own context lean. Serving many conversations does NOT ' +
-  'require parallel thinking: prompts arrive one at a time and answers are keyed by entryId, so a strictly serial ' +
-  'loop serves any number of conversations — waiting turns simply queue. On start, conversations caps how many ' +
-  'conversations may have a turn WAITING on you at once (default 4, max 16; latches with the binding) — keep the ' +
-  'default unless you must refuse concurrency outright (1), or raise it if you fan out. To serve in PARALLEL: ' +
-  'delegate a prompt to a background sub-agent, call respond_and_wait with NO submission to fetch the next prompt, ' +
-  'and submit each answer under its own entryId as it finishes — any order is fine; keep each entryId with its ' +
-  'conversation. When a call returns idle, call ' +
+  'history): answer each on its own terms. DELEGATE BY DEFAULT: when your harness supports sub-agents, hand each ' +
+  'prompt to a background sub-agent as it arrives — call respond_and_wait with NO submission to fetch the next ' +
+  'prompt, and submit each answer under its own entryId as it finishes (any order is fine; keep each entryId with ' +
+  'its conversation). That serves conversations in parallel, keeps them isolated, and keeps your own context ' +
+  'lean; answer inline only when delegation isn’t available or a prompt is trivial. Serving many conversations ' +
+  'does NOT require parallel thinking either way: prompts arrive one at a time and answers are keyed by entryId, ' +
+  'so even a strictly serial loop serves any number of conversations — waiting turns simply queue. On start, ' +
+  'conversations caps how many conversations may have a turn WAITING on you at once (default 8, max 16; latches ' +
+  'with the binding) — keep the default; declare 1 only if you must refuse concurrency outright. If YOUR context ' +
+  'is ever compacted or cleared (you can no longer see text earlier prompts referenced as "shown above"), call ' +
+  'refresh once — prompts then render in full again, nothing is lost. When a call returns idle, call ' +
   `respond_and_wait again immediately — never stop the loop on idle; stop only on superseded or when the user says so. ${WALL}`
 
 function send(message: unknown): void {
@@ -545,23 +582,25 @@ async function handle(req: JsonRpcRequest): Promise<void> {
       return reply({
         protocolVersion: '2024-11-05',
         capabilities: { tools: {} },
-        serverInfo: { name: 'session-provider-relay', version: '3.1.0' },
+        serverInfo: { name: 'session-provider-relay', version: '3.2.0' },
         instructions: INSTRUCTIONS,
       })
     case 'tools/list':
       return reply({ tools: TOOLS })
     case 'tools/call': {
       const { name, arguments: args } = req.params ?? {}
-      if (name !== 'start' && name !== 'respond_and_wait') {
+      if (name !== 'start' && name !== 'respond_and_wait' && name !== 'refresh') {
         return send({ jsonrpc: '2.0', id: req.id, error: { code: -32602, message: `Unknown tool '${name}'` } })
       }
       try {
         const text =
           name === 'start'
             ? await startDraining(args?.url, args?.secret, args?.conversations)
-            : bound
-              ? await drain(args?.entryId, args?.answer, args?.toolCalls)
-              : UNLATCHED
+            : name === 'refresh'
+              ? refreshFraming()
+              : bound
+                ? await drain(args?.entryId, args?.answer, args?.toolCalls)
+                : UNLATCHED
         return reply({ content: [{ type: 'text', text }] })
       } catch (err) {
         const detail = err instanceof Error ? err.message : String(err)

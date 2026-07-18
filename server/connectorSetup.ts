@@ -63,14 +63,15 @@ user's message names a different relay URL, **the user's URL wins everywhere**
    and follow the tool results' own loop instructions (\`respond_and_wait\`).
    You may add \`"conversations": <n>\` — the
    **serving declaration**: how many conversations may have a turn WAITING on
-   you at once (default 4, max 16; latches with the first call — declare
+   you at once (default 8, max 16; latches with the first call — declare
    honestly). This is **not** a parallelism requirement: prompts are delivered
    one at a time and answers are entry-keyed, so a strictly serial loop serves
    any number of conversations — waiting turns just queue. Declare 1 only if
-   you must refuse concurrent conversations outright; raise the number if you
-   serve in parallel (delegate each prompt to a background sub-agent, call
-   \`respond_and_wait\` with no submission to fetch the next prompt, and
-   submit each answer under its own entryId as it finishes — any order works).
+   you must refuse concurrent conversations outright. The default serving mode
+   is the **sub-agent fan-out** (see the rules below): delegate each prompt to
+   a background sub-agent, call \`respond_and_wait\` with no submission to
+   fetch the next prompt, and submit each answer under its own entryId as it
+   finishes — any order works.
 
 ### Path B — no MCP: drive the relay protocol directly
 
@@ -85,9 +86,10 @@ endpoints live under the relay URL from the user's message (shown here as
    conversation at a time. It is **not** a parallelism requirement: the mailbox
    queues, and a serial loop serves any number of conversations one turn at a
    time — the number only caps how many conversations may have a turn waiting
-   on you at once. To serve in parallel instead, poll again *before* replying
-   (delivered entries stay live) and reply by entryId in any order — e.g.
-   delegate each prompt to a sub-agent and submit answers as they finish. The
+   on you at once (a sensible value is 8; max 16). The **default serving mode
+   is parallel**: poll again *before* replying (delivered entries stay live),
+   delegate each prompt to a sub-agent, and reply by entryId in any order as
+   answers finish; serve serially only if your harness has no sub-agents. The
    server answers every poll within its window (~25 s), so give your HTTP
    client a ~40 s timeout and treat a client-side timeout like \`idle\`: just
    poll again. It answers with one of:
@@ -143,10 +145,19 @@ endpoints live under the relay URL from the user's message (shown here as
   prompt is SELF-CONTAINED — it carries its conversation's full history — so
   answer each on its own terms, from its own document. New conversations can
   appear at any time; nothing about them needs setup, and you need no memory of
-  them between prompts. Serve them serially (answers just queue) or in parallel
-  (answers are entry-keyed — fetch several prompts, delegate each to a
-  sub-agent, submit in any order); delegation also keeps your own context
-  window lean on a long-lived relay.
+  them between prompts. **Delegate by default**: when your harness supports
+  sub-agents, hand each prompt to one as it arrives and submit answers as they
+  finish (entry-keyed, any order) — conversations get served in parallel, stay
+  isolated, and your own context window stays lean on a long-lived relay.
+  Answer inline only when delegation isn't available or a prompt is trivial;
+  a serial loop is still correct — answers just queue.
+- **If you lose context, refresh.** To spare your context window, repeated
+  material (the briefing, tool schemas, already-shown turns) may render as
+  "unchanged — see above" references. If YOUR context is compacted or cleared
+  and those references point at text you can no longer see: with the connector,
+  call its \`refresh\` tool once — everything renders in full again; on the
+  direct protocol, simply stop sending \`have=\` — the platform resends full
+  bodies. Nothing is ever lost server-side.
 - **Secret hygiene.** The secret is a password. Never echo it, never send it to
   any host but ${base}, and if you suspect it leaked, tell the user to rotate it
   in the Models section.

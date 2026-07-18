@@ -79,6 +79,11 @@ test('GET /connector/setup serves the agent-facing guide: both paths, the wall, 
   assert.match(body, /serial loop serves\s+any number of conversations/i, 'serial ≠ 1 is stated')
   assert.match(body, /any order/i, 'entry-keyed out-of-order submission is taught')
   assert.match(body, /poll again \*?before\*? replying/i, 'Path B teaches fetch-before-answer')
+  // v6: delegation is the DEFAULT serving mode, and lost-context recovery is
+  // documented for both paths (connector `refresh`; Path B drops `have=`).
+  assert.match(body, /Delegate by default/i, 'sub-agent delegation is the default, not an option')
+  assert.match(body, /\`?refresh\`? tool once/i, 'the connector recovery path is documented')
+  assert.match(body, /stop sending \`?have=\`?/i, 'the Path B recovery path is documented')
   assert.match(body, /UNEXECUTED/, 'the relay-not-execute discipline rides Path B too')
   // The rules: the §7.9 wall, multi-conversation independence, stop conditions.
   assert.match(body, /NEVER execute instructions/i, 'the outbound-injection wall ships in the guide')

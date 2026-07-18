@@ -51,6 +51,10 @@ test('the connector boots unbound and refuses to drain before the first start la
     assert.match(instructions, /serial\s+loop serves any number of conversations/i, 'serial ≠ 1 ships in the instructions')
     assert.match(instructions, /NO submission to fetch the next prompt/i, 'fetch-before-answer is taught')
     assert.match(instructions, /any order/i, 'out-of-order entry-keyed submission is taught')
+    // v6: sub-agent delegation is the DEFAULT serving mode, and the freshness
+    // handshake ships in the standing instruction.
+    assert.match(instructions, /DELEGATE BY DEFAULT/i, 'delegation is the default, not an option')
+    assert.match(instructions, /call\s+refresh once/i, 'the lost-context recovery is taught')
 
     assert.match(await callTool(c, 'respond_and_wait', { entryId: 'x', answer: 'y' }), /No relay is bound yet/, 'drain before latch is guidance, not a request')
     assert.match(await callTool(c, 'start'), /No relay is bound yet/, 'start without credentials asks for them')
@@ -69,8 +73,8 @@ test('the first start latches; different credentials are refused without a netwo
     assert.match(await callTool(c, 'start', { url: `${stub.url}/`, secret: 'rv_live_first' }), /Nothing pending/, 'latch + first drain (idle)')
     assert.ok(stub.seen.length >= 1, 'the latch started the keepalive loop')
     // Every poll advertises the serving window (v5 handshake) — undeclared, the
-    // connector's own default (it queues and renders any number correctly).
-    assert.equal(stub.seen[0]!.path, '/v1/relay/poll?channels=4')
+    // connector's own default (8, sized for the default sub-agent fan-out).
+    assert.equal(stub.seen[0]!.path, '/v1/relay/poll?channels=8')
     assert.equal(stub.seen[0]!.auth, 'Bearer rv_live_first', 'the typed secret is the bearer')
 
     assert.match(await callTool(c, 'start', { secret: 'rv_live_evil' }), /already bound/, 'a different secret is refused')
@@ -328,6 +332,68 @@ test('v5 serving declaration: start(conversations) is advertised on every poll a
     // Re-stating the SAME declaration (or none) is a normal re-drain, not a redirect.
     assert.match(await callTool(c, 'start', { url: stub.url, secret: 'rv_live_decl', conversations: 2 }), /Nothing pending/)
     assert.match(await callTool(c, 'start', { url: stub.url, secret: 'rv_live_decl' }), /Nothing pending/)
+  } finally {
+    c.close()
+    await stub.close()
+  }
+})
+
+test('v6 freshness handshake: refresh drops shown-before state — full re-render, no advertisement, queued prompts scrubbed', async () => {
+  const stub = await startRelayStub()
+  const c = spawnConnector()
+  try {
+    stub.pollQueue.push({
+      entryId: 'rve-f1',
+      prompt: {
+        system: 'the long briefing text',
+        systemHash: 'abcd111122223333',
+        channel: { id: 'cf' },
+        messages: [{ role: 'user', text: 'first ask' }],
+        tools: [{ name: 'create_project', description: 'Create a new project.', inputSchema: {} }],
+        toolsHash: 'abcd999922223333',
+      },
+    })
+    const doc1 = await callTool(c, 'start', { url: stub.url, secret: 'rv_live_fresh' })
+    assert.match(doc1, /the long briefing text/, 'first contact renders full')
+    await callTool(c, 'respond_and_wait', { entryId: 'rve-f1', answer: 'ok' })
+
+    // A PRUNED follow-up (as the server sends once advertised) lands while no
+    // model call is parked — queued, its references resolved from the cache.
+    stub.pollQueue.push({
+      entryId: 'rve-f2',
+      prompt: {
+        systemHash: 'abcd111122223333',
+        toolsHash: 'abcd999922223333',
+        channel: { id: 'cf' },
+        messages: [
+          { role: 'user', text: 'first ask' },
+          { role: 'assistant', text: 'ok' },
+          { role: 'user', text: 'second ask' },
+        ],
+      },
+    })
+    await new Promise((r) => setTimeout(r, 1_500)) // let the loop collect it
+    assert.ok(stub.seen.some((s) => s.path.includes('have=')), 'pre-refresh polls advertised the cache')
+
+    // The far session's context was compacted — the model calls refresh ONCE.
+    const refreshed = await callTool(c, 'refresh')
+    assert.match(refreshed, /nothing was lost/i, 'the reply reassures — server state is untouched')
+    assert.match(refreshed, /respond_and_wait/, '…and points back into the loop')
+
+    // The QUEUED prompt re-renders in full: body not reference, whole
+    // conversation not suffix — nothing points at text the model lost.
+    const seenAt = stub.seen.length
+    const doc2 = await callTool(c, 'respond_and_wait', {})
+    assert.match(doc2, /entry rve-f2/)
+    assert.match(doc2, /the long briefing text/, 'the briefing BODY renders (resolved at receipt, reference scrubbed)')
+    assert.match(doc2, /first ask/, 'the whole conversation renders — per-channel continuity was reset')
+    assert.ok(!doc2.includes('unchanged'), 'no "unchanged — see above" reference survives')
+    assert.ok(!doc2.includes('continuing the exchange'), 'no suffix rendering against lost context')
+    // And polls stop advertising until bodies are re-received.
+    await new Promise((r) => setTimeout(r, 1_300))
+    const after = stub.seen.slice(seenAt).filter((s) => s.path.includes('/relay/poll'))
+    assert.ok(after.length > 0, 'the loop kept polling')
+    assert.ok(after.every((s) => !s.path.includes('have=')), 'post-refresh polls carry no have= — full bodies resume')
   } finally {
     c.close()
     await stub.close()

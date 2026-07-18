@@ -639,6 +639,13 @@ path (calls ride the MCP tool arguments, not prose) leaves the far model nothing
   second turn refuses fast (`relay_busy`, §7.1) rather than queueing, and the relay
   caps concurrent conversations (`RELAY_MAX_INFLIGHT`) — the far side drains one
   prompt at a time, so unbounded fan-in would only queue invisible latency.
+- **Serving discipline past the rendezvous is instructed, never enforced.** Whether
+  the far model delegates by default, declares its window honestly, keeps the loop
+  running, or calls `refresh` after losing context is model behavior — our rails
+  are wire validation (entry keys, exactly-one answer form), the negotiated
+  admission window, and observation (`relay.activity`, the serving stamps); the
+  rest is guide/instruction text, ratcheted by live runs (§9.4), never enforceable
+  from our side of the rendezvous.
 
 ## 9. v1 scope (prose-only, `toolUse:false`)
 
@@ -917,6 +924,37 @@ both paths, client-timeout guidance (~40 s; treat a client timeout as idle),
 the 200 `{ok:true}` success body documented, and rotation-surfaces-as-
 `superseded`-first noted beside the 401 rule.
 
+**Far-session lifecycle + the freshness handshake (v6, same day).** Three
+lifecycle intricacies, recorded with the machinery that answers them:
+
+- **Context-growth economics.** Across a long-lived relay, each piece of text
+  enters the far session's context approximately ONCE: the framing/tool bodies
+  via the `?have=` dedupe (§9.2), a conversation's turns via per-channel
+  suffix rendering (§9.3). So the drain session's context grows with *new*
+  content only — and under the sub-agent fan-out (now the DEFAULT serving
+  advice: delegate each prompt as it arrives, submit entry-keyed answers as
+  they finish; inline only when delegation isn't available or the prompt is
+  trivial) the main loop's context stays near-empty regardless of load, since
+  each prompt is burned in a disposable context. The connector's declaration
+  default rose 4 → 8 to match the fan-out default.
+- **Restart is lossless compaction.** Because every prompt is self-contained
+  and all caches are presentation state, killing and restarting the far
+  session (or the connector) loses nothing — the next poll re-binds, bodies
+  resend full, history re-renders. The far session is *disposable by design*.
+- **The dangling-reference gap — closed by `refresh`.** The one place the
+  dedupe could lie: the far session's own context is compacted while the
+  CONNECTOR's caches survive, so prompts keep rendering "unchanged — see entry
+  X above" against text the model can no longer see. The connector's no-arg
+  `refresh` tool (v3.2.0) clears the framing/tool caches and the per-channel
+  shown-state AND scrubs the reference markers off already-queued prompts
+  (their bodies were resolved at receipt, so the queue re-renders full, never
+  orphaned); polls stop advertising `have=` until bodies are re-received. A
+  Path B agent needs no tool: it just stops sending `have=`. Ships in the
+  connector instructions ("your context compacted → call refresh once") and
+  the guide's rules; spec row MODEL-21 records it as the dedupe's failure
+  mode. Rejected: auto-detecting far-context loss from our side (unknowable
+  past the rendezvous — §8's instructed-never-enforced boundary).
+
 ## 10. Open items (what remains — the v2 checklist)
 
 The first pass's "unresolved edge cases" block is gone: every item in it is now ruled
@@ -946,6 +984,11 @@ genuine v2 work, each a real feature, not polish:
   fan-out and per-entry affinity.
 - **Horizontal scale.** The in-memory slot assumes the drain long-poll and the turn's
   `relayReply` await hit the *same* process. A scaled web tier needs the slot in shared storage.
+- **Maintenance nudge** (deferred 2026-07-18 until the problem is real): the server
+  counts entries/estimated tokens served per binding and, past a threshold, attaches an
+  additive `notice` field to a delivered prompt advising the far session to restart or
+  compact (restart is lossless — §9.4 lifecycle). Advisory only, reaches both paths on
+  the same wire; old connectors ignore the unknown field.
 
 ## 11. Locking tests to write when built (ship-tests-with-every-feature)
 
