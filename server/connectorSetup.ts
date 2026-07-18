@@ -1,4 +1,8 @@
 /** ── The agent-facing setup guide (spec MODEL-22) ─────────────────────────────
+ *  Reader-facing primer (the whole relay explained from zero):
+ *  docs/session-relay-primer.md — UPDATE IT when this guide's contract changes
+ *  (tests/relay-primer.test.ts pins the primer's facts to the source).
+ *
  *  `GET /connector/setup` serves THIS document — written for the AI agent that
  *  will do the thinking, not for the human. It is the second half of the v4
  *  onboarding inversion (docs/delegated-cognition-provider.md §9.3): the UI hands

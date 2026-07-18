@@ -1,4 +1,8 @@
 /** ── The Session-provider connector (user side, v3) ──────────────────────────
+ *  Reader-facing primer (how the whole relay works, from zero):
+ *  docs/session-relay-primer.md — UPDATE IT when behavior here changes
+ *  (tests/relay-primer.test.ts pins its load-bearing facts to this source).
+ *
  *  One small MCP server you run NEXT TO the AI session that will do the thinking
  *  — any harness that speaks stdio MCP (Claude Code, Codex CLI, Cursor, opencode,
  *  Claude Desktop, …). It holds the outbound long-poll to the backend's

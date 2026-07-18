@@ -603,6 +603,9 @@ the mock?
   `tests/connector-serve.test.ts` (spec rows MODEL-10/-11/-18/-19/-21/-22/-23/-24).
   Providers are first-class **Models** (rail section + every model picker reads
   the live registry; a session's pick routes its turns — spec MODEL-13). The
+  **from-zero explainer** (how the relay works, no prior context assumed —
+  kept in sync with behavior by `tests/relay-primer.test.ts`):
+  [`docs/session-relay-primer.md`](docs/session-relay-primer.md). The
   design log — six passes, each recording the ruling and the rejected
   alternative — and what remains:
   [`docs/delegated-cognition-provider.md`](docs/delegated-cognition-provider.md).

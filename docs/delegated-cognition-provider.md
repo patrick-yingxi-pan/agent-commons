@@ -1,5 +1,11 @@
 # Delegated-cognition providers ("Session providers") — a D9 extension
 
+> **New reader?** Start with the from-zero explainer,
+> [`session-relay-primer.md`](session-relay-primer.md) — it describes how the
+> whole relay works assuming no prior context, and is kept in sync with
+> behavior by `tests/relay-primer.test.ts`. This document is the design LOG:
+> every pass, ruling, and rejected alternative.
+>
 > **Status: v5 BUILT** (2026-07-18 — the seventh pass, §9.4): **the serving
 > handshake.** v4's multi-session fan-out assumed the far side could take it;
 > v5 makes it confirmed, three layers deep: the binding **advertises** its
