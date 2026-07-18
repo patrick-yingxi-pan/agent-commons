@@ -4,7 +4,7 @@
  *  drift apart (form follows function; locked by tests/public-face.test.ts, which
  *  fails if a component hand-rolls the label). The model this cue serves: **the
  *  entity page is the shared surface — capability shapes affordances, not
- *  location** (AGENTS.md design decisions). */
+ *  location** (src/CLAUDE.md design decisions). */
 
 /** The public owner label. `own` marks the viewer's own row ("(you)"), mirroring
  *  the D17 directory entries' `own` flag and the projection's `Project.own`. */

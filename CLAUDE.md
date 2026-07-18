@@ -4,8 +4,8 @@ This is an **independent UI/UX proposal prototype** for unifying the Claude
 desktop app's Chat / Cowork / Code tabs into one adaptive conversation. Not
 affiliated with or endorsed by Anthropic; all data is mocked.
 
-Full agent context — quick start, how to verify, and an **evaluation guide** —
-lives in the shared agent file:
+The shared agent file is a **context map** (progressive disclosure — quick
+start, how to verify, and a read-on-demand table of the detailed context):
 
 @AGENTS.md
 
@@ -22,7 +22,9 @@ Essentials:
 - **The contract is load-bearing:** `contract/*.ts` is imported verbatim by both
   the UI and the server — don't break that type-identity.
 - **Mock by design:** no real model; seed data in `server/data/`. Don't file
-  intentional mock behavior as bugs.
+  intentional mock behavior as bugs (`docs/evaluation.md`).
 - **Git:** commit and push straight to `main` over HTTPS.
 - **Design decisions (locked in):** light theme only (no dark mode), no "before"
-  view, and the dev server binds IPv4 (`127.0.0.1`). See `AGENTS.md` for the why.
+  view, and the dev server binds IPv4 (`127.0.0.1`). Directory-scoped decisions
+  live in nested `CLAUDE.md` files (`src/`, `server/`, `contract/`, `tests/`,
+  `e2e/`, `connector/`) — loaded when you work there; `AGENTS.md` maps them.

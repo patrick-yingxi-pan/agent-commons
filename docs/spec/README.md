@@ -7,7 +7,8 @@
 >
 > It complements, not duplicates, the other docs: [`PROPOSAL.md`](../../PROPOSAL.md)
 > is the *argument*, [`README.md`](../../README.md) is the *engineering tour*, and
-> [`AGENTS.md`](../../AGENTS.md) is the *evaluation digest*. This spec is the
+> [`AGENTS.md`](../../AGENTS.md) is the *context map* (with
+> [`docs/evaluation.md`](../evaluation.md) as the evaluation digest). This spec is the
 > **requirements ledger** they imply, with each requirement traced to the code that
 > satisfies it and the test that locks it.
 

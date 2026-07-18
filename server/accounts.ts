@@ -111,8 +111,8 @@ export class AccountRegistry {
     // directory retired): since multi-account went real, the only way to act
     // as a seed is the same way as any account — sign in. The hashes are
     // precomputed constants (fixed salts) so boot and every test process skip
-    // the scrypt cost; the passwords are documented in AGENTS.md ("What's
-    // intentionally mock"). The desktop's `user-local` stays credential-less
+    // the scrypt cost; the passwords are documented in docs/demo-accounts.md
+    // (and docs/evaluation.md). The desktop's `user-local` stays credential-less
     // on purpose — the loopback sidecar's device owner never signs in.
     const ada: AccountUser = {
       id: 'user-ada',

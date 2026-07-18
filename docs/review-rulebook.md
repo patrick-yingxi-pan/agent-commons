@@ -152,7 +152,7 @@ component-state registries, no hard-coded catalogs.
 tests/model-picker.test.ts` (catalog-constant scan); grep new pickers for
 list literals.
 **Fix:** drive from the hook; if the concept is session-usable, give it a rail
-surface (UI-12; AGENTS "Registries have one home").
+surface (UI-12; src/CLAUDE.md "Registries have one home").
 
 ### F-10 · Every mutation has a refresh path; every event heals a reader
 A server mutation invalidates a key something actually reads; an SSE case with
@@ -205,7 +205,7 @@ A new capability is gated by `/capabilities` (remote → 409
 route suites; grep `src/components` for object-literal fixtures of server
 entities.
 **Fix:** move data to seeds; gate the capability; document intentional mock
-behavior in AGENTS.md.
+behavior in `docs/evaluation.md` / spec pillar 11.
 
 ### F-16 · Dependencies stay few and deliberate
 The server keeps its single dependency; UI deps are minimal; adding one

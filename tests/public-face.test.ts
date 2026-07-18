@@ -1,4 +1,4 @@
-/** Lock: the public-face cues have ONE source (form follows function — AGENTS.md).
+/** Lock: the public-face cues have ONE source (form follows function — src/CLAUDE.md).
  *  The owner byline ("by Ada Lab (you)") and the shared marker ("Shared · ") are
  *  minted only in src/lib/publicFace.ts / src/components/PublicFace.tsx; a component
  *  that re-hardcodes either re-opens the drift this funnel closed (the Discover

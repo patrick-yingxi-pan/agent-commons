@@ -7,7 +7,7 @@
 > the attachment is the durable, server-owned record every effect is mediated
 > against. Critically, the three filesystem types (**files / photos / folders**) are
 > served from a **real filesystem**, from the three sources that exist in the system
-> — never compile-time fixtures. (PROPOSAL §4.2; AGENTS "what's intentionally mock".)
+> — never compile-time fixtures. (PROPOSAL §4.2; `docs/evaluation.md` "what's intentionally mock".)
 >
 > This pillar is where the "missing implementation" lived before — files/photos/
 > folders were gradients and hand-authored bodies. The CTX-FS rows below are the

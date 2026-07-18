@@ -17,7 +17,7 @@
  *    • usePopoverShift (lib/usePopoverShift.ts) — measures the anchored rect
  *      and translates it back inside the viewport via `shiftIntoSpan`.
  *
- *  Form follows function (AGENTS.md): same role ⇒ same look ⇒ same behaviour.
+ *  Form follows function (src/CLAUDE.md): same role ⇒ same look ⇒ same behaviour.
  *  Components must wear POPOVER_SURFACE and take their containment from this
  *  module instead of re-hardcoding either — locked by tests/popover.test.ts,
  *  which fails on any anchored surface that re-declares the chrome inline.

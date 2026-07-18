@@ -2,7 +2,7 @@
 
 > **Status: design reference, not built.** Captures a UI pattern worth copying
 > when we implement context compaction. Nothing here ships today. The locked-in
-> decisions live in [`../AGENTS.md`](../AGENTS.md) → "Design decisions (locked in)".
+> decisions live in the directory-scoped `CLAUDE.md` files ([`../AGENTS.md`](../AGENTS.md) maps them).
 
 ## The reference artifact
 

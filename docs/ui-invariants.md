@@ -18,7 +18,7 @@ assert. The enumeration half is the repo's *shared-primitive* architecture:
 because every popover / scrim / fold-header / add-trigger routes through one
 primitive, a single generic test (or a `data-*` stamp) can visit all of them.
 **Shared primitives are the enumeration handle that makes exhaustive review
-tractable** — that's why "form follows function" (AGENTS.md) is a testing
+tractable** — that's why "form follows function" (src/CLAUDE.md) is a testing
 strategy, not just a styling rule.
 
 ## The invariants

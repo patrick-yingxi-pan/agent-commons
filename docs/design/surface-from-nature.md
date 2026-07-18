@@ -7,7 +7,7 @@
 > the entity.
 >
 > This is a **standing design principle** for this repo (like the locked decisions in
-> `AGENTS.md`), not a one-off. Apply it to new features *and* as a lens for finding
+> `src/CLAUDE.md`), not a one-off. Apply it to new features *and* as a lens for finding
 > refinement opportunities in existing ones. The running audit + refinement backlog it
 > produces lives in [`docs/design/surface-audit.md`](surface-audit.md).
 
@@ -110,14 +110,14 @@ in a modal, that is the signal to promote it to a page with a timeline.
 
 This principle *extends* the existing ones, it doesn't fight them:
 
-- **Form follows function — parallel controls share one primitive** (`AGENTS.md`). That
+- **Form follows function — parallel controls share one primitive** (`src/CLAUDE.md`). That
   governs *sameness* (two controls doing one job look the same). This governs *fit*
   (the surface matches the thing's nature). Together: pick the right form, then render
   every instance of it through one primitive. A **timeline**, a **diff**, and a
   **ref link** should each become such a shared primitive the first time two entities
   need them.
 - **The entity page is the shared surface — capability shapes affordances, not
-  location** (`AGENTS.md`). The dedicated-page form here is the same doctrine: owner and
+  location** (`src/CLAUDE.md`). The dedicated-page form here is the same doctrine: owner and
   visitor get *one* page; the timeline/diff/thread render for both; only the *acts*
   (merge, retract, comment) gate on the viewer-relative `own` flag.
 - **Progressive disclosure** (`PROPOSAL.md`): a page need not show its whole timeline at

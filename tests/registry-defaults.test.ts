@@ -1,7 +1,7 @@
 /** Registry default flags (providers + system prompts) — the UI pre-selection
  *  shortcut, and the strict API it deliberately is NOT part of.
  *
- *  The design (AGENTS.md / spec MODEL-15): a default entry is *only* what pickers
+ *  The design (src/CLAUDE.md / spec MODEL-15): a default entry is *only* what pickers
  *  pre-select when creating an Agent. So:
  *    • the flag is a per-tenant POINTER stamped at serve time (`isDefault`), moved /
  *      cleared via `isDefault` on the create/patch requests — at most one per

@@ -24,8 +24,9 @@ The prototype proposes the alternative: you just start talking, and **context
 editor / diff / terminal for a repo — all inside one conversation, one history.
 
 See [`PROPOSAL.md`](PROPOSAL.md) for the full write-up. **Evaluating this with a
-code agent?** [`AGENTS.md`](AGENTS.md) is the agent-facing digest — quick start,
-how to verify, and a claim-by-claim evaluation guide.
+code agent?** [`AGENTS.md`](AGENTS.md) is the agent-facing context map — quick
+start, how to verify, and pointers to the claim-by-claim evaluation guide
+([`docs/evaluation.md`](docs/evaluation.md)) and the directory-scoped rules.
 
 ## What the demo shows
 

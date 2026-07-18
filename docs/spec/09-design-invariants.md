@@ -6,7 +6,7 @@
 > each guarded by a dedicated test; others (light-theme-only, the IPv4 bind) are
 > guarded structurally by the conformance test; a couple are review-enforced
 > conventions, marked as such so the absence of an automated guard is explicit rather
-> than assumed. (AGENTS "Design decisions (locked in)".)
+> than assumed. (The scoped `CLAUDE.md` design decisions — `src/`, `server/`, `contract/`.)
 
 ## Requirements (L2)
 

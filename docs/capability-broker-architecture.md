@@ -8,8 +8,8 @@
 >
 > "Decision" here means *settled within this exploration's design space* — **not**
 > "implemented in the prototype." The prototype's actually-shipped, locked-in
-> decisions live separately in [`../AGENTS.md`](../AGENTS.md) → "Design decisions
-> (locked in)"; nothing here overrides those.
+> decisions live separately in the directory-scoped `CLAUDE.md` files
+> ([`../AGENTS.md`](../AGENTS.md) maps them); nothing here overrides those.
 >
 > *(Renamed from `local-access-and-portability.md`: that exploration converged on
 > the broker model below, of which "loopback companion" is just the co-located
@@ -26,7 +26,7 @@
 > with a bytes route proxying the runner, and a post-attach effect read runs through
 > the mediated, journaled `POST /runners/:id/invoke`. So the relay path + the
 > context-mediation seam below are exercised for real for fs reads. See
-> [`../AGENTS.md`](../AGENTS.md) "What's intentionally mock" and `contract/fs.ts`.)*
+> [`evaluation.md`](evaluation.md) "What's intentionally mock" and `contract/fs.ts`.)*
 
 ## Thesis
 

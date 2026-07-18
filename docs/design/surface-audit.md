@@ -123,6 +123,6 @@ per-agent, P8-redacted). Shared primitives earned across the initiative: `TextDi
 `useFocusFlash`, `SubTabs`, `OwnerLink` (+ `bare`).
 
 The **method itself is the durable deliverable** — a standing principle in
-[`AGENTS.md`](../../AGENTS.md) + [`surface-from-nature.md`](surface-from-nature.md) that
+[`src/CLAUDE.md`](../../src/CLAUDE.md) + [`surface-from-nature.md`](surface-from-nature.md) that
 governs all future UI work, not just these thirteen fixes. Re-open by adding a row with a
 concrete, backend-supported nature↔form mismatch that clears the bar.

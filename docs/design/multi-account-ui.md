@@ -586,7 +586,7 @@ area and a standing temptation to demo the wrong path.
   promise ("real accounts are never enumerable") now holds for every account.
 - **Replaced by**: the seeded web principals carry **demo credentials** —
   `ada@acme.example` / `ada-demo-password`, `grace@acme.example` /
-  `grace-demo-password` (documented in AGENTS.md; hashes are precomputed
+  `grace-demo-password` (documented in `docs/demo-accounts.md`; hashes are precomputed
   constants with fixed salts so neither boot nor the test suite pays scrypt for
   them). The multi-tenancy demo is now the REAL flow: sign in as Ada, add
   Grace, hop through the stack; Grace reaches `tenant-beta` via her own

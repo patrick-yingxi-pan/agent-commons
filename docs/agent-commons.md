@@ -17,7 +17,7 @@
 >
 > "Decision" here means *settled within this exploration's design space* — **not**
 > "implemented in the prototype." The prototype's actually-shipped, locked-in
-> decisions live in [`../AGENTS.md`](../AGENTS.md) → "Design decisions (locked in)";
+> decisions live in the directory-scoped `CLAUDE.md` files ([`../AGENTS.md`](../AGENTS.md) maps them);
 > nothing here overrides those. **The "smallest first slice" plan (below) is built, the
 > multi-tenant surface above it (D6–D13) is built out end to end (slices 1–10), and that
 > surface is now user-manageable from a left-panel _Agents_ hub (slices 11–15): providers,

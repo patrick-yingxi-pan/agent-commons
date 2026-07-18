@@ -13,7 +13,7 @@ import type { SavedContext } from '../../contract/contexts.ts'
  *  The row's *shape* — `SavedContext` (and its `SavedContextKind` / `ContextStatus`
  *  members) — is the contract's, imported above and never re-declared here, so this
  *  seed cannot drift from the wire type it has to satisfy. (`contract/contexts.ts`
- *  is the single source of truth; see AGENTS.md "the contract is load-bearing".) */
+ *  is the single source of truth; see contract/CLAUDE.md "the contract is load-bearing".) */
 
 /** Seed "last used" stamps are authored as an AGE before module load and resolved
  *  to an absolute epoch-ms, so the Contexts page shows live, advancing "Last used
