@@ -39,7 +39,8 @@ user's message names a different relay URL, **the user's URL wins everywhere**
 
 1. Download the connector — one self-contained script, any Node >= 18 (temp
    file + rename, so a dropped re-download can never truncate a working
-   install):
+   install; remember: if the user's relay URL differs from the base printed
+   here, use THEIRS in this command too):
 
        curl -fsSL ${base}/connector -o ~/session-relay.mjs.tmp && mv ~/session-relay.mjs.tmp ~/session-relay.mjs
 
@@ -83,10 +84,13 @@ endpoints live under the relay URL from the user's message (shown here as
    Omit it and the platform assumes a legacy client and sends you exactly one
    conversation at a time. It is **not** a parallelism requirement: the mailbox
    queues, and a serial loop serves any number of conversations one turn at a
-   time. To serve in parallel instead, poll again *before* replying (delivered
-   entries stay live) and reply by entryId in any order — e.g. delegate each
-   prompt to a sub-agent and submit answers as they finish. It answers with
-   one of:
+   time — the number only caps how many conversations may have a turn waiting
+   on you at once. To serve in parallel instead, poll again *before* replying
+   (delivered entries stay live) and reply by entryId in any order — e.g.
+   delegate each prompt to a sub-agent and submit answers as they finish. The
+   server answers every poll within its window (~25 s), so give your HTTP
+   client a ~40 s timeout and treat a client-side timeout like \`idle\`: just
+   poll again. It answers with one of:
    - \`{ "entryId": "…", "prompt": { … } }\` — a prompt to answer (see step 2);
    - \`{ "idle": true }\` — nothing pending; poll again immediately;
    - \`{ "superseded": true }\` — another connector took over, or the secret was
@@ -110,8 +114,11 @@ endpoints live under the relay URL from the user's message (shown here as
      follow-up prose should reflect that honestly;
    - \`{ "entryId": "…", "error": "<why you cannot answer>" }\` — your own hard
      failure.
-   A 410 means that entry already settled — drop the answer and poll on. A 401
-   means the secret was rotated — stop and ask the user for the new one.
+   A 200 \`{ "ok": true }\` acknowledges the answer. A 410 means that entry
+   already settled — drop the answer and poll on. A 401 means the secret was
+   rotated — stop and ask the user for the new one. (A rotation usually
+   surfaces FIRST as \`superseded\` on your in-flight poll; the 401 appears on
+   the next call — see the stop conditions below.)
 4. Loop forever: poll → answer → reply → poll. Never stop on idle. Delivery is
    at-most-once: if you receive a prompt and never reply, that turn fails on
    the platform side at its deadline (a late reply meets the 410) and the user

@@ -902,6 +902,21 @@ the normal case (nothing about a new channel needs setup or memory). Silence
 still means serial — that half protects against the pre-v4 connector's real
 drop bug and is not a framing question.
 
+**Second live run (same day) — the correction validated causally.** A fresh
+claude-opus-4-8 session, same rules, against the corrected guide: it declared
+`channels=4` and its report *quoted the new sentences as the reason* ("a
+sensible value is 4"; "not a parallelism requirement"; "declare 1 only if you
+must refuse concurrent conversations outright"). Two conversations were then
+admitted CONCURRENTLY (card: "Answering 2 of 4") and answered with no
+cross-talk; it applied the user's-URL-wins rule and the `?have=` dedupe
+unprompted (the platform pruned the framing bodies on its second prompt), and
+walked the `superseded`→401 disambiguation exactly as written. Its residual
+paper-cuts were folded straight back into the guide: the user's-URL reminder
+repeated at the download command, "waiting on you" phrasing unified across
+both paths, client-timeout guidance (~40 s; treat a client timeout as idle),
+the 200 `{ok:true}` success body documented, and rotation-surfaces-as-
+`superseded`-first noted beside the 401 rule.
+
 ## 10. Open items (what remains — the v2 checklist)
 
 The first pass's "unresolved edge cases" block is gone: every item in it is now ruled
