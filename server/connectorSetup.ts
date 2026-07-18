@@ -84,13 +84,12 @@ endpoints live under the relay URL from the user's message (shown here as
 \`${base}\`) and authenticate with \`Authorization: Bearer <secret>\`.
 
 1. \`GET ${base}/relay/poll?channels=<n>\` — long-polls (~25 s). \`channels\` is
-   the **serving handshake**: how many conversations may have a turn in flight
-   with you at once — include it on every poll (a sensible value is 4; max 16).
+   the **serving handshake**: how many conversations may have a turn waiting
+   on you at once — include it on every poll (a sensible value is 8; max 16).
    Omit it and the platform assumes a legacy client and sends you exactly one
    conversation at a time. It is **not** a parallelism requirement: the mailbox
    queues, and a serial loop serves any number of conversations one turn at a
-   time — the number only caps how many conversations may have a turn waiting
-   on you at once (a sensible value is 8; max 16). The **default serving mode
+   time — the number only caps the waiting turns. The **default serving mode
    is parallel**: poll again *before* replying (delivered entries stay live),
    delegate each prompt to a sub-agent, and reply by entryId in any order as
    answers finish; serve serially only if your harness has no sub-agents. The

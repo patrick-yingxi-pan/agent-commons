@@ -90,6 +90,16 @@ test('GET /connector/setup serves the agent-facing guide: both paths, the wall, 
   assert.match(body, /self-contained/i, 'the multi-session contract is stated')
   assert.match(body, /sub-agent/i, 'the sub-agent delegation option is stated')
   assert.ok(!body.includes('rv_live_TESTSECRET'), 'no credential ever rides the guide')
+  // One recommendation, everywhere: every channels value the guide suggests must
+  // be the connector's own declaration default, read from the source (the 4-vs-8
+  // drift the second live run's model quoted verbatim).
+  const connectorSrc = readFileSync(new URL('../connector/relay-connector.ts', import.meta.url), 'utf8')
+  const defaultConv = connectorSrc.match(/const DEFAULT_CONVERSATIONS = (\d+)/)?.[1]
+  assert.ok(defaultConv, 'DEFAULT_CONVERSATIONS moved — retarget this scan')
+  const suggested = [...body.matchAll(/sensible value is (\d+)/g)].map((m) => m[1])
+  assert.ok(suggested.length > 0, 'the guide recommends a channels value')
+  assert.deepEqual([...new Set(suggested)], [defaultConv], 'a suggested channels value drifted from the connector default')
+  assert.ok(body.includes(`default ${defaultConv}, max 16`), 'Path A states the connector’s declaration default')
   // Unauthenticated like /connector: a manual is not a secret (the auth gate's
   // open set includes it — locked functionally here, since this helper runs
   // gate-off; tests/auth-gate.test.ts locks the wall itself).

@@ -58,6 +58,7 @@ test('the connector boots unbound and refuses to drain before the first start la
 
     assert.match(await callTool(c, 'respond_and_wait', { entryId: 'x', answer: 'y' }), /No relay is bound yet/, 'drain before latch is guidance, not a request')
     assert.match(await callTool(c, 'start'), /No relay is bound yet/, 'start without credentials asks for them')
+    assert.match(await callTool(c, 'refresh'), /No relay is bound yet/, 'refresh before latch is the same guidance — not a bogus "resume the loop"')
     assert.equal(stub.seen.length, 0, 'nothing reached the network before the latch')
   } finally {
     c.close()
@@ -394,6 +395,68 @@ test('v6 freshness handshake: refresh drops shown-before state — full re-rende
     const after = stub.seen.slice(seenAt).filter((s) => s.path.includes('/relay/poll'))
     assert.ok(after.length > 0, 'the loop kept polling')
     assert.ok(after.every((s) => !s.path.includes('have=')), 'post-refresh polls carry no have= — full bodies resume')
+  } finally {
+    c.close()
+    await stub.close()
+  }
+})
+
+test('v6 refresh race: a body-omitted delivery answering a PRE-refresh advertisement still renders in full', async () => {
+  // The drain loop always has one poll in flight, dispatched with the
+  // pre-refresh `have=`. A prompt delivered to THAT poll after refresh arrives
+  // with its bodies omitted — the stale store must resolve them (full render,
+  // never the degraded "shown earlier in this session" note, which post-refresh
+  // would point at exactly the text the model said it lost).
+  const stub = await startRelayStub()
+  const c = spawnConnector()
+  try {
+    stub.pollQueue.push({
+      entryId: 'rve-r1',
+      prompt: {
+        system: 'the long briefing text',
+        systemHash: 'cafe111122223333',
+        channel: { id: 'cr' },
+        messages: [{ role: 'user', text: 'first ask' }],
+        tools: [{ name: 'create_project', description: 'Create a new project.', inputSchema: {} }],
+        toolsHash: 'cafe999922223333',
+      },
+    })
+    const doc1 = await callTool(c, 'start', { url: stub.url, secret: 'rv_live_race' })
+    assert.match(doc1, /the long briefing text/, 'first contact renders full and populates the caches')
+    await callTool(c, 'respond_and_wait', { entryId: 'rve-r1', answer: 'ok' })
+
+    await callTool(c, 'refresh')
+    // A host-retried refresh (live caches already empty) must not wipe the
+    // parked bodies — the stale store merges, never clear-and-copies.
+    await callTool(c, 'refresh')
+    // The stub now delivers the pruned prompt the pre-refresh advertisement
+    // permitted the server to send.
+    stub.pollQueue.push({
+      entryId: 'rve-r2',
+      prompt: {
+        systemHash: 'cafe111122223333',
+        toolsHash: 'cafe999922223333',
+        channel: { id: 'cr' },
+        messages: [
+          { role: 'user', text: 'first ask' },
+          { role: 'assistant', text: 'ok' },
+          { role: 'user', text: 'second ask' },
+        ],
+      },
+    })
+    await new Promise((r) => setTimeout(r, 1_500)) // let the loop collect it
+    const doc2 = await callTool(c, 'respond_and_wait', {})
+    assert.match(doc2, /entry rve-r2/)
+    assert.match(doc2, /the long briefing text/, 'the stale store resolves the omitted briefing — full body, not a placeholder')
+    assert.match(doc2, /create_project/, 'the omitted tool schemas resolve too')
+    assert.ok(!doc2.includes('shown earlier in this session'), 'the degraded note never surfaces post-refresh')
+    assert.ok(!doc2.includes('unchanged'), 'no reference rendering against lost context')
+    // Re-shown is re-advertisable: once the body is delivered again in full,
+    // its hash returns to the poll advertisement.
+    await new Promise((r) => setTimeout(r, 1_300))
+    const last = stub.seen.filter((s) => s.path.includes('/relay/poll')).at(-1)
+    assert.ok(last, 'the loop kept polling')
+    assert.ok(last!.path.includes('have=') && last!.path.includes('cafe111122223333'), 'the re-received body is advertised again')
   } finally {
     c.close()
     await stub.close()

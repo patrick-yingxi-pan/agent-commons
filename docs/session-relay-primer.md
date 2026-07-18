@@ -177,7 +177,9 @@ entering the far context **approximately once**:
   survive — references pointing at text the model can no longer see. The
   model calls the no-arg **`refresh`** tool once: all shown-before state is
   dropped, queued prompts are scrubbed back to full bodies, and polls stop
-  advertising `have=` until bodies are re-received. Path B equivalent: just
+  advertising `have=` until bodies are re-received (the bodies are kept aside
+  for the one poll already in flight, so even a delivery answering a
+  pre-refresh advertisement still renders in full). Path B equivalent: just
   stop sending `have=`. Nothing is ever lost server-side.
 
 Restart is the blunt version of the same guarantee: because jobs are

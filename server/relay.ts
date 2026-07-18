@@ -346,10 +346,9 @@ export class RelayRuntime {
    *  network-retry duplicates (§7.1 — no recorded-ack cache to maintain). */
   submit(providerId: string, entryId: string, outcome: RelayOutcome): 'accepted' | 'gone' {
     this.markSeen(providerId)
-    const turns = this.inflight.get(providerId)
-    const turn = turns?.get(entryId)
-    if (!turns || !turn) return 'gone'
-    turns.delete(entryId)
+    const turn = this.inflight.get(providerId)?.get(entryId)
+    if (!turn) return 'gone'
+    this.dropTurn(providerId, entryId)
     turn.settle(outcome)
     this.notifyActivity(providerId)
     return 'accepted'
@@ -358,7 +357,16 @@ export class RelayRuntime {
   /** Drop an in-flight entry WITHOUT settling — `relayReply`'s own deadline or
    *  cancel path already resolved its race; a late submit now meets 410. */
   clear(providerId: string, entryId: string): void {
-    if (this.inflight.get(providerId)?.delete(entryId)) this.notifyActivity(providerId)
+    if (this.dropTurn(providerId, entryId)) this.notifyActivity(providerId)
+  }
+
+  /** Delete one turn, pruning the relay's map when it empties — `inflight` must
+   *  only hold relays with live turns, or retired providers accrete empty maps. */
+  private dropTurn(providerId: string, entryId: string): boolean {
+    const turns = this.inflight.get(providerId)
+    if (!turns?.delete(entryId)) return false
+    if (turns.size === 0) this.inflight.delete(providerId)
+    return true
   }
 
   /** The kill switch (rotate / delete — §7.5): the parked poll is superseded on
