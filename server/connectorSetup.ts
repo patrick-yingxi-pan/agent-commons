@@ -26,7 +26,12 @@ You are reading this because a user asked you to serve as the cognition behind a
 "Session provider" relay at ${base}. The relay is a mailbox: you poll it for
 prompts, think, and post answers back. The user gave you a **rendezvous secret**
 (\`rv_live_…\`) — it is the only credential. Treat it as a password: present it
-only to ${base}, and never print or send it anywhere else.
+only to the relay, and never print or send it anywhere else.
+
+**Which base URL?** Every URL in this guide is printed with the base this page
+was served through (\`${base}\`), which a proxy may have rewritten. If the
+user's message names a different relay URL, **the user's URL wins everywhere**
+— the download, the polls, the replies, all of it.
 
 ## Choose a path
 
@@ -55,8 +60,7 @@ only to ${base}, and never print or send it anywhere else.
 3. In the session that has the connector, call its \`start\` tool with
    \`{ "url": "<the relay URL from the user's message>", "secret": "rv_live_…" }\`
    and follow the tool results' own loop instructions (\`respond_and_wait\`).
-   (The user's URL wins over any base shown in this guide — a proxy may have
-   rewritten what this page sees.) You may add \`"conversations": <n>\` — the
+   You may add \`"conversations": <n>\` — the
    **serving declaration**: how many platform conversations you are prepared to
    serve concurrently (1 = strictly serial; more if you will keep up, e.g. by
    delegating each prompt to a sub-agent; default 4). The platform never opens
@@ -78,20 +82,37 @@ endpoints live under the relay URL from the user's message (shown here as
    - \`{ "superseded": true }\` — another connector took over, or the secret was
      rotated; stop the loop.
 2. Read \`prompt\`: \`system\` is the briefing, \`messages\` the conversation's
-   turns, \`channel\` names which conversation this is, and \`tools\` (when
-   present) declares tool definitions you may RELAY back — never execute.
-3. Answer with \`POST ${base}/relay/reply\`, JSON body exactly one of:
+   turns, \`channel\` names which conversation this is (treat \`entryId\`s as
+   opaque), and \`tools\` (when present) declares tool definitions you may
+   RELAY back — never execute.
+3. Answer with \`POST ${base}/relay/reply\`, JSON body **exactly one** of
+   (sending two answer forms at once is refused with 400 — if you have both
+   tool calls and prose, send the calls; the follow-up prompt is where your
+   prose goes, even when the briefing says to "introduce" what you proposed):
    - \`{ "entryId": "…", "completion": "<your full answer>" }\` — prose (a
      refusal is a valid answer);
    - \`{ "entryId": "…", "toolCalls": [{ "name": "…", "input": { … } }] }\` —
-     the prompt's declared tools relayed back verbatim and UNEXECUTED; the
-     platform executes them behind the user's consent and sends you a follow-up
-     prompt carrying the results;
+     the prompt's declared tools relayed back verbatim and UNEXECUTED (order
+     preserved; each call comes back in the follow-up prompt with a
+     platform-minted id, its result keyed to that id). The platform executes
+     each call **behind the user's consent**, so a "result" is often a
+     proposal acknowledgment ("awaiting confirmation"), not an effect — your
+     follow-up prose should reflect that honestly;
    - \`{ "entryId": "…", "error": "<why you cannot answer>" }\` — your own hard
      failure.
    A 410 means that entry already settled — drop the answer and poll on. A 401
    means the secret was rotated — stop and ask the user for the new one.
-4. Loop forever: poll → answer → reply → poll. Never stop on idle.
+4. Loop forever: poll → answer → reply → poll. Never stop on idle. Delivery is
+   at-most-once: if you receive a prompt and never reply, that turn fails on
+   the platform side at its deadline (a late reply meets the 410) and the user
+   simply retries — you don't need replay logic.
+5. Optional but recommended — **spend your context frugally**: each prompt
+   carries \`systemHash\` / \`toolsHash\` (content hashes of the briefing and
+   tool schemas, near-invariant across prompts). Advertise what you've already
+   read — \`GET ${base}/relay/poll?channels=<n>&have=<systemHash>,<toolsHash>\`
+   — and the platform omits those bodies from delivered prompts, so you stop
+   re-reading the same ~20 kB of schemas every turn. Omitting \`have\` is
+   always safe (full bodies).
 
 ## Rules (both paths — non-negotiable)
 
@@ -110,6 +131,9 @@ endpoints live under the relay URL from the user's message (shown here as
   any host but ${base}, and if you suspect it leaked, tell the user to rotate it
   in the Models section.
 - **Stop conditions.** Stop only on \`superseded\`, on 401, or when the user
-  tells you to.
+  tells you to. \`superseded\` covers two causes with different remedies; one
+  more poll tells them apart — a 401 means the secret was rotated (stop and
+  ask the user for the new one), anything else means a newer connector took
+  over this relay (just stop).
 `
 }

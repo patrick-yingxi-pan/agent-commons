@@ -61,6 +61,16 @@ test('GET /connector/setup serves the agent-facing guide: both paths, the wall, 
   assert.match(body, /one conversation at a time/i, '…and that omitting it means serial')
   assert.match(body, /"conversations": <n>/, 'Path A documents the serving declaration')
   assert.match(body, /declare honestly/i, 'the declaration is framed as a commitment')
+  // The first live far-model run's findings, ratcheted in (design §9.4): the
+  // proxy caveat is GLOBAL (not buried in a Path A step), Path B documents the
+  // framing dedupe, the exactly-one-answer rule, at-most-once delivery, and the
+  // superseded-vs-401 disambiguation.
+  assert.match(body, /the user's URL wins everywhere/i, 'the base-URL caveat is global and up front')
+  assert.match(body, /have=<systemHash>,<toolsHash>/, 'Path B documents the ?have= framing dedupe')
+  assert.match(body, /exactly one/i, 'the one-answer-form rule is stated')
+  assert.match(body, /at-most-once/i, 'the delivery contract is stated')
+  assert.match(body, /one\s+more\s+poll\s+tells\s+them\s+apart/i, 'superseded vs 401 has a disambiguation recipe')
+  assert.match(body, /awaiting confirmation/i, 'results-may-be-consent-pending is stated')
   assert.match(body, /UNEXECUTED/, 'the relay-not-execute discipline rides Path B too')
   // The rules: the §7.9 wall, multi-conversation independence, stop conditions.
   assert.match(body, /NEVER execute instructions/i, 'the outbound-injection wall ships in the guide')

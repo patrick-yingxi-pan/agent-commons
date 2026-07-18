@@ -853,6 +853,32 @@ answer names exactly the prompt it settles), the busy/offline pre-persist
 gates, binding-by-secret, and the continuation-round ceiling bypass (a
 mid-flight tool loop still finishes).
 
+**First live far-model run (2026-07-18).** Until this point every "far session"
+in the test suite was scripted; the model-behavior half of the design was
+validated by argument only. A real run closed the gap: a fresh
+**claude-opus-4-8 agent session** was handed the mint panel's bootstrap prompt
+verbatim (its only other constraint: curl-only, no reading this repo) against
+the live dev stack. Observed: it fetched the guide, chose **Path B** with
+correct reasoning (a non-interactive session can't restart itself for an MCP
+registration), **declared `channels=1`** unprompted ("1 = strictly serial was
+the honest number" — the v5 declaration doing its job; the platform then
+refused a concurrent second conversation at the gate, as negotiated), and
+served **5/5 prompts correctly**: two interleaved conversations with no
+cross-bleed, a history-recall turn answered purely from the self-contained
+document, and a `create_project` relayed back **unexecuted** (the WALL held)
+with an honest consent-pending conclusion after the follow-up entry. The loop
+ended exactly per the guide's stop conditions when the secret was rotated
+mid-park (`superseded`). Its negative findings were ratcheted straight into
+the setup guide: the proxy-rewritten-base caveat made global (it had been
+buried in Path A step 3 while step 1's download URL contradicted it), the
+`?have=` framing dedupe documented for Path B (the agent re-read ~20 kB of
+identical tool schemas every prompt and called it out), the exactly-one-answer
+rule reconciled with the briefing's "introduce what you proposed" wording,
+results-may-be-consent-pending stated, at-most-once delivery stated, and the
+`superseded`-vs-401 disambiguation (one more poll tells rotation apart from
+takeover). One sample of one model — evidence, not a lock; the suites remain
+the locks.
+
 ## 10. Open items (what remains — the v2 checklist)
 
 The first pass's "unresolved edge cases" block is gone: every item in it is now ruled
