@@ -45,6 +45,12 @@ test('the connector boots unbound and refuses to drain before the first start la
     assert.match(instructions, /toolCalls/, 'the relay-not-execute path is declared to the model')
     assert.match(instructions, /never stop the loop on idle/i, 'the re-call sentinel rule ships with it')
     assert.match(instructions, /first call binds permanently/i, 'the latch is declared to the model')
+    // The serial-declaration correction (design §9.4): the standing instruction
+    // must teach that serial serving covers many conversations AND the fan-out
+    // pattern (fetch without submitting; entry-keyed, any-order answers).
+    assert.match(instructions, /serial\s+loop serves any number of conversations/i, 'serial ≠ 1 ships in the instructions')
+    assert.match(instructions, /NO submission to fetch the next prompt/i, 'fetch-before-answer is taught')
+    assert.match(instructions, /any order/i, 'out-of-order entry-keyed submission is taught')
 
     assert.match(await callTool(c, 'respond_and_wait', { entryId: 'x', answer: 'y' }), /No relay is bound yet/, 'drain before latch is guidance, not a request')
     assert.match(await callTool(c, 'start'), /No relay is bound yet/, 'start without credentials asks for them')

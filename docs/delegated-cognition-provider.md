@@ -767,7 +767,7 @@ auth, entry, or dedupe machinery:
 - **Multi-session relays — channels** (spec MODEL-23). The slot generalises:
   per relay, at most one in-flight entry per **channel** (= UI session;
   `RelayPrompt.channel = {id, title}`), several channels concurrently, capped by
-  `RELAY_MAX_INFLIGHT` (default 4). The pre-turn gate refuses only a channel's
+  `RELAY_MAX_INFLIGHT` (default 8 since the serial-declaration correction, §9.4). The pre-turn gate refuses only a channel's
   own second turn or a NEW conversation beyond the cap (both `relay_busy`,
   pre-persist, each with its own copy); `submit` already keys by entry, so
   out-of-order answers route home untouched. One sub-ruling: a **continuation
@@ -878,6 +878,29 @@ results-may-be-consent-pending stated, at-most-once delivery stated, and the
 `superseded`-vs-401 disambiguation (one more poll tells rotation apart from
 takeover). One sample of one model — evidence, not a lock; the suites remain
 the locks.
+
+**The serial-declaration correction (same day).** The run also exposed a
+framing error in the handshake's own guidance: the model declared `channels=1`
+because the guide framed the declaration as *parallel processing capacity*
+("more if you will keep up"), and a serial loop honestly answered 1 — which
+makes the platform REFUSE concurrent conversations, the worst outcome for a
+design whose whole point (§9.3) is that a serial far model serves any number
+of conversations correctly: prompts deliver one at a time, turns queue in the
+mailbox, answers are entry-keyed. The window's true meaning is **how many
+conversations may have a turn waiting at once** — a latency bound against the
+turn deadline, never a correctness or parallelism requirement. Three fixes:
+(1) the guide and the connector's instructions now define it that way, say
+"serial ≠ 1" explicitly (declare 1 only to refuse concurrency outright), and
+teach the **fan-out pattern** both transports always supported but never
+taught — fetch the next prompt *before* answering (Path A:
+`respond_and_wait` with no submission; Path B: just poll again — delivered
+entries stay live), delegate each prompt to a background sub-agent, submit
+answers by entryId in any order; (2) `RELAY_MAX_INFLIGHT`'s default rose 4 → 8
+(at 4 the server cap quietly nullified any ambitious declaration; the
+advertisement clamp stays 16); (3) new-conversations-on-the-fly is stated as
+the normal case (nothing about a new channel needs setup or memory). Silence
+still means serial — that half protects against the pre-v4 connector's real
+drop bug and is not a framing question.
 
 ## 10. Open items (what remains — the v2 checklist)
 

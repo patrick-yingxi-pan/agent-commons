@@ -469,9 +469,11 @@ const TOOLS = [
         conversations: {
           type: 'number',
           description:
-            'The serving declaration (v5 handshake): how many platform conversations you are prepared to serve ' +
-            'concurrently. Pass 1 to serve strictly one at a time; more if you will keep up (e.g. by delegating ' +
-            `each prompt to a sub-agent). Default ${DEFAULT_CONVERSATIONS}; clamped 1–16; LATCHES with the first call.`,
+            'The serving declaration (v5 handshake): how many platform conversations may have a turn WAITING on ' +
+            'you at once. NOT a parallelism requirement — prompts are delivered one at a time and answers are ' +
+            'entry-keyed, so a serial loop serves any number of conversations (turns queue). Keep the default ' +
+            `(${DEFAULT_CONVERSATIONS}) unless you must refuse concurrent conversations outright (1); raise it ` +
+            '(max 16) if you delegate prompts to sub-agents and answer out of order. LATCHES with the first call.',
         },
       },
       additionalProperties: false,
@@ -482,6 +484,9 @@ const TOOLS = [
     description:
       'Submit the answer to the entry you were handed — prose via `answer`, or the relayed prompt’s tool calls ' +
       'verbatim via `toolCalls` (never both) — then block until the next prompt (one atomic submit-and-re-block). ' +
+      'Call it with NO arguments to fetch the next prompt WITHOUT submitting (e.g. after delegating the previous ' +
+      'prompt to a background sub-agent) — answers are entry-keyed and may be submitted in any order, so parallel ' +
+      'serving is just: fetch, delegate, fetch, …, submit each entryId as it finishes. ' +
       'When it returns idle, call it again immediately — never stop the loop on idle. ' +
       WALL,
     inputSchema: {
@@ -519,10 +524,14 @@ const INSTRUCTIONS =
   'prompt’s tool calls relayed verbatim via toolCalls. Prompts may belong to DIFFERENT, independent platform ' +
   'conversations (each names its conversation and is self-contained — it carries that conversation’s full ' +
   'history): answer each on its own terms, and if your harness supports sub-agents you may delegate each ' +
-  'prompt to one, keeping conversations isolated and your own context lean. On start you may DECLARE how many ' +
-  'conversations you are prepared to serve concurrently (conversations: 1 for strictly serial; more if you will ' +
-  'keep up or delegate) — the platform never sends more than you declared, and the declaration latches with the ' +
-  'binding. When a call returns idle, call ' +
+  'prompt to one, keeping conversations isolated and your own context lean. Serving many conversations does NOT ' +
+  'require parallel thinking: prompts arrive one at a time and answers are keyed by entryId, so a strictly serial ' +
+  'loop serves any number of conversations — waiting turns simply queue. On start, conversations caps how many ' +
+  'conversations may have a turn WAITING on you at once (default 4, max 16; latches with the binding) — keep the ' +
+  'default unless you must refuse concurrency outright (1), or raise it if you fan out. To serve in PARALLEL: ' +
+  'delegate a prompt to a background sub-agent, call respond_and_wait with NO submission to fetch the next prompt, ' +
+  'and submit each answer under its own entryId as it finishes — any order is fine; keep each entryId with its ' +
+  'conversation. When a call returns idle, call ' +
   `respond_and_wait again immediately — never stop the loop on idle; stop only on superseded or when the user says so. ${WALL}`
 
 function send(message: unknown): void {

@@ -324,6 +324,12 @@ test('the negotiated window = min(server cap, advertisement); re-stated per poll
     await call('GET', '/relay/poll?channels=3', undefined, auth(p.secret))
     assert.equal(store.relay.window(p.id), 3, 'the advertisement is stateless — every poll re-states it')
   })
+  // The DEFAULT server cap is 8 (the serial-declaration correction, §9.4): at 4
+  // it quietly nullified any ambitious declaration; the advertisement clamp is 16.
+  await withEnv({ RELAY_POLL_MS: '40' }, async () => {
+    await call('GET', '/relay/poll?channels=99', undefined, auth(p.secret))
+    assert.equal(store.relay.window(p.id), 8, 'an un-tuned server admits up to 8 declared conversations')
+  })
 })
 
 test('the observed serving picture: provider reads stamp window + active count; PATCH cannot forge them', async () => {

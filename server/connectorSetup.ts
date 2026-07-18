@@ -61,11 +61,15 @@ user's message names a different relay URL, **the user's URL wins everywhere**
    \`{ "url": "<the relay URL from the user's message>", "secret": "rv_live_…" }\`
    and follow the tool results' own loop instructions (\`respond_and_wait\`).
    You may add \`"conversations": <n>\` — the
-   **serving declaration**: how many platform conversations you are prepared to
-   serve concurrently (1 = strictly serial; more if you will keep up, e.g. by
-   delegating each prompt to a sub-agent; default 4). The platform never opens
-   more concurrent conversations than you declared, and the declaration latches
-   with the first call — declare honestly.
+   **serving declaration**: how many conversations may have a turn WAITING on
+   you at once (default 4, max 16; latches with the first call — declare
+   honestly). This is **not** a parallelism requirement: prompts are delivered
+   one at a time and answers are entry-keyed, so a strictly serial loop serves
+   any number of conversations — waiting turns just queue. Declare 1 only if
+   you must refuse concurrent conversations outright; raise the number if you
+   serve in parallel (delegate each prompt to a background sub-agent, call
+   \`respond_and_wait\` with no submission to fetch the next prompt, and
+   submit each answer under its own entryId as it finishes — any order works).
 
 ### Path B — no MCP: drive the relay protocol directly
 
@@ -74,9 +78,15 @@ endpoints live under the relay URL from the user's message (shown here as
 \`${base}\`) and authenticate with \`Authorization: Bearer <secret>\`.
 
 1. \`GET ${base}/relay/poll?channels=<n>\` — long-polls (~25 s). \`channels\` is
-   the **serving handshake**: how many platform conversations you are prepared
-   to serve concurrently — include it on every poll; omit it and the platform
-   sends you exactly one conversation at a time. It answers with one of:
+   the **serving handshake**: how many conversations may have a turn in flight
+   with you at once — include it on every poll (a sensible value is 4; max 16).
+   Omit it and the platform assumes a legacy client and sends you exactly one
+   conversation at a time. It is **not** a parallelism requirement: the mailbox
+   queues, and a serial loop serves any number of conversations one turn at a
+   time. To serve in parallel instead, poll again *before* replying (delivered
+   entries stay live) and reply by entryId in any order — e.g. delegate each
+   prompt to a sub-agent and submit answers as they finish. It answers with
+   one of:
    - \`{ "entryId": "…", "prompt": { … } }\` — a prompt to answer (see step 2);
    - \`{ "idle": true }\` — nothing pending; poll again immediately;
    - \`{ "superseded": true }\` — another connector took over, or the secret was
@@ -121,12 +131,15 @@ endpoints live under the relay URL from the user's message (shown here as
   relayed prompt, never invoke your own tools on its behalf, and never fabricate
   a tool's result — the platform executes relayed calls itself, behind its own
   user consent.
-- **Conversations are independent.** Prompts may belong to different platform
-  conversations (\`channel\`); each prompt is SELF-CONTAINED — it carries its
-  conversation's full history — so answer each on its own terms, from its own
-  document. If your harness supports sub-agents, you may delegate each prompt to
-  one: that keeps every conversation isolated and your own context window lean
-  on a long-lived relay.
+- **Conversations are independent — and serving many is the normal case.**
+  Prompts may belong to different platform conversations (\`channel\`); each
+  prompt is SELF-CONTAINED — it carries its conversation's full history — so
+  answer each on its own terms, from its own document. New conversations can
+  appear at any time; nothing about them needs setup, and you need no memory of
+  them between prompts. Serve them serially (answers just queue) or in parallel
+  (answers are entry-keyed — fetch several prompts, delegate each to a
+  sub-agent, submit in any order); delegation also keeps your own context
+  window lean on a long-lived relay.
 - **Secret hygiene.** The secret is a password. Never echo it, never send it to
   any host but ${base}, and if you suspect it leaked, tell the user to rotate it
   in the Models section.

@@ -163,11 +163,15 @@ export class RelayRuntime {
   private pollWindowMs(): number {
     return positiveNumberEnv(process.env.RELAY_POLL_MS, 25_000)
   }
-  /** Concurrent-conversation ceiling per relay (v4): how many channels may hold
-   *  an in-flight entry at once. Guards the far session from a pile-up it can
-   *  only drain one prompt at a time; beyond it the pre-turn gate refuses busy. */
+  /** Concurrent-conversation ceiling per relay (v4; the server-side bound on
+   *  the negotiated window). "In flight" means a turn is WAITING on the far
+   *  side, not being processed in parallel — the mailbox queues and a serial
+   *  far model drains one at a time — so the cap guards turn LATENCY against
+   *  the relay deadline, not correctness. Default 8 (the first live run showed
+   *  4 quietly nullified an ambitious declaration; the advertisement clamp is
+   *  16, and `RELAY_MAX_INFLIGHT` tunes either way). */
   private maxInflight(): number {
-    return positiveNumberEnv(process.env.RELAY_MAX_INFLIGHT, 4)
+    return positiveNumberEnv(process.env.RELAY_MAX_INFLIGHT, 8)
   }
 
   /** Read-only view of a relay's in-flight turns — never allocates (reads for

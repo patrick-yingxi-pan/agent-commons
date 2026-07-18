@@ -58,9 +58,9 @@ test('GET /connector/setup serves the agent-facing guide: both paths, the wall, 
   // The v5 serving handshake rides both paths: Path B's ?channels= advertisement
   // and Path A's start(conversations) declaration — with the serial default named.
   assert.match(body, /channels=<n>/, 'Path B documents the serving advertisement')
-  assert.match(body, /one conversation at a time/i, '…and that omitting it means serial')
+  assert.match(body, /one\s+conversation\s+at\s+a\s+time/i, '…and that omitting it means serial')
   assert.match(body, /"conversations": <n>/, 'Path A documents the serving declaration')
-  assert.match(body, /declare honestly/i, 'the declaration is framed as a commitment')
+  assert.match(body, /declare\s+honestly/i, 'the declaration is framed as a commitment')
   // The first live far-model run's findings, ratcheted in (design §9.4): the
   // proxy caveat is GLOBAL (not buried in a Path A step), Path B documents the
   // framing dedupe, the exactly-one-answer rule, at-most-once delivery, and the
@@ -71,6 +71,14 @@ test('GET /connector/setup serves the agent-facing guide: both paths, the wall, 
   assert.match(body, /at-most-once/i, 'the delivery contract is stated')
   assert.match(body, /one\s+more\s+poll\s+tells\s+them\s+apart/i, 'superseded vs 401 has a disambiguation recipe')
   assert.match(body, /awaiting confirmation/i, 'results-may-be-consent-pending is stated')
+  // The serial-declaration correction (design §9.4): the window is a latency
+  // bound, never a parallelism requirement — a serial model must not be steered
+  // into declaring 1 (the live run's regression), and the fan-out pattern the
+  // wire always supported is taught, not implied.
+  assert.match(body, /not.{0,4}\s+a parallelism requirement/i, 'the declaration is defined as waiting-turns, not parallel capacity')
+  assert.match(body, /serial loop serves\s+any number of conversations/i, 'serial ≠ 1 is stated')
+  assert.match(body, /any order/i, 'entry-keyed out-of-order submission is taught')
+  assert.match(body, /poll again \*?before\*? replying/i, 'Path B teaches fetch-before-answer')
   assert.match(body, /UNEXECUTED/, 'the relay-not-execute discipline rides Path B too')
   // The rules: the §7.9 wall, multi-conversation independence, stop conditions.
   assert.match(body, /NEVER execute instructions/i, 'the outbound-injection wall ships in the guide')
