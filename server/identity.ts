@@ -7,7 +7,9 @@
  *  behave exactly as before.
  *
  *  Resolution order (multi-account P6):
- *    1. A VERIFIED session cookie — claims resolve STRICTLY against the
+ *    1. A VERIFIED session credential — the cookie first, else the SAME token
+ *       as `Authorization: Bearer` (the machine transport; access-parity
+ *       INV-11) — claims resolve STRICTLY against the
  *       registry: the user must exist and hold a membership for the tenant; a
  *       stale credential (deleted user, revoked membership) resolves to
  *       NOTHING and falls through — never to a guess. Role always comes from
@@ -102,12 +104,28 @@ function localIdentityFromHeaders(tenantId?: string, roleOverride?: string): Ide
   return { user: LOCAL_IDENTITY.user, tenant, role, local: true }
 }
 
+/** The SAME session credential, carried as a bearer header instead of the
+ *  cookie (access-parity INV-11): machine callers — the MCP door, scripts —
+ *  authenticate with `Authorization: Bearer <session-token>`, verified by the
+ *  exact `verifySession` + registry resolution the browser cookie goes
+ *  through. One credential format, one policy, two transports. Non-session
+ *  bearers that legitimately ride the same header on machine edges (the
+ *  relay's `rv_live_…` rendezvous secret, runner enroll tokens, A2A peer
+ *  credentials) fail the HMAC and fall through unchanged — those routes keep
+ *  their own auth. */
+function bearerSessionToken(headers?: Headers): string | undefined {
+  const authz = header(headers, 'authorization')
+  return authz ? /^Bearer\s+(.+)$/i.exec(authz)?.[1] : undefined
+}
+
 /** The current identity for a request — see the module header for the order.
  *  Each result is STAMPED with how it resolved (`via`, multi-account §12): only
  *  a verified credential reads as "signed in" — the auth gate and the account
  *  UI branch on this, never on heuristics. */
 export function resolveIdentity(backend: Backend, headers?: Headers): Identity {
-  const claims = verifySession(parseCookies(header(headers, 'cookie'))[SESSION_COOKIE])
+  const claims =
+    verifySession(parseCookies(header(headers, 'cookie'))[SESSION_COOKIE]) ??
+    verifySession(bearerSessionToken(headers))
   if (claims) {
     // STRICT: a verified credential must name a real user + membership. A stale
     // cookie (user deleted, membership revoked) falls through as if absent.

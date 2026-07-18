@@ -87,9 +87,12 @@ test('every ✅ requirement cites a locking test or is marked in-app (no silent 
 })
 
 test('inverse coverage: every server route is mentioned in the spec', () => {
-  const routes = read(join(ROOT, 'server/routes/index.ts'))
+  // Routes register in routes/index.ts (as `r.<method>`) and in server/mcp.ts
+  // (the MCP door registers on the same table as `router.<method>`) — read
+  // both, so a route added through either home still needs its spec row.
+  const routes = read(join(ROOT, 'server/routes/index.ts')) + read(join(ROOT, 'server/mcp.ts'))
   const segments = new Set()
-  for (const m of routes.matchAll(/r\.(?:get|post|patch|delete)\(\s*'\/([a-z0-9-]+)/g)) segments.add(m[1])
+  for (const m of routes.matchAll(/\b(?:r|router)\.(?:get|post|patch|delete)\(\s*'\/([a-z0-9-]+)/g)) segments.add(m[1])
   const specText = specFiles().map(read).join('\n').toLowerCase()
   const uncovered = [...segments].filter((s) => !specText.includes(s))
   assert.deepEqual(uncovered, [], `built routes with no spec mention (add a requirement row):\n${uncovered.join(', ')}`)

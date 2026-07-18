@@ -53,6 +53,19 @@ boot out (the E2E stack and `scripts/ui-sweep.mjs`'s target may run either
 way — the sweep signs in as Ada first). Locked by `tests/auth-gate.test.ts`;
 spec row SYNC-8.
 
+## Three access doors, one wall (access-parity INV-11)
+
+The product is reachable by the browser UI, the in-app session (model tool
+calls → consent-gated proposals), and the **MCP door** (`POST /mcp`,
+`server/mcp.ts`) — equally capable, gated by the same policies, **by
+construction**: MCP tools are GENERATED from the route table (`Router.list()`)
+and every `tools/call` re-enters the router (middleware wall included). Never
+hand-add an MCP tool with its own logic, and never give any access method a
+private policy branch. Auth is the one session credential over cookie OR
+`Authorization: Bearer` (`transport: 'bearer'` on login/signup mints for
+machines). Explainer: [`docs/mcp-access.md`](../docs/mcp-access.md); locks:
+`tests/mcp-parity.test.ts`, `tests/mcp.test.ts`, `tests/auth-bearer.test.ts`.
+
 ## Persistence and snapshots
 
 When the real server runs (`dev` / `start` / `server`), the UI-owned state —

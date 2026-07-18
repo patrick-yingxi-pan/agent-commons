@@ -29,7 +29,9 @@ export const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': CORS_ORIGIN,
   ...(CORS_ORIGIN !== '*' ? { 'Access-Control-Allow-Credentials': 'true', Vary: 'Origin' } : {}),
   'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, Idempotency-Key, x-user-id, x-tenant-id, x-user-role',
+  // (The two MCP-* entries let a BROWSER-hosted MCP client preflight the `/mcp`
+  // door — the Streamable HTTP transport sends them; access-parity INV-11.)
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, Idempotency-Key, x-user-id, x-tenant-id, x-user-role, MCP-Protocol-Version, Mcp-Session-Id',
   // The identity-echo tripwire (multi-account §5.5) must be readable cross-origin.
   'Access-Control-Expose-Headers': 'x-resolved-tenant, X-Request-Id, ETag',
 }

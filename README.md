@@ -109,6 +109,16 @@ organizing turn is a real round-trip. Going live is
 just `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` — the whole pipeline is already
 real, only the model is mocked.
 
+**Three access doors, one wall (access-parity INV-11).** The product is
+reachable three ways — the browser UI, the in-app session (the model's
+consent-gated tool calls), and an **auth-gated MCP server** at `POST /mcp`
+whose tool catalog is *generated from the route table* and whose every call
+re-enters the same router, so all doors are equally capable and gated by the
+same authentication/authorization by construction. The same signed session
+credential works as the browser cookie or as `Authorization: Bearer` (mint it
+with `transport: 'bearer'` on login). Explainer:
+[`docs/mcp-access.md`](docs/mcp-access.md).
+
 **Native vs remote, without env-sniffing.** `GET /v1/capabilities` tells the UI
 what *this* backend can do (`localFs`, `localGit`, `osPicker`, …). The UI gates
 native-only affordances on those flags — never on detecting Electron vs web.

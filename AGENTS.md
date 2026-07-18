@@ -85,6 +85,7 @@ restart.
 | Writing tests, the spec ledger discipline | [`tests/CLAUDE.md`](tests/CLAUDE.md) |
 | Browser E2E: stack, ports, anchor specs, gotchas | [`e2e/CLAUDE.md`](e2e/CLAUDE.md) |
 | The session-relay connector (Session providers) | [`docs/session-relay-primer.md`](docs/session-relay-primer.md) (from zero) · [`connector/CLAUDE.md`](connector/CLAUDE.md) · design log [`docs/delegated-cognition-provider.md`](docs/delegated-cognition-provider.md) |
+| The MCP door (`/mcp`) + the access-parity rule (INV-11) | [`docs/mcp-access.md`](docs/mcp-access.md) |
 | Evaluating the proposal; "don't file these as bugs" | [`docs/evaluation.md`](docs/evaluation.md) |
 | "Is X built or just mocked?" | [`docs/spec/`](docs/spec/README.md) (requirements ledger) · [`docs/spec/11-mock-boundary.md`](docs/spec/11-mock-boundary.md) (declared fixtures) |
 | Reviewing after a UI change | [`docs/ui-invariants.md`](docs/ui-invariants.md) (earned ledger, the `/ui-review` skill) · [`docs/review-rulebook.md`](docs/review-rulebook.md) (oracle catalog) |

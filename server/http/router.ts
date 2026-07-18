@@ -13,8 +13,20 @@ type Middleware = (ctx: Ctx) => boolean | Promise<boolean>
 
 interface Route {
   method: Method
+  /** The registration pattern, verbatim (`/sessions/:id`). Kept alongside the
+   *  split segments so the route table is enumerable as data — the MCP access
+   *  method (server/mcp.ts) generates its tool catalog from `list()`, which is
+   *  what makes "every route is reachable through every access method" hold by
+   *  construction instead of by a hand-maintained list. */
+  pattern: string
   segments: string[]
   handler: Handler
+}
+
+/** One route's public identity — what `Router.list()` exposes. */
+export interface RouteInfo {
+  method: Method
+  pattern: string
 }
 
 export class Router {
@@ -27,8 +39,14 @@ export class Router {
     return this
   }
 
+  /** The registered routes, as data. Read-only: consumers derive from the
+   *  table (tool catalogs, parity tests); registration stays `add()` only. */
+  list(): RouteInfo[] {
+    return this.routes.map(({ method, pattern }) => ({ method, pattern }))
+  }
+
   add(method: Method, pattern: string, handler: Handler): this {
-    this.routes.push({ method, segments: pattern.split('/').filter(Boolean), handler })
+    this.routes.push({ method, pattern, segments: pattern.split('/').filter(Boolean), handler })
     return this
   }
   get(p: string, h: Handler) {

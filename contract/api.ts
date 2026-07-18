@@ -5,6 +5,7 @@
 import type { RelationOp } from './relations.ts'
 import type { ContextStatus, ContextTypeId } from './contexts.ts'
 import type { FsSource } from './fs.ts'
+import type { Identity } from './identity.ts'
 
 /** The API version segment. One UI, one contract version, three backends. */
 export const API_VERSION = 'v1'
@@ -229,6 +230,13 @@ export interface SignUpRequest {
   email: string
   /** Hashed server-side (scrypt); never stored or logged in the clear. */
   password: string
+  /** How the minted session credential is delivered (access-parity INV-11).
+   *  Absent = `'cookie'` (a fixed meaning, INV-9): the browser flow — HttpOnly
+   *  cookie, account-stack join. `'bearer'` is the machine flow (the MCP door,
+   *  scripts): the response is a `BearerSession` carrying the SAME signed
+   *  token in the body, and NO cookies are set (the account stack is a
+   *  browser concept). Any other value is refused (400). */
+  transport?: SessionTransport
 }
 
 /** Body of `POST /v1/auth/login` (P7) — sign in with a real account's
@@ -236,6 +244,20 @@ export interface SignUpRequest {
 export interface LoginRequest {
   email: string
   password: string
+  /** See `SignUpRequest.transport` — absent = `'cookie'`. */
+  transport?: SessionTransport
+}
+
+/** The two delivery transports for the one session credential (INV-11): the
+ *  browser cookie, or the token itself for machine callers that will present
+ *  it as `Authorization: Bearer <token>`. Same token, same verification. */
+export type SessionTransport = 'cookie' | 'bearer'
+
+/** Response of a `transport: 'bearer'` sign-in: the signed session token plus
+ *  the identity it resolves to (the same resolution every later request runs). */
+export interface BearerSession {
+  token: string
+  identity: Identity
 }
 
 // (`CreateWorkspaceRequest` is gone — FWD-5 Phase 2, the workspace collapse:

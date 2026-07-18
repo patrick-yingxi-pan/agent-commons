@@ -53,6 +53,7 @@ import { pageParams, paginate, MAX_PAGE_LIMIT } from '../pagination.ts'
 import { RateLimiter } from '../ratelimit.ts'
 import { generateReply, probeProviderEndpoint, fetchProviderModels, resolvedModelId } from '../generate.ts'
 import { relayReply, mintRelaySecret, hashRelaySecret, relaySecretHint, type RelayOutcome } from '../relay.ts'
+import { registerMcp } from '../mcp.ts'
 import { renderConnectorSetup } from '../connectorSetup.ts'
 import { platformCard, agentCard, taskFromOpenSubGoal, rejectedAgentTask, rpcResult, rpcError } from '../a2a.ts'
 import { ProviderProbeError, type ProviderConfig } from '../data/providers.ts'
@@ -88,6 +89,8 @@ import type {
   ProxyRequest,
   SignUpRequest,
   LoginRequest,
+  SessionTransport,
+  BearerSession,
   CreateOrgRequest,
   InviteToOrgRequest,
   ReserveRequest,
@@ -164,7 +167,11 @@ export function buildRouter(): Router {
   // public artifact like the well-known card). Everything else refuses with a
   // loud 401 — the client-side gate (App.tsx) is chrome; this is the wall.
   // "Meaningful data before sign-in" is the failure this exists to prevent.
-  const GATE_OPEN_EXACT = new Set(['/capabilities', '/me', '/healthz', '/readyz', '/metrics', '/connector', '/connector/setup'])
+  // `/mcp` is open like `/capabilities`: the JSON-RPC handshake (initialize,
+  // tools/list) is DISCOVERY; every tools/call re-enters this router and meets
+  // the wall on the inner path — an anonymous MCP caller can reach exactly the
+  // front door the anonymous browser can (access-parity INV-11).
+  const GATE_OPEN_EXACT = new Set(['/capabilities', '/me', '/healthz', '/readyz', '/metrics', '/connector', '/connector/setup', '/mcp'])
   const GATE_OPEN_PREFIX = ['/auth/', '/a2a/', '/relay/']
   // Owner-admin routes that sit UNDER an open machine-edge prefix but are NOT part
   // of the machine edge, so the coarse prefix must not open them. The D28
@@ -231,6 +238,11 @@ export function buildRouter(): Router {
   r.use((ctx) => {
     const method = ctx.req.method
     if (method !== 'POST' && method !== 'PATCH' && method !== 'DELETE') return true
+    // The MCP endpoint is a TRANSPORT wrapper: its tools/call re-enters this
+    // router, where the inner (real) method+path is metered exactly like a UI
+    // call. Metering the wrapper too would double-charge an MCP mutation —
+    // a capability asymmetry between access methods (INV-11).
+    if (ctx.url.pathname === '/mcp') return true
     const limit = Number(process.env.RATE_LIMIT_PER_MIN)
     if (!Number.isInteger(limit) || limit < 1) return true // not configured ⇒ disabled
     const result = limiter.check(store.identity(ctx.req.headers).tenant.id, limit)
@@ -368,8 +380,21 @@ export function buildRouter(): Router {
    *  sign-up); otherwise only an account ALREADY remembered gets its entry
    *  refreshed (last-active tenant, fresh iat) — a seed/dev pick never leaks
    *  into the remembered-accounts list. */
-  const mintSession = (req: IncomingMessage, res: ServerResponse, userId: string, tenantId: string, join: boolean) => {
+  const mintSession = (req: IncomingMessage, res: ServerResponse, userId: string, tenantId: string, join: boolean, transport: SessionTransport = 'cookie') => {
     const token = signSession({ userId, tenantId, iat: Date.now() })
+    // `transport: 'bearer'` (access-parity INV-11) delivers the SAME signed
+    // token in the body for machine callers (the MCP door, scripts) that will
+    // present it as `Authorization: Bearer` — no cookies: the account stack is
+    // a browser concept, and a bearer client holds its own credential. The
+    // identity in the response is resolved through the same path a bearer
+    // request will take, so the answer is the seam's truth, not the pick's.
+    if (transport === 'bearer') {
+      const identity = store.identity({ ...req.headers, cookie: undefined, authorization: `Bearer ${token}` })
+      res.setHeader('x-resolved-tenant', identity.tenant.id)
+      const session: BearerSession = { token, identity }
+      sendJson(res, session)
+      return
+    }
     const stack = verifyStack(parseCookies(headerValue(req.headers, 'cookie'))[STACK_COOKIE])
     const remembered = join || stack.some((e) => e.userId === userId)
     const cookies = [sessionSetCookie(token)]
@@ -378,6 +403,15 @@ export function buildRouter(): Router {
     const minted = store.identity({ ...req.headers, cookie: `${SESSION_COOKIE}=${token}` })
     res.setHeader('x-resolved-tenant', minted.tenant.id)
     sendJson(res, minted)
+  }
+  /** Validate a request's `transport` pick (INV-9: absent = cookie, a fixed
+   *  meaning; an INVALID value is refused, never normalized). Returns null
+   *  after refusing. */
+  const transportPick = (res: ServerResponse, transport: unknown): SessionTransport | null => {
+    if (transport === undefined || transport === 'cookie') return 'cookie'
+    if (transport === 'bearer') return 'bearer'
+    sendError(res, 'bad_request', "transport must be 'cookie' or 'bearer' (absent = cookie).")
+    return null
   }
   r.post('/auth/session', async ({ req, res, body }) => {
     if (!store.capabilities().features.identitySwitch) {
@@ -467,7 +501,9 @@ export function buildRouter(): Router {
   // this browser" for the switcher's instant hops.
   const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
   r.post('/auth/signup', async ({ req, res, body }) => {
-    const { name, email, password } = await body<SignUpRequest>()
+    const { name, email, password, transport: transportRaw } = await body<SignUpRequest>()
+    const transport = transportPick(res, transportRaw)
+    if (!transport) return
     if (!name?.trim()) return sendError(res, 'bad_request', 'A display name is required.')
     if (!email || !EMAIL_SHAPE.test(email.trim())) return sendError(res, 'bad_request', 'A valid email is required.')
     // Bounded above too: scrypt cost scales with input length, so an unbounded
@@ -478,10 +514,12 @@ export function buildRouter(): Router {
     const created = accounts.createUser(name, email, password)
     if (!created) return sendError(res, 'conflict', 'An account with this email already exists — sign in instead.')
     store.accountsMutated() // real accounts persist across restarts (P7)
-    mintSession(req, res, created.user.id, created.tenant.id, true)
+    mintSession(req, res, created.user.id, created.tenant.id, true, transport)
   })
   r.post('/auth/login', async ({ req, res, body }) => {
-    const { email, password } = await body<LoginRequest>()
+    const { email, password, transport: transportRaw } = await body<LoginRequest>()
+    const transport = transportPick(res, transportRaw)
+    if (!transport) return
     // The same scrypt-cost bound as signup; no valid account exceeds it, so the
     // refusal is a plain (uniform) 401, not a distinguishable 400.
     const bounded = !!email && !!password && password.length <= 128
@@ -490,7 +528,7 @@ export function buildRouter(): Router {
     if (!user) return sendError(res, 'unauthorized', 'Invalid email or password.')
     const home = accounts.homeOf(user.id)
     if (!home) return sendError(res, 'unauthorized', 'Invalid email or password.')
-    mintSession(req, res, user.id, home.tenant.id, true)
+    mintSession(req, res, user.id, home.tenant.id, true, transport)
   })
   // (The workspace routes — `GET /me/workspaces`, `POST /workspaces` — are gone:
   // FWD-5 Phase 2, the workspace collapse. An account IS its one namespace; the
@@ -2807,6 +2845,12 @@ export function buildRouter(): Router {
       throw err
     }
   }))
+
+  // ── The MCP door (access-parity INV-11 — server/mcp.ts) ─────────────────────
+  // Registered LAST so the route table its tool catalog derives from is
+  // complete. It adds no policy of its own: every tools/call re-enters this
+  // router and meets the same wall.
+  registerMcp(r)
 
   return r
 }

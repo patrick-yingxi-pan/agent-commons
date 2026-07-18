@@ -74,6 +74,16 @@ const server = createServer(async (req, res) => {
     return
   }
 
+  // The MCP door's canonical root mount (access-parity INV-11): MCP clients
+  // conventionally point at `<origin>/mcp`. The same endpoint is served at
+  // `/api/v1/mcp` (the router home, which dev + tests exercise); this mount
+  // just routes the conventional path to it.
+  if (url.pathname === '/mcp') {
+    const handled = await router.handle(req, res, url)
+    if (!handled && !res.writableEnded) sendError(res, 'not_found', `No route ${req.method} /mcp`)
+    return
+  }
+
   // API requests: strip the version prefix and route.
   if (url.pathname === API_BASE_PATH || url.pathname.startsWith(API_BASE_PATH + '/')) {
     const apiUrl = new URL(url.href)
