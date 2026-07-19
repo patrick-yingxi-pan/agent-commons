@@ -30,8 +30,9 @@ interface PaneFocusState {
   workItemId: string | null
   agentId: string | null
   contextId: string | null
+  adminUserId: string | null
 }
-const NO_FOCUS: PaneFocusState = { projectId: null, scheduleId: null, ownerName: null, workItemId: null, agentId: null, contextId: null }
+const NO_FOCUS: PaneFocusState = { projectId: null, scheduleId: null, ownerName: null, workItemId: null, agentId: null, contextId: null, adminUserId: null }
 
 export function SectionPane({
   section,
@@ -136,7 +137,7 @@ export function SectionPane({
       ? { kind: 'section', section, projectId: top?.projectId ?? null, scheduleId: top?.scheduleId ?? null, ownerName: top?.ownerName ?? null }
       : backOut
         ? navLocationOfLoc(backOut.loc)
-        : focus.projectId || focus.scheduleId || focus.ownerName || focus.agentId || focus.contextId
+        : focus.projectId || focus.scheduleId || focus.ownerName || focus.agentId || focus.contextId || focus.adminUserId
           ? { kind: 'section', section, projectId: null, scheduleId: null, ownerName: null }
           : null
 
@@ -170,6 +171,7 @@ export function SectionPane({
         focusWorkItemId={focus.workItemId}
         focusAgentId={focus.agentId}
         focusContextId={focus.contextId}
+        focusAdminUserId={focus.adminUserId}
         onOpenAgentPage={(id) =>
           section === 'agents' ? navigate({ agentId: id }) : onRetarget({ kind: 'msection', id: 'agents', seed: { agentId: id } })
         }

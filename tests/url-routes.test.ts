@@ -84,6 +84,19 @@ test('a saved context detail round-trips through /contexts/:id; kind ids stay re
   assert.deepEqual(viewForPath('/contexts/connector'), { loc: section({ section: 'contexts' }), subview: 'connector' })
 })
 
+test('an admin account detail round-trips through /admin/users/:id; console subview ids stay reserved', () => {
+  const loc = section({ section: 'admin', adminUserId: 'user-grace' })
+  const path = pathForView(loc, null)
+  assert.equal(path, '/admin/users/user-grace')
+  assert.deepEqual(viewForPath(path), { loc: { ...loc, adminUserId: 'user-grace' }, subview: null })
+  // /admin/orgs is the Organizations surface, never an entity — the detail is
+  // nested under the static `users` segment precisely so it cannot collide.
+  assert.deepEqual(viewForPath('/admin/orgs'), { loc: section({ section: 'admin' }), subview: 'orgs' })
+  // The nested form exists only under /admin/users/, with an id.
+  assert.equal(viewForPath('/admin/tenants/x'), null)
+  assert.equal(viewForPath('/admin/users/'), null)
+})
+
 test('a workspace profile lives under /u/ and survives names needing encoding', () => {
   const loc = section({ section: 'agents', ownerName: 'Acme, Inc.' })
   const path = pathForView(loc, null)

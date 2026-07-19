@@ -21,7 +21,8 @@
  *  The id→detail mapping MIRRORS the root bridge (`App.navigateToSection`):
  *  projects+subId → a work item; projects → a project; scheduled → a routine;
  *  contexts → a saved context's page; agents → an OWNER profile (an agent
- *  PAGE routes through the `onOpenAgentPage` prop, never this bridge).
+ *  PAGE routes through the `onOpenAgentPage` prop, never this bridge);
+ *  admin → an account's detail page in the maintainer console (FWD-7 v1.1).
  *  Dependency-free and node-tested (tests/pane-nav.test.ts) so the mapping
  *  can't silently diverge from the root's. */
 import type { SectionId } from '../types'
@@ -34,6 +35,7 @@ export interface PaneSeed {
   workItemId?: string
   agentId?: string
   contextId?: string
+  adminUserId?: string
 }
 
 /** The ONE list of detail-id keys a pane location carries — every mapping that
@@ -41,7 +43,7 @@ export interface PaneSeed {
  *  its canonical NavLocation, a page's focus state → its reported seed) walks
  *  THIS list, so adding a detail kind is a one-line change here instead of a
  *  hunt across three hand-copied field lists. */
-export const PANE_SEED_KEYS = ['projectId', 'scheduleId', 'ownerName', 'workItemId', 'agentId', 'contextId'] as const
+export const PANE_SEED_KEYS = ['projectId', 'scheduleId', 'ownerName', 'workItemId', 'agentId', 'contextId', 'adminUserId'] as const
 type SeedKey = (typeof PANE_SEED_KEYS)[number]
 // Compile-time lock: the key list and PaneSeed stay in lock-step — adding a
 // detail id to one without the other fails typecheck here.
@@ -78,6 +80,7 @@ export function seedFor(section: SectionId, id?: string, subId?: string): PaneSe
   if (section === 'scheduled') return { scheduleId: id }
   if (section === 'contexts') return { contextId: id }
   if (section === 'agents') return { ownerName: id }
+  if (section === 'admin') return { adminUserId: id }
   return null
 }
 

@@ -45,6 +45,25 @@ test('the console: hidden unsigned, full for the maintainer, absent for everyone
   await expect(page.getByText('Grace Hopper')).toBeVisible()
   await expect(page.getByText('Tenants')).toBeVisible()
 
+  // ── The row is a DOOR (FWD-7 v1.1): Grace's name opens her account's own
+  //    page at its canonical address, with her full facts; Back returns ──
+  await page.getByRole('button', { name: 'Grace Hopper', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Grace Hopper' })).toBeVisible()
+  await expect(page).toHaveURL(/\/admin\/users\/user-grace$/)
+  await expect(page.getByText('Organization seats')).toBeVisible()
+  await expect(page.getByText('Bearer tokens')).toBeVisible()
+  await page.getByRole('button', { name: /^Back/ }).click()
+  await expect(page.getByRole('heading', { name: 'Maintain' })).toBeVisible()
+
+  // ── The detail is a real ADDRESS (ADAPT-15): a direct boot lands on it and
+  //    a reload keeps it; a stale id degrades to the console panels ──
+  await page.goto('/admin/users/user-grace')
+  await expect(page.getByRole('heading', { name: 'Grace Hopper' })).toBeVisible()
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Grace Hopper' })).toBeVisible()
+  await page.goto('/admin/users/user-nope')
+  await expect(page.getByRole('heading', { name: 'Maintain' })).toBeVisible()
+
   // ── Credentials: Grace's token rows list; revoke goes through the two-step
   //    confirm and the row disappears ──
   await sectionsNav(page).getByRole('button', { name: 'Credentials', exact: true }).click()

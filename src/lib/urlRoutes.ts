@@ -20,6 +20,9 @@
  *    /projects/:projectId   a project detail page
  *    /scheduled/:scheduleId a routine detail page
  *    /contexts/:contextId   a saved context's detail page (kind ids are reserved)
+ *    /admin/users/:userId   an account's detail page in the maintainer console
+ *                           (nested under `users` so the reserved admin
+ *                           subview ids can never collide)
  *
  *  Deliberately pure (type-only + pure-module imports) so `tests/` can lock the
  *  mapping without a DOM. Transient focus (a highlighted work item / comment) is
@@ -55,6 +58,7 @@ export function pathForView(loc: NavLocation, subview: string | null): string {
   if (loc.projectId) return `/projects/${encodeURIComponent(loc.projectId)}`
   if (loc.scheduleId) return `/scheduled/${encodeURIComponent(loc.scheduleId)}`
   if (loc.contextId) return `/contexts/${encodeURIComponent(loc.contextId)}`
+  if (loc.adminUserId) return `/admin/users/${encodeURIComponent(loc.adminUserId)}`
   return subview ? `/${loc.section}/${encodeURIComponent(subview)}` : `/${loc.section}`
 }
 
@@ -89,6 +93,12 @@ export function viewForPath(pathname: string): RoutedView | null {
   // (the issue-page analog; nested because the item is project-scoped by nature).
   if (section === 'projects' && segs.length === 4 && segs[2] === 'work' && segs[3]) {
     return { loc: { ...base, projectId: segs[1], workItemId: segs[3] }, subview: null }
+  }
+  // The maintainer console's account detail (FWD-7 v1.1) — nested under a
+  // static `users` segment so it can never collide with the reserved admin
+  // subview ids (orgs / credentials / audit / ops).
+  if (section === 'admin' && segs.length === 3 && segs[1] === 'users' && segs[2]) {
+    return { loc: { ...base, adminUserId: segs[2] }, subview: null }
   }
   if (segs.length !== 2) return null
   const second = segs[1]

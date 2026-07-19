@@ -12,6 +12,7 @@ const list = (section: SectionId): NavLocation => ({ kind: 'section', section, p
 const projectDetail = (id: string): NavLocation => ({ kind: 'section', section: 'projects', projectId: id, scheduleId: null })
 const routineDetail = (id: string): NavLocation => ({ kind: 'section', section: 'scheduled', projectId: null, scheduleId: id })
 const ownerProfile = (name: string): NavLocation => ({ kind: 'section', section: 'agents', projectId: null, scheduleId: null, ownerName: name })
+const adminUserDetail = (id: string): NavLocation => ({ kind: 'section', section: 'admin', projectId: null, scheduleId: null, adminUserId: id })
 
 test('sameLocation compares page identity, ignoring a session title', () => {
   assert.ok(sameLocation(session('s1', 'Old title'), session('s1', 'New title')), 'same session id ⇒ same page')
@@ -24,6 +25,10 @@ test('sameLocation compares page identity, ignoring a session title', () => {
   assert.ok(sameLocation(ownerProfile('Ada Lab'), ownerProfile('Ada Lab')))
   assert.ok(!sameLocation(ownerProfile('Ada Lab'), ownerProfile('Bo Studio')))
   assert.ok(!sameLocation(ownerProfile('Ada Lab'), list('agents')), 'a profile and the hub are different pages')
+  // The maintainer console's account detail (FWD-7 v1.1) is keyed by user id.
+  assert.ok(sameLocation(adminUserDetail('user-grace'), adminUserDetail('user-grace')))
+  assert.ok(!sameLocation(adminUserDetail('user-grace'), adminUserDetail('user-ada')))
+  assert.ok(!sameLocation(adminUserDetail('user-grace'), list('admin')), 'a detail and the console are different pages')
   // An old location literal without the field ≡ one with it null (history compat).
   assert.ok(sameLocation({ kind: 'section', section: 'agents', projectId: null, scheduleId: null }, list('agents')))
 })

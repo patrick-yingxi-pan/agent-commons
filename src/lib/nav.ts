@@ -33,6 +33,9 @@ export type NavLocation =
       /** A saved context's detail page under the contexts section (ADAPT-15 — the
        *  detail was once component state with no address). Absent ≡ null. */
       contextId?: string | null
+      /** An account's detail page under the maintainer console (FWD-7 v1.1 —
+       *  `/admin/users/:id`, maintainers only). Absent ≡ null. */
+      adminUserId?: string | null
     }
 
 /** The display name for each cross-cutting section (its list page). */
@@ -61,7 +64,8 @@ export function sameLocation(a: NavLocation, b: NavLocation): boolean {
       (a.ownerName ?? null) === (b.ownerName ?? null) &&
       (a.workItemId ?? null) === (b.workItemId ?? null) &&
       (a.agentId ?? null) === (b.agentId ?? null) &&
-      (a.contextId ?? null) === (b.contextId ?? null)
+      (a.contextId ?? null) === (b.contextId ?? null) &&
+      (a.adminUserId ?? null) === (b.adminUserId ?? null)
     )
   return false
 }

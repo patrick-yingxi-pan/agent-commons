@@ -202,6 +202,7 @@ import {
   type AgentDirectoryEntry,
   type AuditEntry,
   type AdminInviteRow,
+  type AdminTenantRow,
   type AdminTokenRow,
   type AdminUserRow,
   type MyOrg,
@@ -254,6 +255,7 @@ export function SectionView({
   focusWorkItemId = null,
   focusAgentId = null,
   focusContextId = null,
+  focusAdminUserId = null,
   onOpenAgentPage,
 }: {
   section: SectionId
@@ -295,6 +297,9 @@ export function SectionView({
   focusAgentId?: string | null
   /** A saved context's detail page under Contexts (ADAPT-15); null = the list. */
   focusContextId?: string | null
+  /** An account's detail page under the maintainer console (FWD-7 v1.1);
+   *  null = the console's panels. */
+  focusAdminUserId?: string | null
   /** Open a published definition's page — the one door every card routes through. */
   onOpenAgentPage: (agentId: string) => void
 }) {
@@ -345,7 +350,7 @@ export function SectionView({
       // null. Reached without the grant (a pasted URL), it degrades to an
       // explanatory empty state — the server's 404 wall keeps every list empty
       // regardless.
-      <AdminSection subview={subview ?? 'accounts'} />
+      <AdminSection subview={subview ?? 'accounts'} adminUserId={focusAdminUserId} onBack={onBack} backTo={backTo} />
     ) : (
       <GenericSection section={section} />
     )
@@ -6913,12 +6918,33 @@ function AuditEntryRow({ entry, actor }: { entry: AuditEntry; actor?: string }) 
 /* ─────────────── The maintainer console (the `admin` section) ─────────────── */
 
 /** The instance-operator console (contract/admin.ts) — five surfaces over the
- *  maintainer-walled `/admin/*` reads. Rendered without the grant (a pasted
- *  URL — the rail hides the row) it degrades to an explanatory empty state;
- *  the server's 404 wall keeps the data unreachable regardless. */
-function AdminSection({ subview }: { subview: string }) {
+ *  maintainer-walled `/admin/*` reads, plus the account DETAIL page
+ *  (`/admin/users/:id`, FWD-7 v1.1 — a canonical, addressable page like every
+ *  detail, ADAPT-15). Rendered without the grant (a pasted URL — the rail
+ *  hides the row) it degrades to an explanatory empty state; the server's 404
+ *  wall keeps the data unreachable regardless. */
+function AdminSection({
+  subview,
+  adminUserId = null,
+  onBack,
+  backTo,
+}: {
+  subview: string
+  /** The open account detail (null = the console's panels) — the controlled
+   *  focus id, set by the controller however the page was reached. */
+  adminUserId?: string | null
+  onBack: () => void
+  backTo: NavLocation | null
+}) {
   const granted = useMe().data?.instanceAdmin === true
   const meta = SECTION_META.admin
+  // The detail page — a STALE id (a bookmark to a since-gone account) degrades
+  // to the panels once the list has loaded and cannot resolve it (the
+  // ContextsSection idiom); while the list is still loading, the detail shows
+  // its own loading state rather than flashing the list.
+  const usersQ = useAdminUsers(granted)
+  const openDetail = granted && adminUserId && !(usersQ.data && !usersQ.data.some((u) => u.user.id === adminUserId))
+  if (openDetail) return <AdminUserDetail userId={adminUserId} onBack={onBack} backTo={backTo} />
   return (
     <div className="flex-1 overflow-y-auto @container">
       <div className="mx-auto w-full max-w-3xl px-6 py-6">
@@ -6941,6 +6967,129 @@ function AdminSection({ subview }: { subview: string }) {
         )}
       </div>
     </div>
+  )
+}
+
+/** An account's own page in the maintainer console (FWD-7 v1.1): the full
+ *  identity facts, its namespace and org seats, ITS bearer-token registry
+ *  (revocable per row), and the deactivate act — everything the list rows
+ *  abbreviate. Reads the same two list hooks the panels read (the registry
+ *  has one home; no per-entity endpoint needed). */
+function AdminUserDetail({ userId, onBack, backTo }: { userId: string; onBack: () => void; backTo: NavLocation | null }) {
+  const usersQ = useAdminUsers(true)
+  const row = usersQ.data?.find((u) => u.user.id === userId)
+  const tokens = (useAdminTokens(true).data ?? []).filter((t) => t.userId === userId)
+  const [error, setError] = useState<string | null>(null)
+  const act = async (run: () => Promise<{ ok: true } | { ok: false; message: string }>) => {
+    setError(null)
+    const out = await run()
+    if (!out.ok) setError(out.message)
+  }
+  return (
+    <Page>
+      <header className={PAGE_HEADER_CLASS}>
+        <div className="flex min-w-0 items-start gap-1">
+          {/* Back follows real history (ADAPT-18); the structural fallback is
+              the console's Accounts list. */}
+          <BackButton
+            to={backTo ?? { kind: 'section', section: 'admin', projectId: null, scheduleId: null }}
+            onBack={onBack}
+          />
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h1 className={`${PAGE_TITLE_CLASS} truncate`}>{row ? row.user.name : 'Account'}</h1>
+              {row?.seeded && <AdminBadge>Seeded</AdminBadge>}
+              {row?.deactivated && <AdminBadge tone="danger">Deactivated</AdminBadge>}
+            </div>
+            <p className="mt-1 text-sm text-ink-soft">
+              {row?.user.email ?? 'no credential'} · <span className="font-mono text-[12px]">{userId}</span>
+            </p>
+          </div>
+        </div>
+      </header>
+      {!row ? (
+        <Empty>{usersQ.error ? 'The account read failed — are you still on the maintainer allowlist?' : 'Loading account…'}</Empty>
+      ) : (
+        <div className="space-y-5">
+          {error && <p className="text-[12px] text-removed">{error}</p>}
+          <div>
+            <h2 className="mb-2 text-[13px] font-semibold text-ink">Namespace</h2>
+            <CommonsCard>
+              {row.homeTenant ? (
+                <div className="flex items-center gap-2.5">
+                  <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{row.homeTenant.name}</span>
+                  <AdminBadge>{row.homeTenant.kind}</AdminBadge>
+                  <span className="shrink-0 font-mono text-[11px] text-ink-faint">{row.homeTenant.id}</span>
+                </div>
+              ) : (
+                <p className="text-[13px] text-ink-faint">No home namespace (a dangling membership).</p>
+              )}
+            </CommonsCard>
+          </div>
+          <div>
+            <h2 className="mb-2 text-[13px] font-semibold text-ink">Organization seats</h2>
+            {row.orgSeats.length === 0 ? (
+              <Empty>No org seats beyond the home namespace.</Empty>
+            ) : (
+              <CommonsCard>
+                <div className="divide-y divide-ink/5">
+                  {row.orgSeats.map((s) => (
+                    <div key={s.tenant.id} className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0">
+                      <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{s.tenant.name}</span>
+                      <AdminBadge>{s.role}</AdminBadge>
+                      <span className="shrink-0 font-mono text-[11px] text-ink-faint">{s.tenant.id}</span>
+                    </div>
+                  ))}
+                </div>
+              </CommonsCard>
+            )}
+          </div>
+          <div>
+            <h2 className="mb-2 text-[13px] font-semibold text-ink">Bearer tokens</h2>
+            {tokens.length === 0 ? (
+              <Empty>No bearer tokens on this account.</Empty>
+            ) : (
+              <CommonsCard>
+                <div className="divide-y divide-ink/5">
+                  {tokens.map((t) => (
+                    <div key={t.id} className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[13px] text-ink">{t.label ?? 'Unlabeled token'}</div>
+                        <div className="truncate text-[11px] text-ink-faint">
+                          minted {relativeTime(t.createdAt)} · <span className="font-mono">{t.id}</span>
+                        </div>
+                      </div>
+                      <AdminConfirmAction
+                        label="Revoke"
+                        confirmLabel="Revoke token"
+                        onConfirm={() => void act(() => adminRevokeToken(userId, t.id))}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </CommonsCard>
+            )}
+          </div>
+          {!row.seeded && !row.deactivated && (
+            <div>
+              <h2 className="mb-2 text-[13px] font-semibold text-ink">Danger zone</h2>
+              <CommonsCard>
+                <div className="flex items-center gap-2.5">
+                  <p className="min-w-0 flex-1 text-[12px] leading-relaxed text-ink-soft">
+                    Deactivating disables sign-in and revokes every bearer token. No data is deleted.
+                  </p>
+                  <AdminConfirmAction
+                    label="Deactivate"
+                    confirmLabel="Deactivate account"
+                    onConfirm={() => void act(() => adminDeactivateUser(userId))}
+                  />
+                </div>
+              </CommonsCard>
+            </div>
+          )}
+        </div>
+      )}
+    </Page>
   )
 }
 
@@ -7007,22 +7156,18 @@ function AdminAccountsPanel() {
   const usersQ = useAdminUsers(true)
   const users = usersQ.data ?? []
   const tenants = useAdminTenants(true).data ?? []
-  const [error, setError] = useState<string | null>(null)
-  const deactivate = async (id: string) => {
-    setError(null)
-    const out = await adminDeactivateUser(id)
-    if (!out.ok) setError(out.message)
-  }
+  // The row door — through the pane bridge (ADAPT-17/18), so the detail opens
+  // IN this pane with back history, exactly like every other section's rows.
+  const rel = useRelations()
   return (
     <div className="space-y-5">
-      {error && <p className="text-[12px] text-removed">{error}</p>}
       {users.length === 0 ? (
         <Empty>{usersQ.error ? 'The accounts read failed — are you still on the maintainer allowlist?' : 'Loading accounts…'}</Empty>
       ) : (
         <CommonsCard>
           <div className="divide-y divide-ink/5">
             {users.map((u) => (
-              <AdminUserRowView key={u.user.id} row={u} onDeactivate={() => deactivate(u.user.id)} />
+              <AdminUserRowView key={u.user.id} row={u} onOpen={() => rel.navigate('admin', u.user.id)} />
             ))}
           </div>
         </CommonsCard>
@@ -7032,16 +7177,7 @@ function AdminAccountsPanel() {
         <CommonsCard>
           <div className="divide-y divide-ink/5">
             {tenants.map((t) => (
-              <div key={t.tenant.id} className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0">
-                <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{t.tenant.name}</span>
-                {/* An org-KIND tenant can still be one person's namespace (Acme);
-                    the shared-org badge follows the `namespace` fact, not `kind`. */}
-                <AdminBadge>{t.namespace ? 'namespace' : 'organization'}</AdminBadge>
-                {t.seeded && <AdminBadge>Seeded</AdminBadge>}
-                <span className="shrink-0 text-[11px] text-ink-faint">
-                  {t.members} {t.members === 1 ? 'member' : 'members'}
-                </span>
-              </div>
+              <AdminTenantRowView key={t.tenant.id} row={t} users={users} />
             ))}
           </div>
         </CommonsCard>
@@ -7050,12 +7186,16 @@ function AdminAccountsPanel() {
   )
 }
 
-function AdminUserRowView({ row, onDeactivate }: { row: AdminUserRow; onDeactivate: () => void }) {
+function AdminUserRowView({ row, onOpen }: { row: AdminUserRow; onOpen: () => void }) {
   return (
     <div className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <span className="truncate text-[13px] font-medium text-ink">{row.user.name}</span>
+          {/* Title-as-door (the titles-are-doors rule): the name opens the
+              account's own page; the row's acts live there now. */}
+          <button onClick={onOpen} className="truncate text-[13px] font-medium text-ink hover:underline">
+            {row.user.name}
+          </button>
           {row.seeded && <AdminBadge>Seeded</AdminBadge>}
           {row.deactivated && <AdminBadge tone="danger">Deactivated</AdminBadge>}
         </div>
@@ -7070,8 +7210,55 @@ function AdminUserRowView({ row, onDeactivate }: { row: AdminUserRow; onDeactiva
       <span className="shrink-0 text-[11px] text-ink-faint">
         {row.tokenCount} {row.tokenCount === 1 ? 'token' : 'tokens'}
       </span>
-      {!row.seeded && !row.deactivated && (
-        <AdminConfirmAction label="Deactivate" confirmLabel="Deactivate account" onConfirm={onDeactivate} />
+      <button
+        onClick={onOpen}
+        aria-label={`Open ${row.user.name}`}
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink"
+      >
+        <ChevronRight size={14} />
+      </button>
+    </div>
+  )
+}
+
+/** A tenant row that EXPANDS in place to its member roster (a disclosure, not
+ *  a page — the roster is derived from the same live users read). */
+function AdminTenantRowView({ row, users }: { row: AdminTenantRow; users: AdminUserRow[] }) {
+  const [open, setOpen] = useState(false)
+  const members = users
+    .flatMap((u) => [
+      ...(u.homeTenant?.id === row.tenant.id ? [{ user: u.user, role: 'namespace owner' }] : []),
+      ...u.orgSeats.filter((s) => s.tenant.id === row.tenant.id).map((s) => ({ user: u.user, role: s.role as string })),
+    ])
+  return (
+    <div className="py-2 first:pt-0 last:pb-0">
+      <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-2.5 text-left">
+        <span className="flex h-4 w-4 shrink-0 items-center justify-center text-ink-faint">
+          {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{row.tenant.name}</span>
+        {/* An org-KIND tenant can still be one person's namespace (Acme);
+            the shared-org badge follows the `namespace` fact, not `kind`. */}
+        <AdminBadge>{row.namespace ? 'namespace' : 'organization'}</AdminBadge>
+        {row.seeded && <AdminBadge>Seeded</AdminBadge>}
+        <span className="shrink-0 text-[11px] text-ink-faint">
+          {row.members} {row.members === 1 ? 'member' : 'members'}
+        </span>
+      </button>
+      {open && (
+        <div className="mt-1.5 space-y-1 pl-6">
+          <div className="font-mono text-[11px] text-ink-faint">{row.tenant.id}</div>
+          {members.length === 0 ? (
+            <div className="text-[11px] text-ink-faint">No resolvable members (a legacy snapshot echo).</div>
+          ) : (
+            members.map((m, i) => (
+              <div key={`${m.user.id}-${i}`} className="flex items-center gap-2">
+                <span className="min-w-0 flex-1 truncate text-[12px] text-ink">{m.user.name}</span>
+                <AdminBadge>{m.role}</AdminBadge>
+              </div>
+            ))
+          )}
+        </div>
       )}
     </div>
   )
@@ -7212,14 +7399,54 @@ function AdminAuditPanel() {
         <CommonsCard>
           <div className="divide-y divide-ink/5">
             {entries.map((e) => (
-              <AuditEntryRow
-                key={e.id}
-                entry={e}
-                actor={`${e.actorAgentId ?? e.commissionId ?? 'a Contributor'} · ${e.tenantId}`}
-              />
+              <AdminAuditRowView key={e.id} entry={e} />
             ))}
           </div>
         </CommonsCard>
+      )}
+    </div>
+  )
+}
+
+/** An audit row that EXPANDS in place to the entry's full record — the ids and
+ *  exact timestamp the one-line summary abbreviates (a transient disclosure;
+ *  an audit entry is a moment, not a lifecycle — no page, no URL). */
+function AdminAuditRowView({ entry }: { entry: AuditEntry }) {
+  const [open, setOpen] = useState(false)
+  const facts: [string, string][] = [
+    ['Entry id', entry.id],
+    ['Channel', AUDIT_CHANNEL_LABEL[entry.channel]],
+    ['Outcome', entry.outcome],
+    ['Capability', entry.capability],
+    ['Target', entry.target],
+    ...(entry.actorAgentId ? ([['Acting agent', entry.actorAgentId]] as [string, string][]) : []),
+    ...(entry.commissionId ? ([['Commission', entry.commissionId]] as [string, string][]) : []),
+    ['Tenant', entry.tenantId],
+    ['At', new Date(entry.at).toLocaleString()],
+  ]
+  return (
+    // The divide-y list rhythm lives HERE: the embedded AuditEntryRow is this
+    // wrapper's sole child, so its own `py-2 first:pt-0 last:pb-0` rhythm
+    // self-neutralizes (both variants match) — without the wrapper's padding
+    // every row would sit flush against the hairlines.
+    <div className="py-2 first:pt-0 last:pb-0">
+      <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-1 text-left">
+        <span className="flex h-4 w-4 shrink-0 items-center justify-center text-ink-faint">
+          {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+        </span>
+        <div className="min-w-0 flex-1">
+          <AuditEntryRow entry={entry} actor={`${entry.actorAgentId ?? entry.commissionId ?? 'a Contributor'} · ${entry.tenantId}`} />
+        </div>
+      </button>
+      {open && (
+        <div className="mb-2 ml-5 space-y-0.5 rounded-lg bg-panel-2 px-3 py-2">
+          {facts.map(([k, v]) => (
+            <div key={k} className="flex items-baseline gap-2">
+              <span className="w-24 shrink-0 text-[11px] text-ink-faint">{k}</span>
+              <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink">{v}</span>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   )

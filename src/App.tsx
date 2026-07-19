@@ -152,6 +152,7 @@ function Workspace() {
     openAgentPage,
     openContextPage,
     openWorkItemPage,
+    openAdminUserPage,
     openWorkItem,
     openProposal,
     openAgent,
@@ -364,8 +365,10 @@ function Workspace() {
               ? openContextPage(id)
               : section === 'agents' && id
                 ? openOwner(id)
-                : openSection(section),
-    [openProject, openWorkItemPage, openSchedule, openContextPage, openOwner, openSection],
+                : section === 'admin' && id
+                  ? openAdminUserPage(id) // an account's detail in the maintainer console (FWD-7 v1.1)
+                  : openSection(section),
+    [openProject, openWorkItemPage, openSchedule, openContextPage, openOwner, openAdminUserPage, openSection],
   )
 
   return (

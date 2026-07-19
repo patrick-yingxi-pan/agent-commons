@@ -286,7 +286,7 @@ export function useSessionWorkspace(split?: {
   // The detail doors share one shape — route the section with its detail seed,
   // drop any stale highlight — so they're minted from one factory (stable:
   // splitRef and the setState are both stable, so the memo never rebuilds).
-  const { openProject, openSchedule, openOwner, openAgentPage, openContextPage, openWorkItemPage } = useMemo(() => {
+  const { openProject, openSchedule, openOwner, openAgentPage, openContextPage, openWorkItemPage, openAdminUserPage } = useMemo(() => {
     const door = (section: SectionId, seed: PaneSeed) => {
       splitRef.current?.routeDoor?.(section, seed)
       setPendingFocus(null)
@@ -298,6 +298,7 @@ export function useSessionWorkspace(split?: {
       openAgentPage: (agentId: string) => door('agents', { agentId }),
       openContextPage: (contextId: string) => door('contexts', { contextId }),
       openWorkItemPage: (projectId: string, workItemId: string) => door('projects', { projectId, workItemId }),
+      openAdminUserPage: (adminUserId: string) => door('admin', { adminUserId }),
     }
   }, [])
 
@@ -359,6 +360,7 @@ export function useSessionWorkspace(split?: {
     openAgentPage,
     openContextPage,
     openWorkItemPage,
+    openAdminUserPage,
     openWorkItem,
     openProposal,
     openAgent,

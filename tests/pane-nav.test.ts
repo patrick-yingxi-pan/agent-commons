@@ -25,6 +25,7 @@ test('seedFor mirrors the root bridge mapping (App.navigateToSection), shape for
   assert.deepEqual(seedFor('scheduled', 't1'), { scheduleId: 't1' })
   assert.deepEqual(seedFor('contexts', 'c1'), { contextId: 'c1' })
   assert.deepEqual(seedFor('agents', 'nova'), { ownerName: 'nova' }, 'agents+id = an OWNER profile (agent pages route via the prop)')
+  assert.deepEqual(seedFor('admin', 'user-grace'), { adminUserId: 'user-grace' }, "admin+id = an account's console detail (FWD-7 v1.1)")
   assert.equal(seedFor('projects'), null, 'no id = no entity detail')
   assert.equal(seedFor('artifacts', 'a1'), null, 'a section with no detail mapping stays unmapped')
 })
@@ -32,6 +33,11 @@ test('seedFor mirrors the root bridge mapping (App.navigateToSection), shape for
 test('a same-section entity door lands as pane FOCUS (the reported Contexts bug)', () => {
   const t = paneNavTarget('contexts', 'contexts', 'ctx-github')
   assert.deepEqual(t, { kind: 'focus', focus: { contextId: 'ctx-github' } })
+  // An account row inside the maintainer console stays in the pane (back works).
+  assert.deepEqual(paneNavTarget('admin', 'admin', 'user-grace'), {
+    kind: 'focus',
+    focus: { adminUserId: 'user-grace' },
+  })
   // A work item inside the pane's own Projects section stays in the pane too.
   assert.deepEqual(paneNavTarget('projects', 'projects', 'p1', 'w1'), {
     kind: 'focus',
