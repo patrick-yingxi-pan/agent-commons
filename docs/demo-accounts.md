@@ -77,5 +77,15 @@ npm run dev   →  http://127.0.0.1:5173
    owned by the org (the New-project **Owner** picker) and watch it band under
    *Your organizations* for every seat.
 
+6. **The maintainer console** (FWD-7) is opt-in per boot: start with
+   `MAINTAINERS=user-ada npm run dev` (comma-separated user ids, or the demo
+   accounts' emails — an email entry grants **seeded** accounts only, since an
+   unregistered address would otherwise be claimable through open signup;
+   runtime-created maintainers are listed by user id) and
+   sign in as Ada — a **Maintain** section appears at the bottom of the rail
+   (Accounts / Organizations / Credentials / Audit / Ops, the instance-wide
+   operator view). Every other account — and every boot without the env var —
+   neither sees the section nor can reach `/api/v1/admin/*` (404).
+
 > A `.data/store.json` from an earlier run rehydrates fine (stamps are
 > re-applied), but if you want the pristine seed worlds, delete it and restart.

@@ -170,6 +170,15 @@ import {
   useProjectSubGoals,
   useDispatchRuns,
   useProviders,
+  useAdminUsers,
+  useAdminTenants,
+  useAdminInvites,
+  useAdminTokens,
+  useAdminAudit,
+  useAdminOps,
+  adminDeactivateUser,
+  adminRevokeToken,
+  adminRevokeInvite,
   invalidate,
   keys,
   useSavedContexts,
@@ -192,6 +201,9 @@ import {
   type AgentChangelogEntry,
   type AgentDirectoryEntry,
   type AuditEntry,
+  type AdminInviteRow,
+  type AdminTokenRow,
+  type AdminUserRow,
   type MyOrg,
   type OpenSubGoal,
   type OwnerProfile,
@@ -327,6 +339,13 @@ export function SectionView({
         backTo={backTo}
         onOpenSession={onOpenSession}
       />
+    ) : section === 'admin' ? (
+      // The maintainer console (contract/admin.ts): like the Agents hub its
+      // children are SURFACES, defaulting to Accounts when the rail sub-view is
+      // null. Reached without the grant (a pasted URL), it degrades to an
+      // explanatory empty state — the server's 404 wall keeps every list empty
+      // regardless.
+      <AdminSection subview={subview ?? 'accounts'} />
     ) : (
       <GenericSection section={section} />
     )
@@ -6887,6 +6906,375 @@ function AuditEntryRow({ entry, actor }: { entry: AuditEntry; actor?: string }) 
         {actor && <div className="text-[11px] text-ink-faint">by {actor}</div>}
       </div>
       <span className="shrink-0 text-[11px] text-ink-faint">{relativeTime(entry.at)}</span>
+    </div>
+  )
+}
+
+/* ─────────────── The maintainer console (the `admin` section) ─────────────── */
+
+/** The instance-operator console (contract/admin.ts) — five surfaces over the
+ *  maintainer-walled `/admin/*` reads. Rendered without the grant (a pasted
+ *  URL — the rail hides the row) it degrades to an explanatory empty state;
+ *  the server's 404 wall keeps the data unreachable regardless. */
+function AdminSection({ subview }: { subview: string }) {
+  const granted = useMe().data?.instanceAdmin === true
+  const meta = SECTION_META.admin
+  return (
+    <div className="flex-1 overflow-y-auto @container">
+      <div className="mx-auto w-full max-w-3xl px-6 py-6">
+        <PageHeader title={meta.label} subtitle={meta.subtitle} />
+        {!granted ? (
+          <Empty>
+            This console is for instance maintainers. Sign in as an account on the server’s
+            MAINTAINERS allowlist to use it.
+          </Empty>
+        ) : subview === 'orgs' ? (
+          <AdminOrgsPanel />
+        ) : subview === 'credentials' ? (
+          <AdminCredentialsPanel />
+        ) : subview === 'audit' ? (
+          <AdminAuditPanel />
+        ) : subview === 'ops' ? (
+          <AdminOpsPanel />
+        ) : (
+          <AdminAccountsPanel />
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** The two-step inline confirm every destructive console act wears (the
+ *  Composer chip-remove shape): first click arms, Cancel disarms — no new
+ *  dialog primitive for a transient act. */
+function AdminConfirmAction({
+  label,
+  confirmLabel,
+  onConfirm,
+}: {
+  label: string
+  confirmLabel: string
+  onConfirm: () => void
+}) {
+  const [armed, setArmed] = useState(false)
+  if (!armed) {
+    return (
+      <button
+        onClick={() => setArmed(true)}
+        className="shrink-0 rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-ink-soft transition hover:border-removed hover:text-removed"
+      >
+        {label}
+      </button>
+    )
+  }
+  return (
+    <span className="flex shrink-0 items-center gap-1.5">
+      <button
+        onClick={() => {
+          setArmed(false)
+          onConfirm()
+        }}
+        className="rounded-md bg-removed px-2 py-0.5 text-[11px] font-medium text-canvas transition hover:opacity-90"
+      >
+        {confirmLabel}
+      </button>
+      <button
+        onClick={() => setArmed(false)}
+        className="rounded-md px-1.5 py-0.5 text-[11px] text-ink-faint transition hover:text-ink"
+      >
+        Cancel
+      </button>
+    </span>
+  )
+}
+
+/** A small badge for account/tenant facts (seeded / deactivated / kind). */
+function AdminBadge({ tone = 'neutral', children }: { tone?: 'neutral' | 'danger'; children: ReactNode }) {
+  return (
+    <span
+      className={`shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium uppercase tracking-wide ${
+        tone === 'danger' ? 'bg-removed/10 text-removed' : 'bg-ink/5 text-ink-soft'
+      }`}
+    >
+      {children}
+    </span>
+  )
+}
+
+/** Accounts — every user + namespace on the instance, with the one v1 user
+ *  mutation (deactivate, refused on seeded rows server-side). */
+function AdminAccountsPanel() {
+  const usersQ = useAdminUsers(true)
+  const users = usersQ.data ?? []
+  const tenants = useAdminTenants(true).data ?? []
+  const [error, setError] = useState<string | null>(null)
+  const deactivate = async (id: string) => {
+    setError(null)
+    const out = await adminDeactivateUser(id)
+    if (!out.ok) setError(out.message)
+  }
+  return (
+    <div className="space-y-5">
+      {error && <p className="text-[12px] text-removed">{error}</p>}
+      {users.length === 0 ? (
+        <Empty>{usersQ.error ? 'The accounts read failed — are you still on the maintainer allowlist?' : 'Loading accounts…'}</Empty>
+      ) : (
+        <CommonsCard>
+          <div className="divide-y divide-ink/5">
+            {users.map((u) => (
+              <AdminUserRowView key={u.user.id} row={u} onDeactivate={() => deactivate(u.user.id)} />
+            ))}
+          </div>
+        </CommonsCard>
+      )}
+      <div>
+        <h2 className="mb-2 text-[13px] font-semibold text-ink">Tenants</h2>
+        <CommonsCard>
+          <div className="divide-y divide-ink/5">
+            {tenants.map((t) => (
+              <div key={t.tenant.id} className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0">
+                <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{t.tenant.name}</span>
+                {/* An org-KIND tenant can still be one person's namespace (Acme);
+                    the shared-org badge follows the `namespace` fact, not `kind`. */}
+                <AdminBadge>{t.namespace ? 'namespace' : 'organization'}</AdminBadge>
+                {t.seeded && <AdminBadge>Seeded</AdminBadge>}
+                <span className="shrink-0 text-[11px] text-ink-faint">
+                  {t.members} {t.members === 1 ? 'member' : 'members'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </CommonsCard>
+      </div>
+    </div>
+  )
+}
+
+function AdminUserRowView({ row, onDeactivate }: { row: AdminUserRow; onDeactivate: () => void }) {
+  return (
+    <div className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="truncate text-[13px] font-medium text-ink">{row.user.name}</span>
+          {row.seeded && <AdminBadge>Seeded</AdminBadge>}
+          {row.deactivated && <AdminBadge tone="danger">Deactivated</AdminBadge>}
+        </div>
+        <div className="truncate text-[11px] text-ink-faint">
+          {row.user.email ?? 'no credential'}
+          {row.homeTenant ? ` · ${row.homeTenant.name}` : ''}
+          {row.orgSeats.length > 0
+            ? ` · ${row.orgSeats.map((s) => `${s.tenant.name} (${s.role})`).join(', ')}`
+            : ''}
+        </div>
+      </div>
+      <span className="shrink-0 text-[11px] text-ink-faint">
+        {row.tokenCount} {row.tokenCount === 1 ? 'token' : 'tokens'}
+      </span>
+      {!row.seeded && !row.deactivated && (
+        <AdminConfirmAction label="Deactivate" confirmLabel="Deactivate account" onConfirm={onDeactivate} />
+      )}
+    </div>
+  )
+}
+
+/** Organizations — orgs across the instance + the invite ledger (revoke on
+ *  pending rows; the org-owner face stays `DELETE /orgs/:id/invites/:iid`). */
+function AdminOrgsPanel() {
+  const tenants = useAdminTenants(true).data ?? []
+  const users = useAdminUsers(true).data ?? []
+  const invites = useAdminInvites(true).data ?? []
+  const [error, setError] = useState<string | null>(null)
+  // TRUE orgs only: an org-kind tenant that is somebody's namespace (the Acme
+  // seed world) is not an organization — the `namespace` fact discriminates —
+  // and a seatless legacy tenant (a pre-collapse snapshot echo) has no roster
+  // to show.
+  const orgs = tenants.filter((t) => t.tenant.kind === 'org' && !t.namespace && t.members > 0)
+  const membersOf = (orgId: string) =>
+    users.flatMap((u) => u.orgSeats.filter((s) => s.tenant.id === orgId).map((s) => ({ user: u.user, role: s.role })))
+  const revoke = async (id: string) => {
+    setError(null)
+    const out = await adminRevokeInvite(id)
+    if (!out.ok) setError(out.message)
+  }
+  return (
+    <div className="space-y-5">
+      {error && <p className="text-[12px] text-removed">{error}</p>}
+      {orgs.length === 0 ? (
+        <Empty>No organizations founded yet.</Empty>
+      ) : (
+        orgs.map((o) => (
+          <div key={o.tenant.id}>
+            <h2 className="mb-2 text-[13px] font-semibold text-ink">{o.tenant.name}</h2>
+            <CommonsCard>
+              <div className="divide-y divide-ink/5">
+                {membersOf(o.tenant.id).map((m) => (
+                  <div key={m.user.id} className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0">
+                    <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{m.user.name}</span>
+                    <AdminBadge>{m.role}</AdminBadge>
+                  </div>
+                ))}
+              </div>
+            </CommonsCard>
+          </div>
+        ))
+      )}
+      <div>
+        <h2 className="mb-2 text-[13px] font-semibold text-ink">Invitations</h2>
+        {invites.length === 0 ? (
+          <Empty>No invitations yet.</Empty>
+        ) : (
+          <CommonsCard>
+            <div className="divide-y divide-ink/5">
+              {invites.map((i) => (
+                <AdminInviteRowView key={i.id} row={i} onRevoke={() => revoke(i.id)} />
+              ))}
+            </div>
+          </CommonsCard>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function AdminInviteRowView({ row, onRevoke }: { row: AdminInviteRow; onRevoke: () => void }) {
+  return (
+    <div className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0">
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[13px] text-ink">
+          {row.email} <span className="text-ink-faint">→ {row.orgName}</span>
+        </div>
+        <div className="text-[11px] text-ink-faint">
+          invited by {row.invitedBy} · {relativeTime(row.at)}
+        </div>
+      </div>
+      <AdminBadge tone={row.status === 'revoked' ? 'danger' : 'neutral'}>{row.status}</AdminBadge>
+      {row.status === 'invited' && (
+        <AdminConfirmAction label="Revoke" confirmLabel="Revoke invite" onConfirm={onRevoke} />
+      )}
+    </div>
+  )
+}
+
+/** Credentials — every user's bearer-token registry rows (metadata only), with
+ *  instance-side revocation. Peer + provider secrets keep their own surfaces. */
+function AdminCredentialsPanel() {
+  const tokens = useAdminTokens(true).data ?? []
+  const [error, setError] = useState<string | null>(null)
+  const revoke = async (row: AdminTokenRow) => {
+    setError(null)
+    const out = await adminRevokeToken(row.userId, row.id)
+    if (!out.ok) setError(out.message)
+  }
+  return (
+    <div className="space-y-3">
+      <p className="text-[12px] leading-relaxed text-ink-soft">
+        Minted bearer tokens across every account — <span className="font-medium text-ink">metadata only</span>
+        {' '}(the value is shown once, at mint). Revoking a row kills the credential immediately. A2A peer
+        credentials and relay rendezvous secrets are administered on their own surfaces (Agents and Models).
+      </p>
+      {error && <p className="text-[12px] text-removed">{error}</p>}
+      {tokens.length === 0 ? (
+        <Empty>No bearer tokens minted on this instance.</Empty>
+      ) : (
+        <CommonsCard>
+          <div className="divide-y divide-ink/5">
+            {tokens.map((t) => (
+              <div key={`${t.userId}:${t.id}`} className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13px] text-ink">{t.label ?? 'Unlabeled token'}</div>
+                  <div className="truncate text-[11px] text-ink-faint">
+                    {t.userName} · minted {relativeTime(t.createdAt)}
+                  </div>
+                </div>
+                <AdminConfirmAction label="Revoke" confirmLabel="Revoke token" onConfirm={() => revoke(t)} />
+              </div>
+            ))}
+          </div>
+        </CommonsCard>
+      )}
+    </div>
+  )
+}
+
+/** Audit — the instance-wide (unscoped) read of the detective trail; the same
+ *  row primitive as the Agents hub's tenant-scoped surface, plus the tenant. */
+function AdminAuditPanel() {
+  const entries = useAdminAudit(true).data ?? []
+  return (
+    <div className="space-y-3">
+      <p className="text-[12px] leading-relaxed text-ink-soft">
+        The detective audit trail across <span className="font-medium text-ink">every tenant</span> — the
+        instance-wide view of the same ledger each tenant reads scoped on the Agents hub’s Audit surface.
+      </p>
+      {entries.length === 0 ? (
+        <Empty>No cross-user effects recorded yet.</Empty>
+      ) : (
+        <CommonsCard>
+          <div className="divide-y divide-ink/5">
+            {entries.map((e) => (
+              <AuditEntryRow
+                key={e.id}
+                entry={e}
+                actor={`${e.actorAgentId ?? e.commissionId ?? 'a Contributor'} · ${e.tenantId}`}
+              />
+            ))}
+          </div>
+        </CommonsCard>
+      )}
+    </div>
+  )
+}
+
+/** Ops — the health face as stat tiles, from the same derivation `/metrics`
+ *  renders (`GET /admin/ops`). Refresh re-reads on demand (no admin SSE, v1). */
+function AdminOpsPanel() {
+  const opsQ = useAdminOps(true)
+  const ops = opsQ.data
+  if (!ops) {
+    return (
+      <Empty>
+        {opsQ.error ? 'The ops read failed — are you still on the maintainer allowlist?' : 'Loading the ops snapshot…'}
+      </Empty>
+    )
+  }
+  const uptime =
+    ops.uptimeSeconds >= 3600
+      ? `${Math.floor(ops.uptimeSeconds / 3600)}h ${Math.floor((ops.uptimeSeconds % 3600) / 60)}m`
+      : ops.uptimeSeconds >= 60
+        ? `${Math.floor(ops.uptimeSeconds / 60)}m ${Math.floor(ops.uptimeSeconds % 60)}s`
+        : `${Math.floor(ops.uptimeSeconds)}s`
+  const counts = (rec: Record<string, number>) =>
+    Object.entries(rec)
+      .map(([k, v]) => `${k} ${v}`)
+      .join(' · ') || 'none'
+  const tiles: { label: string; value: string }[] = [
+    { label: 'Status', value: ops.draining ? 'Draining' : 'Serving' },
+    { label: 'Backend', value: ops.backend },
+    { label: 'Uptime', value: uptime },
+    { label: 'Store epoch', value: String(ops.epoch) },
+    { label: 'Runners', value: counts(ops.runnersByStatus) },
+    { label: 'Dispatch runs', value: counts(ops.dispatchByStatus) },
+    { label: 'Model turns', value: counts(ops.turnsByOutcome) },
+    { label: 'Requests', value: counts(ops.requestsByMethod) },
+  ]
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-end">
+        <button
+          onClick={() => invalidate(keys.adminOps)}
+          className="rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-ink-soft transition hover:border-accent hover:text-ink"
+        >
+          Refresh
+        </button>
+      </div>
+      <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-2">
+        {tiles.map((t) => (
+          <CommonsCard key={t.label}>
+            <div className="text-[11px] font-medium uppercase tracking-wide text-ink-faint">{t.label}</div>
+            <div className="mt-1 text-[13px] font-medium text-ink">{t.value}</div>
+          </CommonsCard>
+        ))}
+      </div>
     </div>
   )
 }

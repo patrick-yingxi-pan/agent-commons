@@ -1,4 +1,4 @@
-import { Bot, Box, Briefcase, Cable, Clock, Cpu, SendHorizontal, Shapes } from 'lucide-react'
+import { Bot, Box, Briefcase, Cable, Clock, Cpu, SendHorizontal, Shapes, Wrench } from 'lucide-react'
 import type { SectionId } from '../types'
 
 /** The cross-cutting tools in the sidebar nav. One source of truth for the
@@ -48,6 +48,14 @@ export const SECTION_META: Record<
     subtitle: 'Make the workspace yours.',
     Icon: Briefcase,
   },
+  // The maintainer console — rail row rendered ONLY for principals whose
+  // Identity carries `instanceAdmin` (the MAINTAINERS env allowlist); the
+  // server's 404 wall is the gate, this visibility is chrome.
+  admin: {
+    label: 'Maintain',
+    subtitle: 'Instance administration for website maintainers.',
+    Icon: Wrench,
+  },
 }
 
 export const SECTION_ORDER: SectionId[] = [
@@ -59,6 +67,7 @@ export const SECTION_ORDER: SectionId[] = [
   'scheduled',
   'dispatch',
   'customize',
+  'admin',
 ]
 
 // The section sub-view registry lives in the pure `./subviews` module (no lucide

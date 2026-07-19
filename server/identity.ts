@@ -61,6 +61,35 @@ export const ANONYMOUS_IDENTITY: Identity = {
   local: false,
 }
 
+/** ── The maintainer grant (contract `Identity.instanceAdmin`) ────────────────
+ *  A SINGLE boolean capability, allowlisted by env (`MAINTAINERS` — comma-
+ *  separated user ids or emails), never a role (PD11 forbids a parallel RBAC
+ *  engine) and never persisted (no escalation surface to administer). Granted
+ *  only on VERIFIED resolutions — the session path, and the dev header seam
+ *  where tests already impersonate — never on the anonymous default, so an
+ *  unset gate can't make a drive-by boot a maintainer. Read per-call (not
+ *  cached at module load) so tests can flip the env var.
+ *
+ *  EMAIL entries grant only to SEEDED accounts (the code-owned demo roster,
+ *  whose addresses nobody can register): signup is open and unverified, so an
+ *  email listed before anyone bears it would otherwise be CLAIMABLE — sign up
+ *  as `ops@example.com` and inherit the console. A runtime-created maintainer
+ *  is therefore listed by user id (assigned by the server, never claimable). */
+function isMaintainer(user: { id: string; email?: string }): boolean {
+  const raw = process.env.MAINTAINERS
+  if (!raw) return false
+  const listed = raw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+  if (listed.includes(user.id.toLowerCase())) return true
+  const seeded = !!accounts.users.get(user.id)?.seeded
+  return seeded && !!user.email && listed.includes(user.email.toLowerCase())
+}
+
+/** Stamp the grant onto a resolved identity — absent (not `false`) when the
+ *  principal is not a maintainer, per the contract's absence semantics. */
+function withMaintainerGrant(identity: Identity): Identity {
+  return isMaintainer(identity.user) ? { ...identity, instanceAdmin: true } : identity
+}
+
 /** Read a single header value (Node lower-cases header names; arrays take the first). */
 function header(headers: Headers | undefined, name: string): string | undefined {
   const v = headers?.[name]
@@ -134,7 +163,7 @@ export function resolveIdentity(backend: Backend, headers?: Headers): Identity {
     // STRICT: a verified credential must name a real user + membership. A stale
     // cookie (user deleted, membership revoked) falls through as if absent.
     const resolved = accounts.identityFor(claims.userId, claims.tenantId)
-    if (resolved) return { ...resolved, via: 'session' }
+    if (resolved) return withMaintainerGrant({ ...resolved, via: 'session' })
   }
   if (identityHeadersAllowed()) {
     const userId = header(headers, 'x-user-id')
@@ -145,7 +174,7 @@ export function resolveIdentity(backend: Backend, headers?: Headers): Identity {
     if (userId !== undefined || tenantId !== undefined || role !== undefined) {
       const viaHeaders =
         backend === 'remote' ? webIdentityFromHeaders(userId, tenantId, role) : localIdentityFromHeaders(tenantId, role)
-      return { ...viaHeaders, via: 'headers' }
+      return withMaintainerGrant({ ...viaHeaders, via: 'headers' })
     }
   }
   return { ...(backend === 'remote' ? webIdentityFromHeaders() : LOCAL_IDENTITY), via: 'default' }

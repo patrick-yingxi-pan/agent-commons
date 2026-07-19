@@ -24,6 +24,7 @@ export type SectionId =
   | 'scheduled'
   | 'dispatch'
   | 'customize'
+  | 'admin'
 
 /** A connector / MCP attached to the conversation (GitHub, Drive, …). */
 export interface Connector {

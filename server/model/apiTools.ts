@@ -71,6 +71,19 @@ export const MODEL_API_EXCLUDED: ReadonlyMap<string, string> = new Map([
   ['POST /relay/reply', 'the far model\'s mailbox edge — authenticated by the rendezvous secret, not a user act'],
   ['POST /a2a/projects/:id', 'the foreign-peer JSON-RPC edge — authenticated by the peer\'s own bearer'],
   ['POST /a2a/agents/:id', 'the foreign-peer JSON-RPC edge — authenticated by the peer\'s own bearer'],
+  // the instance-operator plane (the maintainer console) — cross-tenant
+  // administration is the maintainer's own act at the console; a model-proposed
+  // cross-tenant read/revoke is the confused-deputy shape, same argument as the
+  // credential plane (the 404 maintainer wall re-checks regardless)
+  ['GET /admin/users', 'the maintainer console — instance administration is the maintainer\'s own act'],
+  ['GET /admin/tenants', 'the maintainer console — instance administration is the maintainer\'s own act'],
+  ['GET /admin/invites', 'the maintainer console — instance administration is the maintainer\'s own act'],
+  ['GET /admin/tokens', 'the maintainer console — instance administration is the maintainer\'s own act'],
+  ['GET /admin/audit', 'the maintainer console — instance administration is the maintainer\'s own act'],
+  ['GET /admin/ops', 'the maintainer console — instance administration is the maintainer\'s own act'],
+  ['POST /admin/users/:id/deactivate', 'the maintainer console — deactivating an account is credential admin, a direct maintainer act'],
+  ['DELETE /admin/tokens/:userId/:id', 'the maintainer console — revoking another user\'s credential is a direct maintainer act'],
+  ['DELETE /admin/invites/:id', 'the maintainer console — closing another org\'s invitation is a direct maintainer act'],
 ])
 
 /** POST tails that carry PROSE the user should review as content, not as a

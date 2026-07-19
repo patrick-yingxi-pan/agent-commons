@@ -82,6 +82,15 @@ export const keys = {
    *  only; the token value is shown once, at mint). Read by the MCP access card;
    *  invalidated by its own mint/revoke commands. */
   apiTokens: 'api-tokens',
+  /** The maintainer console's instance-wide reads (contract/admin.ts) — enabled
+   *  only for `instanceAdmin` identities; invalidated by its own commands (v1
+   *  has no admin SSE events — the panels re-read on their own acts + refresh). */
+  adminUsers: 'admin-users',
+  adminTenants: 'admin-tenants',
+  adminInvites: 'admin-invites',
+  adminTokens: 'admin-tokens',
+  adminAudit: 'admin-audit',
+  adminOps: 'admin-ops',
 }
 
 export const paths = {
@@ -217,4 +226,15 @@ export const paths = {
   recents: '/recents',
   recentsType: (type: string) => `/recents/${encodeURIComponent(type)}`,
   audit: '/audit',
+  /** The maintainer console (`/admin/*` — maintainer-walled, contract/admin.ts). */
+  adminUsers: '/admin/users',
+  adminTenants: '/admin/tenants',
+  adminInvites: '/admin/invites',
+  adminTokens: '/admin/tokens',
+  adminAudit: '/admin/audit',
+  adminOps: '/admin/ops',
+  adminUserDeactivate: (id: string) => `/admin/users/${encodeURIComponent(id)}/deactivate`,
+  adminTokenRevoke: (userId: string, id: string) =>
+    `/admin/tokens/${encodeURIComponent(userId)}/${encodeURIComponent(id)}`,
+  adminInviteRevoke: (id: string) => `/admin/invites/${encodeURIComponent(id)}`,
 }

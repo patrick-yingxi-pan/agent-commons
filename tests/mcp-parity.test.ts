@@ -99,14 +99,23 @@ test('POLICY: tenancy answers identically — a foreign read 404s through both d
   assert.deepEqual(viaMcp.body, direct.json)
 })
 
-test('the argued exclusions are exactly the stream-shaped routes and the endpoint itself', () => {
+test('the argued exclusions are exactly the stream forms, the endpoint itself, and the maintainer plane', () => {
   const keys = [...MCP_EXCLUDED.keys()].sort()
   assert.deepEqual(keys, [
+    'DELETE /admin/invites/:id',
+    'DELETE /admin/tokens/:userId/:id',
     'DELETE /mcp',
+    'GET /admin/audit',
+    'GET /admin/invites',
+    'GET /admin/ops',
+    'GET /admin/tenants',
+    'GET /admin/tokens',
+    'GET /admin/users',
     'GET /events',
     'GET /mcp',
     'GET /relay/poll',
     'GET /sessions/:id/turns/:turnId/stream',
+    'POST /admin/users/:id/deactivate',
     'POST /mcp',
   ])
   for (const reason of MCP_EXCLUDED.values()) {

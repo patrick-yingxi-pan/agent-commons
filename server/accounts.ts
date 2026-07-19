@@ -16,7 +16,22 @@
  *  enumerable. In a real deployment an IdP replaces the credential entirely; the
  *  registry (users/tenants/memberships) is what carries over. */
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto'
-import type { ApiToken, Capabilities, Identity, MyInvite, MyOrg, OrgInviteRow, OrgMemberRow, Tenant, TenantRole, User } from '../contract/index.ts'
+import type {
+  AdminInviteRow,
+  AdminTenantRow,
+  AdminTokenRow,
+  AdminUserRow,
+  ApiToken,
+  Capabilities,
+  Identity,
+  MyInvite,
+  MyOrg,
+  OrgInviteRow,
+  OrgMemberRow,
+  Tenant,
+  TenantRole,
+  User,
+} from '../contract/index.ts'
 
 type Backend = Capabilities['backend']
 
@@ -29,6 +44,11 @@ export interface AccountUser extends User {
   /** Seeded rows power the dev switcher directory and are never listed to
    *  onboarded users as switch targets — nor deletable. */
   seeded?: boolean
+  /** Sign-in disabled by a maintainer (`POST /admin/users/:id/deactivate`):
+   *  credential stripped, tokens revoked. The lockout itself is the existing
+   *  stale-credential fall-through (`identityFor` answers null), not a new
+   *  enforcement path. */
+  deactivated?: boolean
 }
 
 export interface AccountTenant extends Tenant {
@@ -200,7 +220,7 @@ export class AccountRegistry {
     const u = this.users.get(userId)
     const t = this.tenants.get(tenantId)
     const m = this.membership(userId, tenantId)
-    if (!u || !t || !m) return null
+    if (!u || u.deactivated || !t || !m) return null
     const user: User = { id: u.id, name: u.name, ...(u.email ? { email: u.email } : {}) }
     return { user, tenant: { id: t.id, name: t.name, kind: t.kind }, role: m.role, local: u.id === 'user-local' }
   }
@@ -242,7 +262,7 @@ export class AccountRegistry {
     const u = this.findByEmail(email)
     const salt = u?.passwordSalt ?? DUMMY_SALT
     const given = Buffer.from(hashPassword(password, salt), 'hex') // constant work, hit or miss
-    if (!u?.passwordHash || !u.passwordSalt) return null
+    if (!u?.passwordHash || !u.passwordSalt || u.deactivated) return null
     const stored = Buffer.from(u.passwordHash, 'hex')
     return given.length === stored.length && timingSafeEqual(given, stored) ? u : null
   }
@@ -429,6 +449,62 @@ export class AccountRegistry {
   /** Is this jti-carrying credential still live? (Registry row = authority.) */
   apiTokenLive(userId: string, jti: string): boolean {
     return (this.apiTokens.get(userId) ?? []).some((r) => r.id === jti)
+  }
+
+  // ── The maintainer console's projections (contract/admin.ts) ────────────────
+  // Instance-wide reads for `/admin/*` — maintainer-walled at the route. Pure
+  // projections of registry state, built HERE so the module's credential
+  // posture holds: no passwordHash/passwordSalt ever crosses into a row.
+
+  adminListUsers(): AdminUserRow[] {
+    return [...this.users.values()].map((u) => {
+      const home = this.homeOf(u.id)
+      return {
+        user: { id: u.id, name: u.name, ...(u.email ? { email: u.email } : {}) },
+        seeded: !!u.seeded,
+        ...(u.deactivated ? { deactivated: true } : {}),
+        ...(home ? { homeTenant: home.tenant } : {}),
+        orgSeats: this.orgsOf(u.id),
+        tokenCount: (this.apiTokens.get(u.id) ?? []).length,
+      }
+    })
+  }
+
+  adminListTenants(): AdminTenantRow[] {
+    return [...this.tenants.values()].map((t) => ({
+      tenant: { id: t.id, name: t.name, kind: t.kind },
+      members: this.memberships.filter((m) => m.tenantId === t.id).length,
+      seeded: !!t.seeded,
+      namespace: this.isNamespace(t.id),
+    }))
+  }
+
+  adminListInvites(): AdminInviteRow[] {
+    return this.orgInvites.map((i) => ({ ...i, orgName: this.tenants.get(i.orgId)?.name ?? i.orgId }))
+  }
+
+  adminListTokens(): AdminTokenRow[] {
+    const rows: AdminTokenRow[] = []
+    for (const [userId, tokens] of this.apiTokens) {
+      const name = this.users.get(userId)?.name ?? userId
+      for (const t of tokens) rows.push({ ...t, userId, userName: name })
+    }
+    return rows
+  }
+
+  /** Disable an account's sign-in (v1 "delete" — no ownership cascade): strip
+   *  the credential, revoke every bearer token, flag the row. Live sessions die
+   *  through the existing stale-credential fall-through (`identityFor` → null).
+   *  Seeded accounts are refused (the demo roster is code-owned; → 409). */
+  deactivateUser(userId: string): 'ok' | 'seeded' | undefined {
+    const u = this.users.get(userId)
+    if (!u) return undefined
+    if (u.seeded) return 'seeded'
+    delete u.passwordHash
+    delete u.passwordSalt
+    u.deactivated = true
+    this.apiTokens.delete(userId)
+    return 'ok'
   }
 
   // ── Persistence faces (additive slices; seeds re-ensured on rehydrate) ──────

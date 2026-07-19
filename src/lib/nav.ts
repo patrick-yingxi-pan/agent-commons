@@ -45,6 +45,7 @@ export const SECTION_LABELS: Record<SectionId, string> = {
   scheduled: 'Scheduled',
   dispatch: 'Dispatch',
   customize: 'Customize',
+  admin: 'Maintain',
 }
 
 /** Two locations are the same *page* (identity only — a session's title is display

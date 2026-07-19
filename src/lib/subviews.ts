@@ -60,4 +60,12 @@ export const SECTION_SUBVIEWS: Partial<Record<SectionId, SubView[]>> = {
     { id: 'active', label: 'Active' },
     { id: 'paused', label: 'Paused' },
   ],
+  // The maintainer console's children are its SURFACES (like the Agents hub) —
+  // the section row itself opens Accounts (the default), so it isn't re-listed.
+  admin: [
+    { id: 'orgs', label: 'Organizations' },
+    { id: 'credentials', label: 'Credentials' },
+    { id: 'audit', label: 'Audit' },
+    { id: 'ops', label: 'Ops' },
+  ],
 }

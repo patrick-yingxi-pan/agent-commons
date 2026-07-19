@@ -68,6 +68,21 @@ export const MCP_EXCLUDED: ReadonlyMap<string, string> = new Map([
   ['POST /mcp', 'the MCP endpoint itself'],
   ['GET /mcp', 'the MCP endpoint itself'],
   ['DELETE /mcp', 'the MCP endpoint itself'],
+  // The instance-operator plane (the maintainer console, contract/admin.ts):
+  // cross-tenant administration is the maintainer's own act at the console — an
+  // MCP-scripted cross-tenant read/revoke is the confused-deputy shape, the same
+  // argument that walls the credential plane. The 404 maintainer wall re-checks
+  // regardless; exclusion keeps the tool catalog free of routes almost no
+  // caller can ever use.
+  ['GET /admin/users', 'the maintainer console — instance administration is the maintainer\'s own act at the console'],
+  ['GET /admin/tenants', 'the maintainer console — instance administration is the maintainer\'s own act at the console'],
+  ['GET /admin/invites', 'the maintainer console — instance administration is the maintainer\'s own act at the console'],
+  ['GET /admin/tokens', 'the maintainer console — instance administration is the maintainer\'s own act at the console'],
+  ['GET /admin/audit', 'the maintainer console — instance administration is the maintainer\'s own act at the console'],
+  ['GET /admin/ops', 'the maintainer console — instance administration is the maintainer\'s own act at the console'],
+  ['POST /admin/users/:id/deactivate', 'the maintainer console — deactivating an account is credential admin, a direct maintainer act'],
+  ['DELETE /admin/tokens/:userId/:id', 'the maintainer console — revoking another user\'s credential is a direct maintainer act'],
+  ['DELETE /admin/invites/:id', 'the maintainer console — closing another org\'s invitation is a direct maintainer act'],
 ])
 
 /** The tool-exposed routes, derived fresh from the shared catalog each call

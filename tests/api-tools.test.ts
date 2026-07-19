@@ -57,13 +57,27 @@ test('the model-leg exclusions are exactly the three argued planes + the stream 
     'POST /providers/:id/rotate',
     'POST /runners',
     'GET /events',
+    'POST /admin/users/:id/deactivate',
   ]) {
     assert.ok(keys.includes(mustExclude), `${mustExclude} must stay non-model-proposable`)
   }
-  // And reads are NEVER excluded beyond the stream forms — the model may read
-  // whatever its user may read (the granted read-access policy).
+  // And reads are NEVER excluded beyond the stream forms and the maintainer
+  // plane — the model may read whatever its user may read (the granted
+  // read-access policy); the `/admin/*` reads are the one argued exception
+  // (cross-tenant instance administration is the maintainer's own act).
   const excludedReads = keys.filter((k) => k.startsWith('GET '))
-  assert.deepEqual(excludedReads.sort(), ['GET /events', 'GET /mcp', 'GET /relay/poll', 'GET /sessions/:id/turns/:turnId/stream'])
+  assert.deepEqual(excludedReads.sort(), [
+    'GET /admin/audit',
+    'GET /admin/invites',
+    'GET /admin/ops',
+    'GET /admin/tenants',
+    'GET /admin/tokens',
+    'GET /admin/users',
+    'GET /events',
+    'GET /mcp',
+    'GET /relay/poll',
+    'GET /sessions/:id/turns/:turnId/stream',
+  ])
 })
 
 test('the card family is chosen mechanically from the operation shape, total over the surface', () => {

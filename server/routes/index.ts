@@ -24,6 +24,7 @@ import type {
   SetRunnerCapabilitiesRequest,
   SetConnectorStatusRequest,
   UpdateScheduleRequest,
+  OpsSummary,
 } from '../../contract/index.ts'
 import { timingSafeEqual } from 'node:crypto'
 import { readFileSync } from 'node:fs'
@@ -698,42 +699,124 @@ export function buildRouter(): Router {
       sendJson(res, { status: 'not_ready' }, 503)
     }
   })
+  // The ONE ops derivation, shared by `/metrics` (Prometheus text) and the
+  // maintainer console's `GET /admin/ops` (JSON) so the two faces cannot drift.
+  // Dispatch runs and runners are GAUGES of the live feed, derived at read time,
+  // with every series present (0 until seen) so a dashboard charts from the start.
+  const opsSnapshot = (): OpsSummary => {
+    const runners = store.registry.list()
+    const onlineRunners = runners.filter((rn) => rn.status === 'online').length
+    const runs = store.listDispatch()
+    const byStatus = (s: 'running' | 'done' | 'failed') => runs.filter((run) => run.status === s).length
+    return {
+      uptimeSeconds: (Date.now() - startedAt) / 1000,
+      epoch: store.epoch,
+      backend: store.capabilities().backend,
+      draining: store.isDraining(),
+      runnersByStatus: { online: onlineRunners, offline: runners.length - onlineRunners },
+      dispatchByStatus: { running: byStatus('running'), done: byStatus('done'), failed: byStatus('failed') },
+      turnsByOutcome: { ...store.generationOutcomes() },
+      requestsByMethod: Object.fromEntries(requestsByMethod),
+    }
+  }
   // `/metrics` — Prometheus text exposition (F6 PD31). Per-method request counts +
   // process uptime + the store epoch (as an info label). A real deployment adds
   // status-class + latency histograms metered at the edge.
   r.get('/metrics', ({ res }) => {
-    const runners = store.registry.list()
-    const onlineRunners = runners.filter((rn) => rn.status === 'online').length
-    const gen = store.generationOutcomes()
-    // Dispatch runs by status — a GAUGE of the live feed (like runners_total), derived at
-    // scrape time, so a wave of failed one-off runs (P7) shows up in ops (F6 PD31). All three
-    // series are always present (0 until seen) so a dashboard can chart them from the start.
-    const runs = store.listDispatch()
-    const dispatchByStatus = (s: 'running' | 'done' | 'failed') => runs.filter((r) => r.status === s).length
+    const ops = opsSnapshot()
     const lines = [
       '# HELP http_requests_total Matched-route requests by method.',
       '# TYPE http_requests_total counter',
-      ...[...requestsByMethod].map(([m, n]) => `http_requests_total{method="${m}"} ${n}`),
+      ...Object.entries(ops.requestsByMethod).map(([m, n]) => `http_requests_total{method="${m}"} ${n}`),
       '# HELP runners_total Connected runners by status (F4 broker registry).',
       '# TYPE runners_total gauge',
-      `runners_total{status="online"} ${onlineRunners}`,
-      `runners_total{status="offline"} ${runners.length - onlineRunners}`,
+      ...Object.entries(ops.runnersByStatus).map(([s, n]) => `runners_total{status="${s}"} ${n}`),
       '# HELP model_turns_total Generation turns by outcome (P5 reliability / F6 observability).',
       '# TYPE model_turns_total counter',
-      ...Object.entries(gen).map(([outcome, n]) => `model_turns_total{outcome="${outcome}"} ${n}`),
+      ...Object.entries(ops.turnsByOutcome).map(([outcome, n]) => `model_turns_total{outcome="${outcome}"} ${n}`),
       '# HELP dispatch_runs Dispatch runs by status (P7 automation).',
       '# TYPE dispatch_runs gauge',
-      `dispatch_runs{status="running"} ${dispatchByStatus('running')}`,
-      `dispatch_runs{status="done"} ${dispatchByStatus('done')}`,
-      `dispatch_runs{status="failed"} ${dispatchByStatus('failed')}`,
+      ...Object.entries(ops.dispatchByStatus).map(([s, n]) => `dispatch_runs{status="${s}"} ${n}`),
       '# HELP process_uptime_seconds Seconds since this router started.',
       '# TYPE process_uptime_seconds gauge',
-      `process_uptime_seconds ${((Date.now() - startedAt) / 1000).toFixed(3)}`,
+      `process_uptime_seconds ${ops.uptimeSeconds.toFixed(3)}`,
       '# HELP store_epoch_info The store epoch (changes on reseed); always 1.',
       '# TYPE store_epoch_info gauge',
-      `store_epoch_info{epoch="${store.epoch}"} 1`,
+      `store_epoch_info{epoch="${ops.epoch}"} 1`,
     ]
     sendText(res, lines.join('\n') + '\n')
+  })
+
+  // ── The maintainer console (`/admin/*` — contract/admin.ts) ─────────────────
+  // The INTERNAL instance-operator plane: cross-tenant reads plus a deliberately
+  // small mutation set, for principals on the `MAINTAINERS` env allowlist
+  // (identity.ts stamps `instanceAdmin`). The wall answers 404 — existence-
+  // hiding, the same posture as foreign-row reads — and sits BEHIND the auth
+  // gate (this prefix is not in GATE_OPEN_*), so anonymous callers still meet
+  // the 401 first. Both non-HTTP doors exclude this plane with argued reasons
+  // (MCP_EXCLUDED / MODEL_API_EXCLUDED): instance administration is the
+  // maintainer's own act at the console.
+  const maintainerDenied = (req: IncomingMessage, res: ServerResponse): boolean => {
+    if (store.identity(req.headers).instanceAdmin) return false
+    sendError(res, 'not_found', 'Not found')
+    return true
+  }
+  r.get('/admin/users', ({ req, res }) => {
+    if (maintainerDenied(req, res)) return
+    sendJson(res, accounts.adminListUsers())
+  })
+  r.get('/admin/tenants', ({ req, res }) => {
+    if (maintainerDenied(req, res)) return
+    sendJson(res, accounts.adminListTenants())
+  })
+  r.get('/admin/invites', ({ req, res }) => {
+    if (maintainerDenied(req, res)) return
+    sendJson(res, accounts.adminListInvites())
+  })
+  r.get('/admin/tokens', ({ req, res }) => {
+    if (maintainerDenied(req, res)) return
+    sendJson(res, accounts.adminListTokens())
+  })
+  // The instance-wide audit read — the ONE unscoped caller of listAuditLog
+  // (every tenant-facing read stays scoped); newest-first like the scoped face.
+  r.get('/admin/audit', ({ req, res, url }) => {
+    if (maintainerDenied(req, res)) return
+    sendList(res, url, store.listAuditLog(), (e) => e.id)
+  })
+  r.get('/admin/ops', ({ req, res }) => {
+    if (maintainerDenied(req, res)) return
+    sendJson(res, opsSnapshot())
+  })
+  // Disable an account's sign-in (v1 "delete" — no ownership cascade; the
+  // stale-credential fall-through in identity.ts does the lockout). Seeded
+  // demo accounts are code-owned and refuse with an honest 409.
+  r.post('/admin/users/:id/deactivate', ({ req, res, params }) => {
+    if (maintainerDenied(req, res)) return
+    const out = accounts.deactivateUser(params.id)
+    if (out === undefined) return sendError(res, 'not_found', `No user '${params.id}'`)
+    if (out === 'seeded') return sendError(res, 'conflict', 'Seeded demo accounts cannot be deactivated.')
+    store.accountsMutated()
+    sendJson(res, { ok: true })
+  })
+  // Revoke ANY user's bearer token (the per-user face is DELETE /auth/tokens/:id).
+  r.delete('/admin/tokens/:userId/:id', ({ req, res, params }) => {
+    if (maintainerDenied(req, res)) return
+    if (!accounts.revokeApiToken(params.userId, params.id)) {
+      return sendError(res, 'not_found', `No token '${params.id}' on user '${params.userId}'`)
+    }
+    store.accountsMutated()
+    sendJson(res, { ok: true })
+  })
+  // Revoke a pending org invite from the instance view (the org face is
+  // DELETE /orgs/:id/invites/:iid, owner-only; this one crosses orgs).
+  r.delete('/admin/invites/:id', ({ req, res, params }) => {
+    if (maintainerDenied(req, res)) return
+    const stored = accounts.orgInvites.find((i) => i.id === params.id)
+    const out = stored && accounts.revokeInvite(stored.orgId, params.id)
+    if (!out) return sendError(res, 'not_found', `No invitation '${params.id}'`)
+    if (out === 'closed') return sendError(res, 'conflict', 'This invitation was already resolved.')
+    store.accountsMutated()
+    sendJson(res, { ok: true })
   })
 
   // ── Native-runner registry ─────────────────────────────────────────────────

@@ -13,7 +13,7 @@ import { SECTION_SUBVIEWS } from '../src/lib/subviews.ts'
 test('every section with real sub-structure is in the registry; leaf sections are not', () => {
   assert.deepEqual(
     Object.keys(SECTION_SUBVIEWS).sort(),
-    ['agents', 'artifacts', 'contexts', 'models', 'projects', 'scheduled'],
+    ['admin', 'agents', 'artifacts', 'contexts', 'models', 'projects', 'scheduled'],
   )
   // Dispatch (a flat feed) and Customize (a settings stack) have no sub-nodes.
   assert.equal(SECTION_SUBVIEWS.dispatch, undefined)
@@ -30,6 +30,8 @@ test('each section’s child ids ARE its own switch keys (the body filters on th
   assert.deepEqual(SECTION_SUBVIEWS.projects.map((s) => s.id), ['mine', 'shared'])
   // Agents: its NON-default surfaces — the worker list is the section row, not a child.
   assert.deepEqual(SECTION_SUBVIEWS.agents.map((s) => s.id), ['work', 'prompts', 'commissions', 'discover', 'audit'])
+  // The maintainer console: its NON-default surfaces — Accounts is the section row.
+  assert.deepEqual(SECTION_SUBVIEWS.admin.map((s) => s.id), ['orgs', 'credentials', 'audit', 'ops'])
   for (const subs of Object.values(SECTION_SUBVIEWS)) {
     const ids = subs.map((s) => s.id)
     assert.equal(new Set(ids).size, ids.length, 'child ids unique per section')
@@ -52,9 +54,11 @@ test('the rail has one fold/unfold-all control that toggles the whole tree', () 
   // A single toggle whose label reflects the action either way.
   assert.match(sidebar, /aria-label=\{allExpanded \? 'Collapse all sections' : 'Expand all sections'\}/)
   assert.match(sidebar, /toggleAll/, 'a fold/unfold-all handler exists')
-  // "All expanded" is measured over the sections that actually HAVE children, and the
-  // toggle sets the whole set to none or all — not a per-section op.
-  assert.match(sidebar, /expandableIds\s*=\s*useMemo\(\(\)\s*=>\s*SECTION_ORDER\.filter/)
+  // "All expanded" is measured over the VISIBLE sections that actually HAVE children
+  // (the maintainer console's row is chrome-gated on the grant), and the toggle sets
+  // the whole set to none or all — not a per-section op.
+  assert.match(sidebar, /expandableIds\s*=\s*useMemo\(\(\)\s*=>\s*visibleSections\.filter/)
+  assert.match(sidebar, /SECTION_ORDER\.filter\(\(id\) => id !== 'admin' \|\| instanceAdmin\)/)
   assert.match(sidebar, /setExpanded\(allExpanded \? new Set\(\) : new Set\(expandableIds\)\)/)
 })
 

@@ -8,6 +8,7 @@ import { API_BASE, apiDelete, apiGet, apiPost, apiUrl } from './client.ts'
 import { keys, paths } from './keys.ts'
 import { switchAccount, refreshAccount, accountGeneration, type Account } from './account.ts'
 import type { AuthAccount, MyInvite, MyOrg, MyWork, OrgInviteRow, OrgMemberRow, Tenant as TenantT } from '../../contract/index.ts'
+import type { AdminInviteRow, AdminTenantRow, AdminTokenRow, AdminUserRow, OpsSummary } from '../../contract/index.ts'
 import type {
   Runner,
   Agent,
@@ -92,6 +93,71 @@ export function useAuthAccounts(enabled = true): QueryState<AuthAccount[]> {
  *  own acts live. Enabled only for a verified session (401 otherwise). */
 export function useApiTokens(enabled = true): QueryState<import('../types').ApiToken[]> {
   return useQuery(keys.apiTokens, () => apiGet<import('../types').ApiToken[]>(paths.authTokens), enabled)
+}
+
+/* ── The maintainer console (contract/admin.ts — instance administration) ──── */
+// All reads gate `enabled` on the identity's `instanceAdmin` grant, so a
+// non-maintainer never fires a request the server would 404 anyway. v1 has NO
+// admin SSE events on purpose (an ops console re-reads on its own acts + an
+// explicit refresh; no events.ts case exists because no key here is pushed).
+
+export function useAdminUsers(enabled: boolean): QueryState<AdminUserRow[]> {
+  return useQuery(keys.adminUsers, () => apiGet<AdminUserRow[]>(paths.adminUsers), enabled)
+}
+export function useAdminTenants(enabled: boolean): QueryState<AdminTenantRow[]> {
+  return useQuery(keys.adminTenants, () => apiGet<AdminTenantRow[]>(paths.adminTenants), enabled)
+}
+export function useAdminInvites(enabled: boolean): QueryState<AdminInviteRow[]> {
+  return useQuery(keys.adminInvites, () => apiGet<AdminInviteRow[]>(paths.adminInvites), enabled)
+}
+export function useAdminTokens(enabled: boolean): QueryState<AdminTokenRow[]> {
+  return useQuery(keys.adminTokens, () => apiGet<AdminTokenRow[]>(paths.adminTokens), enabled)
+}
+export function useAdminAudit(enabled: boolean): QueryState<AuditEntry[]> {
+  return useQuery(keys.adminAudit, () => apiGet<AuditEntry[]>(paths.adminAudit), enabled)
+}
+export function useAdminOps(enabled: boolean): QueryState<OpsSummary> {
+  return useQuery(keys.adminOps, () => apiGet<OpsSummary>(paths.adminOps), enabled)
+}
+
+/** Disable an account's sign-in (no ownership cascade — v1). Result-object like
+ *  every org mutation; the users list re-reads either way (the row changed, or
+ *  the failure told us our copy is stale). */
+export async function adminDeactivateUser(userId: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    await apiPost(paths.adminUserDeactivate(userId))
+    invalidate(keys.adminUsers)
+    invalidate(keys.adminTokens) // deactivation empties the user's token registry
+    return { ok: true }
+  } catch (err) {
+    invalidate(keys.adminUsers)
+    return { ok: false, message: err instanceof Error ? err.message : 'Failed to deactivate' }
+  }
+}
+
+/** Revoke ANY user's bearer token from the instance view. */
+export async function adminRevokeToken(userId: string, tokenId: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    await apiDelete(paths.adminTokenRevoke(userId, tokenId))
+    invalidate(keys.adminTokens)
+    invalidate(keys.adminUsers) // the owner's tokenCount changed
+    return { ok: true }
+  } catch (err) {
+    invalidate(keys.adminTokens)
+    return { ok: false, message: err instanceof Error ? err.message : 'Failed to revoke' }
+  }
+}
+
+/** Close a pending org invitation from the instance view. */
+export async function adminRevokeInvite(inviteId: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    await apiDelete(paths.adminInviteRevoke(inviteId))
+    invalidate(keys.adminInvites)
+    return { ok: true }
+  } catch (err) {
+    invalidate(keys.adminInvites)
+    return { ok: false, message: err instanceof Error ? err.message : 'Failed to revoke' }
+  }
 }
 
 /* ── Organizations (FWD-6 — namespaces with members, never worlds) ─────────── */

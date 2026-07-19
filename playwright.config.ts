@@ -63,6 +63,11 @@ export default defineConfig({
       // drive the sign-in flow explicitly where they test it; the gate's WALL
       // (401s + the anonymous principal) is locked by tests/auth-gate.test.ts.
       AUTH_GATE: 'off',
+      // The maintainer console (FWD-7): Ada is the allowlisted maintainer so
+      // e2e/admin.spec.ts can drive the grant-gated Maintain section. The grant
+      // lands only on VERIFIED resolutions, so the default (headerless) boot
+      // still shows no console — exactly what the spec asserts.
+      MAINTAINERS: 'user-ada',
     },
   },
 })

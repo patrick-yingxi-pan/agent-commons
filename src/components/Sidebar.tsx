@@ -37,7 +37,7 @@ import { ScheduledFilterMenu } from './ScheduledFilterMenu'
 import { RowMenu, projectMenuItems, type RowMenuItem } from './RowMenu'
 import { SECTION_META, SECTION_ORDER, SECTION_SUBVIEWS } from '../lib/sections'
 import { SIDEBAR_HOVER } from '../lib/sidebar'
-import { removeSchedule, runScheduleNow, toggleScheduleEnabled, useNotifications, useSchedules } from '../api'
+import { removeSchedule, runScheduleNow, toggleScheduleEnabled, useMe, useNotifications, useSchedules } from '../api'
 import { AccountChip } from './AccountMenu'
 import { useRelations } from '../controller/useRelations'
 import { runSessionId } from '../../contract/ids.ts'
@@ -178,10 +178,18 @@ export function Sidebar({
       return next
     })
 
+  // The maintainer console's rail row is CHROME gated on the identity's
+  // `instanceAdmin` grant (the server's 404 wall is the real gate) — everyone
+  // else sees the roster without it.
+  const instanceAdmin = useMe().data?.instanceAdmin === true
+  const visibleSections = useMemo(
+    () => SECTION_ORDER.filter((id) => id !== 'admin' || instanceAdmin),
+    [instanceAdmin],
+  )
   // Fold / unfold all — one toggle over the whole tree. "All expanded" means every
   // section that HAS children is open; the control then collapses everything (VSCode's
   // "Collapse All"); otherwise it expands every expandable section at once.
-  const expandableIds = useMemo(() => SECTION_ORDER.filter((id) => SECTION_SUBVIEWS[id]), [])
+  const expandableIds = useMemo(() => visibleSections.filter((id) => SECTION_SUBVIEWS[id]), [visibleSections])
   const allExpanded = expandableIds.every((id) => expanded.has(id))
   const toggleAll = () => {
     for (const id of expandableIds) setLayout(`treeOpen.${id}`, !allExpanded)
@@ -520,7 +528,7 @@ export function Sidebar({
           </PaneFoldHeader>
           {sectionsOpen && (
           <div className={resizable ? 'min-h-0 flex-1 overflow-y-auto px-2 pb-1' : 'px-2 pb-1'}>
-        {SECTION_ORDER.map((id) => {
+        {visibleSections.map((id) => {
           const { label, Icon, beta } = SECTION_META[id]
           const children = SECTION_SUBVIEWS[id]
           const isExpanded = expanded.has(id)

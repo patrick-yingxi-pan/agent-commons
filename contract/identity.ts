@@ -43,6 +43,13 @@ export interface Identity {
    *  in"; the auth gate and the account UI branch on it. Optional so a mock or
    *  an older server may omit it (the UI then treats the identity as unsigned). */
   via?: IdentityVia
+  /** True when this principal is an INSTANCE MAINTAINER (the `MAINTAINERS` env
+   *  allowlist) — a single boolean capability, not a role (PD11 forbids a
+   *  parallel RBAC engine). Stamped only on a verified resolution (`session`,
+   *  or the dev header seam in tests) — never on the anonymous default.
+   *  Absent = not a maintainer (INV-9 absence semantics); the UI hides the
+   *  Maintain section, the server's `/admin/*` wall answers 404 regardless. */
+  instanceAdmin?: boolean
 }
 
 /** The resolution path an `Identity` arrived by — see `Identity.via`. */
