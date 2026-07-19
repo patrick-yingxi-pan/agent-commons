@@ -133,8 +133,10 @@ in-page filter bar). A **Sections** header carries one **fold/unfold-all** toggl
 rail's lower body is an **accordion of foldable, resizable panes** — Sections, Scheduled,
 Recents. Each pane's header has a **fold caret** (symmetric across all three); folding
 collapses it to its header (persisted per pane). Open panes hold a **persisted, FIXED**
-height except the **bottom-most open one**, which **flexes** to fill — so folding never
-opens a gap (fold Recents → Scheduled fills; fold Scheduled too → Sections fills). A
+height except the **top-most open one**, which **flexes** to fill — Sections is the pane
+with the most rows, so it takes every spare pixel, and folding Scheduled/Recents drops
+their headers **downward** while handing the space to Sections (folding never opens a
+gap; fold Sections and Scheduled flexes instead). A
 divider moves only on drag — folding or a content change never moves it (**fixed unless
 manually adjusted**); heights **clamp at render, never in storage** (the rule the rail
 *width* follows, `useLayout`). A drag rewrites **only the dragged pane's** stored height,
@@ -142,8 +144,10 @@ computed from the OTHER panes' **effective** heights, so the clamp can't leak in
 untouched pane's stored value (a real bug an earlier sum-preserving model had). The pure
 allocation/drag math (`layoutPanes` / `dragPane`) lives in `src/lib/railPanes.ts`
 (dependency-free, node-tested); dividers are **in-flow gutters between panes** (never
-overlaying a pane's scroll content/scrollbar) reusing the ONE `ResizeHandle` primitive
-(now `top`/`bottom` orientation, with a persistent hairline on horizontals — form follows
+overlaying a pane's scroll content/scrollbar), each riding **above** the fixed pane it
+resizes (drag/arrow **up grows** it; the flex pane absorbs), reusing the ONE
+`ResizeHandle` primitive
+(`top`/`bottom` orientation, with a persistent hairline on horizontals — form follows
 function). Every `ResizeHandle` — rail width, panel width, pane gutters — is
 **keyboard-operable** (WCAG 2.1.1, invariant UI-11): a focusable, distinctly named
 separator whose axis arrows run the same start→move→end pipeline as a pointer drag,

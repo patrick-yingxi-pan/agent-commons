@@ -75,15 +75,17 @@ test('the rail body is an accordion of foldable, resizable panes with draggable 
   assert.match(sidebar, /setLayout\('railSectionsOpen'/)
   assert.match(sidebar, /setLayout\('railRecentsOpen'/)
   assert.match(sidebar, /setLayout\('schedOpen'/)
-  // Dividers are in-flow gutters (PaneDivider), gated on the pane's own layout.divider so
-  // a folded/flex pane has none; dropped entirely on the narrow tier (ADAPT-11).
+  // Dividers are in-flow gutters (PaneDivider) riding ABOVE the pane they resize, gated
+  // on the pane's own layout.divider so a folded/flex pane has none; dropped entirely on
+  // the narrow tier (ADAPT-11). Sections is the flex pane (top-most open), so it carries
+  // no stored height and no divider of its own.
   assert.match(sidebar, /<PaneDivider/, 'dividers are the in-flow gutter primitive')
-  assert.match(sidebar, /paneOf\('sections'\)\?\.divider/)
   assert.match(sidebar, /paneOf\('scheduled'\)\?\.divider/)
+  assert.match(sidebar, /paneOf\('recents'\)\?\.divider/)
   // Heights come from the accordion reducer; fixed heights persist only on drag.
   assert.match(sidebar, /layoutPanes/, 'pane heights come from the accordion reducer')
-  assert.match(sidebar, /setLayout\('railSectionsH'/)
   assert.match(sidebar, /setLayout\('railScheduledH'/)
+  assert.match(sidebar, /setLayout\('railRecentsH'/)
   // A too-short rail scrolls instead of spilling over the account chip: the resizable
   // stack keeps an overflow fallback and the flex pane floors at a pane-min (can't be
   // squeezed to 0px).

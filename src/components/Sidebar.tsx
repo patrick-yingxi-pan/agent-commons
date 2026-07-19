@@ -47,8 +47,8 @@ import {
   layoutPanes,
   paneMax,
   RAIL_PANE_MIN,
+  RAIL_RECENTS_DEFAULT,
   RAIL_SCHEDULED_DEFAULT,
-  RAIL_SECTIONS_DEFAULT,
   type PaneId,
   type PaneInput,
 } from '../lib/railPanes'
@@ -280,10 +280,12 @@ export function Sidebar({
 
   // ── Resizable, foldable rail body panes (ADAPT-13) ──────────────────────────
   // The rail body is an accordion: each pane (Sections / Scheduled / Recents) folds
-  // to its header, and open panes hold a persisted FIXED height except the bottom-most
-  // open one, which flexes to fill. A divider moves only on drag — folding or new
-  // content never does; heights clamp at render (layoutPanes), never in storage. The
-  // whole mechanism is gated on `resizable` (dropped on the narrow tier, ADAPT-11).
+  // to its header, and open panes hold a persisted FIXED height except the TOP-most
+  // open one, which flexes to fill — Sections is the pane with the most rows, so it
+  // gets the spare height, and folding Scheduled/Recents drops their headers toward
+  // the bottom, handing the space upward. A divider moves only on drag — folding or
+  // new content never does; heights clamp at render (layoutPanes), never in storage.
+  // The whole mechanism is gated on `resizable` (dropped on the narrow tier, ADAPT-11).
   const [sectionsOpen, setSectionsOpen] = useState<boolean>(() => getLayout('railSectionsOpen', true))
   const [recentsOpen, setRecentsOpen] = useState<boolean>(() => getLayout('railRecentsOpen', true))
   const toggleSectionsOpen = () =>
@@ -298,9 +300,9 @@ export function Sidebar({
     })
 
   const stackRef = useRef<HTMLDivElement>(null)
-  const sectionsPaneRef = useRef<HTMLElement>(null)
   const scheduledPaneRef = useRef<HTMLDivElement>(null)
-  const dragTopRef = useRef(0)
+  const recentsPaneRef = useRef<HTMLDivElement>(null)
+  const dragBottomRef = useRef(0)
   const [avail, setAvail] = useState(0)
   // Measure the stack synchronously before paint (no first-frame flash), then track
   // it live so window resize re-flows the flex pane while fixed panes stay put.
@@ -313,17 +315,17 @@ export function Sidebar({
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
-  const [sectionsH, setSectionsH] = useState<number>(() => getLayout('railSectionsH', RAIL_SECTIONS_DEFAULT))
   const [scheduledH, setScheduledH] = useState<number>(() => getLayout('railScheduledH', RAIL_SCHEDULED_DEFAULT))
-  const sectionsHRef = useRef(sectionsH)
-  sectionsHRef.current = sectionsH
+  const [recentsH, setRecentsH] = useState<number>(() => getLayout('railRecentsH', RAIL_RECENTS_DEFAULT))
   const scheduledHRef = useRef(scheduledH)
   scheduledHRef.current = scheduledH
+  const recentsHRef = useRef(recentsH)
+  recentsHRef.current = recentsH
 
   const paneInputs: PaneInput[] = [
-    { id: 'sections', present: true, open: sectionsOpen, height: sectionsH },
+    { id: 'sections', present: true, open: sectionsOpen, height: 0 },
     { id: 'scheduled', present: routines.length > 0, open: schedOpen, height: scheduledH },
-    { id: 'recents', present: true, open: recentsOpen, height: 0 },
+    { id: 'recents', present: true, open: recentsOpen, height: recentsH },
   ]
   const layout = layoutPanes(paneInputs, avail)
   const paneOf = (id: PaneId) => layout.find((p) => p.id === id)
@@ -341,29 +343,31 @@ export function Sidebar({
     return l?.flex ? 'relative flex min-h-[6rem] flex-1 flex-col' : 'relative flex min-h-0 shrink-0 flex-col'
   }
 
-  // Drag a pane's bottom divider → a new FIXED height for THAT pane only (the flex pane
-  // absorbs). Anchored on the effective layout, so the clamp can't leak into storage.
-  const startSectionsDrag = () => {
-    dragTopRef.current = sectionsPaneRef.current?.getBoundingClientRect().top ?? 0
-  }
+  // Drag a pane's TOP divider → a new FIXED height for THAT pane only (the flex pane
+  // above absorbs). The pane's bottom edge stays put (everything below it is fixed),
+  // so the drag anchors on it: height = bottom − cursor. Anchored on the effective
+  // layout, so the clamp can't leak into storage.
   const startScheduledDrag = () => {
-    dragTopRef.current = scheduledPaneRef.current?.getBoundingClientRect().top ?? 0
+    dragBottomRef.current = scheduledPaneRef.current?.getBoundingClientRect().bottom ?? 0
+  }
+  const startRecentsDrag = () => {
+    dragBottomRef.current = recentsPaneRef.current?.getBoundingClientRect().bottom ?? 0
   }
   // The move handlers refresh the persist ref THEMSELVES (not just at render): a
   // keyboard gesture runs move → end in one tick, before React re-renders, so an
   // at-render-only ref would persist one step stale (a reload snapped the pane back).
-  const moveSectionsDrag = (clientY: number) => {
-    const h = dragPane('sections', clientY - dragTopRef.current, paneInputs, avail)
-    sectionsHRef.current = h
-    setSectionsH(h)
-  }
   const moveScheduledDrag = (clientY: number) => {
-    const h = dragPane('scheduled', clientY - dragTopRef.current, paneInputs, avail)
+    const h = dragPane('scheduled', dragBottomRef.current - clientY, paneInputs, avail)
     scheduledHRef.current = h
     setScheduledH(h)
   }
-  const persistSectionsH = () => setLayout('railSectionsH', sectionsHRef.current)
+  const moveRecentsDrag = (clientY: number) => {
+    const h = dragPane('recents', dragBottomRef.current - clientY, paneInputs, avail)
+    recentsHRef.current = h
+    setRecentsH(h)
+  }
   const persistScheduledH = () => setLayout('railScheduledH', scheduledHRef.current)
+  const persistRecentsH = () => setLayout('railRecentsH', recentsHRef.current)
 
   // The project-membership menu items, shared by sessions and routines, built from
   // the relation op each entity files under.
@@ -496,10 +500,12 @@ export function Sidebar({
 
       {/* Rail body: an accordion of foldable, resizable panes — Sections, Scheduled,
           Recents (ADAPT-13). Each folds to its header; open panes hold a persisted FIXED
-          height except the bottom-most open one, which flexes to fill. A divider moves
-          only on drag (folding / new content never does); heights clamp at render, never
-          in storage. On the narrow tier (`resizable` false) the dividers drop and the
-          panes flow inside the scrolling drawer. */}
+          height except the top-most open one, which flexes to fill — Sections has the
+          most rows, so folding Scheduled/Recents drops their headers downward and hands
+          the space to it. A divider moves only on drag (folding / new content never
+          does); heights clamp at render, never in storage. On the narrow tier
+          (`resizable` false) the dividers drop and the panes flow inside the scrolling
+          drawer. */}
       <div
         ref={stackRef}
         className={
@@ -511,8 +517,8 @@ export function Sidebar({
         {/* ── Sections pane ── the disclosure tree. A labeled <nav> so the section rows
             carry the navigation role (e2e scopes to it). */}
         <nav
-          ref={sectionsPaneRef}
           aria-label="Sections"
+          data-rail-pane="sections"
           style={paneStyle('sections')}
           className={paneClass('sections')}
         >
@@ -562,24 +568,29 @@ export function Sidebar({
           </div>
           )}
         </nav>
-        {/* The divider is a SIBLING between panes (an in-flow gutter), not inside a pane —
-            so it never overlays a pane's scroll content / scrollbar. */}
-        {resizable && paneOf('sections')?.divider && (
-          <PaneDivider
-            label="Resize Sections pane"
-            value={paneOf('sections')!.height}
-            max={paneMax('sections', paneInputs, avail)}
-            onStart={startSectionsDrag}
-            onMove={moveSectionsDrag}
-            onEnd={persistSectionsH}
-          />
-        )}
-
         {/* ── Scheduled pane ── each row is a recurring routine; clicking opens its
-            latest run. Folds to its header (like every pane); resizable when open. */}
+            latest run. Folds to its header (like every pane); resizable when open. Its
+            divider sits ABOVE it — a SIBLING between panes (an in-flow gutter), not
+            inside a pane, so it never overlays scroll content / a scrollbar — and
+            dragging it up grows this pane while the flex Sections pane absorbs. */}
         {routines.length > 0 && (
           <>
-          <div ref={scheduledPaneRef} style={paneStyle('scheduled')} className={paneClass('scheduled')}>
+          {resizable && paneOf('scheduled')?.divider && (
+            <PaneDivider
+              label="Resize Scheduled pane"
+              value={paneOf('scheduled')!.height}
+              max={paneMax('scheduled', paneInputs, avail)}
+              onStart={startScheduledDrag}
+              onMove={moveScheduledDrag}
+              onEnd={persistScheduledH}
+            />
+          )}
+          <div
+            ref={scheduledPaneRef}
+            data-rail-pane="scheduled"
+            style={paneStyle('scheduled')}
+            className={paneClass('scheduled')}
+          >
             <PaneFoldHeader label="Scheduled" open={schedOpen} onToggle={toggleSched} suffix="routines">
               <ScheduledFilterMenu
                 filter={routineFilter}
@@ -640,22 +651,22 @@ export function Sidebar({
               </div>
             )}
           </div>
-          {resizable && paneOf('scheduled')?.divider && (
-            <PaneDivider
-              label="Resize Scheduled pane"
-              value={paneOf('scheduled')!.height}
-              max={paneMax('scheduled', paneInputs, avail)}
-              onStart={startScheduledDrag}
-              onMove={moveScheduledDrag}
-              onEnd={persistScheduledH}
-            />
-          )}
           </>
         )}
 
         {/* ── Recents pane ── one compact line per conversation. Folds to its header;
-            normally the flex pane, filling whatever height the dividers leave. */}
-        <div className={paneClass('recents')} style={paneStyle('recents')}>
+            a fixed-height pane at the bottom, its divider above it (like Scheduled). */}
+        {resizable && paneOf('recents')?.divider && (
+          <PaneDivider
+            label="Resize Recents pane"
+            value={paneOf('recents')!.height}
+            max={paneMax('recents', paneInputs, avail)}
+            onStart={startRecentsDrag}
+            onMove={moveRecentsDrag}
+            onEnd={persistRecentsH}
+          />
+        )}
+        <div ref={recentsPaneRef} data-rail-pane="recents" className={paneClass('recents')} style={paneStyle('recents')}>
           <PaneFoldHeader label="Recents" open={recentsOpen} onToggle={toggleRecentsOpen}>
             <SessionFilterMenu filter={filter} onChange={updateFilter} projects={projects} />
           </PaneFoldHeader>
@@ -766,7 +777,9 @@ function PaneFoldHeader({
 
 /** A pane divider: an in-flow gutter carrying the shared horizontal ResizeHandle, so it
  *  sits BETWEEN two panes — not overlaying either pane's scroll content or scrollbar —
- *  with a persistent, easy-to-spot hairline centered in it. */
+ *  with a persistent, easy-to-spot hairline centered in it. It rides ABOVE the pane it
+ *  resizes (side="top": dragging / arrowing up grows that pane; the flex pane above —
+ *  normally Sections — absorbs). */
 function PaneDivider({
   label,
   value,
@@ -788,7 +801,7 @@ function PaneDivider({
   return (
     <div className="relative h-2 shrink-0">
       <ResizeHandle
-        side="bottom"
+        side="top"
         label={label}
         value={value}
         min={RAIL_PANE_MIN}

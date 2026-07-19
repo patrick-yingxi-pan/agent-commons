@@ -28,9 +28,9 @@ async function settled(page: Page, target: Locator, dim: 'width' | 'height'): Pr
 }
 
 test('arrow keys resize the rail and a rail pane through the focused separator, and the result persists', async ({ page }) => {
-  // Tall enough that the pane accordion has headroom above its clamp: at 800px the
-  // Sections pane's ceiling (avail − the other panes' minimums) sits ~11px above its
-  // default, and the coarse step would read as "keyboard broken" when it's the clamp.
+  // Tall enough that the pane accordion has headroom above its clamp — a short rail
+  // would pin the Recents pane's ceiling near its default and the coarse step would
+  // read as "keyboard broken" when it's the clamp.
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto('/')
 
@@ -51,13 +51,15 @@ test('arrow keys resize the rail and a rail pane through the focused separator, 
   expect(w3, 'the step inverts').toBeLessThanOrEqual(w2 - 12)
 
   // ── Horizontal separator (pane gutter): Up/Down arrows step it, Shift coarse. ──
-  const sections = page.locator('nav[aria-label="Sections"]')
-  const paneHandle = page.getByRole('separator', { name: 'Resize Sections pane' })
+  // The gutter rides ABOVE the fixed pane it resizes (Recents — always present;
+  // Sections is the flex pane and has no gutter), so ArrowUp GROWS the pane.
+  const recents = page.locator('[data-rail-pane="recents"]')
+  const paneHandle = page.getByRole('separator', { name: 'Resize Recents pane' })
   await expect(paneHandle).toBeVisible()
-  const h0 = await settled(page, sections, 'height')
+  const h0 = await settled(page, recents, 'height')
   await paneHandle.focus()
-  await page.keyboard.press('Shift+ArrowDown')
-  const h1 = await settled(page, sections, 'height')
+  await page.keyboard.press('Shift+ArrowUp')
+  const h1 = await settled(page, recents, 'height')
   expect(h1, 'Shift steps coarse (64px ± the half-gutter bias)').toBeGreaterThanOrEqual(h0 + 48)
 
   // ── The keyboard gesture persisted what it rendered (not one step stale). ──
@@ -66,11 +68,11 @@ test('arrow keys resize the rail and a rail pane through the focused separator, 
   const stored = await page.evaluate(async () => {
     const me = (await (await fetch('/api/v1/me')).json()) as { user: { id: string } }
     const raw = localStorage.getItem(`claude-ui.layout.v1.${me.user.id}`)
-    const layout = raw ? (JSON.parse(raw) as { leftW?: number; railSectionsH?: number }) : {}
-    return { leftW: layout.leftW, railSectionsH: layout.railSectionsH }
+    const layout = raw ? (JSON.parse(raw) as { leftW?: number; railRecentsH?: number }) : {}
+    return { leftW: layout.leftW, railRecentsH: layout.railRecentsH }
   })
   expect(Math.abs((stored.leftW ?? 0) - w3), 'stored rail width matches the rendered one').toBeLessThanOrEqual(1)
-  expect(Math.abs((stored.railSectionsH ?? 0) - h1), 'stored pane height matches the rendered one').toBeLessThanOrEqual(1)
+  expect(Math.abs((stored.railRecentsH ?? 0) - h1), 'stored pane height matches the rendered one').toBeLessThanOrEqual(1)
 })
 
 test('the overlay panel separator takes RAPID keyboard steps, announces its value, and persists', async ({ page }) => {

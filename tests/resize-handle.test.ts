@@ -77,16 +77,17 @@ test('every call site names its divider, and no two names collide', () => {
   // (two separators reading the same) fails loudly.
   const labels = [...components.matchAll(/label="(Resize [^"]+)"/g)].map((m) => m[1])
   assert.deepEqual(labels.sort(), [
+    'Resize Recents pane',
     'Resize Scheduled pane',
-    'Resize Sections pane',
     'Resize panel',
     'Resize sidebar',
   ])
   assert.equal(new Set(labels).size, labels.length, 'separator names are pairwise distinct')
   // The pane gutter forwards its label into the shared handle rather than
-  // hardcoding one (the funnel stays the single naming door).
+  // hardcoding one (the funnel stays the single naming door). side="top": the gutter
+  // rides ABOVE the pane it resizes, so dragging / arrowing up grows that pane.
   const sidebar = read(join(ROOT, 'src', 'components', 'Sidebar.tsx'))
-  assert.match(sidebar, /<ResizeHandle\s+side="bottom"\s+label=\{label\}/)
+  assert.match(sidebar, /<ResizeHandle\s+side="top"\s+label=\{label\}/)
   // The universal split's pane dividers name themselves per split-node PATH (a
   // template label) — pairwise distinct by construction, so they satisfy the same
   // no-collision rule the static names above pin. (The old right-frame's "Resize
@@ -104,10 +105,10 @@ test('a gesture persists the value it just produced — the move handler refresh
   // AND its onEnd must persist THE REF, not the render-stale state closure (an
   // innocuous-looking "read state instead of ref" cleanup reintroduces the bug).
   const sidebar = stripComments(read(join(ROOT, 'src', 'components', 'Sidebar.tsx')))
-  assert.match(sidebar, /sectionsHRef\.current = h\s*\n\s*setSectionsH\(h\)/)
   assert.match(sidebar, /scheduledHRef\.current = h\s*\n\s*setScheduledH\(h\)/)
-  assert.match(sidebar, /setLayout\('railSectionsH', sectionsHRef\.current\)/)
+  assert.match(sidebar, /recentsHRef\.current = h\s*\n\s*setRecentsH\(h\)/)
   assert.match(sidebar, /setLayout\('railScheduledH', scheduledHRef\.current\)/)
+  assert.match(sidebar, /setLayout\('railRecentsH', recentsHRef\.current\)/)
   const layoutHook = stripComments(read(join(ROOT, 'src', 'controller', 'useLayout.ts')))
   assert.match(layoutHook, /leftWRef\.current = w\s*\n\s*setLeftW\(w\)/)
   assert.match(layoutHook, /setLayout\('leftW', leftWRef\.current\)/)
@@ -122,8 +123,8 @@ test('each divider announces the same range its clamp enforces (no drifting boun
   // EFFECTIVE height + the same paneMax ceiling dragPane clamps to.
   const sidebar = stripComments(read(join(ROOT, 'src', 'components', 'Sidebar.tsx')))
   assert.match(sidebar, /value=\{railW\}\s*\n\s*min=\{LEFT_MIN\}\s*\n\s*max=\{LEFT_MAX\}/)
-  assert.match(sidebar, /value=\{paneOf\('sections'\)!\.height\}\s*\n\s*max=\{paneMax\('sections', paneInputs, avail\)\}/)
   assert.match(sidebar, /value=\{paneOf\('scheduled'\)!\.height\}\s*\n\s*max=\{paneMax\('scheduled', paneInputs, avail\)\}/)
+  assert.match(sidebar, /value=\{paneOf\('recents'\)!\.height\}\s*\n\s*max=\{paneMax\('recents', paneInputs, avail\)\}/)
   assert.match(sidebar, /min=\{RAIL_PANE_MIN\}/, 'the gutter floor is the pane min')
   const panel = stripComments(read(join(ROOT, 'src', 'components', 'PanelShell.tsx')))
   assert.match(panel, /value=\{width\}\s*\n\s*min=\{PANEL_MIN\}\s*\n\s*max=\{PANEL_MAX\}/)
