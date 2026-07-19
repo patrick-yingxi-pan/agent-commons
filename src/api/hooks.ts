@@ -86,6 +86,14 @@ export function useAuthAccounts(enabled = true): QueryState<AuthAccount[]> {
   return useQuery(keys.authAccounts, () => apiGet<AuthAccount[]>(paths.authAccounts), enabled)
 }
 
+/** The signed-in user's minted bearer-token registry rows (PORT-9) — the MCP
+ *  access card's revocation list. Metadata only (the value shows once, at mint);
+ *  the mint/revoke commands invalidate this key, so the list tracks the card's
+ *  own acts live. Enabled only for a verified session (401 otherwise). */
+export function useApiTokens(enabled = true): QueryState<import('../types').ApiToken[]> {
+  return useQuery(keys.apiTokens, () => apiGet<import('../types').ApiToken[]>(paths.authTokens), enabled)
+}
+
 /* ── Organizations (FWD-6 — namespaces with members, never worlds) ─────────── */
 
 /** The caller's org SEATS (`GET /me/orgs`) — the chip menu's Organizations doors

@@ -126,7 +126,11 @@ export function resolveIdentity(backend: Backend, headers?: Headers): Identity {
   const claims =
     verifySession(parseCookies(header(headers, 'cookie'))[SESSION_COOKIE]) ??
     verifySession(bearerSessionToken(headers))
-  if (claims) {
+  // A jti-carrying token (a registry-backed bearer mint) is live only while its
+  // registry row exists — REVOCATION: the signature still verifies, but a
+  // revoked row makes the credential fall through as if absent (never to a
+  // guess), same as a deleted user. Cookie sessions carry no jti.
+  if (claims && (!claims.jti || accounts.apiTokenLive(claims.userId, claims.jti))) {
     // STRICT: a verified credential must name a real user + membership. A stale
     // cookie (user deleted, membership revoked) falls through as if absent.
     const resolved = accounts.identityFor(claims.userId, claims.tenantId)

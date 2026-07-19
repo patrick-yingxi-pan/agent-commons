@@ -22,7 +22,7 @@
 import type { ToolActivity, ToolCardFamily } from '../../contract/index.ts'
 import { API_BASE_PATH } from '../../contract/index.ts'
 import type { ApiOperation } from '../apiSurface.ts'
-import { pathFor } from '../apiSurface.ts'
+import { API_BODY_EXAMPLES, pathFor } from '../apiSurface.ts'
 import type { InnerResponse } from '../http/dispatch.ts'
 
 export const API_TOOL_PREFIX = 'api__'
@@ -57,6 +57,7 @@ export const MODEL_API_EXCLUDED: ReadonlyMap<string, string> = new Map([
   ['POST /auth/signup', 'account creation is the user\'s own act'],
   ['POST /auth/login', 'credential entry is the user\'s own act — a model never handles a password'],
   ['POST /auth/token', 'minting a bearer credential — credential admin stays a direct user act'],
+  ['DELETE /auth/tokens/:id', 'revoking a bearer credential — credential admin stays a direct user act (the metadata LIST stays readable: the model may read what its user may read)'],
   ['POST /orgs', 'founding an organization is an identity-plane act'],
   ['POST /a2a/peers', 'minting a verified peer credential — a model-proposed credential is the confused-deputy shape'],
   ['DELETE /a2a/peers/:id', 'revoking a peer credential — credential admin stays a direct user act'],
@@ -130,7 +131,14 @@ export function deriveApiTools(catalog: ApiOperation[]): DerivedApiTools {
     for (const p of op.params) properties[p] = { type: 'string', description: `Path parameter :${p} (a concrete id).` }
     properties.query = { type: 'object', description: 'Optional query-string parameters.', additionalProperties: { type: ['string', 'number', 'boolean'] } }
     if (op.method !== 'GET') {
-      properties.body = { type: 'object', description: 'JSON request body — shapes follow the HTTP contract.' }
+      const example = API_BODY_EXAMPLES.get(`${op.method} ${op.pattern}`)
+      properties.body = {
+        type: 'object',
+        description: 'JSON request body — shapes follow the HTTP contract.',
+        // The shared curated example (apiSurface.ts) — same payload the MCP
+        // door surfaces, so neither door's model guesses shapes off 400s.
+        ...(example !== undefined ? { examples: [example] } : {}),
+      }
     }
     const description =
       op.method === 'GET'

@@ -617,9 +617,25 @@ export async function resolveToolActivity(
 /** Mint a bearer credential for the current verified session — the MCP connect
  *  panel's one click (access-parity INV-11: the same signed token the cookie
  *  carries, delivered for a machine caller to present as `Authorization:
- *  Bearer`). Shown once by the caller; nothing is cached here. */
-export async function mintApiToken(): Promise<import('../types').BearerSession> {
-  return apiPost<import('../types').BearerSession>(paths.authToken, {})
+ *  Bearer`). Shown once by the caller; the REGISTRY row (metadata) is what the
+ *  token list shows, so that key refreshes. */
+export async function mintApiToken(label?: string): Promise<import('../types').BearerSession> {
+  const minted = await apiPost<import('../types').BearerSession>(paths.authToken, label ? { label } : {})
+  invalidate(keys.apiTokens)
+  return minted
+}
+
+/** Revoke ONE minted token by registry id (`DELETE /auth/tokens/:id`) — the row
+ *  is the credential's life: the token dies immediately, signature and all.
+ *  Invalidates even on failure: a 404 means the row is ALREADY gone (revoked
+ *  elsewhere, or cap-evicted), so the refetch clears the stale row from the
+ *  list instead of leaving a dead entry with a no-op Revoke button. */
+export async function revokeApiToken(id: string): Promise<void> {
+  try {
+    await apiDelete<{ ok: boolean }>(paths.authTokenRevoke(id))
+  } finally {
+    invalidate(keys.apiTokens)
+  }
 }
 
 /** Compact a session's context (P5 / BROKER-EXP-3) — server-owned; the backend archives

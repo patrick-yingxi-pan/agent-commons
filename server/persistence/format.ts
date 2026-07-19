@@ -11,6 +11,7 @@
 import type {
   Agent,
   AgentChangeProposal,
+  ApiToken,
   A2aPeer,
   AppNotification,
   AuditEntry,
@@ -166,6 +167,10 @@ export interface PersistedState {
   accountUsers?: [string, AccountUser][]
   accountTenants?: [string, AccountTenant][]
   memberships?: Membership[]
+  /** Minted bearer-token registry rows (the revocation authority — contract
+   *  `ApiToken`), keyed by userId. Additive-optional like every account slice;
+   *  revocation must survive a restart, so the rows persist with the accounts. */
+  apiTokens?: [string, ApiToken[]][]
   /** Org invitations (FWD-6 O-D3) — email-keyed, existence-hidden; the pending
    *  ones are what an invitee's `GET /me/invites` resolves lazily. Additive-
    *  optional like every account slice. */
@@ -232,6 +237,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   accountUsers: 'mapEntries',
   accountTenants: 'mapEntries',
   memberships: 'array',
+  apiTokens: 'mapEntries',
   orgInvites: 'array',
   seq: 'singleton',
 }

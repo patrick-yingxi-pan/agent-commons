@@ -81,6 +81,56 @@ test('POST /auth/token mints a bearer for the CURRENT verified session only (the
   assert.equal(me.json.via, 'session', 'the minted token IS the session credential')
 })
 
+test('every bearer mint is registry-backed: tokenId in the response, metadata (never the value) in GET /auth/tokens', async () => {
+  const session = await login({ email: 'ada@acme.example', password: 'ada-demo-password', transport: 'bearer' })
+  const auth = { authorization: `Bearer ${session.json.token}` }
+  assert.ok(session.json.tokenId, 'a bearer login mints a registry row')
+  const minted = await call('POST', '/auth/token', { label: 'laptop MCP' }, auth)
+  assert.ok(minted.json.tokenId)
+  const list = await call('GET', '/auth/tokens', undefined, auth)
+  assert.equal(list.status, 200)
+  const row = list.json.find((r: { id: string }) => r.id === minted.json.tokenId)
+  assert.ok(row, 'the minted token is listed')
+  assert.equal(row.label, 'laptop MCP')
+  assert.ok(row.createdAt > 0)
+  assert.ok(!JSON.stringify(list.json).includes(minted.json.token), 'the token VALUE never appears in the registry read')
+  // The registry is session-verified like the mint; the seam and anonymity are refused.
+  assert.equal((await call('GET', '/auth/tokens')).status, 401)
+  assert.equal((await call('GET', '/auth/tokens', undefined, { 'x-user-id': 'user-ada', 'x-tenant-id': 'tenant-acme' })).status, 401)
+})
+
+test('DELETE /auth/tokens/:id revokes: the token dies immediately even though its signature still verifies', async () => {
+  const session = await login({ email: 'ada@acme.example', password: 'ada-demo-password', transport: 'bearer' })
+  const auth = { authorization: `Bearer ${session.json.token}` }
+  const minted = await call('POST', '/auth/token', { label: 'to revoke' }, auth)
+  const victim = { authorization: `Bearer ${minted.json.token}` }
+  assert.equal((await call('GET', '/me', undefined, victim)).json.via, 'session', 'live before revocation')
+  const revoked = await call('DELETE', `/auth/tokens/${minted.json.tokenId}`, undefined, auth)
+  assert.equal(revoked.status, 200)
+  // The signature still verifies — the REGISTRY is the authority now.
+  const after = await call('GET', '/me', undefined, victim)
+  assert.notEqual(after.json.via, 'session', 'a revoked token resolves as if absent — never to a guess')
+  // Gated, a revoked token meets the 401 wall like any anonymous caller.
+  await gated(async () => {
+    assert.equal((await call('GET', '/sessions', undefined, victim)).status, 401)
+  })
+  // Unknown id / a foreign user's row: an honest 404 (no cross-account revocation).
+  assert.equal((await call('DELETE', '/auth/tokens/no-such-token', undefined, auth)).status, 404)
+  const grace = await login({ email: 'grace@acme.example', password: 'grace-demo-password', transport: 'bearer' })
+  const graceMint = await call('POST', '/auth/token', {}, { authorization: `Bearer ${grace.json.token}` })
+  assert.equal((await call('DELETE', `/auth/tokens/${graceMint.json.tokenId}`, undefined, auth)).status, 404, "another account's row is not yours to revoke")
+})
+
+test('revoking one token leaves the others standing (row-level, not account-level)', async () => {
+  const session = await login({ email: 'ada@acme.example', password: 'ada-demo-password', transport: 'bearer' })
+  const auth = { authorization: `Bearer ${session.json.token}` }
+  const a = await call('POST', '/auth/token', { label: 'keep' }, auth)
+  const b = await call('POST', '/auth/token', { label: 'kill' }, auth)
+  await call('DELETE', `/auth/tokens/${b.json.tokenId}`, undefined, auth)
+  assert.equal((await call('GET', '/me', undefined, { authorization: `Bearer ${a.json.token}` })).json.via, 'session', 'the kept token still resolves')
+  assert.notEqual((await call('GET', '/me', undefined, { authorization: `Bearer ${b.json.token}` })).json.via, 'session')
+})
+
 test('absent transport keeps the cookie flow byte-identical (INV-9: absence = cookie)', async () => {
   const r = await login({ email: 'ada@acme.example', password: 'ada-demo-password' })
   assert.equal(r.status, 200)

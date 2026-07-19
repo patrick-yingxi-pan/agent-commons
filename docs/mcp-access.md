@@ -83,8 +83,36 @@ The endpoint is served at the conventional server root **`/mcp`** and at
 per POST (`initialize`, `ping`, `tools/*`, `resources/*`, `prompts/*`).
 
 **The one-click path:** the Contexts page's **"This workspace is an MCP
-server"** panel shows the endpoint and mints an access token for the
-signed-in user (`POST /auth/token`, strictly session-verified; shown once).
+server"** panel shows the endpoint, mints an (optionally labeled) access
+token for the signed-in user (`POST /auth/token`, strictly session-verified;
+shown once), and offers a **copy-ready `mcpServers` JSON block** with the
+endpoint and token wired in — the generic shape MCP clients accept (the UI
+deliberately prescribes no harness-specific install command; that design
+lesson is locked by `tests/connector-serve.test.ts`).
+
+**Token lifecycle:** every bearer mint is **registry-backed** (`jti` claim →
+an `ApiToken` row, `server/accounts.ts`): `GET /auth/tokens` lists your rows
+(metadata only — the value shows once), `DELETE /auth/tokens/:id` **revokes**
+— the registry, not the signature, keeps a token alive, so revocation is
+immediate. The panel lists your active tokens with one-click revoke. Rows are
+capped per user (oldest evicted = revoked); rows persist, so revocation
+survives a restart.
+
+**The core toolset:** connecting with **`?toolset=core`** on the endpoint URL
+narrows `tools/list` to a curated ~25-tool everyday subset (sessions +
+messages, projects/artifacts, schedules, search/usage/notifications) so an AI
+client's tool context stays small — strictly a presentation choice:
+`tools/call` accepts the **full** catalog on either URL (capability and
+policy never vary by toolset; the wall is auth, not the list).
+
+**Self-describing tools:** every tool carries mechanical **annotations**
+(`readOnlyHint` ⇔ GET, `destructiveHint` ⇔ DELETE, `openWorldHint: false`),
+and the common mutations carry a **curated body example** in their input
+schema (`properties.body.examples`, from `API_BODY_EXAMPLES` in
+`server/apiSurface.ts` — shared with the in-app leg's generated tools), so a
+model sees one valid payload instead of guessing shapes off refusals. The
+routes stay the validation authority; a malformed body is refused, never
+guessed at (INV-9).
 
 **Sessions and live push:** `initialize` returns an `Mcp-Session-Id` header
 (POSTs work without it — it's only required where state lives). `GET /mcp`
@@ -134,3 +162,6 @@ Tool results are the JSON `{status, body}` of the underlying HTTP response.
 | `transport: 'bearer'` minting | `server/routes/index.ts` (`mintSession`), `contract/api.ts` (`SessionTransport`, `BearerSession`) | `tests/auth-bearer.test.ts` |
 | Gate + rate-limit postures for `/mcp` | `server/routes/index.ts` | `tests/mcp-parity.test.ts` |
 | The root mount | `server/index.ts` | in-app (curl the running server) |
+| The core toolset + tool annotations + body examples | `server/mcp.ts` (`MCP_CORE_TOOLS`), `server/apiSurface.ts` (`API_BODY_EXAMPLES`) | `tests/mcp.test.ts` |
+| The token registry (mint / list / revoke) | `server/accounts.ts`, `server/routes/index.ts` (`/auth/token`, `/auth/tokens`), `server/identity.ts` (jti check) | `tests/auth-bearer.test.ts` |
+| The connect panel (mint, revoke, client snippets) | `src/components/SectionView.tsx` (`McpAccessCard`) | in-app (verified in preview) |

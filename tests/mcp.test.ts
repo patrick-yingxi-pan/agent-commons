@@ -65,6 +65,135 @@ test('tools/list: generated from the route table, with path params as required s
   assert.ok(!byName.has('post_mcp'), 'the endpoint does not expose itself')
 })
 
+test('tool annotations derive mechanically from the operation shape (read-only / destructive / closed-world)', async () => {
+  const r = await rpc('tools/list')
+  const byName = new Map<string, any>(r.json.result.tools.map((t: any) => [t.name, t]))
+  const read = byName.get('get_usage').annotations
+  assert.equal(read.readOnlyHint, true)
+  assert.equal(read.destructiveHint, false)
+  const del = byName.get('delete_sessions_by_id').annotations
+  assert.equal(del.readOnlyHint, false)
+  assert.equal(del.destructiveHint, true)
+  assert.equal(del.idempotentHint, true)
+  const post = byName.get('post_sessions').annotations
+  assert.equal(post.destructiveHint, false, 'a create is not destructive (the MCP default would say it is)')
+  assert.equal(post.idempotentHint, false)
+  for (const t of r.json.result.tools) {
+    assert.equal(t.annotations.openWorldHint, false, `${t.name}: every tool acts on this workspace only`)
+    assert.equal(t.annotations.readOnlyHint, t.name.startsWith('get_'), `${t.name}: readOnly ⇔ GET, mechanically`)
+  }
+})
+
+test('the CORE toolset: ?toolset=core narrows the LIST, never the callable surface (presentation, not policy)', async () => {
+  const { MCP_CORE_TOOLS } = await import('../server/mcp.ts')
+  const full = await rpc('tools/list')
+  const fullNames = new Set<string>(full.json.result.tools.map((t: any) => t.name))
+  for (const name of MCP_CORE_TOOLS) {
+    assert.ok(fullNames.has(name), `core name '${name}' exists in the generated catalog (no hand-invented tools)`)
+  }
+  const core = await call('POST', '/mcp?toolset=core', { jsonrpc: '2.0', id: ++seq, method: 'tools/list' })
+  const coreNames = core.json.result.tools.map((t: any) => t.name).sort()
+  assert.deepEqual(coreNames, [...MCP_CORE_TOOLS].sort(), 'the core list is exactly the curated subset')
+  assert.ok(coreNames.length < 30, `the core surface stays small (${coreNames.length} tools)`)
+  // Capability parity: a NON-core tool still calls fine through the core URL.
+  assert.ok(!MCP_CORE_TOOLS.includes('get_audit'))
+  const r = await call('POST', '/mcp?toolset=core', {
+    jsonrpc: '2.0',
+    id: ++seq,
+    method: 'tools/call',
+    params: { name: 'get_audit', arguments: {} },
+  })
+  const out = JSON.parse(r.json.result.content[0].text)
+  assert.equal(out.status, 200, 'tools/call ignores the toolset — the wall is auth, not the list')
+})
+
+test('curated body examples: every key is a real mutation route, the spine is covered, and each example passes its own route\'s validation', async () => {
+  const { API_BODY_EXAMPLES } = await import('../server/apiSurface.ts')
+  const { buildRouter } = await import('../server/routes/index.ts')
+  const { catalogOf } = await import('../server/apiSurface.ts')
+  const routes = new Map(catalogOf(buildRouter()).map((op) => [`${op.method} ${op.pattern}`, op]))
+  for (const key of API_BODY_EXAMPLES.keys()) {
+    const op = routes.get(key)
+    assert.ok(op, `example key names a real route: ${key}`)
+    assert.notEqual(op!.method, 'GET', `examples are for mutations only: ${key}`)
+  }
+  // The conversational spine is self-describing.
+  for (const key of ['POST /sessions', 'POST /sessions/:id/messages', 'PATCH /sessions/:id']) {
+    assert.ok(API_BODY_EXAMPLES.has(key), `${key} carries an example`)
+  }
+  // …and each example rides the tool schema.
+  const list = await rpc('tools/list')
+  const byName = new Map<string, any>(list.json.result.tools.map((t: any) => [t.name, t]))
+  for (const [key, example] of API_BODY_EXAMPLES) {
+    const op = routes.get(key)!
+    const def = byName.get(op.name)
+    if (def) assert.deepEqual(def.inputSchema.properties.body.examples, [example], `${op.name} surfaces its example`)
+  }
+
+  // Each example must be accepted on its route's SUCCESS path — real ids, a real
+  // credential, expecting 2xx. (An earlier form asserted only `not 400` against
+  // placeholder ids, which a 401/404 short-circuit satisfies for ANY body — a
+  // drifted example would have kept passing. This form fails on drift.)
+  const seam = { 'x-user-id': 'user-ada', 'x-tenant-id': 'tenant-acme' }
+  const ex = (key: string) => ({ body: API_BODY_EXAMPLES.get(key)! }) as Record<string, unknown>
+
+  // The uniform-refusal exception: the login example deliberately carries a
+  // placeholder password ('…' — an example must not teach a real credential),
+  // so its success is the route CONSUMING the shape and answering the single
+  // uniform 401 (never a 400/500 — shape trouble would surface as either).
+  const login = await toolCall('post_auth_login', ex('POST /auth/login'))
+  assert.equal(login.status, 401, 'the login example reaches credential verification (shape accepted)')
+
+  // A real bearer session for the session-verified mint.
+  const signIn = await toolCall('post_auth_login', {
+    body: { email: 'ada@acme.example', password: 'ada-demo-password', transport: 'bearer' },
+  })
+  const auth = { authorization: `Bearer ${signIn.body.token}` }
+  assert.equal((await toolCall('post_auth_token', ex('POST /auth/token'), auth)).status, 200, 'POST /auth/token example mints')
+
+  const created = await toolCall('post_sessions', ex('POST /sessions'), seam)
+  assert.equal(created.status, 200, 'POST /sessions example creates')
+  const sid = created.body.id
+  assert.equal(
+    (await toolCall('post_sessions_by_id_messages', { id: sid, ...ex('POST /sessions/:id/messages') }, seam)).status,
+    200,
+    'POST /sessions/:id/messages example sends',
+  )
+  assert.equal(
+    (await toolCall('patch_sessions_by_id', { id: sid, ...ex('PATCH /sessions/:id') }, seam)).status,
+    200,
+    'PATCH /sessions/:id example applies',
+  )
+
+  const contexts = await toolCall('get_saved_contexts', {}, seam)
+  const ctxId = contexts.body.contexts[0].id
+  assert.equal(
+    (await toolCall('patch_saved_contexts_by_id', { id: ctxId, ...ex('PATCH /saved-contexts/:id') }, seam)).status,
+    200,
+    'PATCH /saved-contexts/:id example applies',
+  )
+
+  const newSchedule = await toolCall('post_schedules', ex('POST /schedules'), seam)
+  assert.equal(newSchedule.status, 200, 'POST /schedules example creates')
+  assert.equal(
+    (await toolCall('patch_schedules_by_id', { id: newSchedule.body.id, ...ex('PATCH /schedules/:id') }, seam)).status,
+    200,
+    'PATCH /schedules/:id example applies',
+  )
+  assert.equal((await toolCall('post_notifications_read', ex('POST /notifications/read'), seam)).status, 200, 'POST /notifications/read example applies')
+
+  // The coverage ratchet: a NEW example key must be added to the success-path
+  // drive above — this count pins the two lists together.
+  assert.equal(API_BODY_EXAMPLES.size, 9, 'every example key is driven through its success path above (update both together)')
+})
+
+test('a malformed schedule seed is refused with a descriptive 400, not a crash (INV-9 — the shape the examples teach is guarded)', async () => {
+  const seam = { 'x-user-id': 'user-ada', 'x-tenant-id': 'tenant-acme' }
+  const bad = await toolCall('post_schedules', { body: { seed: { name: 42 } } }, seam)
+  assert.equal(bad.status, 400, 'a drifted seed meets a refusal, never a 500')
+  assert.match(JSON.stringify(bad.body), /seed needs/i)
+})
+
 test('tools/call: a create → read round-trip through the real routes', async () => {
   const created = await toolCall('post_sessions', { body: { firstMessage: 'Born over MCP' } })
   assert.equal(created.isError, false)

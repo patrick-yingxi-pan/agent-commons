@@ -50,6 +50,46 @@ export function catalogOf(router: Router): ApiOperation[] {
   }))
 }
 
+/** Curated request-body EXAMPLES for the common mutations, keyed `"METHOD
+ *  /pattern"`. The body types live in `contract/*.ts`, which a runtime tool
+ *  schema can't reflect — so the generated tools of BOTH non-HTTP doors surface
+ *  these in their input schemas, and a model sees one valid payload instead of
+ *  guessing shapes off 400s. Presentation only: the routes remain the
+ *  validation authority (an example can never widen capability), and a
+ *  malformed body is refused, never guessed at (INV-9). Keys are locked
+ *  against the real route table by `tests/mcp.test.ts`, and each example must
+ *  pass its own route's validation on the SUCCESS path — not merely dodge a
+ *  400 behind an earlier 401/404 (the vacuous form that test replaced). */
+export const API_BODY_EXAMPLES: ReadonlyMap<string, unknown> = new Map<string, unknown>([
+  ['POST /auth/login', { email: 'ada@acme.example', password: '…', transport: 'bearer' }],
+  ['POST /auth/token', { label: 'my MCP client' }],
+  ['POST /sessions', { firstMessage: 'Draft a launch plan for the insights dashboard' }],
+  ['POST /sessions/:id/messages', { text: 'Summarize what changed in this workspace since yesterday.' }],
+  ['PATCH /sessions/:id', { title: 'Launch planning', status: 'archived' }],
+  ['PATCH /saved-contexts/:id', { status: 'connected' }],
+  ['PATCH /schedules/:id', { enabled: false }],
+  [
+    'POST /schedules',
+    {
+      seed: {
+        name: 'Daily digest',
+        cadence: 'Daily · 9:00',
+        next: 'Tomorrow 9:00',
+        enabled: true,
+        lastStatus: 'pending',
+        subtitle: 'A morning summary of workspace activity',
+        trigger: 'Every morning at 9:00',
+        prompt: 'Summarize what changed in this workspace since yesterday.',
+        steps: [],
+        delivery: { tool: { id: 'workspace', label: 'Workspace', tone: 'workspace' }, target: 'Artifacts' },
+        runs: [],
+        model: 'Claude Opus 4.8 · High',
+      },
+    },
+  ],
+  ['POST /notifications/read', { ids: ['n-1'] }],
+])
+
 /** Build the concrete inner path for an operation from string args, each path
  *  segment encoded so a value can't rewrite the URL. Throws on a missing param
  *  — callers validate first for a friendlier error. */

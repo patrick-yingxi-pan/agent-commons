@@ -258,6 +258,30 @@ export type SessionTransport = 'cookie' | 'bearer'
 export interface BearerSession {
   token: string
   identity: Identity
+  /** The token's REGISTRY row id (`ApiToken.id`) — the handle `DELETE
+   *  /auth/tokens/:id` revokes. Present on registry-backed mints (every bearer
+   *  mint since the registry landed); absent only on legacy tokens. */
+  tokenId?: string
+}
+
+/** Body of `POST /v1/auth/token` — mint a bearer credential from the current
+ *  verified session (the MCP connect panel). All fields optional (INV-9: an
+ *  absent label is simply an unlabeled token). */
+export interface TokenMintRequest {
+  /** A human name for the token ("laptop MCP", "CI") — shown in the token
+   *  list so a revocation can be aimed. */
+  label?: string
+}
+
+/** One minted bearer credential's REGISTRY row (`GET /v1/auth/tokens`) —
+ *  metadata only, never the token value (that is shown exactly once, at mint).
+ *  The registry is the revocation authority: deleting the row kills the token
+ *  (`DELETE /v1/auth/tokens/:id`), even though the signature would still verify. */
+export interface ApiToken {
+  id: string
+  label?: string
+  /** Epoch ms. */
+  createdAt: number
 }
 
 // (`CreateWorkspaceRequest` is gone — FWD-5 Phase 2, the workspace collapse:

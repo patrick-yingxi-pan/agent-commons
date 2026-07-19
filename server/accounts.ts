@@ -15,8 +15,8 @@
  *  fields); `/v1/identities` lists SEEDED rows only — real accounts are never
  *  enumerable. In a real deployment an IdP replaces the credential entirely; the
  *  registry (users/tenants/memberships) is what carries over. */
-import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
-import type { Capabilities, Identity, MyInvite, MyOrg, OrgInviteRow, OrgMemberRow, Tenant, TenantRole, User } from '../contract/index.ts'
+import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto'
+import type { ApiToken, Capabilities, Identity, MyInvite, MyOrg, OrgInviteRow, OrgMemberRow, Tenant, TenantRole, User } from '../contract/index.ts'
 
 type Backend = Capabilities['backend']
 
@@ -65,6 +65,10 @@ export interface StoredOrgInvite extends OrgInviteRow {
 const MAX_PENDING_ORG_INVITES = 20
 const MAX_ORG_INVITE_ROWS = 100
 
+/** Bearer-token registry rows per user (machine sign-ins repeat; bounded like
+ *  every standing store). At the cap the oldest row is evicted = revoked. */
+const API_TOKEN_CAP = 32
+
 const SCRYPT_LEN = 64
 /** Burned on unknown-email logins so failure timing is uniform (see verifyPassword). */
 const DUMMY_SALT = 'a'.repeat(32)
@@ -78,6 +82,12 @@ export class AccountRegistry {
   readonly tenants = new Map<string, AccountTenant>()
   memberships: Membership[] = []
   orgInvites: StoredOrgInvite[] = []
+  /** Minted bearer-token registry rows, keyed by userId (credential plane, so
+   *  it lives with the accounts). The registry is the REVOCATION AUTHORITY: a
+   *  jti-carrying token resolves only while its row exists (identity.ts checks
+   *  on every request), so deleting a row kills the credential immediately —
+   *  no blocklist, no TTL wait. Metadata only; the token value is never stored. */
+  apiTokens = new Map<string, ApiToken[]>()
   private userSeq = 0
   private tenantSeq = 0
   private inviteSeq = 0
@@ -387,6 +397,40 @@ export class AccountRegistry {
     return row
   }
 
+  // ── The bearer-token registry (revocation authority — contract `ApiToken`) ──
+
+  /** Mint a registry row for a bearer token about to be signed. Bounded per
+   *  user (machine sign-ins repeat); at the cap the OLDEST row is evicted —
+   *  which revokes that token, exactly the behavior a bounded credential list
+   *  should have (stalest credential dies first). */
+  mintApiToken(userId: string, label?: string): ApiToken {
+    const rows = this.apiTokens.get(userId) ?? []
+    while (rows.length >= API_TOKEN_CAP) rows.shift()
+    const row: ApiToken = { id: randomUUID(), ...(label ? { label } : {}), createdAt: Date.now() }
+    rows.push(row)
+    this.apiTokens.set(userId, rows)
+    return row
+  }
+
+  listApiTokens(userId: string): ApiToken[] {
+    return [...(this.apiTokens.get(userId) ?? [])]
+  }
+
+  /** Revoke ONE token by registry id. True when a row was deleted. */
+  revokeApiToken(userId: string, tokenId: string): boolean {
+    const rows = this.apiTokens.get(userId)
+    if (!rows) return false
+    const at = rows.findIndex((r) => r.id === tokenId)
+    if (at < 0) return false
+    rows.splice(at, 1)
+    return true
+  }
+
+  /** Is this jti-carrying credential still live? (Registry row = authority.) */
+  apiTokenLive(userId: string, jti: string): boolean {
+    return (this.apiTokens.get(userId) ?? []).some((r) => r.id === jti)
+  }
+
   // ── Persistence faces (additive slices; seeds re-ensured on rehydrate) ──────
 
   toPersisted(): {
@@ -394,6 +438,7 @@ export class AccountRegistry {
     tenants: [string, AccountTenant][]
     memberships: Membership[]
     orgInvites: StoredOrgInvite[]
+    apiTokens: [string, ApiToken[]][]
     seq: { user: number; tenant: number; orgInvite: number }
   } {
     return {
@@ -401,6 +446,7 @@ export class AccountRegistry {
       tenants: [...this.tenants.entries()],
       memberships: this.memberships,
       orgInvites: this.orgInvites,
+      apiTokens: [...this.apiTokens.entries()],
       seq: { user: this.userSeq, tenant: this.tenantSeq, orgInvite: this.inviteSeq },
     }
   }
@@ -410,6 +456,7 @@ export class AccountRegistry {
     tenants?: [string, AccountTenant][]
     memberships?: Membership[]
     orgInvites?: StoredOrgInvite[]
+    apiTokens?: [string, ApiToken[]][]
     seq?: { user?: number; tenant?: number; orgInvite?: number }
   }): void {
     // Replace wholesale when the snapshot carries the slices, then re-ensure the
@@ -458,6 +505,10 @@ export class AccountRegistry {
       if (!this.membership(m.userId, m.tenantId)) this.memberships.push({ ...m, home: undefined })
     }
     this.orgInvites = s.orgInvites ?? []
+    // Token rows restore wholesale (revocation must survive a restart — a row
+    // absent from the snapshot stays revoked; a pre-field snapshot loads clean).
+    this.apiTokens.clear()
+    for (const [userId, rows] of s.apiTokens ?? []) this.apiTokens.set(userId, rows)
     this.userSeq = Math.max(this.userSeq, s.seq?.user ?? 0)
     this.tenantSeq = Math.max(this.tenantSeq, s.seq?.tenant ?? 0)
     this.inviteSeq = Math.max(this.inviteSeq, s.seq?.orgInvite ?? 0)

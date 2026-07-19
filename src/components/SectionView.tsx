@@ -148,6 +148,8 @@ import {
   releaseSubGoal,
   probePrompt,
   mintApiToken,
+  revokeApiToken,
+  useApiTokens,
   API_BASE,
   useAgents,
   useAgentDirectory,
@@ -3292,26 +3294,42 @@ function ContextsSection({
  *  secret panel's rule. */
 function McpAccessCard() {
   const me = useMe()
-  const [minted, setMinted] = useState<string | null>(null)
+  const signedIn = me.data?.via === 'session'
+  const tokens = useApiTokens(signedIn)
+  const [minted, setMinted] = useState<{ token: string; tokenId?: string } | null>(null)
+  const [label, setLabel] = useState('')
+  const [core, setCore] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // The externally dialable endpoint, derived from API_BASE like the relay
   // panel's URLs — right in EVERY deploy shape (dev's Vite proxy forwards
   // /api, not the root `/mcp` alias, so the base-path form is the one that
   // always answers; production serves both).
-  const mcpUrl = `${new URL(API_BASE, window.location.origin).href.replace(/\/$/, '')}/mcp`
-  const signedIn = me.data?.via === 'session'
+  const baseUrl = `${new URL(API_BASE, window.location.origin).href.replace(/\/$/, '')}/mcp`
+  // `?toolset=core` narrows tools/list to the everyday subset — a PRESENTATION
+  // choice for the connecting client (a model's tool context stays small);
+  // every operation stays callable by name on either URL (INV-11).
+  const mcpUrl = core ? `${baseUrl}?toolset=core` : baseUrl
   const mint = async () => {
     setBusy(true)
     setError(null)
     try {
-      setMinted((await mintApiToken()).token)
+      const session = await mintApiToken(label.trim() || undefined)
+      setMinted({ token: session.token, tokenId: session.tokenId })
+      setLabel('')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not mint a token.')
     } finally {
       setBusy(false)
     }
   }
+  // Ready-to-paste client wiring (the generic `mcpServers` shape MCP clients
+  // share — deliberately no harness-specific install recipe: that design
+  // lesson is locked by tests/connector-serve.test.ts). Computed for the COPY
+  // ACTION only, never rendered — the credential shows in exactly one place.
+  const jsonConfig = minted
+    ? JSON.stringify({ mcpServers: { workspace: { type: 'http', url: mcpUrl, headers: { Authorization: `Bearer ${minted.token}` } } } }, null, 2)
+    : null
   return (
     <div className="mt-8 overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
       <div className="flex items-center gap-2 border-b border-line px-4 py-3">
@@ -3328,18 +3346,42 @@ function McpAccessCard() {
           <span className="min-w-0 flex-1 truncate rounded-lg bg-panel-2/50 px-2.5 py-1.5 font-mono text-[12px] text-ink">{mcpUrl}</span>
           <CopyButton text={mcpUrl} ariaLabel="Copy the MCP endpoint URL" />
         </div>
+        <CheckboxRow checked={core} onToggle={() => setCore(!core)} className="text-[12px]">
+          <span>
+            <span className="font-medium text-ink">Core toolset</span> — list only the everyday tools (sessions, messages,
+            projects, schedules…), so an AI client's tool context stays small. Every operation remains callable either way.
+          </span>
+        </CheckboxRow>
         {minted ? (
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <span className="min-w-0 flex-1 truncate rounded-lg bg-panel-2/50 px-2.5 py-1.5 font-mono text-[12px] text-ink">{minted}</span>
-              <CopyButton text={minted} label="Copy token" ariaLabel="Copy the access token" />
+              <span className="min-w-0 flex-1 truncate rounded-lg bg-panel-2/50 px-2.5 py-1.5 font-mono text-[12px] text-ink">{minted.token}</span>
+              <CopyButton text={minted.token} label="Copy token" ariaLabel="Copy the access token" />
             </div>
             <p className="text-[11px] text-ink-faint">
-              Shown once — send it as <span className="font-mono">Authorization: Bearer …</span>. It authenticates as you; treat it like your password.
+              Shown once — send it as <span className="font-mono">Authorization: Bearer …</span>. It authenticates as you; treat it
+              like your password. You can revoke it below at any time.
             </p>
+            {jsonConfig && (
+              <div className="flex items-center gap-2 text-[11px] text-ink-faint">
+                <CopyButton text={jsonConfig} label="Copy client config" ariaLabel="Copy the MCP client JSON config (endpoint + token)" />
+                <span>
+                  the <span className="font-mono">mcpServers</span> JSON block most MCP clients accept — endpoint and token wired in.
+                </span>
+              </div>
+            )}
           </div>
         ) : (
-          <div className="flex items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <input
+              type="text"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="Token label (optional — e.g. laptop MCP)"
+              maxLength={80}
+              disabled={!signedIn}
+              className="min-w-0 flex-1 rounded-lg border border-line bg-panel-2/30 px-2.5 py-1.5 text-[12px] text-ink placeholder:text-ink-faint focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
+            />
             <button
               onClick={mint}
               disabled={busy || !signedIn}
@@ -3350,6 +3392,36 @@ function McpAccessCard() {
             </button>
             {!signedIn && <span className="text-[11px] text-ink-faint">Sign in to mint — a token is minted from a verified session.</span>}
             {error && <span className="text-[11px] text-red-600">{error}</span>}
+          </div>
+        )}
+        {signedIn && (tokens.data?.length ?? 0) > 0 && (
+          <div className="space-y-1 border-t border-line pt-2.5">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Active tokens</div>
+            {tokens.data!.map((t) => (
+              <div key={t.id} className="flex items-center gap-2 text-[12px]">
+                <KeyRound size={12} className="shrink-0 text-ink-faint" />
+                <span className="min-w-0 flex-1 truncate text-ink">
+                  {t.label ?? 'Unlabeled token'}
+                  <span className="text-ink-faint"> · minted {new Date(t.createdAt).toLocaleDateString()}</span>
+                  {minted?.tokenId === t.id && <span className="text-emerald-600"> · just minted</span>}
+                </span>
+                <button
+                  onClick={() =>
+                    revokeApiToken(t.id)
+                      // Revoking the just-minted token retires its reveal too —
+                      // a dead credential must not linger on screen as copyable.
+                      .then(() => setMinted((m) => (m?.tokenId === t.id ? null : m)))
+                      .catch(() => {})
+                  }
+                  className="rounded-lg px-2 py-0.5 text-[11px] font-medium text-ink-faint transition hover:bg-red-50 hover:text-red-600"
+                >
+                  Revoke
+                </button>
+              </div>
+            ))}
+            <p className="text-[11px] text-ink-faint">
+              Revoking kills the credential immediately — the registry, not the signature, is what keeps a token alive.
+            </p>
           </div>
         )}
       </div>

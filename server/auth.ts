@@ -50,6 +50,11 @@ export interface SessionClaims {
   tenantId: string
   /** Issued-at (epoch ms) — lets `verifySession` expire old tokens. */
   iat: number
+  /** Token REGISTRY id (JWT's `jti`), stamped on bearer mints: a jti-carrying
+   *  token is valid only while its registry row exists (revocation authority —
+   *  server/accounts.ts; checked in identity resolution, not here, so this
+   *  module stays a pure-crypto leaf). Cookie sessions carry none. */
+  jti?: string
 }
 
 const b64url = (buf: Buffer) => buf.toString('base64url')
@@ -82,6 +87,7 @@ export function verifySession(token: string | undefined): SessionClaims | null {
   try {
     const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as SessionClaims
     if (typeof claims.userId !== 'string' || typeof claims.tenantId !== 'string' || typeof claims.iat !== 'number') return null
+    if (claims.jti !== undefined && typeof claims.jti !== 'string') return null
     if (Date.now() - claims.iat > MAX_AGE_S * 1000) return null
     return claims
   } catch {

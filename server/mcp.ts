@@ -50,7 +50,7 @@ import type { Router } from './http/router.ts'
 import { BASE_HEADERS, headerValue } from './http/respond.ts'
 import { positiveNumberEnv } from './env.ts'
 import { API_BASE_PATH } from '../contract/index.ts'
-import { catalogOf, pathFor, toolNameFor, type ApiOperation } from './apiSurface.ts'
+import { API_BODY_EXAMPLES, catalogOf, pathFor, toolNameFor, type ApiOperation } from './apiSurface.ts'
 import { dispatch } from './http/dispatch.ts'
 import { store } from './store.ts'
 
@@ -91,7 +91,15 @@ function toolDefinition(t: ApiOperation) {
     additionalProperties: { type: ['string', 'number', 'boolean'] },
   }
   if (t.method !== 'GET') {
-    properties.body = { type: 'object', description: 'JSON request body — shapes follow the HTTP contract (contract/api.ts and siblings).' }
+    const example = API_BODY_EXAMPLES.get(`${t.method} ${t.pattern}`)
+    properties.body = {
+      type: 'object',
+      description:
+        'JSON request body — shapes follow the HTTP contract (contract/api.ts and siblings); a malformed body is refused, never guessed at (INV-9).',
+      // One curated valid payload where we have one (models read `examples`);
+      // presentation only — the route stays the validation authority.
+      ...(example !== undefined ? { examples: [example] } : {}),
+    }
   }
   return {
     name: t.name,
@@ -104,8 +112,54 @@ function toolDefinition(t: ApiOperation) {
       required: t.params,
       additionalProperties: false,
     },
+    // MCP tool annotations, derived MECHANICALLY from the operation shape (so
+    // they can't drift from the route): clients use these to badge read-only
+    // vs destructive tools and to gate confirmation UX.
+    annotations: {
+      title: `${t.method} ${API_BASE_PATH}${t.pattern}`,
+      readOnlyHint: t.method === 'GET',
+      destructiveHint: t.method === 'DELETE',
+      idempotentHint: t.method !== 'POST',
+      openWorldHint: false, // every tool acts on THIS workspace, nothing beyond it
+    },
   }
 }
+
+/** The CORE toolset — a curated PRESENTATION subset for `tools/list` when the
+ *  client connects with `?toolset=core` on the endpoint URL: the everyday
+ *  conversational spine (auth, sessions + messages, projects/artifacts,
+ *  schedules, search/usage/notifications) instead of the full ~140-operation
+ *  catalog, so a model's tool context stays small. STRICTLY presentation:
+ *  `tools/call` accepts the FULL catalog on either URL (capability and policy
+ *  never vary by toolset — INV-11; the wall is auth, not the list). Every name
+ *  here must exist in the generated catalog (locked by tests/mcp.test.ts). */
+export const MCP_CORE_TOOLS: readonly string[] = [
+  'get_capabilities',
+  'get_me',
+  'post_auth_login',
+  'post_auth_token',
+  'get_auth_tokens',
+  'get_sessions',
+  'get_sessions_by_id',
+  'post_sessions',
+  'patch_sessions_by_id',
+  'delete_sessions_by_id',
+  'post_sessions_by_id_messages',
+  'get_projects',
+  'get_artifacts',
+  'get_artifact_content',
+  'get_saved_contexts',
+  'get_schedules',
+  'post_schedules',
+  'patch_schedules_by_id',
+  'delete_schedules_by_id',
+  'post_schedules_by_id_run',
+  'get_search',
+  'get_usage',
+  'get_recents',
+  'get_notifications',
+  'post_notifications_read',
+]
 
 /** Parse an SSE body (`data: {...}` frames) into the array of its JSON events —
  *  the send-message reply stream, made request/response-shaped for a tool result. */
@@ -137,9 +191,11 @@ function sendRpc(res: ServerResponse, payload: unknown, status = 200): void {
 
 const INSTRUCTIONS = [
   'Every tool is one HTTP operation of this workspace, dispatched through the same route table, auth wall, and tenancy checks as the web UI (access-parity INV-11) — the three access methods (UI, in-app session, MCP) differ in form, never in capability or policy.',
-  `To authenticate, call post_auth_login with {"body": {"email": "...", "password": "...", "transport": "bearer"}} — the result's body.token is a session credential; present it on subsequent requests as an "Authorization: Bearer <token>" HTTP header.`,
+  `To authenticate, call post_auth_login with {"body": {"email": "...", "password": "...", "transport": "bearer"}} — the result's body.token is a session credential; present it on subsequent requests as an "Authorization: Bearer <token>" HTTP header. The user can also mint a token in the UI (Contexts → "This workspace is an MCP server") and revoke any token there later.`,
   'Unauthenticated calls see exactly what a signed-out browser sees (the front door; 401 elsewhere when the auth gate is on).',
   'Tool results are the JSON {status, body} of the underlying HTTP response; the send-message tool returns the reply stream as a parsed event array.',
+  "Connecting with ?toolset=core on the endpoint URL lists only the curated everyday subset (sessions, messages, projects, artifacts, schedules, search, usage) — tools/call still accepts the full catalog either way, so any operation remains callable by name.",
+  'Tool annotations mark reads (readOnlyHint) and deletes (destructiveHint) mechanically; where a mutation has a curated body example it rides in the input schema (properties.body.examples) — bodies follow the HTTP contract, and a malformed one is refused, never guessed at.',
   'For live push, keep the Mcp-Session-Id this initialize returned and open GET /mcp with it (SSE): ambient workspace events arrive as notifications/message frames, and subscribed resources signal notifications/resources/updated.',
   'Resources mirror the parameterless reads (workspace://… uris; parameterized reads are resource templates); prompts mirror the system-prompt library — both tenant-scoped by your credential.',
 ].join(' ')
@@ -353,7 +409,12 @@ export function registerMcp(router: Router): void {
     }
     if (msg.method === 'ping') return sendRpc(res, rpcResult(id, {}))
     if (msg.method === 'tools/list') {
-      return sendRpc(res, rpcResult(id, { tools: toolRoutes(router).map(toolDefinition) }))
+      // `?toolset=core` on the endpoint URL narrows the LIST to the curated
+      // everyday subset (a client-chosen presentation; see MCP_CORE_TOOLS).
+      // tools/call below never consults it — capability is identical.
+      const core = url.searchParams.get('toolset') === 'core'
+      const routes = core ? toolRoutes(router).filter((t) => MCP_CORE_TOOLS.includes(t.name)) : toolRoutes(router)
+      return sendRpc(res, rpcResult(id, { tools: routes.map(toolDefinition) }))
     }
     if (msg.method === 'resources/list') {
       const resources = resourceReads(router)

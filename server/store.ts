@@ -1194,6 +1194,7 @@ function snapshot(): PersistedState {
     accountTenants: persistedAccounts.tenants,
     memberships: persistedAccounts.memberships,
     orgInvites: persistedAccounts.orgInvites, // FWD-6 — the consent-gated org door
+    apiTokens: persistedAccounts.apiTokens, // bearer-token registry (revocation survives restart)
 
     seq: {
       session: sessionSeq,
@@ -1342,6 +1343,7 @@ function rehydrate(s: PersistedState): void {
     tenants: s.accountTenants,
     memberships: s.memberships,
     orgInvites: s.orgInvites,
+    apiTokens: s.apiTokens,
     seq: { user: s.seq.user, tenant: s.seq.tenant, orgInvite: s.seq.orgInvite },
   })
   sessionSeq = s.seq.session

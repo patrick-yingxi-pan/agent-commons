@@ -165,6 +165,10 @@ test('build produces a snapshot covering every persisted slice', async () => {
     (s.notifications?.length ?? 0) > 0,
     'notifyTenants fan-out → notifications inbox (D24)',
   )
+  assert.ok(
+    s.apiTokens?.some(([userId, rows]) => userId === 'user-ada' && rows.some((r) => r.label === 'playground token')),
+    'mintApiToken → apiTokens (the bearer-token registry, PORT-9)',
+  )
 
   // ── id counters all advanced (so post-restore mints never collide) ──
   for (const k of ['session', 'message', 'schedule', 'run', 'artifact', 'provider', 'systemPrompt', 'agent', 'commission'] as const) {

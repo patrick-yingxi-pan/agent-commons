@@ -78,6 +78,10 @@ export const keys = {
   recents: 'recents',
   /** The detective audit trail (docs/agent-commons.md, D15/OQ7) — the cross-user effect log. */
   auditLog: 'audit-log',
+  /** The signed-in user's minted bearer-token registry rows (PORT-9 — metadata
+   *  only; the token value is shown once, at mint). Read by the MCP access card;
+   *  invalidated by its own mint/revoke commands. */
+  apiTokens: 'api-tokens',
 }
 
 export const paths = {
@@ -91,6 +95,10 @@ export const paths = {
   /** Mint a bearer credential from the current verified session (the MCP
    *  connect panel — access-parity INV-11). */
   authToken: '/auth/token',
+  /** The minted-token registry (metadata list; DELETE by id revokes — the
+   *  registry is the revocation authority, server/accounts.ts). */
+  authTokens: '/auth/tokens',
+  authTokenRevoke: (id: string) => `/auth/tokens/${encodeURIComponent(id)}`,
   /** The account stack (§12): every account signed in on this browser. */
   authAccounts: '/auth/accounts',
   /** Forget ONE remembered account (DELETE — the switcher rows' hover sign-out). */

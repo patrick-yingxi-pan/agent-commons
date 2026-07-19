@@ -292,6 +292,12 @@ export async function buildComprehensive(): Promise<PersistedState> {
   // posted-then-commented item (D23) fans notifications out to that watcher.
   store.applyRelationOp({ kind: 'share-project', projectId: PROJECT_ID, projectName: PROJECT_NAME, shared: true })
   store.setWatch(PROJECT_ID, 'tenant-playground-watcher', true)
+
+  // ── The bearer-token registry (INV-11 / PORT-9) ── one minted row, so the
+  // `apiTokens` slice round-trips (revocation state must survive a restart).
+  const { accounts } = await import('../server/accounts.ts')
+  accounts.mintApiToken('user-ada', 'playground token')
+  store.accountsMutated()
   const watchedItem = store.postOpenSubGoal(PROJECT_ID, { subGoal: 'playground-watched-item', type: 'charge', target: 'budget:playground' }, store.defaultTenantId(), builder)
   store.commentOnOpenSubGoal(PROJECT_ID, watchedItem.id, 'playground discussion — still needed?', store.defaultTenantId(), builder)
 

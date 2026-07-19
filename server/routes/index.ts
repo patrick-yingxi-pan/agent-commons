@@ -384,20 +384,25 @@ export function buildRouter(): Router {
    *  refreshed (last-active tenant, fresh iat) — a seed/dev pick never leaks
    *  into the remembered-accounts list. */
   const mintSession = (req: IncomingMessage, res: ServerResponse, userId: string, tenantId: string, join: boolean, transport: SessionTransport = 'cookie') => {
-    const token = signSession({ userId, tenantId, iat: Date.now() })
     // `transport: 'bearer'` (access-parity INV-11) delivers the SAME signed
     // token in the body for machine callers (the MCP door, scripts) that will
     // present it as `Authorization: Bearer` — no cookies: the account stack is
     // a browser concept, and a bearer client holds its own credential. The
     // identity in the response is resolved through the same path a bearer
     // request will take, so the answer is the seam's truth, not the pick's.
+    // Every bearer mint is REGISTRY-BACKED (`jti` → an ApiToken row): the row
+    // is what GET /auth/tokens lists and DELETE /auth/tokens/:id revokes.
     if (transport === 'bearer') {
+      const row = accounts.mintApiToken(userId, 'sign-in')
+      store.accountsMutated()
+      const token = signSession({ userId, tenantId, iat: Date.now(), jti: row.id })
       const identity = store.identity({ ...req.headers, cookie: undefined, authorization: `Bearer ${token}` })
       res.setHeader('x-resolved-tenant', identity.tenant.id)
-      const session: BearerSession = { token, identity }
+      const session: BearerSession = { token, identity, tokenId: row.id }
       sendJson(res, session)
       return
     }
+    const token = signSession({ userId, tenantId, iat: Date.now() })
     const stack = verifyStack(parseCookies(headerValue(req.headers, 'cookie'))[STACK_COOKIE])
     const remembered = join || stack.some((e) => e.userId === userId)
     const cookies = [sessionSetCookie(token)]
@@ -524,14 +529,44 @@ export function buildRouter(): Router {
   // user; the same signed token a bearer login returns). STRICTLY
   // session-verified: the dev header seam and the default principal never
   // proved a credential, so they must not mint one.
-  r.post('/auth/token', ({ req, res }) => {
+  r.post('/auth/token', async ({ req, res, body }) => {
     const me = store.identity(req.headers)
     if (me.via !== 'session') {
       return sendError(res, 'unauthorized', 'Sign in first — a token is minted from a verified session.')
     }
-    const token = signSession({ userId: me.user.id, tenantId: me.tenant.id, iat: Date.now() })
-    const session: BearerSession = { token, identity: me }
+    const { label } = (await body<import('../../contract/index.ts').TokenMintRequest>()) ?? {}
+    if (label !== undefined && (typeof label !== 'string' || label.length > 80)) {
+      return sendError(res, 'bad_request', 'label must be a string of at most 80 characters')
+    }
+    const row = accounts.mintApiToken(me.user.id, label?.trim() || undefined)
+    store.accountsMutated()
+    const token = signSession({ userId: me.user.id, tenantId: me.tenant.id, iat: Date.now(), jti: row.id })
+    const session: BearerSession = { token, identity: me, tokenId: row.id }
     sendJson(res, session)
+  })
+  // The minted-token REGISTRY (metadata only — the token value is shown once,
+  // at mint): list your rows, revoke one by id. The registry is the revocation
+  // authority (identity.ts refuses a jti whose row is gone), so DELETE here
+  // kills the credential immediately. Session-verified like the mint — and the
+  // model leg may READ the list (harmless metadata) but never revoke
+  // (MODEL_API_EXCLUDED walls the credential-admin act).
+  r.get('/auth/tokens', ({ req, res }) => {
+    const me = store.identity(req.headers)
+    if (me.via !== 'session') {
+      return sendError(res, 'unauthorized', 'Sign in first — the token registry belongs to a verified session.')
+    }
+    sendJson(res, accounts.listApiTokens(me.user.id))
+  })
+  r.delete('/auth/tokens/:id', ({ req, res, params }) => {
+    const me = store.identity(req.headers)
+    if (me.via !== 'session') {
+      return sendError(res, 'unauthorized', 'Sign in first — the token registry belongs to a verified session.')
+    }
+    if (!accounts.revokeApiToken(me.user.id, params.id)) {
+      return sendError(res, 'not_found', `No token '${params.id}' on this account`)
+    }
+    store.accountsMutated()
+    sendJson(res, { ok: true })
   })
   r.post('/auth/login', async ({ req, res, body }) => {
     const { email, password, transport: transportRaw } = await body<LoginRequest>()
@@ -2837,6 +2872,12 @@ export function buildRouter(): Router {
   r.post('/schedules', idempotent(async ({ req, res, body }) => {
     const { seed } = await body<{ seed?: Omit<import('../../contract/index.ts').ScheduledTask, 'id'> }>()
     if (!seed) return sendError(res, 'bad_request', 'seed is required')
+    // Refuse a malformed seed with a descriptive 400 (INV-9) — the store trusts
+    // these load-bearing fields, so a drifted machine caller (the MCP door's
+    // generated tool) must be refused here, not crash inside addSchedule.
+    if (typeof seed.name !== 'string' || typeof seed.prompt !== 'string' || !Array.isArray(seed.steps) || !Array.isArray(seed.runs) || typeof seed.delivery !== 'object' || seed.delivery === null) {
+      return sendError(res, 'bad_request', 'seed needs string name/prompt, array steps/runs, and a delivery object (see the ScheduledTask contract)')
+    }
     sendJson(res, store.addSchedule({ ...seed, tenantId: store.identity(req.headers).tenant.id }))
   }))
   // Remove a routine.
