@@ -614,6 +614,14 @@ export async function resolveToolActivity(
   return activity
 }
 
+/** Mint a bearer credential for the current verified session — the MCP connect
+ *  panel's one click (access-parity INV-11: the same signed token the cookie
+ *  carries, delivered for a machine caller to present as `Authorization:
+ *  Bearer`). Shown once by the caller; nothing is cached here. */
+export async function mintApiToken(): Promise<import('../types').BearerSession> {
+  return apiPost<import('../types').BearerSession>(paths.authToken, {})
+}
+
 /** Compact a session's context (P5 / BROKER-EXP-3) — server-owned; the backend archives
  *  older messages behind a summary marker so the token count (and the usage gauge) drops
  *  back. Returns the compacted session; invalidates the session + its usage so caches

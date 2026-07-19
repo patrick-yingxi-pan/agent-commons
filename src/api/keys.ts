@@ -88,6 +88,9 @@ export const paths = {
   /** Onboarding (P7): create a real, persisted account / sign one in. */
   authSignup: '/auth/signup',
   authLogin: '/auth/login',
+  /** Mint a bearer credential from the current verified session (the MCP
+   *  connect panel — access-parity INV-11). */
+  authToken: '/auth/token',
   /** The account stack (§12): every account signed in on this browser. */
   authAccounts: '/auth/accounts',
   /** Forget ONE remembered account (DELETE — the switcher rows' hover sign-out). */

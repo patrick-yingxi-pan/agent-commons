@@ -24,6 +24,10 @@ const HOP_HEADERS = new Set([
   'origin',
   'mcp-session-id',
   'mcp-protocol-version',
+  // The outer request's idempotency key names THAT operation, not the inner
+  // one — forwarding it would let an inner op replay an unrelated cached 2xx
+  // (the idem cache keys on (tenant, key) only).
+  'idempotency-key',
 ])
 
 export interface InnerResponse {

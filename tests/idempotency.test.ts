@@ -48,6 +48,28 @@ test('POST /sessions is idempotent under a key (no duplicate session)', async ()
   assert.equal(after - before, 1, 'one session created across two keyed POSTs')
 })
 
+test('an outer Idempotency-Key does NOT bleed into the inner dispatch (the synthetic re-entry strips it)', async () => {
+  // The MCP door re-enters the router for every tools/call. The OUTER request's
+  // key names the outer operation — forwarded inward, it would make the second
+  // (different!) inner create replay the first's cached 2xx. Two distinct inner
+  // creates under one outer key must stay distinct.
+  const mcpCreate = async (id: number, title: string) => {
+    const r = await call(
+      'POST',
+      '/mcp',
+      { jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'post_dispatch', arguments: { body: { title } } } },
+      KEY('outer-transport-k1'),
+    )
+    return JSON.parse(r.json.result.content[0].text) as { status: number; body: { id: string; title: string } }
+  }
+  const a = await mcpCreate(9001, 'first inner create')
+  const b = await mcpCreate(9002, 'second inner create')
+  assert.equal(a.status, 200)
+  assert.equal(b.status, 200)
+  assert.notEqual(a.body.id, b.body.id, 'two distinct inner resources — no replay of an unrelated inner 2xx')
+  assert.equal(b.body.title, 'second inner create', "the second create's own body ran, not the first's cache")
+})
+
 // ── Unit: the cache + capture/replay ─────────────────────────────────────────
 test('IdempotencyCache stores and expires entries', () => {
   const cache = new IdempotencyCache(10_000)

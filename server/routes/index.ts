@@ -171,7 +171,9 @@ export function buildRouter(): Router {
   // `/mcp` is open like `/capabilities`: the JSON-RPC handshake (initialize,
   // tools/list) is DISCOVERY; every tools/call re-enters this router and meets
   // the wall on the inner path — an anonymous MCP caller can reach exactly the
-  // front door the anonymous browser can (access-parity INV-11).
+  // front door the anonymous browser can (access-parity INV-11). The MCP door's
+  // DIRECT-SERVED surfaces (the GET /mcp event stream, resources/subscribe)
+  // never re-enter, so server/mcp.ts gates them itself (gateRefusesStream).
   const GATE_OPEN_EXACT = new Set(['/capabilities', '/me', '/healthz', '/readyz', '/metrics', '/connector', '/connector/setup', '/mcp'])
   const GATE_OPEN_PREFIX = ['/auth/', '/a2a/', '/relay/']
   // Owner-admin routes that sit UNDER an open machine-edge prefix but are NOT part
@@ -516,6 +518,20 @@ export function buildRouter(): Router {
     if (!created) return sendError(res, 'conflict', 'An account with this email already exists — sign in instead.')
     store.accountsMutated() // real accounts persist across restarts (P7)
     mintSession(req, res, created.user.id, created.tenant.id, true, transport)
+  })
+  // Mint a bearer credential for the CURRENT verified session — the MCP connect
+  // panel's one click (INV-11's machine transport for an already-signed-in
+  // user; the same signed token a bearer login returns). STRICTLY
+  // session-verified: the dev header seam and the default principal never
+  // proved a credential, so they must not mint one.
+  r.post('/auth/token', ({ req, res }) => {
+    const me = store.identity(req.headers)
+    if (me.via !== 'session') {
+      return sendError(res, 'unauthorized', 'Sign in first — a token is minted from a verified session.')
+    }
+    const token = signSession({ userId: me.user.id, tenantId: me.tenant.id, iat: Date.now() })
+    const session: BearerSession = { token, identity: me }
+    sendJson(res, session)
   })
   r.post('/auth/login', async ({ req, res, body }) => {
     const { email, password, transport: transportRaw } = await body<LoginRequest>()
@@ -2664,16 +2680,28 @@ export function buildRouter(): Router {
     // open) and the inner error surfaces honestly as a 409.
     let doneSummary: string | undefined
     const pending = store.getToolActivity(params.id, params.activityId)
-    if (decision === 'confirm' && pending?.op && pending.status === 'proposed') {
-      const out = await apiDispatch(pending.op.method, pending.op.path, req.headers, pending.op.body)
-      if (out.status >= 400) {
-        let detail = `HTTP ${out.status}`
-        try {
-          detail = JSON.parse(out.body.toString('utf8')).error.message ?? detail
-        } catch {}
-        return sendError(res, 'conflict', `The proposed operation was refused (${out.status}): ${detail}`)
+    if (pending?.op && pending.status === 'proposed') {
+      // The confirm's dispatch await yields — so EVERY verdict on an op-proposal
+      // must win a synchronous claim first: a second concurrent confirm can't
+      // re-read `proposed` and execute twice, and a decline can't land
+      // mid-execution (flipping the record to "declined" while the confirmed
+      // operation still runs to completion, unaudited).
+      if (!store.claimToolActivity(params.id, params.activityId)) {
+        return sendError(res, 'conflict', `Tool activity '${params.activityId}' is already being processed`)
       }
-      doneSummary = `${pending.op.method} ${API_BASE_PATH}${pending.op.path} → ${out.status}`
+      if (decision === 'confirm') {
+        const out = await apiDispatch(pending.op.method, pending.op.path, req.headers, pending.op.body)
+        if (out.status >= 400) {
+          store.releaseToolActivity(params.id, params.activityId) // stays proposed; retry/decline remain open
+          let detail = `HTTP ${out.status}`
+          try {
+            detail = JSON.parse(out.body.toString('utf8')).error.message ?? detail
+          } catch {}
+          return sendError(res, 'conflict', `The proposed operation was refused (${out.status}): ${detail}`)
+        }
+        doneSummary = `${pending.op.method} ${API_BASE_PATH}${pending.op.path} → ${out.status}`
+      }
+      // A decline reaches the resolve below synchronously, claim in hand.
     }
     const activity = store.resolveToolActivity(params.id, params.activityId, decision, doneSummary)
     if (!activity) return sendError(res, 'not_found', `No tool activity '${params.activityId}' on session '${params.id}'`)

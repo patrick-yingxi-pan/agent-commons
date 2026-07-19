@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Check, FilePlus2, Pencil, Play, Plug, Send, Trash2, Wrench, X } from 'lucide-react'
+import { API_BASE_PATH } from '../../contract/index.ts'
 import type { ToolActivity, ToolCardFamily } from '../types'
 import { resolveToolActivity } from '../api/commands'
 
@@ -95,7 +96,7 @@ function ActivityRow({ activity, sessionId }: { activity: ToolActivity; sessionI
         {pending && a.op && (
           <div className="mt-1.5 overflow-x-auto rounded-lg bg-surface px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-ink-soft">
             <div className={danger ? 'font-semibold text-red-600' : 'font-semibold'}>
-              {a.op.method} /api/v1{a.op.path}
+              {a.op.method} {API_BASE_PATH}{a.op.path}
             </div>
             {a.op.body !== undefined && <pre className="mt-0.5 whitespace-pre-wrap break-all">{JSON.stringify(a.op.body, null, 1)}</pre>}
           </div>

@@ -43,8 +43,8 @@ export const MODEL_API_EXCLUDED: ReadonlyMap<string, string> = new Map([
   ['GET /sessions/:id/turns/:turnId/stream', 'SSE resume of a live turn — the model already receives its turns through the conversation'],
   ['GET /relay/poll', 'the session-relay mailbox long-poll — a machine edge with its own rendezvous credential'],
   ['POST /mcp', 'the MCP endpoint — one non-HTTP door proposing calls to another adds recursion, not capability'],
-  ['GET /mcp', 'the MCP endpoint (stateless 405 surface)'],
-  ['DELETE /mcp', 'the MCP endpoint (stateless 405 surface)'],
+  ['GET /mcp', 'the MCP endpoint (its server→client stream — the conversation already has one)'],
+  ['DELETE /mcp', 'the MCP endpoint (its session teardown — not a workspace operation)'],
   // the conversation plane
   ['POST /sessions/:id/messages', 'the model IS the conversation — sending messages to sessions from inside a turn is recursion, not capability'],
   ['POST /sessions/:id/turns/:turnId/cancel', 'cancelling turns is the viewing user\'s live-turn control, meaningless from inside the turn'],
@@ -56,6 +56,7 @@ export const MODEL_API_EXCLUDED: ReadonlyMap<string, string> = new Map([
   ['DELETE /auth/accounts/:id', 'forgetting a remembered account is the user\'s own act'],
   ['POST /auth/signup', 'account creation is the user\'s own act'],
   ['POST /auth/login', 'credential entry is the user\'s own act — a model never handles a password'],
+  ['POST /auth/token', 'minting a bearer credential — credential admin stays a direct user act'],
   ['POST /orgs', 'founding an organization is an identity-plane act'],
   ['POST /a2a/peers', 'minting a verified peer credential — a model-proposed credential is the confused-deputy shape'],
   ['DELETE /a2a/peers/:id', 'revoking a peer credential — credential admin stays a direct user act'],

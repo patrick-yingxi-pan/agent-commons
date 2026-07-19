@@ -68,6 +68,19 @@ test("signup honours transport 'bearer' too, and an invalid transport is refused
   assert.equal(bad.json.error.code, 'bad_request')
 })
 
+test('POST /auth/token mints a bearer for the CURRENT verified session only (the MCP connect panel)', async () => {
+  // Anonymous and dev-seam callers never proved a credential — no mint.
+  assert.equal((await call('POST', '/auth/token', {})).status, 401)
+  assert.equal((await call('POST', '/auth/token', {}, { 'x-user-id': 'user-ada', 'x-tenant-id': 'tenant-acme' })).status, 401, 'the header seam is not a verified session')
+  // A verified session (cookie OR bearer — same credential) mints.
+  const login = await call('POST', '/auth/login', { email: 'ada@acme.example', password: 'ada-demo-password', transport: 'bearer' })
+  const minted = await call('POST', '/auth/token', {}, { authorization: `Bearer ${login.json.token}` })
+  assert.equal(minted.status, 200)
+  assert.equal(minted.json.identity.user.id, 'user-ada')
+  const me = await call('GET', '/me', undefined, { authorization: `Bearer ${minted.json.token}` })
+  assert.equal(me.json.via, 'session', 'the minted token IS the session credential')
+})
+
 test('absent transport keeps the cookie flow byte-identical (INV-9: absence = cookie)', async () => {
   const r = await login({ email: 'ada@acme.example', password: 'ada-demo-password' })
   assert.equal(r.status, 200)

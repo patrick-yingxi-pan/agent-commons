@@ -96,8 +96,9 @@ export async function callRaw(
   method: string,
   path: string,
   bodyObj?: unknown,
+  reqHeaders?: Record<string, string>,
 ): Promise<{ status: number; body: string; headers: Record<string, string> }> {
-  const req = makeReq(method, bodyObj)
+  const req = makeReq(method, bodyObj, reqHeaders)
   let status = 0
   let body = ''
   let ended = false

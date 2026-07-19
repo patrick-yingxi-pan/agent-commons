@@ -19,6 +19,7 @@ import { store } from '../server/store.ts'
 import { startModelServer } from '../server/model/index.ts'
 import { buildRouter } from '../server/routes/index.ts'
 import { catalogOf } from '../server/apiSurface.ts'
+import { dispatch } from '../server/http/dispatch.ts'
 import { MODEL_API_EXCLUDED, deriveApiTools, familyFor, runApiTool, API_TOOL_PREFIX } from '../server/model/apiTools.ts'
 import { TOOL_NAMES } from '../server/model/tools.ts'
 
@@ -206,11 +207,71 @@ test('E2E: the confirm meets the tenancy wall — a foreign tenant cannot confir
   assert.equal(store.getToolActivity(driver.id, act!.id)?.status, 'proposed')
 })
 
-test('the read runs as the SENDER: a foreign tenant\'s session list read via the model tool sees only their world', async () => {
-  // Direct unit probe of the identity flow: the runtime dispatch carries the
-  // sender's headers, so what GET returns through the tool is what THAT tenant
-  // sees over plain HTTP — deepEqual against the direct read.
-  const viaApi = await call('GET', '/sessions', undefined, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
+test('the read runs as the SENDER: a runtime bound to a foreign tenant reads THAT tenant\'s world through the tool', async () => {
+  // Drive the ACTUAL model-tool runtime: a dispatch closed over one tenant's
+  // headers (exactly how generate.ts binds it to the sending request), then
+  // assert the tool's read equals that tenant's plain-HTTP read and differs
+  // from the default tenant's — the wall is live INSIDE the tool path.
+  const beta = { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' }
+  const router = buildRouter()
+  const runtimeAs = (headers: Record<string, string>) => ({
+    catalog: catalogOf(router),
+    dispatch: (method: string, path: string, body?: unknown) =>
+      dispatch(router, method, new URL(`http://model${path}`), headers, body),
+  })
+  const viaTool = await runApiTool('api__get_sessions', {}, 'tc-sender', runtimeAs(beta))
+  assert.equal(viaTool?.activity?.kind, 'read')
+  assert.equal(viaTool?.activity?.status, 'done')
+  const { status, body } = JSON.parse(viaTool!.content)
+  assert.equal(status, 200)
+  const direct = await call('GET', '/sessions', undefined, beta)
+  assert.deepEqual(body, direct.json, "the tool read IS the sender's read — the same world, byte for byte")
   const viaDefault = await call('GET', '/sessions')
-  assert.notDeepEqual(viaApi.json, viaDefault.json, 'the two tenants see different worlds (the walls are live)')
+  assert.notDeepEqual(body, viaDefault.json, "and NOT the default tenant's (the walls are live)")
+})
+
+test('E2E: two parallel confirms of ONE proposal execute the operation exactly once (the claim gate)', async () => {
+  const s = store.createSession('double-confirm target')
+  const driver = store.createSession('double-confirm race')
+  await callRaw('POST', `/sessions/${driver.id}/messages`, { text: `Please archive session ${s.id}.` })
+  const act = lastActivity(driver.id)
+  assert.equal(act?.status, 'proposed')
+  // The route awaits the inner dispatch between reading `proposed` and resolving
+  // — without a synchronous claim both racers would read `proposed` and dispatch.
+  const [a, b] = await Promise.all([
+    call('POST', `/sessions/${driver.id}/tool-activities/${act!.id}`, { decision: 'confirm' }),
+    call('POST', `/sessions/${driver.id}/tool-activities/${act!.id}`, { decision: 'confirm' }),
+  ])
+  assert.deepEqual([a.status, b.status].sort(), [200, 409], 'one confirm wins; the other is refused BEFORE it can dispatch')
+  const loser = a.status === 409 ? a : b
+  assert.match(loser.json.error.message, /already being processed/)
+  const winner = a.status === 200 ? a : b
+  assert.equal(winner.json.status, 'done')
+  assert.equal(store.getSession(s.id)?.status, 'archived')
+  // And after the verdict lands, a late confirm is the idempotent no-op path.
+  const late = await call('POST', `/sessions/${driver.id}/tool-activities/${act!.id}`, { decision: 'confirm' })
+  assert.equal(late.status, 200)
+  assert.equal(late.json.status, 'done', 'already resolved — returned unchanged, nothing re-executed')
+})
+
+test('E2E: a DECLINE racing a confirm cannot flip the record while the operation executes — one verdict wins, coherently', async () => {
+  const s = store.createSession('race-decline target')
+  const driver = store.createSession('confirm-vs-decline race')
+  await callRaw('POST', `/sessions/${driver.id}/messages`, { text: `Please archive session ${s.id}.` })
+  const act = lastActivity(driver.id)
+  assert.equal(act?.status, 'proposed')
+  const [c, d] = await Promise.all([
+    call('POST', `/sessions/${driver.id}/tool-activities/${act!.id}`, { decision: 'confirm' }),
+    call('POST', `/sessions/${driver.id}/tool-activities/${act!.id}`, { decision: 'decline' }),
+  ])
+  // Whichever verdict wins the claim, the OTHER is refused — never a record
+  // that says "declined" while the confirmed operation ran to completion.
+  assert.deepEqual([c.status, d.status].sort(), [200, 409], 'exactly one verdict lands')
+  if (c.status === 200) {
+    assert.equal(c.json.status, 'done')
+    assert.equal(store.getSession(s.id)?.status, 'archived', 'confirm won — it executed')
+  } else {
+    assert.equal(d.json.status, 'declined')
+    assert.equal(store.getSession(s.id)?.status ?? 'active', 'active', 'decline won — NOTHING executed')
+  }
 })

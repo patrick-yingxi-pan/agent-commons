@@ -934,6 +934,11 @@ const RUN_RECAP_MESSAGE_ID = 'm2'
  *  rows through the same run↔session identity cascade the delete paths use. */
 const RUN_HISTORY_CAP = 50
 
+/** Proposed tool activities currently EXECUTING a confirm (`sessionId/activityId`).
+ *  Deliberately transient (like reservations): the claim spans one route await,
+ *  and a crash mid-execute should not wedge the proposal shut across a reboot. */
+const TOOL_ACTIVITY_INFLIGHT = new Set<string>()
+
 /** The AGENT adapter of the mint funnel: the persisted session for one scheduled
  *  run, idempotent by its deterministic id (`srun-…`, contract/ids.ts) so run-now,
  *  the daemon, boot-time materialization, and the feed lookup all converge on the
@@ -1793,11 +1798,39 @@ export const store = {
     }
     return undefined
   },
+  /** Claim a proposed action for execution — the synchronous gate that makes a
+   *  confirm's execute-then-resolve sequence single-shot. The route's dispatch
+   *  awaits (yields), so two concurrent confirms could both read `proposed` and
+   *  execute the operation twice; the claim is taken BEFORE the first await, so
+   *  only one caller wins. Returns true for that first caller only. Released by
+   *  `releaseToolActivity` (inner refusal — the proposal stays open) or by
+   *  `resolveToolActivity` (the verdict landed). */
+  claimToolActivity(sessionId: string, activityId: string): boolean {
+    const act = this.getToolActivity(sessionId, activityId)
+    if (!act || act.kind !== 'action' || act.status !== 'proposed') return false
+    const key = `${sessionId}/${activityId}`
+    if (TOOL_ACTIVITY_INFLIGHT.has(key)) return false
+    TOOL_ACTIVITY_INFLIGHT.add(key)
+    return true
+  },
+  /** Drop an execution claim without resolving — the inner dispatch refused, so
+   *  the activity stays `proposed` and confirm/decline both remain open. */
+  releaseToolActivity(sessionId: string, activityId: string): void {
+    TOOL_ACTIVITY_INFLIGHT.delete(`${sessionId}/${activityId}`)
+  },
   /** Record the user's verdict on a proposed action. For an API-op activity the
    *  ROUTE has already executed the operation (through the router, as the
    *  confirmer — INV-11) and passes the result as `doneSummary`; a connector
-   *  activity keeps its fixture result. Audited under the matching capability. */
+   *  activity keeps its fixture result. Audited under the matching capability.
+   *  Idempotent per resolved state (a non-proposed activity returns unchanged) —
+   *  but the execute step itself is NOT idempotent, so a confirm that dispatches
+   *  an op must first win `claimToolActivity` (released here when the verdict
+   *  lands, or by `releaseToolActivity` on an inner refusal). */
   resolveToolActivity(sessionId: string, activityId: string, decision: 'confirm' | 'decline', doneSummary?: string): ToolActivity | undefined {
+    // The verdict lands (or the record is gone — e.g. a confirmed op deleted its
+    // own hosting session): drop any execution claim unconditionally, so no
+    // outcome can leave a `sessionId/activityId` key wedged in the in-flight set.
+    TOOL_ACTIVITY_INFLIGHT.delete(`${sessionId}/${activityId}`)
     const session = SESSIONS.find((s) => s.id === sessionId)
     if (!session?.messages) return undefined
     for (const m of session.messages) {

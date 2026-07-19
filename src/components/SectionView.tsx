@@ -147,6 +147,7 @@ import {
   reserveSubGoal,
   releaseSubGoal,
   probePrompt,
+  mintApiToken,
   API_BASE,
   useAgents,
   useAgentDirectory,
@@ -3277,7 +3278,82 @@ function ContextsSection({
           })}
         </div>
       )}
+
+      <McpAccessCard />
     </Page>
+  )
+}
+
+/** The other direction of the Contexts page (access-parity INV-11): the rows
+ *  above are what THIS workspace connects to; this card is how other agents
+ *  connect to IT — the workspace as an auth-gated MCP server. The mint is a
+ *  one-time reveal (the server keeps only the signed token's verifiability,
+ *  and this panel keeps nothing); the copy IS the save, same as the relay
+ *  secret panel's rule. */
+function McpAccessCard() {
+  const me = useMe()
+  const [minted, setMinted] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  // The externally dialable endpoint, derived from API_BASE like the relay
+  // panel's URLs — right in EVERY deploy shape (dev's Vite proxy forwards
+  // /api, not the root `/mcp` alias, so the base-path form is the one that
+  // always answers; production serves both).
+  const mcpUrl = `${new URL(API_BASE, window.location.origin).href.replace(/\/$/, '')}/mcp`
+  const signedIn = me.data?.via === 'session'
+  const mint = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      setMinted((await mintApiToken()).token)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not mint a token.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="mt-8 overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
+      <div className="flex items-center gap-2 border-b border-line px-4 py-3">
+        <Server size={15} className="text-ink-soft" />
+        <span className="text-[13px] font-semibold text-ink">This workspace is an MCP server</span>
+      </div>
+      <div className="space-y-3 px-4 py-3.5 text-[13px] leading-relaxed text-ink-soft">
+        <p>
+          Any MCP client — another Claude, an agent, a script — can drive everything this UI can:
+          same account, same walls, by construction. Point it at the endpoint and authenticate with
+          a minted token.
+        </p>
+        <div className="flex items-center gap-2">
+          <span className="min-w-0 flex-1 truncate rounded-lg bg-panel-2/50 px-2.5 py-1.5 font-mono text-[12px] text-ink">{mcpUrl}</span>
+          <CopyButton text={mcpUrl} ariaLabel="Copy the MCP endpoint URL" />
+        </div>
+        {minted ? (
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate rounded-lg bg-panel-2/50 px-2.5 py-1.5 font-mono text-[12px] text-ink">{minted}</span>
+              <CopyButton text={minted} label="Copy token" ariaLabel="Copy the access token" />
+            </div>
+            <p className="text-[11px] text-ink-faint">
+              Shown once — send it as <span className="font-mono">Authorization: Bearer …</span>. It authenticates as you; treat it like your password.
+            </p>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={mint}
+              disabled={busy || !signedIn}
+              className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-semibold text-white shadow-sm transition hover:bg-accent-strong disabled:opacity-50"
+            >
+              <KeyRound size={13} />
+              Mint access token
+            </button>
+            {!signedIn && <span className="text-[11px] text-ink-faint">Sign in to mint — a token is minted from a verified session.</span>}
+            {error && <span className="text-[11px] text-red-600">{error}</span>}
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 

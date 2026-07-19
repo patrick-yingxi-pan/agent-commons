@@ -102,10 +102,11 @@ test('tools/call: served image bytes ride as first-class MCP image content (no U
   assert.match(decoded, /<svg/, 'the bytes round-trip exactly')
 })
 
-test('the endpoint is stateless: GET and DELETE answer 405 with Allow: POST', async () => {
+test('GET and DELETE without a session are refused honestly (400 absent, 404 unknown)', async () => {
   for (const method of ['GET', 'DELETE']) {
-    const r = await callRaw(method, '/mcp')
-    assert.equal(r.status, 405, `${method} /mcp`)
-    assert.equal(r.headers.allow, 'POST')
+    const absent = await callRaw(method, '/mcp')
+    assert.equal(absent.status, 400, `${method} /mcp without Mcp-Session-Id`)
   }
+  const del = await callRaw('DELETE', '/mcp', undefined, { 'mcp-session-id': 'no-such-session' })
+  assert.equal(del.status, 404, 'an unknown session id is an honest 404')
 })
