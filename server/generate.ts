@@ -13,6 +13,7 @@ import type { Agent, EscalationProposal, Message, ModelInfo, RelationOp, Session
 import { ProviderProbeError, validApiKeyEnv, PROVIDER_KEY_ENV_PREFIX, type ProviderCapabilities, type ProviderConfig } from './data/providers.ts'
 import { TOOL_DEFINITIONS, executeTool, type ToolContext } from './model/tools.ts'
 import { deriveConnectorTools, runConnectorTool } from './model/connectorTools.ts'
+import { deriveApiTools, runApiTool, type ApiToolRuntime } from './model/apiTools.ts'
 import { chunkText } from './model/replies.ts'
 import { positiveNumberEnv, nonNegativeIntEnv } from './env.ts'
 
@@ -267,6 +268,7 @@ export async function generateReply(
   provider: ProviderConfig = {},
   commons?: ToolContext['commons'],
   connectorContexts: SessionContext[] = [],
+  api?: ApiToolRuntime,
 ): Promise<ReplyResult> {
   // The turn's provider resolves to data — endpoint, credential reference, model id —
   // through one protocol (see `clientFor`). An empty config is the default provider:
@@ -289,7 +291,13 @@ export async function generateReply(
   // and with it the consent-gated proposals — degrades away for turns on it. An
   // unprobed config (the default provider) is the ambient trusted endpoint: full tools.
   const supportsTools = provider.capabilities?.toolUse !== false
-  const tools = supportsTools ? [...agentTools, ...connectorDefs] : []
+  // The generated API tools (access-parity INV-11, the in-app leg): one tool per
+  // HTTP operation, derived from the same catalog as the MCP door. Declared for
+  // every turn the route supplies a runtime for — authority is the USER's (reads
+  // run as them; mutations only propose), so like connector tools they are
+  // structural, not part of the Agent's curated proposal-tool grant.
+  const apiDefs = api ? deriveApiTools(api.catalog).definitions : []
+  const tools = supportsTools ? [...agentTools, ...connectorDefs, ...apiDefs] : []
   const toolsParam = supportsTools ? { tools } : {}
   const userContent = text.trim() || '(the user sent an empty message)'
 
@@ -305,6 +313,13 @@ export async function generateReply(
     assistantId = id
     handlers.onStart(id)
   }
+  // Accumulated tool effects — declared OUTSIDE the try because the catch's
+  // partial-stream fallback persists them. (They used to be try-scoped, which
+  // tsc never sees — `server/` is outside the typecheck include — and the
+  // fallback path would have thrown a ReferenceError instead of degrading.)
+  const relationOps: RelationOp[] = []
+  const toolActivities: ToolActivity[] = []
+  let escalation: EscalationProposal | undefined
 
   try {
     // ── Turn 1: the model may answer with tool calls ─────────────────────────
@@ -329,9 +344,6 @@ export async function generateReply(
     }
 
     // ── Execute the tool calls — build the consent-gated proposals ───────────
-    const relationOps: RelationOp[] = []
-    const toolActivities: ToolActivity[] = []
-    let escalation: EscalationProposal | undefined
     // Same-turn chaining: later tools see (and may consume) the proposals built
     // by earlier calls of this turn — e.g. create_agent bundling a just-proposed
     // system prompt into one card.
@@ -342,12 +354,16 @@ export async function generateReply(
     // tool-grant allowlist (the wall `agentTools` builds above). An undeclared name
     // is refused back to the model, never run.
     const declaredNames = new Set(tools.map((t) => t.name))
-    const toolResults = toolUses.map((tu) => {
+    // Sequential (not Promise.all): curated tools chain within the turn via
+    // ctx.pending, and API reads run against the live store — order preserves
+    // the same-turn semantics a serial model expects.
+    const toolResults: Array<{ type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }> = []
+    for (const tu of toolUses) {
       if (!declaredNames.has(tu.name)) {
-        return { type: 'tool_result' as const, tool_use_id: tu.id, content: `Tool '${tu.name}' was not offered this turn and was not executed.`, is_error: true }
+        toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: `Tool '${tu.name}' was not offered this turn and was not executed.`, is_error: true })
+        continue
       }
-      // A connector/MCP tool (P6) executes into a ToolActivity (mock result); anything
-      // else is a built-in resource / relation / escalation tool.
+      // A connector/MCP tool (P6) executes into a ToolActivity (mock result).
       const activity = runConnectorTool(tu.name, connectorBindings, tu.id)
       if (activity) {
         toolActivities.push(activity)
@@ -358,13 +374,25 @@ export async function generateReply(
           activity.status === 'proposed'
             ? 'Proposed to the user — awaiting their confirmation; not executed yet.'
             : activity.summary
-        return { type: 'tool_result' as const, tool_use_id: tu.id, content }
+        toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content })
+        continue
       }
+      // A generated API tool (INV-11): a read runs NOW through the router as the
+      // user; a mutation becomes a `proposed` activity carrying its operation.
+      if (api) {
+        const outcome = await runApiTool(tu.name, (tu.input ?? {}) as Record<string, unknown>, tu.id, api)
+        if (outcome) {
+          if (outcome.activity) toolActivities.push(outcome.activity)
+          toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: outcome.content, ...(outcome.isError ? { is_error: true } : {}) })
+          continue
+        }
+      }
+      // Anything else is a built-in resource / relation / escalation tool.
       const effect = executeTool(tu.name, (tu.input ?? {}) as Record<string, unknown>, ctx)
       if (effect.relationOps) relationOps.push(...effect.relationOps)
       if (effect.escalation) escalation = effect.escalation
-      return { type: 'tool_result' as const, tool_use_id: tu.id, content: effect.summary }
-    })
+      toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: effect.summary })
+    }
 
     // ── Turn 2: feed the results back, stream the final prose ────────────────
     const stream2 = clientFor(provider).messages.stream(

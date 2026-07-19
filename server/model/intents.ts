@@ -80,6 +80,24 @@ function matchKeywords(text: string): ToolCall[] {
     calls.push({ name: 'create_provider', input: { label, ...(family ? { model_family: family } : {}) } })
   }
 
+  // ── Generated API tools (access-parity INV-11, the in-app leg) ─────────────
+  // A faithful pattern for the requests only the FULL API surface covers: a
+  // direct read ("check my usage") and shape-classified mutations addressed by
+  // explicit id ("archive session sess-3", "delete schedule sched-2"). A real
+  // model reads ids from context; the mock requires them spelled out — honest,
+  // no fake resolution.
+  if (!calls.length && /\b(?:check|show|what'?s)\b.*\busage\b/.test(t)) {
+    calls.push({ name: 'api__get_usage', input: {} })
+  }
+  if (!calls.length) {
+    const archiveId = grab(/\barchive\s+(?:the\s+)?session\s+["“]?([A-Za-z0-9_-]+)["”]?/i)
+    if (archiveId) calls.push({ name: 'api__patch_sessions_by_id', input: { id: archiveId, body: { status: 'archived' } } })
+  }
+  if (!calls.length) {
+    const deleteScheduleId = grab(/\bdelete\s+(?:the\s+)?(?:schedule|routine)\s+["“]?([A-Za-z0-9_-]+)["”]?/i)
+    if (deleteScheduleId) calls.push({ name: 'api__delete_schedules_by_id', input: { id: deleteScheduleId } })
+  }
+
   // ── Panel escalations (the in-place chat → workspace / repo growth) ────────
   // A drafting ask escalates to a workspace; a code ask connects the repo. Both
   // surface as consent-gated proposals (the EscalationPrompt) — same tools a
@@ -203,7 +221,10 @@ function matchKeywords(text: string): ToolCall[] {
     calls.push({ name: 'create_project', input: { name, file_session: 'true' } })
   }
 
-  return calls.filter((c) => (TOOL_NAMES as string[]).includes(c.name))
+  // The curated catalog plus the generated API tools (api__…, INV-11): the mock
+  // emits only names the backend really declares — api__ calls are validated by
+  // the backend's own declared-names guard (generate.ts), same as a real model's.
+  return calls.filter((c) => (TOOL_NAMES as string[]).includes(c.name) || c.name.startsWith('api__'))
 }
 
 /** Decide a turn's tool calls from its keyword patterns. Returns [] when

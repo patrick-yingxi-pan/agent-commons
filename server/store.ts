@@ -1783,7 +1783,21 @@ export const store = {
    *  consent → effect → audit trail); `decline` flips it to `declined`. Idempotent — a
    *  non-proposed / already-resolved activity is returned unchanged. Returns the updated
    *  activity, or undefined if the id isn't on the session. */
-  resolveToolActivity(sessionId: string, activityId: string, decision: 'confirm' | 'decline'): ToolActivity | undefined {
+  /** Find a message's tool activity without mutating it — the route reads a
+   *  pending API-op activity here BEFORE executing its operation on confirm. */
+  getToolActivity(sessionId: string, activityId: string): ToolActivity | undefined {
+    const session = SESSIONS.find((s) => s.id === sessionId)
+    for (const m of session?.messages ?? []) {
+      const act = m.toolActivities?.find((a) => a.id === activityId)
+      if (act) return act
+    }
+    return undefined
+  },
+  /** Record the user's verdict on a proposed action. For an API-op activity the
+   *  ROUTE has already executed the operation (through the router, as the
+   *  confirmer — INV-11) and passes the result as `doneSummary`; a connector
+   *  activity keeps its fixture result. Audited under the matching capability. */
+  resolveToolActivity(sessionId: string, activityId: string, decision: 'confirm' | 'decline', doneSummary?: string): ToolActivity | undefined {
     const session = SESSIONS.find((s) => s.id === sessionId)
     if (!session?.messages) return undefined
     for (const m of session.messages) {
@@ -1794,12 +1808,12 @@ export const store = {
         act.status = 'declined'
       } else {
         act.status = 'done'
-        act.summary = connectorActionResult(act.tool, act.connector)
+        act.summary = doneSummary ?? connectorActionResult(act.tool, act.connector)
         this.recordAudit({
           tenantId: session.tenantId ?? defaultTenantId(),
           channel: 'proxy',
-          capability: 'connector.write',
-          target: act.connector,
+          capability: act.op ? 'api.write' : 'connector.write',
+          target: act.op ? `${act.op.method} ${act.op.path}` : act.connector,
           outcome: 'fulfilled',
         })
       }

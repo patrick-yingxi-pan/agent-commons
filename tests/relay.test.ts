@@ -167,14 +167,20 @@ test('the round-trip: offer → poll → reply → streamed turn (estimated usag
     const pulled = await parked
     assert.equal(pulled.status, 200)
     assert.ok(pulled.json.entryId, 'the prompt is entry-keyed')
-    // The prompt survives as a document (§7.4): system apart from the turns — and
-    // carries no tool surface, because THIS Agent grants none (the fixture omits
-    // `tools` ⇒ the minimal-risk empty set, INV-9): an empty surface is an absent
-    // field, never an empty array pretending to offer something.
+    // The prompt survives as a document (§7.4): system apart from the turns. THIS
+    // Agent grants no curated tools (the fixture omits `tools` ⇒ the minimal-risk
+    // empty set, INV-9) — what IS declared is exactly the structural generated API
+    // surface (access-parity INV-11): every session's assistant can read as the
+    // user and PROPOSE any operation, whichever provider serves it.
     assert.equal(typeof pulled.json.prompt.system, 'string')
-    // …plus the framing content hash (v3 dedupe — no toolsHash, since no tools)
-    // and the channel naming this conversation (v4 multi-session).
-    assert.deepEqual(Object.keys(pulled.json.prompt).sort(), ['channel', 'messages', 'system', 'systemHash'])
+    // …plus the framing content hashes (v3 dedupe) and the channel naming this
+    // conversation (v4 multi-session).
+    assert.deepEqual(Object.keys(pulled.json.prompt).sort(), ['channel', 'messages', 'system', 'systemHash', 'tools', 'toolsHash'])
+    assert.ok(pulled.json.prompt.tools.length > 50, 'the generated API surface is declared')
+    assert.ok(
+      pulled.json.prompt.tools.every((t: { name: string }) => t.name.startsWith('api__')),
+      'and ONLY it — the empty curated grant stays empty (nothing widened)',
+    )
     assert.equal(pulled.json.prompt.channel.id, sessionId, 'the prompt names its conversation')
     assert.equal(pulled.json.prompt.messages[0].text, 'What is our Q3 focus?')
 
@@ -622,11 +628,13 @@ test('the tool-use loop over the mailbox: declared tools → relayed calls → e
     // The prompt declares the turn's callable surface — the Agent's explicit grant,
     // renamed to the wire's `inputSchema` (the contract stays SDK-shape-free).
     assert.ok(Array.isArray(round1.json.prompt.tools), 'the prompt document declares the tools')
+    const declaredNames = round1.json.prompt.tools.map((t: { name: string }) => t.name)
     assert.deepEqual(
-      round1.json.prompt.tools.map((t: { name: string }) => t.name).sort(),
+      declaredNames.filter((n: string) => !n.startsWith('api__')).sort(),
       ['create_project', 'save_artifact'],
-      'exactly the Agent’s grant — nothing widened',
+      'exactly the Agent’s curated grant — nothing widened',
     )
+    assert.ok(declaredNames.some((n: string) => n.startsWith('api__')), 'plus the structural generated API surface (INV-11)')
     assert.equal(round1.json.prompt.tools[0].inputSchema.type, 'object', 'each tool carries its input schema')
 
     // The far session RELAYS a call back, unexecuted; the platform executes it and
@@ -797,18 +805,28 @@ test('a far session that never concludes is stopped at the round cap — honest 
   })
 })
 
-test('relayed calls against a tool-less prompt stop the turn honestly (nothing was offered)', async () => {
+test('a relayed call to a tool that was never offered is refused, not executed (grant stays a wall)', async () => {
   const p = await mintSessionProvider('No surface')
-  const { sessionId } = await sessionOnProvider(p.id) // no tool grant ⇒ no tools declared
+  const { sessionId } = await sessionOnProvider(p.id) // no curated grant ⇒ only api__ tools declared
   await withEnv({ RELAY_POLL_MS: '2000', RELAY_TIMEOUT_MS: '3000' }, async () => {
     const parked = call('GET', '/relay/poll', undefined, auth(p.secret))
     await sleep(10)
     const send = callRaw('POST', `/sessions/${sessionId}/messages`, { text: 'try tools' })
     const pulled = await parked
-    assert.equal(pulled.json.prompt.tools, undefined, 'no tools were declared')
+    assert.ok(
+      (pulled.json.prompt.tools as Array<{ name: string }>).every((t) => t.name.startsWith('api__')),
+      'no curated tool was declared (only the structural API surface)',
+    )
+    // The far session relays a CURATED tool the Agent never granted: mailbox text
+    // is untrusted, so the declared-names wall refuses it — same as generateReply's.
     const r = await call('POST', '/relay/reply', { entryId: pulled.json.entryId, toolCalls: [{ name: 'create_project', input: { name: 'X' } }] }, auth(p.secret))
     assert.equal(r.status, 200, 'the submit is accepted — it settles the entry')
-    assert.match((await send).body, /kept relaying tool calls/, 'but the turn refuses to execute what was never offered')
+    const round2 = await call('GET', '/relay/poll', undefined, auth(p.secret))
+    const resultsTurn = (round2.json.prompt.messages as Array<Record<string, any>>).find((m) => m.toolResults)
+    assert.match(resultsTurn!.toolResults[0].content, /not offered this turn/, 'the refusal is fed back, honest and loud')
+    await call('POST', '/relay/reply', { entryId: round2.json.entryId, completion: 'Understood.' }, auth(p.secret))
+    const fs = (await send).body
+    assert.ok(!fs.includes('message.escalation'), 'and nothing executed — no proposal was minted')
   })
 })
 

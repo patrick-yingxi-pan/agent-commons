@@ -189,7 +189,32 @@ export interface ToolActivity {
   /** The one-line result (a done read/action) or proposed effect (a pending action),
    *  shown on the card and — when done — fed back to the model. */
   summary: string
+  /** For a generated API tool (access-parity INV-11, the in-app leg): the HTTP
+   *  operation this activity reads or proposes. Present on API activities only;
+   *  a connector/MCP activity has none. On a proposed action, this is what the
+   *  server EXECUTES — through the same route table and walls as every door —
+   *  when the user confirms, acting as the confirmer. */
+  op?: ApiActivityOp
+  /** The consent-card family the UI renders a proposed API action with — derived
+   *  from the operation's shape (PATCH → edit, DELETE → danger, posts of prose →
+   *  post, everything else → action; creates → create). Absent on reads and on
+   *  connector activities. */
+  family?: ToolCardFamily
 }
+
+/** The operation an API tool activity carries (method + concrete path + body). */
+export interface ApiActivityOp {
+  method: 'POST' | 'PATCH' | 'DELETE'
+  /** The resolved path under the API root, e.g. `/schedules/sched-3`. */
+  path: string
+  /** The JSON body the operation will send, shown on the card verbatim. */
+  body?: unknown
+}
+
+/** The consent-card families for generated API proposals (INV-11 in-app leg):
+ *  chosen mechanically from the operation's shape so every mutation renders a
+ *  legible card without a bespoke design per route. */
+export type ToolCardFamily = 'create' | 'edit' | 'danger' | 'action' | 'post'
 
 /** A consent-gated escalation Claude proposes mid-turn — the structured result of
  *  a panel-producing tool call. The backend builds it (the panel content comes

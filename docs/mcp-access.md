@@ -14,10 +14,13 @@ The same product is reachable three ways, and they deliberately differ in
 
 1. **The browser UI** — a human clicking. The UI is a client of the HTTP API
    (`/api/v1/*`) and holds no capability of its own.
-2. **The in-app session** — a human *asking*. The model's tool calls execute
-   server-side into consent-gated proposals that land through the same routes
-   the UI would call; the model adds no authority (the user's confirm is the
-   act).
+2. **The in-app session** — a human *asking*. The model is declared one
+   **generated API tool per operation** (`api__…`, from the same catalog as
+   the MCP door — spec MODEL-25): reads execute immediately *as the user* and
+   land as provenance rows under the message; mutations become consent cards
+   (shape-derived families: edit / danger / create / action / post) showing
+   the exact operation, executed — through the same router, as the confirmer
+   — only on the user's click. The model adds no authority of its own.
 3. **The MCP door** — a machine (an agent, a script, another Claude) speaking
    the Model Context Protocol to `POST /mcp`.
 

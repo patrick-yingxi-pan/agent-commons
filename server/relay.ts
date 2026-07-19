@@ -41,6 +41,7 @@ import type {
 import { systemPrompt, type ReplyHandlers, type ReplyResult, type ReplySession } from './generate.ts'
 import { TOOL_DEFINITIONS, executeTool, type ToolContext } from './model/tools.ts'
 import { deriveConnectorTools, runConnectorTool } from './model/connectorTools.ts'
+import { deriveApiTools, runApiTool, type ApiToolRuntime } from './model/apiTools.ts'
 import { chunkText } from './model/replies.ts'
 import { positiveNumberEnv } from './env.ts'
 
@@ -447,15 +448,19 @@ export async function relayReply(
   commons?: ToolContext['commons'],
   connectorContexts: SessionContext[] = [],
   history: RelayPromptTurn[] = [],
+  api?: ApiToolRuntime,
 ): Promise<ReplyResult> {
   // The turn's callable surface — the exact list `generateReply` declares: the
   // Agent's allowlist plus the session's attached connector/MCP tools (P6;
-  // authority stays structural — only what's attached is reachable). Renamed to
+  // authority stays structural — only what's attached is reachable) plus the
+  // generated API tools (access-parity INV-11 — the in-app leg is equally
+  // capable whichever provider serves it). Renamed to
   // the wire's `inputSchema` so the contract stays SDK-shape-free.
   const ctx: ToolContext = { session: { id: session.id, title: session.title }, commons }
   const agentTools = TOOL_DEFINITIONS.filter((t) => agent.tools.includes(t.name))
   const { definitions: connectorDefs, bindings: connectorBindings } = deriveConnectorTools(connectorContexts)
-  const tools: RelayToolDefinition[] = [...agentTools, ...connectorDefs].map((t) => ({
+  const apiDefs = api ? deriveApiTools(api.catalog).definitions : []
+  const tools: RelayToolDefinition[] = [...agentTools, ...connectorDefs, ...apiDefs].map((t) => ({
     name: t.name,
     description: t.description,
     inputSchema: t.input_schema as unknown as Record<string, unknown>,
@@ -532,7 +537,16 @@ export async function relayReply(
       // Relayed calls against a tool-less prompt, or a far session that never
       // concludes, both stop the turn honestly rather than spinning the slot.
       if (!tools.length || round >= MAX_TOOL_ROUNDS - 1) return relayFallback(handlers, FALLBACK_LOOP)
-      const results = raced.calls.map((call) => {
+      // Defense in depth, same as `generateReply`'s: only EXECUTE a tool this
+      // turn actually declared. Mailbox text is untrusted input — a far session
+      // relaying an undeclared curated tool must not bypass the Agent's grant.
+      const declaredNames = new Set(tools.map((t) => t.name))
+      const results: Array<{ toolCallId: string; content: string }> = []
+      for (const call of raced.calls) {
+        if (!declaredNames.has(call.name)) {
+          results.push({ toolCallId: call.id, content: `Tool '${call.name}' was not offered this turn and was not executed.` })
+          continue
+        }
         // A connector/MCP tool (P6) executes into a ToolActivity; anything else is a
         // built-in resource / relation / escalation tool — the same dispatch (and the
         // same honest "proposed, not done" wording) as `generateReply`'s.
@@ -541,15 +555,26 @@ export async function relayReply(
           toolActivities.push(activity)
           const content =
             activity.status === 'proposed' ? 'Proposed to the user — awaiting their confirmation; not executed yet.' : activity.summary
-          return { toolCallId: call.id, content }
+          results.push({ toolCallId: call.id, content })
+          continue
+        }
+        // A generated API tool (INV-11): a read runs NOW as the user; a mutation
+        // becomes a `proposed` activity — same semantics as `generateReply`'s.
+        if (api) {
+          const outcome = await runApiTool(call.name, call.input ?? {}, call.id, api)
+          if (outcome) {
+            if (outcome.activity) toolActivities.push(outcome.activity)
+            results.push({ toolCallId: call.id, content: outcome.content })
+            continue
+          }
         }
         // `executeTool` answers an unknown name with a no-effect summary — fed back
         // so the far model can correct itself next round instead of failing the turn.
         const effect = executeTool(call.name, call.input ?? {}, ctx)
         if (effect.relationOps) relationOps.push(...effect.relationOps)
         if (effect.escalation) escalation = effect.escalation
-        return { toolCallId: call.id, content: effect.summary }
-      })
+        results.push({ toolCallId: call.id, content: effect.summary })
+      }
       turns.push({ role: 'assistant', toolCalls: raced.calls }, { role: 'user', toolResults: results })
       continue
     }

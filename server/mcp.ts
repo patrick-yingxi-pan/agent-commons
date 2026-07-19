@@ -25,11 +25,15 @@
  *  reasons in `MCP_EXCLUDED` and locked by `tests/mcp-parity.test.ts` so an
  *  exclusion is a visible, argued decision, never a silent gap. Live streams
  *  remain transport-specific DELIVERY of state the tools can read. */
-import type { IncomingMessage, ServerResponse } from 'node:http'
-import type { Router, RouteInfo } from './http/router.ts'
+import type { ServerResponse } from 'node:http'
+import type { Router } from './http/router.ts'
 import { BASE_HEADERS } from './http/respond.ts'
 import { positiveNumberEnv } from './env.ts'
 import { API_BASE_PATH } from '../contract/index.ts'
+import { catalogOf, pathFor, toolNameFor, type ApiOperation } from './apiSurface.ts'
+import { dispatch } from './http/dispatch.ts'
+
+export { toolNameFor } // re-exported for the parity test (the shared stem lives in apiSurface.ts)
 
 export const MCP_PROTOCOL_VERSION = '2025-06-18'
 
@@ -45,44 +49,19 @@ export const MCP_EXCLUDED: ReadonlyMap<string, string> = new Map([
   ['DELETE /mcp', 'the MCP endpoint itself'],
 ])
 
-const snake = (s: string) => s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`).replace(/-/g, '_')
-
-/** Deterministic tool name for a route: `GET /sessions/:id/contexts` →
- *  `get_sessions_by_id_contexts`. Uniqueness is locked by the parity test. */
-export function toolNameFor(method: string, pattern: string): string {
-  const segs = pattern
-    .split('/')
-    .filter(Boolean)
-    .map((s) => (s === '*' ? 'by_rest' : s.startsWith(':') ? `by_${snake(s.slice(1))}` : snake(s)))
-  return [method.toLowerCase(), ...segs].join('_')
-}
-
-interface ToolRoute extends RouteInfo {
-  name: string
-  params: string[]
-}
-
-/** The tool-exposed routes, derived fresh from the table each call (the table
- *  is append-only after boot, but deriving lazily keeps this a pure view). */
-function toolRoutes(router: Router): ToolRoute[] {
-  const out: ToolRoute[] = []
+/** The tool-exposed routes, derived fresh from the shared catalog each call
+ *  (the table is append-only after boot; deriving lazily keeps this a pure view). */
+function toolRoutes(router: Router): ApiOperation[] {
   const seen = new Set<string>()
-  for (const { method, pattern } of router.list()) {
-    if (MCP_EXCLUDED.has(`${method} ${pattern}`)) continue
-    const name = toolNameFor(method, pattern)
-    if (seen.has(name)) throw new Error(`MCP tool name collision: ${name} (${method} ${pattern})`)
-    seen.add(name)
-    const params = pattern
-      .split('/')
-      .filter(Boolean)
-      .map((s) => (s === '*' ? 'rest' : s.startsWith(':') ? s.slice(1) : null))
-      .filter((p): p is string => p !== null)
-    out.push({ method, pattern, name, params })
-  }
-  return out
+  return catalogOf(router).filter((op) => {
+    if (MCP_EXCLUDED.has(`${op.method} ${op.pattern}`)) return false
+    if (seen.has(op.name)) throw new Error(`MCP tool name collision: ${op.name} (${op.method} ${op.pattern})`)
+    seen.add(op.name)
+    return true
+  })
 }
 
-function toolDefinition(t: ToolRoute) {
+function toolDefinition(t: ApiOperation) {
   const properties: Record<string, unknown> = {}
   for (const p of t.params) properties[p] = { type: 'string', description: `Path parameter :${p}` }
   properties.query = {
@@ -105,122 +84,6 @@ function toolDefinition(t: ToolRoute) {
       additionalProperties: false,
     },
   }
-}
-
-/** Headers NOT forwarded into the inner dispatch: transport plumbing of the
- *  outer HTTP request. Credentials (authorization, cookie) and the dev identity
- *  seam ARE forwarded — that is the parity: the inner wall sees exactly what
- *  the caller presented. */
-const HOP_HEADERS = new Set([
-  'host',
-  'connection',
-  'content-length',
-  'content-type',
-  'transfer-encoding',
-  'accept',
-  'accept-encoding',
-  'origin',
-  'mcp-session-id',
-  'mcp-protocol-version',
-])
-
-interface InnerResponse {
-  status: number
-  headers: Record<string, string>
-  /** Raw response bytes — text routes decode as UTF-8; binary routes (served
-   *  image content) stay bytes so they can ride a tool result as base64. */
-  body: Buffer
-}
-
-/** Re-enter the router with a synthetic request/response pair (the same
- *  technique the test harness uses to drive the real route table without a
- *  socket). The FULL middleware chain runs again for the inner path — that is
- *  the point. */
-function dispatch(
-  router: Router,
-  method: string,
-  url: URL,
-  headers: IncomingMessage['headers'],
-  body: unknown,
-): Promise<InnerResponse> {
-  return new Promise((resolvePromise) => {
-    const fwd: Record<string, string | string[] | undefined> = {}
-    for (const [k, v] of Object.entries(headers)) {
-      if (!HOP_HEADERS.has(k.toLowerCase())) fwd[k.toLowerCase()] = v
-    }
-    if (body !== undefined) fwd['content-type'] = 'application/json'
-    const listeners: Record<string, (arg?: unknown) => void> = {}
-    let emitted = false
-    const req: any = {
-      method,
-      headers: fwd,
-      on(ev: string, cb: (arg?: unknown) => void) {
-        listeners[ev] = cb
-        // Emit the body once the reader attaches its `end` listener (readBody
-        // adds `data` first, then `end`) — same contract as the real stream.
-        if (ev === 'end' && !emitted) {
-          emitted = true
-          queueMicrotask(() => {
-            if (body !== undefined) listeners.data?.(Buffer.from(JSON.stringify(body)))
-            listeners.end?.()
-          })
-        }
-        return req
-      },
-    }
-    let status = 0
-    const chunks: Buffer[] = []
-    let ended = false
-    const respHeaders: Record<string, string> = {}
-    const push = (chunk: unknown) => {
-      // Preserve BYTES: a served image write()s Buffers, and String() would
-      // UTF-8-mangle them (the same rule as the static-asset byte path).
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), 'utf8'))
-    }
-    const finish = () => {
-      if (ended) return
-      ended = true
-      resolvePromise({ status: status || 200, headers: respHeaders, body: Buffer.concat(chunks) })
-    }
-    const res: any = {
-      writeHead(s: number, hdrs?: Record<string, string>) {
-        status = s
-        if (hdrs) for (const [k, v] of Object.entries(hdrs)) respHeaders[k.toLowerCase()] = String(v)
-        return res
-      },
-      setHeader(name: string, value: string | string[]) {
-        respHeaders[String(name).toLowerCase()] = String(value)
-      },
-      write(chunk: unknown) {
-        push(chunk)
-        return true
-      },
-      end(chunk?: unknown) {
-        if (chunk) push(chunk)
-        finish()
-      },
-      flushHeaders() {},
-      on() {},
-      get writableEnded() {
-        return ended
-      },
-    }
-    const fail = (s: number, code: string, message: string) => {
-      status = s
-      chunks.length = 0
-      push(JSON.stringify({ error: { code, message } }))
-      respHeaders['content-type'] = 'application/json; charset=utf-8'
-      finish()
-    }
-    router.handle(req, res, url).then(
-      (handled) => {
-        if (!handled) fail(404, 'not_found', `No route ${method} ${url.pathname}`)
-        // handled-but-not-ended = a still-open stream; the timeout in the
-        // caller bounds it. finish() fires on the eventual end().
-      },
-      () => fail(500, 'internal', 'Internal error'),
-    )
-  })
 }
 
 /** Parse an SSE body (`data: {...}` frames) into the array of its JSON events —
@@ -314,21 +177,9 @@ export function registerMcp(router: Router): void {
           return sendRpc(res, rpcError(id, -32602, `Missing required path parameter: ${p}`))
         }
       }
-      const path = tool.pattern
-        .split('/')
-        .filter(Boolean)
-        // The `rest` tail keeps its slashes but encodes each segment, so a
-        // value carrying `?`/`#`/`..` can't rewrite the inner URL. (No `*`
-        // route exists today — this is the defensive posture for the day one does.)
-        .map((s) =>
-          s === '*'
-            ? String(args.rest).split('/').map(encodeURIComponent).join('/')
-            : s.startsWith(':')
-              ? encodeURIComponent(String(args[s.slice(1)]))
-              : s,
-        )
-        .join('/')
-      const inner = new URL(`/${path}`, url.origin)
+      // pathFor encodes every segment (the `rest` tail per-segment), so an
+      // arg carrying `?`/`#`/`..` can't rewrite the inner URL.
+      const inner = new URL(pathFor(tool, args), url.origin)
       if (args.query && typeof args.query === 'object') {
         for (const [k, v] of Object.entries(args.query as Record<string, unknown>)) {
           if (v !== undefined && v !== null) inner.searchParams.set(k, String(v))

@@ -55,16 +55,21 @@ spec row SYNC-8.
 
 ## Three access doors, one wall (access-parity INV-11)
 
-The product is reachable by the browser UI, the in-app session (model tool
-calls → consent-gated proposals), and the **MCP door** (`POST /mcp`,
-`server/mcp.ts`) — equally capable, gated by the same policies, **by
-construction**: MCP tools are GENERATED from the route table (`Router.list()`)
-and every `tools/call` re-enters the router (middleware wall included). Never
-hand-add an MCP tool with its own logic, and never give any access method a
-private policy branch. Auth is the one session credential over cookie OR
-`Authorization: Bearer` (`transport: 'bearer'` on login/signup mints for
-machines). Explainer: [`docs/mcp-access.md`](../docs/mcp-access.md); locks:
-`tests/mcp-parity.test.ts`, `tests/mcp.test.ts`, `tests/auth-bearer.test.ts`.
+The product is reachable by the browser UI, the in-app session, and the **MCP
+door** (`POST /mcp`, `server/mcp.ts`) — equally capable, gated by the same
+policies, **by construction**: both non-HTTP doors GENERATE their tool surface
+from the one operation catalog (`server/apiSurface.ts`, over `Router.list()`)
+and re-enter the router for every act (`server/http/dispatch.ts`). The in-app
+leg (`server/model/apiTools.ts`, MODEL-25): reads run NOW as the sending user
+(provenance rows); mutations become family-carded proposals executed as the
+CONFIRMER on the user's click; `MODEL_API_EXCLUDED` walls the conversation /
+credential / machine planes with argued reasons. Never hand-add a generated
+tool with its own logic, and never give any access method a private policy
+branch. Auth is the one session credential over cookie OR `Authorization:
+Bearer` (`transport: 'bearer'` on login/signup mints for machines).
+Explainer: [`docs/mcp-access.md`](../docs/mcp-access.md); locks:
+`tests/mcp-parity.test.ts`, `tests/api-tools.test.ts`, `tests/mcp.test.ts`,
+`tests/auth-bearer.test.ts`.
 
 ## Persistence and snapshots
 

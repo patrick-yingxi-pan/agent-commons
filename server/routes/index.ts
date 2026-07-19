@@ -54,6 +54,7 @@ import { RateLimiter } from '../ratelimit.ts'
 import { generateReply, probeProviderEndpoint, fetchProviderModels, resolvedModelId } from '../generate.ts'
 import { relayReply, mintRelaySecret, hashRelaySecret, relaySecretHint, type RelayOutcome } from '../relay.ts'
 import { registerMcp } from '../mcp.ts'
+import { apiCatalog, apiDispatch, bindApiSurface } from '../apiSurface.ts'
 import { renderConnectorSetup } from '../connectorSetup.ts'
 import { platformCard, agentCard, taskFromOpenSubGoal, rejectedAgentTask, rpcResult, rpcError } from '../a2a.ts'
 import { ProviderProbeError, type ProviderConfig } from '../data/providers.ts'
@@ -2498,10 +2499,19 @@ export function buildRouter(): Router {
       // relay (`relayReply` — the user's own session answers over the framed mailbox,
       // relaying tool calls unexecuted; its own deadline, never `MODEL_TIMEOUT_MS`).
       // One `if` where a loopback shim isn't.
+      // The generated API tools' runtime (access-parity INV-11, the in-app leg):
+      // reads dispatch through the router NOW with THIS request's headers — the
+      // sender's identity, so the model reads exactly what its user can read —
+      // and mutations only mint proposals (executed later by the tool-activities
+      // route, as the confirmer). Same catalog as the MCP door.
+      const apiRuntime = {
+        catalog: apiCatalog(),
+        dispatch: (method: string, path: string, body?: unknown) => apiDispatch(method, path, req.headers, body),
+      }
       const { message, usage, outcome } =
         provider.kind === 'session'
-          ? await relayReply(session, agent, text ?? '', replyHandlers, ac.signal, store.relay, turnProviderId!, commons, contexts, relayHistory)
-          : await generateReply(session, agent, text ?? '', replyHandlers, ac.signal, turnConfig, commons, contexts)
+          ? await relayReply(session, agent, text ?? '', replyHandlers, ac.signal, store.relay, turnProviderId!, commons, contexts, relayHistory, apiRuntime)
+          : await generateReply(session, agent, text ?? '', replyHandlers, ac.signal, turnConfig, commons, contexts, apiRuntime)
       // Meter the real tokens this turn consumed (even ephemeral turns —
       // they hit the model too), so the composer's plan-usage rings reflect use.
       store.recordUsage(usage.inputTokens, usage.outputTokens, tenantId)
@@ -2646,7 +2656,26 @@ export function buildRouter(): Router {
     if (decision !== 'confirm' && decision !== 'decline') {
       return sendError(res, 'bad_request', "decision must be 'confirm' or 'decline'")
     }
-    const activity = store.resolveToolActivity(params.id, params.activityId, decision)
+    // An API-op activity (INV-11, the in-app leg): the confirm EXECUTES the
+    // proposed operation — through this same router, with THIS request's
+    // headers, so the act runs as the CONFIRMER and meets every wall (tenancy,
+    // gate, capability 409s) exactly as if they'd clicked it in the UI. On an
+    // inner refusal the activity stays proposed (retry/decline both remain
+    // open) and the inner error surfaces honestly as a 409.
+    let doneSummary: string | undefined
+    const pending = store.getToolActivity(params.id, params.activityId)
+    if (decision === 'confirm' && pending?.op && pending.status === 'proposed') {
+      const out = await apiDispatch(pending.op.method, pending.op.path, req.headers, pending.op.body)
+      if (out.status >= 400) {
+        let detail = `HTTP ${out.status}`
+        try {
+          detail = JSON.parse(out.body.toString('utf8')).error.message ?? detail
+        } catch {}
+        return sendError(res, 'conflict', `The proposed operation was refused (${out.status}): ${detail}`)
+      }
+      doneSummary = `${pending.op.method} ${API_BASE_PATH}${pending.op.path} → ${out.status}`
+    }
+    const activity = store.resolveToolActivity(params.id, params.activityId, decision, doneSummary)
     if (!activity) return sendError(res, 'not_found', `No tool activity '${params.activityId}' on session '${params.id}'`)
     sendJson(res, activity)
   })
@@ -2851,6 +2880,9 @@ export function buildRouter(): Router {
   // complete. It adds no policy of its own: every tools/call re-enters this
   // router and meets the same wall.
   registerMcp(r)
+  // Bind the shared API surface (catalog + dispatch) the OTHER non-HTTP door —
+  // the in-app session's generated tools — reaches operations through.
+  bindApiSurface(r)
 
   return r
 }
