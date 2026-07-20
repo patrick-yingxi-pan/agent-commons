@@ -27,8 +27,8 @@ test('one tenant exhausting its window doesn’t 429 another, nor move its gauge
   assert.equal(store.overSpendLimit(undefined, B), null, 'B is not over')
   assert.equal(store.usage(undefined, B).limits.find((w) => w.label === '5-hour limit')?.pct, 0, 'B starts empty')
 
-  // A exhausts its 5-hour window (record ≥ the ceiling).
-  store.recordUsage(1_200_000, 0, A)
+  // A exhausts its 5-hour window (record ≥ the 2.4M ceiling).
+  store.recordUsage(2_400_000, 0, A)
 
   // A is now gated…
   const overA = store.overSpendLimit(undefined, A)
@@ -44,7 +44,7 @@ test('an Agent budget still tightens the per-turn gate within a tenant', () => {
   const C = 'tenant-usage-c'
   // A budget capping the 5-hour window well below what C has spent makes the gate fire even
   // though the plan ceiling isn’t reached — the D8 attenuation, now per tenant.
-  store.recordUsage(100_000, 0, C) // 100k of the 1.2M plan ceiling — not over the plan
+  store.recordUsage(100_000, 0, C) // 100k of the 2.4M plan ceiling — not over the plan
   assert.equal(store.overSpendLimit(undefined, C), null, 'not over the plan ceiling on its own')
   const tightBudget = { windows: [{ label: '5-hour limit', ceiling: 50_000 }] }
   const over = store.overSpendLimit(tightBudget, C)

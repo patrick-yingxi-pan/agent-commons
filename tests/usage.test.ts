@@ -95,14 +95,14 @@ test('store.usage(session) reflects the open thread; a longer thread shows more 
 test('usage meter overLimit: spend-time enforcement (D8)', () => {
   let t = 1_000_000
   const m = createUsageMeter(() => t)
-  // The fresh meter is seeded under both ceilings (852k/1.2M, 5.76M/24M) → no limit hit.
+  // The fresh meter is seeded under both ceilings (1.704M/2.4M, 5.76M/24M) → no limit hit.
   assert.equal(m.overLimit(), null)
-  // A tighter Agent budget already below the seeded 5-hour consumption (852k) is over now.
+  // A tighter Agent budget already below the seeded 5-hour consumption (1.704M) is over now.
   const tight = m.overLimit({ windows: [{ label: '5-hour limit', ceiling: 800_000 }] })
   assert.equal(tight?.label, '5-hour limit')
   assert.equal(tight?.ceiling, 800_000)
-  // Spending past the plan's 5-hour ceiling (1.2M) tips the plan itself over.
-  m.record(400_000, 0) // 852k + 400k = 1.252M ≥ 1.2M
+  // Spending past the plan's 5-hour ceiling (2.4M) tips the plan itself over.
+  m.record(700_000, 0) // 1.704M + 700k = 2.404M ≥ 2.4M
   assert.equal(m.overLimit()?.label, '5-hour limit')
 })
 

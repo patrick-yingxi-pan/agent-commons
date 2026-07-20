@@ -7,7 +7,7 @@ import { overBudgetWindow, clampBudget, type Budget, type BudgetWindow } from '.
 import { createUsageMeter, mintBudget, BudgetError } from '../server/usage.ts'
 
 const PLAN: BudgetWindow[] = [
-  { label: '5-hour limit', ceiling: 1_200_000 },
+  { label: '5-hour limit', ceiling: 2_400_000 },
   { label: 'Weekly · all models', ceiling: 24_000_000 },
 ]
 
@@ -17,7 +17,7 @@ test('overBudgetWindow: a subset budget is a valid attenuation (null)', () => {
 })
 
 test('overBudgetWindow: a window exceeding its parent breaks attenuation', () => {
-  const child: Budget = { windows: [{ label: '5-hour limit', ceiling: 2_000_000 }] }
+  const child: Budget = { windows: [{ label: '5-hour limit', ceiling: 4_000_000 }] }
   assert.equal(overBudgetWindow(PLAN, child)?.label, '5-hour limit')
 })
 
@@ -28,7 +28,7 @@ test('overBudgetWindow: a window the parent does not have breaks attenuation', (
 
 test('the meter exposes the plan ceilings as the cascade root', () => {
   const ceilings = createUsageMeter(() => 0).planCeilings()
-  assert.equal(ceilings.find((w) => w.label === '5-hour limit')?.ceiling, 1_200_000)
+  assert.equal(ceilings.find((w) => w.label === '5-hour limit')?.ceiling, 2_400_000)
   assert.equal(ceilings.find((w) => w.label === 'Weekly · all models')?.ceiling, 24_000_000)
 })
 

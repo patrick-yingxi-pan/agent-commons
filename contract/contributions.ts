@@ -12,8 +12,65 @@
  *  the existence-hiding 404) and every wire face is REDACTED like the work
  *  item's: display names cross, raw foreign tenant ids never do. */
 import type { PrincipalKind } from './identity.ts'
+import type { ProjectEffectType } from './coordination.ts'
 
 export type ContributionStatus = 'open' | 'landed'
+
+/** ── The effect envelope (CW1, Phase C) — approval before action ─────────────
+ *  A typed, bounded declaration of the external acts a contribution may fire:
+ *  approved ONCE by a human (the PD50 standing-approval shape, generalized),
+ *  then each concrete act passes a MECHANICAL match — line exists, cardinality
+ *  remaining — never a fresh judgment. Versioned append-only: an amendment is a
+ *  new version that must be re-approved (the approval names the version it
+ *  covered), so "what exactly was authorized, by whom, and what ran under it"
+ *  is one record — the envelope OBJECT holds the current version; a superseded
+ *  version's lines and spend survive in the amendment's timeline event. */
+
+/** The harness a line commits to run under (CW5's ladder) — structural
+ *  containment that lowers the trust an approval needs. Phase C records and
+ *  displays the harness; the behaviors (escrow holds, cooling timers) land
+ *  with their stages in later phases. */
+export type EnvelopeHarness = 'dry-run' | 'draft-escrow' | 'canary' | 'cooling-window' | 'hold-until-landing'
+export const ENVELOPE_HARNESSES: EnvelopeHarness[] = ['dry-run', 'draft-escrow', 'canary', 'cooling-window', 'hold-until-landing']
+
+/** One authorized act class: "≤ cardinality acts of `type` on `target`, under
+ *  `harness`". `used` counts executed acts (the match ledger's public face). */
+export interface EffectEnvelopeLine {
+  id: string
+  type: ProjectEffectType
+  target: string
+  cardinality: number
+  harness: EnvelopeHarness
+  /** Free-text scope note ("re: launch timeline"). `''` when none. */
+  note: string
+  used: number
+}
+
+export interface EffectEnvelope {
+  /** Bumped on every proposal/amendment; approval stamps the version it saw. */
+  version: number
+  /** `proposed` = awaiting (re-)approval; `approved` = acts may match. */
+  status: 'proposed' | 'approved'
+  lines: EffectEnvelopeLine[]
+  /** Display names + stamps (public identity, like every actor field). */
+  proposedBy: string
+  proposedAt: number
+  approvedBy?: string
+  approvedAt?: number
+  /** The version the standing approval covers (= `version` while approved —
+   *  an amendment resets status, so a stale approval can never cover it). */
+  approvedVersion?: number
+}
+
+/** Body of `POST .../contributions/:cid/envelope` — propose or amend. */
+export interface ProposeEnvelopeRequest {
+  lines: { type: ProjectEffectType; target: string; cardinality?: number; harness?: EnvelopeHarness; note?: string }[]
+}
+
+/** Body of `POST .../contributions/:cid/effects` — fire one act against a line. */
+export interface RunEnvelopeEffectRequest {
+  lineId: string
+}
 
 /** One event on a Contribution's timeline — the append-only record the page
  *  interleaves (the S14 work-item timeline's sibling). `opened` and `landed`
@@ -22,14 +79,24 @@ export type ContributionStatus = 'open' | 'landed'
  *  timeline IS the surface — no detached comment array to drift from it). */
 export interface ContributionEvent {
   id: string
-  kind: 'opened' | 'note' | 'landed'
+  kind:
+    | 'opened'
+    | 'note'
+    | 'landed'
+    /* Phase C — the envelope's deliberation + match record (CW1): */
+    | 'envelope-proposed'
+    | 'envelope-approved'
+    | 'effect-executed'
+    | 'effect-refused'
   at: number
   /** The acting workspace's display name (public identity, like `postedBy`). */
   actor: string
   /** What KIND of principal acted (FWD-5) — absent = unattributed. */
   actorKind?: PrincipalKind
-  /** `note`: the comment body. `opened` / `landed` carry no body — the
-   *  contribution's own summary / landing number are their content. */
+  /** `note`: the comment body. The envelope/effect kinds: a one-line record
+   *  ("v2 · 2 acts", "connector.write → gmail · draft-escrow", the refusal
+   *  reason). `opened` / `landed` carry no body — the contribution's own
+   *  summary / landing number are their content. */
   body?: string
 }
 
@@ -65,6 +132,9 @@ export interface Contribution {
    *  the session door) — display names are not unique, so a name comparison
    *  would mis-offer; the server still enforces on raw tenant ids either way. */
   mine?: boolean
+  /** The effect envelope (CW1, Phase C) — absent = the contribution declares
+   *  no external acts (the common mergeable-only case; INV-9 fixed absence). */
+  envelope?: EffectEnvelope
   status: ContributionStatus
   openedAt: number
   landedAt?: number

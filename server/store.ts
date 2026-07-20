@@ -75,7 +75,7 @@ import { mintAuthority } from './authority.ts'
 import { ConflictError, ValidationError } from './conflict.ts'
 import { LimitError } from './limit.ts'
 import { scopeMatches } from './runner-runtime.ts'
-import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../contract/index.ts'
+import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, PROJECT_EFFECT_TYPES, ENVELOPE_HARNESSES, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../contract/index.ts'
 import type { Agent, AgentChangeProposal, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelInfo, ModelProvider, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, Contribution, OpenContributionRequest, OwnerActivity, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState, WorkItemComment } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, SEED_PROVIDERS, SEED_PROVIDER_CONFIGS, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
@@ -250,6 +250,16 @@ const MAX_OPEN_CONTRIBUTIONS_PER_PROJECT = 50
 const MAX_CONTRIBUTIONS_PER_PROJECT = 200
 const MAX_CONTRIBUTION_NOTES = 100
 const MAX_CONTRIBUTION_FIELD_CHARS = 2000
+// Envelope bounds (Phase C): a legible plan, not a blanket grant — few lines,
+// small cardinalities. An "unbounded" envelope would be consent theater (the
+// design doc's envelope-specificity residue), so the funnel refuses it.
+const MAX_ENVELOPE_LINES = 10
+const MAX_ENVELOPE_CARDINALITY = 20
+// TOTAL timeline-event bound: notes have their own cap, but the envelope kinds
+// (proposed / approved / executed / refused) would otherwise grow another
+// tenant's timeline + snapshot without limit — the same DoS class the total
+// contribution cap closes (review finding, Phase C pass).
+const MAX_CONTRIBUTION_EVENTS = 300
 
 function publicContributionEvent(ev: StoredContributionEvent): import('../contract/index.ts').ContributionEvent {
   const { principal, ...pub } = ev
@@ -4028,6 +4038,146 @@ export const store = {
     c.landedAt = now
     c.landedBy = tenantName(tenantId)
     c.events.push({ id: `cev-${(contributionSeq += 1)}`, kind: 'landed', at: now, actor: c.landedBy, ...(principal ? { principal } : {}) })
+    emit({ type: 'contribution.changed', projectId })
+    persist()
+    return publicContribution(c, tenantId)
+  },
+
+  // ── The effect envelope (CW1, Phase C) — approval before action ─────────────
+  /** Propose or AMEND a contribution's envelope: a new version, status
+   *  `proposed` — an amendment structurally invalidates the prior approval
+   *  (the approval names the version it covered; CW4 append-only applies to
+   *  authorization too). Anyone who can SEE the project may propose/counter-
+   *  propose (deliberation is open — the route walls visibility); APPROVAL is
+   *  the gate, not proposal. Open contributions only: a landed one's plan is
+   *  immutable history. */
+  proposeEnvelope(projectId: string, cid: string, req: import('../contract/index.ts').ProposeEnvelopeRequest, tenantId: string, principal: PrincipalRef | undefined): Contribution | 'closed' | 'invalid' | 'forbidden' | 'capped' | undefined {
+    const c = contributions.find((x) => x.id === cid && x.projectId === projectId)
+    if (!c) return undefined
+    if (c.status !== 'open') return 'closed'
+    // Deliberation is open while the envelope is UNAPPROVED — but amending an
+    // APPROVED envelope resets the grant, an ungated revocation power a hostile
+    // viewer must not hold over the contributor's standing approval (review
+    // finding): once approved, only the contributor or the owner may amend.
+    if (c.envelope?.status === 'approved') {
+      const ownerTenant = findProject(projectId)?.tenantId ?? defaultTenantId()
+      const isContributor = c.contributorTenant !== undefined && c.contributorTenant === tenantId
+      if (!isContributor && !tenantWritesAs(tenantId, ownerTenant)) return 'forbidden'
+    }
+    if (c.events.length >= MAX_CONTRIBUTION_EVENTS) return 'capped'
+    const lines = req.lines
+    if (!Array.isArray(lines) || lines.length === 0 || lines.length > MAX_ENVELOPE_LINES) return 'invalid'
+    for (const l of lines) {
+      const card = l.cardinality ?? 1
+      if (
+        !PROJECT_EFFECT_TYPES.includes(l.type) ||
+        typeof l.target !== 'string' || !l.target.trim() ||
+        !Number.isInteger(card) || card < 1 || card > MAX_ENVELOPE_CARDINALITY ||
+        (l.harness !== undefined && !ENVELOPE_HARNESSES.includes(l.harness))
+      ) return 'invalid'
+    }
+    const now = Date.now()
+    const actor = tenantName(tenantId)
+    const version = (c.envelope?.version ?? 0) + 1
+    // The event carries what the amendment SUPERSEDED (lines + spend) — the
+    // envelope object holds only the current version, so the timeline is where
+    // a replaced version's record survives (review finding: don't destroy the
+    // what-ran-under-v1 answer).
+    const superseded = c.envelope
+      ? ` (supersedes v${c.envelope.version}: ${c.envelope.lines.map((l) => `${l.type}→${l.target} ${l.used}/${l.cardinality}`).join(', ')})`
+      : ''
+    c.envelope = {
+      version,
+      status: 'proposed',
+      proposedBy: actor,
+      proposedAt: now,
+      lines: lines.map((l) => ({
+        id: `cev-${(contributionSeq += 1)}`,
+        type: l.type,
+        target: l.target.trim().slice(0, MAX_CONTRIBUTION_FIELD_CHARS),
+        cardinality: l.cardinality ?? 1,
+        harness: l.harness ?? 'draft-escrow',
+        note: (l.note ?? '').trim().slice(0, MAX_CONTRIBUTION_FIELD_CHARS),
+        used: 0,
+      })),
+    }
+    c.events.push({
+      id: `cev-${(contributionSeq += 1)}`,
+      kind: 'envelope-proposed',
+      at: now,
+      actor,
+      body: `v${version} · ${lines.length} act${lines.length === 1 ? '' : 's'}${superseded}`,
+      ...(principal ? { principal } : {}),
+    })
+    emit({ type: 'contribution.changed', projectId })
+    persist()
+    return publicContribution(c, tenantId)
+  },
+  /** Approve the envelope AS PROPOSED — the human judgment moment (the floor
+   *  rule: external acts need at least one human approval per envelope; what
+   *  follows at act time is mechanical). Project-owner only (`tenantWritesAs`,
+   *  raw ids — D14's role gate for commission actors arrives with their
+   *  execution path); stamps the version covered. */
+  approveEnvelope(projectId: string, cid: string, tenantId: string, principal: PrincipalRef | undefined): Contribution | 'forbidden' | 'conflict' | undefined {
+    const c = contributions.find((x) => x.id === cid && x.projectId === projectId)
+    if (!c?.envelope) return undefined
+    const ownerTenant = findProject(projectId)?.tenantId ?? defaultTenantId()
+    if (!tenantWritesAs(tenantId, ownerTenant)) return 'forbidden'
+    if (c.status !== 'open' || c.envelope.status !== 'proposed') return 'conflict'
+    const now = Date.now()
+    const actor = tenantName(tenantId)
+    c.envelope.status = 'approved'
+    c.envelope.approvedBy = actor
+    c.envelope.approvedAt = now
+    c.envelope.approvedVersion = c.envelope.version
+    c.events.push({ id: `cev-${(contributionSeq += 1)}`, kind: 'envelope-approved', at: now, actor, body: `v${c.envelope.version}`, ...(principal ? { principal } : {}) })
+    emit({ type: 'contribution.changed', projectId })
+    persist()
+    return publicContribution(c, tenantId)
+  },
+  /** Fire ONE act against an envelope line — the MECHANICAL match (CW1/CW6):
+   *  envelope approved, line exists, cardinality remaining; a matching act
+   *  consumes and records, a deviating one is refused AND recorded (the
+   *  refusal is timeline material — never silent). Contributor or owner only.
+   *  The external effect itself is the platform's mock boundary — the record
+   *  IS the act here, the same way connector effects are canned elsewhere. */
+  runEnvelopeEffect(projectId: string, cid: string, lineId: string, tenantId: string, principal: PrincipalRef | undefined): Contribution | 'forbidden' | 'closed' | 'unapproved' | 'refused' | undefined {
+    const c = contributions.find((x) => x.id === cid && x.projectId === projectId)
+    if (!c) return undefined
+    const ownerTenant = findProject(projectId)?.tenantId ?? defaultTenantId()
+    const isContributor = c.contributorTenant !== undefined && c.contributorTenant === tenantId
+    if (!isContributor && !tenantWritesAs(tenantId, ownerTenant)) return 'forbidden'
+    // A landed contribution's plan is immutable history — remaining cardinality
+    // does NOT survive the landing (review finding: the server now agrees with
+    // the UI). The hold-until-landing harness firing AT landing is a later
+    // stage's mechanism, not a back door through this one.
+    if (c.status !== 'open') return 'closed'
+    const now = Date.now()
+    const actor = tenantName(tenantId)
+    const refuse = (reason: string): 'unapproved' | 'refused' => {
+      // The refusal is recorded — unless the timeline is at its bound (the
+      // record IS the act here, so an unrecordable act is refused unrecorded).
+      if (c.events.length < MAX_CONTRIBUTION_EVENTS) {
+        c.events.push({ id: `cev-${(contributionSeq += 1)}`, kind: 'effect-refused', at: now, actor, body: reason, ...(principal ? { principal } : {}) })
+        emit({ type: 'contribution.changed', projectId })
+        persist()
+      }
+      return reason.startsWith('no approved envelope') ? 'unapproved' : 'refused'
+    }
+    if (c.events.length >= MAX_CONTRIBUTION_EVENTS) return 'refused'
+    if (!c.envelope || c.envelope.status !== 'approved') return refuse('no approved envelope covers this act')
+    const line = c.envelope.lines.find((l) => l.id === lineId)
+    if (!line) return refuse('outside the approved envelope — amend and re-approve')
+    if (line.used >= line.cardinality) return refuse(`${line.type} → ${line.target}: cardinality exhausted (${line.cardinality} of ${line.cardinality} used)`)
+    line.used += 1
+    c.events.push({
+      id: `cev-${(contributionSeq += 1)}`,
+      kind: 'effect-executed',
+      at: now,
+      actor,
+      body: `${line.type} → ${line.target} · ${line.harness} · ${line.used}/${line.cardinality}`,
+      ...(principal ? { principal } : {}),
+    })
     emit({ type: 'contribution.changed', projectId })
     persist()
     return publicContribution(c, tenantId)

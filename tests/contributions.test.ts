@@ -174,6 +174,143 @@ test('the TOTAL cap bounds an open→land loop — self-landing cannot grow a le
   assert.equal(over.status, 409, 'the 201st row is refused even with zero open')
 })
 
+test('envelope: propose is open deliberation; APPROVE is owner-only (the floor rule); amendment invalidates approval', async () => {
+  const { projectId, cid } = await arena()
+  // The contributor proposes; a bystander may counter-propose (deliberation is
+  // open — approval is the gate); a bystander/contributor may NOT approve.
+  const proposed = await call(
+    'POST', `/projects/${projectId}/contributions/${cid}/envelope`,
+    { lines: [{ type: 'connector.write', target: 'gmail:partner', cardinality: 2, harness: 'draft-escrow', note: 're: launch' }] },
+    { 'x-tenant-id': B },
+  )
+  assert.equal(proposed.status, 200)
+  assert.equal(proposed.json.envelope.version, 1)
+  assert.equal(proposed.json.envelope.status, 'proposed')
+  assert.equal(proposed.json.envelope.lines[0].used, 0)
+  assert.equal(proposed.json.events.at(-1).kind, 'envelope-proposed')
+
+  for (const t of [B, C]) {
+    const denied = await call('POST', `/projects/${projectId}/contributions/${cid}/envelope/approve`, undefined, { 'x-tenant-id': t })
+    assert.equal(denied.status, 403, `${t} is not the project owner — no approval`)
+  }
+  const approved = await call('POST', `/projects/${projectId}/contributions/${cid}/envelope/approve`, undefined, { 'x-tenant-id': A })
+  assert.equal(approved.status, 200)
+  assert.equal(approved.json.envelope.status, 'approved')
+  assert.equal(approved.json.envelope.approvedVersion, 1)
+  assert.equal(approved.json.envelope.approvedBy, A)
+  const again = await call('POST', `/projects/${projectId}/contributions/${cid}/envelope/approve`, undefined, { 'x-tenant-id': A })
+  assert.equal(again.status, 409, 'nothing awaiting approval')
+
+  // Amending an APPROVED envelope is an ungated-revocation power a stranger
+  // must not hold — contributor or owner only (review finding); while merely
+  // PROPOSED, deliberation stays open to any viewer.
+  const grief = await call(
+    'POST', `/projects/${projectId}/contributions/${cid}/envelope`,
+    { lines: [{ type: 'charge', target: 'budget:demo' }] },
+    { 'x-tenant-id': C },
+  )
+  assert.equal(grief.status, 403, 'a bystander cannot revoke a standing approval by amending')
+
+  // An AMENDMENT (by the contributor) is a new version back in `proposed` — the
+  // stale approval can never cover it, and the superseded version's record
+  // survives in the amendment event's body.
+  const amended = await call(
+    'POST', `/projects/${projectId}/contributions/${cid}/envelope`,
+    { lines: [{ type: 'connector.write', target: 'gmail:partner' }, { type: 'charge', target: 'budget:demo' }] },
+    { 'x-tenant-id': B },
+  )
+  assert.equal(amended.json.envelope.version, 2)
+  assert.equal(amended.json.envelope.status, 'proposed')
+  assert.match(amended.json.events.at(-1).body, /supersedes v1/, 'the replaced version rides the timeline')
+  // Back in `proposed`, a bystander may counter-propose again (open deliberation).
+  const counter = await call(
+    'POST', `/projects/${projectId}/contributions/${cid}/envelope`,
+    { lines: [{ type: 'charge', target: 'budget:demo', cardinality: 1 }] },
+    { 'x-tenant-id': C },
+  )
+  assert.equal(counter.status, 200)
+  assert.equal(counter.json.envelope.version, 3)
+
+  // Funnel validation: empty lines / bad type / zero cardinality refuse.
+  for (const bad of [
+    { lines: [] },
+    { lines: [{ type: 'not-a-type', target: 'x' }] },
+    { lines: [{ type: 'charge', target: 'x', cardinality: 0 }] },
+    { lines: [{ type: 'charge', target: 'x', harness: 'yolo' }] },
+  ]) {
+    const r = await call('POST', `/projects/${projectId}/contributions/${cid}/envelope`, bad, { 'x-tenant-id': B })
+    assert.equal(r.status, 400, JSON.stringify(bad))
+  }
+})
+
+test('envelope: acts match MECHANICALLY — consume cardinality, refuse outside/exhausted/unapproved, refusals recorded', async () => {
+  const { projectId, cid } = await arena()
+  // No envelope at all → refused, and the refusal is timeline material.
+  const bare = await call('POST', `/projects/${projectId}/contributions/${cid}/effects`, { lineId: 'cev-x' }, { 'x-tenant-id': B })
+  assert.equal(bare.status, 409)
+
+  await call('POST', `/projects/${projectId}/contributions/${cid}/envelope`,
+    { lines: [{ type: 'connector.write', target: 'gmail:partner', cardinality: 2 }] }, { 'x-tenant-id': B })
+  const unapproved = await call('POST', `/projects/${projectId}/contributions/${cid}/effects`, { lineId: 'cev-x' }, { 'x-tenant-id': B })
+  assert.equal(unapproved.status, 409, 'a proposed-but-unapproved envelope covers nothing')
+
+  const approved = await call('POST', `/projects/${projectId}/contributions/${cid}/envelope/approve`, undefined, { 'x-tenant-id': A })
+  const lineId = approved.json.envelope.lines[0].id as string
+
+  // A bystander may not fire acts even inside the envelope.
+  const stranger = await call('POST', `/projects/${projectId}/contributions/${cid}/effects`, { lineId }, { 'x-tenant-id': C })
+  assert.equal(stranger.status, 403)
+
+  const one = await call('POST', `/projects/${projectId}/contributions/${cid}/effects`, { lineId }, { 'x-tenant-id': B })
+  assert.equal(one.status, 200)
+  assert.equal(one.json.envelope.lines[0].used, 1)
+  assert.equal(one.json.events.at(-1).kind, 'effect-executed')
+  const two = await call('POST', `/projects/${projectId}/contributions/${cid}/effects`, { lineId }, { 'x-tenant-id': B })
+  assert.equal(two.json.envelope.lines[0].used, 2)
+
+  // Cardinality exhausted → mechanical refusal, recorded — the envelope is a
+  // bound, not a mood; unknown line = outside the envelope, same treatment.
+  const over = await call('POST', `/projects/${projectId}/contributions/${cid}/effects`, { lineId }, { 'x-tenant-id': B })
+  assert.equal(over.status, 409)
+  const outside = await call('POST', `/projects/${projectId}/contributions/${cid}/effects`, { lineId: 'cev-nope' }, { 'x-tenant-id': B })
+  assert.equal(outside.status, 409)
+  const list = (await call('GET', `/projects/${projectId}/contributions`, undefined, { 'x-tenant-id': A })).json
+  const events = list.find((x: any) => x.id === cid).events
+  assert.equal(events.filter((e: any) => e.kind === 'effect-refused').length, 4, 'every refusal is on the record')
+  assert.equal(events.filter((e: any) => e.kind === 'effect-executed').length, 2)
+
+  // Landing closes the plan: remaining cardinality does NOT survive (the
+  // server agrees with the UI — review finding). Amend an unspent line in,
+  // approve, land, then try to fire it.
+  const other = await arena()
+  await call('POST', `/projects/${other.projectId}/contributions/${other.cid}/envelope`,
+    { lines: [{ type: 'charge', target: 'budget:demo', cardinality: 2 }] }, { 'x-tenant-id': B })
+  const app2 = await call('POST', `/projects/${other.projectId}/contributions/${other.cid}/envelope/approve`, undefined, { 'x-tenant-id': A })
+  await call('POST', `/projects/${other.projectId}/contributions/${other.cid}/land`, undefined, { 'x-tenant-id': B })
+  const late = await call('POST', `/projects/${other.projectId}/contributions/${other.cid}/effects`,
+    { lineId: app2.json.envelope.lines[0].id }, { 'x-tenant-id': B })
+  assert.equal(late.status, 409, 'a landed contribution’s plan is immutable — no act fires after landing')
+})
+
+test('the timeline-event cap bounds the envelope kinds too — no unbounded growth via propose/refuse loops', async () => {
+  const { projectId, cid } = await arena()
+  // Drive the timeline to its bound through the real mutator (each proposal is
+  // one event); then both a further proposal AND a refusal-recording act refuse.
+  for (let i = 0; ; i += 1) {
+    const out = store.proposeEnvelope(projectId, cid, { lines: [{ type: 'charge', target: `t${i}` }] }, B, undefined)
+    if (out === 'capped') break
+    assert.ok(i < 400, 'the cap must fire well before 400 proposals')
+  }
+  const over = await call('POST', `/projects/${projectId}/contributions/${cid}/envelope`,
+    { lines: [{ type: 'charge', target: 'x' }] }, { 'x-tenant-id': C })
+  assert.equal(over.status, 409, 'a full timeline refuses further proposals')
+  const refusal = await call('POST', `/projects/${projectId}/contributions/${cid}/effects`, { lineId: 'cev-nope' }, { 'x-tenant-id': B })
+  assert.equal(refusal.status, 409, 'the act is refused')
+  const events = (await call('GET', `/projects/${projectId}/contributions`, undefined, { 'x-tenant-id': A })).json
+    .find((x: any) => x.id === cid).events
+  assert.ok(events.length <= 301, 'the refusal did not grow a full timeline')
+})
+
 test('the in-flight lease is revealed: project sub-goal holds carry at/expiresAt (CW1)', async () => {
   const projectId = `p-contrib-lease-${(n += 1)}`
   store.applyRelationOp({ kind: 'create-project', projectId, projectName: 'Lease', projectDescription: '' }, A)

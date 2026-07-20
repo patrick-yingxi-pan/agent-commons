@@ -296,6 +296,18 @@ export async function buildComprehensive(): Promise<PersistedState> {
     builder,
   )
   if (landedContribution !== 'capped') {
+    // Exercise the Phase C envelope sub-slice too: propose → approve → one
+    // matched act, so the persisted envelope (lines, used counts, approval
+    // stamps) round-trips through the real mutators.
+    const withEnvelope = store.proposeEnvelope(
+      'p-insights', landedContribution.id,
+      { lines: [{ type: 'connector.write', target: 'linear:digest', cardinality: 2, harness: 'draft-escrow', note: 'post the digest' }] },
+      store.defaultTenantId(), builder,
+    )
+    store.approveEnvelope('p-insights', landedContribution.id, store.defaultTenantId(), builder)
+    if (typeof withEnvelope === 'object' && withEnvelope?.envelope) {
+      store.runEnvelopeEffect('p-insights', landedContribution.id, withEnvelope.envelope.lines[0].id, store.defaultTenantId(), builder)
+    }
     store.noteContribution('p-insights', landedContribution.id, 'Looks right — landing it.', store.defaultTenantId(), builder)
     store.landContribution('p-insights', landedContribution.id, store.defaultTenantId(), builder)
   }

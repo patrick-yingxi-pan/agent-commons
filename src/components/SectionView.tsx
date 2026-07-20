@@ -163,6 +163,9 @@ import {
   openContribution,
   noteContribution,
   landContribution,
+  proposeEnvelope,
+  approveEnvelope,
+  runEnvelopeEffect,
   useMyWork,
   useOwnerProfile,
   useMyOrgs,
@@ -198,7 +201,9 @@ import {
   projectAdmittedAuthority,
   PROJECT_ROLES,
   PROJECT_EFFECT_TYPES,
+  ENVELOPE_HARNESSES,
   AUDIT_CHANNEL_LABEL,
+  type EnvelopeHarness,
   type A2aAgentCard,
   type Agent,
   type AgentChangeProposal,
@@ -447,6 +452,10 @@ function ProjectsSection({
   if (open && contributionId)
     return (
       <ContributionPage
+        // Keyed so per-page composer state (the envelope form, the note draft)
+        // can never leak from one contribution to another at the same pane
+        // position — the propose composer is authorization-bearing.
+        key={contributionId}
         project={open}
         contributionId={contributionId}
         onBack={onBack}
@@ -2691,6 +2700,11 @@ function ChangesPanel({ project, onOpenSession }: { project: Project; onOpenSess
                       ? ` · landed ${relativeTime(c.landedAt)}`
                       : ''}
                   {c.subGoal ? ` · ${c.subGoal}` : ''}
+                  {c.envelope
+                    ? ` · ${c.envelope.lines.length} act${c.envelope.lines.length === 1 ? '' : 's'} ${
+                        c.envelope.status === 'approved' ? '· approved' : '· awaiting approval'
+                      }`
+                    : ''}
                 </div>
               </div>
               {c.status === 'open' && c.sessionId && c.mine === true && (
@@ -2874,6 +2888,11 @@ function ContributionPage({
           )}
         </div>
 
+        {/* The effect envelope (CW1, Phase C) — the plan's authorization,
+            visually its own block: an external act must never hide inside the
+            prose/diff idiom (CW3). */}
+        <EnvelopeCard project={project} c={c} />
+
         {/* The timeline — lifecycle transitions + the conversation, one record
             in time order (append-only, CW4; it keeps accruing after landing, CW7). */}
         <div className="mt-5 space-y-3 border-l-2 border-line pl-4">
@@ -2896,12 +2915,43 @@ function ContributionPage({
                 </div>
                 <div className="mt-1 whitespace-pre-wrap text-[13px] leading-snug text-ink-soft">{ev.body}</div>
               </div>
-            ) : (
+            ) : ev.kind === 'landed' ? (
               <div key={ev.id} className="flex items-center gap-2 py-0.5 text-[12px] text-ink-faint">
                 <CheckCircle2 size={14} className="shrink-0 text-emerald-600" />
                 <span>
                   landed as <span className="font-semibold text-ink-soft">L{c.landingNumber}</span> by{' '}
                   <OwnerLink bare ownerName={ev.actor} onClick={() => ownerDoor(ev.actor)} /> · {relativeTime(ev.at)}
+                </span>
+              </div>
+            ) : ev.kind === 'envelope-proposed' ? (
+              <div key={ev.id} className="flex items-center gap-2 py-0.5 text-[12px] text-ink-faint">
+                <AlertCircle size={14} className="shrink-0 text-amber-600" />
+                <span>
+                  <OwnerLink bare ownerName={ev.actor} onClick={() => ownerDoor(ev.actor)} /> proposed the effect
+                  envelope {ev.body} · {relativeTime(ev.at)}
+                </span>
+              </div>
+            ) : ev.kind === 'envelope-approved' ? (
+              <div key={ev.id} className="flex items-center gap-2 py-0.5 text-[12px] text-ink-faint">
+                <CheckCircle2 size={14} className="shrink-0 text-emerald-600" />
+                <span>
+                  <OwnerLink bare ownerName={ev.actor} onClick={() => ownerDoor(ev.actor)} /> approved the envelope{' '}
+                  {ev.body} · {relativeTime(ev.at)}
+                </span>
+              </div>
+            ) : ev.kind === 'effect-executed' ? (
+              <div key={ev.id} className="flex items-center gap-2 py-0.5 text-[12px] text-ink-faint">
+                <span className="ml-0.5 h-2 w-2 shrink-0 rounded-full bg-accent" aria-hidden />
+                <span>
+                  <OwnerLink bare ownerName={ev.actor} onClick={() => ownerDoor(ev.actor)} /> ran {ev.body} ·{' '}
+                  {relativeTime(ev.at)}
+                </span>
+              </div>
+            ) : (
+              <div key={ev.id} className="flex items-center gap-2 py-0.5 text-[12px] text-removed">
+                <MinusCircle size={14} className="shrink-0" />
+                <span>
+                  refused: {ev.body} · {relativeTime(ev.at)}
                 </span>
               </div>
             ),
@@ -2930,6 +2980,185 @@ function ContributionPage({
         {error && <p className="mt-1.5 text-[12px] text-removed">{error}</p>}
       </div>
     </Page>
+  )
+}
+
+/** The envelope card (CW1, Phase C) — the contribution page's authorization
+ *  block: what external acts this work may fire, under which harness, how many
+ *  used. Consent-card-shaped rows; the approve act is the owner's one human
+ *  judgment (the floor rule), after which Run is a mechanical match. */
+function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
+  const own = project.own !== false
+  const mayAct = c.mine === true || own
+  const env = c.envelope
+  const [composing, setComposing] = useState(false)
+  const [type, setType] = useState<ProjectEffectType>('connector.write')
+  const [target, setTarget] = useState('')
+  const [cardinality, setCardinality] = useState(1)
+  const [harness, setHarness] = useState<EnvelopeHarness>('draft-escrow')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  // No envelope and nothing left to declare (landed) — nothing to show.
+  if (!env && (c.status !== 'open' || !mayAct)) return null
+
+  const act = async (fn: () => Promise<unknown>, fail: string) => {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await fn()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : fail)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const propose = () =>
+    act(async () => {
+      if (!target.trim()) return
+      const lines = [
+        ...(env?.lines ?? []).map((l) => ({ type: l.type, target: l.target, cardinality: l.cardinality, harness: l.harness, note: l.note })),
+        { type, target: target.trim(), cardinality, harness },
+      ]
+      await proposeEnvelope(project.id, c.id, { lines })
+      setTarget('')
+      setComposing(false)
+    }, 'Could not propose the envelope.')
+
+  return (
+    <div className="mt-5 rounded-xl border border-line bg-surface">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-3 py-2">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+          Effect envelope{env ? ` · v${env.version}` : ''}
+        </div>
+        <div className="flex items-center gap-1.5">
+          {env &&
+            (env.status === 'approved' ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-600/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                <CheckCircle2 size={12} /> Approved by {env.approvedBy}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-600/10 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                <AlertCircle size={12} /> Awaiting approval
+              </span>
+            ))}
+          {env && env.status === 'proposed' && own && c.status === 'open' && (
+            <button
+              onClick={() => void act(() => approveEnvelope(project.id, c.id), 'Could not approve.')}
+              disabled={busy}
+              title="Approve these acts as proposed — matching acts then run without re-asking"
+              className="rounded-lg bg-ink px-2.5 py-0.5 text-[11px] font-medium text-canvas shadow-sm transition hover:opacity-90 disabled:opacity-45"
+            >
+              Approve
+            </button>
+          )}
+          {c.status === 'open' && mayAct && (
+            <button
+              onClick={() => setComposing((v) => !v)}
+              className="rounded-lg border border-line px-2 py-0.5 text-[11px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink"
+            >
+              {env ? 'Amend' : 'Declare effects'}
+            </button>
+          )}
+        </div>
+      </div>
+      {env ? (
+        env.lines.map((l) => (
+          <div key={l.id} className="flex items-center gap-2.5 border-b border-line px-3 py-2 last:border-b-0">
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[13px] text-ink">
+                {l.type} → <span className="font-medium">{l.target}</span>
+              </div>
+              <div className="truncate text-[11px] text-ink-faint">
+                ≤{l.cardinality} · {l.harness}
+                {l.note ? ` · ${l.note}` : ''}
+              </div>
+            </div>
+            <span className="shrink-0 text-[11px] tabular-nums text-ink-faint">
+              {l.used}/{l.cardinality} used
+            </span>
+            {env.status === 'approved' && c.status === 'open' && mayAct && (
+              <button
+                onClick={() => void act(() => runEnvelopeEffect(project.id, c.id, l.id), 'Could not run this act.')}
+                disabled={busy || l.used >= l.cardinality}
+                title={
+                  l.used >= l.cardinality
+                    ? 'Cardinality exhausted — amend the envelope for more'
+                    : `Fire one ${l.type} act on ${l.target} (mechanically matched against this line)`
+                }
+                className="shrink-0 rounded-lg bg-accent px-2.5 py-0.5 text-[11px] font-medium text-white transition enabled:hover:bg-accent/90 disabled:opacity-45"
+              >
+                Run
+              </button>
+            )}
+          </div>
+        ))
+      ) : (
+        <p className="px-3 py-2 text-[12px] text-ink-faint">
+          No external acts declared. If this work needs to send, charge, or reach outside the project,
+          declare the envelope <em>before</em> acting — approval happens here, not after the fact.
+        </p>
+      )}
+      {composing && (
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-line px-3 py-2">
+          <select
+            value={type}
+            onChange={(e) => setType(e.target.value as ProjectEffectType)}
+            aria-label="Effect type"
+            className="rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
+          >
+            {PROJECT_EFFECT_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+          <input
+            autoFocus
+            value={target}
+            onChange={(e) => setTarget(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void propose()
+              if (e.key === 'Escape') setComposing(false)
+            }}
+            placeholder="Target (connector / descriptor)…"
+            aria-label="Effect target"
+            className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+          />
+          <input
+            type="number"
+            min={1}
+            max={20}
+            value={cardinality}
+            onChange={(e) => setCardinality(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
+            aria-label="Max acts"
+            title="How many acts this line authorizes (≤)"
+            className="w-14 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
+          />
+          <select
+            value={harness}
+            onChange={(e) => setHarness(e.target.value as EnvelopeHarness)}
+            aria-label="Safety harness"
+            title="The containment this line runs under (CW5's ladder)"
+            className="rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
+          >
+            {ENVELOPE_HARNESSES.map((h) => (
+              <option key={h} value={h}>
+                {h}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={() => void propose()}
+            disabled={busy || !target.trim()}
+            className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-white transition enabled:hover:bg-accent/90 disabled:opacity-45"
+          >
+            Propose v{(env?.version ?? 0) + 1}
+          </button>
+        </div>
+      )}
+      {error && <p className="px-3 pb-2 text-[11px] text-removed">{error}</p>}
+    </div>
   )
 }
 

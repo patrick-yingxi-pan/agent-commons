@@ -72,7 +72,12 @@ export interface UsageMeter {
  *  either way — they're the plan, not the spend. */
 export function createUsageMeter(now: () => number, seeded = true): UsageMeter {
   const t0 = now()
-  const fiveHour: LimitWindow = { label: '5-hour limit', ceiling: 1_200_000, consumed: seeded ? 852_000 : 0, windowMs: 5 * HOUR, start: t0 }
+  // The 5-hour pair is scaled ×2 from its original 852k/1.2M (same 71% gauge):
+  // the old seed left ~348k absolute headroom, which the heaviest test file's
+  // ~12 turns consumed almost exactly — so ANY growth of the per-turn metered
+  // surface (each new route adds a generated API tool to every turn's estimate)
+  // tipped real sends into the 429 limit gate. Same demo face, double margin.
+  const fiveHour: LimitWindow = { label: '5-hour limit', ceiling: 2_400_000, consumed: seeded ? 1_704_000 : 0, windowMs: 5 * HOUR, start: t0 }
   const weekly: LimitWindow = { label: 'Weekly · all models', ceiling: 24_000_000, consumed: seeded ? 5_760_000 : 0, windowMs: 7 * DAY, start: t0 }
   const windows = [fiveHour, weekly]
 

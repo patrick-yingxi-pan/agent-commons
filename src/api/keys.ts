@@ -152,6 +152,12 @@ export const paths = {
     `/projects/${encodeURIComponent(projectId)}/contributions/${encodeURIComponent(cid)}/comments`,
   contributionLand: (projectId: string, cid: string) =>
     `/projects/${encodeURIComponent(projectId)}/contributions/${encodeURIComponent(cid)}/land`,
+  contributionEnvelope: (projectId: string, cid: string) =>
+    `/projects/${encodeURIComponent(projectId)}/contributions/${encodeURIComponent(cid)}/envelope`,
+  contributionEnvelopeApprove: (projectId: string, cid: string) =>
+    `/projects/${encodeURIComponent(projectId)}/contributions/${encodeURIComponent(cid)}/envelope/approve`,
+  contributionEffects: (projectId: string, cid: string) =>
+    `/projects/${encodeURIComponent(projectId)}/contributions/${encodeURIComponent(cid)}/effects`,
   agentFork: (id: string) => `/agents/${encodeURIComponent(id)}/fork`,
   directoryProjects: (q?: string) => (q ? `/directory/projects?q=${encodeURIComponent(q)}` : '/directory/projects'),
   directoryAgents: (q?: string) => (q ? `/directory/agents?q=${encodeURIComponent(q)}` : '/directory/agents'),

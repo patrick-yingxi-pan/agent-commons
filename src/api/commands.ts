@@ -27,6 +27,7 @@ import {
   type OpenSubGoal,
   type Contribution,
   type OpenContributionRequest,
+  type ProposeEnvelopeRequest,
   type ProposeAgentChangeRequest,
   type WatchState,
   type PostOpenSubGoalRequest,
@@ -490,6 +491,30 @@ export async function noteContribution(projectId: string, cid: string, body: str
  *  server enforces on raw tenant ids; a 403/409 surfaces as the thrown error). */
 export async function landContribution(projectId: string, cid: string): Promise<Contribution> {
   const c = await apiPost<Contribution>(paths.contributionLand(projectId, cid), {})
+  invalidate(keys.contributions(projectId))
+  return c
+}
+
+/** Propose or amend a contribution's effect envelope (CW1, Phase C) — a new
+ *  version awaiting approval; an amendment invalidates the prior approval. */
+export async function proposeEnvelope(projectId: string, cid: string, req: ProposeEnvelopeRequest): Promise<Contribution> {
+  const c = await apiPost<Contribution>(paths.contributionEnvelope(projectId, cid), req)
+  invalidate(keys.contributions(projectId))
+  return c
+}
+
+/** Approve the envelope as proposed — owner-only; the one human judgment the
+ *  floor rule requires, after which acts match mechanically. */
+export async function approveEnvelope(projectId: string, cid: string): Promise<Contribution> {
+  const c = await apiPost<Contribution>(paths.contributionEnvelopeApprove(projectId, cid), {})
+  invalidate(keys.contributions(projectId))
+  return c
+}
+
+/** Fire one act against an approved envelope line — the mechanical match;
+ *  a 409 means the refusal was recorded on the timeline. */
+export async function runEnvelopeEffect(projectId: string, cid: string, lineId: string): Promise<Contribution> {
+  const c = await apiPost<Contribution>(paths.contributionEffects(projectId, cid), { lineId })
   invalidate(keys.contributions(projectId))
   return c
 }

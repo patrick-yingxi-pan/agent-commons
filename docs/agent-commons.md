@@ -300,7 +300,7 @@ Agent's, itself a subset of the provider's.
 The quantitative face grounds on the real meter, which today **observes but does not
 enforce**: `createUsageMeter` ([`../server/usage.ts:57`](../server/usage.ts)) keeps
 server-private `LimitWindow` records ([`:27`](../server/usage.ts), seeded
-1,200,000 / 24,000,000 at [`:61`](../server/usage.ts)) whose `record()` only
+2,400,000 / 24,000,000 in [`server/usage.ts`](../server/usage.ts)) whose `record()` only
 accumulates and `planLimits()` only reports `pct`; there is no rejection anywhere.
 (Note: the *contract* `UsageWindow` at [`../contract/usage.ts:56`](../contract/usage.ts)
 exposes only `pct` — the ceilings are server-private.) The cascade makes that
