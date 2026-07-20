@@ -173,6 +173,7 @@ import {
   createDelegation,
   deleteDelegation,
   runDelegation,
+  useAttention,
   useMyWork,
   useOwnerProfile,
   useMyOrgs,
@@ -894,6 +895,11 @@ function ProjectDetail({
               entire point — the earlier aside squeezed the issues-tray analog to
               288px behind an empty "sessions are private" note), while the rail
               keeps what a rail is for: the owner's configuration. */}
+          {/* Attention (CW9, Phase G): what needs YOU, each ask naming which
+              approval function it serves — the interrupt justifies itself.
+              Renders only when there is something to say (no empty noise). */}
+          <AttentionPanel project={project} />
+
           {/* The contribution ledger (workflow Phase A): the project's pulse —
               what's in flight now, and the linear history of what landed.
               Payload for owner and visitor alike, like the panels below. */}
@@ -3151,6 +3157,70 @@ function ContributionPage({
         {error && <p className="mt-1.5 text-[12px] text-removed">{error}</p>}
       </div>
     </Page>
+  )
+}
+
+/** The attention panel (CW9, Phase G) — the caller's triaged asks on this
+ *  project, each labeled with the approval FUNCTION it serves (Foundations:
+ *  liability vs error-catching), plus the acts ledger and the mechanically
+ *  self-proposed optimization. Renders nothing when there's nothing to say —
+ *  an interrupt must justify itself, and so must a panel. */
+function AttentionPanel({ project }: { project: Project }) {
+  const rel = useRelations()
+  const ledger = useAttention(project.id).data
+  if (!ledger) return null
+  const total = ledger.humanActs + ledger.delegatedActs + ledger.machineActs + ledger.escalations
+  if (ledger.asks.length === 0 && !ledger.proposal && total === 0) return null
+  const openAsk = (cid: string) => rel.navigate('projects', project.id, `changes/${cid}`)
+  return (
+    <MainSection title="Attention">
+      {ledger.asks.length === 0 ? (
+        <p className="text-[12px] text-ink-faint">Nothing needs you right now.</p>
+      ) : (
+        <CardList>
+          {ledger.asks.map((a) => (
+            <div key={`${a.contributionId}-${a.label}`} className="flex items-center gap-2.5 px-4 py-2.5">
+              <span
+                className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                  a.function === 'liability' ? 'bg-amber-600/10 text-amber-700' : 'border border-line text-ink-faint'
+                }`}
+                title={
+                  a.function === 'liability'
+                    ? 'Ownership only a human can take (the Foundations’ liability function)'
+                    : 'Error-catching — a machine act could hold this; its presence here is a tuning signal'
+                }
+              >
+                {a.function}
+              </span>
+              <div className="min-w-0 flex-1">
+                <button
+                  onClick={() => openAsk(a.contributionId)}
+                  className="block max-w-full truncate text-left text-[13px] font-medium text-ink hover:underline"
+                >
+                  {a.title}
+                </button>
+                <div className="truncate text-[11px] text-ink-faint">{a.label}</div>
+              </div>
+            </div>
+          ))}
+        </CardList>
+      )}
+      {(total > 0 || ledger.proposal) && (
+        <div className="mt-2 space-y-1">
+          {total > 0 && (
+            <p className="text-[11px] tabular-nums text-ink-faint">
+              This ledger so far: {ledger.humanActs} human · {ledger.delegatedActs} delegated ·{' '}
+              {ledger.machineActs} machine · {ledger.escalations} escalation{ledger.escalations === 1 ? '' : 's'}
+            </p>
+          )}
+          {ledger.proposal && (
+            <p className="text-[11px] italic text-ink-soft" title="A mechanical pattern-match over your own acts — never fabricated cognition">
+              {ledger.proposal}
+            </p>
+          )}
+        </div>
+      )}
+    </MainSection>
   )
 }
 

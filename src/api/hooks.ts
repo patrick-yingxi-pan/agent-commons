@@ -23,6 +23,7 @@ import type {
   OpenSubGoal,
   Contribution,
   Delegation,
+  AttentionLedger,
   OwnerProfile,
   ProjectDirectoryEntry,
   SearchResponse,
@@ -419,6 +420,13 @@ export function useContributions(projectId: string): QueryState<Contribution[]> 
  *  viewer, the policy text for the delegator. Live on `delegation.changed`. */
 export function useDelegations(projectId: string): QueryState<Delegation[]> {
   return useQuery(keys.delegations(projectId), () => apiGet<Delegation[]>(paths.delegations(projectId)))
+}
+
+/** A Project's attention ledger (CW9, Phase G) — counts + the caller's own
+ *  asks. Derived entirely from contributions + delegations, so it refreshes
+ *  on BOTH events (wired in events.ts). */
+export function useAttention(projectId: string): QueryState<AttentionLedger> {
+  return useQuery(keys.attention(projectId), () => apiGet<AttentionLedger>(paths.attention(projectId)))
 }
 
 /** The shared-Project discovery directory (docs/agent-commons.md, D17) — every Project

@@ -17,6 +17,27 @@ const B = 'tenant-contrib-B' // contributor
 const C = 'tenant-contrib-C' // bystander (sees, comments; may NOT land)
 let n = 0
 
+test('no ceremony friction anywhere: window.confirm/alert/prompt never ship (CW9 — friction lives in the substance)', async () => {
+  // The design rule: a ritual ask carries SUBSTANTIVE friction (read the
+  // draft, see the envelope) — never a browser confirm/alert stacking that
+  // habituates away the attention it means to summon. Sweepable funnel rule.
+  const { readdirSync, readFileSync, statSync } = await import('node:fs')
+  const { join } = await import('node:path')
+  const offenders: string[] = []
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      const p = join(dir, name)
+      if (statSync(p).isDirectory()) walk(p)
+      else if (/\.(ts|tsx)$/.test(name)) {
+        const src = readFileSync(p, 'utf8')
+        if (/window\.confirm\(|window\.alert\(|window\.prompt\(|[^.\w]alert\(/.test(src)) offenders.push(p)
+      }
+    }
+  }
+  walk(join(process.cwd(), 'src'))
+  assert.deepEqual(offenders, [], 'ceremony dialogs found — friction must live in the substance or not at all')
+})
+
 /** A shared project owned by A with one open contribution declared by B. */
 async function arena() {
   const projectId = `p-contrib-${(n += 1)}`
@@ -575,6 +596,60 @@ test('delegations (CW8): the mint funnel, the conservation law, SoD, mechanical 
   store.deleteAgent(agentId)
   const swept = await call('GET', `/projects/${projectId}/delegations`, undefined, { 'x-tenant-id': A })
   assert.equal(swept.json.length, 0, 'the dead delegate’s rows are gone')
+})
+
+test('attention (CW9): the ledger counts, per-caller triage, and the self-proposed optimization', async () => {
+  const projectId = `p-attn-${(n += 1)}`
+  store.applyRelationOp({ kind: 'create-project', projectId, projectName: 'Attn', projectDescription: '' }, A)
+  store.applyRelationOp({ kind: 'share-project', projectId, projectName: 'Attn', shared: true }, A)
+
+  // Script a history: two contributions with MONOTONIC envelopes the owner
+  // approves manually (the pattern), one effectful contribution pending.
+  const mk = async (title: string, type: string) => {
+    const c = (await call('POST', `/projects/${projectId}/contributions`, { title }, { 'x-tenant-id': B })).json
+    await call('POST', `/projects/${projectId}/contributions/${c.id}/envelope`,
+      { lines: [{ type, target: 't' }] }, { 'x-tenant-id': B })
+    return c.id as string
+  }
+  const c1 = await mk('mono one', 'connector.read')
+  const c2 = await mk('mono two', 'mcp.query')
+  await call('POST', `/projects/${projectId}/contributions/${c1}/envelope/approve`, undefined, { 'x-tenant-id': A })
+  await call('POST', `/projects/${projectId}/contributions/${c2}/envelope/approve`, undefined, { 'x-tenant-id': A })
+  const c3 = await mk('effectful', 'charge')
+
+  // The OWNER's view: 2 human acts; asks = approve c3's envelope (liability);
+  // the proposal fires (2 manual monotonic approvals, no delegation standing).
+  const owner = (await call('GET', `/projects/${projectId}/attention`, undefined, { 'x-tenant-id': A })).json
+  assert.equal(owner.humanActs, 2)
+  assert.equal(owner.delegatedActs, 0)
+  assert.equal(owner.escalations, 0)
+  assert.deepEqual(owner.asks.map((a: any) => [a.contributionId, a.function]), [[c3, 'liability']])
+  assert.match(owner.proposal, /2 of your approvals were monotonic-only/, 'the mechanical pattern-match speaks')
+
+  // The CONTRIBUTOR's view: their own error-catching path (tier-1 next steps),
+  // never the owner's liability asks.
+  const contributor = (await call('GET', `/projects/${projectId}/attention`, undefined, { 'x-tenant-id': B })).json
+  assert.equal(contributor.proposal, undefined, 'the proposal is the owner’s instrument')
+  assert.ok(contributor.asks.every((a: any) => a.function === 'error-catching'))
+  assert.ok(contributor.asks.some((a: any) => /Crystallize a changeset/.test(a.label)))
+
+  // A BYSTANDER sees the public counts and no asks at all.
+  const bystander = (await call('GET', `/projects/${projectId}/attention`, undefined, { 'x-tenant-id': C })).json
+  assert.equal(bystander.humanActs, 2, 'counts are public-timeline arithmetic')
+  assert.deepEqual(bystander.asks, [])
+
+  // Minting an approve-envelope delegation withdraws the proposal — the
+  // optimization is "not yet held", never nagging past adoption.
+  const agent2 = store.createAgent({ label: 'holder', providerId: 'provider-claude', tools: [] } as any, A)
+  store.createDelegation(projectId, { agentId: (agent2 as any).id, actKind: 'approve-envelope', policy: 'hold the routine' }, A)
+  const after = (await call('GET', `/projects/${projectId}/attention`, undefined, { 'x-tenant-id': A })).json
+  assert.equal(after.proposal, undefined)
+
+  // The wall: a foreign private project's ledger 404s like everything else.
+  const privId = `p-attn-priv-${(n += 1)}`
+  store.applyRelationOp({ kind: 'create-project', projectId: privId, projectName: 'P', projectDescription: '' }, A)
+  const hidden = await call('GET', `/projects/${privId}/attention`, undefined, { 'x-tenant-id': B })
+  assert.equal(hidden.status, 404)
 })
 
 test('the in-flight lease is revealed: project sub-goal holds carry at/expiresAt (CW1)', async () => {

@@ -37,6 +37,8 @@ export const keys = {
   contributions: (projectId: string) => `contributions:${projectId}`,
   /** A Project's delegation roster (CW8, Phase F). */
   delegations: (projectId: string) => `delegations:${projectId}`,
+  /** A Project's attention ledger (CW9, Phase G) — per-caller asks + counts. */
+  attention: (projectId: string) => `attention:${projectId}`,
   /** The discovery directories (D17) — keyed per search so each query caches on its own. */
   directoryProjects: (q?: string) => (q ? `directory-projects:${q}` : 'directory-projects'),
   directoryAgents: (q?: string) => (q ? `directory-agents:${q}` : 'directory-agents'),
@@ -169,6 +171,7 @@ export const paths = {
   delegations: (projectId: string) => `/projects/${encodeURIComponent(projectId)}/delegations`,
   delegation: (projectId: string, did: string) =>
     `/projects/${encodeURIComponent(projectId)}/delegations/${encodeURIComponent(did)}`,
+  attention: (projectId: string) => `/projects/${encodeURIComponent(projectId)}/attention`,
   contributionDelegated: (projectId: string, cid: string, did: string) =>
     `/projects/${encodeURIComponent(projectId)}/contributions/${encodeURIComponent(cid)}/delegated/${encodeURIComponent(did)}`,
   agentFork: (id: string) => `/agents/${encodeURIComponent(id)}/fork`,

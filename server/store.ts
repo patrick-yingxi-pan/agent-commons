@@ -4135,6 +4135,89 @@ export const store = {
     return publicContribution(c, tenantId)
   },
 
+  // ── The attention ledger (CW9, Phase G) — interrupts justify themselves ─────
+  /** Meter human attention the way tokens are metered (the D8 move applied to
+   *  the truly scarce resource). Counts are arithmetic over the project's
+   *  timelines; asks are computed FOR THE CALLER (the who-can-decide triage);
+   *  the proposal is a mechanical pattern-match — never fabricated cognition. */
+  attentionLedger(projectId: string, tenantId: string): import('../contract/index.ts').AttentionLedger {
+    const rows = contributions.filter((c) => c.projectId === projectId)
+    const ownerTenant = findProject(projectId)?.tenantId ?? defaultTenantId()
+    const ownerActs = tenantWritesAs(tenantId, ownerTenant)
+    let humanActs = 0, delegatedActs = 0, machineActs = 0, escalations = 0
+    // A monotonic-envelope approval taken by the HUMAN — the pattern the
+    // self-proposed optimization watches for.
+    let manualMonotonicApprovals = 0
+    for (const c of rows) {
+      for (const ev of c.events) {
+        // The dual stamp (" · delegation-N") marks a delegate's execution —
+        // our own stable format (locked by the delegations test). Display
+        // names are attacker-controlled, so a name embedding the marker could
+        // skew a COUNT — a cosmetic ledger miscount only, never authority
+        // (the gates all compare raw tenant ids); accepted for the prototype.
+        const delegated = ev.actor.includes(' · delegation-')
+        switch (ev.kind) {
+          case 'envelope-approved':
+            if (delegated) delegatedActs += 1
+            else {
+              humanActs += 1
+              if (!isEffectfulContribution(c)) manualMonotonicApprovals += 1
+            }
+            break
+          case 'landed':
+            delegated ? (delegatedActs += 1) : (humanActs += 1)
+            break
+          case 'review-required':
+            humanActs += 1
+            break
+          case 'delegated-decision':
+          case 'delegated-draft':
+            delegatedActs += 1
+            break
+          case 'delegated-escalation':
+            escalations += 1
+            break
+          case 'review-passed':
+          case 'effect-executed':
+            machineActs += 1
+            break
+        }
+      }
+    }
+    const asks: import('../contract/index.ts').AttentionAsk[] = []
+    for (const c of rows) {
+      if (c.status !== 'open') continue
+      const mine = c.contributorTenant !== undefined && c.contributorTenant === tenantId
+      const tier = tierFor(c)
+      if (ownerActs) {
+        // The owner's asks are the LIABILITY moments only a human can take.
+        if (c.envelope?.status === 'proposed') {
+          asks.push({ contributionId: c.id, title: c.title, function: 'liability', label: 'Approve the effect envelope — you become responsible for its acts' })
+        } else if (tier.level === 2) {
+          asks.push({ contributionId: c.id, title: c.title, function: 'liability', label: 'The floor: only you can land this (irreversible effects)' })
+        }
+      }
+      if (mine && tier.level === 1) {
+        // The contributor's next step — error-catching a machine act holds.
+        const latest = c.changeset?.length ?? 0
+        if (latest === 0) {
+          asks.push({ contributionId: c.id, title: c.title, function: 'error-catching', label: 'Crystallize a changeset — un-crystallized work has nothing a reviewer can pass' })
+        } else if (c.reviewedVersion !== latest) {
+          asks.push({ contributionId: c.id, title: c.title, function: 'error-catching', label: `Run the adversarial review over v${latest} — then this self-lands` })
+        }
+      }
+    }
+    // The self-proposed optimization (owner-only): ≥2 manual approvals of
+    // MONOTONIC envelopes with no approve-envelope delegation standing —
+    // a pattern a draft-mode delegation could hold.
+    const hasApproveDelegation = delegations.some((d) => d.projectId === projectId && d.actKind === 'approve-envelope')
+    const proposal =
+      ownerActs && manualMonotonicApprovals >= 2 && !hasApproveDelegation
+        ? `${manualMonotonicApprovals} of your approvals were monotonic-only envelopes — a draft-mode delegation could hold these (irreversible ones would still escalate to you).`
+        : undefined
+    return { humanActs, delegatedActs, machineActs, escalations, asks, ...(proposal ? { proposal } : {}) }
+  },
+
   // ── Delegations (CW8, Phase F) — judgment as delegable work ─────────────────
   /** A Project's delegation roster. Any viewer reads the GOVERNANCE face
    *  (who may decide what, under which triggers); the POLICY text rides only

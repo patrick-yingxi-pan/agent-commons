@@ -206,10 +206,14 @@ function route(e: ServerEvent): void {
     // noted, or landed. The ledger is the only reader keyed on it.
     case 'contribution.changed':
       invalidate(keys.contributions(e.projectId))
+      // The attention ledger is derived from the timelines — same signal.
+      invalidate(keys.attention(e.projectId))
       break
-    // A Project's delegation roster changed (CW8) — re-read it.
+    // A Project's delegation roster changed (CW8) — re-read it, and the
+    // ledger's self-proposed optimization depends on the roster too.
     case 'delegation.changed':
       invalidate(keys.delegations(e.projectId))
+      invalidate(keys.attention(e.projectId))
       break
     case 'openwork.changed':
       invalidate(keys.openSubGoals(e.projectId))

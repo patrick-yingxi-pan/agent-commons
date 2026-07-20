@@ -231,6 +231,41 @@ export interface Contribution {
   events: ContributionEvent[]
 }
 
+/** ── The attention ledger (CW9, Phase G) — interrupts justify themselves ────
+ *  `GET /v1/projects/:id/attention`: human attention metered the way tokens
+ *  are. The COUNTS are arithmetic over the project's contribution timelines
+ *  (public acts, same visibility as the ledger); the ASKS are computed FOR THE
+ *  CALLER — the owner sees the liability moments only they can take, a
+ *  contributor sees their own next step — the CW9 inbox, triaged by
+ *  who-can-decide. Every ask names WHICH approval function it serves
+ *  (the Foundations' decomposition), so the interrupt explains itself. */
+export interface AttentionAsk {
+  contributionId: string
+  title: string
+  /** Which approval function needs the caller (Foundations): `liability` =
+   *  ownership only a human can take; `error-catching` = a machine act could
+   *  hold this (its presence in a HUMAN's queue is itself a tuning signal). */
+  function: 'liability' | 'error-catching'
+  label: string
+}
+
+export interface AttentionLedger {
+  /** Human judgment acts on this project's timelines (approvals + landings
+   *  taken manually, tighten acts). */
+  humanActs: number
+  /** Acts a delegate took or drafted under the conservation law. */
+  delegatedActs: number
+  /** Mechanical/machine acts (review verdicts, matched envelope effects). */
+  machineActs: number
+  /** Times a delegate escalated back to the human. */
+  escalations: number
+  asks: AttentionAsk[]
+  /** The self-proposed optimization (owner only) — mechanical pattern-match,
+   *  never fabricated cognition: present only when the arithmetic finds a
+   *  pattern a delegation could hold and none exists yet. */
+  proposal?: string
+}
+
 /** Body of `POST /v1/projects/:id/contributions` — open (declare) one. */
 export interface OpenContributionRequest {
   title: string

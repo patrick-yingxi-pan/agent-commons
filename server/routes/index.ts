@@ -1869,6 +1869,12 @@ export function buildRouter(): Router {
     if (out === 'capped') return sendError(res, 'conflict', 'This contribution’s discussion is at its cap')
     sendJson(res, out)
   })
+  // The attention ledger (CW9, Phase G): behind the project wall; counts are
+  // public-timeline arithmetic, asks are computed for the CALLER.
+  r.get('/projects/:id/attention', ({ req, res, params }) => {
+    if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+    sendJson(res, store.attentionLedger(params.id, store.identity(req.headers).tenant.id))
+  })
   // ── Delegations (CW8, Phase F) — judgment as delegable work ─────────────────
   // Roster reads for any project viewer (governance is legible; the policy
   // text rides only for the delegator); mint/revoke are the delegator's acts;
