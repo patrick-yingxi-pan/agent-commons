@@ -4,6 +4,15 @@
 > (locked by `tests/demo-accounts.test.ts`). Sign in through the full-screen
 > auth flow (chip menu → *Sign in…*, or *Add account…* to stack several and hop
 > between them instantly — multi-account design §12/§13).
+>
+> **The commons showcase.** A fresh boot (no `.data/store.json`) also seeds ten
+> shared **showcase projects** across these six owners — each staging one stage
+> of the agent-contribution workflow (the ledger, envelopes, tiers, delegation,
+> intents, aftermath — spec COMMONS-34, locked by
+> `tests/commons-showcase.test.ts`) — so Discover reads as a gallery of the
+> system's own argument from the first sign-in. Seeded through the real
+> mutators; an existing snapshot is never re-seeded (delete `.data/store.json`
+> to regenerate).
 
 ## The standard
 
