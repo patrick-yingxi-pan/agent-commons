@@ -35,6 +35,8 @@ export const keys = {
   openSubGoals: (projectId: string) => `open-subgoals:${projectId}`,
   /** A Project's contribution ledger (agent-contribution workflow Phase A). */
   contributions: (projectId: string) => `contributions:${projectId}`,
+  /** A Project's delegation roster (CW8, Phase F). */
+  delegations: (projectId: string) => `delegations:${projectId}`,
   /** The discovery directories (D17) — keyed per search so each query caches on its own. */
   directoryProjects: (q?: string) => (q ? `directory-projects:${q}` : 'directory-projects'),
   directoryAgents: (q?: string) => (q ? `directory-agents:${q}` : 'directory-agents'),
@@ -164,6 +166,11 @@ export const paths = {
     `/projects/${encodeURIComponent(projectId)}/contributions/${encodeURIComponent(cid)}/review`,
   contributionRequireReview: (projectId: string, cid: string) =>
     `/projects/${encodeURIComponent(projectId)}/contributions/${encodeURIComponent(cid)}/require-review`,
+  delegations: (projectId: string) => `/projects/${encodeURIComponent(projectId)}/delegations`,
+  delegation: (projectId: string, did: string) =>
+    `/projects/${encodeURIComponent(projectId)}/delegations/${encodeURIComponent(did)}`,
+  contributionDelegated: (projectId: string, cid: string, did: string) =>
+    `/projects/${encodeURIComponent(projectId)}/contributions/${encodeURIComponent(cid)}/delegated/${encodeURIComponent(did)}`,
   agentFork: (id: string) => `/agents/${encodeURIComponent(id)}/fork`,
   directoryProjects: (q?: string) => (q ? `/directory/projects?q=${encodeURIComponent(q)}` : '/directory/projects'),
   directoryAgents: (q?: string) => (q ? `/directory/agents?q=${encodeURIComponent(q)}` : '/directory/agents'),

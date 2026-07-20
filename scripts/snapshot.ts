@@ -327,6 +327,13 @@ export async function buildComprehensive(): Promise<PersistedState> {
     store.defaultTenantId(),
     builder,
   )
+  // ── Delegations (CW8, Phase F) ── exercise the persisted roster through the
+  // real mint funnel (the default agent is the default tenant's own worker).
+  store.createDelegation(
+    'p-insights',
+    { agentId: 'agent-default', actKind: 'approve-envelope', policy: 'Approve routine monotonic plans for the dashboard.', mode: 'draft' },
+    store.defaultTenantId(),
+  )
 
   // ── Watching + the inbox (D24) ── exercise both persisted slices: share the
   // CREATED project (watch fan-out re-checks visibility at mint time — a private

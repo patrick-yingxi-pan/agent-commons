@@ -484,6 +484,99 @@ test('tiers (CW5): the arithmetic is legible; the floor is un-buyable; tighten-o
   assert.equal(dodgeLand.status, 403, 'executed irreversible history still lands only by the owner')
 })
 
+test('delegations (CW8): the mint funnel, the conservation law, SoD, mechanical escalation, draft vs decide', async () => {
+  const projectId = `p-deleg-${(n += 1)}`
+  store.applyRelationOp({ kind: 'create-project', projectId, projectName: 'Deleg', projectDescription: '' }, A)
+  store.applyRelationOp({ kind: 'share-project', projectId, projectName: 'Deleg', shared: true }, A)
+  // The delegate must be the DELEGATOR's own agent — mint one for A.
+  const agent = store.createAgent({ label: 'A’s approver', providerId: 'provider-claude', tools: [] } as any, A)
+  const agentId = (agent as any).id ?? (agent as any).agent?.id
+
+  // The mint funnel's structural refusals: non-owner 403; blank policy 400;
+  // a foreign agent 400; unknown trigger 400. `effectful` is ADDED when
+  // omitted — stating it optional, escaping it impossible.
+  const stranger = await call('POST', `/projects/${projectId}/delegations`,
+    { agentId, actKind: 'approve-envelope', policy: 'x' }, { 'x-tenant-id': B })
+  assert.equal(stranger.status, 403)
+  for (const bad of [
+    { agentId, actKind: 'approve-envelope', policy: '   ' },
+    { agentId: 'agent-of-someone-else', actKind: 'approve-envelope', policy: 'ok' },
+    { agentId, actKind: 'approve-envelope', policy: 'ok', escalation: ['yolo'] },
+  ]) {
+    const r = await call('POST', `/projects/${projectId}/delegations`, bad, { 'x-tenant-id': A })
+    assert.equal(r.status, 400, JSON.stringify(bad).slice(0, 60))
+  }
+  const minted = await call('POST', `/projects/${projectId}/delegations`,
+    { agentId, actKind: 'approve-envelope', policy: 'Approve routine monotonic plans.', mode: 'decide' }, { 'x-tenant-id': A })
+  assert.equal(minted.status, 200)
+  const did = minted.json.id as string
+  assert.deepEqual(minted.json.escalation, ['effectful'], 'the floor trigger is added — not delegable away')
+  assert.equal(minted.json.policy, 'Approve routine monotonic plans.', 'the delegator reads their policy')
+
+  // Redaction: a viewer reads the governance face, never the policy text.
+  const roster = await call('GET', `/projects/${projectId}/delegations`, undefined, { 'x-tenant-id': B })
+  assert.equal(roster.json[0].policy, undefined, 'the judgment text is the delegator’s own instrument')
+  assert.equal(roster.json[0].delegatorTenant, undefined, 'no raw tenant id crosses')
+  assert.equal(roster.json[0].agentLabel, 'A’s approver')
+
+  // A contribution with a MONOTONIC proposed envelope: B contributes.
+  const opened = await call('POST', `/projects/${projectId}/contributions`, { title: 'delegated flow' }, { 'x-tenant-id': B })
+  const cid = opened.json.id as string
+  await call('POST', `/projects/${projectId}/contributions/${cid}/envelope`,
+    { lines: [{ type: 'connector.read', target: 'linear:board' }] }, { 'x-tenant-id': B })
+
+  // SEPARATION OF DUTIES: the contributor may not trigger the decision on
+  // their own work; a bystander may.
+  const selfRun = await call('POST', `/projects/${projectId}/contributions/${cid}/delegated/${did}`, undefined, { 'x-tenant-id': B })
+  assert.equal(selfRun.status, 403)
+  const run = await call('POST', `/projects/${projectId}/contributions/${cid}/delegated/${did}`, undefined, { 'x-tenant-id': C })
+  assert.equal(run.status, 200)
+  // THE CONSERVATION LAW: the decision executed AS the delegator, and the act's
+  // own event is dual-stamped — delegate + human + delegation id.
+  assert.equal(run.json.envelope.status, 'approved')
+  assert.equal(run.json.envelope.approvedBy, A, 'the approval is the DELEGATOR’s act (labor moved, liability did not)')
+  const approvedEvent = run.json.events.find((e: any) => e.kind === 'envelope-approved')
+  assert.match(approvedEvent.actor, /A’s approver for tenant-contrib-A · delegation-/, 'dual-stamped')
+  assert.equal(run.json.events.at(-1).kind, 'delegated-decision')
+
+  // MECHANICAL ESCALATION: an EFFECTFUL envelope always comes back to the
+  // human — the delegate refuses to decide and records why.
+  const c2 = (await call('POST', `/projects/${projectId}/contributions`, { title: 'effectful' }, { 'x-tenant-id': B })).json
+  await call('POST', `/projects/${projectId}/contributions/${c2.id}/envelope`,
+    { lines: [{ type: 'charge', target: 'budget:x' }] }, { 'x-tenant-id': B })
+  const escalated = await call('POST', `/projects/${projectId}/contributions/${c2.id}/delegated/${did}`, undefined, { 'x-tenant-id': C })
+  assert.equal(escalated.status, 200)
+  assert.equal(escalated.json.envelope.status, 'proposed', 'NOT approved — escalated instead')
+  assert.equal(escalated.json.events.at(-1).kind, 'delegated-escalation')
+  assert.match(escalated.json.events.at(-1).body, /effectful/)
+
+  // DRAFT MODE (L1): records the guess, executes nothing.
+  const drafter = await call('POST', `/projects/${projectId}/delegations`,
+    { agentId, actKind: 'land', policy: 'Land reviewed routine work.', mode: 'draft', escalation: ['unreviewed'] }, { 'x-tenant-id': A })
+  const c3 = (await call('POST', `/projects/${projectId}/contributions`, { title: 'draft mode' }, { 'x-tenant-id': B })).json
+  await call('POST', `/projects/${projectId}/contributions/${c3.id}/changeset`,
+    { entries: [{ kind: 'note', target: 'w', after: 'x' }] }, { 'x-tenant-id': B })
+  await call('POST', `/projects/${projectId}/contributions/${c3.id}/review`, undefined, { 'x-tenant-id': C })
+  const drafted = await call('POST', `/projects/${projectId}/contributions/${c3.id}/delegated/${drafter.json.id}`, undefined, { 'x-tenant-id': C })
+  assert.equal(drafted.json.status, 'open', 'a draft never lands')
+  assert.equal(drafted.json.events.at(-1).kind, 'delegated-draft')
+
+  // Revoke: delegator-or-owner, never a bystander; then the roster row is gone.
+  const badRevoke = await call('DELETE', `/projects/${projectId}/delegations/${did}`, undefined, { 'x-tenant-id': B })
+  assert.equal(badRevoke.status, 403)
+  const revoked = await call('DELETE', `/projects/${projectId}/delegations/${did}`, undefined, { 'x-tenant-id': A })
+  assert.equal(revoked.status, 200)
+  const after = await call('GET', `/projects/${projectId}/delegations`, undefined, { 'x-tenant-id': A })
+  assert.equal(after.json.find((d: any) => d.id === did), undefined)
+
+  // A delegation must not outlive its delegate: deleting the agent sweeps its
+  // roster rows (cascade-revoke, the proposals-hygiene pattern).
+  assert.ok((await call('GET', `/projects/${projectId}/delegations`, undefined, { 'x-tenant-id': A })).json.length > 0, 'the land delegation still stands')
+  store.deleteAgent(agentId)
+  const swept = await call('GET', `/projects/${projectId}/delegations`, undefined, { 'x-tenant-id': A })
+  assert.equal(swept.json.length, 0, 'the dead delegate’s rows are gone')
+})
+
 test('the in-flight lease is revealed: project sub-goal holds carry at/expiresAt (CW1)', async () => {
   const projectId = `p-contrib-lease-${(n += 1)}`
   store.applyRelationOp({ kind: 'create-project', projectId, projectName: 'Lease', projectDescription: '' }, A)

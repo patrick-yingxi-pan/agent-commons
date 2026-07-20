@@ -252,6 +252,13 @@ export interface ContributionChangedEvent {
   projectId: string
 }
 
+/** A Project's delegation roster changed (CW8, Phase F) — one was minted or
+ *  revoked. Visibility mirrors the Project's, like `contribution.changed`. */
+export interface DelegationChangedEvent {
+  type: 'delegation.changed'
+  projectId: string
+}
+
 /** A tenant's notification inbox changed (D24) — a public act fanned out to it, or a
  *  mark-read landed. Targeted: `eventVisibleToTenant` delivers it ONLY to the named
  *  tenant's streams (the `audit.entry` pattern); the client re-reads the inbox. */
@@ -346,6 +353,7 @@ export type ServerEvent =
   | AuditEntryEvent
   | OpenWorkChangedEvent
   | ContributionChangedEvent
+  | DelegationChangedEvent
   | ScheduleChangedEvent
   | CommissionChangedEvent
   | ProposalChangedEvent

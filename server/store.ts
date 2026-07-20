@@ -75,8 +75,8 @@ import { mintAuthority } from './authority.ts'
 import { ConflictError, ValidationError } from './conflict.ts'
 import { LimitError } from './limit.ts'
 import { scopeMatches } from './runner-runtime.ts'
-import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, PROJECT_EFFECT_TYPES, ENVELOPE_HARNESSES, CHANGE_ENTRY_KINDS, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../contract/index.ts'
-import type { Agent, AgentChangeProposal, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelInfo, ModelProvider, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, Contribution, OpenContributionRequest, OwnerActivity, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState, WorkItemComment } from '../contract/index.ts'
+import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, PROJECT_EFFECT_TYPES, ENVELOPE_HARNESSES, CHANGE_ENTRY_KINDS, DELEGATED_ACT_KINDS, ESCALATION_TRIGGERS, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../contract/index.ts'
+import type { Agent, AgentChangeProposal, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelInfo, ModelProvider, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, Contribution, OpenContributionRequest, Delegation, CreateDelegationRequest, OwnerActivity, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState, WorkItemComment } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, SEED_PROVIDERS, SEED_PROVIDER_CONFIGS, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
@@ -89,7 +89,7 @@ import { ResourceGuardian, GuardianError } from './guardian.ts'
 import { LOCAL_RUNNER_SEED, RUNNER_FS_ROOTS } from './data/runners.ts'
 import { DEFAULT_AGENT } from './data/workers.ts'
 import { EMPTY_WORKSPACE, workspaceFromSeed } from './workspace.ts'
-import { STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer, type StoredOpenSubGoal, type StoredWorkItemComment, type StoredContribution, type StoredContributionEvent } from './persist.ts'
+import { STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer, type StoredOpenSubGoal, type StoredWorkItemComment, type StoredContribution, type StoredContributionEvent, type StoredDelegation } from './persist.ts'
 import { eventlog } from './eventlog.ts'
 import { accounts } from './accounts.ts'
 
@@ -269,6 +269,23 @@ function publicContributionEvent(ev: StoredContributionEvent): import('../contra
   const { principal, ...pub } = ev
   return { ...pub, ...(principal ? { actorKind: principal.kind } : {}) }
 }
+/** The Project delegation rosters (CW8, Phase F) — judgment handed to a worker
+ *  Agent under a written policy, executing AS the delegator (the conservation
+ *  law). `delegatorTenant` is the server-private anchor. */
+const delegations: StoredDelegation[] = []
+let delegationSeq = 0
+const MAX_DELEGATIONS_PER_PROJECT = 10
+const MAX_DELEGATION_POLICY_CHARS = 2000
+
+/** Wire face: strip the raw tenant anchor; the POLICY is the delegator's own
+ *  instrument — served to them alone (the roster row itself is legible
+ *  governance any project viewer may read). */
+function publicDelegation(d: StoredDelegation, viewerTenant?: string): Delegation {
+  const { delegatorTenant, policy, ...pub } = d
+  const mine = viewerTenant !== undefined && delegatorTenant === viewerTenant
+  return { ...pub, ...(mine ? { policy, mine: true } : {}) }
+}
+
 // CW5 — the trust threshold: landings on THIS project before the arithmetic
 // grants Tier 0 (auto-land). Deliberately small (the demo must be reachable)
 // and deliberately irrelevant to the Tier-2 floor (trust never buys past it).
@@ -277,15 +294,25 @@ const TRUST_LANDINGS = 3
 /** The landing gate, computed — the CW5 arithmetic, served with its basis
  *  spelled out. Risk first (irreversible envelope lines ⇒ the Tier-2 human
  *  floor, unconditionally), then the owner's tightening, then trust. */
-function tierFor(c: StoredContribution): import('../contract/index.ts').ContributionTier {
-  // Risk covers DECLARED intent (current irreversible lines) AND EXECUTED
-  // history (`effectsFired`): amending the line away after the act ran must
-  // not drop the floor (review finding, Phase E pass).
-  const effectful = c.effectsFired === true || (c.envelope?.lines ?? []).some((l) => !isProjectEffectMonotonic(l.type))
-  if (effectful) return { level: 2, basis: 'irreversible effects — the owner lands (the floor; no record buys past it)' }
-  const landedHere = contributions.filter(
-    (x) => x.projectId === c.projectId && x.status === 'landed' && x.contributorTenant !== undefined && x.contributorTenant === c.contributorTenant,
+/** Risk covers DECLARED intent (current irreversible lines) AND EXECUTED
+ *  history (`effectsFired`): amending the line away after the act ran must not
+ *  drop the floor. ONE definition — `tierFor` and the delegation escalation
+ *  both read it, because this expression is what keeps "the floor is not
+ *  delegable" true (drift here would let a delegate land irreversible work
+ *  with no human — review finding, Phase F pass). */
+function isEffectfulContribution(c: StoredContribution): boolean {
+  return c.effectsFired === true || (c.envelope?.lines ?? []).some((l) => !isProjectEffectMonotonic(l.type))
+}
+/** The CW5 trust input: this contributor's landed count on this project. */
+function landedCountFor(projectId: string, contributorTenant: string | undefined): number {
+  return contributions.filter(
+    (x) => x.projectId === projectId && x.status === 'landed' && x.contributorTenant !== undefined && x.contributorTenant === contributorTenant,
   ).length
+}
+
+function tierFor(c: StoredContribution): import('../contract/index.ts').ContributionTier {
+  if (isEffectfulContribution(c)) return { level: 2, basis: 'irreversible effects — the owner lands (the floor; no record buys past it)' }
+  const landedHere = landedCountFor(c.projectId, c.contributorTenant)
   if (c.reviewRequired === true) {
     return { level: 1, basis: `owner requires review · ${landedHere} landed here` }
   }
@@ -1260,6 +1287,7 @@ function snapshot(): PersistedState {
     dispatch, // P7 — one-off dispatch runs (a live run survives a restart)
     openSubGoals, // D19 — the Project open-work backlog (an un-taken item survives a restart)
     contributions, // Phase A — the Project landing ledgers (the linear history survives a restart)
+    delegations, // Phase F — the delegation rosters (a standing judgment grant survives a restart)
     // D24 — watch subscriptions ([tenantId, projectId] pairs) + the notification inbox.
     watches: [...watches.entries()].flatMap(([projectId, tenants]) => [...tenants].map((t) => [t, projectId] as [string, string])),
     notifications,
@@ -1287,6 +1315,7 @@ function snapshot(): PersistedState {
       dispatch: dispatchSeq,
       openSubGoal: openSubGoalSeq,
       contribution: contributionSeq,
+      delegation: delegationSeq,
       notification: notificationSeq,
       user: persistedAccounts.seq.user,
       tenant: persistedAccounts.seq.tenant,
@@ -1453,6 +1482,9 @@ function rehydrate(s: PersistedState): void {
   // `seq.contribution`, which predates both features; every writer persists it.)
   contributions.splice(0, contributions.length, ...(s.contributions ?? []))
   contributionSeq = s.seq.contribution ?? contributions.reduce((m, c) => m + 1 + c.events.length, 0)
+  // Phase F delegations — same restore shape (each row consumes exactly one id).
+  delegations.splice(0, delegations.length, ...(s.delegations ?? []))
+  delegationSeq = s.seq.delegation ?? delegations.length
   // D24 — watches + the inbox (empty for a pre-field snapshot); counter falls back
   // to the inbox length so freshly minted ids never collide with restored ones.
   watches.clear()
@@ -1836,6 +1868,7 @@ export const store = {
         // Stamped at emit time (the row may already be deleted) — relation.applied's
         // pattern: the mutation is the owning tenant's private signal.
         return e.tenantId ? e.tenantId === tenantId : seedVisibleTo(tenantId)
+      case 'delegation.changed':
       case 'contribution.changed': {
         // The ledger's visibility mirrors the Project's, exactly like openwork.changed:
         // everyone while shared, owner-only while private (only the project id rides).
@@ -2146,6 +2179,15 @@ export const store = {
     // delete (409) must not lose the queue. No id-reuse hazard (agent ids mint
     // from a persisted counter), so this is storage hygiene, not correctness.
     AGENT_PROPOSALS.delete(id)
+    // CW8 hygiene (review finding, Phase F): a delegation must not outlive its
+    // delegate — sweep the agent's rows (cascade-revoke, the proposals
+    // pattern), notifying each affected project's roster readers.
+    for (const projectId of new Set(delegations.filter((d) => d.agentId === id).map((d) => d.projectId))) {
+      emit({ type: 'delegation.changed', projectId })
+    }
+    for (let i = delegations.length - 1; i >= 0; i -= 1) {
+      if (delegations[i].agentId === id) delegations.splice(i, 1)
+    }
     WORKER_AGENTS.delete(id)
     // Sessions bound to the deleted Agent resolve to the default Agent now — a
     // held model pick may name a catalog the new resolution doesn't serve.
@@ -4058,7 +4100,7 @@ export const store = {
    *  owner only — the Phase-A placeholder for the CW5 tier arithmetic (recorded
    *  in the design doc's build plan; the authorization comparison is raw tenant
    *  ids, the D23 lesson, via the same `tenantWritesAs` union as retract). */
-  landContribution(projectId: string, cid: string, tenantId: string, principal: PrincipalRef | undefined): Contribution | 'forbidden' | 'closed' | 'needs-owner' | 'needs-review' | undefined {
+  landContribution(projectId: string, cid: string, tenantId: string, principal: PrincipalRef | undefined, eventActor?: string): Contribution | 'forbidden' | 'closed' | 'needs-owner' | 'needs-review' | undefined {
     const c = contributions.find((x) => x.id === cid && x.projectId === projectId)
     if (!c) return undefined
     const ownerTenant = findProject(projectId)?.tenantId ?? defaultTenantId()
@@ -4086,9 +4128,129 @@ export const store = {
     c.landingNumber = top + 1
     c.landedAt = now
     c.landedBy = tenantName(tenantId)
-    c.events.push({ id: `cev-${(contributionSeq += 1)}`, kind: 'landed', at: now, actor: c.landedBy, ...(principal ? { principal } : {}) })
+    // `eventActor` — the CW8 dual stamp, same rationale as approveEnvelope's.
+    c.events.push({ id: `cev-${(contributionSeq += 1)}`, kind: 'landed', at: now, actor: eventActor ?? c.landedBy, ...(principal ? { principal } : {}) })
     emit({ type: 'contribution.changed', projectId })
     persist()
+    return publicContribution(c, tenantId)
+  },
+
+  // ── Delegations (CW8, Phase F) — judgment as delegable work ─────────────────
+  /** A Project's delegation roster. Any viewer reads the GOVERNANCE face
+   *  (who may decide what, under which triggers); the POLICY text rides only
+   *  for the delegator (`publicDelegation`). The route walls visibility. */
+  listDelegations(projectId: string, viewerTenant?: string): Delegation[] {
+    return delegations.filter((d) => d.projectId === projectId).map((d) => publicDelegation(d, viewerTenant))
+  },
+  /** Mint a Delegation — the CW8 funnel, with its three STRUCTURAL refusals:
+   *  empty policy (a blank check), an escalation set without `effectful`
+   *  (the floor is not delegable — the server ADDS it if merely omitted, so
+   *  stating it is optional but escaping it is impossible), and a delegate
+   *  agent the delegator doesn't own. Project-owner only, raw tenant ids. */
+  createDelegation(projectId: string, req: CreateDelegationRequest, tenantId: string): Delegation | 'forbidden' | 'invalid' | 'capped' | undefined {
+    const project = findProject(projectId)
+    if (!project) return undefined
+    const ownerTenant = project.tenantId ?? defaultTenantId()
+    if (!tenantWritesAs(tenantId, ownerTenant)) return 'forbidden'
+    if (delegations.filter((d) => d.projectId === projectId).length >= MAX_DELEGATIONS_PER_PROJECT) return 'capped'
+    const agent = WORKER_AGENTS.get(req.agentId)
+    if (
+      !agent || (agent.tenantId ?? defaultTenantId()) !== tenantId ||
+      !DELEGATED_ACT_KINDS.includes(req.actKind) ||
+      typeof req.policy !== 'string' || !req.policy.trim() ||
+      (req.escalation !== undefined && (!Array.isArray(req.escalation) || req.escalation.some((t) => !ESCALATION_TRIGGERS.includes(t)))) ||
+      (req.mode !== undefined && req.mode !== 'draft' && req.mode !== 'decide')
+    ) return 'invalid'
+    const escalation = [...new Set(['effectful' as const, ...(req.escalation ?? [])])]
+    const d: StoredDelegation = {
+      id: `delegation-${(delegationSeq += 1)}`,
+      projectId,
+      agentId: req.agentId,
+      agentLabel: agent.label,
+      actKind: req.actKind,
+      policy: req.policy.trim().slice(0, MAX_DELEGATION_POLICY_CHARS),
+      escalation,
+      mode: req.mode ?? 'draft',
+      createdAt: Date.now(),
+      delegatorTenant: tenantId,
+    }
+    delegations.push(d)
+    emit({ type: 'delegation.changed', projectId })
+    persist()
+    return publicDelegation(d, tenantId)
+  },
+  /** Revoke — the delegator's one-tap descent (always free, CW8's ladder).
+   *  The PROJECT OWNER's write-union may also revoke (review finding: a seat-
+   *  holder who minted and then lost the seat must not leave an irrevocable
+   *  row squatting on the roster — the owner governs their project's gates). */
+  deleteDelegation(projectId: string, did: string, tenantId: string): true | 'forbidden' | undefined {
+    const i = delegations.findIndex((d) => d.id === did && d.projectId === projectId)
+    if (i < 0) return undefined
+    const ownerTenant = findProject(projectId)?.tenantId ?? defaultTenantId()
+    if (delegations[i].delegatorTenant !== tenantId && !tenantWritesAs(tenantId, ownerTenant)) return 'forbidden'
+    delegations.splice(i, 1)
+    emit({ type: 'delegation.changed', projectId })
+    persist()
+    return true
+  },
+  /** Exercise a Delegation on one contribution. The order is load-bearing:
+   *  1. SEPARATION OF DUTIES — the contributor may never trigger the decision
+   *     on their own work (self-approval unrepresentable), unless they ARE the
+   *     delegator (then it's the owner's own authority, delegation moot).
+   *  2. The MECHANICAL escalation triggers — checked structurally, no model:
+   *     any named condition holding ⇒ the delegate does NOT decide; an
+   *     `delegated-escalation` event wakes the human instead.
+   *  3. The DECISION (the model-seam: the mock always finds the policy
+   *     satisfied) — `draft` mode records the guess; `decide` mode EXECUTES
+   *     the act AS THE DELEGATOR, the event dual-stamped
+   *     ("‹Agent› for ‹Owner› · delegation-N") — the conservation law. */
+  runDelegation(projectId: string, cid: string, did: string, tenantId: string, principal: PrincipalRef | undefined): Contribution | 'forbidden' | 'self' | 'inapplicable' | undefined {
+    const d = delegations.find((x) => x.id === did && x.projectId === projectId)
+    const c = contributions.find((x) => x.id === cid && x.projectId === projectId)
+    if (!d || !c) return undefined
+    if (c.status !== 'open') return 'inapplicable'
+    const isContributor = c.contributorTenant !== undefined && c.contributorTenant === tenantId
+    if (isContributor && tenantId !== d.delegatorTenant) return 'self'
+    // The decide path appends TWO events (the act's own + the decision record),
+    // so it needs two slots under the bound (review finding: no overshoot).
+    if (c.events.length >= MAX_CONTRIBUTION_EVENTS - 1) return 'inapplicable'
+    const now = Date.now()
+    const stamp = `${d.agentLabel} for ${tenantName(d.delegatorTenant)} · ${d.id}`
+    const pushEvent = (kind: 'delegated-decision' | 'delegated-draft' | 'delegated-escalation', body: string) => {
+      c.events.push({ id: `cev-${(contributionSeq += 1)}`, kind, at: now, actor: stamp, body, ...(principal ? { principal } : {}) })
+      emit({ type: 'contribution.changed', projectId })
+      persist()
+    }
+    // The act must be pending: approve-envelope needs a proposed envelope;
+    // land needs an open contribution (already checked).
+    if (d.actKind === 'approve-envelope' && c.envelope?.status !== 'proposed') return 'inapplicable'
+    // Mechanical triggers — structural facts, checked for real, through the
+    // SAME definitions the tier arithmetic uses (one source: drift between the
+    // two is what would un-delegate the floor — review finding).
+    const holds: Record<import('../contract/index.ts').EscalationTrigger, boolean> = {
+      effectful: isEffectfulContribution(c),
+      unreviewed: (c.changeset?.length ?? 0) === 0 || c.reviewedVersion !== c.changeset!.length,
+      stranger: landedCountFor(projectId, c.contributorTenant) === 0,
+    }
+    const fired = d.escalation.filter((t) => holds[t])
+    if (fired.length > 0) {
+      pushEvent('delegated-escalation', `escalated to ${tenantName(d.delegatorTenant)} — ${fired.join(', ')}`)
+      return publicContribution(c, tenantId)
+    }
+    const verdict = `policy satisfied (mock) — would ${d.actKind === 'land' ? 'land' : 'approve the envelope'}`
+    if (d.mode === 'draft') {
+      pushEvent('delegated-draft', verdict)
+      return publicContribution(c, tenantId)
+    }
+    // Decide: execute AS the delegator (the conservation law), the act's own
+    // event dual-stamped FROM THE START via `eventActor` — no post-hoc patch,
+    // so no crash window can persist an un-stamped record.
+    const out =
+      d.actKind === 'approve-envelope'
+        ? this.approveEnvelope(projectId, cid, d.delegatorTenant, principal, stamp)
+        : this.landContribution(projectId, cid, d.delegatorTenant, principal, stamp)
+    if (typeof out !== 'object') return 'inapplicable'
+    pushEvent('delegated-decision', verdict.replace('would ', ''))
     return publicContribution(c, tenantId)
   },
 
@@ -4291,7 +4453,7 @@ export const store = {
    *  follows at act time is mechanical). Project-owner only (`tenantWritesAs`,
    *  raw ids — D14's role gate for commission actors arrives with their
    *  execution path); stamps the version covered. */
-  approveEnvelope(projectId: string, cid: string, tenantId: string, principal: PrincipalRef | undefined): Contribution | 'forbidden' | 'conflict' | undefined {
+  approveEnvelope(projectId: string, cid: string, tenantId: string, principal: PrincipalRef | undefined, eventActor?: string): Contribution | 'forbidden' | 'conflict' | undefined {
     const c = contributions.find((x) => x.id === cid && x.projectId === projectId)
     if (!c?.envelope) return undefined
     const ownerTenant = findProject(projectId)?.tenantId ?? defaultTenantId()
@@ -4303,7 +4465,12 @@ export const store = {
     c.envelope.approvedBy = actor
     c.envelope.approvedAt = now
     c.envelope.approvedVersion = c.envelope.version
-    c.events.push({ id: `cev-${(contributionSeq += 1)}`, kind: 'envelope-approved', at: now, actor, body: `v${c.envelope.version}`, ...(principal ? { principal } : {}) })
+    // `eventActor` (CW8): a delegated approval stamps the EVENT with the dual
+    // identity from the start — no post-hoc patch, no crash window persisting
+    // an un-stamped record (review finding, Phase F). `approvedBy` stays the
+    // DELEGATOR's name deliberately: the row-level attribution is the
+    // liability holder (the conservation law); the event carries the how.
+    c.events.push({ id: `cev-${(contributionSeq += 1)}`, kind: 'envelope-approved', at: now, actor: eventActor ?? actor, body: `v${c.envelope.version}`, ...(principal ? { principal } : {}) })
     emit({ type: 'contribution.changed', projectId })
     persist()
     return publicContribution(c, tenantId)

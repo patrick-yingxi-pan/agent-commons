@@ -207,6 +207,10 @@ function route(e: ServerEvent): void {
     case 'contribution.changed':
       invalidate(keys.contributions(e.projectId))
       break
+    // A Project's delegation roster changed (CW8) — re-read it.
+    case 'delegation.changed':
+      invalidate(keys.delegations(e.projectId))
+      break
     case 'openwork.changed':
       invalidate(keys.openSubGoals(e.projectId))
       invalidate(keys.workerAgents)

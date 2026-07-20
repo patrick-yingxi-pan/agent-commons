@@ -29,6 +29,8 @@ import {
   type OpenContributionRequest,
   type ProposeEnvelopeRequest,
   type CrystallizeRequest,
+  type Delegation,
+  type CreateDelegationRequest,
   type ProposeAgentChangeRequest,
   type WatchState,
   type PostOpenSubGoalRequest,
@@ -500,6 +502,29 @@ export async function landContribution(projectId: string, cid: string): Promise<
  *  the event records the review delta vs the prior version. */
 export async function crystallizeContribution(projectId: string, cid: string, req: CrystallizeRequest): Promise<Contribution> {
   const c = await apiPost<Contribution>(paths.contributionChangeset(projectId, cid), req)
+  invalidate(keys.contributions(projectId))
+  return c
+}
+
+/** Mint a Delegation (CW8, Phase F) — the funnel refuses a blank policy, a
+ *  foreign agent, or any path around the mandatory `effectful` escalation. */
+export async function createDelegation(projectId: string, req: CreateDelegationRequest): Promise<Delegation> {
+  const d = await apiPost<Delegation>(paths.delegations(projectId), req)
+  invalidate(keys.delegations(projectId))
+  return d
+}
+
+/** Revoke a Delegation — the delegator's one-tap descent. */
+export async function deleteDelegation(projectId: string, did: string): Promise<void> {
+  await apiDelete(paths.delegation(projectId, did))
+  invalidate(keys.delegations(projectId))
+}
+
+/** Exercise a Delegation on a contribution (CW8): mechanical escalation
+ *  triggers first, then the mock decision — draft records, decide executes
+ *  AS the delegator, dual-stamped. */
+export async function runDelegation(projectId: string, cid: string, did: string): Promise<Contribution> {
+  const c = await apiPost<Contribution>(paths.contributionDelegated(projectId, cid, did), {})
   invalidate(keys.contributions(projectId))
   return c
 }

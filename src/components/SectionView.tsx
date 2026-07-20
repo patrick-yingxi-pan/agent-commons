@@ -169,6 +169,10 @@ import {
   crystallizeContribution,
   reviewContribution,
   requireContributionReview,
+  useDelegations,
+  createDelegation,
+  deleteDelegation,
+  runDelegation,
   useMyWork,
   useOwnerProfile,
   useMyOrgs,
@@ -209,6 +213,8 @@ import {
   AUDIT_CHANNEL_LABEL,
   type EnvelopeHarness,
   type ChangeEntryKind,
+  type DelegatedActKind,
+  type EscalationTrigger,
   type A2aAgentCard,
   type Agent,
   type AgentChangeProposal,
@@ -912,6 +918,12 @@ function ProjectDetail({
             {rel.isCreatedProject(project.id) && <ShareToggle project={project} />}
             <DefaultRolePicker project={project} />
           </SidePanel>
+
+          {/* Delegation (CW8, Phase F) — the owner's judgment, handed to their
+              own worker Agent under a written policy: rail because it is the
+              owner's CONFIGURATION (S16's rule), while the delegated acts
+              themselves show on each contribution's public timeline. */}
+          <DelegationPanel project={project} />
 
           {/* The whole aside is already owner-gated above — these panels don't
               re-check `own` (the inner guards were dead-always-true). */}
@@ -2786,6 +2798,8 @@ function ContributionPage({
 }) {
   const list = useContributions(project.id).data ?? []
   const c = list.find((x) => x.id === contributionId) ?? null
+  // Hook order: read before any early return (the missing-contribution page).
+  const delegationList = useDelegations(project.id).data ?? []
   const rel = useRelations()
   const ownerDoor = (name: string) => rel.navigate('agents', name)
   const [draft, setDraft] = useState('')
@@ -2814,6 +2828,18 @@ function ContributionPage({
   const mayLand = c.status === 'open' && (project.own !== false || contributorMayLand)
   const mayReview =
     c.status === 'open' && c.tier?.level === 1 && latestVersion > 0 && c.reviewedVersion !== latestVersion
+  // CW8 — the first applicable Delegation per pending act; hidden from the
+  // contributor on foreign projects (SoD — the server refuses; a door that
+  // can never open is worse than none).
+  const sodBlocked = c.mine === true && project.own === false
+  const applicableDelegation =
+    c.status !== 'open' || sodBlocked
+      ? undefined
+      : delegationList.find(
+          (d) =>
+            (d.actKind === 'approve-envelope' && c.envelope?.status === 'proposed') ||
+            (d.actKind === 'land' && c.envelope?.status !== 'proposed'),
+        )
   // Offered at Tier 0 AND Tier 1: trust is live arithmetic, so an open Tier-1
   // contribution can drift to Tier 0 as the contributor's other landings
   // accrue — the owner must be able to PIN the review before that happens
@@ -2870,6 +2896,18 @@ function ContributionPage({
       setBusy(false)
     }
   }
+  const askDelegate = async (did: string) => {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await runDelegation(project.id, c.id, did)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'The delegate could not act.')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const badge =
     c.status === 'landed' ? (
@@ -2909,6 +2947,16 @@ function ContributionPage({
                 className="rounded-lg border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
               >
                 Run review
+              </button>
+            )}
+            {applicableDelegation && (
+              <button
+                onClick={() => void askDelegate(applicableDelegation.id)}
+                disabled={busy}
+                title={`Ask ${applicableDelegation.agentLabel} to ${applicableDelegation.actKind === 'land' ? 'land' : 'decide the envelope'} under its delegator's policy — escalates on ${applicableDelegation.escalation.join(', ')}`}
+                className="rounded-lg border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
+              >
+                Ask {applicableDelegation.agentLabel}
               </button>
             )}
             {mayLand && (
@@ -3000,6 +3048,29 @@ function ContributionPage({
                   <OwnerLink bare ownerName={ev.actor} onClick={() => ownerDoor(ev.actor)} /> · {relativeTime(ev.at)}
                 </span>
               </div>
+            ) : ev.kind === 'delegated-decision' ? (
+              <div key={ev.id} className="flex items-center gap-2 py-0.5 text-[12px] text-ink-faint">
+                <CheckCircle2 size={14} className="shrink-0 text-accent" />
+                <span>
+                  {/* The dual stamp IS the actor (the conservation law) — plain
+                      text, never a workspace door: it names delegate + human. */}
+                  {ev.actor}: {ev.body} · {relativeTime(ev.at)}
+                </span>
+              </div>
+            ) : ev.kind === 'delegated-draft' ? (
+              <div key={ev.id} className="flex items-center gap-2 py-0.5 text-[12px] text-ink-faint">
+                <Pencil size={14} className="shrink-0 text-ink-faint" />
+                <span>
+                  {ev.actor} drafted: {ev.body} · {relativeTime(ev.at)}
+                </span>
+              </div>
+            ) : ev.kind === 'delegated-escalation' ? (
+              <div key={ev.id} className="flex items-center gap-2 py-0.5 text-[12px] text-amber-700">
+                <AlertCircle size={14} className="shrink-0" />
+                <span>
+                  {ev.actor}: {ev.body} · {relativeTime(ev.at)}
+                </span>
+              </div>
             ) : ev.kind === 'review-passed' ? (
               <div key={ev.id} className="flex items-center gap-2 py-0.5 text-[12px] text-ink-faint">
                 <CheckCircle2 size={14} className="shrink-0 text-accent" />
@@ -3080,6 +3151,168 @@ function ContributionPage({
         {error && <p className="mt-1.5 text-[12px] text-removed">{error}</p>}
       </div>
     </Page>
+  )
+}
+
+/** The delegation panel (CW8, Phase F) — the owner's rail configuration: mint
+ *  a Delegation (their own Agent + act kind + written policy + escalation
+ *  triggers beyond the mandatory `effectful`) and revoke at a tap. The funnel
+ *  refusals live server-side; this only shapes the ask. */
+function DelegationPanel({ project }: { project: Project }) {
+  const list = useDelegations(project.id).data ?? []
+  const agents = useAgents().data ?? []
+  const [composing, setComposing] = useState(false)
+  const [agentId, setAgentId] = useState('')
+  const [actKind, setActKind] = useState<DelegatedActKind>('approve-envelope')
+  const [mode, setMode] = useState<'draft' | 'decide'>('draft')
+  const [policy, setPolicy] = useState('')
+  const [extraTriggers, setExtraTriggers] = useState<Set<EscalationTrigger>>(new Set())
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const mint = async () => {
+    const agent = agentId || agents[0]?.id
+    if (busy || !agent || !policy.trim()) return
+    setBusy(true)
+    setError(null)
+    try {
+      await createDelegation(project.id, { agentId: agent, actKind, policy: policy.trim(), mode, escalation: [...extraTriggers] })
+      setPolicy('')
+      setComposing(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not delegate.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <SidePanel
+      title="Delegation"
+      icon={<Check size={14} />}
+      revealActions={list.length === 0 || composing}
+      actions={
+        <SectionAction
+          label="Delegate a judgment — labor moves, liability stays yours"
+          icon={<Plus size={14} />}
+          onClick={() => setComposing((v) => !v)}
+          expanded={composing}
+        />
+      }
+    >
+      {list.length === 0 ? (
+        <p className="text-[12px] text-ink-faint">
+          No judgment delegated. An Agent of yours can approve envelopes or land contributions under
+          your written policy — irreversible acts always escalate back to you.
+        </p>
+      ) : (
+        <div className="space-y-2.5">
+          {list.map((d) => (
+            <div key={d.id} className="group flex items-start gap-2.5">
+              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
+              <div className="min-w-0 flex-1">
+                <div className="text-[13px] font-medium text-ink">
+                  {d.agentLabel} · {d.actKind === 'land' ? 'lands' : 'approves envelopes'}
+                </div>
+                <div className="text-[11px] text-ink-faint">
+                  {d.mode === 'draft' ? 'drafts (L1)' : 'decides (L2)'} · escalates on {d.escalation.join(', ')}
+                </div>
+                {d.mine === true && d.policy && (
+                  <div className="truncate text-[11px] italic text-ink-faint" title={d.policy}>
+                    “{d.policy}”
+                  </div>
+                )}
+              </div>
+              {d.mine === true && (
+                <button
+                  onClick={() => void deleteDelegation(project.id, d.id)}
+                  aria-label={`Revoke ${d.agentLabel}'s delegation`}
+                  title="Revoke — descent is always one tap"
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 ${HOVER_REVEAL}`}
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {composing && (
+        <div className="mt-2.5 space-y-1.5">
+          <select
+            value={agentId || agents[0]?.id || ''}
+            onChange={(e) => setAgentId(e.target.value)}
+            aria-label="Delegate agent"
+            className="w-full rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
+          >
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.label}
+              </option>
+            ))}
+          </select>
+          <div className="flex items-center gap-1.5">
+            <select
+              value={actKind}
+              onChange={(e) => setActKind(e.target.value as DelegatedActKind)}
+              aria-label="Delegated act"
+              className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
+            >
+              <option value="approve-envelope">approve envelopes</option>
+              <option value="land">land contributions</option>
+            </select>
+            <select
+              value={mode}
+              onChange={(e) => setMode(e.target.value as 'draft' | 'decide')}
+              aria-label="Autonomy rung"
+              title="draft records what it WOULD decide; decide executes as you"
+              className="rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
+            >
+              <option value="draft">draft (L1)</option>
+              <option value="decide">decide (L2)</option>
+            </select>
+          </div>
+          <input
+            value={policy}
+            onChange={(e) => setPolicy(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void mint()
+              if (e.key === 'Escape') setComposing(false)
+            }}
+            placeholder="Your policy, in your words (required)…"
+            aria-label="Delegation policy"
+            className="w-full rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+          />
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink-soft">
+            <span className="text-ink-faint" title="The floor is not delegable — always escalates">
+              ✓ effectful (always)
+            </span>
+            {(['unreviewed', 'stranger'] as EscalationTrigger[]).map((t) => (
+              <CheckboxRow
+                key={t}
+                checked={extraTriggers.has(t)}
+                onToggle={() =>
+                  setExtraTriggers((s) => {
+                    const next = new Set(s)
+                    if (next.has(t)) next.delete(t)
+                    else next.add(t)
+                    return next
+                  })
+                }
+              >
+                {t}
+              </CheckboxRow>
+            ))}
+            <button
+              onClick={() => void mint()}
+              disabled={busy || !policy.trim() || agents.length === 0}
+              className="ml-auto rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-white transition enabled:hover:bg-accent/90 disabled:opacity-45"
+            >
+              Delegate
+            </button>
+          </div>
+          {error && <p className="text-[11px] text-removed">{error}</p>}
+        </div>
+      )}
+    </SidePanel>
   )
 }
 

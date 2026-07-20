@@ -23,6 +23,7 @@ import type {
   ProposeEnvelopeRequest,
   RunEnvelopeEffectRequest,
   CrystallizeRequest,
+  CreateDelegationRequest,
   PushRecentRequest,
   RegisterRunnerRequest,
   SendMessageRequest,
@@ -1866,6 +1867,44 @@ export function buildRouter(): Router {
     const out = store.noteContribution(params.id, params.cid, input.body.trim(), who.tenant.id, userPrincipal(who))
     if (out === undefined) return sendError(res, 'not_found', `No contribution '${params.cid}'`)
     if (out === 'capped') return sendError(res, 'conflict', 'This contribution’s discussion is at its cap')
+    sendJson(res, out)
+  })
+  // ── Delegations (CW8, Phase F) — judgment as delegable work ─────────────────
+  // Roster reads for any project viewer (governance is legible; the policy
+  // text rides only for the delegator); mint/revoke are the delegator's acts;
+  // exercising is SoD-checked in the store (a contributor never triggers the
+  // decision on their own work).
+  r.get('/projects/:id/delegations', ({ req, res, params }) => {
+    if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+    sendJson(res, store.listDelegations(params.id, store.identity(req.headers).tenant.id))
+  })
+  r.post('/projects/:id/delegations', async ({ req, res, params, body }) => {
+    const input = await body<CreateDelegationRequest>()
+    if (!input?.agentId || !input?.actKind) return sendError(res, 'bad_request', 'agentId and actKind are required')
+    if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+    const who = store.identity(req.headers)
+    const out = store.createDelegation(params.id, input, who.tenant.id)
+    if (out === undefined) return sendError(res, 'not_found', `No project '${params.id}'`)
+    if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the project owner may delegate their judgment')
+    if (out === 'capped') return sendError(res, 'conflict', 'This project’s delegation roster is at its cap')
+    if (out === 'invalid') return sendError(res, 'bad_request', 'a delegation needs YOUR OWN agent, a valid act kind, a non-empty policy, and known escalation triggers (effectful is always included — the floor is not delegable)')
+    sendJson(res, out)
+  })
+  r.delete('/projects/:id/delegations/:did', ({ req, res, params }) => {
+    if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+    const out = store.deleteDelegation(params.id, params.did, store.identity(req.headers).tenant.id)
+    if (out === undefined) return sendError(res, 'not_found', `No delegation '${params.did}'`)
+    if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the delegator may revoke their delegation')
+    sendJson(res, { ok: true })
+  })
+  r.post('/projects/:id/contributions/:cid/delegated/:did', ({ req, res, params }) => {
+    if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+    const who = store.identity(req.headers)
+    const out = store.runDelegation(params.id, params.cid, params.did, who.tenant.id, userPrincipal(who))
+    if (out === undefined) return sendError(res, 'not_found', `No contribution or delegation`)
+    if (out === 'self') return sendError(res, 'forbidden', 'Separation of duties — the contributor may not trigger the decision on their own work')
+    if (out === 'forbidden') return sendError(res, 'forbidden', 'Not permitted')
+    if (out === 'inapplicable') return sendError(res, 'conflict', 'Nothing for this delegation to decide here (no pending act, or the contribution landed)')
     sendJson(res, out)
   })
   // The changeset (CW3/CW4, Phase D): crystallize a version — contributor or

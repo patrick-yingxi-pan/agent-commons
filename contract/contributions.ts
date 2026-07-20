@@ -150,6 +150,11 @@ export interface ContributionEvent {
      *  and the owner's explicit tightening act. */
     | 'review-passed'
     | 'review-required'
+    /* Phase F — delegated judgment (CW8): the delegate's dual-stamped decision,
+     *  its draft-mode guess, and its mechanical escalation back to the human. */
+    | 'delegated-decision'
+    | 'delegated-draft'
+    | 'delegated-escalation'
   at: number
   /** The acting workspace's display name (public identity, like `postedBy`). */
   actor: string

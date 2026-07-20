@@ -22,6 +22,7 @@ import type {
   AppNotification,
   OpenSubGoal,
   Contribution,
+  Delegation,
   OwnerProfile,
   ProjectDirectoryEntry,
   SearchResponse,
@@ -412,6 +413,12 @@ export function useOpenSubGoals(projectId: string): QueryState<OpenSubGoal[]> {
  *  on `contribution.changed`. */
 export function useContributions(projectId: string): QueryState<Contribution[]> {
   return useQuery(keys.contributions(projectId), () => apiGet<Contribution[]>(paths.contributions(projectId)))
+}
+
+/** A Project's delegation roster (CW8, Phase F) — governance face for every
+ *  viewer, the policy text for the delegator. Live on `delegation.changed`. */
+export function useDelegations(projectId: string): QueryState<Delegation[]> {
+  return useQuery(keys.delegations(projectId), () => apiGet<Delegation[]>(paths.delegations(projectId)))
 }
 
 /** The shared-Project discovery directory (docs/agent-commons.md, D17) — every Project
