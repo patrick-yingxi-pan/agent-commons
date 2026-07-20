@@ -33,6 +33,9 @@ export interface PaneSeed {
   scheduleId?: string
   ownerName?: string
   workItemId?: string
+  /** A contribution's page under its project (the PR-page analog, workflow
+   *  Phase A) — meaningful only with `projectId`, like `workItemId`. */
+  contributionId?: string
   agentId?: string
   contextId?: string
   adminUserId?: string
@@ -43,7 +46,7 @@ export interface PaneSeed {
  *  its canonical NavLocation, a page's focus state → its reported seed) walks
  *  THIS list, so adding a detail kind is a one-line change here instead of a
  *  hunt across three hand-copied field lists. */
-export const PANE_SEED_KEYS = ['projectId', 'scheduleId', 'ownerName', 'workItemId', 'agentId', 'contextId', 'adminUserId'] as const
+export const PANE_SEED_KEYS = ['projectId', 'scheduleId', 'ownerName', 'workItemId', 'contributionId', 'agentId', 'contextId', 'adminUserId'] as const
 type SeedKey = (typeof PANE_SEED_KEYS)[number]
 // Compile-time lock: the key list and PaneSeed stay in lock-step — adding a
 // detail id to one without the other fails typecheck here.
@@ -76,6 +79,12 @@ export type PaneNavTarget =
  *  call names no entity detail (a bare section jump). */
 export function seedFor(section: SectionId, id?: string, subId?: string): PaneSeed | null {
   if (!id) return null
+  // A projects subId is a work-item id, EXCEPT the typed `changes/<cid>` form —
+  // a contribution's page (the PR-page analog). One prefix, parsed here and in
+  // the root bridge only, so the 3-arg nav bridge carries both page kinds
+  // without a signature change at every call site.
+  if (section === 'projects' && subId?.startsWith('changes/'))
+    return { projectId: id, contributionId: subId.slice('changes/'.length) }
   if (section === 'projects') return subId ? { projectId: id, workItemId: subId } : { projectId: id }
   if (section === 'scheduled') return { scheduleId: id }
   if (section === 'contexts') return { contextId: id }

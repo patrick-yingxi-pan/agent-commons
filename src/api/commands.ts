@@ -25,6 +25,8 @@ import {
   type AgentChangeProposal,
   type AppNotification,
   type OpenSubGoal,
+  type Contribution,
+  type OpenContributionRequest,
   type ProposeAgentChangeRequest,
   type WatchState,
   type PostOpenSubGoalRequest,
@@ -468,6 +470,28 @@ export async function commentOnWorkItem(projectId: string, itemId: string, body:
   const item = await apiPost<OpenSubGoal>(paths.openSubGoalComments(projectId, itemId), { body })
   invalidate(keys.openSubGoals(projectId))
   return item
+}
+
+/** Open (declare) a contribution on a project's ledger (workflow Phase A). */
+export async function openContribution(projectId: string, req: OpenContributionRequest): Promise<Contribution> {
+  const c = await apiPost<Contribution>(paths.contributions(projectId), req)
+  invalidate(keys.contributions(projectId))
+  return c
+}
+
+/** Append a note to a contribution's timeline (allowed after landing too — CW7). */
+export async function noteContribution(projectId: string, cid: string, body: string): Promise<Contribution> {
+  const c = await apiPost<Contribution>(paths.contributionComments(projectId, cid), { body })
+  invalidate(keys.contributions(projectId))
+  return c
+}
+
+/** Land a contribution — assign its ledger number (contributor or owner; the
+ *  server enforces on raw tenant ids; a 403/409 surfaces as the thrown error). */
+export async function landContribution(projectId: string, cid: string): Promise<Contribution> {
+  const c = await apiPost<Contribution>(paths.contributionLand(projectId, cid), {})
+  invalidate(keys.contributions(projectId))
+  return c
 }
 
 /** Retract a work item (D23) — poster or project owner, open items only (the

@@ -82,6 +82,12 @@ export interface ProjectSubGoal {
   /** The underlying reservation, so a holder can release its claim. */
   reservationId: string
   status: ReservationStatus
+  /** When the hold was granted / when its lease lapses (epoch-ms) — a pure
+   *  reveal of the Reservation's own stamps, so the In-flight surface can show
+   *  lease freshness (CW1: a visible intent carries its lease, and abandonment
+   *  self-heals in view of everyone). Optional for older projections. */
+  at?: number
+  expiresAt?: number
 }
 
 /** Body of `POST /v1/projects/:id/subgoals` — claim a sub-goal on a Project. */

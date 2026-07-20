@@ -28,11 +28,12 @@ interface PaneFocusState {
   scheduleId: string | null
   ownerName: string | null
   workItemId: string | null
+  contributionId: string | null
   agentId: string | null
   contextId: string | null
   adminUserId: string | null
 }
-const NO_FOCUS: PaneFocusState = { projectId: null, scheduleId: null, ownerName: null, workItemId: null, agentId: null, contextId: null, adminUserId: null }
+const NO_FOCUS: PaneFocusState = { projectId: null, scheduleId: null, ownerName: null, workItemId: null, contributionId: null, agentId: null, contextId: null, adminUserId: null }
 
 export function SectionPane({
   section,
@@ -169,6 +170,7 @@ export function SectionPane({
         focusScheduleId={focus.scheduleId}
         focusOwnerName={focus.ownerName}
         focusWorkItemId={focus.workItemId}
+        focusContributionId={focus.contributionId}
         focusAgentId={focus.agentId}
         focusContextId={focus.contextId}
         focusAdminUserId={focus.adminUserId}

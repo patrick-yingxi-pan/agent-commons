@@ -55,6 +55,8 @@ export function pathForView(loc: NavLocation, subview: string | null): string {
   if (loc.agentId) return `/agents/${encodeURIComponent(loc.agentId)}`
   if (loc.projectId && loc.workItemId)
     return `/projects/${encodeURIComponent(loc.projectId)}/work/${encodeURIComponent(loc.workItemId)}`
+  if (loc.projectId && loc.contributionId)
+    return `/projects/${encodeURIComponent(loc.projectId)}/changes/${encodeURIComponent(loc.contributionId)}`
   if (loc.projectId) return `/projects/${encodeURIComponent(loc.projectId)}`
   if (loc.scheduleId) return `/scheduled/${encodeURIComponent(loc.scheduleId)}`
   if (loc.contextId) return `/contexts/${encodeURIComponent(loc.contextId)}`
@@ -93,6 +95,13 @@ export function viewForPath(pathname: string): RoutedView | null {
   // (the issue-page analog; nested because the item is project-scoped by nature).
   if (section === 'projects' && segs.length === 4 && segs[2] === 'work' && segs[3]) {
     return { loc: { ...base, projectId: segs[1], workItemId: segs[3] }, subview: null }
+  }
+  // Its sibling: /projects/:id/changes/:cid — a contribution's own page (the
+  // PR-page analog; the address carries the stable contribution id, not the
+  // landing number — an OPEN contribution has no number yet, and an address
+  // must never change when the entity's display state does).
+  if (section === 'projects' && segs.length === 4 && segs[2] === 'changes' && segs[3]) {
+    return { loc: { ...base, projectId: segs[1], contributionId: segs[3] }, subview: null }
   }
   // The maintainer console's account detail (FWD-7 v1.1) — nested under a
   // static `users` segment so it can never collide with the reserved admin

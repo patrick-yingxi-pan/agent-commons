@@ -27,6 +27,10 @@ export type NavLocation =
       /** A work item's own page under its project (the issue-page analog) — requires
        *  `projectId`. Optional for the same back-compat reason; absent ≡ null. */
       workItemId?: string | null
+      /** A contribution's own page under its project (the PR-page analog — the
+       *  agent-contribution workflow's Contribution surface, Phase A) — requires
+       *  `projectId`. Optional for the same back-compat reason; absent ≡ null. */
+      contributionId?: string | null
       /** A published definition's own page under the agents section (the repo-page
        *  analog, COMMONS-26). Optional for the same back-compat reason; absent ≡ null. */
       agentId?: string | null
@@ -63,6 +67,7 @@ export function sameLocation(a: NavLocation, b: NavLocation): boolean {
       a.scheduleId === b.scheduleId &&
       (a.ownerName ?? null) === (b.ownerName ?? null) &&
       (a.workItemId ?? null) === (b.workItemId ?? null) &&
+      (a.contributionId ?? null) === (b.contributionId ?? null) &&
       (a.agentId ?? null) === (b.agentId ?? null) &&
       (a.contextId ?? null) === (b.contextId ?? null) &&
       (a.adminUserId ?? null) === (b.adminUserId ?? null)

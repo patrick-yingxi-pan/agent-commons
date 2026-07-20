@@ -18,6 +18,8 @@ import type {
   UpdateCommissionRequest,
   ReserveSubGoalRequest,
   PostOpenSubGoalRequest,
+  OpenContributionRequest,
+  PostContributionNoteRequest,
   PushRecentRequest,
   RegisterRunnerRequest,
   SendMessageRequest,
@@ -1825,6 +1827,51 @@ export function buildRouter(): Router {
     if (out === undefined) return sendError(res, 'not_found', `No work item '${params.itemId}'`)
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the poster or the project owner may retract an item')
     if (out === 'closed') return sendError(res, 'conflict', 'Only an open item can be retracted')
+    sendJson(res, out)
+  })
+
+  // ── The contribution ledger (agent-contribution workflow Phase A) ───────────
+  // Visibility mirrors the Project's exactly (the open-subgoals wall — owner or
+  // shared ⇒ readable, else the existence-hiding 404). Opening is any-viewer
+  // (the post-an-item analog); landing is contributor-or-owner (the store
+  // enforces on raw tenant ids — the Phase-A stand-in for CW5 tiers).
+  r.get('/projects/:id/contributions', ({ req, res, params }) => {
+    if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+    sendJson(res, store.listContributions(params.id, store.identity(req.headers).tenant.id))
+  })
+  r.post('/projects/:id/contributions', async ({ req, res, params, body }) => {
+    const input = await body<OpenContributionRequest>()
+    if (!input?.title?.trim()) return sendError(res, 'bad_request', 'a non-empty title is required')
+    if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+    const who = store.identity(req.headers)
+    const out = store.openContribution(
+      params.id,
+      { ...input, title: input.title.trim(), ...(typeof input.summary === 'string' ? { summary: input.summary.trim() } : {}) },
+      who.tenant.id,
+      userPrincipal(who),
+    )
+    if (out === 'capped') return sendError(res, 'conflict', 'This project’s ledger is at its open-contribution cap')
+    sendJson(res, out)
+  })
+  r.post('/projects/:id/contributions/:cid/comments', async ({ req, res, params, body }) => {
+    const input = await body<PostContributionNoteRequest>()
+    if (typeof input?.body !== 'string' || !input.body.trim()) {
+      return sendError(res, 'bad_request', 'a non-empty comment body is required')
+    }
+    if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+    const who = store.identity(req.headers)
+    const out = store.noteContribution(params.id, params.cid, input.body.trim(), who.tenant.id, userPrincipal(who))
+    if (out === undefined) return sendError(res, 'not_found', `No contribution '${params.cid}'`)
+    if (out === 'capped') return sendError(res, 'conflict', 'This contribution’s discussion is at its cap')
+    sendJson(res, out)
+  })
+  r.post('/projects/:id/contributions/:cid/land', ({ req, res, params }) => {
+    if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+    const who = store.identity(req.headers)
+    const out = store.landContribution(params.id, params.cid, who.tenant.id, userPrincipal(who))
+    if (out === undefined) return sendError(res, 'not_found', `No contribution '${params.cid}'`)
+    if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the contributor or the project owner may land a contribution')
+    if (out === 'closed') return sendError(res, 'conflict', 'This contribution already landed')
     sendJson(res, out)
   })
 

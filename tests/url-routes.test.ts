@@ -66,6 +66,16 @@ test('a work item page round-trips through /projects/:id/work/:itemId', () => {
   assert.equal(viewForPath('/projects/p_42/work/'), null)
 })
 
+test('a contribution page round-trips through /projects/:id/changes/:cid (workflow Phase A)', () => {
+  const loc = section({ projectId: 'p_42', contributionId: 'contrib-7' })
+  const path = pathForView(loc, null)
+  assert.equal(path, '/projects/p_42/changes/contrib-7')
+  assert.deepEqual(viewForPath(path), { loc: { ...loc, contributionId: 'contrib-7' }, subview: null })
+  // Its sibling rule: only under projects, only with the /changes/ segment.
+  assert.equal(viewForPath('/scheduled/s1/changes/x'), null)
+  assert.equal(viewForPath('/projects/p_42/changes/'), null)
+})
+
 test('a published definition page round-trips through /agents/:id; sub-view ids stay reserved', () => {
   const loc = section({ section: 'agents', agentId: 'agent-7' })
   const path = pathForView(loc, null)

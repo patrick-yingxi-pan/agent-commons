@@ -202,6 +202,11 @@ function route(e: ServerEvent): void {
     // A Project's open-work backlog changed (D19) — an item was posted or a standing
     // Contributor took one. Re-read the backlog, the agent list (the taker's D13
     // credit), and the project directory (its open-work count moved).
+    // A Project's contribution ledger changed (workflow Phase A) — one was opened,
+    // noted, or landed. The ledger is the only reader keyed on it.
+    case 'contribution.changed':
+      invalidate(keys.contributions(e.projectId))
+      break
     case 'openwork.changed':
       invalidate(keys.openSubGoals(e.projectId))
       invalidate(keys.workerAgents)

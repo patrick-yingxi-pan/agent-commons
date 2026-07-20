@@ -33,6 +33,8 @@ export const keys = {
   projectSubGoals: (projectId?: string) => (projectId ? `project-subgoals:${projectId}` : 'project-subgoals'),
   /** A Project's open-work backlog (docs/agent-commons.md, D19). */
   openSubGoals: (projectId: string) => `open-subgoals:${projectId}`,
+  /** A Project's contribution ledger (agent-contribution workflow Phase A). */
+  contributions: (projectId: string) => `contributions:${projectId}`,
   /** The discovery directories (D17) — keyed per search so each query caches on its own. */
   directoryProjects: (q?: string) => (q ? `directory-projects:${q}` : 'directory-projects'),
   directoryAgents: (q?: string) => (q ? `directory-agents:${q}` : 'directory-agents'),
@@ -144,6 +146,12 @@ export const paths = {
     `/projects/${encodeURIComponent(projectId)}/open-subgoals/${encodeURIComponent(itemId)}/comments`,
   openSubGoalRetract: (projectId: string, itemId: string) =>
     `/projects/${encodeURIComponent(projectId)}/open-subgoals/${encodeURIComponent(itemId)}/retract`,
+  /** The contribution ledger (agent-contribution workflow Phase A). */
+  contributions: (projectId: string) => `/projects/${encodeURIComponent(projectId)}/contributions`,
+  contributionComments: (projectId: string, cid: string) =>
+    `/projects/${encodeURIComponent(projectId)}/contributions/${encodeURIComponent(cid)}/comments`,
+  contributionLand: (projectId: string, cid: string) =>
+    `/projects/${encodeURIComponent(projectId)}/contributions/${encodeURIComponent(cid)}/land`,
   agentFork: (id: string) => `/agents/${encodeURIComponent(id)}/fork`,
   directoryProjects: (q?: string) => (q ? `/directory/projects?q=${encodeURIComponent(q)}` : '/directory/projects'),
   directoryAgents: (q?: string) => (q ? `/directory/agents?q=${encodeURIComponent(q)}` : '/directory/agents'),

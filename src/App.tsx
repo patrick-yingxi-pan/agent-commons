@@ -152,6 +152,7 @@ function Workspace() {
     openAgentPage,
     openContextPage,
     openWorkItemPage,
+    openContributionPage,
     openAdminUserPage,
     openWorkItem,
     openProposal,
@@ -356,7 +357,9 @@ function Workspace() {
   const navigateToSection = useCallback(
     (section: SectionId, id?: string, subId?: string) =>
       section === 'projects' && id && subId
-        ? openWorkItemPage(id, subId) // a work item's page under its project (D19/D23)
+        ? subId.startsWith('changes/')
+          ? openContributionPage(id, subId.slice('changes/'.length)) // a contribution's page (workflow Phase A — the seedFor prefix, mirrored)
+          : openWorkItemPage(id, subId) // a work item's page under its project (D19/D23)
         : section === 'projects' && id
           ? openProject(id)
           : section === 'scheduled' && id
@@ -368,7 +371,7 @@ function Workspace() {
                 : section === 'admin' && id
                   ? openAdminUserPage(id) // an account's detail in the maintainer console (FWD-7 v1.1)
                   : openSection(section),
-    [openProject, openWorkItemPage, openSchedule, openContextPage, openOwner, openAdminUserPage, openSection],
+    [openProject, openWorkItemPage, openContributionPage, openSchedule, openContextPage, openOwner, openAdminUserPage, openSection],
   )
 
   return (

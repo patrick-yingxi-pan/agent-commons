@@ -16,6 +16,8 @@ import type {
   AppNotification,
   AuditEntry,
   Commission,
+  Contribution,
+  ContributionEvent,
   DispatchRun,
   OpenSubGoal,
   ModelProvider,
@@ -91,6 +93,21 @@ export interface StoredAgentProposal extends Omit<AgentChangeProposal, 'comments
   comments?: StoredWorkItemComment[]
 }
 
+/** A Contribution as STORED (contribution workflow Phase A) — the wire row plus
+ *  the contributor's RAW tenant id (the strict land-authorization anchor — the
+ *  D23 lesson: display names are attacker-controlled, authorization compares
+ *  tenant ids) and the acting principals. Server-private; `publicContribution`
+ *  strips all of it and serves display names + principal KINDs only. */
+export interface StoredContribution extends Omit<Contribution, 'events'> {
+  contributorTenant?: string
+  contributorPrincipal?: PrincipalRef
+  events: StoredContributionEvent[]
+}
+
+/** A contribution timeline event as STORED — the wire row plus the acting
+ *  principal (FWD-5); the projection strips it and serves only `actorKind`. */
+export type StoredContributionEvent = ContributionEvent & { principal?: PrincipalRef }
+
 /** A peer as STORED (D28) — the wire row plus the credential's SHA-256 (the
  *  relay-secret pattern: the token is shown once at mint; only its hash persists). */
 export interface StoredA2aPeer extends A2aPeer {
@@ -147,6 +164,10 @@ export interface PersistedState {
    *  cleanly with an empty backlog). Dispatch itself is synchronous at post time, so
    *  nothing in-flight ever needs recovering — only the items persist. */
   openSubGoals?: StoredOpenSubGoal[]
+  /** The Project contribution ledgers (agent-contribution workflow Phase A) —
+   *  open and landed contributions, timelines inline. Additive-optional like
+   *  `openSubGoals` (a pre-field snapshot loads cleanly with empty ledgers). */
+  contributions?: StoredContribution[]
   /** Watch subscriptions (D24) — `[tenantId, projectId]` pairs (tuples, not a Map:
    *  a project has many watchers). Additive-optional like `dispatch` (a pre-field
    *  snapshot loads cleanly with no watches). */
@@ -192,6 +213,10 @@ export interface PersistedState {
     dispatch?: number
     /** Open-work item id counter (D19). Optional like `dispatch`. */
     openSubGoal?: number
+    /** Contribution + contribution-event id counters (Phase A). Optional like
+     *  `dispatch`. Landing numbers are NOT counters here — they're per-project
+     *  positions derived from the ledger itself at land time. */
+    contribution?: number
     /** Notification id counter (D24). Optional like `dispatch`. */
     notification?: number
     /** Account registry counters (multi-account P7). Optional like the slices. */
@@ -230,6 +255,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   auditLog: 'array',
   dispatch: 'array',
   openSubGoals: 'array',
+  contributions: 'array',
   watches: 'array',
   notifications: 'array',
   agentProposals: 'mapEntries',

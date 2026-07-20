@@ -286,6 +286,26 @@ export async function buildComprehensive(): Promise<PersistedState> {
   store.postOpenSubGoal('p-insights', { subGoal: 'playground-open-work', type: 'charge', target: 'budget:playground' }, store.defaultTenantId(), builder)
   store.postOpenSubGoal('p-insights', { subGoal: 'playground-backlog', type: 'connector.write', target: 'no-such-connector' }, store.defaultTenantId(), builder)
 
+  // ── The contribution ledger (Phase A) ── exercise the contributions persisted
+  // slice in BOTH states through the real mutators: one landed (L1 — the ledger
+  // face, with a discussion note) and one still open (the in-flight face).
+  const landedContribution = store.openContribution(
+    'p-insights',
+    { title: 'Playground contribution — tune the digest template', summary: 'Rewrites the weekly digest opening.', subGoal: 'playground-open-work' },
+    store.defaultTenantId(),
+    builder,
+  )
+  if (landedContribution !== 'capped') {
+    store.noteContribution('p-insights', landedContribution.id, 'Looks right — landing it.', store.defaultTenantId(), builder)
+    store.landContribution('p-insights', landedContribution.id, store.defaultTenantId(), builder)
+  }
+  store.openContribution(
+    'p-insights',
+    { title: 'Playground contribution — still in flight', summary: 'Half-drafted; stays open in the snapshot.' },
+    store.defaultTenantId(),
+    builder,
+  )
+
   // ── Watching + the inbox (D24) ── exercise both persisted slices: share the
   // CREATED project (watch fan-out re-checks visibility at mint time — a private
   // project's audience is its owner alone), a foreign tenant watches it, and a

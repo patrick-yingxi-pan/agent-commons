@@ -159,6 +159,10 @@ import {
   useCommissions,
   useCommissionAuthority,
   useOpenSubGoals,
+  useContributions,
+  openContribution,
+  noteContribution,
+  landContribution,
   useMyWork,
   useOwnerProfile,
   useMyOrgs,
@@ -207,6 +211,7 @@ import {
   type AdminUserRow,
   type MyOrg,
   type OpenSubGoal,
+  type Contribution,
   type OwnerProfile,
   type WorkItemComment,
   type ProjectDirectoryEntry,
@@ -253,6 +258,7 @@ export function SectionView({
   focusScheduleId = null,
   focusOwnerName = null,
   focusWorkItemId = null,
+  focusContributionId = null,
   focusAgentId = null,
   focusContextId = null,
   focusAdminUserId = null,
@@ -293,6 +299,9 @@ export function SectionView({
   /** A work item's own page under the open project (the issue-page analog) —
    *  meaningful only with `focusProjectId`; null = the project page itself. */
   focusWorkItemId?: string | null
+  /** A contribution's own page under the open project (the PR-page analog,
+   *  workflow Phase A) — meaningful only with `focusProjectId`. */
+  focusContributionId?: string | null
   /** A published definition's own page under Agents (COMMONS-26); null = hub/profile. */
   focusAgentId?: string | null
   /** A saved context's detail page under Contexts (ADAPT-15); null = the list. */
@@ -308,6 +317,7 @@ export function SectionView({
       <ProjectsSection
         projectId={focusProjectId}
         workItemId={focusWorkItemId}
+        contributionId={focusContributionId}
         subview={subview}
         onOpenProject={onOpenProject}
         onBack={onBack}
@@ -375,6 +385,7 @@ export function SectionView({
 function ProjectsSection({
   projectId,
   workItemId,
+  contributionId,
   subview,
   onOpenProject,
   onBack,
@@ -387,6 +398,8 @@ function ProjectsSection({
   projectId: string | null
   /** A work item's own page inside that project (null = the project page). */
   workItemId?: string | null
+  /** A contribution's own page inside that project (null = the project page). */
+  contributionId?: string | null
   /** The rail's group node (lib/subviews): null = yours + shared, 'mine' = yours only,
    *  'shared' = the commons band only. */
   subview: string | null
@@ -431,6 +444,16 @@ function ProjectsSection({
   const open = projectId ? (projects.find((p) => p.id === projectId) ?? null) : null
   if (open && workItemId)
     return <WorkItemPage project={open} workItemId={workItemId} onBack={onBack} backTo={backTo} />
+  if (open && contributionId)
+    return (
+      <ContributionPage
+        project={open}
+        contributionId={contributionId}
+        onBack={onBack}
+        backTo={backTo}
+        onOpenSession={onOpenSession}
+      />
+    )
   if (open)
     return (
       <ProjectDetail
@@ -851,6 +874,10 @@ function ProjectDetail({
               entire point — the earlier aside squeezed the issues-tray analog to
               288px behind an empty "sessions are private" note), while the rail
               keeps what a rail is for: the owner's configuration. */}
+          {/* The contribution ledger (workflow Phase A): the project's pulse —
+              what's in flight now, and the linear history of what landed.
+              Payload for owner and visitor alike, like the panels below. */}
+          <ChangesPanel project={project} onOpenSession={onOpenSession} />
           <ContributorsPanel project={project} />
           <CoordinationPanel project={project} />
           </div>
@@ -1895,7 +1922,14 @@ function CoordinationPanel({ project }: { project: Project }) {
                   />
                   <div className="min-w-0 flex-1">
                     <div className="text-[13px] font-medium text-ink">{s.subGoal}</div>
-                    <div className="text-[11px] text-ink-faint">held by {s.holderLabel}</div>
+                    {/* CW1 — a visible intent carries its lease: claimed-when +
+                        renews-until, from the reservation's own stamps (pure
+                        reveal), so abandonment self-heals in view of everyone. */}
+                    <div className="text-[11px] text-ink-faint">
+                      held by {s.holderLabel}
+                      {s.at ? ` · claimed ${relativeTime(s.at)}` : ''}
+                      {s.expiresAt ? ` · ${leaseLabel(s.expiresAt)}` : ''}
+                    </div>
                   </div>
                   <button
                     onClick={() => void releaseSubGoal(s.reservationId, project.id)}
@@ -2552,6 +2586,341 @@ function WorkItemPage({
           />
           <button
             onClick={send}
+            disabled={busy || !draft.trim()}
+            className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-[13px] font-medium text-white transition enabled:hover:bg-accent/90 disabled:opacity-45"
+          >
+            Post
+          </button>
+        </div>
+        {error && <p className="mt-1.5 text-[12px] text-removed">{error}</p>}
+      </div>
+    </Page>
+  )
+}
+
+/** "lease renews in 47m" / "lease lapsed" — an intent's freshness face (CW1:
+ *  a visible claim carries its lease, so a stalled holder is legible and the
+ *  TTL's self-healing is something contributors can see coming). */
+function leaseLabel(expiresAt: number): string {
+  const ms = expiresAt - Date.now()
+  if (ms <= 0) return 'lease lapsed'
+  const m = Math.round(ms / 60000)
+  if (m < 1) return 'lease renews momentarily'
+  if (m < 60) return `lease renews in ${m}m`
+  const h = Math.round(m / 60)
+  if (h < 48) return `lease renews in ${h}h`
+  return `lease renews in ${Math.round(h / 24)}d`
+}
+
+/** The contribution ledger (workflow Phase A — the CW6 "Recently landed" strip
+ *  with its in-flight band above): ONE list, two states of one entity. Open
+ *  contributions lead (a live pulse dot, the coordination rows' idiom), landed
+ *  ones follow in reverse ledger order, each leading with its landing number —
+ *  a ledger line, not a busy card. Titles are doors (title-as-link) to the
+ *  contribution's own page. */
+function ChangesPanel({ project, onOpenSession }: { project: Project; onOpenSession: (id: string) => void }) {
+  const rel = useRelations()
+  const list = useContributions(project.id).data ?? []
+  const [composing, setComposing] = useState(false)
+  const [title, setTitle] = useState('')
+  const [summary, setSummary] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const openPage = (cid: string) => rel.navigate('projects', project.id, `changes/${cid}`)
+  const declare = async () => {
+    if (busy || !title.trim()) return
+    setBusy(true)
+    setError(null)
+    try {
+      const c = await openContribution(project.id, { title: title.trim(), summary: summary.trim() || undefined })
+      setTitle('')
+      setSummary('')
+      setComposing(false)
+      openPage(c.id)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not open this contribution.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <MainSection
+      title="Changes"
+      revealActions={list.length === 0 || composing}
+      actions={
+        <SectionAction
+          label="Open a contribution — declare work before doing it"
+          icon={<Plus size={14} />}
+          onClick={() => setComposing((v) => !v)}
+          expanded={composing}
+        />
+      }
+    >
+      {list.length === 0 ? (
+        <p className="text-[12px] text-ink-faint">
+          Nothing yet. A contribution is declared before the work and lands as a numbered entry — the
+          project’s history, every entry traceable to its why.
+        </p>
+      ) : (
+        <CardList>
+          {list.map((c) => (
+            <div key={c.id} className="flex items-center gap-2.5 px-4 py-2.5">
+              {/* The leading slot carries the entity's state in ONE form: a live
+                  pulse while open, the ledger number once landed — same column,
+                  so the list reads as one ledger with its newest entries still
+                  in motion. */}
+              <span className="flex w-8 shrink-0 items-center justify-end">
+                {c.status === 'open' ? (
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-label="In flight" />
+                ) : (
+                  <span className="text-[12px] font-semibold tabular-nums text-ink-faint">L{c.landingNumber}</span>
+                )}
+              </span>
+              <div className="min-w-0 flex-1">
+                <button
+                  onClick={() => openPage(c.id)}
+                  className="block max-w-full truncate text-left text-[13px] font-medium text-ink hover:underline"
+                >
+                  {c.title}
+                </button>
+                <div className="truncate text-[11px] text-ink-faint">
+                  by {c.contributor}
+                  {c.status === 'open'
+                    ? ` · opened ${relativeTime(c.openedAt)}`
+                    : c.landedAt
+                      ? ` · landed ${relativeTime(c.landedAt)}`
+                      : ''}
+                  {c.subGoal ? ` · ${c.subGoal}` : ''}
+                </div>
+              </div>
+              {c.status === 'open' && c.sessionId && c.mine === true && (
+                <button
+                  onClick={() => onOpenSession(c.sessionId!)}
+                  className="shrink-0 rounded-lg border border-line px-2 py-0.5 text-[11px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink"
+                  title="Open the conversation doing this work"
+                >
+                  View the work
+                </button>
+              )}
+            </div>
+          ))}
+        </CardList>
+      )}
+      {composing && (
+        <div className="mt-2 space-y-1.5">
+          <input
+            autoFocus
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void declare()
+              if (e.key === 'Escape') setComposing(false)
+            }}
+            placeholder="What will this contribution do? (one line)"
+            aria-label="Contribution title"
+            className="w-full rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+          />
+          <div className="flex items-center gap-1.5">
+            <input
+              value={summary}
+              onChange={(e) => setSummary(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void declare()
+                if (e.key === 'Escape') setComposing(false)
+              }}
+              placeholder="Summary — what changes, and why (optional)…"
+              aria-label="Contribution summary"
+              className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+            />
+            <button
+              onClick={() => void declare()}
+              disabled={busy || !title.trim()}
+              className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-white transition enabled:hover:bg-accent/90 disabled:opacity-45"
+            >
+              Open
+            </button>
+          </div>
+          {error && <p className="text-[11px] text-removed">{error}</p>}
+        </div>
+      )}
+    </MainSection>
+  )
+}
+
+/** A contribution's own page (`/projects/:id/changes/:cid`) — the PR-page
+ *  analog and the work-item page's sibling (form follows function: same role,
+ *  same look — header + status + provenance meta, then the timeline with the
+ *  conversation folded in, then the composer). The landing act lives HERE, on
+ *  the durable surface (the gate and the act are one moment, CW6). */
+function ContributionPage({
+  project,
+  contributionId,
+  onBack,
+  backTo,
+  onOpenSession,
+}: {
+  project: Project
+  contributionId: string
+  onBack: () => void
+  backTo: NavLocation | null
+  onOpenSession: (id: string) => void
+}) {
+  const list = useContributions(project.id).data ?? []
+  const c = list.find((x) => x.id === contributionId) ?? null
+  const rel = useRelations()
+  const ownerDoor = (name: string) => rel.navigate('agents', name)
+  const [draft, setDraft] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  if (!c) {
+    return (
+      <Page>
+        <div className="mb-4">
+          <BackButton to={backTo} onBack={onBack} />
+        </div>
+        <Empty>This contribution no longer exists on “{project.name}”.</Empty>
+      </Page>
+    )
+  }
+
+  // Phase-A landing permission (the CW5 tier arithmetic's stand-in): the
+  // contributor (the viewer-relative `mine` stamp — display names aren't
+  // unique, so never a name comparison) or the project owner. The server
+  // enforces on raw tenant ids; this only decides whether to OFFER the act.
+  const mayLand = c.status === 'open' && (project.own !== false || c.mine === true)
+
+  const send = async () => {
+    if (busy || !draft.trim()) return
+    setBusy(true)
+    setError(null)
+    try {
+      await noteContribution(project.id, c.id, draft.trim())
+      setDraft('')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not post this comment.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const land = async () => {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await landContribution(project.id, c.id)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not land this contribution.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const badge =
+    c.status === 'landed' ? (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-2.5 py-0.5 text-[12px] font-medium text-white">
+        <CheckCircle2 size={13} /> Landed · L{c.landingNumber}
+      </span>
+    ) : (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-600 px-2.5 py-0.5 text-[12px] font-medium text-white">
+        <Clock size={13} /> Open
+      </span>
+    )
+
+  return (
+    <Page>
+      <div className="mx-auto w-full max-w-2xl">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-3">
+            <BackButton to={backTo} onBack={onBack} />
+            <h1 className={PAGE_TITLE_CLASS}>{c.title}</h1>
+          </div>
+          {mayLand && (
+            <button
+              onClick={() => void land()}
+              disabled={busy}
+              title={`Land this contribution — it becomes L${(list.reduce((m, x) => Math.max(m, x.landingNumber ?? 0), 0) + 1)} in ${project.name}’s history`}
+              className="shrink-0 rounded-lg bg-ink px-3 py-1 text-[12px] font-medium text-canvas shadow-sm transition hover:opacity-90 disabled:opacity-45"
+            >
+              Land
+            </button>
+          )}
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-faint">
+          {badge}
+          <span>
+            by <OwnerLink bare ownerName={c.contributor} onClick={() => ownerDoor(c.contributor)} /> ·{' '}
+            {relativeTime(c.openedAt)}
+          </span>
+          {c.subGoal && <span>· {c.subGoal}</span>}
+          <span>
+            · in{' '}
+            <button
+              onClick={() => rel.navigate('projects', project.id)}
+              className="font-medium text-ink-soft hover:underline"
+            >
+              {project.name}
+            </button>
+          </span>
+          {/* The trace door — only offered to its owner (sessions are
+              tenant-walled; a door that can never open is worse than none). */}
+          {c.sessionId && c.mine === true && (
+            <span>
+              ·{' '}
+              <button onClick={() => onOpenSession(c.sessionId!)} className="font-medium text-ink-soft hover:underline">
+                View the work
+              </button>
+            </span>
+          )}
+        </div>
+
+        {/* The timeline — lifecycle transitions + the conversation, one record
+            in time order (append-only, CW4; it keeps accruing after landing, CW7). */}
+        <div className="mt-5 space-y-3 border-l-2 border-line pl-4">
+          {c.events.map((ev) =>
+            ev.kind === 'opened' ? (
+              <div key={ev.id} className="rounded-lg border border-line bg-surface px-3 py-2">
+                <div className="text-[12px] text-ink-faint">
+                  <OwnerLink bare ownerName={ev.actor} onClick={() => ownerDoor(ev.actor)} /> opened this
+                  {ev.actorKind === 'agent' ? ' (agent)' : ''} · {relativeTime(ev.at)}
+                </div>
+                <div className="mt-1 whitespace-pre-wrap text-[13px] leading-snug text-ink">
+                  {c.summary.trim() ? c.summary : <span className="text-ink-faint">No summary given.</span>}
+                </div>
+              </div>
+            ) : ev.kind === 'note' ? (
+              <div key={ev.id} className="rounded-lg border border-line bg-surface px-3 py-2">
+                <div className="text-[12px] text-ink-faint">
+                  <OwnerLink bare ownerName={ev.actor} onClick={() => ownerDoor(ev.actor)} />
+                  <span> · {relativeTime(ev.at)}</span>
+                </div>
+                <div className="mt-1 whitespace-pre-wrap text-[13px] leading-snug text-ink-soft">{ev.body}</div>
+              </div>
+            ) : (
+              <div key={ev.id} className="flex items-center gap-2 py-0.5 text-[12px] text-ink-faint">
+                <CheckCircle2 size={14} className="shrink-0 text-emerald-600" />
+                <span>
+                  landed as <span className="font-semibold text-ink-soft">L{c.landingNumber}</span> by{' '}
+                  <OwnerLink bare ownerName={ev.actor} onClick={() => ownerDoor(ev.actor)} /> · {relativeTime(ev.at)}
+                </span>
+              </div>
+            ),
+          )}
+        </div>
+
+        {/* The conversation continues below — after landing too (CW7: the page
+            keeps accruing; a landed contribution's story includes its aftermath). */}
+        <div className="mt-4 flex items-center gap-1.5">
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && void send()}
+            placeholder="Add a comment…"
+            aria-label={`Comment on ${c.title}`}
+            className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-1.5 text-[13px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+          />
+          <button
+            onClick={() => void send()}
             disabled={busy || !draft.trim()}
             className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-[13px] font-medium text-white transition enabled:hover:bg-accent/90 disabled:opacity-45"
           >

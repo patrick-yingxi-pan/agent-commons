@@ -243,6 +243,15 @@ export interface OpenWorkChangedEvent {
   projectId: string
 }
 
+/** A Project's contribution ledger changed (Phase A of the contribution workflow,
+ *  docs/design/agent-contribution-workflow.md) — one was opened, noted, or landed.
+ *  Carries only the project id; watchers re-read the ledger. Visibility mirrors
+ *  the Project's, exactly like `openwork.changed`. */
+export interface ContributionChangedEvent {
+  type: 'contribution.changed'
+  projectId: string
+}
+
 /** A tenant's notification inbox changed (D24) — a public act fanned out to it, or a
  *  mark-read landed. Targeted: `eventVisibleToTenant` delivers it ONLY to the named
  *  tenant's streams (the `audit.entry` pattern); the client re-reads the inbox. */
@@ -336,6 +345,7 @@ export type ServerEvent =
   | DispatchChangedEvent
   | AuditEntryEvent
   | OpenWorkChangedEvent
+  | ContributionChangedEvent
   | ScheduleChangedEvent
   | CommissionChangedEvent
   | ProposalChangedEvent

@@ -21,6 +21,7 @@ import type {
   AgentResolvedItem,
   AppNotification,
   OpenSubGoal,
+  Contribution,
   OwnerProfile,
   ProjectDirectoryEntry,
   SearchResponse,
@@ -404,6 +405,13 @@ export function useProjectSubGoals(projectId: string): QueryState<ProjectSubGoal
  *  taker plus the resolved credit lines. Refreshed live on `openwork.changed`. */
 export function useOpenSubGoals(projectId: string): QueryState<OpenSubGoal[]> {
   return useQuery(keys.openSubGoals(projectId), () => apiGet<OpenSubGoal[]>(paths.openSubGoals(projectId)))
+}
+
+/** A Project's contribution ledger (agent-contribution workflow Phase A) — open
+ *  contributions first, then the landed history L{n} descending. Refreshed live
+ *  on `contribution.changed`. */
+export function useContributions(projectId: string): QueryState<Contribution[]> {
+  return useQuery(keys.contributions(projectId), () => apiGet<Contribution[]>(paths.contributions(projectId)))
 }
 
 /** The shared-Project discovery directory (docs/agent-commons.md, D17) — every Project

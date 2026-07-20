@@ -76,7 +76,7 @@ import { ConflictError, ValidationError } from './conflict.ts'
 import { LimitError } from './limit.ts'
 import { scopeMatches } from './runner-runtime.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../contract/index.ts'
-import type { Agent, AgentChangeProposal, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelInfo, ModelProvider, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, OwnerActivity, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState, WorkItemComment } from '../contract/index.ts'
+import type { Agent, AgentChangeProposal, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelInfo, ModelProvider, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, Contribution, OpenContributionRequest, OwnerActivity, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState, WorkItemComment } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, SEED_PROVIDERS, SEED_PROVIDER_CONFIGS, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
@@ -89,7 +89,7 @@ import { ResourceGuardian, GuardianError } from './guardian.ts'
 import { LOCAL_RUNNER_SEED, RUNNER_FS_ROOTS } from './data/runners.ts'
 import { DEFAULT_AGENT } from './data/workers.ts'
 import { EMPTY_WORKSPACE, workspaceFromSeed } from './workspace.ts'
-import { STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer, type StoredOpenSubGoal, type StoredWorkItemComment } from './persist.ts'
+import { STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer, type StoredOpenSubGoal, type StoredWorkItemComment, type StoredContribution, type StoredContributionEvent } from './persist.ts'
 import { eventlog } from './eventlog.ts'
 import { accounts } from './accounts.ts'
 
@@ -234,6 +234,39 @@ function publicOpenSubGoal(item: StoredOpenSubGoal): OpenSubGoal {
 
 const openSubGoals: StoredOpenSubGoal[] = []
 let openSubGoalSeq = 0
+
+/** The Project contribution ledgers (agent-contribution workflow Phase A —
+ *  docs/design/agent-contribution-workflow.md). Same redaction seam as the work
+ *  item: raw tenant ids + principals are server-private anchors; the wire face
+ *  carries display names + principal KINDs only. */
+const contributions: StoredContribution[] = []
+let contributionSeq = 0
+// Ledger bounds — a queue, not a blob store (the MAX_OPEN_WORK rationale). The
+// TOTAL cap exists because landing is contributor-or-owner and the contributor
+// IS the opener — without it an open→land loop would grow another tenant's
+// ledger + snapshot without limit (review finding, 2026-07-20); the open cap
+// alone only bounds the in-flight band.
+const MAX_OPEN_CONTRIBUTIONS_PER_PROJECT = 50
+const MAX_CONTRIBUTIONS_PER_PROJECT = 200
+const MAX_CONTRIBUTION_NOTES = 100
+const MAX_CONTRIBUTION_FIELD_CHARS = 2000
+
+function publicContributionEvent(ev: StoredContributionEvent): import('../contract/index.ts').ContributionEvent {
+  const { principal, ...pub } = ev
+  return { ...pub, ...(principal ? { actorKind: principal.kind } : {}) }
+}
+function publicContribution(c: StoredContribution, viewerTenant?: string): Contribution {
+  const { contributorTenant, contributorPrincipal, events, ...pub } = c
+  return {
+    ...pub,
+    ...(contributorPrincipal ? { contributorKind: contributorPrincipal.kind } : {}),
+    // Viewer-relative, never stored: display names aren't unique, so the client
+    // must not infer "yours" from a name — the raw-id comparison happens HERE,
+    // and only the boolean crosses the wire (the projects `own` pattern).
+    ...(viewerTenant !== undefined && contributorTenant === viewerTenant ? { mine: true } : {}),
+    events: events.map(publicContributionEvent),
+  }
+}
 // D23 discussion bounds — enough to coordinate, not a blob store (a hostile poster
 // gets a cap, not a forum). Coarse by design; the design log records the trade-off.
 const MAX_WORK_ITEM_COMMENTS = 100
@@ -1183,6 +1216,7 @@ function snapshot(): PersistedState {
     auditLog, // D15/OQ7 — the cross-user effect trail (append-only)
     dispatch, // P7 — one-off dispatch runs (a live run survives a restart)
     openSubGoals, // D19 — the Project open-work backlog (an un-taken item survives a restart)
+    contributions, // Phase A — the Project landing ledgers (the linear history survives a restart)
     // D24 — watch subscriptions ([tenantId, projectId] pairs) + the notification inbox.
     watches: [...watches.entries()].flatMap(([projectId, tenants]) => [...tenants].map((t) => [t, projectId] as [string, string])),
     notifications,
@@ -1209,6 +1243,7 @@ function snapshot(): PersistedState {
       audit: auditSeq,
       dispatch: dispatchSeq,
       openSubGoal: openSubGoalSeq,
+      contribution: contributionSeq,
       notification: notificationSeq,
       user: persistedAccounts.seq.user,
       tenant: persistedAccounts.seq.tenant,
@@ -1366,6 +1401,12 @@ function rehydrate(s: PersistedState): void {
   // back to the backlog length so freshly minted ids never collide with restored ones.
   openSubGoals.splice(0, openSubGoals.length, ...(s.openSubGoals ?? []))
   openSubGoalSeq = s.seq.openSubGoal ?? openSubGoals.length
+  // Phase A contributions — restore the ledgers (empty for a pre-field snapshot).
+  // The counter's fallback floor is rows + ALL their events, not rows alone: the
+  // shared seq mints contribution ids AND event ids (each row consumed ≥2), so a
+  // length floor could re-mint a restored id (review finding, 2026-07-20).
+  contributions.splice(0, contributions.length, ...(s.contributions ?? []))
+  contributionSeq = s.seq.contribution ?? contributions.reduce((m, c) => m + 1 + c.events.length, 0)
   // D24 — watches + the inbox (empty for a pre-field snapshot); counter falls back
   // to the inbox length so freshly minted ids never collide with restored ones.
   watches.clear()
@@ -1749,6 +1790,13 @@ export const store = {
         // Stamped at emit time (the row may already be deleted) — relation.applied's
         // pattern: the mutation is the owning tenant's private signal.
         return e.tenantId ? e.tenantId === tenantId : seedVisibleTo(tenantId)
+      case 'contribution.changed': {
+        // The ledger's visibility mirrors the Project's, exactly like openwork.changed:
+        // everyone while shared, owner-only while private (only the project id rides).
+        const p = findProject(e.projectId)
+        if (!p) return seedVisibleTo(tenantId)
+        return p.shared === true || rowVisibleTo(p, tenantId)
+      }
       case 'commission.changed': {
         // The Contributor roster's visibility mirrors the Project's (P8/D19), exactly
         // like openwork.changed: everyone while shared, owner-only while private.
@@ -3154,6 +3202,8 @@ export const store = {
           holderRole: holderRole(r.holder),
           reservationId: r.id,
           status: r.status,
+          at: r.at,
+          expiresAt: r.expiresAt,
         })
       }
     }
@@ -3891,6 +3941,96 @@ export const store = {
     emit({ type: 'openwork.changed', projectId })
     persist()
     return publicOpenSubGoal(item)
+  },
+
+  // ── The contribution ledger (agent-contribution workflow Phase A) ───────────
+  /** A Project's contribution ledger: open contributions first (newest first),
+   *  then landed ones in REVERSE ledger order (L{n} descending — the "Recently
+   *  landed" read). Served through the `publicContribution` redaction. */
+  listContributions(projectId: string, viewerTenant?: string): Contribution[] {
+    const rows = contributions.filter((c) => c.projectId === projectId)
+    const band = (c: StoredContribution) => (c.status === 'open' ? 0 : 1)
+    return [...rows]
+      .sort((a, b) => band(a) - band(b) || (b.landingNumber ?? 0) - (a.landingNumber ?? 0) || b.openedAt - a.openedAt)
+      .map((c) => publicContribution(c, viewerTenant))
+  },
+  /** Open (declare) a contribution — the CW1 intent made visible. Any tenant that
+   *  can SEE the Project may open one (the route validates visibility, the
+   *  open-subgoal pattern); free text is capped at the funnel. */
+  openContribution(projectId: string, req: OpenContributionRequest, tenantId: string, principal: PrincipalRef | undefined): Contribution | 'capped' {
+    const rows = contributions.filter((c) => c.projectId === projectId)
+    if (rows.length >= MAX_CONTRIBUTIONS_PER_PROJECT || rows.filter((c) => c.status === 'open').length >= MAX_OPEN_CONTRIBUTIONS_PER_PROJECT) {
+      return 'capped'
+    }
+    const now = Date.now()
+    const actor = tenantName(tenantId)
+    // The session door is stored only when the OPENER's tenant can actually see
+    // the named session — a caller-supplied foreign session id would otherwise
+    // ride the public ledger as a leaked private identifier (review finding).
+    const namedSession = req.sessionId ? SESSIONS.find((s) => s.id === req.sessionId) : undefined
+    const sessionOk = namedSession !== undefined && this.sessionVisibleToTenant(namedSession, tenantId)
+    const c: StoredContribution = {
+      id: `contrib-${(contributionSeq += 1)}`,
+      projectId,
+      title: req.title.slice(0, MAX_CONTRIBUTION_FIELD_CHARS),
+      summary: (req.summary ?? '').slice(0, MAX_CONTRIBUTION_FIELD_CHARS),
+      ...(req.subGoal?.trim() ? { subGoal: req.subGoal.trim().slice(0, MAX_CONTRIBUTION_FIELD_CHARS) } : {}),
+      ...(sessionOk ? { sessionId: req.sessionId } : {}),
+      contributor: actor,
+      contributorTenant: tenantId,
+      ...(principal ? { contributorPrincipal: principal } : {}),
+      status: 'open',
+      openedAt: now,
+      events: [{ id: `cev-${(contributionSeq += 1)}`, kind: 'opened', at: now, actor, ...(principal ? { principal } : {}) }],
+    }
+    contributions.push(c)
+    emit({ type: 'contribution.changed', projectId })
+    persist()
+    return publicContribution(c, tenantId)
+  },
+  /** Append a note to a contribution's timeline — the flat discussion thread.
+   *  Deliberately allowed AFTER landing too: the page keeps accruing (CW7 — a
+   *  landed contribution's story includes its aftermath). */
+  noteContribution(projectId: string, cid: string, body: string, tenantId: string, principal: PrincipalRef | undefined): Contribution | 'capped' | undefined {
+    const c = contributions.find((x) => x.id === cid && x.projectId === projectId)
+    if (!c) return undefined
+    if (c.events.filter((e) => e.kind === 'note').length >= MAX_CONTRIBUTION_NOTES) return 'capped'
+    c.events.push({
+      id: `cev-${(contributionSeq += 1)}`,
+      kind: 'note',
+      at: Date.now(),
+      actor: tenantName(tenantId),
+      body: body.slice(0, MAX_CONTRIBUTION_FIELD_CHARS),
+      ...(principal ? { principal } : {}),
+    })
+    emit({ type: 'contribution.changed', projectId })
+    persist()
+    return publicContribution(c, tenantId)
+  },
+  /** Land a contribution: assign the next landing number (monotonic PER PROJECT —
+   *  the linear ledger, CW6) and close the lifecycle. Contributor or Project
+   *  owner only — the Phase-A placeholder for the CW5 tier arithmetic (recorded
+   *  in the design doc's build plan; the authorization comparison is raw tenant
+   *  ids, the D23 lesson, via the same `tenantWritesAs` union as retract). */
+  landContribution(projectId: string, cid: string, tenantId: string, principal: PrincipalRef | undefined): Contribution | 'forbidden' | 'closed' | undefined {
+    const c = contributions.find((x) => x.id === cid && x.projectId === projectId)
+    if (!c) return undefined
+    const ownerTenant = findProject(projectId)?.tenantId ?? defaultTenantId()
+    const isContributor = c.contributorTenant !== undefined && c.contributorTenant === tenantId
+    if (!isContributor && !tenantWritesAs(tenantId, ownerTenant)) return 'forbidden'
+    if (c.status !== 'open') return 'closed'
+    const now = Date.now()
+    // The ledger position: one past the project's highest landed number — derived
+    // from the ledger itself, so a restored snapshot can't double-assign.
+    const top = contributions.reduce((m, x) => (x.projectId === projectId ? Math.max(m, x.landingNumber ?? 0) : m), 0)
+    c.status = 'landed'
+    c.landingNumber = top + 1
+    c.landedAt = now
+    c.landedBy = tenantName(tenantId)
+    c.events.push({ id: `cev-${(contributionSeq += 1)}`, kind: 'landed', at: now, actor: c.landedBy, ...(principal ? { principal } : {}) })
+    emit({ type: 'contribution.changed', projectId })
+    persist()
+    return publicContribution(c, tenantId)
   },
 
   // ── D28 — peer credentials (verified identity at the A2A edge) ──
