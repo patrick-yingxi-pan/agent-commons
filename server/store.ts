@@ -75,7 +75,7 @@ import { mintAuthority } from './authority.ts'
 import { ConflictError, ValidationError } from './conflict.ts'
 import { LimitError } from './limit.ts'
 import { scopeMatches } from './runner-runtime.ts'
-import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, PROJECT_EFFECT_TYPES, ENVELOPE_HARNESSES, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../contract/index.ts'
+import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, PROJECT_EFFECT_TYPES, ENVELOPE_HARNESSES, CHANGE_ENTRY_KINDS, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../contract/index.ts'
 import type { Agent, AgentChangeProposal, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelInfo, ModelProvider, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, Contribution, OpenContributionRequest, OwnerActivity, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState, WorkItemComment } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, SEED_PROVIDERS, SEED_PROVIDER_CONFIGS, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
@@ -255,6 +255,10 @@ const MAX_CONTRIBUTION_FIELD_CHARS = 2000
 // design doc's envelope-specificity residue), so the funnel refuses it.
 const MAX_ENVELOPE_LINES = 10
 const MAX_ENVELOPE_CARDINALITY = 20
+// Changeset bounds (Phase D): entries per version + versions per contribution
+// (append-only means versions accumulate — a bound, not a blob store).
+const MAX_CHANGESET_ENTRIES = 20
+const MAX_CHANGESET_VERSIONS = 20
 // TOTAL timeline-event bound: notes have their own cap, but the envelope kinds
 // (proposed / approved / executed / refused) would otherwise grow another
 // tenant's timeline + snapshot without limit — the same DoS class the total
@@ -1415,6 +1419,9 @@ function rehydrate(s: PersistedState): void {
   // The counter's fallback floor is rows + ALL their events, not rows alone: the
   // shared seq mints contribution ids AND event ids (each row consumed ≥2), so a
   // length floor could re-mint a restored id (review finding, 2026-07-20).
+  // (Envelope-line and changeset-entry ids consume the seq too and are NOT
+  // counted here — latent-only: the fallback fires only for a snapshot with no
+  // `seq.contribution`, which predates both features; every writer persists it.)
   contributions.splice(0, contributions.length, ...(s.contributions ?? []))
   contributionSeq = s.seq.contribution ?? contributions.reduce((m, c) => m + 1 + c.events.length, 0)
   // D24 — watches + the inbox (empty for a pre-field snapshot); counter falls back
@@ -4038,6 +4045,86 @@ export const store = {
     c.landedAt = now
     c.landedBy = tenantName(tenantId)
     c.events.push({ id: `cev-${(contributionSeq += 1)}`, kind: 'landed', at: now, actor: c.landedBy, ...(principal ? { principal } : {}) })
+    emit({ type: 'contribution.changed', projectId })
+    persist()
+    return publicContribution(c, tenantId)
+  },
+
+  // ── The changeset (CW3/CW4, Phase D) — crystallization without amnesia ──────
+  /** Crystallize a changeset version: the work's mergeable payload as typed
+   *  before→after entries, APPENDED as v(n+1) — never rewriting a prior
+   *  version (no force-push; the revision history is the record, and the
+   *  event body carries the REVIEW DELTA vs the prior version). Contributor
+   *  or owner only (authoring the changeset is the work's own act, unlike the
+   *  open deliberation of notes/envelope proposals); open contributions only. */
+  crystallizeContribution(projectId: string, cid: string, req: import('../contract/index.ts').CrystallizeRequest, tenantId: string, principal: PrincipalRef | undefined): Contribution | 'forbidden' | 'closed' | 'invalid' | 'capped' | undefined {
+    const c = contributions.find((x) => x.id === cid && x.projectId === projectId)
+    if (!c) return undefined
+    const ownerTenant = findProject(projectId)?.tenantId ?? defaultTenantId()
+    const isContributor = c.contributorTenant !== undefined && c.contributorTenant === tenantId
+    if (!isContributor && !tenantWritesAs(tenantId, ownerTenant)) return 'forbidden'
+    if (c.status !== 'open') return 'closed'
+    const entries = req.entries
+    if (!Array.isArray(entries) || entries.length === 0 || entries.length > MAX_CHANGESET_ENTRIES) return 'invalid'
+    const seen = new Set<string>()
+    for (const e of entries) {
+      if (
+        !CHANGE_ENTRY_KINDS.includes(e.kind) ||
+        typeof e.target !== 'string' || !e.target.trim() ||
+        typeof e.after !== 'string' ||
+        (e.before !== undefined && typeof e.before !== 'string')
+      ) return 'invalid'
+      // One entry per (kind, target) per version — the mergeable surface has
+      // one state per target, and the review delta is keyed on exactly this
+      // pair (duplicates would collapse in the Map and miscount — review
+      // finding, Phase D pass).
+      const k = `${e.kind}:${e.target.trim()}`
+      if (seen.has(k)) return 'invalid'
+      seen.add(k)
+    }
+    const versions = c.changeset ?? []
+    if (versions.length >= MAX_CHANGESET_VERSIONS) return 'capped'
+    if (c.events.length >= MAX_CONTRIBUTION_EVENTS) return 'capped'
+    const now = Date.now()
+    const actor = tenantName(tenantId)
+    const version: import('../contract/index.ts').ChangesetVersion = {
+      version: versions.length + 1,
+      at: now,
+      by: actor,
+      entries: entries.map((e) => ({
+        id: `cev-${(contributionSeq += 1)}`,
+        kind: e.kind,
+        target: e.target.trim().slice(0, MAX_CONTRIBUTION_FIELD_CHARS),
+        ...(e.before !== undefined ? { before: e.before.slice(0, MAX_CONTRIBUTION_FIELD_CHARS) } : {}),
+        after: e.after.slice(0, MAX_CONTRIBUTION_FIELD_CHARS),
+      })),
+    }
+    // The review delta vs the prior version, keyed by (kind, target): what a
+    // returning reviewer reads first (CW4 — "what changed since I looked").
+    const prior = versions.at(-1)
+    let delta = ''
+    if (prior) {
+      const key = (e: { kind: string; target: string }) => `${e.kind}:${e.target}`
+      const prev = new Map(prior.entries.map((e) => [key(e), e]))
+      const next = new Map(version.entries.map((e) => [key(e), e]))
+      let added = 0, removed = 0, changed = 0
+      for (const [k, e] of next) {
+        const p = prev.get(k)
+        if (!p) added += 1
+        else if (p.after !== e.after || (p.before ?? '') !== (e.before ?? '')) changed += 1
+      }
+      for (const k of prev.keys()) if (!next.has(k)) removed += 1
+      delta = ` (vs v${prior.version}: +${added} −${removed} ~${changed})`
+    }
+    c.changeset = [...versions, version]
+    c.events.push({
+      id: `cev-${(contributionSeq += 1)}`,
+      kind: 'crystallized',
+      at: now,
+      actor,
+      body: `v${version.version} · ${version.entries.length} change${version.entries.length === 1 ? '' : 's'}${delta}`,
+      ...(principal ? { principal } : {}),
+    })
     emit({ type: 'contribution.changed', projectId })
     persist()
     return publicContribution(c, tenantId)

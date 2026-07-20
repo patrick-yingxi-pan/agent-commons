@@ -22,6 +22,7 @@ import type {
   PostContributionNoteRequest,
   ProposeEnvelopeRequest,
   RunEnvelopeEffectRequest,
+  CrystallizeRequest,
   PushRecentRequest,
   RegisterRunnerRequest,
   SendMessageRequest,
@@ -1865,6 +1866,21 @@ export function buildRouter(): Router {
     const out = store.noteContribution(params.id, params.cid, input.body.trim(), who.tenant.id, userPrincipal(who))
     if (out === undefined) return sendError(res, 'not_found', `No contribution '${params.cid}'`)
     if (out === 'capped') return sendError(res, 'conflict', 'This contribution’s discussion is at its cap')
+    sendJson(res, out)
+  })
+  // The changeset (CW3/CW4, Phase D): crystallize a version — contributor or
+  // owner (the work's own act), append-only, behind the same project wall.
+  r.post('/projects/:id/contributions/:cid/changeset', async ({ req, res, params, body }) => {
+    const input = await body<CrystallizeRequest>()
+    if (!Array.isArray(input?.entries)) return sendError(res, 'bad_request', 'entries (array) is required')
+    if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+    const who = store.identity(req.headers)
+    const out = store.crystallizeContribution(params.id, params.cid, input!, who.tenant.id, userPrincipal(who))
+    if (out === undefined) return sendError(res, 'not_found', `No contribution '${params.cid}'`)
+    if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the contributor or the project owner may crystallize a changeset')
+    if (out === 'closed') return sendError(res, 'conflict', 'A landed contribution’s changeset is immutable history')
+    if (out === 'capped') return sendError(res, 'conflict', 'This contribution’s changeset (or timeline) is at its cap')
+    if (out === 'invalid') return sendError(res, 'bad_request', 'each entry needs a valid kind, a target, and after-text (before optional); one entry per kind+target')
     sendJson(res, out)
   })
   // The effect envelope (CW1, Phase C): propose/amend is open to any viewer

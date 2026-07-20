@@ -166,6 +166,7 @@ import {
   proposeEnvelope,
   approveEnvelope,
   runEnvelopeEffect,
+  crystallizeContribution,
   useMyWork,
   useOwnerProfile,
   useMyOrgs,
@@ -202,8 +203,10 @@ import {
   PROJECT_ROLES,
   PROJECT_EFFECT_TYPES,
   ENVELOPE_HARNESSES,
+  CHANGE_ENTRY_KINDS,
   AUDIT_CHANNEL_LABEL,
   type EnvelopeHarness,
+  type ChangeEntryKind,
   type A2aAgentCard,
   type Agent,
   type AgentChangeProposal,
@@ -2888,6 +2891,10 @@ function ContributionPage({
           )}
         </div>
 
+        {/* The changeset (CW3/CW4, Phase D) — the work's mergeable payload as
+            before→after diffs, versioned append-only. */}
+        <ChangesetCard project={project} c={c} />
+
         {/* The effect envelope (CW1, Phase C) — the plan's authorization,
             visually its own block: an external act must never hide inside the
             prose/diff idiom (CW3). */}
@@ -2921,6 +2928,14 @@ function ContributionPage({
                 <span>
                   landed as <span className="font-semibold text-ink-soft">L{c.landingNumber}</span> by{' '}
                   <OwnerLink bare ownerName={ev.actor} onClick={() => ownerDoor(ev.actor)} /> · {relativeTime(ev.at)}
+                </span>
+              </div>
+            ) : ev.kind === 'crystallized' ? (
+              <div key={ev.id} className="flex items-center gap-2 py-0.5 text-[12px] text-ink-faint">
+                <Pencil size={14} className="shrink-0 text-ink-faint" />
+                <span>
+                  <OwnerLink bare ownerName={ev.actor} onClick={() => ownerDoor(ev.actor)} /> crystallized{' '}
+                  {ev.body} · {relativeTime(ev.at)}
                 </span>
               </div>
             ) : ev.kind === 'envelope-proposed' ? (
@@ -2980,6 +2995,166 @@ function ContributionPage({
         {error && <p className="mt-1.5 text-[12px] text-removed">{error}</p>}
       </div>
     </Page>
+  )
+}
+
+/** The changeset card (CW3/CW4, Phase D) — the contribution page's payload
+ *  block: the LATEST crystallized version's entries, each a real before→after
+ *  through the shared TextDiff (a change is a diff, never prose). Versions are
+ *  append-only; earlier ones survive as timeline events carrying the review
+ *  delta. The composer accumulates entries locally, then crystallizes one
+ *  version — revision is a new version, never an edit (no force-push). */
+function ChangesetCard({ project, c }: { project: Project; c: Contribution }) {
+  const mayAct = c.mine === true || project.own !== false
+  const versions = c.changeset ?? []
+  const latest = versions.at(-1)
+  const [composing, setComposing] = useState(false)
+  const [kind, setKind] = useState<ChangeEntryKind>('note')
+  const [target, setTarget] = useState('')
+  const [before, setBefore] = useState('')
+  const [after, setAfter] = useState('')
+  const [pending, setPending] = useState<{ kind: ChangeEntryKind; target: string; before?: string; after: string }[]>([])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  if (!latest && (c.status !== 'open' || !mayAct)) return null
+
+  const addEntry = () => {
+    if (!target.trim() || !after.trim()) return
+    setPending((p) => [...p, { kind, target: target.trim(), ...(before.trim() ? { before } : {}), after }])
+    setTarget('')
+    setBefore('')
+    setAfter('')
+  }
+  // A valid entry still sitting in the fields folds into the crystallize —
+  // "Add change" is for accumulating MORE entries, never a required step a
+  // first-time author can trip on (review finding: no silently-dropped draft).
+  const draftEntry = () =>
+    target.trim() && after.trim()
+      ? [{ kind, target: target.trim(), ...(before.trim() ? { before } : {}), after }]
+      : []
+  const crystallize = async () => {
+    const entries = [...pending, ...draftEntry()]
+    if (busy || entries.length === 0) return
+    setBusy(true)
+    setError(null)
+    try {
+      await crystallizeContribution(project.id, c.id, { entries })
+      setPending([])
+      setTarget('')
+      setBefore('')
+      setAfter('')
+      setComposing(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not crystallize this version.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-5 rounded-xl border border-line bg-surface">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-3 py-2">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+          Changeset{latest ? ` · v${latest.version}` : ''}
+          {latest && (
+            <span className="ml-1.5 font-normal normal-case tracking-normal">
+              crystallized by {latest.by} · {relativeTime(latest.at)}
+            </span>
+          )}
+        </div>
+        {c.status === 'open' && mayAct && (
+          <button
+            onClick={() => setComposing((v) => !v)}
+            className="rounded-lg border border-line px-2 py-0.5 text-[11px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink"
+          >
+            {latest ? 'Revise' : 'Crystallize'}
+          </button>
+        )}
+      </div>
+      {latest ? (
+        latest.entries.map((e) => (
+          <div key={e.id} className="border-b border-line px-3 py-2 last:border-b-0">
+            <div className="text-[12px] text-ink-faint">
+              <span className="font-medium text-ink-soft">{e.kind}</span> · {e.target}
+            </div>
+            <TextDiff current={e.before} proposed={e.after} />
+          </div>
+        ))
+      ) : (
+        <p className="px-3 py-2 text-[12px] text-ink-faint">
+          Nothing crystallized yet. When the work is ready, its changes crystallize here as
+          before → after — a change is a diff, never a description of one.
+        </p>
+      )}
+      {versions.length > 1 && (
+        <p className="border-t border-line px-3 py-1.5 text-[11px] text-ink-faint">
+          {versions.length} versions, append-only — each revision's delta is on the timeline.
+        </p>
+      )}
+      {composing && (
+        <div className="space-y-1.5 border-t border-line px-3 py-2">
+          {pending.length > 0 && (
+            <div className="text-[11px] text-ink-faint">
+              Pending v{versions.length + 1}: {pending.map((p, i) => `${p.kind}·${p.target}${i < pending.length - 1 ? ', ' : ''}`)}
+            </div>
+          )}
+          <div className="flex items-center gap-1.5">
+            <select
+              value={kind}
+              onChange={(e) => setKind(e.target.value as ChangeEntryKind)}
+              aria-label="Change kind"
+              className="rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
+            >
+              {CHANGE_ENTRY_KINDS.map((k) => (
+                <option key={k} value={k}>
+                  {k}
+                </option>
+              ))}
+            </select>
+            <input
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              placeholder="Target (path / name / surface)…"
+              aria-label="Change target"
+              className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+            />
+          </div>
+          <textarea
+            value={before}
+            onChange={(e) => setBefore(e.target.value)}
+            rows={2}
+            placeholder="Before (leave empty for a create)…"
+            aria-label="Before text"
+            className="w-full resize-none rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+          />
+          <textarea
+            value={after}
+            onChange={(e) => setAfter(e.target.value)}
+            rows={2}
+            placeholder="After…"
+            aria-label="After text"
+            className="w-full resize-none rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+          />
+          <div className="flex items-center justify-end gap-1.5">
+            <button
+              onClick={addEntry}
+              disabled={!target.trim() || !after.trim()}
+              className="rounded-lg border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition enabled:hover:border-line-strong enabled:hover:text-ink disabled:opacity-45"
+            >
+              Add change
+            </button>
+            <button
+              onClick={() => void crystallize()}
+              disabled={busy || (pending.length === 0 && !(target.trim() && after.trim()))}
+              className="rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-white transition enabled:hover:bg-accent/90 disabled:opacity-45"
+            >
+              Crystallize v{versions.length + 1}
+            </button>
+          </div>
+          {error && <p className="text-[11px] text-removed">{error}</p>}
+        </div>
+      )}
+    </div>
   )
 }
 

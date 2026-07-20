@@ -62,6 +62,45 @@ export interface EffectEnvelope {
   approvedVersion?: number
 }
 
+/** ── The changeset (CW3/CW4, Phase D) — crystallization without amnesia ─────
+ *  When the work is ready, the trace crystallizes into a **ChangesetVersion**:
+ *  typed change entries whose payload is a real before→after (rendered through
+ *  the shared TextDiff primitive — a change is a diff, never prose). Versions
+ *  are APPEND-ONLY (v1, v2, … — no force-push: a revision is a new version
+ *  beside the old, and the review delta between them is first-class). In the
+ *  prototype the entries are author-declared at crystallize time; deriving
+ *  them from trace checkpoints is the declared model-seam (the build plan's
+ *  CW2 machinery), so the shape is real and the derivation is mocked. */
+
+/** What a change entry touches — the project's mergeable surface. */
+export type ChangeEntryKind = 'instructions' | 'readme' | 'artifact' | 'file' | 'note'
+export const CHANGE_ENTRY_KINDS: ChangeEntryKind[] = ['instructions', 'readme', 'artifact', 'file', 'note']
+
+export interface ChangeEntry {
+  id: string
+  kind: ChangeEntryKind
+  /** What it targets — a file path, an artifact name, or the surface's name. */
+  target: string
+  /** The before text. Absent = a create (the after renders alone). */
+  before?: string
+  /** The after text. `''` + a `before` reads as a removal. */
+  after: string
+}
+
+export interface ChangesetVersion {
+  /** 1-based, append-only — the position IS the version number. */
+  version: number
+  at: number
+  /** Display name of the crystallizing principal (public identity). */
+  by: string
+  entries: ChangeEntry[]
+}
+
+/** Body of `POST .../contributions/:cid/changeset` — crystallize a version. */
+export interface CrystallizeRequest {
+  entries: { kind: ChangeEntryKind; target: string; before?: string; after: string }[]
+}
+
 /** Body of `POST .../contributions/:cid/envelope` — propose or amend. */
 export interface ProposeEnvelopeRequest {
   lines: { type: ProjectEffectType; target: string; cardinality?: number; harness?: EnvelopeHarness; note?: string }[]
@@ -88,6 +127,8 @@ export interface ContributionEvent {
     | 'envelope-approved'
     | 'effect-executed'
     | 'effect-refused'
+    /* Phase D — a changeset version crystallized (CW3/CW4): */
+    | 'crystallized'
   at: number
   /** The acting workspace's display name (public identity, like `postedBy`). */
   actor: string
@@ -135,6 +176,10 @@ export interface Contribution {
   /** The effect envelope (CW1, Phase C) — absent = the contribution declares
    *  no external acts (the common mergeable-only case; INV-9 fixed absence). */
   envelope?: EffectEnvelope
+  /** The changeset (CW3/CW4, Phase D) — EVERY crystallized version, append-only
+   *  oldest-first (no force-push: the whole revision history is the record).
+   *  Absent = nothing crystallized yet (INV-9 fixed absence). */
+  changeset?: ChangesetVersion[]
   status: ContributionStatus
   openedAt: number
   landedAt?: number

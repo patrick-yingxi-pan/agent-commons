@@ -311,6 +311,73 @@ test('the timeline-event cap bounds the envelope kinds too — no unbounded grow
   assert.ok(events.length <= 301, 'the refusal did not grow a full timeline')
 })
 
+test('changeset: append-only versions with review deltas; author-only; landed = immutable (CW3/CW4)', async () => {
+  const { projectId, cid } = await arena()
+  // A bystander (who may comment and counter-propose envelopes) may NOT author
+  // the changeset — crystallizing is the work's own act.
+  const stranger = await call('POST', `/projects/${projectId}/contributions/${cid}/changeset`,
+    { entries: [{ kind: 'note', target: 'plan', after: 'x' }] }, { 'x-tenant-id': C })
+  assert.equal(stranger.status, 403)
+
+  const v1 = await call('POST', `/projects/${projectId}/contributions/${cid}/changeset`,
+    { entries: [
+      { kind: 'readme', target: 'README', before: 'old intro', after: 'new intro' },
+      { kind: 'file', target: 'src/app.ts', after: 'created content' },
+    ] }, { 'x-tenant-id': B })
+  assert.equal(v1.status, 200)
+  assert.equal(v1.json.changeset.length, 1)
+  assert.equal(v1.json.changeset[0].version, 1)
+  assert.equal(v1.json.changeset[0].by, B)
+  assert.equal(v1.json.changeset[0].entries[0].before, 'old intro')
+  assert.equal(v1.json.changeset[0].entries[1].before, undefined, 'a create has no before (INV-9)')
+  assert.equal(v1.json.events.at(-1).kind, 'crystallized')
+  assert.match(v1.json.events.at(-1).body, /^v1 · 2 changes$/, 'v1 has no delta — nothing prior')
+
+  // v2 APPENDS beside v1 (no force-push) and its event carries the review
+  // delta vs v1 keyed by (kind, target): one changed, one removed, one added.
+  const v2 = await call('POST', `/projects/${projectId}/contributions/${cid}/changeset`,
+    { entries: [
+      { kind: 'readme', target: 'README', before: 'old intro', after: 'REVISED intro' },
+      { kind: 'note', target: 'follow-up', after: 'added note' },
+    ] }, { 'x-tenant-id': B })
+  assert.equal(v2.json.changeset.length, 2, 'append-only — v1 survives beside v2')
+  assert.equal(v2.json.changeset[0].entries[0].after, 'new intro', 'v1 is untouched')
+  assert.equal(v2.json.changeset[1].version, 2)
+  assert.match(v2.json.events.at(-1).body, /vs v1: \+1 −1 ~1/, 'the review delta is first-class')
+
+  // Funnel validation: bad kind, empty set, duplicate (kind,target) — the
+  // delta is keyed on that pair, so duplicates would miscount — and the
+  // per-version entry cap; the OWNER may also crystallize (contributor-or-owner).
+  for (const bad of [
+    { entries: [{ kind: 'nope', target: 'x', after: 'y' }] },
+    { entries: [] },
+    { entries: [{ kind: 'note', target: 'dup', after: 'a' }, { kind: 'note', target: 'dup', after: 'b' }] },
+    { entries: Array.from({ length: 21 }, (_, i) => ({ kind: 'note', target: `t${i}`, after: 'x' })) },
+  ]) {
+    const r = await call('POST', `/projects/${projectId}/contributions/${cid}/changeset`, bad, { 'x-tenant-id': B })
+    assert.equal(r.status, 400, JSON.stringify(bad).slice(0, 60))
+  }
+  const long = await call('POST', `/projects/${projectId}/contributions/${cid}/changeset`,
+    { entries: [{ kind: 'note', target: 'long', after: 'x'.repeat(5000) }] }, { 'x-tenant-id': A })
+  assert.equal(long.status, 200, 'the OWNER may crystallize too')
+  assert.equal(long.json.changeset.at(-1).entries[0].after.length, 2000, 'text capped at the funnel')
+
+  // The version cap answers 409, not silent growth (append-only accumulates).
+  for (let i = 0; ; i += 1) {
+    const out = store.crystallizeContribution(projectId, cid, { entries: [{ kind: 'note', target: 'n', after: `v${i}` }] }, B, undefined)
+    if (out === 'capped') break
+    assert.ok(i < 30, 'the version cap must fire before 30')
+  }
+  const overV = await call('POST', `/projects/${projectId}/contributions/${cid}/changeset`,
+    { entries: [{ kind: 'note', target: 'n', after: 'over' }] }, { 'x-tenant-id': B })
+  assert.equal(overV.status, 409)
+
+  await call('POST', `/projects/${projectId}/contributions/${cid}/land`, undefined, { 'x-tenant-id': B })
+  const late = await call('POST', `/projects/${projectId}/contributions/${cid}/changeset`,
+    { entries: [{ kind: 'note', target: 'late', after: 'z' }] }, { 'x-tenant-id': B })
+  assert.equal(late.status, 409, 'a landed contribution’s changeset is immutable history')
+})
+
 test('the in-flight lease is revealed: project sub-goal holds carry at/expiresAt (CW1)', async () => {
   const projectId = `p-contrib-lease-${(n += 1)}`
   store.applyRelationOp({ kind: 'create-project', projectId, projectName: 'Lease', projectDescription: '' }, A)

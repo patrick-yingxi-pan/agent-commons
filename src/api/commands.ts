@@ -28,6 +28,7 @@ import {
   type Contribution,
   type OpenContributionRequest,
   type ProposeEnvelopeRequest,
+  type CrystallizeRequest,
   type ProposeAgentChangeRequest,
   type WatchState,
   type PostOpenSubGoalRequest,
@@ -491,6 +492,14 @@ export async function noteContribution(projectId: string, cid: string, body: str
  *  server enforces on raw tenant ids; a 403/409 surfaces as the thrown error). */
 export async function landContribution(projectId: string, cid: string): Promise<Contribution> {
   const c = await apiPost<Contribution>(paths.contributionLand(projectId, cid), {})
+  invalidate(keys.contributions(projectId))
+  return c
+}
+
+/** Crystallize a changeset version (CW3/CW4, Phase D) — append-only v(n+1);
+ *  the event records the review delta vs the prior version. */
+export async function crystallizeContribution(projectId: string, cid: string, req: CrystallizeRequest): Promise<Contribution> {
+  const c = await apiPost<Contribution>(paths.contributionChangeset(projectId, cid), req)
   invalidate(keys.contributions(projectId))
   return c
 }

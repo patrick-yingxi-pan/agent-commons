@@ -308,6 +308,13 @@ export async function buildComprehensive(): Promise<PersistedState> {
     if (typeof withEnvelope === 'object' && withEnvelope?.envelope) {
       store.runEnvelopeEffect('p-insights', landedContribution.id, withEnvelope.envelope.lines[0].id, store.defaultTenantId(), builder)
     }
+    // Phase D: crystallize a changeset version too, so the persisted
+    // append-only versions (entries + before/after) round-trip.
+    store.crystallizeContribution(
+      'p-insights', landedContribution.id,
+      { entries: [{ kind: 'readme', target: 'digest template', before: 'Weekly numbers below.', after: 'Lead with the metric, then the mechanism.' }] },
+      store.defaultTenantId(), builder,
+    )
     store.noteContribution('p-insights', landedContribution.id, 'Looks right — landing it.', store.defaultTenantId(), builder)
     store.landContribution('p-insights', landedContribution.id, store.defaultTenantId(), builder)
   }
