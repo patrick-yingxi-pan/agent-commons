@@ -315,6 +315,9 @@ export async function buildComprehensive(): Promise<PersistedState> {
       { entries: [{ kind: 'readme', target: 'digest template', before: 'Weekly numbers below.', after: 'Lead with the metric, then the mechanism.' }] },
       store.defaultTenantId(), builder,
     )
+    // Phase E: run the mock adversarial review too, so the persisted
+    // reviewedVersion + review-passed event round-trip.
+    store.reviewContribution('p-insights', landedContribution.id, store.defaultTenantId(), builder)
     store.noteContribution('p-insights', landedContribution.id, 'Looks right — landing it.', store.defaultTenantId(), builder)
     store.landContribution('p-insights', landedContribution.id, store.defaultTenantId(), builder)
   }

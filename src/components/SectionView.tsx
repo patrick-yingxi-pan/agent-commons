@@ -167,6 +167,8 @@ import {
   approveEnvelope,
   runEnvelopeEffect,
   crystallizeContribution,
+  reviewContribution,
+  requireContributionReview,
   useMyWork,
   useOwnerProfile,
   useMyOrgs,
@@ -2801,11 +2803,23 @@ function ContributionPage({
     )
   }
 
-  // Phase-A landing permission (the CW5 tier arithmetic's stand-in): the
-  // contributor (the viewer-relative `mine` stamp — display names aren't
-  // unique, so never a name comparison) or the project owner. The server
-  // enforces on raw tenant ids; this only decides whether to OFFER the act.
-  const mayLand = c.status === 'open' && (project.own !== false || c.mine === true)
+  // CW5 (Phase E): the OFFER mirrors the server's tier gate — the owner may
+  // always land; the contributor only when the arithmetic admits it (Tier 0,
+  // or Tier 1 with the review covering the latest version). The server
+  // enforces on raw tenant ids either way.
+  const latestVersion = c.changeset?.length ?? 0
+  const contributorMayLand =
+    c.mine === true &&
+    (c.tier?.level === 0 || (c.tier?.level === 1 && c.reviewedVersion === latestVersion && latestVersion > 0))
+  const mayLand = c.status === 'open' && (project.own !== false || contributorMayLand)
+  const mayReview =
+    c.status === 'open' && c.tier?.level === 1 && latestVersion > 0 && c.reviewedVersion !== latestVersion
+  // Offered at Tier 0 AND Tier 1: trust is live arithmetic, so an open Tier-1
+  // contribution can drift to Tier 0 as the contributor's other landings
+  // accrue — the owner must be able to PIN the review before that happens
+  // (review finding, Phase E pass).
+  const mayRequire =
+    c.status === 'open' && project.own !== false && (c.tier?.level === 0 || c.tier?.level === 1) && c.reviewRequired !== true
 
   const send = async () => {
     if (busy || !draft.trim()) return
@@ -2832,6 +2846,30 @@ function ContributionPage({
       setBusy(false)
     }
   }
+  const runReview = async () => {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await reviewContribution(project.id, c.id)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not run the review.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const tighten = async () => {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await requireContributionReview(project.id, c.id)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not require review.')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const badge =
     c.status === 'landed' ? (
@@ -2852,19 +2890,51 @@ function ContributionPage({
             <BackButton to={backTo} onBack={onBack} />
             <h1 className={PAGE_TITLE_CLASS}>{c.title}</h1>
           </div>
-          {mayLand && (
-            <button
-              onClick={() => void land()}
-              disabled={busy}
-              title={`Land this contribution — it becomes L${(list.reduce((m, x) => Math.max(m, x.landingNumber ?? 0), 0) + 1)} in ${project.name}’s history`}
-              className="shrink-0 rounded-lg bg-ink px-3 py-1 text-[12px] font-medium text-canvas shadow-sm transition hover:opacity-90 disabled:opacity-45"
-            >
-              Land
-            </button>
-          )}
+          <div className="flex shrink-0 items-center gap-1.5">
+            {mayRequire && (
+              <button
+                onClick={() => void tighten()}
+                disabled={busy}
+                title="Tighten the gate: force adversarial review before this can land (there is no un-require)"
+                className="rounded-lg border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
+              >
+                Require review
+              </button>
+            )}
+            {mayReview && (
+              <button
+                onClick={() => void runReview()}
+                disabled={busy}
+                title={`Run the adversarial review over v${latestVersion} (mock reviewer — the model seam)`}
+                className="rounded-lg border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
+              >
+                Run review
+              </button>
+            )}
+            {mayLand && (
+              <button
+                onClick={() => void land()}
+                disabled={busy}
+                title={`Land this contribution — it becomes L${(list.reduce((m, x) => Math.max(m, x.landingNumber ?? 0), 0) + 1)} in ${project.name}’s history`}
+                className="rounded-lg bg-ink px-3 py-1 text-[12px] font-medium text-canvas shadow-sm transition hover:opacity-90 disabled:opacity-45"
+              >
+                Land
+              </button>
+            )}
+          </div>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-faint">
           {badge}
+          {/* CW5 — the gate as VISIBLE arithmetic: the level and its basis in
+              plain words, never a black box. */}
+          {c.status === 'open' && c.tier && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-[11px] text-ink-soft"
+              title="The landing gate, computed from risk × trust × the owner's tightening"
+            >
+              Tier {c.tier.level} · {c.tier.basis}
+            </span>
+          )}
           <span>
             by <OwnerLink bare ownerName={c.contributor} onClick={() => ownerDoor(c.contributor)} /> ·{' '}
             {relativeTime(c.openedAt)}
@@ -2928,6 +2998,21 @@ function ContributionPage({
                 <span>
                   landed as <span className="font-semibold text-ink-soft">L{c.landingNumber}</span> by{' '}
                   <OwnerLink bare ownerName={ev.actor} onClick={() => ownerDoor(ev.actor)} /> · {relativeTime(ev.at)}
+                </span>
+              </div>
+            ) : ev.kind === 'review-passed' ? (
+              <div key={ev.id} className="flex items-center gap-2 py-0.5 text-[12px] text-ink-faint">
+                <CheckCircle2 size={14} className="shrink-0 text-accent" />
+                <span>
+                  {ev.actor}: {ev.body} · {relativeTime(ev.at)}
+                </span>
+              </div>
+            ) : ev.kind === 'review-required' ? (
+              <div key={ev.id} className="flex items-center gap-2 py-0.5 text-[12px] text-ink-faint">
+                <AlertCircle size={14} className="shrink-0 text-amber-600" />
+                <span>
+                  <OwnerLink bare ownerName={ev.actor} onClick={() => ownerDoor(ev.actor)} /> tightened the gate —
+                  adversarial review required before landing · {relativeTime(ev.at)}
                 </span>
               </div>
             ) : ev.kind === 'crystallized' ? (

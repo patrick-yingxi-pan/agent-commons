@@ -269,6 +269,32 @@ function publicContributionEvent(ev: StoredContributionEvent): import('../contra
   const { principal, ...pub } = ev
   return { ...pub, ...(principal ? { actorKind: principal.kind } : {}) }
 }
+// CW5 — the trust threshold: landings on THIS project before the arithmetic
+// grants Tier 0 (auto-land). Deliberately small (the demo must be reachable)
+// and deliberately irrelevant to the Tier-2 floor (trust never buys past it).
+const TRUST_LANDINGS = 3
+
+/** The landing gate, computed — the CW5 arithmetic, served with its basis
+ *  spelled out. Risk first (irreversible envelope lines ⇒ the Tier-2 human
+ *  floor, unconditionally), then the owner's tightening, then trust. */
+function tierFor(c: StoredContribution): import('../contract/index.ts').ContributionTier {
+  // Risk covers DECLARED intent (current irreversible lines) AND EXECUTED
+  // history (`effectsFired`): amending the line away after the act ran must
+  // not drop the floor (review finding, Phase E pass).
+  const effectful = c.effectsFired === true || (c.envelope?.lines ?? []).some((l) => !isProjectEffectMonotonic(l.type))
+  if (effectful) return { level: 2, basis: 'irreversible effects — the owner lands (the floor; no record buys past it)' }
+  const landedHere = contributions.filter(
+    (x) => x.projectId === c.projectId && x.status === 'landed' && x.contributorTenant !== undefined && x.contributorTenant === c.contributorTenant,
+  ).length
+  if (c.reviewRequired === true) {
+    return { level: 1, basis: `owner requires review · ${landedHere} landed here` }
+  }
+  if (landedHere < TRUST_LANDINGS) {
+    return { level: 1, basis: `${landedHere} of ${TRUST_LANDINGS} landings here — adversarial review before landing` }
+  }
+  return { level: 0, basis: `trusted: ${landedHere} landed here · no effects — lands on green` }
+}
+
 function publicContribution(c: StoredContribution, viewerTenant?: string): Contribution {
   const { contributorTenant, contributorPrincipal, events, ...pub } = c
   return {
@@ -278,6 +304,9 @@ function publicContribution(c: StoredContribution, viewerTenant?: string): Contr
     // must not infer "yours" from a name — the raw-id comparison happens HERE,
     // and only the boolean crosses the wire (the projects `own` pattern).
     ...(viewerTenant !== undefined && contributorTenant === viewerTenant ? { mine: true } : {}),
+    // The gate, computed at serve time (never stored) — it moves as the
+    // contributor's record and the envelope move.
+    tier: tierFor(c),
     events: events.map(publicContributionEvent),
   }
 }
@@ -4029,13 +4058,26 @@ export const store = {
    *  owner only — the Phase-A placeholder for the CW5 tier arithmetic (recorded
    *  in the design doc's build plan; the authorization comparison is raw tenant
    *  ids, the D23 lesson, via the same `tenantWritesAs` union as retract). */
-  landContribution(projectId: string, cid: string, tenantId: string, principal: PrincipalRef | undefined): Contribution | 'forbidden' | 'closed' | undefined {
+  landContribution(projectId: string, cid: string, tenantId: string, principal: PrincipalRef | undefined): Contribution | 'forbidden' | 'closed' | 'needs-owner' | 'needs-review' | undefined {
     const c = contributions.find((x) => x.id === cid && x.projectId === projectId)
     if (!c) return undefined
     const ownerTenant = findProject(projectId)?.tenantId ?? defaultTenantId()
+    const ownerActs = tenantWritesAs(tenantId, ownerTenant)
     const isContributor = c.contributorTenant !== undefined && c.contributorTenant === tenantId
-    if (!isContributor && !tenantWritesAs(tenantId, ownerTenant)) return 'forbidden'
+    if (!isContributor && !ownerActs) return 'forbidden'
     if (c.status !== 'open') return 'closed'
+    // CW5 — the tier gates the CONTRIBUTOR's self-land; the owner may always
+    // land (the human authority the tiers exist to spend wisely, not to bind).
+    if (!ownerActs) {
+      const tier = tierFor(c)
+      // The floor: irreversible effects land only by the owner's human act —
+      // no landed record buys past it (tierFor ignores trust at level 2).
+      if (tier.level === 2) return 'needs-owner'
+      // Tier 1: the adversarial verdict must cover the LATEST version — a
+      // re-crystallize invalidates it, and un-crystallized work has nothing
+      // a reviewer could pass (reviewedVersion stays unset ⇒ refused).
+      if (tier.level === 1 && c.reviewedVersion !== (c.changeset?.length ?? 0)) return 'needs-review'
+    }
     const now = Date.now()
     // The ledger position: one past the project's highest landed number — derived
     // from the ledger itself, so a restored snapshot can't double-assign.
@@ -4045,6 +4087,50 @@ export const store = {
     c.landedAt = now
     c.landedBy = tenantName(tenantId)
     c.events.push({ id: `cev-${(contributionSeq += 1)}`, kind: 'landed', at: now, actor: c.landedBy, ...(principal ? { principal } : {}) })
+    emit({ type: 'contribution.changed', projectId })
+    persist()
+    return publicContribution(c, tenantId)
+  },
+
+  // ── The review tier (CW5, Phase E) — the gate as arithmetic ─────────────────
+  /** The owner's explicit tightening: force ≥ Tier 1 on a contribution the
+   *  arithmetic would auto-land. TIGHTEN-ONLY is structural — no op unsets the
+   *  flag (loosening a computed gate is unrepresentable, D8's discipline
+   *  applied to review). Owner only; open contributions only. */
+  requireContributionReview(projectId: string, cid: string, tenantId: string, principal: PrincipalRef | undefined): Contribution | 'forbidden' | 'conflict' | undefined {
+    const c = contributions.find((x) => x.id === cid && x.projectId === projectId)
+    if (!c) return undefined
+    const ownerTenant = findProject(projectId)?.tenantId ?? defaultTenantId()
+    if (!tenantWritesAs(tenantId, ownerTenant)) return 'forbidden'
+    if (c.status !== 'open' || c.reviewRequired === true) return 'conflict'
+    if (c.events.length >= MAX_CONTRIBUTION_EVENTS) return 'conflict'
+    c.reviewRequired = true
+    c.events.push({ id: `cev-${(contributionSeq += 1)}`, kind: 'review-required', at: Date.now(), actor: tenantName(tenantId), ...(principal ? { principal } : {}) })
+    emit({ type: 'contribution.changed', projectId })
+    persist()
+    return publicContribution(c, tenantId)
+  },
+  /** Run the Tier-1 adversarial review — the declared MODEL-SEAM: the interface
+   *  is real (a verdict over the latest crystallized version, recorded on the
+   *  timeline, consumed by the landing gate), the cognition is canned (the mock
+   *  reviewer confirms no findings; a real deployment points this at a refuter-
+   *  prompted agent). Any viewer may trigger it (it is a machine act, not a
+   *  judgment — the route walls visibility); it requires something to review. */
+  reviewContribution(projectId: string, cid: string, tenantId: string, principal: PrincipalRef | undefined): Contribution | 'nothing' | 'conflict' | undefined {
+    const c = contributions.find((x) => x.id === cid && x.projectId === projectId)
+    if (!c) return undefined
+    const latest = c.changeset?.length ?? 0
+    if (c.status !== 'open' || latest === 0) return 'nothing'
+    if (c.events.length >= MAX_CONTRIBUTION_EVENTS) return 'conflict'
+    c.reviewedVersion = latest
+    c.events.push({
+      id: `cev-${(contributionSeq += 1)}`,
+      kind: 'review-passed',
+      at: Date.now(),
+      actor: 'Adversarial reviewer (mock)',
+      body: `no confirmed findings · v${latest}`,
+      ...(principal ? { principal } : {}),
+    })
     emit({ type: 'contribution.changed', projectId })
     persist()
     return publicContribution(c, tenantId)
@@ -4257,6 +4343,9 @@ export const store = {
     if (!line) return refuse('outside the approved envelope — amend and re-approve')
     if (line.used >= line.cardinality) return refuse(`${line.type} → ${line.target}: cardinality exhausted (${line.cardinality} of ${line.cardinality} used)`)
     line.used += 1
+    // The floor covers history: once an irreversible act runs, the Tier-2
+    // stamp is permanent (never unset — see the contract field's rationale).
+    if (!isProjectEffectMonotonic(line.type)) c.effectsFired = true
     c.events.push({
       id: `cev-${(contributionSeq += 1)}`,
       kind: 'effect-executed',

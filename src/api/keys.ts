@@ -160,6 +160,10 @@ export const paths = {
     `/projects/${encodeURIComponent(projectId)}/contributions/${encodeURIComponent(cid)}/effects`,
   contributionChangeset: (projectId: string, cid: string) =>
     `/projects/${encodeURIComponent(projectId)}/contributions/${encodeURIComponent(cid)}/changeset`,
+  contributionReview: (projectId: string, cid: string) =>
+    `/projects/${encodeURIComponent(projectId)}/contributions/${encodeURIComponent(cid)}/review`,
+  contributionRequireReview: (projectId: string, cid: string) =>
+    `/projects/${encodeURIComponent(projectId)}/contributions/${encodeURIComponent(cid)}/require-review`,
   agentFork: (id: string) => `/agents/${encodeURIComponent(id)}/fork`,
   directoryProjects: (q?: string) => (q ? `/directory/projects?q=${encodeURIComponent(q)}` : '/directory/projects'),
   directoryAgents: (q?: string) => (q ? `/directory/agents?q=${encodeURIComponent(q)}` : '/directory/agents'),

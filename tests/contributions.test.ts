@@ -92,6 +92,17 @@ test('landing: bystander 403; contributor lands; numbers are per-project monoton
   const bystander = await call('POST', `/projects/${one.projectId}/contributions/${one.cid}/land`, undefined, { 'x-tenant-id': C })
   assert.equal(bystander.status, 403, 'seeing is not landing')
 
+  // CW5 (Phase E): a first-time contributor is Tier 1 — the self-land is
+  // refused until the adversarial review covers the latest crystallized
+  // version. The full path: refused → crystallize → review → lands.
+  const early = await call('POST', `/projects/${one.projectId}/contributions/${one.cid}/land`, undefined, { 'x-tenant-id': B })
+  assert.equal(early.status, 409, 'Tier 1 — no review yet, no self-land')
+  await call('POST', `/projects/${one.projectId}/contributions/${one.cid}/changeset`,
+    { entries: [{ kind: 'note', target: 'plan', after: 'done' }] }, { 'x-tenant-id': B })
+  const reviewed = await call('POST', `/projects/${one.projectId}/contributions/${one.cid}/review`, undefined, { 'x-tenant-id': B })
+  assert.equal(reviewed.status, 200)
+  assert.equal(reviewed.json.reviewedVersion, 1)
+  assert.equal(reviewed.json.events.at(-1).kind, 'review-passed')
   const landed = await call('POST', `/projects/${one.projectId}/contributions/${one.cid}/land`, undefined, { 'x-tenant-id': B })
   assert.equal(landed.status, 200)
   assert.equal(landed.json.status, 'landed')
@@ -112,7 +123,9 @@ test('landing: bystander 403; contributor lands; numbers are per-project monoton
   // A DIFFERENT project's ledger counts independently — the number is a
   // per-project position, not a global counter.
   const other = await arena()
-  const otherLanded = await call('POST', `/projects/${other.projectId}/contributions/${other.cid}/land`, undefined, { 'x-tenant-id': B })
+  // (Owner lands — B's record is per-project, so B is Tier 1 again HERE: the
+  // trust input is itself project-scoped, which this line quietly locks.)
+  const otherLanded = await call('POST', `/projects/${other.projectId}/contributions/${other.cid}/land`, undefined, { 'x-tenant-id': A })
   assert.equal(otherLanded.json.landingNumber, 1)
 
   // The ledger read: open band first, then landed in reverse ledger order.
@@ -130,7 +143,7 @@ test('notes: any viewer, trimmed + capped, and the thread stays open AFTER landi
   assert.equal(note.body, 'looks right', 'trimmed')
   assert.equal(note.actor, C)
 
-  await call('POST', `/projects/${projectId}/contributions/${cid}/land`, undefined, { 'x-tenant-id': B })
+  await call('POST', `/projects/${projectId}/contributions/${cid}/land`, undefined, { 'x-tenant-id': A })
   const after = await call('POST', `/projects/${projectId}/contributions/${cid}/comments`, { body: 'aftermath: verified in prod' }, { 'x-tenant-id': A })
   assert.equal(after.status, 200, 'a landed contribution keeps accruing — the aftermath is part of its story')
   const events = after.json.events
@@ -168,7 +181,9 @@ test('the TOTAL cap bounds an open→land loop — self-landing cannot grow a le
   for (let i = 0; i < 200; i += 1) {
     const c = store.openContribution(totalId, { title: `loop ${i}` }, B, undefined)
     assert.notEqual(c, 'capped', `row ${i} fits under the total cap`)
-    store.landContribution(totalId, (c as { id: string }).id, B, undefined)
+    // The OWNER lands each (Phase E: an untrusted contributor's self-land is
+    // tier-gated) — the total bound must hold regardless of who lands.
+    store.landContribution(totalId, (c as { id: string }).id, A, undefined)
   }
   const over = await call('POST', `/projects/${totalId}/contributions`, { title: 'one too many' }, { 'x-tenant-id': B })
   assert.equal(over.status, 409, 'the 201st row is refused even with zero open')
@@ -286,7 +301,8 @@ test('envelope: acts match MECHANICALLY — consume cardinality, refuse outside/
   await call('POST', `/projects/${other.projectId}/contributions/${other.cid}/envelope`,
     { lines: [{ type: 'charge', target: 'budget:demo', cardinality: 2 }] }, { 'x-tenant-id': B })
   const app2 = await call('POST', `/projects/${other.projectId}/contributions/${other.cid}/envelope/approve`, undefined, { 'x-tenant-id': A })
-  await call('POST', `/projects/${other.projectId}/contributions/${other.cid}/land`, undefined, { 'x-tenant-id': B })
+  // An effectful contribution is Tier 2 — the OWNER lands it (the floor).
+  await call('POST', `/projects/${other.projectId}/contributions/${other.cid}/land`, undefined, { 'x-tenant-id': A })
   const late = await call('POST', `/projects/${other.projectId}/contributions/${other.cid}/effects`,
     { lineId: app2.json.envelope.lines[0].id }, { 'x-tenant-id': B })
   assert.equal(late.status, 409, 'a landed contribution’s plan is immutable — no act fires after landing')
@@ -372,10 +388,100 @@ test('changeset: append-only versions with review deltas; author-only; landed = 
     { entries: [{ kind: 'note', target: 'n', after: 'over' }] }, { 'x-tenant-id': B })
   assert.equal(overV.status, 409)
 
-  await call('POST', `/projects/${projectId}/contributions/${cid}/land`, undefined, { 'x-tenant-id': B })
+  await call('POST', `/projects/${projectId}/contributions/${cid}/land`, undefined, { 'x-tenant-id': A })
   const late = await call('POST', `/projects/${projectId}/contributions/${cid}/changeset`,
     { entries: [{ kind: 'note', target: 'late', after: 'z' }] }, { 'x-tenant-id': B })
   assert.equal(late.status, 409, 'a landed contribution’s changeset is immutable history')
+})
+
+test('tiers (CW5): the arithmetic is legible; the floor is un-buyable; tighten-only; stale review never covers', async () => {
+  const projectId = `p-tier-${(n += 1)}`
+  store.applyRelationOp({ kind: 'create-project', projectId, projectName: 'Tiers', projectDescription: '' }, A)
+  store.applyRelationOp({ kind: 'share-project', projectId, projectName: 'Tiers', shared: true }, A)
+  const openOne = async (title: string) =>
+    (await call('POST', `/projects/${projectId}/contributions`, { title }, { 'x-tenant-id': B })).json
+
+  // Fresh contributor, no effects → Tier 1, basis names the arithmetic.
+  const c1 = await openOne('first')
+  assert.equal(c1.tier.level, 1)
+  assert.match(c1.tier.basis, /0 of 3 landings/)
+
+  // Earn trust: three reviewed landings → the fourth reads Tier 0.
+  for (const cx of [c1, await openOne('second'), await openOne('third')]) {
+    await call('POST', `/projects/${projectId}/contributions/${cx.id}/changeset`,
+      { entries: [{ kind: 'note', target: 'work', after: 'done' }] }, { 'x-tenant-id': B })
+    await call('POST', `/projects/${projectId}/contributions/${cx.id}/review`, undefined, { 'x-tenant-id': B })
+    const landed = await call('POST', `/projects/${projectId}/contributions/${cx.id}/land`, undefined, { 'x-tenant-id': B })
+    assert.equal(landed.status, 200, 'the reviewed Tier-1 path lands')
+  }
+  const trusted = await openOne('fourth — trusted now')
+  assert.equal(trusted.tier.level, 0)
+  assert.match(trusted.tier.basis, /trusted: 3 landed here/)
+
+  // THE FLOOR: give the trusted contributor an irreversible envelope line —
+  // Tier 2, and the self-land refuses no matter the record. Only the owner lands.
+  await call('POST', `/projects/${projectId}/contributions/${trusted.id}/envelope`,
+    { lines: [{ type: 'connector.write', target: 'gmail:x' }] }, { 'x-tenant-id': B })
+  const floored = (await call('GET', `/projects/${projectId}/contributions`, undefined, { 'x-tenant-id': B })).json
+    .find((x: any) => x.id === trusted.id)
+  assert.equal(floored.tier.level, 2, 'trust never buys past the floor')
+  const denied = await call('POST', `/projects/${projectId}/contributions/${trusted.id}/land`, undefined, { 'x-tenant-id': B })
+  assert.equal(denied.status, 403)
+  const ownerLands = await call('POST', `/projects/${projectId}/contributions/${trusted.id}/land`, undefined, { 'x-tenant-id': A })
+  assert.equal(ownerLands.status, 200, 'the owner is the human floor')
+
+  // TIGHTEN-ONLY: the owner forces review on a Tier-0 contribution; a
+  // bystander may not; and there is NO loosen op (unrepresentable — nothing to
+  // call). A monotonic-only envelope stays sub-floor (risk is the kind, not
+  // the envelope's existence).
+  const c5 = await openOne('fifth')
+  assert.equal(c5.tier.level, 0)
+  await call('POST', `/projects/${projectId}/contributions/${c5.id}/envelope`,
+    { lines: [{ type: 'connector.read', target: 'linear:board' }] }, { 'x-tenant-id': B })
+  const readOnly = (await call('GET', `/projects/${projectId}/contributions`, undefined, { 'x-tenant-id': B })).json
+    .find((x: any) => x.id === c5.id)
+  assert.equal(readOnly.tier.level, 0, 'a monotonic (read) line is not the hard quadrant')
+  const strangerTighten = await call('POST', `/projects/${projectId}/contributions/${c5.id}/require-review`, undefined, { 'x-tenant-id': C })
+  assert.equal(strangerTighten.status, 403)
+  const tightened = await call('POST', `/projects/${projectId}/contributions/${c5.id}/require-review`, undefined, { 'x-tenant-id': A })
+  assert.equal(tightened.json.tier.level, 1)
+  assert.match(tightened.json.tier.basis, /owner requires review/)
+  assert.equal(tightened.json.events.at(-1).kind, 'review-required')
+
+  // STALE REVIEW NEVER COVERS: review v1, re-crystallize (v2) — the verdict is
+  // invalidated; the self-land refuses until v2 is reviewed.
+  await call('POST', `/projects/${projectId}/contributions/${c5.id}/changeset`,
+    { entries: [{ kind: 'note', target: 'w', after: 'v1' }] }, { 'x-tenant-id': B })
+  await call('POST', `/projects/${projectId}/contributions/${c5.id}/review`, undefined, { 'x-tenant-id': B })
+  await call('POST', `/projects/${projectId}/contributions/${c5.id}/changeset`,
+    { entries: [{ kind: 'note', target: 'w', after: 'v2' }] }, { 'x-tenant-id': B })
+  const stale = await call('POST', `/projects/${projectId}/contributions/${c5.id}/land`, undefined, { 'x-tenant-id': B })
+  assert.equal(stale.status, 409, 'a re-crystallize invalidates the verdict')
+  await call('POST', `/projects/${projectId}/contributions/${c5.id}/review`, undefined, { 'x-tenant-id': B })
+  const fresh = await call('POST', `/projects/${projectId}/contributions/${c5.id}/land`, undefined, { 'x-tenant-id': B })
+  assert.equal(fresh.status, 200)
+
+  // Reviewing nothing refuses (un-crystallized work has nothing to pass).
+  const c6 = await openOne('sixth')
+  const nothing = await call('POST', `/projects/${projectId}/contributions/${c6.id}/review`, undefined, { 'x-tenant-id': B })
+  assert.equal(nothing.status, 409)
+
+  // THE DODGE IS CLOSED: run an irreversible act, then amend the line away —
+  // the floor covers EXECUTED history, not just declared intent, so the tier
+  // stays 2 and the trusted contributor still cannot self-land.
+  const dodge = await openOne('dodge attempt')
+  await call('POST', `/projects/${projectId}/contributions/${dodge.id}/envelope`,
+    { lines: [{ type: 'connector.write', target: 'gmail:x' }] }, { 'x-tenant-id': B })
+  const dApproved = await call('POST', `/projects/${projectId}/contributions/${dodge.id}/envelope/approve`, undefined, { 'x-tenant-id': A })
+  await call('POST', `/projects/${projectId}/contributions/${dodge.id}/effects`,
+    { lineId: dApproved.json.envelope.lines[0].id }, { 'x-tenant-id': B })
+  const stripped = await call('POST', `/projects/${projectId}/contributions/${dodge.id}/envelope`,
+    { lines: [{ type: 'connector.read', target: 'linear:board' }] }, { 'x-tenant-id': B })
+  assert.equal(stripped.status, 200, 'the contributor may amend their approved envelope')
+  assert.equal(stripped.json.effectsFired, true, 'the executed-history stamp survives the amendment')
+  assert.equal(stripped.json.tier.level, 2, 'amending the line away does not drop the floor')
+  const dodgeLand = await call('POST', `/projects/${projectId}/contributions/${dodge.id}/land`, undefined, { 'x-tenant-id': B })
+  assert.equal(dodgeLand.status, 403, 'executed irreversible history still lands only by the owner')
 })
 
 test('the in-flight lease is revealed: project sub-goal holds carry at/expiresAt (CW1)', async () => {

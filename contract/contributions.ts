@@ -62,6 +62,23 @@ export interface EffectEnvelope {
   approvedVersion?: number
 }
 
+/** ── The review tier (CW5, Phase E) — the gate as visible arithmetic ─────────
+ *  Every contribution's landing gate is COMPUTED from three inputs the system
+ *  already holds — risk (does the envelope carry irreversible effect lines),
+ *  trust (the contributor's landed record on THIS project), and the owner's
+ *  explicit tightening — and the result is served with its basis spelled out,
+ *  so the gate is legible, never a black box. Owners can only TIGHTEN
+ *  (`require-review` exists; no loosen op does — loosening is unrepresentable),
+ *  and the floor is structural: an effectful contribution lands only by the
+ *  owner's human act, no matter the record — trust never buys past the floor. */
+export interface ContributionTier {
+  /** 0 = trusted auto-land (no effects, proven record) · 1 = adversarial
+   *  review before landing · 2 = the human floor (owner lands). */
+  level: 0 | 1 | 2
+  /** The plain-arithmetic explanation ("irreversible effects — owner lands"). */
+  basis: string
+}
+
 /** ── The changeset (CW3/CW4, Phase D) — crystallization without amnesia ─────
  *  When the work is ready, the trace crystallizes into a **ChangesetVersion**:
  *  typed change entries whose payload is a real before→after (rendered through
@@ -129,6 +146,10 @@ export interface ContributionEvent {
     | 'effect-refused'
     /* Phase D — a changeset version crystallized (CW3/CW4): */
     | 'crystallized'
+    /* Phase E — the tier machinery (CW5): the mock adversarial review's verdict,
+     *  and the owner's explicit tightening act. */
+    | 'review-passed'
+    | 'review-required'
   at: number
   /** The acting workspace's display name (public identity, like `postedBy`). */
   actor: string
@@ -180,6 +201,22 @@ export interface Contribution {
    *  oldest-first (no force-push: the whole revision history is the record).
    *  Absent = nothing crystallized yet (INV-9 fixed absence). */
   changeset?: ChangesetVersion[]
+  /** The computed landing gate (CW5, Phase E) — a serve-time projection, never
+   *  stored: the same contribution recomputes as the record and envelope move. */
+  tier?: ContributionTier
+  /** The owner's explicit tightening (CW5): forces ≥ Tier 1 on a contribution
+   *  the arithmetic would auto-land. Set by the one `require-review` act;
+   *  there is deliberately NO op that unsets it. */
+  reviewRequired?: true
+  /** The changeset version the mock adversarial review last covered — Tier 1
+   *  landing requires it to equal the LATEST version (a re-crystallize
+   *  invalidates the verdict; stale review never covers new work). */
+  reviewedVersion?: number
+  /** Stamped the first time an IRREVERSIBLE act executes under this
+   *  contribution's envelope — and never unset: the Tier-2 floor covers
+   *  executed history, not just declared intent, so amending the line away
+   *  afterwards cannot drop the gate (the dodge a review pass found). */
+  effectsFired?: true
   status: ContributionStatus
   openedAt: number
   landedAt?: number

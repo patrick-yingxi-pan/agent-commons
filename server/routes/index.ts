@@ -1928,6 +1928,29 @@ export function buildRouter(): Router {
     if (out === undefined) return sendError(res, 'not_found', `No contribution '${params.cid}'`)
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the contributor or the project owner may land a contribution')
     if (out === 'closed') return sendError(res, 'conflict', 'This contribution already landed')
+    if (out === 'needs-owner') return sendError(res, 'forbidden', 'Tier 2 — irreversible effects land only by the project owner (the floor; no record buys past it)')
+    if (out === 'needs-review') return sendError(res, 'conflict', 'Tier 1 — the adversarial review must pass over the latest crystallized version before landing')
+    sendJson(res, out)
+  })
+  // The tier machinery (CW5, Phase E): the owner's tighten-only act, and the
+  // mock adversarial review (the declared model-seam — real interface, canned
+  // verdict). Both behind the same project wall.
+  r.post('/projects/:id/contributions/:cid/require-review', ({ req, res, params }) => {
+    if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+    const who = store.identity(req.headers)
+    const out = store.requireContributionReview(params.id, params.cid, who.tenant.id, userPrincipal(who))
+    if (out === undefined) return sendError(res, 'not_found', `No contribution '${params.cid}'`)
+    if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the project owner may tighten a contribution’s gate')
+    if (out === 'conflict') return sendError(res, 'conflict', 'Already required, or the contribution landed')
+    sendJson(res, out)
+  })
+  r.post('/projects/:id/contributions/:cid/review', ({ req, res, params }) => {
+    if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+    const who = store.identity(req.headers)
+    const out = store.reviewContribution(params.id, params.cid, who.tenant.id, userPrincipal(who))
+    if (out === undefined) return sendError(res, 'not_found', `No contribution '${params.cid}'`)
+    if (out === 'nothing') return sendError(res, 'conflict', 'Nothing to review — crystallize a changeset first (or the contribution landed)')
+    if (out === 'conflict') return sendError(res, 'conflict', 'This contribution’s timeline is at its cap')
     sendJson(res, out)
   })
 

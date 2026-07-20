@@ -504,6 +504,21 @@ export async function crystallizeContribution(projectId: string, cid: string, re
   return c
 }
 
+/** Run the Tier-1 adversarial review (CW5, Phase E — the model-seam: real
+ *  interface, canned verdict) over the latest crystallized version. */
+export async function reviewContribution(projectId: string, cid: string): Promise<Contribution> {
+  const c = await apiPost<Contribution>(paths.contributionReview(projectId, cid), {})
+  invalidate(keys.contributions(projectId))
+  return c
+}
+
+/** The owner's tighten-only act (CW5): force ≥ Tier 1. No loosen op exists. */
+export async function requireContributionReview(projectId: string, cid: string): Promise<Contribution> {
+  const c = await apiPost<Contribution>(paths.contributionRequireReview(projectId, cid), {})
+  invalidate(keys.contributions(projectId))
+  return c
+}
+
 /** Propose or amend a contribution's effect envelope (CW1, Phase C) — a new
  *  version awaiting approval; an amendment invalidates the prior approval. */
 export async function proposeEnvelope(projectId: string, cid: string, req: ProposeEnvelopeRequest): Promise<Contribution> {
