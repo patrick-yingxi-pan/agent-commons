@@ -14,7 +14,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { ROOT, read, concatSource } from './helpers/source.ts'
+import { ROOT, read, concatSource, stripComments } from './helpers/source.ts'
 
 test('no page-level layout switch is viewport-gated — pane-hosted pages must gate on the container', () => {
   const components = concatSource('src/components')
@@ -26,6 +26,30 @@ test('no page-level layout switch is viewport-gated — pane-hosted pages must g
     [],
     `viewport-gated layout switches found (use @-container variants — the page renders in panes): ${banned.join(', ')}`,
   )
+})
+
+test('list-row metadata is gated on the ROW container, not the viewport', () => {
+  // UI-9's original row case, re-escaped 2026-07-21: ContextRow's meta cluster
+  // ("N sessions / Last used …") was `sm:block` — in a ~380px split pane on a
+  // wide window the viewport satisfies `sm:` but the row can't afford the
+  // block, and the flex-1 identity column (the connector's NAME) collapsed to
+  // zero width. Every @container list row is enumerated here: its function
+  // body must carry the @container root and no viewport-prefixed visibility
+  // gate on its fixed-width blocks.
+  const src = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const rows = ['ScheduledRow', 'ContextRow']
+  for (const name of rows) {
+    const start = src.indexOf(`function ${name}(`)
+    assert.ok(start >= 0, `${name} exists in SectionView.tsx`)
+    const body = src.slice(start, src.indexOf('\nfunction ', start + 1))
+    assert.match(body, /group @container flex/, `${name}'s root is the @container its metadata gates on`)
+    const viewportGated = body.match(/(?<![@:\w-])(?:max-)?(?:sm|md|lg|xl|2xl):(?:block|hidden|flex)/g) ?? []
+    assert.deepEqual(
+      viewportGated,
+      [],
+      `${name} gates row metadata on the viewport (use @-container variants — the row renders in panes): ${viewportGated.join(', ')}`,
+    )
+  }
 })
 
 test('the Page scroller is the @container the page layouts key on', () => {

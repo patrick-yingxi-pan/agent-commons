@@ -4632,8 +4632,14 @@ function ContextRow({
   const connected = ctx.status === 'connected'
 
   return (
+    // The row is a @container: its metadata is gated on the row's OWN width,
+    // not the viewport (UI-9, docs/ui-invariants.md) — in a ~380px split pane
+    // on a wide window the viewport is `sm:` but the row can't afford what
+    // `sm:` promises. Fixed-width blocks yield in order (sessions/last-used
+    // meta, then the pill) so the flex-1 identity column — the connector's
+    // name — never collapses.
     <div
-      className={`group flex items-center gap-3 transition hover:bg-panel-2/50 ${
+      className={`group @container flex items-center gap-3 transition hover:bg-panel-2/50 ${
         first ? '' : 'border-t border-line'
       }`}
     >
@@ -4656,7 +4662,7 @@ function ContextRow({
           <div className="truncate text-[12px] text-ink-faint">{ctx.detail}</div>
         </div>
 
-        <div className="hidden shrink-0 pr-1 text-right sm:block">
+        <div className="hidden shrink-0 pr-1 text-right @2xl:block">
           <div className="text-[12px] text-ink-soft">
             {ctx.sessions} session{ctx.sessions === 1 ? '' : 's'}
           </div>
@@ -4667,9 +4673,10 @@ function ContextRow({
       </button>
 
       <div className="flex shrink-0 items-center gap-2 pr-4">
-        {/* Below sm the pill yields its width to the name column — the detail
-            view (and the connect/disconnect control itself) carries the status. */}
-        <span className="max-sm:hidden">
+        {/* In a tight row the pill yields its width to the name column — the
+            detail view (and the connect/disconnect control itself) carries the
+            status. */}
+        <span className="hidden @sm:block">
           {ctx.kind === 'repo' ? (
             <StatusPill tone="neutral" label={ctx.dependsOnGitHub ? 'via GitHub' : 'Local only'} />
           ) : (
