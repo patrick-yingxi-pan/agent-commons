@@ -300,15 +300,20 @@ function Branch(props: BranchProps) {
   if (node.kind === 'pane') {
     const c = node.content
     const focused = focusedPane === path
+    // A pane at the root path IS the whole workspace — focus is unambiguous,
+    // so it wears no cue at all (the old always-on accent ring read as noise).
+    const solo = path === ''
     return (
       <div
         // No per-pane chrome AT ALL: content edge to edge (close lives in the
         // rail cluster beside the split buttons). Pointer-down anywhere focuses
-        // the pane (capture — a click on a button inside still counts); the
-        // focused pane wears a subtle inset accent ring so "the rail cluster
-        // acts HERE" is always legible.
-        className={`relative flex min-h-0 min-w-0 flex-1 flex-col bg-canvas ${
-          focused ? 'ring-1 ring-inset ring-accent/35' : ''
+        // the pane (capture — a click on a button inside still counts). In a
+        // split, "the rail cluster acts HERE" reads by recession, not
+        // decoration: unfocused panes sit on the rail's sidebar tone while the
+        // focused pane keeps the bright canvas — the inactive-window idiom,
+        // quieter than the accent ring it replaces.
+        className={`relative flex min-h-0 min-w-0 flex-1 flex-col transition-colors ${
+          solo || focused ? 'bg-canvas' : 'bg-sidebar'
         }`}
         data-main-pane={path || 'root'}
         data-focused={focused || undefined}

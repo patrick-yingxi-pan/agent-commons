@@ -343,3 +343,15 @@ test('LIVE PRUNE: deleting a session evicts EVERY pane it hosts — conversation
   const untouched: MainSplitNode = splitPane(pane(projects), '', 'row', artifacts)
   assert.equal(prunePanes(untouched, (c) => !hostsSession(c, 'gone-id')), untouched)
 })
+
+test('the focus cue is recession, not decoration (owner directive 2026-07-21)', async () => {
+  const { join } = await import('node:path')
+  const { read, stripComments, ROOT } = await import('./helpers/source.ts')
+  const src = stripComments(read(join(ROOT, 'src/components/MainSplit.tsx')))
+  assert.ok(!src.includes('ring-accent'), 'the focused pane wears no accent ring (it read as noise, especially solo)')
+  assert.match(
+    src,
+    /solo \|\| focused \? 'bg-canvas' : 'bg-sidebar'/,
+    'focused and solo panes sit on the bright canvas; unfocused panes recede to the sidebar tone',
+  )
+})
