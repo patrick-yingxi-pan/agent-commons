@@ -36,7 +36,7 @@ import { SessionFilterMenu } from './SessionFilterMenu'
 import { ScheduledFilterMenu } from './ScheduledFilterMenu'
 import { RowMenu, projectMenuItems, type RowMenuItem } from './RowMenu'
 import { SECTION_META, SECTION_ORDER, SECTION_SUBVIEWS } from '../lib/sections'
-import { SIDEBAR_HOVER } from '../lib/sidebar'
+import { SIDEBAR_HOVER, SIDEBAR_ICON_BUTTON } from '../lib/sidebar'
 import { removeSchedule, runScheduleNow, toggleScheduleEnabled, useMe, useNotifications, useSchedules } from '../api'
 import { AccountChip } from './AccountMenu'
 import { useRelations } from '../controller/useRelations'
@@ -211,8 +211,6 @@ export function Sidebar({
     onOpenSubview(id, subviewId)
     onLeafNavigate?.()
   }
-  // The bell's badge (D24) — live via the tenant-targeted notification.changed event.
-  const unreadCount = (useNotifications().data ?? []).filter((r) => !r.read).length
   // The "Scheduled" section folds (persisted) to save rail space.
   const [schedOpen, setSchedOpen] = useState<boolean>(() => getLayout('schedOpen', true))
   // The rail now lists scheduled *routines* (each entry is the recurring workflow,
@@ -423,7 +421,7 @@ export function Sidebar({
           onClick={onToggleCollapse}
           title="Collapse sidebar"
           aria-label="Collapse sidebar"
-          className={`flex h-8 w-8 items-center justify-center rounded-lg text-ink-soft transition ${SIDEBAR_HOVER} hover:text-ink`}
+          className={SIDEBAR_ICON_BUTTON}
         >
           <PanelLeftClose size={18} />
         </button>
@@ -431,25 +429,13 @@ export function Sidebar({
           onClick={onOpenSearch}
           title="Search  (⌘K)"
           aria-label="Search"
-          className={`flex h-8 w-8 items-center justify-center rounded-lg text-ink-soft transition ${SIDEBAR_HOVER} hover:text-ink`}
+          className={SIDEBAR_ICON_BUTTON}
         >
           <Search size={18} />
         </button>
         {/* The bell (D24) — the inbox of public acts on what you watch, own, or
             posted. The badge is the unread count, live via notification.changed. */}
-        <button
-          onClick={onOpenNotifications}
-          title="Notifications"
-          aria-label={unreadCount > 0 ? `Notifications (${unreadCount} unread)` : 'Notifications'}
-          className={`relative flex h-8 w-8 items-center justify-center rounded-lg text-ink-soft transition ${SIDEBAR_HOVER} hover:text-ink`}
-        >
-          <Bell size={18} />
-          {unreadCount > 0 && (
-            <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-semibold leading-none text-white">
-              {unreadCount > 99 ? '99+' : unreadCount}
-            </span>
-          )}
-        </button>
+        <NotificationBell onClick={onOpenNotifications} />
         {/* Split the main view (universal split, wide tier only — the parent
             passes the handler when there's room to tile). Two directions, one
             per button; both act on the FOCUSED pane, duplicating its content. */}
@@ -460,7 +446,7 @@ export function Sidebar({
               title="Split right"
               aria-label="Split right"
               data-split-view="row"
-              className={`flex h-8 w-8 items-center justify-center rounded-lg text-ink-soft transition ${SIDEBAR_HOVER} hover:text-ink`}
+              className={SIDEBAR_ICON_BUTTON}
             >
               <Columns2 size={18} />
             </button>
@@ -469,7 +455,7 @@ export function Sidebar({
               title="Split down"
               aria-label="Split down"
               data-split-view="col"
-              className={`flex h-8 w-8 items-center justify-center rounded-lg text-ink-soft transition ${SIDEBAR_HOVER} hover:text-ink`}
+              className={SIDEBAR_ICON_BUTTON}
             >
               <Rows2 size={18} />
             </button>
@@ -484,7 +470,7 @@ export function Sidebar({
             title="Close pane"
             aria-label="Close pane"
             data-close-view
-            className={`flex h-8 w-8 items-center justify-center rounded-lg text-ink-soft transition ${SIDEBAR_HOVER} hover:text-ink`}
+            className={SIDEBAR_ICON_BUTTON}
           >
             <X size={18} />
           </button>
@@ -740,6 +726,29 @@ export function Sidebar({
 /** A pane's foldable header (ADAPT-13): the uppercase label doubles as a fold toggle
  *  with a rotating caret — the same affordance on every rail pane — and its right-side
  *  control (a filter menu, or the Sections fold-all button) shows only when open. */
+/** The notification bell + its live unread badge (D24) — ONE component for
+ *  every host: the rail's header trio and the shell's collapsed mini-rail
+ *  (App.tsx). The badge count reads the live notifications hook here, so a
+ *  host can never render a bell without the unread cue. */
+export function NotificationBell({ onClick }: { onClick: () => void }) {
+  const unreadCount = (useNotifications().data ?? []).filter((r) => !r.read).length
+  return (
+    <button
+      onClick={onClick}
+      title="Notifications"
+      aria-label={unreadCount > 0 ? `Notifications (${unreadCount} unread)` : 'Notifications'}
+      className={`relative ${SIDEBAR_ICON_BUTTON}`}
+    >
+      <Bell size={18} />
+      {unreadCount > 0 && (
+        <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-semibold leading-none text-white">
+          {unreadCount > 99 ? '99+' : unreadCount}
+        </span>
+      )}
+    </button>
+  )
+}
+
 function PaneFoldHeader({
   label,
   open,

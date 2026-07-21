@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { PanelLeft } from 'lucide-react'
-import { Sidebar } from './components/Sidebar'
+import { PanelLeft, Search } from 'lucide-react'
+import { NotificationBell, Sidebar } from './components/Sidebar'
+import { SIDEBAR_ICON_BUTTON } from './lib/sidebar'
 import { AuthScreen } from './components/auth/AuthScreen'
 import { useAuthScreen } from './controller/useAuthScreen'
 import { setUiPrefScope } from './lib/uiPrefs'
@@ -453,27 +454,25 @@ function Workspace() {
             </div>
           </div>
 
-          {/* When the rail is collapsed its own toggle hides with it, so a slim
-              IN-FLOW gutter column carries the reopen control at the same
-              top-left spot the rail's toggle sits. In-flow on EVERY tier
-              (UI-3): the old floating spelling relied on the primary surface
-              indenting its title (`pl-14`), and when the equal-panes model
-              made every surface a homogeneous pane that indent silently died —
-              the button sat on whatever pane title was top-left. Layout
-              reservation is structural; an indent convention is not. (On
-              narrow the toggle lives inline in the title bar / NarrowBar
+          {/* When the rail is collapsed it doesn't vanish — it MINIMIZES to a
+              slim in-flow column wearing the rail's own chrome (bg + border-r)
+              and its header trio rotated vertical: expand / search /
+              notifications. Two rules meet here. UI-3: in-flow on EVERY tier,
+              so content can never slide under chrome (the old floating
+              spelling relied on a `pl-14` title indent that silently died
+              when the equal-panes model made every surface a homogeneous
+              pane — layout reservation must be structural, not a convention).
+              And balance: a bare gutter read as lopsided margin; the rail's
+              own surface makes the column read as intentional chrome, and
+              keeps the rail's daily doors one click away while collapsed.
+              (On narrow the toggle lives inline in the title bar / NarrowBar
               instead — the drawer overlays rather than tiles.) */}
           {!leftOpen && !railOverlay && (
-            <div className="flex h-full w-[52px] shrink-0 justify-center pt-2.5">
-              <button
-                onClick={openLeft}
-                title="Expand sidebar"
-                aria-label="Expand sidebar"
-                className="flex h-8 w-8 items-center justify-center rounded-lg border border-line bg-surface text-ink-soft shadow-sm transition hover:bg-panel-2 hover:text-ink"
-              >
-                <PanelLeft size={18} />
-              </button>
-            </div>
+            <MiniRail
+              onExpand={openLeft}
+              onOpenSearch={() => setSearchOpen(true)}
+              onOpenNotifications={() => setNotifOpen(true)}
+            />
           )}
 
           <main
@@ -563,6 +562,31 @@ function Workspace() {
 
     </div>
     </RelationsProvider>
+  )
+}
+
+/** The collapsed rail on wide/medium (UI-3): the rail minimized to a slim
+ *  in-flow column wearing the rail's own surface, its header trio rotated
+ *  vertical — expand, search, notifications (the live-badged shared bell). */
+function MiniRail({
+  onExpand,
+  onOpenSearch,
+  onOpenNotifications,
+}: {
+  onExpand: () => void
+  onOpenSearch: () => void
+  onOpenNotifications: () => void
+}) {
+  return (
+    <div className="flex h-full w-12 shrink-0 flex-col items-center gap-1 border-r border-line bg-sidebar pt-2.5">
+      <button onClick={onExpand} title="Expand sidebar" aria-label="Expand sidebar" className={SIDEBAR_ICON_BUTTON}>
+        <PanelLeft size={18} />
+      </button>
+      <button onClick={onOpenSearch} title="Search  (⌘K)" aria-label="Search" className={SIDEBAR_ICON_BUTTON}>
+        <Search size={18} />
+      </button>
+      <NotificationBell onClick={onOpenNotifications} />
+    </div>
   )
 }
 

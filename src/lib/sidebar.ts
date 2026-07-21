@@ -21,3 +21,8 @@
 
 /** The hover background shared by every interactive element in the left panel. */
 export const SIDEBAR_HOVER = 'hover:bg-surface/70'
+
+/** The rail's h-8 ghost icon button — the header trio (collapse / search /
+ *  bell), the split-view controls, AND the collapsed mini-rail's vertical
+ *  column in the shell (the same controls, rotated): one role, one look. */
+export const SIDEBAR_ICON_BUTTON = `flex h-8 w-8 items-center justify-center rounded-lg text-ink-soft transition ${SIDEBAR_HOVER} hover:text-ink`
