@@ -183,6 +183,14 @@ test('desktop (1280×800): the collapsed rail\'s reopen control is in-flow and n
   await expect(page.locator('main h1', { hasText: 'Projects' })).toHaveCount(2)
   await page.locator('[data-mini-rail] [data-close-view]').click()
   await expect(page.locator('main h1', { hasText: 'Projects' })).toHaveCount(1)
+
+  // Each split direction gates on ITS OWN axis (canSplitRow: width;
+  // canSplitCol: height): a wide-but-flat window keeps split-right and loses
+  // split-down — and close stays, since one split is still offered.
+  await page.setViewportSize({ width: 1280, height: 500 })
+  await expect(page.locator('[data-mini-rail] [data-split-view="row"]')).toBeVisible()
+  await expect(page.locator('[data-mini-rail] [data-split-view="col"]')).toHaveCount(0)
+  await expect(page.locator('[data-mini-rail] [data-close-view]')).toBeVisible()
 })
 
 test('tablet (768×1024): the panel overlays the thread behind a scrim; the scrim click dismisses', async ({ page }) => {

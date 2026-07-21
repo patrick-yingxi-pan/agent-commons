@@ -10,11 +10,14 @@ import { readFileSync } from 'node:fs'
 import {
   tierFor,
   isShort,
+  canSplitRow,
+  canSplitCol,
   panelWidthFor,
   railWidthCss,
   WIDE_MIN,
   MEDIUM_MIN,
   SHORT_MAX,
+  SPLIT_COL_MIN_H,
   PANEL_MIN,
   PANEL_MAX,
   PANEL_GUTTER,
@@ -36,6 +39,20 @@ test('isShort: short strictly below 480', () => {
   assert.equal(isShort(SHORT_MAX), false, 'exactly 480 is not short')
   assert.equal(isShort(390), true, 'landscape phone is short')
   assert.equal(isShort(812), false, 'portrait phone is not short')
+})
+
+test('split offers gate per axis: row on width (the wide tier), col on height on top of it', () => {
+  // Row (side by side) consumes WIDTH: exactly the wide tier — tiling only
+  // exists there; the overlay tiers render one pane at a time.
+  assert.equal(canSplitRow('wide'), true)
+  assert.equal(canSplitRow('medium'), false)
+  assert.equal(canSplitRow('narrow'), false)
+  // Col (stacked) consumes HEIGHT — offered only with room for two usable
+  // bands, and never below the wide tier (no tiling to stack into).
+  assert.equal(canSplitCol('wide', SPLIT_COL_MIN_H), true, 'exactly the floor is enough')
+  assert.equal(canSplitCol('wide', SPLIT_COL_MIN_H - 1), false, 'one short of the floor is not')
+  assert.equal(canSplitCol('medium', 2000), false, 'height alone never unlocks stacking below wide')
+  assert.equal(canSplitCol('narrow', 2000), false)
 })
 
 test('panelWidthFor: full takeover on narrow, gutter-clamped elsewhere', () => {

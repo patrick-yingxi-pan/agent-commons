@@ -44,6 +44,25 @@ export function isShort(height: number): boolean {
   return height < SHORT_MAX
 }
 
+/** ── Split-direction room — each direction gates on ITS OWN axis ────────────
+ *  Splitting duplicates the focused pane along one axis, so the offer follows
+ *  the axis it would consume: side-by-side (row) needs WIDTH — the wide tier,
+ *  whose 1024px floor is exactly two ~512px columns (tiling only exists there;
+ *  the overlay tiers render one pane at a time) — and stacking (col) needs
+ *  HEIGHT on top of that: two bands of at least ~300px each (a title bar plus
+ *  usable content — the right panel's PANEL_MIN applies the same floor to a
+ *  pane's other axis). Close rides the pair: it is offered iff either split
+ *  is (the cluster appears and disappears as one). */
+export const SPLIT_COL_MIN_H = 600
+
+export function canSplitRow(tier: ViewportTier): boolean {
+  return tier === 'wide'
+}
+
+export function canSplitCol(tier: ViewportTier, height: number): boolean {
+  return tier === 'wide' && height >= SPLIT_COL_MIN_H
+}
+
 /** The width the right panel actually renders at: full takeover on narrow;
  *  otherwise the user's preferred width clamped so the thread keeps its gutter. */
 export function panelWidthFor(tier: ViewportTier, vw: number, preferred: number): number {
@@ -61,21 +80,31 @@ export function railWidthCss(tier: ViewportTier, preferred: number): string {
   return `${preferred}px`
 }
 
-export type Viewport = { tier: ViewportTier; short: boolean }
+export type Viewport = { tier: ViewportTier; short: boolean; stackable: boolean }
 
-/** The current viewport tier + short-height flag, updated on resize. SSR-safe
+const measure = (): Viewport => {
+  const tier = tierFor(window.innerWidth)
+  return {
+    tier,
+    short: isShort(window.innerHeight),
+    stackable: canSplitCol(tier, window.innerHeight),
+  }
+}
+
+/** The current viewport tier + the two height-axis flags (`short` chrome
+ *  compression, `stackable` split-down room), updated on resize. SSR-safe
  *  (assumes a wide, tall window when there's no window). */
 export function useViewport(): Viewport {
   const [viewport, setViewport] = useState<Viewport>(() =>
-    typeof window === 'undefined'
-      ? { tier: 'wide', short: false }
-      : { tier: tierFor(window.innerWidth), short: isShort(window.innerHeight) },
+    typeof window === 'undefined' ? { tier: 'wide', short: false, stackable: true } : measure(),
   )
   useEffect(() => {
     const onResize = () =>
       setViewport((v) => {
-        const next = { tier: tierFor(window.innerWidth), short: isShort(window.innerHeight) }
-        return next.tier === v.tier && next.short === v.short ? v : next
+        const next = measure()
+        return next.tier === v.tier && next.short === v.short && next.stackable === v.stackable
+          ? v
+          : next
       })
     onResize()
     window.addEventListener('resize', onResize)

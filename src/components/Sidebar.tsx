@@ -88,7 +88,8 @@ export function Sidebar({
   onOpenSearch,
   onOpenNotifications,
   onOpenOwner,
-  onSplitView,
+  onSplitRow,
+  onSplitCol,
   onCloseView,
   resizable = true,
   railW,
@@ -130,14 +131,17 @@ export function Sidebar({
   onOpenNotifications: () => void
   /** Door to a namespace page (FWD-6 — the chip menu's Organizations rows). */
   onOpenOwner?: (name: string) => void
-  /** Split the main view into panes (universal split) — passed on the wide tier
-   *  only, where there's room to tile. Acts on the focused pane, duplicating
-   *  its content beside ('row') or below ('col') it. */
-  onSplitView?: (dir: 'row' | 'col') => void
-  /** Close the FOCUSED pane — the third button of the split cluster, offered
-   *  whenever split panes exist. Homogeneous: a secondary pane collapses;
-   *  closing the primary tile relocates the primary role into the surviving
-   *  pane (its content promotes into the controller, so the URL follows). */
+  /** Split the main view into panes (universal split) — each direction passed
+   *  only when ITS viewport axis has room (row: width / the wide tier; col:
+   *  height — canSplitRow/canSplitCol, src/lib/viewport.ts). Acts on the
+   *  focused pane, duplicating its content beside (row) or below (col) it. */
+  onSplitRow?: () => void
+  onSplitCol?: () => void
+  /** Close the FOCUSED pane — offered iff either split is (the cluster shows
+   *  and hides as one) and a closable pane exists. Homogeneous: a secondary
+   *  pane collapses; closing the primary tile relocates the primary role into
+   *  the surviving pane (its content promotes into the controller, so the URL
+   *  follows). */
   onCloseView?: () => void
   /** Drag-to-resize wiring; the parent owns the width and clamps it. On the
    *  narrow tier the rail is a fixed-width drawer, so the handle is dropped. */
@@ -436,7 +440,7 @@ export function Sidebar({
         {/* The bell (D24) — the inbox of public acts on what you watch, own, or
             posted. The badge is the unread count, live via notification.changed. */}
         <NotificationBell onClick={onOpenNotifications} />
-        <PaneActionButtons onSplitView={onSplitView} onCloseView={onCloseView} />
+        <PaneActionButtons onSplitRow={onSplitRow} onSplitCol={onSplitCol} onCloseView={onCloseView} />
       </div>
 
       {/* New session — pinned above the pane stack, in a labeled <nav> so e2e's
@@ -691,40 +695,44 @@ export function Sidebar({
 /** The focused-pane action cluster — split right / split down / close — ONE
  *  component for every host: the rail's header trio row and the shell's
  *  collapsed mini-rail (App.tsx). The parent passes each handler only when the
- *  act is available (split: wide tier with room to tile; close: split panes
- *  exist), so both hosts follow the SAME responsive rules by construction.
- *  Both split directions act on the FOCUSED pane, duplicating its content;
- *  panes are homogeneous, so the primary's tile closes too (useMainSplit). */
+ *  act is available, and each split direction is gated on ITS OWN viewport
+ *  axis (canSplitRow: width; canSplitCol: height — src/lib/viewport.ts);
+ *  close is offered iff either split is (plus a closable pane to aim at), so
+ *  both hosts follow the SAME responsive rules by construction. Both split
+ *  directions act on the FOCUSED pane, duplicating its content; panes are
+ *  homogeneous, so the primary's tile closes too (useMainSplit). */
 export function PaneActionButtons({
-  onSplitView,
+  onSplitRow,
+  onSplitCol,
   onCloseView,
 }: {
-  onSplitView?: (dir: 'row' | 'col') => void
+  onSplitRow?: () => void
+  onSplitCol?: () => void
   onCloseView?: () => void
 }) {
   return (
     <>
-      {onSplitView && (
-        <>
-          <button
-            onClick={() => onSplitView('row')}
-            title="Split right"
-            aria-label="Split right"
-            data-split-view="row"
-            className={SIDEBAR_ICON_BUTTON}
-          >
-            <Columns2 size={18} />
-          </button>
-          <button
-            onClick={() => onSplitView('col')}
-            title="Split down"
-            aria-label="Split down"
-            data-split-view="col"
-            className={SIDEBAR_ICON_BUTTON}
-          >
-            <Rows2 size={18} />
-          </button>
-        </>
+      {onSplitRow && (
+        <button
+          onClick={onSplitRow}
+          title="Split right"
+          aria-label="Split right"
+          data-split-view="row"
+          className={SIDEBAR_ICON_BUTTON}
+        >
+          <Columns2 size={18} />
+        </button>
+      )}
+      {onSplitCol && (
+        <button
+          onClick={onSplitCol}
+          title="Split down"
+          aria-label="Split down"
+          data-split-view="col"
+          className={SIDEBAR_ICON_BUTTON}
+        >
+          <Rows2 size={18} />
+        </button>
       )}
       {onCloseView && (
         <button

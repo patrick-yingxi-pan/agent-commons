@@ -21,7 +21,7 @@ import { setPanelPref } from './lib/panelPrefs'
 import { useSessionWorkspace } from './controller/useSessionWorkspace'
 import { useLayout } from './controller/useLayout'
 import { RelationsProvider } from './controller/useRelations'
-import { railWidthCss, useViewport } from './lib/viewport'
+import { canSplitRow, railWidthCss, useViewport } from './lib/viewport'
 import { NO_PENDING_FOCUS } from './lib/focusContext'
 import { SCRIM_CLASS } from './lib/scrim'
 import { SECTION_META } from './lib/sections'
@@ -219,7 +219,7 @@ function Workspace() {
   // would crush the conversation column, so it overlays as a drawer (with a scrim)
   // instead of sitting side-by-side; on narrow (a phone) the left rail becomes an
   // off-canvas drawer too and the right panel takes over the whole viewport.
-  const { tier } = useViewport()
+  const { tier, stackable } = useViewport()
   const panelOverlay = tier !== 'wide'
   const railOverlay = tier === 'narrow'
 
@@ -376,12 +376,15 @@ function Workspace() {
   )
 
   // The focused-pane acts, gated ONCE by the responsive rules and handed to
-  // every host alike (the expanded rail's header and the collapsed MiniRail):
-  // split only where the wide tier has room to tile; close only while split
-  // panes exist. Hoisted so the two hosts can't drift in when they offer them.
-  const paneSplitAct = tier === 'wide' ? splitView : undefined
+  // every host alike (the expanded rail's header and the collapsed MiniRail),
+  // each split direction on ITS OWN viewport axis (canSplitRow: width — the
+  // wide tier; canSplitCol: height on top of it), close iff either split is
+  // offered AND a closable pane exists. Hoisted so the two hosts can't drift
+  // in when they offer them.
+  const paneSplitRowAct = canSplitRow(tier) ? () => splitView('row') : undefined
+  const paneSplitColAct = stackable ? () => splitView('col') : undefined
   const paneCloseAct =
-    tier === 'wide' && focusedClosable
+    (paneSplitRowAct || paneSplitColAct) && focusedClosable
       ? () =>
           closeFocused(() => {
             // The focus-driven context panel: clear its OWNING session's STORE
@@ -449,7 +452,8 @@ function Workspace() {
                 onOpenSearch={withRailClose(() => setSearchOpen(true))}
                 onOpenNotifications={withRailClose(() => setNotifOpen(true))}
                 onOpenOwner={withRailClose(openOwner)}
-                onSplitView={paneSplitAct}
+                onSplitRow={paneSplitRowAct}
+                onSplitCol={paneSplitColAct}
                 onCloseView={paneCloseAct}
                 resizable={!railOverlay}
                 railW={leftW}
@@ -478,7 +482,8 @@ function Workspace() {
               onExpand={openLeft}
               onOpenSearch={() => setSearchOpen(true)}
               onOpenNotifications={() => setNotifOpen(true)}
-              onSplitView={paneSplitAct}
+              onSplitRow={paneSplitRowAct}
+              onSplitCol={paneSplitColAct}
               onCloseView={paneCloseAct}
             />
           )}
@@ -583,13 +588,15 @@ function MiniRail({
   onExpand,
   onOpenSearch,
   onOpenNotifications,
-  onSplitView,
+  onSplitRow,
+  onSplitCol,
   onCloseView,
 }: {
   onExpand: () => void
   onOpenSearch: () => void
   onOpenNotifications: () => void
-  onSplitView?: (dir: 'row' | 'col') => void
+  onSplitRow?: () => void
+  onSplitCol?: () => void
   onCloseView?: () => void
 }) {
   return (
@@ -604,7 +611,7 @@ function MiniRail({
         <Search size={18} />
       </button>
       <NotificationBell onClick={onOpenNotifications} />
-      <PaneActionButtons onSplitView={onSplitView} onCloseView={onCloseView} />
+      <PaneActionButtons onSplitRow={onSplitRow} onSplitCol={onSplitCol} onCloseView={onCloseView} />
     </div>
   )
 }
