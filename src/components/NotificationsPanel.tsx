@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { AtSign, Award, Bell, GitMerge, GitPullRequest, Hammer, ListChecks, MessageSquare, XCircle, type LucideIcon } from 'lucide-react'
+import { AtSign, Award, Bell, GitMerge, GitPullRequest, Hammer, ListChecks, MessageSquare, Share2, Sparkles, XCircle, type LucideIcon } from 'lucide-react'
 import type { AppNotification, NotificationKind } from '../../contract/index.ts'
 import type { SectionId } from '../types'
 import { useFocusTrap } from '../lib/useFocusTrap'
@@ -20,6 +20,11 @@ const KIND_ICON: Record<NotificationKind, LucideIcon> = {
   'proposal.declined': XCircle,
   'proposal.commented': MessageSquare,
   mentioned: AtSign,
+  // Social layer (S5).
+  'social.shared': Share2,
+  'social.offered': Sparkles,
+  'social.landed': GitMerge,
+  'social.declined': XCircle,
 }
 
 /** The row's one-line sentence — actor + verb + object (all public-face fields). */
@@ -45,6 +50,15 @@ function describe(n: AppNotification): string {
       return `${n.actor} commented on a proposal on “${n.agentLabel}”`
     case 'mentioned':
       return `${n.actor} mentioned you on “${n.subGoal}” (${n.projectName})`
+    // Social layer (S5) — subjectName is the public display face.
+    case 'social.shared':
+      return `${n.actor} shared the ${n.subjectKind} “${n.subjectName}” with you`
+    case 'social.offered':
+      return `${n.actor} offered an improvement to “${n.subjectName}”`
+    case 'social.landed':
+      return `${n.actor} landed your improvement to “${n.subjectName}”`
+    case 'social.declined':
+      return `${n.actor} declined your improvement to “${n.subjectName}”`
   }
 }
 

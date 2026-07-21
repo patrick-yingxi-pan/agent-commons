@@ -4588,6 +4588,15 @@ export const store = {
     }
     grants.push(g)
     emit({ type: 'grant.changed', subject: g.subject, parties: [tenantId, audienceTenant] })
+    // S5 — the share rings its audience (the inbox row carries only public faces).
+    const face = this.commonsSubjectFace(g.subject)
+    notifyTenants([audienceTenant], tenantId, {
+      kind: 'social.shared',
+      actor: g.grantedBy,
+      subjectKind: g.subject.kind,
+      subjectId: g.subject.id,
+      subjectName: face.name,
+    })
     persist()
     return publicGrant(g)
   },
@@ -4672,6 +4681,18 @@ export const store = {
     }
     p.discussionId = review.id
     emit({ type: 'social-proposal.changed', proposalId: p.id, subject: p.subject })
+    // S5 — an offered improvement rings the subject's OWNER (the consent-holder).
+    const subjRow = this.grantSubjectRow(p.subject)
+    if (subjRow !== undefined && subjRow !== 'unsupported') {
+      const face = this.commonsSubjectFace(p.subject)
+      notifyTenants([subjRow.tenantId ?? defaultTenantId()], tenantId, {
+        kind: 'social.offered',
+        actor: p.offeredBy,
+        subjectKind: p.subject.kind,
+        subjectId: p.subject.id,
+        subjectName: face.name,
+      })
+    }
     persist()
     return publicSocialProposal(p, tenantId)
   },
@@ -4690,6 +4711,14 @@ export const store = {
     p.landingNumber =
       socialProposals.filter((x) => x.subject.kind === p.subject.kind && x.subject.id === p.subject.id && x.state === 'landed').length
     emit({ type: 'social-proposal.changed', proposalId: p.id, subject: p.subject })
+    // S5 — the verdict rings the OFFERER (the D25 two-party loop).
+    notifyTenants([p.offererTenant], tenantId, {
+      kind: 'social.landed',
+      actor: tenantName(tenantId),
+      subjectKind: p.subject.kind,
+      subjectId: p.subject.id,
+      subjectName: this.commonsSubjectFace(p.subject).name,
+    })
     persist()
     return publicSocialProposal(p, tenantId)
   },
@@ -4703,6 +4732,14 @@ export const store = {
     if (p.state !== 'offered') return 'closed'
     p.state = 'declined'
     emit({ type: 'social-proposal.changed', proposalId: p.id, subject: p.subject })
+    // S5 — the polite no rings the offerer too.
+    notifyTenants([p.offererTenant], tenantId, {
+      kind: 'social.declined',
+      actor: tenantName(tenantId),
+      subjectKind: p.subject.kind,
+      subjectId: p.subject.id,
+      subjectName: this.commonsSubjectFace(p.subject).name,
+    })
     persist()
     return publicSocialProposal(p, tenantId)
   },

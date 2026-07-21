@@ -100,6 +100,29 @@ test('land: owner-only consent, monotonic per-subject L#, a relation-op delta ac
   assert.deepEqual(list.json.map((p: any) => p.landingNumber), [2, 1], 'ledger read: landed L{n} descending')
 })
 
+test('S5 bells: the share rings the audience, the offer rings the owner, the verdict rings the offerer', async () => {
+  const { projectId, subject } = await arena('propose')
+  // arena() granted AUDIENCE with no note — still a bell: access arrived.
+  assert.ok(
+    store.listNotifications(AUDIENCE).some((x) => x.kind === 'social.shared' && x.subjectId === projectId),
+    'the audience’s inbox carries the share',
+  )
+  const offered = await call(
+    'POST', '/proposals',
+    { subject, delta: { kind: 'suggestion', text: 'Trim it' }, rationale: 'Long.' },
+    { 'x-tenant-id': AUDIENCE },
+  )
+  assert.ok(
+    store.listNotifications(OWNER).some((x) => x.kind === 'social.offered' && x.subjectId === projectId),
+    'the owner’s inbox carries the offer',
+  )
+  await call('POST', `/proposals/${offered.json.id}/decline`, undefined, { 'x-tenant-id': OWNER })
+  assert.ok(
+    store.listNotifications(AUDIENCE).some((x) => x.kind === 'social.declined' && x.subjectId === projectId),
+    'the offerer’s inbox carries the verdict',
+  )
+})
+
 test('decline: owner-only, polite, and terminal; the rationale-less offer is refused at the funnel', async () => {
   const { subject } = await arena('propose')
   const bad = await call('POST', '/proposals', { subject, delta: { kind: 'suggestion', text: 'x' } }, { 'x-tenant-id': AUDIENCE })

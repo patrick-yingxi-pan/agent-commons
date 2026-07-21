@@ -62,6 +62,23 @@ export function doorFor(n: AppNotification): NavIntent {
         return { kind: 'proposal', agentId: n.agentId, proposalId: n.proposalId }
       if (n.agentId) return { kind: 'agent', agentId: n.agentId }
       return { kind: 'section', section: 'agents' }
+    // Social layer (S5): the door is the SUBJECT — a project subject lands on
+    // its page (where the Sharing/Discussion/Improvements sections live); other
+    // kinds land on their section (sessions, which have none, fall back to the
+    // Commons — the feed carries the share). Slice-1 mapping, recorded in the
+    // design ledger; per-kind deep doors arrive with their surfaces.
+    case 'social.shared':
+    case 'social.offered':
+    case 'social.landed':
+    case 'social.declined': {
+      if (n.subjectKind === 'project' && n.subjectId) return { kind: 'project', projectId: n.subjectId }
+      const section: SectionId =
+        n.subjectKind === 'schedule' ? 'scheduled'
+        : n.subjectKind === 'context' ? 'contexts'
+        : n.subjectKind === 'discussion' ? 'discussions'
+        : 'commons'
+      return { kind: 'section', section }
+    }
     // A fork → the SOURCE agent the recipient owns (never the fork: a private agent
     // of the forker the source owner may not see — the leak-wall).
     case 'agent.forked':

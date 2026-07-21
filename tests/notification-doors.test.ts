@@ -28,6 +28,10 @@ function sample(kind: NotificationKind): AppNotification {
     agentId: 'a1',
     agentLabel: 'Agent',
     proposalId: 'a1-p1',
+    // Social layer (S5): the subject ref's public face.
+    subjectKind: 'project',
+    subjectId: 'p1',
+    subjectName: 'Proj',
   }
 }
 
@@ -60,6 +64,15 @@ test('proposal.* focus the exact proposal on the agent surface', () => {
     assert.equal(intent.agentId, 'a1')
     assert.equal(intent.proposalId, 'a1-p1')
   }
+})
+
+test('social.* doors land on the subject: project subjects on their page, session subjects on the Commons', () => {
+  const shared = doorFor(sample('social.shared'))
+  assert.deepEqual(shared, { kind: 'project', projectId: 'p1' }, 'a project subject lands on its page')
+  const sessionShare = doorFor({ ...sample('social.shared'), subjectKind: 'session', subjectId: 'sess-1' })
+  assert.deepEqual(sessionShare, { kind: 'section', section: 'commons' }, 'sessions have no section page — the feed carries the share')
+  const disc = doorFor({ ...sample('social.offered'), subjectKind: 'discussion', subjectId: 'disc-1' })
+  assert.deepEqual(disc, { kind: 'section', section: 'discussions' })
 })
 
 test('agent.forked highlights the SOURCE agent (never the fork — the leak-wall)', () => {

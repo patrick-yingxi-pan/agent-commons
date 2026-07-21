@@ -27,6 +27,13 @@ export const NOTIFICATION_KINDS = [
   // SHARED project (naming an outsider on a private one would leak its existence);
   // points at the item, like the other `work.*` kinds.
   'mentioned',
+  // Social layer (S5): a grant addressed you (the share ringing its audience);
+  // an offered improvement rings the subject's owner; the land/decline verdict
+  // rings the offerer — the D25 two-party loop generalized to the social nouns.
+  'social.shared',
+  'social.offered',
+  'social.landed',
+  'social.declined',
 ] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
 
@@ -53,6 +60,11 @@ export interface AppNotification {
   /** A specific comment to anchor within a thread (`work.commented`, `mentioned`,
    *  `proposal.commented`) — the platform's `#issuecomment-N`. */
   commentId?: string
+  /** The social subject (`social.*` kinds) — kind + public id + display face.
+   *  The door lands on the subject's page (project subjects) or its section. */
+  subjectKind?: string
+  subjectId?: string
+  subjectName?: string
   /** The forked definition (`agent.forked`) — the SOURCE agent's id + label. (The
    *  door lands on the source the recipient OWNS, never the fork — a private agent of
    *  the forker the source owner may not see: the D24 leak-wall.) */
