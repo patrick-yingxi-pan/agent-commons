@@ -2963,6 +2963,16 @@ function FeedCard({ item }: { item: CommonsItem }) {
           <span className="block truncate text-[13px] font-medium text-ink">{item.subjectName}</span>
         )}
         {item.subjectBlurb && <p className="mt-0.5 truncate text-[12px] text-ink-faint">{item.subjectBlurb}</p>}
+        {/* An artifact wears the gallery's own kind cue (one registry, no drift). */}
+        {item.subjectArtifactKind && (
+          <p className="mt-0.5 flex items-center gap-1.5 text-[12px] text-ink-faint">
+            {(() => {
+              const Icon = KIND_ICON[item.subjectArtifactKind]
+              return <Icon size={13} />
+            })()}
+            {KIND_LABEL[item.subjectArtifactKind]}
+          </p>
+        )}
         {/* A session previews AS conversation — the embed's richest face. */}
         {item.subjectTurns && (
           <div className="mt-1.5 space-y-1 border-t border-line pt-1.5">

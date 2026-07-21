@@ -16,6 +16,7 @@ import type {
   Artifact,
   ArtifactContentLibrary,
   ArtifactItem,
+  ArtifactKind,
   Capabilities,
   Connector,
   ConnectorDetail,
@@ -4569,9 +4570,21 @@ export const store = {
     // rather than accreting rows (the commission re-grant pattern).
     const existing = rows.find((g) => g.audienceTenant === audienceTenant)
     if (existing) {
+      // S5 — an ESCALATION re-rings the audience (a widened capability is news;
+      // a lateral or narrowing re-grant is not — silence over noise).
+      const escalated = tierRank(req.tier) > tierRank(existing.tier)
       existing.tier = req.tier
       if (typeof req.note === 'string') existing.note = req.note.slice(0, MAX_GRANT_NOTE_CHARS)
       emit({ type: 'grant.changed', subject: req.subject, parties: [existing.granterTenant, audienceTenant] })
+      if (escalated) {
+        notifyTenants([audienceTenant], tenantId, {
+          kind: 'social.shared',
+          actor: existing.grantedBy,
+          subjectKind: existing.subject.kind,
+          subjectId: existing.subject.id,
+          subjectName: this.commonsSubjectFace(existing.subject).name,
+        })
+      }
       persist()
       return publicGrant(existing)
     }
@@ -4748,7 +4761,7 @@ export const store = {
   /** The subject's embed face, resolved per kind at serve time (the
    *  ResourcePreview adapter's server half — display name + one line; nothing
    *  stored, so a rename can't go stale). */
-  commonsSubjectFace(ref: SocialEntityRef): { name: string; blurb?: string; turns?: { role: 'user' | 'assistant'; text: string }[] } {
+  commonsSubjectFace(ref: SocialEntityRef): { name: string; blurb?: string; turns?: { role: 'user' | 'assistant'; text: string }[]; artifactKind?: ArtifactKind } {
     switch (ref.kind) {
       case 'project': {
         const p = findProject(ref.id)
@@ -4770,7 +4783,7 @@ export const store = {
       }
       case 'artifact': {
         const a = findArtifact(ref.id)
-        return { name: a?.name ?? ref.id }
+        return { name: a?.name ?? ref.id, ...(a?.kind ? { artifactKind: a.kind } : {}) }
       }
       case 'context': {
         const c = savedCtxs.find((x) => x.id === ref.id)
@@ -4803,6 +4816,7 @@ export const store = {
         subjectName: face.name,
         ...(face.blurb ? { subjectBlurb: face.blurb } : {}),
         ...(face.turns ? { subjectTurns: face.turns } : {}),
+        ...(face.artifactKind ? { subjectArtifactKind: face.artifactKind } : {}),
         ...(root ? { discussionId: root.id } : {}),
         commentCount: root?.posts.length ?? 0,
       })

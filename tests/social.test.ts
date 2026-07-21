@@ -206,6 +206,18 @@ test('a grant LISTS its subject (shared-with-me): redacted public face, own:fals
   assert.ok(!after.json.extraProjects.some((p: any) => p.id === projectId), 'a revoked grant leaves the list')
 })
 
+test('S5: a tier ESCALATION re-rings the audience; a lateral re-grant stays silent', async () => {
+  const { projectId, subject } = socialArena()
+  await call('POST', '/grants', { subject, audience: { kind: 'org', orgId: AUDIENCE }, tier: 'comment' }, { 'x-tenant-id': OWNER })
+  const bells = () => store.listNotifications(AUDIENCE).filter((x) => x.kind === 'social.shared' && x.subjectId === projectId).length
+  const afterMint = bells()
+  assert.ok(afterMint >= 1, 'the mint rings')
+  await call('POST', '/grants', { subject, audience: { kind: 'org', orgId: AUDIENCE }, tier: 'comment' }, { 'x-tenant-id': OWNER })
+  assert.equal(bells(), afterMint, 'a lateral re-grant is silence over noise')
+  await call('POST', '/grants', { subject, audience: { kind: 'org', orgId: AUDIENCE }, tier: 'propose' }, { 'x-tenant-id': OWNER })
+  assert.equal(bells(), afterMint + 1, 'a widened capability is news — the escalation re-rings')
+})
+
 test('the substrate stays kind-generic: social.ts never branches on an entity kind', async () => {
   const { readFile } = await import('node:fs/promises')
   const src = await readFile(new URL('../contract/social.ts', import.meta.url), 'utf8')

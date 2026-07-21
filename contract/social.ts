@@ -192,6 +192,9 @@ export interface CommonsItem {
    *  display name + one descriptive line. */
   subjectName: string
   subjectBlurb?: string
+  /** ARTIFACT subjects only: the artifact's kind (doc / image / sheet / slide /
+   *  email), so the card wears the same kind cue the Artifacts gallery uses. */
+  subjectArtifactKind?: import('./entities.ts').ArtifactKind
   /** SESSION subjects only: the last exchanges, so a shared conversation
    *  previews AS conversation inside the card (the ResourcePreview adapter's
    *  richest face; text is trimmed server-side). */
