@@ -326,6 +326,19 @@ function publicGrant(g: StoredGrant): Grant {
   return pub
 }
 
+/** The tier `viewerTenant` holds on a subject via grants (their read union) —
+ *  module-level so the listing projections can consult it; `store.grantedTier`
+ *  delegates here. */
+function grantedTierFor(ref: SocialEntityRef, viewerTenant: string): ShareTier | undefined {
+  let best: ShareTier | undefined
+  for (const g of grants) {
+    if (g.subject.kind !== ref.kind || g.subject.id !== ref.id) continue
+    if (!tenantReadsAs(viewerTenant, g.audienceTenant)) continue
+    if (best === undefined || tierRank(g.tier) > tierRank(best)) best = g.tier
+  }
+  return best
+}
+
 /** Who may act as a subject's OWNER for grants. A stamped row: its tenant's
  *  write union. An UNSTAMPED seed: the flagship faces (the backend's default
  *  principal AND Ada/Acme — `seedVisibleTo`'s one-seat-two-faces rule), because
@@ -742,7 +755,10 @@ function projectGraphForTenant(g: RelationGraph, tenantId: string): RelationGrap
         // with visitor-style affordances (own: false).
         return [{ ...p, ownerName, own: p.tenantId ? tenantWritesAs(tenantId, p.tenantId) : true }]
       }
-      return p.shared === true ? [{ ...publicSharedProject(p), ownerName, own: false, tenantId: undefined }] : []
+      // Social S1: a grant lists the subject too — the shared-with-me band is
+      // fed by the same redacted public face as the everyone-switch.
+      const listed = p.shared === true || grantedTierFor({ kind: 'project', id: p.id }, tenantId) !== undefined
+      return listed ? [{ ...publicSharedProject(p), ownerName, own: false, tenantId: undefined }] : []
     }),
     extraArtifacts: g.extraArtifacts.filter((a) => rowVisibleTo(a, tenantId)),
     sessionProject: byProjValue(g.sessionProject),
@@ -3343,7 +3359,13 @@ export const store = {
    *  Created projects live in `graph.extraProjects` (see relationGraph). */
   listProjects(tenantId?: string): Project[] {
     if (!tenantId) return PROJECTS
-    return PROJECTS.filter((p) => rowVisibleTo(p, tenantId))
+    return PROJECTS.flatMap((p) => {
+      if (rowVisibleTo(p, tenantId)) return [p]
+      // Social S1: a granted seed project rides as its redacted public face
+      // with visitor affordances (own: false) — the shared-with-me band.
+      if (grantedTierFor({ kind: 'project', id: p.id }, tenantId) === undefined) return []
+      return [{ ...publicSharedProject(p), ownerName: tenantName(p.tenantId ?? defaultTenantId()), own: false, tenantId: undefined }]
+    })
   },
   /** Resolve a Project across BOTH homes — seeded (`PROJECTS`) + created
    *  (`graph.extraProjects`) — the authoritative existence check. `listProjects()`
@@ -4360,13 +4382,7 @@ export const store = {
    *  a personal grant or any org seat), or undefined when nothing was shared.
    *  The S1 read-side hook: subject-visibility walls OR this into their checks. */
   grantedTier(ref: SocialEntityRef, viewerTenant: string): ShareTier | undefined {
-    let best: ShareTier | undefined
-    for (const g of grants) {
-      if (g.subject.kind !== ref.kind || g.subject.id !== ref.id) continue
-      if (!tenantReadsAs(viewerTenant, g.audienceTenant)) continue
-      if (best === undefined || tierRank(g.tier) > tierRank(best)) best = g.tier
-    }
-    return best
+    return grantedTierFor(ref, viewerTenant)
   },
 
   // ── The contribution ledger (agent-contribution workflow Phase A) ───────────

@@ -215,10 +215,13 @@ function route(e: ServerEvent): void {
       invalidate(keys.delegations(e.projectId))
       invalidate(keys.attention(e.projectId))
       break
-    // A grant changed (social S1) — the subject's roster is stale; the family
-    // prefix also catches the audience's shared-with-me reads when they land.
+    // A grant changed (social S1) — the subject's roster is stale, and so is
+    // the audience's world projection: a granted project must appear in their
+    // Projects list (the shared-with-me band) live, a revoked one must leave.
     case 'grant.changed':
       invalidatePrefix(keys.grants())
+      invalidate(keys.projects) // seed rows enter/leave the shared-with-me band
+      invalidate(keys.relations) // created rows ride the graph's extraProjects
       break
     case 'openwork.changed':
       invalidate(keys.openSubGoals(e.projectId))

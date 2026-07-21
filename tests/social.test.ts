@@ -176,6 +176,34 @@ test('a grant OPENS its subject (SOCIAL-4): granted viewers pass the project wal
   assert.equal(store.revokeGrant(acmeShares.json.id, 'tenant-acme'), 'ok', 'cleanup: the granter revokes')
 })
 
+test('a grant LISTS its subject (shared-with-me): redacted public face, own:false, live on revoke', async () => {
+  // Seed path: the seeded grant puts p-insights in Grace's org's /projects list
+  // as the redacted visitor face — no raw tenant id, no owner-scoped fields.
+  const seedList = await call('GET', '/projects', undefined, { 'x-tenant-id': 'tenant-beta' })
+  assert.equal(seedList.status, 200)
+  const row = seedList.json.find((p: any) => p.id === 'p-insights')
+  assert.ok(row, 'the granted seed project rides the audience’s list')
+  assert.equal(row.own, false, 'visitor affordances')
+  assert.equal(row.tenantId, undefined, 'raw owner tenant never crosses')
+  assert.deepEqual([row.sessionIds, row.contexts, row.instructions], [[], [], ''], 'owner-scoped fields emptied')
+  const noGrant = await call('GET', '/projects', undefined, { 'x-tenant-id': BYSTANDER })
+  assert.ok(!noGrant.json.some((p: any) => p.id === 'p-insights'), 'no grant, no listing')
+
+  // Created path: a runtime project granted to the audience rides the graph's
+  // extraProjects projection the same way, and LEAVES on revoke.
+  const { projectId, subject } = socialArena()
+  const g = await call('POST', '/grants', { subject, audience: { kind: 'org', orgId: AUDIENCE }, tier: 'view' }, { 'x-tenant-id': OWNER })
+  assert.equal(g.status, 200)
+  const graph = await call('GET', '/relations', undefined, { 'x-tenant-id': AUDIENCE })
+  const extra = graph.json.extraProjects.find((p: any) => p.id === projectId)
+  assert.ok(extra, 'the granted created project rides the audience’s graph')
+  assert.equal(extra.own, false)
+  assert.equal(extra.tenantId, undefined)
+  await call('DELETE', `/grants/${g.json.id}`, undefined, { 'x-tenant-id': OWNER })
+  const after = await call('GET', '/relations', undefined, { 'x-tenant-id': AUDIENCE })
+  assert.ok(!after.json.extraProjects.some((p: any) => p.id === projectId), 'a revoked grant leaves the list')
+})
+
 test('the substrate stays kind-generic: social.ts never branches on an entity kind', async () => {
   const { readFile } = await import('node:fs/promises')
   const src = await readFile(new URL('../contract/social.ts', import.meta.url), 'utf8')

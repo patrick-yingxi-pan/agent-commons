@@ -69,12 +69,17 @@ test('exhaustive in types: every account holds sessions, a project, artifacts, a
   }
 })
 
-test('distinguishable: the six worlds are pairwise disjoint (no shared rows)', () => {
+test('distinguishable: the six worlds are pairwise disjoint (no shared rows OWNED)', () => {
+  // Disjointness is an OWNERSHIP invariant: no world contains another's rows as
+  // its own. A social-layer grant (S1) deliberately lists a foreign project as
+  // a REDACTED visitor face (`own: false`, owner-scoped fields emptied) — that
+  // is a share, not tenancy leakage, so visitor faces are excluded here (their
+  // redaction is locked by tests/social.test.ts).
   const lists = TENANTS.map((t) => ({
     t,
     ids: [
       ...store.listSessions(t).map((s) => `sess:${s.id}`),
-      ...store.listProjects(t).map((p) => `proj:${p.id}`),
+      ...store.listProjects(t).filter((p) => p.own !== false).map((p) => `proj:${p.id}`),
       ...store.listArtifacts(t).map((a) => `art:${a.id}`),
       ...store.listSchedules(t).map((r) => `sched:${r.id}`),
       ...store.listDispatch(t).map((d) => `disp:${d.id}`),

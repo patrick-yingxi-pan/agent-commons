@@ -22,7 +22,7 @@
 
 | ID | Requirement | Status |
 |----|-------------|--------|
-| SOCIAL-5 | S1 UI: the grants roster + share form (`GrantsPanel`, generic over the subject ref) in the project page's owner rail; `TierBadge` as the one tier cue (`src/lib/tierBadge.ts`); reads/writes through the one door. Verified in-app (share → live row → revoke); funnel locks in `tests/social-ui.test.ts`. Remaining: the shared-with-me facet fed from grants, consent-card share flow. | 🟡 |
+| SOCIAL-5 | S1 UI: the grants roster + share form (`GrantsPanel`, generic over the subject ref) in the project page's owner rail; `TierBadge` as the one tier cue (`src/lib/tierBadge.ts`); the shared-with-me band fed from grants (a granted project rides both list projections as the redacted visitor face, live on `grant.changed`, leaving on revoke). Verified in-app end-to-end (Ada shares → Grace's Shared-with-you lists it → click-through opens the canonical visitor page); funnel locks in `tests/social-ui.test.ts`, projections in `tests/social.test.ts`. Consent cards gate CLAUDE-proposed acts — a user's own SharePanel click IS the consent (the ShareToggle precedent); the conversational share *tool* is future model-tools work, not part of this row. | ✅ |
 | SOCIAL-6 | S2 Discussion: the sixth noun — anchored threads, root-thread rule, narrowing visibility, discussion-as-context. | 📝 |
 | SOCIAL-7 | S3 Proposal: the landing ledger generalized to any entity via delta appliers. | 📝 |
 | SOCIAL-8 | S4 Commons: the feed as a projection (share act + note + root discussion); entity pages as the GitHub-like home. | 📝 |
