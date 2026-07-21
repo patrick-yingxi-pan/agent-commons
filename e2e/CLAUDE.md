@@ -21,6 +21,10 @@ Anchor specs:
 - `e2e/responsive.spec.ts` — the viewport ladder at phone/tablet/landscape
   sizes: the narrow-tier rail drawer, the full-viewport panel takeover, and
   the `short:` chrome compression (spec ADAPT-11).
+- `e2e/social-layer.spec.ts` — the social layer's two walks: publish → the
+  audience's Commons card → one root thread across card and entity page → an
+  offered change landing as L1 in the merged Changes panel; and the
+  `/shared/:token` link-redeem door (spec pillar 12).
 
 Spec gotchas: the app **opens on a fresh draft** (sending materializes a new
 session), and the sidebar is an `<aside>` (role `complementary`) — only its
