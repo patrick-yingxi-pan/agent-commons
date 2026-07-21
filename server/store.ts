@@ -3949,7 +3949,13 @@ export const store = {
       (t) => t.name === name && t.kind === 'org' && !accounts.isNamespace(t.id) && accounts.seatIn(tenantId, t.id) !== undefined,
     )
     const org = seatOrg ? { id: seatOrg.id, role: accounts.seatIn(tenantId, seatOrg.id)! } : undefined
-    if (projects.length === 0 && agents.length === 0 && activity.length === 0 && !org) return undefined
+    // S5 — a Commons publisher EXISTS: a name whose published shares/landings
+    // the viewer can already see is a public identity to that viewer, even
+    // with no legacy-shared projects/agents (the grant-based publish predates
+    // nothing — it IS the new public face). Still viewer-walled, so the
+    // existence-hiding rule holds: no visible acts, no profile.
+    const publishes = this.listCommons(tenantId).some((i) => i.actor === name)
+    if (projects.length === 0 && agents.length === 0 && activity.length === 0 && !org && !publishes) return undefined
     activity.sort((a, b) => b.at - a.at)
     return {
       name,

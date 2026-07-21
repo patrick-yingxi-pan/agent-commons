@@ -3009,6 +3009,28 @@ function FeedCard({ item }: { item: CommonsItem }) {
   )
 }
 
+/** A profile's Commons band (S5): the actor's published shares + landings, as
+ *  the VIEWER's feed filtered to that actor — the wall math stays the feed's
+ *  (you see only what you could see anyway), and the cards are the same
+ *  FeedCard projection. Renders nothing when the actor has no visible acts
+ *  (no empty-band noise on a quiet profile). */
+function ProfileCommonsBand({ actor }: { actor: string }) {
+  const mine = (useCommons().data ?? []).filter((i) => i.actor === actor)
+  if (mine.length === 0) return null
+  return (
+    <div>
+      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+        Commons activity
+      </div>
+      <div className="space-y-3">
+        {mine.map((item) => (
+          <FeedCard key={item.id} item={item} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 /** The Commons feed — what the caller's world shares. One chronological
  *  column; the deliberate note is the publish act (silent grants stay out).
  *  The rail's kind facet (shares / landings) filters; null shows all. */
@@ -8161,6 +8183,12 @@ function OwnerProfilePage({
             </div>
           )}
         </div>
+
+        {/* Commons activity (S5 profiles): what this workspace PUBLISHED and
+            LANDED — a viewer-walled projection of the feed (the caller's own
+            Commons read filtered to this actor, so the wall math is the feed's;
+            display names are the D21 handle, matching the page's identity key). */}
+        <ProfileCommonsBand actor={profile.name} />
 
         <div ref={agentsBandRef}>
           <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">

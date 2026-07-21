@@ -85,6 +85,20 @@ test('a shared SESSION previews as conversation: the embed carries its last turn
   assert.equal(store.revokeGrant(shared.json.id, store.defaultTenantId()), 'ok', 'cleanup')
 })
 
+test('S5 profiles: a Commons publisher EXISTS to its audience — and only to it (existence-hiding holds)', async () => {
+  const projectId = `p-commons-prof-${(n += 1)}`
+  const publisher = 'tenant-commons-publisher'
+  store.applyRelationOp({ kind: 'create-project', projectId, projectName: `Pub ${n}`, projectDescription: '' }, publisher)
+  await call(
+    'POST', '/grants',
+    { subject: { kind: 'project', id: projectId }, audience: { kind: 'org', orgId: AUDIENCE }, tier: 'view', note: 'Published.' },
+    { 'x-tenant-id': publisher },
+  )
+  // The publisher's display name falls back to the raw tenant id (unregistered).
+  assert.ok(store.ownerProfile(publisher, AUDIENCE), 'the audience resolves the publisher’s profile')
+  assert.equal(store.ownerProfile(publisher, BYSTANDER), undefined, 'a bystander still gets the existence-hiding 404')
+})
+
 test('the seeded publish rides the demo feed for its audience', async () => {
   const feed = await call('GET', '/commons', undefined, { 'x-tenant-id': 'tenant-beta' })
   assert.ok(
