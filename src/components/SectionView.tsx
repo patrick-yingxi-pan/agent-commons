@@ -44,6 +44,7 @@ import {
   Share2,
   Sparkles,
   SquareKanban,
+  ThumbsUp,
   Trash2,
   Unplug,
   X,
@@ -161,9 +162,14 @@ import {
   useCommissionAuthority,
   useOpenSubGoals,
   useContributions,
+  useDiscussions,
   useGrants,
   createGrant,
   revokeGrant,
+  openDiscussion,
+  postToDiscussion,
+  reactToDiscussionPost,
+  setDiscussionState,
   openContribution,
   noteContribution,
   landContribution,
@@ -913,6 +919,10 @@ function ProjectDetail({
               what's in flight now, and the linear history of what landed.
               Payload for owner and visitor alike, like the panels below. */}
           <ChangesPanel project={project} onOpenSession={onOpenSession} />
+          {/* The public thread (social S2): the same root discussion the Commons
+              card will project under its feed post — one conversation, two
+              projections. */}
+          <DiscussionsPanel subject={{ kind: 'project', id: project.id }} own={own} />
           <ContributorsPanel project={project} />
           <CoordinationPanel project={project} />
           </div>
@@ -2759,6 +2769,108 @@ function leaseLabel(expiresAt: number): string {
  *  ones follow in reverse ledger order, each leading with its landing number —
  *  a ledger line, not a busy card. Titles are doors (title-as-link) to the
  *  contribution's own page. */
+/** The subject's discussions (social S2, SOCIAL-6b) — the ROOT thread as a flat
+ *  timeline with an inline composer, generic over the anchor ref by
+ *  construction (any entity page can host it — the GrantsPanel rule). Payload,
+ *  not configuration: rendered in the MAIN column for owner and visitor alike;
+ *  the server walls posting (comment tier) while `view` reads and may react. */
+function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boolean }) {
+  const list = useDiscussions(subject.kind, subject.id).data ?? []
+  const root = list.find((d) => d.anchor.locus === undefined) ?? null
+  const [draft, setDraft] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const send = async () => {
+    if (busy || !draft.trim()) return
+    setBusy(true)
+    setError(null)
+    try {
+      if (root) await postToDiscussion(root.id, draft.trim(), subject)
+      else await openDiscussion({ anchor: { ref: subject }, firstPost: draft.trim() })
+      setDraft('')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not post.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const react = (pid: string) => {
+    if (root) void reactToDiscussionPost(root.id, pid, subject)
+  }
+  const flip = () => {
+    if (root) void setDiscussionState(root.id, root.state === 'open' ? 'resolved' : 'open', subject)
+  }
+  return (
+    <MainSection
+      title="Discussion"
+      revealActions={!root || !(own || root.mine === true)}
+      actions={
+        root && (own || root.mine === true) ? (
+          <SectionAction
+            label={root.state === 'open' ? 'Resolve this discussion' : 'Reopen this discussion'}
+            icon={root.state === 'open' ? <CheckCircle2 size={14} /> : <MessageSquare size={14} />}
+            onClick={flip}
+          />
+        ) : undefined
+      }
+    >
+      {root === null ? (
+        <p className="text-[12px] text-ink-faint">
+          No discussion yet — the first post opens this {subject.kind}’s public thread.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {root.state === 'resolved' && (
+            <p className="text-[11px] font-medium uppercase tracking-wide text-ink-faint">
+              Resolved — the thread stays open for aftermath.
+            </p>
+          )}
+          <ul className="space-y-3">
+            {root.posts.map((p) => (
+              <li key={p.id} className="group flex items-start gap-2.5">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-[12px] font-medium text-ink">{p.author}</span>
+                    <span className="text-[11px] text-ink-faint">{relativeTime(p.at)}</span>
+                  </div>
+                  <p className="mt-0.5 whitespace-pre-wrap text-[13px] text-ink-soft">{p.body}</p>
+                </div>
+                <button
+                  onClick={() => react(p.id)}
+                  aria-pressed={p.reacted === true}
+                  aria-label={p.reacted ? 'Remove your endorsement' : 'Endorse this post'}
+                  className={`flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] transition ${
+                    p.reacted
+                      ? 'text-accent'
+                      : `text-ink-faint hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${p.reactions === 0 ? HOVER_REVEAL : ''}`
+                  }`}
+                >
+                  <ThumbsUp size={12} />
+                  {p.reactions > 0 && <span className="tabular-nums">{p.reactions}</span>}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <div className="mt-3 flex items-start gap-2">
+        <textarea
+          aria-label={`Post to this ${subject.kind}’s discussion`}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder={root ? 'Reply…' : 'Start the discussion…'}
+          rows={draft.includes('\n') ? 3 : 1}
+          className={`${FORM_INPUT_CLASS} resize-none`}
+        />
+        <button onClick={() => void send()} disabled={busy || !draft.trim()} className={`${INLINE_ACTION_CLASS} mt-1 shrink-0`}>
+          Post
+        </button>
+      </div>
+      {error && <p className="mt-1 text-[11px] text-danger">{error}</p>}
+    </MainSection>
+  )
+}
+
 function ChangesPanel({ project, onOpenSession }: { project: Project; onOpenSession: (id: string) => void }) {
   const rel = useRelations()
   const list = useContributions(project.id).data ?? []

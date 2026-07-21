@@ -23,6 +23,7 @@ import type {
   OpenSubGoal,
   Contribution,
   Delegation,
+  Discussion,
   Grant,
   AttentionLedger,
   OwnerProfile,
@@ -422,6 +423,17 @@ export function useContributions(projectId: string): QueryState<Contribution[]> 
  *  404 (served as an error state). Live on `grant.changed`. */
 export function useGrants(kind: string, id: string): QueryState<Grant[]> {
   return useQuery(keys.grants(kind, id), () => apiGet<Grant[]>(paths.grants(kind, id)))
+}
+
+/** A subject's discussions (social S2) — root thread first. Live on
+ *  `discussion.changed` (delivered wherever the anchor is readable). */
+export function useDiscussions(kind: string, id: string): QueryState<Discussion[]> {
+  return useQuery(keys.discussions(kind, id), () => apiGet<Discussion[]>(paths.discussions(kind, id)))
+}
+
+/** One discussion by id — readable through its anchor's wall. */
+export function useDiscussion(did: string): QueryState<Discussion> {
+  return useQuery(keys.discussion(did), () => apiGet<Discussion>(paths.discussion(did)))
 }
 
 /** A Project's delegation roster (CW8, Phase F) — governance face for every

@@ -27,7 +27,10 @@ import {
   type OpenSubGoal,
   type Contribution,
   type CreateGrantRequest,
+  type Discussion,
   type Grant,
+  type OpenDiscussionRequest,
+  type PostToDiscussionRequest,
   type OpenContributionRequest,
   type ProposeEnvelopeRequest,
   type CrystallizeRequest,
@@ -490,6 +493,39 @@ export async function createGrant(req: CreateGrantRequest): Promise<Grant> {
 export async function revokeGrant(id: string, subject: { kind: string; id: string }): Promise<void> {
   await apiDelete(paths.grantRevoke(id))
   invalidate(keys.grants(subject.kind, subject.id))
+}
+
+/** Open a discussion on an anchor (social S2) — a locus-free anchor is the
+ *  subject's root thread (the server get-or-creates it). */
+export async function openDiscussion(req: OpenDiscussionRequest): Promise<Discussion> {
+  const d = await apiPost<Discussion>(paths.discussionOpen(), req)
+  invalidate(keys.discussions(req.anchor.ref.kind, req.anchor.ref.id))
+  invalidate(keys.discussion(d.id))
+  return d
+}
+
+/** Append a post to a discussion's thread. */
+export async function postToDiscussion(did: string, body: string, anchorRef: { kind: string; id: string }): Promise<Discussion> {
+  const d = await apiPost<Discussion>(paths.discussionPosts(did), { body } satisfies PostToDiscussionRequest)
+  invalidate(keys.discussions(anchorRef.kind, anchorRef.id))
+  invalidate(keys.discussion(did))
+  return d
+}
+
+/** Toggle the one thin reaction on a post — any reader may endorse. */
+export async function reactToDiscussionPost(did: string, pid: string, anchorRef: { kind: string; id: string }): Promise<Discussion> {
+  const d = await apiPost<Discussion>(paths.discussionReact(did, pid), {})
+  invalidate(keys.discussions(anchorRef.kind, anchorRef.id))
+  invalidate(keys.discussion(did))
+  return d
+}
+
+/** Resolve / reopen a discussion — the opener's or the anchor owner's act. */
+export async function setDiscussionState(did: string, state: 'open' | 'resolved', anchorRef: { kind: string; id: string }): Promise<Discussion> {
+  const d = await apiPost<Discussion>(paths.discussionResolve(did), { state })
+  invalidate(keys.discussions(anchorRef.kind, anchorRef.id))
+  invalidate(keys.discussion(did))
+  return d
 }
 
 /** Open (declare) a contribution on a project's ledger (workflow Phase A). */
