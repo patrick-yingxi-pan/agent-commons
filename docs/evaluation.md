@@ -99,6 +99,16 @@ evaluator-facing summary:
   (`/fs/pick`, `/fs/folders/:id`, `/git/repos/:id/diff`, gated by `osPicker` /
   `localFs` / `localGit`) — distinct from the served `/fs/*?source=` sources above,
   which work on both backends.
+- **The social layer's deliberate simplifications** (design:
+  [`docs/design/social-layer.md`](design/social-layer.md), spec pillar
+  [`docs/spec/12-social-layer.md`](spec/12-social-layer.md)): **mutes match by
+  actor display name** (the wire's only public identity — names-as-handles,
+  same rule as the D21 profile byline), so a renamed actor un-mutes; **"anyone
+  with the link" means anyone signed in** who redeems it — anonymous rendering
+  through the auth gate (and any indexing) is the recorded, deliberately
+  unbuilt production tail; and the seeded share (Acme's *Insights dashboard* →
+  Beta Platform at `propose` tier) is code-owned so the share → discuss →
+  improve demo needs no setup. Don't file these as bugs.
 - **Created state is persisted** to `.data/store.json` and rehydrated on boot
   (`server/persist.ts`) — it survives a restart; snapshot back-up/restore
   tooling lives in `scripts/snapshot.ts`. Operational detail in

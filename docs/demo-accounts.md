@@ -96,5 +96,16 @@ npm run dev   →  http://127.0.0.1:5173
    operator view). Every other account — and every boot without the env var —
    neither sees the section nor can reach `/api/v1/admin/*` (404).
 
+7. **The social scene** (the share → discuss → improve loop,
+   `docs/design/social-layer.md`) ships pre-staged: a code-owned seed grant
+   publishes Ada/Acme's **Insights dashboard** project to Grace's **Beta
+   Platform** org at the `propose` tier. So out of the box: Grace's **Commons**
+   section shows the published card (comment inline — the thread IS the
+   project page's Discussion panel), her copy of the project page offers the
+   **Improvements** form (offer a suggestion → Ada lands or declines it, both
+   bells ring), and Ada's project page shows the **Sharing** roster. Mint a
+   share link there (audience *Link* → copy) and open it signed in as Maya to
+   walk the `/shared/:token` door.
+
 > A `.data/store.json` from an earlier run rehydrates fine (stamps are
 > re-applied), but if you want the pristine seed worlds, delete it and restart.

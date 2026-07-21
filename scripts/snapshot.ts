@@ -352,6 +352,19 @@ export async function buildComprehensive(): Promise<PersistedState> {
     { subject: { kind: 'project', id: 'p-playground' }, delta: { kind: 'suggestion', text: 'Playground suggestion — snapshot coverage.' }, rationale: 'Exercised for the snapshot.' },
     store.defaultTenantId(),
   )
+  // ── Social S6 link grants ── exercise the link-token path through the real
+  // mutators: the server mints the token, and a foreign tenant redeems it (the
+  // redeemedBy roster is server-private but must survive a restart).
+  const linkGrant = store.createGrant(
+    { subject: { kind: 'project', id: 'p-playground' }, audience: { kind: 'link', token: '' }, tier: 'view' },
+    store.defaultTenantId(),
+  )
+  if (linkGrant !== undefined && typeof linkGrant === 'object' && linkGrant.audience.kind === 'link') {
+    store.redeemGrant(linkGrant.audience.token, 'tenant-playground-watcher')
+  }
+  // ── Social S5 mutes ── exercise the per-viewer earmuff slice through the
+  // real mutator (an actor display name, never a wall).
+  store.setMute('Playground muted actor', true, store.defaultTenantId())
   // ── Delegations (CW8, Phase F) ── exercise the persisted roster through the
   // real mint funnel (the default agent is the default tenant's own worker).
   store.createDelegation(

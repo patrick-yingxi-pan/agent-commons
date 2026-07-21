@@ -90,6 +90,7 @@ restart.
 | "Is X built or just mocked?" | [`docs/spec/`](docs/spec/README.md) (requirements ledger) · [`docs/spec/11-mock-boundary.md`](docs/spec/11-mock-boundary.md) (declared fixtures) |
 | Reviewing after a UI change | [`docs/ui-invariants.md`](docs/ui-invariants.md) (earned ledger, the `/ui-review` skill) · [`docs/review-rulebook.md`](docs/review-rulebook.md) (oracle catalog) |
 | API-shape invariants (absence semantics, principals) | [`docs/spec/09-design-invariants.md`](docs/spec/09-design-invariants.md) (INV-9, INV-10) |
+| The social layer (Grants · Discussions · Proposals · the Commons) | [`docs/design/social-layer.md`](docs/design/social-layer.md) (design + backlog) · [`docs/spec/12-social-layer.md`](docs/spec/12-social-layer.md) (requirement rows) |
 | The split-workspace architecture + its lessons | [`docs/design/universal-split-workspace.md`](docs/design/universal-split-workspace.md) |
 | Identity model (namespaces, principals) | [`docs/design/principals-and-namespaces.md`](docs/design/principals-and-namespaces.md) |
 | Surface design method (what form fits an entity) | [`docs/design/surface-from-nature.md`](docs/design/surface-from-nature.md) · [`docs/design/surface-audit.md`](docs/design/surface-audit.md) |

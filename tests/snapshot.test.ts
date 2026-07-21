@@ -170,6 +170,14 @@ test('build produces a snapshot covering every persisted slice', async () => {
     'openSocialProposal → socialProposals (S3, with its review thread minted)',
   )
   assert.ok(
+    s.grants?.some((g) => g.audience.kind === 'link' && g.audience.token.length > 0 && g.redeemedBy?.includes('tenant-playground-watcher')),
+    'createGrant(link) + redeemGrant → the server-private redemption roster persists (S6)',
+  )
+  assert.ok(
+    s.mutes?.some(([, names]) => names.includes('Playground muted actor')),
+    'setMute → mutes (S5, the per-viewer earmuff slice)',
+  )
+  assert.ok(
     s.watches?.some(([tenantId]) => tenantId === 'tenant-playground-watcher'),
     'setWatch → watches (D24)',
   )
@@ -225,4 +233,17 @@ test('the built snapshot boots through the real rehydrate path', async () => {
   const backlog = store.listOpenSubGoals('p-insights')
   assert.ok(backlog.some((o) => o.status === 'done' && o.resolvedByLabel), 'a resolved D19 work item survives a boot')
   assert.ok(backlog.some((o) => o.status === 'open'), 'an open D19 work item survives a boot')
+
+  // The social S5/S6 slices survive the boot too: the link redemption still
+  // opens the subject (grantedTier reads the rehydrated redeemedBy roster),
+  // and the mute list comes back through the public getter.
+  assert.equal(
+    store.grantedTier({ kind: 'project', id: 'p-playground' }, 'tenant-playground-watcher'),
+    'view',
+    'a link redemption survives a boot (S6)',
+  )
+  assert.ok(
+    store.listMutes(store.defaultTenantId()).includes('Playground muted actor'),
+    'the mute list survives a boot (S5)',
+  )
 })
