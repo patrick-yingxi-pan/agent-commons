@@ -2837,23 +2837,6 @@ function DiscussionPostList({ posts, onReact }: { posts: DiscussionPost[]; onRea
 function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boolean }) {
   const list = useDiscussions(subject.kind, subject.id).data ?? []
   const root = list.find((d) => d.anchor.locus === undefined) ?? null
-  const [draft, setDraft] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const send = async () => {
-    if (busy || !draft.trim()) return
-    setBusy(true)
-    setError(null)
-    try {
-      if (root) await postToDiscussion(root.id, draft.trim(), subject)
-      else await openDiscussion({ anchor: { ref: subject }, firstPost: draft.trim() })
-      setDraft('')
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not post.')
-    } finally {
-      setBusy(false)
-    }
-  }
   const react = (pid: string) => {
     if (root) void reactToDiscussionPost(root.id, pid, subject)
   }
@@ -2888,12 +2871,45 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
           <DiscussionPostList posts={root.posts} onReact={react} />
         </div>
       )}
-      <div className="mt-3 flex items-start gap-2">
+      <div className="mt-3">
+        <RootThreadComposer subject={subject} root={root} />
+      </div>
+    </MainSection>
+  )
+}
+
+/* ─────────────────────────── The Commons (social S4) ─────────────────────── */
+
+/** The ONE root-thread composer (social S2/S4): posts into the subject's root
+ *  discussion, get-or-creating it — shared by the entity page's Discussion
+ *  panel and the feed card, so "comment here" behaves identically in both
+ *  projections of the same thread. */
+function RootThreadComposer({ subject, root, placeholder }: { subject: SocialEntityRef; root: Discussion | null; placeholder?: string }) {
+  const [draft, setDraft] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const send = async () => {
+    if (busy || !draft.trim()) return
+    setBusy(true)
+    setError(null)
+    try {
+      if (root) await postToDiscussion(root.id, draft.trim(), subject)
+      else await openDiscussion({ anchor: { ref: subject }, firstPost: draft.trim() })
+      setDraft('')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not post.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div>
+      <div className="flex items-start gap-2">
         <textarea
           aria-label={`Post to this ${subject.kind}’s discussion`}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder={root ? 'Reply…' : 'Start the discussion…'}
+          placeholder={placeholder ?? (root ? 'Reply…' : 'Start the discussion…')}
           rows={draft.includes('\n') ? 3 : 1}
           className={`${FORM_INPUT_CLASS} resize-none`}
         />
@@ -2902,11 +2918,9 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
         </button>
       </div>
       {error && <p className="mt-1 text-[11px] text-danger">{error}</p>}
-    </MainSection>
+    </div>
   )
 }
-
-/* ─────────────────────────── The Commons (social S4) ─────────────────────── */
 
 /** One feed post — a share act or a landing, its subject embed, and the door
  *  into the subject's root thread. The card is a PROJECTION: its comments are
@@ -2915,6 +2929,16 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
 function FeedCard({ item }: { item: CommonsItem }) {
   const rel = useRelations()
   const { kind, id } = item.subject
+  // The card's comments ARE the subject's root thread (one conversation, two
+  // projections): the last two posts render inline, the count doors into the
+  // full thread, and the composer posts into the SAME discussion the entity
+  // page shows.
+  const threads = useDiscussions(kind, id).data ?? []
+  const root = threads.find((d) => d.anchor.locus === undefined) ?? null
+  const tail = root ? root.posts.slice(-2) : []
+  const react = (pid: string) => {
+    if (root) void reactToDiscussionPost(root.id, pid, item.subject)
+  }
   const target: SectionId | null =
     kind === 'project' ? 'projects' : kind === 'schedule' ? 'scheduled' : kind === 'context' ? 'contexts' : kind === 'discussion' ? 'discussions' : null
   return (
@@ -2940,14 +2964,18 @@ function FeedCard({ item }: { item: CommonsItem }) {
         )}
         {item.subjectBlurb && <p className="mt-0.5 truncate text-[12px] text-ink-faint">{item.subjectBlurb}</p>}
       </div>
-      <div className="mt-2 flex items-center gap-3 text-[11px] text-ink-faint">
-        {item.discussionId ? (
-          <button onClick={() => rel.navigate('discussions', item.discussionId)} className={INLINE_ACTION_CLASS}>
-            {item.commentCount} {item.commentCount === 1 ? 'comment' : 'comments'}
-          </button>
-        ) : (
-          <span>No comments yet — the thread opens on the {kind}’s page</span>
-        )}
+      {root && root.posts.length > 0 && (
+        <div className="mt-3 border-t border-line pt-2.5">
+          {root.posts.length > tail.length && (
+            <button onClick={() => rel.navigate('discussions', root.id)} className={`${INLINE_ACTION_CLASS} mb-2`}>
+              View all {root.posts.length} comments
+            </button>
+          )}
+          <DiscussionPostList posts={tail} onReact={react} />
+        </div>
+      )}
+      <div className="mt-2.5">
+        <RootThreadComposer subject={item.subject} root={root} placeholder="Comment…" />
       </div>
     </div>
   )
