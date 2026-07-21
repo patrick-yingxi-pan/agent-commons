@@ -182,9 +182,19 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* Thin, warm scrollbars so the panels feel native rather than browser-y. */
+/* Thin, warm, hover-revealed scrollbars (the macOS overlay idiom): the gutter
+   keeps its space so nothing reflows, but the thumb stays transparent until
+   the pointer is over that scroll region — an always-on thumb in every pane
+   read as visual noise. `:hover` matches every ancestor under the pointer, so
+   entering a pane reveals exactly that pane's scrollbar. The standard
+   scrollbar-* properties cover Firefox + Chromium (where they override the
+   ::-webkit rules); the ::-webkit rules remain for Safari, whose native
+   overlay bars already auto-hide. */
 * {
   scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*:hover {
   scrollbar-color: var(--color-line-strong) transparent;
 }
 *::-webkit-scrollbar {
@@ -192,6 +202,12 @@ body {
   height: 9px;
 }
 *::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*:hover::-webkit-scrollbar-thumb {
   background: var(--color-line-strong);
   border-radius: 999px;
   border: 2px solid transparent;

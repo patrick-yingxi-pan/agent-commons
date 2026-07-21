@@ -45,3 +45,12 @@ test('Customize edits the pref through the lib (the Appearance card)', () => {
   assert.match(sectionView, /loadThemePref/, 'AppearanceCard must read the persisted pref')
   assert.match(sectionView, /saveThemePref/, 'AppearanceCard must persist picks through the one save funnel')
 })
+
+test('scrollbars are hover-revealed — no always-on thumb (index.css)', async () => {
+  const { join } = await import('node:path')
+  const css = read(join(ROOT, 'src/index.css'))
+  assert.match(css, /\n\* \{\n  scrollbar-width: thin;\n  scrollbar-color: transparent transparent;\n\}/,
+    'at rest the thumb is transparent (the gutter keeps its space; the pill was noise)')
+  assert.match(css, /\*:hover \{\n  scrollbar-color: var\(--color-line-strong\) transparent;\n\}/,
+    'the pointer entering a scroll region reveals its thumb')
+})
