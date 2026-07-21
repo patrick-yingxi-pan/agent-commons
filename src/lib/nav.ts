@@ -40,6 +40,9 @@ export type NavLocation =
       /** An account's detail page under the maintainer console (FWD-7 v1.1 —
        *  `/admin/users/:id`, maintainers only). Absent ≡ null. */
       adminUserId?: string | null
+      /** A discussion's own page under the discussions section (social S2 —
+       *  `/discussions/:did`; the timeline form). Absent ≡ null. */
+      discussionId?: string | null
     }
 
 /** The display name for each cross-cutting section (its list page). */
@@ -50,6 +53,7 @@ export const SECTION_LABELS: Record<SectionId, string> = {
   models: 'Models',
   agents: 'Agents',
   scheduled: 'Scheduled',
+  discussions: 'Discussions',
   dispatch: 'Dispatch',
   customize: 'Customize',
   admin: 'Maintain',
@@ -70,7 +74,8 @@ export function sameLocation(a: NavLocation, b: NavLocation): boolean {
       (a.contributionId ?? null) === (b.contributionId ?? null) &&
       (a.agentId ?? null) === (b.agentId ?? null) &&
       (a.contextId ?? null) === (b.contextId ?? null) &&
-      (a.adminUserId ?? null) === (b.adminUserId ?? null)
+      (a.adminUserId ?? null) === (b.adminUserId ?? null) &&
+      (a.discussionId ?? null) === (b.discussionId ?? null)
     )
   return false
 }

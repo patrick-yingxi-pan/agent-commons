@@ -162,7 +162,9 @@ import {
   useCommissionAuthority,
   useOpenSubGoals,
   useContributions,
+  useDiscussion,
   useDiscussions,
+  useMyDiscussions,
   useGrants,
   createGrant,
   revokeGrant,
@@ -220,7 +222,9 @@ import {
   PROJECT_ROLES,
   PROJECT_EFFECT_TYPES,
   SHARE_TIERS,
+  type DiscussionPost,
   type ShareTier,
+  type SocialAnchor,
   type SocialEntityRef,
   ENVELOPE_HARNESSES,
   CHANGE_ENTRY_KINDS,
@@ -294,6 +298,7 @@ export function SectionView({
   focusAgentId = null,
   focusContextId = null,
   focusAdminUserId = null,
+  focusDiscussionId = null,
   onOpenAgentPage,
 }: {
   section: SectionId
@@ -341,6 +346,8 @@ export function SectionView({
   /** An account's detail page under the maintainer console (FWD-7 v1.1);
    *  null = the console's panels. */
   focusAdminUserId?: string | null
+  /** A discussion's own page under Discussions (social S2); null = the hub. */
+  focusDiscussionId?: string | null
   /** Open a published definition's page — the one door every card routes through. */
   onOpenAgentPage: (agentId: string) => void
 }) {
@@ -386,6 +393,8 @@ export function SectionView({
         backTo={backTo}
         onOpenSession={onOpenSession}
       />
+    ) : section === 'discussions' ? (
+      <DiscussionsSection subview={subview} discussionId={focusDiscussionId} onBack={onBack} backTo={backTo} />
     ) : section === 'admin' ? (
       // The maintainer console (contract/admin.ts): like the Agents hub its
       // children are SURFACES, defaulting to Accounts when the rail sub-view is
@@ -2769,6 +2778,41 @@ function leaseLabel(expiresAt: number): string {
  *  ones follow in reverse ledger order, each leading with its landing number —
  *  a ledger line, not a busy card. Titles are doors (title-as-link) to the
  *  contribution's own page. */
+/** The ONE post-list form (social S2): author byline + body + the thin reaction
+ *  toggle (hover-revealed at zero, accent when yours) — shared by the entity
+ *  page's thread panel and the discussion's own timeline page, so the form
+ *  can't drift between the two projections of the same object. */
+function DiscussionPostList({ posts, onReact }: { posts: DiscussionPost[]; onReact: (pid: string) => void }) {
+  return (
+    <ul className="space-y-3">
+      {posts.map((p) => (
+        <li key={p.id} className="group flex items-start gap-2.5">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline gap-2">
+              <span className="text-[12px] font-medium text-ink">{p.author}</span>
+              <span className="text-[11px] text-ink-faint">{relativeTime(p.at)}</span>
+            </div>
+            <p className="mt-0.5 whitespace-pre-wrap text-[13px] text-ink-soft">{p.body}</p>
+          </div>
+          <button
+            onClick={() => onReact(p.id)}
+            aria-pressed={p.reacted === true}
+            aria-label={p.reacted ? 'Remove your endorsement' : 'Endorse this post'}
+            className={`flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] transition ${
+              p.reacted
+                ? 'text-accent'
+                : `text-ink-faint hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${p.reactions === 0 ? HOVER_REVEAL : ''}`
+            }`}
+          >
+            <ThumbsUp size={12} />
+            {p.reactions > 0 && <span className="tabular-nums">{p.reactions}</span>}
+          </button>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 /** The subject's discussions (social S2, SOCIAL-6b) — the ROOT thread as a flat
  *  timeline with an inline composer, generic over the anchor ref by
  *  construction (any entity page can host it — the GrantsPanel rule). Payload,
@@ -2825,32 +2869,7 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
               Resolved — the thread stays open for aftermath.
             </p>
           )}
-          <ul className="space-y-3">
-            {root.posts.map((p) => (
-              <li key={p.id} className="group flex items-start gap-2.5">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-[12px] font-medium text-ink">{p.author}</span>
-                    <span className="text-[11px] text-ink-faint">{relativeTime(p.at)}</span>
-                  </div>
-                  <p className="mt-0.5 whitespace-pre-wrap text-[13px] text-ink-soft">{p.body}</p>
-                </div>
-                <button
-                  onClick={() => react(p.id)}
-                  aria-pressed={p.reacted === true}
-                  aria-label={p.reacted ? 'Remove your endorsement' : 'Endorse this post'}
-                  className={`flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] transition ${
-                    p.reacted
-                      ? 'text-accent'
-                      : `text-ink-faint hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${p.reactions === 0 ? HOVER_REVEAL : ''}`
-                  }`}
-                >
-                  <ThumbsUp size={12} />
-                  {p.reactions > 0 && <span className="tabular-nums">{p.reactions}</span>}
-                </button>
-              </li>
-            ))}
-          </ul>
+          <DiscussionPostList posts={root.posts} onReact={react} />
         </div>
       )}
       <div className="mt-3 flex items-start gap-2">
@@ -2868,6 +2887,162 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
       </div>
       {error && <p className="mt-1 text-[11px] text-danger">{error}</p>}
     </MainSection>
+  )
+}
+
+/* ─────────────────────────── Discussions (social S2) ─────────────────────── */
+
+/** The chip naming a discussion's anchor — a DOOR into the anchored entity's
+ *  page for the kinds that have one (the ref-link form; sessions/artifacts gain
+ *  doors when their surfaces host the panel). */
+function AnchorChip({ anchor }: { anchor: SocialAnchor }) {
+  const rel = useRelations()
+  const { kind, id } = anchor.ref
+  const target: SectionId | null =
+    kind === 'project' ? 'projects' : kind === 'schedule' ? 'scheduled' : kind === 'context' ? 'contexts' : kind === 'discussion' ? 'discussions' : null
+  const label = `${kind} · ${id}`
+  if (!target) return <span className="text-[11px] text-ink-faint">{label}</span>
+  return (
+    <button onClick={() => rel.navigate(target, id)} className={INLINE_ACTION_CLASS} title={`Open this ${kind}`}>
+      {label}
+    </button>
+  )
+}
+
+/** A discussion's own page (`/discussions/:did`) — surface-from-nature: a
+ *  thread on a lifecycle wants a TIMELINE page. Same one canonical page for
+ *  every viewer; the server walls reads/writes (existence-hiding 404 renders
+ *  as the degraded empty state on a stale id). */
+function DiscussionPage({ discussionId, onBack, backTo }: { discussionId: string; onBack: () => void; backTo: NavLocation | null }) {
+  const q = useDiscussion(discussionId)
+  const d = q.data ?? null
+  const [draft, setDraft] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  if (!d) {
+    return (
+      <Page>
+        <header className={PAGE_HEADER_CLASS}>
+          <div className="flex min-w-0 items-start gap-3">
+            <BackButton to={backTo} onBack={onBack} />
+            <h1 className={PAGE_TITLE_CLASS}>Discussion</h1>
+          </div>
+        </header>
+        <Empty>{q.error ? 'This discussion isn’t visible from this account (or no longer exists).' : 'Loading…'}</Empty>
+      </Page>
+    )
+  }
+  const send = async () => {
+    if (busy || !draft.trim()) return
+    setBusy(true)
+    setError(null)
+    try {
+      await postToDiscussion(d.id, draft.trim(), d.anchor.ref)
+      setDraft('')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not post.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Page>
+      <header className={PAGE_HEADER_CLASS}>
+        <div className="flex min-w-0 items-start gap-3">
+          <BackButton to={backTo} onBack={onBack} />
+          <div className="min-w-0">
+            <h1 className={PAGE_TITLE_CLASS}>{d.posts[0]?.body.slice(0, 80) || 'Discussion'}</h1>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-ink-faint">
+              <span>
+                {d.state === 'open' ? 'Open' : 'Resolved'} · opened by {d.openedBy} {relativeTime(d.openedAt)}
+              </span>
+              <AnchorChip anchor={d.anchor} />
+            </div>
+          </div>
+        </div>
+        {(d.mine === true) && (
+          <button
+            onClick={() => void setDiscussionState(d.id, d.state === 'open' ? 'resolved' : 'open', d.anchor.ref)}
+            className={`${INLINE_ACTION_CLASS} shrink-0`}
+          >
+            {d.state === 'open' ? 'Resolve' : 'Reopen'}
+          </button>
+        )}
+      </header>
+      <div className="max-w-2xl">
+        <DiscussionPostList posts={d.posts} onReact={(pid) => void reactToDiscussionPost(d.id, pid, d.anchor.ref)} />
+        <div className="mt-4 flex items-start gap-2">
+          <textarea
+            aria-label="Reply to this discussion"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="Reply…"
+            rows={draft.includes('\n') ? 3 : 1}
+            className={`${FORM_INPUT_CLASS} resize-none`}
+          />
+          <button onClick={() => void send()} disabled={busy || !draft.trim()} className={`${INLINE_ACTION_CLASS} mt-1 shrink-0`}>
+            Post
+          </button>
+        </div>
+        {error && <p className="mt-1 text-[11px] text-danger">{error}</p>}
+      </div>
+    </Page>
+  )
+}
+
+/** The Discussions hub — the caller's participating threads, grouped by the
+ *  rail's STATE facet (open / resolved; null shows all). Titles are doors. */
+function DiscussionsSection({
+  subview,
+  discussionId,
+  onBack,
+  backTo,
+}: {
+  subview: string | null
+  discussionId: string | null
+  onBack: () => void
+  backTo: NavLocation | null
+}) {
+  const rel = useRelations()
+  const list = useMyDiscussions().data ?? []
+  if (discussionId) return <DiscussionPage discussionId={discussionId} onBack={onBack} backTo={backTo} />
+  const filtered = subview === 'open' || subview === 'resolved' ? list.filter((d) => d.state === subview) : list
+  return (
+    <Page>
+      <PageHeader title="Discussions" />
+      {filtered.length === 0 ? (
+        <Empty>
+          {subview ? `No ${subview} discussions you participate in.` : 'No discussions yet — start one from any resource’s Discussion section.'}
+        </Empty>
+      ) : (
+        <CardList>
+          {filtered.map((d) => (
+            <div key={d.id} className="flex items-center gap-3 px-4 py-3">
+              <span className="flex w-4 shrink-0 items-center justify-center">
+                {d.state === 'open' ? (
+                  <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-label="Open" />
+                ) : (
+                  <CheckCircle2 size={14} className="text-ink-faint" aria-label="Resolved" />
+                )}
+              </span>
+              <div className="min-w-0 flex-1">
+                {/* Title-as-door: the first post fronts the thread's page. */}
+                <button onClick={() => rel.navigate('discussions', d.id)} className="block max-w-full truncate text-left text-[14px] font-medium text-ink hover:underline">
+                  {d.posts[0]?.body.slice(0, 100) || 'Discussion'}
+                </button>
+                <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
+                  <span>
+                    {d.posts.length} {d.posts.length === 1 ? 'post' : 'posts'} · by {d.openedBy}
+                  </span>
+                  <AnchorChip anchor={d.anchor} />
+                </div>
+              </div>
+              <span className="shrink-0 text-[11px] text-ink-faint">{relativeTime(d.posts[d.posts.length - 1]?.at ?? d.openedAt)}</span>
+            </div>
+          ))}
+        </CardList>
+      )}
+    </Page>
   )
 }
 

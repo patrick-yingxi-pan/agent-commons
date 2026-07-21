@@ -39,6 +39,8 @@ export interface PaneSeed {
   agentId?: string
   contextId?: string
   adminUserId?: string
+  /** A discussion's page under the discussions section (social S2). */
+  discussionId?: string
 }
 
 /** The ONE list of detail-id keys a pane location carries — every mapping that
@@ -46,7 +48,7 @@ export interface PaneSeed {
  *  its canonical NavLocation, a page's focus state → its reported seed) walks
  *  THIS list, so adding a detail kind is a one-line change here instead of a
  *  hunt across three hand-copied field lists. */
-export const PANE_SEED_KEYS = ['projectId', 'scheduleId', 'ownerName', 'workItemId', 'contributionId', 'agentId', 'contextId', 'adminUserId'] as const
+export const PANE_SEED_KEYS = ['projectId', 'scheduleId', 'ownerName', 'workItemId', 'contributionId', 'agentId', 'contextId', 'adminUserId', 'discussionId'] as const
 type SeedKey = (typeof PANE_SEED_KEYS)[number]
 // Compile-time lock: the key list and PaneSeed stay in lock-step — adding a
 // detail id to one without the other fails typecheck here.
@@ -90,6 +92,7 @@ export function seedFor(section: SectionId, id?: string, subId?: string): PaneSe
   if (section === 'contexts') return { contextId: id }
   if (section === 'agents') return { ownerName: id }
   if (section === 'admin') return { adminUserId: id }
+  if (section === 'discussions') return { discussionId: id }
   return null
 }
 

@@ -22,6 +22,7 @@ export type SectionId =
   | 'models'
   | 'agents'
   | 'scheduled'
+  | 'discussions'
   | 'dispatch'
   | 'customize'
   | 'admin'

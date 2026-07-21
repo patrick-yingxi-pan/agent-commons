@@ -436,6 +436,11 @@ export function useDiscussion(did: string): QueryState<Discussion> {
   return useQuery(keys.discussion(did), () => apiGet<Discussion>(paths.discussion(did)))
 }
 
+/** The caller's participating threads (the Discussions hub read). */
+export function useMyDiscussions(): QueryState<Discussion[]> {
+  return useQuery(keys.myDiscussions, () => apiGet<Discussion[]>(paths.myDiscussions()))
+}
+
 /** A Project's delegation roster (CW8, Phase F) — governance face for every
  *  viewer, the policy text for the delegator. Live on `delegation.changed`. */
 export function useDelegations(projectId: string): QueryState<Delegation[]> {

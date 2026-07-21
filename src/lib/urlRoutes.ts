@@ -60,6 +60,7 @@ export function pathForView(loc: NavLocation, subview: string | null): string {
   if (loc.projectId) return `/projects/${encodeURIComponent(loc.projectId)}`
   if (loc.scheduleId) return `/scheduled/${encodeURIComponent(loc.scheduleId)}`
   if (loc.contextId) return `/contexts/${encodeURIComponent(loc.contextId)}`
+  if (loc.discussionId) return `/discussions/${encodeURIComponent(loc.discussionId)}`
   if (loc.adminUserId) return `/admin/users/${encodeURIComponent(loc.adminUserId)}`
   return subview ? `/${loc.section}/${encodeURIComponent(subview)}` : `/${loc.section}`
 }
@@ -118,5 +119,6 @@ export function viewForPath(pathname: string): RoutedView | null {
   if (section === 'scheduled') return { loc: { ...base, scheduleId: second }, subview: null }
   if (section === 'agents') return { loc: { ...base, agentId: second }, subview: null }
   if (section === 'contexts') return { loc: { ...base, contextId: second }, subview: null }
+  if (section === 'discussions') return { loc: { ...base, discussionId: second }, subview: null }
   return null
 }

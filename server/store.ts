@@ -4415,6 +4415,20 @@ export const store = {
     persist()
     return publicDiscussion(d, tenantId)
   },
+  /** The caller's discussions hub read (S2): threads they PARTICIPATE in
+   *  (opened, posted, or reacted) whose anchor they can still read — losing
+   *  the grant loses the thread (inheritance holds everywhere). Open first,
+   *  then most recently active. */
+  listMyDiscussions(tenantId: string): Discussion[] {
+    const participates = (d: StoredDiscussion) =>
+      tenantReadsAs(tenantId, d.openerTenant) ||
+      d.posts.some((p) => tenantReadsAs(tenantId, p.authorTenant) || p.reactedBy.some((t) => tenantReadsAs(tenantId, t)))
+    const lastAt = (d: StoredDiscussion) => d.posts[d.posts.length - 1]?.at ?? d.openedAt
+    return discussions
+      .filter((d) => participates(d) && this.grantSubjectVisible(d.anchor.ref, tenantId))
+      .sort((a, b) => (a.state === b.state ? lastAt(b) - lastAt(a) : a.state === 'open' ? -1 : 1))
+      .map((d) => publicDiscussion(d, tenantId))
+  },
   /** One discussion by id — readable through its ANCHOR's wall (inheritance:
    *  a discussion is never wider than what it discusses). */
   getDiscussion(id: string, viewerTenant: string): Discussion | undefined {

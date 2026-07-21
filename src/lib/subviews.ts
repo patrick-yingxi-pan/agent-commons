@@ -29,6 +29,11 @@ export const SECTION_SUBVIEWS: Partial<Record<SectionId, SubView[]>> = {
     { id: 'mine', label: 'Yours' },
     { id: 'shared', label: 'Shared with you' },
   ],
+  // The Discussions section groups by STATE (the entity's one lifecycle axis).
+  discussions: [
+    { id: 'open', label: 'Open' },
+    { id: 'resolved', label: 'Resolved' },
+  ],
   artifacts: [
     { id: 'doc', label: 'Documents' },
     { id: 'image', label: 'Images' },

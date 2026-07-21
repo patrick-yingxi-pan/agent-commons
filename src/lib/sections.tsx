@@ -1,4 +1,4 @@
-import { Bot, Box, Briefcase, Cable, Clock, Cpu, SendHorizontal, Shapes, Wrench } from 'lucide-react'
+import { Bot, Box, Briefcase, Cable, Clock, Cpu, MessagesSquare, SendHorizontal, Shapes, Wrench } from 'lucide-react'
 import type { SectionId } from '../types'
 
 /** The cross-cutting tools in the sidebar nav. One source of truth for the
@@ -37,6 +37,11 @@ export const SECTION_META: Record<
     subtitle: 'Tasks Claude runs for you on a cadence.',
     Icon: Clock,
   },
+  discussions: {
+    label: 'Discussions',
+    subtitle: 'Threads on the resources you share and follow.',
+    Icon: MessagesSquare,
+  },
   dispatch: {
     label: 'Dispatch',
     subtitle: 'Send Claude off to run tasks in the background.',
@@ -65,6 +70,7 @@ export const SECTION_ORDER: SectionId[] = [
   'models',
   'agents',
   'scheduled',
+  'discussions',
   'dispatch',
   'customize',
   'admin',

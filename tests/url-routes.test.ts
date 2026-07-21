@@ -94,6 +94,15 @@ test('a saved context detail round-trips through /contexts/:id; kind ids stay re
   assert.deepEqual(viewForPath('/contexts/connector'), { loc: section({ section: 'contexts' }), subview: 'connector' })
 })
 
+test('a discussion detail round-trips through /discussions/:did; state facet ids stay reserved', () => {
+  const loc = section({ section: 'discussions', discussionId: 'disc-1' })
+  const path = pathForView(loc, null)
+  assert.equal(path, '/discussions/disc-1')
+  assert.deepEqual(viewForPath(path), { loc: { ...loc, discussionId: 'disc-1' }, subview: null })
+  // /discussions/open is the state facet, never a discussion whose id collides with it.
+  assert.deepEqual(viewForPath('/discussions/open'), { loc: section({ section: 'discussions' }), subview: 'open' })
+})
+
 test('an admin account detail round-trips through /admin/users/:id; console subview ids stay reserved', () => {
   const loc = section({ section: 'admin', adminUserId: 'user-grace' })
   const path = pathForView(loc, null)

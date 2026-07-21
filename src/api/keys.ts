@@ -44,6 +44,7 @@ export const keys = {
    *  the by-id family. */
   discussions: (kind?: string, id?: string) => (kind && id ? `discussions:${kind}:${id}` : 'discussions'),
   discussion: (did?: string) => (did ? `discussion:${did}` : 'discussion'),
+  myDiscussions: 'discussions:mine',
   /** A Project's attention ledger (CW9, Phase G) — per-caller asks + counts. */
   attention: (projectId: string) => `attention:${projectId}`,
   /** The discovery directories (D17) — keyed per search so each query caches on its own. */
@@ -163,6 +164,7 @@ export const paths = {
   grantRevoke: (gid: string) => `/grants/${encodeURIComponent(gid)}`,
   /** A subject's discussions (social S2) + the per-discussion faces. */
   discussions: (kind: string, id: string) => `/discussions?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`,
+  myDiscussions: () => `/discussions?mine=1`,
   discussionOpen: () => `/discussions`,
   discussion: (did: string) => `/discussions/${encodeURIComponent(did)}`,
   discussionPosts: (did: string) => `/discussions/${encodeURIComponent(did)}/posts`,

@@ -1882,6 +1882,11 @@ export function buildRouter(): Router {
   // (existence-hiding — the store enforces on every face). Posting needs
   // comment authority; reacting needs only readability (the thinnest signal).
   r.get('/discussions', ({ req, res, url }) => {
+    // Two explicit modes (INV-9 — absence refused, never guessed): `mine=1`
+    // lists the caller's participating threads; kind+id lists a subject's.
+    if (url.searchParams.get('mine') === '1') {
+      return sendJson(res, store.listMyDiscussions(store.identity(req.headers).tenant.id))
+    }
     const kind = url.searchParams.get('kind') ?? ''
     const id = url.searchParams.get('id') ?? ''
     if (!(SOCIAL_ENTITY_KINDS as readonly string[]).includes(kind) || !id) {
