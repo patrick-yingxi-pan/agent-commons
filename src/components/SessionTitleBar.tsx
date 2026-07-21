@@ -4,9 +4,11 @@
  *  from the LIVE relation graph, so an AI "file this session" edit updates it
  *  immediately). Extracted from App so the primary surface AND a split
  *  conversation pane wear the SAME bar (form follows function — panes are
- *  homogeneous, spec ADAPT-17): the primary passes its rail-toggle `leading` /
- *  `leftOpen` indent; a pane passes neither. Must render under
- *  RelationsProvider (it reads useRelations). */
+ *  homogeneous, spec ADAPT-17): the narrow tier passes its in-flow rail-toggle
+ *  `leading`; other tiers pass nothing — the collapsed rail's reopen control
+ *  occupies its own gutter column in the shell (UI-3), so no pane ever indents
+ *  for floating chrome. Must render under RelationsProvider (it reads
+ *  useRelations). */
 import type { ReactNode } from 'react'
 import { CalendarClock, Folder } from 'lucide-react'
 import type { Session } from '../types'
@@ -21,7 +23,6 @@ export type TitleBarSession = Pick<Session, 'id' | 'title'> & { scheduledRunOf?:
 
 export function SessionTitleBar({
   session,
-  leftOpen = true,
   leading,
   back,
   onOpenProject,
@@ -29,9 +30,6 @@ export function SessionTitleBar({
   onSelectRun,
 }: {
   session: TitleBarSession
-  /** Primary-surface indent: false reserves room for the floating rail-reopen
-   *  control (`pl-14`). Panes (always inside the frame) keep the default. */
-  leftOpen?: boolean
   /** Narrow tier: the in-flow rail toggle, rendered at the bar's left. */
   leading?: ReactNode
   /** A conversation opened from a PAGE (ADAPT-18): the bar leads with the one
@@ -53,7 +51,7 @@ export function SessionTitleBar({
   return (
     <div
       className={`flex min-h-[52px] shrink-0 items-center gap-1.5 border-b border-line bg-canvas/80 py-2 pr-4 ${
-        leading ? 'pl-2' : leftOpen ? 'pl-4' : 'pl-14'
+        leading ? 'pl-2' : 'pl-4'
       }`}
       data-session-title-bar
     >

@@ -126,6 +126,54 @@ test('extreme narrow (320×700): every composer popover stays inside the viewpor
   expect(nameBox.width, 'routine name keeps readable width').toBeGreaterThan(60)
 })
 
+test('desktop (1280×800): the collapsed rail\'s reopen control is in-flow and never overlaps content (UI-3)', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto('/')
+
+  // Collapse the rail: the reopen control appears in its own gutter COLUMN —
+  // in the layout, not floating over it (UI-3, strengthened to every tier
+  // after the equal-panes model killed the old pl-14 indent convention and
+  // the floating button sat on every page title).
+  await page.getByRole('button', { name: 'Collapse sidebar' }).click()
+  // The rail collapses over a 200ms width transition — wait for the gutter to
+  // settle at the left edge before measuring geometry (the clipped rail still
+  // reads "visible" to Playwright, so poll the reopen control's position).
+  const reopen = page.getByRole('button', { name: 'Expand sidebar' })
+  await expect(reopen).toBeVisible()
+  await expect.poll(async () => (await reopen.boundingBox())!.x).toBeLessThan(52)
+  expect(
+    await reopen.evaluate((el) => getComputedStyle(el).position),
+    'wide-tier rail toggle is in-flow, not floating',
+  ).toBe('static')
+
+  // The control's box must not intersect the focused surface's title — the
+  // draft conversation's title bar here, standing in for whatever pane is
+  // top-left (all panes are homogeneous, so one geometry case locks the class).
+  const reopenBox = (await reopen.boundingBox())!
+  const title = page.locator('[data-session-title-bar]').getByText('New session').first()
+  await expect(title).toBeVisible()
+  const titleBox = (await title.boundingBox())!
+  expect(
+    titleBox.x,
+    'pane content starts clear of the reopen gutter',
+  ).toBeGreaterThanOrEqual(reopenBox.x + reopenBox.width)
+
+  // A section page's h1 clears it too (the reported regression: "Projects"
+  // rendered under the toggle).
+  await reopen.click()
+  await page.getByRole('navigation').getByRole('button', { name: /^Projects/ }).click()
+  await page.getByRole('button', { name: 'Collapse sidebar' }).click()
+  await expect.poll(async () => (await reopen.boundingBox())!.x).toBeLessThan(52)
+  const h1 = page.locator('main h1').first()
+  await expect(h1).toBeVisible()
+  const h1Box = (await h1.boundingBox())!
+  const reopenBox2 = (await reopen.boundingBox())!
+  expect(
+    h1Box.x,
+    'page title starts clear of the reopen gutter',
+  ).toBeGreaterThanOrEqual(reopenBox2.x + reopenBox2.width)
+})
+
 test('tablet (768×1024): the panel overlays the thread behind a scrim; the scrim click dismisses', async ({ page }) => {
   await page.setViewportSize({ width: 768, height: 1024 })
   await page.goto('/')

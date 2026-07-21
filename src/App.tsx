@@ -379,23 +379,6 @@ function Workspace() {
     <div className="flex h-dvh flex-col overflow-hidden bg-canvas text-ink">
       {/* ===== The product — no top bar; the rail owns its toggle ===== */}
       <div className="relative flex min-h-0 flex-1 flex-col">
-        {/* When the rail is collapsed its own toggle hides with it, so a floating
-            control re-opens it — in the same top-left spot the rail's toggle sits.
-            Wide/medium only: those layouts reserve its spot (the pl-14 title
-            indents). On narrow the toggle lives IN the layout instead — inline in
-            the session title bar or the NarrowBar — so scrolling content can
-            never slide underneath it. */}
-        {!leftOpen && !railOverlay && (
-          <button
-            onClick={openLeft}
-            title="Expand sidebar"
-            aria-label="Expand sidebar"
-            className="absolute left-2.5 top-2.5 z-30 flex h-8 w-8 items-center justify-center rounded-lg border border-line bg-surface text-ink-soft shadow-sm transition hover:bg-panel-2 hover:text-ink"
-          >
-            <PanelLeft size={18} />
-          </button>
-        )}
-
         {/* Narrow tier: the rail is an off-canvas drawer over the app — a scrim
             behind it dims and dismisses (FWD-3). */}
         {railOverlay && leftOpen && (
@@ -469,6 +452,29 @@ function Workspace() {
               />
             </div>
           </div>
+
+          {/* When the rail is collapsed its own toggle hides with it, so a slim
+              IN-FLOW gutter column carries the reopen control at the same
+              top-left spot the rail's toggle sits. In-flow on EVERY tier
+              (UI-3): the old floating spelling relied on the primary surface
+              indenting its title (`pl-14`), and when the equal-panes model
+              made every surface a homogeneous pane that indent silently died —
+              the button sat on whatever pane title was top-left. Layout
+              reservation is structural; an indent convention is not. (On
+              narrow the toggle lives inline in the title bar / NarrowBar
+              instead — the drawer overlays rather than tiles.) */}
+          {!leftOpen && !railOverlay && (
+            <div className="flex h-full w-[52px] shrink-0 justify-center pt-2.5">
+              <button
+                onClick={openLeft}
+                title="Expand sidebar"
+                aria-label="Expand sidebar"
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-line bg-surface text-ink-soft shadow-sm transition hover:bg-panel-2 hover:text-ink"
+              >
+                <PanelLeft size={18} />
+              </button>
+            </div>
+          )}
 
           <main
             // While the narrow drawer floats over the app, everything it covers
