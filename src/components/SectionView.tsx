@@ -3035,8 +3035,16 @@ function ProfileCommonsBand({ actor }: { actor: string }) {
  *  column; the deliberate note is the publish act (silent grants stay out).
  *  The rail's kind facet (shares / landings) filters; null shows all. */
 function CommonsSection({ subview }: { subview: string | null }) {
+  const rel = useRelations()
   const all = useCommons().data ?? []
   const list = subview === 'shares' ? all.filter((i) => i.kind === 'share') : subview === 'landings' ? all.filter((i) => i.kind === 'landing') : all
+  // The BROWSE band (Discover consolidation): the D17 shared-project directory
+  // lives with the resources it lists — searchable, list-not-feed, never
+  // widening visibility. The Agents hub's Discover keeps agent discovery
+  // (definitions belong to the agent hub). Rendered on the ALL view only; the
+  // facet views stay pure feed.
+  const [q, setQ] = useState('')
+  const browse = useProjectDirectory(q.trim() || undefined).data ?? []
   return (
     <Page>
       <PageHeader title="Commons" />
@@ -3051,6 +3059,40 @@ function CommonsSection({ subview }: { subview: string | null }) {
           {list.map((item) => (
             <FeedCard key={item.id} item={item} />
           ))}
+        </div>
+      )}
+      {subview === null && (
+        <div className="mx-auto mt-8 w-full max-w-xl">
+          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+            Browse the commons
+          </div>
+          <p className="mb-3 text-[12px] text-ink-faint">
+            Every project other workspaces opened to contributors — a searchable directory, not a feed.
+          </p>
+          <div className="relative mb-3">
+            <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search shared projects…"
+              aria-label="Search shared projects"
+              className={`${FORM_INPUT_CLASS} pl-8`}
+            />
+          </div>
+          {browse.length === 0 ? (
+            <Empty>No shared projects{q.trim() ? ' match' : ' yet — share one from its project page'}.</Empty>
+          ) : (
+            <div className="space-y-3">
+              {browse.map((p) => (
+                <SharedProjectCard
+                  key={p.id}
+                  entry={p}
+                  onOpen={() => rel.navigate('projects', p.id)}
+                  onOwnerClick={() => rel.navigate('agents', p.owner)}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
     </Page>
@@ -7871,17 +7913,17 @@ function ProjectCommissionGroup({
   )
 }
 
-/** The discovery directory (docs/agent-commons.md, D17) — what other accounts made
- *  public: shared Projects open to Contributors, and published Agent definitions any
- *  account may fork (D18). Deliberately a searchable LIST, not a feed — the directory
- *  never widens visibility (each entry is the row's existing public face), and ranking
- *  is a policy this prototype doesn't take. One debounced-enough search box filters
- *  both directories (substring on name/description, server-side). */
+/** The AGENT discovery directory (docs/agent-commons.md, D17/D18) — published
+ *  Agent definitions any account may fork. Agent-only since the Discover
+ *  consolidation (social S4): the shared-PROJECT directory moved to the
+ *  Commons' Browse band — resources are discovered where resources live, and
+ *  the Agents hub keeps what it's for, definitions. Still a searchable LIST,
+ *  not a feed: the directory never widens visibility, and ranking is a policy
+ *  this prototype doesn't take. */
 function DiscoverTab({ onOpenAgentPage }: { onOpenAgentPage: (agentId: string) => void }) {
   const rel = useRelations()
   const [q, setQ] = useState('')
   const query = q.trim() || undefined
-  const projects = useProjectDirectory(query).data ?? []
   const agents = useAgentDirectory(query).data ?? []
   // Every owner byline is a DOOR to the workspace's profile page (D21) — the one
   // "everything this workspace shares" surface (it subsumed the old filter chip).
@@ -7893,30 +7935,10 @@ function DiscoverTab({ onOpenAgentPage }: { onOpenAgentPage: (agentId: string) =
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search shared projects and published agents…"
-          aria-label="Search the directory"
+          placeholder="Search published agents…"
+          aria-label="Search the agent directory"
           className={`${FORM_INPUT_CLASS} pl-8`}
         />
-      </div>
-
-      <div>
-        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-          Shared projects
-        </div>
-        {projects.length === 0 ? (
-          <Empty>No shared projects{query ? ' match' : ' yet — share one from its project page'}.</Empty>
-        ) : (
-          <div className="space-y-3">
-            {projects.map((p) => (
-              <SharedProjectCard
-                key={p.id}
-                entry={p}
-                onOpen={() => rel.navigate('projects', p.id)}
-                onOwnerClick={() => openOwner(p.owner)}
-              />
-            ))}
-          </div>
-        )}
       </div>
 
       <div>
