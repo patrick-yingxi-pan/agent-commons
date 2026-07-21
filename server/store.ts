@@ -4711,7 +4711,7 @@ export const store = {
   /** The subject's embed face, resolved per kind at serve time (the
    *  ResourcePreview adapter's server half — display name + one line; nothing
    *  stored, so a rename can't go stale). */
-  commonsSubjectFace(ref: SocialEntityRef): { name: string; blurb?: string } {
+  commonsSubjectFace(ref: SocialEntityRef): { name: string; blurb?: string; turns?: { role: 'user' | 'assistant'; text: string }[] } {
     switch (ref.kind) {
       case 'project': {
         const p = findProject(ref.id)
@@ -4719,7 +4719,13 @@ export const store = {
       }
       case 'session': {
         const s = SESSIONS.find((x) => x.id === ref.id)
-        return { name: s?.title ?? ref.id, ...(s?.preview ? { blurb: s.preview } : {}) }
+        // A conversation previews AS conversation: the last two turns ride the
+        // embed (trimmed — the card is a teaser, the session page the door).
+        const turns = (s?.messages ?? [])
+          .slice(-2)
+          .filter((m) => m.content.trim())
+          .map((m) => ({ role: m.role, text: m.content.slice(0, 200) }))
+        return { name: s?.title ?? ref.id, ...(s?.preview ? { blurb: s.preview } : {}), ...(turns.length ? { turns } : {}) }
       }
       case 'schedule': {
         const t = schedules.find((x) => x.id === ref.id)
@@ -4759,6 +4765,7 @@ export const store = {
         ...base,
         subjectName: face.name,
         ...(face.blurb ? { subjectBlurb: face.blurb } : {}),
+        ...(face.turns ? { subjectTurns: face.turns } : {}),
         ...(root ? { discussionId: root.id } : {}),
         commentCount: root?.posts.length ?? 0,
       })

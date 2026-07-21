@@ -67,6 +67,24 @@ test('the feed: published shares in, silent grants out, walls per viewer, commen
   assert.equal(landing.landingNumber, 1)
 })
 
+test('a shared SESSION previews as conversation: the embed carries its last turns, trimmed', async () => {
+  const { SESSIONS } = await import('../server/data/sessions.ts')
+  const seedSession = SESSIONS.find((s) => !s.tenantId && (s.messages?.length ?? 0) >= 2)
+  assert.ok(seedSession, 'a seed session with an exchange exists')
+  const shared = await call(
+    'POST', '/grants',
+    { subject: { kind: 'session', id: seedSession!.id }, audience: { kind: 'org', orgId: AUDIENCE }, tier: 'view', note: 'A session worth reading.' },
+    { 'x-tenant-id': store.defaultTenantId() },
+  )
+  assert.equal(shared.status, 200)
+  const feed = await call('GET', '/commons', undefined, { 'x-tenant-id': AUDIENCE })
+  const card = feed.json.find((i: any) => i.subject.id === seedSession!.id)
+  assert.ok(card, 'the published session rides the feed')
+  assert.ok(Array.isArray(card.subjectTurns) && card.subjectTurns.length >= 1, 'the embed carries turns')
+  assert.ok(card.subjectTurns.every((t: any) => (t.role === 'user' || t.role === 'assistant') && t.text.length <= 200), 'roles + trim hold')
+  assert.equal(store.revokeGrant(shared.json.id, store.defaultTenantId()), 'ok', 'cleanup')
+})
+
 test('the seeded publish rides the demo feed for its audience', async () => {
   const feed = await call('GET', '/commons', undefined, { 'x-tenant-id': 'tenant-beta' })
   assert.ok(

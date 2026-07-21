@@ -192,6 +192,10 @@ export interface CommonsItem {
    *  display name + one descriptive line. */
   subjectName: string
   subjectBlurb?: string
+  /** SESSION subjects only: the last exchanges, so a shared conversation
+   *  previews AS conversation inside the card (the ResourcePreview adapter's
+   *  richest face; text is trimmed server-side). */
+  subjectTurns?: { role: 'user' | 'assistant'; text: string }[]
   /** The subject's root discussion, when one exists — the card's comments. */
   discussionId?: string
   /** Posts on that root thread (the card's count; the thread is the door). */

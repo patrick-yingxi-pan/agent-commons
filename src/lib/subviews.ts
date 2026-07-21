@@ -34,6 +34,15 @@ export const SECTION_SUBVIEWS: Partial<Record<SectionId, SubView[]>> = {
     { id: 'open', label: 'Open' },
     { id: 'resolved', label: 'Resolved' },
   ],
+  // The Commons groups by ITEM KIND — the feed's one honest partition (shares
+  // are publishes, landings are ledger events). Adjudicated over the design
+  // sketch's kind/audience/activity triple: the rail rule wants ONE partition
+  // per section, and audience/activity are filters a later chrome can add
+  // without re-selecting the grouping.
+  commons: [
+    { id: 'shares', label: 'Shares' },
+    { id: 'landings', label: 'Landings' },
+  ],
   artifacts: [
     { id: 'doc', label: 'Documents' },
     { id: 'image', label: 'Images' },

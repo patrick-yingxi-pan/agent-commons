@@ -13,7 +13,7 @@ import { SECTION_SUBVIEWS } from '../src/lib/subviews.ts'
 test('every section with real sub-structure is in the registry; leaf sections are not', () => {
   assert.deepEqual(
     Object.keys(SECTION_SUBVIEWS).sort(),
-    ['admin', 'agents', 'artifacts', 'contexts', 'discussions', 'models', 'projects', 'scheduled'],
+    ['admin', 'agents', 'artifacts', 'commons', 'contexts', 'discussions', 'models', 'projects', 'scheduled'],
   )
   // Dispatch (a flat feed) and Customize (a settings stack) have no sub-nodes.
   assert.equal(SECTION_SUBVIEWS.dispatch, undefined)
@@ -30,6 +30,8 @@ test('each section’s child ids ARE its own switch keys (the body filters on th
   assert.deepEqual(SECTION_SUBVIEWS.projects.map((s) => s.id), ['mine', 'shared'])
   // Discussions (social S2): the entity's one lifecycle axis is its facet.
   assert.deepEqual(SECTION_SUBVIEWS.discussions.map((s) => s.id), ['open', 'resolved'])
+  // The Commons (S4): partitioned by item kind — publishes vs ledger events.
+  assert.deepEqual(SECTION_SUBVIEWS.commons.map((s) => s.id), ['shares', 'landings'])
   // Agents: its NON-default surfaces — the worker list is the section row, not a child.
   assert.deepEqual(SECTION_SUBVIEWS.agents.map((s) => s.id), ['work', 'prompts', 'commissions', 'discover', 'audit'])
   // The maintainer console: its NON-default surfaces — Accounts is the section row.

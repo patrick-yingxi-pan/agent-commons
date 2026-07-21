@@ -405,7 +405,7 @@ export function SectionView({
         onOpenSession={onOpenSession}
       />
     ) : section === 'commons' ? (
-      <CommonsSection />
+      <CommonsSection subview={subview} />
     ) : section === 'discussions' ? (
       <DiscussionsSection subview={subview} discussionId={focusDiscussionId} onOpenSession={onOpenSession} onBack={onBack} backTo={backTo} />
     ) : section === 'admin' ? (
@@ -2963,6 +2963,17 @@ function FeedCard({ item }: { item: CommonsItem }) {
           <span className="block truncate text-[13px] font-medium text-ink">{item.subjectName}</span>
         )}
         {item.subjectBlurb && <p className="mt-0.5 truncate text-[12px] text-ink-faint">{item.subjectBlurb}</p>}
+        {/* A session previews AS conversation — the embed's richest face. */}
+        {item.subjectTurns && (
+          <div className="mt-1.5 space-y-1 border-t border-line pt-1.5">
+            {item.subjectTurns.map((t, i) => (
+              <p key={i} className="truncate text-[12px] text-ink-soft">
+                <span className="mr-1 font-medium text-ink-faint">{t.role === 'user' ? 'You' : 'Claude'}</span>
+                {t.text}
+              </p>
+            ))}
+          </div>
+        )}
       </div>
       {root && root.posts.length > 0 && (
         <div className="mt-3 border-t border-line pt-2.5">
@@ -2982,15 +2993,19 @@ function FeedCard({ item }: { item: CommonsItem }) {
 }
 
 /** The Commons feed — what the caller's world shares. One chronological
- *  column; the deliberate note is the publish act (silent grants stay out). */
-function CommonsSection() {
-  const list = useCommons().data ?? []
+ *  column; the deliberate note is the publish act (silent grants stay out).
+ *  The rail's kind facet (shares / landings) filters; null shows all. */
+function CommonsSection({ subview }: { subview: string | null }) {
+  const all = useCommons().data ?? []
+  const list = subview === 'shares' ? all.filter((i) => i.kind === 'share') : subview === 'landings' ? all.filter((i) => i.kind === 'landing') : all
   return (
     <Page>
       <PageHeader title="Commons" />
       {list.length === 0 ? (
         <Empty>
-          Nothing published yet — share a resource with a note (the note is the post) and it lands here for its audience.
+          {subview
+            ? `No ${subview} in your commons yet.`
+            : 'Nothing published yet — share a resource with a note (the note is the post) and it lands here for its audience.'}
         </Empty>
       ) : (
         <div className="mx-auto w-full max-w-xl space-y-3">
