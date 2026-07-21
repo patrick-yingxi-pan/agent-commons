@@ -436,45 +436,7 @@ export function Sidebar({
         {/* The bell (D24) — the inbox of public acts on what you watch, own, or
             posted. The badge is the unread count, live via notification.changed. */}
         <NotificationBell onClick={onOpenNotifications} />
-        {/* Split the main view (universal split, wide tier only — the parent
-            passes the handler when there's room to tile). Two directions, one
-            per button; both act on the FOCUSED pane, duplicating its content. */}
-        {onSplitView && (
-          <>
-            <button
-              onClick={() => onSplitView('row')}
-              title="Split right"
-              aria-label="Split right"
-              data-split-view="row"
-              className={SIDEBAR_ICON_BUTTON}
-            >
-              <Columns2 size={18} />
-            </button>
-            <button
-              onClick={() => onSplitView('col')}
-              title="Split down"
-              aria-label="Split down"
-              data-split-view="col"
-              className={SIDEBAR_ICON_BUTTON}
-            >
-              <Rows2 size={18} />
-            </button>
-          </>
-        )}
-        {/* Close the focused pane — same cluster, same target (the focused pane),
-            offered whenever split panes exist. Panes are homogeneous: the
-            primary's tile closes too (its role relocates — see useMainSplit). */}
-        {onCloseView && (
-          <button
-            onClick={onCloseView}
-            title="Close pane"
-            aria-label="Close pane"
-            data-close-view
-            className={SIDEBAR_ICON_BUTTON}
-          >
-            <X size={18} />
-          </button>
-        )}
+        <PaneActionButtons onSplitView={onSplitView} onCloseView={onCloseView} />
       </div>
 
       {/* New session — pinned above the pane stack, in a labeled <nav> so e2e's
@@ -726,6 +688,59 @@ export function Sidebar({
 /** A pane's foldable header (ADAPT-13): the uppercase label doubles as a fold toggle
  *  with a rotating caret — the same affordance on every rail pane — and its right-side
  *  control (a filter menu, or the Sections fold-all button) shows only when open. */
+/** The focused-pane action cluster — split right / split down / close — ONE
+ *  component for every host: the rail's header trio row and the shell's
+ *  collapsed mini-rail (App.tsx). The parent passes each handler only when the
+ *  act is available (split: wide tier with room to tile; close: split panes
+ *  exist), so both hosts follow the SAME responsive rules by construction.
+ *  Both split directions act on the FOCUSED pane, duplicating its content;
+ *  panes are homogeneous, so the primary's tile closes too (useMainSplit). */
+export function PaneActionButtons({
+  onSplitView,
+  onCloseView,
+}: {
+  onSplitView?: (dir: 'row' | 'col') => void
+  onCloseView?: () => void
+}) {
+  return (
+    <>
+      {onSplitView && (
+        <>
+          <button
+            onClick={() => onSplitView('row')}
+            title="Split right"
+            aria-label="Split right"
+            data-split-view="row"
+            className={SIDEBAR_ICON_BUTTON}
+          >
+            <Columns2 size={18} />
+          </button>
+          <button
+            onClick={() => onSplitView('col')}
+            title="Split down"
+            aria-label="Split down"
+            data-split-view="col"
+            className={SIDEBAR_ICON_BUTTON}
+          >
+            <Rows2 size={18} />
+          </button>
+        </>
+      )}
+      {onCloseView && (
+        <button
+          onClick={onCloseView}
+          title="Close pane"
+          aria-label="Close pane"
+          data-close-view
+          className={SIDEBAR_ICON_BUTTON}
+        >
+          <X size={18} />
+        </button>
+      )}
+    </>
+  )
+}
+
 /** The notification bell + its live unread badge (D24) — ONE component for
  *  every host: the rail's header trio and the shell's collapsed mini-rail
  *  (App.tsx). The badge count reads the live notifications hook here, so a

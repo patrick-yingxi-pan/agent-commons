@@ -172,6 +172,17 @@ test('desktop (1280×800): the collapsed rail\'s reopen control is in-flow and n
     h1Box.x,
     'page title starts clear of the reopen gutter',
   ).toBeGreaterThanOrEqual(reopenBox2.x + reopenBox2.width)
+
+  // The mini-rail carries the focused-pane acts under the SAME gates as the
+  // expanded rail (the shared PaneActionButtons): split the Projects page from
+  // the collapsed rail, then close the duplicate back down.
+  // Scope to the mini-rail's stamp: the clipped rail's copy is still in the
+  // DOM (buried under its inert ancestor — UI-8 keeps it out of the tab
+  // order, not out of the DOM).
+  await page.locator('[data-mini-rail] [data-split-view="row"]').click()
+  await expect(page.locator('main h1', { hasText: 'Projects' })).toHaveCount(2)
+  await page.locator('[data-mini-rail] [data-close-view]').click()
+  await expect(page.locator('main h1', { hasText: 'Projects' })).toHaveCount(1)
 })
 
 test('tablet (768×1024): the panel overlays the thread behind a scrim; the scrim click dismisses', async ({ page }) => {

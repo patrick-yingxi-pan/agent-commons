@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { PanelLeft, Search } from 'lucide-react'
-import { NotificationBell, Sidebar } from './components/Sidebar'
+import { NotificationBell, PaneActionButtons, Sidebar } from './components/Sidebar'
 import { SIDEBAR_ICON_BUTTON } from './lib/sidebar'
 import { AuthScreen } from './components/auth/AuthScreen'
 import { useAuthScreen } from './controller/useAuthScreen'
@@ -375,6 +375,27 @@ function Workspace() {
     [openProject, openWorkItemPage, openContributionPage, openSchedule, openContextPage, openOwner, openAdminUserPage, openSection],
   )
 
+  // The focused-pane acts, gated ONCE by the responsive rules and handed to
+  // every host alike (the expanded rail's header and the collapsed MiniRail):
+  // split only where the wide tier has room to tile; close only while split
+  // panes exist. Hoisted so the two hosts can't drift in when they offer them.
+  const paneSplitAct = tier === 'wide' ? splitView : undefined
+  const paneCloseAct =
+    tier === 'wide' && focusedClosable
+      ? () =>
+          closeFocused(() => {
+            // The focus-driven context panel: clear its OWNING session's STORE
+            // focus so the projection removes the pane (panelPref remembers it
+            // closed, FWD-2).
+            const c = focusedContentRef.current
+            const sid = c?.kind === 'context-panel' ? c.sessionId : null
+            if (sid) {
+              conversations.setFocus(sid, null)
+              if (sid !== DRAFT_ID) setPanelPref(sid, null)
+            }
+          })
+      : undefined
+
   return (
     <RelationsProvider navigate={navigateToSection}>
     <div className="flex h-dvh flex-col overflow-hidden bg-canvas text-ink">
@@ -428,23 +449,8 @@ function Workspace() {
                 onOpenSearch={withRailClose(() => setSearchOpen(true))}
                 onOpenNotifications={withRailClose(() => setNotifOpen(true))}
                 onOpenOwner={withRailClose(openOwner)}
-                onSplitView={tier === 'wide' ? splitView : undefined}
-                onCloseView={
-                  tier === 'wide' && focusedClosable
-                    ? () =>
-                        closeFocused(() => {
-                          // The focus-driven context panel: clear its OWNING
-                          // session's STORE focus so the projection removes the
-                          // pane (panelPref remembers it closed, FWD-2).
-                          const c = focusedContentRef.current
-                          const sid = c?.kind === 'context-panel' ? c.sessionId : null
-                          if (sid) {
-                            conversations.setFocus(sid, null)
-                            if (sid !== DRAFT_ID) setPanelPref(sid, null)
-                          }
-                        })
-                    : undefined
-                }
+                onSplitView={paneSplitAct}
+                onCloseView={paneCloseAct}
                 resizable={!railOverlay}
                 railW={leftW}
                 onResizeStart={startResize}
@@ -472,6 +478,8 @@ function Workspace() {
               onExpand={openLeft}
               onOpenSearch={() => setSearchOpen(true)}
               onOpenNotifications={() => setNotifOpen(true)}
+              onSplitView={paneSplitAct}
+              onCloseView={paneCloseAct}
             />
           )}
 
@@ -566,19 +574,29 @@ function Workspace() {
 }
 
 /** The collapsed rail on wide/medium (UI-3): the rail minimized to a slim
- *  in-flow column wearing the rail's own surface, its header trio rotated
- *  vertical — expand, search, notifications (the live-badged shared bell). */
+ *  in-flow column wearing the rail's own surface, its header cluster rotated
+ *  vertical — expand, search, notifications (the live-badged shared bell),
+ *  and the focused-pane acts (the shared split/close cluster, offered under
+ *  the SAME gates the expanded rail applies — the parent passes the hoisted
+ *  handlers to both hosts). */
 function MiniRail({
   onExpand,
   onOpenSearch,
   onOpenNotifications,
+  onSplitView,
+  onCloseView,
 }: {
   onExpand: () => void
   onOpenSearch: () => void
   onOpenNotifications: () => void
+  onSplitView?: (dir: 'row' | 'col') => void
+  onCloseView?: () => void
 }) {
   return (
-    <div className="flex h-full w-12 shrink-0 flex-col items-center gap-1 border-r border-line bg-sidebar pt-2.5">
+    <div
+      data-mini-rail
+      className="flex h-full w-12 shrink-0 flex-col items-center gap-1 border-r border-line bg-sidebar pt-2.5"
+    >
       <button onClick={onExpand} title="Expand sidebar" aria-label="Expand sidebar" className={SIDEBAR_ICON_BUTTON}>
         <PanelLeft size={18} />
       </button>
@@ -586,6 +604,7 @@ function MiniRail({
         <Search size={18} />
       </button>
       <NotificationBell onClick={onOpenNotifications} />
+      <PaneActionButtons onSplitView={onSplitView} onCloseView={onCloseView} />
     </div>
   )
 }

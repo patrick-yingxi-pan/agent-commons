@@ -30,6 +30,21 @@ test('the collapsed-rail reopen control occupies layout — never absolutely pos
   }
 })
 
+test('the split/close cluster has one home — both rail hosts render PaneActionButtons', () => {
+  // The expanded rail's header and the collapsed MiniRail offer the focused-
+  // pane acts through ONE shared component, gated by the SAME hoisted handlers
+  // (split: wide tier; close: split panes exist) — so the two hosts can't
+  // drift in when they offer them, and neither re-hardcodes the buttons.
+  const app = read('src/App.tsx')
+  const sidebar = read('src/components/Sidebar.tsx')
+  assert.ok(app.includes('<PaneActionButtons'), 'MiniRail renders the shared cluster')
+  assert.ok(sidebar.includes('<PaneActionButtons'), 'the rail header renders the shared cluster')
+  // The data stamps live only inside the one component (Sidebar.tsx defines
+  // it) — App.tsx re-hardcoding a split/close button would carry them here.
+  assert.ok(!app.includes('data-split-view'), 'App.tsx does not re-hardcode a split button')
+  assert.ok(!app.includes('data-close-view'), 'App.tsx does not re-hardcode a close button')
+})
+
 test('no surface indents for floating chrome — the pl-14 convention stays dead', async () => {
   // The old exemption: a title indented `pl-14` so a floating control could sit
   // in the gap. Reservation now lives in the shell's gutter column; any pl-14
