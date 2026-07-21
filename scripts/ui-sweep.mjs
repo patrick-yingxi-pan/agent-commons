@@ -256,8 +256,8 @@ for (const vp of VIEWPORTS) {
   await shot(page, cell.replace('/', '_'))
   await sweepTriggers(page, vp, cell)
 
-  // ── cells: the seven sections ──
-  for (const section of ['Projects', 'Artifacts', 'Contexts', 'Agents', 'Scheduled', 'Dispatch', 'Customize']) {
+  // ── cells: the rail sections (incl. the social layer's Commons + Discussions) ──
+  for (const section of ['Commons', 'Projects', 'Artifacts', 'Contexts', 'Agents', 'Scheduled', 'Discussions', 'Dispatch', 'Customize']) {
     cell = `${vp.name}/${section.toLowerCase()}`
     try {
       await pickNav(page, vp, new RegExp(`^${section}`))
@@ -269,6 +269,24 @@ for (const vp of VIEWPORTS) {
     await shot(page, cell.replace('/', '_'))
     await sweepTriggers(page, vp, cell)
   }
+
+  // ── cell: a project detail page (the social panels live here: the Sharing
+  // rail's grant form, the merged Changes ledger, the Discussion thread) ──
+  cell = `${vp.name}/project-detail`
+  await pickNav(page, vp, /^Projects/).catch(() => {})
+  const projectRow = page.locator('main').getByText(/Insights dashboard|Platform hardening/i).first()
+  if (await projectRow.count()) {
+    try {
+      await projectRow.click({ timeout: 3000 })
+      await tick(400)
+      await noHScroll(page, cell)
+      await shot(page, cell.replace('/', '_'))
+      await sweepTriggers(page, vp, cell, page.locator('main'))
+    } catch (e) {
+      await shot(page, `${cell.replace('/', '_')}-FAILED`)
+      skip(cell, `project row matched but not clickable: ${e.message.split('\n')[0]}`)
+    }
+  } else skip(cell, 'no project row matched — check the seeds or widen the pattern')
 
   // ── cell: Scheduled detail (cadence + model editors live there) ──
   cell = `${vp.name}/scheduled-detail`

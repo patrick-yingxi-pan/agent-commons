@@ -1591,7 +1591,10 @@ function GrantsPanel({ subject }: { subject: SocialEntityRef }) {
         </ul>
       )}
       <div className="space-y-1.5">
-        <div className="flex gap-1.5">
+        {/* flex-wrap + min-w-0: the 288px rail can't fit all three controls on
+            one line — the tier select wraps rather than clipping off the card
+            (a real wide-tier finding from the ui-sweep judgment pass). */}
+        <div className="flex flex-wrap gap-1.5">
           <select
             aria-label="Audience kind"
             value={audKind}
@@ -1608,7 +1611,7 @@ function GrantsPanel({ subject }: { subject: SocialEntityRef }) {
               value={audId}
               onChange={(e) => setAudId(e.target.value)}
               placeholder="tenant-…"
-              className={FORM_INPUT_CLASS}
+              className={`${FORM_INPUT_CLASS} min-w-24 flex-1`}
             />
           )}
           <select aria-label="Tier" value={tier} onChange={(e) => setTier(e.target.value as ShareTier)} className={`${FORM_INPUT_CLASS} w-28 shrink-0`}>
