@@ -7,9 +7,9 @@
  *  resource previews) registered elsewhere; nothing here may branch on a kind.
  *  Imported verbatim by UI + server — framework- and Node-free. */
 
-/** The six social nouns: the five of `contract/relations.ts` plus Discussion
- *  (itself an entity, so every primitive applies recursively — including
- *  attaching a discussion to a session as context). */
+/** The social nouns: the five of `contract/relations.ts` plus Discussion and
+ *  Proposal (both entities themselves, so every primitive applies recursively —
+ *  a proposal's review thread IS a discussion anchored to the proposal). */
 export const SOCIAL_ENTITY_KINDS = [
   'session',
   'project',
@@ -17,6 +17,7 @@ export const SOCIAL_ENTITY_KINDS = [
   'context',
   'schedule',
   'discussion',
+  'proposal',
 ] as const
 export type SocialEntityKind = (typeof SOCIAL_ENTITY_KINDS)[number]
 
@@ -126,6 +127,47 @@ export interface OpenDiscussionRequest {
 /** `POST /v1/discussions/:id/posts` — append to the thread. */
 export interface PostToDiscussionRequest {
   body: string
+}
+
+/** ── Proposal (S3) — a typed change OFFERED to a resource ────────────────────
+ *  The landing-ledger generalized to any noun: a proposal carries a delta, a
+ *  review discussion (a normal Discussion anchored to the proposal — recursion,
+ *  not a second thread machinery), and lands by the subject OWNER's consent
+ *  into a per-subject linear ledger (L1, L2, … — no merge DAG). Its read wall
+ *  IS its subject's wall (a proposal is never wider than what it changes).
+ *  Named `SocialProposal` on the wire — `AgentChangeProposal` (D25) already
+ *  owns the bare name in this contract. */
+export type ProposalDelta =
+  /** A prose change offered — no machine applier; landing records acceptance
+   *  (the reviewable-suggestion floor every kind supports). */
+  | { kind: 'suggestion'; text: string }
+  /** A relationship-graph edit — landing APPLIES the op (the real applier;
+   *  same reducer both sides of the wire, `contract/graph.ts`). */
+  | { kind: 'relation-op'; op: import('./relations.ts').RelationOp }
+
+export interface SocialProposal {
+  id: string
+  subject: SocialEntityRef
+  delta: ProposalDelta
+  state: 'offered' | 'landed' | 'declined'
+  /** Display name of the offering namespace (REDACTED face). */
+  offeredBy: string
+  offeredAt: number
+  /** The per-subject ledger position, assigned at land time (monotonic). */
+  landingNumber?: number
+  /** The review thread — a Discussion anchored to THIS proposal. */
+  discussionId: string
+  /** Viewer-relative: the caller offered it (the projects `own` pattern). */
+  mine?: boolean
+}
+
+/** `POST /v1/proposals` — offer a change. `rationale` is required (it opens the
+ *  review thread — an unargued change is noise); INV-9: there is no absent
+ *  form. */
+export interface OpenProposalRequest {
+  subject: SocialEntityRef
+  delta: ProposalDelta
+  rationale: string
 }
 
 /** The tier lattice as a rank — view 0 < comment 1 < propose 2 < co-own 3. */

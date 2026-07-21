@@ -345,6 +345,13 @@ export async function buildComprehensive(): Promise<PersistedState> {
     { anchor: { ref: { kind: 'project', id: 'p-playground' } }, firstPost: 'Playground root thread — exercised for the snapshot.' },
     store.defaultTenantId(),
   )
+  // ── Social S3 proposals ── exercise the persisted slice through the real
+  // mutator: a suggestion offered on the playground project (its review thread
+  // exercises the discussions slice's proposal anchor too).
+  store.openSocialProposal(
+    { subject: { kind: 'project', id: 'p-playground' }, delta: { kind: 'suggestion', text: 'Playground suggestion — snapshot coverage.' }, rationale: 'Exercised for the snapshot.' },
+    store.defaultTenantId(),
+  )
   // ── Delegations (CW8, Phase F) ── exercise the persisted roster through the
   // real mint funnel (the default agent is the default tenant's own worker).
   store.createDelegation(

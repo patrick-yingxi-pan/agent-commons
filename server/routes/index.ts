@@ -9,6 +9,7 @@ import type {
   CreateCommissionRequest,
   CreateGrantRequest,
   OpenDiscussionRequest,
+  OpenProposalRequest,
   PostToDiscussionRequest,
   SocialEntityKind,
   CreateDispatchRequest,
@@ -1934,6 +1935,52 @@ export function buildRouter(): Router {
     const out = store.setDiscussionState(params.did, state, store.identity(req.headers).tenant.id)
     if (out === undefined) return sendError(res, 'not_found', `No discussion '${params.did}'`)
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the opener or the subject’s owner may resolve a discussion')
+    sendJson(res, out)
+  })
+
+  // ── Social-layer proposals (S3) ─────────────────────────────────────────────
+  // The landing ledger generalized: walls inherit the SUBJECT's (existence-
+  // hiding everywhere); landing/declining is the subject owner's consent.
+  r.get('/proposals', ({ req, res, url }) => {
+    const kind = url.searchParams.get('kind') ?? ''
+    const id = url.searchParams.get('id') ?? ''
+    if (!(SOCIAL_ENTITY_KINDS as readonly string[]).includes(kind) || !id) {
+      return sendError(res, 'bad_request', 'kind (a social entity kind) and id are required')
+    }
+    const ref = { kind: kind as SocialEntityKind, id }
+    const tenant = store.identity(req.headers).tenant.id
+    if (!store.grantSubjectVisible(ref, tenant)) return sendError(res, 'not_found', `No ${kind} '${id}'`)
+    sendJson(res, store.listSocialProposals(ref, tenant))
+  })
+  r.post('/proposals', async ({ req, res, body }) => {
+    const input = await body<OpenProposalRequest>()
+    if (!input?.subject?.kind || !input.subject.id || !input.delta?.kind || typeof input.rationale !== 'string' || !input.rationale.trim()) {
+      return sendError(res, 'bad_request', 'subject {kind,id}, a typed delta, and a non-empty rationale are required')
+    }
+    const out = store.openSocialProposal({ ...input, rationale: input.rationale.trim() }, store.identity(req.headers).tenant.id)
+    if (out === undefined) return sendError(res, 'not_found', `No ${input.subject.kind} '${input.subject.id}'`)
+    if (out === 'forbidden') return sendError(res, 'forbidden', 'Proposing needs the propose tier')
+    if (out === 'capped') return sendError(res, 'conflict', 'This subject’s proposals are at their cap')
+    if (out === 'invalid') return sendError(res, 'bad_request', 'the delta must be a non-empty suggestion or a well-formed relation op')
+    sendJson(res, out)
+  })
+  r.get('/proposals/:pid', ({ req, res, params }) => {
+    const out = store.getSocialProposal(params.pid, store.identity(req.headers).tenant.id)
+    if (out === undefined) return sendError(res, 'not_found', `No proposal '${params.pid}'`)
+    sendJson(res, out)
+  })
+  r.post('/proposals/:pid/land', ({ req, res, params }) => {
+    const out = store.landSocialProposal(params.pid, store.identity(req.headers).tenant.id)
+    if (out === undefined) return sendError(res, 'not_found', `No proposal '${params.pid}'`)
+    if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the subject’s owner lands a proposal')
+    if (out === 'closed') return sendError(res, 'conflict', 'Only an offered proposal can land')
+    sendJson(res, out)
+  })
+  r.post('/proposals/:pid/decline', ({ req, res, params }) => {
+    const out = store.declineSocialProposal(params.pid, store.identity(req.headers).tenant.id)
+    if (out === undefined) return sendError(res, 'not_found', `No proposal '${params.pid}'`)
+    if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the subject’s owner declines a proposal')
+    if (out === 'closed') return sendError(res, 'conflict', 'Only an offered proposal can be declined')
     sendJson(res, out)
   })
 

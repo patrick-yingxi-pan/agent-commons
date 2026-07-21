@@ -27,6 +27,8 @@ import type {
   DispatchRun,
   Grant,
   OpenDiscussionRequest,
+  OpenProposalRequest,
+  SocialProposal,
   Message,
   Project,
   RecentsSnapshot,
@@ -98,7 +100,7 @@ import { ResourceGuardian, GuardianError } from './guardian.ts'
 import { LOCAL_RUNNER_SEED, RUNNER_FS_ROOTS } from './data/runners.ts'
 import { DEFAULT_AGENT } from './data/workers.ts'
 import { EMPTY_WORKSPACE, workspaceFromSeed } from './workspace.ts'
-import { STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer, type StoredOpenSubGoal, type StoredWorkItemComment, type StoredContribution, type StoredContributionEvent, type StoredDelegation, type StoredGrant, type StoredDiscussion } from './persist.ts'
+import { STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer, type StoredOpenSubGoal, type StoredWorkItemComment, type StoredContribution, type StoredContributionEvent, type StoredDelegation, type StoredGrant, type StoredDiscussion, type StoredSocialProposal } from './persist.ts'
 import { eventlog } from './eventlog.ts'
 import { accounts } from './accounts.ts'
 
@@ -358,6 +360,36 @@ function publicDiscussion(d: StoredDiscussion, viewerTenant?: string): Discussio
       }
     }),
   }
+}
+
+/** ── Social-layer proposals (S3 — docs/design/social-layer.md §2.4) ──────────
+ *  The landing-ledger generalized: a typed delta offered to any noun, landed by
+ *  the subject OWNER's consent into a per-subject linear ledger. The review
+ *  thread is a normal Discussion anchored to the proposal (recursion). */
+const socialProposals: StoredSocialProposal[] = []
+let socialProposalSeq = 0
+const MAX_PROPOSALS_PER_SUBJECT = 100
+const MAX_PROPOSAL_CHARS = 2000
+
+/** Wire face: strip the raw offerer anchor; `mine` is viewer-relative. */
+function publicSocialProposal(p: StoredSocialProposal, viewerTenant?: string): SocialProposal {
+  const { offererTenant, ...pub } = p
+  return { ...pub, ...(viewerTenant !== undefined && tenantWritesAs(viewerTenant, offererTenant) ? { mine: true } : {}) }
+}
+
+/** A proposal has no wall of its own — its readability, tiers, and ownership
+ *  are its SUBJECT's. Canonicalize a ref through that indirection (bounded:
+ *  proposal subjects are never proposals more than a few deep by construction)
+ *  so every predicate checks grants against the ref they actually ride on. */
+function canonicalSocialRef(ref: SocialEntityRef): SocialEntityRef | undefined {
+  let cur = ref
+  for (let hops = 0; cur.kind === 'proposal'; hops += 1) {
+    if (hops >= 4) return undefined
+    const p = socialProposals.find((x) => x.id === cur.id)
+    if (!p) return undefined
+    cur = p.subject
+  }
+  return cur
 }
 
 /** The tier `viewerTenant` holds on a subject via grants (their read union) —
@@ -1391,6 +1423,7 @@ function snapshot(): PersistedState {
     delegations, // Phase F — the delegation rosters (a standing judgment grant survives a restart)
     grants, // social S1 — who can see/do what (a share survives a restart)
     discussions, // social S2 — anchored threads (talk survives a restart)
+    socialProposals, // social S3 — offered changes + the per-subject ledger
     // D24 — watch subscriptions ([tenantId, projectId] pairs) + the notification inbox.
     watches: [...watches.entries()].flatMap(([projectId, tenants]) => [...tenants].map((t) => [t, projectId] as [string, string])),
     notifications,
@@ -1421,6 +1454,7 @@ function snapshot(): PersistedState {
       delegation: delegationSeq,
       grant: grantSeq,
       discussion: discussionSeq,
+      socialProposal: socialProposalSeq,
       notification: notificationSeq,
       user: persistedAccounts.seq.user,
       tenant: persistedAccounts.seq.tenant,
@@ -1603,6 +1637,9 @@ function rehydrate(s: PersistedState): void {
   // Social S2 discussions — same restore shape (ids consume the shared counter).
   discussions.splice(0, discussions.length, ...(s.discussions ?? []))
   discussionSeq = s.seq.discussion ?? discussions.reduce((m, d) => m + 1 + d.posts.length, 0)
+  // Social S3 proposals — same restore shape.
+  socialProposals.splice(0, socialProposals.length, ...(s.socialProposals ?? []))
+  socialProposalSeq = s.seq.socialProposal ?? socialProposals.length
   // D24 — watches + the inbox (empty for a pre-field snapshot); counter falls back
   // to the inbox length so freshly minted ids never collide with restored ones.
   watches.clear()
@@ -2167,6 +2204,9 @@ export const store = {
         // A discussion's visibility MIRRORS ITS ANCHOR's (S2 inheritance) —
         // delivered exactly where the subject itself is readable.
         return this.grantSubjectVisible(e.anchor.ref, tenantId)
+      case 'social-proposal.changed':
+        // A proposal's visibility MIRRORS ITS SUBJECT's (S3) — same rule.
+        return this.grantSubjectVisible(e.subject, tenantId)
       case 'reservation.changed': {
         // `resourceId` is `${guardianId}[:${subGoal}]` — the sub-goal suffix is free
         // text (a private Project's claim name). It once fell through the global
@@ -4342,6 +4382,13 @@ export const store = {
         const d = discussions.find((x) => x.id === ref.id)
         return d ? { tenantId: d.openerTenant } : undefined
       }
+      case 'proposal': {
+        // A proposal's wall IS its subject's wall (S3): readability, comment
+        // authority, and grant ownership all resolve through the thing it
+        // changes — a review thread is never wider than the change.
+        const p = socialProposals.find((x) => x.id === ref.id)
+        return p ? this.grantSubjectRow(p.subject) : undefined
+      }
     }
   },
   /** The ONE social read wall (existence-hiding): a subject is readable when
@@ -4349,21 +4396,25 @@ export const store = {
    *  its legacy everyone-switch is on (`shared: true` — projects), OR a grant
    *  addresses them. Nonexistent and invisible answer identically. */
   grantSubjectVisible(ref: SocialEntityRef, viewerTenant: string): boolean {
-    const row = this.grantSubjectRow(ref)
+    const canon = canonicalSocialRef(ref)
+    if (!canon) return false
+    const row = this.grantSubjectRow(canon)
     if (row === undefined || row === 'unsupported') return false
     if (row.tenantId ? tenantReadsAs(viewerTenant, row.tenantId) : seedVisibleTo(viewerTenant)) return true
     if ((row as { shared?: boolean }).shared === true) return true
-    return this.grantedTier(ref, viewerTenant) !== undefined
+    return this.grantedTier(canon, viewerTenant) !== undefined
   },
   /** Comment authority on a subject (S2): the owner always; anyone the legacy
    *  everyone-switch admits (the D23 anyone-who-sees-may-comment continuity);
    *  a granted audience at `comment` or above. `view` reads silently. */
   socialSubjectCommentable(ref: SocialEntityRef, tenantId: string): boolean {
-    const row = this.grantSubjectRow(ref)
+    const canon = canonicalSocialRef(ref)
+    if (!canon) return false
+    const row = this.grantSubjectRow(canon)
     if (row === undefined || row === 'unsupported') return false
     if (ownsGrantSubject(row, tenantId)) return true
     if ((row as { shared?: boolean }).shared === true) return true
-    const held = grantedTierFor(ref, tenantId)
+    const held = grantedTierFor(canon, tenantId)
     return held !== undefined && tierPermits(held, 'comment')
   },
 
@@ -4559,6 +4610,100 @@ export const store = {
    *  The S1 read-side hook: subject-visibility walls OR this into their checks. */
   grantedTier(ref: SocialEntityRef, viewerTenant: string): ShareTier | undefined {
     return grantedTierFor(ref, viewerTenant)
+  },
+
+  // ── Social-layer proposals (S3) ─────────────────────────────────────────────
+  /** Propose authority on a subject: the owner; the legacy everyone-switch
+   *  (parity with any-viewer contributions); a granted audience at `propose`+. */
+  socialSubjectProposable(ref: SocialEntityRef, tenantId: string): boolean {
+    const canon = canonicalSocialRef(ref)
+    if (!canon) return false
+    const row = this.grantSubjectRow(canon)
+    if (row === undefined || row === 'unsupported') return false
+    if (ownsGrantSubject(row, tenantId)) return true
+    if ((row as { shared?: boolean }).shared === true) return true
+    const held = grantedTierFor(canon, tenantId)
+    return held !== undefined && tierPermits(held, 'propose')
+  },
+  /** A subject's proposals: offered first, then the landed ledger L{n}
+   *  descending (the contributions read order). Route walls the subject. */
+  listSocialProposals(ref: SocialEntityRef, viewerTenant: string): SocialProposal[] {
+    const rows = socialProposals.filter((p) => p.subject.kind === ref.kind && p.subject.id === ref.id)
+    const band = (p: StoredSocialProposal) => (p.state === 'offered' ? 0 : 1)
+    return [...rows]
+      .sort((a, b) => band(a) - band(b) || (b.landingNumber ?? 0) - (a.landingNumber ?? 0) || b.offeredAt - a.offeredAt)
+      .map((p) => publicSocialProposal(p, viewerTenant))
+  },
+  getSocialProposal(id: string, viewerTenant: string): SocialProposal | undefined {
+    const p = socialProposals.find((x) => x.id === id)
+    if (!p || !this.grantSubjectVisible(p.subject, viewerTenant)) return undefined
+    return publicSocialProposal(p, viewerTenant)
+  },
+  /** Offer a change. Subject must be READABLE (else the existence-hiding 404)
+   *  and the offerer PROPOSABLE. The rationale opens the review thread — a
+   *  normal Discussion anchored to the new proposal (recursion, one thread
+   *  machinery). */
+  openSocialProposal(req: OpenProposalRequest, tenantId: string): SocialProposal | 'forbidden' | 'capped' | 'invalid' | undefined {
+    if (!this.grantSubjectVisible(req.subject, tenantId)) return undefined
+    if (!this.socialSubjectProposable(req.subject, tenantId)) return 'forbidden'
+    if (req.delta.kind === 'suggestion' && !req.delta.text.trim()) return 'invalid'
+    if (req.delta.kind === 'relation-op' && typeof (req.delta.op as { kind?: unknown })?.kind !== 'string') return 'invalid'
+    const rows = socialProposals.filter((p) => p.subject.kind === req.subject.kind && p.subject.id === req.subject.id)
+    if (rows.length >= MAX_PROPOSALS_PER_SUBJECT) return 'capped'
+    const p: StoredSocialProposal = {
+      id: `sprop-${(socialProposalSeq += 1)}`,
+      subject: { kind: req.subject.kind, id: req.subject.id },
+      delta: req.delta.kind === 'suggestion' ? { kind: 'suggestion', text: req.delta.text.slice(0, MAX_PROPOSAL_CHARS) } : req.delta,
+      state: 'offered',
+      offeredBy: tenantName(tenantId),
+      offeredAt: Date.now(),
+      discussionId: '', // set below — the thread anchors to the proposal, so the row must exist first
+      offererTenant: tenantId,
+    }
+    socialProposals.push(p)
+    const review = this.openDiscussion(
+      { anchor: { ref: { kind: 'proposal', id: p.id } }, firstPost: req.rationale.slice(0, MAX_PROPOSAL_CHARS) },
+      tenantId,
+    )
+    if (typeof review !== 'object') {
+      socialProposals.pop() // roll back the half-made proposal; refusals surface as invalid
+      return 'invalid'
+    }
+    p.discussionId = review.id
+    emit({ type: 'social-proposal.changed', proposalId: p.id, subject: p.subject })
+    persist()
+    return publicSocialProposal(p, tenantId)
+  },
+  /** Land — the subject OWNER's consent: assign the next per-subject ledger
+   *  number (monotonic, derived from the ledger itself) and APPLY the delta
+   *  through its applier (relation ops run the real reducer; a suggestion's
+   *  landing is the acceptance record). */
+  landSocialProposal(id: string, tenantId: string): SocialProposal | 'forbidden' | 'closed' | undefined {
+    const p = socialProposals.find((x) => x.id === id)
+    if (!p || !this.grantSubjectVisible(p.subject, tenantId)) return undefined
+    const row = this.grantSubjectRow(p.subject)
+    if (row === undefined || row === 'unsupported' || !ownsGrantSubject(row, tenantId)) return 'forbidden'
+    if (p.state !== 'offered') return 'closed'
+    if (p.delta.kind === 'relation-op') this.applyRelationOp(p.delta.op, tenantId)
+    p.state = 'landed'
+    p.landingNumber =
+      socialProposals.filter((x) => x.subject.kind === p.subject.kind && x.subject.id === p.subject.id && x.state === 'landed').length
+    emit({ type: 'social-proposal.changed', proposalId: p.id, subject: p.subject })
+    persist()
+    return publicSocialProposal(p, tenantId)
+  },
+  /** Decline — the owner's polite no. To third parties the proposal stays the
+   *  existence-hiding 404 either way. */
+  declineSocialProposal(id: string, tenantId: string): SocialProposal | 'forbidden' | 'closed' | undefined {
+    const p = socialProposals.find((x) => x.id === id)
+    if (!p || !this.grantSubjectVisible(p.subject, tenantId)) return undefined
+    const row = this.grantSubjectRow(p.subject)
+    if (row === undefined || row === 'unsupported' || !ownsGrantSubject(row, tenantId)) return 'forbidden'
+    if (p.state !== 'offered') return 'closed'
+    p.state = 'declined'
+    emit({ type: 'social-proposal.changed', proposalId: p.id, subject: p.subject })
+    persist()
+    return publicSocialProposal(p, tenantId)
   },
 
   // ── The contribution ledger (agent-contribution workflow Phase A) ───────────

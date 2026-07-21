@@ -166,6 +166,10 @@ test('build produces a snapshot covering every persisted slice', async () => {
     'openDiscussion → discussions (social S2, the root thread persists)',
   )
   assert.ok(
+    s.socialProposals?.some((p) => p.subject.id === 'p-playground' && p.discussionId),
+    'openSocialProposal → socialProposals (S3, with its review thread minted)',
+  )
+  assert.ok(
     s.watches?.some(([tenantId]) => tenantId === 'tenant-playground-watcher'),
     'setWatch → watches (D24)',
   )

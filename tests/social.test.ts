@@ -15,7 +15,7 @@ import { RELATIONS } from '../contract/relations.ts'
 import { store } from '../server/store.ts'
 import { call } from './helpers/http.ts'
 
-test('the six social nouns = the relation graph\'s five entities + discussion', () => {
+test('the social nouns = the relation graph\'s five entities + discussion + proposal', () => {
   const relationEnds = new Set(RELATIONS.flatMap((r) => r.ends))
   for (const kind of relationEnds) {
     assert.ok(
@@ -25,8 +25,8 @@ test('the six social nouns = the relation graph\'s five entities + discussion', 
   }
   assert.deepEqual(
     [...SOCIAL_ENTITY_KINDS].sort(),
-    [...relationEnds, 'discussion'].sort(),
-    'social nouns are exactly the relation entities plus discussion',
+    [...relationEnds, 'discussion', 'proposal'].sort(),
+    'social nouns are exactly the relation entities plus the two social entities',
   )
 })
 

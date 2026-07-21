@@ -229,6 +229,14 @@ function route(e: ServerEvent): void {
       invalidatePrefix(keys.discussions())
       invalidate(keys.discussion(e.discussionId))
       break
+    // A social proposal changed (S3) — its subject's ledger, the row itself,
+    // and (a landed relation-op delta) the graph projections are stale.
+    case 'social-proposal.changed':
+      invalidatePrefix(keys.socialProposals())
+      invalidate(keys.socialProposal(e.proposalId))
+      invalidate(keys.relations)
+      invalidate(keys.projects)
+      break
     case 'openwork.changed':
       invalidate(keys.openSubGoals(e.projectId))
       invalidate(keys.workerAgents)

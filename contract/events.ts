@@ -322,6 +322,15 @@ export interface DiscussionChangedEvent {
   anchor: import('./social.ts').SocialAnchor
 }
 
+/** A social proposal changed (S3) — offered, landed, or declined. Visibility
+ *  MIRRORS THE SUBJECT's read wall, like `discussion.changed`. (Distinct from
+ *  `proposal.changed`, the D25 agent-definition review queue.) */
+export interface SocialProposalChangedEvent {
+  type: 'social-proposal.changed'
+  proposalId: string
+  subject: import('./social.ts').SocialEntityRef
+}
+
 /** Sent once when an SSE channel opens, so the client can confirm liveness. */
 export interface HelloEvent {
   type: 'hello'
@@ -383,6 +392,7 @@ export type ServerEvent =
   | ProposalChangedEvent
   | GrantChangedEvent
   | DiscussionChangedEvent
+  | SocialProposalChangedEvent
 
 export type ServerEventType = ServerEvent['type']
 

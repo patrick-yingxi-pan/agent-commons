@@ -31,6 +31,7 @@ import type {
   RelationGraph,
   SavedContext,
   ScheduledTask,
+  SocialProposal,
   Session,
   SessionContext,
   SessionWorkspace,
@@ -144,6 +145,12 @@ export interface StoredDiscussion extends Omit<Discussion, 'posts' | 'mine'> {
   posts: StoredDiscussionPost[]
 }
 
+/** A social Proposal as STORED (S3) — the wire row plus the OFFERER's raw
+ *  tenant id (authorization compares raw ids). `publicSocialProposal` strips it. */
+export interface StoredSocialProposal extends Omit<SocialProposal, 'mine'> {
+  offererTenant: string
+}
+
 /** A peer as STORED (D28) — the wire row plus the credential's SHA-256 (the
  *  relay-secret pattern: the token is shown once at mint; only its hash persists). */
 export interface StoredA2aPeer extends A2aPeer {
@@ -214,6 +221,9 @@ export interface PersistedState {
   /** Social-layer discussions (S2) — anchored threads, posts inline.
    *  Additive-optional like `grants`. */
   discussions?: StoredDiscussion[]
+  /** Social-layer proposals (S3) — offered changes + the per-subject ledger.
+   *  Additive-optional like `discussions`. */
+  socialProposals?: StoredSocialProposal[]
   /** Watch subscriptions (D24) — `[tenantId, projectId]` pairs (tuples, not a Map:
    *  a project has many watchers). Additive-optional like `dispatch` (a pre-field
    *  snapshot loads cleanly with no watches). */
@@ -269,6 +279,8 @@ export interface PersistedState {
     grant?: number
     /** Discussion + post id counter (social S2). Optional like `dispatch`. */
     discussion?: number
+    /** Social proposal id counter (S3). Optional like `dispatch`. */
+    socialProposal?: number
     /** Notification id counter (D24). Optional like `dispatch`. */
     notification?: number
     /** Account registry counters (multi-account P7). Optional like the slices. */
@@ -311,6 +323,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   delegations: 'array',
   grants: 'array',
   discussions: 'array',
+  socialProposals: 'array',
   watches: 'array',
   notifications: 'array',
   agentProposals: 'mapEntries',
