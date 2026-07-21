@@ -89,7 +89,7 @@ export function Byline({
 }) {
   return (
     <span className="inline-flex items-center gap-1.5 text-[12px] text-ink-faint">
-      <Globe size={12} className="shrink-0 text-emerald-600" />
+      <Globe size={12} className="shrink-0 text-ok-strong" />
       <span>
         {SHARED_MARKER}
         {onOwnerClick ? (

@@ -699,7 +699,7 @@ function RemoveConfirm({
           className={
             cascade
               ? 'rounded-md px-2 py-1 text-[12px] font-medium text-ink ring-1 ring-line-strong transition hover:bg-panel-2'
-              : 'rounded-md bg-removed px-2 py-1 text-[12px] font-medium text-white transition hover:brightness-95'
+              : 'rounded-md bg-removed px-2 py-1 text-[12px] font-medium text-on-solid transition hover:brightness-95'
           }
         >
           {cascade ? cascade.keepLabel : 'Remove'}
@@ -708,7 +708,7 @@ function RemoveConfirm({
           <button
             type="button"
             onClick={onRemoveAll}
-            className="rounded-md bg-removed px-2 py-1 text-[12px] font-medium text-white transition hover:brightness-95"
+            className="rounded-md bg-removed px-2 py-1 text-[12px] font-medium text-on-solid transition hover:brightness-95"
           >
             {cascade.removeAllLabel}
           </button>

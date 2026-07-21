@@ -29,7 +29,7 @@ export function AudioInputControl() {
         aria-label={recording ? 'Stop voice input' : 'Voice input'}
         aria-pressed={recording}
         className={`flex h-8 w-8 items-center justify-center rounded-lg transition ${
-          recording ? 'bg-red-50 text-red-600' : 'text-ink-soft hover:bg-panel-2 hover:text-ink'
+          recording ? 'bg-danger-tint text-danger-strong' : 'text-ink-soft hover:bg-panel-2 hover:text-ink'
         }`}
       >
         <Mic size={16} className={recording ? 'motion-safe:animate-pulse' : ''} />
@@ -87,7 +87,7 @@ export function AudioInputControl() {
               }`}
             >
               <span
-                className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${
+                className={`absolute top-0.5 h-3 w-3 rounded-full bg-surface shadow transition-all ${
                   hold ? 'left-3.5' : 'left-0.5'
                 }`}
               />

@@ -84,7 +84,7 @@ export const AUTH_INPUT_CLASS =
 export const AUTH_LABEL_CLASS = 'mb-1 block text-[12px] font-medium text-ink-soft'
 
 export const AUTH_PRIMARY_CLASS =
-  'w-full rounded-md bg-accent px-3 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50'
+  'w-full rounded-md bg-accent px-3 py-2 text-sm font-medium text-on-solid transition hover:opacity-90 disabled:opacity-50'
 
 export const AUTH_LINK_CLASS = 'font-medium text-accent-strong transition hover:underline'
 

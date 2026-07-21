@@ -112,11 +112,11 @@ export function RunHistoryMenu({
 function RunDot({ status }: { status: ScheduledRun['status'] }) {
   const color =
     status === 'failed'
-      ? 'bg-red-500'
+      ? 'bg-danger'
       : status === 'skipped'
         ? 'bg-line-strong'
         : status === 'running'
           ? 'bg-accent'
-          : 'bg-emerald-500'
+          : 'bg-ok'
   return <span className={`h-2 w-2 shrink-0 rounded-full ${color}`} title={status} />
 }

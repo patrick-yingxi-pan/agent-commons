@@ -8,8 +8,15 @@ names its locking test — moving or weakening a rule means moving its lock too.
 
 - **One door to the backend.** UI components read through hooks (`src/api`);
   controllers issue commands. Nothing else should know a URL or an SSE event.
-- **Light theme only.** There is no dark mode — no `dark:` variants and no theme
-  toggle. Don't add one unless the proposal direction changes.
+- **Theming through tokens.** Appearance is Light / Dark / System — set in
+  Customize, persisted + applied by the ONE funnel `src/lib/theme.ts` (it alone
+  stamps `data-theme` on `<html>`; "system" follows `prefers-color-scheme`
+  live). Every color is a `@theme` token in `src/index.css` and dark is a
+  single variable-override block there, so components carry **no `dark:`
+  variants and no raw Tailwind palette classes** — status cues use the semantic
+  `ok`/`warn`/`danger` ramps, text atop solid fills uses `on-solid`. Locked by
+  `tests/spec-conformance.test.ts` (INV-1) + `tests/theme.test.ts`. (This
+  overturns the earlier light-only decision — owner directive, 2026-07-21.)
 - **No "before" view.** The prototype deliberately does *not* reproduce today's
   three-tab UI. The motivation lives in the docs, and reviewers can diff against
   the live app — so don't build a side-by-side "before".

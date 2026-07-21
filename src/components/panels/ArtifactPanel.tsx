@@ -157,7 +157,7 @@ export function ArtifactPanel({
                             onRemoveFolder?.(g.id)
                             setConfirmRemoveId(null)
                           }}
-                          className="rounded bg-removed px-1.5 py-0.5 text-[11px] font-medium text-white transition hover:brightness-95"
+                          className="rounded bg-removed px-1.5 py-0.5 text-[11px] font-medium text-on-solid transition hover:brightness-95"
                         >
                           Remove
                         </button>

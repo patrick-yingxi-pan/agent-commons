@@ -62,7 +62,7 @@ function ToggleRow({
         }`}
       >
         <span
-          className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-all ${
+          className={`absolute top-0.5 h-3 w-3 rounded-full bg-surface shadow transition-all ${
             on ? 'left-3.5' : 'left-0.5'
           }`}
         />

@@ -53,7 +53,7 @@ function PickRow({
     >
       <span
         className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
-          active ? 'border-accent bg-accent text-white' : 'border-line-strong'
+          active ? 'border-accent bg-accent text-on-solid' : 'border-line-strong'
         }`}
       >
         {active && <Check size={11} strokeWidth={3} />}

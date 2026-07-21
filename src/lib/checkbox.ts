@@ -7,7 +7,7 @@
  *  Add-context "Don't ask again" row): an accent-filled rounded square with a white
  *  check when on, a quiet bordered square when off. */
 export const CHECKBOX_BOX_CLASS = 'flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border'
-export const CHECKBOX_BOX_ON_CLASS = 'border-accent bg-accent text-white'
+export const CHECKBOX_BOX_ON_CLASS = 'border-accent bg-accent text-on-solid'
 export const CHECKBOX_BOX_OFF_CLASS = 'border-line-strong'
 
 /** The row a create/edit dialog offers to flag a registry entry as the picker

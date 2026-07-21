@@ -110,9 +110,28 @@ test('every 📝 (not-built) requirement is surfaced in the README Known-gaps li
   assert.deepEqual(unlisted, [], `📝 requirements not surfaced in README Known-gaps:\n${unlisted.join('\n')}`)
 })
 
-test('INV-1: light theme only — no Tailwind `dark:` variants in src', () => {
+test('INV-1: theming through tokens — no `dark:` variants anywhere in src', () => {
   const src = concatSource('src', ['.ts', '.tsx', '.css'])
-  assert.ok(!/\bdark:/.test(src), 'found a `dark:` variant — the prototype is light-theme only (INV-1)')
+  assert.ok(!/\bdark:/.test(src), 'found a `dark:` variant — dark mode is the [data-theme="dark"] token block in index.css, never per-component variants (INV-1)')
+})
+
+test('INV-1: no raw chromatic Tailwind palette classes — status cues use the ok/warn/danger tokens', () => {
+  const code = concatSource('src', ['.ts', '.tsx'])
+  const raw = code.match(
+    /\b(?:bg|text|border|ring|from|via|to|fill|stroke|outline|decoration|divide|shadow|accent|caret)-(?:emerald|amber|red|rose|orange|yellow|lime|green|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|gray|slate|zinc|neutral|stone)-\d+/g,
+  )
+  assert.deepEqual(raw ?? [], [], 'raw palette classes bypass the theme tokens (INV-1) — map onto ok/warn/danger (or add a token)')
+})
+
+test('INV-1: the dark block redefines every `--color-*` token @theme declares', () => {
+  const css = read(join(ROOT, 'src/index.css'))
+  const themeBlock = css.match(/@theme \{([\s\S]*?)\n\}/)?.[1]
+  const darkBlock = css.match(/:root\[data-theme="dark"\] \{([\s\S]*?)\n\}/)?.[1]
+  assert.ok(themeBlock, 'index.css must declare tokens in an @theme block')
+  assert.ok(darkBlock, 'index.css must carry the :root[data-theme="dark"] override block (INV-1)')
+  const tokens = [...new Set([...themeBlock.matchAll(/--color-[\w-]+(?=:)/g)].map((m) => m[0]))]
+  const missing = tokens.filter((t) => !new RegExp(`${t}:`).test(darkBlock))
+  assert.deepEqual(missing, [], `dark block misses token(s) — a theme-invariant value must still be stated explicitly:\n${missing.join(', ')}`)
 })
 
 test('INV-3: the dev server binds IPv4 (127.0.0.1)', () => {

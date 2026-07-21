@@ -262,7 +262,7 @@ function FigureView({
           style={{ background: imageTint(name) }}
         >
           <div
-            className={`px-4 text-center font-serif font-semibold text-white drop-shadow-sm ${
+            className={`px-4 text-center font-serif font-semibold text-on-solid drop-shadow-sm ${
               size === 'thumb' ? 'text-[13px]' : size === 'compact' ? 'text-xl' : 'text-3xl'
             }`}
           >

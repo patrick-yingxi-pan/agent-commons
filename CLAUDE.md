@@ -24,7 +24,8 @@ Essentials:
 - **Mock by design:** no real model; seed data in `server/data/`. Don't file
   intentional mock behavior as bugs (`docs/evaluation.md`).
 - **Git:** commit and push straight to `main` over HTTPS.
-- **Design decisions (locked in):** light theme only (no dark mode), no "before"
+- **Design decisions (locked in):** token-driven theming (light/dark/system,
+  one funnel — `src/CLAUDE.md`), no "before"
   view, and the dev server binds IPv4 (`127.0.0.1`). Directory-scoped decisions
   live in nested `CLAUDE.md` files (`src/`, `server/`, `contract/`, `tests/`,
   `e2e/`, `connector/`) — loaded when you work there; `AGENTS.md` maps them.

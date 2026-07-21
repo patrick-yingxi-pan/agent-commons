@@ -276,7 +276,7 @@ function AccountPicker({ onMode }: { onMode: (m: AuthScreenView) => void }) {
             }}
             className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition hover:bg-panel-2"
           >
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-sm font-semibold text-white">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-sm font-semibold text-on-solid">
               {(a.user.name.trim().charAt(0) || '?').toUpperCase()}
             </span>
             <span className="min-w-0 flex-1 leading-tight">

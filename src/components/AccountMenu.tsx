@@ -59,7 +59,7 @@ export function AccountChip({ onOpenOwner }: { onOpenOwner?: (name: string) => v
   const initial = name.trim().charAt(0).toUpperCase() || 'Y'
   const identityRow = (
     <div className="flex items-center gap-2" title={me?.user.email}>
-      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-sm font-semibold text-white">
+      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-sm font-semibold text-on-solid">
         {initial}
       </div>
       <div className="leading-tight">

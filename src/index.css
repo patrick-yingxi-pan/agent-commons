@@ -57,12 +57,113 @@
   --color-removed: #b5573a;
   --color-removed-bg: #f8eae4;
 
+  /* Semantic status hues — ok (connected / success), warn (pending / caution),
+     danger (error / destructive). Components use THESE, never raw emerald/amber/
+     red palette classes, so the dark block below can restyle every status cue in
+     one place (invariant INV-1, tests/spec-conformance.test.ts). Ramp roles:
+     base = dots / solid fills / borders · strong = emphasis text+fills ·
+     text = readable copy on tinted chips · tint(-strong) = soft backgrounds. */
+  --color-ok: #10b981;
+  --color-ok-strong: #059669;
+  --color-ok-text: #047857;
+  --color-ok-tint: #ecfdf5;
+  --color-ok-tint-strong: #d1fae5;
+
+  --color-warn: #f59e0b;
+  --color-warn-strong: #d97706;
+  --color-warn-text: #b45309;
+  --color-warn-tint: #fffbeb;
+  --color-warn-tint-strong: #fef3c7;
+
+  --color-danger: #ef4444;
+  --color-danger-strong: #dc2626;
+  --color-danger-text: #b91c1c;
+  --color-danger-tint: #fef2f2;
+  --color-danger-tint-strong: #fee2e2;
+
+  /* Text/icon color atop solid accent- or status-colored fills — white in both
+     themes (the fills stay vivid), but a token so the rule is auditable. */
+  --color-on-solid: #ffffff;
+
   --font-serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua",
     Georgia, ui-serif, serif;
 }
 
 :root {
   color-scheme: light;
+}
+
+/* ---- Dark theme ----------------------------------------------------------
+   The ONE dark surface: `src/lib/theme.ts` stamps `data-theme` on <html>
+   (light | dark; the "system" preference resolves via matchMedia before it
+   lands here). Because every Tailwind color utility above compiles to
+   var(--color-*), overriding the variables restyles the whole app — no `dark:`
+   variants anywhere (invariant INV-1). This block must redefine EVERY
+   `--color-*` token `@theme` declares (even the theme-invariant ones, stated
+   explicitly) — completeness is locked by tests/spec-conformance.test.ts.
+   Palette: the same warm Claude cast, inverted — charcoal-brown surfaces,
+   parchment ink, the terracotta accent held; cap/status hues lightened to keep
+   contrast on dark ground. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-canvas: #262624;
+  --color-sidebar: #1f1e1b;
+  --color-surface: #30302e;
+  --color-panel: #2b2a27;
+  --color-panel-2: #34332f;
+
+  --color-ink: #f0eee6;
+  --color-ink-soft: #b8b4a7;
+  --color-ink-faint: #8a8578;
+
+  --color-line: #3a3833;
+  --color-line-strong: #4a473f;
+
+  --color-accent: #d97757;
+  --color-accent-strong: #e08b6d;
+  --color-accent-tint: #453028;
+
+  --color-userbubble: #33322c;
+
+  --color-cap-chat: #a09c8f;
+  --color-cap-workspace: #d9a45c;
+  --color-cap-repo: #8fb0c2;
+  --color-cap-workspace-tint: #3a3327;
+  --color-cap-repo-tint: #2b3439;
+  --color-cap-connector: #b08cc9;
+  --color-cap-connector-tint: #362e3d;
+  --color-cap-mcp: #6fb0a8;
+  --color-cap-mcp-tint: #283734;
+  --color-cap-file: #8b9ad6;
+  --color-cap-file-tint: #2e3140;
+  --color-cap-photo: #c98ba5;
+  --color-cap-photo-tint: #3b2f34;
+
+  --color-added: #6fbf87;
+  --color-added-bg: #263a2c;
+  --color-removed: #d98b6f;
+  --color-removed-bg: #40302a;
+
+  --color-ok: #10b981;
+  --color-ok-strong: #34d399;
+  --color-ok-text: #52d6a5;
+  --color-ok-tint: #203329;
+  --color-ok-tint-strong: #294237;
+
+  --color-warn: #f59e0b;
+  --color-warn-strong: #fbbf24;
+  --color-warn-text: #f5c064;
+  --color-warn-tint: #3a3122;
+  --color-warn-tint-strong: #48402c;
+
+  --color-danger: #ef4444;
+  --color-danger-strong: #f87171;
+  --color-danger-text: #f09090;
+  --color-danger-tint: #3d2727;
+  --color-danger-tint-strong: #4a302f;
+
+  --color-on-solid: #ffffff;
 }
 
 html,

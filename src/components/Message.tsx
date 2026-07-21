@@ -39,7 +39,7 @@ function EscalationOutcome({ escalation }: { escalation: EscalationProposal }) {
   if (escalation.kind !== 'project' || !isCreatedProject(escalation.project.id)) return null
   return (
     <div className="mt-2 flex items-center gap-2 text-[12px]">
-      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-600">
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-ok-tint text-ok-strong">
         <Check size={12} />
       </span>
       <span className="font-medium text-ink">Created the {escalation.project.name} project</span>

@@ -19,10 +19,10 @@ const DEFAULT_MODE: ModeId = 'auto'
 /** The pill's color cues how permissive the mode is. */
 const PILL_TONE: Record<ModeId, string> = {
   ask: 'text-ink-soft hover:bg-panel-2',
-  acceptEdits: 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100',
+  acceptEdits: 'bg-ok-tint text-ok-text hover:bg-ok-tint-strong',
   plan: 'bg-cap-repo-tint text-cap-repo hover:brightness-95',
-  auto: 'bg-amber-50 text-amber-700 hover:bg-amber-100',
-  bypass: 'bg-red-50 text-red-700 hover:bg-red-100',
+  auto: 'bg-warn-tint text-warn-text hover:bg-warn-tint-strong',
+  bypass: 'bg-danger-tint text-danger-text hover:bg-danger-tint-strong',
 }
 
 export function PermissionModeControl() {

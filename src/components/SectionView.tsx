@@ -67,6 +67,7 @@ import {
 } from '../lib/cadence'
 import { composeModelLabel, displayModelLabel, isOpusModel, modelBlurb, parseModelChoice, type ModelPick } from '../lib/models'
 import { loadModelPrefs, saveModelPrefs, type ModelPrefs } from '../lib/modelPrefs'
+import { loadThemePref, saveThemePref, type ThemePref } from '../lib/theme'
 import { ModelPickerMenu } from './ModelPickerMenu'
 import { STEP_TOOLS } from '../lib/stepTools'
 import { cleanSteps, moveStep, removeStep } from '../lib/steps'
@@ -965,7 +966,7 @@ function ProjectDetail({
                   <div key={`static-${i}`} className="flex items-start gap-2.5">
                     <span
                       className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
-                        s.enabled ? 'bg-emerald-500' : 'bg-line-strong'
+                        s.enabled ? 'bg-ok' : 'bg-line-strong'
                       }`}
                     />
                     <div className="min-w-0">
@@ -1198,7 +1199,7 @@ function ProjectScheduleRow({
   onDelete: () => void
 }) {
   const dot =
-    task.lastStatus === 'ok' ? 'bg-emerald-500' : task.lastStatus === 'failed' ? 'bg-red-500' : 'bg-line-strong'
+    task.lastStatus === 'ok' ? 'bg-ok' : task.lastStatus === 'failed' ? 'bg-danger' : 'bg-line-strong'
   const menu: RowMenuItem[] = [
     { kind: 'action', key: 'open', label: 'Open in Scheduled', icon: <ChevronRight size={14} />, onSelect: onOpen },
     { kind: 'divider', key: 'd1' },
@@ -1347,7 +1348,7 @@ function ProjectScheduleAdd({
                   <span className="block truncate text-[13px] font-medium text-ink">{tpl.name}</span>
                   <span className="block truncate text-[11px] text-ink-faint">{tpl.preview}</span>
                 </span>
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent group-hover:text-white">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent group-hover:text-on-solid">
                   <Plus size={13} />
                 </span>
               </button>
@@ -1376,7 +1377,7 @@ function ProjectScheduleAdd({
                       <span className="block truncate text-[13px] font-medium text-ink">{t.name}</span>
                       <span className="block truncate text-[11px] text-ink-faint">{t.cadence}</span>
                     </span>
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent group-hover:text-white">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent group-hover:text-on-solid">
                       <Plus size={13} />
                     </span>
                   </button>
@@ -1416,7 +1417,7 @@ function ShareToggle({ project }: { project: Project }) {
       data-testid="share-toggle"
       className="mb-3 flex w-full items-start gap-2.5 rounded-lg border border-line bg-ink/[0.02] px-2.5 py-2 text-left transition hover:border-ink/20"
     >
-      <span className={`mt-0.5 shrink-0 ${shared ? 'text-emerald-600' : 'text-ink-faint'}`}>
+      <span className={`mt-0.5 shrink-0 ${shared ? 'text-ok-strong' : 'text-ink-faint'}`}>
         {shared ? <Globe size={14} /> : <Lock size={14} />}
       </span>
       <span className="min-w-0 flex-1">
@@ -1430,9 +1431,9 @@ function ShareToggle({ project }: { project: Project }) {
         </span>
       </span>
       <span
-        className={`mt-0.5 flex h-4 w-7 shrink-0 items-center rounded-full px-0.5 transition ${shared ? 'justify-end bg-emerald-500' : 'justify-start bg-ink/15'}`}
+        className={`mt-0.5 flex h-4 w-7 shrink-0 items-center rounded-full px-0.5 transition ${shared ? 'justify-end bg-ok' : 'justify-start bg-ink/15'}`}
       >
-        <span className="h-3 w-3 rounded-full bg-white shadow-sm" />
+        <span className="h-3 w-3 rounded-full bg-surface shadow-sm" />
       </span>
     </button>
   )
@@ -1559,7 +1560,7 @@ function ContributorRow({
   }
   return (
     <div className="group flex items-start gap-2.5">
-      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-ok" />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <span className="truncate text-[13px] font-medium text-ink">{agentLabel}</span>
@@ -1577,7 +1578,7 @@ function ContributorRow({
           {contributions ? (
             <span
               title={`${contributions} commissioned ${contributions === 1 ? 'contribution' : 'contributions'} on the Commons`}
-              className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-emerald-500/10 px-1.5 py-px text-[10px] font-medium text-emerald-700"
+              className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-ok/10 px-1.5 py-px text-[10px] font-medium text-ok-text"
             >
               <Award size={9} /> {contributions}
             </span>
@@ -1845,7 +1846,7 @@ function CommissionAdd({ projectId, available, joinRole }: { projectId: string; 
                       {a.tools.length} tool{a.tools.length === 1 ? '' : 's'}
                     </span>
                   </span>
-                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent group-hover:text-white">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent group-hover:text-on-solid">
                     <Plus size={13} />
                   </span>
                 </button>
@@ -1949,7 +1950,7 @@ function CoordinationPanel({ project }: { project: Project }) {
                 <div key={s.reservationId} className="group flex items-start gap-2.5 px-4 py-3">
                   <span
                     className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
-                      s.status === 'committed' ? 'bg-accent' : 'bg-emerald-500'
+                      s.status === 'committed' ? 'bg-accent' : 'bg-ok'
                     }`}
                   />
                   <div className="min-w-0 flex-1">
@@ -2011,13 +2012,13 @@ function CoordinationPanel({ project }: { project: Project }) {
               <button
                 onClick={claim}
                 disabled={busy || !draft.trim()}
-                className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-white transition enabled:hover:bg-accent/90 disabled:opacity-45"
+                className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-on-solid transition enabled:hover:bg-accent/90 disabled:opacity-45"
               >
                 Claim
               </button>
             </div>
             {conflict && (
-              <p className="mt-1.5 flex items-start gap-1 text-[11px] leading-snug text-amber-700">
+              <p className="mt-1.5 flex items-start gap-1 text-[11px] leading-snug text-warn-text">
                 <AlertCircle size={12} className="mt-0.5 shrink-0" />
                 {conflict}
               </p>
@@ -2151,7 +2152,7 @@ function OpenWorkList({ projectId, ownerCanModerate }: { projectId: string; owne
           <button
             onClick={post}
             disabled={busy || !subGoal.trim() || !target.trim()}
-            className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-white transition enabled:hover:bg-accent/90 disabled:opacity-45"
+            className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-on-solid transition enabled:hover:bg-accent/90 disabled:opacity-45"
           >
             Post
           </button>
@@ -2283,7 +2284,7 @@ function WorkItemRow({
     >
       <span
         className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
-          o.status === 'done' ? 'bg-emerald-500' : o.status === 'retracted' ? 'bg-line-strong' : 'bg-amber-500'
+          o.status === 'done' ? 'bg-ok' : o.status === 'retracted' ? 'bg-line-strong' : 'bg-warn'
         }`}
       />
       <div className="min-w-0 flex-1">
@@ -2373,7 +2374,7 @@ function WorkItemRow({
               <button
                 onClick={send}
                 disabled={busy || !draft.trim()}
-                className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-white transition enabled:hover:bg-accent/90 disabled:opacity-45"
+                className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-on-solid transition enabled:hover:bg-accent/90 disabled:opacity-45"
               >
                 Post
               </button>
@@ -2488,15 +2489,15 @@ function WorkItemPage({
 
   const badge =
     o.status === 'done' ? (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-2.5 py-0.5 text-[12px] font-medium text-white">
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-ok-strong px-2.5 py-0.5 text-[12px] font-medium text-on-solid">
         <CheckCircle2 size={13} /> Done
       </span>
     ) : o.status === 'retracted' ? (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-ink-faint px-2.5 py-0.5 text-[12px] font-medium text-white">
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-ink-faint px-2.5 py-0.5 text-[12px] font-medium text-on-solid">
         <MinusCircle size={13} /> Retracted
       </span>
     ) : (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-600 px-2.5 py-0.5 text-[12px] font-medium text-white">
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-warn-strong px-2.5 py-0.5 text-[12px] font-medium text-on-solid">
         <Clock size={13} /> Open
       </span>
     )
@@ -2576,7 +2577,7 @@ function WorkItemPage({
               </div>
             ) : ev.kind === 'done' ? (
               <div key={ev.key} className="flex items-center gap-2 py-0.5 text-[12px] text-ink-faint">
-                <CheckCircle2 size={14} className="shrink-0 text-emerald-600" />
+                <CheckCircle2 size={14} className="shrink-0 text-ok-strong" />
                 <span title={o.resolvedBy ? `Resolved under commission ${o.resolvedBy}` : undefined}>
                   done by <AgentActor label={o.resolvedByLabel} />
                   {o.resolvedByOwner ? (
@@ -2619,7 +2620,7 @@ function WorkItemPage({
           <button
             onClick={send}
             disabled={busy || !draft.trim()}
-            className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-[13px] font-medium text-white transition enabled:hover:bg-accent/90 disabled:opacity-45"
+            className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-[13px] font-medium text-on-solid transition enabled:hover:bg-accent/90 disabled:opacity-45"
           >
             Post
           </button>
@@ -2703,7 +2704,7 @@ function ChangesPanel({ project, onOpenSession }: { project: Project; onOpenSess
                   in motion. */}
               <span className="flex w-8 shrink-0 items-center justify-end">
                 {c.status === 'open' ? (
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-label="In flight" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-label="In flight" />
                 ) : (
                   <span className="text-[12px] font-semibold tabular-nums text-ink-faint">L{c.landingNumber}</span>
                 )}
@@ -2772,7 +2773,7 @@ function ChangesPanel({ project, onOpenSession }: { project: Project; onOpenSess
             <button
               onClick={() => void declare()}
               disabled={busy || !title.trim()}
-              className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-white transition enabled:hover:bg-accent/90 disabled:opacity-45"
+              className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-on-solid transition enabled:hover:bg-accent/90 disabled:opacity-45"
             >
               Open
             </button>
@@ -2917,11 +2918,11 @@ function ContributionPage({
 
   const badge =
     c.status === 'landed' ? (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-2.5 py-0.5 text-[12px] font-medium text-white">
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-ok-strong px-2.5 py-0.5 text-[12px] font-medium text-on-solid">
         <CheckCircle2 size={13} /> Landed · L{c.landingNumber}
       </span>
     ) : (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-600 px-2.5 py-0.5 text-[12px] font-medium text-white">
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-warn-strong px-2.5 py-0.5 text-[12px] font-medium text-on-solid">
         <Clock size={13} /> Open
       </span>
     )
@@ -3048,7 +3049,7 @@ function ContributionPage({
               </div>
             ) : ev.kind === 'landed' ? (
               <div key={ev.id} className="flex items-center gap-2 py-0.5 text-[12px] text-ink-faint">
-                <CheckCircle2 size={14} className="shrink-0 text-emerald-600" />
+                <CheckCircle2 size={14} className="shrink-0 text-ok-strong" />
                 <span>
                   landed as <span className="font-semibold text-ink-soft">L{c.landingNumber}</span> by{' '}
                   <OwnerLink bare ownerName={ev.actor} onClick={() => ownerDoor(ev.actor)} /> · {relativeTime(ev.at)}
@@ -3071,7 +3072,7 @@ function ContributionPage({
                 </span>
               </div>
             ) : ev.kind === 'delegated-escalation' ? (
-              <div key={ev.id} className="flex items-center gap-2 py-0.5 text-[12px] text-amber-700">
+              <div key={ev.id} className="flex items-center gap-2 py-0.5 text-[12px] text-warn-text">
                 <AlertCircle size={14} className="shrink-0" />
                 <span>
                   {ev.actor}: {ev.body} · {relativeTime(ev.at)}
@@ -3086,7 +3087,7 @@ function ContributionPage({
               </div>
             ) : ev.kind === 'review-required' ? (
               <div key={ev.id} className="flex items-center gap-2 py-0.5 text-[12px] text-ink-faint">
-                <AlertCircle size={14} className="shrink-0 text-amber-600" />
+                <AlertCircle size={14} className="shrink-0 text-warn-strong" />
                 <span>
                   <OwnerLink bare ownerName={ev.actor} onClick={() => ownerDoor(ev.actor)} /> tightened the gate —
                   adversarial review required before landing · {relativeTime(ev.at)}
@@ -3102,7 +3103,7 @@ function ContributionPage({
               </div>
             ) : ev.kind === 'envelope-proposed' ? (
               <div key={ev.id} className="flex items-center gap-2 py-0.5 text-[12px] text-ink-faint">
-                <AlertCircle size={14} className="shrink-0 text-amber-600" />
+                <AlertCircle size={14} className="shrink-0 text-warn-strong" />
                 <span>
                   <OwnerLink bare ownerName={ev.actor} onClick={() => ownerDoor(ev.actor)} /> proposed the effect
                   envelope {ev.body} · {relativeTime(ev.at)}
@@ -3110,7 +3111,7 @@ function ContributionPage({
               </div>
             ) : ev.kind === 'envelope-approved' ? (
               <div key={ev.id} className="flex items-center gap-2 py-0.5 text-[12px] text-ink-faint">
-                <CheckCircle2 size={14} className="shrink-0 text-emerald-600" />
+                <CheckCircle2 size={14} className="shrink-0 text-ok-strong" />
                 <span>
                   <OwnerLink bare ownerName={ev.actor} onClick={() => ownerDoor(ev.actor)} /> approved the envelope{' '}
                   {ev.body} · {relativeTime(ev.at)}
@@ -3149,7 +3150,7 @@ function ContributionPage({
           <button
             onClick={() => void send()}
             disabled={busy || !draft.trim()}
-            className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-[13px] font-medium text-white transition enabled:hover:bg-accent/90 disabled:opacity-45"
+            className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-[13px] font-medium text-on-solid transition enabled:hover:bg-accent/90 disabled:opacity-45"
           >
             Post
           </button>
@@ -3182,7 +3183,7 @@ function AttentionPanel({ project }: { project: Project }) {
             <div key={`${a.contributionId}-${a.label}`} className="flex items-center gap-2.5 px-4 py-2.5">
               <span
                 className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                  a.function === 'liability' ? 'bg-amber-600/10 text-amber-700' : 'border border-line text-ink-faint'
+                  a.function === 'liability' ? 'bg-warn-strong/10 text-warn-text' : 'border border-line text-ink-faint'
                 }`}
                 title={
                   a.function === 'liability'
@@ -3374,7 +3375,7 @@ function DelegationPanel({ project }: { project: Project }) {
             <button
               onClick={() => void mint()}
               disabled={busy || !policy.trim() || agents.length === 0}
-              className="ml-auto rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-white transition enabled:hover:bg-accent/90 disabled:opacity-45"
+              className="ml-auto rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-on-solid transition enabled:hover:bg-accent/90 disabled:opacity-45"
             >
               Delegate
             </button>
@@ -3534,7 +3535,7 @@ function ChangesetCard({ project, c }: { project: Project; c: Contribution }) {
             <button
               onClick={() => void crystallize()}
               disabled={busy || (pending.length === 0 && !(target.trim() && after.trim()))}
-              className="rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-white transition enabled:hover:bg-accent/90 disabled:opacity-45"
+              className="rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-on-solid transition enabled:hover:bg-accent/90 disabled:opacity-45"
             >
               Crystallize v{versions.length + 1}
             </button>
@@ -3597,11 +3598,11 @@ function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
         <div className="flex items-center gap-1.5">
           {env &&
             (env.status === 'approved' ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-600/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+              <span className="inline-flex items-center gap-1 rounded-full bg-ok-strong/10 px-2 py-0.5 text-[11px] font-medium text-ok-text">
                 <CheckCircle2 size={12} /> Approved by {env.approvedBy}
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1 rounded-full bg-amber-600/10 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+              <span className="inline-flex items-center gap-1 rounded-full bg-warn-strong/10 px-2 py-0.5 text-[11px] font-medium text-warn-text">
                 <AlertCircle size={12} /> Awaiting approval
               </span>
             ))}
@@ -3649,7 +3650,7 @@ function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
                     ? 'Cardinality exhausted — amend the envelope for more'
                     : `Fire one ${l.type} act on ${l.target} (mechanically matched against this line)`
                 }
-                className="shrink-0 rounded-lg bg-accent px-2.5 py-0.5 text-[11px] font-medium text-white transition enabled:hover:bg-accent/90 disabled:opacity-45"
+                className="shrink-0 rounded-lg bg-accent px-2.5 py-0.5 text-[11px] font-medium text-on-solid transition enabled:hover:bg-accent/90 disabled:opacity-45"
               >
                 Run
               </button>
@@ -3714,7 +3715,7 @@ function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
           <button
             onClick={() => void propose()}
             disabled={busy || !target.trim()}
-            className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-white transition enabled:hover:bg-accent/90 disabled:opacity-45"
+            className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-on-solid transition enabled:hover:bg-accent/90 disabled:opacity-45"
           >
             Propose v{(env?.version ?? 0) + 1}
           </button>
@@ -4333,7 +4334,7 @@ function AddContextRow({ ctx, onAdd }: { ctx: SavedContext; onAdd: () => void })
         <span className="block truncate text-[13px] font-medium text-ink">{ctx.label}</span>
         <span className="block truncate text-[11px] text-ink-faint">{ctx.detail}</span>
       </span>
-      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent group-hover:text-white">
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent group-hover:text-on-solid">
         <Plus size={14} />
       </span>
     </button>
@@ -4570,13 +4571,13 @@ function McpAccessCard() {
             <button
               onClick={mint}
               disabled={busy || !signedIn}
-              className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-semibold text-white shadow-sm transition hover:bg-accent-strong disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-semibold text-on-solid shadow-sm transition hover:bg-accent-strong disabled:opacity-50"
             >
               <KeyRound size={13} />
               Mint access token
             </button>
             {!signedIn && <span className="text-[11px] text-ink-faint">Sign in to mint — a token is minted from a verified session.</span>}
-            {error && <span className="text-[11px] text-red-600">{error}</span>}
+            {error && <span className="text-[11px] text-danger-strong">{error}</span>}
           </div>
         )}
         {signedIn && (tokens.data?.length ?? 0) > 0 && (
@@ -4588,7 +4589,7 @@ function McpAccessCard() {
                 <span className="min-w-0 flex-1 truncate text-ink">
                   {t.label ?? 'Unlabeled token'}
                   <span className="text-ink-faint"> · minted {new Date(t.createdAt).toLocaleDateString()}</span>
-                  {minted?.tokenId === t.id && <span className="text-emerald-600"> · just minted</span>}
+                  {minted?.tokenId === t.id && <span className="text-ok-strong"> · just minted</span>}
                 </span>
                 <button
                   onClick={() =>
@@ -4598,7 +4599,7 @@ function McpAccessCard() {
                       .then(() => setMinted((m) => (m?.tokenId === t.id ? null : m)))
                       .catch(() => {})
                   }
-                  className="rounded-lg px-2 py-0.5 text-[11px] font-medium text-ink-faint transition hover:bg-red-50 hover:text-red-600"
+                  className="rounded-lg px-2 py-0.5 text-[11px] font-medium text-ink-faint transition hover:bg-danger-tint hover:text-danger-strong"
                 >
                   Revoke
                 </button>
@@ -4838,8 +4839,8 @@ function RepoDetailBody({ ctx }: { ctx: SavedContext }) {
 
   return (
     <>
-      <div className="flex items-center gap-1.5 text-[12px] font-medium text-emerald-700">
-        <span className="h-2 w-2 rounded-full bg-emerald-500" />
+      <div className="flex items-center gap-1.5 text-[12px] font-medium text-ok-text">
+        <span className="h-2 w-2 rounded-full bg-ok" />
         Connected
       </div>
 
@@ -4883,11 +4884,11 @@ function RepoDetailBody({ ctx }: { ctx: SavedContext }) {
 function StatusPill({ tone, label }: { tone: 'ok' | 'warn' | 'bad' | 'neutral'; label: string }) {
   const dot =
     tone === 'ok'
-      ? 'bg-emerald-500'
+      ? 'bg-ok'
       : tone === 'warn'
-        ? 'bg-amber-500'
+        ? 'bg-warn'
         : tone === 'bad'
-          ? 'bg-red-500'
+          ? 'bg-danger'
           : 'bg-line-strong'
   return (
     <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-line px-2 py-0.5 text-[11px] font-medium text-ink-soft">
@@ -5240,7 +5241,7 @@ function YourWorkTab({ onOpenProposal }: { onOpenProposal: (agentId: string, pro
   const myName = useMe().data?.tenant.name
   if (!work) return <Empty>Loading your work…</Empty>
   const statusDot = (s: string) =>
-    s === 'open' ? 'bg-amber-500' : s === 'done' || s === 'merged' ? 'bg-emerald-500' : 'bg-line-strong'
+    s === 'open' ? 'bg-warn' : s === 'done' || s === 'merged' ? 'bg-ok' : 'bg-line-strong'
   return (
     <div className="space-y-5">
       <section>
@@ -5461,13 +5462,13 @@ function AgentCard({
           <button
             onClick={() => onOpenPage(agent.id)}
             title="Open this agent's page — the resolved work behind this count"
-            className="mt-1 inline-flex items-center gap-1 text-[12px] text-emerald-700 underline underline-offset-2 transition hover:text-emerald-800"
+            className="mt-1 inline-flex items-center gap-1 text-[12px] text-ok-text underline underline-offset-2 transition hover:text-ok-text"
           >
             <Award size={12} /> {agent.contributions} commissioned contribution
             {agent.contributions === 1 ? '' : 's'} on the Commons
           </button>
         ) : (
-          <p className="mt-1 inline-flex items-center gap-1 text-[12px] text-emerald-700">
+          <p className="mt-1 inline-flex items-center gap-1 text-[12px] text-ok-text">
             <Award size={12} /> {agent.contributions} commissioned contribution
             {agent.contributions === 1 ? '' : 's'} on the Commons
           </p>
@@ -5612,7 +5613,7 @@ function ProposalThread({
           <button
             onClick={send}
             disabled={busy || !draft.trim()}
-            className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-white transition enabled:hover:bg-accent/90 disabled:opacity-45"
+            className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-on-solid transition enabled:hover:bg-accent/90 disabled:opacity-45"
           >
             Post
           </button>
@@ -5867,7 +5868,7 @@ function ProposalsReviewDialog({
                 {p.status === 'open' && p.baseVersion < currentVersion && (
                   <span
                     title="Authored against an older version — review with care (never auto-rebased)"
-                    className="rounded-full bg-amber-500/10 px-1.5 py-px text-[10px] font-medium text-amber-700"
+                    className="rounded-full bg-warn/10 px-1.5 py-px text-[10px] font-medium text-warn-text"
                   >
                     stale
                   </span>
@@ -5887,7 +5888,7 @@ function ProposalsReviewDialog({
               {/* D27 — the check row: the honest, knowable facts about a prompt
                   replacement (advisory, never gating — the merge stays the gate). */}
               {p.check && (
-                <p className="mt-2 flex items-start gap-1 rounded-lg bg-amber-500/10 px-2 py-1.5 text-[11px] leading-snug text-amber-700">
+                <p className="mt-2 flex items-start gap-1 rounded-lg bg-warn/10 px-2 py-1.5 text-[11px] leading-snug text-warn-text">
                   <AlertCircle size={12} className="mt-0.5 shrink-0" /> {p.check.note}
                 </p>
               )}
@@ -6078,7 +6079,7 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
           </span>
         )}
         {warning && (
-          <span className="mt-1 flex items-center gap-1 text-[11px] text-amber-600">
+          <span className="mt-1 flex items-center gap-1 text-[11px] text-warn-strong">
             <AlertCircle size={12} className="shrink-0" /> {warning}
           </span>
         )}
@@ -6131,8 +6132,8 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
 }
 
 const PROBE_VERDICT_COLOR: Record<PromptProbeResult['verdict'], string> = {
-  strong: 'text-emerald-700',
-  fair: 'text-amber-600',
+  strong: 'text-ok-text',
+  fair: 'text-warn-strong',
   weak: 'text-removed',
 }
 
@@ -6527,7 +6528,7 @@ function CapabilityFact({ label, on }: { label: string; on: boolean }) {
   return (
     <span className="inline-flex items-center gap-1">
       {on ? (
-        <Check size={12} className="text-emerald-600" />
+        <Check size={12} className="text-ok-strong" />
       ) : (
         <MinusCircle size={12} className="text-ink-faint" />
       )}
@@ -6947,7 +6948,7 @@ function LibraryPromptCard({
           <div className="flex items-center gap-1.5">
             {prompt.isDefault && <DefaultBadge />}
             {warning && (
-              <span title={warning} className="shrink-0 text-amber-600">
+              <span title={warning} className="shrink-0 text-warn-strong">
                 <AlertCircle size={15} />
               </span>
             )}
@@ -7227,7 +7228,7 @@ function SharedProjectCard({
           p.openWorkCount > 0 ? (
             <span
               title={`${p.openWorkCount} open work item${p.openWorkCount === 1 ? '' : 's'} awaiting a taker`}
-              className="shrink-0 rounded-full bg-amber-500/10 px-2 py-px text-[11px] font-medium text-amber-700"
+              className="shrink-0 rounded-full bg-warn/10 px-2 py-px text-[11px] font-medium text-warn-text"
             >
               {p.openWorkCount} open
             </span>
@@ -7570,7 +7571,7 @@ function ImportAgentCardForm() {
         <button
           onClick={importCard}
           disabled={busy || !url.trim()}
-          className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-white transition enabled:hover:bg-accent/90 disabled:opacity-45"
+          className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-on-solid transition enabled:hover:bg-accent/90 disabled:opacity-45"
         >
           Import
         </button>
@@ -7580,7 +7581,7 @@ function ImportAgentCardForm() {
         you bind your own model, authority, and budget.
       </p>
       {imported && (
-        <p className="mt-1 text-[12px] text-emerald-700">
+        <p className="mt-1 text-[12px] text-ok-text">
           Imported &ldquo;{imported}&rdquo; — find it in the Agents tab.
         </p>
       )}
@@ -7635,7 +7636,7 @@ function PublishedAgentCard({
             onClick={fork}
             disabled={busy || forked}
             className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-[12px] font-medium transition ${
-              forked ? 'text-emerald-700' : 'text-ink-soft hover:border-line-strong hover:text-ink'
+              forked ? 'text-ok-text' : 'text-ink-soft hover:border-line-strong hover:text-ink'
             } disabled:cursor-default`}
           >
             <GitFork size={13} /> {forked ? 'Forked ✓' : 'Fork'}
@@ -7766,7 +7767,7 @@ function AgentPublicPage({
             disabled={busy || forked}
             title="Forking copies the definition — you grant your own model & authority."
             className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[13px] font-medium transition ${
-              forked ? 'text-emerald-700' : 'text-ink-soft hover:border-line-strong hover:text-ink'
+              forked ? 'text-ok-text' : 'text-ink-soft hover:border-line-strong hover:text-ink'
             } disabled:cursor-default`}
           >
             <GitFork size={14} /> {forked ? 'Forked ✓' : 'Fork'}
@@ -8056,13 +8057,13 @@ function AuditEntryRow({ entry, actor }: { entry: AuditEntry; actor?: string }) 
   const denied = entry.outcome === 'denied'
   return (
     <div className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0">
-      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${denied ? 'bg-removed' : 'bg-emerald-500'}`} />
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${denied ? 'bg-removed' : 'bg-ok'}`} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <span className="shrink-0 rounded-full bg-ink/5 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-ink-soft">
             {AUDIT_CHANNEL_LABEL[entry.channel]}
           </span>
-          <span className={`shrink-0 text-[11px] font-medium ${denied ? 'text-removed' : 'text-emerald-700'}`}>
+          <span className={`shrink-0 text-[11px] font-medium ${denied ? 'text-removed' : 'text-ok-text'}`}>
             {denied ? 'denied' : 'fulfilled'}
           </span>
           <span className="truncate text-[13px] text-ink">
@@ -8805,7 +8806,7 @@ function ToolChip({ tool }: { tool: StepTool }) {
     <span className={`inline-flex h-5 items-center gap-1 rounded-md px-1.5 text-[11px] font-medium ${tint} ${color}`}>
       <Icon size={11} />
       {tool.label}
-      {tool.needsAuth && <span className="ml-0.5 h-1.5 w-1.5 rounded-full bg-amber-500" />}
+      {tool.needsAuth && <span className="ml-0.5 h-1.5 w-1.5 rounded-full bg-warn" />}
     </span>
   )
 }
@@ -8998,7 +8999,7 @@ function ScheduledRow({
   const pill = running ? { tone: 'warn' as const, label: 'Running…' } : taskPill(task)
   const lastRun = task.runs[0]
   const dot =
-    task.lastStatus === 'ok' ? 'bg-emerald-500' : task.lastStatus === 'failed' ? 'bg-red-500' : 'bg-line-strong'
+    task.lastStatus === 'ok' ? 'bg-ok' : task.lastStatus === 'failed' ? 'bg-danger' : 'bg-line-strong'
 
   return (
     // The row is a @container: its metadata is gated on the row's OWN width,
@@ -9172,7 +9173,7 @@ function NewScheduleRow({ tpl, onAdd }: { tpl: ScheduleTemplate; onAdd: () => vo
         <span className="block truncate text-[13px] font-medium text-ink">{tpl.name}</span>
         <span className="block truncate text-[11px] text-ink-faint">{tpl.preview}</span>
       </span>
-      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent group-hover:text-white">
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent group-hover:text-on-solid">
         <Plus size={14} />
       </span>
     </button>
@@ -9395,8 +9396,8 @@ type RailState = 'idle' | 'done' | 'fail' | 'running'
 // Backgrounds are opaque (not a /10 alpha) so the rail line stays hidden behind
 // the marker; the tint still reads as a soft fill for done / failed steps.
 function railMarkerClasses(state: RailState): string {
-  if (state === 'done') return 'border-emerald-500 bg-emerald-50 text-emerald-700'
-  if (state === 'fail') return 'border-red-500 bg-red-50 text-red-500'
+  if (state === 'done') return 'border-ok bg-ok-tint text-ok-text'
+  if (state === 'fail') return 'border-danger bg-danger-tint text-danger'
   if (state === 'running') return 'border-accent bg-surface text-accent'
   return 'border-line bg-surface text-ink-soft'
 }
@@ -9431,7 +9432,7 @@ function RailRow({
     <div className="relative flex gap-3">
       {connect && (
         <span
-          className={`absolute bottom-0 left-[13px] top-7 w-0.5 ${state === 'done' ? 'bg-emerald-500' : 'bg-line'}`}
+          className={`absolute bottom-0 left-[13px] top-7 w-0.5 ${state === 'done' ? 'bg-ok' : 'bg-line'}`}
         />
       )}
       <span
@@ -9570,7 +9571,7 @@ function StepsEditor({ task, onClose }: { task: ScheduledTask; onClose: () => vo
                 >
                   <ToolGlyph tool={s.tool} size={12} />
                   {s.tool.label}
-                  {s.tool.needsAuth && <span className="ml-0.5 h-1.5 w-1.5 rounded-full bg-amber-500" />}
+                  {s.tool.needsAuth && <span className="ml-0.5 h-1.5 w-1.5 rounded-full bg-warn" />}
                   <ChevronDown size={11} className="text-ink-faint" />
                 </button>
                 {picking === s.id && <StepToolPicker onPick={(t) => setTool(i, t)} onClose={() => setPicking(null)} />}
@@ -9689,7 +9690,7 @@ function StepToolPicker({
         >
           <ToolGlyph tool={t} size={14} />
           <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-ink">{t.label}</span>
-          {t.needsAuth && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" title="Needs auth" />}
+          {t.needsAuth && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn" title="Needs auth" />}
         </button>
       ))}
     </div>
@@ -9698,9 +9699,9 @@ function StepToolPicker({
 
 function RunStatusIcon({ status }: { status: ScheduledRun['status'] }) {
   if (status === 'running') return <Spinner size={16} className="mt-0.5 shrink-0 text-accent" />
-  if (status === 'failed') return <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-500" />
+  if (status === 'failed') return <AlertCircle size={16} className="mt-0.5 shrink-0 text-danger" />
   if (status === 'skipped') return <MinusCircle size={16} className="mt-0.5 shrink-0 text-ink-faint" />
-  return <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-emerald-500" />
+  return <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-ok" />
 }
 
 /** A GitHub-streak-style strip of the last seven runs, newest on the right. */
@@ -9715,9 +9716,9 @@ function WeekStrip({ runs }: { runs: ScheduledRun[] }) {
           key={i}
           className={`h-4 w-1.5 rounded-sm ${
             s === 'ok'
-              ? 'bg-emerald-500'
+              ? 'bg-ok'
               : s === 'failed'
-                ? 'bg-red-500'
+                ? 'bg-danger'
                 : s === 'running'
                   ? 'bg-accent'
                   : s === 'skipped'
@@ -9782,7 +9783,7 @@ function RunRow({
           <span className="text-[13px] font-medium text-ink">{relativeTime(run.at)}</span>
           {run.duration !== '—' && <span className="shrink-0 text-[11px] text-ink-faint">ran in {run.duration}</span>}
         </div>
-        <p className={`mt-0.5 text-[12px] ${run.status === 'failed' ? 'text-red-600' : 'text-ink-soft'}`}>
+        <p className={`mt-0.5 text-[12px] ${run.status === 'failed' ? 'text-danger-strong' : 'text-ink-soft'}`}>
           {run.summary}
         </p>
       </div>
@@ -9898,7 +9899,7 @@ function DeliveryPanel({ task }: { task: ScheduledTask }) {
           </div>
           {preApproved ? (
             <>
-              <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700">
+              <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-ok-tint px-1.5 py-0.5 text-[11px] font-medium text-ok-text">
                 <Check size={11} />
                 Pre-approved · runs unprompted
               </div>
@@ -10289,25 +10290,7 @@ function DispatchView() {
 function CustomizeView() {
   return (
     <div className="space-y-3">
-      <Card title="Appearance" desc="This prototype ships in a single light theme by design.">
-        <div className="flex gap-1.5">
-          {(['Light', 'System', 'Dark'] as const).map((opt) => {
-            const active = opt === 'Light'
-            return (
-              <span
-                key={opt}
-                title={active ? undefined : 'Light theme only in this prototype'}
-                aria-disabled={!active}
-                className={`rounded-lg px-3 py-1 text-[12px] font-medium ${
-                  active ? 'bg-accent text-white' : 'cursor-not-allowed bg-panel-2/50 text-ink-faint line-through'
-                }`}
-              >
-                {opt}
-              </span>
-            )
-          })}
-        </div>
-      </Card>
+      <AppearanceCard />
       <DefaultModelCard />
       <SystemPromptCard />
       <ToggleCard
@@ -10322,6 +10305,43 @@ function CustomizeView() {
         storageKey="claude-ui.customize.suggestScheduled"
       />
     </div>
+  )
+}
+
+/** The "Appearance" setting — Light / Dark / System, persisted + applied through
+ *  the one theme funnel (lib/theme): the pick stamps `data-theme` on <html> and
+ *  the CSS variable blocks in index.css do the rest. "System" follows the OS
+ *  `prefers-color-scheme` live. */
+function AppearanceCard() {
+  const [pref, setPref] = useState<ThemePref>(loadThemePref)
+  const commit = (next: ThemePref) => {
+    setPref(next)
+    saveThemePref(next)
+  }
+  // Pref ids are lowercase; the chip label is just the capitalized id (and the
+  // spelled-out record would trip INV-1's `dark:`-variant scan).
+  const label = (opt: ThemePref) => opt[0].toUpperCase() + opt.slice(1)
+  return (
+    <Card title="Appearance" desc="How the interface is lit — or follow your device.">
+      <div role="radiogroup" aria-label="Theme" className="flex gap-1.5">
+        {(['light', 'system', 'dark'] as const).map((opt) => {
+          const active = opt === pref
+          return (
+            <button
+              key={opt}
+              role="radio"
+              aria-checked={active}
+              onClick={() => commit(opt)}
+              className={`rounded-lg px-3 py-1 text-[12px] font-medium transition ${
+                active ? 'bg-accent text-on-solid' : 'bg-panel-2 text-ink-soft hover:text-ink'
+              }`}
+            >
+              {label(opt)}
+            </button>
+          )
+        })}
+      </div>
+    </Card>
   )
 }
 
@@ -10438,7 +10458,7 @@ function SystemPromptCard() {
           title={selectedWarning ?? undefined}
           className="group inline-flex items-center gap-1.5 rounded-lg bg-panel-2 px-3 py-1 text-[12px] font-medium text-ink ring-1 ring-transparent transition hover:ring-line-strong"
         >
-          {selectedWarning && <AlertCircle size={13} className="text-amber-600" />}
+          {selectedWarning && <AlertCircle size={13} className="text-warn-strong" />}
           <span>{selected?.label ?? 'Choose a prompt'}</span>
           <ChevronDown size={12} className="text-ink-faint transition group-hover:text-ink-soft" />
         </button>
@@ -10465,7 +10485,7 @@ function SystemPromptCard() {
                 >
                   <span
                     className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
-                      on ? 'border-accent bg-accent text-white' : 'border-line-strong'
+                      on ? 'border-accent bg-accent text-on-solid' : 'border-line-strong'
                     }`}
                   >
                     {on && <Check size={11} strokeWidth={3} />}
@@ -10478,7 +10498,7 @@ function SystemPromptCard() {
                       </span>
                     </span>
                     {warning && (
-                      <span className="mt-1 flex items-start gap-1 text-[11px] leading-snug text-amber-700">
+                      <span className="mt-1 flex items-start gap-1 text-[11px] leading-snug text-warn-text">
                         <AlertCircle size={12} className="mt-0.5 shrink-0" />
                         {warning}
                       </span>
@@ -10759,8 +10779,8 @@ function Empty({ children }: { children: ReactNode }) {
 function DispatchStatus({ status }: { status: DispatchRun['status'] }) {
   if (status === 'running')
     return <Spinner size={17} className="mt-0.5 shrink-0 text-accent" />
-  if (status === 'failed') return <AlertCircle size={17} className="mt-0.5 shrink-0 text-red-500" />
-  return <CheckCircle2 size={17} className="mt-0.5 shrink-0 text-emerald-500" />
+  if (status === 'failed') return <AlertCircle size={17} className="mt-0.5 shrink-0 text-danger" />
+  return <CheckCircle2 size={17} className="mt-0.5 shrink-0 text-ok" />
 }
 
 function Toggle({ on, onToggle, ariaLabel }: { on: boolean; onToggle: () => void; ariaLabel?: string }) {
@@ -10777,7 +10797,7 @@ function Toggle({ on, onToggle, ariaLabel }: { on: boolean; onToggle: () => void
       title={on ? 'Enabled' : 'Disabled'}
     >
       <span
-        className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${
+        className={`absolute top-0.5 h-4 w-4 rounded-full bg-surface shadow transition-all ${
           on ? 'left-[18px]' : 'left-0.5'
         }`}
       />

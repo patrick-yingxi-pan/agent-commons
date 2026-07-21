@@ -28,7 +28,7 @@ export function TextDiff({
           <pre className="max-h-28 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-removed-bg/40 p-2 font-sans text-[11px] leading-snug text-ink-soft">
             {current}
           </pre>
-          <pre className="max-h-28 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-emerald-500/5 p-2 font-sans text-[11px] leading-snug text-ink-soft">
+          <pre className="max-h-28 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-ok/5 p-2 font-sans text-[11px] leading-snug text-ink-soft">
             {proposed}
           </pre>
         </div>

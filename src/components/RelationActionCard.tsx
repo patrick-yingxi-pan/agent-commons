@@ -141,7 +141,7 @@ export function RelationActionCard({
               <div className="flex items-start gap-2.5">
                 <span
                   className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${
-                    isDone ? 'bg-emerald-50 text-emerald-600' : 'bg-surface text-ink-soft'
+                    isDone ? 'bg-ok-tint text-ok-strong' : 'bg-surface text-ink-soft'
                   }`}
                 >
                   {isDone ? <Check size={14} /> : <Icon size={14} />}
@@ -157,7 +157,7 @@ export function RelationActionCard({
                   </div>
 
                   {standing && !isDone && !isSkipped && (
-                    <div className="mt-1 inline-flex items-center gap-1 rounded-md bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-700">
+                    <div className="mt-1 inline-flex items-center gap-1 rounded-md bg-warn-tint px-1.5 py-0.5 text-[11px] font-medium text-warn-text">
                       <Repeat size={11} />
                       Runs on {cadence} — approved once, then unprompted
                     </div>
@@ -177,7 +177,7 @@ export function RelationActionCard({
                 <div className="flex items-center gap-2 pl-[34px]">
                   <button
                     onClick={() => confirm(op)}
-                    className="rounded-lg bg-accent px-2.5 py-1 text-[12px] font-semibold text-white shadow-sm transition hover:bg-accent-strong"
+                    className="rounded-lg bg-accent px-2.5 py-1 text-[12px] font-semibold text-on-solid shadow-sm transition hover:bg-accent-strong"
                   >
                     {standing ? 'Approve for all runs' : 'Confirm'}
                   </button>

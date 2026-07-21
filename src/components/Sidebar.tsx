@@ -764,7 +764,7 @@ export function NotificationBell({ onClick }: { onClick: () => void }) {
     >
       <Bell size={18} />
       {unreadCount > 0 && (
-        <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-semibold leading-none text-white">
+        <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-semibold leading-none text-on-solid">
           {unreadCount > 99 ? '99+' : unreadCount}
         </span>
       )}
@@ -1087,6 +1087,6 @@ function RoutineDot({
   enabled: boolean
   lastStatus: ScheduledTask['lastStatus']
 }) {
-  const color = !enabled ? 'bg-line-strong' : lastStatus === 'failed' ? 'bg-red-500' : 'bg-emerald-500'
+  const color = !enabled ? 'bg-line-strong' : lastStatus === 'failed' ? 'bg-danger' : 'bg-ok'
   return <span className={`h-2 w-2 shrink-0 rounded-full ${color}`} title={enabled ? lastStatus : 'paused'} />
 }

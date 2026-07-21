@@ -231,12 +231,16 @@ ratchet a new class into the ledger.
 
 ### A-2 · Color comes from the theme's tokens
 UI chrome uses the token palette (`ink`/`panel`/`surface`/`line`/`accent`/
-`cap-*`, and the semantic `removed`/`added` pair); raw hex/rgb is legitimate
-only in data-visualization and image-fallback contexts (today:
-`UsageControl`, `CodePanel`, `AddContextButton`, `HostsControl`). Light theme
-only — no `dark:` variants.
+`cap-*`, the semantic `removed`/`added` pair, and the status ramps
+`ok`/`warn`/`danger` + `on-solid`); raw hex/rgb is legitimate only in
+data-visualization and image-fallback contexts (today: `UsageControl`,
+`CodePanel`'s terminal block, `AddContextButton`'s traffic lights,
+`HostsControl`). Both themes come from the same tokens — dark is the
+`[data-theme="dark"]` variable block in `src/index.css`; no `dark:` variants,
+no raw chromatic palette classes (INV-1).
 **Detection:** `rg '#[0-9a-fA-F]{3,8}' src/` — any file OUTSIDE the known
-data-viz set is a finding; `tests/spec-conformance.test.ts` (INV-1 dark-scan).
+data-viz set is a finding; `tests/spec-conformance.test.ts` (INV-1: dark-scan,
+palette-scan, dark-block completeness).
 **Fix:** swap to the nearest token; if no token fits, add one to the theme —
 never a one-off literal.
 

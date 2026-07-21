@@ -184,11 +184,11 @@ function PhotoBody({
           src={attachmentImageUrl(item)}
           className="flex aspect-video w-full items-end rounded-lg shadow-inner"
         >
-          <span className="relative z-10 m-2 rounded bg-black/30 px-1.5 py-0.5 text-[11px] font-medium text-white/95">
+          <span className="relative z-10 m-2 rounded bg-black/30 px-1.5 py-0.5 text-[11px] font-medium text-on-solid/95">
             {item.label}
           </span>
           {applied.length > 0 && (
-            <span className="absolute right-2 top-2 z-10 rounded bg-white/85 px-1.5 py-0.5 text-[10px] font-semibold text-accent-strong">
+            <span className="absolute right-2 top-2 z-10 rounded bg-on-solid/85 px-1.5 py-0.5 text-[10px] font-semibold text-accent-strong">
               Edited · {applied.join(', ')}
             </span>
           )}
@@ -313,7 +313,7 @@ function FileBody({
               <button
                 onClick={() => onDraft({ text, saved: text })}
                 disabled={!dirty}
-                className="rounded-lg bg-accent px-3 py-1 text-xs font-medium text-white transition enabled:hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-lg bg-accent px-3 py-1 text-xs font-medium text-on-solid transition enabled:hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Save
               </button>

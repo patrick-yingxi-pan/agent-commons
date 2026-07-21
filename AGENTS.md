@@ -121,8 +121,8 @@ restart.
   function, registries-one-home, rail tree, canonical URLs, back-history,
   entity pages, the split workspace) in [`src/CLAUDE.md`](src/CLAUDE.md);
   backend decisions (real Messages+tool-use boundary, auth-gate wall,
-  persistence shape) in [`server/CLAUDE.md`](server/CLAUDE.md). Light theme
-  only; no "before" view; no dark mode.
+  persistence shape) in [`server/CLAUDE.md`](server/CLAUDE.md). Theming is
+  token-driven (light/dark/system — `src/CLAUDE.md`); no "before" view.
 
 ## Repo map (detail in [`README.md`](README.md))
 

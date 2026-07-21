@@ -181,7 +181,7 @@ function Prompt({
           <button
             ref={primaryRef}
             onClick={onPrimary}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-semibold text-white shadow-sm transition hover:bg-accent-strong"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-semibold text-on-solid shadow-sm transition hover:bg-accent-strong"
           >
             {primaryLabel}
             <Key tone="onAccent">Enter</Key>
@@ -258,7 +258,7 @@ function DeniedView({
 }) {
   return (
     <div className="flex items-start gap-3 px-3.5 py-3">
-      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
+      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-warn-tint text-warn-strong">
         <ShieldAlert size={16} />
       </span>
       <div className="min-w-0 flex-1">
@@ -274,7 +274,7 @@ function DeniedView({
         <div className="mt-2.5 flex items-center justify-end">
           <button
             onClick={onRetry}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-semibold text-white shadow-sm transition hover:bg-accent-strong"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-semibold text-on-solid shadow-sm transition hover:bg-accent-strong"
           >
             Grant access
           </button>
@@ -289,7 +289,7 @@ function Key({ children, tone }: { children: React.ReactNode; tone?: 'onAccent' 
   return (
     <kbd
       className={`rounded px-1 py-0.5 text-[10px] font-medium leading-none ${
-        tone === 'onAccent' ? 'bg-white/20 text-white/90' : 'bg-panel-2 text-ink-faint'
+        tone === 'onAccent' ? 'bg-on-solid/20 text-on-solid/90' : 'bg-panel-2 text-ink-faint'
       }`}
     >
       {children}

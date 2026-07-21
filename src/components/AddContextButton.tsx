@@ -498,7 +498,7 @@ function BrowseDialog({
             <button
               onClick={() => picked && onConfirm(picked)}
               disabled={!picked}
-              className="rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-white transition enabled:hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-on-solid transition enabled:hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-40"
             >
               Open
             </button>
@@ -831,12 +831,12 @@ function ServedPhotos({
             title={p.name}
             onClick={added ? undefined : () => onAttach(p)}
             className={`aspect-square rounded-lg ring-1 transition ${
-              added ? 'ring-2 ring-emerald-500' : 'ring-black/5 hover:opacity-80'
+              added ? 'ring-2 ring-ok' : 'ring-black/5 hover:opacity-80'
             }`}
           >
             {added && (
               <span className="absolute inset-0 flex items-center justify-center bg-black/35">
-                <Check size={18} className="text-white" strokeWidth={3} />
+                <Check size={18} className="text-on-solid" strokeWidth={3} />
               </span>
             )}
           </PhotoThumb>
@@ -1017,7 +1017,7 @@ function AttachPromptCard({
         <button
           type="button"
           onClick={onPrimary}
-          className="rounded-md bg-accent px-2 py-1 text-[12px] font-medium text-white transition hover:bg-accent-strong"
+          className="rounded-md bg-accent px-2 py-1 text-[12px] font-medium text-on-solid transition hover:bg-accent-strong"
         >
           {primaryLabel}
         </button>
@@ -1314,7 +1314,7 @@ function OptionRow({
     >
       {status && (
         <span
-          className={`h-1.5 w-1.5 shrink-0 rounded-full ${status === 'connected' ? 'bg-emerald-500' : 'bg-amber-500'}`}
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${status === 'connected' ? 'bg-ok' : 'bg-warn'}`}
           title={status === 'connected' ? 'Connected' : 'Needs auth'}
         />
       )}
@@ -1324,13 +1324,13 @@ function OptionRow({
         {meta && <span className="block truncate text-[11px] text-ink-faint">{meta}</span>}
       </span>
       {added ? (
-        <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-emerald-600">
+        <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-ok-strong">
           <Check size={13} strokeWidth={2.5} /> Added
         </span>
       ) : (
         <span
           title="Add"
-          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent group-hover:text-white"
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent group-hover:text-on-solid"
         >
           <Plus size={14} />
         </span>

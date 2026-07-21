@@ -35,10 +35,10 @@ export function ConnectorDetailBody({
     <>
       <div
         className={`flex items-center gap-1.5 text-[12px] font-medium ${
-          connected ? 'text-emerald-700' : 'text-amber-700'
+          connected ? 'text-ok-text' : 'text-warn-text'
         }`}
       >
-        <span className={`h-2 w-2 rounded-full ${connected ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+        <span className={`h-2 w-2 rounded-full ${connected ? 'bg-ok' : 'bg-warn'}`} />
         {statusLabel}
       </div>
 

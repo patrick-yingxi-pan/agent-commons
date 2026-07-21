@@ -3,7 +3,7 @@
 > **Intent.** A handful of decisions are locked in — they shape every change and must
 > not silently drift. Some are *form-follows-function* rules (logically parallel
 > controls share one styled primitive, so a cue can't diverge between copies) and are
-> each guarded by a dedicated test; others (light-theme-only, the IPv4 bind) are
+> each guarded by a dedicated test; others (token-driven theming, the IPv4 bind) are
 > guarded structurally by the conformance test; a couple are review-enforced
 > conventions, marked as such so the absence of an automated guard is explicit rather
 > than assumed. (The scoped `CLAUDE.md` design decisions — `src/`, `server/`, `contract/`.)
@@ -12,7 +12,7 @@
 
 | ID | Requirement | Implementation | Verified by | Status |
 |----|-------------|----------------|-------------|--------|
-| INV-1 | Light theme only — no dark mode, no theme toggle, no `dark:` variants. | `src/index.css` | `tests/spec-conformance.test.ts` (no `dark:` in `src`) | ✅ |
+| INV-1 | **Theming through tokens** — Light / Dark / System (Customize → Appearance), applied by the ONE funnel `src/lib/theme.ts` stamping `data-theme` on `<html>`. Every color is a `@theme` token; dark is a single variable-override block in `src/index.css`. Components carry no `dark:` variants and no raw chromatic Tailwind palette classes (status cues = the semantic `ok`/`warn`/`danger` ramps; `on-solid` atop solid fills), and the dark block must redefine every `--color-*` token. (Supersedes the original light-theme-only decision — owner directive, 2026-07-21.) | `src/index.css`, `src/lib/theme.ts`, `AppearanceCard` in `src/components/SectionView.tsx` | `tests/spec-conformance.test.ts` (no `dark:`, no raw palette classes, dark-block completeness), `tests/theme.test.ts` | ✅ |
 | INV-2 | No "before" view — the prototype does not reproduce today's three-tab UI; the motivation lives in the docs. | (absence by design) | review-enforced convention (no automated guard) | 🟡 |
 | INV-3 | The dev server binds IPv4 (`127.0.0.1`) for both the UI and the API proxy. | `vite.config.ts`, `scripts/dev.mjs` | `tests/spec-conformance.test.ts` (`127.0.0.1` in `vite.config.ts`) | ✅ |
 | INV-4 | Form follows function: every "+ Add ‹thing›" picker-opener shares one primitive, and every foldable section header shares one. | `src/lib/inlineAction.ts`, `src/components/AddTrigger.tsx`, `src/lib/foldHeader.ts` | `tests/addTrigger.test.ts`, `tests/foldHeader.test.ts` | ✅ |

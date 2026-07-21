@@ -74,11 +74,11 @@ function ActivityRow({ activity, sessionId }: { activity: ToolActivity; sessionI
       <span
         className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${
           a.status === 'done' && a.kind === 'action'
-            ? 'bg-emerald-50 text-emerald-600'
+            ? 'bg-ok-tint text-ok-strong'
             : a.status === 'declined'
               ? 'bg-surface text-ink-faint'
               : danger && pending
-                ? 'bg-red-50 text-red-600'
+                ? 'bg-danger-tint text-danger-strong'
                 : 'bg-surface text-ink-soft'
         }`}
       >
@@ -95,21 +95,21 @@ function ActivityRow({ activity, sessionId }: { activity: ToolActivity; sessionI
             verbatim so the confirm is informed consent, not trust. */}
         {pending && a.op && (
           <div className="mt-1.5 overflow-x-auto rounded-lg bg-surface px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-ink-soft">
-            <div className={danger ? 'font-semibold text-red-600' : 'font-semibold'}>
+            <div className={danger ? 'font-semibold text-danger-strong' : 'font-semibold'}>
               {a.op.method} {API_BASE_PATH}{a.op.path}
             </div>
             {a.op.body !== undefined && <pre className="mt-0.5 whitespace-pre-wrap break-all">{JSON.stringify(a.op.body, null, 1)}</pre>}
           </div>
         )}
-        {refusal && <div className="mt-1 text-[11px] text-red-600">{refusal}</div>}
+        {refusal && <div className="mt-1 text-[11px] text-danger-strong">{refusal}</div>}
 
         {pending && (
           <div className="mt-1.5 flex items-center gap-2">
             <button
               onClick={() => resolve('confirm')}
               disabled={busy}
-              className={`rounded-lg px-2.5 py-1 text-[12px] font-semibold text-white shadow-sm transition disabled:opacity-50 ${
-                danger ? 'bg-red-600 hover:bg-red-700' : 'bg-accent hover:bg-accent-strong'
+              className={`rounded-lg px-2.5 py-1 text-[12px] font-semibold text-on-solid shadow-sm transition disabled:opacity-50 ${
+                danger ? 'bg-danger hover:bg-danger-strong' : 'bg-accent hover:bg-accent-strong'
               }`}
             >
               {cues?.confirm ?? 'Confirm'}

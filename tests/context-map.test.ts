@@ -25,7 +25,7 @@ const lines = (s: string) => s.split('\n').length
 const SCOPED_HOMES: Record<string, string[]> = {
   'src/CLAUDE.md': [
     'One door to the backend',
-    'Light theme only',
+    'Theming through tokens',
     'Form follows function',
     'Registries have one home',
     'inline disclosure tree',
