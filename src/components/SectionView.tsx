@@ -2985,6 +2985,13 @@ function FeedCard({ item }: { item: CommonsItem }) {
           </div>
         )}
       </div>
+      {/* Follow = the D24 watch, where watch machinery exists (project
+          subjects); other kinds gain it when the watch key generalizes. */}
+      {kind === 'project' && (
+        <div className="mt-2 flex justify-end">
+          <WatchButton projectId={id} />
+        </div>
+      )}
       {root && root.posts.length > 0 && (
         <div className="mt-3 border-t border-line pt-2.5">
           {root.posts.length > tail.length && (

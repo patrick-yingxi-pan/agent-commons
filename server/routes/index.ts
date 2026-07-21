@@ -1704,14 +1704,13 @@ export function buildRouter(): Router {
   // audit D15). An item nothing can take stays open in the backlog. Visibility of the
   // backlog mirrors the Project's (owner or shared ⇒ readable; else 404, no leak).
   const projectHiddenFrom = (req: IncomingMessage, projectId: string): boolean => {
-    const project = store.findProject(projectId)
-    const owner = project?.tenantId ?? store.defaultTenantId()
+    // The ONE social read wall (S1): owner read-union (incl. the flagship
+    // faces on unstamped seeds) ∪ the legacy everyone-switch ∪ grants. This
+    // wall once hand-rolled the union WITHOUT the flagship rule, so Ada
+    // 404'd watching her own seed project from the feed (found live) —
+    // unified onto the store's wall instead of a fourth copy.
     const tenantId = store.identity(req.headers).tenant.id
-    // FWD-6 O-D5: an org seat reads the org's projects (the member union).
-    const reads = owner === tenantId || accounts.seatIn(tenantId, owner) !== undefined
-    // Social S1: a grant opens the subject — a granted viewer reads at any tier.
-    const granted = () => store.grantedTier({ kind: 'project', id: projectId }, tenantId) !== undefined
-    return !project || (!reads && project.shared !== true && !granted())
+    return !store.grantSubjectVisible({ kind: 'project', id: projectId }, tenantId)
   }
   r.get('/projects/:id/open-subgoals', ({ req, res, params }) => {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
