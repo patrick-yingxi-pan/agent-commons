@@ -37,6 +37,9 @@ export const keys = {
   contributions: (projectId: string) => `contributions:${projectId}`,
   /** A Project's delegation roster (CW8, Phase F). */
   delegations: (projectId: string) => `delegations:${projectId}`,
+  /** A resource's grant roster (social S1) — keyed per subject ref; no-arg =
+   *  the family prefix (invalidated whole on `grant.changed`). */
+  grants: (kind?: string, id?: string) => (kind && id ? `grants:${kind}:${id}` : 'grants'),
   /** A Project's attention ledger (CW9, Phase G) — per-caller asks + counts. */
   attention: (projectId: string) => `attention:${projectId}`,
   /** The discovery directories (D17) — keyed per search so each query caches on its own. */
@@ -150,6 +153,10 @@ export const paths = {
     `/projects/${encodeURIComponent(projectId)}/open-subgoals/${encodeURIComponent(itemId)}/comments`,
   openSubGoalRetract: (projectId: string, itemId: string) =>
     `/projects/${encodeURIComponent(projectId)}/open-subgoals/${encodeURIComponent(itemId)}/retract`,
+  /** A resource's grant roster (social S1) — the generic subject-ref read. */
+  grants: (kind: string, id: string) => `/grants?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`,
+  grantCreate: () => `/grants`,
+  grantRevoke: (gid: string) => `/grants/${encodeURIComponent(gid)}`,
   /** The contribution ledger (agent-contribution workflow Phase A). */
   contributions: (projectId: string) => `/projects/${encodeURIComponent(projectId)}/contributions`,
   contributionComments: (projectId: string, cid: string) =>

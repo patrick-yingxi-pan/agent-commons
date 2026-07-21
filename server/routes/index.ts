@@ -7,6 +7,8 @@ import type {
   Message,
   ReplyStreamEvent,
   CreateCommissionRequest,
+  CreateGrantRequest,
+  SocialEntityKind,
   CreateDispatchRequest,
   CreateProviderRequest,
   RelayReplyRequest,
@@ -32,6 +34,7 @@ import type {
   UpdateScheduleRequest,
   OpsSummary,
 } from '../../contract/index.ts'
+import { SOCIAL_ENTITY_KINDS } from '../../contract/index.ts'
 import { timingSafeEqual } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { stripTypeScriptTypes } from 'node:module'
@@ -1832,6 +1835,42 @@ export function buildRouter(): Router {
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the poster or the project owner may retract an item')
     if (out === 'closed') return sendError(res, 'conflict', 'Only an open item can be retracted')
     sendJson(res, out)
+  })
+
+  // ── Social-layer grants (S1 — docs/design/social-layer.md) ──────────────────
+  // Generic over the social nouns: routes take a SocialEntityRef, never a
+  // kind-specific path. The wall is existence-hiding (invisible ≡ nonexistent);
+  // creation is the subject owner's act, revocation is either party's.
+  r.get('/grants', ({ req, res, url }) => {
+    const kind = url.searchParams.get('kind') ?? ''
+    const id = url.searchParams.get('id') ?? ''
+    if (!(SOCIAL_ENTITY_KINDS as readonly string[]).includes(kind) || !id) {
+      return sendError(res, 'bad_request', 'kind (a social entity kind) and id are required')
+    }
+    const ref = { kind: kind as SocialEntityKind, id }
+    const tenant = store.identity(req.headers).tenant.id
+    if (!store.grantSubjectVisible(ref, tenant)) return sendError(res, 'not_found', `No ${kind} '${id}'`)
+    sendJson(res, store.listGrants(ref, tenant))
+  })
+  r.post('/grants', async ({ req, res, body }) => {
+    const input = await body<CreateGrantRequest>()
+    if (!input?.subject?.kind || !input.subject.id || !input.audience?.kind || !input.tier) {
+      return sendError(res, 'bad_request', 'subject {kind,id}, audience, and tier are required')
+    }
+    const tenant = store.identity(req.headers).tenant.id
+    const out = store.createGrant(input, tenant)
+    if (out === undefined) return sendError(res, 'not_found', `No ${input.subject.kind} '${input.subject.id}'`)
+    if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the subject’s owner may share it')
+    if (out === 'invalid') return sendError(res, 'bad_request', 'a valid tier and a known principal/org audience are required (link audiences arrive with the public phase; discussion subjects with S2)')
+    if (out === 'capped') return sendError(res, 'conflict', 'This resource’s grant roster is at its cap')
+    sendJson(res, out)
+  })
+  r.delete('/grants/:gid', ({ req, res, params }) => {
+    // A non-party 404s identically to a nonexistent id (existence-hiding —
+    // sequential grant ids would otherwise be probeable).
+    const out = store.revokeGrant(params.gid, store.identity(req.headers).tenant.id)
+    if (out === undefined) return sendError(res, 'not_found', `No grant '${params.gid}'`)
+    sendJson(res, { ok: true })
   })
 
   // ── The contribution ledger (agent-contribution workflow Phase A) ───────────

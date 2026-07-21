@@ -21,8 +21,10 @@ import type {
   ConnectorDetail,
   ContextStatus,
   ContextTypeId,
+  CreateGrantRequest,
   DiffLine,
   DispatchRun,
+  Grant,
   Message,
   Project,
   RecentsSnapshot,
@@ -38,6 +40,8 @@ import type {
   Session,
   SessionContext,
   SessionWorkspace,
+  ShareTier,
+  SocialEntityRef,
   ToolActivity,
   UpdateScheduleRequest,
   UsageSnapshot,
@@ -52,6 +56,8 @@ import {
   runRecap,
   runSessionId,
   seedGraph,
+  SHARE_TIERS,
+  tierRank,
 } from '../contract/index.ts'
 import { SESSIONS } from './data/sessions.ts'
 import { DISPATCH_RUNS, SCHEDULE_TEMPLATES, PROJECTS, ALL_ARTIFACTS, SCHEDULED_TASKS } from './data/cowork.ts'
@@ -89,7 +95,7 @@ import { ResourceGuardian, GuardianError } from './guardian.ts'
 import { LOCAL_RUNNER_SEED, RUNNER_FS_ROOTS } from './data/runners.ts'
 import { DEFAULT_AGENT } from './data/workers.ts'
 import { EMPTY_WORKSPACE, workspaceFromSeed } from './workspace.ts'
-import { STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer, type StoredOpenSubGoal, type StoredWorkItemComment, type StoredContribution, type StoredContributionEvent, type StoredDelegation } from './persist.ts'
+import { STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer, type StoredOpenSubGoal, type StoredWorkItemComment, type StoredContribution, type StoredContributionEvent, type StoredDelegation, type StoredGrant } from './persist.ts'
 import { eventlog } from './eventlog.ts'
 import { accounts } from './accounts.ts'
 
@@ -284,6 +290,23 @@ function publicDelegation(d: StoredDelegation, viewerTenant?: string): Delegatio
   const { delegatorTenant, policy, ...pub } = d
   const mine = viewerTenant !== undefined && delegatorTenant === viewerTenant
   return { ...pub, ...(mine ? { policy, mine: true } : {}) }
+}
+
+/** ── Social-layer grants (S1 — docs/design/social-layer.md) ──────────────────
+ *  Who can see/do what on a resource. Generic over the social nouns: the ONLY
+ *  kind-branching lives in `grantSubjectRow` (the per-kind adapter the
+ *  orthogonality rule allows); the grant rows, walls, and events never branch.
+ *  `granterTenant`/`audienceTenant` are server-private (D23: authorization
+ *  compares raw ids); `publicGrant` strips them. */
+const grants: StoredGrant[] = []
+let grantSeq = 0
+const MAX_GRANTS_PER_SUBJECT = 100
+const MAX_GRANT_NOTE_CHARS = 2000
+
+/** Wire face: strip the raw tenant anchors (the `publicDelegation` pattern). */
+function publicGrant(g: StoredGrant): Grant {
+  const { granterTenant, audienceTenant, ...pub } = g
+  return pub
 }
 
 // CW5 — the trust threshold: landings on THIS project before the arithmetic
@@ -1288,6 +1311,7 @@ function snapshot(): PersistedState {
     openSubGoals, // D19 — the Project open-work backlog (an un-taken item survives a restart)
     contributions, // Phase A — the Project landing ledgers (the linear history survives a restart)
     delegations, // Phase F — the delegation rosters (a standing judgment grant survives a restart)
+    grants, // social S1 — who can see/do what (a share survives a restart)
     // D24 — watch subscriptions ([tenantId, projectId] pairs) + the notification inbox.
     watches: [...watches.entries()].flatMap(([projectId, tenants]) => [...tenants].map((t) => [t, projectId] as [string, string])),
     notifications,
@@ -1316,6 +1340,7 @@ function snapshot(): PersistedState {
       openSubGoal: openSubGoalSeq,
       contribution: contributionSeq,
       delegation: delegationSeq,
+      grant: grantSeq,
       notification: notificationSeq,
       user: persistedAccounts.seq.user,
       tenant: persistedAccounts.seq.tenant,
@@ -1485,6 +1510,9 @@ function rehydrate(s: PersistedState): void {
   // Phase F delegations — same restore shape (each row consumes exactly one id).
   delegations.splice(0, delegations.length, ...(s.delegations ?? []))
   delegationSeq = s.seq.delegation ?? delegations.length
+  // Social S1 grants — same restore shape (each row consumes exactly one id).
+  grants.splice(0, grants.length, ...(s.grants ?? []))
+  grantSeq = s.seq.grant ?? grants.length
   // D24 — watches + the inbox (empty for a pre-field snapshot); counter falls back
   // to the inbox length so freshly minted ids never collide with restored ones.
   watches.clear()
@@ -2039,6 +2067,10 @@ export const store = {
       case 'proposal.changed':
         // A proposal is a two-party negotiation (D25) — only proposer + owner streams.
         return e.parties.includes(tenantId)
+      case 'grant.changed':
+        // A grant is a two-party act (S1): granter + audience streams only. The
+        // read union covers org audiences (a member's stream sees its org's party).
+        return e.parties.some((p) => tenantReadsAs(tenantId, p))
       case 'reservation.changed': {
         // `resourceId` is `${guardianId}[:${subGoal}]` — the sub-goal suffix is free
         // text (a private Project's claim name). It once fell through the global
@@ -4182,6 +4214,122 @@ export const store = {
     emit({ type: 'openwork.changed', projectId })
     persist()
     return publicOpenSubGoal(item)
+  },
+
+  // ── Social-layer grants (S1) ────────────────────────────────────────────────
+  /** Resolve a social subject to its owning row — the ONE per-kind adapter
+   *  (orthogonality: kinds live here, never in the grant logic). Returns the
+   *  row's tenant stamp (unstamped seed rows ⇒ the default tenant, the
+   *  ownership rule everywhere), or undefined when the subject doesn't exist.
+   *  'discussion' is a documented refusal until S2 mints the entity. */
+  grantSubjectRow(ref: SocialEntityRef): { tenantId?: string } | 'unsupported' | undefined {
+    switch (ref.kind) {
+      case 'session':
+        return SESSIONS.find((s) => s.id === ref.id)
+      case 'project':
+        return findProject(ref.id)
+      case 'artifact':
+        return findArtifact(ref.id)
+      case 'schedule':
+        return schedules.find((t) => t.id === ref.id)
+      case 'context':
+        return savedCtxs.find((c) => c.id === ref.id)
+      case 'discussion':
+        return 'unsupported'
+    }
+  },
+  /** The existence-hiding wall for grant routes: a subject is visible when the
+   *  caller's read union owns it (unstamped seeds ⇒ the flagship rule) OR a
+   *  grant addresses them. Nonexistent and invisible answer identically. */
+  grantSubjectVisible(ref: SocialEntityRef, viewerTenant: string): boolean {
+    const row = this.grantSubjectRow(ref)
+    if (row === undefined || row === 'unsupported') return false
+    if (row.tenantId ? tenantReadsAs(viewerTenant, row.tenantId) : seedVisibleTo(viewerTenant)) return true
+    return this.grantedTier(ref, viewerTenant) !== undefined
+  },
+  /** The grants on a subject, viewer-relative: the subject's OWNER sees the
+   *  full list; anyone else sees only the rows addressed to their read union
+   *  (you can always see what was shared TO you, never the rest of the
+   *  roster). The route walls subject visibility (existence-hiding 404). */
+  listGrants(ref: SocialEntityRef, viewerTenant: string): Grant[] {
+    const rows = grants.filter((g) => g.subject.kind === ref.kind && g.subject.id === ref.id)
+    const row = this.grantSubjectRow(ref)
+    const owner = row !== undefined && row !== 'unsupported' && tenantWritesAs(viewerTenant, row.tenantId ?? defaultTenantId())
+    return rows.filter((g) => owner || tenantReadsAs(viewerTenant, g.audienceTenant)).map(publicGrant)
+  },
+  /** Create a grant — the consent-carded share act. Owner-only (tenantWritesAs
+   *  on the subject's stamp); the audience resolves to a tenant id up front so
+   *  the SSE gate and shared-with-me reads key on one field. INV-9: an absent
+   *  `note` means share silently — access only, no Commons card. */
+  createGrant(req: CreateGrantRequest, tenantId: string): Grant | 'forbidden' | 'invalid' | 'capped' | undefined {
+    const row = this.grantSubjectRow(req.subject)
+    if (row === 'unsupported') return 'invalid' // kind-level refusal: leaks no row's existence
+    if (row === undefined) return undefined
+    if (!tenantWritesAs(tenantId, row.tenantId ?? defaultTenantId())) {
+      // Existence-hiding beats forbidden: a caller the subject is invisible to
+      // gets the same 404 as a nonexistent id; only a caller who can already
+      // SEE it (they hold a grant) learns "yes it exists, but not yours".
+      return this.grantSubjectVisible(req.subject, tenantId) ? 'forbidden' : undefined
+    }
+    if (!SHARE_TIERS.includes(req.tier)) return 'invalid'
+    if (req.audience.kind === 'link') return 'invalid' // declared in the contract, refused until S6 (public phase)
+    const audienceTenant = req.audience.kind === 'principal' ? req.audience.principalId : req.audience.orgId
+    if (!audienceTenant || !accounts.tenants.has(audienceTenant)) return 'invalid'
+    if (tenantReadsAs(tenantId, audienceTenant)) return 'invalid' // sharing to yourself/your own seat is a no-op ask
+    const rows = grants.filter((g) => g.subject.kind === req.subject.kind && g.subject.id === req.subject.id)
+    if (rows.length >= MAX_GRANTS_PER_SUBJECT) return 'capped'
+    // One live grant per (subject, audience): a re-grant replaces the tier/note
+    // rather than accreting rows (the commission re-grant pattern).
+    const existing = rows.find((g) => g.audienceTenant === audienceTenant)
+    if (existing) {
+      existing.tier = req.tier
+      if (typeof req.note === 'string') existing.note = req.note.slice(0, MAX_GRANT_NOTE_CHARS)
+      emit({ type: 'grant.changed', subject: req.subject, parties: [existing.granterTenant, audienceTenant] })
+      persist()
+      return publicGrant(existing)
+    }
+    const g: StoredGrant = {
+      id: `grant-${(grantSeq += 1)}`,
+      subject: { kind: req.subject.kind, id: req.subject.id },
+      audience: req.audience,
+      tier: req.tier,
+      ...(typeof req.note === 'string' ? { note: req.note.slice(0, MAX_GRANT_NOTE_CHARS) } : {}),
+      grantedBy: tenantName(tenantId),
+      grantedAt: Date.now(),
+      granterTenant: tenantId,
+      audienceTenant,
+    }
+    grants.push(g)
+    emit({ type: 'grant.changed', subject: g.subject, parties: [tenantId, audienceTenant] })
+    persist()
+    return publicGrant(g)
+  },
+  /** Revoke a grant: the granter's act, or the audience declining what was
+   *  shared to them (both parties may end the relationship). A NON-party gets
+   *  the same 404 as a nonexistent id — grant ids are sequential, so a
+   *  forbidden here would let an id probe confirm a grant exists
+   *  (existence-hiding, the create-path lesson applied at revoke). */
+  revokeGrant(grantId: string, tenantId: string): 'ok' | undefined {
+    const i = grants.findIndex((g) => g.id === grantId)
+    if (i < 0) return undefined
+    const g = grants[i]
+    if (!tenantWritesAs(tenantId, g.granterTenant) && !tenantReadsAs(tenantId, g.audienceTenant)) return undefined
+    grants.splice(i, 1)
+    emit({ type: 'grant.changed', subject: g.subject, parties: [g.granterTenant, g.audienceTenant] })
+    persist()
+    return 'ok'
+  },
+  /** The tier `viewerTenant` holds on a subject via grants (their read union —
+   *  a personal grant or any org seat), or undefined when nothing was shared.
+   *  The S1 read-side hook: subject-visibility walls OR this into their checks. */
+  grantedTier(ref: SocialEntityRef, viewerTenant: string): ShareTier | undefined {
+    let best: ShareTier | undefined
+    for (const g of grants) {
+      if (g.subject.kind !== ref.kind || g.subject.id !== ref.id) continue
+      if (!tenantReadsAs(viewerTenant, g.audienceTenant)) continue
+      if (best === undefined || tierRank(g.tier) > tierRank(best)) best = g.tier
+    }
+    return best
   },
 
   // ── The contribution ledger (agent-contribution workflow Phase A) ───────────

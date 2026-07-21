@@ -215,6 +215,11 @@ function route(e: ServerEvent): void {
       invalidate(keys.delegations(e.projectId))
       invalidate(keys.attention(e.projectId))
       break
+    // A grant changed (social S1) — the subject's roster is stale; the family
+    // prefix also catches the audience's shared-with-me reads when they land.
+    case 'grant.changed':
+      invalidatePrefix(keys.grants())
+      break
     case 'openwork.changed':
       invalidate(keys.openSubGoals(e.projectId))
       invalidate(keys.workerAgents)

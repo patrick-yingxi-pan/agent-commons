@@ -56,6 +56,34 @@ export type Audience =
 export const SHARE_TIERS = ['view', 'comment', 'propose', 'co-own'] as const
 export type ShareTier = (typeof SHARE_TIERS)[number]
 
+/** ── Grant (S1) — the share act ──────────────────────────────────────────────
+ *  Who can see/do what on a resource. The wire face is REDACTED like every
+ *  cross-tenant row: `grantedBy` is a display name; raw foreign tenant ids
+ *  never cross. */
+export interface Grant {
+  id: string
+  subject: SocialEntityRef
+  audience: Audience
+  tier: ShareTier
+  /** The publish text — the feed post's body. INV-9: ABSENT means share
+   *  silently (access only, no Commons card); present means publish. The
+   *  distinction between *giving access* and *publishing* is exactly this
+   *  field. */
+  note?: string
+  /** Display name of the granting namespace (REDACTED face). */
+  grantedBy: string
+  grantedAt: number
+}
+
+/** `POST /v1/grants` — propose a grant (the consent-carded share act). */
+export interface CreateGrantRequest {
+  subject: SocialEntityRef
+  audience: Audience
+  tier: ShareTier
+  /** See `Grant.note` (INV-9: absent = silent share). */
+  note?: string
+}
+
 /** The tier lattice as a rank — view 0 < comment 1 < propose 2 < co-own 3. */
 export function tierRank(tier: ShareTier): number {
   return SHARE_TIERS.indexOf(tier)

@@ -20,6 +20,7 @@ import type {
   ContributionEvent,
   Delegation,
   DispatchRun,
+  Grant,
   OpenSubGoal,
   ModelProvider,
   PrincipalRef,
@@ -117,6 +118,17 @@ export interface StoredDelegation extends Omit<Delegation, 'mine'> {
   delegatorTenant: string
 }
 
+/** A Grant as STORED (social layer S1) — the wire row plus the GRANTER's raw
+ *  tenant id (authorization compares raw ids — the D23 lesson) and, for a
+ *  principal audience, the audience's raw tenant id. The projection
+ *  (`publicGrant`) serves display names; raw foreign ids never cross. */
+export interface StoredGrant extends Grant {
+  granterTenant: string
+  /** The audience resolved to a tenant id (principal → their namespace; org →
+   *  the org tenant) — what the SSE gate and shared-with-me reads key on. */
+  audienceTenant: string
+}
+
 /** A peer as STORED (D28) — the wire row plus the credential's SHA-256 (the
  *  relay-secret pattern: the token is shown once at mint; only its hash persists). */
 export interface StoredA2aPeer extends A2aPeer {
@@ -180,6 +192,10 @@ export interface PersistedState {
   /** The Project delegation rosters (CW8, Phase F). Additive-optional like
    *  `contributions` (a pre-field snapshot loads cleanly with none). */
   delegations?: StoredDelegation[]
+  /** Social-layer grants (S1) — who can see/do what on which resource.
+   *  Additive-optional like `delegations` (a pre-field snapshot loads with
+   *  nothing shared). */
+  grants?: StoredGrant[]
   /** Watch subscriptions (D24) — `[tenantId, projectId]` pairs (tuples, not a Map:
    *  a project has many watchers). Additive-optional like `dispatch` (a pre-field
    *  snapshot loads cleanly with no watches). */
@@ -231,6 +247,8 @@ export interface PersistedState {
     contribution?: number
     /** Delegation id counter (Phase F). Optional like `dispatch`. */
     delegation?: number
+    /** Grant id counter (social S1). Optional like `dispatch`. */
+    grant?: number
     /** Notification id counter (D24). Optional like `dispatch`. */
     notification?: number
     /** Account registry counters (multi-account P7). Optional like the slices. */
@@ -271,6 +289,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   openSubGoals: 'array',
   contributions: 'array',
   delegations: 'array',
+  grants: 'array',
   watches: 'array',
   notifications: 'array',
   agentProposals: 'mapEntries',

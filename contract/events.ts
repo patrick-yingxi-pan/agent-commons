@@ -298,6 +298,20 @@ export interface ProposalChangedEvent {
   parties: string[]
 }
 
+/** A grant on a resource changed (social layer S1) — one was created or revoked.
+ *  Delivered ONLY to the parties (granting tenant + audience), the
+ *  `proposal.changed` pattern: who can see a resource is a private negotiation
+ *  between owner and audience, never a public feed. Watchers re-read the
+ *  subject's grants (and, audience-side, their shared-with-me facet). */
+export interface GrantChangedEvent {
+  type: 'grant.changed'
+  subject: import('./social.ts').SocialEntityRef
+  /** The parties' tenant ids (granter + audience), captured at emit time — the
+   *  SSE gate delivers the event to exactly these streams (org audiences via
+   *  the member-read union). */
+  parties: string[]
+}
+
 /** Sent once when an SSE channel opens, so the client can confirm liveness. */
 export interface HelloEvent {
   type: 'hello'
@@ -357,6 +371,7 @@ export type ServerEvent =
   | ScheduleChangedEvent
   | CommissionChangedEvent
   | ProposalChangedEvent
+  | GrantChangedEvent
 
 export type ServerEventType = ServerEvent['type']
 
