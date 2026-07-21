@@ -385,6 +385,24 @@ function publicSocialProposal(p: StoredSocialProposal, viewerTenant?: string): S
   return { ...pub, ...(viewerTenant !== undefined && tenantWritesAs(viewerTenant, offererTenant) ? { mine: true } : {}) }
 }
 
+/** The next L# for a subject — ONE landing ledger per subject (the Changes/
+ *  Improvements consolidation, 2026-07-21): one past the highest landed number
+ *  across every path that lands on it. For a project that is BOTH ledgers —
+ *  the contribution workflow (Phase A–E) and social proposals (S3) — so the
+ *  merged Changes panel reads as a single monotonic history. Derived from the
+ *  ledgers themselves, never a counter: a restored snapshot can't double-assign. */
+function nextLandingNumber(subject: SocialEntityRef): number {
+  const topProposal = socialProposals.reduce(
+    (m, x) => (x.subject.kind === subject.kind && x.subject.id === subject.id ? Math.max(m, x.landingNumber ?? 0) : m),
+    0,
+  )
+  const topContribution =
+    subject.kind === 'project'
+      ? contributions.reduce((m, x) => (x.projectId === subject.id ? Math.max(m, x.landingNumber ?? 0) : m), 0)
+      : 0
+  return Math.max(topProposal, topContribution) + 1
+}
+
 /** A proposal has no wall of its own — its readability, tiers, and ownership
  *  are its SUBJECT's. Canonicalize a ref through that indirection (bounded:
  *  proposal subjects are never proposals more than a few deep by construction)
@@ -4854,8 +4872,12 @@ export const store = {
     if (p.state !== 'offered') return 'closed'
     if (p.delta.kind === 'relation-op') this.applyRelationOp(p.delta.op, tenantId)
     p.state = 'landed'
-    p.landingNumber =
-      socialProposals.filter((x) => x.subject.kind === p.subject.kind && x.subject.id === p.subject.id && x.state === 'landed').length
+    // ONE landing ledger per subject (the consolidation, 2026-07-21): a project's
+    // L# sequence is shared with its contribution ledger — both landing paths
+    // derive one-past-the-highest across BOTH, so the merged Changes panel reads
+    // as a single history. Derived from the ledgers themselves (never a counter),
+    // so a restored snapshot can't double-assign.
+    p.landingNumber = nextLandingNumber(p.subject)
     emit({ type: 'social-proposal.changed', proposalId: p.id, subject: p.subject })
     // S5 — the verdict rings the OFFERER (the D25 two-party loop).
     notifyTenants([p.offererTenant], tenantId, {
@@ -5060,11 +5082,12 @@ export const store = {
       if (tier.level === 1 && c.reviewedVersion !== (c.changeset?.length ?? 0)) return 'needs-review'
     }
     const now = Date.now()
-    // The ledger position: one past the project's highest landed number — derived
-    // from the ledger itself, so a restored snapshot can't double-assign.
-    const top = contributions.reduce((m, x) => (x.projectId === projectId ? Math.max(m, x.landingNumber ?? 0) : m), 0)
+    // The ledger position: one past the project's highest landed number across
+    // BOTH landing paths (contributions + social proposals — the one-ledger
+    // consolidation) — derived from the ledgers themselves, so a restored
+    // snapshot can't double-assign.
     c.status = 'landed'
-    c.landingNumber = top + 1
+    c.landingNumber = nextLandingNumber({ kind: 'project', id: projectId })
     c.landedAt = now
     c.landedBy = tenantName(tenantId)
     // `eventActor` — the CW8 dual stamp, same rationale as approveEnvelope's.

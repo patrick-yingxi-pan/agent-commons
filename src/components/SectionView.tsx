@@ -937,17 +937,16 @@ function ProjectDetail({
               Renders only when there is something to say (no empty noise). */}
           <AttentionPanel project={project} />
 
-          {/* The contribution ledger (workflow Phase A): the project's pulse —
-              what's in flight now, and the linear history of what landed.
-              Payload for owner and visitor alike, like the panels below. */}
-          <ChangesPanel project={project} onOpenSession={onOpenSession} />
+          {/* The ONE landing ledger (the Changes/Improvements consolidation,
+              2026-07-21): contributions (workflow Phase A) and social proposals
+              (S3) are two paths into the same history, so they render as one
+              panel over one L# sequence — what's in flight now, then the linear
+              history of what landed. Payload for owner and visitor alike. */}
+          <ChangesPanel project={project} own={own} onOpenSession={onOpenSession} />
           {/* The public thread (social S2): the same root discussion the Commons
               card will project under its feed post — one conversation, two
               projections. */}
           <DiscussionsPanel subject={{ kind: 'project', id: project.id }} own={own} />
-          {/* The improvement ledger (social S3): offered changes + the landed
-              history, the owner's land/decline consent inline. */}
-          <ImprovementsPanel subject={{ kind: 'project', id: project.id }} own={own} />
           <ContributorsPanel project={project} />
           <CoordinationPanel project={project} />
           </div>
@@ -3328,14 +3327,42 @@ function DeltaView({ delta }: { delta: ProposalDelta }) {
  *  Payload for owner and visitor alike: the owner gets land/decline consent,
  *  a propose-tier visitor gets the offer form, everyone gets the ledger and
  *  each row's review-thread door. */
-function ImprovementsPanel({ subject, own }: { subject: SocialEntityRef; own: boolean }) {
+/** The ONE landing ledger (the Changes/Improvements consolidation, 2026-07-21):
+ *  contributions (the Phase A–E workflow — declared work with envelopes and
+ *  review) and social proposals (S3 — a typed change offered at the propose
+ *  tier) are two PATHS into the same project history, so they render as one
+ *  panel over the ONE L# sequence the server derives across both landing
+ *  paths. Three bands: in flight (newest first), landed (L# descending),
+ *  then the polite no's. */
+function ChangesPanel({ project, own, onOpenSession }: { project: Project; own: boolean; onOpenSession: (id: string) => void }) {
   const rel = useRelations()
-  const list = useSocialProposals(subject.kind, subject.id).data ?? []
-  const [composing, setComposing] = useState(false)
+  const subject: SocialEntityRef = { kind: 'project', id: project.id }
+  const contributionList = useContributions(project.id).data ?? []
+  const proposalList = useSocialProposals(subject.kind, subject.id).data ?? []
+  const [composing, setComposing] = useState<'contribution' | 'proposal' | null>(null)
+  const [title, setTitle] = useState('')
+  const [summary, setSummary] = useState('')
   const [text, setText] = useState('')
   const [rationale, setRationale] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const openPage = (cid: string) => rel.navigate('projects', project.id, `changes/${cid}`)
+  const declare = async () => {
+    if (busy || !title.trim()) return
+    setBusy(true)
+    setError(null)
+    try {
+      const c = await openContribution(project.id, { title: title.trim(), summary: summary.trim() || undefined })
+      setTitle('')
+      setSummary('')
+      setComposing(null)
+      openPage(c.id)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not open this contribution.')
+    } finally {
+      setBusy(false)
+    }
+  }
   const offer = async () => {
     if (busy || !text.trim() || !rationale.trim()) return
     setBusy(true)
@@ -3344,7 +3371,7 @@ function ImprovementsPanel({ subject, own }: { subject: SocialEntityRef; own: bo
       await openSocialProposal({ subject, delta: { kind: 'suggestion', text: text.trim() }, rationale: rationale.trim() })
       setText('')
       setRationale('')
-      setComposing(false)
+      setComposing(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not offer this change.')
     } finally {
@@ -3360,20 +3387,44 @@ function ImprovementsPanel({ subject, own }: { subject: SocialEntityRef; own: bo
       setError(e instanceof Error ? e.message : `Could not ${act}.`)
     }
   }
+  const rows = [
+    ...contributionList.map((c) => ({
+      key: c.id,
+      band: c.status === 'open' ? 0 : 1,
+      order: c.status === 'open' ? c.openedAt : (c.landingNumber ?? 0),
+      c,
+      p: undefined,
+    })),
+    ...proposalList.map((p) => ({
+      key: p.id,
+      band: p.state === 'offered' ? 0 : p.state === 'landed' ? 1 : 2,
+      order: p.state === 'landed' ? (p.landingNumber ?? 0) : p.offeredAt,
+      c: undefined,
+      p,
+    })),
+  ].sort((a, b) => a.band - b.band || b.order - a.order)
   return (
     <MainSection
-      title="Improvements"
-      revealActions={list.length === 0 || composing}
+      title="Changes"
+      revealActions={rows.length === 0 || composing !== null}
       actions={
-        <SectionAction
-          label="Offer a change — the owner lands it by consent"
-          icon={<Plus size={14} />}
-          onClick={() => setComposing((v) => !v)}
-          expanded={composing}
-        />
+        <>
+          <SectionAction
+            label="Open a contribution — declare work before doing it"
+            icon={<Plus size={14} />}
+            onClick={() => setComposing((v) => (v === 'contribution' ? null : 'contribution'))}
+            expanded={composing === 'contribution'}
+          />
+          <SectionAction
+            label="Offer a change — the owner lands it by consent"
+            icon={<Sparkles size={14} />}
+            onClick={() => setComposing((v) => (v === 'proposal' ? null : 'proposal'))}
+            expanded={composing === 'proposal'}
+          />
+        </>
       }
     >
-      {composing && (
+      {composing === 'proposal' && (
         <div className="mb-3 space-y-1.5">
           <textarea
             aria-label="The change you propose"
@@ -3395,149 +3446,102 @@ function ImprovementsPanel({ subject, own }: { subject: SocialEntityRef; own: bo
           </button>
         </div>
       )}
-      {list.length === 0 && !composing ? (
+      {rows.length === 0 && composing === null ? (
         <p className="text-[12px] text-ink-faint">
-          Nothing offered yet. A proposal is a typed change the owner lands by consent — the {subject.kind}’s improvement history, L1 up.
+          Nothing yet. A contribution is declared before the work; a proposal is a typed change the owner
+          lands by consent. Both land as numbered entries — one history, L1 up.
         </p>
-      ) : (
-        <div className="space-y-3">
-          {list.map((p) => (
-            <div key={p.id} className="flex items-start gap-2.5">
-              {/* The leading slot: live pulse while offered, the ledger number
-                  once landed, a muted no once declined (the ChangesPanel form). */}
-              <span className="flex w-8 shrink-0 items-center justify-end pt-0.5">
-                {p.state === 'offered' ? (
-                  <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-label="Offered" />
-                ) : p.state === 'landed' ? (
-                  <span className="text-[12px] font-semibold tabular-nums text-ink-faint">L{p.landingNumber}</span>
-                ) : (
-                  <span className="text-[11px] text-ink-faint">no</span>
-                )}
-              </span>
-              <div className="min-w-0 flex-1">
-                <DeltaView delta={p.delta} />
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
-                  <span>
-                    by {p.offeredBy} {relativeTime(p.offeredAt)}
+      ) : rows.length > 0 ? (
+        <CardList>
+          {rows.map((row) => {
+            const { c, p } = row
+            if (c)
+              return (
+                <div key={row.key} className="flex items-center gap-2.5 px-4 py-2.5">
+                  {/* The leading slot carries the entity's state in ONE form: a live
+                      pulse while open/offered, the ledger number once landed — same
+                      column across both row kinds, so the list reads as one ledger
+                      with its newest entries still in motion. */}
+                  <span className="flex w-8 shrink-0 items-center justify-end">
+                    {c.status === 'open' ? (
+                      <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-label="In flight" />
+                    ) : (
+                      <span className="text-[12px] font-semibold tabular-nums text-ink-faint">L{c.landingNumber}</span>
+                    )}
                   </span>
-                  <button onClick={() => rel.navigate('discussions', p.discussionId)} className={INLINE_ACTION_CLASS}>
-                    Review thread
-                  </button>
-                  {own && p.state === 'offered' && (
-                    <>
-                      <button onClick={() => void consent('land', p.id)} className={INLINE_ACTION_CLASS}>
-                        Land
-                      </button>
-                      <button onClick={() => void consent('decline', p.id)} className={INLINE_ACTION_CLASS}>
-                        Decline
-                      </button>
-                    </>
+                  <div className="min-w-0 flex-1">
+                    <button
+                      onClick={() => openPage(c.id)}
+                      className="block max-w-full truncate text-left text-[13px] font-medium text-ink hover:underline"
+                    >
+                      {c.title}
+                    </button>
+                    <div className="truncate text-[11px] text-ink-faint">
+                      by {c.contributor}
+                      {c.status === 'open'
+                        ? ` · opened ${relativeTime(c.openedAt)}`
+                        : c.landedAt
+                          ? ` · landed ${relativeTime(c.landedAt)}`
+                          : ''}
+                      {c.subGoal ? ` · ${c.subGoal}` : ''}
+                      {c.envelope
+                        ? ` · ${c.envelope.lines.length} act${c.envelope.lines.length === 1 ? '' : 's'} ${
+                            c.envelope.status === 'approved' ? '· approved' : '· awaiting approval'
+                          }`
+                        : ''}
+                    </div>
+                  </div>
+                  {c.status === 'open' && c.sessionId && c.mine === true && (
+                    <button
+                      onClick={() => onOpenSession(c.sessionId!)}
+                      className="shrink-0 rounded-lg border border-line px-2 py-0.5 text-[11px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink"
+                      title="Open the conversation doing this work"
+                    >
+                      View the work
+                    </button>
                   )}
                 </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-      {error && <p className="mt-2 text-[11px] text-danger">{error}</p>}
-    </MainSection>
-  )
-}
-
-function ChangesPanel({ project, onOpenSession }: { project: Project; onOpenSession: (id: string) => void }) {
-  const rel = useRelations()
-  const list = useContributions(project.id).data ?? []
-  const [composing, setComposing] = useState(false)
-  const [title, setTitle] = useState('')
-  const [summary, setSummary] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const openPage = (cid: string) => rel.navigate('projects', project.id, `changes/${cid}`)
-  const declare = async () => {
-    if (busy || !title.trim()) return
-    setBusy(true)
-    setError(null)
-    try {
-      const c = await openContribution(project.id, { title: title.trim(), summary: summary.trim() || undefined })
-      setTitle('')
-      setSummary('')
-      setComposing(false)
-      openPage(c.id)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not open this contribution.')
-    } finally {
-      setBusy(false)
-    }
-  }
-  return (
-    <MainSection
-      title="Changes"
-      revealActions={list.length === 0 || composing}
-      actions={
-        <SectionAction
-          label="Open a contribution — declare work before doing it"
-          icon={<Plus size={14} />}
-          onClick={() => setComposing((v) => !v)}
-          expanded={composing}
-        />
-      }
-    >
-      {list.length === 0 ? (
-        <p className="text-[12px] text-ink-faint">
-          Nothing yet. A contribution is declared before the work and lands as a numbered entry — the
-          project’s history, every entry traceable to its why.
-        </p>
-      ) : (
-        <CardList>
-          {list.map((c) => (
-            <div key={c.id} className="flex items-center gap-2.5 px-4 py-2.5">
-              {/* The leading slot carries the entity's state in ONE form: a live
-                  pulse while open, the ledger number once landed — same column,
-                  so the list reads as one ledger with its newest entries still
-                  in motion. */}
-              <span className="flex w-8 shrink-0 items-center justify-end">
-                {c.status === 'open' ? (
-                  <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-label="In flight" />
-                ) : (
-                  <span className="text-[12px] font-semibold tabular-nums text-ink-faint">L{c.landingNumber}</span>
-                )}
-              </span>
-              <div className="min-w-0 flex-1">
-                <button
-                  onClick={() => openPage(c.id)}
-                  className="block max-w-full truncate text-left text-[13px] font-medium text-ink hover:underline"
-                >
-                  {c.title}
-                </button>
-                <div className="truncate text-[11px] text-ink-faint">
-                  by {c.contributor}
-                  {c.status === 'open'
-                    ? ` · opened ${relativeTime(c.openedAt)}`
-                    : c.landedAt
-                      ? ` · landed ${relativeTime(c.landedAt)}`
-                      : ''}
-                  {c.subGoal ? ` · ${c.subGoal}` : ''}
-                  {c.envelope
-                    ? ` · ${c.envelope.lines.length} act${c.envelope.lines.length === 1 ? '' : 's'} ${
-                        c.envelope.status === 'approved' ? '· approved' : '· awaiting approval'
-                      }`
-                    : ''}
+              )
+            if (p)
+              return (
+                <div key={row.key} className="flex items-start gap-2.5 px-4 py-2.5">
+                  <span className="flex w-8 shrink-0 items-center justify-end pt-0.5">
+                    {p.state === 'offered' ? (
+                      <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-label="Offered" />
+                    ) : p.state === 'landed' ? (
+                      <span className="text-[12px] font-semibold tabular-nums text-ink-faint">L{p.landingNumber}</span>
+                    ) : (
+                      <span className="text-[11px] text-ink-faint">no</span>
+                    )}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <DeltaView delta={p.delta} />
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
+                      <span>
+                        by {p.offeredBy} {relativeTime(p.offeredAt)}
+                      </span>
+                      <button onClick={() => rel.navigate('discussions', p.discussionId)} className={INLINE_ACTION_CLASS}>
+                        Review thread
+                      </button>
+                      {own && p.state === 'offered' && (
+                        <>
+                          <button onClick={() => void consent('land', p.id)} className={INLINE_ACTION_CLASS}>
+                            Land
+                          </button>
+                          <button onClick={() => void consent('decline', p.id)} className={INLINE_ACTION_CLASS}>
+                            Decline
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-              {c.status === 'open' && c.sessionId && c.mine === true && (
-                <button
-                  onClick={() => onOpenSession(c.sessionId!)}
-                  className="shrink-0 rounded-lg border border-line px-2 py-0.5 text-[11px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink"
-                  title="Open the conversation doing this work"
-                >
-                  View the work
-                </button>
-              )}
-            </div>
-          ))}
+              )
+            return null
+          })}
         </CardList>
-      )}
-      {composing && (
+      ) : null}
+      {composing === 'contribution' && (
         <div className="mt-2 space-y-1.5">
           <input
             autoFocus
@@ -3545,7 +3549,7 @@ function ChangesPanel({ project, onOpenSession }: { project: Project; onOpenSess
             onChange={(e) => setTitle(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') void declare()
-              if (e.key === 'Escape') setComposing(false)
+              if (e.key === 'Escape') setComposing(null)
             }}
             placeholder="What will this contribution do? (one line)"
             aria-label="Contribution title"
@@ -3557,7 +3561,7 @@ function ChangesPanel({ project, onOpenSession }: { project: Project; onOpenSess
               onChange={(e) => setSummary(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') void declare()
-                if (e.key === 'Escape') setComposing(false)
+                if (e.key === 'Escape') setComposing(null)
               }}
               placeholder="Summary — what changes, and why (optional)…"
               aria-label="Contribution summary"
@@ -3571,9 +3575,9 @@ function ChangesPanel({ project, onOpenSession }: { project: Project; onOpenSess
               Open
             </button>
           </div>
-          {error && <p className="text-[11px] text-removed">{error}</p>}
         </div>
       )}
+      {error && <p className="mt-2 text-[11px] text-danger">{error}</p>}
     </MainSection>
   )
 }
@@ -3600,6 +3604,10 @@ function ContributionPage({
   const c = list.find((x) => x.id === contributionId) ?? null
   // Hook order: read before any early return (the missing-contribution page).
   const delegationList = useDelegations(project.id).data ?? []
+  // The ONE landing ledger: the next-L# preview must span BOTH landing paths
+  // (contributions + social proposals — the consolidation), or the label
+  // promises a number the server won't assign.
+  const proposalLandings = useSocialProposals('project', project.id).data ?? []
   const rel = useRelations()
   const ownerDoor = (name: string) => rel.navigate('agents', name)
   const [draft, setDraft] = useState('')
@@ -3763,7 +3771,12 @@ function ContributionPage({
               <button
                 onClick={() => void land()}
                 disabled={busy}
-                title={`Land this contribution — it becomes L${(list.reduce((m, x) => Math.max(m, x.landingNumber ?? 0), 0) + 1)} in ${project.name}’s history`}
+                title={`Land this contribution — it becomes L${
+                  Math.max(
+                    list.reduce((m, x) => Math.max(m, x.landingNumber ?? 0), 0),
+                    proposalLandings.reduce((m, x) => Math.max(m, x.landingNumber ?? 0), 0),
+                  ) + 1
+                } in ${project.name}’s history`}
                 className="rounded-lg bg-ink px-3 py-1 text-[12px] font-medium text-canvas shadow-sm transition hover:opacity-90 disabled:opacity-45"
               >
                 Land

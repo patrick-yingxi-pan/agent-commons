@@ -100,6 +100,30 @@ test('land: owner-only consent, monotonic per-subject L#, a relation-op delta ac
   assert.deepEqual(list.json.map((p: any) => p.landingNumber), [2, 1], 'ledger read: landed L{n} descending')
 })
 
+test('the ONE landing ledger: contributions and proposals share a project’s L# sequence', async () => {
+  // The Changes/Improvements consolidation (2026-07-21): both landing paths on
+  // a project draw one-past-the-highest across BOTH ledgers, so the merged
+  // Changes panel reads as a single monotonic history — never two parallel L1s.
+  const { projectId, subject } = await arena('propose')
+  const c1 = await call('POST', `/projects/${projectId}/contributions`, { title: 'groundwork' }, { 'x-tenant-id': OWNER })
+  const cl1 = await call('POST', `/projects/${projectId}/contributions/${c1.json.id}/land`, undefined, { 'x-tenant-id': OWNER })
+  assert.equal(cl1.status, 200)
+  assert.equal(cl1.json.landingNumber, 1, 'the contribution opens the shared ledger at L1')
+
+  const offered = await call(
+    'POST', '/proposals',
+    { subject, delta: { kind: 'suggestion', text: 'Polish the readout' }, rationale: 'Rough edges.' },
+    { 'x-tenant-id': AUDIENCE },
+  )
+  const pl = await call('POST', `/proposals/${offered.json.id}/land`, undefined, { 'x-tenant-id': OWNER })
+  assert.equal(pl.status, 200)
+  assert.equal(pl.json.landingNumber, 2, 'the proposal CONTINUES the sequence — not a parallel L1')
+
+  const c2 = await call('POST', `/projects/${projectId}/contributions`, { title: 'follow-up' }, { 'x-tenant-id': OWNER })
+  const cl2 = await call('POST', `/projects/${projectId}/contributions/${c2.json.id}/land`, undefined, { 'x-tenant-id': OWNER })
+  assert.equal(cl2.json.landingNumber, 3, 'and the next contribution continues past the proposal')
+})
+
 test('S5 bells: the share rings the audience, the offer rings the owner, the verdict rings the offerer', async () => {
   const { projectId, subject } = await arena('propose')
   // arena() granted AUDIENCE with no note — still a bell: access arrived.
