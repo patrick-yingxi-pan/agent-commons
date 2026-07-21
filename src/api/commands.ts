@@ -30,7 +30,9 @@ import {
   type Discussion,
   type Grant,
   type OpenDiscussionRequest,
+  type OpenProposalRequest,
   type PostToDiscussionRequest,
+  type SocialProposal,
   type OpenContributionRequest,
   type ProposeEnvelopeRequest,
   type CrystallizeRequest,
@@ -526,6 +528,30 @@ export async function setDiscussionState(did: string, state: 'open' | 'resolved'
   invalidate(keys.discussions(anchorRef.kind, anchorRef.id))
   invalidate(keys.discussion(did))
   return d
+}
+
+/** Offer a change to a subject (social S3) — the rationale opens the review
+ *  thread; the server walls on the propose tier. */
+export async function openSocialProposal(req: OpenProposalRequest): Promise<SocialProposal> {
+  const p = await apiPost<SocialProposal>(paths.socialProposalOpen(), req)
+  invalidate(keys.socialProposals(req.subject.kind, req.subject.id))
+  return p
+}
+
+/** Land an offered proposal — the subject owner's consent (applies the delta). */
+export async function landSocialProposal(pid: string, subject: { kind: string; id: string }): Promise<SocialProposal> {
+  const p = await apiPost<SocialProposal>(paths.socialProposalLand(pid), {})
+  invalidate(keys.socialProposals(subject.kind, subject.id))
+  invalidate(keys.relations)
+  invalidate(keys.projects)
+  return p
+}
+
+/** Decline an offered proposal — the owner's polite no. */
+export async function declineSocialProposal(pid: string, subject: { kind: string; id: string }): Promise<SocialProposal> {
+  const p = await apiPost<SocialProposal>(paths.socialProposalDecline(pid), {})
+  invalidate(keys.socialProposals(subject.kind, subject.id))
+  return p
 }
 
 /** Open (declare) a contribution on a project's ledger (workflow Phase A). */

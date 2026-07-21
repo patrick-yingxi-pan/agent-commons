@@ -25,6 +25,7 @@ import type {
   Delegation,
   Discussion,
   Grant,
+  SocialProposal,
   AttentionLedger,
   OwnerProfile,
   ProjectDirectoryEntry,
@@ -434,6 +435,12 @@ export function useDiscussions(kind: string, id: string): QueryState<Discussion[
 /** One discussion by id — readable through its anchor's wall. */
 export function useDiscussion(did: string): QueryState<Discussion> {
   return useQuery(keys.discussion(did), () => apiGet<Discussion>(paths.discussion(did)))
+}
+
+/** A subject's proposals (social S3) — offered first, then the ledger L{n}
+ *  descending. Live on `social-proposal.changed`. */
+export function useSocialProposals(kind: string, id: string): QueryState<SocialProposal[]> {
+  return useQuery(keys.socialProposals(kind, id), () => apiGet<SocialProposal[]>(paths.socialProposals(kind, id)))
 }
 
 /** The caller's participating threads (the Discussions hub read). */

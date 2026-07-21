@@ -167,7 +167,11 @@ import {
   useDiscussion,
   useDiscussions,
   useMyDiscussions,
+  useSocialProposals,
   useGrants,
+  openSocialProposal,
+  landSocialProposal,
+  declineSocialProposal,
   createGrant,
   revokeGrant,
   openDiscussion,
@@ -224,8 +228,10 @@ import {
   PROJECT_ROLES,
   PROJECT_EFFECT_TYPES,
   SHARE_TIERS,
+  describeOp,
   type Discussion,
   type DiscussionPost,
+  type ProposalDelta,
   type ShareTier,
   type SocialAnchor,
   type SocialEntityRef,
@@ -935,6 +941,9 @@ function ProjectDetail({
               card will project under its feed post — one conversation, two
               projections. */}
           <DiscussionsPanel subject={{ kind: 'project', id: project.id }} own={own} />
+          {/* The improvement ledger (social S3): offered changes + the landed
+              history, the owner's land/decline consent inline. */}
+          <ImprovementsPanel subject={{ kind: 'project', id: project.id }} own={own} />
           <ContributorsPanel project={project} />
           <CoordinationPanel project={project} />
           </div>
@@ -3085,6 +3094,143 @@ function DiscussionsSection({
         </CardList>
       )}
     </Page>
+  )
+}
+
+/** One proposal delta, rendered by kind (social S3 — the DeltaView registry's
+ *  first two slots): a suggestion is prose; a relation op reuses the shared
+ *  human description the consent cards use, so the same edit reads the same
+ *  everywhere. */
+function DeltaView({ delta }: { delta: ProposalDelta }) {
+  if (delta.kind === 'suggestion') {
+    return <p className="whitespace-pre-wrap text-[13px] text-ink-soft">{delta.text}</p>
+  }
+  return (
+    <p className="text-[13px] text-ink-soft">
+      <span className="mr-1.5 rounded bg-panel-2 px-1.5 py-0.5 text-[11px] font-medium text-ink-faint">graph edit</span>
+      {describeOp(delta.op).text}
+    </p>
+  )
+}
+
+/** The subject's Improvements (social S3, SOCIAL-7b) — offered proposals +
+ *  the landed ledger, generic over the subject ref (the GrantsPanel rule).
+ *  Payload for owner and visitor alike: the owner gets land/decline consent,
+ *  a propose-tier visitor gets the offer form, everyone gets the ledger and
+ *  each row's review-thread door. */
+function ImprovementsPanel({ subject, own }: { subject: SocialEntityRef; own: boolean }) {
+  const rel = useRelations()
+  const list = useSocialProposals(subject.kind, subject.id).data ?? []
+  const [composing, setComposing] = useState(false)
+  const [text, setText] = useState('')
+  const [rationale, setRationale] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const offer = async () => {
+    if (busy || !text.trim() || !rationale.trim()) return
+    setBusy(true)
+    setError(null)
+    try {
+      await openSocialProposal({ subject, delta: { kind: 'suggestion', text: text.trim() }, rationale: rationale.trim() })
+      setText('')
+      setRationale('')
+      setComposing(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not offer this change.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const consent = async (act: 'land' | 'decline', pid: string) => {
+    setError(null)
+    try {
+      if (act === 'land') await landSocialProposal(pid, subject)
+      else await declineSocialProposal(pid, subject)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : `Could not ${act}.`)
+    }
+  }
+  return (
+    <MainSection
+      title="Improvements"
+      revealActions={list.length === 0 || composing}
+      actions={
+        <SectionAction
+          label="Offer a change — the owner lands it by consent"
+          icon={<Plus size={14} />}
+          onClick={() => setComposing((v) => !v)}
+          expanded={composing}
+        />
+      }
+    >
+      {composing && (
+        <div className="mb-3 space-y-1.5">
+          <textarea
+            aria-label="The change you propose"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="The change — what should be different?"
+            rows={2}
+            className={`${FORM_INPUT_CLASS} resize-none`}
+          />
+          <input
+            aria-label="Why this change"
+            value={rationale}
+            onChange={(e) => setRationale(e.target.value)}
+            placeholder="Why — opens the review thread"
+            className={FORM_INPUT_CLASS}
+          />
+          <button onClick={() => void offer()} disabled={busy || !text.trim() || !rationale.trim()} className={INLINE_ACTION_CLASS}>
+            Offer
+          </button>
+        </div>
+      )}
+      {list.length === 0 && !composing ? (
+        <p className="text-[12px] text-ink-faint">
+          Nothing offered yet. A proposal is a typed change the owner lands by consent — the {subject.kind}’s improvement history, L1 up.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {list.map((p) => (
+            <div key={p.id} className="flex items-start gap-2.5">
+              {/* The leading slot: live pulse while offered, the ledger number
+                  once landed, a muted no once declined (the ChangesPanel form). */}
+              <span className="flex w-8 shrink-0 items-center justify-end pt-0.5">
+                {p.state === 'offered' ? (
+                  <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-label="Offered" />
+                ) : p.state === 'landed' ? (
+                  <span className="text-[12px] font-semibold tabular-nums text-ink-faint">L{p.landingNumber}</span>
+                ) : (
+                  <span className="text-[11px] text-ink-faint">no</span>
+                )}
+              </span>
+              <div className="min-w-0 flex-1">
+                <DeltaView delta={p.delta} />
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
+                  <span>
+                    by {p.offeredBy} {relativeTime(p.offeredAt)}
+                  </span>
+                  <button onClick={() => rel.navigate('discussions', p.discussionId)} className={INLINE_ACTION_CLASS}>
+                    Review thread
+                  </button>
+                  {own && p.state === 'offered' && (
+                    <>
+                      <button onClick={() => void consent('land', p.id)} className={INLINE_ACTION_CLASS}>
+                        Land
+                      </button>
+                      <button onClick={() => void consent('decline', p.id)} className={INLINE_ACTION_CLASS}>
+                        Decline
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {error && <p className="mt-2 text-[11px] text-danger">{error}</p>}
+    </MainSection>
   )
 }
 
