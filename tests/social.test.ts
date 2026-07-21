@@ -97,8 +97,10 @@ test('grant: creation is the owner’s act; refusals are argued (link/S6, discus
   assert.equal(notOwner.status, 404, 'a non-owner cannot even see the subject — existence-hiding beats forbidden')
   const link = await call('POST', '/grants', { subject, audience: { kind: 'link', token: 't' }, tier: 'view' }, { 'x-tenant-id': OWNER })
   assert.equal(link.status, 400, 'link audiences are declared but refused until the public phase (S6)')
-  const disc = await call('POST', '/grants', { subject: { kind: 'discussion', id: 'd-1' }, audience: { kind: 'org', orgId: AUDIENCE }, tier: 'view' }, { 'x-tenant-id': OWNER })
-  assert.equal(disc.status, 400, 'discussion subjects are a documented refusal until S2')
+  // S2 lifted the discussion refusal: the kind is a full noun now, so an
+  // unknown discussion id gets the ordinary existence-hiding 404.
+  const disc = await call('POST', '/grants', { subject: { kind: 'discussion', id: 'd-no-such' }, audience: { kind: 'org', orgId: AUDIENCE }, tier: 'view' }, { 'x-tenant-id': OWNER })
+  assert.equal(disc.status, 404, 'a nonexistent discussion subject 404s like any noun')
   const unknownAud = await call('POST', '/grants', { subject, audience: { kind: 'org', orgId: 'tenant-no-such' }, tier: 'view' }, { 'x-tenant-id': OWNER })
   assert.equal(unknownAud.status, 400, 'an unregistered audience is refused, not resolved (INV-9)')
   const ghost = await call('POST', '/grants', { subject: { kind: 'project', id: 'p-no-such' }, audience: { kind: 'org', orgId: AUDIENCE }, tier: 'view' }, { 'x-tenant-id': OWNER })

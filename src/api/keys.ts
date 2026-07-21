@@ -40,6 +40,10 @@ export const keys = {
   /** A resource's grant roster (social S1) — keyed per subject ref; no-arg =
    *  the family prefix (invalidated whole on `grant.changed`). */
   grants: (kind?: string, id?: string) => (kind && id ? `grants:${kind}:${id}` : 'grants'),
+  /** A subject's discussions (social S2) — same shape; `discussion:` alone is
+   *  the by-id family. */
+  discussions: (kind?: string, id?: string) => (kind && id ? `discussions:${kind}:${id}` : 'discussions'),
+  discussion: (did?: string) => (did ? `discussion:${did}` : 'discussion'),
   /** A Project's attention ledger (CW9, Phase G) — per-caller asks + counts. */
   attention: (projectId: string) => `attention:${projectId}`,
   /** The discovery directories (D17) — keyed per search so each query caches on its own. */
@@ -157,6 +161,13 @@ export const paths = {
   grants: (kind: string, id: string) => `/grants?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`,
   grantCreate: () => `/grants`,
   grantRevoke: (gid: string) => `/grants/${encodeURIComponent(gid)}`,
+  /** A subject's discussions (social S2) + the per-discussion faces. */
+  discussions: (kind: string, id: string) => `/discussions?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`,
+  discussionOpen: () => `/discussions`,
+  discussion: (did: string) => `/discussions/${encodeURIComponent(did)}`,
+  discussionPosts: (did: string) => `/discussions/${encodeURIComponent(did)}/posts`,
+  discussionReact: (did: string, pid: string) => `/discussions/${encodeURIComponent(did)}/posts/${encodeURIComponent(pid)}/react`,
+  discussionResolve: (did: string) => `/discussions/${encodeURIComponent(did)}/resolve`,
   /** The contribution ledger (agent-contribution workflow Phase A). */
   contributions: (projectId: string) => `/projects/${encodeURIComponent(projectId)}/contributions`,
   contributionComments: (projectId: string, cid: string) =>

@@ -84,6 +84,50 @@ export interface CreateGrantRequest {
   note?: string
 }
 
+/** ── Discussion (S2) — the sixth noun ────────────────────────────────────────
+ *  Talk anchored to a resource. A discussion with a locus-free anchor is the
+ *  subject's ROOT thread (its public comment stream — the Commons card's
+ *  comments and the entity page's thread are two projections of this one
+ *  object). Discussions are entities themselves, so every primitive applies
+ *  recursively — including attaching one to a session as context. Visibility
+ *  INHERITS the anchor's (owner / granted / shared ⇒ readable), never wider. */
+export interface DiscussionPost {
+  id: string
+  /** Display name of the posting namespace (REDACTED face — raw ids never cross). */
+  author: string
+  body: string
+  at: number
+  /** The one thin reaction signal: how many namespaces endorsed this post, and
+   *  whether the CALLER did (viewer-relative, computed at serve time). */
+  reactions: number
+  reacted?: boolean
+}
+
+export interface Discussion {
+  id: string
+  anchor: SocialAnchor
+  state: 'open' | 'resolved'
+  /** Display name of the opening namespace (REDACTED face). */
+  openedBy: string
+  openedAt: number
+  posts: DiscussionPost[]
+  /** Viewer-relative: the caller opened it (the projects `own` pattern). */
+  mine?: boolean
+}
+
+/** `POST /v1/discussions` — open a discussion on an anchor. INV-9: an absent
+ *  `locus` anchors the whole entity; `firstPost` is required (an empty
+ *  discussion is noise — the opening post IS the reason it exists). */
+export interface OpenDiscussionRequest {
+  anchor: SocialAnchor
+  firstPost: string
+}
+
+/** `POST /v1/discussions/:id/posts` — append to the thread. */
+export interface PostToDiscussionRequest {
+  body: string
+}
+
 /** The tier lattice as a rank — view 0 < comment 1 < propose 2 < co-own 3. */
 export function tierRank(tier: ShareTier): number {
   return SHARE_TIERS.indexOf(tier)

@@ -19,6 +19,8 @@ import type {
   Contribution,
   ContributionEvent,
   Delegation,
+  Discussion,
+  DiscussionPost,
   DispatchRun,
   Grant,
   OpenSubGoal,
@@ -129,6 +131,19 @@ export interface StoredGrant extends Grant {
   audienceTenant: string
 }
 
+/** A Discussion as STORED (social S2) — the wire row minus the viewer-relative
+ *  fields, plus the OPENER's raw tenant id and each post's raw author tenant +
+ *  the reacting tenants (a Set serialized as an array). The projection
+ *  (`publicDiscussion`) strips all of it: display names + counts only. */
+export interface StoredDiscussionPost extends Omit<DiscussionPost, 'reactions' | 'reacted'> {
+  authorTenant: string
+  reactedBy: string[]
+}
+export interface StoredDiscussion extends Omit<Discussion, 'posts' | 'mine'> {
+  openerTenant: string
+  posts: StoredDiscussionPost[]
+}
+
 /** A peer as STORED (D28) — the wire row plus the credential's SHA-256 (the
  *  relay-secret pattern: the token is shown once at mint; only its hash persists). */
 export interface StoredA2aPeer extends A2aPeer {
@@ -196,6 +211,9 @@ export interface PersistedState {
    *  Additive-optional like `delegations` (a pre-field snapshot loads with
    *  nothing shared). */
   grants?: StoredGrant[]
+  /** Social-layer discussions (S2) — anchored threads, posts inline.
+   *  Additive-optional like `grants`. */
+  discussions?: StoredDiscussion[]
   /** Watch subscriptions (D24) — `[tenantId, projectId]` pairs (tuples, not a Map:
    *  a project has many watchers). Additive-optional like `dispatch` (a pre-field
    *  snapshot loads cleanly with no watches). */
@@ -249,6 +267,8 @@ export interface PersistedState {
     delegation?: number
     /** Grant id counter (social S1). Optional like `dispatch`. */
     grant?: number
+    /** Discussion + post id counter (social S2). Optional like `dispatch`. */
+    discussion?: number
     /** Notification id counter (D24). Optional like `dispatch`. */
     notification?: number
     /** Account registry counters (multi-account P7). Optional like the slices. */
@@ -290,6 +310,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   contributions: 'array',
   delegations: 'array',
   grants: 'array',
+  discussions: 'array',
   watches: 'array',
   notifications: 'array',
   agentProposals: 'mapEntries',

@@ -8,6 +8,8 @@ import type {
   ReplyStreamEvent,
   CreateCommissionRequest,
   CreateGrantRequest,
+  OpenDiscussionRequest,
+  PostToDiscussionRequest,
   SocialEntityKind,
   CreateDispatchRequest,
   CreateProviderRequest,
@@ -1873,6 +1875,61 @@ export function buildRouter(): Router {
     const out = store.revokeGrant(params.gid, store.identity(req.headers).tenant.id)
     if (out === undefined) return sendError(res, 'not_found', `No grant '${params.gid}'`)
     sendJson(res, { ok: true })
+  })
+
+  // ── Social-layer discussions (S2) ───────────────────────────────────────────
+  // Generic over the anchor ref; visibility INHERITS the anchor's read wall
+  // (existence-hiding — the store enforces on every face). Posting needs
+  // comment authority; reacting needs only readability (the thinnest signal).
+  r.get('/discussions', ({ req, res, url }) => {
+    const kind = url.searchParams.get('kind') ?? ''
+    const id = url.searchParams.get('id') ?? ''
+    if (!(SOCIAL_ENTITY_KINDS as readonly string[]).includes(kind) || !id) {
+      return sendError(res, 'bad_request', 'kind (a social entity kind) and id are required')
+    }
+    const ref = { kind: kind as SocialEntityKind, id }
+    const tenant = store.identity(req.headers).tenant.id
+    if (!store.grantSubjectVisible(ref, tenant)) return sendError(res, 'not_found', `No ${kind} '${id}'`)
+    sendJson(res, store.listDiscussions(ref, tenant))
+  })
+  r.post('/discussions', async ({ req, res, body }) => {
+    const input = await body<OpenDiscussionRequest>()
+    if (!input?.anchor?.ref?.kind || !input.anchor.ref.id || typeof input.firstPost !== 'string' || !input.firstPost.trim()) {
+      return sendError(res, 'bad_request', 'anchor {ref} and a non-empty firstPost are required')
+    }
+    const out = store.openDiscussion({ ...input, firstPost: input.firstPost.trim() }, store.identity(req.headers).tenant.id)
+    if (out === undefined) return sendError(res, 'not_found', `No ${input.anchor.ref.kind} '${input.anchor.ref.id}'`)
+    if (out === 'forbidden') return sendError(res, 'forbidden', 'Commenting needs the comment tier (a view grant reads silently)')
+    if (out === 'capped') return sendError(res, 'conflict', 'This subject’s discussions are at their cap')
+    sendJson(res, out)
+  })
+  r.get('/discussions/:did', ({ req, res, params }) => {
+    const out = store.getDiscussion(params.did, store.identity(req.headers).tenant.id)
+    if (out === undefined) return sendError(res, 'not_found', `No discussion '${params.did}'`)
+    sendJson(res, out)
+  })
+  r.post('/discussions/:did/posts', async ({ req, res, params, body }) => {
+    const input = await body<PostToDiscussionRequest>()
+    if (typeof input?.body !== 'string' || !input.body.trim()) return sendError(res, 'bad_request', 'a non-empty body is required')
+    const out = store.postToDiscussion(params.did, input.body.trim(), store.identity(req.headers).tenant.id)
+    if (out === undefined) return sendError(res, 'not_found', `No discussion '${params.did}'`)
+    if (out === 'forbidden') return sendError(res, 'forbidden', 'Commenting needs the comment tier (a view grant reads silently)')
+    if (out === 'capped') return sendError(res, 'conflict', 'This discussion is at its post cap')
+    sendJson(res, out)
+  })
+  r.post('/discussions/:did/posts/:pid/react', ({ req, res, params }) => {
+    const out = store.toggleDiscussionReaction(params.did, params.pid, store.identity(req.headers).tenant.id)
+    if (out === undefined) return sendError(res, 'not_found', `No discussion post '${params.pid}'`)
+    sendJson(res, out)
+  })
+  r.post('/discussions/:did/resolve', async ({ req, res, params, body }) => {
+    const input = await body<{ state?: 'open' | 'resolved' }>()
+    const state = input?.state ?? 'resolved'
+    if (state !== 'open' && state !== 'resolved') return sendError(res, 'bad_request', 'state must be open or resolved')
+    const out = store.setDiscussionState(params.did, state, store.identity(req.headers).tenant.id)
+    if (out === undefined) return sendError(res, 'not_found', `No discussion '${params.did}'`)
+    if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the opener or the subject’s owner may resolve a discussion')
+    sendJson(res, out)
   })
 
   // ── The contribution ledger (agent-contribution workflow Phase A) ───────────

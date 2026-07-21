@@ -223,6 +223,12 @@ function route(e: ServerEvent): void {
       invalidate(keys.projects) // seed rows enter/leave the shared-with-me band
       invalidate(keys.relations) // created rows ride the graph's extraProjects
       break
+    // A discussion changed (social S2) — the anchored list and the open thread
+    // are stale; the family prefixes catch both projections.
+    case 'discussion.changed':
+      invalidatePrefix(keys.discussions())
+      invalidate(keys.discussion(e.discussionId))
+      break
     case 'openwork.changed':
       invalidate(keys.openSubGoals(e.projectId))
       invalidate(keys.workerAgents)

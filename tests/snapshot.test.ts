@@ -162,6 +162,10 @@ test('build produces a snapshot covering every persisted slice', async () => {
     'createGrant → grants (social S1, the published share persists)',
   )
   assert.ok(
+    s.discussions?.some((d) => d.anchor.ref.id === 'p-playground' && d.posts.length >= 1),
+    'openDiscussion → discussions (social S2, the root thread persists)',
+  )
+  assert.ok(
     s.watches?.some(([tenantId]) => tenantId === 'tenant-playground-watcher'),
     'setWatch → watches (D24)',
   )

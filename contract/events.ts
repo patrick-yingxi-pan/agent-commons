@@ -312,6 +312,16 @@ export interface GrantChangedEvent {
   parties: string[]
 }
 
+/** A discussion changed (social S2) — opened, posted to, reacted on, or
+ *  resolved. Carries only the discussion id + its anchor; watchers re-read.
+ *  Visibility MIRRORS THE ANCHOR's (owner / granted / shared ⇒ delivered) —
+ *  the `openwork.changed` pattern generalized to the social nouns. */
+export interface DiscussionChangedEvent {
+  type: 'discussion.changed'
+  discussionId: string
+  anchor: import('./social.ts').SocialAnchor
+}
+
 /** Sent once when an SSE channel opens, so the client can confirm liveness. */
 export interface HelloEvent {
   type: 'hello'
@@ -372,6 +382,7 @@ export type ServerEvent =
   | CommissionChangedEvent
   | ProposalChangedEvent
   | GrantChangedEvent
+  | DiscussionChangedEvent
 
 export type ServerEventType = ServerEvent['type']
 

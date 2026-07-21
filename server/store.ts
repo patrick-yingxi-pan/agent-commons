@@ -23,8 +23,10 @@ import type {
   ContextTypeId,
   CreateGrantRequest,
   DiffLine,
+  Discussion,
   DispatchRun,
   Grant,
+  OpenDiscussionRequest,
   Message,
   Project,
   RecentsSnapshot,
@@ -57,6 +59,7 @@ import {
   runSessionId,
   seedGraph,
   SHARE_TIERS,
+  tierPermits,
   tierRank,
 } from '../contract/index.ts'
 import { SESSIONS } from './data/sessions.ts'
@@ -95,7 +98,7 @@ import { ResourceGuardian, GuardianError } from './guardian.ts'
 import { LOCAL_RUNNER_SEED, RUNNER_FS_ROOTS } from './data/runners.ts'
 import { DEFAULT_AGENT } from './data/workers.ts'
 import { EMPTY_WORKSPACE, workspaceFromSeed } from './workspace.ts'
-import { STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer, type StoredOpenSubGoal, type StoredWorkItemComment, type StoredContribution, type StoredContributionEvent, type StoredDelegation, type StoredGrant } from './persist.ts'
+import { STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer, type StoredOpenSubGoal, type StoredWorkItemComment, type StoredContribution, type StoredContributionEvent, type StoredDelegation, type StoredGrant, type StoredDiscussion } from './persist.ts'
 import { eventlog } from './eventlog.ts'
 import { accounts } from './accounts.ts'
 
@@ -324,6 +327,37 @@ const MAX_GRANT_NOTE_CHARS = 2000
 function publicGrant(g: StoredGrant): Grant {
   const { granterTenant, audienceTenant, ...pub } = g
   return pub
+}
+
+/** ── Social-layer discussions (S2 — docs/design/social-layer.md §2.3) ────────
+ *  The sixth noun: talk anchored to a resource. Visibility INHERITS the
+ *  anchor's read wall (never wider — comments cannot leak a resource); a
+ *  locus-free anchor is the subject's ROOT thread, and opening a second root is
+ *  get-or-create (the first post appends instead — one public stream per
+ *  subject). Bounds are the D23 discussion-bounds trade-off. */
+const discussions: StoredDiscussion[] = []
+let discussionSeq = 0
+const MAX_DISCUSSIONS_PER_SUBJECT = 100
+const MAX_DISCUSSION_POSTS = 200
+const MAX_DISCUSSION_CHARS = 2000
+
+/** Wire face: strip the raw tenant anchors; reactions serve as a count + the
+ *  caller's own bit (viewer-relative, computed at serve time — the `mine`
+ *  pattern). */
+function publicDiscussion(d: StoredDiscussion, viewerTenant?: string): Discussion {
+  const { openerTenant, posts, ...pub } = d
+  return {
+    ...pub,
+    ...(viewerTenant !== undefined && tenantWritesAs(viewerTenant, openerTenant) ? { mine: true } : {}),
+    posts: posts.map((p) => {
+      const { authorTenant, reactedBy, ...post } = p
+      return {
+        ...post,
+        reactions: reactedBy.length,
+        ...(viewerTenant !== undefined && reactedBy.some((t) => tenantReadsAs(viewerTenant, t)) ? { reacted: true } : {}),
+      }
+    }),
+  }
 }
 
 /** The tier `viewerTenant` holds on a subject via grants (their read union) —
@@ -1356,6 +1390,7 @@ function snapshot(): PersistedState {
     contributions, // Phase A — the Project landing ledgers (the linear history survives a restart)
     delegations, // Phase F — the delegation rosters (a standing judgment grant survives a restart)
     grants, // social S1 — who can see/do what (a share survives a restart)
+    discussions, // social S2 — anchored threads (talk survives a restart)
     // D24 — watch subscriptions ([tenantId, projectId] pairs) + the notification inbox.
     watches: [...watches.entries()].flatMap(([projectId, tenants]) => [...tenants].map((t) => [t, projectId] as [string, string])),
     notifications,
@@ -1385,6 +1420,7 @@ function snapshot(): PersistedState {
       contribution: contributionSeq,
       delegation: delegationSeq,
       grant: grantSeq,
+      discussion: discussionSeq,
       notification: notificationSeq,
       user: persistedAccounts.seq.user,
       tenant: persistedAccounts.seq.tenant,
@@ -1564,6 +1600,9 @@ function rehydrate(s: PersistedState): void {
     if (!grants.some((g) => g.id === seed.id)) grants.push({ ...seed })
   }
   grantSeq = s.seq.grant ?? grants.filter((g) => !g.id.startsWith('grant-seed-')).length
+  // Social S2 discussions — same restore shape (ids consume the shared counter).
+  discussions.splice(0, discussions.length, ...(s.discussions ?? []))
+  discussionSeq = s.seq.discussion ?? discussions.reduce((m, d) => m + 1 + d.posts.length, 0)
   // D24 — watches + the inbox (empty for a pre-field snapshot); counter falls back
   // to the inbox length so freshly minted ids never collide with restored ones.
   watches.clear()
@@ -2124,6 +2163,10 @@ export const store = {
         // A grant is a two-party act (S1): granter + audience streams only. The
         // read union covers org audiences (a member's stream sees its org's party).
         return e.parties.some((p) => tenantReadsAs(tenantId, p))
+      case 'discussion.changed':
+        // A discussion's visibility MIRRORS ITS ANCHOR's (S2 inheritance) —
+        // delivered exactly where the subject itself is readable.
+        return this.grantSubjectVisible(e.anchor.ref, tenantId)
       case 'reservation.changed': {
         // `resourceId` is `${guardianId}[:${subGoal}]` — the sub-goal suffix is free
         // text (a private Project's claim name). It once fell through the global
@@ -4293,18 +4336,137 @@ export const store = {
         return schedules.find((t) => t.id === ref.id)
       case 'context':
         return savedCtxs.find((c) => c.id === ref.id)
-      case 'discussion':
-        return 'unsupported'
+      case 'discussion': {
+        // A discussion is itself grantable/anchorable (recursion, S2): its
+        // owner face is the OPENER's namespace.
+        const d = discussions.find((x) => x.id === ref.id)
+        return d ? { tenantId: d.openerTenant } : undefined
+      }
     }
   },
-  /** The existence-hiding wall for grant routes: a subject is visible when the
-   *  caller's read union owns it (unstamped seeds ⇒ the flagship rule) OR a
-   *  grant addresses them. Nonexistent and invisible answer identically. */
+  /** The ONE social read wall (existence-hiding): a subject is readable when
+   *  the caller's read union owns it (unstamped seeds ⇒ the flagship rule), OR
+   *  its legacy everyone-switch is on (`shared: true` — projects), OR a grant
+   *  addresses them. Nonexistent and invisible answer identically. */
   grantSubjectVisible(ref: SocialEntityRef, viewerTenant: string): boolean {
     const row = this.grantSubjectRow(ref)
     if (row === undefined || row === 'unsupported') return false
     if (row.tenantId ? tenantReadsAs(viewerTenant, row.tenantId) : seedVisibleTo(viewerTenant)) return true
+    if ((row as { shared?: boolean }).shared === true) return true
     return this.grantedTier(ref, viewerTenant) !== undefined
+  },
+  /** Comment authority on a subject (S2): the owner always; anyone the legacy
+   *  everyone-switch admits (the D23 anyone-who-sees-may-comment continuity);
+   *  a granted audience at `comment` or above. `view` reads silently. */
+  socialSubjectCommentable(ref: SocialEntityRef, tenantId: string): boolean {
+    const row = this.grantSubjectRow(ref)
+    if (row === undefined || row === 'unsupported') return false
+    if (ownsGrantSubject(row, tenantId)) return true
+    if ((row as { shared?: boolean }).shared === true) return true
+    const held = grantedTierFor(ref, tenantId)
+    return held !== undefined && tierPermits(held, 'comment')
+  },
+
+  // ── Social-layer discussions (S2) ───────────────────────────────────────────
+  /** The discussions anchored to a subject, root thread first, then newest
+   *  first. The route walls the anchor (existence-hiding). */
+  listDiscussions(ref: SocialEntityRef, viewerTenant: string): Discussion[] {
+    const rows = discussions.filter((d) => d.anchor.ref.kind === ref.kind && d.anchor.ref.id === ref.id)
+    const band = (d: StoredDiscussion) => (d.anchor.locus === undefined ? 0 : 1)
+    return [...rows].sort((a, b) => band(a) - band(b) || b.openedAt - a.openedAt).map((d) => publicDiscussion(d, viewerTenant))
+  },
+  /** Open a discussion. The anchor must be READABLE (else the existence-hiding
+   *  404) and the opener COMMENTABLE (a view-tier audience reads silently). A
+   *  locus-free open when the subject already has a root thread is
+   *  get-or-create: the first post appends to the existing root instead — one
+   *  public stream per subject (the root-thread rule). */
+  openDiscussion(req: OpenDiscussionRequest, tenantId: string): Discussion | 'forbidden' | 'capped' | undefined {
+    if (!this.grantSubjectVisible(req.anchor.ref, tenantId)) return undefined
+    if (!this.socialSubjectCommentable(req.anchor.ref, tenantId)) return 'forbidden'
+    if (req.anchor.locus === undefined) {
+      const root = discussions.find(
+        (d) => d.anchor.ref.kind === req.anchor.ref.kind && d.anchor.ref.id === req.anchor.ref.id && d.anchor.locus === undefined,
+      )
+      if (root) return this.postToDiscussion(root.id, req.firstPost, tenantId)
+    }
+    const anchored = discussions.filter((d) => d.anchor.ref.kind === req.anchor.ref.kind && d.anchor.ref.id === req.anchor.ref.id)
+    if (anchored.length >= MAX_DISCUSSIONS_PER_SUBJECT) return 'capped'
+    const now = Date.now()
+    const d: StoredDiscussion = {
+      id: `disc-${(discussionSeq += 1)}`,
+      anchor: { ref: { kind: req.anchor.ref.kind, id: req.anchor.ref.id }, ...(req.anchor.locus ? { locus: req.anchor.locus } : {}) },
+      state: 'open',
+      openedBy: tenantName(tenantId),
+      openedAt: now,
+      openerTenant: tenantId,
+      posts: [
+        {
+          id: `dpost-${(discussionSeq += 1)}`,
+          author: tenantName(tenantId),
+          authorTenant: tenantId,
+          body: req.firstPost.slice(0, MAX_DISCUSSION_CHARS),
+          at: now,
+          reactedBy: [],
+        },
+      ],
+    }
+    discussions.push(d)
+    emit({ type: 'discussion.changed', discussionId: d.id, anchor: d.anchor })
+    persist()
+    return publicDiscussion(d, tenantId)
+  },
+  /** One discussion by id — readable through its ANCHOR's wall (inheritance:
+   *  a discussion is never wider than what it discusses). */
+  getDiscussion(id: string, viewerTenant: string): Discussion | undefined {
+    const d = discussions.find((x) => x.id === id)
+    if (!d || !this.grantSubjectVisible(d.anchor.ref, viewerTenant)) return undefined
+    return publicDiscussion(d, viewerTenant)
+  },
+  /** Append a post — commentable callers only; allowed after resolve too (the
+   *  CW7 aftermath rule: a resolved thread's story keeps accruing). */
+  postToDiscussion(id: string, body: string, tenantId: string): Discussion | 'forbidden' | 'capped' | undefined {
+    const d = discussions.find((x) => x.id === id)
+    if (!d || !this.grantSubjectVisible(d.anchor.ref, tenantId)) return undefined
+    if (!this.socialSubjectCommentable(d.anchor.ref, tenantId)) return 'forbidden'
+    if (d.posts.length >= MAX_DISCUSSION_POSTS) return 'capped'
+    d.posts.push({
+      id: `dpost-${(discussionSeq += 1)}`,
+      author: tenantName(tenantId),
+      authorTenant: tenantId,
+      body: body.slice(0, MAX_DISCUSSION_CHARS),
+      at: Date.now(),
+      reactedBy: [],
+    })
+    emit({ type: 'discussion.changed', discussionId: d.id, anchor: d.anchor })
+    persist()
+    return publicDiscussion(d, tenantId)
+  },
+  /** Toggle the one thin reaction on a post — any READER may endorse (the
+   *  lightest signal deliberately needs no comment tier). */
+  toggleDiscussionReaction(id: string, postId: string, tenantId: string): Discussion | undefined {
+    const d = discussions.find((x) => x.id === id)
+    if (!d || !this.grantSubjectVisible(d.anchor.ref, tenantId)) return undefined
+    const p = d.posts.find((x) => x.id === postId)
+    if (!p) return undefined
+    const i = p.reactedBy.indexOf(tenantId)
+    if (i >= 0) p.reactedBy.splice(i, 1)
+    else p.reactedBy.push(tenantId)
+    emit({ type: 'discussion.changed', discussionId: d.id, anchor: d.anchor })
+    persist()
+    return publicDiscussion(d, tenantId)
+  },
+  /** Resolve / reopen — the opener's or the anchor owner's act (the two
+   *  parties with standing; a visitor's thread isn't closable by a bystander). */
+  setDiscussionState(id: string, state: 'open' | 'resolved', tenantId: string): Discussion | 'forbidden' | undefined {
+    const d = discussions.find((x) => x.id === id)
+    if (!d || !this.grantSubjectVisible(d.anchor.ref, tenantId)) return undefined
+    const row = this.grantSubjectRow(d.anchor.ref)
+    const anchorOwner = row !== undefined && row !== 'unsupported' && ownsGrantSubject(row, tenantId)
+    if (!tenantWritesAs(tenantId, d.openerTenant) && !anchorOwner) return 'forbidden'
+    d.state = state
+    emit({ type: 'discussion.changed', discussionId: d.id, anchor: d.anchor })
+    persist()
+    return publicDiscussion(d, tenantId)
   },
   /** The grants on a subject, viewer-relative: the subject's OWNER sees the
    *  full list; anyone else sees only the rows addressed to their read union

@@ -339,6 +339,12 @@ export async function buildComprehensive(): Promise<PersistedState> {
     },
     store.defaultTenantId(),
   )
+  // ── Social S2 discussions ── exercise the persisted slice through the real
+  // mutator: the default tenant opens the playground project's root thread.
+  store.openDiscussion(
+    { anchor: { ref: { kind: 'project', id: 'p-playground' } }, firstPost: 'Playground root thread — exercised for the snapshot.' },
+    store.defaultTenantId(),
+  )
   // ── Delegations (CW8, Phase F) ── exercise the persisted roster through the
   // real mint funnel (the default agent is the default tenant's own worker).
   store.createDelegation(
