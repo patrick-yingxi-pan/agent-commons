@@ -26,6 +26,8 @@ import {
   type AppNotification,
   type OpenSubGoal,
   type Contribution,
+  type CreateGrantRequest,
+  type Grant,
   type OpenContributionRequest,
   type ProposeEnvelopeRequest,
   type CrystallizeRequest,
@@ -474,6 +476,20 @@ export async function commentOnWorkItem(projectId: string, itemId: string, body:
   const item = await apiPost<OpenSubGoal>(paths.openSubGoalComments(projectId, itemId), { body })
   invalidate(keys.openSubGoals(projectId))
   return item
+}
+
+/** Create (or re-grant — the server replaces per subject×audience) a social
+ *  grant (S1). A present `note` is the publish act (INV-9: absent = silent). */
+export async function createGrant(req: CreateGrantRequest): Promise<Grant> {
+  const g = await apiPost<Grant>(paths.grantCreate(), req)
+  invalidate(keys.grants(req.subject.kind, req.subject.id))
+  return g
+}
+
+/** Revoke a grant — the granter's act, or the audience declining. */
+export async function revokeGrant(id: string, subject: { kind: string; id: string }): Promise<void> {
+  await apiDelete(paths.grantRevoke(id))
+  invalidate(keys.grants(subject.kind, subject.id))
 }
 
 /** Open (declare) a contribution on a project's ledger (workflow Phase A). */

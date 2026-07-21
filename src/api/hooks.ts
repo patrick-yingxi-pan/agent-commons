@@ -23,6 +23,7 @@ import type {
   OpenSubGoal,
   Contribution,
   Delegation,
+  Grant,
   AttentionLedger,
   OwnerProfile,
   ProjectDirectoryEntry,
@@ -414,6 +415,13 @@ export function useOpenSubGoals(projectId: string): QueryState<OpenSubGoal[]> {
  *  on `contribution.changed`. */
 export function useContributions(projectId: string): QueryState<Contribution[]> {
   return useQuery(keys.contributions(projectId), () => apiGet<Contribution[]>(paths.contributions(projectId)))
+}
+
+/** A resource's grant roster (social S1) — the owner reads the full roster, an
+ *  audience their own rows; an invisible subject reads as the existence-hiding
+ *  404 (served as an error state). Live on `grant.changed`. */
+export function useGrants(kind: string, id: string): QueryState<Grant[]> {
+  return useQuery(keys.grants(kind, id), () => apiGet<Grant[]>(paths.grants(kind, id)))
 }
 
 /** A Project's delegation roster (CW8, Phase F) — governance face for every

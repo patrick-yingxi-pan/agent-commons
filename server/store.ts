@@ -326,6 +326,17 @@ function publicGrant(g: StoredGrant): Grant {
   return pub
 }
 
+/** Who may act as a subject's OWNER for grants. A stamped row: its tenant's
+ *  write union. An UNSTAMPED seed: the flagship faces (the backend's default
+ *  principal AND Ada/Acme — `seedVisibleTo`'s one-seat-two-faces rule), because
+ *  the demo flow IS Ada sharing the flagship world; a strict default-tenant
+ *  check made her 403 on her own demo data (found live, 2026-07-21). Runtime
+ *  rows are always stamped, so this never widens user data. */
+function ownsGrantSubject(row: { tenantId?: string }, tenantId: string): boolean {
+  if (row.tenantId) return tenantWritesAs(tenantId, row.tenantId)
+  return tenantWritesAs(tenantId, defaultTenantId()) || seedVisibleTo(tenantId)
+}
+
 // CW5 — the trust threshold: landings on THIS project before the arithmetic
 // grants Tier 0 (auto-land). Deliberately small (the demo must be reachable)
 // and deliberately irrelevant to the Tier-2 floor (trust never buys past it).
@@ -1528,9 +1539,14 @@ function rehydrate(s: PersistedState): void {
   delegations.splice(0, delegations.length, ...(s.delegations ?? []))
   delegationSeq = s.seq.delegation ?? delegations.length
   // Social S1 grants — same restore shape (each row consumes exactly one id).
-  // A pre-grants snapshot keeps the seed scene (the providers-reconcile rule:
-  // seed rows are code-owned); a snapshot that carries the slice wins whole.
-  grants.splice(0, grants.length, ...(s.grants ?? SEED_GRANTS.map((g) => ({ ...g }))))
+  // Seed rows are CODE-owned (the providers-reconcile rule): a snapshot missing
+  // a seed grant regains it on load — so a runtime revoke of a seed lasts only
+  // until the next restart (the seed-sessions mock semantics), and a snapshot
+  // written by a pre-seed build can't erase the demo scene.
+  grants.splice(0, grants.length, ...(s.grants ?? []))
+  for (const seed of SEED_GRANTS) {
+    if (!grants.some((g) => g.id === seed.id)) grants.push({ ...seed })
+  }
   grantSeq = s.seq.grant ?? grants.filter((g) => !g.id.startsWith('grant-seed-')).length
   // D24 — watches + the inbox (empty for a pre-field snapshot); counter falls back
   // to the inbox length so freshly minted ids never collide with restored ones.
@@ -4275,7 +4291,7 @@ export const store = {
   listGrants(ref: SocialEntityRef, viewerTenant: string): Grant[] {
     const rows = grants.filter((g) => g.subject.kind === ref.kind && g.subject.id === ref.id)
     const row = this.grantSubjectRow(ref)
-    const owner = row !== undefined && row !== 'unsupported' && tenantWritesAs(viewerTenant, row.tenantId ?? defaultTenantId())
+    const owner = row !== undefined && row !== 'unsupported' && ownsGrantSubject(row, viewerTenant)
     return rows.filter((g) => owner || tenantReadsAs(viewerTenant, g.audienceTenant)).map(publicGrant)
   },
   /** Create a grant — the consent-carded share act. Owner-only (tenantWritesAs
@@ -4286,7 +4302,7 @@ export const store = {
     const row = this.grantSubjectRow(req.subject)
     if (row === 'unsupported') return 'invalid' // kind-level refusal: leaks no row's existence
     if (row === undefined) return undefined
-    if (!tenantWritesAs(tenantId, row.tenantId ?? defaultTenantId())) {
+    if (!ownsGrantSubject(row, tenantId)) {
       // Existence-hiding beats forbidden: a caller the subject is invisible to
       // gets the same 404 as a nonexistent id; only a caller who can already
       // SEE it (they hold a grant) learns "yes it exists, but not yours".

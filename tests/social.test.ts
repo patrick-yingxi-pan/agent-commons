@@ -159,6 +159,21 @@ test('a grant OPENS its subject (SOCIAL-4): granted viewers pass the project wal
   const seeded = await call('GET', `/grants?kind=project&id=p-insights`, undefined, { 'x-tenant-id': 'tenant-beta' })
   assert.equal(seeded.status, 200)
   assert.ok(seeded.json.some((row: any) => row.note && row.grantedBy === 'Acme, Inc.'), 'the seeded publish rides with its note')
+
+  // The flagship faces OWN the unstamped seeds for grants (one seat, two faces):
+  // Ada-as-Acme reads the full roster and may share the flagship world — a
+  // strict default-tenant owner check 403'd her on her own demo data (found
+  // live in the running app, 2026-07-21).
+  const asAcme = await call('GET', `/grants?kind=project&id=p-insights`, undefined, { 'x-tenant-id': 'tenant-acme' })
+  assert.equal(asAcme.status, 200)
+  assert.ok(asAcme.json.length >= 1, 'the flagship face reads the seed roster as owner')
+  const acmeShares = await call(
+    'POST', '/grants',
+    { subject: { kind: 'project', id: 'p-insights' }, audience: { kind: 'org', orgId: 'tenant-reislab' }, tier: 'view' },
+    { 'x-tenant-id': 'tenant-acme' },
+  )
+  assert.equal(acmeShares.status, 200, 'the flagship face may share the flagship world')
+  assert.equal(store.revokeGrant(acmeShares.json.id, 'tenant-acme'), 'ok', 'cleanup: the granter revokes')
 })
 
 test('the substrate stays kind-generic: social.ts never branches on an entity kind', async () => {

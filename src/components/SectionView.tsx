@@ -161,6 +161,9 @@ import {
   useCommissionAuthority,
   useOpenSubGoals,
   useContributions,
+  useGrants,
+  createGrant,
+  revokeGrant,
   openContribution,
   noteContribution,
   landContribution,
@@ -210,6 +213,9 @@ import {
   projectAdmittedAuthority,
   PROJECT_ROLES,
   PROJECT_EFFECT_TYPES,
+  SHARE_TIERS,
+  type ShareTier,
+  type SocialEntityRef,
   ENVELOPE_HARNESSES,
   CHANGE_ENTRY_KINDS,
   AUDIT_CHANNEL_LABEL,
@@ -255,6 +261,8 @@ import { useRelations } from '../controller/useRelations'
 import { runSessionId, slug } from '../../contract/ids.ts'
 import { HOVER_REVEAL, HOVER_CUE, SECTION_REVEAL, SECTION_REVEAL_GROUP } from '../lib/hoverReveal'
 import { SectionAction } from './SectionAction'
+import { TierBadge } from './TierBadge'
+import { TIER_LABELS } from '../lib/tierBadge'
 
 /** The main area when a cross-cutting tool (Projects, Artifacts, …) is open
  *  instead of a conversation. All content is mock — this is a clickable demo.
@@ -923,6 +931,10 @@ function ProjectDetail({
               gates on isCreatedProject; the role pre-selection applies either way. */}
           <SidePanel title="Sharing" icon={<Globe size={14} />}>
             {rel.isCreatedProject(project.id) && <ShareToggle project={project} />}
+            {/* The grants roster (social S1) — audience-scoped shares over the
+                generic subject ref; org-wide `shared` above stays the legacy
+                everyone-switch. */}
+            <GrantsPanel subject={{ kind: 'project', id: project.id }} />
             <DefaultRolePicker project={project} />
           </SidePanel>
 
@@ -1482,6 +1494,102 @@ function ContributorsPanel({ project }: { project: Project }) {
  *  this). Owner-only, applied through the same one relation-edit gate as the share
  *  toggle (`set-project-default-role`); "no preference" clears it and pickers fall
  *  back to the writer baseline. */
+/** The grants roster + share form (social S1, SOCIAL-5) — the owner's audience
+ *  configuration, generic over the subject ref BY CONSTRUCTION (it never reads a
+ *  kind-specific field; any entity page can host it — the orthogonality rule).
+ *  Rendered inside the owner-gated rail, so `own` is already established. A
+ *  present note is the publish act (INV-9: blank = silent access-only share). */
+function GrantsPanel({ subject }: { subject: SocialEntityRef }) {
+  const roster = useGrants(subject.kind, subject.id).data ?? []
+  const [audKind, setAudKind] = useState<'org' | 'principal'>('org')
+  const [audId, setAudId] = useState('')
+  const [tier, setTier] = useState<ShareTier>('view')
+  const [note, setNote] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const share = async () => {
+    if (!audId.trim()) return
+    setError(null)
+    try {
+      await createGrant({
+        subject,
+        audience: audKind === 'org' ? { kind: 'org', orgId: audId.trim() } : { kind: 'principal', principalId: audId.trim() },
+        tier,
+        ...(note.trim() ? { note: note.trim() } : {}),
+      })
+      setAudId('')
+      setNote('')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not share')
+    }
+  }
+  return (
+    <div className="space-y-2.5">
+      {roster.length > 0 && (
+        <ul className="space-y-1.5">
+          {roster.map((g) => (
+            <li key={g.id} className="group flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate text-[12px] text-ink" title={g.note}>
+                {g.audience.kind === 'org' ? g.audience.orgId : g.audience.kind === 'principal' ? g.audience.principalId : 'link'}
+                {g.note ? ' · published' : ''}
+              </span>
+              <TierBadge tier={g.tier} />
+              <Tooltip label="Revoke">
+                <button
+                  onClick={() => void revokeGrant(g.id, g.subject)}
+                  aria-label={`Revoke the ${g.tier} grant`}
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 ${HOVER_REVEAL}`}
+                >
+                  <MinusCircle size={13} />
+                </button>
+              </Tooltip>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="space-y-1.5">
+        <div className="flex gap-1.5">
+          <select
+            aria-label="Audience kind"
+            value={audKind}
+            onChange={(e) => setAudKind(e.target.value as 'org' | 'principal')}
+            className={`${FORM_INPUT_CLASS} w-24 shrink-0`}
+          >
+            <option value="org">Org</option>
+            <option value="principal">Person</option>
+          </select>
+          <input
+            aria-label="Audience id"
+            value={audId}
+            onChange={(e) => setAudId(e.target.value)}
+            placeholder="tenant-…"
+            className={FORM_INPUT_CLASS}
+          />
+          <select aria-label="Tier" value={tier} onChange={(e) => setTier(e.target.value as ShareTier)} className={`${FORM_INPUT_CLASS} w-28 shrink-0`}>
+            {SHARE_TIERS.map((t) => (
+              <option key={t} value={t}>
+                {TIER_LABELS[t]}
+              </option>
+            ))}
+          </select>
+        </div>
+        <input
+          aria-label="Share note (publishes when present)"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Note — present = published, blank = silent share"
+          className={FORM_INPUT_CLASS}
+        />
+        <div className="flex items-center gap-2">
+          <button onClick={() => void share()} className={INLINE_ACTION_CLASS} disabled={!audId.trim()}>
+            Share
+          </button>
+          {error && <span className="min-w-0 truncate text-[11px] text-danger">{error}</span>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function DefaultRolePicker({ project }: { project: Project }) {
   const rel = useRelations()
   const set = (value: string) =>

@@ -22,7 +22,7 @@
 
 | ID | Requirement | Status |
 |----|-------------|--------|
-| SOCIAL-5 | S1 UI: `SharePanel`/`TierBadge` on entity pages, the shared-with-me ownership facet, consent-card share flow. | 📝 |
+| SOCIAL-5 | S1 UI: the grants roster + share form (`GrantsPanel`, generic over the subject ref) in the project page's owner rail; `TierBadge` as the one tier cue (`src/lib/tierBadge.ts`); reads/writes through the one door. Verified in-app (share → live row → revoke); funnel locks in `tests/social-ui.test.ts`. Remaining: the shared-with-me facet fed from grants, consent-card share flow. | 🟡 |
 | SOCIAL-6 | S2 Discussion: the sixth noun — anchored threads, root-thread rule, narrowing visibility, discussion-as-context. | 📝 |
 | SOCIAL-7 | S3 Proposal: the landing ledger generalized to any entity via delta appliers. | 📝 |
 | SOCIAL-8 | S4 Commons: the feed as a projection (share act + note + root discussion); entity pages as the GitHub-like home. | 📝 |
