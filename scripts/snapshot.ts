@@ -327,6 +327,18 @@ export async function buildComprehensive(): Promise<PersistedState> {
     store.defaultTenantId(),
     builder,
   )
+  // ── Social S1 grants ── exercise the persisted slice through the real
+  // mutator: the default tenant publishes the playground project to a seeded
+  // org audience (note present = the publish act).
+  store.createGrant(
+    {
+      subject: { kind: 'project', id: 'p-playground' },
+      audience: { kind: 'org', orgId: 'tenant-beta' },
+      tier: 'comment',
+      note: 'Playground share — exercised for the snapshot.',
+    },
+    store.defaultTenantId(),
+  )
   // ── Delegations (CW8, Phase F) ── exercise the persisted roster through the
   // real mint funnel (the default agent is the default tenant's own worker).
   store.createDelegation(

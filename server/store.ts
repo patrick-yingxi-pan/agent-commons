@@ -298,7 +298,24 @@ function publicDelegation(d: StoredDelegation, viewerTenant?: string): Delegatio
  *  orthogonality rule allows); the grant rows, walls, and events never branch.
  *  `granterTenant`/`audienceTenant` are server-private (D23: authorization
  *  compares raw ids); `publicGrant` strips them. */
-const grants: StoredGrant[] = []
+/** The seed social scene (docs/design/social-layer.md §7): Ada's org has
+ *  published the flagship insights Project to Grace's org with a note — so the
+ *  demo lands with one live share (readable cross-org, a comment-tier audience)
+ *  without any setup. Ids are `grant-seed-*` so runtime mints never collide. */
+const SEED_GRANTS: StoredGrant[] = [
+  {
+    id: 'grant-seed-1',
+    subject: { kind: 'project', id: 'p-insights' },
+    audience: { kind: 'org', orgId: 'tenant-beta' },
+    tier: 'comment',
+    note: 'Sharing our Q3 insights baseline — comments welcome before we lock the readout.',
+    grantedBy: 'Acme, Inc.',
+    grantedAt: Date.now() - 2 * 86_400_000,
+    granterTenant: 'tenant-acme',
+    audienceTenant: 'tenant-beta',
+  },
+]
+const grants: StoredGrant[] = SEED_GRANTS.map((g) => ({ ...g }))
 let grantSeq = 0
 const MAX_GRANTS_PER_SUBJECT = 100
 const MAX_GRANT_NOTE_CHARS = 2000
@@ -1511,8 +1528,10 @@ function rehydrate(s: PersistedState): void {
   delegations.splice(0, delegations.length, ...(s.delegations ?? []))
   delegationSeq = s.seq.delegation ?? delegations.length
   // Social S1 grants — same restore shape (each row consumes exactly one id).
-  grants.splice(0, grants.length, ...(s.grants ?? []))
-  grantSeq = s.seq.grant ?? grants.length
+  // A pre-grants snapshot keeps the seed scene (the providers-reconcile rule:
+  // seed rows are code-owned); a snapshot that carries the slice wins whole.
+  grants.splice(0, grants.length, ...(s.grants ?? SEED_GRANTS.map((g) => ({ ...g }))))
+  grantSeq = s.seq.grant ?? grants.filter((g) => !g.id.startsWith('grant-seed-')).length
   // D24 — watches + the inbox (empty for a pre-field snapshot); counter falls back
   // to the inbox length so freshly minted ids never collide with restored ones.
   watches.clear()
@@ -1969,7 +1988,9 @@ export const store = {
    *  so a tenant can't open another tenant's session by guessing its id. A seed/legacy or
    *  synthesized (run) session with no tenantId belongs to the default tenant. */
   sessionVisibleToTenant(session: Session, tenantId: string): boolean {
-    return rowVisibleTo(session, tenantId)
+    // Social S1: a grant opens the subject — the session share is the flagship
+    // (replayable at `view`). Ownership stays strict; only READ widens.
+    return rowVisibleTo(session, tenantId) || this.grantedTier({ kind: 'session', id: session.id }, tenantId) !== undefined
   },
   /** Whether an ambient event should be delivered to a subscriber of `tenantId` (F2/PD9 —
    *  the push-side of the tenant boundary). The `/events` SSE fan-out is broadcast to

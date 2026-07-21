@@ -1706,7 +1706,9 @@ export function buildRouter(): Router {
     const tenantId = store.identity(req.headers).tenant.id
     // FWD-6 O-D5: an org seat reads the org's projects (the member union).
     const reads = owner === tenantId || accounts.seatIn(tenantId, owner) !== undefined
-    return !project || (!reads && project.shared !== true)
+    // Social S1: a grant opens the subject — a granted viewer reads at any tier.
+    const granted = () => store.grantedTier({ kind: 'project', id: projectId }, tenantId) !== undefined
+    return !project || (!reads && project.shared !== true && !granted())
   }
   r.get('/projects/:id/open-subgoals', ({ req, res, params }) => {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)

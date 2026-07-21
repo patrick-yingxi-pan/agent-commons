@@ -131,6 +131,36 @@ test('grant: either party revokes, nobody else; revocation empties the roster an
   assert.equal(gone.status, 404)
 })
 
+test('a grant OPENS its subject (SOCIAL-4): granted viewers pass the project wall and the session funnel; the seed scene is live', async () => {
+  const { projectId, subject } = socialArena()
+  const before = await call('GET', `/projects/${projectId}/contributions`, undefined, { 'x-tenant-id': AUDIENCE })
+  assert.equal(before.status, 404, 'pre-grant, the private project is invisible')
+  await call('POST', '/grants', { subject, audience: { kind: 'org', orgId: AUDIENCE }, tier: 'view' }, { 'x-tenant-id': OWNER })
+  const after = await call('GET', `/projects/${projectId}/contributions`, undefined, { 'x-tenant-id': AUDIENCE })
+  assert.equal(after.status, 200, 'a granted viewer reads at any tier')
+  const still = await call('GET', `/projects/${projectId}/contributions`, undefined, { 'x-tenant-id': BYSTANDER })
+  assert.equal(still.status, 404, 'the wall stands for everyone else')
+
+  // The session funnel: grant a seed session (owned by the default tenant) to
+  // the audience org and the visibility funnel opens for its members.
+  const { SESSIONS } = await import('../server/data/sessions.ts')
+  const seedSession = SESSIONS.find((s) => !s.tenantId)
+  assert.ok(seedSession, 'an unstamped seed session exists')
+  assert.equal(store.sessionVisibleToTenant(seedSession!, AUDIENCE), false, 'pre-grant: another org cannot see it')
+  const g = store.createGrant(
+    { subject: { kind: 'session', id: seedSession!.id }, audience: { kind: 'org', orgId: AUDIENCE }, tier: 'view' },
+    store.defaultTenantId(),
+  )
+  assert.ok(typeof g === 'object', 'the default tenant owns unstamped seeds and may share them')
+  assert.equal(store.sessionVisibleToTenant(seedSession!, AUDIENCE), true, 'the session share is the flagship: replayable at view')
+
+  // The seed social scene: Ada's org published p-insights to Grace's org — the
+  // demo lands with one live cross-org share, no setup.
+  const seeded = await call('GET', `/grants?kind=project&id=p-insights`, undefined, { 'x-tenant-id': 'tenant-beta' })
+  assert.equal(seeded.status, 200)
+  assert.ok(seeded.json.some((row: any) => row.note && row.grantedBy === 'Acme, Inc.'), 'the seeded publish rides with its note')
+})
+
 test('the substrate stays kind-generic: social.ts never branches on an entity kind', async () => {
   const { readFile } = await import('node:fs/promises')
   const src = await readFile(new URL('../contract/social.ts', import.meta.url), 'utf8')

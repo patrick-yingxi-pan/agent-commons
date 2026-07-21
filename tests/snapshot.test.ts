@@ -158,6 +158,10 @@ test('build produces a snapshot covering every persisted slice', async () => {
     'commentOnOpenSubGoal → the item’s discussion thread (D23)',
   )
   assert.ok(
+    s.grants?.some((g) => g.subject.id === 'p-playground' && g.note !== undefined),
+    'createGrant → grants (social S1, the published share persists)',
+  )
+  assert.ok(
     s.watches?.some(([tenantId]) => tenantId === 'tenant-playground-watcher'),
     'setWatch → watches (D24)',
   )

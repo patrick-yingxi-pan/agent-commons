@@ -80,6 +80,7 @@ here and its locking test — that is the discipline this directory enforces.
 | [09](09-design-invariants.md) | Design invariants | Locked-in decisions: light-theme-only, no "before" view, IPv4 bind, shared primitives (form follows function), one door to the backend, framework-free contract. |
 | [10](10-forward-looking.md) | Forward-looking — required but not built | The top-down gap rows: features the goal implies that the prototype doesn't (fully) ship yet (`📝`/`🟡`). This is what makes the spec a gap-finder, not a code inventory. |
 | [11](11-mock-boundary.md) | The mock boundary | The complete set of surfaces faked beyond the model (artifact bodies, connector/MCP detail, repo content+git, seed entities, usage) — so "real vs mock" is always answerable. |
+| [12](12-social-layer.md) | Social layer | Share / discuss / improve as three orthogonal primitives over a generic entity ref; grants built (S0–S1 server core), discussion + proposal + the Commons feed phased in `docs/design/social-layer.md`. |
 
 ## Known gaps (the unimplemented / partial features)
 
@@ -93,4 +94,5 @@ Detail + anchors are in [pillar 10](10-forward-looking.md).
 - ~~**FWD-3**~~ `✅` — responsive layout (§8) is **done and moved to [ADAPT-11](01-adaptive-conversation.md)**: narrow-tier rail drawer + full-viewport panel takeover + the `short` height axis (the icon-rail idea was superseded by the drawer — PD35).
 - **FWD-4** `🟡` — cross-device sync of the server-owned state (§10); the foundation is built, multi-device fan-out isn't.
 - ~~**FWD-5**~~ `✅` — the **principals & namespaces** re-rooting is **done and moved to [INV-10](09-design-invariants.md)**: person-only login with one namespace per account, principal-stamped acts (kind-only wire), the agent-actor badge + attribution chain; orgs deferred by design behind the opaque owner id.
+- **SOCIAL-5, SOCIAL-6, SOCIAL-7, SOCIAL-8** `📝` — the social layer's remaining phases ([pillar 12](12-social-layer.md)): the S1 UI (SharePanel / shared-with-me facet), S2 Discussion, S3 Proposal, S4 the Commons feed. The S0 substrate + S1 grants server core are built; the phased backlog is `docs/design/social-layer.md`.
 - ~~**FWD-6**~~ `✅` — **orgs as namespaces** is done (v1): founding, consent invitations, the member-union walls, the owner picker, the org page's member panel (`tests/orgs.test.ts`, `e2e/orgs.spec.ts`). Org-owned registries, role-graduated member writes, and the invite bell stay v2 by design.
