@@ -45,6 +45,8 @@ export const keys = {
   discussions: (kind?: string, id?: string) => (kind && id ? `discussions:${kind}:${id}` : 'discussions'),
   discussion: (did?: string) => (did ? `discussion:${did}` : 'discussion'),
   myDiscussions: 'discussions:mine',
+  /** The Commons feed (S4) — one projection per caller. */
+  commons: 'commons',
   /** A subject's proposals (social S3) — same shape as discussions. */
   socialProposals: (kind?: string, id?: string) => (kind && id ? `social-proposals:${kind}:${id}` : 'social-proposals'),
   socialProposal: (pid?: string) => (pid ? `social-proposal:${pid}` : 'social-proposal'),
@@ -168,6 +170,8 @@ export const paths = {
   /** A subject's discussions (social S2) + the per-discussion faces. */
   discussions: (kind: string, id: string) => `/discussions?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`,
   myDiscussions: () => `/discussions?mine=1`,
+  /** The Commons feed (S4). */
+  commons: () => `/commons`,
   /** A subject's proposals (social S3) + the per-proposal faces. */
   socialProposals: (kind: string, id: string) => `/proposals?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`,
   socialProposalOpen: () => `/proposals`,

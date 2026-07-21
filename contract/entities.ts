@@ -16,6 +16,7 @@ export type Capability = 'chat' | 'workspace' | 'repo'
  *  surface (your projects, every artifact, scheduled runs, …). Opening one
  *  takes over the main area in place of the active thread. */
 export type SectionId =
+  | 'commons'
   | 'projects'
   | 'artifacts'
   | 'contexts'

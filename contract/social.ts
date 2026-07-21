@@ -170,6 +170,34 @@ export interface OpenProposalRequest {
   rationale: string
 }
 
+/** ── The Commons feed (S4) — a PROJECTION, not an entity ─────────────────────
+ *  A feed post = a share act (a grant carrying a note — the publish text) or a
+ *  ledger landing, plus the subject's embed and its ROOT discussion. Nothing
+ *  here is stored as a "post": the feed derives from the primitives, so the
+ *  card's comments ARE the entity page's thread (one conversation, two
+ *  projections). Org-commons first; truly-public is the deferred S6. */
+export interface CommonsItem {
+  /** Derived identity — `share:<grantId>` or `landing:<proposalId>`. */
+  id: string
+  kind: 'share' | 'landing'
+  at: number
+  /** Display name of the acting namespace (REDACTED face). */
+  actor: string
+  /** The publish text (share items — the grant's note). */
+  note?: string
+  /** The landed ledger position (landing items). */
+  landingNumber?: number
+  subject: SocialEntityRef
+  /** The embed, resolved per kind at serve time (never stored): the subject's
+   *  display name + one descriptive line. */
+  subjectName: string
+  subjectBlurb?: string
+  /** The subject's root discussion, when one exists — the card's comments. */
+  discussionId?: string
+  /** Posts on that root thread (the card's count; the thread is the door). */
+  commentCount: number
+}
+
 /** The tier lattice as a rank — view 0 < comment 1 < propose 2 < co-own 3. */
 export function tierRank(tier: ShareTier): number {
   return SHARE_TIERS.indexOf(tier)

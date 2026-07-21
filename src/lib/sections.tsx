@@ -1,4 +1,4 @@
-import { Bot, Box, Briefcase, Cable, Clock, Cpu, MessagesSquare, SendHorizontal, Shapes, Wrench } from 'lucide-react'
+import { Bot, Box, Briefcase, Cable, Clock, Cpu, MessagesSquare, Newspaper, SendHorizontal, Shapes, Wrench } from 'lucide-react'
 import type { SectionId } from '../types'
 
 /** The cross-cutting tools in the sidebar nav. One source of truth for the
@@ -7,6 +7,11 @@ export const SECTION_META: Record<
   SectionId,
   { label: string; subtitle: string; Icon: typeof Box; beta?: boolean }
 > = {
+  commons: {
+    label: 'Commons',
+    subtitle: 'What your world shares — published resources, their threads, and what just landed.',
+    Icon: Newspaper,
+  },
   projects: {
     label: 'Projects',
     subtitle: 'Group related work and the context it shares.',
@@ -64,6 +69,7 @@ export const SECTION_META: Record<
 }
 
 export const SECTION_ORDER: SectionId[] = [
+  'commons',
   'projects',
   'artifacts',
   'contexts',

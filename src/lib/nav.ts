@@ -47,6 +47,7 @@ export type NavLocation =
 
 /** The display name for each cross-cutting section (its list page). */
 export const SECTION_LABELS: Record<SectionId, string> = {
+  commons: 'Commons',
   projects: 'Projects',
   artifacts: 'Artifacts',
   contexts: 'Contexts',

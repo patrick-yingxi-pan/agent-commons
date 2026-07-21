@@ -1938,6 +1938,11 @@ export function buildRouter(): Router {
     sendJson(res, out)
   })
 
+  // ── The Commons feed (S4) — a projection over the social primitives ─────────
+  r.get('/commons', ({ req, res }) => {
+    sendJson(res, store.listCommons(store.identity(req.headers).tenant.id))
+  })
+
   // ── Social-layer proposals (S3) ─────────────────────────────────────────────
   // The landing ledger generalized: walls inherit the SUBJECT's (existence-
   // hiding everywhere); landing/declining is the subject owner's consent.

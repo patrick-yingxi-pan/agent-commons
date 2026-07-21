@@ -166,6 +166,7 @@ import {
   useContributions,
   useDiscussion,
   useDiscussions,
+  useCommons,
   useMyDiscussions,
   useSocialProposals,
   useGrants,
@@ -229,6 +230,7 @@ import {
   PROJECT_EFFECT_TYPES,
   SHARE_TIERS,
   describeOp,
+  type CommonsItem,
   type Discussion,
   type DiscussionPost,
   type ProposalDelta,
@@ -402,6 +404,8 @@ export function SectionView({
         backTo={backTo}
         onOpenSession={onOpenSession}
       />
+    ) : section === 'commons' ? (
+      <CommonsSection />
     ) : section === 'discussions' ? (
       <DiscussionsSection subview={subview} discussionId={focusDiscussionId} onOpenSession={onOpenSession} onBack={onBack} backTo={backTo} />
     ) : section === 'admin' ? (
@@ -2899,6 +2903,75 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
       </div>
       {error && <p className="mt-1 text-[11px] text-danger">{error}</p>}
     </MainSection>
+  )
+}
+
+/* ─────────────────────────── The Commons (social S4) ─────────────────────── */
+
+/** One feed post — a share act or a landing, its subject embed, and the door
+ *  into the subject's root thread. The card is a PROJECTION: its comments are
+ *  the entity page's thread, its title the entity page's door (title-as-link).
+ *  Chronological feed, no ranking — facets, not an engagement machine. */
+function FeedCard({ item }: { item: CommonsItem }) {
+  const rel = useRelations()
+  const { kind, id } = item.subject
+  const target: SectionId | null =
+    kind === 'project' ? 'projects' : kind === 'schedule' ? 'scheduled' : kind === 'context' ? 'contexts' : kind === 'discussion' ? 'discussions' : null
+  return (
+    <div className="rounded-xl border border-line bg-surface px-4 py-3">
+      <div className="flex items-baseline gap-2 text-[12px]">
+        <span className="font-medium text-ink">{item.actor}</span>
+        <span className="text-ink-faint">
+          {item.kind === 'share' ? 'shared' : `landed L${item.landingNumber}`} · {relativeTime(item.at)}
+        </span>
+      </div>
+      {item.note && <p className="mt-1 whitespace-pre-wrap text-[13px] text-ink-soft">{item.note}</p>}
+      {/* The embed — the resource previewing inside the post; its TITLE is the door. */}
+      <div className="mt-2 rounded-lg border border-line bg-panel px-3 py-2">
+        {target ? (
+          <button
+            onClick={() => rel.navigate(target, id)}
+            className="block max-w-full truncate text-left text-[13px] font-medium text-ink hover:underline"
+          >
+            {item.subjectName}
+          </button>
+        ) : (
+          <span className="block truncate text-[13px] font-medium text-ink">{item.subjectName}</span>
+        )}
+        {item.subjectBlurb && <p className="mt-0.5 truncate text-[12px] text-ink-faint">{item.subjectBlurb}</p>}
+      </div>
+      <div className="mt-2 flex items-center gap-3 text-[11px] text-ink-faint">
+        {item.discussionId ? (
+          <button onClick={() => rel.navigate('discussions', item.discussionId)} className={INLINE_ACTION_CLASS}>
+            {item.commentCount} {item.commentCount === 1 ? 'comment' : 'comments'}
+          </button>
+        ) : (
+          <span>No comments yet — the thread opens on the {kind}’s page</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** The Commons feed — what the caller's world shares. One chronological
+ *  column; the deliberate note is the publish act (silent grants stay out). */
+function CommonsSection() {
+  const list = useCommons().data ?? []
+  return (
+    <Page>
+      <PageHeader title="Commons" />
+      {list.length === 0 ? (
+        <Empty>
+          Nothing published yet — share a resource with a note (the note is the post) and it lands here for its audience.
+        </Empty>
+      ) : (
+        <div className="mx-auto w-full max-w-xl space-y-3">
+          {list.map((item) => (
+            <FeedCard key={item.id} item={item} />
+          ))}
+        </div>
+      )}
+    </Page>
   )
 }
 

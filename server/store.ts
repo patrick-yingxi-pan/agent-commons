@@ -25,6 +25,7 @@ import type {
   DiffLine,
   Discussion,
   DispatchRun,
+  CommonsItem,
   Grant,
   OpenDiscussionRequest,
   OpenProposalRequest,
@@ -4704,6 +4705,75 @@ export const store = {
     emit({ type: 'social-proposal.changed', proposalId: p.id, subject: p.subject })
     persist()
     return publicSocialProposal(p, tenantId)
+  },
+
+  // ── The Commons feed (S4) — a projection over the primitives ────────────────
+  /** The subject's embed face, resolved per kind at serve time (the
+   *  ResourcePreview adapter's server half — display name + one line; nothing
+   *  stored, so a rename can't go stale). */
+  commonsSubjectFace(ref: SocialEntityRef): { name: string; blurb?: string } {
+    switch (ref.kind) {
+      case 'project': {
+        const p = findProject(ref.id)
+        return { name: p?.name ?? ref.id, ...(p?.description ? { blurb: p.description } : {}) }
+      }
+      case 'session': {
+        const s = SESSIONS.find((x) => x.id === ref.id)
+        return { name: s?.title ?? ref.id, ...(s?.preview ? { blurb: s.preview } : {}) }
+      }
+      case 'schedule': {
+        const t = schedules.find((x) => x.id === ref.id)
+        return { name: t?.name ?? ref.id, ...(t?.cadence ? { blurb: t.cadence } : {}) }
+      }
+      case 'artifact': {
+        const a = findArtifact(ref.id)
+        return { name: a?.name ?? ref.id }
+      }
+      case 'context': {
+        const c = savedCtxs.find((x) => x.id === ref.id)
+        return { name: c?.label ?? ref.id }
+      }
+      case 'discussion': {
+        const d = discussions.find((x) => x.id === ref.id)
+        return { name: d?.posts[0]?.body.slice(0, 80) ?? ref.id }
+      }
+      case 'proposal': {
+        const p = socialProposals.find((x) => x.id === ref.id)
+        return { name: p ? `Proposal on ${p.subject.kind} ${p.subject.id}` : ref.id }
+      }
+    }
+  },
+  /** The caller's Commons feed: published shares (grants carrying a NOTE —
+   *  silent grants stay out by design, INV-9's distinction made visible) and
+   *  ledger landings, on subjects the caller can read — their world's public
+   *  face, chronological, no ranking. Each item carries the subject's root
+   *  discussion (the card's comments ARE the entity page's thread). */
+  listCommons(tenantId: string): CommonsItem[] {
+    const items: CommonsItem[] = []
+    const rootOf = (ref: SocialEntityRef) =>
+      discussions.find((d) => d.anchor.ref.kind === ref.kind && d.anchor.ref.id === ref.id && d.anchor.locus === undefined)
+    const push = (base: Omit<CommonsItem, 'subjectName' | 'subjectBlurb' | 'discussionId' | 'commentCount'>) => {
+      const face = this.commonsSubjectFace(base.subject)
+      const root = rootOf(base.subject)
+      items.push({
+        ...base,
+        subjectName: face.name,
+        ...(face.blurb ? { subjectBlurb: face.blurb } : {}),
+        ...(root ? { discussionId: root.id } : {}),
+        commentCount: root?.posts.length ?? 0,
+      })
+    }
+    for (const g of grants) {
+      if (g.note === undefined) continue
+      if (!this.grantSubjectVisible(g.subject, tenantId)) continue
+      push({ id: `share:${g.id}`, kind: 'share', at: g.grantedAt, actor: g.grantedBy, note: g.note, subject: g.subject })
+    }
+    for (const p of socialProposals) {
+      if (p.state !== 'landed') continue
+      if (!this.grantSubjectVisible(p.subject, tenantId)) continue
+      push({ id: `landing:${p.id}`, kind: 'landing', at: p.offeredAt, actor: p.offeredBy, landingNumber: p.landingNumber, subject: p.subject })
+    }
+    return items.sort((a, b) => b.at - a.at)
   },
 
   // ── The contribution ledger (agent-contribution workflow Phase A) ───────────

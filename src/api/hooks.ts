@@ -23,6 +23,7 @@ import type {
   OpenSubGoal,
   Contribution,
   Delegation,
+  CommonsItem,
   Discussion,
   Grant,
   SocialProposal,
@@ -441,6 +442,13 @@ export function useDiscussion(did: string): QueryState<Discussion> {
  *  descending. Live on `social-proposal.changed`. */
 export function useSocialProposals(kind: string, id: string): QueryState<SocialProposal[]> {
   return useQuery(keys.socialProposals(kind, id), () => apiGet<SocialProposal[]>(paths.socialProposals(kind, id)))
+}
+
+/** The Commons feed (S4) — published shares + landings the caller can read.
+ *  Live on grant/discussion/social-proposal changes (each already invalidates
+ *  what the feed derives from; the feed key rides the same events). */
+export function useCommons(): QueryState<CommonsItem[]> {
+  return useQuery(keys.commons, () => apiGet<CommonsItem[]>(paths.commons()))
 }
 
 /** The caller's participating threads (the Discussions hub read). */

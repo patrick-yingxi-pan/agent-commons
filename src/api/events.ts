@@ -222,12 +222,14 @@ function route(e: ServerEvent): void {
       invalidatePrefix(keys.grants())
       invalidate(keys.projects) // seed rows enter/leave the shared-with-me band
       invalidate(keys.relations) // created rows ride the graph's extraProjects
+      invalidate(keys.commons) // a published share is a feed item (S4)
       break
     // A discussion changed (social S2) — the anchored list and the open thread
     // are stale; the family prefixes catch both projections.
     case 'discussion.changed':
       invalidatePrefix(keys.discussions())
       invalidate(keys.discussion(e.discussionId))
+      invalidate(keys.commons) // the card's comment count rides the feed (S4)
       break
     // A social proposal changed (S3) — its subject's ledger, the row itself,
     // and (a landed relation-op delta) the graph projections are stale.
@@ -236,6 +238,7 @@ function route(e: ServerEvent): void {
       invalidate(keys.socialProposal(e.proposalId))
       invalidate(keys.relations)
       invalidate(keys.projects)
+      invalidate(keys.commons) // a landing is a feed item (S4)
       break
     case 'openwork.changed':
       invalidate(keys.openSubGoals(e.projectId))
