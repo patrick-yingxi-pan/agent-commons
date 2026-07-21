@@ -1,0 +1,226 @@
+# The social layer — share, discuss, improve (orthogonal primitives + the Commons portal)
+
+> **Status:** design agreed 2026-07-21 (owner conversation); implementation phased below.
+> **Pillar.** Every resource in the system can be **shared**, **discussed**, and
+> **improved** with other users — via three orthogonal primitives that compose with
+> any entity kind — and surfaces publicly through a **Twitter-like Commons feed**
+> whose cards click through to the resource's **GitHub-like entity page**.
+> Builds on: the five nouns + relation graph ([`contract/relations.ts`](../../contract/relations.ts)),
+> orgs-as-namespaces ([`contract/orgs.ts`](../../contract/orgs.ts)),
+> the Contribution landing ledger ([`contract/contributions.ts`](../../contract/contributions.ts)),
+> existence-hiding (O-D3), the consent-card pattern, the universal split workspace,
+> and the Discover/COMMONS surfaces. Distinct from [P8](P8-agent-commons.md) (the
+> *agent* commons — registries/commissions); this is the *human* social layer.
+
+## 1. Design stance
+
+**Three primitives, not N features.** "Social" decomposes into exactly three
+orthogonal capabilities, each defined against a generic entity reference — never
+against a specific entity kind:
+
+| Primitive | What it is | Best practice learned from |
+|---|---|---|
+| **Grant** | who can see/do what on a resource | Notion / Drive share tiers |
+| **Discussion** | talk anchored *to* a resource | Google Docs comments, GitHub review threads |
+| **Proposal** | a typed change *offered* to a resource, landed by consent | GitHub PRs, Figma branching |
+
+Because each primitive takes an `EntityRef`, any primitive × any entity composes
+for free: discuss a schedule run, propose an edit to someone's artifact, share a
+single session. **The orthogonality test** (hold every review to it): pick any
+cell in the 3-primitives × 6-entities matrix at random — "propose against a
+schedule", "discuss a grant", "share a discussion" — and it must either work
+through the generic path or be an explicitly documented refusal, never an
+unhandled case. No primitive's core type may name an entity kind; kind-specific
+behavior lives in per-kind **adapters** (anchor resolvers, delta appliers,
+resource previews) — the registries-one-home pattern.
+
+**Two moves unique to this system:**
+
+1. **Discussion is itself an entity** — a sixth noun in the relation graph. All
+   primitives apply recursively (share a discussion, propose an edit to a post),
+   and crucially a discussion can be **attached as a Context to a session** —
+   closing the loop only this product can close: *share → discuss → hand the
+   debate to Claude → Claude drafts the revision → it returns as a Proposal.*
+2. **Social acts are consent-gated proposals** reusing the existing
+   confirmation-card pattern for `RelationOp`s. Sharing out, landing a proposal,
+   escalating a grant — each renders the same consent card. Social inherits the
+   product's existing trust model; no parallel one.
+
+**Invariants extended, not invented:** existence-hiding (a resource you can't
+see 404s identically whether absent or denied) applies to grants, discussions,
+and proposals; REDACTED wire faces (display names cross tenants, raw ids don't)
+apply to all social payloads; INV-9 absence classification for every new field.
+
+## 2. The model
+
+### 2.1 Foundations (Phase 0)
+
+- **`EntityRef`** — one canonical ref for every shareable noun (the five +
+  Discussion). Every ref has a canonical URL (entity pages exist already).
+- **`Anchor = { ref, locus? }`** — a typed position *inside* an entity: artifact
+  range, session turn id, diff hunk, schedule run, graph edge. Per-kind **anchor
+  resolvers** (registry) turn a locus into scroll/highlight in the entity's pane.
+- **`Audience = principal | org | link-token`** and
+  **`Tier = view | comment | propose | co-own`** — tiers strictly ordered; every
+  social read/write checks one predicate.
+
+### 2.2 Grant (Phase 1)
+
+- `POST /v1/grants` proposes a grant (consent card); listing + revocation
+  symmetric. Org grants reuse membership machinery; link-tokens defer to the
+  public phase.
+- A grant carries an optional **note** — the publish text (see §4). **INV-9:**
+  absent note = share silently (access only, no feed card); present note =
+  publish to the audience's feed. The distinction between *giving access* and
+  *publishing* is exactly this field.
+- **Session sharing is the flagship** (ShareGPT done better): replayable at
+  `view`, forkable at `propose` ("continue from turn 12 in your namespace" =
+  the Proposal primitive applied to sessions).
+
+### 2.3 Discussion (Phase 2)
+
+- New entity: `Discussion { id, anchor, state: open|resolved, posts[] }`. Posts:
+  one-level replies (resist deep nesting), mentions, **reactions** (the one
+  lightweight-signal feature, deliberately *inside* Discussion — "endorse a
+  resource" = react on its root discussion; one thin reaction set).
+- **Visibility rule:** a discussion inherits its anchor's grants by default and
+  can be *narrowed* (private review thread on a shared artifact), never widened
+  beyond the anchor — comments cannot leak a resource.
+- The **root discussion** (anchor with no locus) is the resource's public
+  comment thread — the same object projected under the feed card (§4) and on
+  the entity page.
+
+### 2.4 Proposal (Phase 3)
+
+- Generalizes the Contribution landing ledger from Projects to any entity:
+  `Proposal { anchor, delta, discussionId, state: offered|revised|landed|declined }`.
+- `delta` is typed per kind via **delta appliers** (registry): artifact patch,
+  relation op, schedule change, session fork-point. The linear ledger (L1, L2, …)
+  generalizes — every entity gets a legible improvement history, no merge DAG.
+- Every proposal auto-carries a normal Discussion anchored to it (composition,
+  not coupling). Landing = consent card to the owner; declines existence-hidden
+  from third parties. Fork/remix = a proposal against your own namespace with a
+  "derived from" provenance edge in the relation graph.
+
+### 2.5 Ambient layer (Phase 5)
+
+Derived surfaces, not new primitives: person profiles (the D21 org-profile
+pattern, showing only what the viewer can already see); notifications derived
+from the SSE stream (mentions, grant offers, proposal transitions, replies —
+grant offers render inline accept/decline like org invites); guardrails
+(report/mute at principal level, owner moderation, router rate limits — needed
+the moment strangers interact).
+
+## 3. UI design — no new paradigms
+
+The social layer is the existing machinery applied to new subjects:
+
+- **Social surfaces are panes, not overlays.** A discussion opens as a
+  store-backed pane **split beside** the anchored entity (the equal-pages
+  model); never a drawer/modal. Modals are only for transient acts, and the only
+  transient acts here are consent moments — already the consent card.
+- **One canonical page per social entity, viewer-relative** (`own`/tier gates
+  affordances, never location). Not-granted renders the same 404 as not-exists.
+- **Shared-with-me is a facet, not a silo:** granted resources appear in their
+  kind's rail section under the **ownership** facet group (Mine / Shared with
+  me / Org) — no parallel "Shared" section.
+- **Discussions earn a rail section** (its entries attach to sessions as
+  contexts — the stated test for first-class rail presence). Facets: state,
+  anchored kind, participation. Proposals do **not** get a section — they
+  surface through their target entity and notifications.
+- **URLs:** `/d/:id` (discussion), `/commons[/:facet]` in `urlRoutes.ts` with
+  round-trip tests. Which post is highlighted is transient focus — out of the
+  URL; the discussion page is the addressable unit (no comment permalinks).
+- **Back-history:** every cross-surface door (feed card → entity page, anchor
+  chip → resource, resource marker → discussion) routes through the pane funnel.
+- **Live (UI-12):** all social data through api hooks invalidated by new SSE
+  events (`grant.changed`, `discussion.posted`, `proposal.transitioned`) — no
+  seed mirrors, no component-state registries.
+
+### 3.1 Minted primitives (each with a funnel lock test)
+
+| Primitive | Role | Reuses |
+|---|---|---|
+| `SharePanel` + `TierBadge` | the one share surface on every entity page (gated `own`); one ordered tier ramp | consent card, `AddTrigger`, `SectionAction`, `foldHeader` |
+| `AnchorChip` + anchor-resolver registry | the ref-link between discussion ↔ resource locus; opens via pane funnel, resolver scrolls/highlights | pane funnel, `BackButton`, `paneHistory` |
+| `ReactionCluster` | hover-revealed reactions; picker via the shared popover | `popover.ts`, `useDismissable`, `SECTION_REVEAL` idiom |
+| `DeltaView` registry | renders a proposal's delta per kind (diff / op card / before-after / fork chip) | existing diff + op-description forms |
+| Discussion timeline page | thread + lifecycle → dedicated page, timeline form | `pageHeader`, `PublicFace`, split workspace |
+| `FeedCard` + `ResourcePreview` registry | the Commons post card (§4) | `PublicFace`, `TierBadge`, `ReactionCluster` |
+
+The one genuinely new *interaction*: a hover-revealed comment affordance in the
+margin/gutter of anchorable content (the `SECTION_REVEAL` recessive-until-needed
+idiom); existing anchors render as small dots that split the discussion pane
+open. No inline expanding comment boxes inside artifacts — the pane is the
+reading surface.
+
+**Deliberately not built:** per-kind share dialogs, a "Shared" rail silo,
+presence cursors, comment permalinks, deep-nested replies, algorithmic ranking.
+
+## 4. The Commons portal (Phase 4) — the Twitter-shaped front
+
+The current UI is a personal resource manager; the Commons is its public face.
+The existing Discover card grid **becomes** the Commons (consolidate, don't
+proliferate — directory cards were already doors, COMMONS-13).
+
+**The reconciling insight: a "post" is a projection, not a new entity.**
+
+> A feed post = a **share act** + its **note** + the resource's **root Discussion**.
+
+- The grant's note is the tweet text; share-with-note *is* the publish act.
+- The comments under the card are the resource's root Discussion — the *same*
+  object shown on the entity page. One conversation, two projections; no forked
+  comment store, no feed-specific write path.
+- Landing-ledger events also surface as feed items ("L3 landed on *Launch
+  assets*") — improvement activity gets social visibility for free.
+- **Quote/repost** = another grant-with-note by you, embedding the same
+  resource, provenance ("via Ada") from the grant chain. No retweet entity.
+
+**The feed surface:** rail section **Commons**, URL `/commons[/:facet]`, facet
+groups: kind / audience (my org · public) / activity (new · discussed ·
+landed). One chronological column — **no algorithmic ranking** (a work commons,
+not an engagement machine; "most discussed this week" is a facet, not a ranker).
+
+**`FeedCard` anatomy:** byline row (`PublicFace` + `TierBadge` + time) → the
+share note → the **`ResourcePreview`** embed (per-kind registry: artifact
+excerpt/thumb; session → its last 2–3 turns rendered small — a conversation
+previewing *as* conversation is this product's native trick; project → name +
+ledger stat; schedule → cadence + last run) → action row (`ReactionCluster`,
+comment count, propose, share) → top-N root-discussion comments + inline
+composer ("view all" opens the discussion pane, not an accordion). The embed's
+**title is the door** (title-as-link) → the entity page through the pane
+funnel; on the wide tier the page opens **split beside the feed**.
+
+**The entity page as the GitHub-like home** — the existing canonical page,
+enriched with sections: content (README) · `PageHeader` + `PublicFace` + share
+note (About) · **Discussions** foldable section (root + anchored threads) ·
+**Improvements** section (open proposals + landed ledger; titles are doors) ·
+**Propose / Continue from here** (Fork) · follow toggle + reactions
+(Watch/Star). All viewer-relative on one page.
+
+**Org-commons first, public later.** Ship with audience = my org (auth gate
+intact; the six demo accounts seed a believable feed). Truly-public (anonymous
+viewing, link-tokens) is a separate later phase — it drags in unauthenticated
+rendering through the auth-gate wall, indexing, and moderation-before-strangers.
+`FeedCard` and the entity page don't change; only the audience enum grows.
+
+**Watch-for (add to evaluation doc when multi-user grows):** feeds reward
+posting; mitigations are structural — publish requires the deliberate note,
+facets over ranking, one thin reaction set.
+
+## 5. Implementation backlog (append-only status; a phase is ✅ only when its locking tests pass)
+
+Each phase lands the standard way: contract types (+ INV-9 classification) →
+server routes/store/seed (multi-account scenes: Ada shares, Grace comments, one
+pending proposal) → UI via hooks/controllers → `tests/` locks + spec-ledger
+rows + e2e anchor → `/ui-review` → review → commit → push.
+
+| # | Phase | Slice | Status |
+|---|---|---|---|
+| S0 | Foundations | `contract/social.ts`: refs, `Anchor`, `Audience`, ordered tiers — locked by `tests/social.test.ts` (tier order/monotonicity, nouns = relations+discussion, kind-generic substrate). Existence-hiding lock lands with S1's routes. | ✅ |
+| S1 | Grant | grants CRUD + consent card + note field; ownership facet "Shared with me"; `SharePanel`/`TierBadge`; session share (replay at view) | ⬜ |
+| S2 | Discussion | Discussion entity + root-thread rule + narrowing visibility; `/d/:id`; timeline page; `AnchorChip` + resolvers; gutter affordance; `ReactionCluster`; rail section; discussion-as-Context attach | ⬜ |
+| S3 | Proposal | generalize ledger to any entity; delta appliers + `DeltaView`; review-discussion composition; land/decline consent; session fork + provenance edge | ⬜ |
+| S4 | Commons | feed projection endpoint (share-events + ledger events); `FeedCard` + `ResourcePreview`; `/commons` + facets; Discover consolidation; entity-page enrichment (Discussions/Improvements sections, follow) | ⬜ |
+| S5 | Ambient | person profiles; social notifications (inline accept/decline for grant offers); guardrails (report/mute, moderation, rate limits) | ⬜ |
+| S6 | Public (deferred) | link-token audience, anonymous viewing through the auth gate, indexing, moderation-before-strangers | ⬜ |

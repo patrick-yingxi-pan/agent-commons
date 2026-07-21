@@ -187,6 +187,11 @@ is recorded here rather than built, in favour of higher-value pillars.
 
 ### Up next (candidate order, not yet built)
 
+- **Social layer — S0..S6** *(design agreed 2026-07-21 —
+  [social-layer.md](social-layer.md))*. Three orthogonal primitives (Grant /
+  Discussion / Proposal) over every entity + the Commons feed portal whose
+  cards click through to the GitHub-like entity pages. Phased backlog lives in
+  that doc; proceed S0 → S6 in order.
 - **P8 — cross-tenant cooperation, slices 2+** *(slice 1 done — row 39 / COMMONS-6)*. The
   shared-Project + cross-tenant-commission + owner-pays-*attribution* primitive is built.
   Remaining, in rough order: (2) **runtime owner-pays metering** — meter a commissioned run
