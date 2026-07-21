@@ -167,6 +167,7 @@ export const paths = {
   grants: (kind: string, id: string) => `/grants?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`,
   grantCreate: () => `/grants`,
   grantRevoke: (gid: string) => `/grants/${encodeURIComponent(gid)}`,
+  grantRedeem: () => `/grants/redeem`,
   /** A subject's discussions (social S2) + the per-discussion faces. */
   discussions: (kind: string, id: string) => `/discussions?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`,
   myDiscussions: () => `/discussions?mine=1`,

@@ -491,6 +491,18 @@ export async function createGrant(req: CreateGrantRequest): Promise<Grant> {
   return g
 }
 
+/** Redeem a share-link token (S6): the signed-in caller becomes audience at
+ *  the grant's tier; returns the subject so the caller can land on its page.
+ *  An unknown/rotated token throws (the 404). */
+export async function redeemShareLink(token: string): Promise<{ subject: { kind: string; id: string }; tier: string }> {
+  const out = await apiPost<{ subject: { kind: string; id: string }; tier: string }>(paths.grantRedeem(), { token })
+  invalidatePrefix(keys.grants())
+  invalidate(keys.projects)
+  invalidate(keys.relations)
+  invalidate(keys.commons)
+  return out
+}
+
 /** Revoke a grant — the granter's act, or the audience declining. */
 export async function revokeGrant(id: string, subject: { kind: string; id: string }): Promise<void> {
   await apiDelete(paths.grantRevoke(id))

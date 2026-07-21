@@ -1869,6 +1869,15 @@ export function buildRouter(): Router {
     if (out === 'capped') return sendError(res, 'conflict', 'This resource’s grant roster is at its cap')
     sendJson(res, out)
   })
+  // S6 — redeem a link token: the signed-in caller becomes audience at the
+  // grant's tier; unknown/rotated tokens 404 (existence-hiding).
+  r.post('/grants/redeem', async ({ req, res, body }) => {
+    const input = await body<{ token?: string }>()
+    if (typeof input?.token !== 'string' || !input.token) return sendError(res, 'bad_request', 'token is required')
+    const out = store.redeemGrant(input.token, store.identity(req.headers).tenant.id)
+    if (out === undefined) return sendError(res, 'not_found', 'This link is unknown — or was rotated')
+    sendJson(res, out)
+  })
   r.delete('/grants/:gid', ({ req, res, params }) => {
     // A non-party 404s identically to a nonexistent id (existence-hiding —
     // sequential grant ids would otherwise be probeable).

@@ -1536,18 +1536,23 @@ function ContributorsPanel({ project }: { project: Project }) {
  *  present note is the publish act (INV-9: blank = silent access-only share). */
 function GrantsPanel({ subject }: { subject: SocialEntityRef }) {
   const roster = useGrants(subject.kind, subject.id).data ?? []
-  const [audKind, setAudKind] = useState<'org' | 'principal'>('org')
+  const [audKind, setAudKind] = useState<'org' | 'principal' | 'link'>('org')
   const [audId, setAudId] = useState('')
   const [tier, setTier] = useState<ShareTier>('view')
   const [note, setNote] = useState('')
   const [error, setError] = useState<string | null>(null)
   const share = async () => {
-    if (!audId.trim()) return
+    if (audKind !== 'link' && !audId.trim()) return
     setError(null)
     try {
       await createGrant({
         subject,
-        audience: audKind === 'org' ? { kind: 'org', orgId: audId.trim() } : { kind: 'principal', principalId: audId.trim() },
+        audience:
+          audKind === 'link'
+            ? { kind: 'link', token: '' } // the SERVER mints the token (never caller-supplied)
+            : audKind === 'org'
+              ? { kind: 'org', orgId: audId.trim() }
+              : { kind: 'principal', principalId: audId.trim() },
         tier,
         ...(note.trim() ? { note: note.trim() } : {}),
       })
@@ -1564,9 +1569,14 @@ function GrantsPanel({ subject }: { subject: SocialEntityRef }) {
           {roster.map((g) => (
             <li key={g.id} className="group flex items-center gap-2">
               <span className="min-w-0 flex-1 truncate text-[12px] text-ink" title={g.note}>
-                {g.audience.kind === 'org' ? g.audience.orgId : g.audience.kind === 'principal' ? g.audience.principalId : 'link'}
+                {g.audience.kind === 'org' ? g.audience.orgId : g.audience.kind === 'principal' ? g.audience.principalId : 'anyone with the link'}
                 {g.note ? ' · published' : ''}
               </span>
+              {g.audience.kind === 'link' && (
+                // The copyable URL (S6): a signed-in visitor who opens it redeems
+                // the tier; re-minting Link rotates the token (the old link dies).
+                <CopyButton text={`${window.location.origin}/shared/${g.audience.token}`} label="Copy link" ariaLabel="Copy the share link" />
+              )}
               <TierBadge tier={g.tier} />
               <Tooltip label="Revoke">
                 <button
@@ -1586,19 +1596,22 @@ function GrantsPanel({ subject }: { subject: SocialEntityRef }) {
           <select
             aria-label="Audience kind"
             value={audKind}
-            onChange={(e) => setAudKind(e.target.value as 'org' | 'principal')}
+            onChange={(e) => setAudKind(e.target.value as 'org' | 'principal' | 'link')}
             className={`${FORM_INPUT_CLASS} w-24 shrink-0`}
           >
             <option value="org">Org</option>
             <option value="principal">Person</option>
+            <option value="link">Link</option>
           </select>
-          <input
-            aria-label="Audience id"
-            value={audId}
-            onChange={(e) => setAudId(e.target.value)}
-            placeholder="tenant-…"
-            className={FORM_INPUT_CLASS}
-          />
+          {audKind !== 'link' && (
+            <input
+              aria-label="Audience id"
+              value={audId}
+              onChange={(e) => setAudId(e.target.value)}
+              placeholder="tenant-…"
+              className={FORM_INPUT_CLASS}
+            />
+          )}
           <select aria-label="Tier" value={tier} onChange={(e) => setTier(e.target.value as ShareTier)} className={`${FORM_INPUT_CLASS} w-28 shrink-0`}>
             {SHARE_TIERS.map((t) => (
               <option key={t} value={t}>
@@ -1615,7 +1628,7 @@ function GrantsPanel({ subject }: { subject: SocialEntityRef }) {
           className={FORM_INPUT_CLASS}
         />
         <div className="flex items-center gap-2">
-          <button onClick={() => void share()} className={INLINE_ACTION_CLASS} disabled={!audId.trim()}>
+          <button onClick={() => void share()} className={INLINE_ACTION_CLASS} disabled={audKind !== 'link' && !audId.trim()}>
             Share
           </button>
           {error && <span className="min-w-0 truncate text-[11px] text-danger">{error}</span>}

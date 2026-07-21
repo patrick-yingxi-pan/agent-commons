@@ -95,8 +95,13 @@ test('grant: creation is the owner’s act; refusals are argued (link/S6, discus
   const { subject } = socialArena()
   const notOwner = await call('POST', '/grants', { subject, audience: { kind: 'org', orgId: AUDIENCE }, tier: 'view' }, { 'x-tenant-id': BYSTANDER })
   assert.equal(notOwner.status, 404, 'a non-owner cannot even see the subject — existence-hiding beats forbidden')
-  const link = await call('POST', '/grants', { subject, audience: { kind: 'link', token: 't' }, tier: 'view' }, { 'x-tenant-id': OWNER })
-  assert.equal(link.status, 400, 'link audiences are declared but refused until the public phase (S6)')
+  // S6 lifted the link refusal — minting works and the SERVER mints the token
+  // (a caller-supplied one is ignored; guessable tokens would be a wall with
+  // a hole).
+  const link = await call('POST', '/grants', { subject, audience: { kind: 'link', token: 'attacker-chosen' }, tier: 'view' }, { 'x-tenant-id': OWNER })
+  assert.equal(link.status, 200)
+  assert.notEqual(link.json.audience.token, 'attacker-chosen', 'the token is server-minted')
+  assert.equal(store.revokeGrant(link.json.id, OWNER), 'ok', 'cleanup')
   // S2 lifted the discussion refusal: the kind is a full noun now, so an
   // unknown discussion id gets the ordinary existence-hiding 404.
   const disc = await call('POST', '/grants', { subject: { kind: 'discussion', id: 'd-no-such' }, audience: { kind: 'org', orgId: AUDIENCE }, tier: 'view' }, { 'x-tenant-id': OWNER })

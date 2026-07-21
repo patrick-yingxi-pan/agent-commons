@@ -74,6 +74,7 @@ import {
   LOCAL_REPO_OPTIONS,
 } from './data/contextOptions.ts'
 import { join } from 'node:path'
+import { randomBytes } from 'node:crypto'
 import { fsReader, type FsReader } from './fs.ts'
 import type { FsCatalog, FsFileContent, FsFolderContents, FsSource, Identity } from '../contract/index.ts'
 import { fsRecentKey } from '../contract/index.ts'
@@ -331,9 +332,10 @@ const mutes = new Map<string, Set<string>>()
 const MAX_GRANTS_PER_SUBJECT = 100
 const MAX_GRANT_NOTE_CHARS = 2000
 
-/** Wire face: strip the raw tenant anchors (the `publicDelegation` pattern). */
+/** Wire face: strip the raw tenant anchors AND the redemption roster (who
+ *  clicked a link is nobody's business — the `publicDelegation` pattern). */
 function publicGrant(g: StoredGrant): Grant {
-  const { granterTenant, audienceTenant, ...pub } = g
+  const { granterTenant, audienceTenant, redeemedBy, ...pub } = g
   return pub
 }
 
@@ -405,7 +407,13 @@ function grantedTierFor(ref: SocialEntityRef, viewerTenant: string): ShareTier |
   let best: ShareTier | undefined
   for (const g of grants) {
     if (g.subject.kind !== ref.kind || g.subject.id !== ref.id) continue
-    if (!tenantReadsAs(viewerTenant, g.audienceTenant)) continue
+    // A LINK grant (S6) addresses whoever REDEEMED the token; a directed grant
+    // addresses its audience's read union.
+    const addressed =
+      g.audience.kind === 'link'
+        ? (g.redeemedBy ?? []).some((t) => tenantReadsAs(viewerTenant, t))
+        : tenantReadsAs(viewerTenant, g.audienceTenant)
+    if (!addressed) continue
     if (best === undefined || tierRank(g.tier) > tierRank(best)) best = g.tier
   }
   return best
@@ -4609,7 +4617,14 @@ export const store = {
     const rows = grants.filter((g) => g.subject.kind === ref.kind && g.subject.id === ref.id)
     const row = this.grantSubjectRow(ref)
     const owner = row !== undefined && row !== 'unsupported' && ownsGrantSubject(row, viewerTenant)
-    return rows.filter((g) => owner || tenantReadsAs(viewerTenant, g.audienceTenant)).map(publicGrant)
+    return rows
+      .filter((g) =>
+        owner ||
+        (g.audience.kind === 'link'
+          ? (g.redeemedBy ?? []).some((t) => tenantReadsAs(viewerTenant, t))
+          : tenantReadsAs(viewerTenant, g.audienceTenant)),
+      )
+      .map(publicGrant)
   },
   /** Create a grant — the consent-carded share act. Owner-only (tenantWritesAs
    *  on the subject's stamp); the audience resolves to a tenant id up front so
@@ -4626,7 +4641,42 @@ export const store = {
       return this.grantSubjectVisible(req.subject, tenantId) ? 'forbidden' : undefined
     }
     if (!SHARE_TIERS.includes(req.tier)) return 'invalid'
-    if (req.audience.kind === 'link') return 'invalid' // declared in the contract, refused until S6 (public phase)
+    // S6 — a LINK grant: the server mints the token (never caller-supplied —
+    // a guessable token would be a wall with a hole); "anyone with the link"
+    // means anyone SIGNED IN who redeems it. Anonymous rendering through the
+    // auth gate is the recorded production tail. One link per subject: a
+    // re-mint rotates the token (the old link dies — revocation by rotation).
+    if (req.audience.kind === 'link') {
+      const token = randomBytes(16).toString('base64url')
+      const rows = grants.filter((g) => g.subject.kind === req.subject.kind && g.subject.id === req.subject.id)
+      const existing = rows.find((g) => g.audience.kind === 'link')
+      if (existing) {
+        existing.audience = { kind: 'link', token }
+        existing.tier = req.tier
+        existing.redeemedBy = [] // rotation invalidates every prior redemption
+        if (typeof req.note === 'string') existing.note = req.note.slice(0, MAX_GRANT_NOTE_CHARS)
+        emit({ type: 'grant.changed', subject: req.subject, parties: [existing.granterTenant] })
+        persist()
+        return publicGrant(existing)
+      }
+      if (rows.length >= MAX_GRANTS_PER_SUBJECT) return 'capped'
+      const g: StoredGrant = {
+        id: `grant-${(grantSeq += 1)}`,
+        subject: { kind: req.subject.kind, id: req.subject.id },
+        audience: { kind: 'link', token },
+        tier: req.tier,
+        ...(typeof req.note === 'string' ? { note: req.note.slice(0, MAX_GRANT_NOTE_CHARS) } : {}),
+        grantedBy: tenantName(tenantId),
+        grantedAt: Date.now(),
+        granterTenant: tenantId,
+        audienceTenant: '',
+        redeemedBy: [],
+      }
+      grants.push(g)
+      emit({ type: 'grant.changed', subject: g.subject, parties: [tenantId] })
+      persist()
+      return publicGrant(g)
+    }
     const audienceTenant = req.audience.kind === 'principal' ? req.audience.principalId : req.audience.orgId
     if (!audienceTenant || !accounts.tenants.has(audienceTenant)) return 'invalid'
     if (tenantReadsAs(tenantId, audienceTenant)) return 'invalid' // sharing to yourself/your own seat is a no-op ask
@@ -4699,6 +4749,23 @@ export const store = {
    *  The S1 read-side hook: subject-visibility walls OR this into their checks. */
   grantedTier(ref: SocialEntityRef, viewerTenant: string): ShareTier | undefined {
     return grantedTierFor(ref, viewerTenant)
+  },
+  /** Redeem a link token (S6): the signed-in caller joins the grant's
+   *  redeemed set — thereafter the ordinary tier machinery treats them as
+   *  audience. Idempotent; an unknown/rotated token is the existence-hiding
+   *  404. Returns the subject so the client can land on its page. Deliberately
+   *  SILENT (no bell either way): who clicked a link is nobody's business —
+   *  the redaction rule extended to notifications. */
+  redeemGrant(token: string, tenantId: string): { subject: SocialEntityRef; tier: ShareTier } | undefined {
+    const g = grants.find((x) => x.audience.kind === 'link' && x.audience.token === token)
+    if (!g) return undefined
+    const set = g.redeemedBy ?? (g.redeemedBy = [])
+    if (!set.includes(tenantId)) {
+      set.push(tenantId)
+      emit({ type: 'grant.changed', subject: g.subject, parties: [g.granterTenant, tenantId] })
+      persist()
+    }
+    return { subject: { ...g.subject }, tier: g.tier }
   },
 
   // ── Social-layer proposals (S3) ─────────────────────────────────────────────

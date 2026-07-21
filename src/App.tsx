@@ -27,6 +27,20 @@ import { SCRIM_CLASS } from './lib/scrim'
 import { SECTION_META } from './lib/sections'
 import { DRAFT_ID } from './data/liveSession'
 import type { SectionId, Session } from './types'
+import { redeemShareLink } from './api'
+import type { RoutedView } from './lib/urlRoutes'
+
+/** S6 — a share-link boot (`/shared/:token`), captured at module scope BEFORE
+ *  the router consumes the boot address (viewForPath treats the shape as
+ *  no-preference, so the workspace boots normally underneath). Redeemed once
+ *  the signed-in App mounts — the auth gate stays in front, which IS the S6
+ *  slice: "anyone with the link" means anyone signed in; anonymous rendering
+ *  through the gate is the recorded production tail. */
+const SHARED_BOOT_TOKEN =
+  typeof window !== 'undefined' && window.location.pathname.startsWith('/shared/')
+    ? decodeURIComponent(window.location.pathname.split('/')[2] ?? '')
+    : null
+let sharedBootConsumed = false
 
 /** The shell: decides WHICH top-level surface renders — the full-screen auth
  *  flow (multi-account §12) or the workspace. The auth screen shows when the
@@ -374,6 +388,38 @@ function Workspace() {
                   : openSection(section),
     [openProject, openWorkItemPage, openContributionPage, openSchedule, openContextPage, openOwner, openAdminUserPage, openSection],
   )
+
+  // S6 — consume a share-link boot: redeem, then land on the subject's page
+  // (its canonical routed view, through the same focused-pane routing as any
+  // address). Session subjects open as conversations; artifacts (no page)
+  // land on the Commons, whose feed carries the share. Module-flagged so
+  // StrictMode's double-mount redeems once (redeem is idempotent regardless).
+  useEffect(() => {
+    if (!SHARED_BOOT_TOKEN || sharedBootConsumed) return
+    sharedBootConsumed = true
+    void redeemShareLink(SHARED_BOOT_TOKEN)
+      .then(({ subject }) => {
+        if (subject.kind === 'session') return openSession(subject.id)
+        const base = { kind: 'section' as const, projectId: null, scheduleId: null, ownerName: null }
+        const routed: RoutedView =
+          subject.kind === 'project'
+            ? { loc: { ...base, section: 'projects', projectId: subject.id }, subview: null }
+            : subject.kind === 'schedule'
+              ? { loc: { ...base, section: 'scheduled', scheduleId: subject.id }, subview: null }
+              : subject.kind === 'context'
+                ? { loc: { ...base, section: 'contexts', contextId: subject.id }, subview: null }
+                : subject.kind === 'discussion'
+                  ? { loc: { ...base, section: 'discussions', discussionId: subject.id }, subview: null }
+                  : { loc: { ...base, section: 'commons' }, subview: null }
+        applyRouteToFocused(routed)
+      })
+      .catch(() => {
+        // An unknown/rotated link: the workspace already booted normally —
+        // nothing to unwind, and the address holds no secret worth keeping.
+        window.history.replaceState(null, '', '/')
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- boot-once by design
+  }, [])
 
   // The focused-pane acts, gated ONCE by the responsive rules and handed to
   // every host alike (the expanded rail's header and the collapsed MiniRail),

@@ -128,8 +128,12 @@ export interface StoredDelegation extends Omit<Delegation, 'mine'> {
 export interface StoredGrant extends Grant {
   granterTenant: string
   /** The audience resolved to a tenant id (principal → their namespace; org →
-   *  the org tenant) — what the SSE gate and shared-with-me reads key on. */
+   *  the org tenant) — what the SSE gate and shared-with-me reads key on.
+   *  Empty for LINK grants (S6), whose audience is whoever redeemed. */
   audienceTenant: string
+  /** LINK grants (S6): the tenants that redeemed the token — server-private
+   *  (the wire never lists who clicked a link). */
+  redeemedBy?: string[]
 }
 
 /** A Discussion as STORED (social S2) — the wire row minus the viewer-relative
