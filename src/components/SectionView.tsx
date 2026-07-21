@@ -161,6 +161,8 @@ import {
   useCommissions,
   useCommissionAuthority,
   useOpenSubGoals,
+  createSession,
+  sendMessage,
   useContributions,
   useDiscussion,
   useDiscussions,
@@ -222,6 +224,7 @@ import {
   PROJECT_ROLES,
   PROJECT_EFFECT_TYPES,
   SHARE_TIERS,
+  type Discussion,
   type DiscussionPost,
   type ShareTier,
   type SocialAnchor,
@@ -394,7 +397,7 @@ export function SectionView({
         onOpenSession={onOpenSession}
       />
     ) : section === 'discussions' ? (
-      <DiscussionsSection subview={subview} discussionId={focusDiscussionId} onBack={onBack} backTo={backTo} />
+      <DiscussionsSection subview={subview} discussionId={focusDiscussionId} onOpenSession={onOpenSession} onBack={onBack} backTo={backTo} />
     ) : section === 'admin' ? (
       // The maintainer console (contract/admin.ts): like the Agents hub its
       // children are SURFACES, defaulting to Accounts when the rail sub-view is
@@ -2913,7 +2916,25 @@ function AnchorChip({ anchor }: { anchor: SocialAnchor }) {
  *  thread on a lifecycle wants a TIMELINE page. Same one canonical page for
  *  every viewer; the server walls reads/writes (existence-hiding 404 renders
  *  as the degraded empty state on a stale id). */
-function DiscussionPage({ discussionId, onBack, backTo }: { discussionId: string; onBack: () => void; backTo: NavLocation | null }) {
+/** The thread rendered as model-readable context — what "Discuss with Claude"
+ *  hands the session (the design's share → discuss → hand-the-debate-to-Claude
+ *  loop; the full Context-type attach is recorded as follow-up). */
+function discussionDigest(d: Discussion): string {
+  const posts = d.posts.map((p) => `- ${p.author}: ${p.body}`).join('\n')
+  return `Let’s work through this discussion on ${d.anchor.ref.kind} ${d.anchor.ref.id} (${d.state}):\n${posts}\n\nHelp me draft a response that addresses the points raised.`
+}
+
+function DiscussionPage({
+  discussionId,
+  onOpenSession,
+  onBack,
+  backTo,
+}: {
+  discussionId: string
+  onOpenSession: (id: string) => void
+  onBack: () => void
+  backTo: NavLocation | null
+}) {
   const q = useDiscussion(discussionId)
   const d = q.data ?? null
   const [draft, setDraft] = useState('')
@@ -2960,14 +2981,33 @@ function DiscussionPage({ discussionId, onBack, backTo }: { discussionId: string
             </div>
           </div>
         </div>
-        {(d.mine === true) && (
+        <div className="flex shrink-0 items-center gap-2">
+          {/* The agent hook (social-layer design §4): hand the debate to Claude —
+              a new session seeded with the thread digest as its first message.
+              The full Context-type attach is the recorded follow-up. */}
           <button
-            onClick={() => void setDiscussionState(d.id, d.state === 'open' ? 'resolved' : 'open', d.anchor.ref)}
-            className={`${INLINE_ACTION_CLASS} shrink-0`}
+            onClick={() => {
+              // Create → fire the turn (fire-and-forget; the server owns the
+              // stream and the open pane reattaches) → open. The digest rides
+              // as the first REAL message, so the model actually reads it.
+              void createSession(discussionDigest(d)).then((s) => {
+                void sendMessage(s.id, discussionDigest(d), {})
+                onOpenSession(s.id)
+              })
+            }}
+            className={INLINE_ACTION_CLASS}
           >
-            {d.state === 'open' ? 'Resolve' : 'Reopen'}
+            Discuss with Claude
           </button>
-        )}
+          {(d.mine === true) && (
+            <button
+              onClick={() => void setDiscussionState(d.id, d.state === 'open' ? 'resolved' : 'open', d.anchor.ref)}
+              className={INLINE_ACTION_CLASS}
+            >
+              {d.state === 'open' ? 'Resolve' : 'Reopen'}
+            </button>
+          )}
+        </div>
       </header>
       <div className="max-w-2xl">
         <DiscussionPostList posts={d.posts} onReact={(pid) => void reactToDiscussionPost(d.id, pid, d.anchor.ref)} />
@@ -2995,17 +3035,19 @@ function DiscussionPage({ discussionId, onBack, backTo }: { discussionId: string
 function DiscussionsSection({
   subview,
   discussionId,
+  onOpenSession,
   onBack,
   backTo,
 }: {
   subview: string | null
   discussionId: string | null
+  onOpenSession: (id: string) => void
   onBack: () => void
   backTo: NavLocation | null
 }) {
   const rel = useRelations()
   const list = useMyDiscussions().data ?? []
-  if (discussionId) return <DiscussionPage discussionId={discussionId} onBack={onBack} backTo={backTo} />
+  if (discussionId) return <DiscussionPage discussionId={discussionId} onOpenSession={onOpenSession} onBack={onBack} backTo={backTo} />
   const filtered = subview === 'open' || subview === 'resolved' ? list.filter((d) => d.state === subview) : list
   return (
     <Page>
