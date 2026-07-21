@@ -1927,6 +1927,30 @@ export function buildRouter(): Router {
     if (out === undefined) return sendError(res, 'not_found', `No discussion post '${params.pid}'`)
     sendJson(res, out)
   })
+  // S5 guardrails: author-retract or anchor-owner moderation; report rings the
+  // owner; mutes are the caller's own earmuffs (never a wall).
+  r.delete('/discussions/:did/posts/:pid', ({ req, res, params }) => {
+    const out = store.deleteDiscussionPost(params.did, params.pid, store.identity(req.headers).tenant.id)
+    if (out === undefined) return sendError(res, 'not_found', `No discussion post '${params.pid}'`)
+    if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the author or the subject’s owner may delete a post')
+    sendJson(res, { ok: true, discussion: out })
+  })
+  r.post('/discussions/:did/posts/:pid/report', ({ req, res, params }) => {
+    const out = store.reportDiscussionPost(params.did, params.pid, store.identity(req.headers).tenant.id)
+    if (out === undefined) return sendError(res, 'not_found', `No discussion post '${params.pid}'`)
+    sendJson(res, { ok: true })
+  })
+  r.get('/me/mutes', ({ req, res }) => {
+    sendJson(res, store.listMutes(store.identity(req.headers).tenant.id))
+  })
+  r.patch('/me/mutes', async ({ req, res, body }) => {
+    const input = await body<{ name?: string; muted?: boolean }>()
+    if (typeof input?.name !== 'string' || !input.name.trim() || typeof input.muted !== 'boolean') {
+      return sendError(res, 'bad_request', 'name and muted (boolean) are required')
+    }
+    sendJson(res, store.setMute(input.name.trim(), input.muted, store.identity(req.headers).tenant.id))
+  })
+
   r.post('/discussions/:did/resolve', async ({ req, res, params, body }) => {
     const input = await body<{ state?: 'open' | 'resolved' }>()
     const state = input?.state ?? 'resolved'

@@ -324,6 +324,10 @@ const SEED_GRANTS: StoredGrant[] = [
 ]
 const grants: StoredGrant[] = SEED_GRANTS.map((g) => ({ ...g }))
 let grantSeq = 0
+
+/** S5 guardrails — per-viewer mute lists (actor display names). An earmuff,
+ *  never a wall: filtering happens in the VIEWER's own feed/bell projections. */
+const mutes = new Map<string, Set<string>>()
 const MAX_GRANTS_PER_SUBJECT = 100
 const MAX_GRANT_NOTE_CHARS = 2000
 
@@ -1426,6 +1430,7 @@ function snapshot(): PersistedState {
     grants, // social S1 — who can see/do what (a share survives a restart)
     discussions, // social S2 — anchored threads (talk survives a restart)
     socialProposals, // social S3 — offered changes + the per-subject ledger
+    mutes: [...mutes.entries()].map(([t, set]) => [t, [...set]] as [string, string[]]), // S5 earmuffs
     // D24 — watch subscriptions ([tenantId, projectId] pairs) + the notification inbox.
     watches: [...watches.entries()].flatMap(([projectId, tenants]) => [...tenants].map((t) => [t, projectId] as [string, string])),
     notifications,
@@ -1642,6 +1647,9 @@ function rehydrate(s: PersistedState): void {
   // Social S3 proposals — same restore shape.
   socialProposals.splice(0, socialProposals.length, ...(s.socialProposals ?? []))
   socialProposalSeq = s.seq.socialProposal ?? socialProposals.length
+  // S5 mutes — same restore shape.
+  mutes.clear()
+  for (const [t, names] of s.mutes ?? []) mutes.set(t, new Set(names))
   // D24 — watches + the inbox (empty for a pre-field snapshot); counter falls back
   // to the inbox length so freshly minted ids never collide with restored ones.
   watches.clear()
@@ -4528,6 +4536,58 @@ export const store = {
     persist()
     return publicDiscussion(d, tenantId)
   },
+  /** Delete a post (S5 guardrails): the AUTHOR retracts their own words, or
+   *  the ANCHOR OWNER moderates their surface — nobody else. Non-parties get
+   *  the existence-hiding 404. Deleting the LAST post removes the thread (an
+   *  empty discussion is noise, the openDiscussion rule in reverse). */
+  deleteDiscussionPost(did: string, pid: string, tenantId: string): Discussion | null | 'forbidden' | undefined {
+    const d = discussions.find((x) => x.id === did)
+    if (!d || !this.grantSubjectVisible(d.anchor.ref, tenantId)) return undefined
+    const i = d.posts.findIndex((x) => x.id === pid)
+    if (i < 0) return undefined
+    const row = this.grantSubjectRow(d.anchor.ref)
+    const moderator = row !== undefined && row !== 'unsupported' && ownsGrantSubject(row, tenantId)
+    if (!tenantWritesAs(tenantId, d.posts[i].authorTenant) && !moderator) return 'forbidden'
+    d.posts.splice(i, 1)
+    if (d.posts.length === 0) discussions.splice(discussions.indexOf(d), 1)
+    emit({ type: 'discussion.changed', discussionId: d.id, anchor: d.anchor })
+    persist()
+    return d.posts.length === 0 ? null : publicDiscussion(d, tenantId)
+  },
+  /** Report a post (S5): rings the ANCHOR OWNER — the moderator who holds the
+   *  delete. Owner moderation first; instance-level escalation is S6. */
+  reportDiscussionPost(did: string, pid: string, tenantId: string): 'ok' | undefined {
+    const d = discussions.find((x) => x.id === did)
+    if (!d || !this.grantSubjectVisible(d.anchor.ref, tenantId)) return undefined
+    if (!d.posts.some((x) => x.id === pid)) return undefined
+    const row = this.grantSubjectRow(d.anchor.ref)
+    if (row === undefined || row === 'unsupported') return undefined
+    notifyTenants([row.tenantId ?? defaultTenantId()], tenantId, {
+      kind: 'social.reported',
+      actor: tenantName(tenantId),
+      subjectKind: d.anchor.ref.kind,
+      subjectId: d.anchor.ref.id,
+      subjectName: this.commonsSubjectFace(d.anchor.ref).name,
+    })
+    persist()
+    return 'ok'
+  },
+  /** The caller's mute list (S5): actor DISPLAY NAMES filtered from their own
+   *  feed and bells — a per-viewer earmuff, never a wall (the muted party's
+   *  access is untouched; names are the D21 public handle, matching profiles). */
+  listMutes(tenantId: string): string[] {
+    return [...(mutes.get(tenantId) ?? [])].sort()
+  },
+  setMute(name: string, muted: boolean, tenantId: string): string[] {
+    const set = mutes.get(tenantId) ?? new Set<string>()
+    if (muted) set.add(name)
+    else set.delete(name)
+    if (set.size > 0) mutes.set(tenantId, set)
+    else mutes.delete(tenantId)
+    persist()
+    return this.listMutes(tenantId)
+  },
+
   /** Resolve / reopen — the opener's or the anchor owner's act (the two
    *  parties with standing; a visitor's thread isn't closable by a bystander). */
   setDiscussionState(id: string, state: 'open' | 'resolved', tenantId: string): Discussion | 'forbidden' | undefined {
@@ -4827,13 +4887,16 @@ export const store = {
         commentCount: root?.posts.length ?? 0,
       })
     }
+    const muted = mutes.get(tenantId)
     for (const g of grants) {
       if (g.note === undefined) continue
+      if (muted?.has(g.grantedBy)) continue // S5 earmuff — the viewer's own filter
       if (!this.grantSubjectVisible(g.subject, tenantId)) continue
       push({ id: `share:${g.id}`, kind: 'share', at: g.grantedAt, actor: g.grantedBy, note: g.note, subject: g.subject })
     }
     for (const p of socialProposals) {
       if (p.state !== 'landed') continue
+      if (muted?.has(p.offeredBy)) continue
       if (!this.grantSubjectVisible(p.subject, tenantId)) continue
       push({ id: `landing:${p.id}`, kind: 'landing', at: p.offeredAt, actor: p.offeredBy, landingNumber: p.landingNumber, subject: p.subject })
     }
@@ -5477,8 +5540,10 @@ export const store = {
   /** The caller's inbox — their namespace's rows plus every org's they hold a
    *  seat in (FWD-6 O-D5: an org's bell is member-readable). */
   listNotifications(tenantId: string): AppNotification[] {
+    const muted = mutes.get(tenantId)
     return notifications
       .filter((x) => tenantReadsAs(tenantId, x.tenantId))
+      .filter((x) => !muted?.has(x.actor)) // S5 earmuff — the bell honors the mute too
       .map(({ tenantId: _recipient, ...pub }) => pub)
       .reverse()
   },

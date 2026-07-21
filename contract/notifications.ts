@@ -34,6 +34,10 @@ export const NOTIFICATION_KINDS = [
   'social.offered',
   'social.landed',
   'social.declined',
+  // S5 guardrails: a reader reported a post — rings the ANCHOR OWNER, who
+  // holds the moderation delete (owner moderation; instance-level reports are
+  // the S6 escalation).
+  'social.reported',
 ] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
 

@@ -70,7 +70,8 @@ export function doorFor(n: AppNotification): NavIntent {
     case 'social.shared':
     case 'social.offered':
     case 'social.landed':
-    case 'social.declined': {
+    case 'social.declined':
+    case 'social.reported': {
       if (n.subjectKind === 'project' && n.subjectId) return { kind: 'project', projectId: n.subjectId }
       const section: SectionId =
         n.subjectKind === 'schedule' ? 'scheduled'

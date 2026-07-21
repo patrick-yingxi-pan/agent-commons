@@ -224,6 +224,9 @@ export interface PersistedState {
   /** Social-layer proposals (S3) — offered changes + the per-subject ledger.
    *  Additive-optional like `discussions`. */
   socialProposals?: StoredSocialProposal[]
+  /** S5 guardrails — per-viewer mute lists (`[tenantId, names[]]`).
+   *  Additive-optional. */
+  mutes?: [string, string[]][]
   /** Watch subscriptions (D24) — `[tenantId, projectId]` pairs (tuples, not a Map:
    *  a project has many watchers). Additive-optional like `dispatch` (a pre-field
    *  snapshot loads cleanly with no watches). */
@@ -324,6 +327,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   grants: 'array',
   discussions: 'array',
   socialProposals: 'array',
+  mutes: 'mapEntries',
   watches: 'array',
   notifications: 'array',
   agentProposals: 'mapEntries',

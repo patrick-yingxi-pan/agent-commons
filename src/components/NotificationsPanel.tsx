@@ -25,6 +25,7 @@ const KIND_ICON: Record<NotificationKind, LucideIcon> = {
   'social.offered': Sparkles,
   'social.landed': GitMerge,
   'social.declined': XCircle,
+  'social.reported': Bell,
 }
 
 /** The row's one-line sentence — actor + verb + object (all public-face fields). */
@@ -59,6 +60,8 @@ function describe(n: AppNotification): string {
       return `${n.actor} landed your improvement to “${n.subjectName}”`
     case 'social.declined':
       return `${n.actor} declined your improvement to “${n.subjectName}”`
+    case 'social.reported':
+      return `${n.actor} reported a post on “${n.subjectName}” — you hold the delete`
   }
 }
 
