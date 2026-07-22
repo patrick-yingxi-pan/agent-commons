@@ -468,3 +468,25 @@ test('a shared ARTIFACT: the grant opens it, and the visitor gets no filing cont
   await ada.context.close()
   await grace.context.close()
 })
+
+test('a world with NO social activity: the Commons teaches instead of going blank', async ({ browser }) => {
+  test.setTimeout(120_000)
+  // Rei's Lab is the sparsest seeded world — no grants, no threads. Three of the
+  // six demo accounts land here, so this empty state is a first impression, not
+  // an edge case.
+  const rei = await newUser(browser, { 'x-tenant-id': 'tenant-reislab' })
+
+  await rei.page.goto('/commons')
+  // The FEED is empty, and says why + what to do about it (the note is the post).
+  await expect(rei.page.getByText(/Nothing published yet/)).toBeVisible({ timeout: 20_000 })
+  // …but the page is not dead: the Browse band is a directory of what OTHER
+  // workspaces opened, so a brand-new account has somewhere to go. That pairing
+  // is the Discover consolidation's whole point (SOCIAL-8).
+  await expect(rei.page.getByText(/Browse the Commons/i)).toBeVisible()
+  await expect(rei.page.getByRole('button', { name: /Open project/i }).first()).toBeVisible()
+
+  await rei.page.goto('/discussions')
+  await expect(rei.page.getByText(/No discussions yet/)).toBeVisible({ timeout: 20_000 })
+
+  await rei.context.close()
+})
