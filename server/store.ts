@@ -13,6 +13,7 @@
  *  State is added to this store as each resource's reads/commands migrate; Phase 1
  *  carries sessions + the event bus, the spine everything else hangs off. */
 import type {
+  AnchorLocus,
   Artifact,
   ArtifactContentLibrary,
   ArtifactItem,
@@ -344,12 +345,26 @@ function publicGrant(g: StoredGrant): Grant {
  *  anchor's read wall (never wider — comments cannot leak a resource); a
  *  locus-free anchor is the subject's ROOT thread, and opening a second root is
  *  get-or-create (the first post appends instead — one public stream per
- *  subject). Bounds are the D23 discussion-bounds trade-off. */
+ *  subject) — generalized in SOCIAL-6b to one public stream per POSITION: an
+ *  open whose locus equals an existing thread's appends there too, so a
+ *  gutter's "discuss this turn" is unambiguous however many times it's
+ *  clicked. Bounds are the D23 discussion-bounds trade-off. */
 const discussions: StoredDiscussion[] = []
 let discussionSeq = 0
 const MAX_DISCUSSIONS_PER_SUBJECT = 100
 const MAX_DISCUSSION_POSTS = 200
 const MAX_DISCUSSION_CHARS = 2000
+
+/** Do two anchors point at the SAME position? Absent === absent is the root.
+ *  Structural rather than per-kind: every `AnchorLocus` variant is a flat record
+ *  of scalars by construction (contract/social.ts), so one comparison serves
+ *  every kind — and a new variant needs no edit here. */
+function sameLocus(a: AnchorLocus | undefined, b: AnchorLocus | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b
+  if (a.kind !== b.kind) return false
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)])
+  return [...keys].every((k) => (a as Record<string, unknown>)[k] === (b as Record<string, unknown>)[k])
+}
 
 /** Wire face: strip the raw tenant anchors; reactions serve as a count + the
  *  caller's own bit (viewer-relative, computed at serve time — the `mine`
@@ -4469,19 +4484,22 @@ export const store = {
     return [...rows].sort((a, b) => band(a) - band(b) || b.openedAt - a.openedAt).map((d) => publicDiscussion(d, viewerTenant))
   },
   /** Open a discussion. The anchor must be READABLE (else the existence-hiding
-   *  404) and the opener COMMENTABLE (a view-tier audience reads silently). A
-   *  locus-free open when the subject already has a root thread is
-   *  get-or-create: the first post appends to the existing root instead — one
-   *  public stream per subject (the root-thread rule). */
+   *  404) and the opener COMMENTABLE (a view-tier audience reads silently). An
+   *  open onto a POSITION that already carries a thread is get-or-create: the
+   *  first post appends to the existing thread instead — one public stream per
+   *  (subject, locus). Locus-free is the subject's root (the original
+   *  root-thread rule); SOCIAL-6b generalizes the same rule to every locus so a
+   *  gutter affordance can't fork a second thread on the turn it points at. */
   openDiscussion(req: OpenDiscussionRequest, tenantId: string): Discussion | 'forbidden' | 'capped' | undefined {
     if (!this.grantSubjectVisible(req.anchor.ref, tenantId)) return undefined
     if (!this.socialSubjectCommentable(req.anchor.ref, tenantId)) return 'forbidden'
-    if (req.anchor.locus === undefined) {
-      const root = discussions.find(
-        (d) => d.anchor.ref.kind === req.anchor.ref.kind && d.anchor.ref.id === req.anchor.ref.id && d.anchor.locus === undefined,
-      )
-      if (root) return this.postToDiscussion(root.id, req.firstPost, tenantId)
-    }
+    const held = discussions.find(
+      (d) =>
+        d.anchor.ref.kind === req.anchor.ref.kind &&
+        d.anchor.ref.id === req.anchor.ref.id &&
+        sameLocus(d.anchor.locus, req.anchor.locus),
+    )
+    if (held) return this.postToDiscussion(held.id, req.firstPost, tenantId)
     const anchored = discussions.filter((d) => d.anchor.ref.kind === req.anchor.ref.kind && d.anchor.ref.id === req.anchor.ref.id)
     if (anchored.length >= MAX_DISCUSSIONS_PER_SUBJECT) return 'capped'
     const now = Date.now()

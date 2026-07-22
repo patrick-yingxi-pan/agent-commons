@@ -45,6 +45,12 @@ chrome + the stay-inside-the-viewport containment, applied by
 `src/lib/usePopoverShift.ts` / `clampLeft`) and `src/lib/copyButton.ts` +
 `src/components/CopyButton.tsx` (every copy-to-clipboard button — the rendezvous-secret
 reveal and the A2A-card viewer alike, label swapping to "Copied" then self-resetting)
+and `src/lib/formInput.ts` (every text FIELD's look) + `src/lib/focusContext.ts`'s
+`FOCUS_FLASH_CLASS` (the lit highlight every door's target wears on arrival —
+work item, comment, agent card, conversation turn), both locked by
+`tests/form-input.test.ts`, and `src/components/AnchorThreadComposer.tsx` (the ONE
+thread composer — the entity panel, the Commons card, and the conversation's turn
+gutter all post through it, differing only by anchor)
 and `src/lib/spinner.ts` + `src/components/Spinner.tsx` (every loading spinner — its
 spin gated behind `motion-safe:` so it respects `prefers-reduced-motion`, WCAG 2.3.3;
 the lock forbids ANY bare `animate-{spin,pulse,ping,bounce}` so no infinite animation

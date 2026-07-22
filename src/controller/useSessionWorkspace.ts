@@ -90,6 +90,9 @@ export function useSessionWorkspace(split?: {
   /** A SESSION door (a palette hit, a notifications row) lands in the
    *  focused pane too. */
   routeSession?: (sessionId: string) => void
+  /** The same, but RECORDING the landing pane — for a door that must focus a
+   *  position inside the conversation (a turn-anchored discussion, SOCIAL-6b). */
+  routeSessionDoor?: (sessionId: string) => void
   /** A bare-section door (palette "Pages", a relation card's section jump). */
   routeSection?: (section: SectionId, sub?: string | null) => void
   /** Boot fallback (ADAPT-1): when neither a boot address nor the restored
@@ -325,6 +328,18 @@ export function useSessionWorkspace(split?: {
     setPendingFocus({ agentId, proposalId })
   }, [])
 
+  // A discussion anchored to ONE TURN (SOCIAL-6b): open the conversation and
+  // flash the turn it points at. The locus→target mapping is the resolver
+  // registry's (`locusFocus`), never inlined here — this door only carries what
+  // it was handed, so a new locus kind reaches the same pipeline for free.
+  const openSessionTurn = useCallback((sessionId: string, messageId: string) => {
+    splitRef.current?.routeSessionDoor?.(sessionId)
+    setPendingFocus({ messageId })
+  }, [])
+  /** Point the transient focus at a turn WITHOUT routing — the pane-originated
+   *  half of the door above, where the pane has already filled itself. */
+  const focusTurn = useCallback((messageId: string) => setPendingFocus({ messageId }), [])
+
   // The source agent (agent.forked) — the recipient is its owner, so their own
   // Agents hub, with the card highlighted. Never the fork (the leak-wall).
   const openAgent = useCallback((agentId: string) => {
@@ -353,6 +368,8 @@ export function useSessionWorkspace(split?: {
     pendingFocus,
     consumeFocus,
     openSession,
+    openSessionTurn,
+    focusTurn,
     newSession,
     openSection,
     openProject,

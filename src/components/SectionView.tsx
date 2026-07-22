@@ -75,6 +75,9 @@ import { cleanSteps, moveStep, removeStep } from '../lib/steps'
 import { ConnectorDetailBody } from './ConnectorPanel'
 import { AddContextButton } from './AddContextButton'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
+import { FORM_INPUT_CLASS } from '../lib/formInput'
+import { AnchorThreadComposer } from './AnchorThreadComposer'
+import { describeLocus, locusFocus } from '../lib/anchorLocus'
 import { profileTitle, PROFILE_TAGLINE } from '../lib/publicFace'
 import { ActorByline, AgentActor, Byline, CreditLine, OwnerLink, WorkspaceMark } from './PublicFace'
 import { TextDiff } from './TextDiff'
@@ -84,7 +87,7 @@ import { Spinner } from './Spinner'
 import { BackButton, PageBackContext } from './BackButton'
 import type { NavLocation } from '../lib/nav'
 import { SECTION_SUBVIEWS } from '../lib/subviews'
-import { usePendingFocus, useFocusFlash } from '../lib/focusContext'
+import { usePendingFocus, useFocusFlash, FOCUS_FLASH_CLASS } from '../lib/focusContext'
 import { relativeTime } from '../lib/relativeTime'
 import { Chip } from './Chip'
 import { RowMenu, type RowMenuItem } from './RowMenu'
@@ -294,6 +297,7 @@ export function SectionView({
   subview,
   onOpenSubview,
   onOpenSession,
+  onOpenSessionTurn,
   onNewSession,
   onOpenProject,
   onOpenSchedule,
@@ -320,6 +324,9 @@ export function SectionView({
    *  worker-list surface — null — on a notification door). */
   onOpenSubview: (id: string | null) => void
   onOpenSession: (id: string) => void
+  /** Open a conversation AT one turn — where a `session-turn` discussion
+   *  anchor resolves to (SOCIAL-6b). */
+  onOpenSessionTurn: (id: string, messageId: string) => void
   onNewSession: () => void
   /** Open a project / routine detail through the controller, so every entry is one
    *  source of truth (the focus id below) and is recorded in navigation history. */
@@ -407,7 +414,7 @@ export function SectionView({
     ) : section === 'commons' ? (
       <CommonsSection subview={subview} />
     ) : section === 'discussions' ? (
-      <DiscussionsSection subview={subview} discussionId={focusDiscussionId} onOpenSession={onOpenSession} onBack={onBack} backTo={backTo} />
+      <DiscussionsSection subview={subview} discussionId={focusDiscussionId} onOpenSession={onOpenSession} onOpenSessionTurn={onOpenSessionTurn} onBack={onBack} backTo={backTo} />
     ) : section === 'admin' ? (
       // The maintainer console (contract/admin.ts): like the Agents hub its
       // children are SURFACES, defaulting to Accounts when the rail sub-view is
@@ -2437,7 +2444,7 @@ function WorkItemRow({
     <div
       ref={rowRef}
       className={`flex items-start gap-2.5 scroll-mt-6 rounded-lg -mx-2 px-2 py-1 transition-colors ${
-        flash ? 'bg-accent-tint ring-1 ring-accent/40' : 'ring-1 ring-transparent'
+        flash ? FOCUS_FLASH_CLASS : 'ring-1 ring-transparent'
       }`}
     >
       <span
@@ -2718,7 +2725,7 @@ function WorkItemPage({
                 key={ev.key}
                 ref={ev.comment.id === anchorComment ? anchorRef : undefined}
                 className={`rounded-lg border border-line bg-surface px-3 py-2 transition-colors ${
-                  flash && ev.comment.id === anchorComment ? 'bg-accent-tint ring-1 ring-accent/40' : ''
+                  flash && ev.comment.id === anchorComment ? FOCUS_FLASH_CLASS : ''
                 }`}
               >
                 <div className="text-[12px] text-ink-faint">
@@ -2895,47 +2902,12 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
 
 /* ─────────────────────────── The Commons (social S4) ─────────────────────── */
 
-/** The ONE root-thread composer (social S2/S4): posts into the subject's root
- *  discussion, get-or-creating it — shared by the entity page's Discussion
- *  panel and the feed card, so "comment here" behaves identically in both
- *  projections of the same thread. */
-function RootThreadComposer({ subject, root, placeholder }: { subject: SocialEntityRef; root: Discussion | null; placeholder?: string }) {
-  const [draft, setDraft] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const send = async () => {
-    if (busy || !draft.trim()) return
-    setBusy(true)
-    setError(null)
-    try {
-      if (root) await postToDiscussion(root.id, draft.trim(), subject)
-      else await openDiscussion({ anchor: { ref: subject }, firstPost: draft.trim() })
-      setDraft('')
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not post.')
-    } finally {
-      setBusy(false)
-    }
-  }
-  return (
-    <div>
-      <div className="flex items-start gap-2">
-        <textarea
-          aria-label={`Post to this ${subject.kind}’s discussion`}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder={placeholder ?? (root ? 'Reply…' : 'Start the discussion…')}
-          rows={draft.includes('\n') ? 3 : 1}
-          className={`${FORM_INPUT_CLASS} resize-none`}
-        />
-        <button onClick={() => void send()} disabled={busy || !draft.trim()} className={`${INLINE_ACTION_CLASS} mt-1 shrink-0`}>
-          Post
-        </button>
-      </div>
-      {error && <p className="mt-1 text-[11px] text-danger">{error}</p>}
-    </div>
-  )
-}
+/** The root-thread composer is the shared `AnchorThreadComposer` with no locus
+ *  — one component for every projection of a thread (the entity panel, the feed
+ *  card, the conversation's turn gutter). */
+const RootThreadComposer = ({ subject, root, placeholder }: { subject: SocialEntityRef; root: Discussion | null; placeholder?: string }) => (
+  <AnchorThreadComposer subject={subject} thread={root} placeholder={placeholder} />
+)
 
 /** One feed post — a share act or a landing, its subject embed, and the door
  *  into the subject's root thread. The card is a PROJECTION: its comments are
@@ -3117,14 +3089,45 @@ function CommonsSection({ subview }: { subview: string | null }) {
 /* ─────────────────────────── Discussions (social S2) ─────────────────────── */
 
 /** The chip naming a discussion's anchor — a DOOR into the anchored entity's
- *  page for the kinds that have one (the ref-link form; sessions/artifacts gain
- *  doors when their surfaces host the panel). */
-function AnchorChip({ anchor }: { anchor: SocialAnchor }) {
+ *  page for the kinds that have one (the ref-link form; artifacts gain doors
+ *  when their surfaces host the panel).
+ *
+ *  When the anchor carries a LOCUS (SOCIAL-6b) the chip names the position too
+ *  and, where that position has a focusable surface, lands ON it: a
+ *  `session-turn` opens the conversation and flashes that turn. Both the phrase
+ *  and the landing come from the ONE resolver registry
+ *  (`src/lib/anchorLocus.ts`) — never spelled out here, so a new locus kind
+ *  reaches every chip in one edit. A locus whose surface can't focus a position
+ *  yet still doors to the entity: descriptive, never a dead click. */
+function AnchorChip({
+  anchor,
+  onOpenSession,
+  onOpenSessionTurn,
+}: {
+  anchor: SocialAnchor
+  onOpenSession: (id: string) => void
+  onOpenSessionTurn: (id: string, messageId: string) => void
+}) {
   const rel = useRelations()
   const { kind, id } = anchor.ref
   const target: SectionId | null =
     kind === 'project' ? 'projects' : kind === 'schedule' ? 'scheduled' : kind === 'context' ? 'contexts' : kind === 'discussion' ? 'discussions' : null
-  const label = `${kind} · ${id}`
+  const at = anchor.locus ? ` · ${describeLocus(anchor.locus)}` : ''
+  const label = `${kind} · ${id}${at}`
+  const turn = locusFocus(anchor)?.messageId
+  // A conversation isn't a section — it's a pane door, so it takes the session
+  // handler rather than `rel.navigate`.
+  if (kind === 'session') {
+    return (
+      <button
+        onClick={() => (turn ? onOpenSessionTurn(id, turn) : onOpenSession(id))}
+        className={INLINE_ACTION_CLASS}
+        title={turn ? 'Open this conversation at this turn' : 'Open this conversation'}
+      >
+        {label}
+      </button>
+    )
+  }
   if (!target) return <span className="text-[11px] text-ink-faint">{label}</span>
   return (
     <button onClick={() => rel.navigate(target, id)} className={INLINE_ACTION_CLASS} title={`Open this ${kind}`}>
@@ -3148,11 +3151,13 @@ function discussionDigest(d: Discussion): string {
 function DiscussionPage({
   discussionId,
   onOpenSession,
+  onOpenSessionTurn,
   onBack,
   backTo,
 }: {
   discussionId: string
   onOpenSession: (id: string) => void
+  onOpenSessionTurn: (id: string, messageId: string) => void
   onBack: () => void
   backTo: NavLocation | null
 }) {
@@ -3198,7 +3203,7 @@ function DiscussionPage({
               <span>
                 {d.state === 'open' ? 'Open' : 'Resolved'} · opened by {d.openedBy} {relativeTime(d.openedAt)}
               </span>
-              <AnchorChip anchor={d.anchor} />
+              <AnchorChip anchor={d.anchor} onOpenSession={onOpenSession} onOpenSessionTurn={onOpenSessionTurn} />
             </div>
           </div>
         </div>
@@ -3257,18 +3262,20 @@ function DiscussionsSection({
   subview,
   discussionId,
   onOpenSession,
+  onOpenSessionTurn,
   onBack,
   backTo,
 }: {
   subview: string | null
   discussionId: string | null
   onOpenSession: (id: string) => void
+  onOpenSessionTurn: (id: string, messageId: string) => void
   onBack: () => void
   backTo: NavLocation | null
 }) {
   const rel = useRelations()
   const list = useMyDiscussions().data ?? []
-  if (discussionId) return <DiscussionPage discussionId={discussionId} onOpenSession={onOpenSession} onBack={onBack} backTo={backTo} />
+  if (discussionId) return <DiscussionPage discussionId={discussionId} onOpenSession={onOpenSession} onOpenSessionTurn={onOpenSessionTurn} onBack={onBack} backTo={backTo} />
   const filtered = subview === 'open' || subview === 'resolved' ? list.filter((d) => d.state === subview) : list
   return (
     <Page>
@@ -3297,7 +3304,7 @@ function DiscussionsSection({
                   <span>
                     {d.posts.length} {d.posts.length === 1 ? 'post' : 'posts'} · by {d.openedBy}
                   </span>
-                  <AnchorChip anchor={d.anchor} />
+                  <AnchorChip anchor={d.anchor} onOpenSession={onOpenSession} onOpenSessionTurn={onOpenSessionTurn} />
                 </div>
               </div>
               <span className="shrink-0 text-[11px] text-ink-faint">{relativeTime(d.posts[d.posts.length - 1]?.at ?? d.openedAt)}</span>
@@ -4771,7 +4778,7 @@ function NewArtifactDialog({
                 if (e.key === 'Enter') submit()
               }}
               placeholder="e.g. launch-brief.md"
-              className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-[14px] text-ink outline-none transition placeholder:text-ink-faint focus:border-accent"
+              className={FORM_INPUT_CLASS}
             />
           </label>
 
@@ -5849,18 +5856,13 @@ function CommonsCard({
     <div
       ref={cardRef}
       className={`group scroll-mt-6 rounded-xl border bg-surface p-4 shadow-sm transition-colors ${
-        flash ? 'border-accent bg-accent-tint ring-1 ring-accent/40' : 'border-line'
+        flash ? `border-accent ${FOCUS_FLASH_CLASS}` : 'border-line'
       }`}
     >
       {children}
     </div>
   )
 }
-
-/** The shared input style for the hub's form dialogs — one source so every field reads
- *  the same (form follows function). */
-const FORM_INPUT_CLASS =
-  'w-full rounded-lg border border-line bg-surface px-3 py-2 text-[14px] text-ink outline-none transition placeholder:text-ink-faint focus:border-accent'
 
 /** A right-aligned "New ‹thing›" toolbar above a hub list — the same affordance on
  *  every tab. */
@@ -6675,7 +6677,7 @@ function ProposalsReviewDialog({
               key={p.id}
               ref={isFocus ? focusRef : undefined}
               className={`scroll-mt-4 rounded-xl border p-3 transition-colors ${
-                isFocus ? 'border-accent bg-accent-tint ring-1 ring-accent/40' : 'border-line'
+                isFocus ? `border-accent ${FOCUS_FLASH_CLASS}` : 'border-line'
               }`}
             >
               <div className="flex items-center gap-2 text-[12px]">
@@ -8677,7 +8679,7 @@ function YourProposals({ entry, focusProposalId = null }: { entry: AgentDirector
             key={p.id}
             ref={isFocus ? focusRef : undefined}
             className={`scroll-mt-4 rounded-lg border p-2 transition-colors ${
-              isFocus ? 'border-accent bg-accent-tint ring-1 ring-accent/40' : 'border-line'
+              isFocus ? `border-accent ${FOCUS_FLASH_CLASS}` : 'border-line'
             }`}
           >
             <div className="flex items-center gap-2 text-[11px] text-ink-faint">

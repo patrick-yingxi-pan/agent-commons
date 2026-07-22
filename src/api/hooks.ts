@@ -428,9 +428,11 @@ export function useGrants(kind: string, id: string): QueryState<Grant[]> {
 }
 
 /** A subject's discussions (social S2) — root thread first. Live on
- *  `discussion.changed` (delivered wherever the anchor is readable). */
-export function useDiscussions(kind: string, id: string): QueryState<Discussion[]> {
-  return useQuery(keys.discussions(kind, id), () => apiGet<Discussion[]>(paths.discussions(kind, id)))
+ *  `discussion.changed` (delivered wherever the anchor is readable). `enabled`
+ *  false for a subject that doesn't exist server-side yet (an unsent draft
+ *  conversation): asking would 404 on every render for nothing. */
+export function useDiscussions(kind: string, id: string, enabled = true): QueryState<Discussion[]> {
+  return useQuery(keys.discussions(kind, id), () => apiGet<Discussion[]>(paths.discussions(kind, id)), enabled)
 }
 
 /** One discussion by id — readable through its anchor's wall. */

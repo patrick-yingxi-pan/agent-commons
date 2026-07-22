@@ -41,6 +41,97 @@ test('root-thread rule: a locus-free open is get-or-create — one public stream
   assert.equal(list.json.length, 1, 'one root, not two')
 })
 
+test('SOCIAL-6b: the same rule per POSITION — one public stream per (subject, locus)', async () => {
+  const { ref } = await arena()
+  const at = (messageId: string) => ({ kind: 'session-turn' as const, messageId })
+  const open = (locus: unknown, body: string, tenant = OWNER) =>
+    call('POST', '/discussions', { anchor: { ref, locus }, firstPost: body }, { 'x-tenant-id': tenant })
+
+  const first = await open(at('m1'), 'This step looks wrong')
+  assert.equal(first.status, 200)
+  // The whole point of the gutter affordance: clicking "discuss this turn"
+  // again — by anyone — must land in the thread that's already there, not fork
+  // a second one nobody can tell apart.
+  const again = await open(at('m1'), 'Agreed', AUDIENCE)
+  assert.equal(again.json.id, first.json.id, 'a second open on the SAME turn appends')
+  assert.equal(again.json.posts.length, 2)
+
+  // A DIFFERENT position is a different conversation.
+  const elsewhere = await open(at('m2'), 'And this one')
+  assert.notEqual(elsewhere.json.id, first.json.id, 'another turn is another thread')
+
+  // …and a position is never confused with the whole entity, in either
+  // direction: the root thread and a turn's thread are distinct streams.
+  const root = await call('POST', '/discussions', { anchor: { ref }, firstPost: 'About the whole thing' }, { 'x-tenant-id': OWNER })
+  assert.notEqual(root.json.id, first.json.id, 'the root is not a turn thread')
+  const rootAgain = await call('POST', '/discussions', { anchor: { ref }, firstPost: 'more' }, { 'x-tenant-id': OWNER })
+  assert.equal(rootAgain.json.id, root.json.id, 'and the root still get-or-creates')
+
+  const list = await call('GET', `/discussions?kind=${ref.kind}&id=${ref.id}`, undefined, { 'x-tenant-id': OWNER })
+  assert.equal(list.json.length, 3, 'root + two turns — no duplicates')
+  // Root first, then the anchored ones (the listing band).
+  assert.equal(list.json[0].anchor.locus, undefined, 'the root leads the list')
+  assert.equal(list.json.filter((d: { anchor: { locus?: unknown } }) => d.anchor.locus).length, 2)
+})
+
+test('SOCIAL-6b: an undeclared locus is REFUSED, not stored (INV-9, strict core)', async () => {
+  const { ref } = await arena()
+  // An anchor is persisted and echoed to everyone who can read the subject, so
+  // the shape is checked against the declared union — not stored as it arrived.
+  const bad = [
+    { kind: 'made-up', whatever: 1 },
+    { kind: 'session-turn' }, // the variant's field is missing
+    { kind: 'session-turn', messageId: 7 }, // …and it is typed
+    { kind: 'session-turn', messageId: 'm1', extra: 'smuggled' }, // no extra fields ride along
+    { kind: 'artifact-range', from: 1 },
+    'not-an-object',
+    null,
+  ]
+  for (const locus of bad) {
+    const out = await call('POST', '/discussions', { anchor: { ref, locus }, firstPost: 'nope' }, { 'x-tenant-id': OWNER })
+    assert.equal(out.status, 400, `refused: ${JSON.stringify(locus)}`)
+  }
+  const list = await call('GET', `/discussions?kind=${ref.kind}&id=${ref.id}`, undefined, { 'x-tenant-id': OWNER })
+  assert.equal(list.json.length, 0, 'nothing was created by a refused open')
+  // …and the declared variants still pass.
+  for (const locus of [
+    { kind: 'session-turn', messageId: 'm1' },
+    { kind: 'artifact-range', from: 1, to: 2 },
+    { kind: 'schedule-run', runId: 'r1' },
+    { kind: 'relation-edge', relationId: 'e1' },
+  ]) {
+    const out = await call('POST', '/discussions', { anchor: { ref, locus }, firstPost: 'ok' }, { 'x-tenant-id': OWNER })
+    assert.equal(out.status, 200, `accepted: ${JSON.stringify(locus)}`)
+  }
+})
+
+test('SOCIAL-6b: locus equality is by VALUE, not identity — a re-sent anchor matches', async () => {
+  const { ref } = await arena()
+  const a = await call(
+    'POST',
+    '/discussions',
+    { anchor: { ref, locus: { kind: 'artifact-range', from: 3, to: 8 } }, firstPost: 'These lines' },
+    { 'x-tenant-id': OWNER },
+  )
+  const same = await call(
+    'POST',
+    '/discussions',
+    { anchor: { ref, locus: { kind: 'artifact-range', from: 3, to: 8 } }, firstPost: 'Still these lines' },
+    { 'x-tenant-id': OWNER },
+  )
+  assert.equal(same.json.id, a.json.id, 'an equal range is the same position')
+  // A range that merely overlaps is a different position — the rule is
+  // equality, deliberately: "near enough" would need a per-kind notion of
+  // overlap in the kind-generic substrate, which S0 forbids.
+  const overlapping = await call(
+    'POST',
+    '/discussions',
+    { anchor: { ref, locus: { kind: 'artifact-range', from: 3, to: 9 } }, firstPost: 'A wider read' },
+    { 'x-tenant-id': OWNER },
+  )
+  assert.notEqual(overlapping.json.id, a.json.id, 'a different range is a different thread')
+})
+
 test('inheritance: the discussion wall IS the anchor wall — audience reads, bystander 404s on every face', async () => {
   const { ref } = await arena()
   const d = (await call('POST', '/discussions', { anchor: { ref }, firstPost: 'Hello' }, { 'x-tenant-id': OWNER })).json

@@ -43,6 +43,34 @@ export interface SocialAnchor {
   locus?: AnchorLocus
 }
 
+/** The runtime guard for `AnchorLocus`, next to the union it guards so the two
+ *  can't drift. An anchor is PERSISTED and echoed to everyone who can read its
+ *  subject, so the server refuses anything that isn't a declared variant with
+ *  exactly its declared fields (INV-9, strict core) rather than storing whatever
+ *  arrived. Shared, not server-only: any door that mints an anchor can check
+ *  first. */
+export function isAnchorLocus(v: unknown): v is AnchorLocus {
+  if (typeof v !== 'object' || v === null) return false
+  const o = v as Record<string, unknown>
+  const shape = (fields: Record<string, 'string' | 'number'>) => {
+    const keys = Object.keys(o)
+    if (keys.length !== Object.keys(fields).length + 1) return false
+    return Object.entries(fields).every(([k, t]) => typeof o[k] === t)
+  }
+  switch (o.kind) {
+    case 'artifact-range':
+      return shape({ from: 'number', to: 'number' })
+    case 'session-turn':
+      return shape({ messageId: 'string' })
+    case 'schedule-run':
+      return shape({ runId: 'string' })
+    case 'relation-edge':
+      return shape({ relationId: 'string' })
+    default:
+      return false
+  }
+}
+
 /** Who a grant addresses. `link` (anyone with the token) is declared now but
  *  refused by the server until the public phase (S6) — the enum grows, the
  *  card surfaces don't change. */

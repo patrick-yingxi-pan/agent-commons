@@ -1,13 +1,16 @@
 import { motion } from 'framer-motion'
+import { useRef } from 'react'
 import { ArrowRight, Check, Radio } from 'lucide-react'
 import type { EscalationProposal, Message as MessageT } from '../types'
 import { renderRich } from '../lib/rich'
 import { driverByline } from '../lib/driverByline'
+import { FOCUS_FLASH_CLASS, useFocusFlash, usePendingFocus } from '../lib/focusContext'
 import { useAgents, useProviders } from '../api'
 import { useRelations } from '../controller/useRelations'
 import { ClaudeMark } from './ClaudeMark'
 import { RelationActionCard } from './RelationActionCard'
 import { ToolActivityCard } from './ToolActivityCard'
+import { TurnDiscussion } from './TurnDiscussion'
 
 /** Whether this turn's cognition came over a Session provider — the
  *  delegated-cognition relay. Those words came from the user's OWN session's model,
@@ -56,6 +59,13 @@ function EscalationOutcome({ escalation }: { escalation: EscalationProposal }) {
 
 export function MessageRow({ message, sessionId }: { message: MessageT; sessionId: string }) {
   const relayed = useIsRelayed(message)
+  // A turn is an ADDRESSABLE position (SOCIAL-6b): a discussion can anchor to
+  // it, and the chip on that thread doors back here. Reading `pending` at
+  // render is deliberate — `useFocusFlash` consumes it in the same effect that
+  // lights the flash, so a later read would already be null.
+  const { pending } = usePendingFocus()
+  const rowRef = useRef<HTMLDivElement>(null)
+  const flash = useFocusFlash(pending?.messageId === message.id, rowRef)
   // S5 — the byline is the Agent that DROVE this turn (per-turn provenance), so a D16
   // hand-off is visible; the default agent / a user turn / a legacy message read 'Claude'.
   const byline = driverByline(message.agentId, useAgents().data ?? [])
@@ -85,7 +95,11 @@ export function MessageRow({ message, sessionId }: { message: MessageT; sessionI
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.28, ease: 'easeOut' }}
-      className="px-4 py-3"
+      ref={rowRef}
+      // The flash rides the FULL-WIDTH row, outside `max-w-3xl`, so lighting a
+      // turn can't shift the thread's measure by a pixel — message text stays
+      // aligned with the composer below it.
+      className={`group px-4 py-3 transition ${flash ? FOCUS_FLASH_CLASS : ''}`}
     >
       <div className="mx-auto flex w-full max-w-3xl gap-3">
         <div className="mt-0.5 shrink-0">
@@ -127,6 +141,7 @@ export function MessageRow({ message, sessionId }: { message: MessageT; sessionI
               resolved={message.relationsResolved}
             />
           )}
+          <TurnDiscussion sessionId={sessionId} messageId={message.id} />
         </div>
       </div>
     </motion.div>

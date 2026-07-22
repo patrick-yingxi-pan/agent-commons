@@ -13,6 +13,11 @@ import { test, expect, type Browser, type Page } from '@playwright/test'
  *  2. the share link: the owner mints a Link grant (server-minted token), and
  *     a signed-in third tenant opening `/shared/:token` redeems it and lands
  *     on the subject's page.
+ *  3. the turn gutter (SOCIAL-6b): a discussion anchored to ONE TURN of a
+ *     conversation — minted from the turn's hover gutter, doored from the
+ *     turn's marker, and RESOLVED back by the thread page's anchor chip, which
+ *     must land the conversation scrolled to that exact turn. The round trip is
+ *     the whole point of a locus, and only a browser can prove the landing.
  *
  *  Tenant impersonation mirrors co-author-article.spec.ts: BACKEND=remote,
  *  identity via headers — Ada (no headers, the seeded default owner), Grace
@@ -25,6 +30,12 @@ const LINK_PROJECT = `Link walk ${STAMP}`
 const NOTE = `Fresh off the press ${STAMP}`
 const COMMENT = `One suggestion incoming ${STAMP}`
 const CHANGE = `Lead with the retention metric ${STAMP}`
+const TURN_POST = `About this step specifically ${STAMP}`
+const TURN_REPLY = `Still this step ${STAMP}`
+/** A seeded multi-turn conversation, opened by its canonical URL (every page
+ *  has one — src/CLAUDE.md). The walk asserts the turn count, so a reseed that
+ *  shortens this thread fails loudly rather than passing vacuously. */
+const TURN_SESSION = '/s/auth-refactor'
 const API = '/api/v1'
 
 async function gotoSection(page: Page, name: string) {
@@ -148,4 +159,64 @@ test('the share link: a signed-in third tenant opens /shared/:token and lands on
 
   await ada.context.close()
   await maya.context.close()
+})
+
+test('the turn gutter: a thread anchored to ONE turn, and the chip that lands back on it', async ({ browser }) => {
+  test.setTimeout(120_000)
+  const ada = await newUser(browser)
+  const page = ada.page
+
+  // A SHORT viewport, deliberately: a conversation opens at the bottom, so the
+  // earliest turn falls off-screen — which is what makes the final "landed on
+  // the turn" assertion mean something instead of passing vacuously on a thread
+  // that fits.
+  await page.setViewportSize({ width: 1100, height: 400 })
+  await page.goto(TURN_SESSION)
+  const turns = page.getByTitle('Discuss this turn')
+  await expect(turns.first()).toBeAttached({ timeout: 20_000 })
+  const count = await turns.count()
+  expect(count, 'a multi-turn conversation to anchor into').toBeGreaterThan(1)
+
+  // ── Mint: the gutter opens an inline composer on THAT turn ────────────────
+  // The FIRST turn — the one the bottom landing scrolls past.
+  const target = turns.first()
+  await expect(target).not.toBeInViewport()
+  await target.scrollIntoViewIfNeeded()
+  await target.hover()
+  await target.click()
+  await page.getByLabel('Post to this session’s discussion').fill(TURN_POST)
+  await page.getByRole('button', { name: 'Post', exact: true }).click()
+
+  // The composer closes itself and the turn grows its marker — one thread.
+  await expect(page.getByLabel('Post to this session’s discussion')).toHaveCount(0)
+  const marker = page.getByTitle('Open this turn’s thread')
+  await expect(marker).toHaveCount(1)
+  await expect(marker).toHaveText('1')
+
+  // Clicking the gutter again must NOT fork a second thread (one public stream
+  // per position — the server's get-or-create, proven through the UI).
+  await target.hover()
+  await page.getByTitle('Discuss this turn').first().click()
+  await page.getByLabel('Post to this session’s discussion').fill(TURN_REPLY)
+  await page.getByRole('button', { name: 'Post', exact: true }).click()
+  await expect(marker).toHaveCount(1)
+  await expect(marker).toHaveText('2')
+
+  // ── Door: the marker opens the thread's own page, named by its POSITION ───
+  await marker.click()
+  // The thread titles itself from its first post, so the text is on the page
+  // twice (heading + body) — assert the heading, the page's identity.
+  await expect(page.getByRole('heading', { name: TURN_POST })).toBeVisible()
+  const chip = page.getByTitle('Open this conversation at this turn')
+  await expect(chip).toBeVisible()
+  await expect(chip).toHaveText(/^session · .+ · one turn$/)
+
+  // ── Resolve: the chip lands the conversation ON that turn ─────────────────
+  // The transient flash is unassertable (it fades), so this asserts the durable
+  // half — the turn is scrolled into the viewport, which is what the locus is
+  // for. Without the resolver the thread opens at the bottom and this fails.
+  await chip.click()
+  await expect(page.getByTitle('Open this turn’s thread')).toBeInViewport({ timeout: 10_000 })
+
+  await ada.context.close()
 })

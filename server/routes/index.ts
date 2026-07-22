@@ -37,7 +37,7 @@ import type {
   UpdateScheduleRequest,
   OpsSummary,
 } from '../../contract/index.ts'
-import { SOCIAL_ENTITY_KINDS } from '../../contract/index.ts'
+import { SOCIAL_ENTITY_KINDS, isAnchorLocus } from '../../contract/index.ts'
 import { timingSafeEqual } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { stripTypeScriptTypes } from 'node:module'
@@ -1910,6 +1910,14 @@ export function buildRouter(): Router {
     const input = await body<OpenDiscussionRequest>()
     if (!input?.anchor?.ref?.kind || !input.anchor.ref.id || typeof input.firstPost !== 'string' || !input.firstPost.trim()) {
       return sendError(res, 'bad_request', 'anchor {ref} and a non-empty firstPost are required')
+    }
+    // The LOCUS is refused unless it matches a declared variant exactly (INV-9,
+    // strict core). An anchor is persisted and echoed to everyone who can read
+    // the subject, so unvalidated shapes would be stored, served, and — since
+    // `sameLocus` compares structurally — would each fork a thread nobody's
+    // gutter can find again.
+    if (input.anchor.locus !== undefined && !isAnchorLocus(input.anchor.locus)) {
+      return sendError(res, 'bad_request', 'anchor.locus must be a declared AnchorLocus variant')
     }
     const out = store.openDiscussion({ ...input, firstPost: input.firstPost.trim() }, store.identity(req.headers).tenant.id)
     if (out === undefined) return sendError(res, 'not_found', `No ${input.anchor.ref.kind} '${input.anchor.ref.id}'`)

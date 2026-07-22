@@ -153,6 +153,7 @@ export function SectionPane({
           setFocus(NO_FOCUS)
         }}
         onOpenSession={nav.onOpenSession}
+        onOpenSessionTurn={nav.onOpenSessionTurn}
         onNewSession={nav.onNewSession}
         // Same-section doors push the pane's own detail focus; CROSS-section
         // doors (a profile page's project card, a project's routine row)

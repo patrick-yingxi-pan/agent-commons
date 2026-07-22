@@ -31,6 +31,12 @@ import { seedFor, type PaneSeed } from '../lib/paneNav'
  *  pane, like every navigation (the equal-pages model has no primary). */
 export interface MainPaneNav {
   onOpenSession: (id: string) => void
+  /** A conversation door that lands on ONE TURN — where a `session-turn`
+   *  discussion anchor resolves to (SOCIAL-6b). `panePath` marks the
+   *  pane-originated call: the pane already filled itself (pushing the origin
+   *  onto its back stack, ADAPT-18), so the shell only has to point the
+   *  transient focus at THAT pane. Absent = a chrome door, which routes. */
+  onOpenSessionTurn: (id: string, messageId: string, panePath?: string) => void
   onNewSession: () => void
   onOpenProposal: (agentId: string, proposalId: string, ownerName: string | null) => void
   /** The title bar's breadcrumb doors (a pane conversation's home project /
@@ -211,10 +217,17 @@ function PaneBody({
     () => ({
       ...nav,
       onOpenSession: (id) => fillWith({ kind: 'msession', id }),
+      // Fill THIS pane with the conversation (origin pushed), then tell the
+      // shell which pane may consume the turn highlight — the per-pane focus
+      // scoping means a duplicate pane on the same conversation can't steal it.
+      onOpenSessionTurn: (id, messageId) => {
+        fillWith({ kind: 'msession', id })
+        nav.onOpenSessionTurn(id, messageId, path)
+      },
       onOpenProject: (id) => fillWith({ kind: 'msection', id: 'projects', seed: { projectId: id } }),
       onOpenSchedule: (id) => fillWith({ kind: 'msection', id: 'scheduled', seed: { scheduleId: id } }),
     }),
-    [nav, fillWith],
+    [nav, fillWith, path],
   )
   // The pane-level relations bridge: entity doors inside CONVERSATION and
   // panel content (a relation card's "View in …") land in THIS pane with the

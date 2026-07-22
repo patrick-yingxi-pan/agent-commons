@@ -25,6 +25,11 @@ export interface FocusTarget {
   proposalId?: string
   /** Anchor a specific comment inside the thread (the platform's `#issuecomment-N`). */
   commentId?: string
+  /** One TURN inside a conversation — what a `session-turn` anchor locus
+   *  resolves to (`src/lib/anchorLocus.ts`, SOCIAL-6b). The same transient
+   *  contract as the fields above: the matching `MessageRow` scrolls to itself,
+   *  flashes, and consumes it. */
+  messageId?: string
 }
 
 /** Where a door leads. The precise variants carry the focus; the fallbacks (a legacy

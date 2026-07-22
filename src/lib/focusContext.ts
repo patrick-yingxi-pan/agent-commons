@@ -31,6 +31,12 @@ export const usePendingFocus = (): PendingFocus => useContext(FocusContext)
 /** How long a focus flash lingers before fading (ms). */
 export const FOCUS_FLASH_MS = 1600
 
+/** The ONE lit-highlight cue every focus target wears — a work item row, a
+ *  comment, an agent card, a conversation turn. One token so "you were brought
+ *  here" reads identically wherever a door lands (form follows function,
+ *  src/CLAUDE.md); callers supply their own resting border/ring. */
+export const FOCUS_FLASH_CLASS = 'bg-accent-tint ring-1 ring-accent/40'
+
 /** The ONE focus-flash behavior every notification-door target shares (a work item
  *  row, an agent card): when `active` flips true, run the optional side effect (e.g.
  *  open a thread), scroll the element into view, flash a highlight for

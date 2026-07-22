@@ -112,6 +112,16 @@ export function useShellRoutes({
     },
     [routeToFocused],
   )
+  // A conversation door that must land on a POSITION inside it (a discussion
+  // anchored to one turn, SOCIAL-6b): same route, but the landing pane is
+  // RECORDED so the per-pane focus context reaches the turn — a duplicate pane
+  // showing the same conversation must not steal the highlight.
+  const routeSessionDoor = useCallback(
+    (id: string): void => {
+      notifPaneRef.current = routeToFocused({ kind: 'msession', id })
+    },
+    [routeToFocused],
+  )
   const routeSection = useCallback(
     (section: SectionId, sub?: string | null): void => {
       routeToFocused({ kind: 'msection', id: section, sub: sub ?? null })
@@ -149,5 +159,5 @@ export function useShellRoutes({
     [mainTree, focusMainPane, applyRouteToFocused],
   )
 
-  return { applyRouteToFocused, applyPopRoute, applyBootRoute, routeDoor, routeSession, routeSection, mintIfEmpty, notifPaneRef }
+  return { applyRouteToFocused, applyPopRoute, applyBootRoute, routeDoor, routeSession, routeSessionDoor, routeSection, mintIfEmpty, notifPaneRef }
 }

@@ -152,13 +152,15 @@ function Workspace() {
   // The route bridges — how an ADDRESSED navigation (boot, popstate, a door)
   // becomes a focused-pane edit (controller/useShellRoutes.ts: the boot
   // dedup, the total routing, the notification landing-pane record).
-  const { applyRouteToFocused, applyPopRoute, applyBootRoute, routeDoor, routeSession, routeSection, mintIfEmpty, notifPaneRef } =
+  const { applyRouteToFocused, applyPopRoute, applyBootRoute, routeDoor, routeSession, routeSessionDoor, routeSection, mintIfEmpty, notifPaneRef } =
     useShellRoutes({ mainTree, focusedPane, routeToFocused, focusMainPane, fillMainPane })
 
   const {
     pendingFocus,
     consumeFocus,
     openSession,
+    openSessionTurn,
+    focusTurn,
     newSession,
     openSection,
     openProject,
@@ -176,7 +178,7 @@ function Workspace() {
     renameSession,
     archiveSession,
     deleteSession,
-  } = useSessionWorkspace({ focusedPath, applyRouteToFocused, applyPopRoute, applyBootRoute, routeDoor, routeSession, routeSection, mintIfEmpty })
+  } = useSessionWorkspace({ focusedPath, applyRouteToFocused, applyPopRoute, applyBootRoute, routeDoor, routeSession, routeSessionDoor, routeSection, mintIfEmpty })
 
   // LIVE PRUNE, the delete half: deleting a session evicts EVERY pane it
   // hosts — its conversation panes and its context panes alike (hostsSession),
@@ -319,6 +321,18 @@ function Workspace() {
       // origin onto the target's back stack (ADAPT-18); these shell versions
       // are the fallback for hosts without a tree path.
       onOpenSession: (id) => routeToFocused({ kind: 'msession', id }),
+      // A turn-anchored discussion's chip. Pane-originated (the normal case):
+      // the pane filled itself, so only the focus target moves — pointed at
+      // THAT pane, so a duplicate pane on the same conversation can't consume
+      // it. Chrome-originated (no path): route, then focus.
+      onOpenSessionTurn: (id, messageId, panePath) => {
+        if (panePath === undefined) {
+          openSessionTurn(id, messageId)
+          return
+        }
+        notifPaneRef.current = panePath
+        focusTurn(messageId)
+      },
       onNewSession: newSession,
       // A proposal row inside a page: pane-originated, so the origin rides
       // the target's back stack (the chrome doors omit the push).
@@ -355,7 +369,7 @@ function Workspace() {
       // The narrow tier's in-flow rail toggle rides the conversation title bar.
       railToggle: railOverlay ? <RailOpenButton onClick={openLeft} /> : undefined,
     }),
-    [routeToFocused, newSession, openProposal, openProject, openSchedule, sessionLabel, adoptDraftPanes, focusCtxFor, closeMainPane, railOverlay, openLeft],
+    [routeToFocused, openSessionTurn, focusTurn, notifPaneRef, newSession, openProposal, openProject, openSchedule, sessionLabel, adoptDraftPanes, focusCtxFor, closeMainPane, railOverlay, openLeft],
   )
 
 

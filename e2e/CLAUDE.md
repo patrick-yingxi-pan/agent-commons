@@ -21,10 +21,14 @@ Anchor specs:
 - `e2e/responsive.spec.ts` — the viewport ladder at phone/tablet/landscape
   sizes: the narrow-tier rail drawer, the full-viewport panel takeover, and
   the `short:` chrome compression (spec ADAPT-11).
-- `e2e/social-layer.spec.ts` — the social layer's two walks: publish → the
+- `e2e/social-layer.spec.ts` — the social layer's three walks: publish → the
   audience's Commons card → one root thread across card and entity page → an
-  offered change landing as L1 in the merged Changes panel; and the
-  `/shared/:token` link-redeem door (spec pillar 12).
+  offered change landing as L1 in the merged Changes panel; the
+  `/shared/:token` link-redeem door; and the **turn gutter** — a discussion
+  anchored to one TURN, minted from its hover gutter and resolved back by the
+  thread page's anchor chip (spec pillar 12). The turn walk sets a SHORT
+  viewport on purpose: a conversation opens at the bottom, so the earliest turn
+  must be off-screen or the "landed on the turn" assertion passes vacuously.
 
 Spec gotchas: the app **opens on a fresh draft** (sending materializes a new
 session), and the sidebar is an `<aside>` (role `complementary`) — only its
