@@ -234,13 +234,26 @@ function publicWorkItemComment(c: StoredWorkItemComment): WorkItemComment {
   return { ...pub, ...(principal ? { authorKind: principal.kind } : {}) }
 }
 
+/** Retract standing: the POSTER or the Project OWNER — both by RAW tenant id,
+ *  for the reason recorded above (display names are attacker-controlled). The
+ *  same predicate `retractOpenSubGoal` enforces, surfaced on the wire face
+ *  because the client CANNOT derive it: the ids it would need are stripped one
+ *  function below. A legacy item with no `postedByTenant` is poster-
+ *  unretractable (fail-closed); its Project owner still holds the act. */
+function canRetractItem(item: StoredOpenSubGoal, viewerTenant: string): boolean {
+  const isPoster = item.postedByTenant !== undefined && item.postedByTenant === viewerTenant
+  return isPoster || tenantWritesAs(viewerTenant, findProject(item.projectId)?.tenantId ?? defaultTenantId())
+}
+
 /** The one redaction seam stored → wire: drop the poster's raw tenant id and the
- *  act principals; the wire face carries display names + principal KINDs only. */
-function publicOpenSubGoal(item: StoredOpenSubGoal): OpenSubGoal {
+ *  act principals; the wire face carries display names + principal KINDs only —
+ *  plus the viewer-relative standing those stripped ids are needed to compute. */
+function publicOpenSubGoal(item: StoredOpenSubGoal, viewerTenant?: string): OpenSubGoal {
   const { postedByTenant, postedByPrincipal, retractedByPrincipal, comments, ...pub } = item
   void postedByTenant
   return {
     ...pub,
+    ...(viewerTenant !== undefined && canRetractItem(item, viewerTenant) ? { canRetract: true } : {}),
     ...(postedByPrincipal ? { postedByKind: postedByPrincipal.kind } : {}),
     ...(retractedByPrincipal ? { retractedByKind: retractedByPrincipal.kind } : {}),
     ...(comments ? { comments: comments.map(publicWorkItemComment) } : {}),
@@ -4215,10 +4228,12 @@ export const store = {
   /** A Project's open-work backlog (D19) — open items first (newest within each band).
    *  Served through the `publicOpenSubGoal` redaction (the poster's raw tenant id
    *  never crosses; the display name is the public face). */
-  listOpenSubGoals(projectId: string): OpenSubGoal[] {
+  listOpenSubGoals(projectId: string, viewerTenant?: string): OpenSubGoal[] {
     const items = openSubGoals.filter((o) => o.projectId === projectId)
     const band = (o: OpenSubGoal) => (o.status === 'open' ? 0 : 1)
-    return [...items].sort((a, b) => band(a) - band(b) || b.postedAt - a.postedAt).map(publicOpenSubGoal)
+    return [...items]
+      .sort((a, b) => band(a) - band(b) || b.postedAt - a.postedAt)
+      .map((o) => publicOpenSubGoal(o, viewerTenant))
   },
   /** The caller's cross-cutting "Your work" dashboard (the GitHub your-issues /
    *  your-PRs analog): work items THEY posted across projects they can still see,
@@ -4302,7 +4317,7 @@ export const store = {
     this.dispatchOpenSubGoal(item)
     emit({ type: 'openwork.changed', projectId })
     persist()
-    return publicOpenSubGoal(item)
+    return publicOpenSubGoal(item, tenantId)
   },
   /** Standing dispatch (D19): offer an open item to the Project's `standing`
    *  Commissions, in role-rank order (ties first-come by id), and let the FIRST one
@@ -4411,7 +4426,7 @@ export const store = {
     }
     emit({ type: 'openwork.changed', projectId })
     persist()
-    return publicOpenSubGoal(item)
+    return publicOpenSubGoal(item, tenantId)
   },
   /** Retract a work item (D23) — the honest close: permitted only to the item's
    *  POSTER (name-compared, the platform's public identity) or the Project's OWNER
@@ -4422,16 +4437,10 @@ export const store = {
   retractOpenSubGoal(projectId: string, itemId: string, tenantId: string, principal: PrincipalRef | undefined): OpenSubGoal | 'forbidden' | 'closed' | undefined {
     const item = openSubGoals.find((o) => o.id === itemId && o.projectId === projectId)
     if (!item) return undefined
-    const ownerTenant = findProject(projectId)?.tenantId ?? defaultTenantId()
-    // BOTH branches compare raw tenant ids (review finding: display names are
-    // attacker-controlled — createWorkspace has no uniqueness guard — so a name
-    // comparison would let a colliding-name tenant close a victim's items). A
-    // legacy item persisted without `postedByTenant` is poster-unretractable
-    // (fail-closed); its Project owner still can.
-    const isPoster = item.postedByTenant !== undefined && item.postedByTenant === tenantId
-    // FWD-6: "the Project owner" on an org-owned project means the org's OWNER
-    // seat (write-grade union) — same raw-id comparison discipline underneath.
-    if (!isPoster && !tenantWritesAs(tenantId, ownerTenant)) return 'forbidden'
+    // The SAME predicate the wire face reports (`canRetract`) — raw-id compared,
+    // and FWD-6's org-OWNER-seat union underneath. One decision, not two that
+    // happen to agree.
+    if (!canRetractItem(item, tenantId)) return 'forbidden'
     if (item.status !== 'open') return 'closed'
     item.status = 'retracted'
     item.retractedAt = Date.now()
@@ -4447,7 +4456,7 @@ export const store = {
     })
     emit({ type: 'openwork.changed', projectId })
     persist()
-    return publicOpenSubGoal(item)
+    return publicOpenSubGoal(item, tenantId)
   },
 
   // ── Social-layer grants (S1) ────────────────────────────────────────────────

@@ -85,6 +85,14 @@ export interface OpenSubGoal {
   note: string
   /** The workspace display name that posted it (public identity). */
   postedBy: string
+  /** Viewer-relative: may the caller retract it? Standing is the POSTER or the
+   *  Project OWNER, both compared by raw tenant id server-side — which the wire
+   *  face deliberately strips, so a client CANNOT derive this correctly. Gating
+   *  on `postedBy === myName` (as the UI did) is wrong in both directions: a
+   *  renamed workspace loses the control it holds, and a colliding display name
+   *  is shown one that 403s. Computed by the same predicate `retractOpenSubGoal`
+   *  enforces. */
+  canRetract?: boolean
   /** The posting principal's KIND (FWD-5 Phase 1) — see `WorkItemComment.authorKind`. */
   postedByKind?: PrincipalKind
   postedAt: number

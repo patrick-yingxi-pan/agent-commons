@@ -1714,7 +1714,7 @@ export function buildRouter(): Router {
   }
   r.get('/projects/:id/open-subgoals', ({ req, res, params }) => {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
-    sendJson(res, store.listOpenSubGoals(params.id))
+    sendJson(res, store.listOpenSubGoals(params.id, store.identity(req.headers).tenant.id))
   })
   r.post('/projects/:id/open-subgoals', async ({ req, res, params, body }) => {
     const input = await body<PostOpenSubGoalRequest>()

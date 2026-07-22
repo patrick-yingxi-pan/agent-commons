@@ -108,3 +108,40 @@ test('a standing resolution carries the FULL attribution chain: who, under what 
   // displays as its id; a registry namespace as its display name.
   assert.equal(res.json.resolvedByOwner, B, 'FOR WHICH owner namespace')
 })
+
+test('canRetract is the WRITE path’s answer — raw-id compared, so a RENAME can’t take the act away', async () => {
+  // The UI used to gate its Retract control on `postedBy === myName`. That is
+  // wrong in both directions, and it can't be fixed client-side: the raw ids the
+  // server compares are stripped from the wire face by design (they are
+  // attacker-controlled as names — createWorkspace has no uniqueness guard).
+  const { projectId, item } = await arena()
+  const face = async (tenant: string) =>
+    ((await call('GET', `/projects/${projectId}/open-subgoals`, undefined, { 'x-tenant-id': tenant })).json as {
+      id: string
+      canRetract?: boolean
+    }[]).find((o) => o.id === item.id)!
+
+  assert.equal((await face(B)).canRetract, true, 'the poster holds it')
+  assert.equal((await face(A)).canRetract, true, 'the project owner holds it too — two parties')
+  assert.notEqual((await face('tenant-prin-outsider')).canRetract, true, 'nobody else does')
+
+  // WHY the flag has to exist at all: the wire face carries the poster's display
+  // NAME and deliberately strips the raw id the server compares. So a client
+  // gating on `postedBy === myName` is guessing — it breaks on a rename (the
+  // holder loses a control they still have) and on a name collision (a stranger
+  // is shown one that 403s). This asserts the shape that makes guessing
+  // impossible: the answer is present, the input to it is not.
+  const wire = JSON.stringify(await face(B))
+  assert.ok(wire.includes('"canRetract"'), 'the answer crosses the wire')
+  assert.ok(!wire.includes('postedByTenant'), '…and the raw id it was computed from never does')
+
+  // …and the face matches the write path exactly.
+  assert.equal(
+    (await call('POST', `/projects/${projectId}/open-subgoals/${item.id}/retract`, undefined, { 'x-tenant-id': 'tenant-prin-outsider' })).status,
+    403,
+  )
+  assert.equal(
+    (await call('POST', `/projects/${projectId}/open-subgoals/${item.id}/retract`, undefined, { 'x-tenant-id': A })).status,
+    200,
+  )
+})

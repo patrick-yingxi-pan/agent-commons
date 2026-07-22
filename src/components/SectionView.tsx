@@ -2094,7 +2094,7 @@ function CoordinationPanel({ project }: { project: Project }) {
         inside Coordination, one level deeper than its nature (the issues tray, a
         first-class backlog) warrants. Same guardian gate as before: posting routes
         through the guardian walls, so an unguarded project has no backlog. */}
-    {guarded && <OpenWorkList projectId={project.id} ownerCanModerate={project.own !== false} />}
+    {guarded && <OpenWorkList projectId={project.id} />}
     </>
   )
 }
@@ -2122,7 +2122,7 @@ function renderCommentBody(body: string): ReactNode[] {
  *  project's STANDING contributors (through the same role/reach/guardian walls as a
  *  prompted effect); the returned item is already done when one took it. Live on
  *  `openwork.changed`. */
-function OpenWorkList({ projectId, ownerCanModerate }: { projectId: string; ownerCanModerate: boolean }) {
+function OpenWorkList({ projectId }: { projectId: string }) {
   const items = useOpenSubGoals(projectId).data ?? []
   const [subGoal, setSubGoal] = useState('')
   const [type, setType] = useState<ProjectEffectType>('charge')
@@ -2170,7 +2170,7 @@ function OpenWorkList({ projectId, ownerCanModerate }: { projectId: string; owne
         <CardList>
           {items.map((o) => (
             <div key={o.id} className="px-4 py-3">
-              <WorkItemRow item={o} projectId={projectId} ownerCanModerate={ownerCanModerate} />
+              <WorkItemRow item={o} projectId={projectId} />
             </div>
           ))}
         </CardList>
@@ -2277,19 +2277,21 @@ function WatchButton({ projectId }: { projectId: string }) {
 function WorkItemRow({
   item: o,
   projectId,
-  ownerCanModerate,
 }: {
   item: OpenSubGoal
   projectId: string
-  ownerCanModerate: boolean
 }) {
-  const myName = useMe().data?.tenant.name
   const comments = o.comments ?? []
   const [threadOpen, setThreadOpen] = useState(false)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const mayRetract = o.status === 'open' && (ownerCanModerate || o.postedBy === myName)
+  // The SERVER's answer, not a display-name comparison: standing is compared by
+  // raw tenant id (names are attacker-controlled and renameable), and those ids
+  // are stripped from the wire face — so the client cannot derive this. Gating
+  // on the name was wrong both ways: a renamed workspace lost the retract it
+  // holds, and a colliding name was shown one that 403s.
+  const mayRetract = o.status === 'open' && o.canRetract === true
   // S13 — the poster / retractedBy / comment author are workspace public identities, so
   // each is a door to that workspace's profile (the shared OwnerLink), like every other
   // byline. Theme #3's work-item-poster RefLink target, finally built.
@@ -2508,7 +2510,7 @@ function WorkItemPage({
   }
 
   const comments = o.comments ?? []
-  const mayRetract = o.status === 'open' && (project.own !== false || o.postedBy === myName)
+  const mayRetract = o.status === 'open' && o.canRetract === true
 
   const send = async () => {
     if (busy || !draft.trim()) return
