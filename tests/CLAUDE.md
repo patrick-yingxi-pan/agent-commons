@@ -41,3 +41,19 @@ The always-on map is [`AGENTS.md`](../AGENTS.md).
   - a **conditional guard around the key assertion** (`if (res.status === 200)`)
     whose route did not exist, so the branch never ran. If a step may legitimately
     not apply, assert that it applied.
+- **`tests/` and `e2e/` are deliberately NOT typechecked** — measured, not
+  assumed (2026-07-22). `npm run typecheck` covers `src` + `contract` + `server`
+  (FWD-8 put the backend in; a server type error used to reach runtime). Adding
+  the test tree costs **574 errors** after declaring `node:test` /
+  `node:assert/strict`: 124 possibly-undefined, 118 missing-property, 93
+  argument-type, 74 arity, 48 implicit-any — overwhelmingly test-local looseness
+  (untyped HTTP-helper responses indexed directly), not defects. Fixing them
+  means retyping the suite's helper surface, i.e. editing the safety net itself
+  at ~574 sites, for a payoff that runtime already delivers in seconds: a broken
+  test fails loudly the first time it runs.
+  **What that forgoes, concretely:** an invented union member is caught by the
+  compiler, not by the run. A test here once constructed a `RelationOp` with a
+  `kind` that does not exist; it crashed with an unrelated `TypeError` instead of
+  saying "no such kind", and the real name had to be found by reading the
+  reducer. Accepted — but if this bites repeatedly, the measurement above is the
+  starting point, and `node:test`/`node:assert` declarations are the first step.
