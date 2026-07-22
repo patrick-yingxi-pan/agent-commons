@@ -117,6 +117,15 @@ evaluator-facing summary:
   unbuilt production tail; and the seeded share (Acme's *Insights dashboard* →
   Beta Platform at `propose` tier) is code-owned so the share → discuss →
   improve demo needs no setup. Don't file these as bugs.
+- **The demo scene stands up from a COLD start** (verified 2026-07-22 against an
+  empty `.data/`, in a fresh browser profile — which is what a clone gets, since
+  `.data/` is gitignored): the sign-in front door renders with its
+  not-affiliated disclosure, `ada@acme.example` / `ada-demo-password` lands in
+  the workspace, the seeded share (`grant-seed-1`, *Insights dashboard* → Beta
+  Platform at `propose`, carrying a note) is already there so the Commons has a
+  card, and free-typing *"Open a workspace and draft the launch assets"* returns
+  a real round-trip whose consent card reads **"Claude would like to Cowork in a
+  folder"** (Deny · Choose folder). Nothing in the walk needs setup.
 - **Created state is persisted** to `.data/store.json` and rehydrated on boot
   (`server/persist.ts`) — it survives a restart; snapshot back-up/restore
   tooling lives in `scripts/snapshot.ts`. Operational detail in
