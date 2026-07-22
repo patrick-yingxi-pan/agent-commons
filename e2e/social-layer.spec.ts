@@ -40,6 +40,9 @@ const TURN_POST = `About this step specifically ${STAMP}`
 const TURN_REPLY = `Still this step ${STAMP}`
 const GUEST_POST = `A question about this exact step ${STAMP}`
 const RUN_POST = `This run failed on the label step ${STAMP}`
+const ROUTINE = '/scheduled/s-issue-triage'
+const NEW_CADENCE = `Every 9 hours ${STAMP}`
+const ROUTINE_CHANGE = `Move this to 09:00 — 08:00 lands before the data does ${STAMP}`
 /** A seeded multi-turn conversation, opened by its canonical URL (every page
  *  has one — src/CLAUDE.md). The walk asserts the turn count, so a reseed that
  *  shortens this thread fails loudly rather than passing vacuously. */
@@ -359,4 +362,62 @@ test('the run gutter: the SAME gutter on a routine’s runs, landing back on one
   await expect(page.getByTitle('Open this run’s thread')).toBeInViewport({ timeout: 10_000 })
 
   await ada.context.close()
+})
+
+test('a shared ROUTINE: the visitor page is read-only, and landing their change runs the real mutator', async ({ browser }) => {
+  test.setTimeout(180_000)
+  const ada = await newUser(browser)
+  const grace = await newUser(browser, { 'x-tenant-id': 'tenant-beta' })
+
+  // Ada shares the routine from its rail — the same generic GrantsPanel the
+  // project page hosts, on a subject that had no share door until now.
+  await ada.page.goto(ROUTINE)
+  await expect(ada.page.getByRole('heading', { name: /Triage/i })).toBeVisible({ timeout: 20_000 })
+  await ada.page.getByLabel('Audience kind').selectOption('org')
+  await ada.page.getByLabel('Audience id').fill('tenant-beta')
+  await ada.page.getByLabel('Tier').selectOption({ label: 'Propose' })
+  await ada.page.getByRole('button', { name: 'Share', exact: true }).click()
+  await expect(ada.page.getByText('tenant-beta')).toBeVisible()
+
+  // Grace can now open it — and the page is READ-ONLY. Widening the read must
+  // not hand her the owner's controls; every one of these would 404.
+  await grace.page.goto(ROUTINE)
+  await expect(grace.page.getByRole('heading', { name: /Triage/i })).toBeVisible({ timeout: 20_000 })
+  await expect(grace.page.getByRole('button', { name: 'Run now' })).toHaveCount(0)
+  await expect(grace.page.getByRole('button', { name: /^(Pause|Resume)$/ })).toHaveCount(0)
+  await expect(grace.page.getByRole('button', { name: 'Delete' })).toHaveCount(0)
+  await expect(grace.page.getByTitle('Rename routine')).toHaveCount(0)
+  await expect(grace.page.getByLabel('Audience id')).toHaveCount(0)
+  await expect(grace.page.getByLabel('Edit instruction')).toHaveCount(0)
+
+  // What she CAN do is the point of sharing it: propose a FIELD of the routine.
+  // The form is structured, not prose — the delta has to be appliable.
+  await grace.page.getByRole('button', { name: 'Offer a change' }).click()
+  await grace.page.getByLabel('Field to change').selectOption('cadence')
+  await grace.page.getByLabel('New value').fill(NEW_CADENCE)
+  await grace.page.getByLabel('Why this change').fill(ROUTINE_CHANGE)
+  await grace.page.getByRole('button', { name: 'Offer', exact: true }).click()
+  await expect(grace.page.getByText(`cadence → “${NEW_CADENCE}”`)).toBeVisible({ timeout: 20_000 })
+
+  // Ada lands it — and because the delta is a `schedule-patch`, landing runs the
+  // REAL `updateSchedule`: the routine's own cadence changes on her page. That
+  // is the difference between a proposal that records agreement and one that
+  // performs it.
+  // Navigate explicitly rather than reload(): a reload restores whatever address
+  // the pane had drifted to, which in a full-suite run is not this routine.
+  await ada.page.goto(ROUTINE)
+  // Scoped to GRACE'S row, never `.first()`: this routine accumulates proposals
+  // across runs, and landing whichever happened to be first proves nothing about
+  // the one under test.
+  const row = ada.page.locator('li', { hasText: `cadence → “${NEW_CADENCE}”` })
+  await expect(row).toHaveCount(1, { timeout: 20_000 })
+  await row.getByRole('button', { name: 'Land' }).click()
+  // A ledger POSITION, not a specific number: this routine's L# sequence is
+  // shared, so an earlier walk landing on it would shift mine.
+  await expect(row.getByText(/^L\d+$/)).toBeVisible({ timeout: 20_000 })
+  // The real proof: landing RAN the mutator, so the routine's own cadence changed.
+  await expect(ada.page.getByText(NEW_CADENCE).first()).toBeVisible({ timeout: 20_000 })
+
+  await ada.context.close()
+  await grace.context.close()
 })

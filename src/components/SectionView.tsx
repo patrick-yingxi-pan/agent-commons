@@ -9988,7 +9988,7 @@ function ScheduledDetail({
                   aria-label="Routine name"
                   className={`${PAGE_TITLE_CLASS} min-w-0 max-w-full rounded-md border border-accent bg-surface px-1.5 py-0.5 outline-none`}
                 />
-              ) : (
+              ) : task.own !== false ? (
                 <button
                   onClick={() => {
                     setNameDraft(task.name)
@@ -10000,6 +10000,9 @@ function ScheduledDetail({
                   <h1 className={`${PAGE_TITLE_CLASS} truncate`}>{task.name}</h1>
                   <Pencil size={14} className={`shrink-0 text-ink-faint ${HOVER_CUE}`} />
                 </button>
+              ) : (
+                // A visitor reads the name; renaming is the owner's act.
+                <h1 className={`${PAGE_TITLE_CLASS} truncate`}>{task.name}</h1>
               )}
               {running ? (
                 <StatusPill tone="warn" label="Running…" />
@@ -10015,35 +10018,41 @@ function ScheduledDetail({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
-          <button
-            onClick={onRunNow}
-            disabled={running}
-            className="flex items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas shadow-sm transition hover:opacity-90 disabled:opacity-60"
-          >
-            {running ? <Spinner size={15} /> : <Play size={15} />}
-            {running ? 'Running…' : 'Run now'}
-          </button>
-          <button
-            onClick={onToggleEnabled}
-            className="flex items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[13px] font-medium text-ink shadow-sm transition hover:border-accent"
-          >
-            {task.enabled ? <PauseCircle size={15} /> : <PlayCircle size={15} />}
-            {task.enabled ? 'Pause' : 'Resume'}
-          </button>
-          <button
-            onClick={onRemove}
-            className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[13px] font-medium text-ink-soft shadow-sm transition hover:border-removed hover:bg-removed-bg hover:text-removed"
-          >
-            <Trash2 size={14} />
-            Delete
-          </button>
-        </div>
+        {/* Run / Pause / Delete are the OWNER's acts — the routine's write routes
+            gate on ownership, not the (now grant-widened) read. A visitor who was
+            shared this routine reads it, discusses it and offers improvements;
+            they never see a control that would 404. */}
+        {task.own !== false && (
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={onRunNow}
+              disabled={running}
+              className="flex items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas shadow-sm transition hover:opacity-90 disabled:opacity-60"
+            >
+              {running ? <Spinner size={15} /> : <Play size={15} />}
+              {running ? 'Running…' : 'Run now'}
+            </button>
+            <button
+              onClick={onToggleEnabled}
+              className="flex items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[13px] font-medium text-ink shadow-sm transition hover:border-accent"
+            >
+              {task.enabled ? <PauseCircle size={15} /> : <PlayCircle size={15} />}
+              {task.enabled ? 'Pause' : 'Resume'}
+            </button>
+            <button
+              onClick={onRemove}
+              className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[13px] font-medium text-ink-soft shadow-sm transition hover:border-removed hover:bg-removed-bg hover:text-removed"
+            >
+              <Trash2 size={14} />
+              Delete
+            </button>
+          </div>
+        )}
       </header>
 
       <div className="flex flex-col gap-6 @3xl:flex-row">
         <div className="min-w-0 flex-1 space-y-4">
-          <PromptCard prompt={task.prompt} onSave={(prompt) => void updateSchedule(task.id, { prompt })} />
+          <PromptCard prompt={task.prompt} onSave={task.own !== false ? (prompt) => void updateSchedule(task.id, { prompt }) : undefined} />
           <WorkflowCard task={task} run={shownRun} running={running} />
           <RunHistoryCard task={task} onOpenRun={(runId) => onOpenSession(runSessionId(task.id, runId))} />
           {/* A routine is a social subject like any other: it can be shared,
@@ -10053,7 +10062,19 @@ function ScheduledDetail({
           <DiscussionsPanel subject={{ kind: 'schedule', id: task.id }} own={task.own !== false} />
         </div>
 
+        {/* The right rail is owner CONFIGURATION throughout (delivery, tools,
+            model, schedule) — the same rule the project page keeps: a visitor's
+            page is one column. */}
+        {task.own !== false && (
         <aside className="w-full shrink-0 space-y-4 @3xl:w-72">
+          {/* Sharing — the OWNER's audience configuration, in the rail like a
+              project's (config belongs in the rail, S17). Without it the routine's
+              social surface was unreachable: it could be discussed and improved,
+              but never shared with anyone to discuss or improve it. */}
+          <SidePanel title="Sharing" icon={<Globe size={14} />}>
+            <GrantsPanel subject={{ kind: 'schedule', id: task.id }} />
+          </SidePanel>
+
           <SchedulePanel task={task} />
 
           <DeliveryPanel task={task} />
@@ -10062,6 +10083,7 @@ function ScheduledDetail({
 
           <ModelPanel task={task} />
         </aside>
+        )}
       </div>
     </Page>
   )
@@ -10070,7 +10092,9 @@ function ScheduledDetail({
 /** The verbatim instruction every run executes against — an entity field, so it's
  *  inline-editable (✎ → textarea, ⌘/Ctrl+Enter or Save commits via updateSchedule).
  *  Copy stays available in read mode. */
-function PromptCard({ prompt, onSave }: { prompt: string; onSave: (prompt: string) => void }) {
+/** `onSave` ABSENT = read-only (a granted visitor): the instruction is payload
+ *  they may read, editing it is the owner's act. */
+function PromptCard({ prompt, onSave }: { prompt: string; onSave?: (prompt: string) => void }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(prompt)
   const taRef = useRef<HTMLTextAreaElement>(null)
@@ -10081,7 +10105,7 @@ function PromptCard({ prompt, onSave }: { prompt: string; onSave: (prompt: strin
   }
   const save = () => {
     const next = draft.trim()
-    if (next && next !== prompt) onSave(next)
+    if (next && next !== prompt) onSave?.(next)
     setEditing(false)
   }
   useEffect(() => {
@@ -10094,7 +10118,7 @@ function PromptCard({ prompt, onSave }: { prompt: string; onSave: (prompt: strin
         <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Instruction</span>
         {!editing && (
           <SectionActions>
-            <SectionAction label="Edit instruction" icon={<Pencil size={13} />} onClick={startEdit} />
+            {onSave && <SectionAction label="Edit instruction" icon={<Pencil size={13} />} onClick={startEdit} />}
             <CopyButton text={prompt} ariaLabel="Copy instruction" />
           </SectionActions>
         )}
