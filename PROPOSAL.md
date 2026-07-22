@@ -216,8 +216,14 @@ Unifying the surface does **not** require deleting the workflows people rely on:
 - **Discoverability of capabilities.** If there are no tabs, how do users learn
   they *can* attach a repo? (Prototype's answer: an always-present "Add context"
   affordance on the composer; this needs real testing.)
-- **Panel real estate.** On small windows, chat + a code panel is tight; the
-  collapse-to-rail behavior is a start but needs responsive rules.
+- **Panel real estate.** On small windows, chat + a code panel is tight. This
+  one the prototype has since answered rather than flagged: three layout tiers
+  (tile / dock / drawer), and the rules are named and enforced rather than
+  eyeballed — an earned ledger of UI invariants
+  ([`docs/ui-invariants.md`](docs/ui-invariants.md), each row citing the bug that
+  earned it), a `npm run ui:sweep` harness that drives every surface across five
+  viewports, and browser specs that fail on a regression. The residual risk is
+  taste, not layout.
 - **Permissions & safety.** Escalating a chat into a repo session crosses a
   capability boundary (file writes, command execution). The attach step is the
   natural place for an explicit consent moment — worth designing carefully. The
@@ -226,6 +232,9 @@ Unifying the surface does **not** require deleting the workflows people rely on:
   subtle case is a **schedule**, which acts repeatedly — there the consent is an
   *advance* approval granted once and honored on every run, so the boundary is
   "do you trust this recurring workflow," asked up front, not re-asked each run.
+  Sharing a resource with another person is the same shape one step out — an
+  ordered tier (view ⊂ comment ⊂ propose ⊂ co-own) decided once, with the
+  surface showing only the acts that tier actually permits.
 - **Naming.** "Workspace" vs. "Cowork", "Repo" vs. "Code" — terminology should
   be decided with the broader product language.
 - **Backend reality.** Whether Chat/Cowork/Code share enough infrastructure to
