@@ -12,9 +12,19 @@ export const ROOT = join(import.meta.dirname, '..', '..')
  *  `.d.ts` declarations (which are erased and never executed). */
 export function filesUnder(dir, exts = ['.ts', '.tsx']) {
   const base = join(ROOT, dir)
-  return readdirSync(base, { recursive: true })
+  const found = readdirSync(base, { recursive: true })
     .filter((f) => typeof f === 'string' && exts.some((e) => f.endsWith(e)) && !f.endsWith('.d.ts'))
     .map((f) => join(base, f))
+  // A source scan that finds NOTHING passes every assertion it was going to
+  // make, having checked nothing — the vacuity that green suites hide. This
+  // helper backs a dozen enumerating locks, so one guard here makes all of them
+  // fail loudly instead (a moved directory, a changed extension, a bad `dir`).
+  if (found.length === 0) {
+    throw new Error(
+      `filesUnder('${dir}') matched no ${exts.join('/')} files — a scan over nothing would pass vacuously. Check the path.`,
+    )
+  }
+  return found
 }
 
 export const read = (p) => readFileSync(p, 'utf8')

@@ -5,20 +5,17 @@
  *  these locks keep the primitives from drifting (the copy-button pattern). */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { filesUnder } from './helpers/source.ts'
 import { SHARE_TIERS } from '../contract/social.ts'
 import { TIER_LABELS, TIER_BADGE_CLASS } from '../src/lib/tierBadge.ts'
 
-const SRC = join(process.cwd(), 'src')
-function walk(dir: string, out: string[] = []): string[] {
-  for (const name of readdirSync(dir)) {
-    const p = join(dir, name)
-    if (statSync(p).isDirectory()) walk(p, out)
-    else if (/\.(ts|tsx)$/.test(name)) out.push(p)
-  }
-  return out
-}
+// The ONE source walker (tests/helpers/source.ts) — it THROWS when a scan
+// matches nothing, so these enumerating locks can't quietly pass over zero
+// files. A second local walker was exactly the drift that rule prevents.
+const SRC = 'src'
+const walk = (dir: string) => filesUnder(dir)
 
 test('TIER_LABELS covers exactly the contract tiers (one label map, in tier order)', () => {
   assert.deepEqual(Object.keys(TIER_LABELS), [...SHARE_TIERS])
