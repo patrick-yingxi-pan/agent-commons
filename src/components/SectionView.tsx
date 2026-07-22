@@ -176,6 +176,7 @@ import {
   useCommons,
   useMyDiscussions,
   useSocialProposals,
+  useSocialCapability,
   useGrants,
   openSocialProposal,
   landSocialProposal,
@@ -2802,9 +2803,13 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
 /** The root-thread composer is the shared `AnchorThreadComposer` with no locus
  *  — one component for every projection of a thread (the entity panel, the feed
  *  card, the conversation's turn gutter). */
-const RootThreadComposer = ({ subject, root, placeholder }: { subject: SocialEntityRef; root: Discussion | null; placeholder?: string }) => (
-  <AnchorThreadComposer subject={subject} thread={root} placeholder={placeholder} />
-)
+const RootThreadComposer = ({ subject, root, placeholder }: { subject: SocialEntityRef; root: Discussion | null; placeholder?: string }) => {
+  // Capability shapes affordances: a `view`-tier reader reads the thread and
+  // may not post to it, so they get no composer rather than a refusal.
+  const canComment = useSocialCapability(subject.kind, subject.id).data?.canComment === true
+  if (!canComment) return null
+  return <AnchorThreadComposer subject={subject} thread={root} placeholder={placeholder} />
+}
 
 /** One feed post — a share act or a landing, its subject embed, and the door
  *  into the subject's root thread. The card is a PROJECTION: its comments are
@@ -3247,6 +3252,9 @@ function ChangesPanel({ project, own, onOpenSession }: { project: Project; own: 
   const subject: SocialEntityRef = { kind: 'project', id: project.id }
   const contributionList = useContributions(project.id).data ?? []
   const proposalList = useSocialProposals(subject.kind, subject.id).data ?? []
+  // Capability shapes affordances: offering needs the `propose` tier, so a
+  // comment-tier visitor is not shown a form the server would refuse.
+  const canPropose = useSocialCapability(subject.kind, subject.id).data?.canPropose === true
   const [composing, setComposing] = useState<'contribution' | 'proposal' | null>(null)
   const [title, setTitle] = useState('')
   const [summary, setSummary] = useState('')
@@ -3323,12 +3331,14 @@ function ChangesPanel({ project, own, onOpenSession }: { project: Project; own: 
             onClick={() => setComposing((v) => (v === 'contribution' ? null : 'contribution'))}
             expanded={composing === 'contribution'}
           />
-          <SectionAction
-            label="Offer a change — the owner lands it by consent"
-            icon={<Sparkles size={14} />}
-            onClick={() => setComposing((v) => (v === 'proposal' ? null : 'proposal'))}
-            expanded={composing === 'proposal'}
-          />
+          {canPropose && (
+            <SectionAction
+              label="Offer a change — the owner lands it by consent"
+              icon={<Sparkles size={14} />}
+              onClick={() => setComposing((v) => (v === 'proposal' ? null : 'proposal'))}
+              expanded={composing === 'proposal'}
+            />
+          )}
         </>
       }
     >

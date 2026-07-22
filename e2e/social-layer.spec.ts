@@ -284,10 +284,28 @@ test('sharing a CONVERSATION: the owner shares from its title bar, the audience 
   // Asserted on the POST, not the thread's heading: the heading is whatever
   // opened the thread, and by the get-or-create rule Grace may have appended to
   // one the turn already carried (walk 3 leaves one there when both run).
-  await expect(ada.page.getByText(GUEST_POST)).toBeVisible()
+  // `.first()`: whether Grace's words are the thread's HEADING (she opened it)
+  // or just a post in it (walk 3 opened it first) depends on which walks ran —
+  // the assertion must not care.
+  await expect(ada.page.getByText(GUEST_POST).first()).toBeVisible()
   // It landed on the THREAD's page, not the subject's — the anchor chip is
   // there, pointing back at the exact turn the thread hangs on.
   await expect(ada.page.getByRole('button', { name: /^session · .+ · one turn$/ })).toBeVisible()
+
+  // ── Capability shapes affordances: narrow Grace to `view` ────────────────
+  // She keeps READING every thread and loses the ability to start one, so the
+  // opener disappears while the marker stays. Without this the gutter offers an
+  // act the server refuses — once per turn, on every turn.
+  await ada.page.goto(TURN_SESSION)
+  await ada.page.getByRole('button', { name: 'Share this conversation' }).click()
+  await ada.page.getByLabel('Audience id').fill('tenant-beta')
+  await ada.page.getByLabel('Tier').selectOption({ label: 'View' })
+  await ada.page.getByRole('button', { name: 'Share', exact: true }).click()
+
+  await grace.page.reload()
+  await expect(grace.page.getByTitle('Open this turn’s thread').first()).toBeVisible({ timeout: 20_000 })
+  await expect(grace.page.getByTitle('Discuss this turn')).toHaveCount(0)
+  await expect(grace.page.getByTitle('Reply')).toHaveCount(0)
 
   await ada.context.close()
   await grace.context.close()

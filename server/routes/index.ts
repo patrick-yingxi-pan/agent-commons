@@ -1886,6 +1886,25 @@ export function buildRouter(): Router {
     sendJson(res, { ok: true })
   })
 
+  // What the CALLER may do on one subject — so the UI can shape its affordances
+  // to the wall instead of offering acts the write paths then refuse. Computed
+  // from the SAME predicates those paths use, never a parallel rule. Walled like
+  // every other social face: an invisible subject 404s exactly as a missing one.
+  r.get('/social/capability', ({ req, res, url }) => {
+    const kind = url.searchParams.get('kind') ?? ''
+    const id = url.searchParams.get('id') ?? ''
+    if (!(SOCIAL_ENTITY_KINDS as readonly string[]).includes(kind) || !id) {
+      return sendError(res, 'bad_request', 'kind (a social entity kind) and id are required')
+    }
+    const ref = { kind: kind as SocialEntityKind, id }
+    const tenant = store.identity(req.headers).tenant.id
+    if (!store.grantSubjectVisible(ref, tenant)) return sendError(res, 'not_found', `No ${kind} '${id}'`)
+    sendJson(res, {
+      canComment: store.socialSubjectCommentable(ref, tenant),
+      canPropose: store.socialSubjectProposable(ref, tenant),
+    } satisfies import('../../contract/index.ts').SocialCapability)
+  })
+
   // ── Social-layer discussions (S2) ───────────────────────────────────────────
   // Generic over the anchor ref; visibility INHERITS the anchor's read wall
   // (existence-hiding — the store enforces on every face). Posting needs

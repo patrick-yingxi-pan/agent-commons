@@ -85,6 +85,24 @@ export type Audience =
 export const SHARE_TIERS = ['view', 'comment', 'propose', 'co-own'] as const
 export type ShareTier = (typeof SHARE_TIERS)[number]
 
+/** `GET /v1/social/capability?kind=&id=` — what the CALLER may do on one
+ *  subject, computed at serve time by the very predicates the write paths use.
+ *
+ *  Exists so an affordance can't outlive its wall: the UI's rule is that
+ *  capability shapes affordances (src/CLAUDE.md — a shared entity has ONE page;
+ *  what differs is which controls exist), and without this the comment gutters
+ *  and the offer form render for every reader, including the `view`-tier
+ *  audience whose every post the server then refuses. Deliberately BOOLEANS
+ *  rather than the raw tier: ownership and the legacy everyone-switch grant
+ *  these too without being tiers, so a tier alone would be a second, weaker
+ *  model of the same question. */
+export interface SocialCapability {
+  /** May open threads and post on this subject (the `comment` tier and above). */
+  canComment: boolean
+  /** May offer changes against it (the `propose` tier and above). */
+  canPropose: boolean
+}
+
 /** ── Grant (S1) — the share act ──────────────────────────────────────────────
  *  Who can see/do what on a resource. The wire face is REDACTED like every
  *  cross-tenant row: `grantedBy` is a display name; raw foreign tenant ids

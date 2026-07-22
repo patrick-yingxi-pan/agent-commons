@@ -43,6 +43,7 @@ export const keys = {
   /** A subject's discussions (social S2) — same shape; `discussion:` alone is
    *  the by-id family. */
   discussions: (kind?: string, id?: string) => (kind && id ? `discussions:${kind}:${id}` : 'discussions'),
+  socialCapability: (kind: string, id: string) => `social-capability:${kind}:${id}`,
   discussion: (did?: string) => (did ? `discussion:${did}` : 'discussion'),
   myDiscussions: 'discussions:mine',
   /** The Commons feed (S4) — one projection per caller. */
@@ -170,6 +171,7 @@ export const paths = {
   grantRedeem: () => `/grants/redeem`,
   /** A subject's discussions (social S2) + the per-discussion faces. */
   discussions: (kind: string, id: string) => `/discussions?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`,
+  socialCapability: (kind: string, id: string) => `/social/capability?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`,
   myDiscussions: () => `/discussions?mine=1`,
   /** The Commons feed (S4). */
   commons: () => `/commons`,

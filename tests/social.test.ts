@@ -272,3 +272,44 @@ test('SOCIAL-5: a session carries VIEWER-RELATIVE ownership — reads widen, the
     'every row of a tenant-scoped list is owned — the flag is a fact there, not an inference',
   )
 })
+
+test('SOCIAL-5: the capability face matches the WALL, so an affordance can never outlive it', async () => {
+  // The UI gates its comment gutters and offer form on this; if it ever
+  // disagreed with the write paths, every reader would be shown acts the
+  // server then refuses. Computed from the same predicates, asserted against
+  // the same routes.
+  const { projectId, subject } = socialArena()
+  const cap = (tenant: string) => call('GET', `/social/capability?kind=project&id=${projectId}`, undefined, { 'x-tenant-id': tenant })
+
+  // A bystander gets the existence-hiding 404, exactly like every other face.
+  assert.equal((await cap(BYSTANDER)).status, 404, 'invisible subjects stay invisible')
+
+  // The owner may do everything.
+  const owner = await cap(OWNER)
+  assert.equal(owner.status, 200)
+  assert.deepEqual(owner.json, { canComment: true, canPropose: true })
+
+  // A VIEW grant opens reading and nothing else — the exact case that made the
+  // gutter a dead affordance on every turn of a shared conversation.
+  await call('POST', '/grants', { subject, audience: { kind: 'org', orgId: AUDIENCE }, tier: 'view' }, { 'x-tenant-id': OWNER })
+  assert.deepEqual((await cap(AUDIENCE)).json, { canComment: false, canPropose: false }, 'view reads, and only reads')
+  const refusedPost = await call('POST', '/discussions', { anchor: { ref: subject }, firstPost: 'nope' }, { 'x-tenant-id': AUDIENCE })
+  assert.equal(refusedPost.status, 403, '…and the write path agrees')
+
+  // COMMENT adds posting but not offering.
+  await call('POST', '/grants', { subject, audience: { kind: 'org', orgId: AUDIENCE }, tier: 'comment' }, { 'x-tenant-id': OWNER })
+  assert.deepEqual((await cap(AUDIENCE)).json, { canComment: true, canPropose: false })
+  assert.equal(
+    (await call('POST', '/discussions', { anchor: { ref: subject }, firstPost: 'now I can' }, { 'x-tenant-id': AUDIENCE })).status,
+    200,
+  )
+
+  // PROPOSE adds offering (monotonic — it keeps commenting).
+  await call('POST', '/grants', { subject, audience: { kind: 'org', orgId: AUDIENCE }, tier: 'propose' }, { 'x-tenant-id': OWNER })
+  assert.deepEqual((await cap(AUDIENCE)).json, { canComment: true, canPropose: true })
+
+  // INV-9: both params are required, never guessed.
+  assert.equal((await call('GET', '/social/capability?kind=project', undefined, { 'x-tenant-id': OWNER })).status, 400)
+  assert.equal((await call('GET', '/social/capability?id=x', undefined, { 'x-tenant-id': OWNER })).status, 400)
+  assert.equal((await call('GET', '/social/capability?kind=nonsense&id=x', undefined, { 'x-tenant-id': OWNER })).status, 400)
+})

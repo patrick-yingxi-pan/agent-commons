@@ -24,7 +24,7 @@
 import { useState } from 'react'
 import { MessageSquarePlus, MessagesSquare } from 'lucide-react'
 import type { AnchorLocus, Discussion, SocialEntityRef } from '../../contract/index.ts'
-import { useDiscussions } from '../api'
+import { useDiscussions, useSocialCapability } from '../api'
 import { useRelations } from '../controller/useRelations'
 import { HOVER_REVEAL } from '../lib/hoverReveal'
 import { AnchorThreadComposer } from './AnchorThreadComposer'
@@ -65,6 +65,12 @@ export function LocusGutter({
   // the cache entry is shared, so every row of a surface reads one fetch.
   const threads = useDiscussions(subject.kind, subject.id, enabled).data ?? []
   const thread = threadAt(threads, locus)
+  // Capability shapes affordances (src/CLAUDE.md): a `view`-tier reader may READ
+  // every thread and may not post to any, so they get the marker and no opener.
+  // Offering an act the write path refuses is worse on a surface like this than
+  // anywhere else — there is one gutter per turn, so a dead affordance is dead
+  // fifty times over.
+  const canComment = useSocialCapability(subject.kind, subject.id, enabled).data?.canComment === true
   const [composing, setComposing] = useState(false)
   if (!enabled) return null
 
@@ -83,7 +89,7 @@ export function LocusGutter({
             <span className="tabular-nums">{thread.posts.length}</span>
           </button>
         )}
-        {!composing && (
+        {!composing && canComment && (
           <button
             onClick={() => setComposing(true)}
             title={`Discuss this ${noun}`}

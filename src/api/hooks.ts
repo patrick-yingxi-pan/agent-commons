@@ -25,6 +25,7 @@ import type {
   Delegation,
   CommonsItem,
   Discussion,
+  SocialCapability,
   Grant,
   SocialProposal,
   AttentionLedger,
@@ -433,6 +434,13 @@ export function useGrants(kind: string, id: string): QueryState<Grant[]> {
  *  conversation): asking would 404 on every render for nothing. */
 export function useDiscussions(kind: string, id: string, enabled = true): QueryState<Discussion[]> {
   return useQuery(keys.discussions(kind, id), () => apiGet<Discussion[]>(paths.discussions(kind, id)), enabled)
+}
+
+/** What the CALLER may do on a subject (social S1) — the gate for every social
+ *  affordance, so a control is never offered where the write path would refuse
+ *  it. `enabled` false for a subject with no server-side row yet (a draft). */
+export function useSocialCapability(kind: string, id: string, enabled = true): QueryState<SocialCapability> {
+  return useQuery(keys.socialCapability(kind, id), () => apiGet<SocialCapability>(paths.socialCapability(kind, id)), enabled)
 }
 
 /** One discussion by id — readable through its anchor's wall. */
