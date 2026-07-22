@@ -26,6 +26,12 @@
  *      skipped with "could not open section" on cells that render perfectly,
  *      and detail cells skipped whenever the seeds drifted from the regex.
  *      Rail navigation is covered by e2e/responsive.spec.ts, not here.
+ *    • COVERAGE BOUNDARY: this sweep drives ONE account (Ada, whose world is
+ *      populated), so it exercises full surfaces, never EMPTY ones. A sparse
+ *      world is a different layout path — verified 2026-07-22 for Rei's Lab
+ *      across eight sections at 320 and 375 (no h-scroll, every empty section
+ *      renders legible copy) and locked at the DOM level by the no-activity
+ *      walk in e2e/social-layer.spec.ts. Widen here only if that stops holding.
  *    • A check that can't run must not read as a pass. The chip remove-confirm
  *      skipped on EVERY viewport for as long as it existed, because the demo
  *      thread has no chip; it now runs against a session the API says has one.
