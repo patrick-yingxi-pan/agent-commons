@@ -4687,7 +4687,7 @@ function ArtifactsSection({ subview, onOpenSession }: { subview: string | null; 
           artifact={openArtifact}
           projects={projects}
           currentProjectId={rel.artifactProjectId(openArtifact)}
-          onAssignProject={(projectId) => assignProject(openArtifact, projectId)}
+          onAssignProject={openArtifact.own !== false ? (projectId) => assignProject(openArtifact, projectId) : undefined}
           onOpenSource={(() => {
             const sid = sourceSessionOf(openArtifact)
             return sid ? () => { onOpenSession(sid); setOpenId(null) } : undefined

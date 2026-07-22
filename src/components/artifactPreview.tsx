@@ -18,6 +18,7 @@ import type { ArtifactContent, DocBlock } from '../types'
 import { useArtifactContent, useFsText, fsContentUrl } from '../api'
 import { artifactMetaIsSpecific } from '../lib/artifactMeta'
 import { PhotoThumb } from './PhotoThumb'
+import { GrantsPanel } from './GrantsPanel'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { useDismissable } from '../lib/useDismissable'
 import { relativeTime } from '../lib/relativeTime'
@@ -557,8 +558,10 @@ export function ArtifactViewer({
   projects: { id: string; name: string }[]
   /** The project the artifact is filed under right now ('' = unfiled). */
   currentProjectId: string
-  /** Assign to a project, or unfile (null). */
-  onAssignProject: (projectId: string | null) => void
+  /** Assign to a project, or unfile (null). ABSENT = the reader doesn't own this
+   *  artifact (a social grant widened the READ, not ownership): the filing shows
+   *  as a plain label instead of a menu. */
+  onAssignProject?: (projectId: string | null) => void
   /** Open the conversation that produced this artifact. Absent when `source`
    *  doesn't resolve to a known session (a created/sourceless artifact), so the
    *  provenance stays a plain label rather than a dead link. */
@@ -600,11 +603,15 @@ export function ArtifactViewer({
                 {artifactMetaIsSpecific(artifact.meta, KIND_LABEL[artifact.kind]) ? artifact.meta : KIND_LABEL[artifact.kind]}
               </span>
               <span>·</span>
-              <ProjectAssignMenu
-                projects={projects}
-                currentProjectId={currentProjectId}
-                onAssign={onAssignProject}
-              />
+              {onAssignProject ? (
+                <ProjectAssignMenu
+                  projects={projects}
+                  currentProjectId={currentProjectId}
+                  onAssign={onAssignProject}
+                />
+              ) : (
+                <span>{projects.find((p) => p.id === currentProjectId)?.name ?? 'Unfiled'}</span>
+              )}
               <span>·</span>
               <span>Edited {relativeTime(artifact.editedAt)}</span>
             </div>
@@ -621,6 +628,16 @@ export function ArtifactViewer({
 
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
           <ArtifactBodyView kind={artifact.kind} name={artifact.name} size="full" excerpt={artifact.excerpt} />
+          {/* Sharing (social S1) — the OWNER's audience configuration, the same
+              generic GrantsPanel every other subject hosts. Without it an
+              artifact could be granted only through the API: the read now
+              widens for an audience that had no way to be created. */}
+          {onAssignProject && (
+            <div className="mt-5 border-t border-line pt-4">
+              <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-ink-faint">Share this artifact</p>
+              <GrantsPanel subject={{ kind: 'artifact', id: artifact.id }} />
+            </div>
+          )}
         </div>
 
         <div className="flex shrink-0 items-center gap-2 border-t border-line bg-panel px-5 py-2.5 text-[12px] text-ink-faint">

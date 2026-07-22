@@ -313,3 +313,30 @@ test('SOCIAL-5: the capability face matches the WALL, so an affordance can never
   assert.equal((await call('GET', '/social/capability?id=x', undefined, { 'x-tenant-id': OWNER })).status, 400)
   assert.equal((await call('GET', '/social/capability?kind=nonsense&id=x', undefined, { 'x-tenant-id': OWNER })).status, 400)
 })
+
+test('SOCIAL-4: a grant OPENS an artifact — the read widens, ownership does not', async () => {
+  // The gap this closes: `createGrant` accepted an artifact subject and the
+  // social wall passed (so it was discussable, and the Commons carried a card),
+  // while `listArtifacts` never consulted grants — the audience could talk about
+  // a thing they could not see. A grant that grants nothing.
+  const artifact = store.listArtifacts()[0]
+  const subject = { kind: 'artifact' as const, id: artifact.id }
+  type Row = { id: string; own?: boolean }
+  // `sendList` serves a bare array unless paginated — read it as one.
+  const mine = async (tenant: string) =>
+    (await call('GET', '/artifacts', undefined, { 'x-tenant-id': tenant })).json as Row[]
+
+  const before = await mine(AUDIENCE)
+  assert.ok(!before.some((a) => a.id === artifact.id), 'walled before the grant')
+
+  await call('POST', '/grants', { subject, audience: { kind: 'org', orgId: AUDIENCE }, tier: 'view' }, {})
+
+  const after = await mine(AUDIENCE)
+  const seen = after.find((a) => a.id === artifact.id)
+  assert.ok(seen, 'the grant opens the artifact')
+  assert.notEqual(seen!.own, true, 'READ widened; ownership did NOT — no filing controls')
+
+  // The owner still owns it.
+  const owned = (await call('GET', '/artifacts', undefined, {})).json as Row[]
+  assert.equal(owned.find((a) => a.id === artifact.id)?.own, true)
+})

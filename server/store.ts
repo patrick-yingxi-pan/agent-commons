@@ -5793,7 +5793,23 @@ export const store = {
    *  scoped to the caller's tenant when given (F2/PD9). */
   listArtifacts(tenantId?: string): ArtifactItem[] {
     if (!tenantId) return ALL_ARTIFACTS
-    return ALL_ARTIFACTS.filter((a) => rowVisibleTo(a, tenantId))
+    return ALL_ARTIFACTS.filter((a) => this.artifactVisibleToTenant(a, tenantId)).map((a) => ({
+      // Viewer-relative ownership, like every other shared subject: a granted
+      // reader opens the artifact and never gets its filing controls.
+      ...a,
+      own: this.artifactOwnedBy(a, tenantId),
+    }))
+  },
+  /** Whether an artifact is visible to `tenantId` — read widens through a grant
+   *  (SOCIAL-4), ownership stays strict. Without this a shared artifact was
+   *  discussable and even carried a Commons card, while the artifact itself
+   *  stayed invisible to the audience: a grant that granted nothing. */
+  artifactVisibleToTenant(a: ArtifactItem, tenantId: string): boolean {
+    return rowVisibleTo(a, tenantId) || this.grantedTier({ kind: 'artifact', id: a.id }, tenantId) !== undefined
+  },
+  /** OWNERSHIP — the strict half (filing, deletion, the share configuration). */
+  artifactOwnedBy(a: ArtifactItem, tenantId: string): boolean {
+    return rowVisibleTo(a, tenantId)
   },
   /** Routines, scoped to the caller's tenant when given (F2/PD9 — each demo
    *  account seeds its own themed set). Unscoped for internal callers (the

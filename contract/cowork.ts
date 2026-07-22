@@ -207,6 +207,12 @@ export interface ArtifactItem {
    *  tenant sees only its own created artifacts. (Independent of `projectId`, since an
    *  artifact can be saved without a project.) */
   tenantId?: string
+  /** VIEWER-RELATIVE: does the reader own it? Computed at serve time (the `mine`
+   *  pattern), because a social grant widens READS without widening ownership —
+   *  a granted reader opens a shared artifact and must not get its filing or
+   *  deletion controls. Absent on payloads served without a reader in hand;
+   *  treat absent as NOT owned. */
+  own?: boolean
   /** The conversation that produced it — its TITLE (display only). */
   source: string
   /** The producing conversation's ID — the stable join the "From ‹conversation›"
