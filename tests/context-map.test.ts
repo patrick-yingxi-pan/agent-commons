@@ -127,3 +127,30 @@ test('PROPOSAL §10 states the backend dependency it actually ships', () => {
   )
   assert.ok(proposal.includes(serverDep), `PROPOSAL §10 should name ${serverDep} — the seam that makes the boundary real`)
 })
+
+/** README is the engineering tour, so its two most checkable claims — which
+ *  commands exist, and what the tree contains — are derived, not remembered.
+ *  Both had drifted: it named neither `npm test` nor `npm run e2e` (a reviewer
+ *  could not find the 1400+ locks), and its layout omitted tests/, e2e/,
+ *  scripts/ and connector/ entirely. */
+test('README names only real npm scripts, and names the verification ones', () => {
+  const readme = read('README.md')
+  const pkg = JSON.parse(read('package.json')) as { scripts: Record<string, string> }
+  // Every `npm run X` / `npm test` the README mentions must exist.
+  for (const m of readme.matchAll(/npm run ([a-z0-9:.-]+)/g)) {
+    assert.ok(pkg.scripts[m[1]], `README documents "npm run ${m[1]}" which package.json does not define`)
+  }
+  // …and the ones a reviewer needs in order to CHECK the work must be present.
+  for (const required of ['test', 'e2e', 'ui:sweep']) {
+    const cited = required === 'test' ? /npm (run )?test\b/.test(readme) : readme.includes(`npm run ${required}`)
+    assert.ok(cited, `README should tell a reader how to run "${required}"`)
+  }
+})
+
+test('README project layout lists every top-level source directory', () => {
+  const layout = read('README.md').split('## Project layout')[1] ?? ''
+  assert.ok(layout, 'the layout section exists')
+  for (const dir of ['contract', 'server', 'src', 'docs', 'tests', 'e2e', 'scripts', 'connector']) {
+    assert.ok(new RegExp('(^|\n)' + dir + '/').test(layout), `README layout omits ${dir}/`)
+  }
+})

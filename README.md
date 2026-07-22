@@ -146,6 +146,12 @@ npm run start      # one process: serve the built UI + the API (the deploy shape
 npm run build      # production build to dist/
 npm run typecheck  # tsc --noEmit (UI + contract)
 
+npm test           # the behavior locks (node --test over tests/)
+npm run e2e        # Playwright browser specs (DOM-level wiring)
+npm run ui:sweep   # the /ui-review harness: every surface x 5 viewports, exits 1 on violations
+npm run connector  # the session-relay connector
+npm run snapshot:build   # rebuild the comprehensive .data snapshot (see server/CLAUDE.md)
+
 BACKEND=remote npm run server   # the remote-web-server variant (native ops 409)
 
 # point the backend at the REAL Anthropic API instead of the in-process mock:
@@ -183,8 +189,17 @@ server/                   # the mock backend (Node 26 native TS; one dep: the SD
   routes/index.ts         # the route table (one .get/.post per endpoint)
   data/                   # the seed data (sessions, cowork, contexts, …)
 
-docs/                     # forward-looking design notes (exploration, not locked-in)
-  capability-broker-architecture.md  # control plane + native-agent registry direction
+docs/                     # the written record
+  spec/                   #   the requirements ledger — what's BUILT vs mocked, row by row
+  design/                 #   design docs (the social layer, the split workspace, …)
+  evaluation.md           #   the evaluator's guide + "don't file these as bugs"
+  ui-invariants.md        #   the earned ledger of machine-checkable UI rules
+  capability-broker-architecture.md  # forward-looking: control plane + native-agent registry
+
+tests/                    # the behavior locks (node --test)
+e2e/                      # Playwright browser specs
+scripts/                  # dev orchestration, the ui-sweep harness, snapshot tooling
+connector/                # the session-relay connector (served by the product itself)
 
 src/
   main.tsx · App.tsx · types.ts (re-exports the contract) · index.css
