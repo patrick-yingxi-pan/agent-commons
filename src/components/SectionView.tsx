@@ -77,9 +77,11 @@ import { AddContextButton } from './AddContextButton'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { AnchorThreadComposer } from './AnchorThreadComposer'
+import { LocusGutter } from './LocusGutter'
 import { GrantsPanel } from './GrantsPanel'
 import { Tooltip } from './Tooltip'
 import { describeLocus, locusFocus } from '../lib/anchorLocus'
+import type { FocusTarget } from '../lib/notificationDoor'
 import { profileTitle, PROFILE_TAGLINE } from '../lib/publicFace'
 import { ActorByline, AgentActor, Byline, CreditLine, OwnerLink, WorkspaceMark } from './PublicFace'
 import { TextDiff } from './TextDiff'
@@ -299,7 +301,7 @@ export function SectionView({
   subview,
   onOpenSubview,
   onOpenSession,
-  onOpenSessionTurn,
+  onFocusHere,
   onNewSession,
   onOpenProject,
   onOpenSchedule,
@@ -326,9 +328,9 @@ export function SectionView({
    *  worker-list surface — null — on a notification door). */
   onOpenSubview: (id: string | null) => void
   onOpenSession: (id: string) => void
-  /** Open a conversation AT one turn — where a `session-turn` discussion
-   *  anchor resolves to (SOCIAL-6b). */
-  onOpenSessionTurn: (id: string, messageId: string) => void
+  /** Aim the transient highlight at a position in this pane — the second half
+   *  of a locus door (SOCIAL-6b), after the caller navigates. */
+  onFocusHere: (target: FocusTarget) => void
   onNewSession: () => void
   /** Open a project / routine detail through the controller, so every entry is one
    *  source of truth (the focus id below) and is recorded in navigation history. */
@@ -416,7 +418,7 @@ export function SectionView({
     ) : section === 'commons' ? (
       <CommonsSection subview={subview} />
     ) : section === 'discussions' ? (
-      <DiscussionsSection subview={subview} discussionId={focusDiscussionId} onOpenSession={onOpenSession} onOpenSessionTurn={onOpenSessionTurn} onBack={onBack} backTo={backTo} />
+      <DiscussionsSection subview={subview} discussionId={focusDiscussionId} onOpenSession={onOpenSession} onFocusHere={onFocusHere} onBack={onBack} backTo={backTo} />
     ) : section === 'admin' ? (
       // The maintainer console (contract/admin.ts): like the Agents hub its
       // children are SURFACES, defaulting to Accounts when the rail sub-view is
@@ -2997,11 +2999,11 @@ function CommonsSection({ subview }: { subview: string | null }) {
 function AnchorChip({
   anchor,
   onOpenSession,
-  onOpenSessionTurn,
+  onFocusHere,
 }: {
   anchor: SocialAnchor
   onOpenSession: (id: string) => void
-  onOpenSessionTurn: (id: string, messageId: string) => void
+  onFocusHere: (target: FocusTarget) => void
 }) {
   const rel = useRelations()
   const { kind, id } = anchor.ref
@@ -3009,23 +3011,24 @@ function AnchorChip({
     kind === 'project' ? 'projects' : kind === 'schedule' ? 'scheduled' : kind === 'context' ? 'contexts' : kind === 'discussion' ? 'discussions' : null
   const at = anchor.locus ? ` · ${describeLocus(anchor.locus)}` : ''
   const label = `${kind} · ${id}${at}`
-  const turn = locusFocus(anchor)?.messageId
-  // A conversation isn't a section — it's a pane door, so it takes the session
-  // handler rather than `rel.navigate`.
-  if (kind === 'session') {
-    return (
-      <button
-        onClick={() => (turn ? onOpenSessionTurn(id, turn) : onOpenSession(id))}
-        className={INLINE_ACTION_CLASS}
-        title={turn ? 'Open this conversation at this turn' : 'Open this conversation'}
-      >
-        {label}
-      </button>
-    )
+  // The position to land on, from the ONE registry — this chip never asks which
+  // FIELD a kind uses, so a new locus kind needs no edit here.
+  const focus = locusFocus(anchor)
+  // Two doors by subject kind: a conversation is a PANE fill, a section entity
+  // is a route. Either way the highlight is aimed afterwards, identically.
+  const open = () => {
+    if (kind === 'session') onOpenSession(id)
+    else if (target) rel.navigate(target, id)
+    else return
+    if (focus) onFocusHere(focus)
   }
-  if (!target) return <span className="text-[11px] text-ink-faint">{label}</span>
+  if (kind !== 'session' && !target) return <span className="text-[11px] text-ink-faint">{label}</span>
   return (
-    <button onClick={() => rel.navigate(target, id)} className={INLINE_ACTION_CLASS} title={`Open this ${kind}`}>
+    <button
+      onClick={open}
+      className={INLINE_ACTION_CLASS}
+      title={focus && anchor.locus ? `Open this ${kind} at ${describeLocus(anchor.locus)}` : `Open this ${kind}`}
+    >
       {label}
     </button>
   )
@@ -3046,13 +3049,13 @@ function discussionDigest(d: Discussion): string {
 function DiscussionPage({
   discussionId,
   onOpenSession,
-  onOpenSessionTurn,
+  onFocusHere,
   onBack,
   backTo,
 }: {
   discussionId: string
   onOpenSession: (id: string) => void
-  onOpenSessionTurn: (id: string, messageId: string) => void
+  onFocusHere: (target: FocusTarget) => void
   onBack: () => void
   backTo: NavLocation | null
 }) {
@@ -3098,7 +3101,7 @@ function DiscussionPage({
               <span>
                 {d.state === 'open' ? 'Open' : 'Resolved'} · opened by {d.openedBy} {relativeTime(d.openedAt)}
               </span>
-              <AnchorChip anchor={d.anchor} onOpenSession={onOpenSession} onOpenSessionTurn={onOpenSessionTurn} />
+              <AnchorChip anchor={d.anchor} onOpenSession={onOpenSession} onFocusHere={onFocusHere} />
             </div>
           </div>
         </div>
@@ -3157,20 +3160,20 @@ function DiscussionsSection({
   subview,
   discussionId,
   onOpenSession,
-  onOpenSessionTurn,
+  onFocusHere,
   onBack,
   backTo,
 }: {
   subview: string | null
   discussionId: string | null
   onOpenSession: (id: string) => void
-  onOpenSessionTurn: (id: string, messageId: string) => void
+  onFocusHere: (target: FocusTarget) => void
   onBack: () => void
   backTo: NavLocation | null
 }) {
   const rel = useRelations()
   const list = useMyDiscussions().data ?? []
-  if (discussionId) return <DiscussionPage discussionId={discussionId} onOpenSession={onOpenSession} onOpenSessionTurn={onOpenSessionTurn} onBack={onBack} backTo={backTo} />
+  if (discussionId) return <DiscussionPage discussionId={discussionId} onOpenSession={onOpenSession} onFocusHere={onFocusHere} onBack={onBack} backTo={backTo} />
   const filtered = subview === 'open' || subview === 'resolved' ? list.filter((d) => d.state === subview) : list
   return (
     <Page>
@@ -3199,7 +3202,7 @@ function DiscussionsSection({
                   <span>
                     {d.posts.length} {d.posts.length === 1 ? 'post' : 'posts'} · by {d.openedBy}
                   </span>
-                  <AnchorChip anchor={d.anchor} onOpenSession={onOpenSession} onOpenSessionTurn={onOpenSessionTurn} />
+                  <AnchorChip anchor={d.anchor} onOpenSession={onOpenSession} onFocusHere={onFocusHere} />
                 </div>
               </div>
               <span className="shrink-0 text-[11px] text-ink-faint">{relativeTime(d.posts[d.posts.length - 1]?.at ?? d.openedAt)}</span>
@@ -10395,7 +10398,7 @@ function RunHistoryCard({
       ) : (
         <div>
           {task.runs.map((r, i) => (
-            <RunRow key={r.id} run={r} first={i === 0} onOpen={() => onOpenRun(r.id)} />
+            <RunRow key={r.id} run={r} taskId={task.id} first={i === 0} onOpen={() => onOpenRun(r.id)} />
           ))}
         </div>
       )}
@@ -10403,38 +10406,61 @@ function RunHistoryCard({
   )
 }
 
+/** One run of a routine — an addressable POSITION inside it (SOCIAL-6b), so it
+ *  hosts the locus gutter and can be landed on by a `schedule-run` anchor.
+ *
+ *  The whole row used to BE the button. It can't stay one: a gutter control
+ *  nested inside a button is invalid HTML and steals the row's click. So the row
+ *  becomes a container and its TITLE is the door — which is this repo's rule
+ *  anyway (titles are doors, src/CLAUDE.md; the whole-row button predated it). */
 function RunRow({
   run,
+  taskId,
   first,
   onOpen,
 }: {
   run: ScheduledRun
+  taskId: string
   first: boolean
   onOpen: () => void
 }) {
+  const { pending } = usePendingFocus()
+  const rowRef = useRef<HTMLDivElement>(null)
+  const flash = useFocusFlash(pending?.runId === run.id, rowRef)
   return (
-    <button
-      onClick={onOpen}
-      title="Open this run’s session"
-      className={`group flex w-full items-start gap-3 px-4 py-3 text-left transition hover:bg-panel-2/60 ${
-        first ? '' : 'border-t border-line'
+    <div
+      ref={rowRef}
+      className={`group flex items-start gap-3 px-4 py-3 transition ${first ? '' : 'border-t border-line'} ${
+        flash ? FOCUS_FLASH_CLASS : ''
       }`}
     >
       <RunStatusIcon status={run.status} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
-          <span className="text-[13px] font-medium text-ink">{relativeTime(run.at)}</span>
-          {run.duration !== '—' && <span className="shrink-0 text-[11px] text-ink-faint">ran in {run.duration}</span>}
+          <button
+            onClick={onOpen}
+            title="Open this run’s session"
+            className="truncate text-left text-[13px] font-medium text-ink transition hover:underline"
+          >
+            {relativeTime(run.at)}
+          </button>
+          <div className="flex shrink-0 items-baseline gap-1.5">
+            {run.duration !== '—' && <span className="text-[11px] text-ink-faint">ran in {run.duration}</span>}
+            <ChevronRight size={15} className={`text-ink-faint ${HOVER_CUE}`} />
+          </div>
         </div>
         <p className={`mt-0.5 text-[12px] ${run.status === 'failed' ? 'text-danger-strong' : 'text-ink-soft'}`}>
           {run.summary}
         </p>
+        {/* A failed run is exactly the thing a team talks about — and now the
+            talk hangs on THAT run, not the whole routine. */}
+        <LocusGutter
+          subject={{ kind: 'schedule', id: taskId }}
+          locus={{ kind: 'schedule-run', runId: run.id }}
+          noun="run"
+        />
       </div>
-      <ChevronRight
-        size={15}
-        className={`mt-0.5 shrink-0 text-ink-faint ${HOVER_CUE}`}
-      />
-    </button>
+    </div>
   )
 }
 

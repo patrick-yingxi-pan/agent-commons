@@ -22,6 +22,7 @@ import { ContextPanelView } from './ContextPanelView'
 import { clampRatio, nodeAt, panes } from '../lib/splitFrame'
 import type { MainPaneContent, MainSplitNode, PaneAt, PaneLoc } from '../lib/mainSplit'
 import { contentForLoc, withBackPush } from '../lib/paneHistory'
+import type { FocusTarget } from '../lib/notificationDoor'
 import type { PanelFocus, SectionId } from '../types'
 import { FocusContext, type PendingFocus } from '../lib/focusContext'
 import { SectionNavOverride } from '../controller/useRelations'
@@ -31,12 +32,14 @@ import { seedFor, type PaneSeed } from '../lib/paneNav'
  *  pane, like every navigation (the equal-pages model has no primary). */
 export interface MainPaneNav {
   onOpenSession: (id: string) => void
-  /** A conversation door that lands on ONE TURN — where a `session-turn`
-   *  discussion anchor resolves to (SOCIAL-6b). `panePath` marks the
-   *  pane-originated call: the pane already filled itself (pushing the origin
-   *  onto its back stack, ADAPT-18), so the shell only has to point the
-   *  transient focus at THAT pane. Absent = a chrome door, which routes. */
-  onOpenSessionTurn: (id: string, messageId: string, panePath?: string) => void
+  /** Point the transient highlight at a position in THIS pane — the second half
+   *  of a locus door (SOCIAL-6b): the caller navigates by whatever door its
+   *  subject kind uses (a session fill, a section route), then says what to land
+   *  on. ONE callback for every locus kind, because which position a locus means
+   *  is `src/lib/anchorLocus.ts`'s job, not the nav's — a per-kind door prop
+   *  would grow with the union. `panePath` is stamped by PaneBody so a duplicate
+   *  pane on the same page can't steal the highlight. */
+  onFocusHere: (target: FocusTarget, panePath?: string) => void
   onNewSession: () => void
   onOpenProposal: (agentId: string, proposalId: string, ownerName: string | null) => void
   /** The title bar's breadcrumb doors (a pane conversation's home project /
@@ -217,13 +220,9 @@ function PaneBody({
     () => ({
       ...nav,
       onOpenSession: (id) => fillWith({ kind: 'msession', id }),
-      // Fill THIS pane with the conversation (origin pushed), then tell the
-      // shell which pane may consume the turn highlight — the per-pane focus
-      // scoping means a duplicate pane on the same conversation can't steal it.
-      onOpenSessionTurn: (id, messageId) => {
-        fillWith({ kind: 'msession', id })
-        nav.onOpenSessionTurn(id, messageId, path)
-      },
+      // Stamp THIS pane as the one that may consume the highlight (the caller
+      // has already filled it through whichever door its subject kind uses).
+      onFocusHere: (target) => nav.onFocusHere(target, path),
       onOpenProject: (id) => fillWith({ kind: 'msection', id: 'projects', seed: { projectId: id } }),
       onOpenSchedule: (id) => fillWith({ kind: 'msection', id: 'scheduled', seed: { scheduleId: id } }),
     }),

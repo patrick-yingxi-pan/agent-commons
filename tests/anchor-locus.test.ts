@@ -52,39 +52,68 @@ test('a one-line artifact range reads as a line, not a range', () => {
   assert.equal(describeLocus({ kind: 'artifact-range', from: 7, to: 9 }), 'lines 7–9')
 })
 
-test('a session-turn resolves to the turn; the whole entity resolves to nothing', () => {
+test('a position whose surface hosts it resolves to that position', () => {
   const ref = { kind: 'session', id: 's-1' } as const
   assert.deepEqual(locusFocus({ ref, locus: { kind: 'session-turn', messageId: 'm-3' } }), { messageId: 'm-3' })
+  // A routine's page lists its runs, so a run is landable too.
+  assert.deepEqual(
+    locusFocus({ ref: { kind: 'schedule', id: 's-1' }, locus: { kind: 'schedule-run', runId: 'run-9' } }),
+    { runId: 'run-9' },
+  )
   // A locus-free anchor is the entity itself — no position to land on.
   assert.equal(locusFocus({ ref }), null)
 })
 
+/** Kinds whose surface hosts an addressable row today. The rest are declared in
+ *  the contract but have nowhere to land yet — `artifact-range` means LINES and
+ *  this prototype's artifact bodies are structured rather than linear (doc
+ *  blocks / sheet rows / slides), and a relation edge has no surface at all. */
+const LANDABLE = new Set(['session-turn', 'schedule-run'])
+
 test('a position with no focusable surface DEGRADES to no target — never a dead click', () => {
-  // The rule the notification doors keep: always somewhere. These kinds are
-  // declared in the contract but their surfaces host no position yet, so the
-  // chip doors to the entity and the locus stays descriptive — it must NOT
-  // invent a focus target nothing consumes.
-  for (const locus of EVERY_LOCUS.filter((l) => l.kind !== 'session-turn')) {
+  // The rule the notification doors keep: always somewhere. A kind whose surface
+  // hosts no position must NOT invent a focus target nothing consumes — the chip
+  // doors to the entity and the locus stays descriptive.
+  for (const locus of EVERY_LOCUS.filter((l) => !LANDABLE.has(l.kind))) {
     assert.equal(locusFocus({ ref: { kind: 'artifact', id: 'a-1' }, locus }), null, `${locus.kind} has no target yet`)
     // …but it is still NAMED, so the reader knows what the thread is about.
     assert.ok(describeLocus(locus).length > 0, `${locus.kind} is still named`)
   }
+  // And a landable one must actually carry a target — a surface that grew the
+  // position but never wired the resolver would silently keep degrading.
+  for (const locus of EVERY_LOCUS.filter((l) => LANDABLE.has(l.kind))) {
+    assert.ok(locusFocus({ ref: { kind: 'session', id: 's-1' }, locus }), `${locus.kind} lands somewhere`)
+  }
 })
 
-test('no component spells out a locus phrase or landing — the registry is the one home', () => {
-  const ui = concatSource('src')
-  // The literal kind strings may only appear in the registry (and the gutter
-  // that MINTS a session-turn). Anywhere else is a second source of truth for
-  // what a position is called or where it goes.
-  const owners = ['anchorLocus.ts', 'TurnDiscussion.tsx']
+test('no component spells out a locus phrase — the registry is the one home', () => {
+  // The PHRASES are the registry's alone. A component that hand-wrote "one run"
+  // beside a chip saying something else is exactly the drift this prevents.
+  const phrases = EVERY_LOCUS.map((l) => describeLocus(l))
   for (const file of filesUnder('src')) {
-    if (owners.some((o) => file.endsWith(o))) continue
+    if (file.endsWith('anchorLocus.ts')) continue
     const src = stripComments(read(file))
+    for (const phrase of phrases) {
+      assert.ok(!src.includes(`'${phrase}'`) && !src.includes(`"${phrase}"`), `${file} hand-writes the locus phrase "${phrase}"`)
+    }
+  }
+})
+
+test('naming a locus kind is only allowed when MINTING one through the shared gutter', () => {
+  // Two legitimate roles: the registry (which names every kind to resolve it)
+  // and a surface that mints one by handing it to `LocusGutter`. Anything else
+  // naming a kind is a second place deciding what a position means.
+  for (const file of filesUnder('src')) {
+    const rel = file.replace(/\\/g, '/')
+    if (rel.endsWith('lib/anchorLocus.ts')) continue
+    const src = stripComments(read(file))
+    if (!/kind: '(session-turn|artifact-range|schedule-run|relation-edge)'/.test(src)) continue
     assert.ok(
-      !/'(artifact-range|schedule-run|relation-edge)'/.test(src),
-      `${file} names a locus kind directly — route it through src/lib/anchorLocus.ts`,
+      src.includes('LocusGutter'),
+      `${rel} names a locus kind without minting through LocusGutter — route it through the one gutter`,
     )
   }
+  const ui = concatSource('src')
   assert.ok(ui.includes('describeLocus'), 'the registry is actually consumed by the UI')
   assert.ok(ui.includes('locusFocus'), 'the landing resolver is actually consumed by the UI')
 })

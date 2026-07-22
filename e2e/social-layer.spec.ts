@@ -39,6 +39,7 @@ const CHANGE = `Lead with the retention metric ${STAMP}`
 const TURN_POST = `About this step specifically ${STAMP}`
 const TURN_REPLY = `Still this step ${STAMP}`
 const GUEST_POST = `A question about this exact step ${STAMP}`
+const RUN_POST = `This run failed on the label step ${STAMP}`
 /** A seeded multi-turn conversation, opened by its canonical URL (every page
  *  has one — src/CLAUDE.md). The walk asserts the turn count, so a reseed that
  *  shortens this thread fails loudly rather than passing vacuously. */
@@ -217,16 +218,24 @@ test('the turn gutter: a thread anchored to ONE turn, and the chip that lands ba
   // The thread titles itself from its first post, so the text is on the page
   // twice (heading + body) — assert the heading, the page's identity.
   await expect(page.getByRole('heading', { name: TURN_POST })).toBeVisible()
-  const chip = page.getByTitle('Open this conversation at this turn')
+  // Selected on the chip's LABEL, not its tooltip prose: the label carrying the
+  // locus phrase IS the contract (the phrase comes from the one registry), while
+  // the tooltip is copy that may be reworded.
+  const chip = page.getByRole('button', { name: /^session · .+ · one turn$/ })
   await expect(chip).toBeVisible()
-  await expect(chip).toHaveText(/^session · .+ · one turn$/)
 
   // ── Resolve: the chip lands the conversation ON that turn ─────────────────
   // The transient flash is unassertable (it fades), so this asserts the durable
   // half — the turn is scrolled into the viewport, which is what the locus is
   // for. Without the resolver the thread opens at the bottom and this fails.
   await chip.click()
-  await expect(page.getByTitle('Open this turn’s thread')).toBeInViewport({ timeout: 10_000 })
+  // Asserted on the TURN, not the marker inside it: a seeded message can be
+  // taller than this deliberately-short viewport, so the marker at its foot may
+  // sit below the fold even when the turn is squarely on screen. What the locus
+  // promises is that the TURN is where you land.
+  await expect(page.locator('[data-turn]').filter({ has: page.getByTitle('Open this turn’s thread') })).toBeInViewport({
+    timeout: 10_000,
+  })
 
   await ada.context.close()
 })
@@ -278,8 +287,47 @@ test('sharing a CONVERSATION: the owner shares from its title bar, the audience 
   await expect(ada.page.getByText(GUEST_POST)).toBeVisible()
   // It landed on the THREAD's page, not the subject's — the anchor chip is
   // there, pointing back at the exact turn the thread hangs on.
-  await expect(ada.page.getByTitle('Open this conversation at this turn')).toBeVisible()
+  await expect(ada.page.getByRole('button', { name: /^session · .+ · one turn$/ })).toBeVisible()
 
   await ada.context.close()
   await grace.context.close()
+})
+
+test('the run gutter: the SAME gutter on a routine’s runs, landing back on one of them', async ({ browser }) => {
+  test.setTimeout(120_000)
+  const ada = await newUser(browser)
+  const page = ada.page
+
+  // A routine's page lists its runs — a second surface with addressable
+  // positions, served by the ONE gutter and the ONE resolver.
+  await page.setViewportSize({ width: 1100, height: 400 })
+  await page.goto('/scheduled/s-issue-triage')
+  const gutters = page.getByTitle('Discuss this run')
+  await expect(gutters.first()).toBeAttached({ timeout: 20_000 })
+  expect(await gutters.count(), 'more than one run to choose between').toBeGreaterThan(1)
+
+  // Not the first run — the landing must travel somewhere, and the run card
+  // sits below the routine's other panels so a later row starts off-screen.
+  const target = gutters.nth(1)
+  await expect(target).not.toBeInViewport()
+  await target.scrollIntoViewIfNeeded()
+  await target.click()
+  await page.getByLabel('Post to this schedule’s discussion').fill(RUN_POST)
+  await page.getByRole('button', { name: 'Post', exact: true }).click()
+
+  const marker = page.getByTitle('Open this run’s thread')
+  await expect(marker).toHaveCount(1)
+  await expect(marker).toHaveText('1')
+
+  // The thread names its POSITION with the registry's phrase for this kind —
+  // "one run", not the conversation's "one turn".
+  await marker.click()
+  const chip = page.getByRole('button', { name: /^schedule · .+ · one run$/ })
+  await expect(chip).toBeVisible()
+
+  // …and doors back onto that run, scrolled into view out of fifty rows.
+  await chip.click()
+  await expect(page.getByTitle('Open this run’s thread')).toBeInViewport({ timeout: 10_000 })
+
+  await ada.context.close()
 })

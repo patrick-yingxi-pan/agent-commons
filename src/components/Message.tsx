@@ -10,7 +10,8 @@ import { useRelations } from '../controller/useRelations'
 import { ClaudeMark } from './ClaudeMark'
 import { RelationActionCard } from './RelationActionCard'
 import { ToolActivityCard } from './ToolActivityCard'
-import { TurnDiscussion } from './TurnDiscussion'
+import { LocusGutter } from './LocusGutter'
+import { DRAFT_ID } from '../data/liveSession'
 
 /** Whether this turn's cognition came over a Session provider — the
  *  delegated-cognition relay. Those words came from the user's OWN session's model,
@@ -96,6 +97,10 @@ export function MessageRow({ message, sessionId }: { message: MessageT; sessionI
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.28, ease: 'easeOut' }}
       ref={rowRef}
+      // A turn is an addressable position, so the row is addressable in the DOM
+      // too — the anchor an E2E uses to assert a locus door LANDED here (the
+      // `data-session-title-bar` idiom).
+      data-turn={message.id}
       // The flash rides the FULL-WIDTH row, outside `max-w-3xl`, so lighting a
       // turn can't shift the thread's measure by a pixel — message text stays
       // aligned with the composer below it.
@@ -141,7 +146,15 @@ export function MessageRow({ message, sessionId }: { message: MessageT; sessionI
               resolved={message.relationsResolved}
             />
           )}
-          <TurnDiscussion sessionId={sessionId} messageId={message.id} />
+          {/* A turn is an addressable POSITION: the gutter mints a
+              `session-turn` locus here. An unsent draft has no server-side
+              session to anchor to, so it gets none. */}
+          <LocusGutter
+            subject={{ kind: 'session', id: sessionId }}
+            locus={{ kind: 'session-turn', messageId: message.id }}
+            noun="turn"
+            enabled={sessionId !== DRAFT_ID}
+          />
         </div>
       </div>
     </motion.div>

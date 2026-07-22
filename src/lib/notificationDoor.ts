@@ -30,6 +30,10 @@ export interface FocusTarget {
    *  contract as the fields above: the matching `MessageRow` scrolls to itself,
    *  flashes, and consumes it. */
   messageId?: string
+  /** One RUN inside a routine — what a `schedule-run` anchor locus resolves to
+   *  (`src/lib/anchorLocus.ts`). Same transient contract: the matching run row
+   *  scrolls to itself, flashes, and consumes it. */
+  runId?: string
 }
 
 /** Where a door leads. The precise variants carry the focus; the fallbacks (a legacy

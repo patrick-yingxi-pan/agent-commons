@@ -50,11 +50,16 @@ export function locusFocus(anchor: SocialAnchor): FocusTarget | null {
     // on the exact turn and flashes it.
     case 'session-turn':
       return { messageId: locus.messageId }
-    // Declared, not yet focusable — the artifact viewer renders no line gutter,
-    // the schedule page no per-run row, and a relation edge has no surface of
-    // its own. Each becomes a focus target when its surface grows the position.
-    case 'artifact-range':
+    // A routine's page lists its runs, each an addressable row.
     case 'schedule-run':
+      return { runId: locus.runId }
+    // Declared, not yet focusable. `artifact-range` means LINES, but this
+    // prototype's artifact bodies are structured rather than linear (doc blocks
+    // / sheet rows / slides), so there is no line to land on until an artifact
+    // grows a line-oriented body — see the design ledger. A relation edge has no
+    // surface of its own at all. Each becomes a target when its surface grows
+    // the position; until then the chip names it and doors to the entity.
+    case 'artifact-range':
     case 'relation-edge':
       return null
     default:
