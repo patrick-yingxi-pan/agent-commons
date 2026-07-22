@@ -110,3 +110,27 @@ test('opDeniedForTenant refuses foreign-project targets, colliding create-projec
   assert.equal(store.opDeniedForTenant(emptyScope, 'tenant-pb'), true, 'a non-default tenant cannot key an empty-string-id project row')
   assert.equal(store.opDeniedForTenant(emptyScope, 'tenant-personal'), false, 'the default tenant owns the default (incl. empty-string) namespace')
 })
+
+test('an explicit UNFILE survives the projection — `null` is not a project id to gate on', () => {
+  // `sessionProject[sid] === null` is the explicit "unfiled" override
+  // (contract/api.ts), distinct from an absent key ("no override"). The value
+  // filter used to run `projVisible(null)`, which found no project and fell
+  // through to `seedVisibleTo` — true only for the default/flagship tenant — so
+  // every other tenant's unfile was silently stripped from the graph it reads.
+  // Latent (a non-flagship tenant's sessions carry no seed project for the
+  // override to contradict) but wrong, and found by typechecking `server/`.
+  const T = 'tenant-unfile'
+  const s = store.createSession('unfile probe', T)
+  store.applyRelationOp(
+    { kind: 'create-project', projectId: 'p-unfile', projectName: 'Unfile probe', projectDescription: '' },
+    T,
+  )
+  store.applyRelationOp({ kind: 'file-session', sessionId: s.id, projectId: 'p-unfile', projectName: 'Unfile probe' }, T)
+  assert.equal(store.relationGraph(T).sessionProject[s.id], 'p-unfile', 'filed first')
+
+  // Now unfile it explicitly — `file-session` with a null project IS the unfile.
+  store.applyRelationOp({ kind: 'file-session', sessionId: s.id, projectId: null, projectName: '' }, T)
+  const scoped = store.relationGraph(T).sessionProject
+  assert.ok(s.id in scoped, 'the explicit unfile must not be filtered away')
+  assert.equal(scoped[s.id], null, '…and it reads as null, not as a stale project id')
+})

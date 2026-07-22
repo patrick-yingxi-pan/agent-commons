@@ -15,7 +15,7 @@ declare module 'node:http' {
   }
   export interface ServerResponse {
     writeHead(status: number, headers?: Record<string, string>): ServerResponse
-    setHeader(name: string, value: string): void
+    setHeader(name: string, value: string | number | string[]): void
     write(chunk: string): boolean
     end(chunk?: string): void
     flushHeaders?(): void
@@ -89,12 +89,16 @@ declare module 'node:crypto' {
   }
   /** Keyed MAC — the session cookie's signature (server/auth.ts). */
   export function createHmac(algorithm: string, key: string | Uint8Array): {
-    update(data: string): { digest(encoding: string): string }
+    update(data: string): {
+      /** No encoding ⇒ raw bytes (the session MAC compares them constant-time). */
+      digest(): Buffer
+      digest(encoding: string): string
+    }
   }
   /** RFC-4122 id — account/session ids that must not be guessable. */
   export function randomUUID(): string
   /** Password KDF (server/accounts.ts) — the demo credential store's hash. */
-  export function scryptSync(password: string, salt: string, keylen: number): Buffer
+  export function scryptSync(password: string, salt: string | Uint8Array, keylen: number): Buffer
 }
 
 declare const process: {

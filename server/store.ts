@@ -13,6 +13,7 @@
  *  State is added to this store as each resource's reads/commands migrate; Phase 1
  *  carries sessions + the event bus, the spine everything else hangs off. */
 import type {
+  A2aPeer,
   AnchorLocus,
   Artifact,
   ArtifactContentLibrary,
@@ -894,8 +895,17 @@ function projectGraphForTenant(g: RelationGraph, tenantId: string): RelationGrap
     const a = findArtifact(aid)
     return a ? rowVisibleTo(a, tenantId) : seedVisibleTo(tenantId)
   }
-  const byProjValue = (m: Record<string, string>): Record<string, string> =>
-    Object.fromEntries(Object.entries(m).filter(([, pid]) => projVisible(pid)))
+  /** Keep the rows whose PROJECT VALUE the caller can see — but `null` is not a
+   *  project id, it is the explicit "unfiled" override (contract/api.ts), so
+   *  there is nothing to gate and it must survive. It didn't: `projVisible(null)`
+   *  found no project and fell through to `seedVisibleTo`, which is true only for
+   *  the default/flagship tenant — so every OTHER tenant's explicit unfile was
+   *  stripped from the graph they receive. Latent rather than reported (a
+   *  non-flagship tenant's sessions carry no seed project for the override to
+   *  contradict), and surfaced by typechecking `server/`: the parameter said
+   *  `Record<string, string>` while the contract says `string | null`. */
+  const byProjValue = (m: Record<string, string | null>): Record<string, string | null> =>
+    Object.fromEntries(Object.entries(m).filter(([, pid]) => pid === null || projVisible(pid)))
   const byProjKey = <V>(m: Record<string, V>): Record<string, V> =>
     Object.fromEntries(Object.entries(m).filter(([pid]) => projVisible(pid)))
   const byArtKey = <V>(m: Record<string, V>): Record<string, V> =>
@@ -4530,7 +4540,19 @@ export const store = {
       case 'schedule':
         return schedules.find((t) => t.id === ref.id)
       case 'context':
-        return savedCtxs.find((c) => c.id === ref.id)
+        // Contexts are GLOBAL in this prototype — `savedContexts()` takes no
+        // tenant, so a saved connector/MCP/repo belongs to nobody and is already
+        // visible to everybody. A grant on one would therefore be inert: it
+        // could neither widen a read (nothing is walled) nor confer ownership
+        // (there is none to confer). INV-9's rule is to refuse rather than store
+        // a record that does nothing, and `'unsupported'` is the existing
+        // kind-level refusal that leaks no row's existence.
+        //
+        // Found by typechecking `server/` (FWD-8): TS's weak-type detection
+        // rejected `SavedContext` against `{ tenantId?: string }` precisely
+        // because it shares no ownership field — the checker noticing what the
+        // design note had already recorded in prose.
+        return 'unsupported'
       case 'discussion': {
         // A discussion is itself grantable/anchorable (recursion, S2): its
         // owner face is the OPENER's namespace.
