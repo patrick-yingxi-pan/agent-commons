@@ -160,6 +160,13 @@ export interface Discussion {
   posts: DiscussionPost[]
   /** Viewer-relative: the caller opened it (the projects `own` pattern). */
   mine?: boolean
+  /** Viewer-relative: may the caller resolve / reopen this thread? Standing is
+   *  the OPENER *or* the anchor's OWNER — two parties, so `mine` alone can't
+   *  answer it, and a surface that gated on `mine` silently denied the owner a
+   *  control they hold (`/discussions/:did` did exactly that). Computed by the
+   *  same predicate the write path uses, so the affordance can't drift from the
+   *  wall. */
+  canResolve?: boolean
 }
 
 /** `POST /v1/discussions` — open a discussion on an anchor. INV-9: an absent

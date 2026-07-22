@@ -369,11 +369,21 @@ function sameLocus(a: AnchorLocus | undefined, b: AnchorLocus | undefined): bool
 /** Wire face: strip the raw tenant anchors; reactions serve as a count + the
  *  caller's own bit (viewer-relative, computed at serve time — the `mine`
  *  pattern). */
+/** Resolve standing: the OPENER or the anchor's OWNER — the same predicate
+ *  `setDiscussionState` enforces, read here so the wire face carries the answer
+ *  and no surface has to re-derive (or under-derive) it. */
+function canResolveDiscussion(d: StoredDiscussion, viewerTenant: string): boolean {
+  if (tenantWritesAs(viewerTenant, d.openerTenant)) return true
+  const row = store.grantSubjectRow(d.anchor.ref)
+  return row !== undefined && row !== 'unsupported' && ownsGrantSubject(row, viewerTenant)
+}
+
 function publicDiscussion(d: StoredDiscussion, viewerTenant?: string): Discussion {
   const { openerTenant, posts, ...pub } = d
   return {
     ...pub,
     ...(viewerTenant !== undefined && tenantWritesAs(viewerTenant, openerTenant) ? { mine: true } : {}),
+    ...(viewerTenant !== undefined && canResolveDiscussion(d, viewerTenant) ? { canResolve: true } : {}),
     posts: posts.map((p) => {
       const { authorTenant, reactedBy, ...post } = p
       return {
@@ -4692,9 +4702,9 @@ export const store = {
   setDiscussionState(id: string, state: 'open' | 'resolved', tenantId: string): Discussion | 'forbidden' | undefined {
     const d = discussions.find((x) => x.id === id)
     if (!d || !this.grantSubjectVisible(d.anchor.ref, tenantId)) return undefined
-    const row = this.grantSubjectRow(d.anchor.ref)
-    const anchorOwner = row !== undefined && row !== 'unsupported' && ownsGrantSubject(row, tenantId)
-    if (!tenantWritesAs(tenantId, d.openerTenant) && !anchorOwner) return 'forbidden'
+    // The SAME predicate the wire face reports (`canResolve`), so the control
+    // the UI shows and the act the server allows are one decision.
+    if (!canResolveDiscussion(d, tenantId)) return 'forbidden'
     d.state = state
     emit({ type: 'discussion.changed', discussionId: d.id, anchor: d.anchor })
     persist()

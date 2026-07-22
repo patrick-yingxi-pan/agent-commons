@@ -255,3 +255,33 @@ test('un-sharing silences a stale participant — a revoked reader stops being r
   await call('POST', `/discussions/${d.id}/posts`, { body: 'Talking on' }, { 'x-tenant-id': OWNER })
   assert.equal((await mine()).length, 1, '…and no new bell arrives for a thread they can no longer read')
 })
+
+test('canResolve is the WRITE path’s own answer — the opener AND the anchor owner, nobody else', async () => {
+  // Standing is two parties, so a surface gating on `mine` alone silently denied
+  // the anchor owner a control they hold (the thread page did exactly that).
+  // The wire face reports the same predicate the write path enforces.
+  const { ref } = await arena('comment')
+  const opened = await call('POST', '/discussions', { anchor: { ref }, firstPost: 'Mine' }, { 'x-tenant-id': AUDIENCE })
+  const did = opened.json.id
+
+  const face = async (tenant: string) => (await call('GET', `/discussions/${did}`, undefined, { 'x-tenant-id': tenant })).json
+
+  const asOpener = await face(AUDIENCE)
+  assert.equal(asOpener.mine, true)
+  assert.equal(asOpener.canResolve, true, 'the opener has standing')
+
+  const asOwner = await face(OWNER)
+  assert.notEqual(asOwner.mine, true, 'the anchor owner did NOT open it')
+  assert.equal(asOwner.canResolve, true, '…and still has standing — the case `mine` could not express')
+
+  // Both faces match the write path exactly.
+  assert.equal((await call('POST', `/discussions/${did}/resolve`, undefined, { 'x-tenant-id': OWNER })).status, 200)
+  assert.equal(
+    (await call('POST', `/discussions/${did}/resolve`, { state: 'open' }, { 'x-tenant-id': AUDIENCE })).status,
+    200,
+  )
+
+  // A bystander can't even see it, let alone resolve it.
+  assert.equal((await call('GET', `/discussions/${did}`, undefined, { 'x-tenant-id': BYSTANDER })).status, 404)
+  assert.equal((await call('POST', `/discussions/${did}/resolve`, undefined, { 'x-tenant-id': BYSTANDER })).status, 404)
+})

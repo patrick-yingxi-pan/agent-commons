@@ -2766,9 +2766,9 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
   return (
     <MainSection
       title="Discussion"
-      revealActions={!root || !(own || root.mine === true)}
+      revealActions={!root || root.canResolve !== true}
       actions={
-        root && (own || root.mine === true) ? (
+        root && root.canResolve === true ? (
           <SectionAction
             label={root.state === 'open' ? 'Resolve this discussion' : 'Reopen this discussion'}
             icon={root.state === 'open' ? <CheckCircle2 size={14} /> : <MessageSquare size={14} />}
@@ -3066,6 +3066,9 @@ function DiscussionPage({
 }) {
   const q = useDiscussion(discussionId)
   const d = q.data ?? null
+  // Read BEFORE the not-found early return, so hook order is stable; disabled
+  // until the anchor is known.
+  const canComment = useSocialCapability(d?.anchor.ref.kind ?? '', d?.anchor.ref.id ?? '', !!d).data?.canComment === true
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -3128,7 +3131,9 @@ function DiscussionPage({
           >
             Discuss with Claude
           </button>
-          {(d.mine === true) && (
+          {/* `canResolve`, not `mine`: standing is the opener OR the anchor's
+              owner, so gating on `mine` denied the owner a control they hold. */}
+          {d.canResolve === true && (
             <button
               onClick={() => void setDiscussionState(d.id, d.state === 'open' ? 'resolved' : 'open', d.anchor.ref)}
               className={INLINE_ACTION_CLASS}
@@ -3140,20 +3145,27 @@ function DiscussionPage({
       </header>
       <div className="max-w-2xl">
         <DiscussionPostList posts={d.posts} onReact={(pid) => void reactToDiscussionPost(d.id, pid, d.anchor.ref)} />
-        <div className="mt-4 flex items-start gap-2">
-          <textarea
-            aria-label="Reply to this discussion"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Reply…"
-            rows={draft.includes('\n') ? 3 : 1}
-            className={`${FORM_INPUT_CLASS} resize-none`}
-          />
-          <button onClick={() => void send()} disabled={busy || !draft.trim()} className={`${INLINE_ACTION_CLASS} mt-1 shrink-0`}>
-            Post
-          </button>
-        </div>
-        {error && <p className="mt-1 text-[11px] text-danger">{error}</p>}
+        {/* Capability shapes affordances: a `view`-tier reader reads the thread
+            and may still REACT (the thinnest signal needs no tier) — but gets no
+            reply box, rather than one whose every send is refused. */}
+        {canComment && (
+          <>
+            <div className="mt-4 flex items-start gap-2">
+              <textarea
+                aria-label="Reply to this discussion"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder="Reply…"
+                rows={draft.includes('\n') ? 3 : 1}
+                className={`${FORM_INPUT_CLASS} resize-none`}
+              />
+              <button onClick={() => void send()} disabled={busy || !draft.trim()} className={`${INLINE_ACTION_CLASS} mt-1 shrink-0`}>
+                Post
+              </button>
+            </div>
+            {error && <p className="mt-1 text-[11px] text-danger">{error}</p>}
+          </>
+        )}
       </div>
     </Page>
   )
