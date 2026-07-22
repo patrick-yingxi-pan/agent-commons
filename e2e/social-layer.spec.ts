@@ -40,6 +40,7 @@ const TURN_POST = `About this step specifically ${STAMP}`
 const TURN_REPLY = `Still this step ${STAMP}`
 const GUEST_POST = `A question about this exact step ${STAMP}`
 const RUN_POST = `This run failed on the label step ${STAMP}`
+const ARTIFACT = 'insights-onepager.md'
 const ROUTINE = '/scheduled/s-issue-triage'
 const NEW_CADENCE = `Every 9 hours ${STAMP}`
 const ROUTINE_CHANGE = `Move this to 09:00 — 08:00 lands before the data does ${STAMP}`
@@ -417,6 +418,43 @@ test('a shared ROUTINE: the visitor page is read-only, and landing their change 
   await expect(row.getByText(/^L\d+$/)).toBeVisible({ timeout: 20_000 })
   // The real proof: landing RAN the mutator, so the routine's own cadence changed.
   await expect(ada.page.getByText(NEW_CADENCE).first()).toBeVisible({ timeout: 20_000 })
+
+  await ada.context.close()
+  await grace.context.close()
+})
+
+test('a shared ARTIFACT: the grant opens it, and the visitor gets no filing controls', async ({ browser }) => {
+  test.setTimeout(180_000)
+  const ada = await newUser(browser)
+  const grace = await newUser(browser, { 'x-tenant-id': 'tenant-beta' })
+
+  // The BEFORE/AFTER of the wall is locked precisely in tests/social.test.ts
+  // (walled before the grant, visible after, `own` false for the audience) — it
+  // needs a clean store, which a persistent e2e store can't promise. This walk
+  // owns the DOM half: that the share door exists on the viewer at all, and that
+  // the visitor's copy of the same modal carries no owner controls.
+  await ada.page.goto('/artifacts')
+  await ada.page.getByText(ARTIFACT).first().click()
+  const viewer = ada.page.getByRole('dialog', { name: ARTIFACT })
+  await expect(viewer).toBeVisible({ timeout: 20_000 })
+  await expect(viewer.getByTitle('Assign to a project')).toBeVisible()
+  await viewer.getByLabel('Audience kind').selectOption('org')
+  await viewer.getByLabel('Audience id').fill('tenant-beta')
+  await viewer.getByRole('button', { name: 'Share', exact: true }).click()
+  await expect(viewer.getByText('tenant-beta')).toBeVisible({ timeout: 20_000 })
+
+  // THE POINT: before this, the grant was accepted and the artifact stayed
+  // invisible — discussable but unviewable. Now the read widens.
+  await grace.page.goto('/artifacts')
+  await expect(grace.page.getByText(ARTIFACT).first()).toBeVisible({ timeout: 20_000 })
+
+  // …and ownership did NOT widen: she reads it, and gets no filing control and
+  // no share configuration of someone else's artifact.
+  await grace.page.getByText(ARTIFACT).first().click()
+  const hers = grace.page.getByRole('dialog', { name: ARTIFACT })
+  await expect(hers).toBeVisible({ timeout: 20_000 })
+  await expect(hers.getByTitle('Assign to a project')).toHaveCount(0)
+  await expect(hers.getByText('Share this artifact')).toHaveCount(0)
 
   await ada.context.close()
   await grace.context.close()
