@@ -40,5 +40,8 @@ test('Stop mid-stream: the partial persists, the streaming state stands down', a
     .toEqual({ roles: ['user', 'assistant'], live: null })
   const full = await (await page.request.get(`/api/v1/sessions/${session.id}`)).json()
   expect(full.messages[1].content.length).toBeGreaterThan(0)
-  expect(full.messages[1].content).not.toContain('digest', 'the reply was cut short — a partial, not the full text')
+  // `toContain` takes ONE argument — a second string is silently discarded, so
+  // this explanation never reached a failure report. Carried as a soft assertion
+  // message instead, which is where Playwright actually shows it.
+  expect(full.messages[1].content, 'the reply was cut short — a partial, not the full text').not.toContain('digest')
 })
