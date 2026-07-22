@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { AtSign, Award, Bell, GitMerge, GitPullRequest, Hammer, ListChecks, MessageSquare, Share2, Sparkles, XCircle, type LucideIcon } from 'lucide-react'
+import { AtSign, Award, Bell, GitMerge, GitPullRequest, Hammer, ListChecks, MessageSquare, MessagesSquare, Share2, Sparkles, XCircle, type LucideIcon } from 'lucide-react'
 import type { AppNotification, NotificationKind } from '../../contract/index.ts'
 import type { SectionId } from '../types'
 import { useFocusTrap } from '../lib/useFocusTrap'
@@ -8,6 +8,12 @@ import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { relativeTime } from '../lib/relativeTime'
 import { doorFor } from '../lib/notificationDoor'
 import { useNotifications, markNotificationsRead, useAgents } from '../api'
+
+/** A dispatch arm is missing: the argument stays wider than `never` and the
+ *  build fails, rather than the row becoming a silent no-op. */
+function assertHandled(intent: never): void {
+  void intent
+}
 
 const KIND_ICON: Record<NotificationKind, LucideIcon> = {
   'work.posted': ListChecks,
@@ -25,6 +31,7 @@ const KIND_ICON: Record<NotificationKind, LucideIcon> = {
   'social.offered': Sparkles,
   'social.landed': GitMerge,
   'social.declined': XCircle,
+  'social.discussed': MessagesSquare,
   'social.reported': Bell,
 }
 
@@ -60,6 +67,8 @@ function describe(n: AppNotification): string {
       return `${n.actor} landed your improvement to “${n.subjectName}”`
     case 'social.declined':
       return `${n.actor} declined your improvement to “${n.subjectName}”`
+    case 'social.discussed':
+      return `${n.actor} posted in the discussion on “${n.subjectName}”`
     case 'social.reported':
       return `${n.actor} reported a post on “${n.subjectName}” — you hold the delete`
   }
@@ -78,6 +87,7 @@ export function NotificationsPanel({
   onOpenWorkItem,
   onOpenProposal,
   onOpenAgent,
+  onOpenDiscussion,
   onOpenOwner,
   onClose,
 }: {
@@ -86,6 +96,8 @@ export function NotificationsPanel({
   onOpenWorkItem: (projectId: string, workItemId: string, commentId?: string) => void
   onOpenProposal: (agentId: string, proposalId: string, ownerName: string | null) => void
   onOpenAgent: (agentId: string) => void
+  /** The thread page a `social.discussed` bell lands on. */
+  onOpenDiscussion: (discussionId: string) => void
   onOpenOwner: (name: string) => void
   onClose: () => void
 }) {
@@ -123,9 +135,18 @@ export function NotificationsPanel({
         else onOpenAgent(intent.agentId)
         break
       }
+      case 'discussion':
+        onOpenDiscussion(intent.discussionId)
+        break
       case 'section':
         onOpenSection(intent.section)
         break
+      default:
+        // Exhaustiveness: `doorFor` is total over NotificationKind, but this
+        // DISPATCH is the other half of the contract — a new NavIntent variant
+        // with no arm here would type-check and silently become a dead click.
+        // The `never` makes that a build error instead.
+        assertHandled(intent)
     }
     onClose()
   }

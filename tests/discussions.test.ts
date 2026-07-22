@@ -199,3 +199,59 @@ test('recursion: a discussion anchors to a discussion (the sixth noun is a full 
   const asBystander = await call('GET', `/discussions/${meta.json.id}`, undefined, { 'x-tenant-id': BYSTANDER })
   assert.equal(asBystander.status, 404)
 })
+
+test('a post RINGS the anchor owner and the thread’s other participants — never the author', async () => {
+  // Without this the share → discuss loop is one-way: a comment is the one
+  // social act whose subject nobody would otherwise be told about.
+  const { ref } = await arena('comment')
+  // Scoped to THIS thread: tenants are reused across the tests in this file, so
+  // a bare count would fold in every earlier walk's bells.
+  let did = ''
+  const bells = async (tenant: string) =>
+    ((await call('GET', '/notifications', undefined, { 'x-tenant-id': tenant })).json as { kind: string; discussionId?: string }[])
+      .filter((n) => n.kind === 'social.discussed' && n.discussionId === did)
+
+  // The AUDIENCE opens a thread on the owner's subject → the owner is rung.
+  const d = (await call('POST', '/discussions', { anchor: { ref }, firstPost: 'Question' }, { 'x-tenant-id': AUDIENCE })).json
+  did = d.id
+  const ownerBells = await bells(OWNER)
+  assert.equal(ownerBells.length, 1, 'the FIRST post rings too — that is when someone starts talking about your thing')
+  assert.equal(ownerBells[0].discussionId, d.id, 'the bell points at the THREAD (its own page)')
+  assert.equal((await bells(AUDIENCE)).length, 0, 'never the author')
+
+  // The OWNER replies → the audience (a participant) is rung, and the owner
+  // isn't rung by their own post.
+  await call('POST', `/discussions/${d.id}/posts`, { body: 'Answer' }, { 'x-tenant-id': OWNER })
+  assert.equal((await bells(AUDIENCE)).length, 1, 'someone replied where you are talking')
+  assert.equal((await bells(OWNER)).length, 1, 'still just the one — an author never rings themselves')
+
+  // A BYSTANDER is never rung: a bell means you are involved, not merely that
+  // the thing exists (and they can't read the anchor anyway).
+  assert.equal((await bells(BYSTANDER)).length, 0, 'no broadcast')
+})
+
+test('un-sharing silences a stale participant — a revoked reader stops being rung (review finding)', async () => {
+  // Past participation is not standing: the row carries the subject's display
+  // name and doors into the thread, so ringing someone who lost access would
+  // both leak that the thing is still being discussed and dead-end in a 404.
+  const { projectId, ref } = await arena('comment')
+  const d = (await call('POST', '/discussions', { anchor: { ref }, firstPost: 'While I could' }, { 'x-tenant-id': AUDIENCE })).json
+  const mine = async () =>
+    ((await call('GET', '/notifications', undefined, { 'x-tenant-id': AUDIENCE })).json as { kind: string; discussionId?: string }[])
+      .filter((n) => n.kind === 'social.discussed' && n.discussionId === d.id)
+
+  await call('POST', `/discussions/${d.id}/posts`, { body: 'Replying' }, { 'x-tenant-id': OWNER })
+  assert.equal((await mine()).length, 1, 'a participant is rung while they can still read')
+
+  // Revoke the grant that opened the anchor.
+  const roster = (await call('GET', `/grants?kind=project&id=${projectId}`, undefined, { 'x-tenant-id': OWNER })).json
+  for (const g of roster) await call('DELETE', `/grants/${g.id}`, undefined, { 'x-tenant-id': OWNER })
+  assert.equal(
+    (await call('GET', `/discussions/${d.id}`, undefined, { 'x-tenant-id': AUDIENCE })).status,
+    404,
+    'the thread is gone for them',
+  )
+
+  await call('POST', `/discussions/${d.id}/posts`, { body: 'Talking on' }, { 'x-tenant-id': OWNER })
+  assert.equal((await mine()).length, 1, '…and no new bell arrives for a thread they can no longer read')
+})

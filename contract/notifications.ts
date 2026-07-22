@@ -34,6 +34,13 @@ export const NOTIFICATION_KINDS = [
   'social.offered',
   'social.landed',
   'social.declined',
+  // A post on a thread — rings the ANCHOR OWNER (someone is talking about your
+  // thing) and every OTHER participant already in the thread (someone replied to
+  // a conversation you're in), never the author. The `work.commented` /
+  // `proposal.commented` shape generalized to the social nouns: without it the
+  // share → discuss loop is one-way, since a comment is the one social act whose
+  // subject nobody is otherwise told about.
+  'social.discussed',
   // S5 guardrails: a reader reported a post — rings the ANCHOR OWNER, who
   // holds the moderation delete (owner moderation; instance-level reports are
   // the S6 escalation).
@@ -69,6 +76,13 @@ export interface AppNotification {
   subjectKind?: string
   subjectId?: string
   subjectName?: string
+  /** The thread a post landed in (`social.discussed`) — the door lands on the
+   *  discussion's own page rather than its subject's, because that page is where
+   *  the post actually is (and it carries the anchor chip back to the subject,
+   *  or to the exact turn when the thread hangs on one). A party-visible id: the
+   *  recipient can read the thread by construction — they own its anchor or are
+   *  already in it. */
+  discussionId?: string
   /** The forked definition (`agent.forked`) — the SOURCE agent's id + label. (The
    *  door lands on the source the recipient OWNS, never the fork — a private agent of
    *  the forker the source owner may not see: the D24 leak-wall.) */

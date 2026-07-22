@@ -21,7 +21,9 @@ import { test, expect, type Browser, type Page } from '@playwright/test'
  *  4. sharing a CONVERSATION: the owner shares from the title bar's share door
  *     (chrome, not a page — a conversation has no rail), the audience's read
  *     opens while the door itself does NOT (reads widen, ownership doesn't),
- *     and the visitor discusses one turn of a conversation she doesn't own.
+ *     and the visitor discusses one turn of a conversation she doesn't own —
+ *     which RINGS the owner (social.discussed), whose bell doors onto the
+ *     thread's own page.
  *
  *  Tenant impersonation mirrors co-author-article.spec.ts: BACKEND=remote,
  *  identity via headers — Ada (no headers, the seeded default owner), Grace
@@ -260,13 +262,23 @@ test('sharing a CONVERSATION: the owner shares from its title bar, the audience 
   const guestMarker = grace.page.getByTitle('Open this turn’s thread').first()
   await expect(guestMarker).toBeVisible()
 
-  // The owner sees it on the same turn — one thread, two viewers. Asserted on
-  // the POST, not the thread's heading: the heading is whatever opened the
-  // thread, and by the get-or-create rule Grace may have appended to one the
-  // turn already carried (the walk above leaves one there when both run).
+  // ── The owner is TOLD (social.discussed) ───────────────────────────────
+  // Without the bell the share → discuss loop is one-way: a comment is the one
+  // social act whose subject nobody would otherwise be told about. The row is a
+  // DOOR onto the THREAD's own page — the deepest door of any social kind,
+  // because that is where the post actually is.
   await ada.page.reload()
-  await ada.page.getByTitle('Open this turn’s thread').first().click({ timeout: 20_000 })
+  await ada.page.getByRole('button', { name: 'Notifications' }).click()
+  const bell = ada.page.getByRole('button', { name: /posted in the discussion on/ }).first()
+  await expect(bell).toBeVisible({ timeout: 20_000 })
+  await bell.click()
+  // Asserted on the POST, not the thread's heading: the heading is whatever
+  // opened the thread, and by the get-or-create rule Grace may have appended to
+  // one the turn already carried (walk 3 leaves one there when both run).
   await expect(ada.page.getByText(GUEST_POST)).toBeVisible()
+  // It landed on the THREAD's page, not the subject's — the anchor chip is
+  // there, pointing back at the exact turn the thread hangs on.
+  await expect(ada.page.getByTitle('Open this conversation at this turn')).toBeVisible()
 
   await ada.context.close()
   await grace.context.close()

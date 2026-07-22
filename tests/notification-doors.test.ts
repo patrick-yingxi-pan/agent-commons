@@ -32,6 +32,9 @@ function sample(kind: NotificationKind): AppNotification {
     subjectKind: 'project',
     subjectId: 'p1',
     subjectName: 'Proj',
+    // The thread a `social.discussed` bell points at — its own page, the
+    // deepest door of any social kind.
+    discussionId: 'disc-1',
   }
 }
 
@@ -97,10 +100,28 @@ test('a legacy row missing its R2 id degrades to the page/section, still not a d
 })
 
 test('a door never carries a tenant id — only public-face entity ids (the D24 leak-wall, structurally)', () => {
-  const allowed = new Set(['kind', 'projectId', 'workItemId', 'proposalId', 'agentId', 'commentId', 'section'])
+  // Each key here is a deliberate declaration that the id is a PUBLIC face. A
+  // discussion id (`disc-N`) qualifies like a work item's or a proposal's: a
+  // sequential entity id, and `social.discussed` only reaches recipients who can
+  // read that thread by construction (its anchor's owner, or a participant).
+  const allowed = new Set(['kind', 'projectId', 'workItemId', 'proposalId', 'agentId', 'commentId', 'discussionId', 'section'])
   for (const kind of NOTIFICATION_KINDS) {
     for (const key of Object.keys(doorFor(sample(kind)))) {
       assert.ok(allowed.has(key), `${kind} door exposes only public-face keys; found "${key}"`)
     }
   }
+})
+
+test('social.discussed lands on the THREAD, not its subject — the post is on that page', () => {
+  const intent = doorFor(sample('social.discussed'))
+  assert.equal(intent.kind, 'discussion')
+  assert.ok(intent.kind === 'discussion')
+  assert.equal(intent.discussionId, 'disc-1')
+  // A row minted before the id field degrades to the section — still not a
+  // dead click (the rule every other kind keeps).
+  const legacy = { ...sample('social.discussed'), discussionId: undefined }
+  const degraded = doorFor(legacy)
+  assert.equal(degraded.kind, 'section')
+  assert.ok(degraded.kind === 'section')
+  assert.equal(degraded.section, 'discussions')
 })

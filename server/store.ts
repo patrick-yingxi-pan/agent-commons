@@ -4533,6 +4533,18 @@ export const store = {
       ],
     }
     discussions.push(d)
+    // The FIRST post rings too — it is the moment someone starts talking about
+    // your thing, which is exactly when you want to know. (The append path rings
+    // from postToDiscussion; a new thread has no other participants yet, so the
+    // audience is just the anchor's owner.)
+    notifyTenants(this.discussionAudience(d), tenantId, {
+      kind: 'social.discussed',
+      actor: tenantName(tenantId),
+      subjectKind: d.anchor.ref.kind,
+      subjectId: d.anchor.ref.id,
+      subjectName: this.commonsSubjectFace(d.anchor.ref).name,
+      discussionId: d.id,
+    })
     emit({ type: 'discussion.changed', discussionId: d.id, anchor: d.anchor })
     persist()
     return publicDiscussion(d, tenantId)
@@ -4565,6 +4577,10 @@ export const store = {
     if (!d || !this.grantSubjectVisible(d.anchor.ref, tenantId)) return undefined
     if (!this.socialSubjectCommentable(d.anchor.ref, tenantId)) return 'forbidden'
     if (d.posts.length >= MAX_DISCUSSION_POSTS) return 'capped'
+    // The interested parties, read BEFORE the post lands so the new author isn't
+    // counted as a prior participant (notifyTenants drops the actor anyway, but
+    // the set should mean what it says).
+    const audience = this.discussionAudience(d)
     d.posts.push({
       id: `dpost-${(discussionSeq += 1)}`,
       author: tenantName(tenantId),
@@ -4573,9 +4589,37 @@ export const store = {
       at: Date.now(),
       reactedBy: [],
     })
+    // Someone is talking about your thing / replied where you're talking. The
+    // one social act whose subject nobody would otherwise be told about.
+    notifyTenants(audience, tenantId, {
+      kind: 'social.discussed',
+      actor: tenantName(tenantId),
+      subjectKind: d.anchor.ref.kind,
+      subjectId: d.anchor.ref.id,
+      subjectName: this.commonsSubjectFace(d.anchor.ref).name,
+      discussionId: d.id,
+    })
     emit({ type: 'discussion.changed', discussionId: d.id, anchor: d.anchor })
     persist()
     return publicDiscussion(d, tenantId)
+  },
+  /** Who a thread's activity concerns: the ANCHOR OWNER (it is their resource
+   *  being discussed) plus everyone already IN the thread (they are in the
+   *  conversation). Deliberately not "everyone who can read the anchor" — a
+   *  widely-shared project would turn every comment into a broadcast; the D24
+   *  rule is that a bell means *you* are involved, and merely having access
+   *  isn't involvement. Watchers get the feed, not the bell.
+   *
+   *  Filtered by CURRENT visibility, not past participation: a participant whose
+   *  grant was revoked must stop being rung — the row carries the subject's
+   *  display name and would door into a 404, so a stale bell both leaks that the
+   *  thing is still being talked about and dead-ends. (The same rule the work
+   *  layer earned: "un-sharing silences the stale audience".) */
+  discussionAudience(d: StoredDiscussion): string[] {
+    const row = this.grantSubjectRow(d.anchor.ref)
+    const owner = row !== undefined && row !== 'unsupported' ? (row.tenantId ?? defaultTenantId()) : undefined
+    const parties = new Set([...(owner ? [owner] : []), ...d.posts.map((p) => p.authorTenant)])
+    return [...parties].filter((t) => this.grantSubjectVisible(d.anchor.ref, t))
   },
   /** Toggle the one thin reaction on a post — any READER may endorse (the
    *  lightest signal deliberately needs no comment tier). */

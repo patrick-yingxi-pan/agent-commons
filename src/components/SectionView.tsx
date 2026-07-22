@@ -2207,6 +2207,11 @@ function OpenWorkList({ projectId, ownerCanModerate }: { projectId: string; owne
           <button
             onClick={post}
             disabled={busy || !subGoal.trim() || !target.trim()}
+            // Named, because the project page carries a SECOND "Post" (the
+            // discussion composer): identical accessible names on two buttons
+            // that do different things is ambiguous to a screen reader, and it
+            // made the notifications e2e's selector ambiguous too.
+            aria-label="Post work item"
             className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-on-solid transition enabled:hover:bg-accent/90 disabled:opacity-45"
           >
             Post

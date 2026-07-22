@@ -56,10 +56,13 @@ test('a workspace profile is reachable from any byline, and global search finds 
   const ownerName = dir.find((p) => p.name === PROJECT)?.owner
   expect(ownerName, 'the shared project is in the directory with a public owner').toBeTruthy()
 
-  // ── The byline door: Discover card → the owner's profile page (D21) ───────────
+  // ── The byline door: a directory card → the owner's profile page (D21) ───────
+  // Shared PROJECTS are discovered in the COMMONS' Browse band, not the Agents
+  // hub's Discover — the adjudicated Discover consolidation (S4, SOCIAL-8):
+  // resources are discovered where resources live, definitions where
+  // definitions live. This spec asserted the pre-consolidation location.
   await openApp(visitor.page)
-  await visitor.page.getByRole('navigation').getByRole('button', { name: 'Agents', exact: true }).click()
-  await visitor.page.getByRole('button', { name: 'Discover' }).click()
+  await visitor.page.getByRole('navigation').getByRole('button', { name: 'Commons', exact: true }).click()
   await expect(visitor.page.getByText(PROJECT).first()).toBeVisible()
   await visitor.page
     .getByRole('button', { name: `by ${ownerName}`, exact: true })

@@ -167,6 +167,7 @@ function Workspace() {
     openSchedule,
     openOwner,
     openAgentPage,
+    openDiscussionPage,
     openContextPage,
     openWorkItemPage,
     openContributionPage,
@@ -615,6 +616,7 @@ function Workspace() {
           onOpenWorkItem={openWorkItem}
           onOpenProposal={openProposal}
           onOpenAgent={openAgent}
+          onOpenDiscussion={openDiscussionPage}
           onOpenOwner={openOwner}
           onClose={() => setNotifOpen(false)}
         />

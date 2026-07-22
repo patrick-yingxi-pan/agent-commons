@@ -43,6 +43,9 @@ export type NavIntent =
   // threads collapse — carried no value on this path.
   | { kind: 'proposal'; agentId: string; proposalId: string }
   | { kind: 'agent'; agentId: string }
+  /** A discussion's own page (`social.discussed`) — the thread IS the target,
+   *  so this door needs no in-page focus: the post is on the page it opens. */
+  | { kind: 'discussion'; discussionId: string }
   | { kind: 'section'; section: SectionId }
 
 /** The door for one notification — total over `NotificationKind`. */
@@ -72,6 +75,14 @@ export function doorFor(n: AppNotification): NavIntent {
     // kinds land on their section (sessions, which have none, fall back to the
     // Commons — the feed carries the share). Slice-1 mapping, recorded in the
     // design ledger; per-kind deep doors arrive with their surfaces.
+    // A post lands on the THREAD's own page, not its subject's — that page is
+    // where the post actually is, and it carries the anchor chip back to the
+    // subject (or, for a turn-anchored thread, to the exact turn). The deepest
+    // door of any social kind, because discussions are the one social noun with
+    // a page of their own.
+    case 'social.discussed':
+      if (n.discussionId) return { kind: 'discussion', discussionId: n.discussionId }
+      return { kind: 'section', section: 'discussions' }
     case 'social.shared':
     case 'social.offered':
     case 'social.landed':

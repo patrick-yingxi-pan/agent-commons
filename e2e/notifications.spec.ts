@@ -54,7 +54,7 @@ test('watch a shared project → the owner acts → the watcher’s bell rings, 
   await owner.page.getByRole('button', { name: 'Post a work item' }).click()
   await owner.page.getByPlaceholder('Post a work item (sub-goal)…').fill(ITEM)
   await owner.page.getByLabel('Effect target').fill('budget:demo')
-  await owner.page.getByRole('button', { name: 'Post', exact: true }).click()
+  await owner.page.getByRole('button', { name: 'Post work item' }).click()
   await expect(owner.page.getByText(ITEM)).toBeVisible()
 
   // The watcher's bell badges LIVE (tenant-targeted SSE — no reload).
@@ -102,7 +102,7 @@ test('a work.commented bell opens the project ON the item’s thread, auto-expan
   await owner.page.getByRole('button', { name: 'Post a work item' }).click()
   await owner.page.getByPlaceholder('Post a work item (sub-goal)…').fill(IT)
   await owner.page.getByLabel('Effect target').fill('budget:demo')
-  await owner.page.getByRole('button', { name: 'Post', exact: true }).click()
+  await owner.page.getByRole('button', { name: 'Post work item' }).click()
   await expect(owner.page.getByText(IT)).toBeVisible()
 
   // Visitor: opens the shared project and comments on the item → the OWNER's bell rings.
