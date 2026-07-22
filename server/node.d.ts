@@ -17,7 +17,7 @@ declare module 'node:http' {
     writeHead(status: number, headers?: Record<string, string>): ServerResponse
     setHeader(name: string, value: string | number | string[]): void
     write(chunk: string): boolean
-    end(chunk?: string): void
+    end(chunk?: string | Uint8Array): void
     flushHeaders?(): void
     writableEnded: boolean
     on(event: 'close', cb: () => void): void

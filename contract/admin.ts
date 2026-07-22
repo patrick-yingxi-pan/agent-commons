@@ -61,8 +61,14 @@ export interface AdminTokenRow extends ApiToken {
 export interface OpsSummary {
   /** Seconds since the server booted. */
   uptimeSeconds: number
-  /** The persistence epoch (bumps on restore) — mirrors the `/metrics` gauge. */
-  epoch: number
+  /** The persistence epoch (bumps on restore) — mirrors the `/metrics` gauge.
+   *  A STRING id (`e{base36}{base36}`), not a count: it is compared for change,
+   *  never ordered or subtracted. Declared `number` until 2026-07-22, while the
+   *  route shipped the string — the same field is `string` in
+   *  `contract/api.ts`'s liveness face, so the contract contradicted itself and
+   *  a consumer typed against this one would have mishandled it. Found by
+   *  typechecking `server/` (FWD-8). */
+  epoch: string
   /** Which backend variant is serving (`native` | `remote`). */
   backend: string
   /** True once a shutdown began (readyz would 503). */

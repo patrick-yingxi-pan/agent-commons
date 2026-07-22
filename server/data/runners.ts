@@ -11,8 +11,14 @@ import type { RegisterInput } from '../registry.ts'
  *  filesystem reader actually reads. */
 const RUNNER_SCOPE = '~/projects'
 
+/** The seed's id is fixed (it is a RECONNECTABLE identity, not a first
+ *  enrollment — `RegisterInput.id` is optional only because enrolling fresh
+ *  mints one). Named so the FS-root map below can key on it without asking
+ *  whether an optional field is present. */
+export const LOCAL_RUNNER_ID = 'runner-local'
+
 export const LOCAL_RUNNER_SEED: RegisterInput = {
-  id: 'runner-local',
+  id: LOCAL_RUNNER_ID,
   label: "Patrick's Mac",
   host: 'localhost',
   capabilities: [
@@ -33,5 +39,5 @@ export const LOCAL_RUNNER_SEED: RegisterInput = {
  *  the in-repo `sample-runner-host/` tree (deterministic, reviewable); override the
  *  co-located runner's root with `CONTEXT_RUNNER_ROOT`. */
 export const RUNNER_FS_ROOTS: Record<string, string> = {
-  [LOCAL_RUNNER_SEED.id]: process.env.CONTEXT_RUNNER_ROOT ?? join(process.cwd(), 'sample-runner-host'),
+  [LOCAL_RUNNER_ID]: process.env.CONTEXT_RUNNER_ROOT ?? join(process.cwd(), 'sample-runner-host'),
 }

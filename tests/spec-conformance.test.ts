@@ -138,3 +138,17 @@ test('INV-3: the dev server binds IPv4 (127.0.0.1)', () => {
   const vite = read(join(ROOT, 'vite.config.ts'))
   assert.ok(vite.includes('127.0.0.1'), 'vite.config.ts must bind 127.0.0.1 (INV-3)')
 })
+
+/** FWD-8's lock: the claim "server/ is typechecked" is only true while `server`
+ *  sits in the tsconfig include, and nothing else would notice its removal —
+ *  `npm run typecheck` would simply pass, faster and emptier, exactly as it did
+ *  before this was closed. */
+test('INV: `npm run typecheck` covers server/ — the backend is not exempt from the contract', () => {
+  const tsconfig = JSON.parse(read(join(ROOT, 'tsconfig.json'))) as { include?: string[] }
+  assert.ok(
+    (tsconfig.include ?? []).includes('server'),
+    'tsconfig `include` must list `server` — a backend type error otherwise surfaces at runtime, not at build',
+  )
+  const pkg = JSON.parse(read(join(ROOT, 'package.json'))) as { scripts: Record<string, string> }
+  assert.match(pkg.scripts.typecheck ?? '', /tsc\s+--noEmit/, 'typecheck still runs tsc over that config')
+})

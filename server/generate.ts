@@ -206,7 +206,12 @@ export async function fetchProviderModels(config: ProviderConfig = {}): Promise<
       { limit: 100 },
       { signal: AbortSignal.timeout(positiveNumberEnv(process.env.PROVIDER_PROBE_TIMEOUT_MS, 10_000)) },
     )
-    const models = (page.data as WireModel[]).map(normalizeWireModel).filter((m): m is ModelInfo => !!m)
+    // The SDK's `ModelInfo` and our `WireModel` are independently declared shapes
+    // for the same payload, so they don't structurally overlap enough for a direct
+    // assertion — this is a BOUNDARY adapter, and `normalizeWireModel` below is
+    // what actually validates each row (it returns undefined for anything that
+    // isn't a model, hence the filter).
+    const models = (page.data as unknown as WireModel[]).map(normalizeWireModel).filter((m): m is ModelInfo => !!m)
     return models.length ? models : undefined
   } catch {
     return undefined

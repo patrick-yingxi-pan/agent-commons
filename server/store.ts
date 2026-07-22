@@ -104,7 +104,7 @@ import { RunnerRegistry } from './registry.ts'
 import { RunnerJournal } from './journal.ts'
 import { RelayRuntime, hashRelaySecret, mintRelaySecret, relaySecretHint, sameSecretHash } from './relay.ts'
 import { ResourceGuardian, GuardianError } from './guardian.ts'
-import { LOCAL_RUNNER_SEED, RUNNER_FS_ROOTS } from './data/runners.ts'
+import { LOCAL_RUNNER_ID, LOCAL_RUNNER_SEED, RUNNER_FS_ROOTS } from './data/runners.ts'
 import { DEFAULT_AGENT } from './data/workers.ts'
 import { EMPTY_WORKSPACE, workspaceFromSeed } from './workspace.ts'
 import { STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer, type StoredOpenSubGoal, type StoredWorkItemComment, type StoredContribution, type StoredContributionEvent, type StoredDelegation, type StoredGrant, type StoredDiscussion, type StoredSocialProposal } from './persist.ts'
@@ -1398,7 +1398,7 @@ if (NATIVE) {
   // external heartbeat client, so pin it against liveness reaping (it would otherwise be
   // swept after the TTL and the runner-host fs source would vanish).
   registry.register(LOCAL_RUNNER_SEED)
-  registry.pin(LOCAL_RUNNER_SEED.id)
+  registry.pin(LOCAL_RUNNER_ID)
 }
 
 // Resolve a served filesystem source id (`?source=`) to its reader + descriptor.
@@ -1975,8 +1975,21 @@ export const store = {
     // drafted one decision; an effectful ask ESCALATED back to the human.
     mk(OMAR, 'p-macro-commons', 'Support Macro Commons', 'Reply macros, curated — routine approvals delegated, sends escalated.',
       'A draft-mode delegate holds the routine; anything irreversible escalates back to a human. Labor moves, liability does not.')
-    const steward = this.createAgent({ label: 'Macro Steward', providerId: 'provider-claude', tools: [] } as unknown as CreateAgentRequest, OMAR)
-    const stewardId = (steward as { id?: string }).id ?? ''
+    // `Omit<Agent,'id'>` requires systemPrompt + instructions; this literal
+    // supplied neither and was double-cast past the check, so the seeded agent
+    // shipped `undefined` where the contract promises strings. Filled in rather
+    // than re-cast (found by typechecking `server/`, FWD-8).
+    const steward = this.createAgent(
+      {
+        label: 'Macro Steward',
+        providerId: 'provider-claude',
+        tools: [],
+        systemPrompt: 'You steward a library of support reply macros. Prefer the shortest macro that answers the question.',
+        instructions: 'Draft routine macro lookups for review. Anything that sends, refunds, or promises escalates to a human.',
+      },
+      OMAR,
+    )
+    const stewardId = steward.id
     const del = this.createDelegation('p-macro-commons', { agentId: stewardId, actKind: 'approve-envelope', policy: 'Approve read-only macro lookups without waking me.', mode: 'draft' }, OMAR)
     const delId = typeof del === 'object' && del !== null ? del.id : ''
     const mc1 = contrib('p-macro-commons', ADA, 'Macro: refund status lookup')
