@@ -19,6 +19,16 @@
  *      layout rect, and "visible" ignores clipping/occlusion.
  *    • NO SILENT SKIPS: a cell or trigger the harness can't reach is recorded
  *      and printed — a quiet catch reports a clean cell it never visited.
+ *    • ADDRESS, don't click through. Cells are reached by their CANONICAL URL
+ *      (ADAPT-15) and detail ids come from the API, not from pattern-matching
+ *      seed prose. Clicking the rail meant opening the narrow tier's drawer,
+ *      whose scrim then intercepted the next click: the entire 320px column
+ *      skipped with "could not open section" on cells that render perfectly,
+ *      and detail cells skipped whenever the seeds drifted from the regex.
+ *      Rail navigation is covered by e2e/responsive.spec.ts, not here.
+ *    • A check that can't run must not read as a pass. The chip remove-confirm
+ *      skipped on EVERY viewport for as long as it existed, because the demo
+ *      thread has no chip; it now runs against a session the API says has one.
  *
  *  Usage:  npm run dev   (in another terminal)
  *          npm run ui:sweep            # exits 1 on violations
@@ -159,11 +169,59 @@ async function closeRailIfNarrow(page, vp) {
   await tick(250)
 }
 
-async function pickNav(page, vp, name) {
-  await openRailIfNarrow(page, vp)
-  await page.getByRole('navigation').getByRole('button', { name }).first().click({ timeout: 4000 })
-  await tick(250)
-  await closeRailIfNarrow(page, vp)
+/** Land on a page by its CANONICAL URL. Every page has one (ADAPT-15,
+ *  src/lib/urlRoutes.ts), so the sweep can address a surface directly instead of
+ *  clicking through the rail — which at the narrow tier means opening a drawer
+ *  whose scrim then intercepts the next click. That drawer path produced the
+ *  entire 320px column's worth of false skips: ten "could not open section"
+ *  timeouts on cells that render perfectly. Rail navigation itself is covered by
+ *  e2e/responsive.spec.ts and e2e/back-history.spec.ts, not here. */
+async function goTo(page, path) {
+  await page.goto(`${BASE}${path}`)
+  await tick(600)
+}
+
+/** Real ids from the API the UI reads, so a detail cell can never skip with
+ *  "check the seeds or widen the pattern" — the harness asks the backend what
+ *  exists instead of pattern-matching seed prose that drifts. */
+async function seedIds(page) {
+  const get = async (p) => {
+    try {
+      const r = await page.request.get(`${BASE}/api/v1${p}`)
+      return r.ok() ? await r.json() : []
+    } catch {
+      return []
+    }
+  }
+  const arr = (v) => (Array.isArray(v) ? v : (v?.items ?? []))
+  const [projects, schedules, artifacts, discussions, sessions] = await Promise.all([
+    get('/projects'),
+    get('/schedules'),
+    get('/artifacts'),
+    get('/discussions?mine=1'),
+    get('/sessions'),
+  ])
+  // A session that actually HAS an attached context — the chip remove-confirm
+  // can only be swept where a chip exists, and the demo thread has none. Five
+  // seeded sessions do; ask rather than assume (the check silently skipped on
+  // every viewport for as long as it has existed).
+  let chipSessionId = null
+  for (const row of arr(sessions).slice(0, 14)) {
+    const d = await get(`/sessions/${row.id}`)
+    const w = d?.workspace ?? {}
+    const n = (w.workspaces?.length ?? 0) + (w.repos?.length ?? 0) + (w.connectors?.length ?? 0) + (w.attachments?.length ?? 0)
+    if (n > 0) {
+      chipSessionId = row.id
+      break
+    }
+  }
+  return {
+    chipSessionId,
+    projectId: arr(projects)[0]?.id ?? null,
+    scheduleId: arr(schedules)[0]?.id ?? null,
+    artifactName: arr(artifacts)[0]?.name ?? null,
+    discussionId: arr(discussions)[0]?.id ?? null,
+  }
 }
 
 // ── preflight: a dead server must fail loudly, not sweep a blank page ──
@@ -208,15 +266,22 @@ for (const vp of VIEWPORTS) {
   await shot(page, cell.replace('/', '_'))
   await sweepTriggers(page, vp, cell)
 
-  const chipX = page.locator('button[aria-label^="Remove"]').first()
-  if (await chipX.count()) {
-    // Open-only: Escape cancels the confirm; nothing is removed.
-    await chipX.click({ force: true }).catch(() => {})
-    await tick()
-    for (const b of await measureSurfaces(page)) assertInside(cell, 'chip remove-confirm', b, vp)
-    await page.keyboard.press('Escape')
-    await tick(80)
-  } else skip(cell, 'no removable chip on the demo thread')
+  // The chip remove-confirm needs a session that HAS a chip. The demo thread has
+  // none, so this check skipped on every viewport for as long as it existed —
+  // a check that never runs is worse than no check, because the log reads clean.
+  const chipIds = await seedIds(page)
+  if (chipIds.chipSessionId) {
+    await goTo(page, `/s/${chipIds.chipSessionId}`)
+    const chipX = page.locator('button[aria-label^="Remove"]').first()
+    if (await chipX.count()) {
+      // Open-only: Escape cancels the confirm; nothing is removed.
+      await chipX.click({ force: true }).catch(() => {})
+      await tick()
+      for (const b of await measureSurfaces(page)) assertInside(cell, 'chip remove-confirm', b, vp)
+      await page.keyboard.press('Escape')
+      await tick(80)
+    } else skip(cell, `session ${chipIds.chipSessionId} reports a context but renders no remove control`)
+  } else skip(cell, 'no session with an attached context — cell UNSWEPT')
 
   // ── cell: the rail / drawer (filter menus, row menus, recents flyout) ──
   cell = `${vp.name}/rail`
@@ -251,7 +316,8 @@ for (const vp of VIEWPORTS) {
 
   // ── cell: a fresh draft ──
   cell = `${vp.name}/draft`
-  await pickNav(page, vp, 'New session').catch((e) => skip(cell, `nav failed: ${e.message.split('\n')[0]}`))
+  // The fresh draft IS the root address (ADAPT-1) — no drawer round-trip needed.
+  await goTo(page, '/')
   await noHScroll(page, cell)
   await shot(page, cell.replace('/', '_'))
   await sweepTriggers(page, vp, cell)
@@ -259,80 +325,66 @@ for (const vp of VIEWPORTS) {
   // ── cells: the rail sections (incl. the social layer's Commons + Discussions) ──
   for (const section of ['Commons', 'Projects', 'Artifacts', 'Contexts', 'Agents', 'Scheduled', 'Discussions', 'Dispatch', 'Customize']) {
     cell = `${vp.name}/${section.toLowerCase()}`
-    try {
-      await pickNav(page, vp, new RegExp(`^${section}`))
-    } catch (e) {
-      skip(cell, `could not open section: ${e.message.split('\n')[0]}`)
-      continue
-    }
+    await goTo(page, `/${section.toLowerCase()}`)
     await noHScroll(page, cell)
     await shot(page, cell.replace('/', '_'))
     await sweepTriggers(page, vp, cell)
   }
 
-  // ── cell: a project detail page (the social panels live here: the Sharing
-  // rail's grant form, the merged Changes ledger, the Discussion thread) ──
+  // ── the DETAIL cells, addressed by canonical URL from real ids ──
+  // Previously these matched seed prose ("briefing|digest|triage") and skipped
+  // with "widen the pattern" whenever the seeds moved. The backend knows what
+  // exists; ask it.
+  const ids = await seedIds(page)
+
   cell = `${vp.name}/project-detail`
-  await pickNav(page, vp, /^Projects/).catch(() => {})
-  const projectRow = page.locator('main').getByText(/Insights dashboard|Platform hardening/i).first()
-  if (await projectRow.count()) {
-    try {
-      await projectRow.click({ timeout: 3000 })
-      await tick(400)
-      await noHScroll(page, cell)
-      await shot(page, cell.replace('/', '_'))
-      await sweepTriggers(page, vp, cell, page.locator('main'))
-    } catch (e) {
-      await shot(page, `${cell.replace('/', '_')}-FAILED`)
-      skip(cell, `project row matched but not clickable: ${e.message.split('\n')[0]}`)
-    }
-  } else skip(cell, 'no project row matched — check the seeds or widen the pattern')
+  if (ids.projectId) {
+    await goTo(page, `/projects/${ids.projectId}`)
+    await noHScroll(page, cell)
+    await shot(page, cell.replace('/', '_'))
+    await sweepTriggers(page, vp, cell, page.locator('main'))
+  } else skip(cell, 'no project exists for this account — cell UNSWEPT')
 
-  // ── cell: Scheduled detail (cadence + model editors live there) ──
+  // The routine page carries the social panels: the Sharing rail's grant form,
+  // Improvements, Discussion, and the per-run locus gutters.
   cell = `${vp.name}/scheduled-detail`
-  await pickNav(page, vp, /^Scheduled/).catch(() => {})
-  const routine = page.locator('main').getByText(/briefing|digest|triage|report|review/i).first()
-  if (await routine.count()) {
-    try {
-      await routine.click({ timeout: 3000 })
-      await tick(400)
-      await noHScroll(page, cell)
-      await shot(page, cell.replace('/', '_'))
-      await sweepTriggers(page, vp, cell, page.locator('main'))
-    } catch (e) {
-      // A matched-but-unclickable row is itself suspicious (a zero-width or
-      // covered title has been a real finding twice) — screenshot + loud skip.
-      await shot(page, `${cell.replace('/', '_')}-FAILED`)
-      skip(cell, `routine row matched but not clickable: ${e.message.split('\n')[0]}`)
-    }
-  } else skip(cell, 'no routine row matched — check the seeds or widen the pattern')
+  if (ids.scheduleId) {
+    await goTo(page, `/scheduled/${ids.scheduleId}`)
+    await noHScroll(page, cell)
+    await shot(page, cell.replace('/', '_'))
+    await sweepTriggers(page, vp, cell, page.locator('main'))
+  } else skip(cell, 'no routine exists for this account — cell UNSWEPT')
 
-  // ── cell: the artifact viewer modal ──
+  // A thread page — the anchor chip, the post list's react/delete/report row.
+  cell = `${vp.name}/discussion-detail`
+  if (ids.discussionId) {
+    await goTo(page, `/discussions/${ids.discussionId}`)
+    await noHScroll(page, cell)
+    await shot(page, cell.replace('/', '_'))
+    await sweepTriggers(page, vp, cell, page.locator('main'))
+  } else skip(cell, 'no discussion visible to this account — cell UNSWEPT')
+
+  // ── cell: the artifact viewer modal (now carrying the Sharing panel) ──
   cell = `${vp.name}/artifact-viewer`
-  await pickNav(page, vp, /^Artifacts/).catch(() => {})
-  // Cards are click-target divs, not buttons — enter through a title text.
-  const card = page.locator('main').getByText(/one-pager|spec|brief|plan|hero|report/i).first()
-  if (await card.count()) {
-    try {
-      await card.click({ timeout: 3000 })
-    } catch (e) {
-      await shot(page, `${cell.replace('/', '_')}-FAILED`)
-      skip(cell, `artifact title matched but not clickable: ${e.message.split('\n')[0]}`)
-      await ctx.close()
-      console.log(`--- ${vp.name} swept ---`)
-      continue
-    }
-    await tick(500)
-    const dlg = page.locator('[role="dialog"]:visible').first()
-    if (await dlg.count()) {
-      const b = await dlg.boundingBox()
-      if (b && (b.y < 0 || b.y + b.height > vp.height + 1 || b.width > vp.width)) {
-        note(cell, 'UI-6', `viewer modal [y ${Math.round(b.y)} h ${Math.round(b.height)}] exceeds ${vp.width}×${vp.height}`)
-      }
-      await shot(page, cell.replace('/', '_'))
-      await page.keyboard.press('Escape')
-    } else skip(cell, 'artifact click opened no dialog — check the entry locator')
-  } else skip(cell, 'no artifact title matched — check the seeds or widen the pattern')
+  if (ids.artifactName) {
+    await goTo(page, '/artifacts')
+    const card = page.locator('main').getByText(ids.artifactName, { exact: false }).first()
+    if (await card.count()) {
+      await card.click({ timeout: 4000 })
+      await tick(500)
+      const dlg = page.locator('[role="dialog"]:visible').first()
+      if (await dlg.count()) {
+        const b = await dlg.boundingBox()
+        if (b && (b.y < 0 || b.y + b.height > vp.height + 1 || b.width > vp.width)) {
+          note(cell, 'UI-6', `viewer modal [y ${Math.round(b.y)} h ${Math.round(b.height)}] exceeds ${vp.width}×${vp.height}`)
+        }
+        await noHScroll(page, cell)
+        await shot(page, cell.replace('/', '_'))
+        await sweepTriggers(page, vp, cell, dlg)
+        await page.keyboard.press('Escape')
+      } else skip(cell, 'artifact click opened no dialog — check the entry locator')
+    } else skip(cell, `artifact "${ids.artifactName}" not rendered in the gallery — cell UNSWEPT`)
+  } else skip(cell, 'no artifact exists for this account — cell UNSWEPT')
 
   await ctx.close()
   console.log(`--- ${vp.name} swept ---`)
