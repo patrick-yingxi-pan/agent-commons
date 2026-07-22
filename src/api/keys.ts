@@ -172,6 +172,7 @@ export const paths = {
   /** A subject's discussions (social S2) + the per-discussion faces. */
   discussions: (kind: string, id: string) => `/discussions?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`,
   socialCapability: (kind: string, id: string) => `/social/capability?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`,
+  sessionFork: (id: string) => `/sessions/${encodeURIComponent(id)}/fork`,
   myDiscussions: () => `/discussions?mine=1`,
   /** The Commons feed (S4). */
   commons: () => `/commons`,

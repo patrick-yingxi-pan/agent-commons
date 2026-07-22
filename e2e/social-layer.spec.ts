@@ -490,3 +490,46 @@ test('a world with NO social activity: the Commons teaches instead of going blan
 
   await rei.context.close()
 })
+
+test('continue from a turn: the fork lands in the forker’s namespace, with provenance', async ({ browser }) => {
+  test.setTimeout(180_000)
+  const ada = await newUser(browser)
+  const grace = await newUser(browser, { 'x-tenant-id': 'tenant-beta' })
+
+  // Ada shares the conversation at `propose` — the tier the design names for
+  // "continue from turn 12 in your namespace".
+  await ada.page.goto(TURN_SESSION)
+  await ada.page.getByRole('button', { name: 'Share this conversation' }).click()
+  await ada.page.getByLabel('Audience id').fill('tenant-beta')
+  await ada.page.getByLabel('Tier').selectOption({ label: 'Propose' })
+  await ada.page.getByRole('button', { name: 'Share', exact: true }).click()
+
+  // Ada does NOT get the affordance on her own conversation — forking your own
+  // thread is just scrolling up.
+  await expect(ada.page.getByTitle('Continue from here')).toHaveCount(0)
+
+  // Grace does, on every turn she can see.
+  await grace.page.goto(TURN_SESSION)
+  const continueHere = grace.page.getByTitle('Continue from here')
+  await expect(continueHere.first()).toBeVisible({ timeout: 20_000 })
+
+  // Taking the SECOND turn: the cut has to be at the named position, so a
+  // first-turn fork would prove nothing about the locus.
+  const turnsBefore = await grace.page.locator('[data-turn]').count()
+  expect(turnsBefore).toBeGreaterThan(1)
+  await continueHere.nth(1).click()
+
+  // She lands in a NEW conversation that is hers, carrying only the turns up to
+  // that point, and it says where it came from.
+  await expect(grace.page).toHaveURL(/\/s\/sess-/, { timeout: 20_000 })
+  await expect(grace.page.locator('[data-turn]')).toHaveCount(2)
+  const forked = await grace.page.evaluate(async () => {
+    const id = location.pathname.split('/s/')[1]
+    return (await (await fetch(`/api/v1/sessions/${id}`)).json()) as { own?: boolean; forkedFrom?: { title: string } }
+  })
+  expect(forked.own).toBe(true)
+  expect(forked.forkedFrom?.title).toBeTruthy()
+
+  await ada.context.close()
+  await grace.context.close()
+})

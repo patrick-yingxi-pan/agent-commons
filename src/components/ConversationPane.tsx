@@ -165,6 +165,7 @@ export function ConversationPane({
       />
       <ConversationView
         sessionId={sessionId}
+        onOpenSession={nav.onOpenSession}
         live={conv.live}
         typing={conv.typing}
         busy={conv.busy}

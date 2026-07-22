@@ -334,6 +334,18 @@ export interface Session {
    *  shared conversation but must not see its share configuration. Absent on
    *  payloads served without a reader in hand; treat absent as NOT owned. */
   own?: boolean
+  /** Provenance for a session CONTINUED from someone else's (social S3): which
+   *  conversation it was taken from, and the turn it was taken at.
+   *
+   *  A fork is deliberately NOT a Proposal, though the design doc once filed it
+   *  as one: a proposal is a change offered TO a resource and landed by its
+   *  owner's consent, and a fork changes nothing about the source — it mints a
+   *  new conversation in the FORKER's namespace. There is nothing for the owner
+   *  to consent to, so this follows `forkAgent`'s shape instead: a direct act
+   *  gated on the `propose` tier, recording where it came from and ringing the
+   *  source's owner as public credit. The display face is REDACTED like every
+   *  cross-tenant row — a title, never a tenant id. */
+  forkedFrom?: { sessionId: string; title: string; atMessageId: string }
   /** A generation turn currently running for this session (contract/turns.ts —
    *  server-owned turns, invariant I1). Projected at read time from the transient
    *  turn registry, never persisted: presence means "Claude is still writing",

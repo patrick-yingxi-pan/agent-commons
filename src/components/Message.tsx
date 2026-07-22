@@ -1,11 +1,11 @@
 import { motion } from 'framer-motion'
 import { useRef } from 'react'
-import { ArrowRight, Check, Radio } from 'lucide-react'
+import { ArrowRight, Check, GitFork, Radio } from 'lucide-react'
 import type { EscalationProposal, Message as MessageT } from '../types'
 import { renderRich } from '../lib/rich'
 import { driverByline } from '../lib/driverByline'
 import { FOCUS_FLASH_CLASS, useFocusFlash, usePendingFocus } from '../lib/focusContext'
-import { useAgents, useProviders } from '../api'
+import { forkSession, useAgents, useProviders, useSession, useSocialCapability } from '../api'
 import { useRelations } from '../controller/useRelations'
 import { ClaudeMark } from './ClaudeMark'
 import { RelationActionCard } from './RelationActionCard'
@@ -58,12 +58,16 @@ function EscalationOutcome({ escalation }: { escalation: EscalationProposal }) {
   )
 }
 
-export function MessageRow({ message, sessionId }: { message: MessageT; sessionId: string }) {
+export function MessageRow({ message, sessionId, onOpenSession }: { message: MessageT; sessionId: string; onOpenSession?: (id: string) => void }) {
   const relayed = useIsRelayed(message)
   // A turn is an ADDRESSABLE position (SOCIAL-6b): a discussion can anchor to
   // it, and the chip on that thread doors back here. Reading `pending` at
   // render is deliberate — `useFocusFlash` consumes it in the same effect that
   // lights the flash, so a later read would already be null.
+  // Continuing someone's conversation needs the `propose` tier on it, and is
+  // pointless on your own — both answers come from the server, never guessed.
+  const canPropose = useSocialCapability('session', sessionId, sessionId !== DRAFT_ID).data?.canPropose === true
+  const own = useSession(sessionId === DRAFT_ID ? '' : sessionId).data?.own
   const { pending } = usePendingFocus()
   const rowRef = useRef<HTMLDivElement>(null)
   const flash = useFocusFlash(pending?.messageId === message.id, rowRef)
@@ -153,6 +157,16 @@ export function MessageRow({ message, sessionId }: { message: MessageT; sessionI
             subject={{ kind: 'session', id: sessionId }}
             locus={{ kind: 'session-turn', messageId: message.id }}
             noun="turn"
+            action={{
+              label: 'Continue from here',
+              icon: <GitFork size={12} />,
+              // Offered only to someone who can PROPOSE and doesn't already own
+              // it: forking your own conversation is just scrolling up.
+              enabled: canPropose && own !== true,
+              onAct: () => {
+                void forkSession(sessionId, message.id).then((s) => onOpenSession?.(s.id))
+              },
+            }}
             enabled={sessionId !== DRAFT_ID}
           />
         </div>

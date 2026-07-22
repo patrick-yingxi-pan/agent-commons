@@ -21,7 +21,7 @@
  *  wants a TIMELINE page (`/discussions/:did`, surface-from-nature). So the
  *  marker is a door, not an expander: position → thread page → back to the
  *  position (the `AnchorChip` resolves the locus and flashes it). */
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { MessageSquarePlus, MessagesSquare } from 'lucide-react'
 import type { AnchorLocus, Discussion, SocialEntityRef } from '../../contract/index.ts'
 import { useDiscussions, useSocialCapability } from '../api'
@@ -51,6 +51,10 @@ export function LocusGutter({
   /** What one of these positions is called, in the opener ("Discuss this turn").
    *  Lowercase — it reads as the tail of a sentence. */
   noun,
+  /** An extra act this position affords, rendered beside the thread controls
+   *  (a conversation turn offers "continue from here"). Generic on purpose: the
+   *  gutter owns the POSITION, not the vocabulary of what you can do there. */
+  action,
   /** False when the subject doesn't exist server-side yet (an unsent draft
    *  conversation): nothing to anchor to, and asking would 404 every render. */
   enabled = true,
@@ -58,6 +62,7 @@ export function LocusGutter({
   subject: SocialEntityRef
   locus: AnchorLocus
   noun: string
+  action?: { label: string; icon: ReactNode; onAct: () => void; enabled: boolean }
   enabled?: boolean
 }) {
   const rel = useRelations()
@@ -87,6 +92,16 @@ export function LocusGutter({
           >
             <MessagesSquare size={12} />
             <span className="tabular-nums">{thread.posts.length}</span>
+          </button>
+        )}
+        {action?.enabled && (
+          <button
+            onClick={action.onAct}
+            title={action.label}
+            className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-ink-faint transition hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${HOVER_REVEAL}`}
+          >
+            {action.icon}
+            {action.label}
           </button>
         )}
         {!composing && canComment && (

@@ -1218,6 +1218,7 @@ function mintSession(
     modelId?: string
     connectors?: Connector[]
     scheduledRunOf?: { taskId: string; taskName: string }
+    forkedFrom?: { sessionId: string; title: string; atMessageId: string }
     messages?: Message[]
     /** Row timestamps (an agent session is stamped with its run's `at`, so seeded
      *  history keeps its fixture chronology); default = now. */
@@ -1239,6 +1240,7 @@ function mintSession(
     ...(input.tenantId ? { tenantId: input.tenantId } : {}),
     ...(input.connectors ? { connectors: input.connectors } : {}),
     ...(input.scheduledRunOf ? { scheduledRunOf: input.scheduledRunOf } : {}),
+    ...(input.forkedFrom ? { forkedFrom: input.forkedFrom } : {}),
     preview: input.preview,
     messages: input.messages ?? [],
     status: 'active',
@@ -2458,6 +2460,42 @@ export const store = {
    *  the initiator stamp. The creating tenant is always stamped so the scoped
    *  list/read see it (F2 / PD9): the route passes the caller's tenant; absent
    *  that it's the backend's default tenant. */
+  /** CONTINUE a conversation from one of its turns, in the caller's own
+   *  namespace (social S3 — the design's "continue from turn 12 in your
+   *  namespace"). Needs the `propose` tier on the source, mirroring
+   *  `forkAgent`'s shape: a fork is a direct act, not a proposal, because it
+   *  changes nothing about the source — there is nothing for its owner to
+   *  consent to. They are RUNG instead, as public credit (the D18 rule).
+   *
+   *  The copy stops AT the named turn inclusive: that is what "from turn 12"
+   *  means, and taking the whole thread would make the locus decorative. */
+  forkSession(sourceId: string, atMessageId: string, tenantId: string): Session | 'forbidden' | undefined {
+    const source = SESSIONS.find((x) => x.id === sourceId)
+    if (!source || !this.sessionVisibleToTenant(source, tenantId)) return undefined
+    if (!this.socialSubjectProposable({ kind: 'session', id: sourceId }, tenantId)) return 'forbidden'
+    const msgs = source.messages ?? []
+    const cut = msgs.findIndex((m) => m.id === atMessageId)
+    if (cut < 0) return undefined
+    const taken = msgs.slice(0, cut + 1).map((m) => ({ ...m }))
+    const fork = mintSession({
+      id: `sess-${(sessionSeq += 1)}`,
+      title: source.title,
+      preview: source.preview,
+      tenantId,
+      messages: taken,
+      forkedFrom: { sessionId: source.id, title: source.title, atMessageId },
+    })
+    // Public credit, like a definition fork: the source's owner is told.
+    notifyTenants([source.tenantId ?? defaultTenantId()], tenantId, {
+      kind: 'social.forked',
+      actor: tenantName(tenantId),
+      subjectKind: 'session',
+      subjectId: source.id,
+      subjectName: source.title,
+    })
+    persist()
+    return fork
+  },
   createSession(firstMessage?: string, tenantId: string = defaultTenantId(), providerId?: string, modelId?: string): Session {
     // A draft's concrete model pick must name an entry in its effective provider's
     // catalog (the picked provider's, else the default Agent's) — refused otherwise.

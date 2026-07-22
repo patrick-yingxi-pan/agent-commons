@@ -534,6 +534,15 @@ export async function reactToDiscussionPost(did: string, pid: string, anchorRef:
   return d
 }
 
+/** Continue someone's conversation from one of its turns, in your namespace
+ *  (social S3). A direct act at the `propose` tier — not a proposal: it changes
+ *  nothing about the source. Returns the new session so the caller can open it. */
+export async function forkSession(sourceId: string, atMessageId: string): Promise<Session> {
+  const s = await apiPost<Session>(paths.sessionFork(sourceId), { atMessageId })
+  invalidate(keys.sessions)
+  return s
+}
+
 /** Delete a post (S5 guardrails) — the AUTHOR retracts their own words, or the
  *  ANCHOR OWNER moderates their surface. Deleting the last post dissolves the
  *  thread, so the anchor's list is invalidated alongside the thread itself. */

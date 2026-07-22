@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { AtSign, Award, Bell, GitMerge, GitPullRequest, Hammer, ListChecks, MessageSquare, MessagesSquare, Share2, Sparkles, XCircle, type LucideIcon } from 'lucide-react'
+import { AtSign, Award, Bell, GitFork, GitMerge, GitPullRequest, Hammer, ListChecks, MessageSquare, MessagesSquare, Share2, Sparkles, XCircle, type LucideIcon } from 'lucide-react'
 import type { AppNotification, NotificationKind } from '../../contract/index.ts'
 import type { SectionId } from '../types'
 import { useFocusTrap } from '../lib/useFocusTrap'
@@ -32,6 +32,7 @@ const KIND_ICON: Record<NotificationKind, LucideIcon> = {
   'social.landed': GitMerge,
   'social.declined': XCircle,
   'social.discussed': MessagesSquare,
+  'social.forked': GitFork,
   'social.reported': Bell,
 }
 
@@ -69,6 +70,8 @@ function describe(n: AppNotification): string {
       return `${n.actor} declined your improvement to “${n.subjectName}”`
     case 'social.discussed':
       return `${n.actor} posted in the discussion on “${n.subjectName}”`
+    case 'social.forked':
+      return `${n.actor} continued your conversation “${n.subjectName}” from one of its turns`
     case 'social.reported':
       return `${n.actor} reported a post on “${n.subjectName}” — you hold the delete`
   }

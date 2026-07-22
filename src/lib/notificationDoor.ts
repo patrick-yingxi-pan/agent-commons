@@ -87,6 +87,10 @@ export function doorFor(n: AppNotification): NavIntent {
     case 'social.discussed':
       if (n.discussionId) return { kind: 'discussion', discussionId: n.discussionId }
       return { kind: 'section', section: 'discussions' }
+    // A fork lands on YOUR conversation, never on their copy — the D24 leak-wall
+    // (their fork is a private session of theirs, exactly as `agent.forked` sends
+    // the owner to the source and never to the fork).
+    case 'social.forked':
     case 'social.shared':
     case 'social.offered':
     case 'social.landed':

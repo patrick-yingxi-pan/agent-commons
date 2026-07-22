@@ -31,6 +31,7 @@ const RELAY_WAIT = 'Waiting on your session…'
 
 export function ConversationView({
   sessionId,
+  onOpenSession,
   draft = false,
   live,
   typing,
@@ -55,6 +56,8 @@ export function ConversationView({
   threadPadClass = 'py-4',
 }: {
   sessionId: string
+  /** Open a session in this pane — a forked continuation lands here. */
+  onOpenSession?: (id: string) => void
   /** An unsent draft — no compaction, no interrupted-retry (nothing persisted). */
   draft?: boolean
   live: Live
@@ -152,7 +155,7 @@ export function ConversationView({
         ) : (
           <div className={threadPadClass}>
             {live.messages.map((m) => (
-              <MessageRow key={m.id} message={m} sessionId={sessionId} />
+              <MessageRow key={m.id} message={m} sessionId={sessionId} onOpenSession={onOpenSession} />
             ))}
             <AnimatePresence>
               {typing && <TypingRow waitingOn={onRelay ? RELAY_WAIT : undefined} />}

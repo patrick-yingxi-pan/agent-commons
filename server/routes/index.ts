@@ -2673,6 +2673,17 @@ export function buildRouter(): Router {
     const own = store.sessionOwnedBy(session, store.identity(req.headers).tenant.id)
     sendJson(res, { ...session, own, ...(live ? { activeTurnId: live.id } : {}) })
   })
+  // CONTINUE a conversation from one of its turns, into the caller's namespace
+  // (social S3). Existence-hiding on an unreadable source; `propose` tier to act.
+  r.post('/sessions/:id/fork', async ({ req, res, params, body }) => {
+    const { atMessageId } = await body<{ atMessageId?: string }>()
+    if (!atMessageId) return sendError(res, 'bad_request', 'atMessageId is required (a fork names the turn it continues from)')
+    const out = store.forkSession(params.id, atMessageId, store.identity(req.headers).tenant.id)
+    if (out === undefined) return sendError(res, 'not_found', `No session '${params.id}'`)
+    if (out === 'forbidden') return sendError(res, 'forbidden', 'Continuing a conversation needs the propose tier')
+    sendJson(res, out)
+  })
+
   // Materialize a new persisted session — a draft becomes real on its first send
   // (the client posts here, adopts the returned id, then streams the turn to it).
   // A session's `providerId` (the composer's model pick) must name a provider the

@@ -340,3 +340,46 @@ test('SOCIAL-4: a grant OPENS an artifact — the read widens, ownership does no
   const owned = (await call('GET', '/artifacts', undefined, {})).json as Row[]
   assert.equal(owned.find((a) => a.id === artifact.id)?.own, true)
 })
+
+test('SOCIAL-7: continuing a conversation from a turn is a DIRECT act, not a proposal', async () => {
+  // A fork changes nothing about the source, so there is nothing for its owner
+  // to consent to — it follows `forkAgent`'s shape (gated on tier, credited by a
+  // bell), not the land-by-consent shape of a proposal.
+  const source = store.listSessions()[0]
+  const subject = { kind: 'session' as const, id: source.id }
+  const full = store.getSession(source.id)!
+  const msgs = full.messages ?? []
+  assert.ok(msgs.length >= 2, 'a seeded conversation with turns to cut at')
+  const at = msgs[0].id
+
+  const fork = (tenant: string) =>
+    call('POST', `/sessions/${source.id}/fork`, { atMessageId: at }, { 'x-tenant-id': tenant })
+
+  // Walled: a stranger cannot even see it, so the fork 404s like everything else.
+  assert.equal((await fork(BYSTANDER)).status, 404)
+
+  // Visible but only at `view` — reading is not taking.
+  await call('POST', '/grants', { subject, audience: { kind: 'org', orgId: AUDIENCE }, tier: 'view' }, {})
+  assert.equal((await fork(AUDIENCE)).status, 403, 'a viewer may read, not continue')
+
+  // At `propose` it lands, in the FORKER's namespace, cut at the named turn.
+  await call('POST', '/grants', { subject, audience: { kind: 'org', orgId: AUDIENCE }, tier: 'propose' }, {})
+  const res = await fork(AUDIENCE)
+  assert.equal(res.status, 200)
+  const made = res.json as { id: string; tenantId?: string; messages?: unknown[]; forkedFrom?: { sessionId: string; atMessageId: string } }
+  assert.equal(made.tenantId, AUDIENCE, 'the continuation is the forker’s, not the owner’s')
+  assert.equal(made.messages?.length, 1, 'cut AT the named turn, inclusive — not the whole thread')
+  assert.equal(made.forkedFrom?.sessionId, source.id, 'provenance records the source')
+  assert.equal(made.forkedFrom?.atMessageId, at, '…and the turn it was taken at')
+
+  // The source is untouched — that is why no consent was needed.
+  assert.equal(store.getSession(source.id)!.messages?.length, msgs.length)
+
+  // INV-9: the turn is required, and an unknown one is refused rather than
+  // silently taking everything.
+  assert.equal((await call('POST', `/sessions/${source.id}/fork`, {}, { 'x-tenant-id': AUDIENCE })).status, 400)
+  assert.equal(
+    (await call('POST', `/sessions/${source.id}/fork`, { atMessageId: 'nope' }, { 'x-tenant-id': AUDIENCE })).status,
+    404,
+  )
+})

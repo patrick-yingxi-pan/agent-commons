@@ -41,6 +41,10 @@ export const NOTIFICATION_KINDS = [
   // share → discuss loop is one-way, since a comment is the one social act whose
   // subject nobody is otherwise told about.
   'social.discussed',
+  // Someone CONTINUED your conversation from one of its turns into their own
+  // namespace (S3). Public credit, exactly like `agent.forked` — the fork
+  // changed nothing of yours, so this is news, not a decision.
+  'social.forked',
   // S5 guardrails: a reader reported a post — rings the ANCHOR OWNER, who
   // holds the moderation delete (owner moderation; instance-level reports are
   // the S6 escalation).
