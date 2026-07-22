@@ -30,6 +30,8 @@ declare module 'node:http' {
     /** Force-close all active connections (Node 18.2+) — used to bound a drain so a
      *  long-lived stream (SSE) can't hold the close() open indefinitely. */
     closeAllConnections?(): void
+    /** Server events ('error' on a port clash — the dev boot reports it). */
+    on(event: string, listener: (...args: never[]) => void): Server
   }
   export function createServer(
     handler: (req: IncomingMessage, res: ServerResponse) => void,
@@ -85,6 +87,14 @@ declare module 'node:crypto' {
   export function createHash(algorithm: string): {
     update(data: string): { digest(encoding: string): string }
   }
+  /** Keyed MAC — the session cookie's signature (server/auth.ts). */
+  export function createHmac(algorithm: string, key: string | Uint8Array): {
+    update(data: string): { digest(encoding: string): string }
+  }
+  /** RFC-4122 id — account/session ids that must not be guessable. */
+  export function randomUUID(): string
+  /** Password KDF (server/accounts.ts) — the demo credential store's hash. */
+  export function scryptSync(password: string, salt: string, keylen: number): Buffer
 }
 
 declare const process: {
@@ -96,10 +106,29 @@ declare const process: {
   on(event: string, listener: (...args: unknown[]) => void): void
 }
 
-declare const Buffer: {
-  concat(list: Uint8Array[]): { toString(encoding?: string): string }
-  from(data: string, encoding?: string): Uint8Array
+/** Buffer as a TYPE as well as a value: `node:crypto`'s KDFs return one and the
+ *  request readers annotate one, and a value-only declaration made every such
+ *  annotation a type error — which is why `server/` went untypechecked. */
+interface Buffer extends Uint8Array {
+  toString(encoding?: string): string
 }
+declare const Buffer: {
+  concat(list: Uint8Array[]): Buffer
+  from(data: string, encoding?: string): Buffer
+  isBuffer(v: unknown): v is Buffer
+}
+
+/** Node's timer handles are objects with `unref()` — a daemon tick must not hold
+ *  the process open. The DOM lib types these as `number`, so declare the Node
+ *  shape explicitly rather than casting at every call site. */
+interface NodeTimer {
+  unref(): NodeTimer
+  ref(): NodeTimer
+}
+declare function setTimeout(handler: () => void, ms?: number): NodeTimer
+declare function setInterval(handler: () => void, ms?: number): NodeTimer
+declare function clearTimeout(handle?: NodeTimer | number): void
+declare function clearInterval(handle?: NodeTimer | number): void
 
 declare const __dirname: string
 declare const __filename: string
