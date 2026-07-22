@@ -103,7 +103,15 @@ evaluator-facing summary:
   [`docs/design/social-layer.md`](design/social-layer.md), spec pillar
   [`docs/spec/12-social-layer.md`](spec/12-social-layer.md)): **mutes match by
   actor display name** (the wire's only public identity — names-as-handles,
-  same rule as the D21 profile byline), so a renamed actor un-mutes; **"anyone
+  same rule as the D21 profile byline), so a renamed actor un-mutes. That is a
+  PREFERENCE keyed on a name, which is honest: you mute the name you saw. It is
+  deliberately *not* how AUTHORIZATION works anywhere — display names are
+  attacker-controlled (`createWorkspace` has no uniqueness guard) and
+  renameable, so every standing decision (retract, resolve, delete, share)
+  compares raw tenant ids server-side and ships the answer as a viewer-relative
+  flag (`canRetract` / `canResolve` / `canDelete` / `own`). If you see a name
+  comparison deciding who may DO something, that is a bug, not this
+  simplification; **"anyone
   with the link" means anyone signed in** who redeems it — anonymous rendering
   through the auth gate (and any indexing) is the recorded, deliberately
   unbuilt production tail; and the seeded share (Acme's *Insights dashboard* →

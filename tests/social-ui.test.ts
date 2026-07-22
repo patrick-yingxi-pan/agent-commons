@@ -46,3 +46,40 @@ test('the grants UI goes through the one door: no component/controller carries t
   }
   assert.deepEqual(offenders, [])
 })
+
+/** Preference may key on a NAME; authority never may. A display name is the
+ *  wire's public identity — attacker-controlled (`createWorkspace` has no
+ *  uniqueness guard) and renameable — so a control gated on `x.postedBy ===
+ *  myName` is wrong in both directions: a renamed workspace loses an act it
+ *  holds, and a colliding name is offered one that 403s. Every standing decision
+ *  ships as a viewer-relative flag the server computed from raw tenant ids
+ *  (`canRetract` / `canResolve` / `canDelete` / `own`).
+ *
+ *  Earned 2026-07-22: the work-item Retract control compared display names, on
+ *  BOTH its surfaces, against a wire face that deliberately strips the ids a
+ *  client would need to do it correctly. Muting stays name-keyed on purpose —
+ *  it is a per-viewer preference, not an authorization (docs/evaluation.md). */
+test('no UI control is gated by comparing a display name — authority rides a server flag', () => {
+  // The REDACTED display-name fields the social / work payloads carry.
+  const NAME_FIELDS = ['postedBy', 'openedBy', 'offeredBy', 'grantedBy', 'retractedBy']
+  const norm = (p: string) => p.split('\\').join('/')
+  const offenders: string[] = []
+  for (const f of walk(SRC)) {
+    // Whitespace-collapsed so the check is plain substring matching — a hand-
+    // escaped RegExp built from a JS string is exactly how the first version of
+    // this lock shipped VACUOUS ('\.' in a string literal is just '.').
+    const src = readFileSync(f, 'utf8').replace(/\s+/g, ' ')
+    for (const field of NAME_FIELDS) {
+      // `.field ===` / `.field !==` — comparing the NAME itself. Rendering a
+      // name is fine; deciding with it is not.
+      if (src.includes(`.${field} ===`) || src.includes(`.${field} !==`)) {
+        offenders.push(norm(f).split('/src/')[1] + ': ' + field)
+      }
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    'gate on the server-computed flag (canRetract / canResolve / canDelete / own), never on a display name',
+  )
+})
