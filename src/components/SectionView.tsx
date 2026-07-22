@@ -80,6 +80,7 @@ import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { AnchorThreadComposer } from './AnchorThreadComposer'
 import { LocusGutter } from './LocusGutter'
 import { GrantsPanel } from './GrantsPanel'
+import { ProposalsPanel } from './ProposalsPanel'
 import { Tooltip } from './Tooltip'
 import { describeLocus, locusFocus } from '../lib/anchorLocus'
 import type { FocusTarget } from '../lib/notificationDoor'
@@ -241,6 +242,7 @@ import {
   PROJECT_EFFECT_TYPES,
   SHARE_TIERS,
   describeOp,
+  describeSchedulePatch,
   type CommonsItem,
   type Discussion,
   type DiscussionPost,
@@ -3300,6 +3302,16 @@ function DiscussionsSection({
 function DeltaView({ delta }: { delta: ProposalDelta }) {
   if (delta.kind === 'suggestion') {
     return <p className="whitespace-pre-wrap text-[13px] text-ink-soft">{delta.text}</p>
+  }
+  if (delta.kind === 'schedule-patch') {
+    // A field-by-field read of what landing would change — the consent has to be
+    // to something specific, not to "a routine change".
+    return (
+      <p className="text-[13px] text-ink-soft">
+        <span className="mr-1.5 rounded bg-panel-2 px-1.5 py-0.5 text-[11px] font-medium text-ink-faint">routine change</span>
+        {describeSchedulePatch(delta.patch)}
+      </p>
+    )
   }
   return (
     <p className="text-[13px] text-ink-soft">
@@ -10034,6 +10046,11 @@ function ScheduledDetail({
           <PromptCard prompt={task.prompt} onSave={(prompt) => void updateSchedule(task.id, { prompt })} />
           <WorkflowCard task={task} run={shownRun} running={running} />
           <RunHistoryCard task={task} onOpenRun={(runId) => onOpenSession(runSessionId(task.id, runId))} />
+          {/* A routine is a social subject like any other: it can be shared,
+              discussed, and IMPROVED. Landing a routine change runs the same
+              `updateSchedule` the owner's own editor calls. */}
+          <ProposalsPanel subject={{ kind: 'schedule', id: task.id }} own={task.own !== false} />
+          <DiscussionsPanel subject={{ kind: 'schedule', id: task.id }} own={task.own !== false} />
         </div>
 
         <aside className="w-full shrink-0 space-y-4 @3xl:w-72">

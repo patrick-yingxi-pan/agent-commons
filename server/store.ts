@@ -63,6 +63,7 @@ import {
   runRecap,
   runSessionId,
   seedGraph,
+  PROPOSABLE_SCHEDULE_FIELDS,
   SHARE_TIERS,
   tierPermits,
   tierRank,
@@ -430,6 +431,20 @@ const socialProposals: StoredSocialProposal[] = []
 let socialProposalSeq = 0
 const MAX_PROPOSALS_PER_SUBJECT = 100
 const MAX_PROPOSAL_CHARS = 2000
+
+/** A patch is offerable when it is a non-empty object naming only proposable
+ *  fields, each of the right primitive type. */
+function isSchedulePatch(patch: unknown): boolean {
+  if (typeof patch !== 'object' || patch === null || Array.isArray(patch)) return false
+  const keys = Object.keys(patch)
+  if (keys.length === 0) return false
+  const allowed = new Set<string>(PROPOSABLE_SCHEDULE_FIELDS)
+  return keys.every((k) => {
+    if (!allowed.has(k)) return false
+    const v = (patch as Record<string, unknown>)[k]
+    return k === 'enabled' || k === 'notifyOnFailure' ? typeof v === 'boolean' : typeof v === 'string' && v.trim().length > 0
+  })
+}
 
 /** Wire face: strip the raw offerer anchor; `mine` is viewer-relative. */
 function publicSocialProposal(p: StoredSocialProposal, viewerTenant?: string): SocialProposal {
@@ -4927,6 +4942,13 @@ export const store = {
     if (!this.socialSubjectProposable(req.subject, tenantId)) return 'forbidden'
     if (req.delta.kind === 'suggestion' && !req.delta.text.trim()) return 'invalid'
     if (req.delta.kind === 'relation-op' && typeof (req.delta.op as { kind?: unknown })?.kind !== 'string') return 'invalid'
+    // A `schedule-patch` must be able to APPLY: it only makes sense on a routine,
+    // and an empty patch would land as a no-op that still consumed an L#. Refused
+    // at the door rather than stored as an inert record (INV-9, strict core).
+    if (req.delta.kind === 'schedule-patch') {
+      if (req.subject.kind !== 'schedule') return 'invalid'
+      if (!isSchedulePatch(req.delta.patch)) return 'invalid'
+    }
     const rows = socialProposals.filter((p) => p.subject.kind === req.subject.kind && p.subject.id === req.subject.id)
     if (rows.length >= MAX_PROPOSALS_PER_SUBJECT) return 'capped'
     const p: StoredSocialProposal = {
@@ -4975,7 +4997,10 @@ export const store = {
     const row = this.grantSubjectRow(p.subject)
     if (row === undefined || row === 'unsupported' || !ownsGrantSubject(row, tenantId)) return 'forbidden'
     if (p.state !== 'offered') return 'closed'
+    // Landing runs the REAL mutator for every applying kind — the same call the
+    // owner's own editor makes, never a parallel write path.
     if (p.delta.kind === 'relation-op') this.applyRelationOp(p.delta.op, tenantId)
+    if (p.delta.kind === 'schedule-patch') this.updateSchedule(p.subject.id, p.delta.patch)
     p.state = 'landed'
     // ONE landing ledger per subject (the consolidation, 2026-07-21): a project's
     // L# sequence is shared with its contribution ledger — both landing paths
@@ -5775,11 +5800,24 @@ export const store = {
    *  daemon, run lookups by id). */
   listSchedules(tenantId?: string): ScheduledTask[] {
     if (!tenantId) return schedules
-    return schedules.filter((t) => rowVisibleTo(t, tenantId))
+    // Viewer-relative ownership rides the projection (never stored): a grant
+    // widens the READ below, so "visible" and "owned" are no longer the same
+    // question for a routine, and the UI must be told which one it has.
+    return schedules
+      .filter((t) => this.scheduleVisibleToTenant(t, tenantId))
+      .map((t) => ({ ...t, own: this.scheduleOwnedBy(t, tenantId) }))
   },
   /** Whether a routine is visible to `tenantId` — the route-level guard for the
-   *  by-id reads/mutations, mirroring sessionVisibleToTenant. */
+   *  by-id reads/mutations, mirroring sessionVisibleToTenant. Social S1: a grant
+   *  OPENS its subject, and a routine is a subject like any other (SOCIAL-4 was
+   *  wired for projects and sessions; a shared routine was readable by nobody).
+   *  Read widens; ownership stays strict. */
   scheduleVisibleToTenant(task: ScheduledTask, tenantId: string): boolean {
+    return rowVisibleTo(task, tenantId) || this.grantedTier({ kind: 'schedule', id: task.id }, tenantId) !== undefined
+  },
+  /** OWNERSHIP — the strict half. Editing, landing a proposal, and the share
+   *  configuration all hang off this, never off mere visibility. */
+  scheduleOwnedBy(task: ScheduledTask, tenantId: string): boolean {
     return rowVisibleTo(task, tenantId)
   },
 

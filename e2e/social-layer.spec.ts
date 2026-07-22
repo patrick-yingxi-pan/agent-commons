@@ -104,8 +104,8 @@ test('share → feed → discuss → improve: one thread, one ledger, across two
   await expect(grace.page.getByLabel('Audience kind')).toHaveCount(0)
 
   // ── Grace comments on the entity page — the same root thread the card shows ──
-  await grace.page.getByLabel('Post to this project’s discussion').fill(COMMENT)
-  await grace.page.getByRole('button', { name: 'Post', exact: true }).click()
+  await grace.page.getByRole('textbox', { name: 'Post to this project’s discussion' }).fill(COMMENT)
+  await grace.page.getByRole('button', { name: 'Post to this project’s discussion' }).click()
   await expect(grace.page.getByText(COMMENT)).toBeVisible()
 
   // ── Grace offers a change (propose tier); the consent buttons are the OWNER's ──
@@ -195,11 +195,11 @@ test('the turn gutter: a thread anchored to ONE turn, and the chip that lands ba
   await target.scrollIntoViewIfNeeded()
   await target.hover()
   await target.click()
-  await page.getByLabel('Post to this session’s discussion').fill(TURN_POST)
-  await page.getByRole('button', { name: 'Post', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Post to this turn’s discussion' }).fill(TURN_POST)
+  await page.getByRole('button', { name: 'Post to this turn’s discussion' }).click()
 
   // The composer closes itself and the turn grows its marker — one thread.
-  await expect(page.getByLabel('Post to this session’s discussion')).toHaveCount(0)
+  await expect(page.getByRole('textbox', { name: 'Post to this turn’s discussion' })).toHaveCount(0)
   const marker = page.getByTitle('Open this turn’s thread')
   await expect(marker).toHaveCount(1)
   await expect(marker).toHaveText('1')
@@ -208,8 +208,8 @@ test('the turn gutter: a thread anchored to ONE turn, and the chip that lands ba
   // per position — the server's get-or-create, proven through the UI).
   await target.hover()
   await page.getByTitle('Discuss this turn').first().click()
-  await page.getByLabel('Post to this session’s discussion').fill(TURN_REPLY)
-  await page.getByRole('button', { name: 'Post', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Post to this turn’s discussion' }).fill(TURN_REPLY)
+  await page.getByRole('button', { name: 'Post to this turn’s discussion' }).click()
   await expect(marker).toHaveCount(1)
   await expect(marker).toHaveText('2')
 
@@ -266,8 +266,8 @@ test('sharing a CONVERSATION: the owner shares from its title bar, the audience 
   const target = graceTurns.first()
   await target.scrollIntoViewIfNeeded()
   await target.click()
-  await grace.page.getByLabel('Post to this session’s discussion').fill(GUEST_POST)
-  await grace.page.getByRole('button', { name: 'Post', exact: true }).click()
+  await grace.page.getByRole('textbox', { name: 'Post to this turn’s discussion' }).fill(GUEST_POST)
+  await grace.page.getByRole('button', { name: 'Post to this turn’s discussion' }).click()
   const guestMarker = grace.page.getByTitle('Open this turn’s thread').first()
   await expect(guestMarker).toBeVisible()
 
@@ -341,8 +341,8 @@ test('the run gutter: the SAME gutter on a routine’s runs, landing back on one
   await expect(target).not.toBeInViewport()
   await target.scrollIntoViewIfNeeded()
   await target.click()
-  await page.getByLabel('Post to this schedule’s discussion').fill(RUN_POST)
-  await page.getByRole('button', { name: 'Post', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Post to this run’s discussion' }).fill(RUN_POST)
+  await page.getByRole('button', { name: 'Post to this run’s discussion' }).click()
 
   const marker = page.getByTitle('Open this run’s thread')
   await expect(marker).toHaveCount(1)

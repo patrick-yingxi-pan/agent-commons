@@ -3320,13 +3320,18 @@ export function buildRouter(): Router {
   })
   /** The by-id schedule wall (mirrors denyForeignSession): a foreign tenant's
    *  routine reads/mutates as 404 — indistinguishable from absent. */
-  const foreignSchedule = (req: IncomingMessage, id: string): boolean => {
+  // The routine WRITE wall: ownership, never mere visibility. Every mutating routine route
+  // uses this — otherwise widening the read to a granted audience would hand
+  // them the edit, the run trigger and the delete along with it. Existence-hiding
+  // is preserved: a non-owner who can see it still gets the same 404 as a
+  // stranger, so the wall never confirms what it refuses.
+  const notMySchedule = (req: IncomingMessage, id: string): boolean => {
     const task = store.listSchedules().find((t) => t.id === id)
-    return !!task && !store.scheduleVisibleToTenant(task, store.identity(req.headers).tenant.id)
+    return !!task && !store.scheduleOwnedBy(task, store.identity(req.headers).tenant.id)
   }
   // Run a routine now (server appends + broadcasts the run).
   r.post('/schedules/:id/run', ({ req, res, params }) => {
-    if (foreignSchedule(req, params.id)) return sendError(res, 'not_found', `No schedule '${params.id}'`)
+    if (notMySchedule(req, params.id)) return sendError(res, 'not_found', `No schedule '${params.id}'`)
     const run = store.runSchedule(params.id)
     if (!run) return sendError(res, 'not_found', `No schedule '${params.id}'`)
     sendJson(res, run)
@@ -3335,7 +3340,7 @@ export function buildRouter(): Router {
   // entity edits behind the detail page). Cross-entity bindings (deliver to an
   // artifact/session, add a tool) go through POST /relations/ops instead.
   r.patch('/schedules/:id', async ({ req, res, params, body }) => {
-    if (foreignSchedule(req, params.id)) return sendError(res, 'not_found', `No schedule '${params.id}'`)
+    if (notMySchedule(req, params.id)) return sendError(res, 'not_found', `No schedule '${params.id}'`)
     const patch = await body<UpdateScheduleRequest>()
     const task = store.updateSchedule(params.id, patch)
     if (!task) return sendError(res, 'not_found', `No schedule '${params.id}'`)
@@ -3355,7 +3360,7 @@ export function buildRouter(): Router {
   }))
   // Remove a routine.
   r.delete('/schedules/:id', ({ req, res, params }) => {
-    if (foreignSchedule(req, params.id)) return sendError(res, 'not_found', `No schedule '${params.id}'`)
+    if (notMySchedule(req, params.id)) return sendError(res, 'not_found', `No schedule '${params.id}'`)
     store.removeSchedule(params.id)
     sendJson(res, { ok: true })
   })

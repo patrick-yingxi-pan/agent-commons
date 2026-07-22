@@ -204,6 +204,36 @@ export type ProposalDelta =
   /** A relationship-graph edit — landing APPLIES the op (the real applier;
    *  same reducer both sides of the wire, `contract/graph.ts`). */
   | { kind: 'relation-op'; op: import('./relations.ts').RelationOp }
+  /** A routine's own fields — landing runs the REAL `updateSchedule` mutator,
+   *  the same one the owner's editor calls. Only valid on a `schedule` subject;
+   *  the offer is refused otherwise (INV-9: a delta that can't apply to its
+   *  subject is a malformed request, never a silently-inert record). */
+  | { kind: 'schedule-patch'; patch: import('./api.ts').UpdateScheduleRequest }
+
+/** The routine fields a proposal may offer to change — the SCALAR, reviewable
+ *  ones a human reads on a card and an owner consents to at a glance. Shared so
+ *  the offer FORM and the server's validator enumerate the same set; the
+ *  structural fields (`steps`, `delivery`) stay the owner's own editing surface,
+ *  since a wholesale workflow rewrite isn't reviewable as a one-line diff. */
+export const PROPOSABLE_SCHEDULE_FIELDS = ['enabled', 'name', 'prompt', 'cadence', 'trigger', 'timezone', 'notifyOnFailure'] as const
+export type ProposableScheduleField = (typeof PROPOSABLE_SCHEDULE_FIELDS)[number]
+
+/** The human face of a `schedule-patch` — one sentence naming every field it
+ *  would change and to what. Lives in the contract beside `describeOp` (the
+ *  relation-op equivalent) so a card, a consent prompt and a server-side
+ *  notification all read the same words. Consent has to be to something
+ *  SPECIFIC: "a routine change" is not something an owner can agree to. */
+export function describeSchedulePatch(patch: import('./api.ts').UpdateScheduleRequest): string {
+  const say = (k: string, v: unknown): string => {
+    if (k === 'enabled') return v === true ? 'turn it on' : 'turn it off'
+    if (k === 'notifyOnFailure') return v === true ? 'notify on failure' : 'stop notifying on failure'
+    return `${k} → “${String(v)}”`
+  }
+  const parts = Object.entries(patch)
+    .filter(([, v]) => v !== undefined)
+    .map(([k, v]) => say(k, v))
+  return parts.length > 0 ? parts.join(' · ') : 'no change'
+}
 
 export interface SocialProposal {
   id: string

@@ -22,6 +22,7 @@ export function AnchorThreadComposer({
   thread,
   locus,
   placeholder,
+  ariaLabel,
   autoFocus,
   onPosted,
   onCancel,
@@ -34,6 +35,11 @@ export function AnchorThreadComposer({
    *  subject's ROOT thread (the original S2 rule). */
   locus?: AnchorLocus
   placeholder?: string
+  /** The accessible name. Defaults to the SUBJECT's thread; a composer on a
+   *  POSITION inside that subject passes its own, so two composers on one page
+   *  (a routine's root thread and one of its runs') are never announced
+   *  identically. */
+  ariaLabel?: string
   autoFocus?: boolean
   /** Fired after a successful post — a transient composer (the turn gutter's)
    *  closes itself; a persistent one (the entity panel's) ignores it. */
@@ -64,7 +70,7 @@ export function AnchorThreadComposer({
     <div>
       <div className="flex items-start gap-2">
         <textarea
-          aria-label={`Post to this ${subject.kind}’s discussion`}
+          aria-label={ariaLabel ?? `Post to this ${subject.kind}’s discussion`}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder={placeholder ?? (thread ? 'Reply…' : 'Start the discussion…')}
@@ -72,7 +78,16 @@ export function AnchorThreadComposer({
           autoFocus={autoFocus}
           className={`${FORM_INPUT_CLASS} resize-none`}
         />
-        <button onClick={() => void send()} disabled={busy || !draft.trim()} className={`${INLINE_ACTION_CLASS} mt-1 shrink-0`}>
+        {/* Named after its target, like the field above: a page can host two
+            composers (a routine's root thread and one of its runs'), and two
+            buttons announced identically as "Post" are ambiguous to a screen
+            reader — and to a test. */}
+        <button
+          onClick={() => void send()}
+          disabled={busy || !draft.trim()}
+          aria-label={ariaLabel ?? `Post to this ${subject.kind}’s discussion`}
+          className={`${INLINE_ACTION_CLASS} mt-1 shrink-0`}
+        >
           Post
         </button>
         {onCancel && (

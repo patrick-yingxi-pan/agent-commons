@@ -107,6 +107,7 @@ export function LocusGutter({
             thread={thread}
             locus={locus}
             placeholder={thread ? `Reply to this ${noun}’s thread…` : `Start a thread on this ${noun}…`}
+            ariaLabel={`Post to this ${noun}’s discussion`}
             autoFocus
             onPosted={() => setComposing(false)}
             onCancel={() => setComposing(false)}

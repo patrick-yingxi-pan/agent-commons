@@ -145,6 +145,12 @@ export interface ScheduledTask {
    *  six demo accounts' seed routines are stamped (docs/demo-accounts.md).
    *  `listSchedules(tenantId)` filters on it, like sessions. */
   tenantId?: string
+  /** VIEWER-RELATIVE: does the reader own this routine? Computed at serve time
+   *  (the `mine` pattern — never stored), because a social grant widens READS
+   *  without widening ownership: a granted visitor opens a shared routine and
+   *  may discuss or propose changes to it, but only the owner lands them or
+   *  edits it directly. Absent ⇒ not owned. */
+  own?: boolean
   name: string
   cadence: string
   next: string

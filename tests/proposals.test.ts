@@ -164,3 +164,72 @@ test('decline: owner-only, polite, and terminal; the rationale-less offer is ref
   const probe = await call('GET', `/proposals/${offered.json.id}`, undefined, { 'x-tenant-id': BYSTANDER })
   assert.equal(probe.status, 404, 'to third parties the whole lifecycle is the same 404')
 })
+
+test('SOCIAL-7: a schedule-patch delta lands by running the REAL updateSchedule', async () => {
+  // The second APPLYING delta kind. Its value is that landing is not a record of
+  // agreement — it is the same mutator the owner's own editor calls.
+  const taskId = 's-issue-triage'
+  const before = store.listSchedules(store.defaultTenantId()).find((t) => t.id === taskId)
+  assert.ok(before, 'a seeded routine to improve')
+
+  // Shared at `propose` so the audience may offer.
+  store.createGrant(
+    { subject: { kind: 'schedule', id: taskId }, audience: { kind: 'org', orgId: AUDIENCE }, tier: 'propose' },
+    store.defaultTenantId(),
+  )
+  // …and the grant OPENS it: a routine is a subject like any other (SOCIAL-4 was
+  // wired for projects and sessions only — a shared routine was readable by nobody).
+  assert.ok(
+    store.listSchedules(AUDIENCE).some((t) => t.id === taskId),
+    'the granted audience can now see the routine',
+  )
+  assert.equal(store.listSchedules(AUDIENCE).find((t) => t.id === taskId)?.own, false, '…without owning it')
+
+  const offered = await call(
+    'POST', '/proposals',
+    { subject: { kind: 'schedule', id: taskId }, delta: { kind: 'schedule-patch', patch: { cadence: 'Every 4 hours' } }, rationale: 'Two hours is noisy.' },
+    { 'x-tenant-id': AUDIENCE },
+  )
+  assert.equal(offered.status, 200)
+
+  // The audience may NOT edit the routine directly — read widened, write did not.
+  assert.equal(
+    (await call('PATCH', `/schedules/${taskId}`, { cadence: 'Every 4 hours' }, { 'x-tenant-id': AUDIENCE })).status,
+    404,
+    'a granted reader cannot patch, run or delete — and the refusal hides existence',
+  )
+
+  // The OWNER lands it, and the routine actually changes.
+  const landed = await call('POST', `/proposals/${offered.json.id}/land`, undefined, { 'x-tenant-id': store.defaultTenantId() })
+  assert.equal(landed.status, 200)
+  assert.equal(landed.json.state, 'landed')
+  assert.equal(
+    store.listSchedules(store.defaultTenantId()).find((t) => t.id === taskId)?.cadence,
+    'Every 4 hours',
+    'landing ran the real mutator',
+  )
+})
+
+test('SOCIAL-7: a schedule-patch that could not apply is REFUSED at the door (INV-9)', async () => {
+  const bad: unknown[] = [
+    { kind: 'schedule-patch', patch: {} }, // empty — would land as a no-op consuming an L#
+    { kind: 'schedule-patch', patch: { steps: [] } }, // not a proposable field
+    { kind: 'schedule-patch', patch: { cadence: '   ' } }, // blank
+    { kind: 'schedule-patch', patch: { enabled: 'yes' } }, // wrong type
+  ]
+  for (const delta of bad) {
+    const out = await call(
+      'POST', '/proposals',
+      { subject: { kind: 'schedule', id: 's-issue-triage' }, delta, rationale: 'because' },
+      { 'x-tenant-id': store.defaultTenantId() },
+    )
+    assert.equal(out.status, 400, `refused: ${JSON.stringify(delta)}`)
+  }
+  // …and the kind only makes sense on a routine.
+  const wrongSubject = await call(
+    'POST', '/proposals',
+    { subject: { kind: 'project', id: 'p-insights' }, delta: { kind: 'schedule-patch', patch: { cadence: 'Daily' } }, rationale: 'no' },
+    { 'x-tenant-id': store.defaultTenantId() },
+  )
+  assert.equal(wrongSubject.status, 400, 'a delta that cannot apply to its subject is malformed')
+})
