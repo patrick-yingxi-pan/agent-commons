@@ -108,3 +108,22 @@ test('PROPOSAL §5 names the sections the rail actually has', () => {
   }
   assert.ok(row!.includes('New session'), 'the create row is called "New session"')
 })
+
+/** §9 and §10 are where a reviewer calibrates what is real. Both had drifted:
+ *  §10 called the backend "zero-dependency" while `@anthropic-ai/sdk` was in
+ *  package.json, and §9's "no real model behind the streaming reply" read as if
+ *  the tool-use loop were faked, when the boundary is a genuine Messages client
+ *  (server/CLAUDE.md) that two env vars point at the real API. Claiming fewer
+ *  dependencies than you ship, to the company whose SDK it is, is the kind of
+ *  error worth making impossible rather than remembering. */
+test('PROPOSAL §10 states the backend dependency it actually ships', () => {
+  const proposal = read('PROPOSAL.md')
+  const pkg = JSON.parse(read('package.json')) as { dependencies: Record<string, string> }
+  const serverDep = '@anthropic-ai/sdk'
+  assert.ok(pkg.dependencies[serverDep], 'the SDK is still the server dependency this claim is about')
+  assert.ok(
+    !/zero-dependency/.test(proposal),
+    'PROPOSAL claims a zero-dependency backend while package.json ships one',
+  )
+  assert.ok(proposal.includes(serverDep), `PROPOSAL §10 should name ${serverDep} — the seam that makes the boundary real`)
+})

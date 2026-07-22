@@ -253,8 +253,10 @@ that drift apart. The prototype is structured to show it is.
 **The split.** The UI no longer imports mock data; it's a real web frontend
 talking to a backend over a **versioned HTTP + SSE API**, defined by one
 framework-free **contract** that the UI and the server import *verbatim*. The
-backend is a zero-dependency mock server today, but the same UI is designed to
-run unchanged against two backends:
+backend is a mock server today — deliberately down to a single runtime
+dependency, `@anthropic-ai/sdk`, because the generation seam is a *real* Messages
+client rather than an in-process fake — but the same UI is designed to run
+unchanged against two backends:
 
 - **Native desktop** — UI in an app shell, backend a local sidecar that can reach
   native resources (filesystem, local git, OS pickers) and later proxy the real
