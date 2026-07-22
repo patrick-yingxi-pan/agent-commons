@@ -85,3 +85,26 @@ test('every relative link in the map and the scoped files resolves', () => {
     }
   }
 })
+
+/** PROPOSAL.md §5 maps each idea to where a reader can SEE it, so its section
+ *  list is a factual claim about the shipped rail — and it rotted: it named
+ *  "New task" (the row is "New session") and six of the eleven sections did not
+ *  exist yet when it was written. A claim a reviewer checks first should not
+ *  depend on someone remembering to update prose. Derived from the one registry
+ *  (src/lib/sections.tsx), the same source the rail and the body read. */
+test('PROPOSAL §5 names the sections the rail actually has', () => {
+  const proposal = read('PROPOSAL.md')
+  const row = proposal.split('\n').find((l) => l.includes('Cross-cutting tools, not tabs'))
+  assert.ok(row, 'the §5 mapping row exists')
+  const meta = read('src/lib/sections.tsx')
+  // The `admin` section (label "Maintain") is role-gated — the rail filters it
+  // out unless `instanceAdmin` — so it is not part of the everyday nav the row
+  // describes. Named by its LABEL, which is not its id: this lock's first run
+  // caught the author of that very row writing capitalized ids instead.
+  const labels = [...meta.matchAll(/label:\s*'([^']+)'/g)].map((m) => m[1]).filter((l) => l !== 'Maintain')
+  assert.ok(labels.length >= 9, 'found the section labels to check against')
+  for (const label of labels) {
+    assert.ok(row!.includes(label), `PROPOSAL §5 omits the "${label}" section — the rail has it`)
+  }
+  assert.ok(row!.includes('New session'), 'the create row is called "New session"')
+})
