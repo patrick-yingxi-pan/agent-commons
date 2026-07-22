@@ -380,16 +380,25 @@ test('a shared ROUTINE: the visitor page is read-only, and landing their change 
   await ada.page.getByRole('button', { name: 'Share', exact: true }).click()
   await expect(ada.page.getByText('tenant-beta')).toBeVisible()
 
+  // The OWNER's controls, named once. Asserted present for Ada and absent for
+  // Grace using the SAME locators: a `toHaveCount(0)` on a typo'd selector
+  // passes forever, so each negative is only meaningful because the positive
+  // beside it proves the locator can match.
+  const ownerControls = (p: Page) => [
+    p.getByRole('button', { name: 'Run now' }),
+    p.getByRole('button', { name: /^(Pause|Resume)$/ }),
+    p.getByRole('button', { name: 'Delete' }),
+    p.getByTitle('Rename routine'),
+    p.getByLabel('Audience id'),
+    p.getByLabel('Edit instruction'),
+  ]
+  for (const control of ownerControls(ada.page)) await expect(control).toHaveCount(1)
+
   // Grace can now open it — and the page is READ-ONLY. Widening the read must
   // not hand her the owner's controls; every one of these would 404.
   await grace.page.goto(ROUTINE)
   await expect(grace.page.getByRole('heading', { name: /Triage/i })).toBeVisible({ timeout: 20_000 })
-  await expect(grace.page.getByRole('button', { name: 'Run now' })).toHaveCount(0)
-  await expect(grace.page.getByRole('button', { name: /^(Pause|Resume)$/ })).toHaveCount(0)
-  await expect(grace.page.getByRole('button', { name: 'Delete' })).toHaveCount(0)
-  await expect(grace.page.getByTitle('Rename routine')).toHaveCount(0)
-  await expect(grace.page.getByLabel('Audience id')).toHaveCount(0)
-  await expect(grace.page.getByLabel('Edit instruction')).toHaveCount(0)
+  for (const control of ownerControls(grace.page)) await expect(control).toHaveCount(0)
 
   // What she CAN do is the point of sharing it: propose a FIELD of the routine.
   // The form is structured, not prose — the delta has to be appliable.
