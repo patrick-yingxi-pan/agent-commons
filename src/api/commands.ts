@@ -534,6 +534,22 @@ export async function reactToDiscussionPost(did: string, pid: string, anchorRef:
   return d
 }
 
+/** Delete a post (S5 guardrails) — the AUTHOR retracts their own words, or the
+ *  ANCHOR OWNER moderates their surface. Deleting the last post dissolves the
+ *  thread, so the anchor's list is invalidated alongside the thread itself. */
+export async function deleteDiscussionPost(did: string, pid: string, anchorRef: { kind: string; id: string }): Promise<void> {
+  await apiDelete(paths.discussionPost(did, pid))
+  invalidate(keys.discussions(anchorRef.kind, anchorRef.id))
+  invalidate(keys.discussion(did))
+  invalidate(keys.myDiscussions)
+}
+
+/** Report a post to whoever holds the delete — the anchor's owner (S5: owner
+ *  moderation first; instance-level escalation is S6). Rings their bell. */
+export async function reportDiscussionPost(did: string, pid: string): Promise<void> {
+  await apiPost(paths.discussionPostReport(did, pid), {})
+}
+
 /** Resolve / reopen a discussion — the opener's or the anchor owner's act. */
 export async function setDiscussionState(did: string, state: 'open' | 'resolved', anchorRef: { kind: string; id: string }): Promise<Discussion> {
   const d = await apiPost<Discussion>(paths.discussionResolve(did), { state })

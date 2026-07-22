@@ -88,3 +88,32 @@ test('mute is an earmuff: the viewer’s feed and bell drop the actor; the muted
   const restored = await call('GET', '/commons', undefined, { 'x-tenant-id': AUDIENCE })
   assert.ok(restored.json.some((i: any) => i.subject.id === projectId), 'unmute restores the feed')
 })
+
+test('post standing rides the wire: canDelete = author OR anchor owner, and it matches the write path', async () => {
+  // These flags are what the UI gates the retract / moderate / report acts on.
+  // If they disagreed with the write path, a reader would be offered a delete
+  // that 403s — or (the inverse, which is how the thread page's resolve control
+  // went missing) never be offered one they hold.
+  // This file's arena already opens a thread whose FIRST post is the audience's.
+  const { d } = await arena()
+  const pid = d.posts[0].id
+  const face = async (tenant: string) =>
+    (await call('GET', `/discussions/${d.id}`, undefined, { 'x-tenant-id': tenant })).json.posts[0]
+
+  const asAuthor = await face(AUDIENCE)
+  assert.equal(asAuthor.mine, true, 'their own words')
+  assert.equal(asAuthor.canDelete, true, 'the author may retract')
+
+  const asOwner = await face(OWNER)
+  assert.notEqual(asOwner.mine, true, 'the anchor owner did not write it')
+  assert.equal(asOwner.canDelete, true, '…and may still moderate their own surface')
+
+  // The REDACTED face still holds: no raw tenant ids ride along.
+  for (const seen of [asAuthor, asOwner]) {
+    assert.ok(!JSON.stringify(seen).includes('tenant-'), 'no tenant id crosses the wire')
+  }
+
+  // …and the write path agrees with the face it advertised.
+  assert.equal((await call('DELETE', `/discussions/${d.id}/posts/${pid}`, undefined, { 'x-tenant-id': BYSTANDER })).status, 404)
+  assert.equal((await call('DELETE', `/discussions/${d.id}/posts/${pid}`, undefined, { 'x-tenant-id': OWNER })).status, 200)
+})

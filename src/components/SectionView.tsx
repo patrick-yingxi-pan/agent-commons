@@ -45,6 +45,7 @@ import {
   Sparkles,
   SquareKanban,
   ThumbsUp,
+  Flag,
   Trash2,
   Unplug,
   X,
@@ -186,6 +187,8 @@ import {
   openDiscussion,
   postToDiscussion,
   reactToDiscussionPost,
+  deleteDiscussionPost,
+  reportDiscussionPost,
   setDiscussionState,
   openContribution,
   noteContribution,
@@ -2718,7 +2721,28 @@ function leaseLabel(expiresAt: number): string {
  *  toggle (hover-revealed at zero, accent when yours) — shared by the entity
  *  page's thread panel and the discussion's own timeline page, so the form
  *  can't drift between the two projections of the same object. */
-function DiscussionPostList({ posts, onReact }: { posts: DiscussionPost[]; onReact: (pid: string) => void }) {
+/** The ONE post list — the thread page, the entity panel and the feed card all
+ *  render it, so a post behaves identically wherever it is read.
+ *
+ *  Each post carries the S5 guardrails, gated on the server's own answers: the
+ *  AUTHOR retracts their own words and the ANCHOR OWNER moderates their surface
+ *  (both `canDelete`, two parties that `mine` alone can't express), and everyone
+ *  ELSE may report it to whoever holds that delete. The acts are hover-revealed
+ *  — moderation should be available, not ambient. */
+function DiscussionPostList({
+  posts,
+  onReact,
+  onDelete,
+  onReport,
+}: {
+  posts: DiscussionPost[]
+  onReact: (pid: string) => void
+  /** Absent on a projection that only PREVIEWS a thread (the feed card's tail):
+   *  a destructive act belongs where the whole thread is. */
+  onDelete?: (pid: string) => void
+  onReport?: (pid: string) => void
+}) {
+  const [reported, setReported] = useState<string | null>(null)
   return (
     <ul className="space-y-3">
       {posts.map((p) => (
@@ -2743,6 +2767,32 @@ function DiscussionPostList({ posts, onReact }: { posts: DiscussionPost[]; onRea
             <ThumbsUp size={12} />
             {p.reactions > 0 && <span className="tabular-nums">{p.reactions}</span>}
           </button>
+          {onDelete && p.canDelete === true && (
+            <button
+              onClick={() => onDelete(p.id)}
+              aria-label={p.mine === true ? 'Retract this post' : 'Delete this post'}
+              title={p.mine === true ? 'Retract this post' : 'Delete this post (you own the surface)'}
+              className={`flex shrink-0 items-center justify-center rounded-md px-1.5 py-0.5 text-ink-faint transition hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 ${HOVER_REVEAL}`}
+            >
+              <Trash2 size={12} />
+            </button>
+          )}
+          {onReport && p.canDelete !== true && (
+            <button
+              onClick={() => {
+                setReported(p.id)
+                onReport(p.id)
+              }}
+              disabled={reported === p.id}
+              aria-label="Report this post to the owner of this surface"
+              title={reported === p.id ? 'Reported' : 'Report this post to the owner of this surface'}
+              className={`flex shrink-0 items-center justify-center rounded-md px-1.5 py-0.5 text-[11px] text-ink-faint transition hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${
+                reported === p.id ? '' : HOVER_REVEAL
+              }`}
+            >
+              <Flag size={12} />
+            </button>
+          )}
         </li>
       ))}
     </ul>
@@ -2788,7 +2838,12 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
               Resolved — the thread stays open for aftermath.
             </p>
           )}
-          <DiscussionPostList posts={root.posts} onReact={react} />
+          <DiscussionPostList
+            posts={root.posts}
+            onReact={react}
+            onDelete={(pid) => void deleteDiscussionPost(root.id, pid, subject)}
+            onReport={(pid) => void reportDiscussionPost(root.id, pid)}
+          />
         </div>
       )}
       <div className="mt-3">
@@ -3144,7 +3199,12 @@ function DiscussionPage({
         </div>
       </header>
       <div className="max-w-2xl">
-        <DiscussionPostList posts={d.posts} onReact={(pid) => void reactToDiscussionPost(d.id, pid, d.anchor.ref)} />
+        <DiscussionPostList
+          posts={d.posts}
+          onReact={(pid) => void reactToDiscussionPost(d.id, pid, d.anchor.ref)}
+          onDelete={(pid) => void deleteDiscussionPost(d.id, pid, d.anchor.ref)}
+          onReport={(pid) => void reportDiscussionPost(d.id, pid)}
+        />
         {/* Capability shapes affordances: a `view`-tier reader reads the thread
             and may still REACT (the thinnest signal needs no tier) — but gets no
             reply box, rather than one whose every send is refused. */}

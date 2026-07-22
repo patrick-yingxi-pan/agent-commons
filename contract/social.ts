@@ -148,6 +148,13 @@ export interface DiscussionPost {
    *  whether the CALLER did (viewer-relative, computed at serve time). */
   reactions: number
   reacted?: boolean
+  /** Viewer-relative: the caller wrote it (their own words, retractable). */
+  mine?: boolean
+  /** Viewer-relative: may the caller delete it? The AUTHOR retracts their own
+   *  words; the ANCHOR OWNER moderates their surface (S5 guardrails) — two
+   *  parties again, so `mine` can't answer it. Computed by the same predicate
+   *  `deleteDiscussionPost` enforces. */
+  canDelete?: boolean
 }
 
 export interface Discussion {

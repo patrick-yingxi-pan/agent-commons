@@ -292,6 +292,17 @@ test('sharing a CONVERSATION: the owner shares from its title bar, the audience 
   // there, pointing back at the exact turn the thread hangs on.
   await expect(ada.page.getByRole('button', { name: /^session · .+ · one turn$/ })).toBeVisible()
 
+  // ── S5 guardrails, the two-party case ────────────────────────────────────
+  // Ada did NOT write this post, but she owns the surface it sits on, so she is
+  // offered the moderator's delete — labelled as such, not as a retraction. A
+  // gate on "is this mine" would have hidden it.
+  // Scoped to GRACE's post specifically: the thread may also hold Ada's own
+  // words (walk 3), which she'd correctly see a *retract* on — the claim here is
+  // about the post she did NOT write.
+  const gracePost = ada.page.getByRole('listitem').filter({ hasText: GUEST_POST })
+  await expect(gracePost.getByRole('button', { name: 'Delete this post' })).toBeVisible()
+  await expect(gracePost.getByRole('button', { name: 'Retract this post' })).toHaveCount(0)
+
   // ── Capability shapes affordances: narrow Grace to `view` ────────────────
   // She keeps READING every thread and loses the ability to start one, so the
   // opener disappears while the marker stays. Without this the gutter offers an

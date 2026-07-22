@@ -369,13 +369,25 @@ function sameLocus(a: AnchorLocus | undefined, b: AnchorLocus | undefined): bool
 /** Wire face: strip the raw tenant anchors; reactions serve as a count + the
  *  caller's own bit (viewer-relative, computed at serve time — the `mine`
  *  pattern). */
+/** Does the viewer OWN the anchor a thread hangs on? The moderator half of both
+ *  two-party rules below (resolve, and post deletion). */
+function ownsDiscussionAnchor(d: StoredDiscussion, viewerTenant: string): boolean {
+  const row = store.grantSubjectRow(d.anchor.ref)
+  return row !== undefined && row !== 'unsupported' && ownsGrantSubject(row, viewerTenant)
+}
+
 /** Resolve standing: the OPENER or the anchor's OWNER — the same predicate
  *  `setDiscussionState` enforces, read here so the wire face carries the answer
  *  and no surface has to re-derive (or under-derive) it. */
 function canResolveDiscussion(d: StoredDiscussion, viewerTenant: string): boolean {
-  if (tenantWritesAs(viewerTenant, d.openerTenant)) return true
-  const row = store.grantSubjectRow(d.anchor.ref)
-  return row !== undefined && row !== 'unsupported' && ownsGrantSubject(row, viewerTenant)
+  return tenantWritesAs(viewerTenant, d.openerTenant) || ownsDiscussionAnchor(d, viewerTenant)
+}
+
+/** Delete standing (S5 guardrails): the post's AUTHOR retracts their own words;
+ *  the ANCHOR OWNER moderates their surface. The same predicate
+ *  `deleteDiscussionPost` enforces. */
+function canDeletePost(d: StoredDiscussion, authorTenant: string, viewerTenant: string): boolean {
+  return tenantWritesAs(viewerTenant, authorTenant) || ownsDiscussionAnchor(d, viewerTenant)
 }
 
 function publicDiscussion(d: StoredDiscussion, viewerTenant?: string): Discussion {
@@ -390,6 +402,8 @@ function publicDiscussion(d: StoredDiscussion, viewerTenant?: string): Discussio
         ...post,
         reactions: reactedBy.length,
         ...(viewerTenant !== undefined && reactedBy.some((t) => tenantReadsAs(viewerTenant, t)) ? { reacted: true } : {}),
+        ...(viewerTenant !== undefined && tenantWritesAs(viewerTenant, authorTenant) ? { mine: true } : {}),
+        ...(viewerTenant !== undefined && canDeletePost(d, authorTenant, viewerTenant) ? { canDelete: true } : {}),
       }
     }),
   }
@@ -4654,9 +4668,8 @@ export const store = {
     if (!d || !this.grantSubjectVisible(d.anchor.ref, tenantId)) return undefined
     const i = d.posts.findIndex((x) => x.id === pid)
     if (i < 0) return undefined
-    const row = this.grantSubjectRow(d.anchor.ref)
-    const moderator = row !== undefined && row !== 'unsupported' && ownsGrantSubject(row, tenantId)
-    if (!tenantWritesAs(tenantId, d.posts[i].authorTenant) && !moderator) return 'forbidden'
+    // The SAME predicate the wire face reports (`post.canDelete`).
+    if (!canDeletePost(d, d.posts[i].authorTenant, tenantId)) return 'forbidden'
     d.posts.splice(i, 1)
     if (d.posts.length === 0) discussions.splice(discussions.indexOf(d), 1)
     emit({ type: 'discussion.changed', discussionId: d.id, anchor: d.anchor })

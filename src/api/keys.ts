@@ -185,6 +185,8 @@ export const paths = {
   discussion: (did: string) => `/discussions/${encodeURIComponent(did)}`,
   discussionPosts: (did: string) => `/discussions/${encodeURIComponent(did)}/posts`,
   discussionReact: (did: string, pid: string) => `/discussions/${encodeURIComponent(did)}/posts/${encodeURIComponent(pid)}/react`,
+  discussionPost: (did: string, pid: string) => `/discussions/${encodeURIComponent(did)}/posts/${encodeURIComponent(pid)}`,
+  discussionPostReport: (did: string, pid: string) => `/discussions/${encodeURIComponent(did)}/posts/${encodeURIComponent(pid)}/report`,
   discussionResolve: (did: string) => `/discussions/${encodeURIComponent(did)}/resolve`,
   /** The contribution ledger (agent-contribution workflow Phase A). */
   contributions: (projectId: string) => `/projects/${encodeURIComponent(projectId)}/contributions`,
