@@ -18,6 +18,10 @@ import { test, expect, type Browser, type Page } from '@playwright/test'
  *     turn's marker, and RESOLVED back by the thread page's anchor chip, which
  *     must land the conversation scrolled to that exact turn. The round trip is
  *     the whole point of a locus, and only a browser can prove the landing.
+ *  4. sharing a CONVERSATION: the owner shares from the title bar's share door
+ *     (chrome, not a page — a conversation has no rail), the audience's read
+ *     opens while the door itself does NOT (reads widen, ownership doesn't),
+ *     and the visitor discusses one turn of a conversation she doesn't own.
  *
  *  Tenant impersonation mirrors co-author-article.spec.ts: BACKEND=remote,
  *  identity via headers — Ada (no headers, the seeded default owner), Grace
@@ -32,6 +36,7 @@ const COMMENT = `One suggestion incoming ${STAMP}`
 const CHANGE = `Lead with the retention metric ${STAMP}`
 const TURN_POST = `About this step specifically ${STAMP}`
 const TURN_REPLY = `Still this step ${STAMP}`
+const GUEST_POST = `A question about this exact step ${STAMP}`
 /** A seeded multi-turn conversation, opened by its canonical URL (every page
  *  has one — src/CLAUDE.md). The walk asserts the turn count, so a reseed that
  *  shortens this thread fails loudly rather than passing vacuously. */
@@ -170,7 +175,10 @@ test('the turn gutter: a thread anchored to ONE turn, and the chip that lands ba
   // earliest turn falls off-screen — which is what makes the final "landed on
   // the turn" assertion mean something instead of passing vacuously on a thread
   // that fits.
-  await page.setViewportSize({ width: 1100, height: 400 })
+  // Short enough that the earliest turn is off-screen with MARGIN, not by a
+  // pixel: a knife-edge height turns a real assertion into a flake the first
+  // time any per-turn chrome changes size (it did — a 4px gutter trim).
+  await page.setViewportSize({ width: 1100, height: 300 })
   await page.goto(TURN_SESSION)
   const turns = page.getByTitle('Discuss this turn')
   await expect(turns.first()).toBeAttached({ timeout: 20_000 })
@@ -219,4 +227,47 @@ test('the turn gutter: a thread anchored to ONE turn, and the chip that lands ba
   await expect(page.getByTitle('Open this turn’s thread')).toBeInViewport({ timeout: 10_000 })
 
   await ada.context.close()
+})
+
+test('sharing a CONVERSATION: the owner shares from its title bar, the audience discusses a turn', async ({ browser }) => {
+  test.setTimeout(120_000)
+  const ada = await newUser(browser)
+  const grace = await newUser(browser, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
+
+  // ── The share door is CHROME on the conversation, gated on ownership ──────
+  await ada.page.goto(TURN_SESSION)
+  await ada.page.getByRole('button', { name: 'Share this conversation' }).click()
+  await ada.page.getByLabel('Audience id').fill('tenant-beta')
+  await ada.page.getByLabel('Tier').selectOption({ label: 'Comment' })
+  await ada.page.getByRole('button', { name: 'Share', exact: true }).click()
+  await expect(ada.page.getByText('tenant-beta')).toBeVisible()
+
+  // ── Grace was walled; the grant opens the READ ────────────────────────────
+  await grace.page.goto(TURN_SESSION)
+  const graceTurns = grace.page.getByTitle('Discuss this turn')
+  await expect(graceTurns.first()).toBeAttached({ timeout: 20_000 })
+
+  // …but NOT ownership: a shared conversation carries no share door, at any
+  // tier. Reads widen, the audience configuration stays the owner's.
+  await expect(grace.page.getByRole('button', { name: 'Share this conversation' })).toHaveCount(0)
+
+  // ── And the point of the whole slice: she can discuss ONE turn of it ──────
+  const target = graceTurns.first()
+  await target.scrollIntoViewIfNeeded()
+  await target.click()
+  await grace.page.getByLabel('Post to this session’s discussion').fill(GUEST_POST)
+  await grace.page.getByRole('button', { name: 'Post', exact: true }).click()
+  const guestMarker = grace.page.getByTitle('Open this turn’s thread').first()
+  await expect(guestMarker).toBeVisible()
+
+  // The owner sees it on the same turn — one thread, two viewers. Asserted on
+  // the POST, not the thread's heading: the heading is whatever opened the
+  // thread, and by the get-or-create rule Grace may have appended to one the
+  // turn already carried (the walk above leaves one there when both run).
+  await ada.page.reload()
+  await ada.page.getByTitle('Open this turn’s thread').first().click({ timeout: 20_000 })
+  await expect(ada.page.getByText(GUEST_POST)).toBeVisible()
+
+  await ada.context.close()
+  await grace.context.close()
 })

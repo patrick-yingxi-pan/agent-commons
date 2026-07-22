@@ -2128,6 +2128,11 @@ export const store = {
       caps: s.caps,
       preview: s.preview,
       tenantId: s.tenantId,
+      // Viewer-relative ownership, matching the by-id read. When the call is
+      // tenant-SCOPED, `rowVisibleTo` already filtered to the reader's own rows,
+      // so every row here is owned — a fact, not an inference. An unscoped call
+      // (internal use) has no reader, so it asserts nothing (absent = not owned).
+      ...(tenantId ? { own: true } : {}),
       // Sidebar filter/sort backing — cheap scalars, safe to ship in the list rows.
       status: s.status,
       environment: s.environment,
@@ -2150,6 +2155,12 @@ export const store = {
     // Social S1: a grant opens the subject — the session share is the flagship
     // (replayable at `view`). Ownership stays strict; only READ widens.
     return rowVisibleTo(session, tenantId) || this.grantedTier({ kind: 'session', id: session.id }, tenantId) !== undefined
+  },
+  /** OWNERSHIP, the strict half of the funnel above — the reader's own row, with
+   *  no grant widening it. The share configuration hangs off this: a granted
+   *  visitor reads the conversation and may not reconfigure who else can. */
+  sessionOwnedBy(session: Session, tenantId: string): boolean {
+    return rowVisibleTo(session, tenantId)
   },
   /** Whether an ambient event should be delivered to a subscriber of `tenantId` (F2/PD9 —
    *  the push-side of the tenant boundary). The `/events` SSE fan-out is broadcast to

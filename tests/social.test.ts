@@ -236,3 +236,39 @@ test('the substrate stays kind-generic: social.ts never branches on an entity ki
     )
   }
 })
+
+test('SOCIAL-5: a session carries VIEWER-RELATIVE ownership — reads widen, the share door does not', async () => {
+  // The share configuration hangs off ownership, not readability: a granted
+  // visitor opens a shared conversation and must not see (or change) who else
+  // it is shared with. The projection says so on the wire — the UI never infers
+  // it (UI-12: no asserted status a registry actually owns).
+  const { SESSIONS } = await import('../server/data/sessions.ts')
+  // A DIFFERENT seed than the SOCIAL-4 walk above shares — module state is
+  // shared across tests in this file, so a self-contained walk needs its own.
+  const seed = SESSIONS.filter((s) => !s.tenantId)[1]
+  assert.ok(seed, 'a second unstamped seed session exists')
+  const ref = { kind: 'session', id: seed!.id } as const
+
+  const owner = await call('GET', `/sessions/${seed!.id}`, undefined, { 'x-tenant-id': store.defaultTenantId() })
+  assert.equal(owner.status, 200)
+  assert.equal(owner.json.own, true, 'the owner reads own:true')
+
+  // Pre-grant the visitor cannot even open it (existence-hiding).
+  const walled = await call('GET', `/sessions/${seed!.id}`, undefined, { 'x-tenant-id': AUDIENCE })
+  assert.equal(walled.status, 404, 'pre-grant: walled')
+
+  store.createGrant({ subject: ref, audience: { kind: 'org', orgId: AUDIENCE }, tier: 'co-own' }, store.defaultTenantId())
+  const visitor = await call('GET', `/sessions/${seed!.id}`, undefined, { 'x-tenant-id': AUDIENCE })
+  assert.equal(visitor.status, 200, 'the grant opens the READ')
+  assert.notEqual(visitor.json.own, true, '…and never ownership — even at the TOP tier')
+
+  // The list is the ownership list by construction: a shared session is
+  // readable by id but is not the visitor's, so it stays out of their Recents.
+  const list = await call('GET', '/sessions', undefined, { 'x-tenant-id': AUDIENCE })
+  assert.ok(!list.json.some((s: { id: string }) => s.id === seed!.id), 'a shared session is not in the visitor’s list')
+  const ownList = await call('GET', '/sessions', undefined, { 'x-tenant-id': store.defaultTenantId() })
+  assert.ok(
+    ownList.json.every((s: { own?: boolean }) => s.own === true),
+    'every row of a tenant-scoped list is owned — the flag is a fact there, not an inference',
+  )
+})

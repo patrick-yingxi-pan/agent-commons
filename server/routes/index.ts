@@ -2647,7 +2647,12 @@ export function buildRouter(): Router {
     // never persisted (contract/turns.ts): a client arriving mid-generation sees
     // `activeTurnId` and reattaches instead of finding a silently stuck thread.
     const live = turns.bySession(params.id)
-    sendJson(res, live ? { ...session, activeTurnId: live.id } : session)
+    // Viewer-relative ownership (the `mine` pattern): a social grant widens READS
+    // without widening ownership, so a granted visitor opens this conversation
+    // but its share configuration is the owner's alone. Computed here, where the
+    // reader is in hand — never stored.
+    const own = store.sessionOwnedBy(session, store.identity(req.headers).tenant.id)
+    sendJson(res, { ...session, own, ...(live ? { activeTurnId: live.id } : {}) })
   })
   // Materialize a new persisted session — a draft becomes real on its first send
   // (the client posts here, adopts the returned id, then streams the turn to it).

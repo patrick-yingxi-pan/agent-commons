@@ -328,6 +328,12 @@ export interface Session {
    *  session (or a run session of an unstamped seed routine) ⇒ the backend's
    *  default tenant (personal on desktop). */
   tenantId?: string
+  /** VIEWER-RELATIVE: does the reader own this conversation? Computed at serve
+   *  time (the `mine` pattern — never a stored field), because a social grant
+   *  widens READS without widening ownership: a granted visitor can open a
+   *  shared conversation but must not see its share configuration. Absent on
+   *  payloads served without a reader in hand; treat absent as NOT owned. */
+  own?: boolean
   /** A generation turn currently running for this session (contract/turns.ts —
    *  server-owned turns, invariant I1). Projected at read time from the transient
    *  turn registry, never persisted: presence means "Claude is still writing",

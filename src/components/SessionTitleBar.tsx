@@ -16,10 +16,16 @@ import type { NavLocation } from '../lib/nav'
 import { useRelations } from '../controller/useRelations'
 import { BackButton } from './BackButton'
 import { RunHistoryMenu } from './RunHistoryMenu'
+import { SessionShareButton } from './SessionShareButton'
 
 /** The slice of a Session the bar reads — a pane without the full server row
  *  (a run session outside the list) can pass a shell. */
-export type TitleBarSession = Pick<Session, 'id' | 'title'> & { scheduledRunOf?: Session['scheduledRunOf'] }
+export type TitleBarSession = Pick<Session, 'id' | 'title'> & {
+  scheduledRunOf?: Session['scheduledRunOf']
+  /** Viewer-relative ownership — gates the share door. Absent = not owned (a
+   *  pane shell without the full server row, or a granted visitor's read). */
+  own?: Session['own']
+}
 
 export function SessionTitleBar({
   session,
@@ -57,7 +63,11 @@ export function SessionTitleBar({
     >
       {leading}
       {back && <BackButton to={back.to} onBack={back.onBack} />}
-      <div className="flex min-w-0 flex-col justify-center gap-0.5">
+      {/* flex-1: the title block absorbs the free space, so every trailing
+          control sits in one right-aligned cluster. (Two siblings each carrying
+          `ml-auto` would SPLIT the free space instead and strand the run
+          switcher mid-bar — RunHistoryMenu already carries one.) */}
+      <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
         <span className="truncate font-serif text-[15px] font-semibold leading-tight text-ink">
           {session.title}
         </span>
@@ -89,6 +99,7 @@ export function SessionTitleBar({
       {runOf && onSelectRun && (
         <RunHistoryMenu taskId={runOf.taskId} activeRunSessionId={session.id} onSelectRun={onSelectRun} />
       )}
+      {session.own && <SessionShareButton sessionId={session.id} />}
     </div>
   )
 }
