@@ -157,6 +157,20 @@ export interface DiscussionPost {
   canDelete?: boolean
 }
 
+/** A thread's display title: its opening post, trimmed to a word boundary with
+ *  an ellipsis. Shared because three surfaces show it — the thread page, the
+ *  Commons embed, and the rail list — and a bare `slice(0, 80)` cut mid-word
+ *  ("…should the prompt land before th"), which reads as broken rather than
+ *  abbreviated (the /ui-review judgment pass, 2026-07-22). */
+export function discussionTitle(firstPost: string | undefined, max = 80): string {
+  const body = (firstPost ?? '').trim()
+  if (!body) return 'Discussion'
+  if (body.length <= max) return body
+  const cut = body.slice(0, max)
+  const lastSpace = cut.lastIndexOf(' ')
+  return `${(lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`
+}
+
 export interface Discussion {
   id: string
   anchor: SocialAnchor

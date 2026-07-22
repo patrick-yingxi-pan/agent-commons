@@ -243,6 +243,7 @@ import {
   SHARE_TIERS,
   describeOp,
   describeSchedulePatch,
+  discussionTitle,
   type CommonsItem,
   type Discussion,
   type DiscussionPost,
@@ -3163,7 +3164,7 @@ function DiscussionPage({
         <div className="flex min-w-0 items-start gap-3">
           <BackButton to={backTo} onBack={onBack} />
           <div className="min-w-0">
-            <h1 className={PAGE_TITLE_CLASS}>{d.posts[0]?.body.slice(0, 80) || 'Discussion'}</h1>
+            <h1 className={PAGE_TITLE_CLASS}>{discussionTitle(d.posts[0]?.body)}</h1>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-ink-faint">
               <span>
                 {d.state === 'open' ? 'Open' : 'Resolved'} · opened by {d.openedBy} {relativeTime(d.openedAt)}

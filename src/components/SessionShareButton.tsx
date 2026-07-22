@@ -16,6 +16,7 @@
 import { useState } from 'react'
 import { Share2 } from 'lucide-react'
 import { POPOVER_SURFACE } from '../lib/popover'
+import { usePopoverShift } from '../lib/usePopoverShift'
 import { useDismissable } from '../lib/useDismissable'
 import { GrantsPanel } from './GrantsPanel'
 
@@ -23,6 +24,11 @@ export function SessionShareButton({ sessionId }: { sessionId: string }) {
   const [open, setOpen] = useState(false)
   // The wrapper holds both trigger and panel, so it is what counts as "inside".
   const wrapRef = useDismissable<HTMLDivElement>(open, () => setOpen(false))
+  // UI-1: wearing POPOVER_SURFACE is only half the funnel — the surface carries
+  // the width clamp, the HOOK does the containment (and stamps `data-popover`,
+  // the sweep's enumeration handle). Right-anchoring alone put the panel's left
+  // edge at x=0 on a 320px viewport; found by the /ui-review sweep.
+  const panelRef = usePopoverShift<HTMLDivElement>(open)
   return (
     <div ref={wrapRef} className="relative shrink-0">
       <button
@@ -39,7 +45,7 @@ export function SessionShareButton({ sessionId }: { sessionId: string }) {
         // so a left-anchored panel would hang off it. The viewport width clamp
         // is POPOVER_SURFACE's — never re-declared here (the module owns that
         // literal, and a second one would contradict it).
-        <div className={`${POPOVER_SURFACE} absolute right-0 top-9 z-40 w-80 p-3`}>
+        <div ref={panelRef} className={`${POPOVER_SURFACE} absolute right-0 top-9 z-40 w-80 p-3`}>
           <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-ink-faint">Share this conversation</p>
           <GrantsPanel subject={{ kind: 'session', id: sessionId }} />
         </div>

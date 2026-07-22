@@ -16,8 +16,8 @@
  *  truncated at extreme narrow viewports. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { join } from 'node:path'
-import { ROOT, read, stripComments, concatSource } from './helpers/source.ts'
+import { join, relative, sep } from 'node:path'
+import { ROOT, read, stripComments, concatSource, filesUnder } from './helpers/source.ts'
 import { POPOVER_MARGIN, POPOVER_SURFACE, clampLeft, shiftIntoSpan } from '../src/lib/popover.ts'
 
 /* ── 1 · the math contains ──────────────────────────────────────────────────── */
@@ -81,6 +81,8 @@ const ANCHORED = [
   'src/components/artifactPreview.tsx',
   'src/components/SectionView.tsx',
   'src/components/RunHistoryMenu.tsx',
+  'src/components/SessionShareButton.tsx',
+
 ]
 
 /** Portal-fixed menus: position themselves, so they clamp via clampLeft. */
@@ -89,6 +91,26 @@ const PORTALED = [
   'src/components/FilterMenu.tsx',
   'src/components/RecentOverflowList.tsx',
 ]
+
+/** The enumeration is DERIVED, not hand-listed: every file that wears the surface
+ *  must be accounted for. A hand-maintained list only locks the consumers someone
+ *  remembered to add — which is exactly how `SessionShareButton` shipped wearing
+ *  POPOVER_SURFACE with no shift hook and put its left edge at x=0 on a 320px
+ *  viewport (the /ui-review sweep, 2026-07-22). Same failure shape as UI-9's
+ *  third escape, where the row lock enumerated only `ScheduledRow`. */
+test('the consumer enumeration is COMPLETE — no popover escapes by not being listed', () => {
+  const listed = new Set([...ANCHORED, ...PORTALED])
+  const wearers = filesUnder('src')
+    .filter((f) => stripComments(read(f)).includes('POPOVER_SURFACE'))
+    .map((f) => relative(ROOT, f).split(sep).join('/'))
+    .filter((rel) => rel !== 'src/lib/popover.ts')
+  for (const rel of wearers) {
+    assert.ok(
+      listed.has(rel),
+      `${rel} wears POPOVER_SURFACE but is in neither ANCHORED nor PORTALED — add it (and give it the shift hook or clampLeft)`,
+    )
+  }
+})
 
 test('every anchored popover wears the shared surface and the shift hook', () => {
   for (const rel of ANCHORED) {

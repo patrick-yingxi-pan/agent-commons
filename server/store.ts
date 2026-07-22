@@ -56,6 +56,7 @@ import type {
 import {
   applyGraphOp,
   connectorsFor,
+  discussionTitle,
   emptyGraph,
   opKey,
   recentEntries,
@@ -5076,7 +5077,7 @@ export const store = {
       }
       case 'discussion': {
         const d = discussions.find((x) => x.id === ref.id)
-        return { name: d?.posts[0]?.body.slice(0, 80) ?? ref.id }
+        return { name: d ? discussionTitle(d.posts[0]?.body) : ref.id }
       }
       case 'proposal': {
         const p = socialProposals.find((x) => x.id === ref.id)
