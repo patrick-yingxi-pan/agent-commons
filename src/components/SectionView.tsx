@@ -3278,7 +3278,7 @@ function DiscussionsSection({
               <div className="min-w-0 flex-1">
                 {/* Title-as-door: the first post fronts the thread's page. */}
                 <button onClick={() => rel.navigate('discussions', d.id)} className="block max-w-full truncate text-left text-[14px] font-medium text-ink hover:underline">
-                  {d.posts[0]?.body.slice(0, 100) || 'Discussion'}
+                  {discussionTitle(d.posts[0]?.body)}
                 </button>
                 <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
                   <span>

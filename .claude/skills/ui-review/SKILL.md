@@ -34,14 +34,23 @@ sweep as the rulebook's phases 1–3; triage and ratchet per its §3–§4.
 
 ## 2 · Sweep each cell mechanically
 
-**Start with the checked-in harness**: with the dev server running,
-`npm run ui:sweep` ([scripts/ui-sweep.mjs](../../../scripts/ui-sweep.mjs))
-drives the full surface × viewport matrix — every `aria-haspopup` trigger
-opened and measured, h-scroll and inert checks per cell, screenshots to
-`.data/ui-sweep/` — and exits nonzero on violations. It reports **skips
-loudly**; treat every skip as an unswept cell to cover by hand or by extending
-the script (then check the extension in). For cells the harness doesn't model
-(new surfaces, tour states), sweep manually per below.
+**Start with the checked-in harness**: `npm run ui:sweep`
+([scripts/ui-sweep.mjs](../../../scripts/ui-sweep.mjs)) boots its **own**
+isolated stack (dedicated ports, a wiped store — a shared dev world drifts
+between runs) and drives the full surface × viewport matrix — every
+`aria-haspopup` trigger opened and measured, h-scroll and inert checks per cell,
+screenshots to `.data/ui-sweep/` — exiting nonzero on violations. Point it at a
+running server with `UI_SWEEP_BASE=http://127.0.0.1:5173` when you specifically
+want to sweep the app you are looking at.
+
+Read the RESULT line's **cells-swept fraction**, not just the violation count.
+An unreachable cell is a COVERAGE **violation**, never a skip: the harness once
+reported "0 violations, 31 skips" over a narrow column it never navigated, and a
+later revision died on an unguarded timeout at the first narrow viewport — a
+stack trace and four unrun columns. Anything less than the full fraction means
+the matrix has a hole; `skip` now covers only sub-checks inside a cell that did
+run. For cells the harness doesn't model (new surfaces, tour states), sweep
+manually per below.
 
 Run the app (`preview_start`, dev config — never `vite preview`) and per cell:
 

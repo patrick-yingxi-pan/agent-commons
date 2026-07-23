@@ -33,7 +33,7 @@ of what you changed — memory produces plan-shaped checklists.
    are NOT sweeping and why — silent truncation reads as "covered everything".
 2. **Check.** Run the mechanical detectors, cheapest first:
    `npm run typecheck` → `node --test tests/*.test.ts` → `npm run build` →
-   `npm run ui:sweep` (dev server up) → `npm run e2e` — then the per-rule
+   `npm run ui:sweep` (boots its own stack) → `npm run e2e` — then the per-rule
    detections below for every enumerated subject the harnesses don't model.
 3. **Judge.** Screenshot each swept cell and judge the residue no rule
    expresses yet (crowding, misalignment, illegible contrast, a control that

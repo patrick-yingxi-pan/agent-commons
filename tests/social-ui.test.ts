@@ -80,3 +80,28 @@ test('no UI control is gated by comparing a display name — authority rides a s
     'gate on the server-computed flag (canRetract / canResolve / canDelete / own), never on a display name',
   )
 })
+
+test('a thread title has ONE home: no surface re-slices a post body to make one', () => {
+  // `discussionTitle` (contract/social.ts) was earned by the 2026-07-22 judgment
+  // pass — a bare slice cuts mid-word and reads as broken rather than
+  // abbreviated — and its comment already named the RAIL LIST as a subject. The
+  // Discussions section row had been missed and still cut at 100 chars with no
+  // ellipsis; the seeded thread (2026-07-23) made it visible. Enumerate the
+  // class rather than fix the instance: any surface deriving a title from a post
+  // body must call the funnel.
+  let renders = 0
+  for (const f of walk(SRC)) {
+    const lines = readFileSync(f, 'utf8').split('\n')
+    lines.forEach((line, i) => {
+      if (!line.includes('posts[0]') || !/\bbody\b/.test(line)) return // reactions, ids, timestamps — not a title
+      renders += 1
+      // The call may wrap onto its own line, so read a small window around it.
+      const window = lines.slice(Math.max(0, i - 2), i + 2).join(' ')
+      assert.ok(
+        window.includes('discussionTitle('),
+        `${f}:${i + 1} derives a thread title from a post body without the funnel: ${line.trim()}`,
+      )
+    })
+  }
+  assert.ok(renders >= 1, 'at least one surface renders a thread title (the scan is not vacuous)')
+})

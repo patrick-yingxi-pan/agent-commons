@@ -365,7 +365,45 @@ function publicGrant(g: StoredGrant): Grant {
  *  open whose locus equals an existing thread's appends there too, so a
  *  gutter's "discuss this turn" is unambiguous however many times it's
  *  clicked. Bounds are the D23 discussion-bounds trade-off. */
-const discussions: StoredDiscussion[] = []
+/** The seed scene's talk (docs/design/social-layer.md §7). The seeded grant
+ *  above hands Grace's org a comment-tier view of Ada's flagship Project; this
+ *  is the conversation that share produced — the audience asks, the owner
+ *  answers. Without it the demo world had a share with nobody talking: the
+ *  Discussions section, the entity panel's thread, and every discussion-detail
+ *  surface rendered only empty states on a cold start, and the `/ui-review`
+ *  sweep had no thread to address (it reported the hole as a COVERAGE
+ *  violation — 2026-07-23). Ids are `disc-seed-*` / `dpost-seed-*` so runtime
+ *  mints (`disc-N`) never collide. */
+const SEED_DISCUSSIONS: StoredDiscussion[] = [
+  {
+    id: 'disc-seed-1',
+    // No locus — the subject's ROOT thread, the one public stream per subject.
+    anchor: { ref: { kind: 'project', id: 'p-insights' } },
+    state: 'open',
+    openedBy: 'Beta Platform',
+    openedAt: Date.now() - 36 * 3_600_000,
+    openerTenant: 'tenant-beta',
+    posts: [
+      {
+        id: 'dpost-seed-1',
+        author: 'Beta Platform',
+        authorTenant: 'tenant-beta',
+        body: 'Read through the Q3 baseline — the retention cut is clearer than ours. Is the cohort window fixed at 28 days, or does it follow the billing period?',
+        at: Date.now() - 36 * 3_600_000,
+        reactedBy: ['tenant-acme'],
+      },
+      {
+        id: 'dpost-seed-2',
+        author: 'Acme, Inc.',
+        authorTenant: 'tenant-acme',
+        body: 'Fixed at 28 days for now. Following the billing period is the obvious next cut — worth an improvement offer if you want to take it.',
+        at: Date.now() - 30 * 3_600_000,
+        reactedBy: [],
+      },
+    ],
+  },
+]
+const discussions: StoredDiscussion[] = SEED_DISCUSSIONS.map((d) => ({ ...d, posts: d.posts.map((p) => ({ ...p, reactedBy: [...p.reactedBy] })) }))
 let discussionSeq = 0
 const MAX_DISCUSSIONS_PER_SUBJECT = 100
 const MAX_DISCUSSION_POSTS = 200
@@ -1747,9 +1785,18 @@ function rehydrate(s: PersistedState): void {
     if (!grants.some((g) => g.id === seed.id)) grants.push({ ...seed })
   }
   grantSeq = s.seq.grant ?? grants.filter((g) => !g.id.startsWith('grant-seed-')).length
-  // Social S2 discussions — same restore shape (ids consume the shared counter).
+  // Social S2 discussions — same restore shape (ids consume the shared counter),
+  // and seed threads are CODE-owned exactly like the seed grants above: a
+  // snapshot written by a pre-seed build can't leave the demo scene mute.
   discussions.splice(0, discussions.length, ...(s.discussions ?? []))
-  discussionSeq = s.seq.discussion ?? discussions.reduce((m, d) => m + 1 + d.posts.length, 0)
+  for (const seed of SEED_DISCUSSIONS) {
+    if (!discussions.some((d) => d.id === seed.id)) {
+      discussions.push({ ...seed, posts: seed.posts.map((p) => ({ ...p, reactedBy: [...p.reactedBy] })) })
+    }
+  }
+  discussionSeq =
+    s.seq.discussion ??
+    discussions.filter((d) => !d.id.startsWith('disc-seed-')).reduce((m, d) => m + 1 + d.posts.length, 0)
   // Social S3 proposals — same restore shape.
   socialProposals.splice(0, socialProposals.length, ...(s.socialProposals ?? []))
   socialProposalSeq = s.seq.socialProposal ?? socialProposals.length

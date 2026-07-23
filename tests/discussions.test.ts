@@ -285,3 +285,70 @@ test('canResolve is the WRITE path’s own answer — the opener AND the anchor 
   assert.equal((await call('GET', `/discussions/${did}`, undefined, { 'x-tenant-id': BYSTANDER })).status, 404)
   assert.equal((await call('POST', `/discussions/${did}/resolve`, undefined, { 'x-tenant-id': BYSTANDER })).status, 404)
 })
+
+test('the seed scene has TALK: the shared project carries a cross-org root thread', async () => {
+  // §7's demo scene shared Ada's flagship Project with Grace's org and left it
+  // silent — the Discussions section, the entity panel's thread, and every
+  // discussion-detail surface rendered only empty states on a cold start. The
+  // `/ui-review` sweep found the hole the moment an unreachable cell became a
+  // COVERAGE violation instead of a skip (2026-07-23): there was no discussion
+  // to address. The scene now lands with the conversation the share produced.
+  const asOwner = await call('GET', '/discussions?kind=project&id=p-insights', undefined, { 'x-tenant-id': 'tenant-acme' })
+  assert.equal(asOwner.status, 200)
+  const seeded = asOwner.json.find((d: any) => d.id === 'disc-seed-1')
+  assert.ok(seeded, 'the seeded root thread rides the flagship project')
+  assert.equal(seeded.anchor.locus, undefined, 'locus-free — it is the subject’s ROOT thread')
+  assert.equal(seeded.state, 'open')
+  assert.equal(seeded.posts.length, 2, 'the audience asks, the owner answers')
+  assert.equal(seeded.posts[0].author, 'Beta Platform')
+  assert.equal(seeded.posts[1].author, 'Acme, Inc.')
+  assert.equal(seeded.posts[1].mine, true, 'the owner’s reply reads as theirs')
+  assert.equal(seeded.posts[0].reactions, 1, 'and the seeded reaction shows the thin signal in use')
+
+  // Visibility INHERITS the anchor's wall, exactly like a runtime thread: the
+  // seeded grant lets Grace's org read it; a bystander gets the existence-hiding 404.
+  const asAudience = await call('GET', '/discussions/disc-seed-1', undefined, { 'x-tenant-id': 'tenant-beta' })
+  assert.equal(asAudience.status, 200, 'the seeded grant carries the thread with it')
+  assert.equal(asAudience.json.mine, true, 'Grace’s org opened it')
+  assert.equal(
+    (await call('GET', '/discussions/disc-seed-1', undefined, { 'x-tenant-id': BYSTANDER })).status,
+    404,
+    'a bystander cannot see the thread, because they cannot see what it discusses',
+  )
+})
+
+test('the seeded thread rides the participating-threads hub read — the Discussions section is not empty', async () => {
+  // `GET /discussions?mine=1` is what the Discussions rail section shows, and
+  // what a discussion-detail cell is addressed from. Ada participates by having
+  // replied, so the section has a row on a cold-start world.
+  const mine = await call('GET', '/discussions?mine=1', undefined, { 'x-tenant-id': 'tenant-acme' })
+  assert.equal(mine.status, 200)
+  assert.ok(mine.json.some((d: any) => d.id === 'disc-seed-1'), 'the flagship account participates in the seed thread')
+  const grace = await call('GET', '/discussions?mine=1', undefined, { 'x-tenant-id': 'tenant-beta' })
+  assert.ok(grace.json.some((d: any) => d.id === 'disc-seed-1'), 'so does the audience that opened it')
+  const bystander = await call('GET', '/discussions?mine=1', undefined, { 'x-tenant-id': BYSTANDER })
+  assert.ok(!bystander.json.some((d: any) => d.id === 'disc-seed-1'), 'and nobody else')
+})
+
+test('seed thread ids never collide with runtime mints, and the seeds are code-owned', async () => {
+  // The `grant-seed-*` rule, applied to talk: a runtime open mints `disc-N`, so
+  // a `disc-seed-*` row can never be overwritten by one — and a snapshot written
+  // by a pre-seed build regains the scene on load rather than leaving it mute.
+  const { ref } = await arena('comment')
+  const minted = await call('POST', '/discussions', { anchor: { ref }, firstPost: 'Runtime' }, { 'x-tenant-id': OWNER })
+  assert.equal(minted.status, 200)
+  assert.match(minted.json.id, /^disc-\d+$/, 'runtime threads mint from the counter')
+  assert.notEqual(minted.json.id, 'disc-seed-1')
+
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../server/store.ts', import.meta.url), 'utf8')
+  assert.ok(src.includes('const SEED_DISCUSSIONS'), 'the seed scene’s talk is a declared constant')
+  assert.ok(
+    src.includes('for (const seed of SEED_DISCUSSIONS)'),
+    'rehydrate reconciles the seed threads back in — the code owns them, like SEED_GRANTS',
+  )
+  assert.ok(
+    src.includes("d.id.startsWith('disc-seed-')"),
+    'and seed rows stay out of the id counter, so restored mints cannot collide',
+  )
+})

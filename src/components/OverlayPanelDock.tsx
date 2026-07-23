@@ -48,6 +48,13 @@ function Dock({ sessionId, tier }: { sessionId: string; tier: 'medium' | 'narrow
         <div className={`${SCRIM_CLASS} z-20`} aria-hidden onClick={closePanel} />
       )}
       <div
+        // The enumeration handle for the docked layer (docs/ui-invariants.md's
+        // data-* stamp convention): on narrow this spans the whole thread, so a
+        // review sweep needs to know whether it is currently EATING pointer
+        // events before it reaches for anything underneath — including the rail
+        // toggle. Presence isn't the question (it stays mounted while empty);
+        // the stamp plus computed pointer-events is.
+        data-overlay-dock={tier}
         className={
           tier === 'narrow'
             ? // Spans the whole thread even when no panel is open (kept
