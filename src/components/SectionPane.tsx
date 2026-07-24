@@ -21,20 +21,15 @@ import type { NavLocation } from '../lib/nav'
 import type { SectionId } from '../types'
 import { navLocationOfLoc } from '../lib/paneHistory'
 import { SectionNavOverride } from '../controller/useRelations'
-import { paneNavTarget, seedOfLoc, type PaneSeed } from '../lib/paneNav'
+import { PANE_SEED_KEYS, locOfSeed, paneNavTarget, seedOfLoc, type PaneSeed } from '../lib/paneNav'
 
-interface PaneFocusState {
-  projectId: string | null
-  scheduleId: string | null
-  ownerName: string | null
-  workItemId: string | null
-  contributionId: string | null
-  agentId: string | null
-  contextId: string | null
-  adminUserId: string | null
-  discussionId: string | null
-}
-const NO_FOCUS: PaneFocusState = { projectId: null, scheduleId: null, ownerName: null, workItemId: null, contributionId: null, agentId: null, contextId: null, adminUserId: null, discussionId: null }
+/** The pane's open detail, as the explicit null-carrying form of a `PaneSeed`.
+ *  DERIVED from `PANE_SEED_KEYS` rather than hand-listed: this was the third
+ *  copy of that field list, and a hand-copied list is how a new detail kind
+ *  silently stops being remembered by a pane (UI-1's lesson about enumerations
+ *  a human maintains). */
+type PaneFocusState = Record<(typeof PANE_SEED_KEYS)[number], string | null>
+const NO_FOCUS: PaneFocusState = Object.fromEntries(PANE_SEED_KEYS.map((k) => [k, null])) as PaneFocusState
 
 export function SectionPane({
   section,
@@ -136,10 +131,15 @@ export function SectionPane({
   const top = stack.at(-1)
   const backTo: NavLocation | null =
     stack.length > 0
-      ? { kind: 'section', section, projectId: top?.projectId ?? null, scheduleId: top?.scheduleId ?? null, ownerName: top?.ownerName ?? null }
+      ? // The whole seed, not three of its keys: back from one artifact to the
+        // one you opened it from must name THAT artifact, and the hand-picked
+        // trio silently resolved every other detail kind to the section root.
+        { kind: 'section', section, ...locOfSeed(top ?? {}) }
       : backOut
         ? navLocationOfLoc(backOut.loc)
-        : focus.projectId || focus.scheduleId || focus.ownerName || focus.agentId || focus.contextId || focus.adminUserId || focus.discussionId
+        : // Any detail open ⇒ back means "this section's list". Derived from the
+          // one key list, so a new detail kind gets the back affordance for free.
+          PANE_SEED_KEYS.some((k) => focus[k])
           ? { kind: 'section', section, projectId: null, scheduleId: null, ownerName: null }
           : null
 
@@ -177,6 +177,8 @@ export function SectionPane({
         focusContextId={focus.contextId}
         focusAdminUserId={focus.adminUserId}
         focusDiscussionId={focus.discussionId}
+        focusArtifactId={focus.artifactId}
+        focusProviderId={focus.providerId}
         onOpenAgentPage={(id) =>
           section === 'agents' ? navigate({ agentId: id }) : onRetarget({ kind: 'msection', id: 'agents', seed: { agentId: id } })
         }

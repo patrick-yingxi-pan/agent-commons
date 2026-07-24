@@ -41,6 +41,14 @@ export interface PaneSeed {
   adminUserId?: string
   /** A discussion's page under the discussions section (social S2). */
   discussionId?: string
+  /** An artifact opened in the gallery (UI-19: the rail lists artifacts, so one
+   *  has to be a PLACE — its viewer used to be component state with no address,
+   *  the same gap `contextId` closed for saved contexts). */
+  artifactId?: string
+  /** A model provider focused in the Models list (UI-19). A provider has no page
+   *  of its own — the address opens the list with that row expanded, which is
+   *  what "its page" means for an entity whose whole face fits in a card. */
+  providerId?: string
 }
 
 /** The ONE list of detail-id keys a pane location carries — every mapping that
@@ -48,7 +56,7 @@ export interface PaneSeed {
  *  its canonical NavLocation, a page's focus state → its reported seed) walks
  *  THIS list, so adding a detail kind is a one-line change here instead of a
  *  hunt across three hand-copied field lists. */
-export const PANE_SEED_KEYS = ['projectId', 'scheduleId', 'ownerName', 'workItemId', 'contributionId', 'agentId', 'contextId', 'adminUserId', 'discussionId'] as const
+export const PANE_SEED_KEYS = ['projectId', 'scheduleId', 'ownerName', 'workItemId', 'contributionId', 'agentId', 'contextId', 'adminUserId', 'discussionId', 'artifactId', 'providerId'] as const
 type SeedKey = (typeof PANE_SEED_KEYS)[number]
 // Compile-time lock: the key list and PaneSeed stay in lock-step — adding a
 // detail id to one without the other fails typecheck here.
@@ -93,6 +101,8 @@ export function seedFor(section: SectionId, id?: string, subId?: string): PaneSe
   if (section === 'agents') return { ownerName: id }
   if (section === 'admin') return { adminUserId: id }
   if (section === 'discussions') return { discussionId: id }
+  if (section === 'artifacts') return { artifactId: id }
+  if (section === 'models') return { providerId: id }
   return null
 }
 

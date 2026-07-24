@@ -1,78 +1,50 @@
 import type { SectionId } from '../types'
+import type { PaneSeed } from './paneNav.ts'
 
 /** A section's sub-view — one child node in the rail's inline disclosure tree. `id` is
- *  the section's own switch key (a hub-tab id or a facet-group id), `label` is what the
- *  rail shows. */
+ *  the section's own switch key (a surface id), `label` is what the rail shows. */
 export type SubView = { id: string; label: string }
 
-/** The ONE source of truth for the rail tree's child nodes (spec ADAPT-13). Both the
- *  left rail (Sidebar's `SectionTreeRow`) and the section body (SectionView) read this,
- *  so the nav and the content can never disagree ("registries have one home + live
- *  points-of-use"). A section absent here has no children: its row opens the page
- *  directly.
+/** ── What a rail child is allowed to be (owner directive, 2026-07-24) ────────
+ *  A rail child is a **place**: a specific entity with its own page, or one of
+ *  YOUR standing collections. A partition of a section's list by a property of
+ *  its items — kind, state, ownership — is a **filter**, and a filter's one
+ *  home is the section row's "Filter & sort" menu (`./sectionFilter.ts`), the
+ *  same primitive the Scheduled and Recents panes already use.
  *
- *  Two node kinds, by nature: **content sections** (Contexts / Artifacts / Scheduled /
- *  Models / Projects) expand to their **facet groups** — clicking a group focuses the
- *  page on that partition, and because the tree IS the facet control, no page may add
- *  an in-page filter bar re-selecting the same facet (a facet has ONE control; locked
- *  by tests/section-subviews.test.ts). The **Agents hub** expands to its non-default
- *  surfaces (Prompts / Commissions / Discover / Audit) — genuinely distinct pages; the
- *  section row itself is the worker-agents surface, so it isn't re-listed as a child.
+ *  So the rail has exactly two kinds of child, and this registry holds only the
+ *  first:
  *
- *  This module is deliberately pure (only a type-only import), so `tests/` can import the
+ *  1. **Declared surfaces** — this file. A hub whose children are genuinely
+ *     distinct PAGES (the Agents hub's Prompts / Commissions / Discover / Audit;
+ *     the maintainer console's Organizations / Credentials / Audit / Ops), and
+ *     the Commons' standing lenses, which are the viewer's own collections
+ *     (what you watch / liked / posted / opened) rather than a slice of the
+ *     feed's content. The section row itself is each hub's default surface, so
+ *     that surface is never re-listed as a child.
+ *  2. **Instances** — NOT here, because they are live data, not a registry: a
+ *     content section (Projects, Artifacts, Contexts, Models, Discussions)
+ *     expands to the top rows of the very list its page renders, ordered by
+ *     that section's stored filter, with a tail row for the rest. The rail and
+ *     the page compute that list with ONE function (`./sectionLists.ts`).
+ *
+ *  Scheduled is in neither: its instances already have their own rail pane
+ *  (routines, with their own "Filter & sort"), and a second copy of them under
+ *  the tree row would be the same list twice in one rail. Its section page
+ *  reads that pane's filter, so the partition still has exactly one control.
+ *
+ *  Deliberately pure (only a type-only import), so `tests/` can import the
  *  registry without pulling the UI's icon deps. */
 export const SECTION_SUBVIEWS: Partial<Record<SectionId, SubView[]>> = {
-  // Content sections expand to their group nodes (a facet partition); clicking one focuses
-  // the page on that group, the section row itself shows all groups (rail sub-view null).
-  // The ids ARE each section's own switch keys, so the body filters on `subview` directly.
-  projects: [
-    { id: 'mine', label: 'Yours' },
-    { id: 'shared', label: 'Shared with you' },
-  ],
-  // The Discussions section groups by STATE (the entity's one lifecycle axis).
-  discussions: [
-    { id: 'open', label: 'Open' },
-    { id: 'resolved', label: 'Resolved' },
-  ],
-  // The Commons groups by ITEM KIND — the feed's one honest partition (shares
-  // are publishes, landings are ledger events). Adjudicated over the design
-  // sketch's kind/audience/activity triple: the rail rule wants ONE partition
-  // per section, and audience/activity are filters a later chrome can add
-  // without re-selecting the grouping.
-  commons: [
-    { id: 'shares', label: 'Shares' },
-    { id: 'landings', label: 'Landings' },
-  ],
-  artifacts: [
-    { id: 'doc', label: 'Documents' },
-    { id: 'image', label: 'Images' },
-    { id: 'sheet', label: 'Sheets' },
-    { id: 'slide', label: 'Slides' },
-    { id: 'email', label: 'Emails' },
-  ],
-  contexts: [
-    { id: 'connector', label: 'Connectors' },
-    { id: 'mcp', label: 'MCP servers' },
-    { id: 'repo', label: 'Repositories' },
-  ],
-  models: [
-    { id: 'builtin', label: 'Built-in' },
-    { id: 'registered', label: 'Registered' },
-    { id: 'session', label: 'Sessions' },
-  ],
-  // The Agents hub's children are its NON-default *surfaces* (not a facet of one list) —
-  // the section row itself opens the worker-agents list (the default), so listing "Agents"
-  // again as a child would duplicate it.
+  // The Agents hub's children are its NON-default *surfaces* — the section row itself
+  // opens the worker-agents list (the default), so listing "Agents" again as a child
+  // would duplicate it.
   agents: [
     { id: 'work', label: 'Your work' },
     { id: 'prompts', label: 'Prompts' },
     { id: 'commissions', label: 'Commissions' },
     { id: 'discover', label: 'Discover' },
     { id: 'audit', label: 'Audit' },
-  ],
-  scheduled: [
-    { id: 'active', label: 'Active' },
-    { id: 'paused', label: 'Paused' },
   ],
   // The maintainer console's children are its SURFACES (like the Agents hub) —
   // the section row itself opens Accounts (the default), so it isn't re-listed.
@@ -83,3 +55,22 @@ export const SECTION_SUBVIEWS: Partial<Record<SectionId, SubView[]>> = {
     { id: 'ops', label: 'Ops' },
   ],
 }
+
+/** The second kind of child: which detail id a content section's INSTANCE rows
+ *  address. One entry per section whose rail children are its own rows — and
+ *  the entry is exactly the `PaneSeed` key that opens one, so "the rail can
+ *  list it" and "a row of it is addressable" are the same fact rather than two
+ *  lists that can disagree. A section here must NOT also appear in
+ *  `SECTION_SUBVIEWS`: a tree row has one kind of child, not two. */
+export const SECTION_INSTANCE_KEY: Partial<Record<SectionId, keyof PaneSeed>> = {
+  projects: 'projectId',
+  artifacts: 'artifactId',
+  contexts: 'contextId',
+  models: 'providerId',
+  discussions: 'discussionId',
+}
+
+/** How many instance rows the rail shows before folding the rest into one
+ *  "Show all N" row (which opens the section page — the surface built to hold
+ *  them all, with its own search). The rail is navigation, not an inventory. */
+export const RAIL_INSTANCE_CAP = 8

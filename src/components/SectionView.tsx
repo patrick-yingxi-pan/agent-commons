@@ -97,6 +97,9 @@ import { BackButton, PageBackContext } from './BackButton'
 import type { NavLocation } from '../lib/nav'
 import { SECTION_SUBVIEWS } from '../lib/subviews'
 import { usePendingFocus, useFocusFlash, FOCUS_FLASH_CLASS } from '../lib/focusContext'
+import { useSectionFilter } from '../lib/useSectionFilter'
+import { sortSectionRows } from '../lib/sectionFilter'
+import { listArtifacts, listContexts, listDiscussions, listProjects, listProviders, projectFacet } from '../lib/sectionLists'
 import { relativeTime } from '../lib/relativeTime'
 import { Chip } from './Chip'
 import { RowMenu, type RowMenuItem } from './RowMenu'
@@ -326,6 +329,8 @@ export function SectionView({
   focusContextId = null,
   focusAdminUserId = null,
   focusDiscussionId = null,
+  focusArtifactId = null,
+  focusProviderId = null,
   onOpenAgentPage,
 }: {
   section: SectionId
@@ -378,6 +383,11 @@ export function SectionView({
   focusAdminUserId?: string | null
   /** A discussion's own page under Discussions (social S2); null = the hub. */
   focusDiscussionId?: string | null
+  /** An artifact open in the gallery's viewer (UI-19 — `/artifacts/:id`, so a
+   *  rail row and a pasted link land on the same thing); null = the gallery. */
+  focusArtifactId?: string | null
+  /** A provider expanded in the Models list (UI-19); null = the plain list. */
+  focusProviderId?: string | null
   /** Open a published definition's page — the one door every card routes through. */
   onOpenAgentPage: (agentId: string) => void
 }) {
@@ -387,7 +397,6 @@ export function SectionView({
         projectId={focusProjectId}
         workItemId={focusWorkItemId}
         contributionId={focusContributionId}
-        subview={subview}
         onOpenProject={onOpenProject}
         onBack={onBack}
         backTo={backTo}
@@ -395,11 +404,11 @@ export function SectionView({
         onNewSession={onNewSession}
       />
     ) : section === 'artifacts' ? (
-      <ArtifactsSection subview={subview} onOpenSession={onOpenSession} />
+      <ArtifactsSection artifactId={focusArtifactId} onOpenSession={onOpenSession} />
     ) : section === 'contexts' ? (
-      <ContextsSection subview={subview} contextId={focusContextId} onBack={onBack} backTo={backTo} />
+      <ContextsSection contextId={focusContextId} onBack={onBack} backTo={backTo} />
     ) : section === 'models' ? (
-      <ModelsSection subview={subview} />
+      <ModelsSection providerId={focusProviderId} />
     ) : section === 'agents' ? (
       // The Agents hub's children are distinct SURFACES (not one list filtered), so its
       // sub-view is a surface id — defaulting to the worker list when the rail sub-view is
@@ -417,16 +426,15 @@ export function SectionView({
     ) : section === 'scheduled' ? (
       <ScheduledSection
         scheduleId={focusScheduleId}
-        subview={subview}
         onOpenSchedule={onOpenSchedule}
         onBack={onBack}
         backTo={backTo}
         onOpenSession={onOpenSession}
       />
     ) : section === 'commons' ? (
-      <CommonsSection subview={subview} />
+      <CommonsSection />
     ) : section === 'discussions' ? (
-      <DiscussionsSection subview={subview} discussionId={focusDiscussionId} onOpenSession={onOpenSession} onFocusHere={onFocusHere} onBack={onBack} backTo={backTo} />
+      <DiscussionsSection discussionId={focusDiscussionId} onOpenSession={onOpenSession} onFocusHere={onFocusHere} onBack={onBack} backTo={backTo} />
     ) : section === 'admin' ? (
       // The maintainer console (contract/admin.ts): like the Agents hub its
       // children are SURFACES, defaulting to Accounts when the rail sub-view is
@@ -459,7 +467,6 @@ function ProjectsSection({
   projectId,
   workItemId,
   contributionId,
-  subview,
   onOpenProject,
   onBack,
   backTo,
@@ -473,9 +480,6 @@ function ProjectsSection({
   workItemId?: string | null
   /** A contribution's own page inside that project (null = the project page). */
   contributionId?: string | null
-  /** The rail's group node (lib/subviews): null = yours + shared, 'mine' = yours only,
-   *  'shared' = the commons band only. */
-  subview: string | null
   onOpenProject: (id: string) => void
   onBack: () => void
   backTo: NavLocation | null
@@ -483,7 +487,10 @@ function ProjectsSection({
   onNewSession: () => void
 }) {
   const [query, setQuery] = useState('')
-  const [sort, setSort] = useState('Last updated')
+  // Ownership band + order come from the rail row's "Filter & sort" (UI-19) —
+  // the page had its own Sort dropdown and the rail had the yours/shared facet,
+  // which was one list with two controls in two places.
+  const [filter] = useSectionFilter('projects')
   const [creating, setCreating] = useState(false)
   const rel = useRelations()
   // FWD-6: the caller's org seats — the New-project owner picker's options and
@@ -543,22 +550,25 @@ function ProjectsSection({
     )
 
   const needle = query.trim().toLowerCase()
-  const filtered = projects.filter(
+  // The SAME list the rail's project children show, through the same function —
+  // facet applied, then ordered — narrowed further by this page's own search
+  // (search is not a facet: it's a transient query, not a standing choice).
+  const sorted = listProjects(projects, filter, myOrgIds).filter(
     (p) =>
       needle === '' ||
       p.name.toLowerCase().includes(needle) ||
       p.description.toLowerCase().includes(needle),
   )
-  // "Last updated" keeps source order (already newest-first); "Name" sorts A→Z.
-  const sorted = sort === 'Name' ? [...filtered].sort((a, b) => a.name.localeCompare(b.name)) : filtered
   // Yours vs your orgs vs the commons (shared-surface UI model): an ORG-owned
   // project is reached through a seat (FWD-6 — banded under "Your organizations",
   // whatever your role); a FOREIGN shared project is a different relationship —
-  // browsable, joinable, not yours. Neither interleaves with your own.
-  const isOrgRow = (p: Project) => !!p.tenantId && myOrgIds.has(p.tenantId)
-  const orgRows = sorted.filter(isOrgRow)
-  const mine = sorted.filter((p) => p.own !== false && !isOrgRow(p))
-  const sharedWithYou = sorted.filter((p) => p.own === false && !isOrgRow(p))
+  // browsable, joinable, not yours. Neither interleaves with your own. The bands
+  // survive the filter move: picking one facet leaves exactly one band standing,
+  // and the all view still shows the three in order.
+  const band = (p: Project) => projectFacet(p, myOrgIds)
+  const orgRows = sorted.filter((p) => band(p) === 'org')
+  const mine = sorted.filter((p) => band(p) === 'mine')
+  const sharedWithYou = sorted.filter((p) => band(p) === 'shared')
 
   // Single-column on every tier (surface-from-nature: a text-led entity list is a
   // scannable, comparable LIST — GitHub's repo-list idiom; multi-column is for
@@ -580,36 +590,29 @@ function ProjectsSection({
   return (
     <Page>
       <PageHeader title="Projects">
-        <Dropdown label="Sort by" value={sort} options={['Last updated', 'Name']} onChange={setSort} />
         <PrimaryButton icon={<Plus size={15} />} onClick={() => setCreating(true)}>
           New project
         </PrimaryButton>
       </PageHeader>
       <SearchBox value={query} onChange={setQuery} placeholder="Search projects…" />
-      {/* The rail's group node owns the yours/shared split: 'shared' isolates the commons
-          band; 'mine' your own; null shows yours with the shared band below. */}
-      {subview === 'shared' ? (
-        sharedWithYou.length === 0 ? (
-          <Empty>
-            {query.trim()
-              ? `No projects shared with you match “${query.trim()}”.`
-              : 'No projects shared with you yet — other workspaces’ shared projects show here.'}
-          </Empty>
-        ) : (
-          grid(sharedWithYou)
-        )
+      {/* The three relationships stay BANDED whatever the facet — picking one in
+          the rail's menu simply leaves that band standing alone (with its header,
+          so the page always says which relationship you're reading). */}
+      {sorted.length === 0 ? (
+        <Empty>
+          {query.trim()
+            ? `No projects match “${query.trim()}”.`
+            : filter.facet === 'shared'
+              ? 'No projects shared with you yet — other workspaces’ shared projects show here.'
+              : filter.facet === 'org'
+                ? 'No organization projects yet — a project owned by an org you have a seat in shows here.'
+                : 'No projects yet — create one to group related work.'}
+        </Empty>
       ) : (
         <>
-          {mine.length === 0 ? (
-            <Empty>
-              {/* "of yours": a search may still match the Shared-with-you band below. */}
-              {query.trim() ? `No projects of yours match “${query.trim()}”.` : 'No projects yet — create one to group related work.'}
-            </Empty>
-          ) : (
-            grid(mine)
-          )}
-          {subview !== 'mine' && orgRows.length > 0 && (
-            <div className="mt-8">
+          {mine.length > 0 && grid(mine)}
+          {orgRows.length > 0 && (
+            <div className={mine.length > 0 ? 'mt-8' : ''}>
               <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
                 Your organizations
               </div>
@@ -620,8 +623,8 @@ function ProjectsSection({
               {grid(orgRows)}
             </div>
           )}
-          {subview !== 'mine' && sharedWithYou.length > 0 && (
-            <div className="mt-8">
+          {sharedWithYou.length > 0 && (
+            <div className={mine.length > 0 || orgRows.length > 0 ? 'mt-8' : ''}>
               <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
                 Shared with you
               </div>
@@ -652,9 +655,11 @@ function ProjectsSection({
  *  the production fix is server-owned id minting (docs/shared-resource-coordination). */
 function uniqueProjectId(name: string, taken: Set<string>): string {
   const base = slug(name) || 'project'
-  // The projects sub-view ids are RESERVED WORDS in the address grammar
-  // (`/projects/mine` is the "Yours" facet — spec ADAPT-15), so a project may
-  // never mint one as its id or its URL would parse as the facet instead.
+  // A section's sub-view ids are RESERVED WORDS in the address grammar (they win
+  // over detail ids), so a project may never mint one or its URL would parse as
+  // the sub-view instead. Projects declare none since the facet moved out of the
+  // tree (UI-19) — the guard stays derived from the registry rather than deleted,
+  // so it re-arms by itself if the section ever gains a surface.
   const reserved = new Set([...taken, ...(SECTION_SUBVIEWS.projects ?? []).map((v) => v.id)])
   if (!reserved.has(base)) return base
   let n = 2
@@ -3049,11 +3054,19 @@ function ProfileCommonsBand({ actor }: { actor: string }) {
 
 /** The Commons feed — what the caller's world shares. One chronological
  *  column; the deliberate note is the publish act (silent grants stay out).
- *  The rail's kind facet (shares / landings) filters; null shows all. */
-function CommonsSection({ subview }: { subview: string | null }) {
+ *  The kind facet (shares / landings) lives in the rail row's "Filter & sort"
+ *  (UI-19) — the feed has no per-row page of its own, so the rail's children
+ *  are the viewer's standing lenses instead. */
+function CommonsSection() {
   const rel = useRelations()
   const all = useCommons().data ?? []
-  const list = subview === 'shares' ? all.filter((i) => i.kind === 'share') : subview === 'landings' ? all.filter((i) => i.kind === 'landing') : all
+  const [filter] = useSectionFilter('commons')
+  const kind = filter.facet === 'shares' ? 'share' : filter.facet === 'landings' ? 'landing' : null
+  const list = sortSectionRows(
+    kind ? all.filter((i) => i.kind === kind) : all,
+    filter.sortBy,
+    { name: (i) => i.subjectName, at: (i) => i.at },
+  )
   // The BROWSE band (Discover consolidation): the D17 shared-project directory
   // lives with the resources it lists — searchable, list-not-feed, never
   // widening visibility. The Agents hub's Discover keeps agent discovery
@@ -3066,8 +3079,8 @@ function CommonsSection({ subview }: { subview: string | null }) {
       <PageHeader title="Commons" />
       {list.length === 0 ? (
         <Empty>
-          {subview
-            ? `No ${subview} in your commons yet.`
+          {filter.facet !== 'all'
+            ? `No ${filter.facet} in your commons yet.`
             : 'Nothing published yet — share a resource with a note (the note is the post) and it lands here for its audience.'}
         </Empty>
       ) : (
@@ -3077,7 +3090,7 @@ function CommonsSection({ subview }: { subview: string | null }) {
           ))}
         </div>
       )}
-      {subview === null && (
+      {filter.facet === 'all' && (
         <div className="mx-auto mt-8 w-full max-w-xl">
           <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
             Browse the commons
@@ -3286,17 +3299,16 @@ function DiscussionPage({
   )
 }
 
-/** The Discussions hub — the caller's participating threads, grouped by the
- *  rail's STATE facet (open / resolved; null shows all). Titles are doors. */
+/** The Discussions hub — the caller's participating threads, narrowed by the
+ *  rail row's STATE facet (UI-19; the rail's children are the threads). Titles
+ *  are doors. */
 function DiscussionsSection({
-  subview,
   discussionId,
   onOpenSession,
   onFocusHere,
   onBack,
   backTo,
 }: {
-  subview: string | null
   discussionId: string | null
   onOpenSession: (id: string) => void
   onFocusHere: (target: FocusTarget) => void
@@ -3305,14 +3317,20 @@ function DiscussionsSection({
 }) {
   const rel = useRelations()
   const list = useMyDiscussions().data ?? []
+  const [filter] = useSectionFilter('discussions')
+  // Hooks first, then the detail branch — a conditional return above a hook is
+  // an order violation the next edit pays for.
   if (discussionId) return <DiscussionPage discussionId={discussionId} onOpenSession={onOpenSession} onFocusHere={onFocusHere} onBack={onBack} backTo={backTo} />
-  const filtered = subview === 'open' || subview === 'resolved' ? list.filter((d) => d.state === subview) : list
+  // The same list the rail's thread children show (state facet + order).
+  const filtered = listDiscussions(list, filter)
   return (
     <Page>
       <PageHeader title="Discussions" />
       {filtered.length === 0 ? (
         <Empty>
-          {subview ? `No ${subview} discussions you participate in.` : 'No discussions yet — start one from any resource’s Discussion section.'}
+          {filter.facet !== 'all'
+            ? `No ${filter.facet} discussions you participate in.`
+            : 'No discussions yet — start one from any resource’s Discussion section.'}
         </Empty>
       ) : (
         <CardList>
@@ -4590,13 +4608,19 @@ function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
 /* ─────────────────────────── Artifacts ─────────────────────────── */
 
 
-/** The Artifacts gallery. Its kind facet is chosen in the RAIL TREE (ADAPT-13 — the
- *  `subview` prop; the group ids ARE the ArtifactKind values), never an in-page bar. */
-function ArtifactsSection({ subview, onOpenSession }: { subview: string | null; onOpenSession: (id: string) => void }) {
+/** The Artifacts gallery. Its kind facet is chosen in the rail row's "Filter &
+ *  sort" (UI-19 — the facet ids ARE the ArtifactKind values), never an in-page
+ *  bar; the rail's children are the artifacts themselves.
+ *
+ *  The open artifact is a PLACE (`/artifacts/:id`): the viewer used to be local
+ *  state with no address, so it could be reached but never linked, restored, or
+ *  highlighted in the rail. It is now the pane's detail focus, like a saved
+ *  context's page — opened and closed through the pane nav bridge. */
+function ArtifactsSection({ artifactId, onOpenSession }: { artifactId: string | null; onOpenSession: (id: string) => void }) {
   const [query, setQuery] = useState('')
-  const [openId, setOpenId] = useState<string | null>(null)
   const [folded, setFolded] = useState<Set<string>>(new Set())
   const [creating, setCreating] = useState(false)
+  const [filter] = useSectionFilter('artifacts')
   const rel = useRelations()
   const projects = rel.allProjects()
   const sessions = useSessions().data ?? []
@@ -4623,19 +4647,14 @@ function ArtifactsSection({ subview, onOpenSession }: { subview: string | null; 
     })
 
   const needle = query.trim().toLowerCase()
-  // The filter tab ids ARE the ArtifactKind values: 'all' → no kind filter, else
-  // restrict to that kind.
-  // The rail's group node (lib/subviews) drives the type filter: null = all types (the
-  // page still folds by project), else focus the chosen type.
-  const wantKind = subview ? (subview as ArtifactKind) : null
-
-  const matches = rel.allArtifacts().filter(
+  // The SAME list the rail's artifact children show, through the same function
+  // (type facet + order), narrowed by this page's own search.
+  const matches = listArtifacts(rel.allArtifacts(), filter).filter(
     (a) =>
-      (wantKind === null || a.kind === wantKind) &&
-      (needle === '' ||
-        a.name.toLowerCase().includes(needle) ||
-        (a.excerpt ?? '').toLowerCase().includes(needle) ||
-        a.source.toLowerCase().includes(needle)),
+      needle === '' ||
+      a.name.toLowerCase().includes(needle) ||
+      (a.excerpt ?? '').toLowerCase().includes(needle) ||
+      a.source.toLowerCase().includes(needle),
   )
 
   // Sorted by project by default — group in PROJECTS order, drop empty groups.
@@ -4649,7 +4668,9 @@ function ArtifactsSection({ subview, onOpenSession }: { subview: string | null; 
     { id: '__unfiled', name: 'Unfiled', items: matches.filter((a) => !knownProjectId.has(rel.artifactProjectId(a))) },
   ].filter((g) => g.items.length > 0)
 
-  const openArtifact = openId ? (rel.allArtifacts().find((a) => a.id === openId) ?? null) : null
+  // An id the registry doesn't know (a stale link, a deleted artifact) degrades
+  // to the plain gallery — the same graceful read every detail page gives.
+  const openArtifact = artifactId ? (rel.allArtifacts().find((a) => a.id === artifactId) ?? null) : null
 
   // Create an artifact straight from the gallery (no session): a sessionless
   // save-artifact op, optionally filed under a project. Server-owned + persisted
@@ -4720,7 +4741,7 @@ function ArtifactsSection({ subview, onOpenSession }: { subview: string | null; 
                           source={rel.artifactSourceFor(a.id)}
                           pending={pending}
                           onOpen={() => {
-                            if (!pending) setOpenId(a.id)
+                            if (!pending) rel.navigate('artifacts', a.id)
                           }}
                         />
                       )
@@ -4741,9 +4762,11 @@ function ArtifactsSection({ subview, onOpenSession }: { subview: string | null; 
           onAssignProject={openArtifact.own !== false ? (projectId) => assignProject(openArtifact, projectId) : undefined}
           onOpenSource={(() => {
             const sid = sourceSessionOf(openArtifact)
-            return sid ? () => { onOpenSession(sid); setOpenId(null) } : undefined
+            return sid ? () => onOpenSession(sid) : undefined
           })()}
-          onClose={() => setOpenId(null)}
+          // Closing is a navigation now (the viewer IS the address): back to
+          // this section's list, which clears the detail from the URL too.
+          onClose={() => rel.navigate('artifacts')}
         />
       )}
       {creating && (
@@ -5156,15 +5179,14 @@ function AddContextRow({ ctx, onAdd }: { ctx: SavedContext; onAdd: () => void })
   )
 }
 
-/** The Contexts filter (in-page, the shared SubTabs primitive): the tab ids ARE the
- *  SavedContextKind values, so the body switches on the choice directly. */
+/** The Contexts list. Its kind facet lives in the rail row's "Filter & sort"
+ *  (UI-19 — the facet ids ARE the SavedContextKind values); the rail's children
+ *  are the saved contexts themselves. */
 function ContextsSection({
-  subview,
   contextId,
   onBack,
   backTo,
 }: {
-  subview: string | null
   /** The open detail (null = the list) — nav-owned (ADAPT-15: the detail was once
    *  component state with no address; now it's a page at /contexts/:id). */
   contextId: string | null
@@ -5178,6 +5200,7 @@ function ContextsSection({
   const saved = useSavedContexts()
   const items = saved.data?.contexts ?? SAVED_CONTEXTS
   const [query, setQuery] = useState('')
+  const [filter] = useSectionFilter('contexts')
   // Which group headers are folded shut.
   const [folded, setFolded] = useState<Set<SavedContextKind>>(new Set())
 
@@ -5221,16 +5244,10 @@ function ContextsSection({
     )
 
   const needle = query.trim().toLowerCase()
-  // The filter tab ids ARE the SavedContextKind values: 'all' → no kind filter, else
-  // restrict to that kind.
-  // The rail's group node (lib/subviews) drives the filter: null = all kinds (folded
-  // groups on the page), else focus the chosen kind.
-  const wantKind = subview ? (subview as SavedContextKind) : null
-
-  const visible = items.filter(
-    (c) =>
-      (wantKind === null || c.kind === wantKind) &&
-      (needle === '' || c.label.toLowerCase().includes(needle) || c.detail.toLowerCase().includes(needle)),
+  // The SAME list the rail's context children show (kind facet + order),
+  // narrowed by this page's own search.
+  const visible = listContexts(items, filter).filter(
+    (c) => needle === '' || c.label.toLowerCase().includes(needle) || c.detail.toLowerCase().includes(needle),
   )
   const groups = CONTEXT_GROUPS.map((g) => ({
     ...g,
@@ -6995,21 +7012,23 @@ function ProbeResultCard({ probe }: { probe: PromptProbeResult }) {
  *  surface. Every entry here is selectable as a model in any session's composer
  *  (the selector reads this same registry), so registering a provider and using
  *  it are two views of one concept: models are first-class citizens. */
-function ModelsSection({ subview }: { subview: string | null }) {
+function ModelsSection({ providerId }: { providerId: string | null }) {
   const providers = useProviders().data ?? []
   // null = no dialog; 'new' = create; a provider = edit that one.
   const [editing, setEditing] = useState<ModelProvider | 'new' | null>(null)
-  // The rail's group node (lib/subviews) classifies by provider kind: the built-in /
-  // shared providers (no tenant), the endpoints you register, and delegated Sessions
-  // (always tenant-stamped). null = all.
-  const shown =
-    subview === 'builtin'
-      ? providers.filter((p) => !p.tenantId)
-      : subview === 'registered'
-        ? providers.filter((p) => !!p.tenantId && p.kind !== 'session')
-        : subview === 'session'
-          ? providers.filter((p) => p.kind === 'session')
-          : providers
+  const [filter] = useSectionFilter('models')
+  // The same list the rail's provider children show — kind facet (the shared
+  // built-ins, the endpoints you registered, delegated Sessions) + order.
+  const shown = listProviders(providers, filter)
+  // A provider is addressable (`/models/:id`, UI-19) even though it has no page
+  // of its own: the address opens the list with that card scrolled to and lit,
+  // the same landing a notification door gives. Waits for the row to be
+  // PRESENT — the list is a live fetch, so the id can arrive first.
+  const focusRef = useRef<HTMLDivElement>(null)
+  const focusPresent = shown.some((p) => p.id === providerId)
+  useEffect(() => {
+    if (providerId && focusPresent) focusRef.current?.scrollIntoView({ block: 'center' })
+  }, [providerId, focusPresent])
   return (
     <Page>
       <PageHeader title="Models" />
@@ -7026,7 +7045,18 @@ function ModelsSection({ subview }: { subview: string | null }) {
         {shown.length === 0 ? (
           <Empty>No providers in this view.</Empty>
         ) : (
-          shown.map((p) => <ProviderCard key={p.id} provider={p} onEdit={() => setEditing(p)} />)
+          shown.map((p) => {
+            const isFocus = p.id === providerId
+            return (
+              <div
+                key={p.id}
+                ref={isFocus ? focusRef : undefined}
+                className={`scroll-mt-6 rounded-xl transition-colors ${isFocus ? FOCUS_FLASH_CLASS : ''}`}
+              >
+                <ProviderCard provider={p} onEdit={() => setEditing(p)} />
+              </div>
+            )
+          })
         )}
         {editing && (
           <ProviderDialog provider={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
@@ -9638,9 +9668,14 @@ function taskPill(task: ScheduledTask): { tone: 'ok' | 'warn' | 'bad' | 'neutral
   return { tone: 'ok', label: last ? `Ran ${relativeTime(last.at)}` : 'Active' }
 }
 
+/** The Scheduled section. Alone among the content sections it has NO rail tree
+ *  children and no "Filter & sort" on its row (UI-19): its instances already
+ *  have their own rail pane — routines, with that pane's own filter — and the
+ *  same list twice in one rail is worse than once. Its page needs no status
+ *  control either: it BANDS by status, so the partition is visible without a
+ *  control to choose it. */
 function ScheduledSection({
   scheduleId,
-  subview,
   onOpenSchedule,
   onBack,
   backTo,
@@ -9649,8 +9684,6 @@ function ScheduledSection({
   /** Which routine detail to show (null = the list) — the controlled source of
    *  truth, set by the controller however the detail was reached. */
   scheduleId: string | null
-  /** The rail's group node (lib/subviews): null = all, else 'active' | 'paused'. */
-  subview: string | null
   onOpenSchedule: (id: string) => void
   onBack: () => void
   backTo: NavLocation | null
@@ -9731,17 +9764,10 @@ function ScheduledSection({
       t.subtitle.toLowerCase().includes(needle) ||
       t.steps.some((s) => s.tool.label.toLowerCase().includes(needle)),
   )
-  // The filter tab ids drive the enabled filter.
-  const wantEnabled = subview === 'active' ? true : subview === 'paused' ? false : null
-  const allGroups = [
+  const groups = [
     { key: 'active' as const, label: 'Active', items: matches.filter((t) => t.enabled) },
     { key: 'paused' as const, label: 'Paused', items: matches.filter((t) => !t.enabled) },
-  ]
-  const groups = allGroups.filter((g) => {
-    if (wantEnabled === true && g.key !== 'active') return false
-    if (wantEnabled === false && g.key !== 'paused') return false
-    return g.items.length > 0
-  })
+  ].filter((g) => g.items.length > 0)
 
   return (
     <Page>
@@ -11511,54 +11537,6 @@ function SearchBox({
         placeholder={placeholder}
         className="flex-1 bg-transparent text-[14px] text-ink outline-none placeholder:text-ink-faint"
       />
-    </div>
-  )
-}
-
-function Dropdown({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string
-  value: string
-  options: string[]
-  onChange: (v: string) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const ref = useDismissable<HTMLDivElement>(open, () => setOpen(false))
-  const popRef = usePopoverShift<HTMLDivElement>(open)
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[13px] text-ink shadow-sm transition hover:border-accent"
-      >
-        <span className="text-ink-faint">{label}</span>
-        <span className="font-medium">{value}</span>
-        <ChevronDown size={14} className={`text-ink-faint transition ${open ? 'rotate-180' : ''}`} />
-      </button>
-      {open && (
-        <div ref={popRef} className={`absolute right-0 z-20 mt-1 w-44 overflow-hidden py-1 ${POPOVER_SURFACE}`}>
-          {options.map((opt) => (
-            <button
-              key={opt}
-              onClick={() => {
-                onChange(opt)
-                setOpen(false)
-              }}
-              className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-[13px] transition hover:bg-panel-2 ${
-                opt === value ? 'font-medium text-accent-strong' : 'text-ink'
-              }`}
-            >
-              {opt}
-              {opt === value && <Check size={14} />}
-            </button>
-          ))}
-        </div>
-      )}
     </div>
   )
 }

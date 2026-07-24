@@ -16,14 +16,38 @@ const KEY = 'claude-ui.layout.v1'
 
 let scope: string | null = null
 
+/** Subscribers to "the stored prefs may have changed" — a write, or a SCOPE
+ *  switch (which changes what every key resolves to). Most consumers read once
+ *  on mount and own their value in component state, so they need none of this;
+ *  a preference read by TWO trees at once (a section's facet: the rail's menu
+ *  and the section page) does — it has to be one live value, not two copies
+ *  that drift. `src/lib/useSectionFilter.ts` is that consumer. */
+const listeners = new Set<() => void>()
+
+export function subscribeLayout(fn: () => void): () => void {
+  listeners.add(fn)
+  return () => listeners.delete(fn)
+}
+
+function notifyLayout() {
+  for (const fn of [...listeners]) fn()
+}
+
 /** Set by App.tsx before the (account-keyed) Workspace renders. */
 export function setUiPrefScope(next: string | null): void {
+  if (next === scope) return
   scope = next
+  // Every key now resolves against a different blob — a live reader holding the
+  // previous account's value must re-read rather than keep showing it.
+  notifyLayout()
 }
 
 const storageKey = () => (scope ? `${KEY}.${scope}` : KEY)
 
-type Store = Record<string, number | boolean>
+/** Strings ride alongside numbers/booleans: a facet id ('doc', 'shared') is a
+ *  layout preference of exactly the same nature as a pane height — per account,
+ *  clamped at render, never worth its own blob. */
+type Store = Record<string, number | boolean | string>
 
 function load(): Store {
   try {
@@ -38,17 +62,18 @@ function load(): Store {
 }
 
 /** Read a stored layout value, falling back when absent or the wrong type. */
-export function getLayout<T extends number | boolean>(key: string, fallback: T): T {
+export function getLayout<T extends number | boolean | string>(key: string, fallback: T): T {
   const v = load()[key]
   return typeof v === typeof fallback ? (v as T) : fallback
 }
 
-export function setLayout(key: string, value: number | boolean) {
+export function setLayout(key: string, value: number | boolean | string) {
   try {
     localStorage.setItem(storageKey(), JSON.stringify({ ...load(), [key]: value }))
   } catch {
     /* ignore quota / privacy-mode errors */
   }
+  notifyLayout()
 }
 
 export const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))

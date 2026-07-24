@@ -36,6 +36,10 @@ import { SessionFilterMenu } from './SessionFilterMenu'
 import { ScheduledFilterMenu } from './ScheduledFilterMenu'
 import { RowMenu, projectMenuItems, type RowMenuItem } from './RowMenu'
 import { SECTION_META, SECTION_ORDER, SECTION_SUBVIEWS } from '../lib/sections'
+import { SECTION_INSTANCE_KEY } from '../lib/subviews'
+import { SECTION_FILTERS } from '../lib/sectionFilter'
+import { SectionFilterMenu, SectionInstanceChildren, SubNavRow } from './SectionTreeChildren'
+import type { PaneSeed } from '../lib/paneNav'
 import { SIDEBAR_HOVER, SIDEBAR_ICON_BUTTON } from '../lib/sidebar'
 import { removeSchedule, runScheduleNow, toggleScheduleEnabled, useMe, useNotifications, useSchedules } from '../api'
 import { AccountChip } from './AccountMenu'
@@ -69,15 +73,24 @@ import {
 } from '../lib/routineFilter'
 
 
+/** Does this section's row expand? Both kinds of child count (UI-19) — a
+ *  declared surface list, or its own rows. Module-level so the state
+ *  initializer can call it before the component body runs. */
+function hasChildren(id: SectionId): boolean {
+  return !!SECTION_SUBVIEWS[id] || !!SECTION_INSTANCE_KEY[id]
+}
+
 export function Sidebar({
   sessions,
   activeId,
   activeSection,
   activeSubview,
+  activeSeed,
   onSelect,
   onNewSession,
   onOpenSection,
   onOpenSubview,
+  onOpenDetail,
   onLeafNavigate,
   onOpenSchedule,
   onPinSession,
@@ -103,6 +116,10 @@ export function Sidebar({
   /** The active section's selected sub-view (lib/subviews) — the drill-in menu's
    *  highlight. null when the section has no sub-views. */
   activeSubview: string | null
+  /** The focused pane's open DETAIL (its live seed: which project / artifact /
+   *  context / provider / thread it shows) — the instance child's highlight, so
+   *  a project opened from anywhere lights its row in the rail (UI-19). */
+  activeSeed: PaneSeed | null
   onSelect: (id: string) => void
   onNewSession: () => void
   onOpenSection: (s: SectionId) => void
@@ -111,6 +128,9 @@ export function Sidebar({
    *  pair into a focused split pane (the primary path ignores the section: the
    *  tree row already opened it). */
   onOpenSubview: (section: SectionId, id: string) => void
+  /** Open ONE row of a content section — the section, seeded with the detail id
+   *  (UI-19: a rail instance child is a place, so it opens that place). */
+  onOpenDetail: (section: SectionId, seed: PaneSeed) => void
   /** Dismiss the narrow-tier rail drawer after a *leaf* navigation (a sub-view, or a
    *  section with no sub-views). Undefined off the narrow tier. Drilling into a
    *  section's sub-menu deliberately does NOT call this — the menu must stay visible. */
@@ -154,10 +174,15 @@ export function Sidebar({
 }) {
   const inSession = activeSection === null
   // Rail navigation is an inline disclosure tree (VSCode-explorer style): a section with
-  // sub-nodes (SECTION_SUBVIEWS) carries a chevron and expands IN PLACE to show its
-  // children indented below it — no push, no back button, siblings stay visible. Several
-  // sections can be open at once. An effect expands the active section, so a deep-link
-  // into it reveals its children.
+  // children carries a chevron and expands IN PLACE to show them indented below it — no
+  // push, no back button, siblings stay visible. Several sections can be open at once.
+  // An effect expands the active section, so a deep-link into it reveals its children.
+  //
+  // A section has children two ways (UI-19, src/lib/subviews.ts): declared
+  // SURFACES (the Agents hub, the maintainer console, the Commons' lenses) or
+  // live INSTANCES (its own rows — Projects, Artifacts, Contexts, Models,
+  // Discussions). One predicate, so every expand/fold mechanism below treats
+  // both kinds identically.
   // The expansion set persists PER ACCOUNT through the scoped layout store
   // (one boolean per section — uiPrefs.ts), so a switch-back or reload finds
   // the tree folded exactly as that account left it. Only EXPLICIT toggles
@@ -166,12 +191,12 @@ export function Sidebar({
   // section open in storage.
   const [expanded, setExpanded] = useState<Set<SectionId>>(() => {
     const s = new Set<SectionId>()
-    for (const id of SECTION_ORDER) if (SECTION_SUBVIEWS[id] && getLayout(`treeOpen.${id}`, false)) s.add(id)
-    if (activeSection && SECTION_SUBVIEWS[activeSection]) s.add(activeSection)
+    for (const id of SECTION_ORDER) if (hasChildren(id) && getLayout(`treeOpen.${id}`, false)) s.add(id)
+    if (activeSection && hasChildren(activeSection)) s.add(activeSection)
     return s
   })
   useEffect(() => {
-    if (activeSection && SECTION_SUBVIEWS[activeSection])
+    if (activeSection && hasChildren(activeSection))
       setExpanded((prev) => (prev.has(activeSection) ? prev : new Set(prev).add(activeSection)))
   }, [activeSection])
   const toggleExpand = (id: SectionId) =>
@@ -193,7 +218,7 @@ export function Sidebar({
   // Fold / unfold all — one toggle over the whole tree. "All expanded" means every
   // section that HAS children is open; the control then collapses everything (VSCode's
   // "Collapse All"); otherwise it expands every expandable section at once.
-  const expandableIds = useMemo(() => visibleSections.filter((id) => SECTION_SUBVIEWS[id]), [visibleSections])
+  const expandableIds = useMemo(() => visibleSections.filter(hasChildren), [visibleSections])
   const allExpanded = expandableIds.every((id) => expanded.has(id))
   const toggleAll = () => {
     for (const id of expandableIds) setLayout(`treeOpen.${id}`, !allExpanded)
@@ -205,7 +230,7 @@ export function Sidebar({
   // section is a leaf: it navigates and dismisses the narrow drawer.
   const onSectionClick = (id: SectionId) => {
     onOpenSection(id)
-    if (SECTION_SUBVIEWS[id]) setExpanded((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
+    if (hasChildren(id)) setExpanded((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
     else onLeafNavigate?.()
   }
   // Clicking a child (a sub-node): make sure its section is active, then select it, and
@@ -488,32 +513,55 @@ export function Sidebar({
           <div className={resizable ? 'min-h-0 flex-1 overflow-y-auto px-2 pb-1' : 'px-2 pb-1'}>
         {visibleSections.map((id) => {
           const { label, Icon, beta } = SECTION_META[id]
-          const children = SECTION_SUBVIEWS[id]
+          const surfaces = SECTION_SUBVIEWS[id]
+          const instanceKey = SECTION_INSTANCE_KEY[id]
           const isExpanded = expanded.has(id)
+          // Which of this section's rows the focused pane is showing — the id
+          // the instance child highlights on. Read from the pane's LIVE detail,
+          // so opening a project from anywhere lights its rail row.
+          const activeDetailId = instanceKey ? (activeSeed?.[instanceKey] ?? null) : null
           return (
             <Fragment key={id}>
               <SectionTreeRow
                 icon={<Icon size={16} />}
                 label={label}
                 beta={beta}
-                hasChildren={!!children}
+                hasChildren={hasChildren(id)}
                 expanded={isExpanded}
-                // The section row is "active" only on its own default view (subview null);
-                // when a child is selected the child carries the highlight instead.
-                active={activeSection === id && activeSubview == null}
+                // The section row is "active" only on its own default view: no sub-view
+                // AND no detail open — when a child is selected the child carries the
+                // highlight instead.
+                active={activeSection === id && activeSubview == null && activeDetailId === null}
                 onToggle={() => toggleExpand(id)}
                 onOpen={() => onSectionClick(id)}
+                // The facet's one home (UI-19). Rendered for every section that
+                // HAS a partition, whether its children are surfaces or rows.
+                trailing={SECTION_FILTERS[id] ? <SectionFilterMenu section={id} /> : undefined}
               />
-              {children &&
-                isExpanded &&
-                children.map((sv) => (
-                  <SubNavRow
-                    key={sv.id}
-                    label={sv.label}
-                    active={activeSection === id && activeSubview === sv.id}
-                    onClick={() => onChildClick(id, sv.id)}
-                  />
-                ))}
+              {isExpanded &&
+                (surfaces
+                  ? surfaces.map((sv) => (
+                      <SubNavRow
+                        key={sv.id}
+                        label={sv.label}
+                        active={activeSection === id && activeSubview === sv.id}
+                        onClick={() => onChildClick(id, sv.id)}
+                      />
+                    ))
+                  : instanceKey && (
+                      <SectionInstanceChildren
+                        section={id}
+                        activeId={activeDetailId}
+                        onOpenDetail={(section, seed) => {
+                          onOpenDetail(section, seed)
+                          onLeafNavigate?.()
+                        }}
+                        onOpenSection={(section) => {
+                          onOpenSection(section)
+                          onLeafNavigate?.()
+                        }}
+                      />
+                    ))}
             </Fragment>
           )
         })}
@@ -890,6 +938,7 @@ function SectionTreeRow({
   active,
   onToggle,
   onOpen,
+  trailing,
 }: {
   icon: ReactNode
   label: string
@@ -899,6 +948,10 @@ function SectionTreeRow({
   active: boolean
   onToggle: () => void
   onOpen: () => void
+  /** The row's own control — the section's "Filter & sort" menu. Outside the
+   *  opening button (like the Recents rows' "⋮"), so choosing a facet doesn't
+   *  also navigate. */
+  trailing?: ReactNode
 }) {
   return (
     <div
@@ -929,26 +982,8 @@ function SectionTreeRow({
           <span className="rounded bg-panel-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-soft">Beta</span>
         )}
       </button>
+      {trailing}
     </div>
-  )
-}
-
-/** One child node under an expanded section — indented, with a leading dot echoing the
- *  Recents rows, so the two-level tree reads clearly. */
-function SubNavRow({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      aria-current={active ? 'page' : undefined}
-      className={`flex w-full items-center gap-2.5 rounded-lg py-1.5 pl-7 pr-2 text-[13px] transition ${
-        active ? 'bg-panel-2 font-medium text-ink' : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
-      }`}
-    >
-      <span
-        className={`h-1.5 w-1.5 shrink-0 rounded-full ${active ? 'bg-accent' : 'border border-line-strong bg-transparent'}`}
-      />
-      <span className="min-w-0 flex-1 truncate text-left">{label}</span>
-    </button>
   )
 }
 

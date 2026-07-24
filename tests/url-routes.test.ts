@@ -8,7 +8,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { pathForView, viewForPath } from '../src/lib/urlRoutes.ts'
 import { SECTION_LABELS, type NavLocation } from '../src/lib/nav.ts'
-import { SECTION_SUBVIEWS } from '../src/lib/subviews.ts'
+import { SECTION_INSTANCE_KEY, SECTION_SUBVIEWS } from '../src/lib/subviews.ts'
 import { DRAFT_ID } from '../src/data/liveSession.ts'
 import type { SectionId } from '../src/types.ts'
 
@@ -46,13 +46,36 @@ test('every section list and every registered sub-view round-trips', () => {
   }
 })
 
-test('project and routine details round-trip; sub-view ids are reserved words', () => {
+test('project and routine details round-trip', () => {
   const proj = viewForPath(pathForView(section({ projectId: 'p_42' }), null))
   assert.deepEqual(proj, { loc: section({ projectId: 'p_42' }), subview: null })
   const sched = viewForPath(pathForView(section({ section: 'scheduled', scheduleId: 'sch_1' }), null))
   assert.deepEqual(sched, { loc: section({ section: 'scheduled', scheduleId: 'sch_1' }), subview: null })
-  // /projects/mine is the "Yours" facet, never a project whose id collides with it.
-  assert.deepEqual(viewForPath('/projects/mine'), { loc: section(), subview: 'mine' })
+  // Projects declare no sub-views since the ownership facet moved into the rail
+  // row's "Filter & sort" (UI-19), so the whole second segment is id space now:
+  // /projects/mine is a project called `mine`, not a reserved facet word.
+  assert.deepEqual(viewForPath('/projects/mine'), { loc: section({ projectId: 'mine' }), subview: null })
+})
+
+test('every kind the rail LISTS is addressable — a rail child is a place (UI-19)', () => {
+  // The rail expands a content section to its rows, so each row must have an
+  // address to open. Derived from the registry: adding a section to the rail's
+  // instance list without giving its rows a URL fails here.
+  const EXPECTED: Record<string, string> = {
+    projects: 'projectId',
+    artifacts: 'artifactId',
+    contexts: 'contextId',
+    models: 'providerId',
+    discussions: 'discussionId',
+  }
+  assert.deepEqual(SECTION_INSTANCE_KEY, EXPECTED, 'the sections whose rail children are their own rows')
+  for (const [sec, key] of Object.entries(SECTION_INSTANCE_KEY)) {
+    const s = sec as SectionId
+    const loc = section({ section: s, [key]: 'row-1' })
+    const path = pathForView(loc, null)
+    assert.equal(path, `/${s}/row-1`, `${s} rows address as /${s}/:id`)
+    assert.deepEqual(viewForPath(path), { loc, subview: null }, `${s} row round-trips`)
+  }
 })
 
 test('a work item page round-trips through /projects/:id/work/:itemId', () => {
@@ -85,22 +108,21 @@ test('a published definition page round-trips through /agents/:id; sub-view ids 
   assert.deepEqual(viewForPath('/agents/work'), { loc: section({ section: 'agents' }), subview: 'work' })
 })
 
-test('a saved context detail round-trips through /contexts/:id; kind ids stay reserved', () => {
+test('a saved context detail round-trips through /contexts/:id', () => {
   const loc = section({ section: 'contexts', contextId: 'linear' })
   const path = pathForView(loc, null)
   assert.equal(path, '/contexts/linear')
   assert.deepEqual(viewForPath(path), { loc: { ...loc, contextId: 'linear' }, subview: null })
-  // /contexts/connector is the kind facet, never a context whose id collides with it.
-  assert.deepEqual(viewForPath('/contexts/connector'), { loc: section({ section: 'contexts' }), subview: 'connector' })
+  // The kind facet left the address entirely (UI-19: it is a stored preference,
+  // not a page), so /contexts/connector is a context id like any other.
+  assert.deepEqual(viewForPath('/contexts/connector'), { loc: section({ section: 'contexts', contextId: 'connector' }), subview: null })
 })
 
-test('a discussion detail round-trips through /discussions/:did; state facet ids stay reserved', () => {
+test('a discussion detail round-trips through /discussions/:did', () => {
   const loc = section({ section: 'discussions', discussionId: 'disc-1' })
   const path = pathForView(loc, null)
   assert.equal(path, '/discussions/disc-1')
   assert.deepEqual(viewForPath(path), { loc: { ...loc, discussionId: 'disc-1' }, subview: null })
-  // /discussions/open is the state facet, never a discussion whose id collides with it.
-  assert.deepEqual(viewForPath('/discussions/open'), { loc: section({ section: 'discussions' }), subview: 'open' })
 })
 
 test('an admin account detail round-trips through /admin/users/:id; console subview ids stay reserved', () => {
@@ -124,7 +146,7 @@ test('a workspace profile lives under /u/ and survives names needing encoding', 
 })
 
 test('addresses the app does not serve parse to null (stay on the default, never guess)', () => {
-  for (const p of ['/nope', '/projects/p_1/extra', '/s', '/s/', '/u', '/u/', '/artifacts/doc/x', '/models/whatever']) {
+  for (const p of ['/nope', '/projects/p_1/extra', '/s', '/s/', '/u', '/u/', '/artifacts/doc/x', '/dispatch/whatever']) {
     assert.equal(viewForPath(p), null, p)
   }
 })

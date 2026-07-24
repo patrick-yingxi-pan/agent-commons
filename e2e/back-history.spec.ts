@@ -26,9 +26,12 @@ test('a session opened from a project page carries a back CHAIN — to the page,
   // List → detail (the pane's local stack) → a session ROW (an in-page door:
   // the pane becomes the conversation, the whole in-section history folded
   // onto its back stack).
-  await page.getByText('Platform hardening').first().click()
-  await expect(page.getByText('The platform team')).toBeVisible()
+  // Scoped to the page: the rail lists projects too (UI-19), and clicking the
+  // RAIL row is a chrome door — it resets the back stack instead of building
+  // the chain this test is about.
   const main = page.locator('[data-main-pane]')
+  await main.getByText('Platform hardening').first().click()
+  await expect(page.getByText('The platform team')).toBeVisible()
   await main.getByText('Refactor auth middleware').first().click()
   await expect(page.locator('[data-conversation-pane="auth-refactor"]')).toBeVisible()
   await expect(page).toHaveURL(/\/s\/auth-refactor$/)

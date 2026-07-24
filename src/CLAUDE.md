@@ -131,23 +131,38 @@ tree (spec ADAPT-13): a section with sub-nodes carries a chevron and expands **i
 earlier drill-in *replaced* the section list with a pushed sub-menu behind a "‹ Sections"
 chip + a height-reservation hack; the odd post-click view that produced is exactly what
 the tree fixes — a rail that reflows or navigates-away on expand is the bug.) The chevron
-toggles children without navigating; the row body opens the page. It's driven by ONE
-registry — `src/lib/subviews.ts` (`SECTION_SUBVIEWS`) — read by **both** the rail
-(`Sidebar`, `SectionTreeRow`) and the body (`SectionView`), so they can't drift (the
-*Registries have one home* rule). Two node kinds, by nature: **content sections**
-(Contexts / Artifacts / Scheduled / Models / Projects) expand to their **facet groups**
-(kind / type / status / provider-class / ownership) — clicking a group focuses the page
-on it, the section row shows all groups; the **Agents hub** expands to its four
-*non-default surfaces* (Prompts / Commissions / Discover / Audit) — the section row
-itself is the worker-agents surface, so it isn't re-listed as a child (that would
-duplicate "Agents" and make the nav ambiguous). A section lands on its **default** view
-(rail sub-view `null`; each body maps null to its own default). A facet is chosen in
-**one** place — the tree — never *also* an in-page filter bar; a section's grouping and
-its rail children are the same partition, so don't add an in-page tab/dropdown that
-re-selects it. When a section grows a new facet, add its group nodes here — the body
-filters on the same `subview` the tree selects. Locked by `tests/section-subviews.test.ts`
-(inline tree not a push; child ids = the body's switch keys; grouping in the tree, no
-in-page filter bar). A **Sections** header carries one **fold/unfold-all** toggle. The
+toggles children without navigating; the row body opens the page.
+
+**A rail child is a PLACE; a partition is a FILTER** (invariant UI-19, owner
+directive 2026-07-24). Two kinds of child, and a section has exactly one kind:
+
+- **Declared surfaces** — `src/lib/subviews.ts` (`SECTION_SUBVIEWS`): a hub whose
+  children are genuinely different PAGES (the Agents hub's Prompts / Commissions /
+  Discover / Audit; the maintainer console's panels). The section row itself is the
+  hub's default surface, so it is never re-listed as a child.
+- **Instances** — `SECTION_INSTANCE_KEY`: a content section (Projects, Artifacts,
+  Contexts, Models, Discussions) expands to the top `RAIL_INSTANCE_CAP` rows of the
+  very list its page renders, with a "Show all — N more" tail row opening that page.
+  The key IS the `PaneSeed` field that opens one, so "the rail lists it" and "a row of
+  it is addressable" are one fact — `/artifacts/:id` and `/models/:id` exist because
+  of this rule.
+
+A partition of a list by a property of its items — kind, state, ownership — is
+**not** a child: it is a filter, and its ONE home is the section row's "Filter &
+sort" menu (`src/lib/sectionFilter.ts` + the shared `FilterMenu`), the same
+primitive Scheduled and Recents use one row lower in the same rail. So: no in-page
+tab/dropdown that re-selects a facet, and no second sort control. The rail and the
+page derive their list with ONE function per section (`src/lib/sectionLists.ts`)
+over ONE live stored choice (`useSectionFilter`, per account through `uiPrefs`) —
+otherwise the rail's eight names are not the page's first eight, which is worse
+than listing none. Scheduled is in NEITHER registry: its instances already have
+their own rail pane, and the same list twice in one rail is worse than once. A
+section lands on its **default** view (rail sub-view `null`; each hub body maps
+null to its own default). Locked by `tests/section-subviews.test.ts` (inline tree
+not a push; the registries disjoint; the shared-funnel pairing scanned both ways;
+no second facet control), `tests/section-lists.test.ts`, and
+`tests/url-routes.test.ts` (every listed kind round-trips as a URL).
+A **Sections** header carries one **fold/unfold-all** toggle. The
 rail's lower body is an **accordion of foldable, resizable panes** — Sections, Scheduled,
 Recents. Each pane's header has a **fold caret** (symmetric across all three); folding
 collapses it to its header (persisted per pane). Open panes hold a **persisted, FIXED**

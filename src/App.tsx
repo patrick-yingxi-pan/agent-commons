@@ -7,6 +7,7 @@ import { useAuthScreen } from './controller/useAuthScreen'
 import { setUiPrefScope } from './lib/uiPrefs'
 import type { Capabilities, Identity } from '../contract/index.ts'
 import type { PaneContent } from './lib/splitFrame'
+import { seedFor } from './lib/paneNav'
 import { MainSplitGate, type MainPaneNav } from './components/MainSplit'
 import { OverlayPanelDock } from './components/OverlayPanelDock'
 import { useMainSplit } from './controller/useMainSplit'
@@ -167,10 +168,7 @@ function Workspace() {
     openOwner,
     openAgentPage,
     openDiscussionPage,
-    openContextPage,
-    openWorkItemPage,
-    openContributionPage,
-    openAdminUserPage,
+    openDetail,
     openWorkItem,
     openProposal,
     openAgent,
@@ -218,6 +216,10 @@ function Workspace() {
         ? focusedContent.at.sub
         : (focusedContent.sub ?? null)
       : null
+  // …and the DETAIL that pane has open (its live seed, same fallback), so the
+  // rail's instance children can highlight the row you're actually on (UI-19).
+  const railActiveSeed =
+    focusedContent?.kind === 'msection' ? (focusedContent.at ?? focusedContent.seed ?? null) : null
 
   // The narrow tier's slim header (NarrowBar) covers every focused surface
   // that has no title bar of its own — null = a conversation is focused (its
@@ -378,24 +380,18 @@ function Workspace() {
   // meaning depends on the section: a project to expand, a schedule to open, a
   // saved context's detail, or — under agents — a workspace display name whose
   // public profile to show (D21).
+  // The mapping itself is `seedFor` — the SAME function the pane-local bridge
+  // resolves with (src/lib/paneNav.ts), rather than a hand-copied ternary chain
+  // beside it. The two bridges were meant to mirror each other shape for shape
+  // and had already drifted: a `navigate('discussions', id)` reaching the root
+  // fell through to the section ROOT, dropping the thread it named.
   const navigateToSection = useCallback(
-    (section: SectionId, id?: string, subId?: string) =>
-      section === 'projects' && id && subId
-        ? subId.startsWith('changes/')
-          ? openContributionPage(id, subId.slice('changes/'.length)) // a contribution's page (workflow Phase A — the seedFor prefix, mirrored)
-          : openWorkItemPage(id, subId) // a work item's page under its project (D19/D23)
-        : section === 'projects' && id
-          ? openProject(id)
-          : section === 'scheduled' && id
-            ? openSchedule(id)
-            : section === 'contexts' && id
-              ? openContextPage(id)
-              : section === 'agents' && id
-                ? openOwner(id)
-                : section === 'admin' && id
-                  ? openAdminUserPage(id) // an account's detail in the maintainer console (FWD-7 v1.1)
-                  : openSection(section),
-    [openProject, openWorkItemPage, openContributionPage, openSchedule, openContextPage, openOwner, openAdminUserPage, openSection],
+    (section: SectionId, id?: string, subId?: string) => {
+      const seed = seedFor(section, id, subId)
+      if (seed) openDetail(section, seed)
+      else openSection(section)
+    },
+    [openDetail, openSection],
   )
 
   // S6 — consume a share-link boot: redeem, then land on the subject's page
@@ -488,6 +484,7 @@ function Workspace() {
                 activeId={railActiveSessionId}
                 activeSection={railActiveSection}
                 activeSubview={railActiveSubview}
+                activeSeed={railActiveSeed}
                 onSelect={withRailClose(openSession)}
                 onNewSession={withRailClose(newSession)}
                 // Section / sub-view handlers stay UNwrapped by withRailClose: the rail
@@ -497,6 +494,9 @@ function Workspace() {
                 // routing) — on the background it mints the first pane.
                 onOpenSection={(id) => openSection(id)}
                 onOpenSubview={(section, sub) => openSection(section, sub)}
+                // An instance child (UI-19): the section, with that row open —
+                // the same door a notification or a link uses.
+                onOpenDetail={openDetail}
                 onLeafNavigate={railOverlay ? closeLeft : undefined}
                 onOpenSchedule={withRailClose(openSchedule)}
                 onPinSession={pinSession}

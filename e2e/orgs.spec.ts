@@ -75,7 +75,8 @@ test('found an org → invite → accept → an org-owned project through the pi
   // ── The FOUNDER sees the same project through their seat (the union) ──
   await page.getByRole('navigation').getByRole('button', { name: 'Projects', exact: true }).click()
   await expect(page.getByText('Your organizations')).toBeVisible({ timeout: 5_000 })
-  await expect(page.getByText(PROJECT)).toBeVisible()
+  // Scoped to the page — the rail lists the same project now (UI-19).
+  await expect(page.getByRole('main').getByText(PROJECT)).toBeVisible()
 
   await graceCtx.close()
 })

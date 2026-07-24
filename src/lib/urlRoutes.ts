@@ -19,7 +19,10 @@
  *                           the GitHub rule)
  *    /projects/:projectId   a project detail page
  *    /scheduled/:scheduleId a routine detail page
- *    /contexts/:contextId   a saved context's detail page (kind ids are reserved)
+ *    /contexts/:contextId   a saved context's detail page
+ *    /artifacts/:artifactId an artifact open in the gallery (UI-19 — the rail
+ *                           lists artifacts, so one has to be addressable)
+ *    /models/:providerId    the Models list with that provider expanded
  *    /admin/users/:userId   an account's detail page in the maintainer console
  *                           (nested under `users` so the reserved admin
  *                           subview ids can never collide)
@@ -61,6 +64,8 @@ export function pathForView(loc: NavLocation, subview: string | null): string {
   if (loc.scheduleId) return `/scheduled/${encodeURIComponent(loc.scheduleId)}`
   if (loc.contextId) return `/contexts/${encodeURIComponent(loc.contextId)}`
   if (loc.discussionId) return `/discussions/${encodeURIComponent(loc.discussionId)}`
+  if (loc.artifactId) return `/artifacts/${encodeURIComponent(loc.artifactId)}`
+  if (loc.providerId) return `/models/${encodeURIComponent(loc.providerId)}`
   if (loc.adminUserId) return `/admin/users/${encodeURIComponent(loc.adminUserId)}`
   return subview ? `/${loc.section}/${encodeURIComponent(subview)}` : `/${loc.section}`
 }
@@ -120,5 +125,7 @@ export function viewForPath(pathname: string): RoutedView | null {
   if (section === 'agents') return { loc: { ...base, agentId: second }, subview: null }
   if (section === 'contexts') return { loc: { ...base, contextId: second }, subview: null }
   if (section === 'discussions') return { loc: { ...base, discussionId: second }, subview: null }
+  if (section === 'artifacts') return { loc: { ...base, artifactId: second }, subview: null }
+  if (section === 'models') return { loc: { ...base, providerId: second }, subview: null }
   return null
 }

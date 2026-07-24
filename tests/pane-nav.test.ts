@@ -15,6 +15,8 @@
  *       round-trip. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { join } from 'node:path'
+import { ROOT, read } from './helpers/source.ts'
 import { paneNavTarget, seedFor } from '../src/lib/paneNav.ts'
 import { panes, splitPane, pane } from '../src/lib/splitFrame.ts'
 import type { MainPaneContent, MainSplitNode } from '../src/lib/mainSplit.ts'
@@ -31,8 +33,25 @@ test('seedFor mirrors the root bridge mapping (App.navigateToSection), shape for
   assert.deepEqual(seedFor('contexts', 'c1'), { contextId: 'c1' })
   assert.deepEqual(seedFor('agents', 'nova'), { ownerName: 'nova' }, 'agents+id = an OWNER profile (agent pages route via the prop)')
   assert.deepEqual(seedFor('admin', 'user-grace'), { adminUserId: 'user-grace' }, "admin+id = an account's console detail (FWD-7 v1.1)")
+  assert.deepEqual(seedFor('discussions', 'disc-1'), { discussionId: 'disc-1' })
+  // UI-19: the rail lists a content section's ROWS, so every listed kind has to
+  // be a place — including the two whose detail used to be component state.
+  assert.deepEqual(seedFor('artifacts', 'a1'), { artifactId: 'a1' }, 'an artifact is addressable (/artifacts/:id)')
+  assert.deepEqual(seedFor('models', 'prov-1'), { providerId: 'prov-1' }, 'a provider is addressable (/models/:id)')
   assert.equal(seedFor('projects'), null, 'no id = no entity detail')
-  assert.equal(seedFor('artifacts', 'a1'), null, 'a section with no detail mapping stays unmapped')
+  assert.equal(seedFor('customize', 'x'), null, 'a section with no detail mapping stays unmapped')
+})
+
+test('the ROOT bridge maps through the same seedFor — no hand-copied second chain', () => {
+  // The two bridges are meant to mirror each other shape for shape, and a
+  // hand-written chain beside this one had already drifted (a root-bridge
+  // `navigate('discussions', id)` fell through to the section root, dropping
+  // the thread it named). App now calls seedFor itself; this fails if a second
+  // mapping grows back.
+  const app = read(join(ROOT, 'src', 'App.tsx'))
+  assert.match(app, /const seed = seedFor\(section, id, subId\)/, 'the root bridge resolves through seedFor')
+  assert.doesNotMatch(app, /section === 'contexts' && id/, 'no per-section ternary chain beside it')
+  assert.doesNotMatch(app, /section === 'admin' && id/)
 })
 
 test('a same-section entity door lands as pane FOCUS (the reported Contexts bug)', () => {
@@ -70,8 +89,8 @@ test('a bare section jump stays in the pane — the section root, never a fall-t
   // pushes the outgoing page onto the carried back stack (ADAPT-18).
   assert.deepEqual(paneNavTarget('projects', 'artifacts'), { kind: 'retarget', section: 'artifacts', seed: {} })
   assert.deepEqual(
-    paneNavTarget('projects', 'artifacts', 'a1'),
-    { kind: 'retarget', section: 'artifacts', seed: {} },
+    paneNavTarget('projects', 'customize', 'x'),
+    { kind: 'retarget', section: 'customize', seed: {} },
     'an unmapped detail lands at the root too',
   )
   // Same-section: the empty focus — back to the pane's own root, through the

@@ -43,6 +43,10 @@ export type NavLocation =
       /** A discussion's own page under the discussions section (social S2 —
        *  `/discussions/:did`; the timeline form). Absent ≡ null. */
       discussionId?: string | null
+      /** An artifact open in the gallery (`/artifacts/:id`, UI-19). Absent ≡ null. */
+      artifactId?: string | null
+      /** A model provider focused in the list (`/models/:id`, UI-19). Absent ≡ null. */
+      providerId?: string | null
     }
 
 /** The display name for each cross-cutting section (its list page). */
@@ -76,7 +80,9 @@ export function sameLocation(a: NavLocation, b: NavLocation): boolean {
       (a.agentId ?? null) === (b.agentId ?? null) &&
       (a.contextId ?? null) === (b.contextId ?? null) &&
       (a.adminUserId ?? null) === (b.adminUserId ?? null) &&
-      (a.discussionId ?? null) === (b.discussionId ?? null)
+      (a.discussionId ?? null) === (b.discussionId ?? null) &&
+      (a.artifactId ?? null) === (b.artifactId ?? null) &&
+      (a.providerId ?? null) === (b.providerId ?? null)
     )
   return false
 }

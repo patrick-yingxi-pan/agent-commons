@@ -286,7 +286,7 @@ export function useSessionWorkspace(split?: {
   // The detail doors share one shape — route the section with its detail seed,
   // drop any stale highlight — so they're minted from one factory (stable:
   // splitRef and the setState are both stable, so the memo never rebuilds).
-  const { openProject, openSchedule, openOwner, openAgentPage, openContextPage, openDiscussionPage, openWorkItemPage, openContributionPage, openAdminUserPage } = useMemo(() => {
+  const { openProject, openSchedule, openOwner, openAgentPage, openDiscussionPage, openDetail } = useMemo(() => {
     const door = (section: SectionId, seed: PaneSeed) => {
       splitRef.current?.routeDoor?.(section, seed)
       setPendingFocus(null)
@@ -296,11 +296,15 @@ export function useSessionWorkspace(split?: {
       openSchedule: (scheduleId: string) => door('scheduled', { scheduleId }),
       openOwner: (name: string) => door('agents', { ownerName: name }),
       openAgentPage: (agentId: string) => door('agents', { agentId }),
-      openContextPage: (contextId: string) => door('contexts', { contextId }),
       openDiscussionPage: (discussionId: string) => door('discussions', { discussionId }),
-      openWorkItemPage: (projectId: string, workItemId: string) => door('projects', { projectId, workItemId }),
-      openContributionPage: (projectId: string, contributionId: string) => door('projects', { projectId, contributionId }),
-      openAdminUserPage: (adminUserId: string) => door('admin', { adminUserId }),
+      /** The GENERIC door — any section, any detail seed. The rail's instance
+       *  children (UI-19) open one row of any content section, and the root nav
+       *  bridge maps through `seedFor`, so both reach every detail page through
+       *  this one instead of a named door per kind. The named ones above survive
+       *  only where a caller genuinely names the kind (a project card, an owner
+       *  byline); the write-once ones — work item, contribution, context,
+       *  console account — were exactly `door(section, seed)` spelled longer. */
+      openDetail: (section: SectionId, seed: PaneSeed) => door(section, seed),
     }
   }, [])
 
@@ -367,11 +371,8 @@ export function useSessionWorkspace(split?: {
     openSchedule,
     openOwner,
     openAgentPage,
-    openContextPage,
     openDiscussionPage,
-    openWorkItemPage,
-    openContributionPage,
-    openAdminUserPage,
+    openDetail,
     openWorkItem,
     openProposal,
     openAgent,
