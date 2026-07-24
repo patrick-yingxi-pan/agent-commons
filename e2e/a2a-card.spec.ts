@@ -52,7 +52,7 @@ test('the "A2A card" trigger opens a presented viewer, not a raw-JSON tab', asyn
   // ── Site 2: the definition's own PAGE (COMMONS-26 — the visitor-facing surface) ─
   await page.getByRole('button', { name: 'Discover' }).click()
   await expect(page.getByText(AGENT).first()).toBeVisible()
-  await page.locator('div').filter({ hasText: AGENT }).getByRole('button', { name: 'View definition' }).last().click()
+  await page.getByRole('button', { name: AGENT, exact: true }).first().click() // the card title door (UI-17: the card body opens it too)
   await expect(page.getByRole('heading', { name: AGENT })).toBeVisible()
   const pagesBefore2 = context.pages().length
   await page.getByRole('button', { name: 'A2A card' }).click()

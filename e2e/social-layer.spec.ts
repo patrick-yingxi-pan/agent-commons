@@ -483,7 +483,9 @@ test('a world with NO social activity: the Commons teaches instead of going blan
   // workspaces opened, so a brand-new account has somewhere to go. That pairing
   // is the Discover consolidation's whole point (SOCIAL-8).
   await expect(rei.page.getByText(/Browse the Commons/i)).toBeVisible()
-  await expect(rei.page.getByRole('button', { name: /Open project/i }).first()).toBeVisible()
+  // A directory card rendered — its contributor line, since the card no longer
+  // carries an "Open project" button (the card itself is the door, UI-17).
+  await expect(rei.page.getByText(/\d+ contributors?/).first()).toBeVisible()
 
   await rei.page.goto('/discussions')
   await expect(rei.page.getByText(/No discussions yet/)).toBeVisible({ timeout: 20_000 })

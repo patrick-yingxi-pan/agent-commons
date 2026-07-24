@@ -200,7 +200,17 @@ reasons the module states. External links, the dotted provenance opener, and
 quiet ghost text *actions* (`INLINE_ACTION_CLASS`) are deliberately not doors.
 Locked by `tests/text-door.test.ts` (invariant UI-16), whose scans read the
 whole `src/` tree — the shape a one-home lock must have, since the file-scoped
-version of this rule missed two strays for as long as it existed.
+version of this rule missed two strays for as long as it existed. The
+container-level half is `src/lib/cardDoor.ts` (invariant UI-17): a card or list
+row fronting a page opens it from **anywhere on its surface** — the title stays
+the keyboard door and the accessible name, `cardDoorClick` + `CARD_DOOR_CLASS` /
+`ROW_DOOR_CLASS` make the whole card the mouse target, and the funnel's guard
+(not each child's `stopPropagation`) spares the controls nested inside. Never
+`role="button" tabIndex={0}` on the container — that doubles the tab stop and
+makes the card's whole text its accessible name. A card door needs no restating
+"Open ‹thing›" action, and its hover cue must promise **exactly** what takes the
+click: `tests/card-door.test.ts` scans that pairing in both directions, because
+the bug it was earned for was a row that lit up wider than it was clickable.
 
 ## The back-history rule — an in-page door carries its origin; browser Back is per-page
 

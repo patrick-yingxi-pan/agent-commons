@@ -154,12 +154,12 @@ test('a proposal.opened bell opens the review dialog directly ON the proposal (R
   const agentId = ((await created.json()) as { id: string }).id
   await owner.page.request.patch(`/api/v1/agents/${agentId}`, { data: { published: true } })
 
-  // Proposer: Discover → View definition → Propose a change (rings the owner's bell).
+  // Proposer: Discover → the card door → Propose a change (rings the owner's bell).
   await openApp(proposer.page)
   await gotoSection(proposer.page, 'Agents')
   await proposer.page.getByRole('button', { name: 'Discover' }).click()
   await expect(proposer.page.getByText(AGENT).first()).toBeVisible()
-  await proposer.page.locator('div').filter({ hasText: AGENT }).getByRole('button', { name: 'View definition' }).last().click()
+  await proposer.page.getByRole('button', { name: AGENT, exact: true }).first().click()
   await proposer.page.getByRole('button', { name: 'Propose a change' }).click()
   await proposer.page.getByLabel('Proposed system prompt').fill(NEW_PROMPT)
   await proposer.page.getByLabel('Proposal note').fill(NOTE)
@@ -206,7 +206,7 @@ test('a proposal.merged bell opens the owner’s profile ON Your-proposals, focu
   await gotoSection(proposer.page, 'Agents')
   await proposer.page.getByRole('button', { name: 'Discover' }).click()
   await expect(proposer.page.getByText(AGENT).first()).toBeVisible()
-  await proposer.page.locator('div').filter({ hasText: AGENT }).getByRole('button', { name: 'View definition' }).last().click()
+  await proposer.page.getByRole('button', { name: AGENT, exact: true }).first().click()
   await proposer.page.getByRole('button', { name: 'Propose a change' }).click()
   await proposer.page.getByLabel('Proposed system prompt').fill(NEW_PROMPT)
   await proposer.page.getByLabel('Proposal note').fill(NOTE)

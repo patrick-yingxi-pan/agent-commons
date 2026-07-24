@@ -77,6 +77,7 @@ import { ConnectorDetailBody } from './ConnectorPanel'
 import { AddContextButton } from './AddContextButton'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { DOOR_CLASS } from '../lib/textDoor'
+import { CARD_DOOR_CLASS, ROW_DOOR_CLASS, cardDoorClick } from '../lib/cardDoor'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { AnchorThreadComposer } from './AnchorThreadComposer'
 import { LocusGutter } from './LocusGutter'
@@ -746,11 +747,19 @@ function ProjectCard({
   onOpen: () => void
 }) {
   return (
-    <button
-      onClick={onOpen}
-      className="flex min-h-[150px] w-full flex-col rounded-2xl border border-line bg-surface p-5 text-left shadow-sm transition hover:border-line-strong hover:shadow"
+    // The card is the mouse target, its TITLE the named keyboard door (UI-17).
+    // This was one whole-card <button>, which read out the entire card as its
+    // accessible name — "Platform hardening Updated 2 days ago · 3 sessions".
+    <div
+      onClick={cardDoorClick(onOpen)}
+      className={`flex min-h-[150px] w-full flex-col rounded-2xl border border-line bg-surface p-5 shadow-sm ${CARD_DOOR_CLASS}`}
     >
-      <div className="text-[15px] font-semibold text-ink">{project.name}</div>
+      {/* The door owns the weight (UI-16), so the title drops its own
+          `font-semibold` — one weight for every card title, the 14px commons
+          heads included, instead of semibold here and medium three rows down. */}
+      <button onClick={onOpen} className={`block max-w-full text-left text-[15px] text-ink ${DOOR_CLASS}`}>
+        {project.name}
+      </button>
       {project.own === false && (
         <div className="mt-1">
           <Byline ownerName={project.ownerName} own={false} />
@@ -766,7 +775,7 @@ function ProjectCard({
           {sessionCount} session{sessionCount === 1 ? '' : 's'}
         </span>
       </div>
-    </button>
+    </div>
   )
 }
 
@@ -4873,12 +4882,14 @@ function ArtifactCard({
 }) {
   const Icon = KIND_ICON[artifact.kind]
   return (
-    <button
-      onClick={onOpen}
-      disabled={pending}
+    // The tile is the mouse target, its NAME the named keyboard door (UI-17) —
+    // it was one whole-card <button> whose accessible name was the tile's every
+    // word (name + excerpt + "from ‹source›" + "Edited 2 days ago").
+    <div
       aria-busy={pending}
-      className={`flex flex-col overflow-hidden rounded-xl border border-line bg-surface text-left shadow-sm transition ${
-        pending ? 'cursor-default opacity-60' : 'hover:border-line-strong hover:shadow'
+      onClick={pending ? undefined : cardDoorClick(onOpen)}
+      className={`flex flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-sm transition ${
+        pending ? 'cursor-default opacity-60' : CARD_DOOR_CLASS
       }`}
     >
       <div className="h-28 w-full overflow-hidden border-b border-line bg-panel-2/40">
@@ -4887,7 +4898,15 @@ function ArtifactCard({
       <div className="flex flex-1 flex-col p-3.5">
         <div className="flex items-center gap-2">
           <Icon size={15} className="shrink-0 text-cap-workspace" />
-          <span className="truncate text-[13px] font-semibold text-ink">{artifact.name}</span>
+          {/* Disabled while pending, exactly as the whole-card button was: a
+              temporary id the server won't recognize must not be openable. */}
+          <button
+            onClick={onOpen}
+            disabled={pending}
+            className={`block min-w-0 truncate text-left text-[13px] text-ink ${DOOR_CLASS} disabled:cursor-default`}
+          >
+            {artifact.name}
+          </button>
         </div>
         {artifact.excerpt && (
           <p className="mt-1.5 line-clamp-2 text-[12px] leading-snug text-ink-soft">
@@ -4910,7 +4929,7 @@ function ArtifactCard({
           </span>
         </div>
       </div>
-    </button>
+    </div>
   )
 }
 
@@ -5395,20 +5414,25 @@ function ContextRow({
     // meta, then the pill) so the flex-1 identity column — the connector's
     // name — never collapses.
     <div
-      className={`group @container flex items-center gap-3 transition hover:bg-panel-2/50 ${
+      onClick={cardDoorClick(onOpen)}
+      className={`group @container flex items-center gap-3 ${ROW_DOOR_CLASS} ${
         first ? '' : 'border-t border-line'
       }`}
     >
-      {/* The main region drills into the detail; the trailing actions sit outside
-          this button so they don't trigger the navigation. */}
-      <button onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left">
+      {/* The WHOLE row drills into the detail (UI-17) — the hover wash has always
+          lit the whole row, but only this left region used to be a button, so the
+          gap beside the status pill swallowed the click. The trailing controls
+          keep their own handlers; the card door steps aside for them. */}
+      <div className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3">
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-ink-soft">
           <Icon size={16} />
         </span>
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate text-[14px] font-medium text-ink">{ctx.label}</span>
+            <button onClick={onOpen} className={`min-w-0 truncate text-left text-[14px] text-ink ${DOOR_CLASS}`}>
+              {ctx.label}
+            </button>
             {ctx.kind === 'repo' && (
               <span className="shrink-0 rounded bg-panel-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-soft">
                 {ctx.origin === 'local' ? 'Local' : 'GitHub'}
@@ -5426,7 +5450,7 @@ function ContextRow({
             {ctx.lastUsedAt == null ? 'Never used' : `Last used ${relativeTime(ctx.lastUsedAt)}`}
           </div>
         </div>
-      </button>
+      </div>
 
       <div className="flex shrink-0 items-center gap-2 pr-4">
         {/* In a tight row the pill yields its width to the name column — the
@@ -5785,18 +5809,27 @@ function CommonsCard({
   children,
   cardRef,
   flash = false,
+  onOpen,
 }: {
   children: ReactNode
   /** Set by a notification-door target (R6) so the card can scroll itself into view. */
   cardRef?: RefObject<HTMLDivElement | null>
   /** Lit briefly when a door lands on this card (the shared focus-flash cue). */
   flash?: boolean
+  /** When the card fronts a page, the WHOLE surface opens it (lib/cardDoor, UI-17)
+   *  — pass the same handler as `CommonsCardHead`'s `onOpen`, which stays the
+   *  keyboard door. Absent = a management card that only edits in place. */
+  onOpen?: () => void
 }) {
   return (
     <div
       ref={cardRef}
-      className={`group scroll-mt-6 rounded-xl border bg-surface p-4 shadow-sm transition-colors ${
-        flash ? `border-accent ${FOCUS_FLASH_CLASS}` : 'border-line'
+      onClick={onOpen ? cardDoorClick(onOpen) : undefined}
+      className={`group scroll-mt-6 rounded-xl border bg-surface p-4 shadow-sm transition ${
+        // The flash owns the border while it lasts: `hover:border-line-strong`
+        // out-specifies `border-accent`, so wearing both would blank the arrival
+        // cue on hover (two border colors, no defined winner — lib/textDoor).
+        flash ? `border-accent ${FOCUS_FLASH_CLASS}` : `border-line ${onOpen ? CARD_DOOR_CLASS : ''}`
       }`}
     >
       {children}
@@ -7951,7 +7984,7 @@ function SharedProjectCard({
   onOwnerClick: () => void
 }) {
   return (
-    <CommonsCard>
+    <CommonsCard onOpen={onOpen}>
       <CommonsCardHead
         icon={<SquareKanban size={16} />}
         title={p.name}
@@ -7974,14 +8007,12 @@ function SharedProjectCard({
         }
       />
       {p.description && <p className="mt-2 text-[12px] text-ink-soft">{p.description}</p>}
-      <p className="mt-1.5 flex items-center gap-3 text-[11px] text-ink-faint">
-        <span>
-          {p.contributorCount} contributor{p.contributorCount === 1 ? '' : 's'}
-          {p.guarded ? ' · coordinated (guardian)' : ''}
-        </span>
-        <button onClick={onOpen} className={INLINE_ACTION_CLASS}>
-          Open project
-        </button>
+      {/* No "Open project" button: the CARD is the door (UI-17) and the title is
+          its keyboard half — a third control restating the same destination was
+          the affordance-noise this funnel removed. */}
+      <p className="mt-1.5 text-[11px] text-ink-faint">
+        {p.contributorCount} contributor{p.contributorCount === 1 ? '' : 's'}
+        {p.guarded ? ' · coordinated (guardian)' : ''}
       </p>
     </CommonsCard>
   )
@@ -8364,7 +8395,7 @@ function PublishedAgentCard({
     }
   }
   return (
-    <CommonsCard>
+    <CommonsCard onOpen={onView}>
       <CommonsCardHead
         icon={<Bot size={16} />}
         title={entry.label}
@@ -8392,13 +8423,10 @@ function PublishedAgentCard({
       </p>
       <p className="mt-1.5 flex items-center gap-3 text-[11px] text-ink-faint">
         {/* On a card the counts are doors to the PAGE (where their lineage sections
-            live) — the "42 stars → stargazers" shape, one hop shallower. */}
+            live) — the "42 stars → stargazers" shape, one hop shallower. The card
+            itself is the door to the definition (UI-17); the "View definition"
+            button that used to sit here restated it a third time. */}
         <CreditLine contributions={entry.contributions} forks={entry.forks} onContributions={onView} onForks={onView} />
-        {/* The card is a DOOR: the full public definition (and the A2A card link) lives
-            one click in, like a repo page behind a search result. */}
-        <button onClick={onView} className={INLINE_ACTION_CLASS}>
-          View definition
-        </button>
       </p>
       {error && <p className="mt-2 text-[12px] text-removed">{error}</p>}
     </CommonsCard>
@@ -9094,12 +9122,20 @@ function AdminAccountsPanel() {
 
 function AdminUserRowView({ row, onOpen }: { row: AdminUserRow; onOpen: () => void }) {
   return (
-    <div className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0">
+    // The whole row opens the account (UI-17); the chevron that used to be a
+    // second button to the same place is now the drill-in HINT it always read as.
+    // Negative margin so the hover wash clears the text inside CommonsCard's p-4,
+    // and even padding so every row's hit target is the same size (this dropped
+    // `first:pt-0 last:pb-0`, which was rhythm for text, not for a target).
+    <div
+      onClick={cardDoorClick(onOpen)}
+      className={`-mx-2 flex items-center gap-2.5 rounded-md px-2 py-2 ${ROW_DOOR_CLASS}`}
+    >
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           {/* Title-as-door (the titles-are-doors rule): the name opens the
               account's own page; the row's acts live there now. */}
-          <button onClick={onOpen} className={`truncate text-[13px] text-ink ${DOOR_CLASS}`}>
+          <button onClick={onOpen} className={`min-w-0 truncate text-left text-[13px] text-ink ${DOOR_CLASS}`}>
             {row.user.name}
           </button>
           {row.seeded && <AdminBadge>Seeded</AdminBadge>}
@@ -9116,13 +9152,12 @@ function AdminUserRowView({ row, onOpen }: { row: AdminUserRow; onOpen: () => vo
       <span className="shrink-0 text-[11px] text-ink-faint">
         {row.tokenCount} {row.tokenCount === 1 ? 'token' : 'tokens'}
       </span>
-      <button
-        onClick={onOpen}
-        aria-label={`Open ${row.user.name}`}
-        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink"
-      >
-        <ChevronRight size={14} />
-      </button>
+      {/* Static, not HOVER_CUE: this row sits inside CommonsCard, which is itself
+          a `group`, and Tailwind's `group-hover:` matches ANY hovered `.group`
+          ancestor — hovering the card would light every row's chevron at once
+          (the drift SECTION_REVEAL_GROUP's named group exists to prevent). It
+          still yields its width below `sm`, like the cue it replaced. */}
+      <ChevronRight size={14} className="shrink-0 text-ink-faint max-sm:hidden" />
     </div>
   )
 }
@@ -9753,20 +9788,24 @@ function ScheduledRow({
     // window. Fixed-width blocks yield in order (next-run info, then the
     // pill) so the flex-1 name column — the row's identity — never collapses.
     <div
-      className={`group @container flex items-center gap-3 transition hover:bg-panel-2/50 ${
+      onClick={cardDoorClick(onOpen)}
+      className={`group @container flex items-center gap-3 ${ROW_DOOR_CLASS} ${
         first ? '' : 'border-t border-line'
       }`}
     >
-      {/* The main region drills into the detail; the trailing controls sit outside
-          this button so they don't trigger navigation. */}
-      <button onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left">
+      {/* The WHOLE row drills into the detail (UI-17) — see ContextRow: the hover
+          wash covered the row while only this region took the click. The trailing
+          controls (run, delete, the enabled switch) keep their own handlers. */}
+      <div className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3">
         <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-panel-2">
           <ToolGlyph tool={lead} size={16} />
           <span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-surface ${dot}`} />
         </span>
 
         <div className="min-w-0 flex-1 overflow-hidden">
-          <div className="truncate text-[14px] font-medium text-ink">{task.name}</div>
+          <button onClick={onOpen} className={`block max-w-full truncate text-left text-[14px] text-ink ${DOOR_CLASS}`}>
+            {task.name}
+          </button>
           <MiniPipeline task={task} />
           <div className="truncate text-[12px] text-ink-faint @2xl:hidden">
             {task.steps.length} step{task.steps.length === 1 ? '' : 's'} · {task.subtitle}
@@ -9777,7 +9816,7 @@ function ScheduledRow({
           <div className="text-[12px] text-ink-soft">next {task.next}</div>
           <div className="text-[11px] text-ink-faint">{lastRun ? `ran ${relativeTime(lastRun.at)}` : 'no runs yet'}</div>
         </div>
-      </button>
+      </div>
 
       <div className="flex shrink-0 items-center gap-2 pr-4">
         {/* In a tight row the pill yields its width to the name column — the
@@ -10557,8 +10596,12 @@ function RunRow({
   return (
     <div
       ref={rowRef}
+      onClick={cardDoorClick(onOpen)}
+      // The whole row opens the run's session (UI-17); the chevron beside the
+      // duration was already a hint, not a control. The flash owns the background
+      // while it lasts — see CommonsCard for why the two can't be worn together.
       className={`group flex items-start gap-3 px-4 py-3 transition ${first ? '' : 'border-t border-line'} ${
-        flash ? FOCUS_FLASH_CLASS : ''
+        flash ? FOCUS_FLASH_CLASS : ROW_DOOR_CLASS
       }`}
     >
       <RunStatusIcon status={run.status} />

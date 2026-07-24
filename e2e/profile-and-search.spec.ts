@@ -77,8 +77,13 @@ test('a workspace profile is reachable from any byline, and global search finds 
   // Viewer-relative own-marker: the visitor sees the bare name, no "(you)".
   await expect(visitor.page.getByRole('heading', { name: `${ownerName} (you)` })).toHaveCount(0)
 
-  // The profile's project card is a door to the ONE shared project page.
-  await visitor.page.getByRole('button', { name: 'Open project' }).first().click()
+  // The profile's project card is a door to the ONE shared project page — and the
+  // WHOLE card is that door (UI-17), not just its title. Clicking the contributor
+  // line (plain text, no control of its own) must navigate: the card used to carry
+  // an "Open project" button restating a destination its title already reached,
+  // while the card body itself was inert. This is the DOM half of the card-door
+  // lock — tests/card-door.test.ts owns the source half.
+  await visitor.page.getByText(/\d+ contributors?/).first().click()
   await expect(visitor.page.getByRole('heading', { name: PROJECT })).toBeVisible()
 
   // ── Global search (D22): the palette answers across the commons, hits deep-link ──

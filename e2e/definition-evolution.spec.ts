@@ -36,18 +36,15 @@ test('propose → review side-by-side → merge: the definition evolves and cred
   const agentId = ((await created.json()) as { id: string }).id
   await owner.page.request.patch(`/api/v1/agents/${agentId}`, { data: { published: true } })
 
-  // Proposer: Discover → View definition → Propose a change.
+  // Proposer: Discover → the card door → Propose a change.
   await openApp(proposer.page)
   await proposer.page.getByRole('navigation').getByRole('button', { name: 'Agents', exact: true }).click()
   await proposer.page.getByRole('button', { name: 'Discover' }).click()
   await expect(proposer.page.getByText(AGENT).first()).toBeVisible()
-  // Scope to the one card whose heading is this agent (other published cards exist).
-  await proposer.page
-    .locator('div')
-    .filter({ hasText: AGENT })
-    .getByRole('button', { name: 'View definition' })
-    .last()
-    .click()
+  // The card's TITLE door — its accessible name is the agent's, so this needs no
+  // scoping (the old "View definition" button was shared by every card, hence the
+  // filter-then-last dance). The card BODY opens the same page: UI-17.
+  await proposer.page.getByRole('button', { name: AGENT, exact: true }).first().click()
   await expect(proposer.page.getByRole('heading', { name: AGENT })).toBeVisible() // the definition's own page
   await proposer.page.getByRole('button', { name: 'Propose a change' }).click()
   await proposer.page.getByLabel('Proposed system prompt').fill(NEW_PROMPT)

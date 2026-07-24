@@ -82,7 +82,12 @@ export function LocusGutter({
   return (
     // A tight strip: the gutter costs every row its own height, so it stays as
     // close to the content as the hit target allows.
-    <div className="mt-0.5">
+    //
+    // Opted out of the enclosing card door (lib/cardDoor, UI-17) as a REGION,
+    // not just as controls: a run row is a card door, and a click on the inline
+    // composer's padding — inert pixels, no control under the cursor — would
+    // otherwise navigate to the run and take the unsent draft with it.
+    <div data-no-card-door className="mt-0.5">
       <div className="flex items-center gap-1.5">
         {thread && (
           <button
