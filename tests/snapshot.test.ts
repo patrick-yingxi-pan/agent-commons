@@ -178,12 +178,24 @@ test('build produces a snapshot covering every persisted slice', async () => {
     'setMute → mutes (S5, the per-viewer earmuff slice)',
   )
   assert.ok(
-    s.watches?.some(([tenantId]) => tenantId === 'tenant-playground-watcher'),
-    'setWatch → watches (D24)',
+    // The KEY shape too, not just the tenant: when the watch key generalized to
+    // `kind:id` this generator still called the old signature, and a tenant-only
+    // assertion passed happily while every watch persisted under
+    // "undefined:undefined" (found in review, 2026-07-24).
+    s.watches?.some(([tenantId, key]) => tenantId === 'tenant-playground-watcher' && key === 'project:p-playground'),
+    'setWatch → watches (D24), keyed by subject',
   )
   assert.ok(
     (s.notifications?.length ?? 0) > 0,
     'notifyTenants fan-out → notifications inbox (D24)',
+  )
+  assert.ok(
+    s.commonsLikes?.some(([tenantId]) => tenantId === 'tenant-playground-watcher'),
+    'setCommonsLike → commonsLikes (S4, the Liked lens)',
+  )
+  assert.ok(
+    s.views?.some(([tenantId, kind, id]) => tenantId === 'tenant-playground-watcher' && kind === 'project' && id === 'p-playground'),
+    'recordView → views (S4, the Recently viewed lens)',
   )
   assert.ok(
     s.apiTokens?.some(([userId, rows]) => userId === 'user-ada' && rows.some((r) => r.label === 'playground token')),

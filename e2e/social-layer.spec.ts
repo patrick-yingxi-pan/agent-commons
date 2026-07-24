@@ -472,6 +472,67 @@ test('a shared ARTIFACT: the grant opens it, and the visitor gets no filing cont
   await grace.context.close()
 })
 
+test('the Commons lenses: an act fills the collection the rail lists it under', async ({ browser }) => {
+  test.setTimeout(120_000)
+  // The lenses are the viewer's OWN relationships (UI-19), so the proof has to
+  // be a round trip through the UI: do the act on a card, then find the item
+  // under the lens — and confirm it is NOT under a lens whose act you skipped.
+  const ada = await newUser(browser)
+  const grace = await newUser(browser, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
+
+  const LENS_PROJECT = `Lens walk ${STAMP}`
+  const LENS_NOTE = `Lens note ${STAMP}`
+  await ada.page.goto('/')
+  await createProject(ada.page, LENS_PROJECT)
+  await ada.page.getByLabel('Audience id').fill('tenant-beta')
+  await ada.page.getByLabel('Tier').selectOption({ label: 'Propose' })
+  await ada.page.getByLabel('Share note (publishes when present)').fill(LENS_NOTE)
+  await ada.page.getByRole('button', { name: 'Share', exact: true }).click()
+  await expect(ada.page.getByText('tenant-beta · published')).toBeVisible()
+
+  // ── POSTED is the actor's own act — Ada's, never Grace's ──────────────────
+  await ada.page.goto('/commons/posted')
+  await expect(ada.page.getByText(LENS_NOTE)).toBeVisible({ timeout: 20_000 })
+  await grace.page.goto('/commons/posted')
+  // The empty state first: it proves the LENS rendered, so the absence below is
+  // a real absence and not a page that never loaded.
+  await expect(grace.page.getByText(/You haven’t published anything yet/)).toBeVisible({ timeout: 20_000 })
+  await expect(grace.page.getByText(LENS_NOTE)).toHaveCount(0)
+
+  // ── LIKED and WATCHED are filled by the card's two acts ───────────────────
+  await grace.page.goto('/commons')
+  const card = grace.page.getByRole('main').locator('div').filter({ hasText: LENS_NOTE }).last()
+  await expect(grace.page.getByText(LENS_NOTE)).toBeVisible({ timeout: 20_000 })
+  await card.getByRole('button', { name: 'Like this post' }).click()
+  await expect(card.getByRole('button', { name: 'Unlike this post' })).toBeVisible()
+  await grace.page.goto('/commons/liked')
+  await expect(grace.page.getByText(LENS_NOTE)).toBeVisible()
+  // Not yet watched — a lens must not hold what its act never touched (and the
+  // empty state proves the lens itself rendered).
+  await grace.page.goto('/commons/watched')
+  await expect(grace.page.getByText(/Nothing watched yet/)).toBeVisible({ timeout: 20_000 })
+  await expect(grace.page.getByText(LENS_NOTE)).toHaveCount(0)
+
+  await grace.page.goto('/commons')
+  await expect(grace.page.getByText(LENS_NOTE)).toBeVisible({ timeout: 20_000 })
+  await grace.page.getByRole('main').locator('div').filter({ hasText: LENS_NOTE }).last()
+    .getByRole('button', { name: 'Watch' }).click()
+  await grace.page.goto('/commons/watched')
+  await expect(grace.page.getByText(LENS_NOTE)).toBeVisible()
+
+  // ── RECENTLY VIEWED fills by OPENING the subject, not by any button ───────
+  await grace.page.goto('/commons/viewed')
+  await expect(grace.page.getByText(/Nothing opened yet/)).toBeVisible()
+  await grace.page.goto('/commons')
+  await grace.page.getByRole('main').getByText(LENS_PROJECT).first().click()
+  await expect(grace.page.getByRole('heading', { name: LENS_PROJECT })).toBeVisible()
+  await grace.page.goto('/commons/viewed')
+  await expect(grace.page.getByText(LENS_NOTE)).toBeVisible()
+
+  await ada.context.close()
+  await grace.context.close()
+})
+
 test('a world with NO social activity: the Commons teaches instead of going blank', async ({ browser }) => {
   test.setTimeout(120_000)
   // Rei's Lab is the sparsest seeded world — no grants, no threads. Three of the

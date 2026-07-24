@@ -36,6 +36,21 @@ export type SubView = { id: string; label: string }
  *  Deliberately pure (only a type-only import), so `tests/` can import the
  *  registry without pulling the UI's icon deps. */
 export const SECTION_SUBVIEWS: Partial<Record<SectionId, SubView[]>> = {
+  // The Commons' standing LENSES (owner request, 2026-07-24: "add sub-entries
+  // that filter contents … this helps the user find things"). They are children
+  // rather than filter-menu options because they are not a partition of the
+  // feed's content — they are the VIEWER's own collections, each a place you go
+  // back to (GitHub's Watching / Stars / Yours, YouTube's Subscriptions /
+  // Liked / History). The feed's own partition — shares vs landings — is a
+  // property of the items, so it lives in the filter menu like every other.
+  // Every one is backed by a server-stamped, viewer-relative field on
+  // `CommonsItem`; nothing here is derived client-side.
+  commons: [
+    { id: 'watched', label: 'Watched' },
+    { id: 'liked', label: 'Liked' },
+    { id: 'posted', label: 'Posted' },
+    { id: 'viewed', label: 'Recently viewed' },
+  ],
   // The Agents hub's children are its NON-default *surfaces* — the section row itself
   // opens the worker-agents list (the default), so listing "Agents" again as a child
   // would duplicate it.

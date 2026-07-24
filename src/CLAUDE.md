@@ -139,7 +139,13 @@ directive 2026-07-24). Two kinds of child, and a section has exactly one kind:
 - **Declared surfaces** — `src/lib/subviews.ts` (`SECTION_SUBVIEWS`): a hub whose
   children are genuinely different PAGES (the Agents hub's Prompts / Commissions /
   Discover / Audit; the maintainer console's panels). The section row itself is the
-  hub's default surface, so it is never re-listed as a child.
+  hub's default surface, so it is never re-listed as a child. The **Commons' four
+  lenses** (Watched / Liked / Posted / Recently viewed) are surfaces too: the feed
+  has no per-row page to list, and a lens is the VIEWER's own collection — a place
+  you go back to — not a slice of the items. Each filters on a server-stamped,
+  viewer-relative `CommonsItem` field (`watched` / `liked` / `mine` / `viewedAt`);
+  a lens must never be a client-side guess, and `tests/commons-lenses.test.ts`
+  fails a lens with no predicate (it would silently show the whole feed).
 - **Instances** — `SECTION_INSTANCE_KEY`: a content section (Projects, Artifacts,
   Contexts, Models, Discussions) expands to the top `RAIL_INSTANCE_CAP` rows of the
   very list its page renders, with a "Show all — N more" tail row opening that page.

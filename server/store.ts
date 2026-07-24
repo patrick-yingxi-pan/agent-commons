@@ -50,6 +50,7 @@ import type {
   SessionWorkspace,
   ShareTier,
   SocialEntityRef,
+  SocialEntityKind,
   ToolActivity,
   UpdateScheduleRequest,
   UsageSnapshot,
@@ -621,9 +622,32 @@ const MENTION_CAP = 10
 const MENTION_MAX_NAME_LEN = 80
 
 // ── D24 — watching + the per-tenant notification inbox ──────────────────────
-// Watch subscriptions: projectId → the tenant ids watching it. Persisted as
-// [tenantId, projectId] pairs (a project has many watchers).
+// Watch subscriptions: a SUBJECT key → the tenant ids watching it. Keyed by
+// `kind:id` rather than a bare project id since the Commons grew a "Watched"
+// lens (UI-19): the feed carries artifacts, sessions and threads too, and a
+// watch that only projects could hold would have made that lens a half-feature.
+// The project routes are the same store under `project:<id>`; persisted as
+// [tenantId, key] pairs, and a pre-generalization snapshot's bare ids migrate
+// on load.
 const watches = new Map<string, Set<string>>()
+/** The one place a subject becomes a watch key. */
+function watchKey(ref: SocialEntityRef): string {
+  return `${ref.kind}:${ref.id}`
+}
+const projectRef = (projectId: string): SocialEntityRef => ({ kind: 'project', id: projectId })
+
+// ── The Commons lenses (S4) — the viewer's own relationships to a feed item ──
+// Likes: a feed ITEM id (`share:<grantId>` / `landing:<proposalId>`, derived and
+// stable) → the tenants who liked that act. Deliberately the same shape as a
+// discussion post's reaction, and deliberately NOT a notification: a like rings
+// nobody and moves no wall — it is the thinnest possible signal, kept so the
+// "Liked" lens has an act that fills it.
+const commonsLikes = new Map<string, Set<string>>()
+// Recently viewed: tenantId → the subjects it opened, newest first, capped like
+// the notification inbox. A pointer cache over things that remain readable where
+// they live, never a second history.
+const views = new Map<string, { key: string; kind: SocialEntityKind; id: string; at: number }[]>()
+const MAX_VIEWS_PER_TENANT = 50
 // The inbox: derived, capped, disposable rows (the acts themselves remain on their
 // backlogs/profiles). Each row carries its RECIPIENT tenant — server-private; the
 // tenant-scoped read serves only the caller's own rows, without the field.
@@ -730,7 +754,7 @@ function workItemAudience(item: StoredOpenSubGoal): Set<string> {
   const project = findProject(item.projectId)
   const ownerTenant = project?.tenantId ?? defaultTenantId()
   if (project?.shared !== true) return new Set([ownerTenant])
-  const out = new Set<string>(watches.get(item.projectId) ?? [])
+  const out = new Set<string>(watches.get(watchKey(projectRef(item.projectId))) ?? [])
   out.add(ownerTenant)
   if (item.postedByTenant) out.add(item.postedByTenant)
   return out
@@ -1575,9 +1599,13 @@ function snapshot(): PersistedState {
     discussions, // social S2 — anchored threads (talk survives a restart)
     socialProposals, // social S3 — offered changes + the per-subject ledger
     mutes: [...mutes.entries()].map(([t, set]) => [t, [...set]] as [string, string[]]), // S5 earmuffs
-    // D24 — watch subscriptions ([tenantId, projectId] pairs) + the notification inbox.
-    watches: [...watches.entries()].flatMap(([projectId, tenants]) => [...tenants].map((t) => [t, projectId] as [string, string])),
+    // D24 — watch subscriptions ([tenantId, subjectKey] pairs) + the notification inbox.
+    watches: [...watches.entries()].flatMap(([key, tenants]) => [...tenants].map((t) => [t, key] as [string, string])),
     notifications,
+    // The Commons lenses (S4): likes per feed item, and each tenant's
+    // recently-viewed ledger — both per principal, both survive a restart.
+    commonsLikes: [...commonsLikes.entries()].flatMap(([itemId, tenants]) => [...tenants].map((t) => [t, itemId] as [string, string])),
+    views: [...views.entries()].flatMap(([t, rows]) => rows.map((v) => [t, v.kind, v.id, v.at] as [string, string, string, number])),
     agentProposals: [...AGENT_PROPOSALS.entries()], // D25 — the definition review queue
     a2aPeers: [...A2A_PEERS.entries()], // D28 — verified-identity credentials (hashed)
     // The account registry (multi-account P7): onboarded users (scrypt
@@ -1806,11 +1834,30 @@ function rehydrate(s: PersistedState): void {
   // D24 — watches + the inbox (empty for a pre-field snapshot); counter falls back
   // to the inbox length so freshly minted ids never collide with restored ones.
   watches.clear()
-  for (const [tenantId, projectId] of s.watches ?? []) {
-    const set = watches.get(projectId) ?? new Set<string>()
+  for (const [tenantId, subject] of s.watches ?? []) {
+    // A pre-generalization snapshot stored the bare PROJECT id; a key without a
+    // kind prefix is one of those (ids themselves never contain ':').
+    const key = subject.includes(':') ? subject : watchKey(projectRef(subject))
+    const set = watches.get(key) ?? new Set<string>()
     set.add(tenantId)
-    watches.set(projectId, set)
+    watches.set(key, set)
   }
+  // The Commons lenses (no-ops for a pre-field snapshot).
+  commonsLikes.clear()
+  for (const [tenantId, itemId] of s.commonsLikes ?? []) {
+    const set = commonsLikes.get(itemId) ?? new Set<string>()
+    set.add(tenantId)
+    commonsLikes.set(itemId, set)
+  }
+  views.clear()
+  for (const [tenantId, kind, id, at] of s.views ?? []) {
+    const rows = views.get(tenantId) ?? []
+    rows.push({ key: `${kind}:${id}`, kind: kind as SocialEntityKind, id, at })
+    views.set(tenantId, rows)
+  }
+  // Newest first + capped at read, like every other restored list: a snapshot
+  // written by an older cap must not resurrect a longer history.
+  for (const [t, rows] of views) views.set(t, rows.sort((a, b) => b.at - a.at).slice(0, MAX_VIEWS_PER_TENANT))
   notifications.splice(0, notifications.length, ...(s.notifications ?? []))
   notificationSeq = s.seq.notification ?? notifications.length
   replaceMap(AGENT_PROPOSALS, s.agentProposals) // D25 (no-op for a pre-field snapshot)
@@ -5214,17 +5261,35 @@ export const store = {
     const items: CommonsItem[] = []
     const rootOf = (ref: SocialEntityRef) =>
       discussions.find((d) => d.anchor.ref.kind === ref.kind && d.anchor.ref.id === ref.id && d.anchor.locus === undefined)
-    const push = (base: Omit<CommonsItem, 'subjectName' | 'subjectBlurb' | 'discussionId' | 'commentCount'>) => {
-      const face = this.commonsSubjectFace(base.subject)
-      const root = rootOf(base.subject)
+    // The caller's own relationships, read once per feed rather than per item.
+    const viewedAt = new Map((views.get(tenantId) ?? []).map((v) => [v.key, v.at]))
+    const push = (
+      base: Omit<CommonsItem, 'subjectName' | 'subjectBlurb' | 'discussionId' | 'commentCount' | 'likes'> & {
+        /** The acting tenant — server-private; it never reaches the wire, only
+         *  the viewer-relative `mine` it decides (the REDACTED-face rule). */
+        actorTenant?: string
+      },
+    ) => {
+      const { actorTenant, ...item } = base
+      const face = this.commonsSubjectFace(item.subject)
+      const root = rootOf(item.subject)
+      const likedBy = commonsLikes.get(item.id)
+      const seen = viewedAt.get(watchKey(item.subject))
       items.push({
-        ...base,
+        ...item,
         subjectName: face.name,
         ...(face.blurb ? { subjectBlurb: face.blurb } : {}),
         ...(face.turns ? { subjectTurns: face.turns } : {}),
         ...(face.artifactKind ? { subjectArtifactKind: face.artifactKind } : {}),
         ...(root ? { discussionId: root.id } : {}),
         commentCount: root?.posts.length ?? 0,
+        // The four lens signals (S4). Each is the READER's relationship, so each
+        // is computed here and absent when it doesn't hold.
+        ...(actorTenant !== undefined && tenantReadsAs(tenantId, actorTenant) ? { mine: true } : {}),
+        likes: likedBy?.size ?? 0,
+        ...(likedBy?.has(tenantId) ? { liked: true } : {}),
+        ...(watches.get(watchKey(item.subject))?.has(tenantId) ? { watched: true } : {}),
+        ...(seen !== undefined ? { viewedAt: seen } : {}),
       })
     }
     const muted = mutes.get(tenantId)
@@ -5232,13 +5297,13 @@ export const store = {
       if (g.note === undefined) continue
       if (muted?.has(g.grantedBy)) continue // S5 earmuff — the viewer's own filter
       if (!this.grantSubjectVisible(g.subject, tenantId)) continue
-      push({ id: `share:${g.id}`, kind: 'share', at: g.grantedAt, actor: g.grantedBy, note: g.note, subject: g.subject })
+      push({ id: `share:${g.id}`, kind: 'share', at: g.grantedAt, actor: g.grantedBy, actorTenant: g.granterTenant, note: g.note, subject: g.subject })
     }
     for (const p of socialProposals) {
       if (p.state !== 'landed') continue
       if (muted?.has(p.offeredBy)) continue
       if (!this.grantSubjectVisible(p.subject, tenantId)) continue
-      push({ id: `landing:${p.id}`, kind: 'landing', at: p.offeredAt, actor: p.offeredBy, landingNumber: p.landingNumber, subject: p.subject })
+      push({ id: `landing:${p.id}`, kind: 'landing', at: p.offeredAt, actor: p.offeredBy, actorTenant: p.offererTenant, landingNumber: p.landingNumber, subject: p.subject })
     }
     return items.sort((a, b) => b.at - a.at)
   },
@@ -5864,17 +5929,63 @@ export const store = {
   // ── D24 — watching + the notification inbox ──
   /** Set the caller's watch on a Project (the route validates visibility with the
    *  same wall as reading it — watching needs only visibility, COMMONS-13). */
-  setWatch(projectId: string, tenantId: string, watching: boolean): WatchState {
-    const set = watches.get(projectId) ?? new Set<string>()
+  /** Set the caller's watch on any subject (the route validates visibility with
+   *  the same wall as reading it — watching needs only visibility, COMMONS-13). */
+  setWatch(subject: SocialEntityRef, tenantId: string, watching: boolean): WatchState {
+    const key = watchKey(subject)
+    const set = watches.get(key) ?? new Set<string>()
     if (watching) set.add(tenantId)
     else set.delete(tenantId)
-    if (set.size > 0) watches.set(projectId, set)
-    else watches.delete(projectId)
+    if (set.size > 0) watches.set(key, set)
+    else watches.delete(key)
     persist()
     return { watching }
   },
-  watchState(projectId: string, tenantId: string): WatchState {
-    return { watching: watches.get(projectId)?.has(tenantId) ?? false }
+  watchState(subject: SocialEntityRef, tenantId: string): WatchState {
+    return { watching: watches.get(watchKey(subject))?.has(tenantId) ?? false }
+  },
+  /** Toggle the caller's like on ONE feed item. Visibility is the item's
+   *  SUBJECT's wall (a like is never wider than what it likes), so an item the
+   *  caller can't read is the existence-hiding undefined. Returns the fresh
+   *  counts rather than the feed — the caller updates one card. */
+  setCommonsLike(itemId: string, tenantId: string, liked: boolean): { likes: number; liked: boolean } | undefined {
+    const subject = this.commonsItemSubject(itemId)
+    if (!subject || !this.grantSubjectVisible(subject, tenantId)) return undefined
+    const set = commonsLikes.get(itemId) ?? new Set<string>()
+    if (liked) set.add(tenantId)
+    else set.delete(tenantId)
+    if (set.size > 0) commonsLikes.set(itemId, set)
+    else commonsLikes.delete(itemId)
+    persist()
+    return { likes: set.size, liked }
+  },
+  /** The SUBJECT behind a derived feed-item id — the wall every per-item act
+   *  checks. `share:<grantId>` and `landing:<proposalId>` are the only two
+   *  shapes `listCommons` mints, so this is their one parser (an id that names
+   *  no live act resolves to undefined, which reads as "no such item"). */
+  commonsItemSubject(itemId: string): SocialEntityRef | undefined {
+    const [kind, ...rest] = itemId.split(':')
+    const id = rest.join(':')
+    if (kind === 'share') return grants.find((g) => g.id === id && g.note !== undefined)?.subject
+    if (kind === 'landing') {
+      const p = socialProposals.find((x) => x.id === id && x.state === 'landed')
+      return p?.subject
+    }
+    return undefined
+  },
+  /** Record that the caller OPENED a subject's page — the ledger behind the
+   *  Commons' "Recently viewed" lens. Per principal, capped and evicting (the
+   *  inbox posture); re-viewing moves an entry rather than adding one, so the
+   *  list is "the last N things you looked at", not "the last N times you
+   *  looked". Silently ignores a subject the caller can't read: a view is a
+   *  private note to self, never worth a 403 that confirms existence. */
+  recordView(subject: SocialEntityRef, tenantId: string): void {
+    if (!this.grantSubjectVisible(subject, tenantId)) return
+    const key = watchKey(subject)
+    const rows = (views.get(tenantId) ?? []).filter((v) => v.key !== key)
+    rows.unshift({ key, kind: subject.kind, id: subject.id, at: Date.now() })
+    views.set(tenantId, rows.slice(0, MAX_VIEWS_PER_TENANT))
+    persist()
   },
   /** The caller's inbox, newest first — ONLY its own rows, served without the
    *  recipient field (the wire shape is `AppNotification`). */

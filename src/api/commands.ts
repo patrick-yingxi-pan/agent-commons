@@ -33,6 +33,7 @@ import {
   type OpenProposalRequest,
   type PostToDiscussionRequest,
   type SocialProposal,
+  type SocialEntityRef,
   type OpenContributionRequest,
   type ProposeEnvelopeRequest,
   type CrystallizeRequest,
@@ -733,7 +734,45 @@ export async function commentOnAgentProposal(agentId: string, pid: string, body:
 export async function setProjectWatch(projectId: string, watching: boolean): Promise<WatchState> {
   const state = await apiPost<WatchState>(paths.projectWatch(projectId), { watching })
   setData(keys.projectWatch(projectId), state)
+  // The feed carries each item's `watched` for the Commons' Watched lens (S4),
+  // so a watch changed from the project page must not leave that lens stale.
+  invalidate(keys.commons)
   return state
+}
+
+/** ── The Commons lens acts (S4) ──────────────────────────────────────────────
+ *  Watched / Liked / Posted / Recently viewed are the viewer's own
+ *  relationships to a feed item, stamped by the server on every read. These are
+ *  the three writes that move them ("posted" needs none — it IS the actor). */
+
+/** Like / unlike one feed item. The response is that item's fresh counts; the
+ *  feed cache is invalidated so the card and the lens agree. */
+export async function setCommonsLike(itemId: string, liked: boolean): Promise<{ likes: number; liked: boolean }> {
+  const out = await apiPost<{ likes: number; liked: boolean }>(paths.commonsLike(itemId), { liked })
+  invalidate(keys.commons)
+  return out
+}
+
+/** Watch / unwatch ANY subject — the general door behind the feed card's toggle.
+ *  A project subject also refreshes that project's own watch state, so the page
+ *  and the card can never disagree about the same subscription. */
+export async function setSocialWatch(subject: SocialEntityRef, watching: boolean): Promise<WatchState> {
+  const state = await apiPost<WatchState>(paths.socialWatch(), { subject, watching })
+  if (subject.kind === 'project') setData(keys.projectWatch(subject.id), state)
+  invalidate(keys.commons)
+  return state
+}
+
+/** Record that the caller opened a subject's page — the "Recently viewed" ledger.
+ *  Fire-and-forget by design: it is a private note to self, so a failed write is
+ *  never worth interrupting a page load over. */
+export async function recordView(subject: SocialEntityRef): Promise<void> {
+  try {
+    await apiPost<{ ok: true }>(paths.socialViewed(), { subject })
+    invalidate(keys.commons)
+  } catch {
+    /* a view is not worth an error */
+  }
 }
 
 /** Mark inbox rows read (D24) — the named ids, or all. The server answers with the

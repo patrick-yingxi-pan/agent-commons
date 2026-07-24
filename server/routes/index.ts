@@ -12,6 +12,10 @@ import type {
   OpenProposalRequest,
   PostToDiscussionRequest,
   SocialEntityKind,
+  SocialEntityRef,
+  SetCommonsLikeRequest,
+  SetSocialWatchRequest,
+  RecordViewRequest,
   CreateDispatchRequest,
   CreateProviderRequest,
   RelayReplyRequest,
@@ -119,6 +123,22 @@ function gate(res: ServerResponse, feature: 'localFs' | 'localGit' | 'osPicker' 
   if (store.can(feature)) return true
   sendError(res, 'capability_unavailable', `'${feature}' needs the native backend; this is a remote web server.`)
   return false
+}
+
+/** A social subject from an untrusted body — `undefined` unless it is exactly a
+ *  declared kind plus a non-empty id (INV-9's strict core: the server refuses
+ *  what isn't a declared shape rather than storing whatever arrived). */
+function socialRef(v: unknown): SocialEntityRef | undefined {
+  const o = v as { kind?: unknown; id?: unknown } | null | undefined
+  if (!o || typeof o.id !== 'string' || !o.id) return undefined
+  if (typeof o.kind !== 'string' || !(SOCIAL_ENTITY_KINDS as readonly string[]).includes(o.kind)) return undefined
+  return { kind: o.kind as SocialEntityKind, id: o.id }
+}
+
+/** The same subject from `?kind=&id=` — the query half, so the six social reads
+ *  that take a subject parse it one way. */
+function socialRefFromQuery(url: URL): SocialEntityRef | undefined {
+  return socialRef({ kind: url.searchParams.get('kind') ?? '', id: url.searchParams.get('id') ?? '' })
 }
 
 /** Runner enrollment auth (F4): when `RUNNER_ENROLL_TOKEN` is set, every state-changing
@@ -1813,13 +1833,13 @@ export function buildRouter(): Router {
   // Watch a project you can see (the same wall as reading it); read/mark your inbox.
   r.get('/projects/:id/watch', ({ req, res, params }) => {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
-    sendJson(res, store.watchState(params.id, store.identity(req.headers).tenant.id))
+    sendJson(res, store.watchState({ kind: 'project', id: params.id }, store.identity(req.headers).tenant.id))
   })
   r.post('/projects/:id/watch', async ({ req, res, params, body }) => {
     const input = await body<SetWatchRequest>()
     if (typeof input?.watching !== 'boolean') return sendError(res, 'bad_request', 'watching (boolean) is required')
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
-    sendJson(res, store.setWatch(params.id, store.identity(req.headers).tenant.id, input.watching))
+    sendJson(res, store.setWatch({ kind: 'project', id: params.id }, store.identity(req.headers).tenant.id, input.watching))
   })
   r.get('/notifications', ({ req, res }) => {
     sendJson(res, store.listNotifications(store.identity(req.headers).tenant.id))
@@ -1846,14 +1866,10 @@ export function buildRouter(): Router {
   // kind-specific path. The wall is existence-hiding (invisible ≡ nonexistent);
   // creation is the subject owner's act, revocation is either party's.
   r.get('/grants', ({ req, res, url }) => {
-    const kind = url.searchParams.get('kind') ?? ''
-    const id = url.searchParams.get('id') ?? ''
-    if (!(SOCIAL_ENTITY_KINDS as readonly string[]).includes(kind) || !id) {
-      return sendError(res, 'bad_request', 'kind (a social entity kind) and id are required')
-    }
-    const ref = { kind: kind as SocialEntityKind, id }
+    const ref = socialRefFromQuery(url)
+    if (!ref) return sendError(res, 'bad_request', 'kind (a social entity kind) and id are required')
     const tenant = store.identity(req.headers).tenant.id
-    if (!store.grantSubjectVisible(ref, tenant)) return sendError(res, 'not_found', `No ${kind} '${id}'`)
+    if (!store.grantSubjectVisible(ref, tenant)) return sendError(res, 'not_found', `No ${ref.kind} '${ref.id}'`)
     sendJson(res, store.listGrants(ref, tenant))
   })
   r.post('/grants', async ({ req, res, body }) => {
@@ -1891,14 +1907,10 @@ export function buildRouter(): Router {
   // from the SAME predicates those paths use, never a parallel rule. Walled like
   // every other social face: an invisible subject 404s exactly as a missing one.
   r.get('/social/capability', ({ req, res, url }) => {
-    const kind = url.searchParams.get('kind') ?? ''
-    const id = url.searchParams.get('id') ?? ''
-    if (!(SOCIAL_ENTITY_KINDS as readonly string[]).includes(kind) || !id) {
-      return sendError(res, 'bad_request', 'kind (a social entity kind) and id are required')
-    }
-    const ref = { kind: kind as SocialEntityKind, id }
+    const ref = socialRefFromQuery(url)
+    if (!ref) return sendError(res, 'bad_request', 'kind (a social entity kind) and id are required')
     const tenant = store.identity(req.headers).tenant.id
-    if (!store.grantSubjectVisible(ref, tenant)) return sendError(res, 'not_found', `No ${kind} '${id}'`)
+    if (!store.grantSubjectVisible(ref, tenant)) return sendError(res, 'not_found', `No ${ref.kind} '${ref.id}'`)
     sendJson(res, {
       canComment: store.socialSubjectCommentable(ref, tenant),
       canPropose: store.socialSubjectProposable(ref, tenant),
@@ -1915,14 +1927,10 @@ export function buildRouter(): Router {
     if (url.searchParams.get('mine') === '1') {
       return sendJson(res, store.listMyDiscussions(store.identity(req.headers).tenant.id))
     }
-    const kind = url.searchParams.get('kind') ?? ''
-    const id = url.searchParams.get('id') ?? ''
-    if (!(SOCIAL_ENTITY_KINDS as readonly string[]).includes(kind) || !id) {
-      return sendError(res, 'bad_request', 'kind (a social entity kind) and id are required')
-    }
-    const ref = { kind: kind as SocialEntityKind, id }
+    const ref = socialRefFromQuery(url)
+    if (!ref) return sendError(res, 'bad_request', 'kind (a social entity kind) and id are required')
     const tenant = store.identity(req.headers).tenant.id
-    if (!store.grantSubjectVisible(ref, tenant)) return sendError(res, 'not_found', `No ${kind} '${id}'`)
+    if (!store.grantSubjectVisible(ref, tenant)) return sendError(res, 'not_found', `No ${ref.kind} '${ref.id}'`)
     sendJson(res, store.listDiscussions(ref, tenant))
   })
   r.post('/discussions', async ({ req, res, body }) => {
@@ -2001,19 +2009,55 @@ export function buildRouter(): Router {
   r.get('/commons', ({ req, res }) => {
     sendJson(res, store.listCommons(store.identity(req.headers).tenant.id))
   })
+  // The lens acts (the rail's Watched / Liked / Posted / Recently viewed).
+  // "Posted" needs no act — it IS the actor field — and the other three are the
+  // thinnest writes in the system: a like, a watch, a note that you looked.
+  r.post('/commons/:itemId/like', async ({ req, res, params, body }) => {
+    const input = await body<SetCommonsLikeRequest>()
+    if (typeof input?.liked !== 'boolean') return sendError(res, 'bad_request', 'liked (boolean) is required')
+    const out = store.setCommonsLike(params.itemId, store.identity(req.headers).tenant.id, input.liked)
+    // Existence-hiding, like every subject-walled read: an item whose subject
+    // the caller can't see must 404 exactly as an unknown id does.
+    if (!out) return sendError(res, 'not_found', `No feed item '${params.itemId}'`)
+    sendJson(res, out)
+  })
+  r.get('/social/watch', ({ req, res, url }) => {
+    const ref = socialRefFromQuery(url)
+    if (!ref) return sendError(res, 'bad_request', 'kind (a social entity kind) and id are required')
+    const tenant = store.identity(req.headers).tenant.id
+    if (!store.grantSubjectVisible(ref, tenant)) return sendError(res, 'not_found', `No ${ref.kind} '${ref.id}'`)
+    sendJson(res, store.watchState(ref, tenant))
+  })
+  r.post('/social/watch', async ({ req, res, body }) => {
+    const input = await body<SetSocialWatchRequest>()
+    const ref = socialRef(input?.subject)
+    if (!ref || typeof input?.watching !== 'boolean') {
+      return sendError(res, 'bad_request', 'subject (kind + id) and watching (boolean) are required')
+    }
+    const tenant = store.identity(req.headers).tenant.id
+    // Watching needs only VISIBILITY (COMMONS-13) — the same wall as reading it.
+    if (!store.grantSubjectVisible(ref, tenant)) return sendError(res, 'not_found', `No ${ref.kind} '${ref.id}'`)
+    sendJson(res, store.setWatch(ref, tenant, input.watching))
+  })
+  r.post('/social/viewed', async ({ req, res, body }) => {
+    const input = await body<RecordViewRequest>()
+    const ref = socialRef(input?.subject)
+    if (!ref) return sendError(res, 'bad_request', 'subject (kind + id) is required')
+    // Deliberately no visibility ERROR: the store drops an unreadable subject
+    // silently, because a refusal here would answer "does this exist?" for
+    // anything a page happened to mount.
+    store.recordView(ref, store.identity(req.headers).tenant.id)
+    sendJson(res, { ok: true })
+  })
 
   // ── Social-layer proposals (S3) ─────────────────────────────────────────────
   // The landing ledger generalized: walls inherit the SUBJECT's (existence-
   // hiding everywhere); landing/declining is the subject owner's consent.
   r.get('/proposals', ({ req, res, url }) => {
-    const kind = url.searchParams.get('kind') ?? ''
-    const id = url.searchParams.get('id') ?? ''
-    if (!(SOCIAL_ENTITY_KINDS as readonly string[]).includes(kind) || !id) {
-      return sendError(res, 'bad_request', 'kind (a social entity kind) and id are required')
-    }
-    const ref = { kind: kind as SocialEntityKind, id }
+    const ref = socialRefFromQuery(url)
+    if (!ref) return sendError(res, 'bad_request', 'kind (a social entity kind) and id are required')
     const tenant = store.identity(req.headers).tenant.id
-    if (!store.grantSubjectVisible(ref, tenant)) return sendError(res, 'not_found', `No ${kind} '${id}'`)
+    if (!store.grantSubjectVisible(ref, tenant)) return sendError(res, 'not_found', `No ${ref.kind} '${ref.id}'`)
     sendJson(res, store.listSocialProposals(ref, tenant))
   })
   r.post('/proposals', async ({ req, res, body }) => {

@@ -378,7 +378,16 @@ export async function buildComprehensive(): Promise<PersistedState> {
   // project's audience is its owner alone), a foreign tenant watches it, and a
   // posted-then-commented item (D23) fans notifications out to that watcher.
   store.applyRelationOp({ kind: 'share-project', projectId: PROJECT_ID, projectName: PROJECT_NAME, shared: true })
-  store.setWatch(PROJECT_ID, 'tenant-playground-watcher', true)
+  store.setWatch({ kind: 'project', id: PROJECT_ID }, 'tenant-playground-watcher', true)
+
+  // ── The Commons lenses (S4) ── the other two per-principal slices: a like on
+  // a published feed item, and a recently-viewed entry. Read the item id from
+  // the REAL feed rather than composing `share:<id>` by hand, so this exercises
+  // the same derived id the UI acts on.
+  const watcherFeed = store.listCommons('tenant-playground-watcher')
+  const likeable = watcherFeed.find((i) => i.subject.id === PROJECT_ID)
+  if (likeable) store.setCommonsLike(likeable.id, 'tenant-playground-watcher', true)
+  store.recordView({ kind: 'project', id: PROJECT_ID }, 'tenant-playground-watcher')
 
   // ── The bearer-token registry (INV-11 / PORT-9) ── one minted row, so the
   // `apiTokens` slice round-trips (revocation state must survive a restart).

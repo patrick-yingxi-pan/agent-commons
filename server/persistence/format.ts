@@ -231,10 +231,19 @@ export interface PersistedState {
   /** S5 guardrails — per-viewer mute lists (`[tenantId, names[]]`).
    *  Additive-optional. */
   mutes?: [string, string[]][]
-  /** Watch subscriptions (D24) — `[tenantId, projectId]` pairs (tuples, not a Map:
-   *  a project has many watchers). Additive-optional like `dispatch` (a pre-field
-   *  snapshot loads cleanly with no watches). */
+  /** Watch subscriptions (D24) — `[tenantId, subjectKey]` pairs (tuples, not a Map:
+   *  a subject has many watchers), where the key is `kind:id`. Additive-optional
+   *  like `dispatch` (a pre-field snapshot loads cleanly with no watches); a
+   *  snapshot written before the key generalized carries a BARE project id, which
+   *  rehydrate migrates to `project:<id>`. */
   watches?: [string, string][]
+  /** Commons likes (S4) — `[tenantId, feedItemId]` pairs, same tuple shape as
+   *  `watches` (an item has many likers). Additive-optional. */
+  commonsLikes?: [string, string][]
+  /** Each tenant's recently-viewed subjects (S4) — `[tenantId, kind, id, at]`
+   *  rows, newest re-sorted and capped on load. Derived, disposable state (the
+   *  subjects remain where they live); additive-optional. */
+  views?: [string, string, string, number][]
   /** The per-tenant notification inbox (D24) — derived, capped, disposable state
    *  (the acts themselves remain on their backlogs/profiles). Additive-optional. */
   notifications?: StoredNotification[]
@@ -333,6 +342,8 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   socialProposals: 'array',
   mutes: 'mapEntries',
   watches: 'array',
+  commonsLikes: 'array',
+  views: 'array',
   notifications: 'array',
   agentProposals: 'mapEntries',
   a2aPeers: 'mapEntries',

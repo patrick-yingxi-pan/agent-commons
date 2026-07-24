@@ -153,6 +153,9 @@ import {
   commentOnWorkItem,
   retractWorkItem,
   setProjectWatch,
+  setSocialWatch,
+  setCommonsLike,
+  recordView,
   proposeAgentChange,
   resolveAgentProposal,
   commentOnAgentProposal,
@@ -432,7 +435,7 @@ export function SectionView({
         onOpenSession={onOpenSession}
       />
     ) : section === 'commons' ? (
-      <CommonsSection />
+      <CommonsSection lens={subview} />
     ) : section === 'discussions' ? (
       <DiscussionsSection discussionId={focusDiscussionId} onOpenSession={onOpenSession} onFocusHere={onFocusHere} onBack={onBack} backTo={backTo} />
     ) : section === 'admin' ? (
@@ -804,6 +807,7 @@ function ProjectDetail({
   onNewSession: () => void
 }) {
   const rel = useRelations()
+  useRecordView('project', project.id)
   const convs = rel.sessionsForProject(project.id)
   const contexts = rel.contextsForProject(project.id)
 
@@ -2252,15 +2256,33 @@ function OpenWorkList({ projectId }: { projectId: string }) {
  *  the caller's own subscription; the server walls it on visibility. */
 function WatchButton({ projectId }: { projectId: string }) {
   const state = useWatchState(projectId).data
+  return <WatchToggle subject={{ kind: 'project', id: projectId }} watching={state?.watching === true} ready={!!state} />
+}
+
+/** The watch toggle for ANY subject (the key generalized with the Commons'
+ *  Watched lens, S4). Two hosts, one control: the project page fetches its own
+ *  watch state, while a feed card already HAS it — the server stamps `watched`
+ *  on every item — so the state is a prop rather than a second request per card. */
+function WatchToggle({
+  subject,
+  watching,
+  ready = true,
+}: {
+  subject: SocialEntityRef
+  watching: boolean
+  /** False while the host is still fetching the state (the button waits rather
+   *  than rendering "Watch" over an unknown truth). */
+  ready?: boolean
+}) {
   const [failed, setFailed] = useState(false)
   const [busy, setBusy] = useState(false)
-  const watching = state?.watching === true
+  const noun = subject.kind === 'project' ? 'project' : subject.kind
   const toggle = async () => {
-    if (busy || !state) return
+    if (busy || !ready) return
     setBusy(true)
     setFailed(false)
     try {
-      await setProjectWatch(projectId, !watching)
+      await setSocialWatch(subject, !watching)
     } catch {
       // The button renders purely from the server state, so a swallowed failure
       // would leave it visually unchanged with no signal — flag it (the title
@@ -2273,9 +2295,15 @@ function WatchButton({ projectId }: { projectId: string }) {
   return (
     <button
       onClick={toggle}
-      disabled={busy || !state}
+      disabled={busy || !ready}
       aria-pressed={watching}
-      title={failed ? 'Couldn’t update — click to retry' : watching ? 'Stop receiving this project’s public acts' : 'Get this project’s public acts in your notifications'}
+      title={
+        failed
+          ? 'Couldn’t update — click to retry'
+          : watching
+            ? `Stop receiving this ${noun}’s public acts`
+            : `Get this ${noun}’s public acts in your notifications`
+      }
       className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[13px] font-medium transition disabled:opacity-45 ${
         watching
           ? 'border-accent/40 bg-accent-tint text-accent-strong'
@@ -3006,13 +3034,14 @@ function FeedCard({ item }: { item: CommonsItem }) {
           </div>
         )}
       </div>
-      {/* Follow = the D24 watch, where watch machinery exists (project
-          subjects); other kinds gain it when the watch key generalizes. */}
-      {kind === 'project' && (
-        <div className="mt-2 flex justify-end">
-          <WatchButton projectId={id} />
-        </div>
-      )}
+      {/* The card's two standing acts — the ones that FILL the rail's lenses
+          (S4). Watch now works for every subject kind, not just projects: the
+          key generalized, so the card no longer has to know which kinds the
+          bell happens to support. */}
+      <div className="mt-2 flex items-center justify-end gap-2">
+        <LikeButton item={item} />
+        <WatchToggle subject={item.subject} watching={item.watched === true} />
+      </div>
       {root && root.posts.length > 0 && (
         <div className="mt-3 border-t border-line pt-2.5">
           {root.posts.length > tail.length && (
@@ -3052,21 +3081,111 @@ function ProfileCommonsBand({ actor }: { actor: string }) {
   )
 }
 
+/** The rail's Commons lenses, as predicates over the SERVER's viewer-relative
+ *  fields (contract/social.ts). One table, so the rail registry, the empty
+ *  states below and the filter agree by construction — and so a lens can never
+ *  be a client-side guess about what the reader watches or liked. */
+const LENS_HOLDS: Record<string, (i: CommonsItem) => boolean> = {
+  watched: (i) => i.watched === true,
+  liked: (i) => i.liked === true,
+  posted: (i) => i.mine === true,
+  viewed: (i) => i.viewedAt !== undefined,
+}
+
+/** The lens's own name, taken FROM the rail registry rather than retyped, so
+ *  the page header and the rail row can't drift apart. */
+const LENS_LABEL: Record<string, string> = Object.fromEntries(
+  (SECTION_SUBVIEWS.commons ?? []).map((s) => [s.id, s.label]),
+)
+
+/** What each lens says when it holds nothing — the act that would fill it. An
+ *  empty collection is exactly where its verb has to be named. */
+const LENS_EMPTY: Record<string, string> = {
+  watched: 'Nothing watched yet — watch a resource from its card or its page, and its acts land here.',
+  liked: 'Nothing liked yet — like a post from its card to keep it here.',
+  posted: 'You haven’t published anything yet — share a resource with a note and your post lands here.',
+  viewed: 'Nothing opened yet — the resources you open from the commons collect here, most recent first.',
+}
+
+/** Record that this pane OPENED a subject's page — the ledger behind the
+ *  Commons' "Recently viewed" lens (S4). One hook, so every entity page joins
+ *  the same way and none of them knows a URL. Fires once per subject: an
+ *  effect keyed on (kind, id), not on every render.
+ *
+ *  Deliberately NOT wired to conversations: a session you are inside is your
+ *  own workspace, not something you browsed, and the rail's Recents pane is
+ *  already that history. The lens complements it rather than repeating it. */
+function useRecordView(kind: SocialEntityRef['kind'], id: string | undefined): void {
+  useEffect(() => {
+    if (id) void recordView({ kind, id })
+  }, [kind, id])
+}
+
+/** The feed card's like — the thinnest social signal there is, and the act that
+ *  fills the rail's "Liked" lens. Deliberately the same shape as a discussion
+ *  post's reaction (a count plus whether YOU are in it), and deliberately not a
+ *  notification: a like rings nobody and moves no wall. */
+function LikeButton({ item }: { item: CommonsItem }) {
+  const liked = item.liked === true
+  const [busy, setBusy] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const toggle = async () => {
+    if (busy) return
+    setBusy(true)
+    setFailed(false)
+    try {
+      await setCommonsLike(item.id, !liked)
+    } catch {
+      // Rendered purely from server state, so a swallowed failure would look
+      // like nothing happened — say so instead (the WatchButton rule).
+      setFailed(true)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <button
+      onClick={toggle}
+      disabled={busy}
+      aria-pressed={liked}
+      aria-label={liked ? 'Unlike this post' : 'Like this post'}
+      title={failed ? 'Couldn’t update — click to retry' : liked ? 'Remove your like' : 'Like this post'}
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[13px] font-medium transition disabled:opacity-45 ${
+        liked
+          ? 'border-accent/40 bg-accent-tint text-accent-strong'
+          : 'border-line text-ink-soft hover:border-line-strong hover:text-ink'
+      }`}
+    >
+      <ThumbsUp size={14} />
+      {liked ? 'Liked' : 'Like'}
+      {item.likes > 0 && <span className="text-ink-faint">{item.likes}</span>}
+    </button>
+  )
+}
+
 /** The Commons feed — what the caller's world shares. One chronological
  *  column; the deliberate note is the publish act (silent grants stay out).
  *  The kind facet (shares / landings) lives in the rail row's "Filter & sort"
  *  (UI-19) — the feed has no per-row page of its own, so the rail's children
- *  are the viewer's standing lenses instead. */
-function CommonsSection() {
+ *  are the viewer's standing LENSES: watched / liked / posted / recently
+ *  viewed, each the viewer's own relationship to an item rather than a slice of
+ *  the items themselves. */
+function CommonsSection({ lens }: { lens: string | null }) {
   const rel = useRelations()
   const all = useCommons().data ?? []
   const [filter] = useSectionFilter('commons')
   const kind = filter.facet === 'shares' ? 'share' : filter.facet === 'landings' ? 'landing' : null
-  const list = sortSectionRows(
-    kind ? all.filter((i) => i.kind === kind) : all,
-    filter.sortBy,
-    { name: (i) => i.subjectName, at: (i) => i.at },
-  )
+  const byKind = kind ? all.filter((i) => i.kind === kind) : all
+  // The rail's LENS narrows to the viewer's own collection — each on a
+  // server-stamped, viewer-relative field, never a client guess.
+  const inLens = lens === null ? byKind : byKind.filter((i) => LENS_HOLDS[lens]?.(i) ?? true)
+  const list =
+    lens === 'viewed'
+      ? // "Recently viewed" IS an order: by when YOU opened the subject, not by
+        // when the act happened — the sort choice would answer a different
+        // question here, so this lens owns its own.
+        [...inLens].sort((a, b) => (b.viewedAt ?? 0) - (a.viewedAt ?? 0))
+      : sortSectionRows(inLens, filter.sortBy, { name: (i) => i.subjectName, at: (i) => i.at })
   // The BROWSE band (Discover consolidation): the D17 shared-project directory
   // lives with the resources it lists — searchable, list-not-feed, never
   // widening visibility. The Agents hub's Discover keeps agent discovery
@@ -3076,12 +3195,16 @@ function CommonsSection() {
   const browse = useProjectDirectory(q.trim() || undefined).data ?? []
   return (
     <Page>
-      <PageHeader title="Commons" />
+      <PageHeader title={lens ? `Commons · ${LENS_LABEL[lens] ?? lens}` : 'Commons'} />
       {list.length === 0 ? (
         <Empty>
-          {filter.facet !== 'all'
-            ? `No ${filter.facet} in your commons yet.`
-            : 'Nothing published yet — share a resource with a note (the note is the post) and it lands here for its audience.'}
+          {/* A lens names the act that fills it; a facet says what it found
+              nothing of; the bare feed explains what a post even is. */}
+          {lens
+            ? (LENS_EMPTY[lens] ?? 'Nothing here yet.')
+            : filter.facet !== 'all'
+              ? `No ${filter.facet} in your commons yet.`
+              : 'Nothing published yet — share a resource with a note (the note is the post) and it lands here for its audience.'}
         </Empty>
       ) : (
         <div className="mx-auto w-full max-w-xl space-y-3">
@@ -3090,7 +3213,7 @@ function CommonsSection() {
           ))}
         </div>
       )}
-      {filter.facet === 'all' && (
+      {lens === null && filter.facet === 'all' && (
         <div className="mx-auto mt-8 w-full max-w-xl">
           <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
             Browse the commons
@@ -3206,6 +3329,7 @@ function DiscussionPage({
 }) {
   const q = useDiscussion(discussionId)
   const d = q.data ?? null
+  useRecordView('discussion', discussionId)
   // Read BEFORE the not-found early return, so hook order is stable; disabled
   // until the anchor is known.
   const canComment = useSocialCapability(d?.anchor.ref.kind ?? '', d?.anchor.ref.id ?? '', !!d).data?.canComment === true
@@ -4671,6 +4795,9 @@ function ArtifactsSection({ artifactId, onOpenSession }: { artifactId: string | 
   // An id the registry doesn't know (a stale link, a deleted artifact) degrades
   // to the plain gallery — the same graceful read every detail page gives.
   const openArtifact = artifactId ? (rel.allArtifacts().find((a) => a.id === artifactId) ?? null) : null
+  // The open artifact IS this section's detail page now, so it records a view
+  // like every other one (only when it actually resolved).
+  useRecordView('artifact', openArtifact?.id)
 
   // Create an artifact straight from the gallery (no session): a sessionless
   // save-artifact op, optionally filed under a project. Server-owned + persisted
@@ -5565,6 +5692,7 @@ function ContextDetail({
   onToggle: () => void
   onRemove: () => void
 }) {
+  useRecordView('context', ctx.id)
   const Icon = contextIcon(ctx)
   const isRepo = ctx.kind === 'repo'
   const connected = ctx.status === 'connected'
@@ -10053,6 +10181,7 @@ function ScheduledDetail({
   onOpenSession: (id: string) => void
   onRemove: () => void
 }) {
+  useRecordView('schedule', task.id)
   // Editing the routine name is a per-action entity edit; the delivery + notify
   // settings live in DeliveryPanel below.
   const [editingName, setEditingName] = useState(false)

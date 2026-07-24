@@ -174,8 +174,12 @@ export const paths = {
   socialCapability: (kind: string, id: string) => `/social/capability?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`,
   sessionFork: (id: string) => `/sessions/${encodeURIComponent(id)}/fork`,
   myDiscussions: () => `/discussions?mine=1`,
-  /** The Commons feed (S4). */
+  /** The Commons feed (S4) + the acts behind its lenses: a like on one item, a
+   *  watch on any subject, and the note that you opened one. */
   commons: () => `/commons`,
+  commonsLike: (itemId: string) => `/commons/${encodeURIComponent(itemId)}/like`,
+  socialWatch: () => `/social/watch`,
+  socialViewed: () => `/social/viewed`,
   /** A subject's proposals (social S3) + the per-proposal faces. */
   socialProposals: (kind: string, id: string) => `/proposals?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`,
   socialProposalOpen: () => `/proposals`,

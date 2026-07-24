@@ -311,6 +311,45 @@ export interface CommonsItem {
   discussionId?: string
   /** Posts on that root thread (the card's count; the thread is the door). */
   commentCount: number
+  /** ── The viewer's own relationships to this item (the Commons lenses) ──────
+   *  Four standing collections the rail offers as lenses on the feed — watched,
+   *  liked, posted, recently viewed. They are the reader's relationship to the
+   *  item, not a property of it, so they are computed at serve time (the `mine`
+   *  pattern) and every one of them is viewer-relative. Absence is the negative
+   *  in each case (INV-9): not mine, not liked, not watched, never opened. */
+  /** The caller is the ACTOR — their share, their landing. */
+  mine?: boolean
+  /** How many namespaces liked this ACT (the count is public, like a post's
+   *  reactions), and whether the caller is one of them. */
+  likes: number
+  liked?: boolean
+  /** The caller watches this item's SUBJECT (so its acts reach their bell). */
+  watched?: boolean
+  /** When the caller last opened the subject's page — absent = never. Orders
+   *  the "Recently viewed" lens, which is by definition an order, not a set. */
+  viewedAt?: number
+}
+
+/** `POST /v1/commons/:itemId/like` — toggle the caller's like on one feed item.
+ *  Explicit rather than a bare toggle: two clients pressing at once must
+ *  converge on the state the user asked for, not on a parity race. */
+export interface SetCommonsLikeRequest {
+  liked: boolean
+}
+
+/** `POST /v1/social/watch` — watch (or unwatch) ANY subject. The
+ *  project-scoped `/projects/:id/watch` (D24) is the same store under a
+ *  `project` ref; this is the general door the Commons' Watched lens needs. */
+export interface SetSocialWatchRequest {
+  subject: SocialEntityRef
+  watching: boolean
+}
+
+/** `POST /v1/social/viewed` — record that the caller OPENED a subject's page.
+ *  A private note to self: it rings nobody, widens nothing, and a subject the
+ *  caller can't read is silently ignored rather than refused. */
+export interface RecordViewRequest {
+  subject: SocialEntityRef
 }
 
 /** The tier lattice as a rank — view 0 < comment 1 < propose 2 < co-own 3. */
