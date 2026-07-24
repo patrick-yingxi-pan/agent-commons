@@ -21,6 +21,7 @@ import { PhotoThumb } from './PhotoThumb'
 import { GrantsPanel } from './GrantsPanel'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { useDismissable } from '../lib/useDismissable'
+import { STANDING_DOOR_CLASS } from '../lib/textDoor'
 import { relativeTime } from '../lib/relativeTime'
 import { SCRIM_CLASS } from '../lib/scrim'
 import { POPOVER_SURFACE } from '../lib/popover'
@@ -648,7 +649,7 @@ export function ArtifactViewer({
               className="group inline-flex max-w-full items-center gap-1 truncate transition hover:text-ink"
             >
               From{' '}
-              <span className="truncate font-medium text-ink-soft underline decoration-line-strong decoration-from-font underline-offset-2 group-hover:text-ink">
+              <span className={`truncate font-medium text-ink-soft ${STANDING_DOOR_CLASS} group-hover:text-ink`}>
                 {artifact.source}
               </span>
               <ArrowUpRight size={12} className="shrink-0 opacity-60 transition group-hover:opacity-100" />

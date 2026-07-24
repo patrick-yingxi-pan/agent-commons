@@ -7,7 +7,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { filesUnder, read, stripComments } from './helpers/source.ts'
 import { AGENT_ACTOR_TITLE, agentActorLabel, bylineLabel, identityHue, identityInitial, profileTitle, SHARED_MARKER } from '../src/lib/publicFace.ts'
 
 const src = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
@@ -24,12 +26,26 @@ test('profileTitle — the profile page title carries the same own-marker (D21)'
 })
 
 test('no component re-hardcodes the byline or the shared marker', () => {
+  // Tree-wide, not SectionView-only. These scans used to grep that one file while
+  // the rule they enforce is repo-wide, and the gap was not theoretical: the
+  // owner-door style had escaped into artifactPreview.tsx AND into PublicFace.tsx
+  // itself, both invisible to a single-file grep (see tests/text-door.test.ts,
+  // docs/ui-invariants.md UI-16). Comment-stripped so the funnel's own prose —
+  // which necessarily spells the cues out — can neither satisfy nor trip them.
+  // Only lib/publicFace.ts is exempt — it MINTS both. PublicFace.tsx is scanned
+  // like any other component: it spells the cues out in prose only, which
+  // stripComments removes, so it must reference the constants, never retype them.
+  for (const file of filesUnder('src')) {
+    if (file.endsWith(join('lib', 'publicFace.ts'))) continue
+    const source = stripComments(read(file))
+    assert.ok(!/\(you\)/.test(source), `${file} must derive "(you)" via bylineLabel, not inline it`)
+    assert.ok(!source.includes(SHARED_MARKER), `${file} must render the shared marker via <Byline>, not inline it`)
+  }
   const sectionView = src('../src/components/SectionView.tsx')
-  assert.ok(!/\(you\)/.test(sectionView), 'SectionView must derive "(you)" via bylineLabel, not inline it')
-  assert.ok(!sectionView.includes(SHARED_MARKER), 'SectionView must render the shared marker via <Byline>, not inline it')
   assert.ok(/bylineLabel|<Byline/.test(sectionView), 'SectionView routes owner labels through the funnel')
   // The owner-door style is <OwnerLink>'s alone — the first review pass found the same
-  // underline classes hand-rolled three times before this funnel existed.
+  // underline classes hand-rolled three times before this funnel existed. The cue now
+  // lives in lib/textDoor, and tests/text-door.test.ts owns its tree-wide ban.
   assert.ok(!sectionView.includes('decoration-line-strong'), 'the owner-door style lives in PublicFace (<OwnerLink>), never inline')
 
   const publicFace = src('../src/components/PublicFace.tsx')
@@ -45,8 +61,13 @@ test('agentActorLabel — the one agent-actor label (FWD-5 Phase 3)', () => {
 test('the agent-actor cue has one home — components route through <AgentActor>/<ActorByline>', () => {
   const sectionView = src('../src/components/SectionView.tsx')
   assert.ok(/<AgentActor|<ActorByline/.test(sectionView), 'act bylines route through the funnel')
-  assert.ok(!sectionView.includes(AGENT_ACTOR_TITLE), 'the tooltip is minted in lib/publicFace, never retyped')
-  assert.ok(!sectionView.includes("'a contributor'"), 'the fallback label lives in agentActorLabel, never inline (the pre-funnel copy)')
+  // Tree-wide for the same reason as the byline scans above.
+  for (const file of filesUnder('src')) {
+    if (file.endsWith(join('lib', 'publicFace.ts'))) continue
+    const source = stripComments(read(file))
+    assert.ok(!source.includes(AGENT_ACTOR_TITLE), `${file} must take the tooltip from lib/publicFace, never retype it`)
+    assert.ok(!source.includes("'a contributor'"), `${file} must take the fallback label from agentActorLabel, never inline it`)
+  }
 
   const publicFace = src('../src/components/PublicFace.tsx')
   assert.ok(publicFace.includes('AGENT_ACTOR_TITLE'), 'the badge component references the one tooltip source')
@@ -69,8 +90,15 @@ test('the mark has one home — <WorkspaceMark> in PublicFace; no component hand
   const publicFace = src('../src/components/PublicFace.tsx')
   assert.ok(publicFace.includes('identityHue') && publicFace.includes('identityInitial'), 'the component derives from the one source')
   assert.ok(/aria-hidden/.test(publicFace), 'the mark is texture — the NAME stays the accessible identity')
+  // Tree-wide: any component re-deriving the name-hashed mark forks the identity.
+  for (const file of filesUnder('src')) {
+    if (file.endsWith(join('lib', 'publicFace.ts')) || file.endsWith(join('components', 'PublicFace.tsx'))) continue
+    assert.ok(
+      !/identityHue|identityInitial/.test(stripComments(read(file))),
+      `${file} must wear <WorkspaceMark>, never re-derive the mark`,
+    )
+  }
   const sectionView = src('../src/components/SectionView.tsx')
-  assert.ok(!/identityHue|identityInitial/.test(sectionView), 'components wear <WorkspaceMark>, never re-derive the mark')
   assert.ok(sectionView.includes('<WorkspaceMark'), 'the profile header wears the shared mark')
 })
 

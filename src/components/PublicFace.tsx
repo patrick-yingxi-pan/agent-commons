@@ -9,6 +9,7 @@ import { Award, Bot, GitFork, Globe } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { PrincipalKind } from '../../contract/index.ts'
 import { AGENT_ACTOR_TITLE, agentActorLabel, bylineLabel, identityHue, identityInitial, SHARED_MARKER } from '../lib/publicFace'
+import { STANDING_DOOR_CLASS } from '../lib/textDoor'
 
 /** The workspace identity mark — the avatar's role, derived deterministically from
  *  the display name (identityHue / identityInitial): a small tinted disc with the
@@ -37,10 +38,13 @@ export function WorkspaceMark({ name, size = 13 }: { name?: string; size?: numbe
   )
 }
 
-/** The one owner-door style — an underlined owner name that opens "everything this
- *  workspace shares". Local to this module on purpose: consumers use <OwnerLink>,
- *  never the class (the lock greps for strays). */
-const OWNER_LINK_CLASS = 'underline decoration-line-strong underline-offset-2 transition hover:text-ink'
+/** This module's standing door — the shared cue (lib/textDoor) plus the hover color
+ *  these bylines use. Worn by BOTH doors here: the owner name that opens "everything
+ *  this workspace shares", and a CreditLine count that opens its lineage. Named for
+ *  the cue rather than for one of its two wearers, because the previous name
+ *  (OWNER_LINK_CLASS) is precisely why CreditStat retyped the literal instead of
+ *  reusing it — inside the very module whose comment promised nobody would. */
+const STANDING_DOOR = `${STANDING_DOOR_CLASS} hover:text-ink`
 
 /** The clickable owner byline — the same door on a directory subtitle and inside
  *  a Byline: click the owner to open that workspace's profile page (D21). */
@@ -65,7 +69,7 @@ export function OwnerLink({
         e.stopPropagation()
         onClick()
       }}
-      className={`inline-flex items-center gap-1 align-bottom ${OWNER_LINK_CLASS}`}
+      className={`inline-flex items-center gap-1 align-bottom ${STANDING_DOOR}`}
       title="Show everything this workspace shares"
     >
       {/* The identity mark rides every owner door (aria-hidden — texture, not name). */}
@@ -143,7 +147,7 @@ function CreditStat({ title, onClick, children }: { title?: string; onClick?: ()
         onClick()
       }}
       title={title}
-      className={`${cls} underline decoration-line-strong underline-offset-2 transition hover:text-ink`}
+      className={`${cls} ${STANDING_DOOR}`}
     >
       {children}
     </button>

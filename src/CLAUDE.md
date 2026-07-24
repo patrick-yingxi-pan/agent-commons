@@ -193,6 +193,14 @@ round-trip test — never parse or mint a path anywhere else. Locked by
 doors**: a card / list row fronting a page makes its TITLE the primary click
 target (GitHub's title-as-link), wired to the same handler as the explicit open
 affordance (`CommonsCardHead`'s `onOpen`; the work-item title opens its thread).
+Every such door — a title, a name inside a metadata line, a standing owner /
+source byline — wears the one cue in `src/lib/textDoor.ts` (`DOOR_CLASS` /
+`STANDING_DOOR_CLASS`); callers append only color, size and layout, for the
+reasons the module states. External links, the dotted provenance opener, and
+quiet ghost text *actions* (`INLINE_ACTION_CLASS`) are deliberately not doors.
+Locked by `tests/text-door.test.ts` (invariant UI-16), whose scans read the
+whole `src/` tree — the shape a one-home lock must have, since the file-scoped
+version of this rule missed two strays for as long as it existed.
 
 ## The back-history rule — an in-page door carries its origin; browser Back is per-page
 

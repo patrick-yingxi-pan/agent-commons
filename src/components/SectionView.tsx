@@ -76,6 +76,7 @@ import { cleanSteps, moveStep, removeStep } from '../lib/steps'
 import { ConnectorDetailBody } from './ConnectorPanel'
 import { AddContextButton } from './AddContextButton'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
+import { DOOR_CLASS } from '../lib/textDoor'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { AnchorThreadComposer } from './AnchorThreadComposer'
 import { LocusGutter } from './LocusGutter'
@@ -2363,7 +2364,7 @@ function WorkItemRow({
             the comment-count link below stays the inline quick-thread. */}
         <button
           onClick={() => rel.navigate('projects', projectId, o.id)}
-          className={`block max-w-full text-left text-[13px] font-medium hover:underline ${
+          className={`block max-w-full text-left text-[13px] ${DOOR_CLASS} ${
             o.status === 'retracted' ? 'text-ink-faint line-through' : 'text-ink'
           }`}
         >
@@ -2606,7 +2607,7 @@ function WorkItemPage({
             · in{' '}
             <button
               onClick={() => rel.navigate('projects', project.id)}
-              className="font-medium text-ink-soft hover:underline"
+              className={`text-ink-soft ${DOOR_CLASS}`}
             >
               {project.name}
             </button>
@@ -2904,7 +2905,7 @@ function FeedCard({ item }: { item: CommonsItem }) {
         {target ? (
           <button
             onClick={() => rel.navigate(target, id)}
-            className="block max-w-full truncate text-left text-[13px] font-medium text-ink hover:underline"
+            className={`block max-w-full truncate text-left text-[13px] text-ink ${DOOR_CLASS}`}
           >
             {item.subjectName}
           </button>
@@ -3277,7 +3278,7 @@ function DiscussionsSection({
               </span>
               <div className="min-w-0 flex-1">
                 {/* Title-as-door: the first post fronts the thread's page. */}
-                <button onClick={() => rel.navigate('discussions', d.id)} className="block max-w-full truncate text-left text-[14px] font-medium text-ink hover:underline">
+                <button onClick={() => rel.navigate('discussions', d.id)} className={`block max-w-full truncate text-left text-[14px] text-ink ${DOOR_CLASS}`}>
                   {discussionTitle(d.posts[0]?.body)}
                 </button>
                 <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
@@ -3477,7 +3478,7 @@ function ChangesPanel({ project, own, onOpenSession }: { project: Project; own: 
                   <div className="min-w-0 flex-1">
                     <button
                       onClick={() => openPage(c.id)}
-                      className="block max-w-full truncate text-left text-[13px] font-medium text-ink hover:underline"
+                      className={`block max-w-full truncate text-left text-[13px] text-ink ${DOOR_CLASS}`}
                     >
                       {c.title}
                     </button>
@@ -3810,7 +3811,7 @@ function ContributionPage({
             · in{' '}
             <button
               onClick={() => rel.navigate('projects', project.id)}
-              className="font-medium text-ink-soft hover:underline"
+              className={`text-ink-soft ${DOOR_CLASS}`}
             >
               {project.name}
             </button>
@@ -3820,7 +3821,7 @@ function ContributionPage({
           {c.sessionId && c.mine === true && (
             <span>
               ·{' '}
-              <button onClick={() => onOpenSession(c.sessionId!)} className="font-medium text-ink-soft hover:underline">
+              <button onClick={() => onOpenSession(c.sessionId!)} className={`text-ink-soft ${DOOR_CLASS}`}>
                 View the work
               </button>
             </span>
@@ -4007,7 +4008,7 @@ function AttentionPanel({ project }: { project: Project }) {
               <div className="min-w-0 flex-1">
                 <button
                   onClick={() => openAsk(a.contributionId)}
-                  className="block max-w-full truncate text-left text-[13px] font-medium text-ink hover:underline"
+                  className={`block max-w-full truncate text-left text-[13px] text-ink ${DOOR_CLASS}`}
                 >
                   {a.title}
                 </button>
@@ -5970,7 +5971,7 @@ function CommonsCardHead({
         {onOpen ? (
           <button
             onClick={onOpen}
-            className="block max-w-full truncate text-left text-[14px] font-medium text-ink hover:underline"
+            className={`block max-w-full truncate text-left text-[14px] text-ink ${DOOR_CLASS}`}
           >
             {title}
           </button>
@@ -6015,7 +6016,7 @@ function YourWorkTab({ onOpenProposal }: { onOpenProposal: (agentId: string, pro
                 <div className="min-w-0 flex-1">
                   <button
                     onClick={() => rel.navigate('projects', o.projectId, o.id)}
-                    className={`block max-w-full truncate text-left text-[13px] font-medium hover:underline ${
+                    className={`block max-w-full truncate text-left text-[13px] ${DOOR_CLASS} ${
                       o.status === 'retracted' ? 'text-ink-faint line-through' : 'text-ink'
                     }`}
                   >
@@ -6023,7 +6024,7 @@ function YourWorkTab({ onOpenProposal }: { onOpenProposal: (agentId: string, pro
                   </button>
                   <div className="text-[11px] text-ink-faint">
                     in{' '}
-                    <button onClick={() => rel.navigate('projects', o.projectId)} className="font-medium hover:underline">
+                    <button onClick={() => rel.navigate('projects', o.projectId)} className={`text-ink-soft ${DOOR_CLASS}`}>
                       {o.projectName}
                     </button>{' '}
                     · {o.status === 'open' ? 'awaiting a taker' : o.status} · {relativeTime(o.postedAt)}
@@ -6051,7 +6052,7 @@ function YourWorkTab({ onOpenProposal }: { onOpenProposal: (agentId: string, pro
                 <div className="min-w-0 flex-1">
                   <button
                     onClick={() => onOpenProposal(p.agentId, p.id, p.agentOwner === myName ? null : p.agentOwner)}
-                    className="block max-w-full truncate text-left text-[13px] font-medium text-ink hover:underline"
+                    className={`block max-w-full truncate text-left text-[13px] text-ink ${DOOR_CLASS}`}
                   >
                     {p.note.trim() || `Change to ${p.agentLabel}`}
                   </button>
@@ -9098,7 +9099,7 @@ function AdminUserRowView({ row, onOpen }: { row: AdminUserRow; onOpen: () => vo
         <div className="flex items-center gap-1.5">
           {/* Title-as-door (the titles-are-doors rule): the name opens the
               account's own page; the row's acts live there now. */}
-          <button onClick={onOpen} className="truncate text-[13px] font-medium text-ink hover:underline">
+          <button onClick={onOpen} className={`truncate text-[13px] text-ink ${DOOR_CLASS}`}>
             {row.user.name}
           </button>
           {row.seeded && <AdminBadge>Seeded</AdminBadge>}
@@ -10566,7 +10567,7 @@ function RunRow({
           <button
             onClick={onOpen}
             title="Open this run’s session"
-            className="truncate text-left text-[13px] font-medium text-ink transition hover:underline"
+            className={`truncate text-left text-[13px] text-ink ${DOOR_CLASS}`}
           >
             {relativeTime(run.at)}
           </button>
@@ -10778,13 +10779,16 @@ function ContextToolsPanel({ task }: { task: ScheduledTask }) {
                   // own type scale rather than the inline-action one.
                   <button
                     onClick={door}
-                    className="min-w-0 flex-1 truncate text-left text-[13px] text-ink transition hover:underline"
+                    className={`min-w-0 flex-1 truncate text-left text-[13px] text-ink ${DOOR_CLASS}`}
                     title={`Open ${t.label} in Contexts`}
                   >
                     {t.label}
                   </button>
                 ) : (
-                  <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{t.label}</span>
+                  // Matches the door's weight: whether a tool resolves in your
+                  // registry decides if the name is CLICKABLE, and must not also
+                  // restyle it (the CommonsCardHead pair is the precedent).
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">{t.label}</span>
                 )}
                 <StatusPill tone={t.needsAuth ? 'warn' : 'ok'} label={t.needsAuth ? 'Needs auth' : 'Connected'} />
               </div>
