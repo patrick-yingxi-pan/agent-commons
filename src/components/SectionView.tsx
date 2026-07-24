@@ -30,6 +30,7 @@ import {
   Lock,
   Mail,
   MessageSquare,
+  MessageSquarePlus,
   MinusCircle,
   PauseCircle,
   Pencil,
@@ -187,8 +188,6 @@ import {
   declineSocialProposal,
   createGrant,
   revokeGrant,
-  openDiscussion,
-  postToDiscussion,
   reactToDiscussionPost,
   deleteDiscussionPost,
   reportDiscussionPost,
@@ -2822,29 +2821,53 @@ function DiscussionPostList({
 function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boolean }) {
   const list = useDiscussions(subject.kind, subject.id).data ?? []
   const root = list.find((d) => d.anchor.locus === undefined) ?? null
+  // Capability shapes affordances: a `view`-tier reader gets no compose verb at
+  // all, rather than one whose every send the write path refuses.
+  const canComment = useSocialCapability(subject.kind, subject.id).data?.canComment === true
+  // The composer is ON DEMAND, disclosed by the section header's verb — the same
+  // rule Open work / Coordination / Changes follow on this page (UI-18). It used
+  // to sit permanently open below the thread, the one section on the page whose
+  // primary act was a standing form instead of a header verb.
+  const [composing, setComposing] = useState(false)
   const react = (pid: string) => {
     if (root) void reactToDiscussionPost(root.id, pid, subject)
   }
   const flip = () => {
     if (root) void setDiscussionState(root.id, root.state === 'open' ? 'resolved' : 'open', subject)
   }
+  const composeVerb = canComment ? (
+    <SectionAction
+      key="compose"
+      label={root ? 'Reply to this discussion' : 'Start the discussion'}
+      icon={<MessageSquarePlus size={14} />}
+      onClick={() => setComposing((v) => !v)}
+      expanded={composing}
+    />
+  ) : null
+  const resolveVerb =
+    root && root.canResolve === true ? (
+      <SectionAction
+        key="resolve"
+        label={root.state === 'open' ? 'Resolve this discussion' : 'Reopen this discussion'}
+        icon={root.state === 'open' ? <CheckCircle2 size={14} /> : <MessageSquare size={14} />}
+        onClick={flip}
+      />
+    ) : null
   return (
     <MainSection
       title="Discussion"
-      revealActions={!root || root.canResolve !== true}
-      actions={
-        root && root.canResolve === true ? (
-          <SectionAction
-            label={root.state === 'open' ? 'Resolve this discussion' : 'Reopen this discussion'}
-            icon={root.state === 'open' ? <CheckCircle2 size={14} /> : <MessageSquare size={14} />}
-            onClick={flip}
-          />
-        ) : undefined
-      }
+      revealActions={!root || composing}
+      // Undefined, not an empty fragment: a view-tier reader on an unresolvable
+      // thread has no verbs, and MainSection must render no cluster for them.
+      actions={composeVerb || resolveVerb ? [composeVerb, resolveVerb] : undefined}
     >
       {root === null ? (
+        // Names the verb, like Open work's empty state — with the form now
+        // behind the header, the empty section is where its act is learned.
         <p className="text-[12px] text-ink-faint">
-          No discussion yet — the first post opens this {subject.kind}’s public thread.
+          {canComment
+            ? `Nothing discussed yet. Start the discussion — the first post opens this ${subject.kind}’s public thread.`
+            : `No discussion yet — the first post opens this ${subject.kind}’s public thread.`}
         </p>
       ) : (
         <div className="space-y-3">
@@ -2861,9 +2884,17 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
           />
         </div>
       )}
-      <div className="mt-3">
-        <RootThreadComposer subject={subject} root={root} />
-      </div>
+      {composing && (
+        <div className="mt-3">
+          <RootThreadComposer
+            subject={subject}
+            root={root}
+            autoFocus
+            onPosted={() => setComposing(false)}
+            onCancel={() => setComposing(false)}
+          />
+        </div>
+      )}
     </MainSection>
   )
 }
@@ -2872,13 +2903,39 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
 
 /** The root-thread composer is the shared `AnchorThreadComposer` with no locus
  *  — one component for every projection of a thread (the entity panel, the feed
- *  card, the conversation's turn gutter). */
-const RootThreadComposer = ({ subject, root, placeholder }: { subject: SocialEntityRef; root: Discussion | null; placeholder?: string }) => {
+ *  card, the discussion's own page, the conversation's turn gutter). */
+const RootThreadComposer = ({
+  subject,
+  root,
+  placeholder,
+  autoFocus,
+  onPosted,
+  onCancel,
+}: {
+  subject: SocialEntityRef
+  root: Discussion | null
+  placeholder?: string
+  /** Set by a DISCLOSED composer (the entity panel's, opened from the section
+   *  header's verb): the caret lands where the verb promised. A standing
+   *  composer (the feed card's) leaves focus alone. */
+  autoFocus?: boolean
+  onPosted?: () => void
+  onCancel?: () => void
+}) => {
   // Capability shapes affordances: a `view`-tier reader reads the thread and
   // may not post to it, so they get no composer rather than a refusal.
   const canComment = useSocialCapability(subject.kind, subject.id).data?.canComment === true
   if (!canComment) return null
-  return <AnchorThreadComposer subject={subject} thread={root} placeholder={placeholder} />
+  return (
+    <AnchorThreadComposer
+      subject={subject}
+      thread={root}
+      placeholder={placeholder}
+      autoFocus={autoFocus}
+      onPosted={onPosted}
+      onCancel={onCancel}
+    />
+  )
 }
 
 /** One feed post — a share act or a landing, its subject embed, and the door
@@ -3139,9 +3196,6 @@ function DiscussionPage({
   // Read BEFORE the not-found early return, so hook order is stable; disabled
   // until the anchor is known.
   const canComment = useSocialCapability(d?.anchor.ref.kind ?? '', d?.anchor.ref.id ?? '', !!d).data?.canComment === true
-  const [draft, setDraft] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   if (!d) {
     return (
       <Page>
@@ -3154,19 +3208,6 @@ function DiscussionPage({
         <Empty>{q.error ? 'This discussion isn’t visible from this account (or no longer exists).' : 'Loading…'}</Empty>
       </Page>
     )
-  }
-  const send = async () => {
-    if (busy || !draft.trim()) return
-    setBusy(true)
-    setError(null)
-    try {
-      await postToDiscussion(d.id, draft.trim(), d.anchor.ref)
-      setDraft('')
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not post.')
-    } finally {
-      setBusy(false)
-    }
   }
   return (
     <Page>
@@ -3220,26 +3261,25 @@ function DiscussionPage({
           onDelete={(pid) => void deleteDiscussionPost(d.id, pid, d.anchor.ref)}
           onReport={(pid) => void reportDiscussionPost(d.id, pid)}
         />
-        {/* Capability shapes affordances: a `view`-tier reader reads the thread
-            and may still REACT (the thinnest signal needs no tier) — but gets no
-            reply box, rather than one whose every send is refused. */}
+        {/* The ONE thread composer, like every other projection of a thread —
+            this page used to hand-roll its own textarea + Post + error state
+            around a second `postToDiscussion` call, which is how the two drifted
+            apart (form follows function; the composer's own header names its
+            consumers). Capability shapes affordances: a `view`-tier reader reads
+            the thread and may still REACT (the thinnest signal needs no tier) —
+            `canComment` is what decides they get no reply box.
+            STANDING, not disclosed: this page IS the discussion, so the composer
+            is its payload, not chrome on a host surface (UI-18's exception —
+            the entity panel's copy of it hides behind a section verb). */}
         {canComment && (
-          <>
-            <div className="mt-4 flex items-start gap-2">
-              <textarea
-                aria-label="Reply to this discussion"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder="Reply…"
-                rows={draft.includes('\n') ? 3 : 1}
-                className={`${FORM_INPUT_CLASS} resize-none`}
-              />
-              <button onClick={() => void send()} disabled={busy || !draft.trim()} className={`${INLINE_ACTION_CLASS} mt-1 shrink-0`}>
-                Post
-              </button>
-            </div>
-            {error && <p className="mt-1 text-[11px] text-danger">{error}</p>}
-          </>
+          <div className="mt-4">
+            <AnchorThreadComposer
+              subject={d.anchor.ref}
+              thread={d}
+              placeholder="Reply…"
+              ariaLabel="Reply to this discussion"
+            />
+          </div>
         )}
       </div>
     </Page>

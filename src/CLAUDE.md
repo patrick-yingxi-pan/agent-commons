@@ -49,8 +49,13 @@ and `src/lib/formInput.ts` (every text FIELD's look) + `src/lib/focusContext.ts`
 `FOCUS_FLASH_CLASS` (the lit highlight every door's target wears on arrival —
 work item, comment, agent card, conversation turn), both locked by
 `tests/form-input.test.ts`, and `src/components/AnchorThreadComposer.tsx` (the ONE
-thread composer — the entity panel, the Commons card, and the conversation's turn
-gutter all post through it, differing only by anchor)
+thread composer — the entity panel, the Commons card, the discussion's own page,
+and the conversation's turn gutter all post through it, differing only by anchor;
+locked by `tests/thread-composer.test.ts`, which allows exactly one caller of
+`postToDiscussion`/`openDiscussion` — the discussion page hand-rolled a second
+composer for as long as this rule went unlocked. Inside a SECTION the composer is
+**disclosed by the header's verb**, never left standing open (invariant UI-18);
+a standing composer is only for a surface whose whole subject IS the thread)
 and `src/lib/spinner.ts` + `src/components/Spinner.tsx` (every loading spinner — its
 spin gated behind `motion-safe:` so it respects `prefers-reduced-motion`, WCAG 2.3.3;
 the lock forbids ANY bare `animate-{spin,pulse,ping,bounce}` so no infinite animation

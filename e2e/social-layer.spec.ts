@@ -108,6 +108,9 @@ test('share → feed → discuss → improve: one thread, one ledger, across two
   await expect(grace.page.getByLabel('Audience kind')).toHaveCount(0)
 
   // ── Grace comments on the entity page — the same root thread the card shows ──
+  // The composer is disclosed by the section's header verb (UI-18), like the
+  // "Offer a change" flow just below — no standing form on an entity page.
+  await grace.page.getByRole('button', { name: /^(Start the discussion|Reply to this discussion)$/ }).click()
   await grace.page.getByRole('textbox', { name: 'Post to this project’s discussion' }).fill(COMMENT)
   await grace.page.getByRole('button', { name: 'Post to this project’s discussion' }).click()
   await expect(grace.page.getByText(COMMENT)).toBeVisible()
