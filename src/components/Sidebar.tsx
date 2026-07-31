@@ -199,13 +199,20 @@ export function Sidebar({
     if (activeSection && hasChildren(activeSection))
       setExpanded((prev) => (prev.has(activeSection) ? prev : new Set(prev).add(activeSection)))
   }, [activeSection])
-  const toggleExpand = (id: SectionId) =>
+  // Persistence sits BESIDE each setState, never inside its updater: React may
+  // run an updater during the render phase, and a setLayout there notifies the
+  // live useSectionFilter readers mid-render — the "Cannot update a component
+  // while rendering a different component" console error this rail shipped
+  // until 2026-07-31. Locked by tests/pure-updaters.test.ts.
+  const toggleExpand = (id: SectionId) => {
+    const willOpen = !expanded.has(id)
+    setLayout(`treeOpen.${id}`, willOpen)
     setExpanded((prev) => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      setLayout(`treeOpen.${id}`, next.has(id))
+      willOpen ? next.add(id) : next.delete(id)
       return next
     })
+  }
 
   // The maintainer console's rail row is CHROME gated on the identity's
   // `instanceAdmin` grant (the server's 404 wall is the real gate) — everyone
@@ -291,11 +298,10 @@ export function Sidebar({
     })
   }, [routines, routineFilter, scheduleProjectId, projects])
 
-  const toggleSched = () =>
-    setSchedOpen((v) => {
-      setLayout('schedOpen', !v)
-      return !v
-    })
+  const toggleSched = () => {
+    setLayout('schedOpen', !schedOpen)
+    setSchedOpen(!schedOpen)
+  }
 
   // Open a routine from the rail: land on its latest run (a run *is* a session);
   // a routine that hasn't run yet opens its page instead.
@@ -315,16 +321,14 @@ export function Sidebar({
   // The whole mechanism is gated on `resizable` (dropped on the narrow tier, ADAPT-11).
   const [sectionsOpen, setSectionsOpen] = useState<boolean>(() => getLayout('railSectionsOpen', true))
   const [recentsOpen, setRecentsOpen] = useState<boolean>(() => getLayout('railRecentsOpen', true))
-  const toggleSectionsOpen = () =>
-    setSectionsOpen((v) => {
-      setLayout('railSectionsOpen', !v)
-      return !v
-    })
-  const toggleRecentsOpen = () =>
-    setRecentsOpen((v) => {
-      setLayout('railRecentsOpen', !v)
-      return !v
-    })
+  const toggleSectionsOpen = () => {
+    setLayout('railSectionsOpen', !sectionsOpen)
+    setSectionsOpen(!sectionsOpen)
+  }
+  const toggleRecentsOpen = () => {
+    setLayout('railRecentsOpen', !recentsOpen)
+    setRecentsOpen(!recentsOpen)
+  }
 
   const stackRef = useRef<HTMLDivElement>(null)
   const scheduledPaneRef = useRef<HTMLDivElement>(null)

@@ -67,6 +67,12 @@ export function getLayout<T extends number | boolean | string>(key: string, fall
   return typeof v === typeof fallback ? (v as T) : fallback
 }
 
+/** Write one value and notify live readers. The notify is SYNCHRONOUS, so this
+ *  must never run during React's render phase — not from a component body, a
+ *  useState initializer, or a setState UPDATER (updaters replay during render
+ *  when the queue is busy; Sidebar's rail toggles once persisted from inside
+ *  theirs and drew the "cannot update while rendering" error). Call it from the
+ *  event handler, beside the setState. Locked by tests/pure-updaters.test.ts. */
 export function setLayout(key: string, value: number | boolean | string) {
   try {
     localStorage.setItem(storageKey(), JSON.stringify({ ...load(), [key]: value }))
