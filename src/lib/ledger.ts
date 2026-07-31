@@ -28,11 +28,11 @@
  *  CARD in a stack or grid. Surface follows the entity's nature, applied to
  *  chrome.
  *
- *  Migration note: Projects is the first converted surface; the remaining
- *  card-pile collections (Artifacts, Contexts, the hub lists in SectionView)
- *  convert band by band. When converting one, delete its per-item card chrome
- *  entirely — a ledger row inside a card is the box-in-box defect this module
- *  exists to end. */
+ *  The 2026-07-31 migration converted every collection (Projects, Contexts,
+ *  Scheduled, CardList → ledger; Artifacts, Commons, Models cards → quiet
+ *  card) and swept every resting shadow. When adding a new collection, take
+ *  the recipe from here — a ledger row inside a card is the box-in-box defect
+ *  this module exists to end, and tests/ledger.test.ts scans for regressions. */
 
 /** The container: one border, small radius, hairline dividers between children
  *  (the head included). `overflow-hidden` keeps row hover washes inside the

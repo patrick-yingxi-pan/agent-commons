@@ -21,12 +21,17 @@ names its locking test — moving or weakening a rule means moving its lock too.
   direction is GitHub-Primer-flat on the Claret palette (oxblood accent on warm
   parchment; canvas and surface share one value — boundaries are hairlines and
   spacing, not fill contrast). Containment is semantic: a COLLECTION renders as
-  one bordered container with divider rows — the shared recipe `src/lib/ledger.ts`
-  (locked by `tests/ledger.test.ts`; Projects and `CardList` converted first,
-  remaining card piles convert band by band) — while an interactive object
-  standing alone (the composer, a diff, a proposal card, dialogs) keeps its own
-  chrome, and ELEVATION means floating (shadows are for `lib/popover` overlays,
-  not resting content). The claret accent neighbors the danger reds: solid
+  one bordered container with divider rows when its items are one-liners
+  (Projects, Contexts, Scheduled, `CardList`), or a stack/grid of QUIET CARDS
+  when they carry rich bodies (Artifacts, the Commons feed, the Models
+  management cards) — both recipes live in `src/lib/ledger.ts`, with the radius
+  scale (collections 6px · cards 8px · standalone objects 12px). An interactive
+  object standing alone (the composer, a diff, a proposal card, dialogs) keeps
+  its own chrome, and ELEVATION means floating: exactly four overlay surfaces
+  cast shadows (`lib/popover`, `lib/dialog` — the one dialog-surface funnel —
+  `Tooltip`, `AccountMenu`). All of it ratcheted by `tests/ledger.test.ts`
+  (recipes flat, no hand-rolled bordered divider containers, no resting shadow
+  of any spelling tree-wide, overlay allowlist alive-checked). The claret accent neighbors the danger reds: solid
   claret means "go", bright signal-red means "danger", never both weights on one
   surface. This restyles but does not restructure — the rail, the split
   workspace, and every navigation rule below are unchanged.
