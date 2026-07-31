@@ -43,11 +43,16 @@ test('the card cues are hover cues, and the two containers stay distinct', () =>
     assert.ok(cue.includes('transition'), `"${cue}" eases rather than snaps`)
     assert.ok(/\bhover:/.test(cue), `"${cue}" carries an actual hover cue`)
   }
-  // A bordered CARD lifts (border + shadow); a ROW inside a bordered list has no
-  // border of its own to sharpen, so it washes. Same role, different container —
-  // if these ever converge, one of them is styling the wrong thing.
-  assert.ok(CARD_DOOR_CLASS.includes('hover:border-line-strong') && CARD_DOOR_CLASS.includes('hover:shadow'))
+  // A bordered CARD sharpens its border and tints; a ROW inside a bordered list
+  // has no border of its own to sharpen, so it only washes. Same role, different
+  // container — if these ever converge, one of them is styling the wrong thing.
+  // Neither cue may LIFT: elevation means floating (lib/ledger's flat direction),
+  // so a hover shadow is the old card language creeping back.
+  assert.ok(CARD_DOOR_CLASS.includes('hover:border-line-strong') && CARD_DOOR_CLASS.includes('hover:bg-'))
   assert.ok(ROW_DOOR_CLASS.includes('hover:bg-'))
+  for (const cue of [CARD_DOOR_CLASS, ROW_DOOR_CLASS]) {
+    assert.ok(!cue.includes('shadow'), `the cue does not lift: "${cue}"`)
+  }
   assert.notEqual(CARD_DOOR_CLASS, ROW_DOOR_CLASS)
   // The cue is a cue, not a layout: padding, radius and the RESTING border /
   // background belong to the card (a rounded-2xl project card and a flush list
@@ -66,7 +71,7 @@ test('no file re-hardcodes a card cue', () => {
     if (file.endsWith(FUNNEL)) continue
     const src = stripComments(read(file))
     assert.ok(
-      !src.includes('hover:border-line-strong hover:shadow'),
+      !src.includes('hover:border-line-strong hover:bg-'),
       `${file} must take the card cue from lib/cardDoor, not re-hardcode it`,
     )
     assert.ok(

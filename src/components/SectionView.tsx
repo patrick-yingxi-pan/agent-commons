@@ -79,7 +79,7 @@ import { AddContextButton } from './AddContextButton'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { DOOR_CLASS } from '../lib/textDoor'
 import { CARD_DOOR_CLASS, ROW_DOOR_CLASS, cardDoorClick } from '../lib/cardDoor'
-import { LEDGER_BOX_CLASS, LEDGER_HEAD_CLASS, LEDGER_COUNT_CLASS, LEDGER_ROW_CLASS } from '../lib/ledger'
+import { LEDGER_BOX_CLASS, LEDGER_HEAD_CLASS, LEDGER_COUNT_CLASS, LEDGER_ROW_CLASS, QUIET_CARD_CLASS } from '../lib/ledger'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { AnchorThreadComposer } from './AnchorThreadComposer'
 import { LocusGutter } from './LocusGutter'
@@ -5102,7 +5102,7 @@ function ArtifactCard({
     <div
       aria-busy={pending}
       onClick={pending ? undefined : cardDoorClick(onOpen)}
-      className={`flex flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-sm transition ${
+      className={`flex flex-col overflow-hidden border-line ${QUIET_CARD_CLASS} transition ${
         pending ? 'cursor-default opacity-60' : CARD_DOOR_CLASS
       }`}
     >
@@ -5431,12 +5431,11 @@ function ContextsSection({
                   onToggle={() => foldGroup(g.kind)}
                 />
                 {!isFolded && (
-                  <div className="overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
-                    {g.items.map((c, i) => (
+                  <div className={LEDGER_BOX_CLASS}>
+                    {g.items.map((c) => (
                       <ContextRow
                         key={c.id}
                         ctx={c}
-                        first={i === 0}
                         onOpen={() => rel.navigate('contexts', c.id)}
                         onToggle={() => toggle(c.id)}
                         onRemove={() => remove(c.id)}
@@ -5500,8 +5499,9 @@ function McpAccessCard() {
     ? JSON.stringify({ mcpServers: { workspace: { type: 'http', url: mcpUrl, headers: { Authorization: `Bearer ${minted.token}` } } } }, null, 2)
     : null
   return (
-    <div className="mt-8 overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
-      <div className="flex items-center gap-2 border-b border-line px-4 py-3">
+    <div className={`mt-8 ${LEDGER_BOX_CLASS}`}>
+      {/* The head's divider comes from the ledger's divide-y — no border-b here. */}
+      <div className="flex items-center gap-2 px-4 py-3">
         <Server size={15} className="text-ink-soft" />
         <span className="text-[13px] font-semibold text-ink">This workspace is an MCP server</span>
       </div>
@@ -5600,13 +5600,11 @@ function McpAccessCard() {
 
 function ContextRow({
   ctx,
-  first,
   onOpen,
   onToggle,
   onRemove,
 }: {
   ctx: SavedContext
-  first: boolean
   onOpen: () => void
   onToggle: () => void
   onRemove: () => void
@@ -5620,12 +5618,11 @@ function ContextRow({
     // on a wide window the viewport is `sm:` but the row can't afford what
     // `sm:` promises. Fixed-width blocks yield in order (sessions/last-used
     // meta, then the pill) so the flex-1 identity column — the connector's
-    // name — never collapses.
+    // name — never collapses. Dividers come from the ledger container's
+    // divide-y (lib/ledger), so the row no longer draws its own.
     <div
       onClick={cardDoorClick(onOpen)}
-      className={`group @container flex items-center gap-3 ${ROW_DOOR_CLASS} ${
-        first ? '' : 'border-t border-line'
-      }`}
+      className={`group @container flex items-center gap-3 ${ROW_DOOR_CLASS}`}
     >
       {/* The WHOLE row drills into the detail (UI-17) — the hover wash has always
           lit the whole row, but only this left region used to be a button, so the
@@ -5775,7 +5772,7 @@ function ContextDetail({
 
       <div className="flex flex-col gap-6 @3xl:flex-row">
         <div className="min-w-0 flex-1">
-          <div className="rounded-xl border border-line bg-surface p-4 shadow-sm">
+          <div className={`border-line ${QUIET_CARD_CLASS} p-4`}>
             {isRepo ? (
               <RepoDetailBody ctx={ctx} />
             ) : (
@@ -6034,7 +6031,7 @@ function CommonsCard({
     <div
       ref={cardRef}
       onClick={onOpen ? cardDoorClick(onOpen) : undefined}
-      className={`group scroll-mt-6 rounded-xl border bg-surface p-4 shadow-sm transition ${
+      className={`group scroll-mt-6 ${QUIET_CARD_CLASS} p-4 transition ${
         // The flash owns the border while it lasts: `hover:border-line-strong`
         // out-specifies `border-accent`, so wearing both would blank the arrival
         // cue on hover (two border colors, no defined winner — lib/textDoor).
@@ -7203,7 +7200,7 @@ function ModelsSection({ providerId }: { providerId: string | null }) {
               <div
                 key={p.id}
                 ref={isFocus ? focusRef : undefined}
-                className={`scroll-mt-6 rounded-xl transition-colors ${isFocus ? FOCUS_FLASH_CLASS : ''}`}
+                className={`scroll-mt-6 rounded-lg transition-colors ${isFocus ? FOCUS_FLASH_CLASS : ''}`}
               >
                 <ProviderCard provider={p} onEdit={() => setEditing(p)} />
               </div>
@@ -11686,7 +11683,7 @@ function SearchBox({
   placeholder: string
 }) {
   return (
-    <div className="mb-5 flex items-center gap-2.5 rounded-xl border border-line bg-surface px-3.5 py-2.5 shadow-sm transition focus-within:border-accent">
+    <div className="mb-5 flex items-center gap-2.5 rounded-lg border border-line bg-surface px-3.5 py-2.5 transition focus-within:border-accent">
       <Search size={17} className="shrink-0 text-ink-faint" />
       <input
         value={value}

@@ -17,6 +17,7 @@ import {
   LEDGER_HEAD_CLASS,
   LEDGER_COUNT_CLASS,
   LEDGER_ROW_CLASS,
+  QUIET_CARD_CLASS,
 } from '../src/lib/ledger.ts'
 
 const FUNNEL = join('src', 'lib', 'ledger.ts')
@@ -25,9 +26,14 @@ test('the ledger recipe is flat — dividers and a small radius, no resting elev
   for (const piece of ['divide-y', 'divide-line', 'rounded-md', 'border-line']) {
     assert.ok(LEDGER_BOX_CLASS.includes(piece), `the box keeps "${piece}"`)
   }
+  // The quiet card — the gallery/feed item form — is just as flat: small radius,
+  // hairline frame, and NO border color of its own (the flash arm owns color at
+  // the call site; two border colors in one class attribute have no winner).
+  assert.ok(QUIET_CARD_CLASS.includes('rounded-lg') && QUIET_CARD_CLASS.includes('border'))
+  assert.ok(!/border-(line|accent|ink)/.test(QUIET_CARD_CLASS), 'the quiet card leaves border color to the caller')
   // Elevation means FLOATING (popovers, dialogs). A resting collection casting a
   // shadow, or wearing the old card radius, is the regression this direction ends.
-  for (const cue of [LEDGER_BOX_CLASS, LEDGER_HEAD_CLASS, LEDGER_COUNT_CLASS, LEDGER_ROW_CLASS]) {
+  for (const cue of [LEDGER_BOX_CLASS, LEDGER_HEAD_CLASS, LEDGER_COUNT_CLASS, LEDGER_ROW_CLASS, QUIET_CARD_CLASS]) {
     assert.ok(!cue.includes('shadow'), `no resting shadow in "${cue}"`)
     assert.ok(!/rounded-(xl|2xl|3xl)/.test(cue), `no card radius in "${cue}"`)
   }
@@ -79,4 +85,8 @@ test('the Projects hub consumes the ledger — and the card pile is gone', () =>
   // (\b keeps SharedProjectCard — Discover's card, a later conversion — out of
   // this assertion's reach).
   assert.ok(!/\bProjectCard\b/.test(src), 'the ProjectCard card pile is fully replaced')
+  // The quiet-card consumers: the artifact tile, the one Commons card funnel, and
+  // the context detail frame all take the frame from the module.
+  const quietUses = (src.match(/\$\{QUIET_CARD_CLASS\}/g) ?? []).length
+  assert.ok(quietUses >= 3, `SectionView wears QUIET_CARD_CLASS at 3+ frames (found ${quietUses})`)
 })

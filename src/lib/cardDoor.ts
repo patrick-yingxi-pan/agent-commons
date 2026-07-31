@@ -35,12 +35,15 @@
  *  still need its own tab stop — add one deliberately, don't assume this model. */
 import type { MouseEvent } from 'react'
 
-/** A standalone bordered CARD (Projects, Artifacts, the Commons directory cards):
- *  the surface lifts — border sharpens, shadow deepens. Append the resting border
- *  and background; a card wearing a transient border (the focus flash) must apply
- *  this only while it isn't flashing, since two `border-*` colors in one class
- *  attribute have no defined winner (the cascade lesson in lib/textDoor). */
-export const CARD_DOOR_CLASS = 'cursor-pointer transition hover:border-line-strong hover:shadow'
+/** A standalone bordered CARD (Artifacts, the Commons directory cards): the
+ *  border sharpens and the surface tints — no lift, because the flat direction
+ *  (lib/ledger) reserves elevation for things that FLOAT (lib/popover); a
+ *  resting card gaining a shadow on hover was the old card language's cue.
+ *  Append the resting border and background; a card wearing a transient border
+ *  (the focus flash) must apply this only while it isn't flashing, since two
+ *  `border-*` colors in one class attribute have no defined winner (the cascade
+ *  lesson in lib/textDoor). */
+export const CARD_DOOR_CLASS = 'cursor-pointer transition hover:border-line-strong hover:bg-panel/40'
 
 /** A ROW inside a bordered list container (Contexts, Scheduled, runs, admin
  *  users): it has no border of its own to sharpen, so the surface washes instead.

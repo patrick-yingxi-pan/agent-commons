@@ -350,7 +350,11 @@ export function Composer({
 
         {/* Input — clean inside; Enter sends, Shift+Enter for a new line */}
         <div
-          className={`flex items-end gap-2 rounded-2xl border border-line-strong bg-surface px-4 py-3 shadow-sm transition focus-within:border-accent ${
+          // The composer is a standalone interactive OBJECT: it keeps its frame
+          // (the strong border, the accent focus ring) but nothing at rest
+          // floats — no shadow, and the radius steps down with the flat scale
+          // (collections 6px, cards 8px, standalone objects 12px — lib/ledger).
+          className={`flex items-end gap-2 rounded-xl border border-line-strong bg-surface px-4 py-3 transition focus-within:border-accent ${
             disabled ? 'opacity-60' : ''
           }`}
         >
