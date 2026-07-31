@@ -83,7 +83,9 @@ test('a workspace profile is reachable from any byline, and global search finds 
   // an "Open project" button restating a destination its title already reached,
   // while the card body itself was inert. This is the DOM half of the card-door
   // lock — tests/card-door.test.ts owns the source half.
-  await visitor.page.getByText(/\d+ contributors?/).first().click()
+  // "Open to contributors" is the zero-count face of the same meta line — the
+  // fresh project here has no contributors yet.
+  await visitor.page.getByText(/\d+ contributors?|Open to contributors/).first().click()
   await expect(visitor.page.getByRole('heading', { name: PROJECT })).toBeVisible()
 
   // ── Global search (D22): the palette answers across the commons, hits deep-link ──

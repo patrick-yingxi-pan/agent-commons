@@ -2259,6 +2259,16 @@ function WatchButton({ projectId }: { projectId: string }) {
   return <WatchToggle subject={{ kind: 'project', id: projectId }} watching={state?.watching === true} ready={!!state} />
 }
 
+/** The ONE cue for a feed card's standing acts (Like · Watch) — the quiet ghost
+ *  form the feed idiom wants: icon + word, the state carried by color alone, no
+ *  border weight competing with the card's content. The bordered form stays for
+ *  page-level toolbars (a page has room; a card in a column of cards does not).
+ *  Shared so the two acts can't drift apart (form follows function). */
+const cardActClass = (active: boolean) =>
+  `inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-medium transition disabled:opacity-45 ${
+    active ? 'text-accent-strong hover:bg-accent-tint' : 'text-ink-faint hover:bg-panel-2 hover:text-ink'
+  }`
+
 /** The watch toggle for ANY subject (the key generalized with the Commons'
  *  Watched lens, S4). Two hosts, one control: the project page fetches its own
  *  watch state, while a feed card already HAS it — the server stamps `watched`
@@ -2267,12 +2277,15 @@ function WatchToggle({
   subject,
   watching,
   ready = true,
+  quiet = false,
 }: {
   subject: SocialEntityRef
   watching: boolean
   /** False while the host is still fetching the state (the button waits rather
    *  than rendering "Watch" over an unknown truth). */
   ready?: boolean
+  /** The feed card's ghost form (`cardActClass`); off = the bordered page form. */
+  quiet?: boolean
 }) {
   const [failed, setFailed] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -2304,11 +2317,15 @@ function WatchToggle({
             ? `Stop receiving this ${noun}’s public acts`
             : `Get this ${noun}’s public acts in your notifications`
       }
-      className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[13px] font-medium transition disabled:opacity-45 ${
-        watching
-          ? 'border-accent/40 bg-accent-tint text-accent-strong'
-          : 'border-line text-ink-soft hover:border-line-strong hover:text-ink'
-      }`}
+      className={
+        quiet
+          ? cardActClass(watching)
+          : `inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[13px] font-medium transition disabled:opacity-45 ${
+              watching
+                ? 'border-accent/40 bg-accent-tint text-accent-strong'
+                : 'border-line text-ink-soft hover:border-line-strong hover:text-ink'
+            }`
+      }
     >
       <Bell size={14} /> {watching ? 'Watching' : 'Watch'}
     </button>
@@ -2991,16 +3008,27 @@ function FeedCard({ item }: { item: CommonsItem }) {
   const target: SectionId | null =
     kind === 'project' ? 'projects' : kind === 'schedule' ? 'scheduled' : kind === 'context' ? 'contexts' : kind === 'discussion' ? 'discussions' : null
   return (
-    <div className="rounded-xl border border-line bg-surface px-4 py-3">
-      <div className="flex items-baseline gap-2 text-[12px]">
-        <span className="font-medium text-ink">{item.actor}</span>
-        <span className="text-ink-faint">
+    <div className="rounded-xl border border-line bg-surface px-5 py-4">
+      {/* The actor line leads with the identity mark (the feed idiom every
+          popular feed shares) and IS a door to the workspace's profile —
+          the same OwnerLink every other byline wears. */}
+      <div className="flex items-center gap-2">
+        <span className="text-[13px] font-medium text-ink">
+          <OwnerLink
+            bare
+            ownerName={item.actor}
+            own={item.mine === true}
+            markSize={22}
+            onClick={() => rel.navigate('agents', item.actor)}
+          />
+        </span>
+        <span className="text-[12px] text-ink-faint">
           {item.kind === 'share' ? 'shared' : `landed L${item.landingNumber}`} · {relativeTime(item.at)}
         </span>
       </div>
-      {item.note && <p className="mt-1 whitespace-pre-wrap text-[13px] text-ink-soft">{item.note}</p>}
+      {item.note && <p className="mt-2.5 whitespace-pre-wrap text-[14px] leading-relaxed text-ink-soft">{item.note}</p>}
       {/* The embed — the resource previewing inside the post; its TITLE is the door. */}
-      <div className="mt-2 rounded-lg border border-line bg-panel px-3 py-2">
+      <div className="mt-3 rounded-lg border border-line bg-panel px-3.5 py-2.5">
         {target ? (
           <button
             onClick={() => rel.navigate(target, id)}
@@ -3035,15 +3063,16 @@ function FeedCard({ item }: { item: CommonsItem }) {
         )}
       </div>
       {/* The card's two standing acts — the ones that FILL the rail's lenses
-          (S4). Watch now works for every subject kind, not just projects: the
-          key generalized, so the card no longer has to know which kinds the
-          bell happens to support. */}
-      <div className="mt-2 flex items-center justify-end gap-2">
+          (S4), worn quiet (`cardActClass`) so the content, not the chrome,
+          carries the card. Watch works for every subject kind: the key
+          generalized, so the card no longer has to know which kinds the bell
+          happens to support. */}
+      <div className="-ml-2 mt-1.5 flex items-center gap-1">
         <LikeButton item={item} />
-        <WatchToggle subject={item.subject} watching={item.watched === true} />
+        <WatchToggle quiet subject={item.subject} watching={item.watched === true} />
       </div>
       {root && root.posts.length > 0 && (
-        <div className="mt-3 border-t border-line pt-2.5">
+        <div className="mt-2 border-t border-line pt-3">
           {root.posts.length > tail.length && (
             <button onClick={() => rel.navigate('discussions', root.id)} className={`${INLINE_ACTION_CLASS} mb-2`}>
               View all {root.posts.length} comments
@@ -3052,7 +3081,7 @@ function FeedCard({ item }: { item: CommonsItem }) {
           <DiscussionPostList posts={tail} onReact={react} />
         </div>
       )}
-      <div className="mt-2.5">
+      <div className="mt-3">
         <RootThreadComposer subject={item.subject} root={root} placeholder="Comment…" />
       </div>
     </div>
@@ -3072,7 +3101,7 @@ function ProfileCommonsBand({ actor }: { actor: string }) {
       <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
         Commons activity
       </div>
-      <div className="space-y-3">
+      <div className="space-y-4">
         {mine.map((item) => (
           <FeedCard key={item.id} item={item} />
         ))}
@@ -3150,15 +3179,11 @@ function LikeButton({ item }: { item: CommonsItem }) {
       aria-pressed={liked}
       aria-label={liked ? 'Unlike this post' : 'Like this post'}
       title={failed ? 'Couldn’t update — click to retry' : liked ? 'Remove your like' : 'Like this post'}
-      className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[13px] font-medium transition disabled:opacity-45 ${
-        liked
-          ? 'border-accent/40 bg-accent-tint text-accent-strong'
-          : 'border-line text-ink-soft hover:border-line-strong hover:text-ink'
-      }`}
+      className={cardActClass(liked)}
     >
       <ThumbsUp size={14} />
       {liked ? 'Liked' : 'Like'}
-      {item.likes > 0 && <span className="text-ink-faint">{item.likes}</span>}
+      {item.likes > 0 && <span className="tabular-nums text-ink-faint">{item.likes}</span>}
     </button>
   )
 }
@@ -3207,21 +3232,23 @@ function CommonsSection({ lens }: { lens: string | null }) {
               : 'Nothing published yet — share a resource with a note (the note is the post) and it lands here for its audience.'}
         </Empty>
       ) : (
-        <div className="mx-auto w-full max-w-xl space-y-3">
+        <div className="mx-auto w-full max-w-xl space-y-4">
           {list.map((item) => (
             <FeedCard key={item.id} item={item} />
           ))}
         </div>
       )}
       {lens === null && filter.facet === 'all' && (
-        <div className="mx-auto mt-8 w-full max-w-xl">
+        // A hairline + air between the feed and the directory: two different
+        // reading modes on one page want a visible seam, not adjacency.
+        <div className="mx-auto mt-10 w-full max-w-xl border-t border-line pt-8">
           <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
             Browse the commons
           </div>
-          <p className="mb-3 text-[12px] text-ink-faint">
+          <p className="mb-4 text-[12px] text-ink-faint">
             Every project other workspaces opened to contributors — a searchable directory, not a feed.
           </p>
-          <div className="relative mb-3">
+          <div className="relative mb-4">
             <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint" />
             <input
               value={q}
@@ -8204,12 +8231,16 @@ function SharedProjectCard({
           ) : undefined
         }
       />
-      {p.description && <p className="mt-2 text-[12px] text-ink-soft">{p.description}</p>}
+      {p.description && <p className="mt-2 text-[13px] leading-relaxed text-ink-soft">{p.description}</p>}
       {/* No "Open project" button: the CARD is the door (UI-17) and the title is
           its keyboard half — a third control restating the same destination was
-          the affordance-noise this funnel removed. */}
-      <p className="mt-1.5 text-[11px] text-ink-faint">
-        {p.contributorCount} contributor{p.contributorCount === 1 ? '' : 's'}
+          the affordance-noise this funnel removed. The meta line never counts to
+          zero — "0 contributors" on every card was the directory's loudest fact;
+          an empty roster reads as the invitation it is. */}
+      <p className="mt-2 text-[11px] text-ink-faint">
+        {p.contributorCount > 0
+          ? `${p.contributorCount} contributor${p.contributorCount === 1 ? '' : 's'}`
+          : 'Open to contributors'}
         {p.guarded ? ' · coordinated (guardian)' : ''}
       </p>
     </CommonsCard>

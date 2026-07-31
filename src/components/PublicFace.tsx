@@ -52,6 +52,7 @@ export function OwnerLink({
   ownerName,
   own,
   bare,
+  markSize,
   onClick,
 }: {
   ownerName?: string
@@ -60,6 +61,9 @@ export function OwnerLink({
    *  bylines embedded in a phrase that already says "posted by"/"retracted by", or a
    *  bare comment author. Off = the standalone "by X (you)" byline. */
   bare?: boolean
+  /** A larger identity mark for a byline that LEADS its surface (the feed card's
+   *  actor line) — the mark stays the shared <WorkspaceMark>, only scaled. */
+  markSize?: number
   onClick: () => void
 }) {
   const label = bylineLabel(ownerName, own)
@@ -69,11 +73,11 @@ export function OwnerLink({
         e.stopPropagation()
         onClick()
       }}
-      className={`inline-flex items-center gap-1 align-bottom ${STANDING_DOOR}`}
+      className={`inline-flex items-center ${markSize && markSize > 16 ? 'gap-2' : 'gap-1'} align-bottom ${STANDING_DOOR}`}
       title="Show everything this workspace shares"
     >
       {/* The identity mark rides every owner door (aria-hidden — texture, not name). */}
-      <WorkspaceMark name={ownerName} />
+      <WorkspaceMark name={ownerName} size={markSize} />
       <span>{bare ? label.replace(/^by /, '') : label}</span>
     </button>
   )
