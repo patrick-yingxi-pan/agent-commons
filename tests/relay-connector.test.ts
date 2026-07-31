@@ -14,7 +14,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { API_BASE_PATH } from '../contract/index.ts'
-import { callTool, spawnConnector as spawnScript, startRelayStub, type Connector } from './helpers/connector.ts'
+import { callTool, callToolForPrompt, spawnConnector as spawnScript, startRelayStub, type Connector } from './helpers/connector.ts'
 
 // fileURLToPath, not `.pathname`: on Windows the latter yields `/C:/…`, which fs/spawn
 // resolve against the CWD drive to a phantom `C:\C:\…` — the read ENOENTs and the
@@ -111,7 +111,7 @@ test('a full round-trip through the latched connector: prompt document out, entr
   stub.pollQueue.push({ entryId: 'rve-7', prompt: { system: 'the briefing', messages: [{ role: 'user', text: 'hello?' }] } })
   const c = spawnConnector()
   try {
-    const document = await callTool(c, 'start', { url: stub.url, secret: 'rv_live_rt' })
+    const document = await callToolForPrompt(c, 'start', { url: stub.url, secret: 'rv_live_rt' })
     assert.match(document, /entry rve-7/, 'the prompt is entry-keyed')
     assert.match(document, /the briefing/, 'the system briefing is delimited into the document')
     assert.match(document, /\[user\]\nhello\?/, 'the conversation turns survive as a document')
@@ -139,7 +139,7 @@ test('v2 tool relay: declared tools render into the document; toolCalls ride the
   })
   const c = spawnConnector()
   try {
-    const document = await callTool(c, 'start', { url: stub.url, secret: 'rv_live_tools' })
+    const document = await callToolForPrompt(c, 'start', { url: stub.url, secret: 'rv_live_tools' })
     assert.match(document, /relayed tools \(RELAY these — do not execute them yourself\)/, 'the tools section carries the discipline in its own delimiter')
     assert.match(document, /create_project — Create a new project\./, 'each tool renders name + description')
     assert.match(document, /"toolCalls": \[\{ "name": "<tool>", "input": \{ … \} \}\]/, 'the model is told the structural relay shape')
@@ -175,7 +175,7 @@ test('v3 framing dedupe: the connector caches by hash, advertises on the poll, a
   })
   const c = spawnConnector()
   try {
-    const doc1 = await callTool(c, 'start', { url: stub.url, secret: 'rv_live_dedupe' })
+    const doc1 = await callToolForPrompt(c, 'start', { url: stub.url, secret: 'rv_live_dedupe' })
     assert.match(doc1, /the long briefing text/, 'first contact renders the full framing')
     assert.match(doc1, /create_project — Create a new project\./, 'and the full tool schemas')
 
@@ -192,7 +192,7 @@ test('v3 framing dedupe: the connector caches by hash, advertises on the poll, a
       prompt: { systemHash: 'aaaa111122223333', messages: [{ role: 'user', text: 'second ask' }], toolsHash: 'bbbb111122223333' },
     })
     await new Promise((r) => setTimeout(r, 1_300)) // let the drain loop collect it
-    const doc2 = await callTool(c, 'respond_and_wait', {})
+    const doc2 = await callToolForPrompt(c, 'respond_and_wait', {})
     assert.match(doc2, /entry rve-b/)
     assert.match(doc2, /unchanged — identical to the briefing relayed with entry rve-a/, 'the framing is a reference')
     assert.match(doc2, /the same 1 tools declared with entry rve-a/, 'the tools are a reference')
@@ -214,7 +214,7 @@ test('v3 suffix rendering: a follow-up entry re-carrying the exchange prints onl
   })
   const c = spawnConnector()
   try {
-    const doc1 = await callTool(c, 'start', { url: stub.url, secret: 'rv_live_suffix' })
+    const doc1 = await callToolForPrompt(c, 'start', { url: stub.url, secret: 'rv_live_suffix' })
     assert.match(doc1, /organize this/)
     await callTool(c, 'respond_and_wait', { entryId: 'rve-c', toolCalls: [{ name: 'create_project', input: { name: 'X' } }] })
     // The platform's follow-up entry re-carries the WHOLE exchange (the mailbox is
@@ -232,7 +232,7 @@ test('v3 suffix rendering: a follow-up entry re-carrying the exchange prints onl
       },
     })
     await new Promise((r) => setTimeout(r, 1_300)) // let the drain loop collect it
-    const doc2 = await callTool(c, 'respond_and_wait', {})
+    const doc2 = await callToolForPrompt(c, 'respond_and_wait', {})
     assert.match(doc2, /continuing the exchange of entry rve-c/, 'the follow-up names the exchange it continues')
     assert.match(doc2, /first 1 turn\(s\) are unchanged/, 'and how much is elided')
     assert.match(doc2, /new turns only/)
@@ -252,7 +252,7 @@ test('v4 channels: prompts name their conversation; suffix continuity is PER-CHA
       entryId: 'rve-a1',
       prompt: { system: 's', systemHash: 'eeee111122223333', channel: { id: 'sess-a', title: 'Alpha docs' }, messages: [{ role: 'user', text: 'alpha one' }] },
     })
-    const docA1 = await callTool(c, 'start', { url: stub.url, secret: 'rv_live_chan' })
+    const docA1 = await callToolForPrompt(c, 'start', { url: stub.url, secret: 'rv_live_chan' })
     assert.match(docA1, /for the conversation “Alpha docs” \[sess-a\]/, 'the prompt names its conversation')
     assert.match(docA1, /self-contained/, 'the model is told the document stands alone')
     assert.match(docA1, /sub-agent/, '…and that delegating it is fine')
@@ -265,7 +265,7 @@ test('v4 channels: prompts name their conversation; suffix continuity is PER-CHA
       prompt: { systemHash: 'eeee111122223333', channel: { id: 'sess-b' }, messages: [{ role: 'user', text: 'beta one' }] },
     })
     await new Promise((r) => setTimeout(r, 1_300))
-    const docB1 = await callTool(c, 'respond_and_wait', {})
+    const docB1 = await callToolForPrompt(c, 'respond_and_wait', {})
     assert.match(docB1, /for the conversation sess-b \[sess-b\]/, 'a title-less channel falls back to its id')
     assert.match(docB1, /beta one/)
     await callTool(c, 'respond_and_wait', { entryId: 'rve-b1', answer: 'B1' })
@@ -286,7 +286,7 @@ test('v4 channels: prompts name their conversation; suffix continuity is PER-CHA
       },
     })
     await new Promise((r) => setTimeout(r, 1_300))
-    const docA2 = await callTool(c, 'respond_and_wait', {})
+    const docA2 = await callToolForPrompt(c, 'respond_and_wait', {})
     assert.match(docA2, /continuing the exchange of entry rve-a1/, 'channel A continues from ITS last entry')
     assert.match(docA2, /alpha two/)
     assert.ok(!docA2.includes('alpha one'), 'the already-read prefix is not reprinted')
@@ -305,9 +305,11 @@ test('v4 queue: prompts arriving while the model is away queue up and deliver on
     stub.pollQueue.push({ entryId: 'rve-q1', prompt: { system: 's', channel: { id: 'c1' }, messages: [{ role: 'user', text: 'first in' }] } })
     stub.pollQueue.push({ entryId: 'rve-q2', prompt: { system: 's', channel: { id: 'c2' }, messages: [{ role: 'user', text: 'second in' }] } })
     await new Promise((r) => setTimeout(r, 1_800)) // let the loop collect both
-    const doc1 = await callTool(c, 'respond_and_wait', {})
+    const doc1 = await callToolForPrompt(c, 'respond_and_wait', {})
     assert.match(doc1, /entry rve-q1/, 'the first arrival is delivered first')
-    const doc2 = await callTool(c, 'respond_and_wait', { entryId: 'rve-q1', answer: 'one' })
+    // The submit rides the first call; a helper retry never re-submits (it
+    // fetches with no arguments), so the reply stays single.
+    const doc2 = await callToolForPrompt(c, 'respond_and_wait', { entryId: 'rve-q1', answer: 'one' })
     assert.match(doc2, /entry rve-q2/, 'the next call gets the next queued prompt — nothing dropped')
   } finally {
     c.close()
@@ -354,7 +356,7 @@ test('v6 freshness handshake: refresh drops shown-before state — full re-rende
         toolsHash: 'abcd999922223333',
       },
     })
-    const doc1 = await callTool(c, 'start', { url: stub.url, secret: 'rv_live_fresh' })
+    const doc1 = await callToolForPrompt(c, 'start', { url: stub.url, secret: 'rv_live_fresh' })
     assert.match(doc1, /the long briefing text/, 'first contact renders full')
     await callTool(c, 'respond_and_wait', { entryId: 'rve-f1', answer: 'ok' })
 
@@ -384,7 +386,7 @@ test('v6 freshness handshake: refresh drops shown-before state — full re-rende
     // The QUEUED prompt re-renders in full: body not reference, whole
     // conversation not suffix — nothing points at text the model lost.
     const seenAt = stub.seen.length
-    const doc2 = await callTool(c, 'respond_and_wait', {})
+    const doc2 = await callToolForPrompt(c, 'respond_and_wait', {})
     assert.match(doc2, /entry rve-f2/)
     assert.match(doc2, /the long briefing text/, 'the briefing BODY renders (resolved at receipt, reference scrubbed)')
     assert.match(doc2, /first ask/, 'the whole conversation renders — per-channel continuity was reset')
@@ -421,7 +423,7 @@ test('v6 refresh race: a body-omitted delivery answering a PRE-refresh advertise
         toolsHash: 'cafe999922223333',
       },
     })
-    const doc1 = await callTool(c, 'start', { url: stub.url, secret: 'rv_live_race' })
+    const doc1 = await callToolForPrompt(c, 'start', { url: stub.url, secret: 'rv_live_race' })
     assert.match(doc1, /the long briefing text/, 'first contact renders full and populates the caches')
     await callTool(c, 'respond_and_wait', { entryId: 'rve-r1', answer: 'ok' })
 
@@ -445,7 +447,7 @@ test('v6 refresh race: a body-omitted delivery answering a PRE-refresh advertise
       },
     })
     await new Promise((r) => setTimeout(r, 1_500)) // let the loop collect it
-    const doc2 = await callTool(c, 'respond_and_wait', {})
+    const doc2 = await callToolForPrompt(c, 'respond_and_wait', {})
     assert.match(doc2, /entry rve-r2/)
     assert.match(doc2, /the long briefing text/, 'the stale store resolves the omitted briefing — full body, not a placeholder')
     assert.match(doc2, /create_project/, 'the omitted tool schemas resolve too')
@@ -488,7 +490,7 @@ test('a prompt that arrives while no model call is parked is buffered and handed
     // The model is idle; the backend offers a turn — the loop takes it into the buffer.
     stub.pollQueue.push({ entryId: 'rve-9', prompt: { system: 's', messages: [{ role: 'user', text: 'late arrival' }] } })
     await new Promise((r) => setTimeout(r, 1_300)) // let the loop collect it
-    const document = await callTool(c, 'respond_and_wait', {})
+    const document = await callToolForPrompt(c, 'respond_and_wait', {})
     assert.match(document, /entry rve-9/, 'the buffered prompt is delivered on the model’s next call')
     assert.match(document, /late arrival/)
   } finally {

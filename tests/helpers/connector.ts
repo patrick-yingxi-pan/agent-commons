@@ -103,3 +103,23 @@ export const toolText = (reply: { result?: { content?: { text: string }[] } }): 
 
 export const callTool = (c: Connector, name: string, args?: Record<string, unknown>) =>
   c.rpc('tools/call', { name, arguments: args }).then(toolText)
+
+/** Drive a call that EXPECTS a prompt document, following the protocol's own
+ *  idle rule ("call respond_and_wait again immediately"). The suites spawn with
+ *  a deliberately short parked window (RELAY_BLOCK_MS=100) so idle probes stay
+ *  fast — but that window also races the drain loop's first poll round-trip,
+ *  and under full-suite CPU load the poll can lose: the call returns the idle
+ *  sentinel and the prompt lands in the BUFFER instead (the 2026-07-31 flake in
+ *  connector-serve). Nothing is dropped — only the hand-over moment moves — so
+ *  the deterministic form is the loop the real model runs: re-call until the
+ *  prompt arrives. Bounded so a genuine no-prompt bug still fails, on the
+ *  caller's own content assertion. */
+export async function callToolForPrompt(c: Connector, name: string, args?: Record<string, unknown>): Promise<string> {
+  let text = await callTool(c, name, args)
+  // ~50 × (100ms park + overhead) ≥ 5s of patience — far beyond any load spike.
+  // Retries never re-submit: an argument-less respond_and_wait only fetches.
+  for (let tries = 0; text.startsWith('Nothing pending') && tries < 50; tries++) {
+    text = await callTool(c, 'respond_and_wait', {})
+  }
+  return text
+}

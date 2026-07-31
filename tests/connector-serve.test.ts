@@ -12,7 +12,7 @@ import { readFileSync, writeFileSync, rmSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { call, callRaw } from './helpers/http.ts'
-import { callTool, spawnConnector, startRelayStub } from './helpers/connector.ts'
+import { callTool, callToolForPrompt, spawnConnector, startRelayStub } from './helpers/connector.ts'
 
 async function fetchServedConnector(): Promise<{ body: string; headers: Record<string, string> }> {
   const res = await callRaw('GET', '/connector')
@@ -188,6 +188,30 @@ test('the reveal closes on an OBSERVED fact, never on a self-attestation checkbo
   assert.ok(/onCopied\?\.\(\)/.test(copyButton), 'CopyButton must actually fire it on click')
 })
 
+test('a hand-over that loses the parked window drops nothing: the prompt buffers and the next call collects it', async () => {
+  // The deterministic form of the 2026-07-31 full-suite flake: with the parked
+  // window forced to 1ms, start's waiter ALWAYS times out before the drain
+  // loop's first poll returns — exactly what CPU load did to the 100ms window.
+  // The protocol's answer is the loop itself ("call again immediately"): the
+  // prompt lands in the buffer and the next argument-less respond_and_wait
+  // hands it over. This locks that nothing is dropped when the window loses.
+  const { body } = await fetchServedConnector()
+  const dir = mkdtempSync(join(tmpdir(), 'served-connector-race-'))
+  const script = join(dir, 'session-relay.mjs')
+  writeFileSync(script, body)
+  const stub = await startRelayStub()
+  stub.pollQueue.push({ entryId: 'rve-slow', prompt: { system: 'raced briefing', messages: [{ role: 'user', text: 'still there?' }] } })
+  const c = spawnConnector(script, { RELAY_BLOCK_MS: '1' })
+  try {
+    const document = await callToolForPrompt(c, 'start', { url: stub.url, secret: 'rv_live_race' })
+    assert.match(document, /entry rve-slow/, 'the prompt survives a lost hand-over window — collected by the loop, never dropped')
+  } finally {
+    c.close()
+    await stub.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('the SERVED bytes run under plain node: latch, refuse a redirect, drain a round-trip', async () => {
   const { body } = await fetchServedConnector()
   const dir = mkdtempSync(join(tmpdir(), 'served-connector-'))
@@ -203,7 +227,10 @@ test('the SERVED bytes run under plain node: latch, refuse a redirect, drain a r
     const init = await c.rpc('initialize', {})
     assert.match((init.result as { instructions?: string })?.instructions ?? '', /never stop the loop on idle/i, 'the standing instruction ships from the served form too')
 
-    const document = await callTool(c, 'start', { url: stub.url, secret: 'rv_live_public' })
+    // Through the prompt-collecting helper: under suite load the 100ms window
+    // can lose to the first poll's round-trip (the 2026-07-31 flake) — the
+    // race lock above pins that shape deterministically.
+    const document = await callToolForPrompt(c, 'start', { url: stub.url, secret: 'rv_live_public' })
     assert.match(document, /entry rve-99/, 'the served connector drains a real prompt')
     assert.equal(stub.seen[0]!.auth, 'Bearer rv_live_public')
 
