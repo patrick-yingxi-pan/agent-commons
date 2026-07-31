@@ -5,28 +5,36 @@
    src/lib/viewport.ts — tests/viewport.test.ts locks the two together. */
 @custom-variant short (@media (max-height: 480px));
 
-/* ---- Claude-flavoured light theme tokens ---------------------------------
+/* ---- Claret light theme tokens -------------------------------------------
    Exposed to Tailwind v4 as utilities, e.g. bg-canvas, text-ink, border-line.
+   The Claret palette (owner directive 2026-07-31, with the flat ledger
+   direction): oxblood accent on warm parchment neutrals. Canvas and surface
+   deliberately share ONE value — flat systems draw boundaries with hairlines
+   and spacing, not fill contrast; the two tokens stay separate so no component
+   churns and the pair can diverge again if a future theme wants it. The accent
+   neighbors the danger reds, so the guardrail is: solid claret means "go",
+   bright signal-red means "danger", and the two never share a surface at the
+   same weight (danger stays the vivid #ef4444 ramp below).
    ------------------------------------------------------------------------- */
 @theme {
-  --color-canvas: #faf9f5;
-  --color-sidebar: #f2f0e9;
-  --color-surface: #ffffff;
-  --color-panel: #fbfaf6;
-  --color-panel-2: #f5f3ec;
+  --color-canvas: #fbfaf7;
+  --color-sidebar: #f5f1e9;
+  --color-surface: #fbfaf7;
+  --color-panel: #f5f1e9;
+  --color-panel-2: #efe9dd;
 
-  --color-ink: #28261f;
-  --color-ink-soft: #5c584f;
-  --color-ink-faint: #908b7e;
+  --color-ink: #292420;
+  --color-ink-soft: #5d564e;
+  --color-ink-faint: #948b7c;
 
-  --color-line: #e8e5db;
-  --color-line-strong: #dbd7ca;
+  --color-line: #e8e4da;
+  --color-line-strong: #d9d2c2;
 
-  --color-accent: #d97757;
-  --color-accent-strong: #c15f3c;
-  --color-accent-tint: #f6e9e1;
+  --color-accent: #93353f;
+  --color-accent-strong: #7a2a33;
+  --color-accent-tint: #f6e7e6;
 
-  --color-userbubble: #efece3;
+  --color-userbubble: #f2ecdf;
 
   --color-cap-chat: #8a877d;
   --color-cap-workspace: #c98a3c;
@@ -101,30 +109,31 @@
    variants anywhere (invariant INV-1). This block must redefine EVERY
    `--color-*` token `@theme` declares (even the theme-invariant ones, stated
    explicitly) — completeness is locked by tests/spec-conformance.test.ts.
-   Palette: the same warm Claude cast, inverted — charcoal-brown surfaces,
-   parchment ink, the terracotta accent held; cap/status hues lightened to keep
+   Palette: the same warm Claret cast, inverted — wine-leather charcoals,
+   parchment ink, the claret accent lifted toward rose so it reads on dark
+   ground (canvas/surface merged here too); cap/status hues lightened to keep
    contrast on dark ground. */
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --color-canvas: #262624;
-  --color-sidebar: #1f1e1b;
-  --color-surface: #30302e;
-  --color-panel: #2b2a27;
-  --color-panel-2: #34332f;
+  --color-canvas: #252120;
+  --color-sidebar: #1d1a19;
+  --color-surface: #252120;
+  --color-panel: #2b2624;
+  --color-panel-2: #322c29;
 
-  --color-ink: #f0eee6;
-  --color-ink-soft: #b8b4a7;
-  --color-ink-faint: #8a8578;
+  --color-ink: #efe9e2;
+  --color-ink-soft: #b5aca2;
+  --color-ink-faint: #877d72;
 
-  --color-line: #3a3833;
-  --color-line-strong: #4a473f;
+  --color-line: #3b3531;
+  --color-line-strong: #4a423d;
 
-  --color-accent: #d97757;
-  --color-accent-strong: #e08b6d;
-  --color-accent-tint: #453028;
+  --color-accent: #c96872;
+  --color-accent-strong: #dd8790;
+  --color-accent-tint: #402b2d;
 
-  --color-userbubble: #33322c;
+  --color-userbubble: #332c28;
 
   --color-cap-chat: #a09c8f;
   --color-cap-workspace: #d9a45c;

@@ -17,6 +17,19 @@ names its locking test — moving or weakening a rule means moving its lock too.
   `ok`/`warn`/`danger` ramps, text atop solid fills uses `on-solid`. Locked by
   `tests/spec-conformance.test.ts` (INV-1) + `tests/theme.test.ts`. (This
   overturns the earlier light-only decision — owner directive, 2026-07-21.)
+- **Flat ledger style, Claret palette** (owner directive 2026-07-31). The visual
+  direction is GitHub-Primer-flat on the Claret palette (oxblood accent on warm
+  parchment; canvas and surface share one value — boundaries are hairlines and
+  spacing, not fill contrast). Containment is semantic: a COLLECTION renders as
+  one bordered container with divider rows — the shared recipe `src/lib/ledger.ts`
+  (locked by `tests/ledger.test.ts`; Projects and `CardList` converted first,
+  remaining card piles convert band by band) — while an interactive object
+  standing alone (the composer, a diff, a proposal card, dialogs) keeps its own
+  chrome, and ELEVATION means floating (shadows are for `lib/popover` overlays,
+  not resting content). The claret accent neighbors the danger reds: solid
+  claret means "go", bright signal-red means "danger", never both weights on one
+  surface. This restyles but does not restructure — the rail, the split
+  workspace, and every navigation rule below are unchanged.
 - **No "before" view.** The prototype deliberately does *not* reproduce today's
   three-tab UI. The motivation lives in the docs, and reviewers can diff against
   the live app — so don't build a side-by-side "before".

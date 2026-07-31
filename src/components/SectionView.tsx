@@ -79,6 +79,7 @@ import { AddContextButton } from './AddContextButton'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { DOOR_CLASS } from '../lib/textDoor'
 import { CARD_DOOR_CLASS, ROW_DOOR_CLASS, cardDoorClick } from '../lib/cardDoor'
+import { LEDGER_BOX_CLASS, LEDGER_HEAD_CLASS, LEDGER_COUNT_CLASS, LEDGER_ROW_CLASS } from '../lib/ledger'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { AnchorThreadComposer } from './AnchorThreadComposer'
 import { LocusGutter } from './LocusGutter'
@@ -573,14 +574,19 @@ function ProjectsSection({
   const mine = sorted.filter((p) => band(p) === 'mine')
   const sharedWithYou = sorted.filter((p) => band(p) === 'shared')
 
-  // Single-column on every tier (surface-from-nature: a text-led entity list is a
-  // scannable, comparable LIST — GitHub's repo-list idiom; multi-column is for
-  // thumbnail-led GALLERIES like Artifacts). Also unifies with the commons band:
-  // the same entity read as 2-col cards under "Yours" but 1-col in Discover.
-  const grid = (items: Project[]) => (
-    <div className="space-y-3">
+  // A band is ONE ledger (lib/ledger): a bordered container whose head names the
+  // relationship and counts the rows — GitHub's repo-file-list idiom, the flat
+  // direction's first converted surface. The per-item card pile this replaces
+  // stacked a border + radius + shadow around every project; the ledger draws
+  // one frame and lets hairlines divide the rows.
+  const ledger = (items: Project[], head: string) => (
+    <div className={LEDGER_BOX_CLASS}>
+      <div className={LEDGER_HEAD_CLASS}>
+        {head}
+        <span className={LEDGER_COUNT_CLASS}>{items.length}</span>
+      </div>
       {items.map((p) => (
-        <ProjectCard
+        <ProjectRow
           key={p.id}
           project={p}
           sessionCount={rel.sessionsForProject(p.id).length}
@@ -613,29 +619,26 @@ function ProjectsSection({
         </Empty>
       ) : (
         <>
-          {mine.length > 0 && grid(mine)}
+          {/* The ledger head replaces the old floating uppercase band label — the
+              band's name and count ride the container itself; the explanatory
+              paragraph keeps its place above the frame. */}
+          {mine.length > 0 && ledger(mine, 'Yours')}
           {orgRows.length > 0 && (
-            <div className={mine.length > 0 ? 'mt-8' : ''}>
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-                Your organizations
-              </div>
-              <p className="mb-3 text-[12px] text-ink-faint">
+            <div className={mine.length > 0 ? 'mt-6' : ''}>
+              <p className="mb-2 text-[12px] text-ink-faint">
                 Projects owned by organizations you belong to — a seat, not a switch (the byline is
                 the org's page).
               </p>
-              {grid(orgRows)}
+              {ledger(orgRows, 'Your organizations')}
             </div>
           )}
           {sharedWithYou.length > 0 && (
-            <div className={mine.length > 0 || orgRows.length > 0 ? 'mt-8' : ''}>
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-                Shared with you
-              </div>
-              <p className="mb-3 text-[12px] text-ink-faint">
+            <div className={mine.length > 0 || orgRows.length > 0 ? 'mt-6' : ''}>
+              <p className="mb-2 text-[12px] text-ink-faint">
                 Projects other workspaces opened to the commons — visit one to commission your agent
                 or take open work.
               </p>
-              {grid(sharedWithYou)}
+              {ledger(sharedWithYou, 'Shared with you')}
             </div>
           )}
         </>
@@ -744,7 +747,7 @@ function NewProjectDialog({
   )
 }
 
-function ProjectCard({
+function ProjectRow({
   project,
   sessionCount,
   onOpen,
@@ -754,34 +757,28 @@ function ProjectCard({
   onOpen: () => void
 }) {
   return (
-    // The card is the mouse target, its TITLE the named keyboard door (UI-17).
-    // This was one whole-card <button>, which read out the entire card as its
-    // accessible name — "Platform hardening Updated 2 days ago · 3 sessions".
-    <div
-      onClick={cardDoorClick(onOpen)}
-      className={`flex min-h-[150px] w-full flex-col rounded-2xl border border-line bg-surface p-5 shadow-sm ${CARD_DOOR_CLASS}`}
-    >
-      {/* The door owns the weight (UI-16), so the title drops its own
-          `font-semibold` — one weight for every card title, the 14px commons
-          heads included, instead of semibold here and medium three rows down. */}
-      <button onClick={onOpen} className={`block max-w-full text-left text-[15px] text-ink ${DOOR_CLASS}`}>
+    // A ledger row (lib/ledger): the row is the mouse target, its TITLE the
+    // named keyboard door (UI-17) — the same door model the card form carried,
+    // in a divider-row container instead of a per-item box.
+    <div onClick={cardDoorClick(onOpen)} className={`${LEDGER_ROW_CLASS} ${ROW_DOOR_CLASS}`}>
+      {/* The door owns the weight (UI-16); the caller owns color, size, layout. */}
+      <button
+        onClick={onOpen}
+        className={`max-w-[55%] shrink-0 truncate text-left text-[13px] text-ink ${DOOR_CLASS}`}
+      >
         {project.name}
       </button>
       {project.own === false && (
-        <div className="mt-1">
+        <span className="shrink-0">
           <Byline ownerName={project.ownerName} own={false} />
-        </div>
-      )}
-      <div className="mt-2 line-clamp-2 text-[13px] leading-snug text-ink-soft">
-        {project.description}
-      </div>
-      <div className="mt-auto flex items-center gap-2 pt-4 text-[12px] text-ink-faint">
-        <span>Updated {relativeTime(project.updatedAt)}</span>
-        <span>·</span>
-        <span>
-          {sessionCount} session{sessionCount === 1 ? '' : 's'}
         </span>
-      </div>
+      )}
+      <span className="min-w-0 flex-1 truncate text-[12px] text-ink-soft">
+        {project.description}
+      </span>
+      <span className="shrink-0 text-[11.5px] text-ink-faint">
+        Updated {relativeTime(project.updatedAt)} · {sessionCount} session{sessionCount === 1 ? '' : 's'}
+      </span>
     </div>
   )
 }
@@ -11778,14 +11775,12 @@ function MainSection({
 }
 
 /** The one main-column LIST container (Recent sessions' box, shared): the ITEMS are
- *  what's carded — one bordered surface around the list, rows divided — while the
- *  section around it stays a bare heading (S17). */
+ *  what's contained — one bordered frame around the list, rows divided — while the
+ *  section around it stays a bare heading (S17). The chrome is the shared ledger
+ *  recipe (lib/ledger): this container predates the flat direction and wore the
+ *  card chrome (rounded-xl + shadow) until the 2026-07-31 conversion. */
 function CardList({ children }: { children: ReactNode }) {
-  return (
-    <div className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
-      {children}
-    </div>
-  )
+  return <div className={LEDGER_BOX_CLASS}>{children}</div>
 }
 
 function Empty({ children }: { children: ReactNode }) {
