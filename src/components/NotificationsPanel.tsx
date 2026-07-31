@@ -4,6 +4,7 @@ import type { AppNotification, NotificationKind } from '../../contract/index.ts'
 import type { SectionId } from '../types'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { SCRIM_CLASS } from '../lib/scrim'
+import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { relativeTime } from '../lib/relativeTime'
 import { doorFor } from '../lib/notificationDoor'
@@ -166,7 +167,7 @@ export function NotificationsPanel({
       <div
         ref={dialogRef}
         onMouseDown={(e) => e.stopPropagation()}
-        className="relative flex max-h-[68dvh] w-[480px] max-w-full flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong short:max-h-[85dvh]"
+        className={`relative flex max-h-[68dvh] w-[480px] max-w-full flex-col ${DIALOG_SURFACE_CLASS} short:max-h-[85dvh]`}
       >
         <div className="flex shrink-0 items-center gap-2.5 border-b border-line px-3.5 py-2.5">
           <Bell size={16} className="shrink-0 text-ink-faint" />

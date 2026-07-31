@@ -24,6 +24,7 @@ import { useDismissable } from '../lib/useDismissable'
 import { STANDING_DOOR_CLASS } from '../lib/textDoor'
 import { relativeTime } from '../lib/relativeTime'
 import { SCRIM_CLASS } from '../lib/scrim'
+import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
 import { POPOVER_SURFACE } from '../lib/popover'
 import { usePopoverShift } from '../lib/usePopoverShift'
 
@@ -207,7 +208,7 @@ function SlidesView({ slides, size }: { slides: Extract<ArtifactContent, { type:
       {shown.map((s, i) => (
         <div
           key={i}
-          className={`flex w-full flex-col rounded-lg border border-line bg-surface shadow-sm ${
+          className={`flex w-full flex-col rounded-lg border border-line bg-surface ${
             size === 'thumb' ? 'h-full p-2.5' : 'aspect-video p-4'
           }`}
         >
@@ -589,7 +590,7 @@ export function ArtifactViewer({
       <div
         ref={dialogRef}
         onMouseDown={(e) => e.stopPropagation()}
-        className="relative flex max-h-[80dvh] w-[680px] max-w-full flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong"
+        className={`relative flex max-h-[80dvh] w-[680px] max-w-full flex-col ${DIALOG_SURFACE_CLASS}`}
       >
         <div className="flex shrink-0 items-start gap-3 border-b border-line px-5 py-3.5">
           <Icon size={20} className="mt-0.5 shrink-0 text-cap-workspace" />

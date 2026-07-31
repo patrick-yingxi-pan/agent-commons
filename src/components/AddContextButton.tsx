@@ -44,6 +44,7 @@ import { useRecentIds } from '../lib/recents'
 import { UI_HOST_SOURCE, DEFAULT_FS_SOURCE_ID, useFsSourceList } from '../lib/fsSources'
 import { pickUiHostFiles, pickUiHostFolder, readDroppedFiles, type UiHostFile } from '../lib/uiHostFs'
 import { SCRIM_CLASS } from '../lib/scrim'
+import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
 import { useFsCatalog, useSavedContexts, fsContentUrl } from '../api/hooks'
 import { apiGet } from '../api/client'
 import { paths } from '../api/keys'
@@ -404,7 +405,7 @@ function BrowseDialog({
       <div
         ref={dialogRef}
         onMouseDown={(e) => e.stopPropagation()}
-        className="relative flex max-h-[72dvh] w-[560px] max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong short:max-h-[85dvh]"
+        className={`relative flex max-h-[72dvh] w-[560px] max-w-[calc(100vw-16px)] flex-col ${DIALOG_SURFACE_CLASS} short:max-h-[85dvh]`}
       >
         {/* Title bar — Finder-style traffic lights + centered title. */}
         <div className="relative flex h-9 shrink-0 items-center border-b border-line bg-panel-2 px-3">
@@ -695,7 +696,7 @@ function SourceSwitcher({
             onClick={() => onPick(s.id)}
             title={s.label}
             className={`flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition ${
-              on ? 'bg-surface text-ink shadow-sm' : 'text-ink-soft hover:text-ink'
+              on ? 'bg-surface text-ink ring-1 ring-line-strong' : 'text-ink-soft hover:text-ink'
             }`}
           >
             <Icon size={13} />

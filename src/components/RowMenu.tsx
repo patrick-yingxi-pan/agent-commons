@@ -270,7 +270,7 @@ function ConfirmView({
         <button
           type="button"
           onClick={onConfirm}
-          className="rounded-lg bg-removed px-2.5 py-1 text-[12px] font-semibold text-on-solid shadow-sm transition hover:opacity-90"
+          className="rounded-lg bg-removed px-2.5 py-1 text-[12px] font-semibold text-on-solid transition hover:opacity-90"
         >
           Delete
         </button>

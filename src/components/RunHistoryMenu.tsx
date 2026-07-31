@@ -50,7 +50,7 @@ export function RunHistoryMenu({
         aria-label="Run history"
         aria-haspopup="dialog"
         aria-expanded={open}
-        className={`flex h-7 items-center gap-1.5 rounded-lg border px-2 text-[12px] font-medium shadow-sm transition ${
+        className={`flex h-7 items-center gap-1.5 rounded-lg border px-2 text-[12px] font-medium transition ${
           open ? 'border-accent bg-surface text-ink' : 'border-line bg-surface text-ink-soft hover:border-accent hover:text-ink'
         }`}
       >

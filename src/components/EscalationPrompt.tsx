@@ -74,7 +74,7 @@ export function EscalationPrompt({
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.24, ease: 'easeOut' }}
-          className="min-w-0 flex-1 overflow-hidden rounded-xl border border-line-strong bg-surface shadow-sm"
+          className="min-w-0 flex-1 overflow-hidden rounded-xl border border-line-strong bg-surface"
         >
           {denied ? (
             <DeniedView
@@ -181,7 +181,7 @@ function Prompt({
           <button
             ref={primaryRef}
             onClick={onPrimary}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-semibold text-on-solid shadow-sm transition hover:bg-accent-strong"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-semibold text-on-solid transition hover:bg-accent-strong"
           >
             {primaryLabel}
             <Key tone="onAccent">Enter</Key>
@@ -274,7 +274,7 @@ function DeniedView({
         <div className="mt-2.5 flex items-center justify-end">
           <button
             onClick={onRetry}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-semibold text-on-solid shadow-sm transition hover:bg-accent-strong"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-semibold text-on-solid transition hover:bg-accent-strong"
           >
             Grant access
           </button>

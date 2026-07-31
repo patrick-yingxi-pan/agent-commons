@@ -76,7 +76,7 @@ export function ProposalsPanel({ subject, own }: { subject: SocialEntityRef; own
   })
 
   return (
-    <div className="rounded-xl border border-line bg-surface shadow-sm">
+    <div className="rounded-lg border border-line bg-surface">
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
         <span className="text-[13px] font-semibold text-ink">Improvements</span>
         {canPropose && (

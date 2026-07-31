@@ -11,7 +11,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { filesUnder, read, stripComments } from './helpers/source.ts'
+import { ROOT, filesUnder, read, stripComments } from './helpers/source.ts'
 import {
   LEDGER_BOX_CLASS,
   LEDGER_HEAD_CLASS,
@@ -66,6 +66,33 @@ test('no file under src/ re-hardcodes a bordered divider container', () => {
     [],
     'a bordered divider container was spelled by hand — consume LEDGER_BOX_CLASS (src/lib/ledger.ts)',
   )
+})
+
+test('elevation means floating — resting chrome casts no shadow, tree-wide', () => {
+  // The overlay tier: the ONLY files allowed a shadow, each a thing that FLOATS
+  // above the page. Alive-checked below — an allowlist nobody re-checks is a
+  // hole with a comment (the tests/CLAUDE.md vacuity lesson).
+  const OVERLAYS = ['src/lib/popover.ts', 'src/lib/dialog.ts', 'src/components/Tooltip.tsx', 'src/components/AccountMenu.tsx']
+  const floating = new Set<string>()
+  for (const file of filesUnder('src')) {
+    const rel = file.slice(ROOT.length + 1).split('\\').join('/')
+    const src = stripComments(read(file))
+    // `drop-shadow-sm` is exempt by the lookbehind: a text-legibility filter on
+    // thumbnail lettering, not box elevation.
+    assert.ok(!/(?<!drop-)\bshadow-sm\b/.test(src), `${rel}: shadow-sm is the old resting-card language — nothing at rest casts a shadow`)
+    // The BARE `shadow` utility too (the toggle knobs wore it) — matched inside a
+    // class string, where it sits between spaces or quotes.
+    assert.ok(!/["'` ]shadow["'` ]/.test(src), `${rel}: the bare shadow utility — knobs and chips take a ring, not a lift`)
+    assert.ok(!src.includes('hover:shadow'), `${rel}: a hover lift is the old card cue — lib/cardDoor sharpens and tints instead`)
+    assert.ok(!/\brounded-(2xl|3xl)/.test(src), `${rel}: rounded-2xl+ is the old card radius — the scale tops out at rounded-xl (lib/ledger)`)
+    if (/\bshadow-(md|lg|xl|2xl)\b/.test(src)) {
+      assert.ok(OVERLAYS.includes(rel), `${rel} casts an overlay shadow but is not a declared overlay`)
+      floating.add(rel)
+    }
+  }
+  for (const o of OVERLAYS) {
+    assert.ok(floating.has(o), `${o} no longer floats — drop it from the overlay allowlist`)
+  }
 })
 
 test('the Projects hub consumes the ledger — and the card pile is gone', () => {

@@ -15,7 +15,7 @@ import { resolveToolActivity } from '../api/commands'
  *  function). */
 export function ToolActivityCard({ activities, sessionId }: { activities: ToolActivity[]; sessionId: string }) {
   return (
-    <div className="mt-2.5 overflow-hidden rounded-xl border border-line bg-panel-2/30 shadow-sm">
+    <div className="mt-2.5 overflow-hidden rounded-xl border border-line bg-panel-2/30">
       <div className="flex items-center gap-1.5 border-b border-line px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
         <Plug size={13} className="text-accent" />
         Tool activity
@@ -108,7 +108,7 @@ function ActivityRow({ activity, sessionId }: { activity: ToolActivity; sessionI
             <button
               onClick={() => resolve('confirm')}
               disabled={busy}
-              className={`rounded-lg px-2.5 py-1 text-[12px] font-semibold text-on-solid shadow-sm transition disabled:opacity-50 ${
+              className={`rounded-lg px-2.5 py-1 text-[12px] font-semibold text-on-solid transition disabled:opacity-50 ${
                 danger ? 'bg-danger hover:bg-danger-strong' : 'bg-accent hover:bg-accent-strong'
               }`}
             >

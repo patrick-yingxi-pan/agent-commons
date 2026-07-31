@@ -5,6 +5,7 @@ import type { Session, SectionId } from '../types'
 import { SECTION_META, SECTION_ORDER } from '../lib/sections'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { SCRIM_CLASS } from '../lib/scrim'
+import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
 import { useGlobalSearch } from '../api'
 
 /** Icon per server hit type. Section-shaped types reuse the section's own icon
@@ -215,7 +216,7 @@ export function SearchPanel({
       <div
         ref={dialogRef}
         onMouseDown={(e) => e.stopPropagation()}
-        className="relative flex max-h-[68dvh] w-[580px] max-w-full flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong short:max-h-[85dvh]"
+        className={`relative flex max-h-[68dvh] w-[580px] max-w-full flex-col ${DIALOG_SURFACE_CLASS} short:max-h-[85dvh]`}
       >
         <div className="flex shrink-0 items-center gap-2.5 border-b border-line px-3.5">
           <Search size={17} className="shrink-0 text-ink-faint" />

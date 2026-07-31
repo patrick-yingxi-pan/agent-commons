@@ -553,7 +553,7 @@ function ChipGroup({
             onClick={() => requestRemove(only)}
             aria-label={`Remove ${only.label} from the conversation`}
             title="Remove from context"
-            className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-line-strong bg-surface text-ink-faint opacity-0 shadow-sm transition hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 group-hover/chip:opacity-100"
+            className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-line-strong bg-surface text-ink-faint opacity-0 transition hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 group-hover/chip:opacity-100"
           >
             <X size={10} strokeWidth={2.5} />
           </button>

@@ -194,7 +194,7 @@ export function ModelPickerMenu({
                   onClick={() => onPickEffort(level)}
                   className={`flex-1 rounded-md px-1 py-1 text-[12px] font-medium transition ${
                     active
-                      ? 'bg-surface text-ink shadow-sm ring-1 ring-line-strong'
+                      ? 'bg-surface text-ink ring-1 ring-line-strong'
                       : 'text-ink-soft hover:text-ink'
                   }`}
                 >

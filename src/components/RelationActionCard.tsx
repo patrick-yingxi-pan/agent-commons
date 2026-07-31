@@ -103,7 +103,7 @@ export function RelationActionCard({
   }
 
   return (
-    <div className="mt-2.5 overflow-hidden rounded-xl border border-line bg-panel-2/30 shadow-sm">
+    <div className="mt-2.5 overflow-hidden rounded-xl border border-line bg-panel-2/30">
       <div className="flex items-center gap-1.5 border-b border-line px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
         <Sparkles size={13} className="text-accent" />
         Proposed changes
@@ -177,7 +177,7 @@ export function RelationActionCard({
                 <div className="flex items-center gap-2 pl-[34px]">
                   <button
                     onClick={() => confirm(op)}
-                    className="rounded-lg bg-accent px-2.5 py-1 text-[12px] font-semibold text-on-solid shadow-sm transition hover:bg-accent-strong"
+                    className="rounded-lg bg-accent px-2.5 py-1 text-[12px] font-semibold text-on-solid transition hover:bg-accent-strong"
                   >
                     {standing ? 'Approve for all runs' : 'Confirm'}
                   </button>

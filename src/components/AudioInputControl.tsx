@@ -87,7 +87,7 @@ export function AudioInputControl() {
               }`}
             >
               <span
-                className={`absolute top-0.5 h-3 w-3 rounded-full bg-surface shadow transition-all ${
+                className={`absolute top-0.5 h-3 w-3 rounded-full bg-surface ring-1 ring-line-strong transition-all ${
                   hold ? 'left-3.5' : 'left-0.5'
                 }`}
               />

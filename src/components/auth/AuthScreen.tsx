@@ -315,7 +315,7 @@ function Subtitle({ children }: { children: ReactNode }) {
 
 /** The one centered card. `as="form"` gives Enter-to-submit for free. */
 function Card({ children, as, onSubmit }: { children: ReactNode; as?: 'form'; onSubmit?: (e: FormEvent) => void }) {
-  const cls = 'mt-5 w-full space-y-3 rounded-xl border border-line bg-surface p-5 shadow-sm'
+  const cls = 'mt-5 w-full space-y-3 rounded-xl border border-line bg-surface p-5'
   if (as === 'form') {
     return (
       <form onSubmit={onSubmit} className={cls}>

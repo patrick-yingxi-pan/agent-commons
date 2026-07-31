@@ -80,6 +80,7 @@ import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { DOOR_CLASS } from '../lib/textDoor'
 import { CARD_DOOR_CLASS, ROW_DOOR_CLASS, cardDoorClick } from '../lib/cardDoor'
 import { LEDGER_BOX_CLASS, LEDGER_HEAD_CLASS, LEDGER_COUNT_CLASS, LEDGER_ROW_CLASS, QUIET_CARD_CLASS } from '../lib/ledger'
+import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { AnchorThreadComposer } from './AnchorThreadComposer'
 import { LocusGutter } from './LocusGutter'
@@ -1148,7 +1149,7 @@ function ProjectReadme({ project, own }: { project: Project; own: boolean }) {
             </button>
             <button
               onClick={save}
-              className="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas shadow-sm transition hover:opacity-90"
+              className="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas transition hover:opacity-90"
             >
               <Check size={13} />
               Save
@@ -1236,7 +1237,7 @@ function ProjectInstructions({ project }: { project: Project }) {
             </button>
             <button
               onClick={save}
-              className="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas shadow-sm transition hover:opacity-90"
+              className="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas transition hover:opacity-90"
             >
               <Check size={13} />
               Save
@@ -1365,7 +1366,7 @@ function ProjectContextChip({ ctx, onRemove }: { ctx: ProjectContext; onRemove: 
         onClick={onRemove}
         aria-label={`Remove ${ctx.label} from project`}
         title="Remove from project"
-        className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-line-strong bg-surface text-ink-faint opacity-0 shadow-sm transition hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 group-hover/chip:opacity-100"
+        className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-line-strong bg-surface text-ink-faint opacity-0 transition hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 group-hover/chip:opacity-100"
       >
         <X size={10} strokeWidth={2.5} />
       </button>
@@ -1512,7 +1513,7 @@ function ShareToggle({ project }: { project: Project }) {
       <span
         className={`mt-0.5 flex h-4 w-7 shrink-0 items-center rounded-full px-0.5 transition ${shared ? 'justify-end bg-ok' : 'justify-start bg-ink/15'}`}
       >
-        <span className="h-3 w-3 rounded-full bg-surface shadow-sm" />
+        <span className="h-3 w-3 rounded-full bg-surface ring-1 ring-line-strong" />
       </span>
     </button>
   )
@@ -3998,7 +3999,7 @@ function ContributionPage({
                     proposalLandings.reduce((m, x) => Math.max(m, x.landingNumber ?? 0), 0),
                   ) + 1
                 } in ${project.name}’s history`}
-                className="rounded-lg bg-ink px-3 py-1 text-[12px] font-medium text-canvas shadow-sm transition hover:opacity-90 disabled:opacity-45"
+                className="rounded-lg bg-ink px-3 py-1 text-[12px] font-medium text-canvas transition hover:opacity-90 disabled:opacity-45"
               >
                 Land
               </button>
@@ -4638,7 +4639,7 @@ function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
               onClick={() => void act(() => approveEnvelope(project.id, c.id), 'Could not approve.')}
               disabled={busy}
               title="Approve these acts as proposed — matching acts then run without re-asking"
-              className="rounded-lg bg-ink px-2.5 py-0.5 text-[11px] font-medium text-canvas shadow-sm transition hover:opacity-90 disabled:opacity-45"
+              className="rounded-lg bg-ink px-2.5 py-0.5 text-[11px] font-medium text-canvas transition hover:opacity-90 disabled:opacity-45"
             >
               Approve
             </button>
@@ -4969,7 +4970,7 @@ function NewArtifactDialog({
       <div
         ref={dialogRef}
         onMouseDown={(e) => e.stopPropagation()}
-        className="relative flex h-fit w-[480px] max-w-full flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong"
+        className={`relative flex h-fit w-[480px] max-w-full flex-col ${DIALOG_SURFACE_CLASS}`}
       >
         <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
           <div className="flex items-center gap-2">
@@ -5061,14 +5062,14 @@ function NewArtifactDialog({
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line bg-panel px-5 py-3">
           <button
             onClick={onClose}
-            className="rounded-lg border border-line-strong bg-surface px-3.5 py-1.5 text-[13px] font-medium text-ink-soft shadow-sm transition hover:border-accent hover:text-ink"
+            className="rounded-lg border border-line-strong bg-surface px-3.5 py-1.5 text-[13px] font-medium text-ink-soft transition hover:border-accent hover:text-ink"
           >
             Cancel
           </button>
           <button
             onClick={submit}
             disabled={!canCreate}
-            className="flex items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Plus size={15} />
             Create artifact
@@ -5272,7 +5273,7 @@ function AddContextControl({
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="dialog"
         aria-expanded={open}
-        className="flex shrink-0 items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas shadow-sm transition hover:opacity-90"
+        className="flex shrink-0 items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas transition hover:opacity-90"
       >
         <Plus size={15} />
         Add context
@@ -5554,7 +5555,7 @@ function McpAccessCard() {
             <button
               onClick={mint}
               disabled={busy || !signedIn}
-              className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-semibold text-on-solid shadow-sm transition hover:bg-accent-strong disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-semibold text-on-solid transition hover:bg-accent-strong disabled:opacity-50"
             >
               <KeyRound size={13} />
               Mint access token
@@ -5754,7 +5755,7 @@ function ContextDetail({
           {!isRepo && (
             <button
               onClick={onToggle}
-              className="flex items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[13px] font-medium text-ink shadow-sm transition hover:border-accent"
+              className="flex items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[13px] font-medium text-ink transition hover:border-accent"
             >
               {connected ? <Unplug size={14} /> : <Plug size={14} />}
               {connected ? 'Disconnect' : 'Connect'}
@@ -5762,7 +5763,7 @@ function ContextDetail({
           )}
           <button
             onClick={onRemove}
-            className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[13px] font-medium text-ink-soft shadow-sm transition hover:border-removed hover:bg-removed-bg hover:text-removed"
+            className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[13px] font-medium text-ink-soft transition hover:border-removed hover:bg-removed-bg hover:text-removed"
           >
             <Trash2 size={14} />
             Remove
@@ -5988,7 +5989,7 @@ function SubTabs<T extends string>({
   const pad = size === 'sm' ? 'p-0.5' : 'p-1'
   const btn = size === 'sm' ? 'px-2 py-0.5 text-[11px]' : 'px-3 py-1 text-[13px]'
   return (
-    <div className={`inline-flex max-w-full flex-wrap items-center gap-1 rounded-lg border border-line bg-surface shadow-sm ${pad}`}>
+    <div className={`inline-flex max-w-full flex-wrap items-center gap-1 rounded-lg border border-line bg-surface ${pad}`}>
       {tabs.map((t) => {
         const on = t.id === active
         return (
@@ -5997,7 +5998,7 @@ function SubTabs<T extends string>({
             onClick={() => onChange(t.id)}
             aria-pressed={on}
             className={`rounded-md font-medium transition ${btn} ${
-              on ? 'bg-ink text-canvas shadow-sm' : 'text-ink-soft hover:text-ink'
+              on ? 'bg-ink text-canvas' : 'text-ink-soft hover:text-ink'
             }`}
           >
             {t.label}
@@ -6141,7 +6142,7 @@ function FormDialog({
       <div
         ref={dialogRef}
         onMouseDown={(e) => e.stopPropagation()}
-        className="relative flex h-fit w-[460px] max-w-full flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong"
+        className={`relative flex h-fit w-[460px] max-w-full flex-col ${DIALOG_SURFACE_CLASS}`}
       >
         <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
           <div className="flex items-center gap-2">
@@ -6166,14 +6167,14 @@ function FormDialog({
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line bg-panel px-5 py-3">
           <button
             onClick={onClose}
-            className="rounded-lg border border-line-strong bg-surface px-3.5 py-1.5 text-[13px] font-medium text-ink-soft shadow-sm transition hover:border-accent hover:text-ink"
+            className="rounded-lg border border-line-strong bg-surface px-3.5 py-1.5 text-[13px] font-medium text-ink-soft transition hover:border-accent hover:text-ink"
           >
             Cancel
           </button>
           <button
             onClick={onSubmit}
             disabled={!canSubmit}
-            className="flex items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {submitIcon}
             {submitLabel}
@@ -6837,7 +6838,7 @@ function ProposalsReviewDialog({
       <div
         ref={dialogRef}
         onMouseDown={(e) => e.stopPropagation()}
-        className="relative flex max-h-[76dvh] w-[640px] max-w-full flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong"
+        className={`relative flex max-h-[76dvh] w-[640px] max-w-full flex-col ${DIALOG_SURFACE_CLASS}`}
       >
         <div className="flex shrink-0 items-center gap-2.5 border-b border-line px-4 py-3">
           <GitPullRequest size={16} className="shrink-0 text-ink-faint" />
@@ -7462,7 +7463,7 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
       <div
         ref={dialogRef}
         onMouseDown={(e) => e.stopPropagation()}
-        className="relative flex h-fit w-[520px] max-w-full flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong"
+        className={`relative flex h-fit w-[520px] max-w-full flex-col ${DIALOG_SURFACE_CLASS}`}
       >
         <div className="flex items-center gap-2 border-b border-line px-5 py-3.5">
           <KeyRound size={18} className="text-ink-soft" />
@@ -7507,7 +7508,7 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
           <button
             onClick={onClose}
             disabled={!canClose}
-            className="rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Done
           </button>
@@ -7613,7 +7614,7 @@ function A2aCardDialog({
       <div
         ref={dialogRef}
         onMouseDown={(e) => e.stopPropagation()}
-        className="relative flex max-h-[80dvh] w-[560px] max-w-full flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong"
+        className={`relative flex max-h-[80dvh] w-[560px] max-w-full flex-col ${DIALOG_SURFACE_CLASS}`}
       >
         <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
           <div className="flex items-center gap-2">
@@ -7759,7 +7760,7 @@ function A2aCardDialog({
         <div className="flex shrink-0 items-center justify-end border-t border-line bg-panel px-5 py-3">
           <button
             onClick={onClose}
-            className="rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas shadow-sm transition hover:opacity-90"
+            className="rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas transition hover:opacity-90"
           >
             Done
           </button>
@@ -7858,7 +7859,7 @@ function ProviderDialog({ provider, onClose }: { provider: ModelProvider | null;
                 type="button"
                 onClick={() => setKind(value)}
                 className={`flex-1 rounded-md px-2 py-1 text-[12px] font-medium transition ${
-                  kind === value ? 'bg-surface text-ink shadow-sm ring-1 ring-line-strong' : 'text-ink-faint hover:text-ink-soft'
+                  kind === value ? 'bg-surface text-ink ring-1 ring-line-strong' : 'text-ink-faint hover:text-ink-soft'
                 }`}
               >
                 {text}
@@ -9948,16 +9949,11 @@ function ScheduledSection({
                   onToggle={() => foldGroup(g.key)}
                 />
                 {!isFolded && (
-                  <div
-                    className={`overflow-hidden rounded-xl border border-line bg-surface shadow-sm ${
-                      g.key === 'paused' ? 'opacity-80' : ''
-                    }`}
-                  >
-                    {g.items.map((t, i) => (
+                  <div className={`${LEDGER_BOX_CLASS} ${g.key === 'paused' ? 'opacity-80' : ''}`}>
+                    {g.items.map((t) => (
                       <ScheduledRow
                         key={t.id}
                         task={t}
-                        first={i === 0}
                         running={running.has(t.id)}
                         onOpen={() => onOpenSchedule(t.id)}
                         onToggle={() => toggleEnabled(t.id)}
@@ -9978,7 +9974,6 @@ function ScheduledSection({
 
 function ScheduledRow({
   task,
-  first,
   running,
   onOpen,
   onToggle,
@@ -9986,7 +9981,6 @@ function ScheduledRow({
   onRemove,
 }: {
   task: ScheduledTask
-  first: boolean
   running: boolean
   onOpen: () => void
   onToggle: () => void
@@ -10008,13 +10002,12 @@ function ScheduledRow({
     // pill) so the flex-1 name column — the row's identity — never collapses.
     <div
       onClick={cardDoorClick(onOpen)}
-      className={`group @container flex items-center gap-3 ${ROW_DOOR_CLASS} ${
-        first ? '' : 'border-t border-line'
-      }`}
+      className={`group @container flex items-center gap-3 ${ROW_DOOR_CLASS}`}
     >
       {/* The WHOLE row drills into the detail (UI-17) — see ContextRow: the hover
           wash covered the row while only this region took the click. The trailing
-          controls (run, delete, the enabled switch) keep their own handlers. */}
+          controls (run, delete, the enabled switch) keep their own handlers.
+          Dividers come from the ledger container's divide-y (lib/ledger). */}
       <div className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3">
         <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-panel-2">
           <ToolGlyph tool={lead} size={16} />
@@ -10122,7 +10115,7 @@ function NewScheduleControl({ onAdd }: { onAdd: (tpl: ScheduleTemplate) => void 
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="dialog"
         aria-expanded={open}
-        className="flex shrink-0 items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas shadow-sm transition hover:opacity-90"
+        className="flex shrink-0 items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas transition hover:opacity-90"
       >
         <Plus size={15} />
         New schedule
@@ -10288,21 +10281,21 @@ function ScheduledDetail({
             <button
               onClick={onRunNow}
               disabled={running}
-              className="flex items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas shadow-sm transition hover:opacity-90 disabled:opacity-60"
+              className="flex items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas transition hover:opacity-90 disabled:opacity-60"
             >
               {running ? <Spinner size={15} /> : <Play size={15} />}
               {running ? 'Running…' : 'Run now'}
             </button>
             <button
               onClick={onToggleEnabled}
-              className="flex items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[13px] font-medium text-ink shadow-sm transition hover:border-accent"
+              className="flex items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[13px] font-medium text-ink transition hover:border-accent"
             >
               {task.enabled ? <PauseCircle size={15} /> : <PlayCircle size={15} />}
               {task.enabled ? 'Pause' : 'Resume'}
             </button>
             <button
               onClick={onRemove}
-              className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[13px] font-medium text-ink-soft shadow-sm transition hover:border-removed hover:bg-removed-bg hover:text-removed"
+              className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[13px] font-medium text-ink-soft transition hover:border-removed hover:bg-removed-bg hover:text-removed"
             >
               <Trash2 size={14} />
               Delete
@@ -10374,7 +10367,7 @@ function PromptCard({ prompt, onSave }: { prompt: string; onSave?: (prompt: stri
   }, [editing])
 
   return (
-    <div className={`rounded-xl border border-line bg-surface p-4 shadow-sm ${SECTION_REVEAL_GROUP}`}>
+    <div className={`border-line ${QUIET_CARD_CLASS} p-4 ${SECTION_REVEAL_GROUP}`}>
       <div className="flex items-center justify-between gap-2">
         <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Instruction</span>
         {!editing && (
@@ -10407,7 +10400,7 @@ function PromptCard({ prompt, onSave }: { prompt: string; onSave?: (prompt: stri
             </button>
             <button
               onClick={save}
-              className="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas shadow-sm transition hover:opacity-90"
+              className="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas transition hover:opacity-90"
             >
               <Check size={13} />
               Save
@@ -10505,8 +10498,8 @@ function WorkflowCard({ task, run, running }: { task: ScheduledTask; run: Schedu
       : 'idle'
 
   return (
-    <div className={`rounded-xl border border-line bg-surface shadow-sm ${SECTION_REVEAL_GROUP}`}>
-      <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
+    <div className={`${LEDGER_BOX_CLASS} ${SECTION_REVEAL_GROUP}`}>
+      <div className="flex items-center justify-between gap-2 px-4 py-3">
         <span className="text-[13px] font-semibold text-ink">Workflow</span>
         {editing ? (
           <span className="text-[12px] font-medium text-ink-faint">Editing steps</span>
@@ -10667,7 +10660,7 @@ function StepsEditor({ task, onClose }: { task: ScheduledTask; onClose: () => vo
         </button>
         <button
           onClick={save}
-          className="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas shadow-sm transition hover:opacity-90"
+          className="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas transition hover:opacity-90"
         >
           <Check size={13} />
           Save workflow
@@ -10774,19 +10767,17 @@ function RunHistoryCard({
   onOpenRun: (id: string) => void
 }) {
   return (
-    <div className="rounded-xl border border-line bg-surface shadow-sm">
-      <div className="flex items-center justify-between border-b border-line px-4 py-3">
+    <div className={LEDGER_BOX_CLASS}>
+      <div className="flex items-center justify-between px-4 py-3">
         <span className="text-[13px] font-semibold text-ink">Recent runs</span>
         {task.runs.length > 0 && <WeekStrip runs={task.runs} />}
       </div>
       {task.runs.length === 0 ? (
         <div className="px-4 py-8 text-center text-[13px] text-ink-faint">No runs yet — Run now to try it.</div>
       ) : (
-        <div>
-          {task.runs.map((r, i) => (
-            <RunRow key={r.id} run={r} taskId={task.id} first={i === 0} onOpen={() => onOpenRun(r.id)} />
-          ))}
-        </div>
+        // Runs sit directly in the ledger box so divide-y rules between them —
+        // a wrapper div would swallow every row into one divider segment.
+        task.runs.map((r) => <RunRow key={r.id} run={r} taskId={task.id} onOpen={() => onOpenRun(r.id)} />)
       )}
     </div>
   )
@@ -10802,12 +10793,10 @@ function RunHistoryCard({
 function RunRow({
   run,
   taskId,
-  first,
   onOpen,
 }: {
   run: ScheduledRun
   taskId: string
-  first: boolean
   onOpen: () => void
 }) {
   const { pending } = usePendingFocus()
@@ -10820,7 +10809,8 @@ function RunRow({
       // The whole row opens the run's session (UI-17); the chevron beside the
       // duration was already a hint, not a control. The flash owns the background
       // while it lasts — see CommonsCard for why the two can't be worn together.
-      className={`group flex items-start gap-3 px-4 py-3 transition ${first ? '' : 'border-t border-line'} ${
+      // Dividers come from the ledger container's divide-y (lib/ledger).
+      className={`group flex items-start gap-3 px-4 py-3 transition ${
         flash ? FOCUS_FLASH_CLASS : ROW_DOOR_CLASS
       }`}
     >
@@ -10938,7 +10928,7 @@ function DeliveryPanel({ task }: { task: ScheduledTask }) {
             </button>
             <button
               onClick={save}
-              className="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas shadow-sm transition hover:opacity-90"
+              className="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas transition hover:opacity-90"
             >
               <Check size={13} />
               Save
@@ -11240,7 +11230,7 @@ function CadenceEditor({ task, onClose }: { task: ScheduledTask; onClose: () => 
         </button>
         <button
           onClick={apply}
-          className="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas shadow-sm transition hover:opacity-90"
+          className="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas transition hover:opacity-90"
         >
           <Check size={13} />
           Apply
@@ -11331,7 +11321,7 @@ function DispatchView() {
       {runs.map((r) => (
         <div
           key={r.id}
-          className="flex items-start gap-3 rounded-xl border border-line bg-surface px-4 py-3 shadow-sm"
+          className={`flex items-start gap-3 border-line ${QUIET_CARD_CLASS} px-4 py-3`}
         >
           <DispatchStatus status={r.status} />
           <div className="min-w-0 flex-1">
@@ -11665,7 +11655,7 @@ function PrimaryButton({
   return (
     <button
       onClick={onClick}
-      className="flex shrink-0 items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas shadow-sm transition hover:opacity-90"
+      className="flex shrink-0 items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas transition hover:opacity-90"
     >
       {icon}
       {children}
@@ -11731,7 +11721,7 @@ function SidePanel({
   children: ReactNode
 }) {
   return (
-    <div className={`rounded-xl border border-line bg-surface p-4 shadow-sm ${SECTION_REVEAL_GROUP}`}>
+    <div className={`border-line ${QUIET_CARD_CLASS} p-4 ${SECTION_REVEAL_GROUP}`}>
       <div className="mb-2.5 flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
           {icon}
@@ -11809,7 +11799,7 @@ function Toggle({ on, onToggle, ariaLabel }: { on: boolean; onToggle: () => void
       title={on ? 'Enabled' : 'Disabled'}
     >
       <span
-        className={`absolute top-0.5 h-4 w-4 rounded-full bg-surface shadow transition-all ${
+        className={`absolute top-0.5 h-4 w-4 rounded-full bg-surface ring-1 ring-line-strong transition-all ${
           on ? 'left-[18px]' : 'left-0.5'
         }`}
       />
@@ -11819,7 +11809,7 @@ function Toggle({ on, onToggle, ariaLabel }: { on: boolean; onToggle: () => void
 
 function Card({ title, desc, children }: { title: string; desc: string; children: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-xl border border-line bg-surface px-4 py-3 shadow-sm">
+    <div className={`flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-line ${QUIET_CARD_CLASS} px-4 py-3`}>
       {/* The label keeps a readable basis; a control that can't fit beside it
           wraps below instead of squeezing the text one word per line. */}
       <div className="min-w-0 flex-1 basis-56">
