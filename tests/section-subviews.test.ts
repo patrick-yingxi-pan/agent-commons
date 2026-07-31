@@ -128,6 +128,18 @@ test('the rail and the page compute a section’s list with the SAME function', 
   }
 })
 
+test('the instance tail row unfolds in place — never a jump to the section page', () => {
+  // Owner directive (2026-07-31): "Show all — N more" under a section must
+  // reveal the remaining rows inline, not navigate away. The rail is a
+  // disclosure tree, so the tail is one more disclosure — and while unfolded it
+  // reads "Show fewer", making the fold back the same control.
+  const rail = stripComments(read(join(ROOT, 'src', 'components', 'SectionTreeChildren.tsx')))
+  assert.match(rail, /const \[showAll, setShowAll\] = useState\(false\)/, 'the unfold is view state in the ONE InstanceRows funnel')
+  assert.ok(rail.includes('aria-expanded={open}'), 'the tail row announces itself as a disclosure')
+  assert.ok(rail.includes("'Show fewer'"), 'the unfolded tail offers the fold back')
+  assert.ok(!rail.includes('onOpenSection'), 'no instance child treats the section page as its tail act')
+})
+
 test('a facet has ONE control — the rail row’s menu, never a second one in the page', () => {
   const components = concatSource('src/components') // comment-stripped
   assert.doesNotMatch(components, /_FILTER_TABS/, 'no per-section in-page filter option arrays')

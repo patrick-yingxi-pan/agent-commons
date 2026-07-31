@@ -2,8 +2,8 @@
  *  A rail child is a PLACE (src/lib/subviews.ts): a declared surface, or one
  *  INSTANCE of the section's list. This module renders the instance kind — the
  *  top rows of the very list the section page shows, in the same order, sliced
- *  by `RAIL_INSTANCE_CAP` with a tail row for the rest — plus the control that
- *  chooses that order: the section row's "Filter & sort" menu.
+ *  by `RAIL_INSTANCE_CAP` with a tail row that UNFOLDS the rest in place — plus
+ *  the control that chooses that order: the section row's "Filter & sort" menu.
  *
  *  The rail and the page compute the list with ONE function per section
  *  (`src/lib/sectionLists.ts`) over ONE stored choice (`useSectionFilter`), so
@@ -13,7 +13,7 @@
  *
  *  Each section's children mount only while its row is EXPANDED, so a rail
  *  that never opens Models never fetches providers. */
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useMyDiscussions, useMyOrgs, useProviders, useSavedContexts } from '../api'
 import { useRelations } from '../controller/useRelations'
 import { discussionTitle } from '../../contract/social.ts'
@@ -66,17 +66,20 @@ export function SubNavRow({
   )
 }
 
-/** The tail row: what the cap left out, and the door to where it all fits. Not
- *  a `SubNavRow` — it names a QUANTITY, not a place, so it deliberately doesn't
- *  wear the instance dot (UI-19: a rail child is a place; this row is the
- *  section page's door, said in numbers). */
-function ShowAllRow({ hidden, onClick }: { hidden: number; onClick: () => void }) {
+/** The tail row: what the cap left out, unfolded IN PLACE (owner directive,
+ *  2026-07-31: "Show all" must reveal the remaining rows under the section, not
+ *  jump to another page — the rail is a disclosure tree, and this is one more
+ *  disclosure). Not a `SubNavRow` — it names a QUANTITY, not a place, so it
+ *  deliberately doesn't wear the instance dot (UI-19). While unfolded it reads
+ *  "Show fewer", so the fold back out is the same control. */
+function ShowAllRow({ hidden, open, onToggle }: { hidden: number; open: boolean; onToggle: () => void }) {
   return (
     <button
-      onClick={onClick}
+      onClick={onToggle}
+      aria-expanded={open}
       className={`flex w-full items-center rounded-lg py-1.5 pl-7 pr-2 text-left text-[12px] text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink-soft`}
     >
-      Show all — {hidden} more
+      {open ? 'Show fewer' : `Show all — ${hidden} more`}
     </button>
   )
 }
@@ -144,8 +147,6 @@ export interface InstanceChildProps {
   activeId: string | null
   /** Open one row: the section, seeded with its detail id. */
   onOpenDetail: (section: SectionId, seed: PaneSeed) => void
-  /** The tail row's door — the section's own page. */
-  onOpenSection: (section: SectionId) => void
 }
 
 /** The instance children of whichever content section this is. A section absent
@@ -178,15 +179,17 @@ function InstanceRows({
   empty,
   activeId,
   onOpenDetail,
-  onOpenSection,
 }: {
   section: SectionId
   rows: { id: string; label: string }[]
   empty: string
 } & InstanceChildProps) {
   const key = SECTION_INSTANCE_KEY[section]
+  // Unfolded-ness is VIEW state, not a preference: it resets when the section
+  // row folds (these children unmount while collapsed), the tree's own idiom.
+  const [showAll, setShowAll] = useState(false)
   if (rows.length === 0) return <NoRowsRow>{empty}</NoRowsRow>
-  const head = rows.slice(0, RAIL_INSTANCE_CAP)
+  const head = showAll ? rows : rows.slice(0, RAIL_INSTANCE_CAP)
   return (
     <>
       {head.map((r) => (
@@ -198,8 +201,12 @@ function InstanceRows({
           onClick={() => onOpenDetail(section, key ? { [key]: r.id } : {})}
         />
       ))}
-      {rows.length > head.length && (
-        <ShowAllRow hidden={rows.length - head.length} onClick={() => onOpenSection(section)} />
+      {rows.length > RAIL_INSTANCE_CAP && (
+        <ShowAllRow
+          hidden={rows.length - RAIL_INSTANCE_CAP}
+          open={showAll}
+          onToggle={() => setShowAll((v) => !v)}
+        />
       )}
     </>
   )

@@ -556,10 +556,6 @@ export function Sidebar({
                           onOpenDetail(section, seed)
                           onLeafNavigate?.()
                         }}
-                        onOpenSection={(section) => {
-                          onOpenSection(section)
-                          onLeafNavigate?.()
-                        }}
                       />
                     ))}
             </Fragment>

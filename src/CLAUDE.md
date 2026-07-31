@@ -148,7 +148,8 @@ directive 2026-07-24). Two kinds of child, and a section has exactly one kind:
   fails a lens with no predicate (it would silently show the whole feed).
 - **Instances** — `SECTION_INSTANCE_KEY`: a content section (Projects, Artifacts,
   Contexts, Models, Discussions) expands to the top `RAIL_INSTANCE_CAP` rows of the
-  very list its page renders, with a "Show all — N more" tail row opening that page.
+  very list its page renders, with a "Show all — N more" tail row that unfolds the
+  remaining rows in place ("Show fewer" folds them back — never a page jump).
   The key IS the `PaneSeed` field that opens one, so "the rail lists it" and "a row of
   it is addressable" are one fact — `/artifacts/:id` and `/models/:id` exist because
   of this rule.

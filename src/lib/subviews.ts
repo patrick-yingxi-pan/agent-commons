@@ -85,7 +85,8 @@ export const SECTION_INSTANCE_KEY: Partial<Record<SectionId, keyof PaneSeed>> = 
   discussions: 'discussionId',
 }
 
-/** How many instance rows the rail shows before folding the rest into one
- *  "Show all N" row (which opens the section page — the surface built to hold
- *  them all, with its own search). The rail is navigation, not an inventory. */
+/** How many instance rows the rail shows before folding the rest behind one
+ *  "Show all — N more" row, which UNFOLDS them in place (owner directive,
+ *  2026-07-31 — the rail is a disclosure tree, so the tail is one more
+ *  disclosure, never a jump to another page; "Show fewer" folds it back). */
 export const RAIL_INSTANCE_CAP = 8
