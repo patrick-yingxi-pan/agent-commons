@@ -32,6 +32,7 @@ import { HostsControl } from './HostsControl'
 import { ProvidersControl } from './ProvidersControl'
 import { GITHUB_CONNECTOR_ID, connectorIconFor } from '../lib/connectors'
 import { getDecision, setDecision } from '../lib/prefs'
+import { DANGER_BUTTON_CLASS } from '../lib/button'
 import { type ChipTone } from '../lib/capabilities'
 import { sameFocus } from '../lib/focus'
 import { useDismissable } from '../lib/useDismissable'
@@ -703,7 +704,7 @@ function RemoveConfirm({
           className={
             cascade
               ? 'rounded-md px-2 py-1 text-[12px] font-medium text-ink ring-1 ring-line-strong transition hover:bg-panel-2'
-              : 'rounded-md bg-removed px-2 py-1 text-[12px] font-medium text-on-solid transition hover:brightness-95'
+              : `${DANGER_BUTTON_CLASS} px-2 py-1 text-[12px]`
           }
         >
           {cascade ? cascade.keepLabel : 'Remove'}
@@ -712,7 +713,7 @@ function RemoveConfirm({
           <button
             type="button"
             onClick={onRemoveAll}
-            className="rounded-md bg-removed px-2 py-1 text-[12px] font-medium text-on-solid transition hover:brightness-95"
+            className={`${DANGER_BUTTON_CLASS} px-2 py-1 text-[12px]`}
           >
             {cascade.removeAllLabel}
           </button>

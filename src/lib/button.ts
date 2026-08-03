@@ -1,0 +1,31 @@
+/** ── The solid button ─────────────────────────────────────────────────────────
+ *  The one face for a SOLID action button (form follows function, like
+ *  lib/textDoor and lib/ledger). Before this funnel the app spoke two primary
+ *  languages at once — nineteen ink-dark solids (`bg-ink text-canvas
+ *  hover:opacity-90`, PrimaryButton included) beside the claret solids the
+ *  consent cards wore — plus a third spelling on the destructive confirm
+ *  (`bg-removed`, the DIFF hue, where the token contract says destructive is
+ *  the danger ramp). Under the Claret direction the affirmative solid is the
+ *  accent: solid claret means "go", solid signal-red means "danger", and the
+ *  two never share a surface at the same weight (src/index.css).
+ *
+ *  The cue owns COLOR, WEIGHT, RADIUS and the hover (state change by ramp, not
+ *  opacity — an opacity hover washes the label too). Radius is rounded-md: a
+ *  button is a control, on the collections step of the radius scale
+ *  (lib/ledger), not a card. Callers own SIZE (padding + text) and LAYOUT
+ *  (flex, gap, shrink), which genuinely vary by container — the textDoor
+ *  lesson. Ghost/text buttons (INLINE_ACTION_CLASS) and bordered secondaries
+ *  are different roles, deliberately not here.
+ *
+ *  Plain strings so the DOM-less runner can scan — tests/button.test.ts locks
+ *  the recipe and forbids the dead spellings tree-wide. */
+
+/** The affirmative solid: claret, darkening (light) / lifting (dark) on hover
+ *  through the accent ramp. */
+export const SOLID_BUTTON_CLASS =
+  'rounded-md bg-accent font-medium text-on-solid transition hover:bg-accent-strong'
+
+/** The destructive solid: same anatomy on the danger ramp — Delete, a
+ *  dangerous Confirm. Pair with a plain-text Cancel, never with another solid. */
+export const DANGER_BUTTON_CLASS =
+  'rounded-md bg-danger font-medium text-on-solid transition hover:bg-danger-strong'

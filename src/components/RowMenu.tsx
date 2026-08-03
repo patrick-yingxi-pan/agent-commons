@@ -4,6 +4,7 @@ import { Check, ChevronRight, MoreVertical } from 'lucide-react'
 import type { Project } from '../types'
 import { useDismissable } from '../lib/useDismissable'
 import { POPOVER_MARGIN, POPOVER_SURFACE, clampLeft } from '../lib/popover'
+import { DANGER_BUTTON_CLASS } from '../lib/button'
 import { FlyoutPanel, useFlyout } from './RecentOverflowList'
 import { HOVER_REVEAL } from '../lib/hoverReveal'
 
@@ -270,7 +271,7 @@ function ConfirmView({
         <button
           type="button"
           onClick={onConfirm}
-          className="rounded-lg bg-removed px-2.5 py-1 text-[12px] font-semibold text-on-solid transition hover:opacity-90"
+          className={`${DANGER_BUTTON_CLASS} px-2.5 py-1 text-[12px]`}
         >
           Delete
         </button>

@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, X } from 'lucide-react'
 import type { Artifact } from '../../types'
 import { ArtifactBodyView, KIND_ICON, KIND_LABEL } from '../artifactPreview'
 import { FOLD_HOVER } from '../../lib/foldHeader'
+import { DANGER_BUTTON_CLASS } from '../../lib/button'
 import { parseFsRecentKey } from '../../../contract/index'
 
 export function ArtifactPanel({
@@ -157,7 +158,7 @@ export function ArtifactPanel({
                             onRemoveFolder?.(g.id)
                             setConfirmRemoveId(null)
                           }}
-                          className="rounded bg-removed px-1.5 py-0.5 text-[11px] font-medium text-on-solid transition hover:brightness-95"
+                          className={`${DANGER_BUTTON_CLASS} px-1.5 py-0.5 text-[11px]`}
                         >
                           Remove
                         </button>

@@ -9,6 +9,8 @@
  *  runner locks the step machine and the password rules directly —
  *  tests/auth-flow.test.ts. */
 
+import { SOLID_BUTTON_CLASS } from './button.ts'
+
 /** Mirrors the server's `EMAIL_SHAPE` (server/routes — signup validation). */
 export const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -83,8 +85,9 @@ export const AUTH_INPUT_CLASS =
 
 export const AUTH_LABEL_CLASS = 'mb-1 block text-[12px] font-medium text-ink-soft'
 
-export const AUTH_PRIMARY_CLASS =
-  'w-full rounded-md bg-accent px-3 py-2 text-sm font-medium text-on-solid transition hover:opacity-90 disabled:opacity-50'
+// The face comes from the one solid-button funnel (lib/button); auth owns only
+// the size and the full-width layout.
+export const AUTH_PRIMARY_CLASS = `w-full ${SOLID_BUTTON_CLASS} px-3 py-2 text-sm disabled:opacity-50`
 
 export const AUTH_LINK_CLASS = 'font-medium text-accent-strong transition hover:underline'
 

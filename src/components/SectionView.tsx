@@ -81,6 +81,7 @@ import { DOOR_CLASS } from '../lib/textDoor'
 import { CARD_DOOR_CLASS, ROW_DOOR_CLASS, cardDoorClick } from '../lib/cardDoor'
 import { LEDGER_BOX_CLASS, LEDGER_HEAD_CLASS, LEDGER_COUNT_CLASS, LEDGER_ROW_CLASS, QUIET_CARD_CLASS } from '../lib/ledger'
 import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
+import { SOLID_BUTTON_CLASS, DANGER_BUTTON_CLASS } from '../lib/button'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { AnchorThreadComposer } from './AnchorThreadComposer'
 import { LocusGutter } from './LocusGutter'
@@ -1149,7 +1150,7 @@ function ProjectReadme({ project, own }: { project: Project; own: boolean }) {
             </button>
             <button
               onClick={save}
-              className="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas transition hover:opacity-90"
+              className={`flex items-center gap-1 ${SOLID_BUTTON_CLASS} px-2.5 py-1 text-[12px] `}
             >
               <Check size={13} />
               Save
@@ -1237,7 +1238,7 @@ function ProjectInstructions({ project }: { project: Project }) {
             </button>
             <button
               onClick={save}
-              className="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas transition hover:opacity-90"
+              className={`flex items-center gap-1 ${SOLID_BUTTON_CLASS} px-2.5 py-1 text-[12px] `}
             >
               <Check size={13} />
               Save
@@ -3999,7 +4000,7 @@ function ContributionPage({
                     proposalLandings.reduce((m, x) => Math.max(m, x.landingNumber ?? 0), 0),
                   ) + 1
                 } in ${project.name}’s history`}
-                className="rounded-lg bg-ink px-3 py-1 text-[12px] font-medium text-canvas transition hover:opacity-90 disabled:opacity-45"
+                className={`${SOLID_BUTTON_CLASS} px-3 py-1 text-[12px] disabled:opacity-45`}
               >
                 Land
               </button>
@@ -4639,7 +4640,7 @@ function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
               onClick={() => void act(() => approveEnvelope(project.id, c.id), 'Could not approve.')}
               disabled={busy}
               title="Approve these acts as proposed — matching acts then run without re-asking"
-              className="rounded-lg bg-ink px-2.5 py-0.5 text-[11px] font-medium text-canvas transition hover:opacity-90 disabled:opacity-45"
+              className={`${SOLID_BUTTON_CLASS} px-2.5 py-0.5 text-[11px] disabled:opacity-45`}
             >
               Approve
             </button>
@@ -5069,7 +5070,7 @@ function NewArtifactDialog({
           <button
             onClick={submit}
             disabled={!canCreate}
-            className="flex items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            className={`flex items-center gap-1.5 ${SOLID_BUTTON_CLASS} px-3.5 py-1.5 text-[13px] disabled:cursor-not-allowed disabled:opacity-50`}
           >
             <Plus size={15} />
             Create artifact
@@ -5273,7 +5274,7 @@ function AddContextControl({
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="dialog"
         aria-expanded={open}
-        className="flex shrink-0 items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas transition hover:opacity-90"
+        className={`flex shrink-0 items-center gap-1.5 ${SOLID_BUTTON_CLASS} px-3.5 py-1.5 text-[13px] `}
       >
         <Plus size={15} />
         Add context
@@ -5555,7 +5556,7 @@ function McpAccessCard() {
             <button
               onClick={mint}
               disabled={busy || !signedIn}
-              className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-semibold text-on-solid transition hover:bg-accent-strong disabled:opacity-50"
+              className={`flex items-center gap-1.5 ${SOLID_BUTTON_CLASS} px-3 py-1.5 text-[12px] disabled:opacity-50`}
             >
               <KeyRound size={13} />
               Mint access token
@@ -5998,7 +5999,7 @@ function SubTabs<T extends string>({
             onClick={() => onChange(t.id)}
             aria-pressed={on}
             className={`rounded-md font-medium transition ${btn} ${
-              on ? 'bg-ink text-canvas' : 'text-ink-soft hover:text-ink'
+              on ? 'bg-surface text-ink ring-1 ring-line-strong' : 'text-ink-soft hover:text-ink'
             }`}
           >
             {t.label}
@@ -6174,7 +6175,7 @@ function FormDialog({
           <button
             onClick={onSubmit}
             disabled={!canSubmit}
-            className="flex items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            className={`flex items-center gap-1.5 ${SOLID_BUTTON_CLASS} px-3.5 py-1.5 text-[13px] disabled:cursor-not-allowed disabled:opacity-50`}
           >
             {submitIcon}
             {submitLabel}
@@ -6896,7 +6897,7 @@ function ProposalsReviewDialog({
                   <button
                     onClick={() => void verdict(p.id, 'merge')}
                     disabled={busy}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas transition enabled:hover:opacity-90 disabled:opacity-45"
+                    className={`inline-flex items-center gap-1.5 ${SOLID_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
                   >
                     <GitMerge size={13} /> Merge
                   </button>
@@ -7508,7 +7509,7 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
           <button
             onClick={onClose}
             disabled={!canClose}
-            className="rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            className={`${SOLID_BUTTON_CLASS} px-3.5 py-1.5 text-[13px] disabled:cursor-not-allowed disabled:opacity-50`}
           >
             Done
           </button>
@@ -7760,7 +7761,7 @@ function A2aCardDialog({
         <div className="flex shrink-0 items-center justify-end border-t border-line bg-panel px-5 py-3">
           <button
             onClick={onClose}
-            className="rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas transition hover:opacity-90"
+            className={`${SOLID_BUTTON_CLASS} px-3.5 py-1.5 text-[13px] `}
           >
             Done
           </button>
@@ -9281,7 +9282,7 @@ function AdminConfirmAction({
           setArmed(false)
           onConfirm()
         }}
-        className="rounded-md bg-removed px-2 py-0.5 text-[11px] font-medium text-canvas transition hover:opacity-90"
+        className={`${DANGER_BUTTON_CLASS} px-2 py-0.5 text-[11px]`}
       >
         {confirmLabel}
       </button>
@@ -10115,7 +10116,7 @@ function NewScheduleControl({ onAdd }: { onAdd: (tpl: ScheduleTemplate) => void 
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="dialog"
         aria-expanded={open}
-        className="flex shrink-0 items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas transition hover:opacity-90"
+        className={`flex shrink-0 items-center gap-1.5 ${SOLID_BUTTON_CLASS} px-3.5 py-1.5 text-[13px] `}
       >
         <Plus size={15} />
         New schedule
@@ -10281,7 +10282,7 @@ function ScheduledDetail({
             <button
               onClick={onRunNow}
               disabled={running}
-              className="flex items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas transition hover:opacity-90 disabled:opacity-60"
+              className={`flex items-center gap-1.5 ${SOLID_BUTTON_CLASS} px-3.5 py-1.5 text-[13px] disabled:opacity-60`}
             >
               {running ? <Spinner size={15} /> : <Play size={15} />}
               {running ? 'Running…' : 'Run now'}
@@ -10400,7 +10401,7 @@ function PromptCard({ prompt, onSave }: { prompt: string; onSave?: (prompt: stri
             </button>
             <button
               onClick={save}
-              className="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas transition hover:opacity-90"
+              className={`flex items-center gap-1 ${SOLID_BUTTON_CLASS} px-2.5 py-1 text-[12px] `}
             >
               <Check size={13} />
               Save
@@ -10660,7 +10661,7 @@ function StepsEditor({ task, onClose }: { task: ScheduledTask; onClose: () => vo
         </button>
         <button
           onClick={save}
-          className="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas transition hover:opacity-90"
+          className={`flex items-center gap-1 ${SOLID_BUTTON_CLASS} px-2.5 py-1 text-[12px] `}
         >
           <Check size={13} />
           Save workflow
@@ -10928,7 +10929,7 @@ function DeliveryPanel({ task }: { task: ScheduledTask }) {
             </button>
             <button
               onClick={save}
-              className="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas transition hover:opacity-90"
+              className={`flex items-center gap-1 ${SOLID_BUTTON_CLASS} px-2.5 py-1 text-[12px] `}
             >
               <Check size={13} />
               Save
@@ -11230,7 +11231,7 @@ function CadenceEditor({ task, onClose }: { task: ScheduledTask; onClose: () => 
         </button>
         <button
           onClick={apply}
-          className="flex items-center gap-1 rounded-md bg-ink px-2.5 py-1 text-[12px] font-medium text-canvas transition hover:opacity-90"
+          className={`flex items-center gap-1 ${SOLID_BUTTON_CLASS} px-2.5 py-1 text-[12px] `}
         >
           <Check size={13} />
           Apply
@@ -11655,7 +11656,7 @@ function PrimaryButton({
   return (
     <button
       onClick={onClick}
-      className="flex shrink-0 items-center gap-1.5 rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-canvas transition hover:opacity-90"
+      className={`flex shrink-0 items-center gap-1.5 ${SOLID_BUTTON_CLASS} px-3.5 py-1.5 text-[13px] `}
     >
       {icon}
       {children}

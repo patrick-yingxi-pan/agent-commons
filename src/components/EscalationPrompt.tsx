@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Check, Folder, FolderOpen, FolderPlus, Github, ShieldAlert } from 'lucide-react'
 import { HOVER_CUE } from '../lib/hoverReveal'
+import { SOLID_BUTTON_CLASS } from '../lib/button'
 
 /** ── The escalation consent gate ──────────────────────────────────────────────
  *  Before Claude escalates a chat into a workspace — or connects a repo /
@@ -181,7 +182,7 @@ function Prompt({
           <button
             ref={primaryRef}
             onClick={onPrimary}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-semibold text-on-solid transition hover:bg-accent-strong"
+            className={`inline-flex items-center gap-1.5 ${SOLID_BUTTON_CLASS} px-3 py-1.5 text-[12px]`}
           >
             {primaryLabel}
             <Key tone="onAccent">Enter</Key>
@@ -274,7 +275,7 @@ function DeniedView({
         <div className="mt-2.5 flex items-center justify-end">
           <button
             onClick={onRetry}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-semibold text-on-solid transition hover:bg-accent-strong"
+            className={`inline-flex items-center gap-1.5 ${SOLID_BUTTON_CLASS} px-3 py-1.5 text-[12px]`}
           >
             Grant access
           </button>
