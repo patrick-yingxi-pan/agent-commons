@@ -37,31 +37,39 @@
   --color-accent-strong: #7a2a33;
   --color-accent-tint: #f6e7e6;
 
-  --color-userbubble: #f4ede9;
+  /* The CO-COLOR — the duet's second voice (owner directive 2026-08-03, the
+     Bindery casting): Prussian-blue PLACES against claret VERBS. The accent
+     family owns what you can DO (the CTA tier, Approve, solid and soft verbs);
+     the co family owns where you ARE (the rail's active pill, door hovers, the
+     focus flash, selection cues, the user bubble). Verbs never wear co, places
+     never wear accent — the seat law, locked by tests/theme.test.ts. */
+  --color-co: #1c4472;
+  --color-co-strong: #173a63;
+  --color-co-tint: #e7eef6;
+
+  --color-userbubble: #e9eff6;
 
   --color-cap-chat: #8a877d;
-  --color-cap-workspace: #c98a3c;
-  --color-cap-repo: #6c8ea0;
 
-  /* Soft per-capability background tints (chips, badges, panel pills). Defined
-     once here so the capability palette has a single source of truth. */
-  --color-cap-workspace-tint: #f7efe0;
-  --color-cap-repo-tint: #e9f0f3;
-
-  /* Per-context-type chip colors, so every attached-context chip is its own hue.
-     Workspaces (amber) and Repositories (slate) reuse the capability colors
-     above; these four cover the rest, following common UI convention:
-     connectors → violet (integrations), MCP → teal (servers), files → indigo
-     (documents), photos → rose (media). Connector is nudged a touch purpler and
-     files a saturated indigo so the cool hues stay distinct from repo's slate. */
-  --color-cap-connector: #8a5fa6;
-  --color-cap-connector-tint: #f1ebf7;
-  --color-cap-mcp: #45867f;
-  --color-cap-mcp-tint: #e6f1ef;
-  --color-cap-file: #5e6fb8;
-  --color-cap-file-tint: #eaedf8;
-  --color-cap-photo: #ab6781;
-  --color-cap-photo-tint: #f5eaed;
+  /* The EMBELLISHMENT layer (owner directive 2026-08-03): the six capability /
+     context-type chips are the one legitimately multicolor seat — tiny area,
+     tint weight — so they carry the famous-color card's pigments, tuned way
+     down: workspace → Schönbrunner gold, repo → Prussian, connector →
+     Burgundy, MCP → Marrs teal, file → Klein, photo → Titian. Garnish beside
+     the claret/prussian duet, never a third voice. Single source of truth for
+     the whole capability palette. */
+  --color-cap-workspace: #b08434;
+  --color-cap-repo: #46689a;
+  --color-cap-workspace-tint: #f9f0d9;
+  --color-cap-repo-tint: #e9eef6;
+  --color-cap-connector: #8a4463;
+  --color-cap-connector-tint: #f3e8ee;
+  --color-cap-mcp: #157c7e;
+  --color-cap-mcp-tint: #e2f0f0;
+  --color-cap-file: #3d55c4;
+  --color-cap-file-tint: #e8ecfa;
+  --color-cap-photo: #c05457;
+  --color-cap-photo-tint: #f8e9e9;
 
   --color-added: #3f7d52;
   --color-added-bg: #eaf3ec;
@@ -136,21 +144,27 @@
   --color-accent-strong: #dd8790;
   --color-accent-tint: #402b2d;
 
-  --color-userbubble: #342c2d;
+  /* The co family lifted for dark ground — Prussian places read as moonlit
+     blue against the wine-leather charcoals. */
+  --color-co: #7fa8d9;
+  --color-co-strong: #9dbde6;
+  --color-co-tint: #24313f;
+
+  --color-userbubble: #24313f;
 
   --color-cap-chat: #a09c8f;
   --color-cap-workspace: #d9a45c;
-  --color-cap-repo: #8fb0c2;
+  --color-cap-repo: #8aa9cc;
   --color-cap-workspace-tint: #3a3327;
-  --color-cap-repo-tint: #2b3439;
-  --color-cap-connector: #b08cc9;
-  --color-cap-connector-tint: #362e3d;
-  --color-cap-mcp: #6fb0a8;
-  --color-cap-mcp-tint: #283734;
-  --color-cap-file: #8b9ad6;
-  --color-cap-file-tint: #2e3140;
-  --color-cap-photo: #c98ba5;
-  --color-cap-photo-tint: #3b2f34;
+  --color-cap-repo-tint: #263140;
+  --color-cap-connector: #c88aa8;
+  --color-cap-connector-tint: #392b33;
+  --color-cap-mcp: #5fb8ba;
+  --color-cap-mcp-tint: #1c3536;
+  --color-cap-file: #93a3ea;
+  --color-cap-file-tint: #2c3150;
+  --color-cap-photo: #d98a8c;
+  --color-cap-photo-tint: #3b2d2e;
 
   --color-added: #6fbf87;
   --color-added-bg: #263a2c;
@@ -210,6 +224,11 @@
   --color-accent-strong: #a34d2e;
   --color-accent-tint: #f6e9e1;
 
+  /* Single-voice palette: co = the accent family, so no seat changes hue. */
+  --color-co: #c15f3c;
+  --color-co-strong: #a34d2e;
+  --color-co-tint: #f6e9e1;
+
   --color-userbubble: #efece3;
 }
 :root[data-palette="terracotta"][data-theme="dark"] {
@@ -229,6 +248,10 @@
   --color-accent: #d97757;
   --color-accent-strong: #e08b6d;
   --color-accent-tint: #453028;
+
+  --color-co: #d97757;
+  --color-co-strong: #e08b6d;
+  --color-co-tint: #453028;
 
   --color-userbubble: #33322c;
 }
@@ -252,6 +275,10 @@
   --color-accent-strong: #3644a6;
   --color-accent-tint: #e9ecfa;
 
+  --color-co: #4353c8;
+  --color-co-strong: #3644a6;
+  --color-co-tint: #e9ecfa;
+
   --color-userbubble: #eef1f9;
 }
 :root[data-palette="indigo"][data-theme="dark"] {
@@ -271,6 +298,10 @@
   --color-accent: #8b96e8;
   --color-accent-strong: #a3adf0;
   --color-accent-tint: #2c3052;
+
+  --color-co: #8b96e8;
+  --color-co-strong: #a3adf0;
+  --color-co-tint: #2c3052;
 
   --color-userbubble: #2b2e42;
 }
@@ -294,6 +325,10 @@
   --color-accent-strong: #24543a;
   --color-accent-tint: #e5f0e9;
 
+  --color-co: #2e6b4a;
+  --color-co-strong: #24543a;
+  --color-co-tint: #e5f0e9;
+
   --color-userbubble: #edf2ee;
 }
 :root[data-palette="forest"][data-theme="dark"] {
@@ -313,6 +348,10 @@
   --color-accent: #6fbf8f;
   --color-accent-strong: #8ed3a9;
   --color-accent-tint: #24382c;
+
+  --color-co: #6fbf8f;
+  --color-co-strong: #8ed3a9;
+  --color-co-tint: #24382c;
 
   --color-userbubble: #2b342d;
 }
@@ -446,8 +485,10 @@ body {
    Inputs/textarea opt out (they use `outline-none` + a focus border instead),
    and `:where()` keeps specificity at 0 so any explicit utility still wins. */
 @layer base {
+  /* Keyboard focus is a PLACE cue (where you are), so it wears the co-color —
+     which also gives the ring the conventional blue cast under Bindery. */
   :where(button, a, [role="button"], [tabindex]:not([tabindex="-1"])):focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--color-co);
     outline-offset: 2px;
   }
 }

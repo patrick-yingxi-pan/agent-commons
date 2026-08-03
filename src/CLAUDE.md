@@ -45,6 +45,20 @@ names its locking test — moving or weakening a rule means moving its lock too.
   claret means "go", bright signal-red means "danger", never both weights on one
   surface. This restyles but does not restructure — the rail, the split
   workspace, and every navigation rule below are unchanged.
+- **The Bindery duet + the seat law** (owner directive 2026-08-03). The default
+  palette is a TWO-color system: claret VERBS against Prussian-blue PLACES
+  (`--color-co(-strong/-tint)`). The accent family owns what you can do — the
+  CTA tier (rail New session, auth Sign in — the only true solids left after
+  the soft-verb demotion; opaque claret read heavy), the SOFT verbs
+  (`SOFT_BUTTON_CLASS`, tinted fill), the secondary's hover answer, danger
+  solids. The co family owns where you are — the rail's active pill, title-door
+  hovers, the focus flash, field focus (`focus:border-co`), selection states,
+  checked checkboxes, the keyboard focus ring, the user bubble. Verbs never
+  wear co, places never wear accent (locked by `tests/button.test.ts` +
+  `tests/form-input.test.ts`); single-voice palettes set co = accent and are
+  unchanged. The six capability-chip hues are the EMBELLISHMENT layer — famous-
+  card pigments (Schönbrunner/Prussian/Burgundy/Marrs/Klein/Titian) at tint
+  weight, palette-invariant, never a third voice.
 - **No "before" view.** The prototype deliberately does *not* reproduce today's
   three-tab UI. The motivation lives in the docs, and reviewers can diff against
   the live app — so don't build a side-by-side "before".

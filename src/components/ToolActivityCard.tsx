@@ -3,7 +3,7 @@ import { Check, FilePlus2, Pencil, Play, Plug, Send, Trash2, Wrench, X } from 'l
 import { API_BASE_PATH } from '../../contract/index.ts'
 import type { ToolActivity, ToolCardFamily } from '../types'
 import { resolveToolActivity } from '../api/commands'
-import { SOLID_BUTTON_CLASS, DANGER_BUTTON_CLASS } from '../lib/button'
+import { SOFT_BUTTON_CLASS, DANGER_BUTTON_CLASS } from '../lib/button'
 
 /** An account of the tools the model touched this turn: connector/MCP tools (P6)
  *  and the generated API tools (access-parity INV-11 — the in-app leg). A *read*
@@ -110,7 +110,7 @@ function ActivityRow({ activity, sessionId }: { activity: ToolActivity; sessionI
               onClick={() => resolve('confirm')}
               disabled={busy}
               className={`px-2.5 py-1 text-[12px] disabled:opacity-50 ${
-                danger ? DANGER_BUTTON_CLASS : SOLID_BUTTON_CLASS
+                danger ? DANGER_BUTTON_CLASS : SOFT_BUTTON_CLASS
               }`}
             >
               {cues?.confirm ?? 'Confirm'}

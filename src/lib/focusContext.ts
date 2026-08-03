@@ -34,8 +34,10 @@ export const FOCUS_FLASH_MS = 1600
 /** The ONE lit-highlight cue every focus target wears — a work item row, a
  *  comment, an agent card, a conversation turn. One token so "you were brought
  *  here" reads identically wherever a door lands (form follows function,
- *  src/CLAUDE.md); callers supply their own resting border/ring. */
-export const FOCUS_FLASH_CLASS = 'bg-accent-tint ring-1 ring-accent/40'
+ *  src/CLAUDE.md); callers supply their own resting border/ring. Wears the
+ *  CO-COLOR: "you were brought here" is a PLACE cue (the Bindery seat law,
+ *  src/index.css), so under the duet it flashes Prussian, not claret. */
+export const FOCUS_FLASH_CLASS = 'bg-co-tint ring-1 ring-co/40'
 
 /** Delays (ms) between scroll re-assertions while a page's layout settles —
  *  the first is immediate, the rest back off. The whole sequence finishes well

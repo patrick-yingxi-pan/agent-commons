@@ -12,7 +12,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { ROOT, read, filesUnder, stripComments } from './helpers/source.ts'
-import { SOLID_BUTTON_CLASS, DANGER_BUTTON_CLASS, SECONDARY_BUTTON_CLASS } from '../src/lib/button.ts'
+import { SOLID_BUTTON_CLASS, DANGER_BUTTON_CLASS, SECONDARY_BUTTON_CLASS, SOFT_BUTTON_CLASS } from '../src/lib/button.ts'
 
 const FUNNEL = join('src', 'lib', 'button.ts')
 
@@ -38,6 +38,20 @@ test('the solid faces ramp on hover and carry no size', () => {
   assert.ok(/hover:(border|text)-accent/.test(SECONDARY_BUTTON_CLASS), 'the secondary answers in accent on hover')
   assert.ok(SECONDARY_BUTTON_CLASS.includes('rounded-md'), 'the secondary sits on the control radius')
   assert.ok(!/\btext-\[|\btext-sm|\bpx-|\bpy-|\bflex\b/.test(SECONDARY_BUTTON_CLASS), 'no size or layout')
+  // The SOFT verb — the below-CTA affirmative (2026-08-03: opaque claret read
+  // heavy): tinted fill, strong text, the fill deepening on hover. Never
+  // on-solid (that's the CTA tier's voice), never a shadow, no size.
+  assert.ok(SOFT_BUTTON_CLASS.includes('bg-accent-tint') && SOFT_BUTTON_CLASS.includes('text-accent-strong'))
+  assert.ok(/hover:bg-accent\//.test(SOFT_BUTTON_CLASS), 'the soft verb deepens its own fill on hover')
+  assert.ok(!SOFT_BUTTON_CLASS.includes('on-solid') && !SOFT_BUTTON_CLASS.includes('shadow'))
+  assert.ok(SOFT_BUTTON_CLASS.includes('rounded-md'), 'the soft verb sits on the control radius')
+  assert.ok(!/\btext-\[|\btext-sm|\bpx-|\bpy-|\bflex\b/.test(SOFT_BUTTON_CLASS), 'no size or layout')
+  // The seat law (the Bindery duet, src/index.css): VERBS never wear the
+  // co-color — a button face referencing `co` has crossed into the places'
+  // seat, and the duet collapses back into one voice.
+  for (const cue of [SOLID_BUTTON_CLASS, DANGER_BUTTON_CLASS, SECONDARY_BUTTON_CLASS, SOFT_BUTTON_CLASS]) {
+    assert.ok(!/\bco\b|-co(?![\w])|co-/.test(cue), `verbs never wear the co-color: "${cue}"`)
+  }
 })
 
 /** The one element allowed to pair `bg-ink` with `text-canvas`: the tooltip's
@@ -93,19 +107,21 @@ test('the dead solid spellings stay dead — tree-wide', () => {
 
 test('the consumers source the face from the module', () => {
   const consumers: Array<[string, string, number]> = [
-    ['src/components/SectionView.tsx', 'SOLID_BUTTON_CLASS', 15],
+    // The soft tier carries every below-CTA affirmative (2026-08-03).
+    ['src/components/SectionView.tsx', 'SOFT_BUTTON_CLASS', 15],
     ['src/components/SectionView.tsx', 'DANGER_BUTTON_CLASS', 1],
-    ['src/components/EscalationPrompt.tsx', 'SOLID_BUTTON_CLASS', 2],
-    ['src/components/RelationActionCard.tsx', 'SOLID_BUTTON_CLASS', 1],
+    ['src/components/EscalationPrompt.tsx', 'SOFT_BUTTON_CLASS', 2],
+    ['src/components/RelationActionCard.tsx', 'SOFT_BUTTON_CLASS', 1],
     ['src/components/ToolActivityCard.tsx', 'DANGER_BUTTON_CLASS', 1],
     ['src/components/RowMenu.tsx', 'DANGER_BUTTON_CLASS', 1],
     ['src/components/Composer.tsx', 'DANGER_BUTTON_CLASS', 2],
     ['src/components/panels/ArtifactPanel.tsx', 'DANGER_BUTTON_CLASS', 1],
-    ['src/lib/authFlow.ts', 'SOLID_BUTTON_CLASS', 1],
     // PrimaryButton (the shared page-header verb) is a SECONDARY under the
-    // candidate's CTA guardrail; the rail's New session is the solid.
+    // candidate's CTA guardrail. TRUE solids survive only where a surface has
+    // ONE defining act: the rail's New session and the auth Sign in.
     ['src/components/SectionView.tsx', 'SECONDARY_BUTTON_CLASS', 1],
     ['src/components/Sidebar.tsx', 'SOLID_BUTTON_CLASS', 1],
+    ['src/lib/authFlow.ts', 'SOLID_BUTTON_CLASS', 1],
   ]
   for (const [rel, symbol, least] of consumers) {
     const src = read(join(ROOT, ...rel.split('/')))

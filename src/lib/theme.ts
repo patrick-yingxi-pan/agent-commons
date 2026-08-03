@@ -48,6 +48,9 @@ export const PALETTE_TOKENS: readonly string[] = [
   '--color-accent',
   '--color-accent-strong',
   '--color-accent-tint',
+  '--color-co',
+  '--color-co-strong',
+  '--color-co-tint',
   '--color-userbubble',
 ]
 
@@ -57,7 +60,7 @@ export const PALETTE_TOKENS: readonly string[] = [
  *  base `@theme`), so the copy can't drift. Claret first — it is the default
  *  and the base block. */
 export const PALETTES: readonly { id: PaletteId; label: string; blurb: string; swatch: string }[] = [
-  { id: 'claret', label: 'Claret', blurb: 'Oxblood on rose linen — the ledger bound in wine leather.', swatch: '#93353f' },
+  { id: 'claret', label: 'Claret', blurb: 'Claret verbs, Prussian places — the ledger bound in wine leather, ruled in navy ink.', swatch: '#93353f' },
   { id: 'terracotta', label: 'Terracotta', blurb: 'The warm Claude classic — clay on parchment.', swatch: '#c15f3c' },
   { id: 'indigo', label: 'Indigo', blurb: 'Cool ink on porcelain — the engineer’s blueprint.', swatch: '#4353c8' },
   { id: 'forest', label: 'Forest', blurb: 'Deep green on sage — the field notebook.', swatch: '#2e6b4a' },

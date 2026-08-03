@@ -17,7 +17,9 @@ import { FORM_INPUT_CLASS } from '../src/lib/formInput.ts'
 import { FOCUS_FLASH_CLASS } from '../src/lib/focusContext.ts'
 
 test('the shared input cue carries the whole field look, tokens only', () => {
-  for (const piece of ['border-line', 'bg-surface', 'text-ink', 'placeholder:text-ink-faint', 'focus:border-accent']) {
+  // focus:border-co since the Bindery duet — field focus is a PLACE cue, so it
+  // answers in the co-color (src/index.css seat law).
+  for (const piece of ['border-line', 'bg-surface', 'text-ink', 'placeholder:text-ink-faint', 'focus:border-co']) {
     assert.ok(FORM_INPUT_CLASS.includes(piece), `the field cue owns ${piece}`)
   }
   // INV-1: semantic tokens, never a raw Tailwind palette class.
@@ -25,7 +27,8 @@ test('the shared input cue carries the whole field look, tokens only', () => {
 })
 
 test('the focus flash is one cue: tint + ring, tokens only', () => {
-  assert.ok(FOCUS_FLASH_CLASS.includes('bg-accent-tint'), 'the arrival tint')
+  // The co-tint since the Bindery duet — "you were brought here" is a PLACE.
+  assert.ok(FOCUS_FLASH_CLASS.includes('bg-co-tint'), 'the arrival tint wears the co-color')
   assert.ok(FOCUS_FLASH_CLASS.includes('ring-'), 'and its ring')
   assert.ok(!/\b(?:bg|text|border|ring)-(?:gray|zinc|slate|neutral|stone|blue|red|green)-\d/.test(FOCUS_FLASH_CLASS))
 })

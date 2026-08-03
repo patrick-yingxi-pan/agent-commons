@@ -30,6 +30,15 @@ export const SOLID_BUTTON_CLASS =
 export const DANGER_BUTTON_CLASS =
   'rounded-md bg-danger font-medium text-on-solid transition hover:bg-danger-strong'
 
+/** The SOFT verb — an affirmative action below the CTA tier (owner directive
+ *  2026-08-03: the opaque claret read heavy at app scale). Approve on a consent
+ *  card, Save/Post/Apply in forms and dialogs: same claret voice at a third of
+ *  the weight — tinted fill, strong text, the fill deepening (never lifting)
+ *  on hover. TRUE solids remain only where a surface has ONE defining act: the
+ *  rail's New session, the auth Sign in, and the danger confirms. */
+export const SOFT_BUTTON_CLASS =
+  'rounded-md bg-accent-tint font-medium text-accent-strong transition hover:bg-accent/20'
+
 /** The bordered SECONDARY: the page-level verb ("New project", "New provider")
  *  and any action that shouldn't shout. The Claret candidate's caveat is the
  *  law here: solid claret is reserved for the CTA tier (the rail's New

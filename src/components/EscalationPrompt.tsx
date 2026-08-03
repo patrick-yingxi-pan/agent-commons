@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Check, Folder, FolderOpen, FolderPlus, Github, ShieldAlert } from 'lucide-react'
 import { HOVER_CUE } from '../lib/hoverReveal'
-import { SOLID_BUTTON_CLASS } from '../lib/button'
+import { SOFT_BUTTON_CLASS } from '../lib/button'
 
 /** ── The escalation consent gate ──────────────────────────────────────────────
  *  Before Claude escalates a chat into a workspace — or connects a repo /
@@ -182,10 +182,10 @@ function Prompt({
           <button
             ref={primaryRef}
             onClick={onPrimary}
-            className={`inline-flex items-center gap-1.5 ${SOLID_BUTTON_CLASS} px-3 py-1.5 text-[12px]`}
+            className={`inline-flex items-center gap-1.5 ${SOFT_BUTTON_CLASS} px-3 py-1.5 text-[12px]`}
           >
             {primaryLabel}
-            <Key tone="onAccent">Enter</Key>
+            <Key tone="onSoft">Enter</Key>
           </button>
         </div>
       </div>
@@ -275,7 +275,7 @@ function DeniedView({
         <div className="mt-2.5 flex items-center justify-end">
           <button
             onClick={onRetry}
-            className={`inline-flex items-center gap-1.5 ${SOLID_BUTTON_CLASS} px-3 py-1.5 text-[12px]`}
+            className={`inline-flex items-center gap-1.5 ${SOFT_BUTTON_CLASS} px-3 py-1.5 text-[12px]`}
           >
             Grant access
           </button>
@@ -285,12 +285,14 @@ function DeniedView({
   )
 }
 
-/** A small keycap hint (Esc / Enter), matching the desktop prompt's affordances. */
-function Key({ children, tone }: { children: React.ReactNode; tone?: 'onAccent' }) {
+/** A small keycap hint (Esc / Enter), matching the desktop prompt's affordances.
+ *  `onSoft` sits inside the SOFT verb (accent-tinted fill), so it keys off the
+ *  accent ramp rather than the on-solid white the old opaque button needed. */
+function Key({ children, tone }: { children: React.ReactNode; tone?: 'onSoft' }) {
   return (
     <kbd
       className={`rounded px-1 py-0.5 text-[10px] font-medium leading-none ${
-        tone === 'onAccent' ? 'bg-on-solid/20 text-on-solid/90' : 'bg-panel-2 text-ink-faint'
+        tone === 'onSoft' ? 'bg-accent/15 text-accent-strong' : 'bg-panel-2 text-ink-faint'
       }`}
     >
       {children}

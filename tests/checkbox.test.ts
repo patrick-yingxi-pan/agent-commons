@@ -24,8 +24,10 @@ test('the shared checkbox cues are a real square-check idiom', () => {
   for (const piece of ['h-3.5 w-3.5', 'items-center justify-center', 'rounded border']) {
     assert.ok(CHECKBOX_BOX_CLASS.includes(piece), `box keeps "${piece}"`)
   }
-  assert.ok(CHECKBOX_BOX_ON_CLASS.includes('bg-accent'), 'on-state fills accent')
-  assert.ok(CHECKBOX_BOX_ON_CLASS.includes('text-on-solid'), 'on-state check is the on-solid token (white atop the accent fill)')
+  // bg-co since the Bindery duet — a checked box is a SELECTION (a place cue),
+  // so it fills the co-color, not the verb accent (src/index.css seat law).
+  assert.ok(CHECKBOX_BOX_ON_CLASS.includes('bg-co'), 'on-state fills the co-color')
+  assert.ok(CHECKBOX_BOX_ON_CLASS.includes('text-on-solid'), 'on-state check is the on-solid token (white atop the fill)')
   assert.ok(CHECKBOX_BOX_OFF_CLASS.includes('border-line-strong'), 'off-state is a quiet border')
   assert.ok(DEFAULT_TOGGLE_CLASS.includes('w-full'), 'the toggle reads as a first-class field row')
   assert.ok(DEFAULT_BADGE_CLASS.includes('bg-accent-tint'), 'the badge is the accent-tint chip')

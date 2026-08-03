@@ -7,7 +7,7 @@ import { ArtifactBodyView } from './artifactPreview'
 import { useFsText, fsContentUrl } from '../api/hooks'
 import { parseFsRecentKey } from '../../contract/index'
 import { HOVER_REVEAL } from '../lib/hoverReveal'
-import { SOLID_BUTTON_CLASS } from '../lib/button'
+import { SOFT_BUTTON_CLASS } from '../lib/button'
 
 const IMG_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico']
 const isImageLabel = (label: string) => IMG_EXTS.includes(label.split('.').pop()?.toLowerCase() ?? '')
@@ -219,7 +219,7 @@ function PhotoBody({
           value={caption}
           onChange={(e) => onDraft({ caption: e.target.value, applied })}
           placeholder="Add a caption…"
-          className="mt-2 w-full rounded-md border border-line bg-canvas px-2 py-1.5 text-[12px] text-ink outline-none transition focus:border-accent"
+          className="mt-2 w-full rounded-md border border-line bg-canvas px-2 py-1.5 text-[12px] text-ink outline-none transition focus:border-co"
         />
 
         <button
@@ -308,13 +308,13 @@ function FileBody({
               value={text}
               onChange={(e) => onDraft({ text: e.target.value, saved })}
               spellCheck={false}
-              className="h-44 w-full flex-1 resize-none rounded-md border border-line bg-canvas p-2 font-mono text-[12px] leading-relaxed text-ink outline-none transition focus:border-accent"
+              className="h-44 w-full flex-1 resize-none rounded-md border border-line bg-canvas p-2 font-mono text-[12px] leading-relaxed text-ink outline-none transition focus:border-co"
             />
             <div className="mt-2 flex justify-end">
               <button
                 onClick={() => onDraft({ text, saved: text })}
                 disabled={!dirty}
-                className={`${SOLID_BUTTON_CLASS} px-3 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-40`}
+                className={`${SOFT_BUTTON_CLASS} px-3 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-40`}
               >
                 Save
               </button>

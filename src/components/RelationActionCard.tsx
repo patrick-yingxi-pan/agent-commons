@@ -22,7 +22,7 @@ import {
 import { describeOp, opKey, relationContentPreview, type RelationContentPreview, type RelationOp } from '../data/relations'
 import { useRelations } from '../controller/useRelations'
 import { useSessionContextCommands } from '../controller/useSessionContextCommands'
-import { SOLID_BUTTON_CLASS } from '../lib/button'
+import { SOFT_BUTTON_CLASS } from '../lib/button'
 import { DRAFT_ID } from '../data/liveSession'
 import { resolveMessageRelation } from '../api'
 import { SECTION_LABELS } from '../lib/nav'
@@ -178,7 +178,7 @@ export function RelationActionCard({
                 <div className="flex items-center gap-2 pl-[34px]">
                   <button
                     onClick={() => confirm(op)}
-                    className={`${SOLID_BUTTON_CLASS} px-2.5 py-1 text-[12px]`}
+                    className={`${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px]`}
                   >
                     {standing ? 'Approve for all runs' : 'Confirm'}
                   </button>

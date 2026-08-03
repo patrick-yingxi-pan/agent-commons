@@ -355,7 +355,7 @@ export function Composer({
           // (the strong border, the accent focus ring) but nothing at rest
           // floats — no shadow, and the radius steps down with the flat scale
           // (collections 6px, cards 8px, standalone objects 12px — lib/ledger).
-          className={`flex items-end gap-2 rounded-xl border border-line-strong bg-surface px-4 py-3 transition focus-within:border-accent ${
+          className={`flex items-end gap-2 rounded-xl border border-line-strong bg-surface px-4 py-3 transition focus-within:border-co ${
             disabled ? 'opacity-60' : ''
           }`}
         >

@@ -81,7 +81,7 @@ export function stepBefore(step: SignUpStep): SignUpStep | null {
  * apart. Locked by tests/auth-flow.test.ts (no component re-hardcodes them). */
 
 export const AUTH_INPUT_CLASS =
-  'w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30'
+  'w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-co focus:outline-none focus:ring-2 focus:ring-co/30'
 
 export const AUTH_LABEL_CLASS = 'mb-1 block text-[12px] font-medium text-ink-soft'
 
