@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { relativeTime } from '../src/lib/relativeTime.ts'
+import { relativeTime, shortRelativeTime } from '../src/lib/relativeTime.ts'
 
 // A fixed "now" so every bucket is deterministic regardless of when/where the
 // suite runs. Mid-year and mid-day so the absolute-date branch can't straddle a
@@ -64,4 +64,22 @@ test('the default "now" argument resolves to the real clock (smoke: a recent sta
 test('a missing / non-finite stamp falls back to "recently" (legacy records, never "undefined NaN")', () => {
   assert.equal(relativeTime(NaN, NOW), 'recently')
   assert.equal(relativeTime(undefined as unknown as number, NOW), 'recently')
+})
+
+// ── The compact form (shortRelativeTime) — the Claret ledger's dense meta column.
+test('shortRelativeTime: terse buckets — now / Nm / Nh / Nd', () => {
+  assert.equal(shortRelativeTime(NOW - 20 * SEC, NOW), 'now')
+  assert.equal(shortRelativeTime(NOW - 5 * MIN, NOW), '5m')
+  assert.equal(shortRelativeTime(NOW - 5 * HOUR, NOW), '5h')
+  assert.equal(shortRelativeTime(NOW - 2 * DAY, NOW), '2d')
+  assert.equal(shortRelativeTime(NOW - 6 * DAY, NOW), '6d')
+})
+
+test('shortRelativeTime: past a week it speaks the long form’s absolute date', () => {
+  assert.equal(shortRelativeTime(NOW - 10 * DAY, NOW), relativeTime(NOW - 10 * DAY, NOW))
+})
+
+test('shortRelativeTime: skew and missing stamps stay honest', () => {
+  assert.equal(shortRelativeTime(NOW + 5 * MIN, NOW), 'now')
+  assert.equal(shortRelativeTime(NaN, NOW), 'recently')
 })

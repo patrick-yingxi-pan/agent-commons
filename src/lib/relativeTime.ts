@@ -42,3 +42,17 @@ export function relativeTime(thenMs: number | null | undefined, nowMs: number = 
     ? `${MONTHS[d.getMonth()]} ${d.getDate()}`
     : `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`
 }
+
+/** The compact form for dense metadata columns — a ledger row's right-aligned
+ *  "2d · 3 sessions" (the Claret candidate's spelling), where the long form
+ *  would out-talk the row it annotates. Same buckets, terse labels; ages past a
+ *  week fall back to the same absolute date the long form uses. */
+export function shortRelativeTime(thenMs: number | null | undefined, nowMs: number = Date.now()): string {
+  if (typeof thenMs !== 'number' || !Number.isFinite(thenMs)) return 'recently'
+  const diff = nowMs - thenMs
+  if (diff < 45 * SEC) return 'now'
+  if (diff < 45 * MIN) return `${Math.max(1, Math.round(diff / MIN))}m`
+  if (diff < 22 * HOUR) return `${Math.max(1, Math.round(diff / HOUR))}h`
+  if (diff < 7 * DAY) return `${Math.max(1, Math.round(diff / DAY))}d`
+  return relativeTime(thenMs, nowMs)
+}

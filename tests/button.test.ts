@@ -12,7 +12,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { ROOT, read, filesUnder, stripComments } from './helpers/source.ts'
-import { SOLID_BUTTON_CLASS, DANGER_BUTTON_CLASS } from '../src/lib/button.ts'
+import { SOLID_BUTTON_CLASS, DANGER_BUTTON_CLASS, SECONDARY_BUTTON_CLASS } from '../src/lib/button.ts'
 
 const FUNNEL = join('src', 'lib', 'button.ts')
 
@@ -30,6 +30,14 @@ test('the solid faces ramp on hover and carry no size', () => {
     // approve chip) — the textDoor lesson.
     assert.ok(!/\btext-\[|\btext-sm|\bpx-|\bpy-|\bflex\b/.test(cue), `${ramp} carries no size or layout`)
   }
+  // The bordered secondary: a frame, never a fill — the Claret candidate
+  // reserves solid claret for the CTA tier, so the page-level verb answers in
+  // accent only on hover.
+  assert.ok(SECONDARY_BUTTON_CLASS.includes('border-line-strong'), 'the secondary is framed')
+  assert.ok(!/bg-(accent|danger|ink)(?![\w-])/.test(SECONDARY_BUTTON_CLASS), 'the secondary never fills solid')
+  assert.ok(/hover:(border|text)-accent/.test(SECONDARY_BUTTON_CLASS), 'the secondary answers in accent on hover')
+  assert.ok(SECONDARY_BUTTON_CLASS.includes('rounded-md'), 'the secondary sits on the control radius')
+  assert.ok(!/\btext-\[|\btext-sm|\bpx-|\bpy-|\bflex\b/.test(SECONDARY_BUTTON_CLASS), 'no size or layout')
 })
 
 /** The one element allowed to pair `bg-ink` with `text-canvas`: the tooltip's
@@ -94,6 +102,10 @@ test('the consumers source the face from the module', () => {
     ['src/components/Composer.tsx', 'DANGER_BUTTON_CLASS', 2],
     ['src/components/panels/ArtifactPanel.tsx', 'DANGER_BUTTON_CLASS', 1],
     ['src/lib/authFlow.ts', 'SOLID_BUTTON_CLASS', 1],
+    // PrimaryButton (the shared page-header verb) is a SECONDARY under the
+    // candidate's CTA guardrail; the rail's New session is the solid.
+    ['src/components/SectionView.tsx', 'SECONDARY_BUTTON_CLASS', 1],
+    ['src/components/Sidebar.tsx', 'SOLID_BUTTON_CLASS', 1],
   ]
   for (const [rel, symbol, least] of consumers) {
     const src = read(join(ROOT, ...rel.split('/')))

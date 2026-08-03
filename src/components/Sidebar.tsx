@@ -41,6 +41,7 @@ import { SECTION_FILTERS } from '../lib/sectionFilter'
 import { SectionFilterMenu, SectionInstanceChildren, SubNavRow } from './SectionTreeChildren'
 import type { PaneSeed } from '../lib/paneNav'
 import { SIDEBAR_HOVER, SIDEBAR_ICON_BUTTON } from '../lib/sidebar'
+import { SOLID_BUTTON_CLASS } from '../lib/button'
 import { removeSchedule, runScheduleNow, toggleScheduleEnabled, useMe, useNotifications, useSchedules } from '../api'
 import { AccountChip } from './AccountMenu'
 import { useRelations } from '../controller/useRelations'
@@ -476,7 +477,16 @@ export function Sidebar({
           navigation-role scoping finds it and the two rail navs stay landmark-unique
           (the Sections pane below is the second <nav>, carrying the section rows). */}
       <nav aria-label="Create" className="mt-3 shrink-0 px-2">
-        <NavRow icon={<Plus size={16} />} label="New session" onClick={onNewSession} />
+        {/* The rail's New session is the app's ONE CTA-tier solid (the Claret
+            candidate's guardrail: solid claret is reserved for this tier —
+            page-level New-X verbs wear the bordered secondary instead). */}
+        <button
+          onClick={onNewSession}
+          className={`flex w-full items-center justify-center gap-1.5 ${SOLID_BUTTON_CLASS} px-3 py-2 text-[13px]`}
+        >
+          <Plus size={16} />
+          New session
+        </button>
       </nav>
 
       {/* Rail body: an accordion of foldable, resizable panes — Sections, Scheduled,
@@ -911,7 +921,7 @@ function NavRow({
     <button
       onClick={onClick}
       className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] transition ${
-        active ? 'bg-panel-2 font-medium text-ink' : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
+        active ? 'bg-accent-tint font-medium text-accent-strong' : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
       }`}
     >
       <span className="shrink-0">{icon}</span>
@@ -956,7 +966,7 @@ function SectionTreeRow({
   return (
     <div
       className={`group flex w-full items-center rounded-lg pr-2 text-[13px] transition ${
-        active ? 'bg-panel-2 font-medium text-ink' : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
+        active ? 'bg-accent-tint font-medium text-accent-strong' : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
       }`}
     >
       {hasChildren ? (

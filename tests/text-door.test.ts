@@ -22,7 +22,8 @@ const FUNNEL = join('src', 'lib', 'textDoor.ts')
 
 test('the door cues carry door-ness — weight + underline, no color and no size', () => {
   // The cue owns what must not fork; the caller owns what legitimately varies.
-  for (const piece of ['font-medium', 'transition', 'hover:underline']) {
+  // (font-semibold since the Claret candidate — the mock's bold ledger titles.)
+  for (const piece of ['font-semibold', 'transition', 'hover:underline']) {
     assert.ok(DOOR_CLASS.includes(piece), `the hover door keeps "${piece}"`)
   }
   for (const piece of ['underline', 'decoration-line-strong', 'underline-offset-2']) {

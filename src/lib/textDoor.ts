@@ -49,8 +49,10 @@
 
 /** The door cue: a title or an inline name that underlines on hover. Append the
  *  color, the size, and any layout (`truncate`, `block max-w-full text-left`,
- *  `min-w-0 flex-1`). */
-export const DOOR_CLASS = 'font-medium transition hover:underline'
+ *  `min-w-0 flex-1`). Semibold since the Claret candidate landed — its ledger
+ *  rows carry visibly bold title doors (the GitHub repo-list weight), and one
+ *  weight for every door means every door bolds together. */
+export const DOOR_CLASS = 'font-semibold transition hover:underline'
 
 /** The STANDING door — underlined at rest, not just on hover: the owner byline
  *  ("by Ada Lab"), a CreditLine count that opens its lineage, an artifact's

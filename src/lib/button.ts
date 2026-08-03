@@ -29,3 +29,11 @@ export const SOLID_BUTTON_CLASS =
  *  dangerous Confirm. Pair with a plain-text Cancel, never with another solid. */
 export const DANGER_BUTTON_CLASS =
   'rounded-md bg-danger font-medium text-on-solid transition hover:bg-danger-strong'
+
+/** The bordered SECONDARY: the page-level verb ("New project", "New provider")
+ *  and any action that shouldn't shout. The Claret candidate's caveat is the
+ *  law here: solid claret is reserved for the CTA tier (the rail's New
+ *  session, a consent card's Approve) — a page header's New-X wears this quiet
+ *  frame instead, and answers in claret only on hover. */
+export const SECONDARY_BUTTON_CLASS =
+  'rounded-md border border-line-strong bg-surface font-medium text-ink transition hover:border-accent hover:text-accent-strong'

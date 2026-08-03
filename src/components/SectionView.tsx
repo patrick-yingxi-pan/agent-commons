@@ -81,7 +81,7 @@ import { DOOR_CLASS } from '../lib/textDoor'
 import { CARD_DOOR_CLASS, ROW_DOOR_CLASS, cardDoorClick } from '../lib/cardDoor'
 import { LEDGER_BOX_CLASS, LEDGER_HEAD_CLASS, LEDGER_COUNT_CLASS, LEDGER_ROW_CLASS, QUIET_CARD_CLASS } from '../lib/ledger'
 import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
-import { SOLID_BUTTON_CLASS, DANGER_BUTTON_CLASS } from '../lib/button'
+import { SOLID_BUTTON_CLASS, DANGER_BUTTON_CLASS, SECONDARY_BUTTON_CLASS } from '../lib/button'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { AnchorThreadComposer } from './AnchorThreadComposer'
 import { LocusGutter } from './LocusGutter'
@@ -103,7 +103,7 @@ import { usePendingFocus, useFocusFlash, FOCUS_FLASH_CLASS } from '../lib/focusC
 import { useSectionFilter } from '../lib/useSectionFilter'
 import { sortSectionRows } from '../lib/sectionFilter'
 import { listArtifacts, listContexts, listDiscussions, listProjects, listProviders, projectFacet } from '../lib/sectionLists'
-import { relativeTime } from '../lib/relativeTime'
+import { relativeTime, shortRelativeTime } from '../lib/relativeTime'
 import { Chip } from './Chip'
 import { RowMenu, type RowMenuItem } from './RowMenu'
 import { ClaudeMark } from './ClaudeMark'
@@ -766,7 +766,7 @@ function ProjectRow({
       {/* The door owns the weight (UI-16); the caller owns color, size, layout. */}
       <button
         onClick={onOpen}
-        className={`max-w-[55%] shrink-0 truncate text-left text-[13px] text-ink ${DOOR_CLASS}`}
+        className={`max-w-[55%] shrink-0 truncate text-left text-[13px] text-ink hover:text-accent ${DOOR_CLASS}`}
       >
         {project.name}
       </button>
@@ -779,7 +779,7 @@ function ProjectRow({
         {project.description}
       </span>
       <span className="shrink-0 text-[11.5px] text-ink-faint">
-        Updated {relativeTime(project.updatedAt)} · {sessionCount} session{sessionCount === 1 ? '' : 's'}
+        {shortRelativeTime(project.updatedAt)} · {sessionCount} session{sessionCount === 1 ? '' : 's'}
       </span>
     </div>
   )
@@ -5637,7 +5637,10 @@ function ContextRow({
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <button onClick={onOpen} className={`min-w-0 truncate text-left text-[14px] text-ink ${DOOR_CLASS}`}>
+            <button
+              onClick={onOpen}
+              className={`min-w-0 truncate text-left text-[14px] text-ink hover:text-accent ${DOOR_CLASS}`}
+            >
               {ctx.label}
             </button>
             {ctx.kind === 'repo' && (
@@ -10016,7 +10019,10 @@ function ScheduledRow({
         </span>
 
         <div className="min-w-0 flex-1 overflow-hidden">
-          <button onClick={onOpen} className={`block max-w-full truncate text-left text-[14px] text-ink ${DOOR_CLASS}`}>
+          <button
+            onClick={onOpen}
+            className={`block max-w-full truncate text-left text-[14px] text-ink hover:text-accent ${DOOR_CLASS}`}
+          >
             {task.name}
           </button>
           <MiniPipeline task={task} />
@@ -10821,7 +10827,7 @@ function RunRow({
           <button
             onClick={onOpen}
             title="Open this run’s session"
-            className={`truncate text-left text-[13px] text-ink ${DOOR_CLASS}`}
+            className={`truncate text-left text-[13px] text-ink hover:text-accent ${DOOR_CLASS}`}
           >
             {relativeTime(run.at)}
           </button>
@@ -11656,7 +11662,7 @@ function PrimaryButton({
   return (
     <button
       onClick={onClick}
-      className={`flex shrink-0 items-center gap-1.5 ${SOLID_BUTTON_CLASS} px-3.5 py-1.5 text-[13px] `}
+      className={`flex shrink-0 items-center gap-1.5 ${SECONDARY_BUTTON_CLASS} px-3.5 py-1.5 text-[13px]`}
     >
       {icon}
       {children}
