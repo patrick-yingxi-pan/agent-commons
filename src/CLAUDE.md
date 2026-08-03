@@ -18,9 +18,10 @@ names its locking test — moving or weakening a rule means moving its lock too.
   `tests/spec-conformance.test.ts` (INV-1) + `tests/theme.test.ts`. (This
   overturns the earlier light-only decision — owner directive, 2026-07-21.)
 - **Flat ledger style, Claret palette** (owner directive 2026-07-31). The visual
-  direction is GitHub-Primer-flat on the Claret palette (oxblood accent on warm
-  parchment; canvas and surface share one value — boundaries are hairlines and
-  spacing, not fill contrast). Containment is semantic: a COLLECTION renders as
+  direction is GitHub-Primer-flat on the Claret palette (oxblood accent on
+  rose-cast linen neutrals — every neutral biased toward the accent's hue, the
+  2026-08-03 harmonization; canvas and surface share one value — boundaries are
+  hairlines and spacing, not fill contrast). Containment is semantic: a COLLECTION renders as
   one bordered container with divider rows when its items are one-liners
   (Projects, Contexts, Scheduled, `CardList`), or a stack/grid of QUIET CARDS
   when they carry rich bodies (Artifacts, the Commons feed, the Models

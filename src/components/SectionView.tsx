@@ -2633,7 +2633,7 @@ function WorkItemPage({
 
   return (
     <Page>
-      <div className="mx-auto w-full max-w-2xl">
+      <div className="mx-auto w-full max-w-3xl">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-3">
             <BackButton to={backTo} onBack={onBack} />
@@ -3231,7 +3231,7 @@ function CommonsSection({ lens }: { lens: string | null }) {
               : 'Nothing published yet — share a resource with a note (the note is the post) and it lands here for its audience.'}
         </Empty>
       ) : (
-        <div className="mx-auto w-full max-w-xl space-y-4">
+        <div className="mx-auto w-full max-w-3xl space-y-4">
           {list.map((item) => (
             <FeedCard key={item.id} item={item} />
           ))}
@@ -3240,7 +3240,7 @@ function CommonsSection({ lens }: { lens: string | null }) {
       {lens === null && filter.facet === 'all' && (
         // A hairline + air between the feed and the directory: two different
         // reading modes on one page want a visible seam, not adjacency.
-        <div className="mx-auto mt-10 w-full max-w-xl border-t border-line pt-8">
+        <div className="mx-auto mt-10 w-full max-w-3xl border-t border-line pt-8">
           <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
             Browse the commons
           </div>
@@ -3417,7 +3417,7 @@ function DiscussionPage({
           )}
         </div>
       </header>
-      <div className="max-w-2xl">
+      <div className="max-w-3xl">
         <DiscussionPostList
           posts={d.posts}
           onReact={(pid) => void reactToDiscussionPost(d.id, pid, d.anchor.ref)}
@@ -3953,7 +3953,7 @@ function ContributionPage({
 
   return (
     <Page>
-      <div className="mx-auto w-full max-w-2xl">
+      <div className="mx-auto w-full max-w-3xl">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-3">
             <BackButton to={backTo} onBack={onBack} />
@@ -7185,7 +7185,11 @@ function ModelsSection({ providerId }: { providerId: string | null }) {
   }, [providerId, focusPresent])
   return (
     <Page>
-      <PageHeader title="Models" />
+      <PageHeader title="Models">
+        <PrimaryButton icon={<Plus size={15} />} onClick={() => setEditing('new')}>
+          New provider
+        </PrimaryButton>
+      </PageHeader>
       <p className="-mt-2 mb-4 text-[13px] leading-relaxed text-ink-soft">
         Every model your sessions can run on. Each entry is a{' '}
         <span className="font-medium text-ink">model provider</span> — the built-in Anthropic
@@ -7195,7 +7199,6 @@ function ModelsSection({ providerId }: { providerId: string | null }) {
         model registered here is immediately usable in any conversation.
       </p>
       <div className="space-y-3">
-        <TabToolbar newLabel="New provider" onNew={() => setEditing('new')} />
         {shown.length === 0 ? (
           <Empty>No providers in this view.</Empty>
         ) : (
@@ -8739,7 +8742,7 @@ function AgentPublicPage({
 
   return (
     <Page>
-      <div className="mx-auto w-full max-w-2xl">
+      <div className="mx-auto w-full max-w-3xl">
         <header className={PAGE_HEADER_CLASS}>
           <div className="flex min-w-0 flex-1 items-start gap-3.5">
           <BackButton to={backTo} onBack={onBack} />
@@ -9109,7 +9112,7 @@ function AdminSection({
   if (openDetail) return <AdminUserDetail userId={adminUserId} onBack={onBack} backTo={backTo} />
   return (
     <div className="flex-1 overflow-y-auto @container">
-      <div className="mx-auto w-full max-w-3xl px-6 py-6">
+      <div className="mx-auto w-full max-w-5xl px-6 py-6">
         <PageHeader title={meta.label} subtitle={meta.subtitle} />
         {!granted ? (
           <Empty>
@@ -9680,7 +9683,7 @@ function GenericSection({ section }: { section: SectionId }) {
   const [creating, setCreating] = useState(false)
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-3xl px-6 py-6">
+      <div className="mx-auto w-full max-w-5xl px-6 py-6">
         <PageHeader
           title={meta.label}
           badge={
@@ -11610,7 +11613,10 @@ function Page({ children }: { children: ReactNode }) {
     // (`lg:`) is the wrong variable (UI-9 generalized: at a 1280px window,
     // `lg:` held two columns inside a 500px pane and squeezed both).
     <div className="flex-1 overflow-y-auto @container">
-      <div className="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6 sm:py-6">{children}</div>
+      {/* max-w-7xl: wide enough that a full-surface pane keeps only modest
+          margins (the harvest-the-margins directive, 2026-08-03); reading
+          columns re-cap themselves inside (feed max-w-3xl, detail 3xl). */}
+      <div className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 sm:py-6">{children}</div>
     </div>
   )
 }
@@ -11728,7 +11734,11 @@ function SidePanel({
   children: ReactNode
 }) {
   return (
-    <div className={`border-line ${QUIET_CARD_CLASS} p-4 ${SECTION_REVEAL_GROUP}`}>
+    // Boxless since the margin-harvest pass (2026-08-03): the side column reads
+    // open-canvas like the main column — the uppercase label and the column's
+    // own gap carry the structure, the same S17 rhythm MainSection set. The box
+    // this drops was the last per-section frame on the entity page.
+    <section className={SECTION_REVEAL_GROUP}>
       <div className="mb-2.5 flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
           {icon}
@@ -11737,7 +11747,7 @@ function SidePanel({
         {actions && <SectionActions revealed={revealActions}>{actions}</SectionActions>}
       </div>
       {children}
-    </div>
+    </section>
   )
 }
 

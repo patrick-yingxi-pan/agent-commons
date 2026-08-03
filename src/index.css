@@ -8,33 +8,36 @@
 /* ---- Claret light theme tokens -------------------------------------------
    Exposed to Tailwind v4 as utilities, e.g. bg-canvas, text-ink, border-line.
    The Claret palette (owner directive 2026-07-31, with the flat ledger
-   direction): oxblood accent on warm parchment neutrals. Canvas and surface
-   deliberately share ONE value — flat systems draw boundaries with hairlines
-   and spacing, not fill contrast; the two tokens stay separate so no component
-   churns and the pair can diverge again if a future theme wants it. The accent
-   neighbors the danger reds, so the guardrail is: solid claret means "go",
-   bright signal-red means "danger", and the two never share a surface at the
-   same weight (danger stays the vivid #ef4444 ramp below).
+   direction): oxblood accent on ROSE-CAST linen neutrals — every neutral is
+   biased a few degrees toward the accent's hue (the 2026-08-03 harmonization:
+   the earlier yellow-parchment cast sat against claret instead of with it).
+   Canvas and surface deliberately share ONE value — flat systems draw
+   boundaries with hairlines and spacing, not fill contrast; the two tokens
+   stay separate so no component churns and the pair can diverge again if a
+   future theme wants it. The accent neighbors the danger reds, so the
+   guardrail is: solid claret means "go", bright signal-red means "danger",
+   and the two never share a surface at the same weight (danger stays the
+   vivid #ef4444 ramp below).
    ------------------------------------------------------------------------- */
 @theme {
-  --color-canvas: #fbfaf7;
-  --color-sidebar: #f5f1e9;
-  --color-surface: #fbfaf7;
-  --color-panel: #f5f1e9;
-  --color-panel-2: #efe9dd;
+  --color-canvas: #fbf9f8;
+  --color-sidebar: #f6f1ef;
+  --color-surface: #fbf9f8;
+  --color-panel: #f6f1ef;
+  --color-panel-2: #efe8e5;
 
-  --color-ink: #292420;
-  --color-ink-soft: #5d564e;
-  --color-ink-faint: #948b7c;
+  --color-ink: #2a2426;
+  --color-ink-soft: #605658;
+  --color-ink-faint: #988a8a;
 
-  --color-line: #e8e4da;
-  --color-line-strong: #d9d2c2;
+  --color-line: #eae2df;
+  --color-line-strong: #d9cbc7;
 
   --color-accent: #93353f;
   --color-accent-strong: #7a2a33;
   --color-accent-tint: #f6e7e6;
 
-  --color-userbubble: #f2ecdf;
+  --color-userbubble: #f4ede9;
 
   --color-cap-chat: #8a877d;
   --color-cap-workspace: #c98a3c;
@@ -116,24 +119,24 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --color-canvas: #252120;
-  --color-sidebar: #1d1a19;
-  --color-surface: #252120;
-  --color-panel: #2b2624;
-  --color-panel-2: #322c29;
+  --color-canvas: #272122;
+  --color-sidebar: #1f1a1b;
+  --color-surface: #272122;
+  --color-panel: #2d2627;
+  --color-panel-2: #352d2e;
 
-  --color-ink: #efe9e2;
-  --color-ink-soft: #b5aca2;
-  --color-ink-faint: #877d72;
+  --color-ink: #f0e9e7;
+  --color-ink-soft: #b8acab;
+  --color-ink-faint: #8a7d7c;
 
-  --color-line: #3b3531;
-  --color-line-strong: #4a423d;
+  --color-line: #3c3436;
+  --color-line-strong: #4c4143;
 
   --color-accent: #c96872;
   --color-accent-strong: #dd8790;
   --color-accent-tint: #402b2d;
 
-  --color-userbubble: #332c28;
+  --color-userbubble: #342c2d;
 
   --color-cap-chat: #a09c8f;
   --color-cap-workspace: #d9a45c;
