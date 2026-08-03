@@ -8,10 +8,16 @@ names its locking test — moving or weakening a rule means moving its lock too.
 
 - **One door to the backend.** UI components read through hooks (`src/api`);
   controllers issue commands. Nothing else should know a URL or an SSE event.
-- **Theming through tokens.** Appearance is Light / Dark / System — set in
+- **Theming through tokens.** Appearance is two axes — Light / Dark / System
+  AND a color palette (Claret default · Terracotta · Indigo · Forest) — set in
   Customize, persisted + applied by the ONE funnel `src/lib/theme.ts` (it alone
-  stamps `data-theme` on `<html>`; "system" follows `prefers-color-scheme`
-  live). Every color is a `@theme` token in `src/index.css` and dark is a
+  stamps `data-theme` and `data-palette` on `<html>`; "system" follows
+  `prefers-color-scheme` live). A palette is a CSS block pair in `index.css`
+  overriding EXACTLY the `PALETTE_TOKENS` set (neutrals + accent family +
+  userbubble) in both modes — semantic ramps are palette-invariant, and the
+  picker derives from the `PALETTES` registry, never a hand list (locked by
+  `tests/theme.test.ts` + the per-palette completeness scan in
+  `tests/spec-conformance.test.ts`). Every color is a `@theme` token in `src/index.css` and dark is a
   single variable-override block there, so components carry **no `dark:`
   variants and no raw Tailwind palette classes** — status cues use the semantic
   `ok`/`warn`/`danger` ramps, text atop solid fills uses `on-solid`. Locked by

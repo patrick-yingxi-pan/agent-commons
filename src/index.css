@@ -178,6 +178,145 @@
   --color-on-solid: #ffffff;
 }
 
+/* ---- Color palettes ------------------------------------------------------
+   The second theming axis (src/lib/theme.ts): `data-palette` on <html> picks
+   one of these; `data-theme` picks the mode within it. Claret IS the base
+   blocks above, so it has no override. Each palette redefines EXACTLY the
+   palette-varying tokens (PALETTE_TOKENS in lib/theme.ts — neutrals, accent
+   family, userbubble) in BOTH modes; semantic ramps stay invariant. Order and
+   specificity: the light block (0,2,0) ties the base dark block (0,2,0) and
+   sits later in the sheet, so its paired dark block (0,3,0) must — and the
+   conformance lock ensures it does — restate the same full set, or a
+   palette-light value would leak into dark. Locked by
+   tests/spec-conformance.test.ts (per-palette completeness + swatch match).
+   ------------------------------------------------------------------------- */
+
+/* Terracotta — the warm Claude classic, flattened onto one ground. */
+:root[data-palette="terracotta"] {
+  --color-canvas: #faf9f5;
+  --color-sidebar: #f2f0e9;
+  --color-surface: #faf9f5;
+  --color-panel: #f2f0e9;
+  --color-panel-2: #ebe8dc;
+
+  --color-ink: #28261f;
+  --color-ink-soft: #5c584f;
+  --color-ink-faint: #908b7e;
+
+  --color-line: #e8e5db;
+  --color-line-strong: #dbd7ca;
+
+  --color-accent: #c15f3c;
+  --color-accent-strong: #a34d2e;
+  --color-accent-tint: #f6e9e1;
+
+  --color-userbubble: #efece3;
+}
+:root[data-palette="terracotta"][data-theme="dark"] {
+  --color-canvas: #262624;
+  --color-sidebar: #1f1e1b;
+  --color-surface: #262624;
+  --color-panel: #2b2a27;
+  --color-panel-2: #34332f;
+
+  --color-ink: #f0eee6;
+  --color-ink-soft: #b8b4a7;
+  --color-ink-faint: #8a8578;
+
+  --color-line: #3a3833;
+  --color-line-strong: #4a473f;
+
+  --color-accent: #d97757;
+  --color-accent-strong: #e08b6d;
+  --color-accent-tint: #453028;
+
+  --color-userbubble: #33322c;
+}
+
+/* Indigo — cool ink on porcelain, the blueprint cast. */
+:root[data-palette="indigo"] {
+  --color-canvas: #fafbfd;
+  --color-sidebar: #f1f3f8;
+  --color-surface: #fafbfd;
+  --color-panel: #f1f3f8;
+  --color-panel-2: #e9ecf4;
+
+  --color-ink: #232630;
+  --color-ink-soft: #565b6b;
+  --color-ink-faint: #8d92a3;
+
+  --color-line: #e4e7ef;
+  --color-line-strong: #ced4e2;
+
+  --color-accent: #4353c8;
+  --color-accent-strong: #3644a6;
+  --color-accent-tint: #e9ecfa;
+
+  --color-userbubble: #eef1f9;
+}
+:root[data-palette="indigo"][data-theme="dark"] {
+  --color-canvas: #212330;
+  --color-sidebar: #1a1c27;
+  --color-surface: #212330;
+  --color-panel: #272a3a;
+  --color-panel-2: #2f3246;
+
+  --color-ink: #e9ebf4;
+  --color-ink-soft: #acb0c2;
+  --color-ink-faint: #7e8296;
+
+  --color-line: #363950;
+  --color-line-strong: #464a68;
+
+  --color-accent: #8b96e8;
+  --color-accent-strong: #a3adf0;
+  --color-accent-tint: #2c3052;
+
+  --color-userbubble: #2b2e42;
+}
+
+/* Forest — deep green on sage, the field notebook. */
+:root[data-palette="forest"] {
+  --color-canvas: #f9fbf9;
+  --color-sidebar: #f0f4f0;
+  --color-surface: #f9fbf9;
+  --color-panel: #f0f4f0;
+  --color-panel-2: #e7ede8;
+
+  --color-ink: #232823;
+  --color-ink-soft: #56605a;
+  --color-ink-faint: #8a948b;
+
+  --color-line: #e2e8e3;
+  --color-line-strong: #cbd6cd;
+
+  --color-accent: #2e6b4a;
+  --color-accent-strong: #24543a;
+  --color-accent-tint: #e5f0e9;
+
+  --color-userbubble: #edf2ee;
+}
+:root[data-palette="forest"][data-theme="dark"] {
+  --color-canvas: #212623;
+  --color-sidebar: #1a1f1c;
+  --color-surface: #212623;
+  --color-panel: #272e29;
+  --color-panel-2: #2f3831;
+
+  --color-ink: #e9efe9;
+  --color-ink-soft: #aab5ac;
+  --color-ink-faint: #7c877e;
+
+  --color-line: #353f37;
+  --color-line-strong: #445147;
+
+  --color-accent: #6fbf8f;
+  --color-accent-strong: #8ed3a9;
+  --color-accent-tint: #24382c;
+
+  --color-userbubble: #2b342d;
+}
+
 html,
 body,
 #root {

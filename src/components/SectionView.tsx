@@ -70,7 +70,7 @@ import {
 } from '../lib/cadence'
 import { composeModelLabel, displayModelLabel, isOpusModel, modelBlurb, parseModelChoice, type ModelPick } from '../lib/models'
 import { loadModelPrefs, saveModelPrefs, type ModelPrefs } from '../lib/modelPrefs'
-import { loadThemePref, saveThemePref, type ThemePref } from '../lib/theme'
+import { loadThemePref, saveThemePref, loadPalettePref, savePalettePref, PALETTES, type ThemePref, type PaletteId } from '../lib/theme'
 import { ModelPickerMenu } from './ModelPickerMenu'
 import { STEP_TOOLS } from '../lib/stepTools'
 import { cleanSteps, moveStep, removeStep } from '../lib/steps'
@@ -11370,21 +11370,27 @@ function CustomizeView() {
   )
 }
 
-/** The "Appearance" setting — Light / Dark / System, persisted + applied through
- *  the one theme funnel (lib/theme): the pick stamps `data-theme` on <html> and
- *  the CSS variable blocks in index.css do the rest. "System" follows the OS
- *  `prefers-color-scheme` live. */
+/** The "Appearance" setting — two axes, both persisted + applied through the one
+ *  theme funnel (lib/theme): Light / Dark / System stamps `data-theme`, the
+ *  color palette stamps `data-palette`, and the CSS variable blocks in
+ *  index.css do the rest. "System" follows the OS `prefers-color-scheme` live;
+ *  every palette carries both modes, so the two picks compose freely. */
 function AppearanceCard() {
   const [pref, setPref] = useState<ThemePref>(loadThemePref)
+  const [palette, setPalette] = useState<PaletteId>(loadPalettePref)
   const commit = (next: ThemePref) => {
     setPref(next)
     saveThemePref(next)
+  }
+  const commitPalette = (next: PaletteId) => {
+    setPalette(next)
+    savePalettePref(next)
   }
   // Pref ids are lowercase; the chip label is just the capitalized id (and the
   // spelled-out record would trip INV-1's `dark:`-variant scan).
   const label = (opt: ThemePref) => opt[0].toUpperCase() + opt.slice(1)
   return (
-    <Card title="Appearance" desc="How the interface is lit — or follow your device.">
+    <Card title="Appearance" desc="How the interface is lit and colored — or follow your device.">
       <div role="radiogroup" aria-label="Theme" className="flex gap-1.5">
         {(['light', 'system', 'dark'] as const).map((opt) => {
           const active = opt === pref
@@ -11399,6 +11405,32 @@ function AppearanceCard() {
               }`}
             >
               {label(opt)}
+            </button>
+          )
+        })}
+      </div>
+      <div role="radiogroup" aria-label="Color theme" className="mt-2.5 flex flex-wrap gap-1.5">
+        {PALETTES.map((p) => {
+          const active = p.id === palette
+          return (
+            <button
+              key={p.id}
+              role="radio"
+              aria-checked={active}
+              title={p.blurb}
+              onClick={() => commitPalette(p.id)}
+              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12px] font-medium transition ${
+                active ? 'bg-accent-tint text-accent-strong ring-1 ring-accent/30' : 'bg-panel-2 text-ink-soft hover:text-ink'
+              }`}
+            >
+              {/* The dot paints the registry's swatch (the palette's own light
+                  accent), so every option shows its color without switching. */}
+              <span
+                aria-hidden
+                className="h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-ink/15"
+                style={{ backgroundColor: p.swatch }}
+              />
+              {p.label}
             </button>
           )
         })}
