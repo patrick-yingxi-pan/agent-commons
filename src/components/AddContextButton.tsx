@@ -45,6 +45,7 @@ import { UI_HOST_SOURCE, DEFAULT_FS_SOURCE_ID, useFsSourceList } from '../lib/fs
 import { pickUiHostFiles, pickUiHostFolder, readDroppedFiles, type UiHostFile } from '../lib/uiHostFs'
 import { SCRIM_CLASS } from '../lib/scrim'
 import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
+import { SOLID_BUTTON_CLASS } from '../lib/button'
 import { useFsCatalog, useSavedContexts, fsContentUrl } from '../api/hooks'
 import { apiGet } from '../api/client'
 import { paths } from '../api/keys'
@@ -499,7 +500,7 @@ function BrowseDialog({
             <button
               onClick={() => picked && onConfirm(picked)}
               disabled={!picked}
-              className="rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-on-solid transition enabled:hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-40"
+              className={`${SOLID_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:cursor-not-allowed disabled:opacity-40`}
             >
               Open
             </button>
@@ -1018,7 +1019,7 @@ function AttachPromptCard({
         <button
           type="button"
           onClick={onPrimary}
-          className="rounded-md bg-accent px-2 py-1 text-[12px] font-medium text-on-solid transition hover:bg-accent-strong"
+          className={`${SOLID_BUTTON_CLASS} px-2 py-1 text-[12px]`}
         >
           {primaryLabel}
         </button>

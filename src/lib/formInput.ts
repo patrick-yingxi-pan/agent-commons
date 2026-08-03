@@ -4,4 +4,4 @@
  *  conversation's turn composer among them — can share the cue instead of
  *  re-hardcoding it. Locked by `tests/form-input.test.ts`. */
 export const FORM_INPUT_CLASS =
-  'w-full rounded-lg border border-line bg-surface px-3 py-2 text-[14px] text-ink outline-none transition placeholder:text-ink-faint focus:border-accent'
+  'w-full rounded-md border border-line bg-surface px-3 py-2 text-[14px] text-ink outline-none transition placeholder:text-ink-faint focus:border-accent'

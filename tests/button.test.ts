@@ -53,9 +53,15 @@ test('the dead solid spellings stay dead — tree-wide', () => {
       // A solid fill hovering by opacity is the pre-funnel language, whatever
       // the fill; and bg-removed is the DIFF hue — a destructive control takes
       // DANGER_BUTTON_CLASS.
-      const opacityHover = /bg-(ink|accent|danger|removed)[^"'`]*hover:opacity/.test(line)
+      const opacityHover = /bg-(ink|accent|danger|removed)[^"'`]*hover:(opacity|brightness)/.test(line)
       const removedControl = /bg-removed px-/.test(line)
-      if (!inkSolid && !opacityHover && !removedControl) return
+      // A hand-rolled ramp solid: the exact face the funnel owns, retyped —
+      // `(?![\w-])` keeps bg-accent-tint (a resting tint, not a fill) clear, and
+      // `(?<!group-)` spares group-hover cues (the resize handle's grip line
+      // brightening to accent is a separator's affordance, not a button face).
+      const handRolledRamp =
+        /bg-(accent|danger)(?![\w-])/.test(line) && /(?<!group-)hover:bg-(accent|danger)(-strong|\/)/.test(line)
+      if (!inkSolid && !opacityHover && !removedControl && !handRolledRamp) return
       const near = lines.slice(Math.max(0, i - MARKER_WINDOW), i + MARKER_WINDOW + 1).join('\n')
       const excuse = markers.find((m) => near.includes(m))
       if (excuse) usedMarkers.add(`${rel}::${excuse}`)

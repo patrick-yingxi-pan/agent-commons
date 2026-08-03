@@ -25,7 +25,10 @@ names its locking test — moving or weakening a rule means moving its lock too.
   (Projects, Contexts, Scheduled, `CardList`), or a stack/grid of QUIET CARDS
   when they carry rich bodies (Artifacts, the Commons feed, the Models
   management cards) — both recipes live in `src/lib/ledger.ts`, with the radius
-  scale (collections 6px · cards 8px · standalone objects 12px). An interactive
+  scale: CONTROLS and collections 6px (`rounded-md` — buttons via
+  `src/lib/button.ts`'s one solid/danger face and the bordered secondaries,
+  fields via `src/lib/formInput.ts`), cards and hover-row fills 8px,
+  standalone objects and dialogs 12px. An interactive
   object standing alone (the composer, a diff, a proposal card, dialogs) keeps
   its own chrome, and ELEVATION means floating: exactly four overlay surfaces
   cast shadows (`lib/popover`, `lib/dialog` — the one dialog-surface funnel —

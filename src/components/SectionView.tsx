@@ -1139,7 +1139,7 @@ function ProjectReadme({ project, own }: { project: Project; own: boolean }) {
             rows={6}
             placeholder="What is this project, and how does one contribute? (public — every viewer reads this)"
             aria-label="Project README"
-            className="w-full resize-none rounded-lg border border-line bg-surface px-2.5 py-2 text-[13px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-accent"
+            className="w-full resize-none rounded-md border border-line bg-surface px-2.5 py-2 text-[13px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-accent"
           />
           <div className="mt-2 flex items-center justify-end gap-2">
             <button
@@ -1227,7 +1227,7 @@ function ProjectInstructions({ project }: { project: Project }) {
             }}
             rows={7}
             placeholder="How should Claude work inside this project?"
-            className="w-full resize-none rounded-lg border border-line bg-surface px-2.5 py-2 text-[13px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-accent"
+            className="w-full resize-none rounded-md border border-line bg-surface px-2.5 py-2 text-[13px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-accent"
           />
           <div className="mt-2 flex items-center justify-end gap-2">
             <button
@@ -2065,7 +2065,7 @@ function CoordinationPanel({ project }: { project: Project }) {
                 onChange={(e) => setHolder(e.target.value)}
                 aria-label="Claim as"
                 data-testid="claim-as"
-                className="mb-1.5 w-full rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
+                className="mb-1.5 w-full rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
               >
                 <option value={VIEWER_PRINCIPAL}>Claim as: You</option>
                 {ownCommissions.map((c) => (
@@ -2088,12 +2088,12 @@ function CoordinationPanel({ project }: { project: Project }) {
                   if (e.key === 'Escape') setClaiming(false)
                 }}
                 placeholder="Claim a sub-goal…"
-                className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+                className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
               />
               <button
                 onClick={claim}
                 disabled={busy || !draft.trim()}
-                className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-on-solid transition enabled:hover:bg-accent/90 disabled:opacity-45"
+                className={`shrink-0 ${SOLID_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
               >
                 Claim
               </button>
@@ -2204,14 +2204,14 @@ function OpenWorkList({ projectId }: { projectId: string }) {
           onKeyDown={(e) => e.key === 'Escape' && setComposing(false)}
           placeholder="Post a work item (sub-goal)…"
           aria-label="Work item sub-goal"
-          className="w-full rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+          className="w-full rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
         />
         <div className="flex items-center gap-1.5">
           <select
             value={type}
             onChange={(e) => setType(e.target.value as ProjectEffectType)}
             aria-label="Effect type"
-            className="rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
+            className="rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
           >
             {PROJECT_EFFECT_TYPES.map((t) => (
               <option key={t} value={t}>
@@ -2228,7 +2228,7 @@ function OpenWorkList({ projectId }: { projectId: string }) {
             }}
             placeholder="Target (connector / descriptor)…"
             aria-label="Effect target"
-            className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+            className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
           />
           <button
             onClick={post}
@@ -2238,7 +2238,7 @@ function OpenWorkList({ projectId }: { projectId: string }) {
             // that do different things is ambiguous to a screen reader, and it
             // made the notifications e2e's selector ambiguous too.
             aria-label="Post work item"
-            className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-on-solid transition enabled:hover:bg-accent/90 disabled:opacity-45"
+            className={`shrink-0 ${SOLID_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
           >
             Post
           </button>
@@ -2319,7 +2319,7 @@ function WatchToggle({
       className={
         quiet
           ? cardActClass(watching)
-          : `inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[13px] font-medium transition disabled:opacity-45 ${
+          : `inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[13px] font-medium transition disabled:opacity-45 ${
               watching
                 ? 'border-accent/40 bg-accent-tint text-accent-strong'
                 : 'border-line text-ink-soft hover:border-line-strong hover:text-ink'
@@ -2498,12 +2498,12 @@ function WorkItemRow({
                 onKeyDown={(e) => e.key === 'Enter' && send()}
                 placeholder="Add a comment… @mention to notify"
                 aria-label={`Comment on ${o.subGoal}`}
-                className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+                className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
               />
               <button
                 onClick={send}
                 disabled={busy || !draft.trim()}
-                className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-on-solid transition enabled:hover:bg-accent/90 disabled:opacity-45"
+                className={`shrink-0 ${SOLID_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
               >
                 Post
               </button>
@@ -2644,7 +2644,7 @@ function WorkItemPage({
               onClick={retract}
               disabled={busy}
               title="Close this item unresolved (poster or project owner)"
-              className="shrink-0 rounded-lg border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
+              className="shrink-0 rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
             >
               Retract
             </button>
@@ -2744,12 +2744,12 @@ function WorkItemPage({
             onKeyDown={(e) => e.key === 'Enter' && send()}
             placeholder="Add a comment… @mention to notify"
             aria-label={`Comment on ${o.subGoal}`}
-            className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-1.5 text-[13px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+            className="min-w-0 flex-1 rounded-md border border-line bg-surface px-3 py-1.5 text-[13px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
           />
           <button
             onClick={send}
             disabled={busy || !draft.trim()}
-            className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-[13px] font-medium text-on-solid transition enabled:hover:bg-accent/90 disabled:opacity-45"
+            className={`shrink-0 ${SOLID_BUTTON_CLASS} px-3 py-1.5 text-[13px] disabled:opacity-45`}
           >
             Post
           </button>
@@ -3717,7 +3717,7 @@ function ChangesPanel({ project, own, onOpenSession }: { project: Project; own: 
                   {c.status === 'open' && c.sessionId && c.mine === true && (
                     <button
                       onClick={() => onOpenSession(c.sessionId!)}
-                      className="shrink-0 rounded-lg border border-line px-2 py-0.5 text-[11px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink"
+                      className="shrink-0 rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink"
                       title="Open the conversation doing this work"
                     >
                       View the work
@@ -3776,7 +3776,7 @@ function ChangesPanel({ project, own, onOpenSession }: { project: Project; own: 
             }}
             placeholder="What will this contribution do? (one line)"
             aria-label="Contribution title"
-            className="w-full rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+            className="w-full rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
           />
           <div className="flex items-center gap-1.5">
             <input
@@ -3788,12 +3788,12 @@ function ChangesPanel({ project, own, onOpenSession }: { project: Project; own: 
               }}
               placeholder="Summary — what changes, and why (optional)…"
               aria-label="Contribution summary"
-              className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+              className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
             />
             <button
               onClick={() => void declare()}
               disabled={busy || !title.trim()}
-              className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-on-solid transition enabled:hover:bg-accent/90 disabled:opacity-45"
+              className={`shrink-0 ${SOLID_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
             >
               Open
             </button>
@@ -3965,7 +3965,7 @@ function ContributionPage({
                 onClick={() => void tighten()}
                 disabled={busy}
                 title="Tighten the gate: force adversarial review before this can land (there is no un-require)"
-                className="rounded-lg border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
+                className="rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
               >
                 Require review
               </button>
@@ -3975,7 +3975,7 @@ function ContributionPage({
                 onClick={() => void runReview()}
                 disabled={busy}
                 title={`Run the adversarial review over v${latestVersion} (mock reviewer — the model seam)`}
-                className="rounded-lg border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
+                className="rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
               >
                 Run review
               </button>
@@ -3985,7 +3985,7 @@ function ContributionPage({
                 onClick={() => void askDelegate(applicableDelegation.id)}
                 disabled={busy}
                 title={`Ask ${applicableDelegation.agentLabel} to ${applicableDelegation.actKind === 'land' ? 'land' : 'decide the envelope'} under its delegator's policy — escalates on ${applicableDelegation.escalation.join(', ')}`}
-                className="rounded-lg border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
+                className="rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
               >
                 Ask {applicableDelegation.agentLabel}
               </button>
@@ -4174,12 +4174,12 @@ function ContributionPage({
             onKeyDown={(e) => e.key === 'Enter' && void send()}
             placeholder="Add a comment…"
             aria-label={`Comment on ${c.title}`}
-            className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-1.5 text-[13px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+            className="min-w-0 flex-1 rounded-md border border-line bg-surface px-3 py-1.5 text-[13px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
           />
           <button
             onClick={() => void send()}
             disabled={busy || !draft.trim()}
-            className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-[13px] font-medium text-on-solid transition enabled:hover:bg-accent/90 disabled:opacity-45"
+            className={`shrink-0 ${SOLID_BUTTON_CLASS} px-3 py-1.5 text-[13px] disabled:opacity-45`}
           >
             Post
           </button>
@@ -4341,7 +4341,7 @@ function DelegationPanel({ project }: { project: Project }) {
             value={agentId || agents[0]?.id || ''}
             onChange={(e) => setAgentId(e.target.value)}
             aria-label="Delegate agent"
-            className="w-full rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
+            className="w-full rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
           >
             {agents.map((a) => (
               <option key={a.id} value={a.id}>
@@ -4354,7 +4354,7 @@ function DelegationPanel({ project }: { project: Project }) {
               value={actKind}
               onChange={(e) => setActKind(e.target.value as DelegatedActKind)}
               aria-label="Delegated act"
-              className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
+              className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
             >
               <option value="approve-envelope">approve envelopes</option>
               <option value="land">land contributions</option>
@@ -4364,7 +4364,7 @@ function DelegationPanel({ project }: { project: Project }) {
               onChange={(e) => setMode(e.target.value as 'draft' | 'decide')}
               aria-label="Autonomy rung"
               title="draft records what it WOULD decide; decide executes as you"
-              className="rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
+              className="rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
             >
               <option value="draft">draft (L1)</option>
               <option value="decide">decide (L2)</option>
@@ -4379,7 +4379,7 @@ function DelegationPanel({ project }: { project: Project }) {
             }}
             placeholder="Your policy, in your words (required)…"
             aria-label="Delegation policy"
-            className="w-full rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+            className="w-full rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
           />
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink-soft">
             <span className="text-ink-faint" title="The floor is not delegable — always escalates">
@@ -4404,7 +4404,7 @@ function DelegationPanel({ project }: { project: Project }) {
             <button
               onClick={() => void mint()}
               disabled={busy || !policy.trim() || agents.length === 0}
-              className="ml-auto rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-on-solid transition enabled:hover:bg-accent/90 disabled:opacity-45"
+              className={`ml-auto ${SOLID_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
             >
               Delegate
             </button>
@@ -4483,7 +4483,7 @@ function ChangesetCard({ project, c }: { project: Project; c: Contribution }) {
         {c.status === 'open' && mayAct && (
           <button
             onClick={() => setComposing((v) => !v)}
-            className="rounded-lg border border-line px-2 py-0.5 text-[11px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink"
+            className="rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink"
           >
             {latest ? 'Revise' : 'Crystallize'}
           </button>
@@ -4521,7 +4521,7 @@ function ChangesetCard({ project, c }: { project: Project; c: Contribution }) {
               value={kind}
               onChange={(e) => setKind(e.target.value as ChangeEntryKind)}
               aria-label="Change kind"
-              className="rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
+              className="rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
             >
               {CHANGE_ENTRY_KINDS.map((k) => (
                 <option key={k} value={k}>
@@ -4534,7 +4534,7 @@ function ChangesetCard({ project, c }: { project: Project; c: Contribution }) {
               onChange={(e) => setTarget(e.target.value)}
               placeholder="Target (path / name / surface)…"
               aria-label="Change target"
-              className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+              className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
             />
           </div>
           <textarea
@@ -4543,7 +4543,7 @@ function ChangesetCard({ project, c }: { project: Project; c: Contribution }) {
             rows={2}
             placeholder="Before (leave empty for a create)…"
             aria-label="Before text"
-            className="w-full resize-none rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+            className="w-full resize-none rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
           />
           <textarea
             value={after}
@@ -4551,20 +4551,20 @@ function ChangesetCard({ project, c }: { project: Project; c: Contribution }) {
             rows={2}
             placeholder="After…"
             aria-label="After text"
-            className="w-full resize-none rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+            className="w-full resize-none rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
           />
           <div className="flex items-center justify-end gap-1.5">
             <button
               onClick={addEntry}
               disabled={!target.trim() || !after.trim()}
-              className="rounded-lg border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition enabled:hover:border-line-strong enabled:hover:text-ink disabled:opacity-45"
+              className="rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition enabled:hover:border-line-strong enabled:hover:text-ink disabled:opacity-45"
             >
               Add change
             </button>
             <button
               onClick={() => void crystallize()}
               disabled={busy || (pending.length === 0 && !(target.trim() && after.trim()))}
-              className="rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-on-solid transition enabled:hover:bg-accent/90 disabled:opacity-45"
+              className={`${SOLID_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
             >
               Crystallize v{versions.length + 1}
             </button>
@@ -4648,7 +4648,7 @@ function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
           {c.status === 'open' && mayAct && (
             <button
               onClick={() => setComposing((v) => !v)}
-              className="rounded-lg border border-line px-2 py-0.5 text-[11px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink"
+              className="rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink"
             >
               {env ? 'Amend' : 'Declare effects'}
             </button>
@@ -4679,7 +4679,7 @@ function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
                     ? 'Cardinality exhausted — amend the envelope for more'
                     : `Fire one ${l.type} act on ${l.target} (mechanically matched against this line)`
                 }
-                className="shrink-0 rounded-lg bg-accent px-2.5 py-0.5 text-[11px] font-medium text-on-solid transition enabled:hover:bg-accent/90 disabled:opacity-45"
+                className={`shrink-0 ${SOLID_BUTTON_CLASS} px-2.5 py-0.5 text-[11px] disabled:opacity-45`}
               >
                 Run
               </button>
@@ -4698,7 +4698,7 @@ function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
             value={type}
             onChange={(e) => setType(e.target.value as ProjectEffectType)}
             aria-label="Effect type"
-            className="rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
+            className="rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
           >
             {PROJECT_EFFECT_TYPES.map((t) => (
               <option key={t} value={t}>
@@ -4716,7 +4716,7 @@ function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
             }}
             placeholder="Target (connector / descriptor)…"
             aria-label="Effect target"
-            className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+            className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
           />
           <input
             type="number"
@@ -4726,14 +4726,14 @@ function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
             onChange={(e) => setCardinality(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
             aria-label="Max acts"
             title="How many acts this line authorizes (≤)"
-            className="w-14 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
+            className="w-14 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
           />
           <select
             value={harness}
             onChange={(e) => setHarness(e.target.value as EnvelopeHarness)}
             aria-label="Safety harness"
             title="The containment this line runs under (CW5's ladder)"
-            className="rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
+            className="rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
           >
             {ENVELOPE_HARNESSES.map((h) => (
               <option key={h} value={h}>
@@ -4744,7 +4744,7 @@ function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
           <button
             onClick={() => void propose()}
             disabled={busy || !target.trim()}
-            className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-on-solid transition enabled:hover:bg-accent/90 disabled:opacity-45"
+            className={`shrink-0 ${SOLID_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
           >
             Propose v{(env?.version ?? 0) + 1}
           </button>
@@ -5014,7 +5014,7 @@ function NewArtifactDialog({
                     key={k}
                     onClick={() => setKind(k)}
                     aria-pressed={on}
-                    className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-medium transition ${
+                    className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] font-medium transition ${
                       on
                         ? 'border-accent bg-accent-tint text-accent-strong'
                         : 'border-line bg-surface text-ink-soft hover:border-line-strong'
@@ -5037,7 +5037,7 @@ function NewArtifactDialog({
               onChange={(e) => setExcerpt(e.target.value)}
               rows={2}
               placeholder="A one-line preview shown on the card."
-              className="w-full resize-none rounded-lg border border-line bg-surface px-3 py-2 text-[14px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-accent"
+              className="w-full resize-none rounded-md border border-line bg-surface px-3 py-2 text-[14px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-accent"
             />
           </label>
 
@@ -5048,7 +5048,7 @@ function NewArtifactDialog({
             <select
               value={projectId ?? ''}
               onChange={(e) => setProjectId(e.target.value || null)}
-              className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-[14px] text-ink outline-none transition focus:border-accent"
+              className="w-full rounded-md border border-line bg-surface px-3 py-2 text-[14px] text-ink outline-none transition focus:border-accent"
             >
               <option value="">No project</option>
               {projects.map((p) => (
@@ -5063,7 +5063,7 @@ function NewArtifactDialog({
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line bg-panel px-5 py-3">
           <button
             onClick={onClose}
-            className="rounded-lg border border-line-strong bg-surface px-3.5 py-1.5 text-[13px] font-medium text-ink-soft transition hover:border-accent hover:text-ink"
+            className="rounded-md border border-line-strong bg-surface px-3.5 py-1.5 text-[13px] font-medium text-ink-soft transition hover:border-accent hover:text-ink"
           >
             Cancel
           </button>
@@ -5551,7 +5551,7 @@ function McpAccessCard() {
               placeholder="Token label (optional — e.g. laptop MCP)"
               maxLength={80}
               disabled={!signedIn}
-              className="min-w-0 flex-1 rounded-lg border border-line bg-panel-2/30 px-2.5 py-1.5 text-[12px] text-ink placeholder:text-ink-faint focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
+              className="min-w-0 flex-1 rounded-md border border-line bg-panel-2/30 px-2.5 py-1.5 text-[12px] text-ink placeholder:text-ink-faint focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
             />
             <button
               onClick={mint}
@@ -5756,7 +5756,7 @@ function ContextDetail({
           {!isRepo && (
             <button
               onClick={onToggle}
-              className="flex items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[13px] font-medium text-ink transition hover:border-accent"
+              className="flex items-center gap-1.5 rounded-md border border-line-strong bg-surface px-3 py-1.5 text-[13px] font-medium text-ink transition hover:border-accent"
             >
               {connected ? <Unplug size={14} /> : <Plug size={14} />}
               {connected ? 'Disconnect' : 'Connect'}
@@ -5764,7 +5764,7 @@ function ContextDetail({
           )}
           <button
             onClick={onRemove}
-            className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[13px] font-medium text-ink-soft transition hover:border-removed hover:bg-removed-bg hover:text-removed"
+            className="flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[13px] font-medium text-ink-soft transition hover:border-removed hover:bg-removed-bg hover:text-removed"
           >
             <Trash2 size={14} />
             Remove
@@ -6168,7 +6168,7 @@ function FormDialog({
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line bg-panel px-5 py-3">
           <button
             onClick={onClose}
-            className="rounded-lg border border-line-strong bg-surface px-3.5 py-1.5 text-[13px] font-medium text-ink-soft transition hover:border-accent hover:text-ink"
+            className="rounded-md border border-line-strong bg-surface px-3.5 py-1.5 text-[13px] font-medium text-ink-soft transition hover:border-accent hover:text-ink"
           >
             Cancel
           </button>
@@ -6607,12 +6607,12 @@ function ProposalThread({
             onKeyDown={(e) => e.key === 'Enter' && send()}
             placeholder="Discuss this proposal…"
             aria-label={`Comment on proposal ${proposal.id}`}
-            className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+            className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
           />
           <button
             onClick={send}
             disabled={busy || !draft.trim()}
-            className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-on-solid transition enabled:hover:bg-accent/90 disabled:opacity-45"
+            className={`shrink-0 ${SOLID_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
           >
             Post
           </button>
@@ -8566,12 +8566,12 @@ function ImportAgentCardForm() {
           onKeyDown={(e) => e.key === 'Enter' && importCard()}
           placeholder="A2A Agent Card URL (…/a2a/agents/{id}/card)…"
           aria-label="Agent Card URL"
-          className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+          className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
         />
         <button
           onClick={importCard}
           disabled={busy || !url.trim()}
-          className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-on-solid transition enabled:hover:bg-accent/90 disabled:opacity-45"
+          className={`shrink-0 ${SOLID_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
         >
           Import
         </button>
@@ -8635,7 +8635,7 @@ function PublishedAgentCard({
           <button
             onClick={fork}
             disabled={busy || forked}
-            className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-[12px] font-medium transition ${
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-md border border-line px-2.5 py-1 text-[12px] font-medium transition ${
               forked ? 'text-ok-text' : 'text-ink-soft hover:border-line-strong hover:text-ink'
             } disabled:cursor-default`}
           >
@@ -8763,7 +8763,7 @@ function AgentPublicPage({
             onClick={fork}
             disabled={busy || forked}
             title="Forking copies the definition — you grant your own model & authority."
-            className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[13px] font-medium transition ${
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[13px] font-medium transition ${
               forked ? 'text-ok-text' : 'text-ink-soft hover:border-line-strong hover:text-ink'
             } disabled:cursor-default`}
           >
@@ -10289,14 +10289,14 @@ function ScheduledDetail({
             </button>
             <button
               onClick={onToggleEnabled}
-              className="flex items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-[13px] font-medium text-ink transition hover:border-accent"
+              className="flex items-center gap-1.5 rounded-md border border-line-strong bg-surface px-3 py-1.5 text-[13px] font-medium text-ink transition hover:border-accent"
             >
               {task.enabled ? <PauseCircle size={15} /> : <PlayCircle size={15} />}
               {task.enabled ? 'Pause' : 'Resume'}
             </button>
             <button
               onClick={onRemove}
-              className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[13px] font-medium text-ink-soft transition hover:border-removed hover:bg-removed-bg hover:text-removed"
+              className="flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[13px] font-medium text-ink-soft transition hover:border-removed hover:bg-removed-bg hover:text-removed"
             >
               <Trash2 size={14} />
               Delete
@@ -10390,7 +10390,7 @@ function PromptCard({ prompt, onSave }: { prompt: string; onSave?: (prompt: stri
             }}
             rows={5}
             placeholder="What should this routine do each time it runs?"
-            className="w-full resize-none rounded-lg border border-line bg-surface px-3 py-2.5 text-[13px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-accent"
+            className="w-full resize-none rounded-md border border-line bg-surface px-3 py-2.5 text-[13px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-accent"
           />
           <div className="mt-2 flex items-center justify-end gap-2">
             <button
@@ -10649,7 +10649,7 @@ function StepsEditor({ task, onClose }: { task: ScheduledTask; onClose: () => vo
 
       <button
         onClick={add}
-        className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-line-strong py-2 text-[12px] font-medium text-ink-soft transition hover:border-accent hover:text-ink"
+        className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-line-strong py-2 text-[12px] font-medium text-ink-soft transition hover:border-accent hover:text-ink"
       >
         <Plus size={14} />
         Add step
@@ -11167,7 +11167,7 @@ function CadenceEditor({ task, onClose }: { task: ScheduledTask; onClose: () => 
               key={f.id}
               onClick={() => setSpec((s) => ({ ...s, freq: f.id, time: s.time ?? '09:00', weekday: s.weekday ?? 1 }))}
               aria-pressed={on}
-              className={`rounded-lg border px-2 py-1 text-[12px] font-medium transition ${
+              className={`rounded-md border px-2 py-1 text-[12px] font-medium transition ${
                 on ? 'border-accent bg-accent-tint text-accent-strong' : 'border-line bg-surface text-ink-soft hover:border-line-strong'
               }`}
             >
@@ -11183,7 +11183,7 @@ function CadenceEditor({ task, onClose }: { task: ScheduledTask; onClose: () => 
           <select
             value={spec.weekday ?? 1}
             onChange={(e) => setSpec((s) => ({ ...s, weekday: Number(e.target.value) }))}
-            className="mt-1 w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-[13px] text-ink outline-none transition focus:border-accent"
+            className="mt-1 w-full rounded-md border border-line bg-surface px-2 py-1.5 text-[13px] text-ink outline-none transition focus:border-accent"
           >
             {WEEKDAY_NAMES.map((n, i) => (
               <option key={i} value={i}>
@@ -11201,7 +11201,7 @@ function CadenceEditor({ task, onClose }: { task: ScheduledTask; onClose: () => 
             type="time"
             value={spec.time ?? '09:00'}
             onChange={(e) => setSpec((s) => ({ ...s, time: e.target.value }))}
-            className="mt-1 w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-[13px] text-ink outline-none transition focus:border-accent"
+            className="mt-1 w-full rounded-md border border-line bg-surface px-2 py-1.5 text-[13px] text-ink outline-none transition focus:border-accent"
           />
         </label>
       )}
@@ -11211,7 +11211,7 @@ function CadenceEditor({ task, onClose }: { task: ScheduledTask; onClose: () => 
         <select
           value={tz}
           onChange={(e) => setTz(e.target.value)}
-          className="mt-1 w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-[13px] text-ink outline-none transition focus:border-accent"
+          className="mt-1 w-full rounded-md border border-line bg-surface px-2 py-1.5 text-[13px] text-ink outline-none transition focus:border-accent"
         >
           {TIMEZONES.map((z) => (
             <option key={z} value={z}>
@@ -11674,7 +11674,7 @@ function SearchBox({
   placeholder: string
 }) {
   return (
-    <div className="mb-5 flex items-center gap-2.5 rounded-lg border border-line bg-surface px-3.5 py-2.5 transition focus-within:border-accent">
+    <div className="mb-5 flex items-center gap-2.5 rounded-md border border-line bg-surface px-3.5 py-2.5 transition focus-within:border-accent">
       <Search size={17} className="shrink-0 text-ink-faint" />
       <input
         value={value}

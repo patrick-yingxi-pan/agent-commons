@@ -7,6 +7,7 @@ import { ArtifactBodyView } from './artifactPreview'
 import { useFsText, fsContentUrl } from '../api/hooks'
 import { parseFsRecentKey } from '../../contract/index'
 import { HOVER_REVEAL } from '../lib/hoverReveal'
+import { SOLID_BUTTON_CLASS } from '../lib/button'
 
 const IMG_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico']
 const isImageLabel = (label: string) => IMG_EXTS.includes(label.split('.').pop()?.toLowerCase() ?? '')
@@ -201,7 +202,7 @@ function PhotoBody({
               <button
                 key={t.id}
                 onClick={() => toggle(t.id)}
-                className={`flex flex-1 items-center justify-center gap-1 rounded-lg border px-2 py-1.5 text-[12px] font-medium transition ${
+                className={`flex flex-1 items-center justify-center gap-1 rounded-md border px-2 py-1.5 text-[12px] font-medium transition ${
                   on
                     ? 'border-accent bg-accent-tint text-accent-strong'
                     : 'border-line text-ink-soft hover:bg-surface'
@@ -218,7 +219,7 @@ function PhotoBody({
           value={caption}
           onChange={(e) => onDraft({ caption: e.target.value, applied })}
           placeholder="Add a caption…"
-          className="mt-2 w-full rounded-lg border border-line bg-canvas px-2 py-1.5 text-[12px] text-ink outline-none transition focus:border-accent"
+          className="mt-2 w-full rounded-md border border-line bg-canvas px-2 py-1.5 text-[12px] text-ink outline-none transition focus:border-accent"
         />
 
         <button
@@ -307,13 +308,13 @@ function FileBody({
               value={text}
               onChange={(e) => onDraft({ text: e.target.value, saved })}
               spellCheck={false}
-              className="h-44 w-full flex-1 resize-none rounded-lg border border-line bg-canvas p-2 font-mono text-[12px] leading-relaxed text-ink outline-none transition focus:border-accent"
+              className="h-44 w-full flex-1 resize-none rounded-md border border-line bg-canvas p-2 font-mono text-[12px] leading-relaxed text-ink outline-none transition focus:border-accent"
             />
             <div className="mt-2 flex justify-end">
               <button
                 onClick={() => onDraft({ text, saved: text })}
                 disabled={!dirty}
-                className="rounded-lg bg-accent px-3 py-1 text-xs font-medium text-on-solid transition enabled:hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-40"
+                className={`${SOLID_BUTTON_CLASS} px-3 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-40`}
               >
                 Save
               </button>
