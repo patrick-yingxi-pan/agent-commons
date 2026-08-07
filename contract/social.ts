@@ -283,6 +283,17 @@ export type ProposalDelta =
    *  the offer is refused otherwise (INV-9: a delta that can't apply to its
    *  subject is a malformed request, never a silently-inert record). */
   | { kind: 'schedule-patch'; patch: import('./api.ts').UpdateScheduleRequest }
+  /** An artifact's BODY — landing rewrites ONE addressed prose block through
+   *  `updateArtifactBlock`, the REAL mutator the owner's own editor calls. Only
+   *  valid on an `artifact` subject whose body is a doc and whose block at
+   *  `block` is patchable (`docBlockText`); anything else is refused at the
+   *  door like every applying kind, never stored as an inert record (INV-9).
+   *  The address is a BLOCK INDEX because these bodies are structured, not
+   *  linear — the reasoning lives with `docBlockText` in `contract/content.ts`.
+   *  The delta carries only the AFTER text: the before is resolved at serve
+   *  time onto `SocialProposal.deltaBase` (the Commons-embed rule), so the diff
+   *  an owner consents to is always against what landing would really replace. */
+  | { kind: 'artifact-patch'; block: number; text: string }
 
 /** The routine fields a proposal may offer to change — the SCALAR, reviewable
  *  ones a human reads on a card and an owner consents to at a glance. Shared so
@@ -309,6 +320,15 @@ export function describeSchedulePatch(patch: import('./api.ts').UpdateScheduleRe
   return parts.length > 0 ? parts.join(' · ') : 'no change'
 }
 
+/** The human face of an `artifact-patch` — the ONE-LINE form, for surfaces with
+ *  no room for a diff (a notification's sentence, a consent prompt). The panel
+ *  itself renders the real before→after, which is what a body edit deserves;
+ *  this exists so the short form can't be re-improvised per surface. */
+export function describeArtifactPatch(delta: { block: number; text: string }): string {
+  const trimmed = delta.text.length > 60 ? `${delta.text.slice(0, 60)}…` : delta.text
+  return `rewrite block ${delta.block + 1} → “${trimmed}”`
+}
+
 export interface SocialProposal {
   id: string
   subject: SocialEntityRef
@@ -321,6 +341,14 @@ export interface SocialProposal {
   landingNumber?: number
   /** The review thread — a Discussion anchored to THIS proposal. */
   discussionId: string
+  /** `artifact-patch` deltas only: the addressed block's text AS IT STANDS NOW,
+   *  resolved at serve time and never stored (the Commons-embed rule). So the
+   *  diff on the card is always against what landing would really replace —
+   *  if another proposal lands on the same block first, this one's before-side
+   *  moves with it rather than showing a base that no longer exists. Absent
+   *  when the block no longer resolves (INV-9: the card degrades to the
+   *  after-text alone rather than inventing a base). */
+  deltaBase?: string
   /** Viewer-relative: the caller offered it (the projects `own` pattern). */
   mine?: boolean
 }

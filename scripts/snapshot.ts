@@ -352,6 +352,18 @@ export async function buildComprehensive(): Promise<PersistedState> {
     { subject: { kind: 'project', id: 'p-playground' }, delta: { kind: 'suggestion', text: 'Playground suggestion — snapshot coverage.' }, rationale: 'Exercised for the snapshot.' },
     store.defaultTenantId(),
   )
+  // ── Social S3 artifact bodies ── the body-edit overlay: rewrite one addressed
+  // prose block through the REAL mutator — the same call a landed
+  // `artifact-patch` runs — so an edited document survives a restart. The target
+  // is resolved by ASKING which block is patchable rather than hardcoding an
+  // index, so a reshuffled fixture can't turn this into a silent no-op.
+  const editable = store
+    .listArtifacts(store.defaultTenantId())
+    .map((a) => ({ id: a.id, block: [0, 1, 2, 3].find((i) => store.artifactBlockText(a.id, i) !== undefined) }))
+    .find((x) => x.block !== undefined)
+  if (editable?.block !== undefined) {
+    store.updateArtifactBlock(editable.id, editable.block, 'Playground body edit — snapshot coverage.')
+  }
   // ── Social S6 link grants ── exercise the link-token path through the real
   // mutators: the server mints the token, and a foreign tenant redeems it (the
   // redeemedBy roster is server-private but must survive a restart).

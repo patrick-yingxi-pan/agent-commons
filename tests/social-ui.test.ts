@@ -166,3 +166,69 @@ test('no surface labels a message from its anchor — the counterpart is server-
     )
   }
 })
+
+/** ── SOCIAL-7 `artifact-patch`: the delta's FACE has one home ────────────────
+ *  A delta is rendered per kind, and that rendering had already been written
+ *  TWICE by hand (the Improvements panel and the project's merged Changes
+ *  panel) — divergently: one labelled every row "routine change", graph edits
+ *  and prose suggestions included. Adding a third kind without unifying them
+ *  would have made a third place to forget. So `components/DeltaView.tsx` is
+ *  the one home, and a surface that renders a delta must go through it. */
+test('the proposal delta has ONE renderer: no surface re-branches on delta.kind', () => {
+  const norm = (p: string) => p.replace(/\\/g, '/')
+  const offenders: string[] = []
+  let hosts = 0
+  for (const f of walk(SRC)) {
+    const rel = norm(f)
+    const src = readFileSync(f, 'utf8').replace(/\s+/g, ' ')
+    if (rel.endsWith('components/DeltaView.tsx')) continue // the funnel itself
+    // Branching on a delta's kind, or re-calling a delta's human describer, is
+    // the drift — it means a second rendering exists with its own labels.
+    for (const probe of ["delta.kind ===", "describeSchedulePatch(", "describeArtifactPatch("]) {
+      if (src.includes(probe)) offenders.push(`${rel.split('/src/')[1]}: ${probe}`)
+    }
+    if (src.includes('<ProposalDeltaView') || src.includes('<DeltaView')) hosts += 1
+  }
+  assert.deepEqual(offenders, [])
+  assert.ok(hosts >= 2, 'both proposal surfaces render through the funnel (the scan is not vacuous)')
+})
+
+/** The offer FORM is per-kind, and each kind's is driven by the predicate the
+ *  SERVER validates with — so a form can never offer what the wall refuses.
+ *  Earned: the panel rendered the ROUTINE field picker for every subject kind
+ *  while its own doc comment claimed a prose fallback, which was invisible only
+ *  because a routine was its sole host. Mounting it on an artifact would have
+ *  offered "cadence" and "notifyOnFailure" on a document. */
+test('the artifact offer form and the server validator share ONE patchability predicate', async () => {
+  const { patchableBlocks, artifactPatchDelta } = await import('../src/lib/proposalForm.ts')
+  const body = {
+    type: 'doc',
+    title: 'T',
+    blocks: [{ h: 'Heading' }, { p: 'Prose.' }, { ul: ['a', 'b'] }, { code: ['x'] }, { email: { to: 'a@b', subject: 's' } }],
+  }
+  // Exactly the single-string blocks — `ul`/`code` hold a LIST and `email` a
+  // structured header, so a one-line before→after cannot address them.
+  assert.deepEqual(patchableBlocks(body), [
+    { index: 0, text: 'Heading' },
+    { index: 1, text: 'Prose.' },
+  ])
+  // A body with no addressable prose offers nothing rather than a broken picker.
+  assert.deepEqual(patchableBlocks({ type: 'figure', shape: 'bars', caption: 'c' }), [])
+  assert.deepEqual(patchableBlocks(undefined), [])
+
+  // The form's delta mirrors every refusal the offer route makes, so the button
+  // stays disabled instead of posting something the server would reject.
+  assert.equal(artifactPatchDelta(null, 'text', undefined), null, 'no block chosen')
+  assert.equal(artifactPatchDelta(1, '   ', 'Prose.'), null, 'blank text')
+  assert.equal(artifactPatchDelta(1, 'Prose.', 'Prose.'), null, 'identical — a no-op that would burn an L#')
+  assert.deepEqual(artifactPatchDelta(1, ' New. ', 'Prose.'), { kind: 'artifact-patch', block: 1, text: 'New.' })
+})
+
+/** The blocks the form lists come from the CONTRACT's predicate, not a copy —
+ *  the `PROPOSABLE_SCHEDULE_FIELDS` discipline applied to the second kind. */
+test('the patchable-block predicate is the contract’s, not a re-implementation', () => {
+  const form = readFileSync(join('src', 'lib', 'proposalForm.ts'), 'utf8')
+  assert.match(form, /docBlockText/, 'the form filters with the contract’s own total function')
+  const preview = readFileSync(join('src', 'components', 'artifactPreview.tsx'), 'utf8')
+  assert.match(preview, /docBlockText/, 'and so does the owner’s in-place editor — one predicate, one pencil placement')
+})

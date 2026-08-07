@@ -16,6 +16,7 @@ import type {
   A2aPeer,
   AnchorLocus,
   Artifact,
+  ArtifactContent,
   ArtifactContentLibrary,
   ArtifactItem,
   ArtifactKind,
@@ -83,7 +84,7 @@ import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { fsReader, type FsReader } from './fs.ts'
 import type { FsCatalog, FsFileContent, FsFolderContents, FsSource, Identity } from '../contract/index.ts'
-import { fsRecentKey } from '../contract/index.ts'
+import { fsRecentKey, docBlockText, withDocBlockText } from '../contract/index.ts'
 import { resolveIdentity, ANONYMOUS_IDENTITY, LOCAL_IDENTITY } from './identity.ts'
 import { positiveNumberEnv, nonNegativeIntEnv } from './env.ts'
 import { SAVED_CONTEXTS, CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from './data/savedContexts.ts'
@@ -614,6 +615,37 @@ function publicDiscussion(d: StoredDiscussion, viewerTenant?: string): Discussio
   }
 }
 
+/** ── Artifact body edits (social S3's `artifact-patch`) ──────────────────────
+ *  The authored library (`ARTIFACT_CONTENT`) stays an immutable FIXTURE keyed by
+ *  file name; every edit lands here instead, keyed by ARTIFACT ID. Two artifacts
+ *  in different tenants may share a name, so a name-keyed edit store would let
+ *  one workspace rewrite another's document — authority never keys on a name
+ *  (the S7 lesson). `store.artifactContent(tenantId)` lays these over the
+ *  fixture per caller; `store.artifactBody(id)` is the one resolver. */
+const artifactBodies = new Map<string, ArtifactContent>()
+
+/** An artifact's CURRENT body — the edit if it has one, else the authored seed.
+ *  Module-level so the store's methods AND the wire-face builders share one
+ *  resolver (`publicSocialProposal` stamps a diff's base from it). */
+function artifactBodyOf(artifactId: string): ArtifactContent | undefined {
+  const stored = artifactBodies.get(artifactId)
+  if (stored) return stored
+  const a = findArtifact(artifactId)
+  return a ? ARTIFACT_CONTENT[a.name] : undefined
+}
+
+/** The text an addressed block carries right now, or undefined when the address
+ *  doesn't resolve to a PATCHABLE block (unknown artifact, non-doc body, index
+ *  out of range, or a block with no single editable string). The ONE answer
+ *  behind three questions that must never disagree: may this patch be offered,
+ *  what does its diff show as the before, and which blocks may the form list. */
+function artifactBlockTextOf(artifactId: string, block: number): string | undefined {
+  const body = artifactBodyOf(artifactId)
+  if (!body || body.type !== 'doc') return undefined
+  if (!Number.isInteger(block) || block < 0 || block >= body.blocks.length) return undefined
+  return docBlockText(body.blocks[block])
+}
+
 /** ── Social-layer proposals (S3 — docs/design/social-layer.md §2.4) ──────────
  *  The landing-ledger generalized: a typed delta offered to any noun, landed by
  *  the subject OWNER's consent into a per-subject linear ledger. The review
@@ -639,8 +671,35 @@ function isSchedulePatch(patch: unknown): boolean {
 
 /** Wire face: strip the raw offerer anchor; `mine` is viewer-relative. */
 function publicSocialProposal(p: StoredSocialProposal, viewerTenant?: string): SocialProposal {
-  const { offererTenant, ...pub } = p
-  return { ...pub, ...(viewerTenant !== undefined && tenantWritesAs(viewerTenant, offererTenant) ? { mine: true } : {}) }
+  // `appliedBase` is a STORED pre-image, not a wire field — it reaches the
+  // client only through `deltaBase` below, so strip it here rather than letting
+  // the spread ship an undeclared name.
+  const { offererTenant, appliedBase, ...pub } = p
+  // The diff's before-side answers ONE question — what does this change
+  // replace? — whose answer depends on whether it still could:
+  //
+  //  · while OPEN, it is resolved live at serve time (the Commons-embed rule),
+  //    so if another proposal lands on the same block first, this one's base
+  //    moves with it and the owner consents to the change landing would really
+  //    make;
+  //  · once LANDED it is history, frozen at the moment it applied. Resolving a
+  //    landed row live would diff the text against ITSELF — the row read
+  //    "− What this is / + What this is", a no-op where a change had happened
+  //    (found in the running app, not by a test).
+  //
+  // Absent when the address stopped resolving (INV-9 — the card degrades to the
+  // after-text alone rather than inventing a base).
+  const base =
+    p.delta.kind !== 'artifact-patch'
+      ? undefined
+      : p.state === 'landed'
+        ? appliedBase
+        : artifactBlockTextOf(p.subject.id, p.delta.block)
+  return {
+    ...pub,
+    ...(base !== undefined ? { deltaBase: base } : {}),
+    ...(viewerTenant !== undefined && tenantWritesAs(viewerTenant, offererTenant) ? { mine: true } : {}),
+  }
 }
 
 /** The next L# for a subject — ONE landing ledger per subject (the Changes/
@@ -1760,6 +1819,7 @@ function snapshot(): PersistedState {
     grants, // social S1 — who can see/do what (a share survives a restart)
     discussions, // social S2 — anchored threads (talk survives a restart)
     socialProposals, // social S3 — offered changes + the per-subject ledger
+    artifactBodies: [...artifactBodies.entries()], // social S3 — edited artifact bodies (id-keyed)
     mutes: [...mutes.entries()].map(([t, set]) => [t, [...set]] as [string, string[]]), // S5 earmuffs
     // S7 — the person layer: who each viewer follows, and how far they've read
     // each thread (the DM inbox's unread count).
@@ -1994,6 +2054,10 @@ function rehydrate(s: PersistedState): void {
   // Social S3 proposals — same restore shape.
   socialProposals.splice(0, socialProposals.length, ...(s.socialProposals ?? []))
   socialProposalSeq = s.seq.socialProposal ?? socialProposals.length
+  // Social S3 artifact bodies — the edits laid over the authored fixture. A
+  // pre-field snapshot restores with none, i.e. every body at its seed text.
+  artifactBodies.clear()
+  for (const [id, body] of s.artifactBodies ?? []) artifactBodies.set(id, body)
   // S5 mutes — same restore shape.
   mutes.clear()
   for (const [t, names] of s.mutes ?? []) mutes.set(t, new Set(names))
@@ -2593,6 +2657,13 @@ export const store = {
         // Stamped at emit time (the row may already be deleted) — relation.applied's
         // pattern: the mutation is the owning tenant's private signal.
         return e.tenantId ? e.tenantId === tenantId : seedVisibleTo(tenantId)
+      case 'artifact.changed': {
+        // Mirrors the artifact's own READ wall, so a shared artifact's audience
+        // sees a landed body edit live and nobody else learns the name exists.
+        // An unresolvable id falls back to the flagship rule, like the gates above.
+        const a = findArtifact(e.artifactId)
+        return a ? this.artifactVisibleToTenant(a, tenantId) : seedVisibleTo(tenantId)
+      }
       case 'delegation.changed':
       case 'contribution.changed': {
         // The ledger's visibility mirrors the Project's, exactly like openwork.changed:
@@ -3799,8 +3870,63 @@ export const store = {
   },
 
   // ── Artifact bodies ──
-  artifactContent(): ArtifactContentLibrary {
-    return ARTIFACT_CONTENT
+  /** The name-keyed body library the previews render, with the CALLER's edits
+   *  laid over the seed fixture (social S3). Two rules make that safe:
+   *
+   *  1. **Edits are keyed by artifact ID, the library by NAME.** The seed is a
+   *     shared fixture keyed by file name, and two tenants can own artifacts
+   *     with the same name — so a name-keyed edit store would write one
+   *     tenant's revision into another's document. This repo's earned rule is
+   *     that preference may key on a name while AUTHORITY never may (the S7
+   *     same-name signup collision); a body edit is authority.
+   *  2. **The projection is per-caller**, over exactly the artifacts that caller
+   *     can READ (own + granted — `artifactVisibleToTenant`), so a shared
+   *     artifact's audience sees the landed revision and nobody else does.
+   *
+   *  Unscoped (no tenant) returns the untouched seed — the internal-caller
+   *  shape `listArtifacts` already uses. */
+  artifactContent(tenantId?: string): ArtifactContentLibrary {
+    if (!tenantId || artifactBodies.size === 0) return ARTIFACT_CONTENT
+    const lib: ArtifactContentLibrary = { ...ARTIFACT_CONTENT }
+    for (const [artifactId, body] of artifactBodies) {
+      const a = findArtifact(artifactId)
+      if (a && this.artifactVisibleToTenant(a, tenantId)) lib[a.name] = body
+    }
+    return lib
+  },
+  /** The artifact's CURRENT body — the caller's overlay if it has been edited,
+   *  else the authored seed. The one resolver, so the editor, the validator,
+   *  the diff's base and the applier all read the same bytes. */
+  artifactBody(artifactId: string): ArtifactContent | undefined {
+    return artifactBodyOf(artifactId)
+  },
+  /** The text an addressed block carries right now — see `artifactBlockTextOf`. */
+  artifactBlockText(artifactId: string, block: number): string | undefined {
+    return artifactBlockTextOf(artifactId, block)
+  },
+  /** Rewrite ONE addressed prose block — the artifact layer's first real write
+   *  path, and the ONE mutator behind both doors: the owner's own editor and a
+   *  landed `artifact-patch` proposal. Landing must never be a parallel write
+   *  path (the `updateSchedule` precedent), so there is exactly this function.
+   *
+   *  Refuses anything it could not honestly apply, rather than storing an inert
+   *  record (INV-9): an unknown artifact, a non-doc body, an out-of-range index,
+   *  a block that carries no single editable string (`docBlockText`), or empty
+   *  text. Ownership is the CALLER's business — the route and the landing path
+   *  each gate before calling, exactly as they do for a routine. */
+  updateArtifactBlock(artifactId: string, block: number, text: string): ArtifactContent | undefined {
+    const body = artifactBodyOf(artifactId)
+    if (!body || body.type !== 'doc') return undefined
+    if (artifactBlockTextOf(artifactId, block) === undefined) return undefined
+    const next = text.trim()
+    if (!next) return undefined
+    const blocks = body.blocks.map((b, i) => (i === block ? withDocBlockText(b, next) : b))
+    const updated: ArtifactContent = { ...body, blocks }
+    artifactBodies.set(artifactId, updated)
+    const a = findArtifact(artifactId)
+    emit({ type: 'artifact.changed', artifactId, artifactName: a?.name ?? '' })
+    persist()
+    return updated
   },
 
   // ── Usage (the composer gauge: context window + plan limit windows) ──
@@ -5596,6 +5722,16 @@ export const store = {
       if (req.subject.kind !== 'schedule') return 'invalid'
       if (!isSchedulePatch(req.delta.patch)) return 'invalid'
     }
+    // An `artifact-patch` must be able to APPLY, by the same rule: the subject is
+    // an artifact, the address resolves to a patchable block, and the text both
+    // says something and says something DIFFERENT — an identical rewrite is the
+    // body edit's version of the empty patch, a no-op that would still burn an L#.
+    if (req.delta.kind === 'artifact-patch') {
+      if (req.subject.kind !== 'artifact') return 'invalid'
+      const base = this.artifactBlockText(req.subject.id, req.delta.block)
+      const next = req.delta.text.trim()
+      if (base === undefined || !next || next === base) return 'invalid'
+    }
     const rows = socialProposals.filter((p) => p.subject.kind === req.subject.kind && p.subject.id === req.subject.id)
     if (rows.length >= MAX_PROPOSALS_PER_SUBJECT) return 'capped'
     const p: StoredSocialProposal = {
@@ -5648,6 +5784,12 @@ export const store = {
     // owner's own editor makes, never a parallel write path.
     if (p.delta.kind === 'relation-op') this.applyRelationOp(p.delta.op, tenantId)
     if (p.delta.kind === 'schedule-patch') this.updateSchedule(p.subject.id, p.delta.patch)
+    if (p.delta.kind === 'artifact-patch') {
+      // Freeze the pre-image BEFORE applying: once landed the row is history,
+      // and history cannot be recomputed from a body that has since moved on.
+      p.appliedBase = artifactBlockTextOf(p.subject.id, p.delta.block)
+      this.updateArtifactBlock(p.subject.id, p.delta.block, p.delta.text)
+    }
     p.state = 'landed'
     // ONE landing ledger per subject (the consolidation, 2026-07-21): a project's
     // L# sequence is shared with its contribution ledger — both landing paths
@@ -6524,6 +6666,13 @@ export const store = {
       ...a,
       own: this.artifactOwnedBy(a, tenantId),
     }))
+  },
+  /** An artifact by id across BOTH homes — the seeded set AND the ones the
+   *  relation graph created (`save-artifact`). `listArtifacts` reads only the
+   *  former, so a route that walls on it 404s every created artifact — which is
+   *  exactly what the body-edit door did before its test caught it. */
+  artifactById(id: string): ArtifactItem | undefined {
+    return findArtifact(id)
   },
   /** Whether an artifact is visible to `tenantId` — read widens through a grant
    *  (SOCIAL-4), ownership stays strict. Without this a shared artifact was

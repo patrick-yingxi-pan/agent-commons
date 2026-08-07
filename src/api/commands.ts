@@ -612,7 +612,18 @@ export async function landSocialProposal(pid: string, subject: { kind: string; i
   invalidate(keys.socialProposals(subject.kind, subject.id))
   invalidate(keys.relations)
   invalidate(keys.projects)
+  // An `artifact-patch` landing rewrote a body — the acting client invalidates
+  // locally too, exactly as the schedule path does (the SSE arm heals the others).
+  invalidate(keys.artifactContent)
   return p
+}
+
+/** Rewrite one addressed prose block of an artifact's body — the OWNER's own
+ *  editing door (social S3). The same mutator a landed `artifact-patch` runs,
+ *  reached from the other side: the owner needs no consent from themselves. */
+export async function updateArtifactBlock(artifactId: string, block: number, text: string): Promise<void> {
+  await apiPatch(paths.artifactContentEdit(artifactId), { block, text })
+  invalidate(keys.artifactContent)
 }
 
 /** Decline an offered proposal — the owner's polite no. */

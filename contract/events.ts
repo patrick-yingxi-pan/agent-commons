@@ -278,6 +278,17 @@ export interface ScheduleChangedEvent {
   tenantId?: string
 }
 
+/** An artifact's BODY changed — its owner edited a block, or a proposal landed
+ *  on it (social S3's `artifact-patch`). The name-keyed content library every
+ *  preview reads is stale (UI-12: the datum has a live source, so it needs a
+ *  sync path). Carries the artifact's id AND name: the id is what the gate
+ *  walls on, the name is the library's key the reader invalidates. */
+export interface ArtifactChangedEvent {
+  type: 'artifact.changed'
+  artifactId: string
+  artifactName: string
+}
+
 /** A Project's Contributor roster changed — a commission was minted, re-granted, or
  *  removed, possibly by ANOTHER tenant (the P8 cooperation primitive the acting
  *  client's local invalidation can't cover). Visibility mirrors the Project's,
@@ -400,6 +411,7 @@ export type ServerEvent =
   | ContributionChangedEvent
   | DelegationChangedEvent
   | ScheduleChangedEvent
+  | ArtifactChangedEvent
   | CommissionChangedEvent
   | ProposalChangedEvent
   | GrantChangedEvent

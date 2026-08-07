@@ -719,3 +719,79 @@ test('follow → the Following lens; message → one thread with two ends', asyn
   await ada.context.close()
   await grace.context.close()
 })
+
+/** 8. IMPROVE an artifact (SOCIAL-7, `artifact-patch`): the third social
+ *  primitive finally reaches a document's CONTENT. The walk proves the two
+ *  doors are one write path — the owner rewrites a block in place, and a
+ *  granted visitor (who gets NO pencil, because a read widened and ownership
+ *  did not) offers the same kind of change as a proposal that the owner lands.
+ *  Only a browser can lock this: the pencil's placement is decided by the
+ *  contract's `docBlockText`, and the picker's options are the live body. */
+test('improve an ARTIFACT: the owner edits in place, a visitor proposes, the owner lands', async ({ browser }) => {
+  test.setTimeout(180_000)
+  const ada = await newUser(browser)
+  const grace = await newUser(browser, { 'x-tenant-id': 'tenant-beta' })
+
+  const OWNER_EDIT = `A self-serve analytics surface — rewritten by its owner ${STAMP}.`
+  const PROPOSED = `Who this is for ${STAMP}`
+
+  // ── The owner's own door: edit one block, in place ────────────────────────
+  await ada.page.goto('/artifacts/a1')
+  const viewer = ada.page.getByRole('dialog', { name: ARTIFACT })
+  await expect(viewer).toBeVisible({ timeout: 20_000 })
+
+  // The pencil appears on exactly the blocks that carry ONE editable string.
+  // Blocks 4 and 6 of this document are LISTS — a one-line before→after cannot
+  // address them, so they must have no pencil (the `docBlockText` cut, in DOM form).
+  await expect(viewer.getByRole('button', { name: 'Edit block 2' })).toHaveCount(1)
+  await expect(viewer.getByRole('button', { name: 'Edit block 4' })).toHaveCount(0)
+  await expect(viewer.getByRole('button', { name: 'Edit block 6' })).toHaveCount(0)
+
+  await viewer.getByRole('button', { name: 'Edit block 2' }).click()
+  const box = viewer.getByRole('textbox', { name: 'Rewrite block 2' })
+  await expect(box).toBeVisible()
+  await box.fill(OWNER_EDIT)
+  await viewer.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(viewer.getByText(OWNER_EDIT)).toBeVisible({ timeout: 20_000 })
+
+  // Share at PROPOSE so the audience may offer a change.
+  await viewer.getByLabel('Audience kind').selectOption('org')
+  await viewer.getByLabel('Audience id').fill('tenant-beta')
+  await viewer.getByLabel('Tier').selectOption({ label: 'Propose' })
+  await viewer.getByRole('button', { name: 'Share', exact: true }).click()
+  await expect(viewer.getByText('tenant-beta')).toBeVisible({ timeout: 20_000 })
+
+  // ── The visitor: reads the owner's edit, may NOT rewrite it, may PROPOSE ──
+  await grace.page.goto('/artifacts/a1')
+  const hers = grace.page.getByRole('dialog', { name: ARTIFACT })
+  await expect(hers).toBeVisible({ timeout: 20_000 })
+  await expect(hers.getByText(OWNER_EDIT)).toBeVisible({ timeout: 20_000 })
+  // The read widened; the write did not — no pencil anywhere in her copy.
+  await expect(hers.getByRole('button', { name: /^Edit block / })).toHaveCount(0)
+
+  await hers.getByRole('button', { name: 'Offer a change' }).click()
+  // The picker offers BLOCKS, not a routine's fields — the per-kind form. Its
+  // options are the live body, so the owner's edit above is selectable here.
+  await hers.getByLabel('Block to rewrite').selectOption({ index: 3 })
+  await hers.getByLabel('Rewritten text').fill(PROPOSED)
+  await hers.getByLabel('Why this change').fill(`Plainer wording ${STAMP}`)
+  await hers.getByRole('button', { name: 'Offer', exact: true }).click()
+  // The card is a DIFF — a change wears the form a change wants.
+  await expect(hers.getByText('body edit')).toBeVisible({ timeout: 20_000 })
+  await expect(hers.getByText(PROPOSED)).toBeVisible()
+  // …and a visitor holds no consent: land/decline are the owner's alone.
+  await expect(hers.getByRole('button', { name: 'Land' })).toHaveCount(0)
+
+  // ── The owner lands it, and the DOCUMENT changes ──────────────────────────
+  await ada.page.reload()
+  const again = ada.page.getByRole('dialog', { name: ARTIFACT })
+  await expect(again.getByText(PROPOSED).first()).toBeVisible({ timeout: 20_000 })
+  await again.getByRole('button', { name: 'Land' }).first().click()
+  // The body now carries the proposed text as a HEADING (the block it addressed),
+  // and the row has taken a ledger number.
+  await expect(again.getByText(/^L\d+$/).first()).toBeVisible({ timeout: 20_000 })
+  await expect(again.getByText(PROPOSED).first()).toBeVisible()
+
+  await ada.context.close()
+  await grace.context.close()
+})

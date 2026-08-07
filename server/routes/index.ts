@@ -3392,8 +3392,36 @@ export function buildRouter(): Router {
   })
 
   // ── Artifact bodies + schedule templates ──────────────────────────────────
-  r.get('/artifact-content', ({ res }) => {
-    sendJson(res, store.artifactContent())
+  // Tenant-scoped like every other entity read (F2/PD9): the authored library
+  // with the CALLER's edited bodies laid over it — their own artifacts' and
+  // those a grant opened to them, nobody else's (social S3).
+  r.get('/artifact-content', ({ req, res }) => {
+    sendJson(res, store.artifactContent(store.identity(req.headers).tenant.id))
+  })
+  /** Rewrite one addressed prose block of an artifact's body — the OWNER's own
+   *  editing door (social S3). Ownership, never mere visibility: a grant widens
+   *  the READ, and a `view`-tier reader editing the document would be exactly
+   *  the escalation the routine's write routes were retightened against. A
+   *  visitor who wants a change offers an `artifact-patch` proposal instead —
+   *  which lands through this very mutator, so there is one write path.
+   *  Existence-hiding: an artifact the caller can't own 404s like a missing id. */
+  r.patch('/artifacts/:id/content', async ({ req, res, params, body }) => {
+    const tenantId = store.identity(req.headers).tenant.id
+    // Resolved across BOTH homes (seeded + graph-created), then walled on
+    // OWNERSHIP — `listArtifacts` would silently 404 every created artifact.
+    const artifact = store.artifactById(params.id)
+    if (!artifact || !store.artifactOwnedBy(artifact, tenantId)) {
+      return sendError(res, 'not_found', `No artifact '${params.id}'`)
+    }
+    const patch = await body<{ block?: number; text?: string }>()
+    if (typeof patch.block !== 'number' || typeof patch.text !== 'string') {
+      return sendError(res, 'bad_request', 'block (number) and text (string) are required')
+    }
+    const updated = store.updateArtifactBlock(params.id, patch.block, patch.text)
+    // The mutator refuses anything it could not honestly apply (non-doc body,
+    // unaddressable block, empty text) — a 400, not a silent no-op.
+    if (!updated) return sendError(res, 'bad_request', 'That block cannot be edited')
+    sendJson(res, updated)
   })
   r.get('/schedule-templates', ({ res }) => {
     sendJson(res, store.scheduleTemplates())

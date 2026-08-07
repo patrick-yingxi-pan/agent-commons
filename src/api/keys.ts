@@ -289,6 +289,8 @@ export const paths = {
   },
   usage: (sessionId?: string) => (sessionId ? `/usage?session=${encodeURIComponent(sessionId)}` : '/usage'),
   artifactContent: '/artifact-content',
+  /** The owner's body-edit door (social S3) — one addressed prose block. */
+  artifactContentEdit: (id: string) => `/artifacts/${encodeURIComponent(id)}/content`,
   scheduleTemplates: '/schedule-templates',
   // Served filesystem sources (contract/fs.ts). `fsContent` returns raw bytes (an
   // image / binary), used directly as an `<img src>` — not via `apiGet` (which

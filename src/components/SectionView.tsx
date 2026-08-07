@@ -89,6 +89,7 @@ import { GrantsPanel } from './GrantsPanel'
 import { FollowButton } from './FollowButton'
 import { MessageButton } from './MessageButton'
 import { ProposalsPanel } from './ProposalsPanel'
+import { ProposalDeltaView } from './DeltaView'
 import { Tooltip } from './Tooltip'
 import { describeLocus, locusFocus } from '../lib/anchorLocus'
 import type { FocusTarget } from '../lib/notificationDoor'
@@ -3690,32 +3691,6 @@ function MessagesSection() {
   )
 }
 
-/** One proposal delta, rendered by kind (social S3 — the DeltaView registry's
- *  first two slots): a suggestion is prose; a relation op reuses the shared
- *  human description the consent cards use, so the same edit reads the same
- *  everywhere. */
-function DeltaView({ delta }: { delta: ProposalDelta }) {
-  if (delta.kind === 'suggestion') {
-    return <p className="whitespace-pre-wrap text-[13px] text-ink-soft">{delta.text}</p>
-  }
-  if (delta.kind === 'schedule-patch') {
-    // A field-by-field read of what landing would change — the consent has to be
-    // to something specific, not to "a routine change".
-    return (
-      <p className="text-[13px] text-ink-soft">
-        <span className="mr-1.5 rounded bg-panel-2 px-1.5 py-0.5 text-[11px] font-medium text-ink-faint">routine change</span>
-        {describeSchedulePatch(delta.patch)}
-      </p>
-    )
-  }
-  return (
-    <p className="text-[13px] text-ink-soft">
-      <span className="mr-1.5 rounded bg-panel-2 px-1.5 py-0.5 text-[11px] font-medium text-ink-faint">graph edit</span>
-      {describeOp(delta.op).text}
-    </p>
-  )
-}
-
 /** The subject's Improvements (social S3, SOCIAL-7b) — offered proposals +
  *  the landed ledger, generic over the subject ref (the GrantsPanel rule).
  *  Payload for owner and visitor alike: the owner gets land/decline consent,
@@ -3914,7 +3889,7 @@ function ChangesPanel({ project, own, onOpenSession }: { project: Project; own: 
                     )}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <DeltaView delta={p.delta} />
+                    <ProposalDeltaView proposal={p} />
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
                       <span>
                         by {p.offeredBy} {relativeTime(p.offeredAt)}
@@ -5085,9 +5060,19 @@ function ArtifactsSection({ artifactId, onOpenSession }: { artifactId: string | 
 
       {openArtifact && (
         <ArtifactViewer
+          // Keyed by the artifact so the viewer's per-artifact state — an OPEN
+          // block editor and its draft — cannot outlive the document it belongs
+          // to; a draft surviving an id change would be saved onto whatever
+          // block shares that index in the NEW body. Defensive rather than a
+          // fix for a reachable path: the viewer's scrim is `fixed inset-0`, so
+          // while it is open every door that could change the id (the rail, the
+          // palette) is covered, and closing it unmounts this anyway. The key
+          // costs nothing and removes the whole class.
+          key={openArtifact.id}
           artifact={openArtifact}
           projects={projects}
           currentProjectId={rel.artifactProjectId(openArtifact)}
+          own={openArtifact.own !== false}
           onAssignProject={openArtifact.own !== false ? (projectId) => assignProject(openArtifact, projectId) : undefined}
           onOpenSource={(() => {
             const sid = sourceSessionOf(openArtifact)

@@ -233,3 +233,176 @@ test('SOCIAL-7: a schedule-patch that could not apply is REFUSED at the door (IN
   )
   assert.equal(wrongSubject.status, 400, 'a delta that cannot apply to its subject is malformed')
 })
+
+/** ── SOCIAL-7: `artifact-patch`, the THIRD applying delta kind ───────────────
+ *  The one remaining S3 delta. Its point is that "improve a resource" finally
+ *  means changing a document's CONTENT, and that landing runs the very mutator
+ *  the owner's own editor calls — never a parallel write path. The address is a
+ *  BLOCK INDEX, not a line range, because these bodies are structured
+ *  (contract/content.ts `docBlockText` states the cut). */
+test('SOCIAL-7: an artifact-patch delta lands by running the REAL body mutator', async () => {
+  const artifactId = 'a1' // insights-onepager.md — block 1 is a paragraph
+  const owner = store.defaultTenantId()
+  const before = store.artifactBlockText(artifactId, 1)
+  assert.ok(before, 'a seeded document with an addressable prose block')
+
+  // Shared at `propose` so the audience may offer — the SOCIAL-4 read widening
+  // for artifacts is what makes the whole social surface reachable here.
+  store.createGrant(
+    { subject: { kind: 'artifact', id: artifactId }, audience: { kind: 'org', orgId: AUDIENCE }, tier: 'propose' },
+    owner,
+  )
+  assert.ok(store.listArtifacts(AUDIENCE).some((a) => a.id === artifactId), 'the grant opens the artifact')
+  assert.equal(store.listArtifacts(AUDIENCE).find((a) => a.id === artifactId)?.own, false, '…without owning it')
+
+  const text = 'One screen, filterable, shareable — and now honestly rewritten.'
+  const offered = await call(
+    'POST', '/proposals',
+    { subject: { kind: 'artifact', id: artifactId }, delta: { kind: 'artifact-patch', block: 1, text }, rationale: 'Tighter.' },
+    { 'x-tenant-id': AUDIENCE },
+  )
+  assert.equal(offered.status, 200)
+  // The diff's before-side is resolved at SERVE time, so a reviewer always sees
+  // what landing would really replace.
+  assert.equal(offered.json.deltaBase, before, 'the wire face carries the current base')
+
+  // The audience may NOT rewrite the body directly — the read widened, the write did not.
+  assert.equal(
+    (await call('PATCH', `/artifacts/${artifactId}/content`, { block: 1, text }, { 'x-tenant-id': AUDIENCE })).status,
+    404,
+    'a granted reader cannot edit the body — and the refusal hides existence',
+  )
+
+  // The OWNER lands it, and the document actually changes.
+  const landed = await call('POST', `/proposals/${offered.json.id}/land`, undefined, { 'x-tenant-id': owner })
+  assert.equal(landed.status, 200)
+  assert.equal(landed.json.state, 'landed')
+  assert.equal(store.artifactBlockText(artifactId, 1), text, 'landing ran the real mutator')
+
+  // …and the change is what the READERS see: the name-keyed library the previews
+  // render carries it for the owner AND the granted audience, nobody else.
+  assert.match(JSON.stringify(store.artifactContent(owner)['insights-onepager.md']), /honestly rewritten/)
+  assert.match(JSON.stringify(store.artifactContent(AUDIENCE)['insights-onepager.md']), /honestly rewritten/)
+  assert.doesNotMatch(
+    JSON.stringify(store.artifactContent(BYSTANDER)['insights-onepager.md']),
+    /honestly rewritten/,
+    'a bystander still reads the authored fixture — the overlay is per-caller',
+  )
+
+  // Restore, so the seeded demo world is unchanged for other suites.
+  store.updateArtifactBlock(artifactId, 1, before)
+})
+
+test('SOCIAL-7: the owner’s own body-edit door runs the same mutator (one write path)', async () => {
+  const owner = store.defaultTenantId()
+  const before = store.artifactBlockText('a2', 1)
+  assert.ok(before)
+  const out = await call('PATCH', '/artifacts/a2/content', { block: 1, text: 'Owner-edited copy.' }, { 'x-tenant-id': owner })
+  assert.equal(out.status, 200)
+  assert.equal(store.artifactBlockText('a2', 1), 'Owner-edited copy.', 'the owner needs no consent from themselves')
+  store.updateArtifactBlock('a2', 1, before)
+})
+
+test('SOCIAL-7: an artifact-patch that could not apply is REFUSED at the door (INV-9)', async () => {
+  const owner = store.defaultTenantId()
+  const bad: [string, unknown, string][] = [
+    ['non-doc body (a figure has nothing ordered)', { kind: 'artifact-patch', block: 0, text: 'x' }, 'a4'],
+    ['a block with no single editable string (an email header)', { kind: 'artifact-patch', block: 0, text: 'x' }, 'a3'],
+    ['a list block — `ul` holds many strings, not one', { kind: 'artifact-patch', block: 3, text: 'x' }, 'a1'],
+    ['index out of range', { kind: 'artifact-patch', block: 99, text: 'x' }, 'a1'],
+    ['a negative index', { kind: 'artifact-patch', block: -1, text: 'x' }, 'a1'],
+    ['blank text', { kind: 'artifact-patch', block: 1, text: '   ' }, 'a1'],
+    ['text IDENTICAL to the block — a no-op that would still burn an L#', { kind: 'artifact-patch', block: 1, text: store.artifactBlockText('a1', 1) }, 'a1'],
+  ]
+  for (const [why, delta, id] of bad) {
+    const out = await call(
+      'POST', '/proposals',
+      { subject: { kind: 'artifact', id }, delta, rationale: 'because' },
+      { 'x-tenant-id': owner },
+    )
+    assert.equal(out.status, 400, `refused: ${why}`)
+  }
+  // …and the kind only makes sense on an artifact.
+  const wrongSubject = await call(
+    'POST', '/proposals',
+    { subject: { kind: 'project', id: 'p-insights' }, delta: { kind: 'artifact-patch', block: 0, text: 'x' }, rationale: 'no' },
+    { 'x-tenant-id': owner },
+  )
+  assert.equal(wrongSubject.status, 400, 'a delta that cannot apply to its subject is malformed')
+})
+
+test('SOCIAL-7: the body overlay keys on artifact ID, never the library’s file name', async () => {
+  // The S7 lesson generalized: preference may key on a name, AUTHORITY never may.
+  // Two tenants can own artifacts with the SAME file name, and the content
+  // library is name-keyed — so a name-keyed edit store would write one
+  // workspace's revision into another's document.
+  const owner = store.defaultTenantId()
+  const name = 'insights-onepager.md'
+  const mine = store.listArtifacts(owner).find((a) => a.name === name)
+  assert.ok(mine, 'the flagship document')
+
+  // A second tenant creates an artifact with the very same name. (A created
+  // artifact lives in the relation GRAPH, not the seeded set — which is exactly
+  // why the body-edit route resolves through `artifactById` across both homes.)
+  const g = store.applyRelationOp(
+    { kind: 'save-artifact', artifact: { name, kind: 'doc', meta: 'Document' } },
+    BYSTANDER,
+  )
+  const theirs = g.extraArtifacts.find((a) => a.name === name && a.id !== mine.id)
+  assert.ok(theirs && theirs.id !== mine.id, 'a same-named artifact in another namespace')
+
+  const before = store.artifactBlockText(mine.id, 1)
+  assert.ok(before)
+  store.updateArtifactBlock(mine.id, 1, 'Only the flagship copy changed.')
+  assert.match(JSON.stringify(store.artifactContent(owner)[name]), /Only the flagship copy changed/)
+  assert.doesNotMatch(
+    JSON.stringify(store.artifactContent(BYSTANDER)[name] ?? {}),
+    /Only the flagship copy changed/,
+    'the same-named artifact in another namespace is untouched',
+  )
+  store.updateArtifactBlock(mine.id, 1, before)
+})
+
+test('SOCIAL-7: artifact.changed is gated to the artifact’s own read wall', () => {
+  // A body edit names a document; the gate must mirror the artifact's read wall
+  // so a granted audience refreshes and nobody else learns the name exists.
+  const e = { type: 'artifact.changed', artifactId: 'a1', artifactName: 'insights-onepager.md' }
+  assert.equal(store.eventVisibleToTenant(e, store.defaultTenantId()), true, 'the owner’s stream gets it')
+  assert.equal(store.eventVisibleToTenant(e, 'tenant-no-such'), false, 'a stranger’s never does')
+})
+
+test('SOCIAL-7: a landed artifact-patch shows the pre-image it replaced, not the text it became', async () => {
+  // Found in the running app: the diff's before-side was resolved live for
+  // EVERY state, so the moment a proposal landed its own row re-rendered as
+  // "− X / + X" — a no-op where a change had happened. An open row wants the
+  // LIVE base (what landing would replace); a landed row is history and wants
+  // the pre-image, frozen at the instant it applied.
+  const owner = store.defaultTenantId()
+  const before = store.artifactBlockText('a17', 1)
+  assert.ok(before, 'a seeded document block')
+  const text = 'Token-bucket per API key: 900 requests/minute, burst 150.'
+
+  const offered = await call(
+    'POST', '/proposals',
+    { subject: { kind: 'artifact', id: 'a17' }, delta: { kind: 'artifact-patch', block: 1, text }, rationale: 'Raise the ceiling.' },
+    { 'x-tenant-id': owner },
+  )
+  assert.equal(offered.status, 200)
+  assert.equal(offered.json.deltaBase, before, 'while OPEN the base is live — what landing would replace')
+
+  const landed = await call('POST', `/proposals/${offered.json.id}/land`, undefined, { 'x-tenant-id': owner })
+  assert.equal(landed.status, 200)
+  assert.equal(landed.json.deltaBase, before, 'once LANDED the base is the pre-image, frozen')
+  assert.notEqual(landed.json.deltaBase, text, 'never a diff of the text against itself')
+
+  // …and it STAYS the pre-image after the body moves on again.
+  store.updateArtifactBlock('a17', 1, 'Rewritten again by the owner.')
+  const reread = await call('GET', '/proposals?kind=artifact&id=a17', undefined, { 'x-tenant-id': owner })
+  const row = reread.json.find((p) => p.id === offered.json.id)
+  assert.equal(row.deltaBase, before, 'history does not drift with the live body')
+
+  // The stored pre-image is not a wire field of its own.
+  assert.equal('appliedBase' in row, false, 'it reaches the client only as deltaBase')
+
+  store.updateArtifactBlock('a17', 1, before)
+})

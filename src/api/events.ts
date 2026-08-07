@@ -105,6 +105,13 @@ function route(e: ServerEvent): void {
     case 'schedule.changed':
       invalidate(keys.schedules)
       break
+    // An artifact's BODY changed — its owner edited a block, or an
+    // `artifact-patch` proposal landed (social S3). Every preview reads the one
+    // name-keyed library, so a single refetch heals the gallery card, the
+    // viewer, the workspace panel and the Commons embed at once (UI-12).
+    case 'artifact.changed':
+      invalidate(keys.artifactContent)
+      break
     // A relation edit was applied (by another client, or this one's standing
     // approval acting on a run) — re-read the graph. An Agent Commons CRUD op edits a
     // registry, not the graph, so also refresh the registry caches the Agents hub reads.

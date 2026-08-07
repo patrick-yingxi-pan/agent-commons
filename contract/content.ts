@@ -30,3 +30,31 @@ export type ArtifactContent =
 
 /** The whole artifact-body library, keyed by file name. */
 export type ArtifactContentLibrary = Record<string, ArtifactContent>
+
+/** ── The addressable unit of a body edit (social S3, `artifact-patch`) ───────
+ *  A doc's blocks are its ordered prose units, so an artifact patch addresses
+ *  ONE BLOCK BY INDEX rather than a line range. That is a deliberate cut, not a
+ *  shortcut: these bodies are STRUCTURED, not linear (a doc has blocks, a sheet
+ *  rows, a deck slides, a figure nothing ordered at all), so a `{from,to}` line
+ *  span would make its own label a lie — the same reasoning that blocked the S2
+ *  artifact gutter, resolved here by taking the address the body actually has.
+ *
+ *  Total over `DocBlock` so a new variant must decide, in the same edit, whether
+ *  it is patchable. A block answers its text only when it carries exactly ONE
+ *  editable string: `ul` and `code` hold a LIST and `email` a structured header,
+ *  and a one-line before→after diff cannot honestly address those — they stay
+ *  the owner's own surface, the `PROPOSABLE_SCHEDULE_FIELDS` cut. */
+export function docBlockText(block: DocBlock): string | undefined {
+  if ('h' in block) return block.h
+  if ('p' in block) return block.p
+  return undefined
+}
+
+/** The same cut, applied: a patchable block carrying new text; anything else
+ *  unchanged. Paired with `docBlockText` in one module so the reader and the
+ *  writer can never disagree about which blocks are addressable. */
+export function withDocBlockText(block: DocBlock, text: string): DocBlock {
+  if ('h' in block) return { h: text }
+  if ('p' in block) return { p: text }
+  return block
+}

@@ -12,6 +12,7 @@ import type {
   Agent,
   AgentChangeProposal,
   ApiToken,
+  ArtifactContent,
   A2aPeer,
   AppNotification,
   AuditEntry,
@@ -179,8 +180,14 @@ export interface StoredDiscussion extends Omit<Discussion, 'posts' | 'mine'> {
 
 /** A social Proposal as STORED (S3) — the wire row plus the OFFERER's raw
  *  tenant id (authorization compares raw ids). `publicSocialProposal` strips it. */
-export interface StoredSocialProposal extends Omit<SocialProposal, 'mine'> {
+export interface StoredSocialProposal extends Omit<SocialProposal, 'mine' | 'deltaBase'> {
   offererTenant: string
+  /** `artifact-patch` only: the block's text as it stood the instant this
+   *  proposal LANDED — the pre-image, frozen because a landed row is history
+   *  and the body has since moved on. Serves as `SocialProposal.deltaBase` for
+   *  landed rows, while an open one resolves its base live. Absent on every
+   *  other state and delta kind (INV-9). */
+  appliedBase?: string
 }
 
 /** A peer as STORED (D28) — the wire row plus the credential's SHA-256 (the
@@ -256,6 +263,12 @@ export interface PersistedState {
   /** Social-layer proposals (S3) — offered changes + the per-subject ledger.
    *  Additive-optional like `discussions`. */
   socialProposals?: StoredSocialProposal[]
+  /** Artifact BODY edits (social S3's `artifact-patch`) — `[artifactId, body]`
+   *  pairs laid over the authored fixture. Keyed by ID, never by the library's
+   *  file name, so a restored snapshot can't move one tenant's revision onto a
+   *  same-named artifact in another. Additive-optional like `socialProposals`
+   *  (a pre-field snapshot loads with every body at its authored text). */
+  artifactBodies?: [string, ArtifactContent][]
   /** S5 guardrails — per-viewer mute lists (`[tenantId, names[]]`).
    *  Additive-optional. */
   mutes?: [string, string[]][]
@@ -376,6 +389,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   grants: 'array',
   discussions: 'array',
   socialProposals: 'array',
+  artifactBodies: 'mapEntries',
   mutes: 'mapEntries',
   follows: 'mapEntries',
   discussionReads: 'mapEntries',

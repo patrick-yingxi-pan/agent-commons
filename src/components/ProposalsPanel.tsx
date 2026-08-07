@@ -8,17 +8,19 @@
  *  `propose` tier, and land/decline only for the subject's owner — both from the
  *  server's own answers, never a client guess.
  *
- *  The offer form is per-kind because a DELTA is per-kind: a routine's proposable
- *  fields are enumerated by the contract (`PROPOSABLE_SCHEDULE_FIELDS`), the same
- *  list the server validates against, so the form can't offer a field the wall
- *  refuses. Other kinds fall back to the reviewable-suggestion floor (prose),
- *  which every subject supports. */
+ *  The offer FORM is per-kind because a DELTA is per-kind, and each kind's form
+ *  is driven by the very predicate the server validates with, so a form can
+ *  never offer what the wall would refuse:
+ *    · `schedule` → the fields `PROPOSABLE_SCHEDULE_FIELDS` enumerates;
+ *    · `artifact` → the blocks `docBlockText` calls patchable;
+ *    · everything else → the reviewable-suggestion floor (prose), which every
+ *      subject supports. That floor used to be claimed in this comment and not
+ *      implemented — the panel rendered the ROUTINE form on every kind — which
+ *      was harmless only while a routine was the sole host. */
 import { useState } from 'react'
 import {
   PROPOSABLE_SCHEDULE_FIELDS,
-  describeSchedulePatch,
   type ProposableScheduleField,
-  type ProposalDelta,
   type SocialEntityRef,
   type SocialProposal,
 } from '../../contract/index.ts'
@@ -26,22 +28,21 @@ import {
   declineSocialProposal,
   landSocialProposal,
   openSocialProposal,
+  useArtifactContent,
   useSocialCapability,
   useSocialProposals,
 } from '../api'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
-
-/** Boolean fields render as a two-option select rather than a text box. */
-const BOOLEAN_FIELDS = new Set<ProposableScheduleField>(['enabled', 'notifyOnFailure'])
-
-/** The delta a form's raw inputs mean — exported for the lock test: an empty or
- *  whitespace value yields NO delta, so the form can't post something the
- *  server's `isSchedulePatch` would refuse. */
-export function schedulePatchDelta(field: ProposableScheduleField, value: string): ProposalDelta | null {
-  if (BOOLEAN_FIELDS.has(field)) return { kind: 'schedule-patch', patch: { [field]: value === 'true' } }
-  return value.trim() ? { kind: 'schedule-patch', patch: { [field]: value.trim() } } : null
-}
+import { ProposalDeltaView } from './DeltaView'
+import {
+  BOOLEAN_SCHEDULE_FIELDS,
+  artifactPatchDelta,
+  patchableBlocks,
+  schedulePatchDelta,
+  suggestionDelta,
+} from '../lib/proposalForm'
+import { useRelations } from '../controller/useRelations'
 
 export function ProposalsPanel({ subject, own }: { subject: SocialEntityRef; own: boolean }) {
   const list = useSocialProposals(subject.kind, subject.id).data ?? []
@@ -49,16 +50,35 @@ export function ProposalsPanel({ subject, own }: { subject: SocialEntityRef; own
   const [composing, setComposing] = useState(false)
   const [field, setField] = useState<ProposableScheduleField>('cadence')
   const [value, setValue] = useState('')
+  const [block, setBlock] = useState<number | null>(null)
   const [rationale, setRationale] = useState('')
   const [error, setError] = useState<string | null>(null)
 
-  const delta = schedulePatchDelta(field, value)
+  // An artifact subject resolves its body through the ONE name-keyed library
+  // the previews read — already the server's per-caller projection, so the
+  // blocks offered here are the blocks this viewer can actually see. The id→name
+  // join goes through the relation graph's `allArtifacts`, the same resolver the
+  // gallery uses: the bare `/artifacts` list carries only the SEEDED set, so
+  // joining against it would offer no blocks at all on a created artifact.
+  const artifactName = useRelations().allArtifacts().find((a) => a.id === subject.id)?.name
+  const lib = useArtifactContent().data
+  const blocks = subject.kind === 'artifact' ? patchableBlocks(artifactName ? lib?.[artifactName] : undefined) : []
+  const chosen = blocks.find((b) => b.index === block)
+
+  const delta =
+    subject.kind === 'schedule'
+      ? schedulePatchDelta(field, value)
+      : subject.kind === 'artifact'
+        ? artifactPatchDelta(block, value, chosen?.text)
+        : suggestionDelta(value)
+
   const offer = async () => {
     if (!delta || !rationale.trim()) return
     setError(null)
     try {
       await openSocialProposal({ subject, delta, rationale: rationale.trim() })
       setValue('')
+      setBlock(null)
       setRationale('')
       setComposing(false)
     } catch (e) {
@@ -88,38 +108,89 @@ export function ProposalsPanel({ subject, own }: { subject: SocialEntityRef; own
 
       {composing && (
         <div className="space-y-1.5 border-b border-line px-4 py-3">
-          <div className="flex flex-wrap gap-1.5">
-            <select
-              aria-label="Field to change"
-              value={field}
-              onChange={(e) => {
-                setField(e.target.value as ProposableScheduleField)
-                setValue('')
-              }}
-              className={`${FORM_INPUT_CLASS} w-36 shrink-0`}
-            >
-              {PROPOSABLE_SCHEDULE_FIELDS.map((f) => (
-                <option key={f} value={f}>
-                  {f}
-                </option>
-              ))}
-            </select>
-            {BOOLEAN_FIELDS.has(field) ? (
-              <select aria-label="New value" value={value} onChange={(e) => setValue(e.target.value)} className={`${FORM_INPUT_CLASS} w-32 shrink-0`}>
-                <option value="">choose…</option>
-                <option value="true">on</option>
-                <option value="false">off</option>
+          {subject.kind === 'schedule' ? (
+            <div className="flex flex-wrap gap-1.5">
+              <select
+                aria-label="Field to change"
+                value={field}
+                onChange={(e) => {
+                  setField(e.target.value as ProposableScheduleField)
+                  setValue('')
+                }}
+                className={`${FORM_INPUT_CLASS} w-36 shrink-0`}
+              >
+                {PROPOSABLE_SCHEDULE_FIELDS.map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))}
               </select>
+              {BOOLEAN_SCHEDULE_FIELDS.has(field) ? (
+                <select aria-label="New value" value={value} onChange={(e) => setValue(e.target.value)} className={`${FORM_INPUT_CLASS} w-32 shrink-0`}>
+                  <option value="">choose…</option>
+                  <option value="true">on</option>
+                  <option value="false">off</option>
+                </select>
+              ) : (
+                <input
+                  aria-label="New value"
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  placeholder="e.g. Every 4 hours"
+                  className={`${FORM_INPUT_CLASS} min-w-24 flex-1`}
+                />
+              )}
+            </div>
+          ) : subject.kind === 'artifact' ? (
+            blocks.length === 0 ? (
+              // An honest empty state: this body has no addressable prose (an
+              // image, a sheet, a deck). Saying so beats a picker with nothing
+              // in it — and the prose floor is still reachable on other kinds.
+              <p className="text-[12px] text-ink-faint">
+                This artifact has no editable text blocks — only documents can take a body edit today.
+              </p>
             ) : (
-              <input
-                aria-label="New value"
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                placeholder="e.g. Every 4 hours"
-                className={`${FORM_INPUT_CLASS} min-w-24 flex-1`}
-              />
-            )}
-          </div>
+              <>
+                <select
+                  aria-label="Block to rewrite"
+                  value={block ?? ''}
+                  onChange={(e) => {
+                    const next = e.target.value === '' ? null : Number(e.target.value)
+                    setBlock(next)
+                    // Seed the box with what the block says now, so the offer is
+                    // an EDIT of the real text rather than a blank rewrite.
+                    setValue(next === null ? '' : (blocks.find((b) => b.index === next)?.text ?? ''))
+                  }}
+                  className={`${FORM_INPUT_CLASS} w-full`}
+                >
+                  <option value="">choose a block…</option>
+                  {blocks.map((b) => (
+                    <option key={b.index} value={b.index}>
+                      {b.index + 1}. {b.text.length > 60 ? `${b.text.slice(0, 60)}…` : b.text}
+                    </option>
+                  ))}
+                </select>
+                <textarea
+                  aria-label="Rewritten text"
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  rows={3}
+                  disabled={block === null}
+                  placeholder="The rewritten text"
+                  className={`${FORM_INPUT_CLASS} w-full resize-y`}
+                />
+              </>
+            )
+          ) : (
+            <textarea
+              aria-label="Suggested change"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              rows={3}
+              placeholder="What should change"
+              className={`${FORM_INPUT_CLASS} w-full resize-y`}
+            />
+          )}
           <input
             aria-label="Why this change"
             value={rationale}
@@ -150,14 +221,7 @@ export function ProposalsPanel({ subject, own }: { subject: SocialEntityRef; own
                 {p.state === 'landed' ? `L${p.landingNumber}` : p.state === 'declined' ? 'no' : '···'}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="text-[13px] text-ink-soft">
-                  <span className="mr-1.5 rounded bg-panel-2 px-1.5 py-0.5 text-[11px] font-medium text-ink-faint">routine change</span>
-                  {p.delta.kind === 'schedule-patch'
-                    ? describeSchedulePatch(p.delta.patch)
-                    : p.delta.kind === 'suggestion'
-                      ? p.delta.text
-                      : 'a graph edit'}
-                </p>
+                <ProposalDeltaView proposal={p} />
                 <p className="mt-0.5 text-[11px] text-ink-faint">offered by {p.offeredBy}</p>
               </div>
               {own && p.state === 'offered' && (

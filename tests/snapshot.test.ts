@@ -215,6 +215,15 @@ test('build produces a snapshot covering every persisted slice', async () => {
     s.apiTokens?.some(([userId, rows]) => userId === 'user-ada' && rows.some((r) => r.label === 'playground token')),
     'mintApiToken → apiTokens (the bearer-token registry, PORT-9)',
   )
+  assert.ok(
+    // The BODY's content too, not just the key: an overlay entry holding the
+    // unedited seed text would satisfy a key-only assertion while proving the
+    // mutator never ran (the `watches` key-shape lesson, applied here).
+    s.artifactBodies?.some(
+      ([id, body]) => id.length > 0 && body.type === 'doc' && JSON.stringify(body.blocks).includes('Playground body edit'),
+    ),
+    'updateArtifactBlock → artifactBodies (S3, the artifact-patch body overlay), keyed by artifact id',
+  )
 
   // ── id counters all advanced (so post-restore mints never collide) ──
   for (const k of ['session', 'message', 'schedule', 'run', 'artifact', 'provider', 'systemPrompt', 'agent', 'commission'] as const) {

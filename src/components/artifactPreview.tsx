@@ -7,6 +7,7 @@ import {
   FileText,
   Image as ImageIcon,
   Mail,
+  Pencil,
   Presentation,
   Sheet,
   X,
@@ -15,7 +16,11 @@ import {
 import type { ArtifactKind } from '../types'
 import type { ArtifactItem } from '../data/cowork'
 import type { ArtifactContent, DocBlock } from '../types'
-import { useArtifactContent, useFsText, fsContentUrl } from '../api'
+import { docBlockText } from '../../contract/index.ts'
+import { useArtifactContent, useFsText, fsContentUrl, updateArtifactBlock } from '../api'
+import { FORM_INPUT_CLASS } from '../lib/formInput'
+import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
+import { ProposalsPanel } from './ProposalsPanel'
 import { artifactMetaIsSpecific } from '../lib/artifactMeta'
 import { PhotoThumb } from './PhotoThumb'
 import { GrantsPanel } from './GrantsPanel'
@@ -124,7 +129,22 @@ function DocBlockView({ block, size }: { block: DocBlock; size: Size }) {
   )
 }
 
-function DocView({ doc, size }: { doc: Extract<ArtifactContent, { type: 'doc' }>; size: Size }) {
+/** The owner's in-place body editing (social S3). Editing text happens WHERE the
+ *  text is — the same reasoning that made the turn gutter's composer inline —
+ *  so the open block becomes a textarea in the flow rather than opening a form
+ *  elsewhere. Absent ⇒ a read-only body, which is every surface except the
+ *  owner's own viewer. */
+export interface DocEdit {
+  /** The block open for editing, or null when none is. */
+  index: number | null
+  draft: string
+  onStart: (index: number, current: string) => void
+  onDraft: (text: string) => void
+  onSave: () => void
+  onCancel: () => void
+}
+
+function DocView({ doc, size, edit }: { doc: Extract<ArtifactContent, { type: 'doc' }>; size: Size; edit?: DocEdit }) {
   const t = DOC[size]
   const blocks = size === 'thumb' ? doc.blocks.slice(0, 2) : doc.blocks
   return (
@@ -132,9 +152,53 @@ function DocView({ doc, size }: { doc: Extract<ArtifactContent, { type: 'doc' }>
       <div className={`${t.title} font-serif font-semibold leading-snug text-ink ${size === 'thumb' ? 'line-clamp-1' : ''}`}>
         {doc.title}
       </div>
-      {blocks.map((b, i) => (
-        <DocBlockView key={i} block={b} size={size} />
-      ))}
+      {blocks.map((b, i) => {
+        // Only a block that carries ONE editable string is addressable — the
+        // contract's own predicate, the same one the server validates a patch
+        // with, so the pencil appears exactly where an edit can land.
+        const current = docBlockText(b)
+        if (!edit || current === undefined) return <DocBlockView key={i} block={b} size={size} />
+        if (edit.index === i) {
+          return (
+            <div key={i} className="space-y-1.5">
+              <textarea
+                aria-label={`Rewrite block ${i + 1}`}
+                value={edit.draft}
+                onChange={(e) => edit.onDraft(e.target.value)}
+                rows={3}
+                autoFocus
+                className={`${FORM_INPUT_CLASS} w-full resize-y`}
+              />
+              <div className="flex items-center gap-1.5">
+                <button onClick={edit.onSave} disabled={!edit.draft.trim()} className={INLINE_ACTION_CLASS}>
+                  Save
+                </button>
+                <button onClick={edit.onCancel} className={INLINE_ACTION_CLASS}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )
+        }
+        return (
+          // Recessive until needed (the SECTION_REVEAL idiom): the pencil costs
+          // the reading surface nothing until the pointer is on the block. Its
+          // lane is RESERVED with padding rather than overlaid — an absolutely
+          // positioned control on top of full-width prose sits on the last word
+          // of the first line (UI-2: a control may not cover content).
+          <div key={i} className="group/block relative pr-7">
+            <DocBlockView block={b} size={size} />
+            <button
+              onClick={() => edit.onStart(i, current)}
+              title="Edit this block"
+              aria-label={`Edit block ${i + 1}`}
+              className="absolute right-0 top-0 flex h-6 w-6 items-center justify-center rounded-md text-ink-faint opacity-0 transition hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 group-hover/block:opacity-100"
+            >
+              <Pencil size={12} />
+            </button>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -451,11 +515,16 @@ export function ArtifactBodyView({
   size,
   excerpt,
   served,
+  edit,
 }: {
   kind: ArtifactKind
   name: string
   size: Size
   excerpt?: string
+  /** The owner's in-place block editing (social S3). Only a `doc` body takes
+   *  one — the other kinds have no single-string addressable unit — so the
+   *  other renderers ignore it rather than pretending. */
+  edit?: DocEdit
   /** When the artifact comes from a served filesystem folder (cloud / runner), its
    *  source + path, so the real file content is fetched + rendered (instead of the
    *  name-keyed authored library). Absent for seeded artifacts and UI-host folders
@@ -478,7 +547,7 @@ export function ArtifactBodyView({
   if (lib) {
     switch (lib.type) {
       case 'doc':
-        return <DocView doc={lib} size={size} />
+        return <DocView doc={lib} size={size} edit={edit} />
       case 'sheet':
         return <SheetView sheet={lib} size={size} />
       case 'slides':
@@ -552,12 +621,18 @@ export function ArtifactViewer({
   artifact,
   projects,
   currentProjectId,
+  own,
   onAssignProject,
   onOpenSource,
   onClose,
 }: {
   artifact: ArtifactItem
   projects: { id: string; name: string }[]
+  /** Whether the viewer OWNS this artifact — a grant widens the read, so
+   *  "can see it" and "may rewrite it" are different questions (the routine
+   *  page's lesson). Gates the body editor and the share roster; a visitor
+   *  offers an `artifact-patch` proposal instead. */
+  own: boolean
   /** The project the artifact is filed under right now ('' = unfiled). */
   currentProjectId: string
   /** Assign to a project, or unfile (null). ABSENT = the reader doesn't own this
@@ -577,6 +652,30 @@ export function ArtifactViewer({
   useFocusTrap(dialogRef, onClose)
 
   const Icon = KIND_ICON[artifact.kind]
+
+  // The owner's body edit (social S3): which block is open, and its draft. The
+  // save goes through the SAME mutator a landed `artifact-patch` runs — the
+  // owner simply needs no consent from themselves.
+  const [editing, setEditing] = useState<number | null>(null)
+  const [draft, setDraft] = useState('')
+  const edit: DocEdit | undefined = own
+    ? {
+        index: editing,
+        draft,
+        onStart: (index, current) => {
+          setEditing(index)
+          setDraft(current)
+        },
+        onDraft: setDraft,
+        onSave: () => {
+          const index = editing
+          if (index === null) return
+          setEditing(null)
+          void updateArtifactBlock(artifact.id, index, draft)
+        },
+        onCancel: () => setEditing(null),
+      }
+    : undefined
 
   return (
     <div
@@ -629,12 +728,21 @@ export function ArtifactViewer({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          <ArtifactBodyView kind={artifact.kind} name={artifact.name} size="full" excerpt={artifact.excerpt} />
+          <ArtifactBodyView kind={artifact.kind} name={artifact.name} size="full" excerpt={artifact.excerpt} edit={edit} />
+          {/* Improvements (social S3) — the generic ProposalsPanel, the third
+              social primitive on the one canonical surface. An artifact could be
+              shared and discussed but never IMPROVED: `artifact-patch` had no
+              host, which is the "capability with no surface" failure the layer's
+              own audits keep finding. Everyone sees the ledger; the offer form
+              is the panel's own propose-tier gate, land/decline the owner's. */}
+          <div className="mt-5 border-t border-line pt-4">
+            <ProposalsPanel subject={{ kind: 'artifact', id: artifact.id }} own={own} />
+          </div>
           {/* Sharing (social S1) — the OWNER's audience configuration, the same
               generic GrantsPanel every other subject hosts. Without it an
               artifact could be granted only through the API: the read now
               widens for an audience that had no way to be created. */}
-          {onAssignProject && (
+          {own && (
             <div className="mt-5 border-t border-line pt-4">
               <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-ink-faint">Share this artifact</p>
               <GrantsPanel subject={{ kind: 'artifact', id: artifact.id }} />
