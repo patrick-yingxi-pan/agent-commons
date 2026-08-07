@@ -109,17 +109,27 @@ test('the inbox lists a caller’s DMs and nobody else’s; the discussions hub 
   assert.equal(hub.json.some((d: any) => d.id === thread.json.id), false, 'the Discussions hub is talk ABOUT things')
 })
 
-test('reachability gates the door: an unreachable name 404s, and you cannot message yourself', async () => {
+test('reachability gates the door: an unreachable name 404s; anchoring to YOURSELF is a post (S8)', async () => {
   const invisible = await dmTo(ADA_NAME, 'hello?', STRANGER)
   const ghost = await dmTo('No Such Workspace', 'hello?', STRANGER)
   assert.equal(invisible.status, 404, 'a stranger cannot reach Ada')
   assert.equal(ghost.status, 404)
-  // Messaging yourself is 403, not 404 — deliberately the one refusal here that
-  // ISN'T existence-hidden, because there is no existence to hide from
-  // yourself. A DM needs two ends; a workspace's notes to itself are its
-  // sessions.
+  // S8 changed what a self-anchor MEANS. S7 refused it with a 403 ("there is no
+  // existence to hide from yourself"), which was a placeholder: the guard
+  // existed to kill a real bug (get-or-create had made the pair predicate
+  // trivially true, so a self-addressed note appended to whichever thread
+  // matched first), not because the act was meaningless. It now opens a POST on
+  // your own wall — and the old bug stays dead by construction, because a post
+  // never looks a thread up: every one is new.
   const self = await dmTo(ADA_NAME, 'note to self', ADA)
-  assert.equal(self.status, 403)
+  assert.equal(self.status, 200, 'a self-anchor is a post, not a refusal')
+  assert.equal(self.json.wall, true, 'and it wears the wall face, not the DM face')
+  assert.equal(self.json.direct, undefined, 'the two faces are mutually exclusive')
+  // Two posts are two threads — the opposite identity rule from a DM's pair
+  // get-or-create, and the reason the old collision cannot come back.
+  const second = await dmTo(ADA_NAME, 'a second thought', ADA)
+  assert.equal(second.status, 200)
+  assert.notEqual(second.json.id, self.json.id, 'each utterance is its own thread')
 })
 
 test('reachability is ASYMMETRIC, and a received message is standing to reply', async () => {

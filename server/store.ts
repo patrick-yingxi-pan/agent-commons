@@ -484,6 +484,14 @@ const SEED_DISCUSSIONS: StoredDiscussion[] = [
 const discussions: StoredDiscussion[] = SEED_DISCUSSIONS.map((d) => ({ ...d, posts: d.posts.map((p) => ({ ...p, reactedBy: [...p.reactedBy] })) }))
 let discussionSeq = 0
 const MAX_DISCUSSIONS_PER_SUBJECT = 100
+/** S8 — how many posts ONE author may accumulate. Deliberately far above any
+ *  real use (a per-anchor cap of 100 would have been a lifetime limit on
+ *  speaking, the trap S7 stepped around for correspondents), but not absent:
+ *  every post is a persisted row in the snapshot, and the contributions ledger
+ *  already carries a total cap alongside its open cap for exactly this reason —
+ *  a loop that opens and closes forever must not grow the store without bound.
+ *  The router's rate limit bounds the RATE; this bounds the total. */
+const MAX_POSTS_PER_AUTHOR = 1000
 const MAX_DISCUSSION_POSTS = 200
 const MAX_DISCUSSION_CHARS = 2000
 
@@ -504,6 +512,15 @@ function sameLocus(a: AnchorLocus | undefined, b: AnchorLocus | undefined): bool
 /** Does the viewer OWN the anchor a thread hangs on? The moderator half of both
  *  two-party rules below (resolve, and post deletion). */
 function ownsDiscussionAnchor(d: StoredDiscussion, viewerTenant: string): boolean {
+  // S8 — a POST's anchor is a PERSON, and a person has no `grantSubjectRow`
+  // (you cannot share one — the orthogonality matrix refuses grant × principal).
+  // Its owner is simply whoever it is: the author. Without this arm the S5
+  // guardrail rule "moderation lives with the anchor's owner" found nobody on a
+  // wall, so an author could not delete a reply under their own post — the
+  // one place the square admits abuse, and the one control that answers it.
+  if (d.anchor.ref.kind === 'principal') {
+    return isWallThread(d) && tenantWritesAs(viewerTenant, d.openerTenant)
+  }
   const row = store.grantSubjectRow(d.anchor.ref)
   return row !== undefined && row !== 'unsupported' && ownsGrantSubject(row, viewerTenant)
 }
@@ -539,6 +556,11 @@ function canDeletePost(d: StoredDiscussion, authorTenant: string, viewerTenant: 
  *  a thread labelled with their own name. */
 function dmFace(d: StoredDiscussion, viewerTenant?: string): Partial<Discussion> {
   if (d.anchor.ref.kind !== 'principal') return {}
+  // S8 — a POST is principal-anchored too, and must NOT wear the DM face: it has
+  // no counterpart (you did not write to anybody), no inbox unread, and a
+  // surface reading `direct` would render an utterance as mail. The two faces
+  // are mutually exclusive because the anchor cannot be both you and not-you.
+  if (isWallThread(d)) return {}
   if (viewerTenant === undefined) return { direct: true }
   const other = viewerTenant === d.openerTenant ? d.anchor.ref.id : d.openedBy
   const readThrough = discussionReads.get(viewerTenant)?.get(d.id) ?? 0
@@ -549,20 +571,46 @@ function dmFace(d: StoredDiscussion, viewerTenant?: string): Partial<Discussion>
   return { direct: true, counterpart: other, ...(unread > 0 ? { unread } : {}) }
 }
 
+/** ── S8: is this thread a POST? ──────────────────────────────────────────────
+ *  A principal-anchored thread is a DM when it names somebody else and a POST
+ *  when it names its own author. One predicate, because four walls branch on it
+ *  and they must agree; keyed on the STORED tenant ids, never the display name,
+ *  for the reason `dmParties` states (a name is not an identity).
+ *
+ *  `targetTenant` is captured at open for every principal thread, so a wall
+ *  thread is exactly `targetTenant === openerTenant`. Rows written before S7
+ *  stamped the field fall back to the name lookup, like `dmParties`. */
+function isWallThread(d: StoredDiscussion): boolean {
+  if (d.anchor.ref.kind !== 'principal') return false
+  const target = d.targetTenant ?? tenantIdForName(d.anchor.ref.id)
+  return target !== undefined && target === d.openerTenant
+}
+
 /** The bell one post mints. A resource thread rings `social.discussed` — "someone
  *  is talking about your thing". A DM rings `social.messaged`, because that
  *  sentence would be a lie: nobody is discussing the recipient, somebody is
  *  writing TO them. The message row deliberately carries no subject face
  *  either: the anchored name IS the recipient, so echoing it back would label
  *  the bell with the reader's own name. The actor and the door are the whole
- *  story. */
+ *  story. A reply on a WALL rings `social.discussed` (S8): it IS talk about
+ *  what that person said. */
 function discussionBell(
   d: StoredDiscussion,
   tenantId: string,
   subjectName: string,
 ): Omit<StoredNotification, 'id' | 'read' | 'at' | 'tenantId'> {
   const actor = tenantName(tenantId)
-  if (d.anchor.ref.kind === 'principal') return { kind: 'social.messaged', actor, discussionId: d.id }
+  // S8 — a reply on somebody's WALL is talk about what they said, so it rings
+  // as a discussion, not as a message. Only a thread addressed to another
+  // person is mail.
+  if (d.anchor.ref.kind === 'principal' && !isWallThread(d)) {
+    return { kind: 'social.messaged', actor, discussionId: d.id }
+  }
+  // S8 — a reply on a WALL carries NO subject face: a post's subject is its
+  // author, so echoing it would label the recipient's bell with their own name
+  // (the mistake `social.messaged` exists to avoid). The actor and the door are
+  // the whole story, exactly as for a message.
+  if (d.anchor.ref.kind === 'principal') return { kind: 'social.replied', actor, discussionId: d.id }
   return {
     kind: 'social.discussed',
     actor,
@@ -598,14 +646,28 @@ function publicDiscussion(d: StoredDiscussion, viewerTenant?: string): Discussio
   return {
     ...pub,
     ...dmFace(d, viewerTenant),
+    ...(isWallThread(d) ? { wall: true } : {}),
     ...(viewerTenant !== undefined && tenantWritesAs(viewerTenant, openerTenant) ? { mine: true } : {}),
     ...(viewerTenant !== undefined && canResolveDiscussion(d, viewerTenant) ? { canResolve: true } : {}),
     // The thread's own write standing, from the predicate the write path uses.
     ...(viewerTenant !== undefined && store.discussionWritableBy(d, viewerTenant) ? { canPost: true } : {}),
     posts: posts.map((p) => {
       const { authorTenant, reactedBy, ...post } = p
+      // S8 — resolved at SERVE time, never stored: a display name can change,
+      // and a stored copy would linkify a name its bearer no longer wears. Same
+      // resolver that decided who was rung, so the highlighted set and the
+      // notified set are one answer.
+      //
+      // The `@` guard is not decoration: `resolveMentions` indexes the whole
+      // tenant registry on every call, and this runs per POST per READ — a
+      // thread of 200 posts would rebuild that index 200 times to find nothing.
+      // Almost no body contains an `@`, so the common case now costs a scan.
+      const mentions = p.body.includes('@')
+        ? [...new Set([...resolveMentions(p.body)].map((t) => tenantName(t)))]
+        : []
       return {
         ...post,
+        ...(mentions.length > 0 ? { mentions } : {}),
         reactions: reactedBy.length,
         ...(viewerTenant !== undefined && reactedBy.some((t) => tenantReadsAs(viewerTenant, t)) ? { reacted: true } : {}),
         ...(viewerTenant !== undefined && tenantWritesAs(viewerTenant, authorTenant) ? { mine: true } : {}),
@@ -5215,6 +5277,12 @@ export const store = {
    *  private message is not one. Every discussion read path goes through here,
    *  so the cut is made once rather than remembered at eleven call sites. */
   discussionReadableBy(d: StoredDiscussion, tenantId: string): boolean {
+    // S8 — a POST is the third case, and it is the widest: its author anchored
+    // to their own name, which is a publication, so the square reads it. (The
+    // pair rule below would make a post readable by its author alone, which is
+    // a diary, not a post.) `tenantId` is a signed-in principal by the time any
+    // read path gets here — the auth gate is the wall in front of this one.
+    if (isWallThread(d)) return true
     if (d.anchor.ref.kind === 'principal') return this.dmParties(d).includes(tenantId)
     return this.grantSubjectVisible(d.anchor.ref, tenantId)
   },
@@ -5225,6 +5293,13 @@ export const store = {
    *  rule here would have let Grace start a conversation Ada could not answer.
    *  Being written to is standing to write back. */
   discussionWritableBy(d: StoredDiscussion, tenantId: string): boolean {
+    // S8 — anyone who can READ a post may reply to it. That is what a square
+    // is: the alternative (only the author may speak under their own post) is
+    // a broadcast channel, and the layer already has moderation for the abuse
+    // this admits — the author holds the delete on their own wall (see
+    // `canDeletePost`), mute is the reader's earmuff, and the router's rate
+    // limits bound the volume.
+    if (isWallThread(d)) return this.discussionReadableBy(d, tenantId)
     if (d.anchor.ref.kind === 'principal') return this.dmParties(d).includes(tenantId)
     return this.socialSubjectCommentable(d.anchor.ref, tenantId)
   },
@@ -5237,7 +5312,11 @@ export const store = {
   listDirectMessages(tenantId: string): Discussion[] {
     const lastAt = (d: StoredDiscussion) => d.posts[d.posts.length - 1]?.at ?? d.openedAt
     return discussions
-      .filter((d) => d.anchor.ref.kind === 'principal' && this.discussionReadableBy(d, tenantId))
+      // S8 — a WALL post is principal-anchored too, so it would ride the inbox
+      // for free. It is not mail: the inbox means "talk with people", and a post
+      // is talk with the square. Same one-list-each rule that keeps DMs out of
+      // the discussions hub.
+      .filter((d) => d.anchor.ref.kind === 'principal' && !isWallThread(d) && this.discussionReadableBy(d, tenantId))
       .sort((a, b) => lastAt(b) - lastAt(a))
       .map((d) => publicDiscussion(d, tenantId))
   },
@@ -5245,7 +5324,14 @@ export const store = {
    *  first. The route walls the anchor (existence-hiding). */
   listDiscussions(ref: SocialEntityRef, viewerTenant: string): Discussion[] {
     const rows = discussions.filter(
-      (d) => d.anchor.ref.kind === ref.kind && d.anchor.ref.id === ref.id && this.discussionReadableBy(d, viewerTenant),
+      (d) =>
+        d.anchor.ref.kind === ref.kind &&
+        d.anchor.ref.id === ref.id &&
+        // S8 — on a PRINCIPAL this list means "what has this person posted".
+        // Their DMs are anchored to the same name and would otherwise ride it;
+        // those belong to the inbox (one list each, the rail rule).
+        (ref.kind !== 'principal' || isWallThread(d)) &&
+        this.discussionReadableBy(d, viewerTenant),
     )
     const band = (d: StoredDiscussion) => (d.anchor.locus === undefined ? 0 : 1)
     return [...rows].sort((a, b) => band(a) - band(b) || b.openedAt - a.openedAt).map((d) => publicDiscussion(d, viewerTenant))
@@ -5277,13 +5363,20 @@ export const store = {
     // store a conversation that can never have a second voice (INV-9's rule —
     // refuse, don't persist something inert).
     if (req.anchor.ref.kind === 'principal' && dmTarget === undefined) return undefined
-    // Messaging YOURSELF is refused before the lookup, not after. Moving
-    // get-or-create ahead of the authority checks (for the reply rule above)
-    // made the pair predicate `parties.includes(me) && parties.includes(me)` —
-    // trivially true of every conversation you are in — so a self-addressed
-    // note silently appended to whichever thread matched first. 403 rather than
-    // 404: there is no existence to hide from yourself.
-    if (dmTarget !== undefined && dmTarget === tenantId) return 'forbidden'
+    // ── S8: anchoring to YOURSELF is a POST ─────────────────────────────────
+    // S7 refused this outright, for a real reason: get-or-create had been moved
+    // ahead of the authority checks, which made the pair predicate
+    // `parties.includes(me) && parties.includes(me)` — trivially true of every
+    // conversation you are in — so a self-addressed note appended to whichever
+    // thread matched first. The guard was right; the refusal was a placeholder.
+    //
+    // A self-anchored thread now means an utterance on your own wall, and it
+    // takes the OPPOSITE identity rule from a DM: a message is get-or-CREATE
+    // (one conversation per pair, forever), while a post is always NEW. Two
+    // things you say are two posts, not one conversation with itself — which is
+    // also what keeps the old bug dead, since a post never looks a thread up.
+    const isPost = dmTarget !== undefined && dmTarget === tenantId
+    if (isPost) return this.openWallPost(req.firstPost, tenantId)
     const held =
       dmTarget !== undefined ?
         discussions.find((d) => {
@@ -5333,6 +5426,66 @@ export const store = {
     persist()
     return publicDiscussion(d, tenantId)
   },
+  /** ── S8: mint one POST on the caller's own wall ────────────────────────────
+   *  A Discussion anchored to the author's own principal. Everything a post
+   *  needs already exists on that object — replies, reactions, retract/report,
+   *  the `/discussions/:did` permalink, the hand-it-to-Claude hook — so this
+   *  function is deliberately thin: the feature is the ANCHOR, not new
+   *  machinery.
+   *
+   *  It rings NOBODY by itself. A followee's utterance reaches their followers'
+   *  Commons lens and never their bell — the same cut `social.followed` argues
+   *  and `watch` already makes: a bell means you are involved, and access isn't
+   *  involvement. The one exception is being NAMED, which is being addressed.
+   *
+   *  No per-anchor cap: `MAX_DISCUSSIONS_PER_SUBJECT` counts threads on one
+   *  anchor, and applying it here would cap a person at 100 posts for life —
+   *  the same lifetime-cap trap S7 had to step around for correspondents. The
+   *  real bound on utterance volume is the router's rate limit. */
+  openWallPost(body: string, tenantId: string): Discussion | 'capped' | undefined {
+    const text = body.trim()
+    if (!text) return undefined
+    const mine = discussions.filter((d) => isWallThread(d) && d.openerTenant === tenantId)
+    if (mine.length >= MAX_POSTS_PER_AUTHOR) return 'capped'
+    const now = Date.now()
+    const post = mintPost(text, tenantId, now)
+    const d: StoredDiscussion = {
+      id: `disc-${(discussionSeq += 1)}`,
+      anchor: { ref: { kind: 'principal', id: tenantName(tenantId) } },
+      state: 'open',
+      openedBy: tenantName(tenantId),
+      openedAt: now,
+      openerTenant: tenantId,
+      // The wall predicate reads the STORED id, so a post is self-anchored by
+      // identity and not by a name that a later same-named signup could shift.
+      targetTenant: tenantId,
+      posts: [post],
+    }
+    discussions.push(d)
+    this.ringMentions(d, post, tenantId)
+    emit({ type: 'discussion.changed', discussionId: d.id, anchor: d.anchor })
+    persist()
+    return publicDiscussion(d, tenantId)
+  },
+  /** Ring everyone a post NAMES (S8). Being mentioned is being addressed, so it
+   *  rings even though the post itself rings nobody. Resolution reuses the ONE
+   *  mention resolver the work-item comments already use — its word-boundary
+   *  rules, longest-match and recipient cap were earned by review, and a second
+   *  parser would drift from them.
+   *
+   *  Only people who can READ the thread are rung: a mention must never become
+   *  a way to make a private thread's existence (or its words) known. */
+  ringMentions(d: StoredDiscussion, post: StoredDiscussionPost, tenantId: string): void {
+    const mentioned = [...resolveMentions(post.body)].filter(
+      (t) => !tenantWritesAs(tenantId, t) && this.discussionReadableBy(d, t),
+    )
+    if (mentioned.length === 0) return
+    notifyTenants(mentioned, tenantId, {
+      kind: 'social.mentioned',
+      actor: tenantName(tenantId),
+      discussionId: d.id,
+    })
+  },
   /** The caller's discussions hub read (S2): threads they PARTICIPATE in
    *  (opened, posted, or reacted) whose anchor they can still read — losing
    *  the grant loses the thread (inheritance holds everywhere). Open first,
@@ -5349,6 +5502,9 @@ export const store = {
       d.posts.some((p) => tenantReadsAs(tenantId, p.authorTenant) || p.reactedBy.some((t) => tenantReadsAs(tenantId, t)))
     const lastAt = (d: StoredDiscussion) => d.posts[d.posts.length - 1]?.at ?? d.openedAt
     return discussions
+      // Principal-anchored threads are excluded whichever kind they are: a DM
+      // belongs to the inbox and a POST to the square, and the same row in two
+      // rail sections is the duplication the rail rules forbid.
       .filter((d) => d.anchor.ref.kind !== 'principal' && participates(d) && this.discussionReadableBy(d, tenantId))
       .sort((a, b) => (a.state === b.state ? lastAt(b) - lastAt(a) : a.state === 'open' ? -1 : 1))
       .map((d) => publicDiscussion(d, tenantId))
@@ -5371,10 +5527,15 @@ export const store = {
     // counted as a prior participant (notifyTenants drops the actor anyway, but
     // the set should mean what it says).
     const audience = this.discussionAudience(d)
-    d.posts.push(mintPost(body, tenantId))
+    const post = mintPost(body, tenantId)
+    d.posts.push(post)
     // Someone is talking about your thing / replied where you're talking. The
     // one social act whose subject nobody would otherwise be told about.
     notifyTenants(audience, tenantId, discussionBell(d, tenantId, this.commonsSubjectFace(d.anchor.ref).name))
+    // S8 — and anyone this post NAMES, wherever it was written: a mention is
+    // addressed at a person, so it reaches them even when they are neither the
+    // anchor's owner nor already in the thread.
+    this.ringMentions(d, post, tenantId)
     emit({ type: 'discussion.changed', discussionId: d.id, anchor: d.anchor })
     persist()
     return publicDiscussion(d, tenantId)
@@ -5392,6 +5553,14 @@ export const store = {
    *  thing is still being talked about and dead-ends. (The same rule the work
    *  layer earned: "un-sharing silences the stale audience".) */
   discussionAudience(d: StoredDiscussion): string[] {
+    // S8 — a POST's interested parties are its AUTHOR plus whoever has already
+    // spoken under it, exactly like a resource thread's owner + participants.
+    // Deliberately NOT everyone who can read it: the whole square can, and
+    // ringing them would turn one reply into a broadcast (D24 — a bell means
+    // you are involved, and access isn't involvement).
+    if (isWallThread(d)) {
+      return [...new Set([d.openerTenant, ...d.posts.map((p) => p.authorTenant)])]
+    }
     // S7 — a DM has no anchor OWNER row; its "interested parties" ARE the pair,
     // which is also its wall, so the general rule below would find nobody. The
     // pair is the right answer for the same reason it is the right wall.
@@ -5914,11 +6083,18 @@ export const store = {
         /** The acting tenant — server-private; it never reaches the wire, only
          *  the viewer-relative `mine` it decides (the REDACTED-face rule). */
         actorTenant?: string
+        /** The item's OWN thread, when it has one (S8 posts). Absent = look the
+         *  subject's root thread up, which is what a share/landing wants. */
+        thread?: StoredDiscussion
       },
     ) => {
-      const { actorTenant, ...item } = base
+      const { actorTenant, thread, ...item } = base
       const face = this.commonsSubjectFace(item.subject)
-      const root = rootOf(item.subject)
+      // S8 — a POST carries its own thread: the utterance and the conversation
+      // under it are one object, so there is no separate root to look up (and
+      // looking one up by subject would find some OTHER post by the same
+      // author, since every post shares the anchor).
+      const root = thread ?? rootOf(item.subject)
       const likedBy = commonsLikes.get(item.id)
       const seen = viewedAt.get(watchKey(item.subject))
       items.push({
@@ -5928,7 +6104,10 @@ export const store = {
         ...(face.turns ? { subjectTurns: face.turns } : {}),
         ...(face.artifactKind ? { subjectArtifactKind: face.artifactKind } : {}),
         ...(root ? { discussionId: root.id } : {}),
-        commentCount: root?.posts.length ?? 0,
+        // For a post the opening entry IS the card's text, so it is not one of
+        // the "comments" the count promises; for a share/landing every post in
+        // the subject's root thread is.
+        commentCount: Math.max(0, (root?.posts.length ?? 0) - (item.kind === 'post' ? 1 : 0)),
         // The lens signals (S4, + `followed` in S7). Each is the READER's
         // relationship, so each is computed here and absent when it doesn't
         // hold. `followed` is the only one keyed on the ACTOR rather than the
@@ -5953,6 +6132,27 @@ export const store = {
       if (muted?.has(g.grantedBy)) continue
       if (!this.grantSubjectVisible(g.subject, tenantId)) continue
       push({ id: `share:${g.id}`, kind: 'share', at: g.grantedAt, actor: g.grantedBy, actorTenant: g.granterTenant, note: g.note, subject: g.subject })
+    }
+    // ── S8: the posts ────────────────────────────────────────────────────────
+    // Every wall thread is a feed item. Its subject is the AUTHOR's principal,
+    // so the card's door is their profile and the `followed` lens (keyed on the
+    // actor) turns the square into a Following timeline for free.
+    for (const d of discussions) {
+      if (!isWallThread(d)) continue
+      const opening = d.posts[0]
+      if (!opening) continue
+      if (muted?.has(d.openedBy)) continue
+      if (!this.discussionReadableBy(d, tenantId)) continue
+      push({
+        id: `post:${d.id}`,
+        kind: 'post',
+        at: opening.at,
+        actor: d.openedBy,
+        actorTenant: d.openerTenant,
+        note: opening.body,
+        subject: { kind: 'principal', id: d.anchor.ref.id },
+        thread: d,
+      })
     }
     for (const p of socialProposals) {
       if (p.state !== 'landed') continue

@@ -201,8 +201,16 @@ test('build produces a snapshot covering every persisted slice', async () => {
     s.follows?.some(([tenantId, names]) => tenantId === 'tenant-beta' && names.includes('Acme, Inc.')),
     'setFollow → follows (S7, the per-viewer follow slice)',
   )
-  const dmRow = s.discussions?.find((d) => d.anchor.ref.kind === 'principal')
+  const principalRows = s.discussions?.filter((d) => d.anchor.ref.kind === 'principal') ?? []
+  const dmRow = principalRows.find((d) => d.targetTenant !== d.openerTenant)
   assert.ok(dmRow, 'openDiscussion on a principal → a DM persists as an ordinary discussion (S7)')
+  assert.ok(
+    // The SHAPE, not just the count: a post is self-anchored, and that identity
+    // (target === opener) is what every wall branches on. A row-count assertion
+    // would pass on two DMs.
+    principalRows.some((d) => d.targetTenant === d.openerTenant && d.openerTenant === 'tenant-beta'),
+    'openWallPost → a self-anchored discussion persists as a POST (S8)',
+  )
   assert.ok(
     // The MARK's value too, not just the tenant: a read mark of 0 is
     // indistinguishable from an absent slice, so a generator that stopped

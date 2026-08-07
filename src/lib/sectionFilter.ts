@@ -125,6 +125,10 @@ export const SECTION_FILTERS: Partial<Record<SectionId, SectionFilterSpec>> = {
     facetLabel: 'Kind',
     allLabel: 'Everything',
     facets: [
+      // S8 — what somebody SAID, as opposed to what they shared or landed. Three
+      // kinds of act, one partition; the lenses (./subviews.ts) stay the
+      // viewer's own collections.
+      { id: 'posts', label: 'Posts' },
       { id: 'shares', label: 'Shares' },
       { id: 'landings', label: 'Landings' },
     ],

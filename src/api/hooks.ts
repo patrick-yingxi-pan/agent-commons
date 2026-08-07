@@ -443,9 +443,12 @@ export function useSocialCapability(kind: string, id: string, enabled = true): Q
   return useQuery(keys.socialCapability(kind, id), () => apiGet<SocialCapability>(paths.socialCapability(kind, id)), enabled)
 }
 
-/** One discussion by id — readable through its anchor's wall. */
-export function useDiscussion(did: string): QueryState<Discussion> {
-  return useQuery(keys.discussion(did), () => apiGet<Discussion>(paths.discussion(did)))
+/** One discussion by id — readable through its anchor's wall. `enabled` gates
+ *  the fetch for a host that only sometimes has an id (the feed card reads a
+ *  thread by id ONLY for a post); without it an empty id would issue a real
+ *  request for `/discussions/` on every other card. */
+export function useDiscussion(did: string, enabled = true): QueryState<Discussion> {
+  return useQuery(keys.discussion(did), () => apiGet<Discussion>(paths.discussion(did)), enabled && did !== '')
 }
 
 /** A subject's proposals (social S3) — offered first, then the ledger L{n}

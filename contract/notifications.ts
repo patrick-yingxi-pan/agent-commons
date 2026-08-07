@@ -63,6 +63,26 @@ export const NOTIFICATION_KINDS = [
   // A separate kind so the bell can say what actually happened; its door is the
   // thread, like every other discussion kind.
   'social.messaged',
+  // ── S8, the square ────────────────────────────────────────────────────────
+  // Somebody @-mentioned you in a post, a reply or a comment. The ONE bell the
+  // square mints beyond the reply itself, and it rings for the same reason
+  // `social.followed` does: somebody acted ON YOU — being named is being
+  // addressed. A POST itself deliberately rings nobody: a followee's utterance
+  // reaches the follower's Commons lens and never their bell, the identical cut
+  // `social.followed`'s comment argues (a feed that rang would be the
+  // engagement machine §4 rules out). Mentions are resolved SERVER-side against
+  // the names that exist, so the set that gets rung is the set the UI linkifies.
+  // Its door is the thread the mention is in, like every discussion kind.
+  'social.mentioned',
+  // Somebody replied to a POST of yours. `social.discussed` would have carried
+  // it — a wall thread IS a discussion — but that row's sentence names the
+  // subject, and a post's subject is YOU: the bell would have read "Grace
+  // posted in the discussion on “Acme, Inc.”" to Acme, Inc. themselves. That is
+  // the very defect `social.messaged` was minted for one slice earlier (a bell
+  // must not label the reader with their own name), so the same answer applies:
+  // a kind of its own, carrying no subject face, so the sentence can say what
+  // actually happened. Its door is the thread.
+  'social.replied',
 ] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
 

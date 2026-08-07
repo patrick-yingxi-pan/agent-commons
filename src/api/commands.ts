@@ -618,6 +618,17 @@ export async function landSocialProposal(pid: string, subject: { kind: string; i
   return p
 }
 
+/** Say something on your own wall (social S8) — a post. It is a Discussion
+ *  anchored to you, so everything under it (replies, reactions, retract) is the
+ *  machinery the layer already had; what is new is only that you can speak
+ *  without a resource to speak ABOUT. */
+export async function openWallPost(body: string): Promise<Discussion> {
+  const d = await apiPost<Discussion>(paths.posts, { body })
+  invalidate(keys.commons)
+  invalidatePrefix(keys.ownerProfile())
+  return d
+}
+
 /** Rewrite one addressed prose block of an artifact's body — the OWNER's own
  *  editing door (social S3). The same mutator a landed `artifact-patch` runs,
  *  reached from the other side: the owner needs no consent from themselves. */

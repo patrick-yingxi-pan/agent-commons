@@ -38,7 +38,26 @@
  *      anchored Discussion  construction; a grant would leak it. This is the
  *                           one place the recursion rule is cut, and it is cut
  *                           here rather than left to each read path.
- *    Discussion × principal THE DM (see `Discussion.direct`). */
+ *    Discussion × principal TWO meanings, decided by WHOSE name the anchor
+ *                           carries (S8). Anchor SOMEONE ELSE and the thread is
+ *                           a direct message, walled to the pair. Anchor
+ *                           YOURSELF and it is a POST on your own wall, walled
+ *                           to the square. S7 refused a self-anchor outright
+ *                           ("there is no existence to hide from yourself");
+ *                           S8 gives that refusal a meaning rather than minting
+ *                           a fourth primitive. See `Discussion.direct` /
+ *                           `Discussion.wall`.
+ *
+ *  The symmetry is the whole design, and it is worth stating plainly:
+ *
+ *    anchored to a RESOURCE  → a comment thread, walled by the resource
+ *    anchored to ANOTHER     → a direct message, walled by the pair
+ *    anchored to YOURSELF    → a post, walled by the square
+ *
+ *  So "a tweet" and "a wall post" are objects this layer already had; what was
+ *  missing was only the third row. Posts, replies, reactions, retract/report,
+ *  mute, the `/discussions/:did` permalink and the hand-it-to-Claude hook all
+ *  come along by construction. */
 export const SOCIAL_ENTITY_KINDS = [
   'session',
   'project',
@@ -185,6 +204,14 @@ export interface DiscussionPost {
    *  parties again, so `mine` can't answer it. Computed by the same predicate
    *  `deleteDiscussionPost` enforces. */
   canDelete?: boolean
+  /** The display names this post @-mentions, RESOLVED by the server against the
+   *  names that actually exist (S8) — never a client-side parse. Two reasons it
+   *  has to be the server's answer: a display name may contain spaces and
+   *  punctuation ("Acme, Inc."), so "where does the mention end" is a question
+   *  only the name set can answer; and the same resolution decides who gets
+   *  rung, so a second parse on the client could linkify a name that was never
+   *  notified. Absent = no mention resolved (INV-9). */
+  mentions?: string[]
 }
 
 /** A thread's display title: its opening post, trimmed to a word boundary with
@@ -248,6 +275,14 @@ export interface Discussion {
   /** Viewer-relative: posts the caller has not seen (a DM inbox's unread dot).
    *  Derived from the caller's own read mark, never stored on the thread. */
   unread?: number
+  /** ── The POST face (S8) — set only on a SELF-anchored principal thread ─────
+   *  The author anchored to their own name, so this is a post on their wall
+   *  rather than a message to someone: readable by the whole square, and its
+   *  opening `DiscussionPost` is the post body while the rest are replies.
+   *  INV-9: absent = not a post (a resource thread, or a DM). `direct` and
+   *  `wall` are mutually exclusive by construction — the anchor cannot be both
+   *  somebody else and you. */
+  wall?: boolean
 }
 
 /** `POST /v1/discussions` — open a discussion on an anchor. INV-9: an absent
@@ -362,9 +397,14 @@ export interface OpenProposalRequest {
  *  card's comments ARE the entity page's thread (one conversation, two
  *  projections). Org-commons first; truly-public is the deferred S6. */
 export interface CommonsItem {
-  /** Derived identity — `share:<grantId>` or `landing:<proposalId>`. */
+  /** Derived identity — `share:<grantId>`, `landing:<proposalId>` or
+   *  `post:<discussionId>` (S8). */
   id: string
-  kind: 'share' | 'landing'
+  /** `post` is the S8 utterance: somebody said something, with no resource
+   *  attached. Its subject is the AUTHOR's own principal, its `note` is the
+   *  opening post's body, and its thread is the post itself — so replies,
+   *  reactions and moderation are the ones the layer already had. */
+  kind: 'share' | 'landing' | 'post'
   at: number
   /** Display name of the acting namespace (REDACTED face). */
   actor: string

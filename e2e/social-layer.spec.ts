@@ -542,8 +542,11 @@ test('a world with NO social activity: the Commons teaches instead of going blan
   const rei = await newUser(browser, { 'x-tenant-id': 'tenant-reislab' })
 
   await rei.page.goto('/commons')
-  // The FEED is empty, and says why + what to do about it (the note is the post).
-  await expect(rei.page.getByText(/Nothing published yet/)).toBeVisible({ timeout: 20_000 })
+  // The FEED is empty, and says why + what to do about it. Since S8 the first
+  // answer is the composer itself — an empty square whose primary act is right
+  // there beats one that only explains how publishing works.
+  await expect(rei.page.getByRole('textbox', { name: 'Say something' })).toBeVisible({ timeout: 20_000 })
+  await expect(rei.page.getByText(/Nothing here yet/)).toBeVisible()
   // …but the page is not dead: the Browse band is a directory of what OTHER
   // workspaces opened, so a brand-new account has somewhere to go. That pairing
   // is the Discover consolidation's whole point (SOCIAL-8).
@@ -799,6 +802,65 @@ test('improve an ARTIFACT: the owner edits in place, a visitor proposes, the own
   // and the row has taken a ledger number.
   await expect(again.getByText(/^L\d+$/).first()).toBeVisible({ timeout: 20_000 })
   await expect(again.getByText(PROPOSED).first()).toBeVisible()
+
+  await ada.context.close()
+  await grace.context.close()
+})
+
+/** 9. THE SQUARE (S8): a post is a Discussion anchored to its author's own
+ *  principal, so "say something" needed no fourth primitive. Only a browser can
+ *  lock the round trip that makes it a social feature rather than a data shape:
+ *  the composer writes, the card renders WITHOUT a resource embed, the mention
+ *  is a live door onto the named person's profile, a second tenant replies from
+ *  their own square, and the reply comes back under the author's card. */
+test('the square: compose → the feed carries it → a mention doors → a stranger replies', async ({ browser }) => {
+  test.setTimeout(180_000)
+  const ada = await newUser(browser)
+  const grace = await newUser(browser, { 'x-tenant-id': 'tenant-beta' })
+
+  const SAID = `Shipped the body editor ${STAMP} — @Beta Platform want to try it?`
+  const REPLIED = `On it ${STAMP}`
+
+  // ── Ada says something ────────────────────────────────────────────────────
+  await ada.page.goto('/')
+  await gotoSection(ada.page, 'Commons')
+  await ada.page.getByRole('textbox', { name: 'Say something' }).fill(SAID)
+  await ada.page.getByRole('button', { name: 'Post', exact: true }).click()
+  const card = ada.page.getByRole('main').getByText(/Shipped the body editor/).first()
+  await expect(card).toBeVisible({ timeout: 20_000 })
+  // "posted", not "shared" — the verb says which act this was.
+  await expect(ada.page.getByRole('main').getByText('posted').first()).toBeVisible()
+
+  // The mention is a DOOR, resolved by the server against real names — and it
+  // lands on that person's profile.
+  const mention = ada.page.getByRole('button', { name: '@Beta Platform', exact: true }).first()
+  await expect(mention).toBeVisible()
+  await mention.click()
+  await expect(ada.page).toHaveURL(/\/u\/Beta(%20|\s)Platform/, { timeout: 20_000 })
+
+  // ── Grace: it is in HER square too (no grant, no follow — that is the wall) ─
+  await grace.page.goto('/')
+  await gotoSection(grace.page, 'Commons')
+  await expect(grace.page.getByText(SAID)).toBeVisible({ timeout: 20_000 })
+  // A post carries no resource embed: its words ARE the card. The seeded SHARE
+  // card on the same feed does carry one, so this asserts a difference rather
+  // than an absence that would hold vacuously.
+  await expect(grace.page.getByRole('main').getByText('Insights dashboard').first()).toBeVisible()
+
+  // She opens the thread and replies — anyone in the square may speak. The card's
+  // Reply door exists at zero replies, which is precisely when it is needed.
+  await grace.page.getByRole('main').getByRole('button', { name: /^Reply/ }).first().click()
+  await expect(grace.page).toHaveURL(/\/discussions\//, { timeout: 20_000 })
+  // The ONE thread composer labels its box and its button identically (that is
+  // how `AnchorThreadComposer` names itself), so both are addressed by the same
+  // exact name rather than by a regex that could drift onto a rail row.
+  await grace.page.getByRole('textbox', { name: 'Reply to this discussion' }).fill(REPLIED)
+  await grace.page.getByRole('button', { name: 'Reply to this discussion' }).click()
+  await expect(grace.page.getByText(REPLIED)).toBeVisible({ timeout: 20_000 })
+
+  // ── …and it comes back under Ada's card, one conversation, two projections ─
+  await gotoSection(ada.page, 'Commons')
+  await expect(ada.page.getByText(REPLIED)).toBeVisible({ timeout: 20_000 })
 
   await ada.context.close()
   await grace.context.close()

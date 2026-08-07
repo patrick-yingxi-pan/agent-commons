@@ -288,6 +288,8 @@ export const paths = {
     return `/connectors/detail?${q.toString()}`
   },
   usage: (sessionId?: string) => (sessionId ? `/usage?session=${encodeURIComponent(sessionId)}` : '/usage'),
+  /** S8 — the square's compose door: say something with no resource attached. */
+  posts: '/posts',
   artifactContent: '/artifact-content',
   /** The owner's body-edit door (social S3) — one addressed prose block. */
   artifactContentEdit: (id: string) => `/artifacts/${encodeURIComponent(id)}/content`,

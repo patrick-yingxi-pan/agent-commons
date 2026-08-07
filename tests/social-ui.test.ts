@@ -98,7 +98,13 @@ test('a thread title has ONE home: no surface re-slices a post body to make one'
   for (const f of walk(SRC)) {
     const lines = readFileSync(f, 'utf8').split('\n')
     lines.forEach((line, i) => {
-      if (!line.includes('posts[0]') || !/\bbody\b/.test(line)) return // reactions, ids, timestamps — not a title
+      // The class is deriving a title from the opening post's BODY. Match that
+      // access precisely (`posts[0].body` / `posts[0]?.body`) rather than the
+      // word "body" anywhere on the line: S8 added surfaces that read another
+      // field off the opening post while passing an unrelated `body` PROP
+      // (`<MentionText body={item.note} mentions={root?.posts[0]?.mentions} />`),
+      // which the loose form flagged as a title it never derived.
+      if (!/posts\[0\]\??\.body/.test(line)) return // reactions, mentions, ids, timestamps — not a title
       renders += 1
       // The call may wrap onto its own line, so read a small window around it.
       const window = lines.slice(Math.max(0, i - 2), i + 2).join(' ')
@@ -254,4 +260,48 @@ test('the patchable-block predicate is the contract’s, not a re-implementation
   assert.match(form, /docBlockText/, 'the form filters with the contract’s own total function')
   const preview = readFileSync(join('src', 'components', 'artifactPreview.tsx'), 'utf8')
   assert.match(preview, /docBlockText/, 'and so does the owner’s in-place editor — one predicate, one pencil placement')
+})
+
+/** S8 — the mention highlight must cover exactly what the server matched. The
+ *  segmentation is invisible in a screenshot and easy to get subtly wrong, so
+ *  it lives in a pure module and is held here. */
+test('mention segmentation covers exactly the resolved names, longest first', async () => {
+  const { mentionSegments } = await import('../src/lib/mentions.ts')
+  const plain = mentionSegments('nothing to see', undefined)
+  assert.deepEqual(plain, [{ text: 'nothing to see' }], 'no resolved names ⇒ one plain run')
+
+  // A name with a comma and a space — the case a client-side regex cannot do.
+  assert.deepEqual(mentionSegments('ping @Acme, Inc. about it', ['Acme, Inc.']), [
+    { text: 'ping ' },
+    { text: '@Acme, Inc.', mention: 'Acme, Inc.' },
+    { text: ' about it' },
+  ])
+
+  // A resolved name that is a PREFIX of another must lose to the longer one —
+  // the same tie-break the server's resolver makes, or the highlight would
+  // stop short of what got rung.
+  assert.deepEqual(mentionSegments('@Acme, Inc. shipped', ['Acme', 'Acme, Inc.']), [
+    { text: '@Acme, Inc.', mention: 'Acme, Inc.' },
+    { text: ' shipped' },
+  ])
+
+  // An `@` that resolved to nothing stays plain text — the server decides what
+  // is a mention, and an unmatched one is not.
+  assert.deepEqual(mentionSegments('email me @ home, @Beta Platform', ['Beta Platform']), [
+    { text: 'email me @ home, ' },
+    { text: '@Beta Platform', mention: 'Beta Platform' },
+  ])
+
+  // Repeats are each their own run (two doors, not one).
+  const twice = mentionSegments('@Ada and @Ada', ['Ada'])
+  assert.equal(twice.filter((s) => s.mention).length, 2)
+
+  // Round trip: the runs always reassemble the original body, whatever the names.
+  for (const [body, names] of [
+    ['@Acme, Inc. said @Beta Platform should look', ['Acme, Inc.', 'Beta Platform']],
+    ['no mentions at all', ['Acme, Inc.']],
+    ['@@Beta Platform', ['Beta Platform']],
+  ] as [string, string[]][]) {
+    assert.equal(mentionSegments(body, names).map((s) => s.text).join(''), body, `round-trips: ${body}`)
+  }
 })

@@ -1942,6 +1942,22 @@ export function buildRouter(): Router {
     if (!store.grantSubjectVisible(ref, tenant)) return sendError(res, 'not_found', `No ${ref.kind} '${ref.id}'`)
     sendJson(res, store.listDiscussions(ref, tenant))
   })
+  /** ── S8: say something (the square's compose door) ────────────────────────
+   *  A post is a Discussion anchored to the AUTHOR's own principal, so this
+   *  could be `POST /discussions` with a self-anchor — but that would make every
+   *  composer look its own display name up first and send it back as the thing
+   *  it is addressing, which is a client reconstructing its own identity. The
+   *  server already knows who is calling. One field, no anchor. */
+  r.post('/posts', async ({ req, res, body }) => {
+    const input = await body<{ body?: string }>()
+    if (typeof input?.body !== 'string' || !input.body.trim()) {
+      return sendError(res, 'bad_request', 'a non-empty body is required')
+    }
+    const out = store.openWallPost(input.body, store.identity(req.headers).tenant.id)
+    if (out === 'capped') return sendError(res, 'conflict', 'Your wall is at its post cap')
+    if (!out) return sendError(res, 'bad_request', 'a non-empty body is required')
+    sendJson(res, out)
+  })
   r.post('/discussions', async ({ req, res, body }) => {
     const input = await body<OpenDiscussionRequest>()
     if (!input?.anchor?.ref?.kind || !input.anchor.ref.id || typeof input.firstPost !== 'string' || !input.firstPost.trim()) {

@@ -38,6 +38,9 @@ const KIND_ICON: Record<NotificationKind, LucideIcon> = {
   // The person layer (S7).
   'social.followed': UserPlus,
   'social.messaged': Mail,
+  // The square (S8).
+  'social.mentioned': AtSign,
+  'social.replied': MessageSquare,
 }
 
 /** The row's one-line sentence — actor + verb + object (all public-face fields). */
@@ -85,6 +88,14 @@ function describe(n: AppNotification): string {
       return `${n.actor} followed you`
     case 'social.messaged':
       return `${n.actor} sent you a message`
+    // S8 — like the two above, this names no subject: the thing mentioned is
+    // the reader, and echoing their own name back would label the bell with it.
+    case 'social.mentioned':
+      return `${n.actor} mentioned you`
+    // Also nameless, and for the same reason: a post's subject is its author,
+    // so naming it would label this bell with the reader's own name.
+    case 'social.replied':
+      return `${n.actor} replied to your post`
   }
 }
 

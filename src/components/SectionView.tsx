@@ -90,6 +90,7 @@ import { FollowButton } from './FollowButton'
 import { MessageButton } from './MessageButton'
 import { ProposalsPanel } from './ProposalsPanel'
 import { ProposalDeltaView } from './DeltaView'
+import { MentionText } from './MentionText'
 import { Tooltip } from './Tooltip'
 import { describeLocus, locusFocus } from '../lib/anchorLocus'
 import type { FocusTarget } from '../lib/notificationDoor'
@@ -203,6 +204,7 @@ import {
   createGrant,
   revokeGrant,
   reactToDiscussionPost,
+  openWallPost,
   deleteDiscussionPost,
   reportDiscussionPost,
   setDiscussionState,
@@ -2806,6 +2808,7 @@ function DiscussionPostList({
   onReact,
   onDelete,
   onReport,
+  onOpenPerson,
 }: {
   posts: DiscussionPost[]
   onReact: (pid: string) => void
@@ -2813,6 +2816,9 @@ function DiscussionPostList({
    *  a destructive act belongs where the whole thread is. */
   onDelete?: (pid: string) => void
   onReport?: (pid: string) => void
+  /** Open a mentioned person's profile (S8). Absent = mentions render as plain
+   *  text, which is what a surface with no navigation of its own wants. */
+  onOpenPerson?: (name: string) => void
 }) {
   const [reported, setReported] = useState<string | null>(null)
   return (
@@ -2824,7 +2830,9 @@ function DiscussionPostList({
               <span className="text-[12px] font-medium text-ink">{p.author}</span>
               <span className="text-[11px] text-ink-faint">{relativeTime(p.at)}</span>
             </div>
-            <p className="mt-0.5 whitespace-pre-wrap text-[13px] text-ink-soft">{p.body}</p>
+            <p className="mt-0.5 whitespace-pre-wrap text-[13px] text-ink-soft">
+              <MentionText body={p.body} mentions={p.mentions} onOpen={onOpenPerson} />
+            </p>
           </div>
           <button
             onClick={() => onReact(p.id)}
@@ -2877,6 +2885,7 @@ function DiscussionPostList({
  *  not configuration: rendered in the MAIN column for owner and visitor alike;
  *  the server walls posting (comment tier) while `view` reads and may react. */
 function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boolean }) {
+  const rel = useRelations()
   const list = useDiscussions(subject.kind, subject.id).data ?? []
   const root = list.find((d) => d.anchor.locus === undefined) ?? null
   // Capability shapes affordances: a `view`-tier reader gets no compose verb at
@@ -2939,6 +2948,7 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
             onReact={react}
             onDelete={(pid) => void deleteDiscussionPost(root.id, pid, subject)}
             onReport={(pid) => void reportDiscussionPost(root.id, pid)}
+            onOpenPerson={(n) => rel.navigate('agents', n)}
           />
         </div>
       )}
@@ -3003,13 +3013,22 @@ const RootThreadComposer = ({
 function FeedCard({ item }: { item: CommonsItem }) {
   const rel = useRelations()
   const { kind, id } = item.subject
+  // S8 — a POST is its own thread: the utterance and the conversation under it
+  // are one object, so the card reads it BY ID rather than looking up "the
+  // subject's root thread" (every one of an author's posts shares the same
+  // principal anchor, so that lookup would find some other post of theirs).
+  const isPost = item.kind === 'post'
   // The card's comments ARE the subject's root thread (one conversation, two
   // projections): the last two posts render inline, the count doors into the
   // full thread, and the composer posts into the SAME discussion the entity
   // page shows.
-  const threads = useDiscussions(kind, id).data ?? []
-  const root = threads.find((d) => d.anchor.locus === undefined) ?? null
-  const tail = root ? root.posts.slice(-2) : []
+  const threads = useDiscussions(kind, id, !isPost).data ?? []
+  const byId = useDiscussion(isPost ? (item.discussionId ?? '') : '', isPost).data ?? null
+  const root = isPost ? byId : (threads.find((d) => d.anchor.locus === undefined) ?? null)
+  // A post's opening entry is the card's own text, so it is not one of the
+  // replies the tail shows.
+  const shown = root ? (isPost ? root.posts.slice(1) : root.posts) : []
+  const tail = shown.slice(-2)
   const react = (pid: string) => {
     if (root) void reactToDiscussionPost(root.id, pid, item.subject)
   }
@@ -3031,11 +3050,21 @@ function FeedCard({ item }: { item: CommonsItem }) {
           />
         </span>
         <span className="text-[12px] text-ink-faint">
-          {item.kind === 'share' ? 'shared' : `landed L${item.landingNumber}`} · {relativeTime(item.at)}
+          {item.kind === 'share' ? 'shared' : item.kind === 'post' ? 'posted' : `landed L${item.landingNumber}`} ·{' '}
+          {relativeTime(item.at)}
         </span>
       </div>
-      {item.note && <p className="mt-2.5 whitespace-pre-wrap text-[14px] leading-relaxed text-ink-soft">{item.note}</p>}
-      {/* The embed — the resource previewing inside the post; its TITLE is the door. */}
+      {item.note && (
+        <p className="mt-2.5 whitespace-pre-wrap text-[14px] leading-relaxed text-ink-soft">
+          {/* S8 — a mention is a door to the person named, from the server's own
+              resolution (the set it rang), never a second client-side parse. */}
+          <MentionText body={item.note} mentions={root?.posts[0]?.mentions} onOpen={(n: string) => rel.navigate('agents', n)} />
+        </p>
+      )}
+      {/* The embed — the resource previewing inside the post; its TITLE is the
+          door. A POST has no resource: the words above ARE the content, so the
+          card shows nothing here rather than an empty frame around a name. */}
+      {!isPost && (
       <div className="mt-3 rounded-lg border border-line bg-panel px-3.5 py-2.5">
         {target ? (
           <button
@@ -3070,6 +3099,7 @@ function FeedCard({ item }: { item: CommonsItem }) {
           </div>
         )}
       </div>
+      )}
       {/* The card's two standing acts — the ones that FILL the rail's lenses
           (S4), worn quiet (`cardActClass`) so the content, not the chrome,
           carries the card. Watch works for every subject kind: the key
@@ -3077,16 +3107,33 @@ function FeedCard({ item }: { item: CommonsItem }) {
           happens to support. */}
       <div className="-ml-2 mt-1.5 flex items-center gap-1">
         <LikeButton item={item} />
+        {/* S8 — a POST's door is its own thread, and it must exist BEFORE the
+            first reply: a card whose only way in is "view all N comments" is
+            unreachable at N=0, which is exactly when someone wants to answer
+            it. (Found by the browser walk — the node suites can't see that a
+            card has no door.) A share/landing keeps the subject's page as its
+            door, so it needs no second one here. */}
+        {isPost && root && (
+          <button
+            onClick={() => rel.navigate('discussions', root.id)}
+            className={cardActClass(false)}
+            title="Open this post’s thread"
+          >
+            <MessageSquare size={14} />
+            Reply
+            {shown.length > 0 && <span className="tabular-nums text-ink-faint">{shown.length}</span>}
+          </button>
+        )}
         <WatchToggle quiet subject={item.subject} watching={item.watched === true} />
       </div>
-      {root && root.posts.length > 0 && (
+      {root && shown.length > 0 && (
         <div className="mt-2 border-t border-line pt-3">
-          {root.posts.length > tail.length && (
+          {shown.length > tail.length && (
             <button onClick={() => rel.navigate('discussions', root.id)} className={`${INLINE_ACTION_CLASS} mb-2`}>
-              View all {root.posts.length} comments
+              View all {shown.length} comments
             </button>
           )}
-          <DiscussionPostList posts={tail} onReact={react} />
+          <DiscussionPostList posts={tail} onReact={react} onOpenPerson={(n) => rel.navigate('agents', n)} />
         </div>
       )}
       <div className="mt-3">
@@ -3216,6 +3263,56 @@ function LikeButton({ item }: { item: CommonsItem }) {
   )
 }
 
+/** ── The square's composer (social S8) ───────────────────────────────────────
+ *  Where you say something with no resource attached. It stands OPEN rather
+ *  than hiding behind a header verb — UI-18's rule is that a standing composer
+ *  belongs to a surface whose whole subject IS the thread, and the square's
+ *  subject is exactly that: what people are saying. (A section whose payload is
+ *  something else, like a project's discussion panel, still discloses on
+ *  demand.)
+ *
+ *  It is deliberately the plainest control on the page. The design doc's
+ *  watch-for is that feeds reward posting, and its mitigations are structural:
+ *  no ranking, facets over algorithms, one thin reaction. A composer that
+ *  courted attention would undo them. */
+function PostComposer() {
+  const [body, setBody] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const send = async () => {
+    const text = body.trim()
+    if (!text || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await openWallPost(text)
+      setBody('')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not post that.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="mx-auto mb-4 w-full max-w-3xl rounded-xl border border-line bg-surface px-5 py-4">
+      <textarea
+        aria-label="Say something"
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        rows={2}
+        placeholder="Say something — mention a workspace with @ to reach them"
+        className={`${FORM_INPUT_CLASS} w-full resize-y`}
+      />
+      <div className="mt-2 flex items-center gap-2">
+        <button onClick={() => void send()} disabled={!body.trim() || busy} className={SOFT_BUTTON_CLASS}>
+          {busy ? 'Posting…' : 'Post'}
+        </button>
+        {error && <span className="min-w-0 truncate text-[11px] text-danger">{error}</span>}
+      </div>
+    </div>
+  )
+}
+
 /** The Commons feed — what the caller's world shares. One chronological
  *  column; the deliberate note is the publish act (silent grants stay out).
  *  The kind facet (shares / landings) lives in the rail row's "Filter & sort"
@@ -3227,7 +3324,8 @@ function CommonsSection({ lens }: { lens: string | null }) {
   const rel = useRelations()
   const all = useCommons().data ?? []
   const [filter] = useSectionFilter('commons')
-  const kind = filter.facet === 'shares' ? 'share' : filter.facet === 'landings' ? 'landing' : null
+  const kind =
+    filter.facet === 'shares' ? 'share' : filter.facet === 'landings' ? 'landing' : filter.facet === 'posts' ? 'post' : null
   const byKind = kind ? all.filter((i) => i.kind === kind) : all
   // The rail's LENS narrows to the viewer's own collection — each on a
   // server-stamped, viewer-relative field, never a client guess.
@@ -3254,6 +3352,10 @@ function CommonsSection({ lens }: { lens: string | null }) {
   return (
     <Page>
       <PageHeader title={lens ? `Commons · ${LENS_LABEL[lens] ?? lens}` : 'Commons'} />
+      {/* Compose on the square itself. A LENS is a filtered view of your own
+          collections ("things I liked"), and a composer there would write into
+          a place whose filter the new post may not even satisfy. */}
+      {lens === null && <PostComposer />}
       {list.length === 0 ? (
         <Empty>
           {/* A lens names the act that fills it; a facet says what it found
@@ -3262,7 +3364,7 @@ function CommonsSection({ lens }: { lens: string | null }) {
             ? lensEmptyText(lens, followed)
             : filter.facet !== 'all'
               ? `No ${filter.facet} in your commons yet.`
-              : 'Nothing published yet — share a resource with a note (the note is the post) and it lands here for its audience.'}
+              : 'Nothing here yet — say something above, or share a resource with a note (the note is the post).'}
         </Empty>
       ) : (
         <div className="mx-auto w-full max-w-3xl space-y-4">
@@ -3387,6 +3489,7 @@ function DiscussionPage({
   onBack: () => void
   backTo: NavLocation | null
 }) {
+  const rel = useRelations()
   const q = useDiscussion(discussionId)
   const d = q.data ?? null
   useRecordView('discussion', discussionId)
@@ -3477,6 +3580,7 @@ function DiscussionPage({
           onReact={(pid) => void reactToDiscussionPost(d.id, pid, d.anchor.ref)}
           onDelete={(pid) => void deleteDiscussionPost(d.id, pid, d.anchor.ref)}
           onReport={(pid) => void reportDiscussionPost(d.id, pid)}
+          onOpenPerson={(n) => rel.navigate('agents', n)}
         />
         {/* The ONE thread composer, like every other projection of a thread —
             this page used to hand-roll its own textarea + Post + error state

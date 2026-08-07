@@ -97,6 +97,17 @@ export function doorFor(n: AppNotification): NavIntent {
     case 'social.messaged':
       if (n.discussionId) return { kind: 'discussion', discussionId: n.discussionId }
       return { kind: 'section', section: 'messages' }
+    // S8 — a mention lands on the thread it is IN (a post, a reply, a comment
+    // all being the same object), so the reader arrives at the sentence that
+    // named them rather than at a list. Its fallback is the square: a mention
+    // most often happens in a post, and the Commons is where posts live.
+    case 'social.mentioned':
+      if (n.discussionId) return { kind: 'discussion', discussionId: n.discussionId }
+      return { kind: 'section', section: 'commons' }
+    // A reply to your post lands on the post's own thread — where the reply is.
+    case 'social.replied':
+      if (n.discussionId) return { kind: 'discussion', discussionId: n.discussionId }
+      return { kind: 'section', section: 'commons' }
     // A new follower → their profile, the only page the act is ABOUT. (`actor`
     // is the public display name, which is exactly the profile handle.)
     case 'social.followed':

@@ -407,6 +407,12 @@ export async function buildComprehensive(): Promise<PersistedState> {
   // is a Discussion anchored to a PRINCIPAL whose get-or-create keys on the
   // pair. Read-mark last, so the round-trip carries a non-zero mark.
   store.setFollow('Acme, Inc.', true, 'tenant-beta')
+  // ── The square (S8) ── a POST is a discussion anchored to its author's own
+  // principal, so it rides the `discussions` slice — but it is a different
+  // SHAPE within it (self-anchored, wall-walled), and a snapshot that carried
+  // only DMs would let the wall predicate rot unnoticed on restore. It names
+  // somebody, so the mention path is exercised too.
+  store.openWallPost('Playground post — @Acme, Inc. this is the square, exercised for the snapshot.', 'tenant-beta')
   const dm = store.openDiscussion(
     { anchor: { ref: { kind: 'principal', id: 'Acme, Inc.' } }, firstPost: 'playground direct message — is the dashboard still on for Thursday?' },
     'tenant-beta',
