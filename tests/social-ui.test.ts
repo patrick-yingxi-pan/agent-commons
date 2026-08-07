@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { filesUnder } from './helpers/source.ts'
+import { filesUnder, sectionViewComponent } from './helpers/source.ts'
 import { SHARE_TIERS } from '../contract/social.ts'
 import { TIER_LABELS, TIER_BADGE_CLASS } from '../src/lib/tierBadge.ts'
 
@@ -58,7 +58,12 @@ test('the grants UI goes through the one door: no component/controller carries t
  *  it is a per-viewer preference, not an authorization (docs/evaluation.md). */
 test('no UI control is gated by comparing a display name — authority rides a server flag', () => {
   // The REDACTED display-name fields the social / work payloads carry.
-  const NAME_FIELDS = ['postedBy', 'openedBy', 'offeredBy', 'grantedBy', 'retractedBy']
+  // `author` and `counterpart` joined the list in the S7 review: the DM inbox
+  // decided its "You: " prefix with `last.author === d.counterpart`, which is
+  // the very defect this lock names — and it slipped through because the list
+  // enumerated only the fields the WORK payloads carry. Every REDACTED
+  // display-name field belongs here, not just the ones that had bugs.
+  const NAME_FIELDS = ['postedBy', 'openedBy', 'offeredBy', 'grantedBy', 'retractedBy', 'author', 'counterpart']
   const norm = (p: string) => p.split('\\').join('/')
   const offenders: string[] = []
   for (const f of walk(SRC)) {
@@ -104,4 +109,60 @@ test('a thread title has ONE home: no surface re-slices a post body to make one'
     })
   }
   assert.ok(renders >= 1, 'at least one surface renders a thread title (the scan is not vacuous)')
+})
+
+/** ── S7 funnel locks — the person layer ─────────────────────────────────────
+ *  Follow is `WatchToggle`'s sibling (a standing relationship, one with a
+ *  person and one with a resource), so it gets the same treatment the tier pill
+ *  and the copy button got: ONE home, enumerated rather than asserted. */
+test('the follow toggle has ONE home: no surface hand-rolls a second one', () => {
+  const norm = (p: string) => p.replace(/\\/g, '/')
+  const offenders: string[] = []
+  let hosts = 0
+  for (const f of walk(SRC)) {
+    const rel = norm(f)
+    const src = readFileSync(f, 'utf8')
+    if (rel.endsWith('components/FollowButton.tsx')) continue
+    if (rel.endsWith('api/commands.ts') || rel.endsWith('api/index.ts')) continue // the door itself
+    // Calling the follow COMMAND outside the funnel is the drift: it means a
+    // second control exists, with its own label, glyph and busy handling.
+    if (src.includes('setFollow(')) offenders.push(`${rel.split('/src/')[1]}: calls setFollow outside <FollowButton>`)
+    if (src.includes('<FollowButton')) hosts += 1
+  }
+  assert.deepEqual(offenders, [])
+  assert.ok(hosts >= 1, 'at least one surface hosts the toggle (the scan is not vacuous)')
+})
+
+test('the person layer reads through the one door — no component carries its URLs', () => {
+  const offenders: string[] = []
+  for (const f of walk(SRC)) {
+    const norm = f.replace(/\\/g, '/')
+    if (norm.endsWith('api/keys.ts')) continue // the ONE home for paths
+    const src = readFileSync(f, 'utf8')
+    for (const url of ['/social/follow', '/me/follows', 'direct=1']) {
+      if (src.includes(url)) offenders.push(`${norm.split('/src/')[1]}: ${url}`)
+    }
+  }
+  assert.deepEqual(offenders, [])
+})
+
+/** A DM's "who is this with" is the SERVER's answer (`counterpart`), because the
+ *  anchor names only ONE end: for the recipient, the anchored name is their own.
+ *  A surface that read `anchor.ref.id` to label a message would therefore show
+ *  half its readers their own name — a viewer-relative fact derived client-side,
+ *  which is exactly what UI-12 forbids. */
+test('no surface labels a message from its anchor — the counterpart is server-stamped', () => {
+  // Scoped to the DM surfaces themselves. A whole-file conjunction ("mentions
+  // `direct` somewhere AND `anchor.ref.id` somewhere") is not this rule: both
+  // strings live legitimately in the same big module, and the first draft of
+  // this lock flagged two innocent files for exactly that reason.
+  const messagesSection = sectionViewComponent('MessagesSection')
+  const messageButton = readFileSync(join('src', 'components', 'MessageButton.tsx'), 'utf8')
+  for (const [where, body] of [['MessagesSection', messagesSection], ['MessageButton', messageButton]] as const) {
+    assert.ok(body.includes('counterpart'), `${where} names the other party from the server's answer`)
+    assert.ok(
+      !body.includes('anchor.ref.id'),
+      `${where} must not derive "who is this with" from the anchor — it names ONE end, so half its readers would see their own name`,
+    )
+  }
 })

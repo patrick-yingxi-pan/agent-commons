@@ -466,6 +466,20 @@ export function useMyDiscussions(): QueryState<Discussion[]> {
   return useQuery(keys.myDiscussions, () => apiGet<Discussion[]>(paths.myDiscussions()))
 }
 
+/** The caller's DM inbox (S7) — principal-anchored threads, most recently
+ *  active first, each carrying its viewer-relative `counterpart` and `unread`.
+ *  Live on `discussion.changed` like every other thread projection. */
+export function useDirectMessages(): QueryState<Discussion[]> {
+  return useQuery(keys.directMessages, () => apiGet<Discussion[]>(paths.directMessages()))
+}
+
+/** The names the caller follows (S7). Live on `follow.changed`; the Commons'
+ *  Following lens reads the server-stamped `followed` flag on each item rather
+ *  than joining against this list — a lens must never be a client guess. */
+export function useFollows(enabled = true): QueryState<string[]> {
+  return useQuery(keys.follows, () => apiGet<string[]>(paths.follows()), enabled)
+}
+
 /** A Project's delegation roster (CW8, Phase F) — governance face for every
  *  viewer, the policy text for the delegator. Live on `delegation.changed`. */
 export function useDelegations(projectId: string): QueryState<Delegation[]> {

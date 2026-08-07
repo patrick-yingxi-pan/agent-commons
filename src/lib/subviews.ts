@@ -46,6 +46,11 @@ export const SECTION_SUBVIEWS: Partial<Record<SectionId, SubView[]>> = {
   // Every one is backed by a server-stamped, viewer-relative field on
   // `CommonsItem`; nothing here is derived client-side.
   commons: [
+    // S7 — the fifth lens, and the only one keyed on WHO ACTED rather than on
+    // the subject. Following someone has to deliver something or it is a dead
+    // affordance; this is what it delivers (and deliberately all it delivers —
+    // a followee's publishes reach this lens, never a bell).
+    { id: 'following', label: 'Following' },
     { id: 'watched', label: 'Watched' },
     { id: 'liked', label: 'Liked' },
     { id: 'posted', label: 'Posted' },

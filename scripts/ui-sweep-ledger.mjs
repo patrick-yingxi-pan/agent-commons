@@ -25,6 +25,7 @@ export const SECTIONS = [
   'Agents',
   'Scheduled',
   'Discussions',
+  'Messages',
   'Dispatch',
   'Customize',
 ]

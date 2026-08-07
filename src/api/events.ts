@@ -230,6 +230,20 @@ function route(e: ServerEvent): void {
       invalidatePrefix(keys.discussions())
       invalidate(keys.discussion(e.discussionId))
       invalidate(keys.commons) // the card's comment count rides the feed (S4)
+      invalidate(keys.myDiscussions) // the hub list (a new thread joins it)
+      // A principal anchor is a DM (S7) — the inbox is its own projection, so
+      // the family prefix above does not reach it. Without this a message
+      // arrives silently and the unread dot never lights.
+      if (e.anchor.ref.kind === 'principal') invalidate(keys.directMessages)
+      break
+    // A follow changed (S7) — delivered to the two parties only. The follower's
+    // list and the FEED are both stale (`followed` is stamped per item, so the
+    // Following lens would keep showing the old set); the followee's profile
+    // carries the counts.
+    case 'follow.changed':
+      invalidate(keys.follows)
+      invalidate(keys.commons)
+      invalidatePrefix(keys.ownerProfile())
       break
     // A social proposal changed (S3) — its subject's ledger, the row itself,
     // and (a landed relation-op delta) the graph projections are stale.

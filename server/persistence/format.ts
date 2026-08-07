@@ -143,9 +143,37 @@ export interface StoredGrant extends Grant {
 export interface StoredDiscussionPost extends Omit<DiscussionPost, 'reactions' | 'reacted'> {
   authorTenant: string
   reactedBy: string[]
+  /** S7 — a monotonic ordinal within the thread, assigned once at creation and
+   *  never reused. It is what a per-viewer READ MARK points at.
+   *
+   *  Not the array index: posts are deletable (S5), and a mark that is an index
+   *  silently shifts when the array shrinks — read 5, one retracted, two new,
+   *  and the reader is told 1 unread instead of 2. Not the timestamp either:
+   *  two posts can share a millisecond, and `at > mark` then hides the second.
+   *  An ordinal is stable under deletion and has no ties.
+   *
+   *  Additive-optional: a post written before this field reads as ordinal 0, so
+   *  a pre-S7 snapshot shows its threads unread rather than silently read. */
+  seq?: number
 }
 export interface StoredDiscussion extends Omit<Discussion, 'posts' | 'mine'> {
   openerTenant: string
+  /** S7 — a PRINCIPAL-anchored thread (a DM) also stores the raw tenant id of
+   *  the person it was addressed TO, captured when the thread was opened.
+   *
+   *  The anchor itself carries a DISPLAY NAME, because that is the public face
+   *  every social payload wears. But a name is not an identity: `createUser`
+   *  guards uniqueness on EMAIL, not name, so two workspaces can wear the same
+   *  one — and this repo's own earned rule (tests/social-ui.test.ts) is that
+   *  preference may key on a name while AUTHORITY never may. A DM's wall is
+   *  authority, so resolving "who are the two parties" by name at read time
+   *  would let a later signup wearing the same display name change who a
+   *  private conversation belongs to. Captured once, at open, like
+   *  `openerTenant` / `authorTenant` / `granterTenant` beside it.
+   *
+   *  Additive-optional: a row written before this field falls back to the name
+   *  lookup, which is what it did anyway. `publicDiscussion` strips it. */
+  targetTenant?: string
   posts: StoredDiscussionPost[]
 }
 
@@ -231,6 +259,14 @@ export interface PersistedState {
   /** S5 guardrails — per-viewer mute lists (`[tenantId, names[]]`).
    *  Additive-optional. */
   mutes?: [string, string[]][]
+  /** S7 — per-viewer FOLLOW lists (`[tenantId, followee names[]]`), the same
+   *  shape as `mutes` because it is the same kind of thing: a standing,
+   *  name-keyed relationship the viewer holds. Additive-optional. */
+  follows?: [string, string[]][]
+  /** S7 — per-viewer discussion read marks (`[tenantId, [discussionId, posts
+   *  seen][]]`), feeding the DM inbox's unread count. Derived, disposable state
+   *  (losing it just marks everything unread); additive-optional. */
+  discussionReads?: [string, [string, number][]][]
   /** Watch subscriptions (D24) — `[tenantId, subjectKey]` pairs (tuples, not a Map:
    *  a subject has many watchers), where the key is `kind:id`. Additive-optional
    *  like `dispatch` (a pre-field snapshot loads cleanly with no watches); a
@@ -341,6 +377,8 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   discussions: 'array',
   socialProposals: 'array',
   mutes: 'mapEntries',
+  follows: 'mapEntries',
+  discussionReads: 'mapEntries',
   watches: 'array',
   commonsLikes: 'array',
   views: 'array',

@@ -14,6 +14,8 @@ import type {
   SocialEntityKind,
   SocialEntityRef,
   SetCommonsLikeRequest,
+  SetFollowRequest,
+  MarkDiscussionReadRequest,
   SetSocialWatchRequest,
   RecordViewRequest,
   CreateDispatchRequest,
@@ -1922,8 +1924,15 @@ export function buildRouter(): Router {
   // (existence-hiding — the store enforces on every face). Posting needs
   // comment authority; reacting needs only readability (the thinnest signal).
   r.get('/discussions', ({ req, res, url }) => {
-    // Two explicit modes (INV-9 — absence refused, never guessed): `mine=1`
-    // lists the caller's participating threads; kind+id lists a subject's.
+    // Three explicit modes (INV-9 — absence refused, never guessed): `direct=1`
+    // is the DM inbox, `mine=1` lists the caller's participating threads, and
+    // kind+id lists a subject's. `direct` is its own mode rather than a filter
+    // the client applies, because the inbox must be a SERVER projection: the
+    // pair wall and the unread mark both live here (UI-12 — never a client
+    // guess about a status a registry owns).
+    if (url.searchParams.get('direct') === '1') {
+      return sendJson(res, store.listDirectMessages(store.identity(req.headers).tenant.id))
+    }
     if (url.searchParams.get('mine') === '1') {
       return sendJson(res, store.listMyDiscussions(store.identity(req.headers).tenant.id))
     }
@@ -1982,6 +1991,35 @@ export function buildRouter(): Router {
   r.post('/discussions/:did/posts/:pid/report', ({ req, res, params }) => {
     const out = store.reportDiscussionPost(params.did, params.pid, store.identity(req.headers).tenant.id)
     if (out === undefined) return sendError(res, 'not_found', `No discussion post '${params.pid}'`)
+    sendJson(res, { ok: true })
+  })
+  // S7 — follow: mute's positive twin, and shaped identically (a name-keyed
+  // per-viewer list). Explicit state rather than a toggle, like the Commons
+  // like: two clients pressing at once must converge on what was asked for.
+  r.get('/me/follows', ({ req, res }) => {
+    sendJson(res, store.listFollows(store.identity(req.headers).tenant.id))
+  })
+  r.post('/social/follow', async ({ req, res, body }) => {
+    const input = await body<SetFollowRequest>()
+    if (typeof input?.name !== 'string' || !input.name.trim() || typeof input.following !== 'boolean') {
+      return sendError(res, 'bad_request', 'name and following (boolean) are required')
+    }
+    const out = store.setFollow(input.name.trim(), input.following, store.identity(req.headers).tenant.id)
+    // Existence-hiding: a name the caller cannot see is the same 404 as a name
+    // nobody wears — a follow probe must not be an existence oracle.
+    if (out === undefined) return sendError(res, 'not_found', `No workspace '${input.name.trim()}'`)
+    if (out === 'self') return sendError(res, 'bad_request', 'You cannot follow yourself')
+    sendJson(res, out)
+  })
+  // S7 — mark a thread read (the DM inbox's unread count). A private note to
+  // self: it rings nobody and moves no wall, so an unreadable thread is
+  // silently ignored rather than refused (a refusal would leak existence).
+  r.post('/discussions/:did/read', async ({ req, res, params, body }) => {
+    const input = await body<MarkDiscussionReadRequest>()
+    if (input?.throughPostId !== undefined && typeof input.throughPostId !== 'string') {
+      return sendError(res, 'bad_request', 'throughPostId must be a post id')
+    }
+    store.markDiscussionRead(params.did, store.identity(req.headers).tenant.id, input?.throughPostId)
     sendJson(res, { ok: true })
   })
   r.get('/me/mutes', ({ req, res }) => {

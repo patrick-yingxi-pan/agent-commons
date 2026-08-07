@@ -1,4 +1,4 @@
-import { Bot, Box, Briefcase, Cable, Clock, Cpu, MessagesSquare, Newspaper, SendHorizontal, Shapes, Wrench } from 'lucide-react'
+import { Bot, Box, Briefcase, Cable, Clock, Cpu, Mail, MessagesSquare, Newspaper, SendHorizontal, Shapes, Wrench } from 'lucide-react'
 import type { SectionId } from '../types'
 
 /** The cross-cutting tools in the sidebar nav. One source of truth for the
@@ -47,6 +47,15 @@ export const SECTION_META: Record<
     subtitle: 'Threads on the resources you share and follow.',
     Icon: MessagesSquare,
   },
+  // S7 — the DM inbox. A message IS a discussion anchored to a person, so this
+  // section and Discussions render the same entity; they are two sections
+  // because they are two reading modes (talk about things vs talk with people)
+  // and the server lists each row in exactly one of them.
+  messages: {
+    label: 'Messages',
+    subtitle: 'Direct conversations with the people you can reach.',
+    Icon: Mail,
+  },
   dispatch: {
     label: 'Dispatch',
     subtitle: 'Send Claude off to run tasks in the background.',
@@ -77,6 +86,7 @@ export const SECTION_ORDER: SectionId[] = [
   'agents',
   'scheduled',
   'discussions',
+  'messages',
   'dispatch',
   'customize',
   'admin',

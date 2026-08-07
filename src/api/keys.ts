@@ -46,6 +46,12 @@ export const keys = {
   socialCapability: (kind: string, id: string) => `social-capability:${kind}:${id}`,
   discussion: (did?: string) => (did ? `discussion:${did}` : 'discussion'),
   myDiscussions: 'discussions:mine',
+  /** The caller's DM inbox (S7) — principal-anchored threads. A key of its own
+   *  rather than a filter over `myDiscussions`, because the server lists a DM in
+   *  exactly one of the two and the unread mark rides this projection. */
+  directMessages: 'discussions:direct',
+  /** The names the caller follows (S7) — one list per caller, like the mutes. */
+  follows: 'follows',
   /** The Commons feed (S4) — one projection per caller. */
   commons: 'commons',
   /** A subject's proposals (social S3) — same shape as discussions. */
@@ -174,6 +180,12 @@ export const paths = {
   socialCapability: (kind: string, id: string) => `/social/capability?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`,
   sessionFork: (id: string) => `/sessions/${encodeURIComponent(id)}/fork`,
   myDiscussions: () => `/discussions?mine=1`,
+  /** The person layer (S7): the DM inbox, the follow list + its one act, and
+   *  the per-thread read mark behind the inbox's unread count. */
+  directMessages: () => `/discussions?direct=1`,
+  follows: () => `/me/follows`,
+  socialFollow: () => `/social/follow`,
+  discussionRead: (did: string) => `/discussions/${encodeURIComponent(did)}/read`,
   /** The Commons feed (S4) + the acts behind its lenses: a like on one item, a
    *  watch on any subject, and the note that you opened one. */
   commons: () => `/commons`,

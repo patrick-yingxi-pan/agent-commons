@@ -331,6 +331,18 @@ export interface SocialProposalChangedEvent {
   subject: import('./social.ts').SocialEntityRef
 }
 
+/** A follow changed (social S7) — one principal started or stopped following
+ *  another. Delivered ONLY to the two parties (follower + followee), the
+ *  `grant.changed` pattern: who follows whom is not a public broadcast, and the
+ *  follower re-reads their list + the Commons' Following lens while the
+ *  followee re-reads their profile counts. */
+export interface FollowChangedEvent {
+  type: 'follow.changed'
+  /** The two parties' tenant ids, captured at emit time — the SSE gate delivers
+   *  the event to exactly these streams. */
+  parties: string[]
+}
+
 /** Sent once when an SSE channel opens, so the client can confirm liveness. */
 export interface HelloEvent {
   type: 'hello'
@@ -393,6 +405,7 @@ export type ServerEvent =
   | GrantChangedEvent
   | DiscussionChangedEvent
   | SocialProposalChangedEvent
+  | FollowChangedEvent
 
 export type ServerEventType = ServerEvent['type']
 

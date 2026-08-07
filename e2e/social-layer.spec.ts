@@ -600,3 +600,122 @@ test('continue from a turn: the fork lands in the forker’s namespace, with pro
   await ada.context.close()
   await grace.context.close()
 })
+
+/** ── S7: follow + direct messages ────────────────────────────────────────────
+ *  The person layer's two acts, end to end and across tenants. What only a
+ *  browser can prove here: that the DM's viewer-relative face is rendered from
+ *  the SERVER's `counterpart` and not from the anchor — the two ends of one
+ *  conversation must show each other's names, and a surface that read the
+ *  anchor would show one of them their own. The node suite asserts the field;
+ *  this asserts what a reader actually sees. */
+/** Ada's profile, reached the way the product offers it — a byline door on a
+ *  Commons card. Not `page.goto('/u/Acme, Inc.')`: the display name ends in a
+ *  dot, and Vite's dev history fallback treats a dotted path as a FILE request,
+ *  so the deep link never reaches the SPA and the app boots at '/' with view
+ *  memory instead. An in-page door is the truer walk regardless. */
+async function openAdaProfile(page: Page) {
+  await gotoSection(page, 'Commons')
+  await page.getByRole('button', { name: 'by Acme, Inc.', exact: true }).first().click()
+  await expect(page.getByRole('heading', { name: 'Acme, Inc.' })).toBeVisible({ timeout: 20_000 })
+}
+
+test('follow → the Following lens; message → one thread with two ends', async ({ browser }) => {
+  test.setTimeout(120_000)
+  const ada = await newUser(browser)
+  const grace = await newUser(browser, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
+  const NOTE_S7 = `Published for the follow lens ${STAMP}`
+  const DM = `A direct question about the readout ${STAMP}`
+  const DM_REPLY = `Answering from the other end ${STAMP}`
+  const FOLLOW_PROJECT = `Follow walk ${STAMP}`
+  const GRACE_NAME = 'Beta Platform'
+
+  // ── Ada publishes something Grace can see, so the lens has a payload ───────
+  await ada.page.goto('/')
+  await createProject(ada.page, FOLLOW_PROJECT)
+  await ada.page.getByLabel('Audience id').fill('tenant-beta')
+  await ada.page.getByLabel('Share note (publishes when present)').fill(NOTE_S7)
+  await ada.page.getByRole('button', { name: 'Share', exact: true }).click()
+  await expect(ada.page.getByText('tenant-beta · published')).toBeVisible()
+
+  // ── Grace follows Ada from her PROFILE — the only page a person has ────────
+  await grace.page.goto('/')
+  await openAdaProfile(grace.page)
+  // Scoped to `main`: the rail now carries a "Following" LENS row of its own,
+  // so a page-wide locator matches two very different controls.
+  const follow = grace.page.getByRole('main').getByRole('button', { name: 'Follow', exact: true })
+  const following = grace.page.getByRole('main').getByRole('button', { name: 'Following', exact: true })
+  // Seed-independent: the demo world already has Grace following Ada, and an
+  // e2e store PERSISTS, so asserting a starting state would pass only on a
+  // clean run (the vacuous-precondition trap in tests/CLAUDE.md). Drive the
+  // toggle to a known state, then flip it both ways — each flip renders from
+  // the server's `youFollow`, so each IS a round-trip, not local state.
+  await expect(follow.or(following)).toBeVisible({ timeout: 20_000 })
+  if (await following.isVisible()) {
+    await following.click()
+    await expect(follow).toBeVisible()
+  }
+  await follow.click()
+  await expect(following).toBeVisible()
+
+  // The lens now holds Ada's post. (The seed already has Grace following Ada,
+  // so this asserts the LENS filters to a followed actor — not that the click
+  // alone created the relationship.)
+  await gotoSection(grace.page, 'Commons')
+  await grace.page.getByRole('navigation').getByRole('button', { name: 'Following', exact: true }).click()
+  await expect(grace.page.getByText(NOTE_S7)).toBeVisible({ timeout: 20_000 })
+
+  // ── The roster bands: the follow graph is WALKABLE, not a tooltip ─────────
+  // Grace follows Ada, so Grace has a row on Ada's Followers band — and that
+  // row is a door into her own profile. Only a browser can prove the door,
+  // which is the whole reason the bands replaced a hover title.
+  await openAdaProfile(grace.page)
+  const followers = grace.page.getByRole('main').getByText('Followers', { exact: true })
+  await expect(followers).toBeVisible({ timeout: 20_000 })
+  const graceRow = grace.page.getByRole('main').getByRole('button', { name: `${GRACE_NAME} (you)`, exact: true })
+  await expect(graceRow.first()).toBeVisible()
+  // Her OWN row carries no follow control — you cannot follow yourself.
+  await expect(grace.page.getByRole('main').getByText('Following', { exact: true }).first()).toBeVisible()
+  await graceRow.first().click()
+  await expect(grace.page.getByRole('heading', { name: `${GRACE_NAME} (you)` })).toBeVisible({ timeout: 20_000 })
+
+  // ── Grace messages Ada from the same profile ──────────────────────────────
+  await openAdaProfile(grace.page)
+  const message = grace.page.getByRole('main').getByRole('button', { name: 'Message', exact: true })
+  await expect(message).toBeVisible()
+  await message.click()
+  // A thread with Ada already exists in the seed, so Message is a DOOR — it
+  // lands on the conversation rather than opening a composer.
+  await expect(grace.page).toHaveURL(/\/discussions\//, { timeout: 20_000 })
+  await grace.page.getByRole('textbox', { name: 'Reply to Acme, Inc.' }).fill(DM)
+  await grace.page.getByRole('button', { name: 'Reply to Acme, Inc.', exact: true }).click()
+  await expect(grace.page.getByText(DM)).toBeVisible()
+
+  // The page is titled with the OTHER party, and wears no resolve control —
+  // a conversation with a person has no settled state to declare.
+  await expect(grace.page.getByRole('heading', { name: 'Acme, Inc.' })).toBeVisible()
+  await expect(grace.page.getByRole('button', { name: /Resolve/ })).toHaveCount(0)
+
+  // ── Ada's end: her inbox names GRACE, not herself ─────────────────────────
+  await gotoSection(ada.page, 'Messages')
+  const row = ada.page.getByRole('button', { name: 'Beta Platform', exact: true })
+  await expect(row).toBeVisible({ timeout: 20_000 })
+  // The anchor of this thread is 'Acme, Inc.' — Ada's OWN name. A surface that
+  // labelled the row from the anchor would show her herself, which is the whole
+  // reason `counterpart` is computed per viewer.
+  await expect(ada.page.getByRole('button', { name: 'Acme, Inc.', exact: true })).toHaveCount(0)
+  await row.click()
+  await expect(ada.page.getByText(DM)).toBeVisible({ timeout: 20_000 })
+
+  // And she can reply — being written to is standing to write back, even though
+  // Grace's workspace publishes nothing Ada could have cold-opened to.
+  await ada.page.getByRole('textbox', { name: 'Reply to Beta Platform' }).fill(DM_REPLY)
+  await ada.page.getByRole('button', { name: 'Reply to Beta Platform', exact: true }).click()
+  await expect(ada.page.getByText(DM_REPLY)).toBeVisible()
+
+  // One conversation, two ends: Grace sees Ada's reply in the same thread.
+  await grace.page.reload()
+  await expect(grace.page.getByText(DM_REPLY)).toBeVisible({ timeout: 20_000 })
+
+  await ada.context.close()
+  await grace.context.close()
+})

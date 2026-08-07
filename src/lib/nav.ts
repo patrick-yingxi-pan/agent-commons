@@ -59,6 +59,7 @@ export const SECTION_LABELS: Record<SectionId, string> = {
   agents: 'Agents',
   scheduled: 'Scheduled',
   discussions: 'Discussions',
+  messages: 'Messages',
   dispatch: 'Dispatch',
   customize: 'Customize',
   admin: 'Maintain',

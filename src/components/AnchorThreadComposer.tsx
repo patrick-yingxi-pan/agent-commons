@@ -42,8 +42,12 @@ export function AnchorThreadComposer({
   ariaLabel?: string
   autoFocus?: boolean
   /** Fired after a successful post — a transient composer (the turn gutter's)
-   *  closes itself; a persistent one (the entity panel's) ignores it. */
-  onPosted?: () => void
+   *  closes itself; a persistent one (the entity panel's) ignores it. Receives
+   *  the thread the post landed in, which the caller often cannot know in
+   *  advance: get-or-create is the server's rule, so "which conversation was
+   *  that?" is only answerable from the response. The DM door uses it to open
+   *  the thread it just started. */
+  onPosted?: (thread: Discussion) => void
   /** Present ⇒ render a Cancel beside Post (a composer that was opened by an
    *  affordance must be closable without posting). */
   onCancel?: () => void
@@ -56,10 +60,12 @@ export function AnchorThreadComposer({
     setBusy(true)
     setError(null)
     try {
-      if (thread) await postToDiscussion(thread.id, draft.trim(), subject)
-      else await openDiscussion({ anchor: { ref: subject, ...(locus ? { locus } : {}) }, firstPost: draft.trim() })
+      const landed =
+        thread ?
+          await postToDiscussion(thread.id, draft.trim(), subject)
+        : await openDiscussion({ anchor: { ref: subject, ...(locus ? { locus } : {}) }, firstPost: draft.trim() })
       setDraft('')
-      onPosted?.()
+      onPosted?.(landed)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not post.')
     } finally {

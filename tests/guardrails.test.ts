@@ -83,6 +83,15 @@ test('mute is an earmuff: the viewer’s feed and bell drop the actor; the muted
   const stillReadable = await call('GET', `/projects/${projectId}/contributions`, undefined, { 'x-tenant-id': AUDIENCE })
   assert.equal(stillReadable.status, 200, 'a mute filters the viewer’s projections, not access')
 
+  // Nor does a mute unmake WHO SOMEBODY IS. The profile's publisher-existence
+  // rule (S5) asks whether a name publishes anything the viewer can see — and
+  // it asked the MUTED feed, so muting a workspace whose only public face was
+  // its publishes made its profile 404 for the muter. Found by S7, when
+  // following a muted name started returning "no such workspace". An earmuff
+  // silences what someone says; it must never erase that they exist.
+  const profile = await call('GET', `/directory/owners/${encodeURIComponent(ownerName)}`, undefined, { 'x-tenant-id': AUDIENCE })
+  assert.equal(profile.status, 200, 'a muted workspace still has a profile')
+
   const unmuted = await call('PATCH', '/me/mutes', { name: ownerName, muted: false }, { 'x-tenant-id': AUDIENCE })
   assert.deepEqual(unmuted.json, [])
   const restored = await call('GET', '/commons', undefined, { 'x-tenant-id': AUDIENCE })

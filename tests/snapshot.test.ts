@@ -198,6 +198,20 @@ test('build produces a snapshot covering every persisted slice', async () => {
     'recordView → views (S4, the Recently viewed lens)',
   )
   assert.ok(
+    s.follows?.some(([tenantId, names]) => tenantId === 'tenant-beta' && names.includes('Acme, Inc.')),
+    'setFollow → follows (S7, the per-viewer follow slice)',
+  )
+  const dmRow = s.discussions?.find((d) => d.anchor.ref.kind === 'principal')
+  assert.ok(dmRow, 'openDiscussion on a principal → a DM persists as an ordinary discussion (S7)')
+  assert.ok(
+    // The MARK's value too, not just the tenant: a read mark of 0 is
+    // indistinguishable from an absent slice, so a generator that stopped
+    // exercising the mutator would still satisfy a tenant-only assertion (the
+    // lesson the `watches` key-shape assertion above was earned for).
+    s.discussionReads?.some(([tenantId, marks]) => tenantId === 'tenant-beta' && marks.some(([did, seen]) => did === dmRow?.id && seen > 0)),
+    'markDiscussionRead → discussionReads (S7, the DM inbox unread count)',
+  )
+  assert.ok(
     s.apiTokens?.some(([userId, rows]) => userId === 'user-ada' && rows.some((r) => r.label === 'playground token')),
     'mintApiToken → apiTokens (the bearer-token registry, PORT-9)',
   )

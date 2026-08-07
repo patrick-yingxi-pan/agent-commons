@@ -104,7 +104,12 @@ test('a door never carries a tenant id — only public-face entity ids (the D24 
   // discussion id (`disc-N`) qualifies like a work item's or a proposal's: a
   // sequential entity id, and `social.discussed` only reaches recipients who can
   // read that thread by construction (its anchor's owner, or a participant).
-  const allowed = new Set(['kind', 'projectId', 'workItemId', 'proposalId', 'agentId', 'commentId', 'discussionId', 'section'])
+  // `ownerName` (S7, the `social.followed` door) is a DISPLAY NAME — the D21
+  // public handle that `/u/:name` already addresses and that every REDACTED
+  // wire face already carries. It belongs here for the same reason the ids do:
+  // it is the public identity, and the alternative (a tenant id) is exactly
+  // what this test exists to keep out.
+  const allowed = new Set(['kind', 'projectId', 'workItemId', 'proposalId', 'agentId', 'commentId', 'discussionId', 'ownerName', 'section'])
   for (const kind of NOTIFICATION_KINDS) {
     for (const key of Object.keys(doorFor(sample(kind)))) {
       assert.ok(allowed.has(key), `${kind} door exposes only public-face keys; found "${key}"`)

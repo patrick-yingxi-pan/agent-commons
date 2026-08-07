@@ -14,7 +14,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { ROOT, read, filesUnder, stripComments } from './helpers/source.ts'
+import { ROOT, read, filesUnder, stripComments, sectionViewComponent } from './helpers/source.ts'
 
 const FUNNEL = join('src', 'components', 'AnchorThreadComposer.tsx')
 const SECTION_VIEW = join(ROOT, 'src', 'components', 'SectionView.tsx')
@@ -52,13 +52,9 @@ function sectionComponents(): string[] {
   return topLevelBodies().filter((body) => body.includes('<MainSection'))
 }
 
-/** One named component's body — and it must exist, or the assertions over it
- *  would pass having read nothing (the vacuity rule in tests/CLAUDE.md). */
-function componentBody(name: string): string {
-  const hit = topLevelBodies().find((b) => new RegExp(`^(export )?(function|const) ${name}\\b`).test(b))
-  assert.ok(hit, `${name} still exists in SectionView — this scan has a subject`)
-  return hit
-}
+/** One named component's body — the SHARED extractor (tests/helpers/source.ts),
+ *  so this suite and social-ui parse SectionView the same way. */
+const componentBody = sectionViewComponent
 
 test('the section components are really being found (the scan is not vacuous)', () => {
   const bodies = sectionComponents()
@@ -105,7 +101,10 @@ test('the standing composers are the surfaces that ARE the conversation', () => 
 
 test('the shared composer can be a disclosed one — it closes and cancels', () => {
   const src = read(join(ROOT, FUNNEL))
-  assert.match(src, /onPosted\?\.\(\)/, 'a disclosed composer is told when the post landed, so it can close')
+  // It is told WHICH thread the post landed in, not merely that it landed:
+  // get-or-create is the server's rule, so a caller that passed `thread: null`
+  // (the DM door, every first post) cannot otherwise know what it just created.
+  assert.match(src, /onPosted\?\.\(landed\)/, 'a disclosed composer is told when — and where — the post landed, so it can close and open it')
   assert.ok(src.includes('onCancel &&'), 'a composer opened by an affordance can be closed without posting')
   assert.ok(src.includes('autoFocus'), 'the caret lands where the verb promised')
 })

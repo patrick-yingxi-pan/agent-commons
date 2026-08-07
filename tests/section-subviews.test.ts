@@ -31,7 +31,9 @@ test('the subview registry holds only SURFACE hubs — every facet has left it',
   // slice of the feed's content, which is why they are places and `shares` /
   // `landings` is a filter.
   assert.deepEqual(Object.keys(SECTION_SUBVIEWS).sort(), ['admin', 'agents', 'commons'])
-  assert.deepEqual(SECTION_SUBVIEWS.commons.map((s) => s.id), ['watched', 'liked', 'posted', 'viewed'])
+  // `following` (S7) joins them as the fifth — and the only one keyed on WHO
+  // ACTED rather than on the subject, which is what makes the feed social.
+  assert.deepEqual(SECTION_SUBVIEWS.commons.map((s) => s.id), ['following', 'watched', 'liked', 'posted', 'viewed'])
   assert.deepEqual(SECTION_SUBVIEWS.agents.map((s) => s.id), ['work', 'prompts', 'commissions', 'discover', 'audit'])
   assert.deepEqual(SECTION_SUBVIEWS.admin.map((s) => s.id), ['orgs', 'credentials', 'audit', 'ops'])
   for (const subs of Object.values(SECTION_SUBVIEWS)) {

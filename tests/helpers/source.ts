@@ -40,3 +40,31 @@ export function stripComments(src) {
 export function concatSource(dir, exts) {
   return filesUnder(dir, exts).map((f) => stripComments(read(f))).join('\n')
 }
+
+/** One named top-level component's body out of `src/components/SectionView.tsx`
+ *  — the file is one big module of column-0 declarations, so "everything from
+ *  this declaration to the next" IS the component.
+ *
+ *  Shared because two suites parse it (thread-composer and social-ui), and two
+ *  copies of a parser drift: when SectionView's declaration style changes, the
+ *  copy that isn't updated silently returns the WRONG body, and a scan over the
+ *  wrong body passes vacuously — the exact failure tests/CLAUDE.md warns about.
+ *  Asserts the component exists, so an assertion over it can never read nothing. */
+export function sectionViewComponent(name) {
+  const src = read(join(ROOT, 'src', 'components', 'SectionView.tsx'))
+  const bodies = src.split(/\n(?=(?:export )?(?:function|const) [A-Za-z])/)
+  // Matched with plain string work, NOT `new RegExp(\`…${name}\\b\`)`: inside a
+  // template literal `\b` is the BACKSPACE character, so that pattern silently
+  // matches nothing and every scan over the result passes vacuously. This file's
+  // own first draft shipped exactly that — the hazard tests/CLAUDE.md names.
+  const heads = ['export function ', 'export const ', 'function ', 'const ']
+  const hit = bodies.find((b) =>
+    heads.some((h) => {
+      if (!b.startsWith(h + name)) return false
+      const next = b[h.length + name.length] // the boundary `\b` was meant to assert
+      return next === undefined || !/[A-Za-z0-9_$]/.test(next)
+    }),
+  )
+  if (!hit) throw new Error(`SectionView has no top-level component '${name}' — this scan has no subject`)
+  return hit
+}

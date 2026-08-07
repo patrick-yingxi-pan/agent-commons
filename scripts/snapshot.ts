@@ -389,6 +389,18 @@ export async function buildComprehensive(): Promise<PersistedState> {
   if (likeable) store.setCommonsLike(likeable.id, 'tenant-playground-watcher', true)
   store.recordView({ kind: 'project', id: PROJECT_ID }, 'tenant-playground-watcher')
 
+  // ── The person layer (S7) ── the two remaining per-principal slices. Both go
+  // through the REAL mutators, so the walls they enforce are exercised too: the
+  // follow is reachable only because Ada's world publishes to Grace, and the DM
+  // is a Discussion anchored to a PRINCIPAL whose get-or-create keys on the
+  // pair. Read-mark last, so the round-trip carries a non-zero mark.
+  store.setFollow('Acme, Inc.', true, 'tenant-beta')
+  const dm = store.openDiscussion(
+    { anchor: { ref: { kind: 'principal', id: 'Acme, Inc.' } }, firstPost: 'playground direct message — is the dashboard still on for Thursday?' },
+    'tenant-beta',
+  )
+  if (typeof dm === 'object') store.markDiscussionRead(dm.id, 'tenant-beta')
+
   // ── The bearer-token registry (INV-11 / PORT-9) ── one minted row, so the
   // `apiTokens` slice round-trips (revocation state must survive a restart).
   const { accounts } = await import('../server/accounts.ts')

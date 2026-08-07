@@ -49,6 +49,20 @@ export const NOTIFICATION_KINDS = [
   // holds the moderation delete (owner moderation; instance-level reports are
   // the S6 escalation).
   'social.reported',
+  // ── S7, the person layer ──────────────────────────────────────────────────
+  // Someone followed you. The ONE bell a follow mints, and it rings because
+  // somebody acted ON YOU. Deliberately asymmetric: a followee's PUBLISHES
+  // reach the follower's Commons lens and never their bell — D24's rule is that
+  // a bell means you are involved, and access isn't involvement (the same cut
+  // `watch` already makes). A feed that rang would be an engagement machine,
+  // which §4 of the design doc rules out by name.
+  'social.followed',
+  // A direct message landed. A DM is a Discussion anchored to a PRINCIPAL, so
+  // `social.discussed` would have delivered it — but that row's sentence is
+  // "commented on your thing", and a message is not a comment on the recipient.
+  // A separate kind so the bell can say what actually happened; its door is the
+  // thread, like every other discussion kind.
+  'social.messaged',
 ] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
 

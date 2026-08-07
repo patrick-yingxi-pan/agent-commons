@@ -77,7 +77,7 @@ import { cleanSteps, moveStep, removeStep } from '../lib/steps'
 import { ConnectorDetailBody } from './ConnectorPanel'
 import { AddContextButton } from './AddContextButton'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
-import { DOOR_CLASS } from '../lib/textDoor'
+import { DOOR_CLASS, STANDING_DOOR_CLASS } from '../lib/textDoor'
 import { CARD_DOOR_CLASS, ROW_DOOR_CLASS, cardDoorClick } from '../lib/cardDoor'
 import { LEDGER_BOX_CLASS, LEDGER_HEAD_CLASS, LEDGER_COUNT_CLASS, LEDGER_ROW_CLASS, QUIET_CARD_CLASS } from '../lib/ledger'
 import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
@@ -86,6 +86,8 @@ import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { AnchorThreadComposer } from './AnchorThreadComposer'
 import { LocusGutter } from './LocusGutter'
 import { GrantsPanel } from './GrantsPanel'
+import { FollowButton } from './FollowButton'
+import { MessageButton } from './MessageButton'
 import { ProposalsPanel } from './ProposalsPanel'
 import { Tooltip } from './Tooltip'
 import { describeLocus, locusFocus } from '../lib/anchorLocus'
@@ -189,6 +191,8 @@ import {
   useDiscussions,
   useCommons,
   useMyDiscussions,
+  useDirectMessages,
+  useFollows,
   useSocialProposals,
   useSocialCapability,
   useGrants,
@@ -201,6 +205,7 @@ import {
   deleteDiscussionPost,
   reportDiscussionPost,
   setDiscussionState,
+  markDiscussionRead,
   openContribution,
   noteContribution,
   landContribution,
@@ -255,6 +260,7 @@ import {
   describeSchedulePatch,
   discussionTitle,
   type CommonsItem,
+  type FollowRow,
   type Discussion,
   type DiscussionPost,
   type ProposalDelta,
@@ -441,6 +447,11 @@ export function SectionView({
       <CommonsSection lens={subview} />
     ) : section === 'discussions' ? (
       <DiscussionsSection discussionId={focusDiscussionId} onOpenSession={onOpenSession} onFocusHere={onFocusHere} onBack={onBack} backTo={backTo} />
+    ) : section === 'messages' ? (
+      // S7 — the DM inbox. It lists only; a thread's canonical page is
+      // `/discussions/:did` (one page, one URL), so rows door THERE rather than
+      // minting a second address for the same surface.
+      <MessagesSection />
     ) : section === 'admin' ? (
       // The maintainer console (contract/admin.ts): like the Agents hub its
       // children are SURFACES, defaulting to Accounts when the rail sub-view is
@@ -3114,6 +3125,7 @@ function ProfileCommonsBand({ actor }: { actor: string }) {
  *  states below and the filter agree by construction — and so a lens can never
  *  be a client-side guess about what the reader watches or liked. */
 const LENS_HOLDS: Record<string, (i: CommonsItem) => boolean> = {
+  following: (i) => i.followed === true,
   watched: (i) => i.watched === true,
   liked: (i) => i.liked === true,
   posted: (i) => i.mine === true,
@@ -3129,10 +3141,29 @@ const LENS_LABEL: Record<string, string> = Object.fromEntries(
 /** What each lens says when it holds nothing — the act that would fill it. An
  *  empty collection is exactly where its verb has to be named. */
 const LENS_EMPTY: Record<string, string> = {
+  following: 'You aren’t following anyone yet — follow a workspace from its profile, and what it publishes collects here.',
   watched: 'Nothing watched yet — watch a resource from its card or its page, and its acts land here.',
+
   liked: 'Nothing liked yet — like a post from its card to keep it here.',
   posted: 'You haven’t published anything yet — share a resource with a note and your post lands here.',
   viewed: 'Nothing opened yet — the resources you open from the commons collect here, most recent first.',
+}
+
+/** An empty lens names the act that would fill it — but FOLLOWING is the one
+ *  lens whose emptiness is ambiguous, because it keys on the ACTOR rather than
+ *  the subject: it is empty both when you follow nobody AND when the people you
+ *  follow simply haven't published. The single sentence told the first reader
+ *  "you aren't following anyone" while they were following someone (found in
+ *  the in-app pass), which is an empty state asserting something false — worse
+ *  than no explanation, because the next click it suggests is the one already
+ *  done. Every other lens keys on the viewer's own act on the item, so for them
+ *  emptiness has exactly one cause and the constant is honest. */
+function lensEmptyText(lens: string, followed: string[]): string {
+  if (lens === 'following' && followed.length > 0) {
+    const who = followed.length === 1 ? followed[0] : `the ${followed.length} workspaces you follow`
+    return `Nothing yet from ${who} — what they publish to your commons collects here.`
+  }
+  return LENS_EMPTY[lens] ?? 'Nothing here yet.'
 }
 
 /** Record that this pane OPENED a subject's page — the ledger behind the
@@ -3217,6 +3248,11 @@ function CommonsSection({ lens }: { lens: string | null }) {
   // facet views stay pure feed.
   const [q, setQ] = useState('')
   const browse = useProjectDirectory(q.trim() || undefined).data ?? []
+  // S7 — the Following lens is the ONE lens whose emptiness is ambiguous (see
+  // `lensEmptyText`), so it needs the follow list to say which emptiness it is.
+  // Fetched only on that lens: every other view would pay a request for a
+  // sentence it never renders.
+  const followed = useFollows(lens === 'following').data ?? []
   return (
     <Page>
       <PageHeader title={lens ? `Commons · ${LENS_LABEL[lens] ?? lens}` : 'Commons'} />
@@ -3225,7 +3261,7 @@ function CommonsSection({ lens }: { lens: string | null }) {
           {/* A lens names the act that fills it; a facet says what it found
               nothing of; the bare feed explains what a post even is. */}
           {lens
-            ? (LENS_EMPTY[lens] ?? 'Nothing here yet.')
+            ? lensEmptyText(lens, followed)
             : filter.facet !== 'all'
               ? `No ${filter.facet} in your commons yet.`
               : 'Nothing published yet — share a resource with a note (the note is the post) and it lands here for its audience.'}
@@ -3358,7 +3394,20 @@ function DiscussionPage({
   useRecordView('discussion', discussionId)
   // Read BEFORE the not-found early return, so hook order is stable; disabled
   // until the anchor is known.
-  const canComment = useSocialCapability(d?.anchor.ref.kind ?? '', d?.anchor.ref.id ?? '', !!d).data?.canComment === true
+  const isDm = d?.direct === true
+  // The THREAD's own write standing, computed by the predicate the write path
+  // enforces — not the subject's tier capability, which on a DM asks whether
+  // you could cold-open to that person (asymmetric, and false for the recipient
+  // who may certainly reply). One decision, server-side, like `canResolve`.
+  const canComment = d?.canPost === true
+  // Opening a message marks it read — that is what "opened" means for an inbox,
+  // and leaving the dot lit on a thread the reader is looking at would be a
+  // visible lie. Keyed on the newest post so a reply while the page is open
+  // clears too; a private note to self, so a failure is swallowed.
+  const newestPostId = d?.posts[d.posts.length - 1]?.id
+  useEffect(() => {
+    if (isDm && newestPostId) void markDiscussionRead(discussionId).catch(() => {})
+  }, [isDm, newestPostId, discussionId])
   if (!d) {
     return (
       <Page>
@@ -3378,12 +3427,19 @@ function DiscussionPage({
         <div className="flex min-w-0 items-start gap-3">
           <BackButton to={backTo} onBack={onBack} />
           <div className="min-w-0">
-            <h1 className={PAGE_TITLE_CLASS}>{discussionTitle(d.posts[0]?.body)}</h1>
+            {/* A DM's title is WHO IT IS WITH, not its opening words — the same
+                reason the inbox row leads with the counterpart. And it wears no
+                AnchorChip: the chip's job is a door back to the anchored
+                resource, and here the "resource" is the person already named in
+                the title (S7). */}
+            <h1 className={PAGE_TITLE_CLASS}>{isDm ? (d.counterpart ?? d.openedBy) : discussionTitle(d.posts[0]?.body)}</h1>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-ink-faint">
               <span>
-                {d.state === 'open' ? 'Open' : 'Resolved'} · opened by {d.openedBy} {relativeTime(d.openedAt)}
+                {isDm ?
+                  `Direct message · started by ${d.openedBy} ${relativeTime(d.openedAt)}`
+                : `${d.state === 'open' ? 'Open' : 'Resolved'} · opened by ${d.openedBy} ${relativeTime(d.openedAt)}`}
               </span>
-              <AnchorChip anchor={d.anchor} onOpenSession={onOpenSession} onFocusHere={onFocusHere} />
+              {!isDm && <AnchorChip anchor={d.anchor} onOpenSession={onOpenSession} onFocusHere={onFocusHere} />}
             </div>
           </div>
         </div>
@@ -3439,8 +3495,11 @@ function DiscussionPage({
             <AnchorThreadComposer
               subject={d.anchor.ref}
               thread={d}
-              placeholder="Reply…"
-              ariaLabel="Reply to this discussion"
+              placeholder={isDm ? `Reply to ${d.counterpart ?? d.openedBy}…` : 'Reply…'}
+              // A DM's composer is not "this discussion" — naming the person is
+              // both the accurate description and the one that tells a screen
+              // reader which of several open conversations it belongs to.
+              ariaLabel={isDm ? `Reply to ${d.counterpart ?? d.openedBy}` : 'Reply to this discussion'}
             />
           </div>
         )}
@@ -3508,6 +3567,123 @@ function DiscussionsSection({
               <span className="shrink-0 text-[11px] text-ink-faint">{relativeTime(d.posts[d.posts.length - 1]?.at ?? d.openedAt)}</span>
             </div>
           ))}
+        </CardList>
+      )}
+    </Page>
+  )
+}
+
+/** A follow roster band on a profile (S7) — Followers / Following, the standard
+ *  social pair. Rows are PEOPLE, so each is the shared `OwnerLink` door into
+ *  that person's own profile, carrying the same inline `FollowButton` the
+ *  header does; the graph is walkable rather than a dead list of names.
+ *
+ *  The counts are public (aggregates of public acts, like every other stat on
+ *  this page) while the ROWS are viewer-filtered server-side, so the two can
+ *  legitimately disagree. That gap is stated in the band rather than hidden:
+ *  it was a hover tooltip first, which is not a place you can check who follows
+ *  you — the whole reason this band exists. */
+function FollowRosterBand({
+  title,
+  rows,
+  total,
+  emptyText,
+  onOpenOwner,
+}: {
+  title: string
+  rows: FollowRow[]
+  total: number
+  emptyText: string
+  onOpenOwner: (name: string) => void
+}) {
+  const hidden = Math.max(0, total - rows.length)
+  return (
+    <div>
+      <div className="mb-2 flex items-baseline gap-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+        <span>{title}</span>
+        <span className="font-normal normal-case tracking-normal">{total}</span>
+      </div>
+      {rows.length === 0 ? (
+        // "Nobody yet" is only true when the COUNT is zero. With followers the
+        // viewer simply cannot see, the honest sentence is the hidden one below
+        // — printing both stacked two contradictory claims on one band (the
+        // same defect the Following lens's empty state was fixed for).
+        <Empty>{total === 0 ? emptyText : `None of ${title.toLowerCase()} here are visible from your account.`}</Empty>
+      ) : (
+        <CardList>
+          {rows.map((r) => (
+            <div key={r.name} className="flex items-center gap-3 px-4 py-2.5">
+              <div className="min-w-0 flex-1">
+                <OwnerLink ownerName={r.name} own={r.own} bare onClick={() => onOpenOwner(r.name)} />
+              </div>
+              {/* No control on your own row — you cannot follow yourself, and
+                  the server reports neither flag for it. */}
+              {!r.own && <FollowButton name={r.name} following={r.youFollow === true} />}
+            </div>
+          ))}
+        </CardList>
+      )}
+      {hidden > 0 && rows.length > 0 && (
+        <p className="mt-2 text-[11px] text-ink-faint">
+          {hidden} more not shown here — either beyond this page or not visible from your account.
+        </p>
+      )}
+    </div>
+  )
+}
+
+/** The DM inbox (S7). A message is a Discussion anchored to a PERSON, so every
+ *  row here is an ordinary thread — what makes the surface a message list is
+ *  the two viewer-relative fields the server stamps on a principal anchor:
+ *  `counterpart` (whom it is with, from THIS reader's end) and `unread`.
+ *
+ *  List-only on purpose. A thread's canonical page is `/discussions/:did`, and
+ *  a second `/messages/:did` would be a duplicate address for one page — the
+ *  URL rule this app is built on. So the title is a door into the same timeline
+ *  the Discussions hub opens, and the DM face travels with the thread. */
+function MessagesSection() {
+  const rel = useRelations()
+  const list = useDirectMessages().data ?? []
+  return (
+    <Page>
+      <PageHeader title="Messages" />
+      {list.length === 0 ? (
+        <Empty>
+          No messages yet — open someone’s profile from the commons and use “Message” to start one.
+        </Empty>
+      ) : (
+        <CardList>
+          {list.map((d) => {
+            const last = d.posts[d.posts.length - 1]
+            const unread = d.unread ?? 0
+            return (
+              <div key={d.id} className="flex items-center gap-3 px-4 py-3">
+                <span className="flex w-4 shrink-0 items-center justify-center">
+                  {unread > 0 ? (
+                    <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-label={`${unread} unread`} />
+                  ) : null}
+                </span>
+                <div className="min-w-0 flex-1">
+                  {/* Title-as-door — and the title of a MESSAGE is who it is
+                      with, not its opening words. That is the one thing a DM
+                      row is scanned for. */}
+                  <button
+                    onClick={() => rel.navigate('discussions', d.id)}
+                    className={`block max-w-full truncate text-left text-[14px] ${unread > 0 ? 'font-medium text-ink' : 'text-ink'} ${DOOR_CLASS}`}
+                  >
+                    {d.counterpart ?? d.openedBy}
+                  </button>
+                  {/* `mine` — the server's flag — not `author === counterpart`:
+                      display names are not unique and not identities, and this
+                      repo's rule is that a control or cue never keys on one. */}
+                  <div className="mt-0.5 truncate text-[11px] text-ink-faint">
+                    {last ? `${last.mine === true ? 'You: ' : ''}${last.body}` : 'No messages yet'}
+                  </div>
+                </div>
+                <span className="shrink-0 text-[11px] text-ink-faint">{relativeTime(last?.at ?? d.openedAt)}</span>
+              </div>
+            )
+          })}
         </CardList>
       )}
     </Page>
@@ -8364,6 +8540,8 @@ function OwnerProfilePage({
   // S18 — the header's aggregate counts anchor to the Published-agents band, where
   // each definition carries its own per-agent lineage doors.
   const agentsBandRef = useRef<HTMLDivElement>(null)
+  // S7 — the follow bands' anchor, so the header counts can open what they count.
+  const followBandRef = useRef<HTMLDivElement>(null)
   if (!profile) {
     return (
       <Page>
@@ -8412,13 +8590,60 @@ function OwnerProfilePage({
                 {s.openWork} open work item{s.openWork === 1 ? '' : 's'}
               </span>
             )}
+            {/* S7 — the follow counts are DOORS to their bands below, the same
+                move `CreditLine` makes for contributions/forks: a count you
+                cannot open is a dead end, and "who follows me" is the question
+                the number provokes. */}
+            <button onClick={() => followBandRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })} className={STANDING_DOOR_CLASS}>
+              {profile.follow.followers} follower{profile.follow.followers === 1 ? '' : 's'}
+            </button>
+            <button onClick={() => followBandRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })} className={STANDING_DOOR_CLASS}>
+              {profile.follow.following} following
+            </button>
           </p>
         </div>
+        </div>
+        {/* The two acts a PERSON affords — the only controls on this page that
+            act on the workspace rather than navigating within it. Absent on your
+            own profile, where the server reports neither (you cannot follow or
+            message yourself). */}
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {!profile.own && (
+            <FollowButton name={profile.name} following={profile.follow.youFollow === true} ready={!!profile} />
+          )}
+          {profile.follow.canMessage === true && (
+            <MessageButton name={profile.name} dmId={profile.follow.dmId} onOpenDiscussion={(did) => rel.navigate('discussions', did)} />
+          )}
         </div>
       </header>
 
       <div className="space-y-6">
         {profile.org && <OrgMemberPanel org={profile.org} />}
+
+        {/* S7 — the follow graph, walkable. Placed first among the bands because
+            a profile is a PERSON's page and these are the person-to-person
+            relations; the resource bands below are what they've published. */}
+        {/* Two columns only when the PAGE is wide enough — `@2xl`, not `sm:`.
+            This page renders inside split panes, so a viewport gate would put
+            two roster columns in a 380px pane on a wide window (the UI-9 rule,
+            locked by tests/pane-safe-layout.test.ts — which caught this). */}
+        <div ref={followBandRef} className="grid gap-6 @2xl:grid-cols-2">
+          <FollowRosterBand
+            title="Followers"
+            rows={profile.follow.followerList}
+            total={profile.follow.followers}
+            emptyText={profile.own ? 'Nobody follows you yet.' : `Nobody follows ${profile.name} yet.`}
+            onOpenOwner={(n) => rel.navigate('agents', n)}
+          />
+          <FollowRosterBand
+            title="Following"
+            rows={profile.follow.followingList}
+            total={profile.follow.following}
+            emptyText={profile.own ? 'You aren’t following anyone yet.' : `${profile.name} isn’t following anyone yet.`}
+            onOpenOwner={(n) => rel.navigate('agents', n)}
+          />
+        </div>
+
         <div>
           <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
             Shared projects

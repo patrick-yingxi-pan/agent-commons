@@ -50,6 +50,9 @@ export type NavIntent =
   /** A discussion's own page (`social.discussed`) — the thread IS the target,
    *  so this door needs no in-page focus: the post is on the page it opens. */
   | { kind: 'discussion'; discussionId: string }
+  /** A workspace's public profile (`social.followed`, S7) — a follow is an act
+   *  about a PERSON, and the profile is the only page a person has. */
+  | { kind: 'owner'; ownerName: string }
   | { kind: 'section'; section: SectionId }
 
 /** The door for one notification — total over `NotificationKind`. */
@@ -87,6 +90,17 @@ export function doorFor(n: AppNotification): NavIntent {
     case 'social.discussed':
       if (n.discussionId) return { kind: 'discussion', discussionId: n.discussionId }
       return { kind: 'section', section: 'discussions' }
+    // S7 — a DM lands on the thread, like every other discussion kind; its
+    // fallback is the INBOX rather than the discussions hub, because that is
+    // where the server lists it (a DM is deliberately in exactly one of the
+    // two, so the door has to agree with the list).
+    case 'social.messaged':
+      if (n.discussionId) return { kind: 'discussion', discussionId: n.discussionId }
+      return { kind: 'section', section: 'messages' }
+    // A new follower → their profile, the only page the act is ABOUT. (`actor`
+    // is the public display name, which is exactly the profile handle.)
+    case 'social.followed':
+      return { kind: 'owner', ownerName: n.actor }
     // A fork lands on YOUR conversation, never on their copy — the D24 leak-wall
     // (their fork is a private session of theirs, exactly as `agent.forked` sends
     // the owner to the source and never to the fork).

@@ -16,8 +16,12 @@
  *     `savedcontext.changed` now broadcasts the server-owned mutation. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { store } from '../server/store.ts'
 import type { ServerEvent } from '../contract/index.ts'
+
+const ROOT = new URL('..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
 
 const OWNER = 'tenant-evt-owner'
 const OTHER = 'tenant-evt-other'
@@ -151,4 +155,54 @@ test('saved-context add/remove are server-owned mutations that broadcast (the Co
   assert.ok(onRemove.some((e) => e.type === 'savedcontext.changed' && e.id === 'evt-test-ctx'), 'remove broadcasts')
   assert.ok(!store.savedContexts().contexts.some((c) => c.id === 'evt-test-ctx'), 'the registry drops it')
   assert.equal(store.removeSavedContext('evt-test-ctx'), false, 'a second remove reports unknown (→ 404)')
+})
+
+/** ── The gate is TOTAL over the event union (earned 2026-08-07) ──────────────
+ *  `eventVisibleToTenant` is a switch ending in `default: return true`, so an
+ *  event type with no arm is not a compile error — it is a silent BROADCAST to
+ *  every open stream. That has now happened twice: `reservation.changed` leaked
+ *  a private project's claim name (the C31 comment in store.ts records it), and
+ *  S7's `follow.changed` shipped carrying two RAW tenant ids to every
+ *  subscriber before review caught it.
+ *
+ *  So enumerate rather than remember: every `type:` literal declared in
+ *  contract/events.ts must either have a `case` in the gate or be named below
+ *  as deliberately global, with the reason. A new event forces that choice.
+ *
+ *  Source-scanned on purpose — the union is types-only, so there is no runtime
+ *  array to iterate, and a hand-kept second list is the drift this prevents. */
+test('every ServerEvent type is gated or explicitly declared global', () => {
+  const events = readFileSync(join(ROOT, 'contract', 'events.ts'), 'utf8')
+  const store = readFileSync(join(ROOT, 'server', 'store.ts'), 'utf8')
+
+  // The union's members, from their discriminant literals.
+  const declared = [...new Set([...events.matchAll(/^\s*type:\s*'([\w.-]+)'/gm)].map((m) => m[1]))]
+  assert.ok(declared.length > 20, `found the event union (${declared.length} types) — the scan is not vacuous`)
+
+  // The gate's arms. Bounded to the function so an unrelated switch elsewhere
+  // in the file cannot make a missing arm look present.
+  const start = store.indexOf('eventVisibleToTenant(e: ServerEvent, tenantId: string): boolean {')
+  assert.ok(start > 0, 'the gate exists in store.ts')
+  const body = store.slice(start, store.indexOf('\n  },', start))
+  const gated = new Set([...body.matchAll(/case '([\w.-]+)':/g)].map((m) => m[1]))
+
+  /** Deliberately global: events that carry NO tenant-identifiable payload, so
+   *  broadcasting them tells a subscriber nothing it could not already ask for.
+   *  Adding a name here is a claim about that event's payload — check it. */
+  const GLOBAL = new Set([
+    'hello',
+    'message.start', 'message.delta', 'message.relations', 'message.escalation',
+    'message.toolActivity', 'message.end',
+    'relation.applied', 'recents.changed', 'connector.status', 'savedcontext.changed',
+    'runner.connected', 'runner.disconnected', 'runner.capabilities.changed', 'runner.effect',
+    'relay.connected', 'relay.disconnected', 'relay.activity',
+    'dispatch.changed', 'notification.changed', 'session.contexts.changed',
+  ])
+
+  const ungoverned = declared.filter((t) => !gated.has(t) && !GLOBAL.has(t))
+  assert.deepEqual(
+    ungoverned,
+    [],
+    `these event types reach the gate's \`default: return true\` and broadcast to EVERY stream — add a case in eventVisibleToTenant, or name them GLOBAL here with the reason: ${ungoverned.join(', ')}`,
+  )
 })

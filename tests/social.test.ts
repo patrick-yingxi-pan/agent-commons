@@ -15,7 +15,7 @@ import { RELATIONS } from '../contract/relations.ts'
 import { store } from '../server/store.ts'
 import { call } from './helpers/http.ts'
 
-test('the social nouns = the relation graph\'s five entities + discussion + proposal', () => {
+test('the social nouns = the relation graph\'s five entities + discussion + proposal + principal', () => {
   const relationEnds = new Set(RELATIONS.flatMap((r) => r.ends))
   for (const kind of relationEnds) {
     assert.ok(
@@ -23,10 +23,14 @@ test('the social nouns = the relation graph\'s five entities + discussion + prop
       `relation entity "${kind}" must be a social noun`,
     )
   }
+  // `principal` (S7) is the one noun that is not a RESOURCE: it is a person,
+  // and it exists so the Discussion primitive can mean "talk directed AT
+  // someone" — the DM — without a fourth primitive. The other two primitives
+  // refuse it explicitly rather than leaving the cell unhandled (locked below).
   assert.deepEqual(
     [...SOCIAL_ENTITY_KINDS].sort(),
-    [...relationEnds, 'discussion', 'proposal'].sort(),
-    'social nouns are exactly the relation entities plus the two social entities',
+    [...relationEnds, 'discussion', 'proposal', 'principal'].sort(),
+    'social nouns are exactly the relation entities plus the social entities and the person',
   )
 })
 

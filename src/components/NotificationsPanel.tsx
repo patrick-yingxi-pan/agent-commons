@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { AtSign, Award, Bell, GitFork, GitMerge, GitPullRequest, Hammer, ListChecks, MessageSquare, MessagesSquare, Share2, Sparkles, XCircle, type LucideIcon } from 'lucide-react'
+import { AtSign, Award, Bell, GitFork, GitMerge, GitPullRequest, Hammer, ListChecks, Mail, MessageSquare, MessagesSquare, Share2, Sparkles, UserPlus, XCircle, type LucideIcon } from 'lucide-react'
 import type { AppNotification, NotificationKind } from '../../contract/index.ts'
 import type { SectionId } from '../types'
 import { useFocusTrap } from '../lib/useFocusTrap'
@@ -35,6 +35,9 @@ const KIND_ICON: Record<NotificationKind, LucideIcon> = {
   'social.discussed': MessagesSquare,
   'social.forked': GitFork,
   'social.reported': Bell,
+  // The person layer (S7).
+  'social.followed': UserPlus,
+  'social.messaged': Mail,
 }
 
 /** The row's one-line sentence — actor + verb + object (all public-face fields). */
@@ -75,6 +78,13 @@ function describe(n: AppNotification): string {
       return `${n.actor} continued your conversation “${n.subjectName}” from one of its turns`
     case 'social.reported':
       return `${n.actor} reported a post on “${n.subjectName}” — you hold the delete`
+    // The person layer (S7). Neither row names a subject: for a follow the
+    // subject is YOU, and for a message the anchored name is the reader's own —
+    // echoing either back would label the bell with the recipient.
+    case 'social.followed':
+      return `${n.actor} followed you`
+    case 'social.messaged':
+      return `${n.actor} sent you a message`
   }
 }
 
@@ -141,6 +151,9 @@ export function NotificationsPanel({
       }
       case 'discussion':
         onOpenDiscussion(intent.discussionId)
+        break
+      case 'owner':
+        onOpenOwner(intent.ownerName)
         break
       case 'section':
         onOpenSection(intent.section)

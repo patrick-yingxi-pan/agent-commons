@@ -32,6 +32,8 @@ import {
   type OpenDiscussionRequest,
   type OpenProposalRequest,
   type PostToDiscussionRequest,
+  type SetFollowRequest,
+  type MarkDiscussionReadRequest,
   type SocialProposal,
   type SocialEntityRef,
   type OpenContributionRequest,
@@ -516,6 +518,10 @@ export async function openDiscussion(req: OpenDiscussionRequest): Promise<Discus
   const d = await apiPost<Discussion>(paths.discussionOpen(), req)
   invalidate(keys.discussions(req.anchor.ref.kind, req.anchor.ref.id))
   invalidate(keys.discussion(d.id))
+  // A principal anchor IS a direct message (S7), so the inbox is stale — and it
+  // is a different key from the anchored list above, because the server lists a
+  // DM in the inbox and nowhere else.
+  if (req.anchor.ref.kind === 'principal') invalidate(keys.directMessages)
   return d
 }
 
@@ -524,7 +530,31 @@ export async function postToDiscussion(did: string, body: string, anchorRef: { k
   const d = await apiPost<Discussion>(paths.discussionPosts(did), { body } satisfies PostToDiscussionRequest)
   invalidate(keys.discussions(anchorRef.kind, anchorRef.id))
   invalidate(keys.discussion(did))
+  if (anchorRef.kind === 'principal') invalidate(keys.directMessages)
   return d
+}
+
+/** ── The person layer (S7) ───────────────────────────────────────────────────
+ *  Follow / unfollow a workspace by its public display name. Explicit state,
+ *  never a toggle: two clients pressing at once must converge on what the user
+ *  asked for. Invalidates the FEED as well as the list, because `followed` is a
+ *  server-stamped field on every item — the Following lens would otherwise show
+ *  a stale set until the next refetch. */
+export async function setFollow(name: string, following: boolean): Promise<string[]> {
+  const list = await apiPost<string[]>(paths.socialFollow(), { name, following } satisfies SetFollowRequest)
+  invalidate(keys.follows)
+  invalidate(keys.commons)
+  invalidate(keys.ownerProfile(name))
+  return list
+}
+
+/** Mark a thread read up to its newest post — what clears the inbox's unread
+ *  dot. A private note to self: it rings nobody and moves no wall, so a failure
+ *  is swallowed rather than surfaced (the `recordView` posture). */
+export async function markDiscussionRead(did: string): Promise<void> {
+  await apiPost<{ ok: true }>(paths.discussionRead(did), {} satisfies MarkDiscussionReadRequest)
+  invalidate(keys.directMessages)
+  invalidate(keys.discussion(did))
 }
 
 /** Toggle the one thin reaction on a post — any reader may endorse. */

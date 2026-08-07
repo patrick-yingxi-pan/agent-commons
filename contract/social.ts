@@ -9,7 +9,36 @@
 
 /** The social nouns: the five of `contract/relations.ts` plus Discussion and
  *  Proposal (both entities themselves, so every primitive applies recursively —
- *  a proposal's review thread IS a discussion anchored to the proposal). */
+ *  a proposal's review thread IS a discussion anchored to the proposal), plus
+ *  `principal` — a PERSON (S7).
+ *
+ *  ── Why a person is a social noun (S7) ──────────────────────────────────────
+ *  Everything above is a RESOURCE. The layer had no way to address a human, so
+ *  two people who could see each other had no channel between them. Rather than
+ *  mint a fourth primitive (a Message entity with its own posts, moderation and
+ *  bells), `principal` joins the nouns and the EXISTING Discussion primitive
+ *  means "talk directed at a person" when its anchor is one. A DM therefore
+ *  inherits posts, reactions, retract/report/mute, the timeline page and the
+ *  hand-it-to-Claude hook by construction, not by copy.
+ *
+ *  A principal's `id` is its public DISPLAY NAME — the same handle `/u/:name`,
+ *  `Grant.grantedBy`, `CommonsItem.actor` and the S5 mutes already use. Raw
+ *  tenant ids still never cross the wire (the REDACTED rule).
+ *
+ *  The orthogonality test demands every cell be answered, so the three that are
+ *  NOT the DM are explicit refusals rather than unhandled cases:
+ *
+ *    Grant × principal      REFUSED — you cannot share a person; access to a
+ *                           human is not a thing a tier can express (the
+ *                           `context` `'unsupported'` precedent).
+ *    Proposal × principal   REFUSED — a proposal is a typed change landed by
+ *                           the subject owner's consent, and a person is not
+ *                           a resource whose fields anyone may edit.
+ *    Grant × a principal-   REFUSED — a DM's wall is the pair, by
+ *      anchored Discussion  construction; a grant would leak it. This is the
+ *                           one place the recursion rule is cut, and it is cut
+ *                           here rather than left to each read path.
+ *    Discussion × principal THE DM (see `Discussion.direct`). */
 export const SOCIAL_ENTITY_KINDS = [
   'session',
   'project',
@@ -18,11 +47,12 @@ export const SOCIAL_ENTITY_KINDS = [
   'schedule',
   'discussion',
   'proposal',
+  'principal',
 ] as const
 export type SocialEntityKind = (typeof SOCIAL_ENTITY_KINDS)[number]
 
 /** One canonical reference to any social noun — the sole argument shape the
- *  three primitives accept. */
+ *  three primitives accept. For `principal`, `id` is the public display name. */
 export interface SocialEntityRef {
   kind: SocialEntityKind
   id: string
@@ -192,6 +222,32 @@ export interface Discussion {
    *  same predicate the write path uses, so the affordance can't drift from the
    *  wall. */
   canResolve?: boolean
+  /** Viewer-relative: may the caller POST in this thread? Computed by the very
+   *  predicate `postToDiscussion` enforces (`discussionWritableBy`).
+   *
+   *  It exists because `GET /social/capability` asks the wrong question for a
+   *  DM: on a principal subject that endpoint answers REACHABILITY — "could you
+   *  cold-open to this person" — which is asymmetric and false for the
+   *  recipient, who may certainly reply. The UI briefly worked around it with
+   *  `isDm || canComment`, which is the SOCIAL-4b defect inverted: the control
+   *  and the wall become two decisions again. A thread's own write standing
+   *  belongs on the thread. */
+  canPost?: boolean
+  /** ── The DM face (S7) — set only on a PRINCIPAL-anchored thread ────────────
+   *  A direct message is not a variant type: it is this same Discussion with an
+   *  anchor that happens to be a person. These two fields are what a surface
+   *  needs to render it AS a message rather than as a comment thread. INV-9:
+   *  absent = an ordinary resource-anchored discussion. */
+  direct?: boolean
+  /** Viewer-relative: the OTHER party's display name. A DM's stream identity is
+   *  the unordered PAIR {opener, anchored principal}, so "who is this thread
+   *  with" depends on which end is reading — the anchor's name is the right
+   *  answer for the opener and the wrong one for the recipient (who would see
+   *  their own name). Computed at serve time, like `mine`. */
+  counterpart?: string
+  /** Viewer-relative: posts the caller has not seen (a DM inbox's unread dot).
+   *  Derived from the caller's own read mark, never stored on the thread. */
+  unread?: number
 }
 
 /** `POST /v1/discussions` — open a discussion on an anchor. INV-9: an absent
@@ -325,6 +381,12 @@ export interface CommonsItem {
   liked?: boolean
   /** The caller watches this item's SUBJECT (so its acts reach their bell). */
   watched?: boolean
+  /** The caller FOLLOWS this item's actor (S7) — the predicate behind the
+   *  Commons' Following lens. Actor-relative, not subject-relative: the other
+   *  lenses ask "what is my relationship to this thing", this one asks "what is
+   *  my relationship to whoever did it", which is precisely what a social feed
+   *  is for. */
+  followed?: boolean
   /** When the caller last opened the subject's page — absent = never. Orders
    *  the "Recently viewed" lens, which is by definition an order, not a set. */
   viewedAt?: number
@@ -343,6 +405,46 @@ export interface SetCommonsLikeRequest {
 export interface SetSocialWatchRequest {
   subject: SocialEntityRef
   watching: boolean
+}
+
+/** ── Follow (S7) — the name-keyed POSITIVE, mute's twin ──────────────────────
+ *  `POST /v1/social/follow` — follow (or unfollow) a PRINCIPAL by its public
+ *  display name. Explicit state rather than a bare toggle, for the reason
+ *  `SetCommonsLikeRequest` states: two clients pressing at once must converge on
+ *  what the user asked for, not on a parity race.
+ *
+ *  Deliberately NOT the `watch` store, though the two are cousins. Watch's key
+ *  is a RESOURCE (`kind:id`) and its one consumer is the work-item bell
+ *  audience; follow's subject is a PERSON and its consumer is the feed. Merging
+ *  them would put two questions behind one key. The genuine sibling is the S5
+ *  MUTE — also name-keyed, also per-viewer, also a standing relationship — and
+ *  the two are exclusive: following a muted name CLEARS the mute, because you
+ *  cannot ask to both see and not-see the same person, and the follow is the
+ *  newer, more explicit statement.
+ *
+ *  Reachability, not a new wall: you may follow a name whose profile you can
+ *  already read (the D21 publisher-existence rule). Everyone else — including a
+ *  name that does not exist — gets the identical 404. */
+export interface SetFollowRequest {
+  /** The target's public display name. */
+  name: string
+  following: boolean
+}
+
+/** Answer of `GET /v1/me/follows` — the names the caller follows, sorted. The
+ *  caller's own list, so tenancy IS the filter and there is no parameter. */
+export type FollowList = string[]
+
+/** `POST /v1/discussions/:id/read` — mark a thread read up to its newest post
+ *  (S7). A private note to self like `RecordViewRequest`: it rings nobody and
+ *  moves no wall; it exists so a DM inbox can show an honest unread count. */
+export interface MarkDiscussionReadRequest {
+  /** Mark read up to ONE post — its moment becomes the reader's mark. INV-9:
+   *  absent is the complete-set constant, the whole thread. An id that is not in
+   *  this thread is REFUSED rather than widened to everything, because marking
+   *  more read than the caller asked is the one failure mode that hides
+   *  messages. The mark never moves backward. */
+  throughPostId?: string
 }
 
 /** `POST /v1/social/viewed` — record that the caller OPENED a subject's page.

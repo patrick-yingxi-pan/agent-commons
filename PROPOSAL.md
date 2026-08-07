@@ -177,7 +177,7 @@ schedule's delivery — because they all read one shared relation graph.
 | In-place escalation | Free-type it — “open a workspace…”, then “connect the repo…” — one thread, three beats. |
 | Adaptive panel | The panel morphs from artifacts → code at the repo step. |
 | Unified history | The single sidebar list — one row per conversation; the open conversation's composer chips show what it carries. |
-| Cross-cutting tools, not tabs | The sidebar's **New session** row and the Sections tree — Commons, Projects, Artifacts, Contexts, Models, Agents, Scheduled, Discussions, Dispatch, Customize — and their section views; no Chat/Cowork/Code switcher. |
+| Cross-cutting tools, not tabs | The sidebar's **New session** row and the Sections tree — Commons, Projects, Artifacts, Contexts, Models, Agents, Scheduled, Discussions, Messages, Dispatch, Customize — and their section views; no Chat/Cowork/Code switcher. |
 | Share · discuss · improve, on any noun | The same three acts apply to a conversation, a project, an artifact, a routine — a **Sharing** panel wherever the thing lives (the conversation's title bar, a project's or routine's rail, the artifact viewer), a comment gutter on a single *turn* or a single *run*, and an **Improvements** ledger whose landing runs the real mutator. The mode-free argument again, one level up: you don't pick a "sharing mode" either — the resource you're looking at is the subject. |
 | Relations, edited with consent | Any "file this under…" / "save this as an artifact" message — Claude proposes relation edits as inline cards; confirming one updates the Projects / Artifacts / Scheduled views. A standing card ("approve for all runs") shows the advance-approval model for schedules. |
 

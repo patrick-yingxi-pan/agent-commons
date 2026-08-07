@@ -66,6 +66,7 @@ import {
   runRecap,
   runSessionId,
   seedGraph,
+  FOLLOW_ROSTER_CAP,
   PROPOSABLE_SCHEDULE_FIELDS,
   SHARE_TIERS,
   tierPermits,
@@ -95,7 +96,7 @@ import { ConflictError, ValidationError } from './conflict.ts'
 import { LimitError } from './limit.ts'
 import { scopeMatches } from './runner-runtime.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, PROJECT_EFFECT_TYPES, ENVELOPE_HARNESSES, CHANGE_ENTRY_KINDS, DELEGATED_ACT_KINDS, ESCALATION_TRIGGERS, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../contract/index.ts'
-import type { Agent, AgentChangeProposal, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelInfo, ModelProvider, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, Contribution, OpenContributionRequest, Delegation, CreateDelegationRequest, OwnerActivity, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState, WorkItemComment } from '../contract/index.ts'
+import type { Agent, AgentChangeProposal, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelInfo, ModelProvider, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, Contribution, OpenContributionRequest, Delegation, CreateDelegationRequest, OwnerActivity, FollowRow, OwnerFollowFace, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState, WorkItemComment } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, SEED_PROVIDERS, SEED_PROVIDER_CONFIGS, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from './data/providers.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from './data/prompts.ts'
 import { SEED_COMMISSIONS } from './data/commissions.ts'
@@ -108,7 +109,7 @@ import { ResourceGuardian, GuardianError } from './guardian.ts'
 import { LOCAL_RUNNER_ID, LOCAL_RUNNER_SEED, RUNNER_FS_ROOTS } from './data/runners.ts'
 import { DEFAULT_AGENT } from './data/workers.ts'
 import { EMPTY_WORKSPACE, workspaceFromSeed } from './workspace.ts'
-import { STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer, type StoredOpenSubGoal, type StoredWorkItemComment, type StoredContribution, type StoredContributionEvent, type StoredDelegation, type StoredGrant, type StoredDiscussion, type StoredSocialProposal } from './persist.ts'
+import { STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer, type StoredOpenSubGoal, type StoredWorkItemComment, type StoredContribution, type StoredContributionEvent, type StoredDelegation, type StoredGrant, type StoredDiscussion, type StoredDiscussionPost, type StoredSocialProposal } from './persist.ts'
 import { eventlog } from './eventlog.ts'
 import { accounts } from './accounts.ts'
 
@@ -347,6 +348,40 @@ let grantSeq = 0
 /** S5 guardrails — per-viewer mute lists (actor display names). An earmuff,
  *  never a wall: filtering happens in the VIEWER's own feed/bell projections. */
 const mutes = new Map<string, Set<string>>()
+
+/** The seeded FOLLOW graph, code-owned like `SEED_GRANTS` / `SEED_DISCUSSIONS`
+ *  and re-ensured on load. Without it the Commons' Following lens is empty on
+ *  every cold start and the profile's follower count reads 0 — the feature's
+ *  whole payload invisible until someone happens to click Follow, which this
+ *  repo counts as a coverage violation rather than a skip. Deliberately small
+ *  and ONE-directional: Grace follows Ada (who publishes), which is exactly the
+ *  asymmetric shape a real follow graph has. */
+const SEED_FOLLOWS: [string, string[]][] = [['tenant-beta', ['Acme, Inc.']]]
+
+/** S7 — per-viewer FOLLOW lists (followee display names): the positive twin of
+ *  `mutes`, keyed the same way for the same reason (a display name is the D21
+ *  public handle; raw tenant ids never cross). Deliberately not the `watches`
+ *  store: that one's key is a resource and its consumer is the work-item bell
+ *  audience, while this one's subject is a person and its consumer is the feed.
+ *  The two sets are exclusive by construction — `setFollow` clears a mute. */
+const follows = new Map<string, Set<string>>(SEED_FOLLOWS.map(([t, names]) => [t, new Set(names)]))
+
+/** S7 — per-viewer read marks for discussions: `tenantId → discussionId → the
+ *  TIMESTAMP read through`. Kept beside the thread rather than on it because
+ *  "have I read this" is the reader's relationship to the thread, not a property
+ *  of it — the same reasoning that puts `mine`/`liked`/`viewedAt` on the
+ *  viewer's projection. Feeds the DM inbox's unread dot.
+ *
+ *  A timestamp, deliberately NOT a post COUNT: posts are deletable (S5
+ *  guardrails), so a count-based mark silently shifts when the array shrinks —
+ *  read 5, one retracted, two new, and the reader is told 1 unread instead of 2
+ *  (found in review). A mark that names a MOMENT is stable under deletion.
+ *
+ *  Bounded like its sibling ledgers (the inbox's `NOTIFICATION_CAP`, the views
+ *  ledger): this is disposable derived state, and an unbounded map would grow
+ *  with browsing history and ride every snapshot forever. */
+const discussionReads = new Map<string, Map<string, number>>()
+const READ_MARKS_PER_TENANT = 500
 const MAX_GRANTS_PER_SUBJECT = 100
 const MAX_GRANT_NOTE_CHARS = 2000
 
@@ -387,6 +422,7 @@ const SEED_DISCUSSIONS: StoredDiscussion[] = [
     posts: [
       {
         id: 'dpost-seed-1',
+        seq: 1,
         author: 'Beta Platform',
         authorTenant: 'tenant-beta',
         body: 'Read through the Q3 baseline — the retention cut is clearer than ours. Is the cohort window fixed at 28 days, or does it follow the billing period?',
@@ -395,6 +431,7 @@ const SEED_DISCUSSIONS: StoredDiscussion[] = [
       },
       {
         id: 'dpost-seed-2',
+        seq: 2,
         author: 'Acme, Inc.',
         authorTenant: 'tenant-acme',
         body: 'Fixed at 28 days for now. Following the billing period is the obvious next cut — worth an improvement offer if you want to take it.',
@@ -403,7 +440,46 @@ const SEED_DISCUSSIONS: StoredDiscussion[] = [
       },
     ],
   },
+  // S7 — the seeded DIRECT MESSAGE. Same code-owned, id-prefixed shape as the
+  // thread above, and it exists for the same reason: on a cold start the
+  // Messages section, the inbox row, the profile's Message door and the DM face
+  // on the thread page would every one of them render an empty state, which
+  // this repo counts as a coverage violation rather than a skip.
+  //
+  // Anchored on 'Acme, Inc.' and opened by Beta Platform, so the PAIR is
+  // {tenant-beta, tenant-acme} and both flagship accounts land in a live
+  // conversation — Ada sees it from Grace, Grace sees it from Ada.
+  {
+    id: 'disc-seed-2',
+    anchor: { ref: { kind: 'principal', id: 'Acme, Inc.' } },
+    state: 'open',
+    openedBy: 'Beta Platform',
+    openedAt: Date.now() - 5 * 3_600_000,
+    openerTenant: 'tenant-beta',
+    targetTenant: 'tenant-acme',
+    posts: [
+      {
+        id: 'dpost-seed-3',
+        seq: 1,
+        author: 'Beta Platform',
+        authorTenant: 'tenant-beta',
+        body: 'Off-thread for a second — before I offer the billing-period change, is anyone else already on it? Don’t want to duplicate work.',
+        at: Date.now() - 5 * 3_600_000,
+        reactedBy: [],
+      },
+      {
+        id: 'dpost-seed-4',
+        seq: 2,
+        author: 'Acme, Inc.',
+        authorTenant: 'tenant-acme',
+        body: 'Nobody’s on it. Go ahead — I’ll review it the same day you offer it.',
+        at: Date.now() - 4 * 3_600_000,
+        reactedBy: [],
+      },
+    ],
+  },
 ]
+
 const discussions: StoredDiscussion[] = SEED_DISCUSSIONS.map((d) => ({ ...d, posts: d.posts.map((p) => ({ ...p, reactedBy: [...p.reactedBy] })) }))
 let discussionSeq = 0
 const MAX_DISCUSSIONS_PER_SUBJECT = 100
@@ -435,6 +511,13 @@ function ownsDiscussionAnchor(d: StoredDiscussion, viewerTenant: string): boolea
  *  `setDiscussionState` enforces, read here so the wire face carries the answer
  *  and no surface has to re-derive (or under-derive) it. */
 function canResolveDiscussion(d: StoredDiscussion, viewerTenant: string): boolean {
+  // S7 — a DM has NO resolved state. "Resolved" is a question-settled verdict on
+  // a thread ABOUT something, and a conversation with a person is not a question
+  // anyone closes. Found in the in-app pass: the control rendered for a DM's
+  // opener and for nobody else, so one party could mark a two-party conversation
+  // finished and the other could not even reopen it. Refused here, which is also
+  // where the affordance reads its standing — one decision, not two.
+  if (d.anchor.ref.kind === 'principal') return false
   return tenantWritesAs(viewerTenant, d.openerTenant) || ownsDiscussionAnchor(d, viewerTenant)
 }
 
@@ -445,12 +528,79 @@ function canDeletePost(d: StoredDiscussion, authorTenant: string, viewerTenant: 
   return tenantWritesAs(viewerTenant, authorTenant) || ownsDiscussionAnchor(d, viewerTenant)
 }
 
+/** S7 — the DM face on the wire. A direct message is not a variant type: it is
+ *  a Discussion whose anchor is a person, so these are viewer-relative
+ *  DECORATIONS computed at serve time (the `mine` pattern), never stored.
+ *
+ *  `counterpart` exists because the anchor names only ONE end. A DM's identity
+ *  is the unordered pair, so the anchor's name is the right answer for the
+ *  opener and exactly the wrong one for the recipient — who would otherwise see
+ *  a thread labelled with their own name. */
+function dmFace(d: StoredDiscussion, viewerTenant?: string): Partial<Discussion> {
+  if (d.anchor.ref.kind !== 'principal') return {}
+  if (viewerTenant === undefined) return { direct: true }
+  const other = viewerTenant === d.openerTenant ? d.anchor.ref.id : d.openedBy
+  const readThrough = discussionReads.get(viewerTenant)?.get(d.id) ?? 0
+  // Your own words are never unread — count only posts somebody else wrote,
+  // past the ORDINAL this reader last caught up to. An ordinal (not an index,
+  // not a timestamp) is stable when a post is deleted and cannot tie.
+  const unread = d.posts.filter((p) => (p.seq ?? 0) > readThrough && p.authorTenant !== viewerTenant).length
+  return { direct: true, counterpart: other, ...(unread > 0 ? { unread } : {}) }
+}
+
+/** The bell one post mints. A resource thread rings `social.discussed` — "someone
+ *  is talking about your thing". A DM rings `social.messaged`, because that
+ *  sentence would be a lie: nobody is discussing the recipient, somebody is
+ *  writing TO them. The message row deliberately carries no subject face
+ *  either: the anchored name IS the recipient, so echoing it back would label
+ *  the bell with the reader's own name. The actor and the door are the whole
+ *  story. */
+function discussionBell(
+  d: StoredDiscussion,
+  tenantId: string,
+  subjectName: string,
+): Omit<StoredNotification, 'id' | 'read' | 'at' | 'tenantId'> {
+  const actor = tenantName(tenantId)
+  if (d.anchor.ref.kind === 'principal') return { kind: 'social.messaged', actor, discussionId: d.id }
+  return {
+    kind: 'social.discussed',
+    actor,
+    subjectKind: d.anchor.ref.kind,
+    subjectId: d.anchor.ref.id,
+    subjectName,
+    discussionId: d.id,
+  }
+}
+
+/** Mint one post. The ordinal rides the SAME global counter as the id, so it is
+ *  monotonic across the whole store and can never be reused — deriving it from
+ *  the thread's surviving posts would hand a deleted post's ordinal to the next
+ *  one, and a reader whose mark sat on it would never see that message. */
+function mintPost(body: string, tenantId: string, at = Date.now()): StoredDiscussionPost {
+  const seq = (discussionSeq += 1)
+  return {
+    id: `dpost-${seq}`,
+    author: tenantName(tenantId),
+    authorTenant: tenantId,
+    body: body.slice(0, MAX_DISCUSSION_CHARS),
+    at,
+    reactedBy: [],
+    seq,
+  }
+}
+
 function publicDiscussion(d: StoredDiscussion, viewerTenant?: string): Discussion {
-  const { openerTenant, posts, ...pub } = d
+  // `targetTenant` is stripped with `openerTenant`: a raw tenant id never
+  // crosses the wire (the REDACTED rule). What the reader gets instead is the
+  // viewer-relative `counterpart` name that `dmFace` computes.
+  const { openerTenant, targetTenant, posts, ...pub } = d
   return {
     ...pub,
+    ...dmFace(d, viewerTenant),
     ...(viewerTenant !== undefined && tenantWritesAs(viewerTenant, openerTenant) ? { mine: true } : {}),
     ...(viewerTenant !== undefined && canResolveDiscussion(d, viewerTenant) ? { canResolve: true } : {}),
+    // The thread's own write standing, from the predicate the write path uses.
+    ...(viewerTenant !== undefined && store.discussionWritableBy(d, viewerTenant) ? { canPost: true } : {}),
     posts: posts.map((p) => {
       const { authorTenant, reactedBy, ...post } = p
       return {
@@ -878,6 +1028,18 @@ const projectTenant = (projectId: string): string => findProject(projectId)?.ten
  *  item's `postedBy`). Resolves through the account registry; an unregistered id (a
  *  test-minted tenant) falls back to the raw id, which is what such a test asserts on. */
 const tenantName = (tenantId: string): string => accounts.tenants.get(tenantId)?.name ?? tenantId
+
+/** The inverse of `tenantName` — a display name back to the tenant that wears
+ *  it (S7: a follow and a DM both address a person BY NAME, and the fan-out
+ *  needs a stream to ring). Names are not guaranteed unique across an org and a
+ *  namespace, so this resolves against NAMESPACES first — the acting identity a
+ *  person signs in as, which is what a follow or a message is addressed to —
+ *  and falls back to any tenant of that name. Undefined for a name nobody
+ *  wears; every caller already treats that as the 404. */
+const tenantIdForName = (name: string): string | undefined => {
+  const all = [...accounts.tenants.values()].filter((t) => t.name === name)
+  return (all.find((t) => accounts.isNamespace(t.id)) ?? all[0])?.id
+}
 
 /** Resolve an artifact across both homes — seeded (`ALL_ARTIFACTS`) + created
  *  (`graph.extraArtifacts`) — mirroring `findProject`. */
@@ -1599,6 +1761,10 @@ function snapshot(): PersistedState {
     discussions, // social S2 — anchored threads (talk survives a restart)
     socialProposals, // social S3 — offered changes + the per-subject ledger
     mutes: [...mutes.entries()].map(([t, set]) => [t, [...set]] as [string, string[]]), // S5 earmuffs
+    // S7 — the person layer: who each viewer follows, and how far they've read
+    // each thread (the DM inbox's unread count).
+    follows: [...follows.entries()].map(([t, set]) => [t, [...set]] as [string, string[]]),
+    discussionReads: [...discussionReads.entries()].map(([t, m]) => [t, [...m.entries()]] as [string, [string, number][]]),
     // D24 — watch subscriptions ([tenantId, subjectKey] pairs) + the notification inbox.
     watches: [...watches.entries()].flatMap(([key, tenants]) => [...tenants].map((t) => [t, key] as [string, string])),
     notifications,
@@ -1831,6 +1997,21 @@ function rehydrate(s: PersistedState): void {
   // S5 mutes — same restore shape.
   mutes.clear()
   for (const [t, names] of s.mutes ?? []) mutes.set(t, new Set(names))
+  // S7 follows + read marks — same restore shape (a pre-field snapshot loads
+  // cleanly with nobody followed and everything unread).
+  follows.clear()
+  for (const [t, names] of s.follows ?? []) follows.set(t, new Set(names))
+  // Re-ensure the seed graph, exactly as the seed grants and threads are: a
+  // snapshot written before S7 must not boot into a world where the demo's one
+  // follow relationship silently vanished. Additive — a runtime unfollow of a
+  // seeded name is the one thing this would undo, and a cold start is a reset.
+  for (const [t, names] of SEED_FOLLOWS) {
+    const set = follows.get(t) ?? new Set<string>()
+    for (const n of names) set.add(n)
+    follows.set(t, set)
+  }
+  discussionReads.clear()
+  for (const [t, marks] of s.discussionReads ?? []) discussionReads.set(t, new Map(marks))
   // D24 — watches + the inbox (empty for a pre-field snapshot); counter falls back
   // to the inbox length so freshly minted ids never collide with restored ones.
   watches.clear()
@@ -2434,13 +2615,33 @@ export const store = {
         // A grant is a two-party act (S1): granter + audience streams only. The
         // read union covers org audiences (a member's stream sees its org's party).
         return e.parties.some((p) => tenantReadsAs(tenantId, p))
-      case 'discussion.changed':
+      case 'discussion.changed': {
         // A discussion's visibility MIRRORS ITS ANCHOR's (S2 inheritance) —
-        // delivered exactly where the subject itself is readable.
-        return this.grantSubjectVisible(e.anchor.ref, tenantId)
+        // delivered exactly where the subject itself is readable. A DM (S7) is
+        // the exception the one wall already knows: its anchor is a person many
+        // can see, but the thread reaches only its two parties, so the gate
+        // resolves the row and asks the same predicate every read path asks.
+        //
+        // The row can legitimately be GONE by the time the gate runs — the last
+        // post's deletion dissolves the thread and then emits. For a resource
+        // anchor the fallback is the anchor's own wall; for a principal it is
+        // DENY, because that fallback would be reachability, and reachability
+        // would tell every third party who can see Ada that a message of hers
+        // just changed. The pair rule has to hold on the dissolve path too.
+        const d = discussions.find((x) => x.id === e.discussionId)
+        if (d) return this.discussionReadableBy(d, tenantId)
+        return e.anchor.ref.kind !== 'principal' && this.grantSubjectVisible(e.anchor.ref, tenantId)
+      }
       case 'social-proposal.changed':
         // A proposal's visibility MIRRORS ITS SUBJECT's (S3) — same rule.
         return this.grantSubjectVisible(e.subject, tenantId)
+      case 'follow.changed':
+        // S7 — a two-party act, exactly like `grant.changed`: who follows whom
+        // is the pair's business, and the event carries their RAW tenant ids.
+        // Without this arm it fell through the global `default: return true`
+        // below and broadcast both ids to every connected stream — the C31 leak
+        // class the `reservation.changed` arm above was earned for, repeated.
+        return e.parties.some((p) => tenantReadsAs(tenantId, p))
       case 'reservation.changed': {
         // `resourceId` is `${guardianId}[:${subGoal}]` — the sub-goal suffix is free
         // text (a private Project's claim name). It once fell through the global
@@ -4164,7 +4365,13 @@ export const store = {
    *  a public act). Viewer-independent except the viewer-relative `own` flags.
    *  Undefined (→ 404) for a name with no public rows: a workspace that shares
    *  nothing is invisible — the directory's existence-hiding, extended to identities. */
-  ownerProfile(name: string, tenantId: string): OwnerProfile | undefined {
+  /** The profile MINUS its follow face (S7). Split out because the follow face
+   *  must ask, per roster name, "can the viewer see this one?" — and that
+   *  question is `principalReachable`, which is this very computation. Asking it
+   *  through the full `ownerProfile` would recurse: profile → follow face →
+   *  reachability → profile. The cut is here, at the one place the two need to
+   *  differ, so both faces still derive from ONE existence rule. */
+  ownerProfileCore(name: string, tenantId: string): Omit<OwnerProfile, 'follow'> | undefined {
     const projects = this.projectDirectory(tenantId).filter((p) => p.owner === name)
     const agents = this.agentDirectory(tenantId).filter((a) => a.owner === name)
     // `posted` attributes by `postedBy` (already the display name); `resolved` by the
@@ -4222,12 +4429,23 @@ export const store = {
     // with no legacy-shared projects/agents (the grant-based publish predates
     // nothing — it IS the new public face). Still viewer-walled, so the
     // existence-hiding rule holds: no visible acts, no profile.
-    const publishes = this.listCommons(tenantId).some((i) => i.actor === name)
-    if (projects.length === 0 && agents.length === 0 && activity.length === 0 && !org && !publishes) return undefined
+    // `includeMuted` — see `listCommons`. Existence is not an opinion: a muted
+    // workspace still exists, still has a profile, and (S7) can still be
+    // followed or messaged. Only what they SAY is filtered.
+    const publishes = this.listCommons(tenantId, { includeMuted: true }).some((i) => i.actor === name)
+    // YOUR OWN profile always serves, however empty. Existence-hiding protects a
+    // name from STRANGERS; hiding you from yourself protects nobody and breaks
+    // the one page where you check who follows you (S7) — a workspace that has
+    // published nothing is exactly the one that needs it. Found by the roster
+    // row's own door: clicking yourself on a follower list landed on "shares
+    // nothing publicly — or doesn't exist", about you. Same class as the mute
+    // that erased an identity: a privacy rule aimed outward, fired inward.
+    const own = tenantName(tenantId) === name
+    if (!own && projects.length === 0 && agents.length === 0 && activity.length === 0 && !org && !publishes) return undefined
     activity.sort((a, b) => b.at - a.at)
     return {
       name,
-      own: tenantName(tenantId) === name,
+      own,
       ...(org ? { org } : {}),
       projects,
       agents,
@@ -4242,6 +4460,113 @@ export const store = {
       },
       activity: activity.slice(0, 20),
     }
+  },
+  ownerProfile(name: string, tenantId: string): OwnerProfile | undefined {
+    const core = this.ownerProfileCore(name, tenantId)
+    return core ? { ...core, follow: this.ownerFollowFace(name, tenantId) } : undefined
+  },
+  /** S7 — the profile's follow face. The COUNTS are aggregates of public acts,
+   *  like every other stat on this page. The NAMES are viewer-filtered: an
+   *  unfiltered follower list would be a directory of principals the viewer
+   *  could not have reached by any other door, which is exactly what
+   *  existence-hiding forbids — so the count may honestly exceed the list, the
+   *  posture `AgentPublicFork` already takes for forks.
+   *
+   *  Private, not called directly by a route: it is computed inside
+   *  `ownerProfile`, which has already decided the name is visible at all. */
+  ownerFollowFace(name: string, tenantId: string): OwnerFollowFace {
+    const viewerName = tenantName(tenantId)
+    const own = viewerName === name
+    const subjectTenant = tenantIdForName(name)
+    const followerTenants = [...follows.entries()].filter(([, set]) => set.has(name)).map(([t]) => t)
+    const followingNames = subjectTenant !== undefined ? this.listFollows(subjectTenant) : []
+    // "Can the viewer see this name" is the same reachability question the
+    // profile itself answered — asked here per NAME, so one predicate decides
+    // both which profiles serve and which names a roster may print.
+    //
+    // MEMOIZED because that predicate is expensive: `principalReachable` builds
+    // a whole profile (directories, work items, changelogs, the entire Commons
+    // feed) per name, and the two bands overlap heavily — mutual follows appear
+    // in both. Without this, a 50+50 roster ran ~100 full profile computations
+    // on one `GET /directory/owners/:name`.
+    const dmWith =
+      subjectTenant !== undefined && subjectTenant !== tenantId ?
+        discussions.find((d) => {
+          if (d.anchor.ref.kind !== 'principal') return false
+          const parties = this.dmParties(d)
+          return parties.includes(tenantId) && parties.includes(subjectTenant)
+        })
+      : undefined
+    const reachable = new Map<string, boolean>()
+    const visible = (n: string) => {
+      if (n === viewerName) return true
+      let hit = reachable.get(n)
+      if (hit === undefined) {
+        hit = this.principalReachable(n, tenantId)
+        reachable.set(n, hit)
+      }
+      return hit
+    }
+    /** A roster band: viewer-filtered, sorted, capped — each row carrying the
+     *  CALLER's relationship to that person, so the list's follow controls are
+     *  the server's answer rather than a client join against `/me/follows`. */
+    const roster = (names: string[]): FollowRow[] =>
+      [...new Set(names)]
+        .filter(visible)
+        .sort()
+        .slice(0, FOLLOW_ROSTER_CAP)
+        .map((n) => ({
+          name: n,
+          ...(n === viewerName ? { own: true } : {}),
+          ...(n !== viewerName && this.followsName(tenantId, n) ? { youFollow: true } : {}),
+        }))
+    return {
+      followers: followerTenants.length,
+      following: followingNames.length,
+      followerList: roster(followerTenants.map(tenantName)),
+      followingList: roster(followingNames),
+      ...(!own && this.followsName(tenantId, name) ? { youFollow: true } : {}),
+      // Reachability IS the profile serving at all: a name you can read is a
+      // name you can write to. Reported rather than inferred client-side so the
+      // affordance and the wall stay one decision (the SOCIAL-4b lesson).
+      ...(!own && subjectTenant !== undefined ? { canMessage: true } : {}),
+      // The pair's existing thread, resolved by TENANT id — the client used to
+      // find it by matching display names off its own inbox.
+      ...(!own && subjectTenant !== undefined && dmWith !== undefined ? { dmId: dmWith.id } : {}),
+    }
+  },
+  /** S7 — mark a thread read up to its newest post. A private note to self like
+   *  `recordView`: it rings nobody, moves no wall, and a thread the caller
+   *  cannot read is silently ignored rather than refused (a refusal would make
+   *  this an existence oracle). */
+  markDiscussionRead(id: string, tenantId: string, throughPostId?: string): boolean {
+    const d = discussions.find((x) => x.id === id)
+    if (!d || !this.discussionReadableBy(d, tenantId)) return false
+    // `throughPostId` marks read up to ONE post (its moment); absent marks the
+    // whole thread (INV-9: the complete-set constant). An id that isn't in this
+    // thread is refused rather than silently widened to everything — marking
+    // MORE read than the caller asked is the one failure that loses messages.
+    let mark: number
+    if (throughPostId !== undefined) {
+      const p = d.posts.find((x) => x.id === throughPostId)
+      if (!p) return false
+      mark = p.seq ?? 0
+    } else {
+      mark = d.posts.reduce((m, p) => Math.max(m, p.seq ?? 0), 0)
+    }
+    const mine = discussionReads.get(tenantId) ?? new Map<string, number>()
+    // Never move the mark BACKWARD: a stale client re-sending an old post id
+    // would otherwise resurrect messages the reader has already seen.
+    mine.set(d.id, Math.max(mine.get(d.id) ?? 0, mark))
+    // Evict oldest-marked threads past the cap (the inbox's pointer-cache rule —
+    // losing a mark just shows a thread unread again, never loses a message).
+    if (mine.size > READ_MARKS_PER_TENANT) {
+      const oldest = [...mine.entries()].sort((a, b) => a[1] - b[1]).slice(0, mine.size - READ_MARKS_PER_TENANT)
+      for (const [did] of oldest) mine.delete(did)
+    }
+    discussionReads.set(tenantId, mine)
+    persist()
+    return true
   },
   /** Global search (D22, `GET /search?q=`): typed, grouped hits across everything the
    *  caller can see. Every source below is an EXISTING per-tenant read or public
@@ -4673,6 +4998,14 @@ export const store = {
         const p = socialProposals.find((x) => x.id === ref.id)
         return p ? this.grantSubjectRow(p.subject) : undefined
       }
+      case 'principal':
+        // S7 — a PERSON is not a shareable row. Grants and proposals both
+        // resolve authority through this adapter, so the single `'unsupported'`
+        // here is what refuses "share Ada" and "offer a change to Ada" at once,
+        // in the kind-level form that leaks no row's existence. Reading and
+        // commenting on a principal do NOT come through here: they are
+        // reachability (`principalReachable`), handled by the callers below.
+        return 'unsupported'
     }
   },
   /** The ONE social read wall (existence-hiding): a subject is readable when
@@ -4682,6 +5015,13 @@ export const store = {
   grantSubjectVisible(ref: SocialEntityRef, viewerTenant: string): boolean {
     const canon = canonicalSocialRef(ref)
     if (!canon) return false
+    // S7 — a PRINCIPAL has no owning row and no grants; "can you see this
+    // subject" is reachability, the D21 publisher-existence rule. Note this is
+    // visibility of the PERSON, not of any thread anchored to them: a DM's own
+    // wall is the pair, enforced one level up in `discussionReadableBy`.
+    if (canon.kind === 'principal') {
+      return tenantName(viewerTenant) === canon.id || this.principalReachable(canon.id, viewerTenant)
+    }
     const row = this.grantSubjectRow(canon)
     if (row === undefined || row === 'unsupported') return false
     if (row.tenantId ? tenantReadsAs(viewerTenant, row.tenantId) : seedVisibleTo(viewerTenant)) return true
@@ -4694,6 +5034,13 @@ export const store = {
   socialSubjectCommentable(ref: SocialEntityRef, tenantId: string): boolean {
     const canon = canonicalSocialRef(ref)
     if (!canon) return false
+    // S7 — writing TO a person is reachability, not a tier: there is no owner to
+    // grant `comment` and no tier that would mean anything on a human. You may
+    // message someone you can already see, and nobody else. That single rule is
+    // also the anti-spam floor: an unreachable name is a 404, not a refusal.
+    if (canon.kind === 'principal') {
+      return tenantName(tenantId) !== canon.id && this.principalReachable(canon.id, tenantId)
+    }
     const row = this.grantSubjectRow(canon)
     if (row === undefined || row === 'unsupported') return false
     if (ownsGrantSubject(row, tenantId)) return true
@@ -4703,10 +5050,61 @@ export const store = {
   },
 
   // ── Social-layer discussions (S2) ───────────────────────────────────────────
+  // ── The DM cut (S7) ─────────────────────────────────────────────────────────
+  /** The two tenants a PRINCIPAL-anchored thread belongs to: its opener and the
+   *  person it is addressed to. A DM's identity is this unordered pair — which
+   *  is why Ada→Grace and Grace→Ada find the SAME thread — and so is its wall. */
+  dmParties(d: StoredDiscussion): string[] {
+    // The STORED id first — the wall is authority, and authority never keys on
+    // a display name (names are not unique: `createUser` guards email, not
+    // name). The name lookup is the fallback for rows written before the field
+    // existed, which is exactly what those rows already relied on.
+    const target = d.targetTenant ?? tenantIdForName(d.anchor.ref.id)
+    return target !== undefined ? [d.openerTenant, target] : [d.openerTenant]
+  },
+  /** The ONE discussion read wall. For a resource anchor it is the S2
+   *  inheritance rule (visibility of the thread = visibility of the subject).
+   *  For a PRINCIPAL anchor it is the pair — because the anchor's own
+   *  visibility is the wrong question: a person can be seen by many, while a
+   *  message between two of them belongs to two.
+   *
+   *  Strict tenant equality, deliberately not `tenantReadsAs`: the org-seat
+   *  read union exists so a member can read their org's RESOURCES, and a
+   *  private message is not one. Every discussion read path goes through here,
+   *  so the cut is made once rather than remembered at eleven call sites. */
+  discussionReadableBy(d: StoredDiscussion, tenantId: string): boolean {
+    if (d.anchor.ref.kind === 'principal') return this.dmParties(d).includes(tenantId)
+    return this.grantSubjectVisible(d.anchor.ref, tenantId)
+  },
+  /** Write authority on a thread — the wall's other half. For a resource it is
+   *  the S2 comment tier. For a DM it is PARTY MEMBERSHIP, which is not the same
+   *  as being able to open one: reachability is asymmetric (Ada publishes, so
+   *  Grace can reach her; Grace may be nobody to Ada), and asking the general
+   *  rule here would have let Grace start a conversation Ada could not answer.
+   *  Being written to is standing to write back. */
+  discussionWritableBy(d: StoredDiscussion, tenantId: string): boolean {
+    if (d.anchor.ref.kind === 'principal') return this.dmParties(d).includes(tenantId)
+    return this.socialSubjectCommentable(d.anchor.ref, tenantId)
+  },
+  /** The caller's DM inbox (S7): every principal-anchored thread they are a
+   *  party to, most recently active first — the ordering a message list has by
+   *  nature (a conversation's place in an inbox is when it last spoke, not when
+   *  it opened). Resolved state is NOT a band here, unlike the discussions hub:
+   *  a resolved DM is an archived conversation, and archiving is not this
+   *  slice's job, so the order stays purely temporal. */
+  listDirectMessages(tenantId: string): Discussion[] {
+    const lastAt = (d: StoredDiscussion) => d.posts[d.posts.length - 1]?.at ?? d.openedAt
+    return discussions
+      .filter((d) => d.anchor.ref.kind === 'principal' && this.discussionReadableBy(d, tenantId))
+      .sort((a, b) => lastAt(b) - lastAt(a))
+      .map((d) => publicDiscussion(d, tenantId))
+  },
   /** The discussions anchored to a subject, root thread first, then newest
    *  first. The route walls the anchor (existence-hiding). */
   listDiscussions(ref: SocialEntityRef, viewerTenant: string): Discussion[] {
-    const rows = discussions.filter((d) => d.anchor.ref.kind === ref.kind && d.anchor.ref.id === ref.id)
+    const rows = discussions.filter(
+      (d) => d.anchor.ref.kind === ref.kind && d.anchor.ref.id === ref.id && this.discussionReadableBy(d, viewerTenant),
+    )
     const band = (d: StoredDiscussion) => (d.anchor.locus === undefined ? 0 : 1)
     return [...rows].sort((a, b) => band(a) - band(b) || b.openedAt - a.openedAt).map((d) => publicDiscussion(d, viewerTenant))
   },
@@ -4718,17 +5116,58 @@ export const store = {
    *  root-thread rule); SOCIAL-6b generalizes the same rule to every locus so a
    *  gutter affordance can't fork a second thread on the turn it points at. */
   openDiscussion(req: OpenDiscussionRequest, tenantId: string): Discussion | 'forbidden' | 'capped' | undefined {
+    // Get-or-create, resolved FIRST for a principal. For a RESOURCE the key is
+    // (subject, locus) — one public stream per position. For a PRINCIPAL there
+    // is no public stream to be one of, so the key is the unordered PAIR:
+    // whichever end opens it, and however many times, Ada↔Grace is one
+    // conversation. That specialization is what makes the DM inbox fall out of
+    // the existing primitive for free.
+    //
+    // The ordering matters. Reachability (below) is ASYMMETRIC — Ada is a public
+    // identity to Grace because Ada publishes, while Grace may be nobody to Ada
+    // — so gating the whole call on it would let Grace open a thread that Ada
+    // could never answer. A message you have received is a message you may
+    // reply to; that is the rule, and it holds because an existing pair thread
+    // short-circuits to the append path, whose authority is party membership.
+    const dmTarget = req.anchor.ref.kind === 'principal' ? tenantIdForName(req.anchor.ref.id) : undefined
+    // A name with no tenant behind it has no stream to deliver to, so a thread
+    // on it would be a one-party room: refuse it as the same 404 rather than
+    // store a conversation that can never have a second voice (INV-9's rule —
+    // refuse, don't persist something inert).
+    if (req.anchor.ref.kind === 'principal' && dmTarget === undefined) return undefined
+    // Messaging YOURSELF is refused before the lookup, not after. Moving
+    // get-or-create ahead of the authority checks (for the reply rule above)
+    // made the pair predicate `parties.includes(me) && parties.includes(me)` —
+    // trivially true of every conversation you are in — so a self-addressed
+    // note silently appended to whichever thread matched first. 403 rather than
+    // 404: there is no existence to hide from yourself.
+    if (dmTarget !== undefined && dmTarget === tenantId) return 'forbidden'
+    const held =
+      dmTarget !== undefined ?
+        discussions.find((d) => {
+          if (d.anchor.ref.kind !== 'principal') return false
+          const parties = this.dmParties(d)
+          return parties.includes(tenantId) && parties.includes(dmTarget)
+        })
+      : discussions.find(
+          (d) =>
+            d.anchor.ref.kind === req.anchor.ref.kind &&
+            d.anchor.ref.id === req.anchor.ref.id &&
+            sameLocus(d.anchor.locus, req.anchor.locus),
+        )
+    if (held) return this.postToDiscussion(held.id, req.firstPost, tenantId)
     if (!this.grantSubjectVisible(req.anchor.ref, tenantId)) return undefined
     if (!this.socialSubjectCommentable(req.anchor.ref, tenantId)) return 'forbidden'
-    const held = discussions.find(
-      (d) =>
-        d.anchor.ref.kind === req.anchor.ref.kind &&
-        d.anchor.ref.id === req.anchor.ref.id &&
-        sameLocus(d.anchor.locus, req.anchor.locus),
-    )
-    if (held) return this.postToDiscussion(held.id, req.firstPost, tenantId)
-    const anchored = discussions.filter((d) => d.anchor.ref.kind === req.anchor.ref.kind && d.anchor.ref.id === req.anchor.ref.id)
-    if (anchored.length >= MAX_DISCUSSIONS_PER_SUBJECT) return 'capped'
+    // The per-subject cap bounds how many threads may hang on ONE resource. It
+    // does not apply to a principal: a DM's identity is the PAIR, so every
+    // sender legitimately gets their own thread on the same anchor, and counting
+    // them together would cap a popular person at 100 correspondents for life —
+    // the 101st stranger permanently unable to write to them. Get-or-create
+    // already bounds a pair to exactly one thread, which is the real limit here.
+    if (dmTarget === undefined) {
+      const anchored = discussions.filter((d) => d.anchor.ref.kind === req.anchor.ref.kind && d.anchor.ref.id === req.anchor.ref.id)
+      if (anchored.length >= MAX_DISCUSSIONS_PER_SUBJECT) return 'capped'
+    }
     const now = Date.now()
     const d: StoredDiscussion = {
       id: `disc-${(discussionSeq += 1)}`,
@@ -4737,30 +5176,17 @@ export const store = {
       openedBy: tenantName(tenantId),
       openedAt: now,
       openerTenant: tenantId,
-      posts: [
-        {
-          id: `dpost-${(discussionSeq += 1)}`,
-          author: tenantName(tenantId),
-          authorTenant: tenantId,
-          body: req.firstPost.slice(0, MAX_DISCUSSION_CHARS),
-          at: now,
-          reactedBy: [],
-        },
-      ],
+      // S7 — capture the addressee's raw id NOW (see `StoredDiscussion`): the
+      // anchor's display name is a public face, not an identity.
+      ...(dmTarget !== undefined ? { targetTenant: dmTarget } : {}),
+      posts: [mintPost(req.firstPost, tenantId, now)],
     }
     discussions.push(d)
     // The FIRST post rings too — it is the moment someone starts talking about
     // your thing, which is exactly when you want to know. (The append path rings
     // from postToDiscussion; a new thread has no other participants yet, so the
     // audience is just the anchor's owner.)
-    notifyTenants(this.discussionAudience(d), tenantId, {
-      kind: 'social.discussed',
-      actor: tenantName(tenantId),
-      subjectKind: d.anchor.ref.kind,
-      subjectId: d.anchor.ref.id,
-      subjectName: this.commonsSubjectFace(d.anchor.ref).name,
-      discussionId: d.id,
-    })
+    notifyTenants(this.discussionAudience(d), tenantId, discussionBell(d, tenantId, this.commonsSubjectFace(d.anchor.ref).name))
     emit({ type: 'discussion.changed', discussionId: d.id, anchor: d.anchor })
     persist()
     return publicDiscussion(d, tenantId)
@@ -4768,14 +5194,20 @@ export const store = {
   /** The caller's discussions hub read (S2): threads they PARTICIPATE in
    *  (opened, posted, or reacted) whose anchor they can still read — losing
    *  the grant loses the thread (inheritance holds everywhere). Open first,
-   *  then most recently active. */
+   *  then most recently active.
+   *
+   *  DMs are EXCLUDED (S7). They are discussions by construction, so they would
+   *  ride this list for free — but they have their own place (`Messages`), and
+   *  the same rows in two rail sections is the duplication the rail rules
+   *  forbid. The hub means "talk about things"; the inbox means "talk with
+   *  people". One list each. */
   listMyDiscussions(tenantId: string): Discussion[] {
     const participates = (d: StoredDiscussion) =>
       tenantReadsAs(tenantId, d.openerTenant) ||
       d.posts.some((p) => tenantReadsAs(tenantId, p.authorTenant) || p.reactedBy.some((t) => tenantReadsAs(tenantId, t)))
     const lastAt = (d: StoredDiscussion) => d.posts[d.posts.length - 1]?.at ?? d.openedAt
     return discussions
-      .filter((d) => participates(d) && this.grantSubjectVisible(d.anchor.ref, tenantId))
+      .filter((d) => d.anchor.ref.kind !== 'principal' && participates(d) && this.discussionReadableBy(d, tenantId))
       .sort((a, b) => (a.state === b.state ? lastAt(b) - lastAt(a) : a.state === 'open' ? -1 : 1))
       .map((d) => publicDiscussion(d, tenantId))
   },
@@ -4783,38 +5215,24 @@ export const store = {
    *  a discussion is never wider than what it discusses). */
   getDiscussion(id: string, viewerTenant: string): Discussion | undefined {
     const d = discussions.find((x) => x.id === id)
-    if (!d || !this.grantSubjectVisible(d.anchor.ref, viewerTenant)) return undefined
+    if (!d || !this.discussionReadableBy(d, viewerTenant)) return undefined
     return publicDiscussion(d, viewerTenant)
   },
   /** Append a post — commentable callers only; allowed after resolve too (the
    *  CW7 aftermath rule: a resolved thread's story keeps accruing). */
   postToDiscussion(id: string, body: string, tenantId: string): Discussion | 'forbidden' | 'capped' | undefined {
     const d = discussions.find((x) => x.id === id)
-    if (!d || !this.grantSubjectVisible(d.anchor.ref, tenantId)) return undefined
-    if (!this.socialSubjectCommentable(d.anchor.ref, tenantId)) return 'forbidden'
+    if (!d || !this.discussionReadableBy(d, tenantId)) return undefined
+    if (!this.discussionWritableBy(d, tenantId)) return 'forbidden'
     if (d.posts.length >= MAX_DISCUSSION_POSTS) return 'capped'
     // The interested parties, read BEFORE the post lands so the new author isn't
     // counted as a prior participant (notifyTenants drops the actor anyway, but
     // the set should mean what it says).
     const audience = this.discussionAudience(d)
-    d.posts.push({
-      id: `dpost-${(discussionSeq += 1)}`,
-      author: tenantName(tenantId),
-      authorTenant: tenantId,
-      body: body.slice(0, MAX_DISCUSSION_CHARS),
-      at: Date.now(),
-      reactedBy: [],
-    })
+    d.posts.push(mintPost(body, tenantId))
     // Someone is talking about your thing / replied where you're talking. The
     // one social act whose subject nobody would otherwise be told about.
-    notifyTenants(audience, tenantId, {
-      kind: 'social.discussed',
-      actor: tenantName(tenantId),
-      subjectKind: d.anchor.ref.kind,
-      subjectId: d.anchor.ref.id,
-      subjectName: this.commonsSubjectFace(d.anchor.ref).name,
-      discussionId: d.id,
-    })
+    notifyTenants(audience, tenantId, discussionBell(d, tenantId, this.commonsSubjectFace(d.anchor.ref).name))
     emit({ type: 'discussion.changed', discussionId: d.id, anchor: d.anchor })
     persist()
     return publicDiscussion(d, tenantId)
@@ -4832,16 +5250,20 @@ export const store = {
    *  thing is still being talked about and dead-ends. (The same rule the work
    *  layer earned: "un-sharing silences the stale audience".) */
   discussionAudience(d: StoredDiscussion): string[] {
+    // S7 — a DM has no anchor OWNER row; its "interested parties" ARE the pair,
+    // which is also its wall, so the general rule below would find nobody. The
+    // pair is the right answer for the same reason it is the right wall.
+    if (d.anchor.ref.kind === 'principal') return this.dmParties(d)
     const row = this.grantSubjectRow(d.anchor.ref)
     const owner = row !== undefined && row !== 'unsupported' ? (row.tenantId ?? defaultTenantId()) : undefined
     const parties = new Set([...(owner ? [owner] : []), ...d.posts.map((p) => p.authorTenant)])
-    return [...parties].filter((t) => this.grantSubjectVisible(d.anchor.ref, t))
+    return [...parties].filter((t) => this.discussionReadableBy(d, t))
   },
   /** Toggle the one thin reaction on a post — any READER may endorse (the
    *  lightest signal deliberately needs no comment tier). */
   toggleDiscussionReaction(id: string, postId: string, tenantId: string): Discussion | undefined {
     const d = discussions.find((x) => x.id === id)
-    if (!d || !this.grantSubjectVisible(d.anchor.ref, tenantId)) return undefined
+    if (!d || !this.discussionReadableBy(d, tenantId)) return undefined
     const p = d.posts.find((x) => x.id === postId)
     if (!p) return undefined
     const i = p.reactedBy.indexOf(tenantId)
@@ -4857,7 +5279,7 @@ export const store = {
    *  empty discussion is noise, the openDiscussion rule in reverse). */
   deleteDiscussionPost(did: string, pid: string, tenantId: string): Discussion | null | 'forbidden' | undefined {
     const d = discussions.find((x) => x.id === did)
-    if (!d || !this.grantSubjectVisible(d.anchor.ref, tenantId)) return undefined
+    if (!d || !this.discussionReadableBy(d, tenantId)) return undefined
     const i = d.posts.findIndex((x) => x.id === pid)
     if (i < 0) return undefined
     // The SAME predicate the wire face reports (`post.canDelete`).
@@ -4872,7 +5294,7 @@ export const store = {
    *  delete. Owner moderation first; instance-level escalation is S6. */
   reportDiscussionPost(did: string, pid: string, tenantId: string): 'ok' | undefined {
     const d = discussions.find((x) => x.id === did)
-    if (!d || !this.grantSubjectVisible(d.anchor.ref, tenantId)) return undefined
+    if (!d || !this.discussionReadableBy(d, tenantId)) return undefined
     if (!d.posts.some((x) => x.id === pid)) return undefined
     const row = this.grantSubjectRow(d.anchor.ref)
     if (row === undefined || row === 'unsupported') return undefined
@@ -4902,11 +5324,58 @@ export const store = {
     return this.listMutes(tenantId)
   },
 
+  // ── Follow (S7) — mute's positive twin ──────────────────────────────────────
+  /** The caller's follow list: followee DISPLAY NAMES, sorted. Their own list,
+   *  so tenancy IS the filter and there is no parameter. */
+  listFollows(tenantId: string): string[] {
+    return [...(follows.get(tenantId) ?? [])].sort()
+  },
+  followsName(tenantId: string, name: string): boolean {
+    return follows.get(tenantId)?.has(name) === true
+  },
+  /** May the caller SEE this name at all? The D21 publisher-existence rule,
+   *  extracted so follow, DM-reachability and the profile route share ONE
+   *  answer: a name whose profile serves is a name you can follow and write to.
+   *  Anything else — an invisible workspace, a nonexistent one — is identically
+   *  404, which is the whole point (a reachability probe must not be an
+   *  existence oracle). */
+  principalReachable(name: string, tenantId: string): boolean {
+    return this.ownerProfileCore(name, tenantId) !== undefined
+  },
+  /** Follow / unfollow. `'self'` refuses following yourself (a self-follow makes
+   *  every count a lie and the Following lens a mirror); undefined is the
+   *  existence-hiding 404 for a name the caller cannot see. Following CLEARS a
+   *  mute on the same name: the two are exclusive statements about one person,
+   *  and the newer, more explicit one wins (an unfollow does NOT re-mute —
+   *  restoring an earmuff nobody asked for would be the same defect inverted). */
+  setFollow(name: string, following: boolean, tenantId: string): string[] | 'self' | undefined {
+    if (tenantName(tenantId) === name) return 'self'
+    if (!this.principalReachable(name, tenantId)) return undefined
+    const set = follows.get(tenantId) ?? new Set<string>()
+    if (following) set.add(name)
+    else set.delete(name)
+    if (set.size > 0) follows.set(tenantId, set)
+    else follows.delete(tenantId)
+    if (following) {
+      const muted = mutes.get(tenantId)
+      if (muted?.delete(name) && muted.size === 0) mutes.delete(tenantId)
+    }
+    const target = tenantIdForName(name)
+    // A follow rings the followee — the one bell it mints, because somebody
+    // acted ON them. Their publishes reach the follower's LENS, never a bell.
+    if (following && target !== undefined) {
+      notifyTenants([target], tenantId, { kind: 'social.followed', actor: tenantName(tenantId) })
+    }
+    emit({ type: 'follow.changed', parties: target !== undefined ? [tenantId, target] : [tenantId] })
+    persist()
+    return this.listFollows(tenantId)
+  },
+
   /** Resolve / reopen — the opener's or the anchor owner's act (the two
    *  parties with standing; a visitor's thread isn't closable by a bystander). */
   setDiscussionState(id: string, state: 'open' | 'resolved', tenantId: string): Discussion | 'forbidden' | undefined {
     const d = discussions.find((x) => x.id === id)
-    if (!d || !this.grantSubjectVisible(d.anchor.ref, tenantId)) return undefined
+    if (!d || !this.discussionReadableBy(d, tenantId)) return undefined
     // The SAME predicate the wire face reports (`canResolve`), so the control
     // the UI shows and the act the server allows are one decision.
     if (!canResolveDiscussion(d, tenantId)) return 'forbidden'
@@ -4937,6 +5406,16 @@ export const store = {
    *  the SSE gate and shared-with-me reads key on one field. INV-9: an absent
    *  `note` means share silently — access only, no Commons card. */
   createGrant(req: CreateGrantRequest, tenantId: string): Grant | 'forbidden' | 'invalid' | 'capped' | undefined {
+    // S7 — the one place the recursion rule is CUT. A discussion is normally
+    // grantable (S2), but a DM's wall is the pair BY CONSTRUCTION: there is no
+    // third seat to sell, and a grant would quietly hand one out. Refused here,
+    // once, rather than defended at each read path — and refused as `'invalid'`
+    // (the kind-level shape) because the caller is its opener and already knows
+    // the thread exists, so there is nothing to hide, only something to deny.
+    if (req.subject.kind === 'discussion') {
+      const d = discussions.find((x) => x.id === req.subject.id)
+      if (d?.anchor.ref.kind === 'principal') return 'invalid'
+    }
     const row = this.grantSubjectRow(req.subject)
     if (row === 'unsupported') return 'invalid' // kind-level refusal: leaks no row's existence
     if (row === undefined) return undefined
@@ -5250,6 +5729,10 @@ export const store = {
         const p = socialProposals.find((x) => x.id === ref.id)
         return { name: p ? `Proposal on ${p.subject.kind} ${p.subject.id}` : ref.id }
       }
+      case 'principal':
+        // A person's face IS their display name — it is already the public
+        // handle, so there is nothing to resolve and nothing to redact.
+        return { name: ref.id }
     }
   },
   /** The caller's Commons feed: published shares (grants carrying a NOTE —
@@ -5257,12 +5740,13 @@ export const store = {
    *  ledger landings, on subjects the caller can read — their world's public
    *  face, chronological, no ranking. Each item carries the subject's root
    *  discussion (the card's comments ARE the entity page's thread). */
-  listCommons(tenantId: string): CommonsItem[] {
+  listCommons(tenantId: string, opts?: { includeMuted?: boolean }): CommonsItem[] {
     const items: CommonsItem[] = []
     const rootOf = (ref: SocialEntityRef) =>
       discussions.find((d) => d.anchor.ref.kind === ref.kind && d.anchor.ref.id === ref.id && d.anchor.locus === undefined)
     // The caller's own relationships, read once per feed rather than per item.
     const viewedAt = new Map((views.get(tenantId) ?? []).map((v) => [v.key, v.at]))
+    const followed = follows.get(tenantId)
     const push = (
       base: Omit<CommonsItem, 'subjectName' | 'subjectBlurb' | 'discussionId' | 'commentCount' | 'likes'> & {
         /** The acting tenant — server-private; it never reaches the wire, only
@@ -5283,19 +5767,28 @@ export const store = {
         ...(face.artifactKind ? { subjectArtifactKind: face.artifactKind } : {}),
         ...(root ? { discussionId: root.id } : {}),
         commentCount: root?.posts.length ?? 0,
-        // The four lens signals (S4). Each is the READER's relationship, so each
-        // is computed here and absent when it doesn't hold.
+        // The lens signals (S4, + `followed` in S7). Each is the READER's
+        // relationship, so each is computed here and absent when it doesn't
+        // hold. `followed` is the only one keyed on the ACTOR rather than the
+        // subject — which is precisely what makes it a social feed.
         ...(actorTenant !== undefined && tenantReadsAs(tenantId, actorTenant) ? { mine: true } : {}),
         likes: likedBy?.size ?? 0,
         ...(likedBy?.has(tenantId) ? { liked: true } : {}),
         ...(watches.get(watchKey(item.subject))?.has(tenantId) ? { watched: true } : {}),
         ...(seen !== undefined ? { viewedAt: seen } : {}),
+        ...(followed?.has(item.actor) ? { followed: true } : {}),
       })
     }
-    const muted = mutes.get(tenantId)
+    // S5 earmuff — the viewer's own filter. `includeMuted` exists for the ONE
+    // caller that must not honor it: the profile's publisher-existence check
+    // (S7). Muting somebody is an earmuff, never a wall — but that check asked
+    // the muted feed whether a name publishes, so muting a person whose only
+    // public face was their publishes made their PROFILE 404, i.e. erased them.
+    // A mute silences what someone says; it must not unmake who they are.
+    const muted = opts?.includeMuted === true ? undefined : mutes.get(tenantId)
     for (const g of grants) {
       if (g.note === undefined) continue
-      if (muted?.has(g.grantedBy)) continue // S5 earmuff — the viewer's own filter
+      if (muted?.has(g.grantedBy)) continue
       if (!this.grantSubjectVisible(g.subject, tenantId)) continue
       push({ id: `share:${g.id}`, kind: 'share', at: g.grantedAt, actor: g.grantedBy, actorTenant: g.granterTenant, note: g.note, subject: g.subject })
     }

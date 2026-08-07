@@ -206,6 +206,61 @@ export interface OwnerProfileStats {
   workResolved: number
 }
 
+/** The profile's follow face (S7) — the counts are public (they are aggregates
+ *  of public acts, like every other `OwnerProfileStats` row), but the NAMES are
+ *  viewer-filtered: a follower list is otherwise a directory of principals the
+ *  viewer could not have found by any other door, which is exactly the leak
+ *  existence-hiding forbids. So the count may honestly exceed the list — the
+ *  same posture `AgentPublicFork` already takes for forks. */
+/** One row of a follow roster (S7) — a PERSON, plus the VIEWER's own
+ *  relationship to them, so the row can carry the inline follow control every
+ *  social network puts on a follower list. Display names only (the D21 public
+ *  handle); a raw tenant id never crosses. */
+export interface FollowRow {
+  name: string
+  /** Viewer-relative: the CALLER follows this person. Absent = they don't
+   *  (INV-9). Absent on the caller's own row too — you cannot follow yourself. */
+  youFollow?: boolean
+  /** This row IS the caller: the byline wears "(you)" and carries no follow
+   *  control. Computed at serve time like every other viewer-relative flag. */
+  own?: boolean
+}
+
+/** How many roster rows a profile serves per band. A cap, not a page: this
+ *  prototype's worlds are small, and a real pagination cursor would be a wire
+ *  contract with no honest mock behind it. The COUNT is always the truth, so a
+ *  band whose list is shorter says so rather than implying the count is wrong. */
+export const FOLLOW_ROSTER_CAP = 50
+
+export interface OwnerFollowFace {
+  followers: number
+  following: number
+  /** Rows among `followers` the VIEWER can themselves see — capped at
+   *  `FOLLOW_ROSTER_CAP`, and deliberately a SUBSET: the count may exceed it
+   *  both because the roster is long and because some followers are invisible
+   *  to this viewer. */
+  followerList: FollowRow[]
+  /** Rows among `following` the VIEWER can themselves see (same rules). */
+  followingList: FollowRow[]
+  /** Viewer-relative: the caller follows this workspace. Absent = they don't
+   *  (INV-9), and it is absent on your own profile — you cannot follow
+   *  yourself. */
+  youFollow?: boolean
+  /** Viewer-relative: the caller may open a DIRECT MESSAGE with this workspace.
+   *  False on your own profile; otherwise true, since reachability IS the
+   *  profile serving at all (a name you can read is a name you can write to).
+   *  Reported rather than inferred so the affordance and the wall stay one
+   *  decision — the SOCIAL-4b lesson. */
+  canMessage?: boolean
+  /** The existing direct message with this workspace, when the viewer already
+   *  has one — so the Message control is a DOOR rather than a composer.
+   *
+   *  Reported, not inferred: the client's first cut found it by scanning its
+   *  inbox for `counterpart === name`, i.e. by matching DISPLAY NAMES, and
+   *  names are neither unique nor identities. The server holds the pair. */
+  dmId?: string
+}
+
 export interface OwnerProfile {
   /** The display name — the profile's handle and its public identity. */
   name: string
@@ -221,6 +276,8 @@ export interface OwnerProfile {
   stats: OwnerProfileStats
   /** Recent public acts, newest first (capped server-side). */
   activity: OwnerActivity[]
+  /** The follow relationship between the viewer and this workspace (S7). */
+  follow: OwnerFollowFace
 }
 
 /** Body of `POST /v1/projects/:id/open-subgoals/:itemId/comments` (D23). */
