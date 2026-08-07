@@ -188,8 +188,11 @@ function PhotoBody({
           <span className="relative z-10 m-2 rounded bg-black/30 px-1.5 py-0.5 text-[11px] font-medium text-on-solid/95">
             {item.label}
           </span>
+          {/* Inverted seat: a WHITE chip over the photo, so its text needs the
+              deep solid value — `accent-strong` lifts in dark mode and would
+              land light-on-white (2.4:1). Same UI-20 pairing, other way up. */}
           {applied.length > 0 && (
-            <span className="absolute right-2 top-2 z-10 rounded bg-on-solid/85 px-1.5 py-0.5 text-[10px] font-semibold text-accent-strong">
+            <span className="absolute right-2 top-2 z-10 rounded bg-on-solid/85 px-1.5 py-0.5 text-[10px] font-semibold text-accent-solid">
               Edited · {applied.join(', ')}
             </span>
           )}

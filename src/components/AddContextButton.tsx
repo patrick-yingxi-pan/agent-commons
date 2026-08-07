@@ -1332,7 +1332,7 @@ function OptionRow({
       ) : (
         <span
           title="Add"
-          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent group-hover:text-on-solid"
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent-solid group-hover:text-on-solid"
         >
           <Plus size={14} />
         </span>

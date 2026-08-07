@@ -59,6 +59,18 @@ names its locking test — moving or weakening a rule means moving its lock too.
   unchanged. The six capability-chip hues are the EMBELLISHMENT layer — famous-
   card pigments (Schönbrunner/Prussian/Burgundy/Marrs/Klein/Titian) at tint
   weight, palette-invariant, never a third voice.
+- **The solid-fill seat** (invariant UI-20). A colour that is READ and a colour
+  that is FILLED UNDER TEXT are different jobs — and in dark mode they pull
+  apart, because the accent is lightened to be readable on a dark ground, which
+  is what makes it unable to carry white. So a fill under `text-on-solid` wears
+  its own token, `--color-*-solid(-strong)`; `--color-accent` / `*-strong` stay
+  the text/dot/bar voice. Every solid seat clears 4.5:1 against `on-solid` in
+  all four palettes × both modes, and the text seat is separately held to 3:1
+  against the canvas so the two can't be collapsed back together. **Never pair
+  `text-on-solid` with `bg-accent` / `bg-co` / `bg-danger` / `bg-*-strong`** —
+  the dark-mode CTA shipped at 1.74:1 that way. Locked by
+  `tests/contrast.test.ts` (the whole palette × mode × seat matrix, plus a
+  tree-wide call-site scan); the image-backdrop exemptions are enumerated there.
 - **No "before" view.** The prototype deliberately does *not* reproduce today's
   three-tab UI. The motivation lives in the docs, and reviewers can diff against
   the live app — so don't build a side-by-side "before".

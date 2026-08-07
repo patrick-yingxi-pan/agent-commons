@@ -30,10 +30,13 @@ const DARK_QUERY = '(prefers-color-scheme: dark)'
 
 export type PaletteId = 'claret' | 'terracotta' | 'indigo' | 'forest'
 
-/** The tokens a palette varies — the neutrals, the accent family, and the user
- *  bubble. Everything else (`ok`/`warn`/`danger`, cap hues, diff colors,
- *  `on-solid`) is semantic and theme-invariant; the conformance lock fails a
- *  palette block that strays outside this list, or omits part of it. */
+/** The tokens a palette varies — the neutrals, the accent family (including its
+ *  SOLID-FILL seat, `*-solid`, which carries `on-solid` text and so is held to
+ *  4.5:1 against it by `tests/contrast.test.ts` — invariant UI-20), and the user
+ *  bubble. Everything else (`ok`/`warn`/`danger` and their solid seats, cap
+ *  hues, diff colors, `on-solid` itself) is semantic and palette-invariant; the
+ *  conformance lock fails a palette block that strays outside this list, or
+ *  omits part of it. */
 export const PALETTE_TOKENS: readonly string[] = [
   '--color-canvas',
   '--color-sidebar',
@@ -48,9 +51,12 @@ export const PALETTE_TOKENS: readonly string[] = [
   '--color-accent',
   '--color-accent-strong',
   '--color-accent-tint',
+  '--color-accent-solid',
+  '--color-accent-solid-strong',
   '--color-co',
   '--color-co-strong',
   '--color-co-tint',
+  '--color-co-solid',
   '--color-userbubble',
 ]
 

@@ -17,9 +17,13 @@ import { SOLID_BUTTON_CLASS, DANGER_BUTTON_CLASS, SECONDARY_BUTTON_CLASS, SOFT_B
 const FUNNEL = join('src', 'lib', 'button.ts')
 
 test('the solid faces ramp on hover and carry no size', () => {
+  // The ramp is the SOLID seat (`*-solid`), not the text-tuned base: the fill
+  // carries `on-solid`, and `accent`/`danger` are tuned to be read on the
+  // canvas instead — in dark mode the two pull apart hard enough to put this
+  // very button at 1.74:1 (invariant UI-20, tests/contrast.test.ts).
   for (const [cue, ramp] of [
-    [SOLID_BUTTON_CLASS, 'accent'],
-    [DANGER_BUTTON_CLASS, 'danger'],
+    [SOLID_BUTTON_CLASS, 'accent-solid'],
+    [DANGER_BUTTON_CLASS, 'danger-solid'],
   ] as const) {
     assert.ok(cue.includes(`bg-${ramp}`) && cue.includes(`hover:bg-${ramp}-strong`), `${ramp} ramps on hover`)
     assert.ok(cue.includes('text-on-solid'), `${ramp} keeps readable label atop the fill`)

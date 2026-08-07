@@ -37,6 +37,19 @@
   --color-accent-strong: #7a2a33;
   --color-accent-tint: #f6e7e6;
 
+  /* The SOLID-FILL seat (invariant UI-20). `--color-accent` does double duty —
+     it is read as TEXT on the canvas AND used as a FILL under `on-solid` — and
+     in dark mode those two jobs pull apart: a value light enough to read on a
+     dark canvas is far too light to carry white text (the shipped dark CTA hit
+     2.20:1 on Forest, 1.74:1 on hover). So the fill role gets its OWN token,
+     whose single job is carrying `--color-on-solid`; `--color-accent` keeps the
+     text/dot/bar role. Every `*-solid` clears 4.5:1 against `on-solid` in BOTH
+     modes — light keeps the palette's own deep value, dark takes the LIGHTEST
+     value on the same hue ramp that still clears it (so the fill also holds a
+     ~3:1 boundary against the dark canvas). */
+  --color-accent-solid: #93353f;
+  --color-accent-solid-strong: #7a2a33;
+
   /* The CO-COLOR — the duet's second voice (owner directive 2026-08-03, the
      Bindery casting): Prussian-blue PLACES against claret VERBS. The accent
      family owns what you can DO (the CTA tier, Approve, solid and soft verbs);
@@ -46,6 +59,8 @@
   --color-co: #1c4472;
   --color-co-strong: #173a63;
   --color-co-tint: #e7eef6;
+  /* The co family's solid seat — the checked checkbox, the toggled-on pill. */
+  --color-co-solid: #1c4472;
 
   --color-userbubble: #e9eff6;
 
@@ -100,8 +115,21 @@
   --color-danger-tint: #fef2f2;
   --color-danger-tint-strong: #fee2e2;
 
+  /* The status ramps' solid seats (UI-20). `*-strong` is read as TEXT far more
+     often than it is used as a fill, so — exactly as with the accent — the fill
+     role gets its own token instead of deepening a value 11 text call-sites
+     depend on. `neutral-solid` is the retracted badge's grey. */
+  --color-ok-solid: #04855d;
+  --color-warn-solid: #b06005;
+  --color-danger-solid: #dc2626;
+  --color-danger-solid-strong: #b91c1c;
+  --color-neutral-solid: #605658;
+
   /* Text/icon color atop solid accent- or status-colored fills — white in both
-     themes (the fills stay vivid), but a token so the rule is auditable. */
+     themes, which is now TRUE rather than aspirational: every fill it sits on
+     is a `*-solid` token held to 4.5:1 against it (UI-20, tests/contrast.test.ts).
+     Before that seat existed this comment claimed "the fills stay vivid" while
+     dark mode was quietly lightening them out from under it. */
   --color-on-solid: #ffffff;
 
   --font-serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua",
@@ -144,11 +172,21 @@
   --color-accent-strong: #dd8790;
   --color-accent-tint: #402b2d;
 
+  /* The solid seat does NOT follow the accent up into the light (UI-20): the
+     accent lifts so it can be READ on this dark ground, which is precisely why
+     it can no longer carry white. These are the lightest claret and Prussian
+     values that still clear 4.5:1 against `on-solid`, so the fill stays a
+     legible button and keeps a ~3:1 edge against the canvas. Hover darkens, the
+     same direction as light mode, but only as far as the edge survives. */
+  --color-accent-solid: #c0505c;
+  --color-accent-solid-strong: #b2404c;
+
   /* The co family lifted for dark ground — Prussian places read as moonlit
      blue against the wine-leather charcoals. */
   --color-co: #7fa8d9;
   --color-co-strong: #9dbde6;
   --color-co-tint: #24313f;
+  --color-co-solid: #3176c6;
 
   --color-userbubble: #24313f;
 
@@ -189,6 +227,14 @@
   --color-danger-tint: #3d2727;
   --color-danger-tint-strong: #4a302f;
 
+  /* Status solids, dark: the status ramps lift for dark ground exactly as the
+     accent does, so their fills need the same separate seat (UI-20). */
+  --color-ok-solid: #04855d;
+  --color-warn-solid: #b06005;
+  --color-danger-solid: #dd2f2f;
+  --color-danger-solid-strong: #c92020;
+  --color-neutral-solid: #7f7274;
+
   --color-on-solid: #ffffff;
 }
 
@@ -223,11 +269,16 @@
   --color-accent: #c15f3c;
   --color-accent-strong: #a34d2e;
   --color-accent-tint: #f6e9e1;
+  /* The one light-mode accent that had to move: #c15f3c carried white at only
+     4.23:1, so the FILL seat deepens a shade while the text seat stays put. */
+  --color-accent-solid: #b85a39;
+  --color-accent-solid-strong: #a34d2e;
 
   /* Single-voice palette: co = the accent family, so no seat changes hue. */
   --color-co: #c15f3c;
   --color-co-strong: #a34d2e;
   --color-co-tint: #f6e9e1;
+  --color-co-solid: #b85a39;
 
   --color-userbubble: #efece3;
 }
@@ -248,10 +299,13 @@
   --color-accent: #d97757;
   --color-accent-strong: #e08b6d;
   --color-accent-tint: #453028;
+  --color-accent-solid: #b85a39;
+  --color-accent-solid-strong: #a25032;
 
   --color-co: #d97757;
   --color-co-strong: #e08b6d;
   --color-co-tint: #453028;
+  --color-co-solid: #b85a39;
 
   --color-userbubble: #33322c;
 }
@@ -274,10 +328,13 @@
   --color-accent: #4353c8;
   --color-accent-strong: #3644a6;
   --color-accent-tint: #e9ecfa;
+  --color-accent-solid: #4353c8;
+  --color-accent-solid-strong: #3644a6;
 
   --color-co: #4353c8;
   --color-co-strong: #3644a6;
   --color-co-tint: #e9ecfa;
+  --color-co-solid: #4353c8;
 
   --color-userbubble: #eef1f9;
 }
@@ -298,10 +355,13 @@
   --color-accent: #8b96e8;
   --color-accent-strong: #a3adf0;
   --color-accent-tint: #2c3052;
+  --color-accent-solid: #5f6cd0;
+  --color-accent-solid-strong: #4d5dcb;
 
   --color-co: #8b96e8;
   --color-co-strong: #a3adf0;
   --color-co-tint: #2c3052;
+  --color-co-solid: #5f6cd0;
 
   --color-userbubble: #2b2e42;
 }
@@ -324,10 +384,13 @@
   --color-accent: #2e6b4a;
   --color-accent-strong: #24543a;
   --color-accent-tint: #e5f0e9;
+  --color-accent-solid: #2e6b4a;
+  --color-accent-solid-strong: #24543a;
 
   --color-co: #2e6b4a;
   --color-co-strong: #24543a;
   --color-co-tint: #e5f0e9;
+  --color-co-solid: #2e6b4a;
 
   --color-userbubble: #edf2ee;
 }
@@ -348,10 +411,13 @@
   --color-accent: #6fbf8f;
   --color-accent-strong: #8ed3a9;
   --color-accent-tint: #24382c;
+  --color-accent-solid: #38835a;
+  --color-accent-solid-strong: #327450;
 
   --color-co: #6fbf8f;
   --color-co-strong: #8ed3a9;
   --color-co-tint: #24382c;
+  --color-co-solid: #38835a;
 
   --color-userbubble: #2b342d;
 }

@@ -1429,7 +1429,7 @@ function ProjectScheduleAdd({
                   <span className="block truncate text-[13px] font-medium text-ink">{tpl.name}</span>
                   <span className="block truncate text-[11px] text-ink-faint">{tpl.preview}</span>
                 </span>
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent group-hover:text-on-solid">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent-solid group-hover:text-on-solid">
                   <Plus size={13} />
                 </span>
               </button>
@@ -1458,7 +1458,7 @@ function ProjectScheduleAdd({
                       <span className="block truncate text-[13px] font-medium text-ink">{t.name}</span>
                       <span className="block truncate text-[11px] text-ink-faint">{t.cadence}</span>
                     </span>
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent group-hover:text-on-solid">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent-solid group-hover:text-on-solid">
                       <Plus size={13} />
                     </span>
                   </button>
@@ -1927,7 +1927,7 @@ function CommissionAdd({ projectId, available, joinRole }: { projectId: string; 
                       {a.tools.length} tool{a.tools.length === 1 ? '' : 's'}
                     </span>
                   </span>
-                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent group-hover:text-on-solid">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent-solid group-hover:text-on-solid">
                     <Plus size={13} />
                   </span>
                 </button>
@@ -2618,15 +2618,15 @@ function WorkItemPage({
 
   const badge =
     o.status === 'done' ? (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-ok-strong px-2.5 py-0.5 text-[12px] font-medium text-on-solid">
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-ok-solid px-2.5 py-0.5 text-[12px] font-medium text-on-solid">
         <CheckCircle2 size={13} /> Done
       </span>
     ) : o.status === 'retracted' ? (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-ink-faint px-2.5 py-0.5 text-[12px] font-medium text-on-solid">
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-neutral-solid px-2.5 py-0.5 text-[12px] font-medium text-on-solid">
         <MinusCircle size={13} /> Retracted
       </span>
     ) : (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-warn-strong px-2.5 py-0.5 text-[12px] font-medium text-on-solid">
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-warn-solid px-2.5 py-0.5 text-[12px] font-medium text-on-solid">
         <Clock size={13} /> Open
       </span>
     )
@@ -3942,11 +3942,11 @@ function ContributionPage({
 
   const badge =
     c.status === 'landed' ? (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-ok-strong px-2.5 py-0.5 text-[12px] font-medium text-on-solid">
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-ok-solid px-2.5 py-0.5 text-[12px] font-medium text-on-solid">
         <CheckCircle2 size={13} /> Landed · L{c.landingNumber}
       </span>
     ) : (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-warn-strong px-2.5 py-0.5 text-[12px] font-medium text-on-solid">
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-warn-solid px-2.5 py-0.5 text-[12px] font-medium text-on-solid">
         <Clock size={13} /> Open
       </span>
     )
@@ -5325,7 +5325,7 @@ function AddContextRow({ ctx, onAdd }: { ctx: SavedContext; onAdd: () => void })
         <span className="block truncate text-[13px] font-medium text-ink">{ctx.label}</span>
         <span className="block truncate text-[11px] text-ink-faint">{ctx.detail}</span>
       </span>
-      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent group-hover:text-on-solid">
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent-solid group-hover:text-on-solid">
         <Plus size={14} />
       </span>
     </button>
@@ -10178,7 +10178,7 @@ function NewScheduleRow({ tpl, onAdd }: { tpl: ScheduleTemplate; onAdd: () => vo
         <span className="block truncate text-[13px] font-medium text-ink">{tpl.name}</span>
         <span className="block truncate text-[11px] text-ink-faint">{tpl.preview}</span>
       </span>
-      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent group-hover:text-on-solid">
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent-solid group-hover:text-on-solid">
         <Plus size={14} />
       </span>
     </button>
@@ -11579,7 +11579,7 @@ function SystemPromptCard() {
                 >
                   <span
                     className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
-                      on ? 'border-co bg-co text-on-solid' : 'border-line-strong'
+                      on ? 'border-co-solid bg-co-solid text-on-solid' : 'border-line-strong'
                     }`}
                   >
                     {on && <Check size={11} strokeWidth={3} />}

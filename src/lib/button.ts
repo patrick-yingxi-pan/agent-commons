@@ -20,15 +20,19 @@
  *  Plain strings so the DOM-less runner can scan — tests/button.test.ts locks
  *  the recipe and forbids the dead spellings tree-wide. */
 
-/** The affirmative solid: claret, darkening (light) / lifting (dark) on hover
- *  through the accent ramp. */
+/** The affirmative solid: claret, deepening on hover through the accent ramp's
+ *  SOLID seat. The fill is `*-solid`, not `accent`, because it carries
+ *  `on-solid` text: `accent` is tuned to be READ on the canvas, which in dark
+ *  mode makes it far too light to sit white text on (this button shipped at
+ *  2.20:1 on Forest dark, 1.74:1 on hover). Invariant UI-20, locked by
+ *  tests/contrast.test.ts. */
 export const SOLID_BUTTON_CLASS =
-  'rounded-md bg-accent font-medium text-on-solid transition hover:bg-accent-strong'
+  'rounded-md bg-accent-solid font-medium text-on-solid transition hover:bg-accent-solid-strong'
 
-/** The destructive solid: same anatomy on the danger ramp — Delete, a
- *  dangerous Confirm. Pair with a plain-text Cancel, never with another solid. */
+/** The destructive solid: same anatomy on the danger ramp's solid seat — Delete,
+ *  a dangerous Confirm. Pair with a plain-text Cancel, never with another solid. */
 export const DANGER_BUTTON_CLASS =
-  'rounded-md bg-danger font-medium text-on-solid transition hover:bg-danger-strong'
+  'rounded-md bg-danger-solid font-medium text-on-solid transition hover:bg-danger-solid-strong'
 
 /** The SOFT verb — an affirmative action below the CTA tier (owner directive
  *  2026-08-03: the opaque claret read heavy at app scale). Approve on a consent

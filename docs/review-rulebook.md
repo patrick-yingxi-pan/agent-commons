@@ -36,9 +36,15 @@ of what you changed — memory produces plan-shaped checklists.
    `npm run ui:sweep` (boots its own stack) → `npm run e2e` — then the per-rule
    detections below for every enumerated subject the harnesses don't model.
 3. **Judge.** Screenshot each swept cell and judge the residue no rule
-   expresses yet (crowding, misalignment, illegible contrast, a control that
-   reads as broken) — as a user would, not as the author who knows what's
-   there.
+   expresses yet (crowding, misalignment, a control that reads as broken) — as
+   a user would, not as the author who knows what's there. **Mind what the
+   harnesses do NOT vary:** `ui:sweep` drives ONE account in the DEFAULT palette
+   in LIGHT mode, so a palette- or mode-shaped defect is invisible to it — it
+   reported 0 violations / 90 of 90 cells on the afternoon the dark-mode CTA
+   was sitting at 1.74:1. Colour legibility on solid fills is no longer a
+   judgment call (UI-20 made it mechanical, in `tests/contrast.test.ts`, across
+   every palette × mode); anything else that varies by theme still needs the
+   axis opened by hand.
 4. **Fix.** Triage by severity (§3). Fix at the class level: if two subjects
    share the defect, unify them onto one primitive/funnel and fix there —
    never patch the one instance that was noticed (the UI-invariants ratchet
