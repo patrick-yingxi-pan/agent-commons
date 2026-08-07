@@ -621,7 +621,7 @@ function publicDiscussion(d: StoredDiscussion, viewerTenant?: string): Discussio
  *  in different tenants may share a name, so a name-keyed edit store would let
  *  one workspace rewrite another's document — authority never keys on a name
  *  (the S7 lesson). `store.artifactContent(tenantId)` lays these over the
- *  fixture per caller; `store.artifactBody(id)` is the one resolver. */
+ *  fixture per caller; `artifactBodyOf(id)` is the one resolver. */
 const artifactBodies = new Map<string, ArtifactContent>()
 
 /** An artifact's CURRENT body — the edit if it has one, else the authored seed.
@@ -654,6 +654,10 @@ const socialProposals: StoredSocialProposal[] = []
 let socialProposalSeq = 0
 const MAX_PROPOSALS_PER_SUBJECT = 100
 const MAX_PROPOSAL_CHARS = 2000
+/** One prose block's ceiling — the `artifact-patch` delta's text and the owner's
+ *  own edit share it, because both end in the same body. Same order as the other
+ *  free-text caps; the point is a bound, not a precise budget. */
+const MAX_ARTIFACT_BLOCK_CHARS = 2000
 
 /** A patch is offerable when it is a non-empty object naming only proposable
  *  fields, each of the right primitive type. */
@@ -3888,17 +3892,27 @@ export const store = {
   artifactContent(tenantId?: string): ArtifactContentLibrary {
     if (!tenantId || artifactBodies.size === 0) return ARTIFACT_CONTENT
     const lib: ArtifactContentLibrary = { ...ARTIFACT_CONTENT }
+    // How many of this caller's visible artifacts wear each name. A name is a
+    // WEAKER identity than an edit's: nothing stops one workspace holding two
+    // artifacts called `notes.md`, and writing an edit under the shared name
+    // would show one document's revision inside the other.
+    const byName = new Map<string, number>()
+    for (const a of ALL_ARTIFACTS) {
+      if (this.artifactVisibleToTenant(a, tenantId)) byName.set(a.name, (byName.get(a.name) ?? 0) + 1)
+    }
+    for (const a of graph.extraArtifacts) {
+      if (this.artifactVisibleToTenant(a, tenantId)) byName.set(a.name, (byName.get(a.name) ?? 0) + 1)
+    }
     for (const [artifactId, body] of artifactBodies) {
       const a = findArtifact(artifactId)
-      if (a && this.artifactVisibleToTenant(a, tenantId)) lib[a.name] = body
+      if (!a || !this.artifactVisibleToTenant(a, tenantId)) continue
+      // The ID key is always exact, and `ArtifactBodyView` prefers it.
+      lib[artifactId] = body
+      // The NAME key is the compatibility path for the few readers that hold a
+      // file name and no id — correct only while the name picks out one artifact.
+      if ((byName.get(a.name) ?? 0) === 1) lib[a.name] = body
     }
     return lib
-  },
-  /** The artifact's CURRENT body — the caller's overlay if it has been edited,
-   *  else the authored seed. The one resolver, so the editor, the validator,
-   *  the diff's base and the applier all read the same bytes. */
-  artifactBody(artifactId: string): ArtifactContent | undefined {
-    return artifactBodyOf(artifactId)
   },
   /** The text an addressed block carries right now — see `artifactBlockTextOf`. */
   artifactBlockText(artifactId: string, block: number): string | undefined {
@@ -3918,13 +3932,15 @@ export const store = {
     const body = artifactBodyOf(artifactId)
     if (!body || body.type !== 'doc') return undefined
     if (artifactBlockTextOf(artifactId, block) === undefined) return undefined
-    const next = text.trim()
+    // Clamped like every other free-text field the layer stores: this string is
+    // written into a body that GET /artifact-content hands to every reader of
+    // the document, so an unbounded one is an unbounded broadcast.
+    const next = text.trim().slice(0, MAX_ARTIFACT_BLOCK_CHARS)
     if (!next) return undefined
     const blocks = body.blocks.map((b, i) => (i === block ? withDocBlockText(b, next) : b))
     const updated: ArtifactContent = { ...body, blocks }
     artifactBodies.set(artifactId, updated)
-    const a = findArtifact(artifactId)
-    emit({ type: 'artifact.changed', artifactId, artifactName: a?.name ?? '' })
+    emit({ type: 'artifact.changed', artifactId })
     persist()
     return updated
   },
@@ -5729,8 +5745,12 @@ export const store = {
     if (req.delta.kind === 'artifact-patch') {
       if (req.subject.kind !== 'artifact') return 'invalid'
       const base = this.artifactBlockText(req.subject.id, req.delta.block)
-      const next = req.delta.text.trim()
+      // Validate the CLAMPED text, so what is checked is what would be stored
+      // and applied — checking the raw string could accept an offer whose
+      // truncated form is a no-op against the base.
+      const next = req.delta.text.trim().slice(0, MAX_ARTIFACT_BLOCK_CHARS)
       if (base === undefined || !next || next === base) return 'invalid'
+      req.delta = { kind: 'artifact-patch', block: req.delta.block, text: next }
     }
     const rows = socialProposals.filter((p) => p.subject.kind === req.subject.kind && p.subject.id === req.subject.id)
     if (rows.length >= MAX_PROPOSALS_PER_SUBJECT) return 'capped'

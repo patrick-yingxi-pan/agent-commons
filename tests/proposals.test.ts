@@ -406,3 +406,62 @@ test('SOCIAL-7: a landed artifact-patch shows the pre-image it replaced, not the
 
   store.updateArtifactBlock('a17', 1, before)
 })
+
+test('SOCIAL-7: an artifact-patch’s text is CLAMPED like every other stored free text', async () => {
+  // Landing writes this string into a body that GET /artifact-content hands to
+  // every reader of the document, so an unbounded delta is an unbounded
+  // broadcast. The suggestion arm and the rationale were already clamped; this
+  // one shipped without a cap (review finding).
+  const owner = store.defaultTenantId()
+  const before = store.artifactBlockText('a16', 0)
+  assert.ok(before)
+  const huge = 'x'.repeat(50_000)
+  const offered = await call(
+    'POST', '/proposals',
+    { subject: { kind: 'artifact', id: 'a16' }, delta: { kind: 'artifact-patch', block: 0, text: huge }, rationale: 'long' },
+    { 'x-tenant-id': owner },
+  )
+  assert.equal(offered.status, 200)
+  assert.ok(offered.json.delta.text.length < huge.length, 'the STORED delta is clamped, not the raw string')
+  assert.equal(offered.json.delta.text.length, 2000)
+
+  await call('POST', `/proposals/${offered.json.id}/land`, undefined, { 'x-tenant-id': owner })
+  assert.equal(store.artifactBlockText('a16', 0)?.length, 2000, 'and the body it wrote is clamped too')
+
+  // The owner's own door shares the ceiling — one mutator, one bound.
+  await call('PATCH', '/artifacts/a16/content', { block: 0, text: huge }, { 'x-tenant-id': owner })
+  assert.equal(store.artifactBlockText('a16', 0)?.length, 2000)
+  store.updateArtifactBlock('a16', 0, before)
+})
+
+test('SOCIAL-7: a same-named artifact in the SAME workspace never inherits a body edit', async () => {
+  // The cross-tenant case was locked from the start; this is the same defect one
+  // step in. The overlay is id-keyed, but the projection wrote it back under the
+  // NAME — and one workspace can hold two artifacts called the same thing (the
+  // save-artifact replay guard keys on name + SOURCE, so two sessions saving
+  // `rate-limit-rfc.md` both land). Editing the real one then showed the
+  // revision inside the impostor. The library now carries an exact ARTIFACT-ID
+  // key that readers prefer, and lends the NAME key only while it picks out one.
+  const owner = store.defaultTenantId()
+  const name = 'rate-limit-rfc.md'
+  const before = store.artifactBlockText('a17', 1)
+  assert.ok(before, 'the seeded document')
+  assert.ok(store.artifactContent(owner)[name], 'whose authored body is served under its name')
+
+  const g = store.applyRelationOp(
+    { kind: 'save-artifact', artifact: { name, kind: 'doc', meta: 'Document' }, sessionTitle: 'Another thread' },
+    owner,
+  )
+  const impostor = g.extraArtifacts.find((a) => a.name === name)
+  assert.ok(impostor && impostor.id !== 'a17', 'a second artifact wearing the same name, same workspace')
+
+  store.updateArtifactBlock('a17', 1, 'Token-bucket per API key: rewritten for this test.')
+  const lib = store.artifactContent(owner)
+  assert.match(JSON.stringify(lib['a17']), /rewritten for this test/, 'the edit is served under the exact artifact id')
+  assert.doesNotMatch(
+    JSON.stringify(lib[name] ?? {}),
+    /rewritten for this test/,
+    'and never under a name two artifacts share — the impostor cannot inherit it',
+  )
+  store.updateArtifactBlock('a17', 1, before)
+})

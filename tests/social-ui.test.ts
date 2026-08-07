@@ -184,7 +184,11 @@ test('the proposal delta has ONE renderer: no surface re-branches on delta.kind'
     if (rel.endsWith('components/DeltaView.tsx')) continue // the funnel itself
     // Branching on a delta's kind, or re-calling a delta's human describer, is
     // the drift — it means a second rendering exists with its own labels.
-    for (const probe of ["delta.kind ===", "describeSchedulePatch(", "describeArtifactPatch("]) {
+    // Probes that are specific to a proposal DELTA. `describeOp` is deliberately
+    // not one: it is the shared human face for a relation op, which the consent
+    // card (RelationActionCard) renders for reasons that have nothing to do with
+    // proposals — probing it would forbid a legitimate second caller.
+    for (const probe of ['delta.kind ===', 'describeSchedulePatch(']) {
       if (src.includes(probe)) offenders.push(`${rel.split('/src/')[1]}: ${probe}`)
     }
     if (src.includes('<ProposalDeltaView') || src.includes('<DeltaView')) hosts += 1
@@ -222,6 +226,25 @@ test('the artifact offer form and the server validator share ONE patchability pr
   assert.equal(artifactPatchDelta(1, '   ', 'Prose.'), null, 'blank text')
   assert.equal(artifactPatchDelta(1, 'Prose.', 'Prose.'), null, 'identical — a no-op that would burn an L#')
   assert.deepEqual(artifactPatchDelta(1, ' New. ', 'Prose.'), { kind: 'artifact-patch', block: 1, text: 'New.' })
+})
+
+/** An offer form that can never submit is the dead affordance this layer's
+ *  audits keep removing. A `figure`/`sheet`/`slides` artifact — or a served file
+ *  — has no addressable prose, so it must reach the reviewable-suggestion FLOOR
+ *  the server accepts for every subject, not a block picker with nothing in it. */
+test('an artifact with no addressable prose falls to the suggestion floor, not a dead picker', async () => {
+  const { offerFormFor, patchableBlocks, suggestionDelta } = await import('../src/lib/proposalForm.ts')
+  assert.equal(offerFormFor('schedule', 0), 'schedule-fields')
+  assert.equal(offerFormFor('artifact', 3), 'artifact-blocks', 'a doc body gets the block picker')
+  assert.equal(
+    offerFormFor('artifact', patchableBlocks({ type: 'figure', shape: 'bars', caption: 'c' }).length),
+    'suggestion',
+    'a figure has no addressable block — the floor, never an unsubmittable picker',
+  )
+  assert.equal(offerFormFor('artifact', patchableBlocks(undefined).length), 'suggestion', 'a served/unknown body too')
+  assert.equal(offerFormFor('project', 0), 'suggestion', 'every other kind is the floor by definition')
+  // …and the floor actually produces a delta, so the form it selects can submit.
+  assert.deepEqual(suggestionDelta(' tighten the caption '), { kind: 'suggestion', text: 'tighten the caption' })
 })
 
 /** The blocks the form lists come from the CONTRACT's predicate, not a copy —

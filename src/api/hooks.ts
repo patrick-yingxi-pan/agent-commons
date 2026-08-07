@@ -616,9 +616,13 @@ export function useUsage(sessionId?: string): QueryState<UsageSnapshot> {
   return useQuery(keys.usage(sessionId), () => apiGet<UsageSnapshot>(paths.usage(sessionId)))
 }
 
-/** The artifact-body library, keyed by file name. */
-export function useArtifactContent(): QueryState<ArtifactContentLibrary> {
-  return useQuery(keys.artifactContent, () => apiGet<ArtifactContentLibrary>(paths.artifactContent))
+/** The artifact-body library — keyed by file name, plus an ARTIFACT-ID key for
+ *  every body the caller has edited (social S3), which `ArtifactBodyView`
+ *  prefers because a name does not uniquely pick out an artifact.
+ *  `enabled` gates the fetch for hosts that only sometimes read it (the shared
+ *  ProposalsPanel renders on routines too, where the library is never touched). */
+export function useArtifactContent(enabled = true): QueryState<ArtifactContentLibrary> {
+  return useQuery(keys.artifactContent, () => apiGet<ArtifactContentLibrary>(paths.artifactContent), enabled)
 }
 
 /** The server-known filesystem sources for the picker's source switcher — the web

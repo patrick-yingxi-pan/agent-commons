@@ -279,14 +279,15 @@ export interface ScheduleChangedEvent {
 }
 
 /** An artifact's BODY changed — its owner edited a block, or a proposal landed
- *  on it (social S3's `artifact-patch`). The name-keyed content library every
- *  preview reads is stale (UI-12: the datum has a live source, so it needs a
- *  sync path). Carries the artifact's id AND name: the id is what the gate
- *  walls on, the name is the library's key the reader invalidates. */
+ *  on it (social S3's `artifact-patch`). The content library every preview reads
+ *  is stale (UI-12: the datum has a live source, so it needs a sync path).
+ *  Carries the id ALONE: that is what the SSE gate walls on, and the reader
+ *  invalidates the one library wholesale rather than a single key — so a name
+ *  here would be a field nobody reads (and one the emitter could only fill with
+ *  a sentinel for an artifact it can no longer resolve). */
 export interface ArtifactChangedEvent {
   type: 'artifact.changed'
   artifactId: string
-  artifactName: string
 }
 
 /** A Project's Contributor roster changed — a commission was minted, re-granted, or

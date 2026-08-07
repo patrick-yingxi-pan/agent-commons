@@ -67,9 +67,8 @@ export function DeltaView({ delta, base }: { delta: ProposalDelta; base?: string
         </p>
       )
     case 'artifact-patch':
-      // A body edit IS a change, so it wears the form a change wants: a diff.
-      // The one-line `describeArtifactPatch` exists for surfaces with no room
-      // for one (a bell's sentence) — a review panel has the room.
+      // A body edit IS a change, so it wears the form a change wants: a diff —
+      // the before/after side by side, not a sentence about them.
       return (
         <div className="space-y-1">
           <p className="text-[13px] text-ink-soft">
@@ -87,9 +86,19 @@ export function DeltaView({ delta, base }: { delta: ProposalDelta; base?: string
         </p>
       )
     default: {
-      // Exhaustiveness guard: a new ProposalDelta variant is a compile error here.
-      const _exhaustive: never = delta
-      return _exhaustive
+      // Compile-time exhaustiveness: a new ProposalDelta variant fails to type
+      // here, which is the point. At RUNTIME this arm must still render — a
+      // proposal is PERSISTED, so a snapshot written by a build that knew a kind
+      // this one does not would otherwise hand React a plain object and take the
+      // whole ledger down with it. Degrade to a named placeholder instead.
+      const unknown: never = delta
+      void unknown
+      return (
+        <p className="text-[13px] text-ink-soft">
+          <DeltaTag>change</DeltaTag>
+          <span className="text-ink-faint">This change was offered in a form this build doesn’t know how to show.</span>
+        </p>
+      )
     }
   }
 }

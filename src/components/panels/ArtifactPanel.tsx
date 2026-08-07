@@ -205,7 +205,7 @@ function ArtifactPreview({ artifact, onClose }: { artifact: Artifact; onClose: (
         </button>
       </div>
       <div className="mb-3 truncate text-sm font-semibold text-ink">{artifact.name}</div>
-      <ArtifactBodyView kind={artifact.kind} name={artifact.name} size="compact" served={served} />
+      <ArtifactBodyView kind={artifact.kind} name={artifact.name} artifactId={artifact.id} size="compact" served={served} />
     </div>
   )
 }

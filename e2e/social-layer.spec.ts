@@ -1,4 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
+import assert from 'node:assert/strict'
 
 /** The social layer's DOM-level wiring (docs/design/social-layer.md,
  *  spec pillar docs/spec/12-social-layer.md) — the walks the node suites can't
@@ -770,9 +771,16 @@ test('improve an ARTIFACT: the owner edits in place, a visitor proposes, the own
   await expect(hers.getByRole('button', { name: /^Edit block / })).toHaveCount(0)
 
   await hers.getByRole('button', { name: 'Offer a change' }).click()
-  // The picker offers BLOCKS, not a routine's fields — the per-kind form. Its
-  // options are the live body, so the owner's edit above is selectable here.
-  await hers.getByLabel('Block to rewrite').selectOption({ index: 3 })
+  // The picker offers BLOCKS, not a routine's fields — the per-kind form. The
+  // block is chosen by what it SAYS, never by its position in the list: an
+  // option index would silently retarget (or vanish) the day the seed document
+  // gains or reorders a block, and the walk would then read as a regression in
+  // artifact-patch rather than a fixture change. Resolving the option's value
+  // from its text binds the walk to the block it means.
+  const picker = hers.getByLabel('Block to rewrite')
+  const blockValue = await picker.locator('option', { hasText: 'Who it’s for' }).first().getAttribute('value')
+  assert(blockValue, 'the seed document still has a "Who it’s for" heading to rewrite')
+  await picker.selectOption(blockValue)
   await hers.getByLabel('Rewritten text').fill(PROPOSED)
   await hers.getByLabel('Why this change').fill(`Plainer wording ${STAMP}`)
   await hers.getByRole('button', { name: 'Offer', exact: true }).click()

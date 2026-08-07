@@ -138,9 +138,14 @@ export interface DocEdit {
   /** The block open for editing, or null when none is. */
   index: number | null
   draft: string
+  /** Why the last save failed, if it did. The editor stays OPEN carrying the
+   *  draft when this is set — a rewrite is real work, and closing on failure
+   *  would discard it silently. */
+  error: string | null
+  saving: boolean
   onStart: (index: number, current: string) => void
   onDraft: (text: string) => void
-  onSave: () => void
+  onSave: () => void | Promise<void>
   onCancel: () => void
 }
 
@@ -170,12 +175,13 @@ function DocView({ doc, size, edit }: { doc: Extract<ArtifactContent, { type: 'd
                 className={`${FORM_INPUT_CLASS} w-full resize-y`}
               />
               <div className="flex items-center gap-1.5">
-                <button onClick={edit.onSave} disabled={!edit.draft.trim()} className={INLINE_ACTION_CLASS}>
-                  Save
+                <button onClick={() => void edit.onSave()} disabled={!edit.draft.trim() || edit.saving} className={INLINE_ACTION_CLASS}>
+                  {edit.saving ? 'Saving…' : 'Save'}
                 </button>
                 <button onClick={edit.onCancel} className={INLINE_ACTION_CLASS}>
                   Cancel
                 </button>
+                {edit.error && <span className="min-w-0 truncate text-[11px] text-danger">{edit.error}</span>}
               </div>
             </div>
           )
@@ -515,12 +521,17 @@ export function ArtifactBodyView({
   size,
   excerpt,
   served,
+  artifactId,
   edit,
 }: {
   kind: ArtifactKind
   name: string
   size: Size
   excerpt?: string
+  /** The artifact's id, when the host has one. Body lookups prefer it over
+   *  `name` (see below); absent just means the name path, which is exact for
+   *  every artifact whose name is unique to its owner. */
+  artifactId?: string
   /** The owner's in-place block editing (social S3). Only a `doc` body takes
    *  one — the other kinds have no single-string addressable unit — so the
    *  other renderers ignore it rather than pretending. */
@@ -531,7 +542,11 @@ export function ArtifactBodyView({
    *  (which fall back to the library / scaffold). */
   served?: { sourceId: string; path: string }
 }) {
-  const lib = useArtifactContent().data?.[name]
+  // The ID key wins when the server carried one (an EDITED body): a file name is
+  // not a unique handle — one workspace can hold two artifacts of the same name,
+  // and the name key would then show one document's revision inside the other.
+  const library = useArtifactContent().data
+  const lib = (artifactId ? library?.[artifactId] : undefined) ?? library?.[name]
   const isImage = kind === 'image'
   // Real text for a served, non-image artifact (enabled-gated; rules of hooks).
   const servedText = useFsText(served?.sourceId ?? '', served?.path ?? '', !!served && !isImage)
@@ -635,9 +650,10 @@ export function ArtifactViewer({
   own: boolean
   /** The project the artifact is filed under right now ('' = unfiled). */
   currentProjectId: string
-  /** Assign to a project, or unfile (null). ABSENT = the reader doesn't own this
-   *  artifact (a social grant widened the READ, not ownership): the filing shows
-   *  as a plain label instead of a menu. */
+  /** Assign to a project, or unfile (null). The MENU is gated on `own` — the one
+   *  ownership signal — so this is just the callback; absent (or not owned) shows
+   *  the filing as a plain label. Before, presence-of-callback was a second,
+   *  independent way to say "owner", and the two could disagree. */
   onAssignProject?: (projectId: string | null) => void
   /** Open the conversation that produced this artifact. Absent when `source`
    *  doesn't resolve to a known session (a created/sourceless artifact), so the
@@ -658,22 +674,42 @@ export function ArtifactViewer({
   // owner simply needs no consent from themselves.
   const [editing, setEditing] = useState<number | null>(null)
   const [draft, setDraft] = useState('')
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
   const edit: DocEdit | undefined = own
     ? {
         index: editing,
         draft,
+        error: saveError,
+        saving,
         onStart: (index, current) => {
           setEditing(index)
           setDraft(current)
+          setSaveError(null)
         },
         onDraft: setDraft,
-        onSave: () => {
+        // Close only once the write has actually landed. Closing first and
+        // firing the request into the void lost the rewrite on any refusal and
+        // left the rejection unhandled — the offer form next door has always
+        // done the opposite.
+        onSave: async () => {
           const index = editing
           if (index === null) return
-          setEditing(null)
-          void updateArtifactBlock(artifact.id, index, draft)
+          setSaving(true)
+          setSaveError(null)
+          try {
+            await updateArtifactBlock(artifact.id, index, draft)
+            setEditing(null)
+          } catch (e) {
+            setSaveError(e instanceof Error ? e.message : 'Could not save that edit.')
+          } finally {
+            setSaving(false)
+          }
         },
-        onCancel: () => setEditing(null),
+        onCancel: () => {
+          setEditing(null)
+          setSaveError(null)
+        },
       }
     : undefined
 
@@ -704,7 +740,7 @@ export function ArtifactViewer({
                 {artifactMetaIsSpecific(artifact.meta, KIND_LABEL[artifact.kind]) ? artifact.meta : KIND_LABEL[artifact.kind]}
               </span>
               <span>·</span>
-              {onAssignProject ? (
+              {own && onAssignProject ? (
                 <ProjectAssignMenu
                   projects={projects}
                   currentProjectId={currentProjectId}
@@ -728,7 +764,14 @@ export function ArtifactViewer({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          <ArtifactBodyView kind={artifact.kind} name={artifact.name} size="full" excerpt={artifact.excerpt} edit={edit} />
+          <ArtifactBodyView
+            kind={artifact.kind}
+            name={artifact.name}
+            artifactId={artifact.id}
+            size="full"
+            excerpt={artifact.excerpt}
+            edit={edit}
+          />
           {/* Improvements (social S3) — the generic ProposalsPanel, the third
               social primitive on the one canonical surface. An artifact could be
               shared and discussed but never IMPROVED: `artifact-patch` had no

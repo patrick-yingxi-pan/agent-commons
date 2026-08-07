@@ -292,7 +292,9 @@ export type ProposalDelta =
    *  linear — the reasoning lives with `docBlockText` in `contract/content.ts`.
    *  The delta carries only the AFTER text: the before is resolved at serve
    *  time onto `SocialProposal.deltaBase` (the Commons-embed rule), so the diff
-   *  an owner consents to is always against what landing would really replace. */
+   *  an owner consents to is always against what landing would really replace.
+   *  `text` is clamped to `MAX_PROPOSAL_CHARS` like every other free-text field
+   *  the layer stores — landing writes it into a body every reader fetches. */
   | { kind: 'artifact-patch'; block: number; text: string }
 
 /** The routine fields a proposal may offer to change — the SCALAR, reviewable
@@ -318,15 +320,6 @@ export function describeSchedulePatch(patch: import('./api.ts').UpdateScheduleRe
     .filter(([, v]) => v !== undefined)
     .map(([k, v]) => say(k, v))
   return parts.length > 0 ? parts.join(' · ') : 'no change'
-}
-
-/** The human face of an `artifact-patch` — the ONE-LINE form, for surfaces with
- *  no room for a diff (a notification's sentence, a consent prompt). The panel
- *  itself renders the real before→after, which is what a body edit deserves;
- *  this exists so the short form can't be re-improvised per surface. */
-export function describeArtifactPatch(delta: { block: number; text: string }): string {
-  const trimmed = delta.text.length > 60 ? `${delta.text.slice(0, 60)}…` : delta.text
-  return `rewrite block ${delta.block + 1} → “${trimmed}”`
 }
 
 export interface SocialProposal {

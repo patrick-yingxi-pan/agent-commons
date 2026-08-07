@@ -38,6 +38,7 @@ import { ProposalDeltaView } from './DeltaView'
 import {
   BOOLEAN_SCHEDULE_FIELDS,
   artifactPatchDelta,
+  offerFormFor,
   patchableBlocks,
   schedulePatchDelta,
   suggestionDelta,
@@ -60,15 +61,26 @@ export function ProposalsPanel({ subject, own }: { subject: SocialEntityRef; own
   // join goes through the relation graph's `allArtifacts`, the same resolver the
   // gallery uses: the bare `/artifacts` list carries only the SEEDED set, so
   // joining against it would offer no blocks at all on a created artifact.
+  const isArtifact = subject.kind === 'artifact'
   const artifactName = useRelations().allArtifacts().find((a) => a.id === subject.id)?.name
-  const lib = useArtifactContent().data
-  const blocks = subject.kind === 'artifact' ? patchableBlocks(artifactName ? lib?.[artifactName] : undefined) : []
+  // Only an artifact subject reads the body library, so only it fetches one
+  // (`useQuery`'s enabled gate) — this panel also renders on routines.
+  const lib = useArtifactContent(isArtifact).data
+  // Prefer the exact ID key the server stamps for an edited body; fall back to
+  // the file name (see `ArtifactBodyView` — a name is not a unique handle).
+  const body = isArtifact ? (lib?.[subject.id] ?? (artifactName ? lib?.[artifactName] : undefined)) : undefined
+  const blocks = patchableBlocks(body)
   const chosen = blocks.find((b) => b.index === block)
 
+  // WHICH form this subject gets — the choice itself lives in the pure module,
+  // so `node --test` can hold it (an artifact with no addressable prose must
+  // reach the floor, not a picker that can never submit).
+  const form = offerFormFor(subject.kind, blocks.length)
+
   const delta =
-    subject.kind === 'schedule'
+    form === 'schedule-fields'
       ? schedulePatchDelta(field, value)
-      : subject.kind === 'artifact'
+      : form === 'artifact-blocks'
         ? artifactPatchDelta(block, value, chosen?.text)
         : suggestionDelta(value)
 
@@ -108,7 +120,7 @@ export function ProposalsPanel({ subject, own }: { subject: SocialEntityRef; own
 
       {composing && (
         <div className="space-y-1.5 border-b border-line px-4 py-3">
-          {subject.kind === 'schedule' ? (
+          {form === 'schedule-fields' ? (
             <div className="flex flex-wrap gap-1.5">
               <select
                 aria-label="Field to change"
@@ -141,46 +153,37 @@ export function ProposalsPanel({ subject, own }: { subject: SocialEntityRef; own
                 />
               )}
             </div>
-          ) : subject.kind === 'artifact' ? (
-            blocks.length === 0 ? (
-              // An honest empty state: this body has no addressable prose (an
-              // image, a sheet, a deck). Saying so beats a picker with nothing
-              // in it — and the prose floor is still reachable on other kinds.
-              <p className="text-[12px] text-ink-faint">
-                This artifact has no editable text blocks — only documents can take a body edit today.
-              </p>
-            ) : (
-              <>
-                <select
-                  aria-label="Block to rewrite"
-                  value={block ?? ''}
-                  onChange={(e) => {
-                    const next = e.target.value === '' ? null : Number(e.target.value)
-                    setBlock(next)
-                    // Seed the box with what the block says now, so the offer is
-                    // an EDIT of the real text rather than a blank rewrite.
-                    setValue(next === null ? '' : (blocks.find((b) => b.index === next)?.text ?? ''))
-                  }}
-                  className={`${FORM_INPUT_CLASS} w-full`}
-                >
-                  <option value="">choose a block…</option>
-                  {blocks.map((b) => (
-                    <option key={b.index} value={b.index}>
-                      {b.index + 1}. {b.text.length > 60 ? `${b.text.slice(0, 60)}…` : b.text}
-                    </option>
-                  ))}
-                </select>
-                <textarea
-                  aria-label="Rewritten text"
-                  value={value}
-                  onChange={(e) => setValue(e.target.value)}
-                  rows={3}
-                  disabled={block === null}
-                  placeholder="The rewritten text"
-                  className={`${FORM_INPUT_CLASS} w-full resize-y`}
-                />
-              </>
-            )
+          ) : form === 'artifact-blocks' ? (
+            <>
+              <select
+                aria-label="Block to rewrite"
+                value={block ?? ''}
+                onChange={(e) => {
+                  const next = e.target.value === '' ? null : Number(e.target.value)
+                  setBlock(next)
+                  // Seed the box with what the block says now, so the offer is
+                  // an EDIT of the real text rather than a blank rewrite.
+                  setValue(next === null ? '' : (blocks.find((b) => b.index === next)?.text ?? ''))
+                }}
+                className={`${FORM_INPUT_CLASS} w-full`}
+              >
+                <option value="">choose a block…</option>
+                {blocks.map((b) => (
+                  <option key={b.index} value={b.index}>
+                    {b.index + 1}. {b.text.length > 60 ? `${b.text.slice(0, 60)}…` : b.text}
+                  </option>
+                ))}
+              </select>
+              <textarea
+                aria-label="Rewritten text"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                rows={3}
+                disabled={block === null}
+                placeholder="The rewritten text"
+                className={`${FORM_INPUT_CLASS} w-full resize-y`}
+              />
+            </>
           ) : (
             <textarea
               aria-label="Suggested change"

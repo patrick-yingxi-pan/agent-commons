@@ -51,6 +51,21 @@ export function artifactPatchDelta(block: number | null, text: string, base: str
   return { kind: 'artifact-patch', block, text: next }
 }
 
+/** WHICH offer form a subject gets. Per-kind because a delta is per-kind — and
+ *  an artifact whose body has no addressable prose (an image, a sheet, a deck, a
+ *  served file) falls through to the FLOOR rather than to a block picker with
+ *  nothing in it: the server accepts a `suggestion` against any subject, so
+ *  showing a form that can never submit would be a dead affordance repeated on
+ *  every non-doc artifact. */
+export function offerFormFor(
+  subjectKind: string,
+  patchableBlockCount: number,
+): 'schedule-fields' | 'artifact-blocks' | 'suggestion' {
+  if (subjectKind === 'schedule') return 'schedule-fields'
+  if (subjectKind === 'artifact' && patchableBlockCount > 0) return 'artifact-blocks'
+  return 'suggestion'
+}
+
 /** The reviewable-suggestion floor every subject kind supports. */
 export function suggestionDelta(text: string): ProposalDelta | null {
   return text.trim() ? { kind: 'suggestion', text: text.trim() } : null
