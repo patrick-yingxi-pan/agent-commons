@@ -866,9 +866,9 @@ test('the square: compose → the feed carries it → a mention doors → a stra
   const postCard = grace.page.getByRole('article').filter({ hasText: 'Shipped the body editor' })
   await postCard.getByRole('button', { name: /^Reply$/ }).click()
   await expect(grace.page).toHaveURL(url)
-  // Opening the conversation lands the caret in that card's own composer — the
-  // proof that a standing composer can still be focused by the verb that
-  // discloses it (`inputRef`, since autoFocus can never fire for one).
+  // Opening the conversation lands the caret in that card's own composer, which
+  // mounts WITH the disclosure — so plain autoFocus lands it, and a card at zero
+  // replies is ready to be answered rather than merely willing.
   const box = grace.page.locator('textarea:focus')
   await expect(box).toBeVisible()
   await box.fill(REPLIED)
@@ -886,6 +886,13 @@ test('the square: compose → the feed carries it → a mention doors → a stra
   await expect(ownCard.getByRole('button', { name: /^Reply 1$/ })).toBeVisible({ timeout: 20_000 })
   await ownCard.getByRole('button', { name: /^Reply 1$/ }).click()
   await expect(ownCard.getByText(REPLIED)).toBeVisible()
+
+  // A COMMENTER's name is a door too (owner directive 2026-08-08) — the same
+  // profile the mention above reached, from the byline of a reply. Ada's own
+  // byline on this card reads "Acme, Inc. (you)", so the exact name below can
+  // only be the reply's author: the card's head and its body door alike.
+  await ownCard.getByRole('button', { name: 'Beta Platform', exact: true }).click()
+  await expect(ada.page).toHaveURL(/\/u\/Beta(%20|\s)Platform/, { timeout: 20_000 })
 
   await ada.context.close()
   await grace.context.close()

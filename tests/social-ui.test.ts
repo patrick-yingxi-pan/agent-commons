@@ -413,3 +413,73 @@ test('mention segmentation covers exactly the resolved names, longest first', as
     assert.equal(mentionSegments(body, names).map((s) => s.text).join(''), body, `round-trips: ${body}`)
   }
 })
+
+/** ── A name in a thread is a door to the person (owner directive 2026-08-08) ──
+ *  "As basic social feature, commenter names should jump to their page upon
+ *  click, much like the poster's name."
+ *
+ *  The escape's shape is what makes it worth a lock: the feed card's HEAD ran
+ *  its actor through <OwnerLink> while the card's BODY — the shared post list,
+ *  three surfaces at once — rendered the same kind of name as a bare span. One
+ *  card, two spellings of one datum, and the reader learns from the first that a
+ *  name is clickable and from the second that it isn't. So the assertion is not
+ *  "this component was fixed" but "no surface renders an author's name inert":
+ *  a scan over the whole tree, with the ONE deliberate exemption named and
+ *  alive-checked (the UI-16 pattern — a stale exemption quietly widens the ban's
+ *  hole, and a file-scoped one would have cleared the offender itself). */
+test('an author’s name is a door wherever a thread shows it — no surface renders it inert', () => {
+  // A JSX CHILD render of an author name: `>{x.author}` after whitespace
+  // collapse. Prop positions (`ownerName={p.author}`, `name={c.author}`) are the
+  // funnel's own plumbing and must not match — the door is exactly what they do.
+  // Declared WITHOUT /g and re-flagged per use: a global regex carries
+  // `lastIndex` across `.test()` calls, so one shared object would make the
+  // second exemption's aliveness check depend on the first's match position.
+  const BARE_AUTHOR = />\s*\{\s*[A-Za-z_$][\w$]*\.author\b/
+  const everyBareAuthor = (s: string) => s.match(new RegExp(BARE_AUTHOR, 'g')) ?? []
+  /** Deliberately-inert author names: the surface, and WHY. Each must still be
+   *  found, so a moved or renamed component fails here instead of silently
+   *  granting itself an exemption. */
+  const EXEMPT = [
+    {
+      component: 'ProposalThread',
+      why: 'an agent proposal is a parties-only negotiation — its two participants are the dialog, not a public square with profiles to visit (FWD-5 Phase 3, stated in the component)',
+    },
+  ]
+  const exemptBodies = EXEMPT.map((e) => stripComments(sectionViewComponent(e.component)).replace(/\s+/g, ' '))
+  for (const [i, body] of exemptBodies.entries()) {
+    assert.match(body, BARE_AUTHOR, `the ${EXEMPT[i].component} exemption is stale — nothing there renders a bare author`)
+  }
+
+  // The exempt SURFACES are cut out of the source before scanning — not matched
+  // by the text of their hit. `>{c.author` is a spelling, not an address: an
+  // exemption keyed on it would silently pardon any other component that
+  // happened to name its post `c`, which is most of them.
+  const offenders: string[] = []
+  let cut = 0
+  for (const file of filesUnder(SRC)) {
+    let src = stripComments(read(file)).replace(/\s+/g, ' ')
+    for (const body of exemptBodies) {
+      if (!src.includes(body)) continue
+      src = src.split(body).join(' ')
+      cut += 1
+    }
+    for (const hit of everyBareAuthor(src)) {
+      offenders.push(`${file.replace(/\\/g, '/').split('/src/')[1]}: ${hit}`)
+    }
+  }
+  assert.equal(cut, EXEMPT.length, 'every exempt body was located and excised — an un-excised one would report itself as an offender')
+  assert.deepEqual(
+    offenders,
+    [],
+    'render the name through <OwnerLink>/<ActorByline> with a handler onto that namespace’s profile — a name a reader cannot follow is a dead end',
+  )
+
+  // …and the one post list really does open the profile — the SAME funnel its
+  // @-mentions already used, so a card can't door one name two ways.
+  const list = stripComments(sectionViewComponent('DiscussionPostList')).replace(/\s+/g, ' ')
+  assert.ok(
+    list.includes('<OwnerLink bare ownerName={p.author}') && list.includes('onClick={() => onOpenPerson(p.author)}'),
+    'the author byline is the shared owner door, wired to the profile handler',
+  )
+  assert.ok(list.includes('onOpenPerson: (name: string) => void'), 'which is REQUIRED — a doorless post list is not a shape this app has')
+})

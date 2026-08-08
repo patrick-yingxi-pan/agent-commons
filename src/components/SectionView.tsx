@@ -2817,9 +2817,13 @@ function DiscussionPostList({
    *  a destructive act belongs where the whole thread is. */
   onDelete?: (pid: string) => void
   onReport?: (pid: string) => void
-  /** Open a mentioned person's profile (S8). Absent = mentions render as plain
-   *  text, which is what a surface with no navigation of its own wants. */
-  onOpenPerson?: (name: string) => void
+  /** Open a person's profile (S8) — the AUTHOR's name and every @-mention in the
+   *  body alike, since both name the same kind of thing: a namespace with a page.
+   *  REQUIRED, unlike the optional prop it grew from. Optional meant a post list
+   *  could render a name that goes nowhere, and one did: the feed card's own
+   *  byline was a door while the comments underneath it — the same names, in the
+   *  same card — were plain text (owner report, 2026-08-08). */
+  onOpenPerson: (name: string) => void
 }) {
   const [reported, setReported] = useState<string | null>(null)
   return (
@@ -2827,8 +2831,15 @@ function DiscussionPostList({
       {posts.map((p) => (
         <li key={p.id} className="group flex items-start gap-2.5">
           <div className="min-w-0 flex-1">
-            <div className="flex items-baseline gap-2">
-              <span className="text-[12px] font-medium text-ink">{p.author}</span>
+            {/* The author is a DOOR onto their profile — the very <OwnerLink>
+                the card's own byline wears, mark and all, so the two names on
+                one card are one kind of thing. A name in a thread is the
+                thread's only handle on the person who wrote it; leaving it inert
+                made a comment a dead end (owner directive 2026-08-08). */}
+            <div className="flex items-center gap-2">
+              <span className="text-[12px] font-medium text-ink">
+                <OwnerLink bare ownerName={p.author} own={p.mine === true} onClick={() => onOpenPerson(p.author)} />
+              </span>
               <span className="text-[11px] text-ink-faint">{relativeTime(p.at)}</span>
             </div>
             <p className="mt-0.5 whitespace-pre-wrap text-[13px] text-ink-soft">
