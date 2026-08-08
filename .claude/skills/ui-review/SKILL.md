@@ -29,6 +29,24 @@ sweep as the rulebook's phases 1–3; triage and ratchet per its §3–§4.
   (phone), **768×1024** (tablet), **844×390** (short landscape), **1280×800**
   (wide). A lib/primitive change sweeps all five; a leaf component sweeps the
   viewports whose tier renders it differently.
+- **The ACCOUNT is a third dimension, not a setting** (owner directive,
+  2026-08-08: *always sign in test accounts for review*). Half this app's
+  surface is viewer-relative — the `own` flag shapes which controls exist, the
+  tenant wall decides whether a subject 404s, capability tiers decide whether a
+  composer renders at all, and `uiPrefs` scopes rail widths, folds and section
+  facets per account. Swept from one account, every one of those cells is
+  unreachable — and per §2's rule an unreachable cell is a **coverage
+  violation**, never a skip. So sign in the demo roster
+  ([docs/demo-accounts.md](../../../docs/demo-accounts.md)) and **stack** them
+  (chip → *Add account…*) BEFORE the sweep, so switching is one click mid-cell:
+  - **Ada** (`ada@acme.example`) — the flagship world; the OWNER's face.
+  - **Grace** (`grace@acme.example`) — the second tenant a subject is shared
+    WITH: the visitor's face of the same entity page.
+  - **Maya** or **Rei** — a FOREIGN tenant, where the existence-hiding wall
+    answers 404. Those 404s in the console are the wall working, not a bug.
+
+  A change that touches nothing viewer-relative may sweep as one account —
+  say so explicitly, per the no-silent-truncation rule above.
 - List the matrix explicitly before sweeping, and say what you're *not*
   sweeping and why. Silent truncation reads as "covered everything".
 
@@ -52,7 +70,8 @@ the matrix has a hole; `skip` now covers only sub-checks inside a cell that did
 run. For cells the harness doesn't model (new surfaces, tour states), sweep
 manually per below.
 
-Run the app (`preview_start`, dev config — never `vite preview`) and per cell:
+Run the app (`preview_start`, dev config — never `vite preview`), sign the
+roster in and stack it per §1, then per cell:
 
 - **Every invariant in [docs/ui-invariants.md](../../../docs/ui-invariants.md)**
   that applies. The mechanical checks:

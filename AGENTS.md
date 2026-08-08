@@ -106,7 +106,14 @@ restart.
 - **Every feature ships with complete automated tests**, and the **spec ledger
   stays current** — the discipline in detail: [`tests/CLAUDE.md`](tests/CLAUDE.md).
 - **Run `npm run typecheck` and `node --test` before declaring a change done.**
-  Verify UI changes in the running app, not just by reading code.
+  Verify UI changes in the running app, not just by reading code — **signed in,
+  with the demo accounts stacked** (owner directive, 2026-08-08: *always sign in
+  test accounts for review*). This app's surface is viewer-relative: owner vs
+  visitor controls, the tenant 404 wall, capability tiers, per-account rail
+  prefs. A sweep from one account leaves those cells unreachable, and an
+  unreachable cell is a coverage hole, not a skip. Roster + credentials:
+  [`docs/demo-accounts.md`](docs/demo-accounts.md); procedure:
+  [`.claude/skills/ui-review/SKILL.md`](.claude/skills/ui-review/SKILL.md) §1.
 - **Review the diff before every commit, then commit and push** (owner
   directive, 2026-07-17): implement → tests green → code-review pass over the
   working diff (adversarial for substantial changes) → fix confirmed findings →
