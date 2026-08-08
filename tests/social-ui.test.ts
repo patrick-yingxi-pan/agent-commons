@@ -326,10 +326,21 @@ test('the feed card discloses its thread in place — Reply toggles, nothing nav
   const card = stripComments(sectionViewComponent('FeedCard')).replace(/\s+/g, ' ')
 
   // The act bar's own doors: the mention and the embed title legitimately leave
-  // (`navigate('agents'…)`, `navigate(target…)`) — the thread must not.
+  // (`navigate('agents'…)`, `navigate(target…)`) — the CONVERSATION must not.
+  //
+  // This ban was once absolute ("no navigate('discussions' anywhere in the
+  // card") and had to be narrowed on 2026-08-08, when the owner asked for the
+  // opposite of what it was guarding: *"there should be a button like
+  // fullscreen to [link] them"*. The two rules are not in tension once stated
+  // precisely — Reply DISCLOSES, and a separate control that says out loud
+  // where it goes may LEAVE. An absolute ban states the first rule by forbidding
+  // the mechanism, which also forbids the honest use of it; so the claim is now
+  // that the only trip out of the card is the one that describes itself.
+  const trips = card.match(/navigate\('discussions'/g) ?? []
+  assert.equal(trips.length, 1, 'exactly one door to /discussions/:id — the fullscreen one')
   assert.ok(
-    !card.includes("navigate('discussions'"),
-    'the card sends the reader to /discussions/:id for a thread it is already rendering',
+    card.includes('Open this post on its own page'),
+    '…and it names itself, so it can never be Reply quietly navigating again',
   )
   assert.ok(!/View all \{?\w* ?comments/.test(card), 'the "View all N comments" trip is the same door under another name')
 
@@ -368,6 +379,59 @@ test('the feed card discloses its thread in place — Reply toggles, nothing nav
   assert.ok(disclosed.includes('<RootThreadComposer'), 'and so is the box for adding one')
   assert.ok(/autoFocus/.test(disclosed), 'which autoFocuses, since it now mounts with the disclosure')
   assert.ok(!card.includes('inputRef'), 'the ref the standing version needed is gone with it')
+})
+
+/** ── A post's page IS the post's card ────────────────────────────────────────
+ *  Owner report, 2026-08-08: *"the page of the post … doesn't correspond to the
+ *  post as viewed from the commons page."* It had drifted the way two hand-built
+ *  renderings of one object always do — the page grew a title out of the post's
+ *  own words (printing them twice), and lost the Like and Watch the card
+ *  carries, because nothing tied the two together but intention.
+ *
+ *  So the fix is not "make them match" but "make them one": the page renders the
+ *  very component the feed does. This lock is what keeps a well-meaning second
+ *  rendering from growing back. */
+test('a post’s page renders the card itself, not a second arrangement of the same facts', () => {
+  const page = stripComments(sectionViewComponent('DiscussionPage')).replace(/\s+/g, ' ')
+
+  assert.ok(/<FeedCard item=\{post\} standalone/.test(page), 'the page renders the feed card, opened')
+  // …and the card must be told it is standing alone, or it would offer a fold
+  // and a door to the page the reader is already on.
+  assert.ok(page.includes('post ?'), 'the post branch is what selects it')
+
+  // The post's own words are its CONTENT. Titling the page with them is the
+  // duplication that was reported, so the title branches away from
+  // `discussionTitle` for a post — asserted as an ordering, since the generic
+  // thread legitimately still uses it.
+  const title = page.match(/<h1[^>]*>\s*\{([^}]*discussionTitle[^}]*)\}/)?.[1] ?? ''
+  assert.ok(title, 'the header still has one title expression')
+  assert.ok(/^\s*post \?/.test(title), 'a post decides the title BEFORE discussionTitle can print its body')
+
+  // What a post IS is the server's decision, made once when it mints the feed
+  // item. A second client-side predicate over the anchor would be that decision
+  // made twice — the drift this whole test exists about.
+  assert.ok(
+    /kind === 'post' && i\.discussionId === discussionId/.test(page),
+    'the page asks the feed what a post is, rather than re-deriving it from the anchor',
+  )
+  assert.ok(
+    !/anchor\.ref\.kind === 'principal'/.test(page),
+    'a hand-rolled wall-post predicate is the server’s answer, guessed at',
+  )
+
+  // Unifying two renderings costs nothing only if the survivor keeps what BOTH
+  // could do. The page's own list carried the S5 guardrails (retract your words,
+  // moderate your surface, report to whoever holds the delete) and the feed
+  // card's deliberately does not — "a destructive act belongs where the whole
+  // thread is". Standing alone IS that place, so the card must offer them there.
+  const card = stripComments(sectionViewComponent('FeedCard')).replace(/\s+/g, ' ')
+  for (const act of ['onDelete', 'onReport']) {
+    assert.match(
+      card,
+      new RegExp(`${act}=\\{standalone && root \\?`),
+      `the post's own page lost ${act} when it started rendering the card`,
+    )
+  }
 })
 
 /** S8 — the mention highlight must cover exactly what the server matched. The

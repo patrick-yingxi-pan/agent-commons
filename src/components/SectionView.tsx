@@ -29,6 +29,7 @@ import {
   KeyRound,
   Lock,
   Mail,
+  Maximize2,
   MessageSquare,
   MessageSquarePlus,
   MinusCircle,
@@ -77,6 +78,7 @@ import { cleanSteps, moveStep, removeStep } from '../lib/steps'
 import { ConnectorDetailBody } from './ConnectorPanel'
 import { AddContextButton } from './AddContextButton'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
+import { useDisclosure } from '../lib/useDisclosure'
 import { DOOR_CLASS, STANDING_DOOR_CLASS } from '../lib/textDoor'
 import { CARD_DOOR_CLASS, ROW_DOOR_CLASS, cardDoorClick } from '../lib/cardDoor'
 import { LEDGER_BOX_CLASS, LEDGER_HEAD_CLASS, LEDGER_COUNT_CLASS, LEDGER_ROW_CLASS, QUIET_CARD_CLASS } from '../lib/ledger'
@@ -2355,7 +2357,11 @@ function WorkItemRow({
   projectId: string
 }) {
   const comments = o.comments ?? []
-  const [threadOpen, setThreadOpen] = useState(false)
+  // Remembered across a trip out of this page (`lib/disclosure`), for the same
+  // reason the feed card's is: the authors in this thread are doors, and an
+  // opened thread that re-folds while you follow one is a reading position the
+  // UI threw away.
+  const [threadOpen, setThreadOpen] = useDisclosure('work-item-thread', o.id)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -2476,7 +2482,7 @@ function WorkItemRow({
           )}
         </div>
         <div className="mt-0.5 flex items-center gap-3 text-[11px]">
-          <button onClick={() => setThreadOpen((v) => !v)} className={INLINE_ACTION_CLASS}>
+          <button onClick={() => setThreadOpen(!threadOpen)} aria-expanded={threadOpen} className={INLINE_ACTION_CLASS}>
             {comments.length === 0
               ? 'Comment'
               : `${comments.length} comment${comments.length === 1 ? '' : 's'}`}
@@ -3029,7 +3035,7 @@ const RootThreadComposer = ({
  *  into the subject's root thread. The card is a PROJECTION: its comments are
  *  the entity page's thread, its title the entity page's door (title-as-link).
  *  Chronological feed, no ranking — facets, not an engagement machine. */
-function FeedCard({ item }: { item: CommonsItem }) {
+function FeedCard({ item, standalone = false }: { item: CommonsItem; standalone?: boolean }) {
   const rel = useRelations()
   const { kind, id } = item.subject
   // S8 — a POST is its own thread: the utterance and the conversation under it
@@ -3053,7 +3059,19 @@ function FeedCard({ item }: { item: CommonsItem }) {
   // nothing and cost them their place in the feed. Open, the card shows the
   // WHOLE thread, which is what makes it a real answer rather than a teaser:
   // there is no "view all N comments" left to send anyone elsewhere.
-  const [open, setOpen] = useState(false)
+  //
+  // The state OUTLIVES this card (owner directive 2026-08-08 — `lib/disclosure`):
+  // the names inside an open thread are doors now, so following one and coming
+  // back must find the thread as it was left. STANDALONE wins over the memory:
+  // the post's own page IS the conversation, so it is never folded there.
+  const [remembered, setOpen] = useDisclosure('commons-thread', item.id)
+  const open = standalone || remembered
+  // Did THIS reader just press Reply, or did the card mount already open?
+  // `autoFocus` fires on mount, so the moment the state outlived the page, every
+  // restored card would have grabbed the caret on arrival — the last one winning,
+  // and the browser scrolling to it. Landing the caret is the answer to a CLICK,
+  // never to a card remembering what it was.
+  const [justOpened, setJustOpened] = useState(false)
   // Same live source the composer gates itself on, so the toggle can't offer a
   // conversation that is empty AND unanswerable — a control that does nothing.
   const canComment = useCanComment(item.subject, root)
@@ -3146,9 +3164,12 @@ function FeedCard({ item }: { item: CommonsItem }) {
             thread rest closed without hiding that it exists; opening it drops
             the caret in the composer, so it answers at N=0 too — precisely when
             someone wants to say the first thing. */}
-        {(shown.length > 0 || canComment) && (
+        {!standalone && (shown.length > 0 || canComment) && (
           <button
-            onClick={() => setOpen(!open)}
+            onClick={() => {
+              setOpen(!open)
+              setJustOpened(!open)
+            }}
             aria-expanded={open}
             className={cardActClass(open)}
             title={open ? 'Hide the conversation' : 'Open the conversation'}
@@ -3159,6 +3180,24 @@ function FeedCard({ item }: { item: CommonsItem }) {
           </button>
         )}
         <WatchToggle quiet subject={item.subject} watching={item.watched === true} />
+        {/* The door to this post's OWN page — the fullscreen idiom, right-aligned
+            away from the acts (owner directive 2026-08-08: the two views of a
+            post should correspond, and something should link them).
+            POSTS ONLY, and that is not an oversight: every other card already
+            doors to a page through its embed title, and the thread under a share
+            belongs to the shared thing, not to the card. A post has no title and
+            no resource — its own discussion IS its page, so without this the
+            page existed with nothing pointing at it. */}
+        {isPost && !standalone && item.discussionId && (
+          <button
+            onClick={() => rel.navigate('discussions', item.discussionId!)}
+            title="Open this post on its own page"
+            aria-label={`Open ${item.actor}’s post on its own page`}
+            className={`${cardActClass(false)} ml-auto`}
+          >
+            <Maximize2 size={14} />
+          </button>
+        )}
       </div>
       {/* The conversation — replies AND the box for adding one — is ONE
           disclosure (owner directive 2026-08-08). The composer used to stand
@@ -3170,7 +3209,21 @@ function FeedCard({ item }: { item: CommonsItem }) {
       {open && (
         <div className="mt-2 border-t border-line pt-3">
           {shown.length > 0 && (
-            <DiscussionPostList posts={shown} onReact={react} onOpenPerson={(n) => rel.navigate('agents', n)} />
+            <DiscussionPostList
+              posts={shown}
+              onReact={react}
+              // The S5 guardrails follow the rule they were written with: "a
+              // destructive act belongs where the whole thread is." In a FEED
+              // that is elsewhere, so a card offers neither — but the post's own
+              // page IS where the whole thread is, and it renders this same
+              // card, so standing alone is exactly when retract/report belong.
+              // (Without this the page LOST the moderation it used to have when
+              // it rendered its own list — the cost of unifying two projections
+              // is that the survivor must keep what both of them could do.)
+              onDelete={standalone && root ? (pid) => void deleteDiscussionPost(root.id, pid, item.subject) : undefined}
+              onReport={standalone && root ? (pid) => void reportDiscussionPost(root.id, pid) : undefined}
+              onOpenPerson={(n) => rel.navigate('agents', n)}
+            />
           )}
           <div className={shown.length > 0 ? 'mt-3' : undefined}>
             <RootThreadComposer
@@ -3179,8 +3232,9 @@ function FeedCard({ item }: { item: CommonsItem }) {
               placeholder="Comment…"
               ariaLabel={`Comment on ${item.actor}’s ${item.kind}`}
               // Mounting WITH the disclosure means the caret can land the plain
-              // way again — the ref the standing version needed is gone.
-              autoFocus
+              // way again — the ref the standing version needed is gone. Only for
+              // the press that opened it, though: see `justOpened`.
+              autoFocus={justOpened}
             />
           </div>
         </div>
@@ -3571,7 +3625,28 @@ function DiscussionPage({
   useEffect(() => {
     if (isDm && newestPostId) void markDiscussionRead(discussionId).catch(() => {})
   }, [isDm, newestPostId, discussionId])
-  if (!d) {
+  // ── Is this thread somebody's POST? Then this page is that post (S8) ────────
+  // Asked of the FEED, not re-derived from the anchor: the server already
+  // decides what is a wall post when it mints the item, and a second client-side
+  // predicate over `anchor.ref.kind === 'principal' && !direct` would be the
+  // same decision made twice — the drift this repo keeps paying for. Absent (a
+  // muted author, whose acts the feed filters) simply falls through to the
+  // generic thread below, which still renders every word.
+  const feed = useCommons()
+  const post = (feed.data ?? []).find((i) => i.kind === 'post' && i.discussionId === discussionId) ?? null
+  // A deep link arrives before the feed does, and "not a post" is indistinguishable
+  // from "not answered yet" — so waiting is what keeps the page from rendering
+  // the generic thread and then swapping it for the card a moment later.
+  //
+  // The test is "no answer YET", not "a fetch is in flight": this cache
+  // revalidates stale-while-revalidate, so `status` returns to `loading` with the
+  // data still in hand every time a write invalidates the feed — gating on that
+  // would blank a page the reader is looking at each time anyone posts anywhere.
+  // An errored feed doesn't hang the page either; it falls through to the thread.
+  // A DM skips the wait outright, on the server's own `direct` flag: a message is
+  // never somebody's post, so it has nothing to wait for.
+  const decidingPost = !isDm && feed.data === undefined && feed.status !== 'error'
+  if (!d || decidingPost) {
     return (
       <Page>
         <header className={PAGE_HEADER_CLASS}>
@@ -3594,16 +3669,27 @@ function DiscussionPage({
                 reason the inbox row leads with the counterpart. And it wears no
                 AnchorChip: the chip's job is a door back to the anchored
                 resource, and here the "resource" is the person already named in
-                the title (S7). */}
-            <h1 className={PAGE_TITLE_CLASS}>{isDm ? (d.counterpart ?? d.openedBy) : discussionTitle(d.posts[0]?.body)}</h1>
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-ink-faint">
-              <span>
-                {isDm ?
-                  `Direct message · started by ${d.openedBy} ${relativeTime(d.openedAt)}`
-                : `${d.state === 'open' ? 'Open' : 'Resolved'} · opened by ${d.openedBy} ${relativeTime(d.openedAt)}`}
-              </span>
-              {!isDm && <AnchorChip anchor={d.anchor} onOpenSession={onOpenSession} onFocusHere={onFocusHere} />}
-            </div>
+                the title (S7).
+                A POST's title is the KIND, for the opposite reason: its words
+                are its CONTENT, and this page renders them below in the card's
+                own form. Titling the page with them printed the post twice and
+                still didn't look like the card (owner report, 2026-08-08). Its
+                byline, timestamp and anchor all ride the card, so the header
+                keeps only what the card cannot carry: the way back and the
+                thread's own verbs. */}
+            <h1 className={PAGE_TITLE_CLASS}>
+              {post ? 'Post' : isDm ? (d.counterpart ?? d.openedBy) : discussionTitle(d.posts[0]?.body)}
+            </h1>
+            {!post && (
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-ink-faint">
+                <span>
+                  {isDm ?
+                    `Direct message · started by ${d.openedBy} ${relativeTime(d.openedAt)}`
+                  : `${d.state === 'open' ? 'Open' : 'Resolved'} · opened by ${d.openedBy} ${relativeTime(d.openedAt)}`}
+                </span>
+                {!isDm && <AnchorChip anchor={d.anchor} onOpenSession={onOpenSession} onFocusHere={onFocusHere} />}
+              </div>
+            )}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -3636,6 +3722,20 @@ function DiscussionPage({
           )}
         </div>
       </header>
+      {/* A post's page renders the POST — the very card the feed shows, opened
+          (owner report, 2026-08-08: "the page of the post … doesn't correspond
+          to the post as viewed from the commons page"). It is the same component,
+          not a matching arrangement of the same facts, because a second hand-built
+          rendering of one object is what let these two drift apart in the first
+          place: the page had grown a title, lost Like and Watch, and printed the
+          opening words twice. `standalone` is the only difference between the two
+          projections — no fold (this page IS the conversation) and no door to
+          itself. */}
+      {post ? (
+        <div className="max-w-3xl">
+          <FeedCard item={post} standalone />
+        </div>
+      ) : (
       <div className="max-w-3xl">
         <DiscussionPostList
           posts={d.posts}
@@ -3668,6 +3768,7 @@ function DiscussionPage({
           </div>
         )}
       </div>
+      )}
     </Page>
   )
 }

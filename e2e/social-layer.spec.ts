@@ -894,6 +894,31 @@ test('the square: compose → the feed carries it → a mention doors → a stra
   await ownCard.getByRole('button', { name: 'Beta Platform', exact: true }).click()
   await expect(ada.page).toHaveURL(/\/u\/Beta(%20|\s)Platform/, { timeout: 20_000 })
 
+  // …and coming BACK finds the conversation as she left it (owner directive
+  // 2026-08-08). The state has to outlive the page for this: the card unmounts
+  // the moment the profile opens. Without it the byline door and the disclosure
+  // undo each other — every trip out of a thread costs you the thread.
+  await ada.page.goBack()
+  await expect(ada.page).toHaveURL(/\/commons/, { timeout: 20_000 })
+  await expect(ownCard.getByText(REPLIED)).toBeVisible({ timeout: 20_000 })
+  // The caret does NOT follow, though: autofocus answers a click, and a restored
+  // card would otherwise grab focus and scroll itself into view on arrival.
+  await expect(ada.page.locator('textarea:focus')).toHaveCount(0)
+
+  // ── The post's own page IS this card (owner report 2026-08-08) ─────────────
+  // One component, so correspondence can't drift: the page carries the byline,
+  // the words, Like and Watch, and the same replies. What it drops is the fold
+  // (the page IS the conversation) and the door to itself.
+  await ownCard.getByRole('button', { name: /^Open .+’s post on its own page$/ }).click()
+  await expect(ada.page).toHaveURL(/\/discussions\//, { timeout: 20_000 })
+  const pageCard = ada.page.getByRole('article').filter({ hasText: 'Shipped the body editor' })
+  await expect(pageCard.getByText(REPLIED)).toBeVisible({ timeout: 20_000 })
+  await expect(pageCard.getByRole('button', { name: /^(Like|Unlike) this post$/ })).toBeVisible()
+  await expect(pageCard.getByRole('button', { name: /^Reply/ })).toHaveCount(0)
+  // The words appear ONCE: titling the page with them was the duplication that
+  // made the two views disagree.
+  await expect(ada.page.getByRole('heading', { name: 'Post', exact: true })).toBeVisible()
+
   await ada.context.close()
   await grace.context.close()
 })
