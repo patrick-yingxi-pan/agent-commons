@@ -99,7 +99,16 @@ chrome + the stay-inside-the-viewport containment, applied by
 `src/lib/usePopoverShift.ts` / `clampLeft`) and `src/lib/copyButton.ts` +
 `src/components/CopyButton.tsx` (every copy-to-clipboard button — the rendezvous-secret
 reveal and the A2A-card viewer alike, label swapping to "Copied" then self-resetting)
-and `src/lib/formInput.ts` (every text FIELD's look) + `src/lib/focusContext.ts`'s
+and `src/lib/formInput.ts` (every text FIELD's look, in **two shapes of one
+cue**: `FORM_INPUT_CLASS` where a field is only a field, and
+`FIELD_SHELL_CLASS` + `FIELD_BARE_CLASS` where it HOSTS its own verbs — a
+composer's submit belongs inside the box, and a field cannot carry a button
+while wearing its own border. The frame moves to the shell, the control keeps
+the type, and the shell answers focus with `focus-within` because the element
+wearing the frame is no longer the one taking the caret — miss that and the
+field silently stops lighting on focus. The two shapes' text insets are held
+equal by arithmetic in the lock, so they can't drift into two different-looking
+fields) + `src/lib/focusContext.ts`'s
 `FOCUS_FLASH_CLASS` (the lit highlight every door's target wears on arrival —
 work item, comment, agent card, conversation turn), both locked by
 `tests/form-input.test.ts`, and `src/components/AnchorThreadComposer.tsx` (the ONE

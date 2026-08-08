@@ -82,7 +82,7 @@ import { CARD_DOOR_CLASS, ROW_DOOR_CLASS, cardDoorClick } from '../lib/cardDoor'
 import { LEDGER_BOX_CLASS, LEDGER_HEAD_CLASS, LEDGER_COUNT_CLASS, LEDGER_ROW_CLASS, QUIET_CARD_CLASS } from '../lib/ledger'
 import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
 import { SOFT_BUTTON_CLASS, DANGER_BUTTON_CLASS, SECONDARY_BUTTON_CLASS } from '../lib/button'
-import { FORM_INPUT_CLASS } from '../lib/formInput'
+import { FIELD_BARE_CLASS, FIELD_SHELL_CLASS, FORM_INPUT_CLASS } from '../lib/formInput'
 import { AnchorThreadComposer } from './AnchorThreadComposer'
 import { LocusGutter } from './LocusGutter'
 import { GrantsPanel } from './GrantsPanel'
@@ -3329,30 +3329,39 @@ function PostComposer() {
     }
   }
   return (
-    <div className="mx-auto mb-4 w-full max-w-3xl rounded-xl border border-line bg-surface px-5 py-4">
-      <textarea
-        aria-label="Say something"
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-        rows={2}
-        placeholder="Say something — mention a workspace with @ to reach them"
-        className={`${FORM_INPUT_CLASS} resize-y`}
-      />
-      {/* The submit sits at the box's bottom-right — where a composer's own verb
-          belongs, and where every feed the reader already uses puts it. It wears
-          the soft verb at a stated SIZE: the face deliberately carries none
+    // ONE box. The composer used to be a bordered card wrapping a bordered
+    // field — two frames on one ground, which read as a box inside a box the
+    // moment the field grew its own verb. The card carried nothing else, so it
+    // went: the field IS the composer, exactly as it is on a feed card below.
+    <div className="mx-auto mb-4 w-full max-w-3xl">
+      {/* The submit sits INSIDE the box, on its bottom-right (owner directive
+          2026-08-08) — the same shell the thread composer wears, so the square's
+          composer and a card's are one shape at two sizes. It wears the soft
+          verb at a stated SIZE: the face deliberately carries none
           (lib/button.ts leaves padding + text to the caller), and this one call
           site passed nothing, which is why it shipped as a cramped tint. */}
-      <div className="mt-3 flex items-center justify-end gap-3">
-        {error && <span className="mr-auto min-w-0 truncate text-[11px] text-danger">{error}</span>}
+      <div className={FIELD_SHELL_CLASS}>
+        <textarea
+          aria-label="Say something"
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          // Grows by LINE BREAKS — not by wrapping, which needs measurement —
+          // instead of offering a drag grip, whose handle would land beside the
+          // submit, in the one corner this change exists to clean up. Wrapped
+          // prose past two lines still scrolls, exactly as it did before.
+          rows={Math.min(8, Math.max(2, body.split('\n').length))}
+          placeholder="Say something — mention a workspace with @ to reach them"
+          className={`${FIELD_BARE_CLASS} resize-none`}
+        />
         <button
           onClick={() => void send()}
           disabled={!body.trim() || busy}
-          className={`${SOFT_BUTTON_CLASS} px-3 py-1.5 text-[13px] disabled:opacity-45`}
+          className={`${SOFT_BUTTON_CLASS} shrink-0 px-3 py-1.5 text-[13px] disabled:opacity-45`}
         >
           {busy ? 'Posting…' : 'Post'}
         </button>
       </div>
+      {error && <p className="mt-1 truncate text-[11px] text-danger">{error}</p>}
     </div>
   )
 }

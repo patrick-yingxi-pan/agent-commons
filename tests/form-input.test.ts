@@ -13,7 +13,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { filesUnder, read, stripComments } from './helpers/source.ts'
-import { FORM_INPUT_CLASS } from '../src/lib/formInput.ts'
+import { FIELD_BARE_CLASS, FIELD_SHELL_CLASS, FORM_INPUT_CLASS } from '../src/lib/formInput.ts'
 import { FOCUS_FLASH_CLASS } from '../src/lib/focusContext.ts'
 
 test('the shared input cue carries the whole field look, tokens only', () => {
@@ -24,6 +24,54 @@ test('the shared input cue carries the whole field look, tokens only', () => {
   }
   // INV-1: semantic tokens, never a raw Tailwind palette class.
   assert.ok(!/\b(?:bg|text|border)-(?:gray|zinc|slate|neutral|stone|blue|red|green)-\d/.test(FORM_INPUT_CLASS))
+})
+
+/** ── The composer shape: same field, frame moved outward ─────────────────────
+ *  A composer's submit belongs INSIDE the box (owner directive 2026-08-08), and
+ *  a field can't host a button while wearing its own border — that draws a box
+ *  inside the box. So the cue splits: the shell takes the frame, the control
+ *  keeps the type. Two ways for that split to produce a field that no longer
+ *  behaves like one, and both are locked:
+ *
+ *  · the frame moves but the FOCUS ANSWER doesn't. `focus:` fires on the element
+ *    that takes the caret; once the frame is on a wrapper, only `focus-within:`
+ *    reaches it, and a field that stops lighting on focus is a WCAG 2.4.7 fault
+ *    nothing else in the tree would catch.
+ *  · the two shapes drift into two different-looking fields — the exact decay
+ *    this module was created to prevent, now with twice the surface. */
+test('the composer shell is the same field with its frame moved outward', () => {
+  for (const piece of ['border-line', 'bg-surface', 'rounded-md']) {
+    assert.ok(FIELD_SHELL_CLASS.includes(piece), `the shell carries the field's ${piece}`)
+    assert.ok(FORM_INPUT_CLASS.includes(piece), `…the same piece the plain field carries`)
+  }
+  assert.ok(
+    FIELD_SHELL_CLASS.includes('focus-within:border-co'),
+    'the shell answers focus for the control it wraps — `focus:` would never fire on it',
+  )
+  assert.ok(!FIELD_SHELL_CLASS.includes('focus:border'), 'and not by the plain field’s route, which cannot reach it here')
+
+  // The control keeps type and loses chrome — a border or ground here is the
+  // box-inside-a-box this split exists to remove.
+  for (const piece of ['text-[14px]', 'text-ink', 'placeholder:text-ink-faint', 'outline-none']) {
+    assert.ok(FIELD_BARE_CLASS.includes(piece), `the bare control still reads as a field (${piece})`)
+    assert.ok(FORM_INPUT_CLASS.includes(piece), `…identically to the plain one`)
+  }
+  assert.ok(!/\bborder\b|bg-surface|rounded/.test(FIELD_BARE_CLASS), 'the bare control carries no chrome of its own')
+  assert.ok(FIELD_BARE_CLASS.includes('bg-transparent'), 'it sits on the shell’s ground')
+
+  // The submit pins to the bottom-right as the box grows — `items-start` would
+  // park it beside the FIRST line of a field that grows downward.
+  assert.ok(FIELD_SHELL_CLASS.includes('items-end'), 'the shell keeps its verbs on the field’s baseline')
+
+  // Text lands in the same place in both shapes: the plain field's px-3 (12px)
+  // versus the shell's p-1.5 (6px) plus the control's px-1.5 (6px). Stated as
+  // arithmetic so a future tweak to either number has to face the other.
+  const px = (cue: string, prop: 'p' | 'px') => Number(cue.match(new RegExp(`\\b${prop}-([\\d.]+)`))?.[1] ?? 0) * 4
+  assert.equal(
+    px(FIELD_SHELL_CLASS, 'p') + px(FIELD_BARE_CLASS, 'px'),
+    px(FORM_INPUT_CLASS, 'px'),
+    'a composer’s text must start where every other field’s text starts',
+  )
 })
 
 test('the focus flash is one cue: tint + ring, tokens only', () => {
@@ -52,10 +100,17 @@ test('no component re-hardcodes either cue', () => {
     const rel = file.replace(/\\/g, '/')
     if (owners.some((o) => rel.endsWith(o))) continue
     const src = stripComments(read(file))
-    assert.ok(
-      !src.includes(FORM_INPUT_CLASS),
-      `${rel} hand-rolls the field cue — import FORM_INPUT_CLASS from src/lib/formInput.ts`,
-    )
+    // All THREE shapes of the one cue. The shell and the bare control joined
+    // the scan the day they existed: a second shape is a second thing to
+    // hand-roll, and the whole point of splitting the cue was that the split
+    // could not produce two different-looking fields.
+    for (const [name, cue] of [
+      ['FORM_INPUT_CLASS', FORM_INPUT_CLASS],
+      ['FIELD_SHELL_CLASS', FIELD_SHELL_CLASS],
+      ['FIELD_BARE_CLASS', FIELD_BARE_CLASS],
+    ] as const) {
+      assert.ok(!src.includes(cue), `${rel} hand-rolls the field cue — import ${name} from src/lib/formInput.ts`)
+    }
     // The flash's exact pairing. A `bg-accent-tint` on its own is a legitimate
     // resting surface (a selected picker row); it is the tint-plus-ring
     // combination that means "a door brought you here".

@@ -16,7 +16,7 @@ import type { AnchorLocus, Discussion, SocialEntityRef } from '../../contract/in
 import { openDiscussion, postToDiscussion } from '../api'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { SOFT_BUTTON_CLASS } from '../lib/button'
-import { FORM_INPUT_CLASS } from '../lib/formInput'
+import { FIELD_BARE_CLASS, FIELD_SHELL_CLASS } from '../lib/formInput'
 
 export function AnchorThreadComposer({
   subject,
@@ -82,13 +82,14 @@ export function AnchorThreadComposer({
   }
   return (
     <div>
-      {/* The submit rides the field's BASELINE (`items-end`), so it stays put as
-          the box grows — the shape every comment composer worth copying has.
-          And the pair is ranked: Post is the affirmative soft verb, Cancel stays
-          ghost text. Rendering both as the same grey text (which this did until
-          2026-08-08) makes "send it" and "throw it away" look like one control
-          typed twice. */}
-      <div className="flex items-end gap-2">
+      {/* The verbs live INSIDE the field (owner directive 2026-08-08), on the
+          box's own baseline — so the composer reads as one object rather than a
+          field with controls drifting off its edge, and the submit stays pinned
+          bottom-right as the box grows. The pair is ranked: Post is the
+          affirmative soft verb, Cancel stays ghost text. Rendering both as the
+          same grey text makes "send it" and "throw it away" look like one
+          control typed twice. */}
+      <div className={FIELD_SHELL_CLASS}>
         <textarea
           ref={inputRef}
           aria-label={ariaLabel ?? `Post to this ${subject.kind}’s discussion`}
@@ -97,7 +98,7 @@ export function AnchorThreadComposer({
           placeholder={placeholder ?? (thread ? 'Reply…' : 'Start the discussion…')}
           rows={draft.includes('\n') ? 3 : 1}
           autoFocus={autoFocus}
-          className={`${FORM_INPUT_CLASS} resize-none`}
+          className={`${FIELD_BARE_CLASS} resize-none`}
         />
         {onCancel && (
           <button onClick={onCancel} className={`${INLINE_ACTION_CLASS} shrink-0 px-1 py-1.5`}>

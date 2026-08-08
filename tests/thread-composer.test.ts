@@ -127,7 +127,24 @@ test('the composer’s pair is ranked — the submit is the soft verb, the cance
   const cancel = src.match(/\{onCancel && \(.*?\)\}/)?.[0] ?? ''
   assert.ok(cancel.includes('INLINE_ACTION_CLASS'), 'the cancel stays quiet ghost text')
   assert.ok(!cancel.includes('SOFT_BUTTON_CLASS'), 'two affirmative-looking buttons would rank the pair equally')
-  // The submit rides the field's baseline; `items-start` put it beside the
-  // first LINE of a box that grows downward.
-  assert.ok(src.includes('items-end'), 'the submit sits on the field’s baseline as the box grows')
+})
+
+/** The verbs sit INSIDE the field (owner directive 2026-08-08: "make the post
+ *  button into the text box"). That is a containment claim, so it is checked as
+ *  one: the shell element must hold BOTH the control and the submit. A button
+ *  merely styled to look adjacent, or a shell that closes before the button, is
+ *  the arrangement this replaced. The baseline rule itself belongs to the shared
+ *  cue — `tests/form-input.test.ts` holds it there, so it can't be satisfied
+ *  here by one composer while the other drifts. */
+test('the composer’s verbs live inside the field’s shell, not beside it', () => {
+  const src = stripComments(read(join(ROOT, FUNNEL))).replace(/\s+/g, ' ')
+  assert.ok(
+    !src.includes('FORM_INPUT_CLASS'),
+    'a field that hosts its own buttons wears the SHELL — the plain cue would draw a box inside the box',
+  )
+  const shell = src.match(/<div className=\{FIELD_SHELL_CLASS\}>.*?<\/div>/)?.[0] ?? ''
+  assert.ok(shell, 'the composer opens a field shell')
+  assert.ok(shell.includes('<textarea'), 'the control is inside it')
+  assert.ok(/void send\(\)/.test(shell), 'and so is the submit — the whole point of the shell')
+  assert.ok(/onCancel &&/.test(shell), 'the cancel too, or the pair straddles the field’s edge')
 })
