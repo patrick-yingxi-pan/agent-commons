@@ -26,6 +26,7 @@ import type {
   CommonsItem,
   Discussion,
   SocialCapability,
+  SocialEntityRef,
   Grant,
   SocialProposal,
   AttentionLedger,
@@ -441,6 +442,29 @@ export function useDiscussions(kind: string, id: string, enabled = true): QueryS
  *  it. `enabled` false for a subject with no server-side row yet (a draft). */
 export function useSocialCapability(kind: string, id: string, enabled = true): QueryState<SocialCapability> {
   return useQuery(keys.socialCapability(kind, id), () => apiGet<SocialCapability>(paths.socialCapability(kind, id)), enabled)
+}
+
+/** ── May the caller post into THIS thread? ───────────────────────────────────
+ *  The ONE answer every composer gate reads, because there are two different
+ *  questions here and only one of them is about a thread:
+ *
+ *  · a THREAD that exists answers for itself — `Discussion.canPost`, which the
+ *    server computes with the very predicate it will apply to the write.
+ *  · with no thread yet, "may I start one on this subject" is genuinely the
+ *    subject-level question, and `useSocialCapability` is its answer.
+ *
+ *  Collapsing the two breaks on a PRINCIPAL anchor, where the subject-level
+ *  answer is REACHABILITY — "could you cold-open to this person" — false for
+ *  yourself by design. A wall post's subject is its author's own principal, so
+ *  every surface that asked the subject refused the author a reply box on their
+ *  own post, while the server would have accepted the reply (found in-app,
+ *  2026-08-08). `canPost` was added for the mirror-image DM case and its
+ *  comment in contract/social.ts already named the trap; the surfaces just kept
+ *  asking the subject. One hook now, so they cannot answer it differently —
+ *  locked tree-wide by `tests/social-ui.test.ts`. */
+export function useCanComment(subject: SocialEntityRef, thread: Discussion | null, enabled = true): boolean {
+  const bySubject = useSocialCapability(subject.kind, subject.id, enabled).data?.canComment === true
+  return thread ? thread.canPost === true : bySubject
 }
 
 /** One discussion by id — readable through its anchor's wall. `enabled` gates

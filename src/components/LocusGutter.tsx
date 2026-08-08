@@ -24,7 +24,7 @@
 import { useState, type ReactNode } from 'react'
 import { MessageSquarePlus, MessagesSquare } from 'lucide-react'
 import type { AnchorLocus, Discussion, SocialEntityRef } from '../../contract/index.ts'
-import { useDiscussions, useSocialCapability } from '../api'
+import { useCanComment, useDiscussions } from '../api'
 import { useRelations } from '../controller/useRelations'
 import { HOVER_REVEAL } from '../lib/hoverReveal'
 import { AnchorThreadComposer } from './AnchorThreadComposer'
@@ -75,7 +75,8 @@ export function LocusGutter({
   // Offering an act the write path refuses is worse on a surface like this than
   // anywhere else — there is one gutter per turn, so a dead affordance is dead
   // fifty times over.
-  const canComment = useSocialCapability(subject.kind, subject.id, enabled).data?.canComment === true
+  // Asked of the THREAD on this locus when one exists — see `useCanComment`.
+  const canComment = useCanComment(subject, thread, enabled)
   const [composing, setComposing] = useState(false)
   if (!enabled) return null
 

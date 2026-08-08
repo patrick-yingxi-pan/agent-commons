@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { filesUnder, sectionViewComponent, stripComments } from './helpers/source.ts'
+import { filesUnder, read, ROOT, sectionViewComponent, stripComments } from './helpers/source.ts'
 import { SHARE_TIERS } from '../contract/social.ts'
 import { TIER_LABELS, TIER_BADGE_CLASS } from '../src/lib/tierBadge.ts'
 
@@ -260,6 +260,49 @@ test('the patchable-block predicate is the contract’s, not a re-implementation
   assert.match(form, /docBlockText/, 'the form filters with the contract’s own total function')
   const preview = readFileSync(join('src', 'components', 'artifactPreview.tsx'), 'utf8')
   assert.match(preview, /docBlockText/, 'and so does the owner’s in-place editor — one predicate, one pencil placement')
+})
+
+/** ── A composer asks the THREAD, not the subject ─────────────────────────────
+ *  `GET /social/capability` answers about a SUBJECT, and on a PRINCIPAL that
+ *  means reachability — "could you cold-open to this person" — which is FALSE
+ *  for yourself, by design. A wall post's subject is its author's own principal,
+ *  so every surface that gated its composer on the subject-level answer refused
+ *  the author a reply box on their own post, while `discussionWritableBy` would
+ *  have accepted the reply. Two decisions about one act, which is the exact
+ *  defect `Discussion.canPost` was added to end — its comment in
+ *  contract/social.ts named the trap for the mirror-image DM case, and the
+ *  surfaces went on asking the subject anyway. A named field with no lock is a
+ *  suggestion (the same shape as UI-18's fourth surface, and UI-22's unsized
+ *  button): so `.canComment` now has exactly one reader. */
+test('no surface gates a composer on the subject when a thread can answer', () => {
+  const readers: string[] = []
+  for (const file of filesUnder('src')) {
+    const rel = file.replace(/\\/g, '/').split('/src/')[1]
+    if (rel === 'api/hooks.ts') continue // the funnel — useCanComment lives here
+    if (/\.canComment\b/.test(stripComments(read(file)))) readers.push(rel)
+  }
+  assert.deepEqual(
+    readers,
+    [],
+    'read the thread’s own canPost through useCanComment (src/api/hooks.ts) — the subject-level answer is a different question on a principal anchor',
+  )
+})
+
+test('the one reader really does prefer the thread (the scan is not vacuous)', () => {
+  const hooks = stripComments(read(join(ROOT, 'src', 'api', 'hooks.ts'))).replace(/\s+/g, ' ')
+  const fn = hooks.match(/export function useCanComment[^}]*\}/)?.[0] ?? ''
+  assert.ok(fn, 'the funnel exists')
+  assert.ok(fn.includes('thread ? thread.canPost === true'), 'a thread answers for itself')
+  assert.ok(fn.includes('bySubject'), '…and only a thread-less subject falls back to the capability')
+  // The hosts that must consume it — each one holds a thread while deciding.
+  for (const [rel, hosts] of [
+    ['components/SectionView.tsx', 3],
+    ['components/LocusGutter.tsx', 1],
+  ] as const) {
+    const src = stripComments(read(join(ROOT, 'src', ...rel.split('/'))))
+    const used = (src.match(/useCanComment\(/g) ?? []).length
+    assert.ok(used >= hosts, `${rel} routes its ${hosts} composer gate(s) through the hook (found ${used})`)
+  }
 })
 
 /** ── The feed card's conversation is DISCLOSED, never a trip ─────────────────

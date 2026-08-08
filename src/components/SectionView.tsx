@@ -196,6 +196,7 @@ import {
   useDirectMessages,
   useFollows,
   useSocialProposals,
+  useCanComment,
   useSocialCapability,
   useGrants,
   openSocialProposal,
@@ -2889,8 +2890,9 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
   const list = useDiscussions(subject.kind, subject.id).data ?? []
   const root = list.find((d) => d.anchor.locus === undefined) ?? null
   // Capability shapes affordances: a `view`-tier reader gets no compose verb at
-  // all, rather than one whose every send the write path refuses.
-  const canComment = useSocialCapability(subject.kind, subject.id).data?.canComment === true
+  // all, rather than one whose every send the write path refuses. Asked of the
+  // THREAD when one exists — see `useCanComment`.
+  const canComment = useCanComment(subject, root)
   // The composer is ON DEMAND, disclosed by the section header's verb — the same
   // rule Open work / Coordination / Changes follow on this page (UI-18). It used
   // to sit permanently open below the thread, the one section on the page whose
@@ -2997,7 +2999,7 @@ const RootThreadComposer = ({
 }) => {
   // Capability shapes affordances: a `view`-tier reader reads the thread and
   // may not post to it, so they get no composer rather than a refusal.
-  const canComment = useSocialCapability(subject.kind, subject.id).data?.canComment === true
+  const canComment = useCanComment(subject, root)
   if (!canComment) return null
   return (
     <AnchorThreadComposer
@@ -3043,7 +3045,7 @@ function FeedCard({ item }: { item: CommonsItem }) {
   const [open, setOpen] = useState(false)
   // Same live source the composer gates itself on, so the toggle can't offer a
   // conversation that is empty AND unanswerable — a control that does nothing.
-  const canComment = useSocialCapability(kind, id).data?.canComment === true
+  const canComment = useCanComment(item.subject, root)
   const react = (pid: string) => {
     if (root) void reactToDiscussionPost(root.id, pid, item.subject)
   }

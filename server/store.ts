@@ -6815,9 +6815,15 @@ export const store = {
     return { likes: set.size, liked }
   },
   /** The SUBJECT behind a derived feed-item id — the wall every per-item act
-   *  checks. `share:<grantId>` and `landing:<proposalId>` are the only two
-   *  shapes `listCommons` mints, so this is their one parser (an id that names
-   *  no live act resolves to undefined, which reads as "no such item"). */
+   *  checks. This is the one parser for every shape `listCommons` mints, and it
+   *  must stay exhaustive over them: an unparsed shape resolves to undefined,
+   *  which every caller reads as "no such item" — so the act 404s on a row the
+   *  feed is happily rendering. S8 added `post:<discussionId>` and this parser
+   *  was not widened, so liking a wall post answered 404 and the button sat
+   *  there saying "Couldn't update" (found in-app, 2026-08-08). The comment
+   *  here used to assert share and landing were "the only two shapes", which is
+   *  how a closed set goes stale: `tests/posts.test.ts` now checks the parser
+   *  against the ids `listCommons` actually mints, rather than a list. */
   commonsItemSubject(itemId: string): SocialEntityRef | undefined {
     const [kind, ...rest] = itemId.split(':')
     const id = rest.join(':')
@@ -6825,6 +6831,13 @@ export const store = {
     if (kind === 'landing') {
       const p = socialProposals.find((x) => x.id === id && x.state === 'landed')
       return p?.subject
+    }
+    // A post's subject is its author's own principal — the same ref the feed
+    // item carries. Gated on `isWallThread` for the reason the other two are
+    // gated: a DM is principal-anchored too, and it is not a feed item.
+    if (kind === 'post') {
+      const d = discussions.find((x) => x.id === id)
+      return d !== undefined && isWallThread(d) ? d.anchor.ref : undefined
     }
     return undefined
   },

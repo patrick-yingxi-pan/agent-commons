@@ -77,6 +77,59 @@ test('the wall is the SQUARE: anyone signed in reads it, and anyone may reply', 
   )
 })
 
+/** The AUTHOR is the one reader for whom the two questions disagree, which is
+ *  why the stranger case above passed while the app showed Ada no reply box on
+ *  her own post (found in-app, 2026-08-08). `GET /social/capability` answers
+ *  about a SUBJECT, and on a principal that means reachability — "could you
+ *  cold-open to this person" — which is false for yourself by design (you do
+ *  not DM yourself). A wall post's subject IS its author's principal, so a
+ *  surface reading the subject-level answer refuses the author. The thread's
+ *  own `canPost` is the answer that matches the write the server will accept. */
+test('the author may reply on their OWN wall — the thread answers, not the subject', async () => {
+  const p = await post('Something I want to add to later', ADA)
+  const did = p.json.id
+
+  const own = await call('GET', `/discussions/${did}`, undefined, { 'x-tenant-id': ADA })
+  assert.equal(own.json.canPost, true, 'a square you may speak in includes your own corner of it')
+  const reply = await call('POST', `/discussions/${did}/posts`, { body: 'Following up on myself' }, { 'x-tenant-id': ADA })
+  assert.equal(reply.status, 200, 'and the write is accepted, so a UI that hid the box was hiding a legal act')
+  assert.equal(reply.json.posts.length, 2)
+
+  // The subject-level answer stays FALSE, deliberately: cold-opening a DM to
+  // yourself is still nonsense. Both answers are correct about their own
+  // question — which is precisely why a surface must ask the right one, and why
+  // this asserts the disagreement rather than flattening it.
+  const cap = await call('GET', `/social/capability?kind=principal&id=${encodeURIComponent(ADA_NAME)}`, undefined, {
+    'x-tenant-id': ADA,
+  })
+  assert.equal(cap.status, 200)
+  assert.equal(cap.json.canComment, false, 'you may not open a message to yourself — a different act, still refused')
+})
+
+/** A feed item's per-item ACTS (like, and any future one) resolve the item id
+ *  back to a subject to find its wall. That parser must stay exhaustive over
+ *  what the feed actually mints: it knew `share:` and `landing:` and never
+ *  learned S8's `post:`, so liking a wall post 404'd and the button sat there
+ *  reading "Couldn't update" under a card the feed was happily rendering.
+ *  Derived from the live feed rather than a list of kinds — a hand-listed set
+ *  is the thing that went stale. */
+test('every item the feed mints can be acted on — the id parser is exhaustive', async () => {
+  await post('A post that should be likeable', ADA)
+  const items = (await feed(ADA)).json as { id: string; kind: string }[]
+  const kinds = new Set(items.map((i) => i.kind))
+  assert.ok(kinds.has('post') && kinds.size >= 2, `the feed mints more than one shape (saw ${[...kinds]})`)
+
+  for (const item of items) {
+    const liked = await call('POST', `/commons/${encodeURIComponent(item.id)}/like`, { liked: true }, { 'x-tenant-id': ADA })
+    assert.equal(liked.status, 200, `a ${item.kind} item ('${item.id}') is visible in the feed but unlikeable`)
+    assert.equal(liked.json.liked, true)
+    assert.ok(liked.json.likes >= 1)
+  }
+
+  // …and the wall still holds: an id naming no live act is "no such item".
+  assert.equal((await call('POST', '/commons/post:nope/like', { liked: true }, { 'x-tenant-id': ADA })).status, 404)
+})
+
 test('a post rings NOBODY; a reply rings the author', async () => {
   const before = store.listNotifications(ADA).length
   await post('An utterance that should ring no bells', ADA)
