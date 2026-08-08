@@ -213,8 +213,13 @@ share note → the **`ResourcePreview`** embed (per-kind registry: artifact
 excerpt/thumb; session → its last 2–3 turns rendered small — a conversation
 previewing *as* conversation is this product's native trick; project → name +
 ledger stat; schedule → cadence + last run) → action row (`ReactionCluster`,
-comment count, propose, share) → top-N root-discussion comments + inline
-composer ("view all" opens the discussion pane, not an accordion). The embed's
+comment count, propose, share) → the root discussion + inline composer.
+**Superseded 2026-08-08** on the parenthetical, which planned a top-N preview
+whose overflow opened the discussion pane "not an accordion": the door it became
+led to `/discussions/:id`, which renders the very thread the card already holds.
+So it IS an accordion now — **Reply** discloses the whole thread in place
+(`aria-expanded`) and the card rests folded behind its count (spec SOCIAL-8).
+The embed's
 **title is the door** (title-as-link) → the entity page through the pane
 funnel; on the wide tier the page opens **split beside the feed**.
 

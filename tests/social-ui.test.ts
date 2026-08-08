@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { filesUnder, sectionViewComponent } from './helpers/source.ts'
+import { filesUnder, sectionViewComponent, stripComments } from './helpers/source.ts'
 import { SHARE_TIERS } from '../contract/social.ts'
 import { TIER_LABELS, TIER_BADGE_CLASS } from '../src/lib/tierBadge.ts'
 
@@ -260,6 +260,49 @@ test('the patchable-block predicate is the contract’s, not a re-implementation
   assert.match(form, /docBlockText/, 'the form filters with the contract’s own total function')
   const preview = readFileSync(join('src', 'components', 'artifactPreview.tsx'), 'utf8')
   assert.match(preview, /docBlockText/, 'and so does the owner’s in-place editor — one predicate, one pencil placement')
+})
+
+/** ── The feed card's conversation is DISCLOSED, never a trip ─────────────────
+ *  Owner directive 2026-08-08: "the reply button should be a toggle of the
+ *  comments below instead of jump to a new page. The new page and the comments
+ *  are duplicate." Both halves matter and they pull against each other, so both
+ *  are held here:
+ *
+ *  · Reply must not NAVIGATE. `/discussions/:id` renders the very thread the
+ *    card already carries — one conversation, two projections — so the door
+ *    spent the reader's place in the feed to show them what they were looking
+ *    at. "View all N comments" was the same trip under another name.
+ *  · …and the card must therefore be able to show ALL of it. The cheap way to
+ *    kill the navigation is to keep the two-post tail and quietly drop the
+ *    door, which leaves the rest of a thread reachable from nowhere. */
+test('the feed card discloses its thread in place — Reply toggles, nothing navigates away', () => {
+  // COMMENTS OUT first. This scan bans phrases the card's own comments discuss
+  // by name ("the door it replaced", "no view all N comments left"), so reading
+  // them would make the bans spuriously fail — and, worse, would let a positive
+  // assertion pass on a comment describing code that is no longer there.
+  const card = stripComments(sectionViewComponent('FeedCard')).replace(/\s+/g, ' ')
+
+  // The act bar's own doors: the mention and the embed title legitimately leave
+  // (`navigate('agents'…)`, `navigate(target…)`) — the thread must not.
+  assert.ok(
+    !card.includes("navigate('discussions'"),
+    'the card sends the reader to /discussions/:id for a thread it is already rendering',
+  )
+  assert.ok(!/View all \{?\w* ?comments/.test(card), 'the "View all N comments" trip is the same door under another name')
+
+  // A disclosure, announced as one: a toggle with no aria-expanded is a button
+  // whose state only sighted users can see.
+  assert.ok(/aria-expanded=\{open\}/.test(card), 'Reply announces itself as a disclosure')
+  assert.ok(/setOpen\(next\)/.test(card), 'and actually toggles rather than only opening')
+
+  // The whole thread, not a teaser — `shown`, never a slice of it.
+  assert.ok(/posts=\{shown\}/.test(card), 'an opened card renders the entire thread')
+  assert.ok(!/shown\.slice/.test(card), 'a tail would leave the rest of the thread reachable from nowhere')
+
+  // Opening lands the caret in the standing composer (which cannot use
+  // autoFocus — it never remounts), so Reply answers at zero replies too.
+  assert.ok(/box\.current\?\.focus\(\)/.test(card), 'opening drops the caret in the composer')
+  assert.ok(/inputRef=\{box\}/.test(card), 'and the composer hands the card that handle')
 })
 
 /** S8 — the mention highlight must cover exactly what the server matched. The

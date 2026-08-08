@@ -125,8 +125,15 @@ test('share → feed → discuss → improve: one thread, one ledger, across two
   await expect(grace.page.getByRole('button', { name: 'Land', exact: true })).toHaveCount(0)
 
   // ── One conversation, two projections: the comment rides Grace's feed card too ──
+  // The card rests with its thread folded (owner directive 2026-08-08), so the
+  // claim is now sharper than "the text is somewhere on the page": THIS card's
+  // Reply carries the count, and opening it in place shows the same words she
+  // wrote on the entity page.
   await gotoSection(grace.page, 'Commons')
-  await expect(grace.page.getByText(COMMENT)).toBeVisible()
+  const shareCard = grace.page.getByRole('article').filter({ hasText: NOTE })
+  await expect(shareCard.getByRole('button', { name: /^Reply 1$/ })).toBeVisible({ timeout: 20_000 })
+  await shareCard.getByRole('button', { name: /^Reply 1$/ }).click()
+  await expect(shareCard.getByText(COMMENT)).toBeVisible()
 
   // ── Ada sees both on the ONE canonical page, and lands the change as L1 ────
   await ada.page.reload()
@@ -502,7 +509,11 @@ test('the Commons lenses: an act fills the collection the rail lists it under', 
 
   // ── LIKED and WATCHED are filled by the card's two acts ───────────────────
   await grace.page.goto('/commons')
-  const card = grace.page.getByRole('main').locator('div').filter({ hasText: LENS_NOTE }).last()
+  // The card by its own ROLE. This used to hunt for the innermost `div`
+  // containing the note and hope `.last()` was the card — which held only
+  // because the card happened to be a bare div; a feed of near-identical cards
+  // deserves a boundary, so the card is an <article> and this asks for one.
+  const card = grace.page.getByRole('article').filter({ hasText: LENS_NOTE })
   await expect(grace.page.getByText(LENS_NOTE)).toBeVisible({ timeout: 20_000 })
   await card.getByRole('button', { name: 'Like this post' }).click()
   await expect(card.getByRole('button', { name: 'Unlike this post' })).toBeVisible()
@@ -516,8 +527,7 @@ test('the Commons lenses: an act fills the collection the rail lists it under', 
 
   await grace.page.goto('/commons')
   await expect(grace.page.getByText(LENS_NOTE)).toBeVisible({ timeout: 20_000 })
-  await grace.page.getByRole('main').locator('div').filter({ hasText: LENS_NOTE }).last()
-    .getByRole('button', { name: 'Watch' }).click()
+  await card.getByRole('button', { name: 'Watch' }).click()
   await grace.page.goto('/commons/watched')
   await expect(grace.page.getByText(LENS_NOTE)).toBeVisible()
 
@@ -847,20 +857,35 @@ test('the square: compose → the feed carries it → a mention doors → a stra
   // than an absence that would hold vacuously.
   await expect(grace.page.getByRole('main').getByText('Insights dashboard').first()).toBeVisible()
 
-  // She opens the thread and replies — anyone in the square may speak. The card's
-  // Reply door exists at zero replies, which is precisely when it is needed.
-  await grace.page.getByRole('main').getByRole('button', { name: /^Reply/ }).first().click()
-  await expect(grace.page).toHaveURL(/\/discussions\//, { timeout: 20_000 })
+  // She replies — anyone in the square may speak. Reply DISCLOSES the thread on
+  // the card rather than navigating (owner directive 2026-08-08: the discussion
+  // page renders the same thread, so the trip only cost her place in the feed),
+  // and it works at zero replies, which is precisely when someone wants to
+  // answer. The URL assertion is inverted on purpose: staying put IS the claim.
+  const url = grace.page.url()
+  const postCard = grace.page.getByRole('article').filter({ hasText: 'Shipped the body editor' })
+  await postCard.getByRole('button', { name: /^Reply$/ }).click()
+  await expect(grace.page).toHaveURL(url)
+  // Opening the conversation lands the caret in that card's own composer — the
+  // proof that a standing composer can still be focused by the verb that
+  // discloses it (`inputRef`, since autoFocus can never fire for one).
+  const box = grace.page.locator('textarea:focus')
+  await expect(box).toBeVisible()
+  await box.fill(REPLIED)
   // The ONE thread composer labels its box and its button identically (that is
-  // how `AnchorThreadComposer` names itself), so both are addressed by the same
-  // exact name rather than by a regex that could drift onto a rail row.
-  await grace.page.getByRole('textbox', { name: 'Reply to this discussion' }).fill(REPLIED)
-  await grace.page.getByRole('button', { name: 'Reply to this discussion' }).click()
-  await expect(grace.page.getByText(REPLIED)).toBeVisible({ timeout: 20_000 })
+  // how `AnchorThreadComposer` names itself), and a FEED needs those names to
+  // differ per card — so the card names its own after the act it hangs under.
+  await postCard.getByRole('button', { name: /^Comment on .+’s post$/ }).click()
+  await expect(postCard.getByText(REPLIED)).toBeVisible({ timeout: 20_000 })
 
   // ── …and it comes back under Ada's card, one conversation, two projections ─
+  // Her card rests closed too, and the count is what says the conversation
+  // happened — the scent that lets a folded thread stay folded honestly.
   await gotoSection(ada.page, 'Commons')
-  await expect(ada.page.getByText(REPLIED)).toBeVisible({ timeout: 20_000 })
+  const ownCard = ada.page.getByRole('article').filter({ hasText: 'Shipped the body editor' })
+  await expect(ownCard.getByRole('button', { name: /^Reply 1$/ })).toBeVisible({ timeout: 20_000 })
+  await ownCard.getByRole('button', { name: /^Reply 1$/ }).click()
+  await expect(ownCard.getByText(REPLIED)).toBeVisible()
 
   await ada.context.close()
   await grace.context.close()

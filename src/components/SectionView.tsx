@@ -2976,17 +2976,24 @@ const RootThreadComposer = ({
   subject,
   root,
   placeholder,
+  ariaLabel,
   autoFocus,
+  inputRef,
   onPosted,
   onCancel,
 }: {
   subject: SocialEntityRef
   root: Discussion | null
   placeholder?: string
+  /** A FEED of these exists — one composer per card — so a card names its own
+   *  rather than letting every one of them announce "post to this principal's
+   *  discussion" in the same words. */
+  ariaLabel?: string
   /** Set by a DISCLOSED composer (the entity panel's, opened from the section
    *  header's verb): the caret lands where the verb promised. A standing
-   *  composer (the feed card's) leaves focus alone. */
+   *  composer (the feed card's) keeps the same promise through `inputRef`. */
   autoFocus?: boolean
+  inputRef?: RefObject<HTMLTextAreaElement | null>
   onPosted?: () => void
   onCancel?: () => void
 }) => {
@@ -2999,7 +3006,9 @@ const RootThreadComposer = ({
       subject={subject}
       thread={root}
       placeholder={placeholder}
+      ariaLabel={ariaLabel}
       autoFocus={autoFocus}
+      inputRef={inputRef}
       onPosted={onPosted}
       onCancel={onCancel}
     />
@@ -3026,16 +3035,32 @@ function FeedCard({ item }: { item: CommonsItem }) {
   const byId = useDiscussion(isPost ? (item.discussionId ?? '') : '', isPost).data ?? null
   const root = isPost ? byId : (threads.find((d) => d.anchor.locus === undefined) ?? null)
   // A post's opening entry is the card's own text, so it is not one of the
-  // replies the tail shows.
+  // replies below it.
   const shown = root ? (isPost ? root.posts.slice(1) : root.posts) : []
-  const tail = shown.slice(-2)
+  // The conversation is DISCLOSED, and Reply is what discloses it (owner
+  // directive 2026-08-08). It used to be a door to `/discussions/:id` — but that
+  // page is the same thread in another projection, so the trip bought the reader
+  // nothing and cost them their place in the feed. Open, the card shows the
+  // WHOLE thread, which is what makes it a real answer rather than a teaser:
+  // there is no "view all N comments" left to send anyone elsewhere.
+  const [open, setOpen] = useState(false)
+  // The caret's target. The composer STANDS (it is the feed idiom, 2026-07-24),
+  // so it can't take `autoFocus` — it never remounts to fire one.
+  const box = useRef<HTMLTextAreaElement>(null)
+  // Same live source the composer gates itself on, so the toggle can't offer a
+  // conversation that is empty AND unanswerable — a control that does nothing.
+  const canComment = useSocialCapability(kind, id).data?.canComment === true
   const react = (pid: string) => {
     if (root) void reactToDiscussionPost(root.id, pid, item.subject)
   }
   const target: SectionId | null =
     kind === 'project' ? 'projects' : kind === 'schedule' ? 'scheduled' : kind === 'context' ? 'contexts' : kind === 'discussion' ? 'discussions' : null
   return (
-    <div className="rounded-xl border border-line bg-surface px-5 py-4">
+    // An <article>, because that is what it is: a self-contained composition in
+    // a feed. It also gives the card an addressable BOUNDARY — the one thing a
+    // stack of near-identical cards otherwise lacks, for assistive tech and for
+    // a browser test that has to say "this card's Reply", not "the first one".
+    <article aria-label={`${item.actor}’s ${item.kind}`} className="rounded-xl border border-line bg-surface px-5 py-4">
       {/* The actor line leads with the identity mark (the feed idiom every
           popular feed shares) and IS a door to the workspace's profile —
           the same OwnerLink every other byline wears. */}
@@ -3107,17 +3132,23 @@ function FeedCard({ item }: { item: CommonsItem }) {
           happens to support. */}
       <div className="-ml-2 mt-1.5 flex items-center gap-1">
         <LikeButton item={item} />
-        {/* S8 — a POST's door is its own thread, and it must exist BEFORE the
-            first reply: a card whose only way in is "view all N comments" is
-            unreachable at N=0, which is exactly when someone wants to answer
-            it. (Found by the browser walk — the node suites can't see that a
-            card has no door.) A share/landing keeps the subject's page as its
-            door, so it needs no second one here. */}
-        {isPost && root && (
+        {/* Reply is the card's DISCLOSURE, not a door — so unlike the door it
+            replaced it needs no thread to point at, and every card kind can
+            carry it (a share's conversation was reachable only by leaving for
+            the subject's page). It carries the count, which is what lets the
+            thread rest closed without hiding that it exists; opening it drops
+            the caret in the composer, so it answers at N=0 too — precisely when
+            someone wants to say the first thing. */}
+        {(shown.length > 0 || canComment) && (
           <button
-            onClick={() => rel.navigate('discussions', root.id)}
-            className={cardActClass(false)}
-            title="Open this post’s thread"
+            onClick={() => {
+              const next = !open
+              setOpen(next)
+              if (next) box.current?.focus()
+            }}
+            aria-expanded={open}
+            className={cardActClass(open)}
+            title={open ? 'Hide the conversation' : 'Open the conversation'}
           >
             <MessageSquare size={14} />
             Reply
@@ -3126,20 +3157,24 @@ function FeedCard({ item }: { item: CommonsItem }) {
         )}
         <WatchToggle quiet subject={item.subject} watching={item.watched === true} />
       </div>
-      {root && shown.length > 0 && (
+      {open && shown.length > 0 && (
         <div className="mt-2 border-t border-line pt-3">
-          {shown.length > tail.length && (
-            <button onClick={() => rel.navigate('discussions', root.id)} className={`${INLINE_ACTION_CLASS} mb-2`}>
-              View all {shown.length} comments
-            </button>
-          )}
-          <DiscussionPostList posts={tail} onReact={react} onOpenPerson={(n) => rel.navigate('agents', n)} />
+          <DiscussionPostList posts={shown} onReact={react} onOpenPerson={(n) => rel.navigate('agents', n)} />
         </div>
       )}
       <div className="mt-3">
-        <RootThreadComposer subject={item.subject} root={root} placeholder="Comment…" />
+        <RootThreadComposer
+          subject={item.subject}
+          root={root}
+          placeholder="Comment…"
+          ariaLabel={`Comment on ${item.actor}’s ${item.kind}`}
+          inputRef={box}
+          // What you just said must be visible — posting into a folded thread
+          // would look like the comment vanished.
+          onPosted={() => setOpen(true)}
+        />
       </div>
-    </div>
+    </article>
   )
 }
 
@@ -3301,13 +3336,22 @@ function PostComposer() {
         onChange={(e) => setBody(e.target.value)}
         rows={2}
         placeholder="Say something — mention a workspace with @ to reach them"
-        className={`${FORM_INPUT_CLASS} w-full resize-y`}
+        className={`${FORM_INPUT_CLASS} resize-y`}
       />
-      <div className="mt-2 flex items-center gap-2">
-        <button onClick={() => void send()} disabled={!body.trim() || busy} className={SOFT_BUTTON_CLASS}>
+      {/* The submit sits at the box's bottom-right — where a composer's own verb
+          belongs, and where every feed the reader already uses puts it. It wears
+          the soft verb at a stated SIZE: the face deliberately carries none
+          (lib/button.ts leaves padding + text to the caller), and this one call
+          site passed nothing, which is why it shipped as a cramped tint. */}
+      <div className="mt-3 flex items-center justify-end gap-3">
+        {error && <span className="mr-auto min-w-0 truncate text-[11px] text-danger">{error}</span>}
+        <button
+          onClick={() => void send()}
+          disabled={!body.trim() || busy}
+          className={`${SOFT_BUTTON_CLASS} px-3 py-1.5 text-[13px] disabled:opacity-45`}
+        >
           {busy ? 'Posting…' : 'Post'}
         </button>
-        {error && <span className="min-w-0 truncate text-[11px] text-danger">{error}</span>}
       </div>
     </div>
   )

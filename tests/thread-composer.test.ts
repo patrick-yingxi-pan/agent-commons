@@ -107,4 +107,27 @@ test('the shared composer can be a disclosed one — it closes and cancels', () 
   assert.match(src, /onPosted\?\.\(landed\)/, 'a disclosed composer is told when — and where — the post landed, so it can close and open it')
   assert.ok(src.includes('onCancel &&'), 'a composer opened by an affordance can be closed without posting')
   assert.ok(src.includes('autoFocus'), 'the caret lands where the verb promised')
+  // …and a STANDING one keeps the same promise by another route: it never
+  // remounts, so autoFocus can never fire for it, yet the feed card's Reply
+  // still has to put the caret here.
+  assert.ok(src.includes('inputRef'), 'a standing composer can still be focused by the verb that discloses its thread')
+})
+
+/** The submit is a VERB and the cancel is a dismissal, so they must not read as
+ *  one control typed twice. Both were `INLINE_ACTION_CLASS` — the same grey
+ *  ghost text — until the owner's 2026-08-08 report ("the two post buttons …
+ *  are ugly"); the pair is now ranked, and the affirmative wears the shared
+ *  soft-verb face at a stated size (tests/button.test.ts holds the sizing rule
+ *  for every call site). */
+test('the composer’s pair is ranked — the submit is the soft verb, the cancel stays ghost', () => {
+  const src = stripComments(read(join(ROOT, FUNNEL))).replace(/\s+/g, ' ')
+  assert.ok(src.includes("from '../lib/button'"), 'the submit sources the shared face rather than restyling one')
+  const post = src.match(/<button[^>]*?onClick=\{\(\) => void send\(\)\}.*?<\/button>/)?.[0] ?? ''
+  assert.ok(post.includes('SOFT_BUTTON_CLASS'), `the submit wears the affirmative face (found: ${post.slice(0, 120)})`)
+  const cancel = src.match(/\{onCancel && \(.*?\)\}/)?.[0] ?? ''
+  assert.ok(cancel.includes('INLINE_ACTION_CLASS'), 'the cancel stays quiet ghost text')
+  assert.ok(!cancel.includes('SOFT_BUTTON_CLASS'), 'two affirmative-looking buttons would rank the pair equally')
+  // The submit rides the field's baseline; `items-start` put it beside the
+  // first LINE of a box that grows downward.
+  assert.ok(src.includes('items-end'), 'the submit sits on the field’s baseline as the box grows')
 })

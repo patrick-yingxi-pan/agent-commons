@@ -11,10 +11,11 @@
  *  (subject, locus) — `openDiscussion` in server/store.ts). So callers that
  *  don't already hold the thread may pass `thread: null` and still land in the
  *  right conversation — two clients racing the first post can't fork it. */
-import { useState } from 'react'
+import { useState, type RefObject } from 'react'
 import type { AnchorLocus, Discussion, SocialEntityRef } from '../../contract/index.ts'
 import { openDiscussion, postToDiscussion } from '../api'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
+import { SOFT_BUTTON_CLASS } from '../lib/button'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
 
 export function AnchorThreadComposer({
@@ -24,6 +25,7 @@ export function AnchorThreadComposer({
   placeholder,
   ariaLabel,
   autoFocus,
+  inputRef,
   onPosted,
   onCancel,
 }: {
@@ -41,6 +43,12 @@ export function AnchorThreadComposer({
    *  identically. */
   ariaLabel?: string
   autoFocus?: boolean
+  /** The caret handle for a STANDING composer. `autoFocus` only fires on mount,
+   *  so a composer that is always mounted (the feed card's) cannot use it — yet
+   *  the verb that discloses its thread still has to land the caret here (the
+   *  card's Reply). The ref is the same promise, kept by a component that never
+   *  unmounts. */
+  inputRef?: RefObject<HTMLTextAreaElement | null>
   /** Fired after a successful post — a transient composer (the turn gutter's)
    *  closes itself; a persistent one (the entity panel's) ignores it. Receives
    *  the thread the post landed in, which the caller often cannot know in
@@ -74,8 +82,15 @@ export function AnchorThreadComposer({
   }
   return (
     <div>
-      <div className="flex items-start gap-2">
+      {/* The submit rides the field's BASELINE (`items-end`), so it stays put as
+          the box grows — the shape every comment composer worth copying has.
+          And the pair is ranked: Post is the affirmative soft verb, Cancel stays
+          ghost text. Rendering both as the same grey text (which this did until
+          2026-08-08) makes "send it" and "throw it away" look like one control
+          typed twice. */}
+      <div className="flex items-end gap-2">
         <textarea
+          ref={inputRef}
           aria-label={ariaLabel ?? `Post to this ${subject.kind}’s discussion`}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -84,6 +99,11 @@ export function AnchorThreadComposer({
           autoFocus={autoFocus}
           className={`${FORM_INPUT_CLASS} resize-none`}
         />
+        {onCancel && (
+          <button onClick={onCancel} className={`${INLINE_ACTION_CLASS} shrink-0 px-1 py-1.5`}>
+            Cancel
+          </button>
+        )}
         {/* Named after its target, like the field above: a page can host two
             composers (a routine's root thread and one of its runs'), and two
             buttons announced identically as "Post" are ambiguous to a screen
@@ -92,15 +112,10 @@ export function AnchorThreadComposer({
           onClick={() => void send()}
           disabled={busy || !draft.trim()}
           aria-label={ariaLabel ?? `Post to this ${subject.kind}’s discussion`}
-          className={`${INLINE_ACTION_CLASS} mt-1 shrink-0`}
+          className={`${SOFT_BUTTON_CLASS} shrink-0 px-3 py-1.5 text-[13px] disabled:opacity-45`}
         >
           Post
         </button>
-        {onCancel && (
-          <button onClick={onCancel} className={`${INLINE_ACTION_CLASS} mt-1 shrink-0`}>
-            Cancel
-          </button>
-        )}
       </div>
       {error && <p className="mt-1 text-[11px] text-danger">{error}</p>}
     </div>

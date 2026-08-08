@@ -109,6 +109,68 @@ test('the dead solid spellings stay dead — tree-wide', () => {
   }
 })
 
+/** ── The other half of "the face carries no size" ────────────────────────────
+ *  The split above is only half a contract: the face declines to set size, so
+ *  the CALL SITE has to. Nothing checked that it did, and the Commons composer's
+ *  Post shipped as `className={SOFT_BUTTON_CLASS}` — a fill and a label with no
+ *  padding and no type size, which renders as a cramped tint (owner report,
+ *  2026-08-08: "the two post buttons … are ugly"). One call site out of ~45,
+ *  invisible to every test we had, because each of the others happened to pass
+ *  its own. A split contract needs a lock on both halves. */
+const FACES = ['SOLID_BUTTON_CLASS', 'DANGER_BUTTON_CLASS', 'SECONDARY_BUTTON_CLASS', 'SOFT_BUTTON_CLASS'] as const
+const HAS_PAD = /\bp[xy]?-\[?[\d.]/
+// `(?![\w-])` rather than `\b`: an arbitrary size ends in `]`, a non-word char,
+// so a trailing `\b` would never match one — which is how the first draft of
+// this lock flagged all 45 call sites as unsized.
+const HAS_TEXT = /\btext-(\[[\d.]+px\]|xs|sm|base)(?![\w-])/
+
+/** Every class expression that wears a face: a template literal (`px-3 …
+ *  ${FACE}`, ternaries included) or the bare `className={FACE}` — the shape
+ *  that shipped unsized, so it must be one the extractor sees rather than one
+ *  it skips. */
+function faceExpressions(src: string): string[] {
+  const out: string[] = []
+  for (const m of src.matchAll(/`[^`]*`/g)) if (FACES.some((f) => m[0].includes(f))) out.push(m[0])
+  for (const m of src.matchAll(/className=\{\s*([A-Za-z_$][\w$]*)\s*\}/g)) {
+    if ((FACES as readonly string[]).includes(m[1])) out.push(m[0])
+  }
+  return out
+}
+
+test('every call site sizes the face it wears (the other half of the split)', () => {
+  const offenders: string[] = []
+  let sized = 0
+  for (const file of filesUnder('src')) {
+    if (file.endsWith(FUNNEL)) continue
+    const rel = file.slice(ROOT.length + 1).split('\\').join('/')
+    const src = stripComments(read(file))
+    const exprs = faceExpressions(src)
+    // Vacuity guard: a call site the extractor cannot SEE is a call site this
+    // lock silently exempts, so account for every mention outside the import.
+    const mentions = src
+      .split('\n')
+      .filter((l) => !/^\s*import\b|from '(\.\.\/)+lib\/button'/.test(l))
+      .join('\n')
+    const total = FACES.reduce((n, f) => n + (mentions.match(new RegExp(`\\b${f}\\b`, 'g')) ?? []).length, 0)
+    const seen = FACES.reduce(
+      (n, f) => n + exprs.reduce((k, e) => k + (e.match(new RegExp(`\\b${f}\\b`, 'g')) ?? []).length, 0),
+      0,
+    )
+    assert.equal(seen, total, `${rel}: ${total - seen} face mention(s) sit outside any class expression — widen the extractor`)
+    for (const e of exprs) {
+      sized += 1
+      if (HAS_PAD.test(e) && HAS_TEXT.test(e)) continue
+      offenders.push(`${rel}: ${e.replace(/\s+/g, ' ').slice(0, 90)}`)
+    }
+  }
+  assert.ok(sized >= 40, `the call sites are really being found (found ${sized})`)
+  assert.deepEqual(
+    offenders,
+    [],
+    'a button face was worn without a size — lib/button.ts leaves padding + text to the caller, so pass them (e.g. `px-3 py-1.5 text-[13px]`)',
+  )
+})
+
 test('the consumers source the face from the module', () => {
   const consumers: Array<[string, string, number]> = [
     // The soft tier carries every below-CTA affirmative (2026-08-03).
