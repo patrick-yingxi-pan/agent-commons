@@ -296,7 +296,7 @@ test('sharing a CONVERSATION: the owner shares from its title bar, the audience 
   // against a known origin, and "wherever the walk happened to leave her" would
   // make the assertion below a coin flip.
   await gotoSection(ada.page, 'Commons')
-  await ada.page.getByRole('button', { name: 'Notifications' }).click()
+  await ada.page.getByTestId('notification-bell').click()
   const bell = ada.page.getByRole('button', { name: /posted in the discussion on/ }).first()
   await expect(bell).toBeVisible({ timeout: 20_000 })
   await bell.click()
@@ -311,19 +311,17 @@ test('sharing a CONVERSATION: the owner shares from its title bar, the audience 
   // there, pointing back at the exact turn the thread hangs on.
   await expect(ada.page.getByRole('button', { name: /^session · .+ · one turn$/ })).toBeVisible()
 
-  // …and the bell left her a way HOME (owner directive 2026-08-08). A chrome
-  // door normally resets history — deliberate navigation starts fresh — but a
-  // notification is an interruption, not a destination: she was on the Commons
-  // when it rang, so Back names the Commons and returns her there. Without the
-  // push this said "Back to Discussions", the section root, which is not
-  // anywhere she had been.
+  // …and the bell left her a way HOME (owner directive 2026-08-08). The inbox
+  // is a PAGE now, so its rows are in-page doors: what one opens carries the
+  // INBOX on its back stack, and Back is how she gets to the next bell. (It
+  // once said "Back to Discussions" — the section root, which is not anywhere
+  // she had been.)
   const home = ada.page.getByRole('button', { name: /^Back to / })
-  await expect(home).toHaveAttribute('aria-label', /^Back to Commons$/)
+  await expect(home).toHaveAttribute('aria-label', /^Back to Notifications$/)
   await home.click()
-  await expect(ada.page).toHaveURL(/\/commons/, { timeout: 20_000 })
+  await expect(ada.page).toHaveURL(/\/notifications/, { timeout: 20_000 })
   // Back through the same door, so the rest of the walk still has the thread —
-  // and so the bell is proved to work a second time, having been marked read.
-  await ada.page.getByRole('button', { name: 'Notifications' }).click()
+  // and so the row is proved to work a second time, having been marked read.
   await ada.page.getByRole('button', { name: /posted in the discussion on/ }).first().click()
   await expect(ada.page.getByText(GUEST_POST).first()).toBeVisible({ timeout: 20_000 })
 

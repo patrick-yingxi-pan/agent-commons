@@ -1,4 +1,4 @@
-import { Bot, Box, Briefcase, Cable, Clock, Cpu, Mail, MessagesSquare, Newspaper, SendHorizontal, Shapes, Wrench } from 'lucide-react'
+import { Bell, Bot, Box, Briefcase, Cable, Clock, Cpu, Mail, MessagesSquare, Newspaper, SendHorizontal, Shapes, Wrench } from 'lucide-react'
 import type { SectionId } from '../types'
 
 /** The cross-cutting tools in the sidebar nav. One source of truth for the
@@ -56,6 +56,16 @@ export const SECTION_META: Record<
     subtitle: 'Direct conversations with the people you can reach.',
     Icon: Mail,
   },
+  // The inbox (D24). A PAGE, not the overlay it began as (owner directive
+  // 2026-08-08): what happened while you weren't looking is a list you triage,
+  // and a modal is only for a transient act. As a page it gets an address, a
+  // place in the back stack, and a pane of its own like everything else — which
+  // is what makes "answer a bell, come back for the next one" work at all.
+  notifications: {
+    label: 'Notifications',
+    subtitle: 'What happened to what you own, watch, or posted — while you weren’t looking.',
+    Icon: Bell,
+  },
   dispatch: {
     label: 'Dispatch',
     subtitle: 'Send Claude off to run tasks in the background.',
@@ -87,6 +97,7 @@ export const SECTION_ORDER: SectionId[] = [
   'scheduled',
   'discussions',
   'messages',
+  'notifications',
   'dispatch',
   'customize',
   'admin',

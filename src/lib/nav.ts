@@ -60,6 +60,7 @@ export const SECTION_LABELS: Record<SectionId, string> = {
   scheduled: 'Scheduled',
   discussions: 'Discussions',
   messages: 'Messages',
+  notifications: 'Notifications',
   dispatch: 'Dispatch',
   customize: 'Customize',
   admin: 'Maintain',

@@ -113,8 +113,8 @@ export function useShellRoutes({
     [routeToFocused],
   )
   const routeSection = useCallback(
-    (section: SectionId, sub?: string | null, push?: boolean): void => {
-      routeToFocused({ kind: 'msection', id: section, sub: sub ?? null }, push)
+    (section: SectionId, sub?: string | null): void => {
+      routeToFocused({ kind: 'msection', id: section, sub: sub ?? null })
     },
     [routeToFocused],
   )

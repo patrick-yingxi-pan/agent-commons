@@ -9,9 +9,9 @@
  *  pushed* (`pushedBack`); the landing page's back affordance pops the stack
  *  (`contentForLoc`). Chrome doors (the rail, the palette) route through the
  *  shell without a push — deliberate top-level navigation resets history,
- *  GitHub's top-nav rule. The NOTIFICATION panel is the exception (owner
- *  directive 2026-08-08): a bell is an interruption rather than a destination,
- *  so its doors push and Back is the way home.
+ *  GitHub's top-nav rule, with no exceptions. The notification inbox needed one
+ *  for an afternoon and instead became a PAGE (2026-08-08), so its rows are
+ *  in-page doors like any other and what they open carries the inbox home.
  *
  *  Browser Back/Forward follow the same per-page model (`planPop`): the
  *  address popstate moved to first tries the focused pane's own back top (an

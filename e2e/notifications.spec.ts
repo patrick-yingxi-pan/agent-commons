@@ -58,9 +58,13 @@ test('watch a shared project → the owner acts → the watcher’s bell rings, 
   await expect(owner.page.getByText(ITEM)).toBeVisible()
 
   // The watcher's bell badges LIVE (tenant-targeted SSE — no reload).
-  await expect(watcher.page.getByRole('complementary').getByLabel(/Notifications \(\d+ unread\)/)).toBeVisible({ timeout: 10_000 })
-  await watcher.page.getByRole('complementary').getByLabel(/Notifications/).click()
-  const panel = watcher.page.getByRole('dialog', { name: 'Notifications' })
+  await expect(watcher.page.getByTestId('notification-bell')).toHaveAttribute(
+    'aria-label',
+    /\(\d+ unread\)/,
+    { timeout: 10_000 },
+  )
+  await watcher.page.getByTestId('notification-bell').click()
+  const panel = watcher.page.getByRole('main')
   const row = panel.getByRole('button', { name: new RegExp(ITEM) })
   await expect(row).toBeVisible()
 
@@ -73,9 +77,9 @@ test('watch a shared project → the owner acts → the watcher’s bell rings, 
   // Two project doors exist by design (the back button + the meta line) — any one proves the page.
   await expect(watcher.page.getByRole('button', { name: PROJECT }).first()).toBeVisible()
   await expect(watcher.page.getByLabel(`Comment on ${ITEM}`)).toBeVisible()
-  await watcher.page.getByRole('complementary').getByLabel(/Notifications/).click()
+  await watcher.page.getByTestId('notification-bell').click()
   await expect(
-    watcher.page.getByRole('dialog', { name: 'Notifications' }).getByRole('button', { name: new RegExp(ITEM) }).getByLabel('Unread'),
+    watcher.page.getByRole('main').getByRole('button', { name: new RegExp(ITEM) }).getByLabel('Unread'),
   ).toHaveCount(0)
 
   await owner.context.close()
@@ -122,10 +126,14 @@ test('a work.commented bell opens the project ON the item’s thread, auto-expan
   await expect(owner.page.getByText(CMT)).toHaveCount(0)
 
   // The owner's bell rings the comment; clicking it is the door.
-  await expect(owner.page.getByRole('complementary').getByLabel(/Notifications \(\d+ unread\)/)).toBeVisible({ timeout: 10_000 })
-  await owner.page.getByRole('complementary').getByLabel(/Notifications/).click()
+  await expect(owner.page.getByTestId('notification-bell')).toHaveAttribute(
+    'aria-label',
+    /\(\d+ unread\)/,
+    { timeout: 10_000 },
+  )
+  await owner.page.getByTestId('notification-bell').click()
   await owner.page
-    .getByRole('dialog', { name: 'Notifications' })
+    .getByRole('main')
     .getByRole('button', { name: new RegExp(`commented on .*${IT}`) })
     .click()
 
@@ -170,10 +178,14 @@ test('a proposal.opened bell opens the review dialog directly ON the proposal (R
   // the proposal (border-accent), showing its diff. That the dialog is open here
   // WITHOUT a Review-button click is the R5 owner-side proof.
   await openApp(owner.page)
-  await expect(owner.page.getByRole('complementary').getByLabel(/Notifications \(\d+ unread\)/)).toBeVisible({ timeout: 10_000 })
-  await owner.page.getByRole('complementary').getByLabel(/Notifications/).click()
+  await expect(owner.page.getByTestId('notification-bell')).toHaveAttribute(
+    'aria-label',
+    /\(\d+ unread\)/,
+    { timeout: 10_000 },
+  )
+  await owner.page.getByTestId('notification-bell').click()
   await owner.page
-    .getByRole('dialog', { name: 'Notifications' })
+    .getByRole('main')
     .getByRole('button', { name: new RegExp(`proposed a change to .*${AGENT}`) })
     .click()
 
@@ -230,10 +242,14 @@ test('a proposal.merged bell opens the owner’s profile ON Your-proposals, focu
   // Proposer: the proposal.merged bell is the door — clicking it opens the
   // definition's OWN page (COMMONS-26), "Your proposals" focused on the proposal
   // (its note + the merged status are visible on the page — no manual drill-in).
-  await expect(proposer.page.getByRole('complementary').getByLabel(/Notifications \(\d+ unread\)/)).toBeVisible({ timeout: 10_000 })
-  await proposer.page.getByRole('complementary').getByLabel(/Notifications/).click()
+  await expect(proposer.page.getByTestId('notification-bell')).toHaveAttribute(
+    'aria-label',
+    /\(\d+ unread\)/,
+    { timeout: 10_000 },
+  )
+  await proposer.page.getByTestId('notification-bell').click()
   await proposer.page
-    .getByRole('dialog', { name: 'Notifications' })
+    .getByRole('main')
     .getByRole('button', { name: new RegExp(`merged your proposal into .*${AGENT}`) })
     .click()
 
@@ -274,10 +290,14 @@ test('an agent.forked bell lands on the source agent’s own card in the hub (R6
   // with the SOURCE agent's OWN card (its owner-only Unpublish action proves it's the
   // hub card, not a Discover entry, and never the fork — which the owner may not see).
   await openApp(owner.page)
-  await expect(owner.page.getByRole('complementary').getByLabel(/Notifications \(\d+ unread\)/)).toBeVisible({ timeout: 10_000 })
-  await owner.page.getByRole('complementary').getByLabel(/Notifications/).click()
+  await expect(owner.page.getByTestId('notification-bell')).toHaveAttribute(
+    'aria-label',
+    /\(\d+ unread\)/,
+    { timeout: 10_000 },
+  )
+  await owner.page.getByTestId('notification-bell').click()
   await owner.page
-    .getByRole('dialog', { name: 'Notifications' })
+    .getByRole('main')
     .getByRole('button', { name: new RegExp(`forked your agent .*${AGENT}`) })
     .click()
 

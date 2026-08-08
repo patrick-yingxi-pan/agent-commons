@@ -25,6 +25,7 @@ export type SectionId =
   | 'scheduled'
   | 'discussions'
   | 'messages'
+  | 'notifications'
   | 'dispatch'
   | 'customize'
   | 'admin'

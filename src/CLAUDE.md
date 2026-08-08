@@ -312,12 +312,14 @@ project page whose back names the conversation). Mechanism: the pane's content
 carries a `back` stack of `PaneLoc`s (`src/lib/paneHistory.ts` is the model;
 `PaneBody` in `MainSplit.tsx` is the ONE push funnel for pane-originated doors);
 chrome doors RESET the stack — top-level navigation starts fresh, GitHub's
-top-nav rule — with ONE exception: the **notification panel PUSHES** (owner
-directive 2026-08-08). A rail or palette door is a destination you asked for;
-a bell is an INTERRUPTION you answered, so Back has to be the way home or
-reading a notification costs you your place. Both flavours are minted from one
-factory (`makeDoors` in `useSessionWorkspace.ts`) and the panel takes the
-`pushingDoors` set as a BUNDLE, so no door can be wired with the wrong one. The affordance is the one
+top-nav rule, no exceptions. The **notification inbox is a PAGE**
+(`/notifications`, owner directive 2026-08-08), which is how a bell keeps a way
+home without one: its rows are ordinary in-page doors, so what a bell opens
+carries the inbox on its back stack and Back is how you reach the next one.
+That replaced a shell-level "pushing doors" bundle that had given the OVERLAY
+the same behaviour — worth remembering as a shape: **when a rule needs an
+exception, check whether the thing needing it is in the wrong form.** An
+overlay can never be returned to, because it is not a place. The affordance is the one
 `BackButton` (`src/components/BackButton.tsx`) on detail pages, hub `PageHeader`s
 (when history exists), and the `SessionTitleBar`. Browser Back/Forward apply
 per page too (`planPop`): pop the focused pane's own back top, else REFOCUS the

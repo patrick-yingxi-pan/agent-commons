@@ -53,7 +53,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react'
-import type { AddedContext, ArtifactKind, Connector, SavedContext, SavedContextKind, SectionId } from '../types'
+import type { AddedContext, AppNotification, ArtifactKind, Connector, SavedContext, SavedContextKind, SectionId } from '../types'
 import { SECTION_META } from '../lib/sections'
 import { FOLD_HEADER_CLASS } from '../lib/foldHeader'
 import { PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../lib/pageHeader'
@@ -79,6 +79,8 @@ import { ConnectorDetailBody } from './ConnectorPanel'
 import { AddContextButton } from './AddContextButton'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { useDisclosure } from '../lib/useDisclosure'
+import { NotificationRow, type NotificationDoors } from './NotificationList'
+import { doorFor } from '../lib/notificationDoor'
 import { DOOR_CLASS, STANDING_DOOR_CLASS } from '../lib/textDoor'
 import { CARD_DOOR_CLASS, ROW_DOOR_CLASS, cardDoorClick } from '../lib/cardDoor'
 import { LEDGER_BOX_CLASS, LEDGER_HEAD_CLASS, LEDGER_COUNT_CLASS, LEDGER_ROW_CLASS, QUIET_CARD_CLASS } from '../lib/ledger'
@@ -254,6 +256,8 @@ import {
   useSessions,
   useSystemPrompts,
   useAgentToolCatalog,
+  useNotifications,
+  markNotificationsRead,
 } from '../api'
 import {
   promptFitWarning,
@@ -450,6 +454,10 @@ export function SectionView({
       <CommonsSection lens={subview} />
     ) : section === 'discussions' ? (
       <DiscussionsSection discussionId={focusDiscussionId} onOpenSession={onOpenSession} onFocusHere={onFocusHere} onBack={onBack} backTo={backTo} />
+    ) : section === 'notifications' ? (
+      // D24 — the inbox is a PAGE now, not the overlay it began as: its rows are
+      // in-page doors, so what they open carries the inbox on its back stack.
+      <NotificationsSection onFocusHere={onFocusHere} onOpenAgentPage={onOpenAgentPage} />
     ) : section === 'messages' ? (
       // S7 — the DM inbox. It lists only; a thread's canonical page is
       // `/discussions/:did` (one page, one URL), so rows door THERE rather than
@@ -3895,6 +3903,139 @@ function FollowRosterBand({
       )}
     </div>
   )
+}
+
+/** ── The notification inbox, as a PAGE (D24; owner directive 2026-08-08) ─────
+ *  It began as an overlay over whatever you were reading, which made one thing
+ *  impossible: coming back to it. An overlay has no address, never becomes a
+ *  pane, and so can never be on the back stack — so answering a bell always
+ *  ended somewhere with no way home *to the inbox*, and triaging a second bell
+ *  meant re-opening the bell. ("Shouldn't the back button get him to the
+ *  notifications page?" — it couldn't, because there was no such page.)
+ *
+ *  As a section it is an ordinary place: `/notifications`, a rail row, a pane of
+ *  its own, splittable, deep-linkable. And its rows become IN-PAGE doors, which
+ *  is the whole point — they route through the pane funnel like every other
+ *  in-page door, so the page you land on carries the inbox on its back stack
+ *  (ADAPT-18) with no special casing anywhere.
+ *
+ *  Its own surface is also why "a modal is only for a transient act" was the
+ *  wrong shape (surface-from-nature): this is a LIST of entities you triage,
+ *  each with state (read / unread) and a door — the same nature as Messages,
+ *  which has been a page since S7. */
+function NotificationsSection({
+  onFocusHere,
+  onOpenAgentPage,
+}: {
+  onFocusHere: (target: FocusTarget) => void
+  onOpenAgentPage: (agentId: string) => void
+}) {
+  const rel = useRelations()
+  const rows = useNotifications().data ?? []
+  // My own agent registry — resolves whether a proposal bell lands on MY review
+  // queue (I own the agent) or the owner's public profile (I'm the proposer).
+  const myAgents = useAgents().data ?? []
+  const unread = rows.filter((r) => !r.read).length
+
+  // The doors, expressed against the PANE bridge (`rel.navigate`) rather than
+  // the shell's: an in-page door must stay in its pane and carry its origin,
+  // and routing through the shell would reset the very history this page exists
+  // to be part of. The transient highlight rides the same `onFocusHere`
+  // pipeline every other in-page locus door uses.
+  const doors: NotificationDoors = {
+    openProject: (projectId) => rel.navigate('projects', projectId),
+    openSection: (s) => rel.navigate(s),
+    openWorkItem: (projectId, workItemId, commentId) => {
+      rel.navigate('projects', projectId, workItemId)
+      onFocusHere({ projectId, workItemId, commentId })
+    },
+    openProposal: (agentId, proposalId, ownerName) => {
+      // `ownerName` null ⇒ the caller OWNS the agent ⇒ their Agents hub (the
+      // review queue); else the definition's own PAGE, where "Your proposals"
+      // lives. The agent PAGE is not reachable through the section bridge (it
+      // seeds an owner, not an agent), so it keeps its dedicated door.
+      if (ownerName) onOpenAgentPage(agentId)
+      else rel.navigate('agents')
+      onFocusHere({ agentId, proposalId })
+    },
+    openAgent: (agentId) => {
+      rel.navigate('agents')
+      onFocusHere({ agentId })
+    },
+    openDiscussionPage: (discussionId) => rel.navigate('discussions', discussionId),
+    openOwner: (name) => rel.navigate('agents', name),
+  }
+
+  const open = (n: AppNotification) => {
+    if (!n.read) void markNotificationsRead([n.id])
+    const intent = doorFor(n)
+    switch (intent.kind) {
+      case 'workItem':
+        doors.openWorkItem(intent.projectId, intent.workItemId, intent.commentId)
+        break
+      case 'project':
+        doors.openProject(intent.projectId)
+        break
+      case 'proposal': {
+        const iOwn = myAgents.some((a) => a.id === intent.agentId)
+        doors.openProposal(intent.agentId, intent.proposalId, iOwn ? null : n.actor)
+        break
+      }
+      case 'agent': {
+        // A proposal.* bell whose id predates R2 (no proposalId) degrades to this
+        // coarse 'agent' door. It still belongs to the PROPOSER when they don't own
+        // the agent → the owner's profile (n.actor), where "Your proposals" lives —
+        // not the caller's own hub. A fork bell always rings the owner (who owns the
+        // source), so it lands on the hub.
+        const iOwn = myAgents.some((a) => a.id === intent.agentId)
+        if (!iOwn && n.kind.startsWith('proposal.')) doors.openOwner(n.actor)
+        else doors.openAgent(intent.agentId)
+        break
+      }
+      case 'discussion':
+        doors.openDiscussionPage(intent.discussionId)
+        break
+      case 'owner':
+        doors.openOwner(intent.ownerName)
+        break
+      case 'section':
+        doors.openSection(intent.section)
+        break
+      default:
+        // Exhaustiveness: `doorFor` is total over NotificationKind, but this
+        // DISPATCH is the other half of the contract — a new NavIntent variant
+        // with no arm here would type-check and silently become a dead click.
+        // The `never` makes that a build error instead.
+        assertHandledIntent(intent)
+    }
+  }
+
+  return (
+    <Page>
+      <PageHeader title="Notifications">
+        {unread > 0 && (
+          <button onClick={() => void markNotificationsRead()} className={INLINE_ACTION_CLASS}>
+            Mark all read
+          </button>
+        )}
+      </PageHeader>
+      {rows.length === 0 ? (
+        <Empty>Nothing yet — watch a project (or share one) and its public acts land here.</Empty>
+      ) : (
+        <CardList>
+          {rows.map((n) => (
+            <NotificationRow key={n.id} row={n} onOpen={() => open(n)} />
+          ))}
+        </CardList>
+      )}
+    </Page>
+  )
+}
+
+/** A dispatch arm is missing: the argument stays wider than `never` and the
+ *  build fails, rather than the row becoming a silent no-op. */
+function assertHandledIntent(intent: never): void {
+  void intent
 }
 
 /** The DM inbox (S7). A message is a Discussion anchored to a PERSON, so every

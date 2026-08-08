@@ -91,7 +91,7 @@ export function useSessionWorkspace(split?: {
    *  focused pane too. */
   routeSession?: (sessionId: string) => void
   /** A bare-section door (palette "Pages", a relation card's section jump). */
-  routeSection?: (section: SectionId, sub?: string | null, push?: boolean) => void
+  routeSection?: (section: SectionId, sub?: string | null) => void
   /** Boot fallback (ADAPT-1): when neither a boot address nor the restored
    *  per-account tree fills the background, mint the fresh draft. */
   mintIfEmpty?: () => void
@@ -279,37 +279,28 @@ export function useSessionWorkspace(split?: {
     draft.reset()
     splitRef.current?.routeSession?.(DRAFT_ID)
   }, [])
-  // ── Every entity door, in TWO flavours ────────────────────────────────────
-  // The bodies are identical; the only difference is whether the page being
-  // LEFT rides the target's back stack (ADAPT-18):
+  const openSection = useCallback((s: SectionId, sub?: string | null) => {
+    splitRef.current?.routeSection?.(s, sub ?? null)
+    setPendingFocus(null)
+  }, [])
+  // The detail doors share one shape — route the section with its detail seed,
+  // drop any stale highlight — so they're minted from one factory (stable:
+  // splitRef and the setState are both stable, so the memo never rebuilds).
   //
-  //  · the PLAIN set — the rail, the search palette, a relation deep-link.
-  //    Deliberate top-level navigation, which starts fresh (GitHub's top-nav
-  //    rule): you asked to go somewhere, so "back" means this page's structural
-  //    parent, not a trail of everywhere you've been.
-  //  · the PUSHED set — the NOTIFICATION panel (owner directive 2026-08-08:
-  //    *"in the case the page is opened from notifications, the back button
-  //    should link to it as well"*). A bell is not navigation, it is an
-  //    INTERRUPTION: you were somewhere, something happened elsewhere, you went
-  //    to look. Landing with no way home makes answering a notification cost
-  //    the reader their place — the very thing the back-history rule exists to
-  //    prevent. So a bell's door pushes, exactly like a door inside a page.
-  //
-  // ONE body, two bindings, because the failure mode of two bodies is a door
-  // born with only one of the behaviours — and the one it would be missing is
-  // whichever the author wasn't thinking about.
-  const makeDoors = useCallback((push?: boolean) => {
-    const door = (section: SectionId, seed: PaneSeed, focus: FocusTarget | null = null) => {
-      splitRef.current?.routeDoor?.(section, seed, push)
-      // The highlight is set AFTER routing (a plain door clears it), so a bell
-      // that points INTO a page — one comment, one proposal — lands on it.
-      setPendingFocus(focus)
+  // They are all CHROME doors (the rail, the palette): deliberate top-level
+  // navigation, which resets the back stack — GitHub's top-nav rule, ADAPT-18.
+  // There is deliberately no notification-flavoured variant: the inbox became a
+  // PAGE (2026-08-08), so its rows are in-page doors that route through the pane
+  // funnel and carry their origin for free. A shell-level "pushing doors" bundle
+  // existed for one afternoon to give the OVERLAY that behaviour; making the
+  // inbox a place deleted the need for it, which is the better fix — a rule with
+  // an exception, replaced by a shape that needs none.
+  const { openProject, openSchedule, openOwner, openAgentPage, openDiscussionPage, openDetail } = useMemo(() => {
+    const door = (section: SectionId, seed: PaneSeed) => {
+      splitRef.current?.routeDoor?.(section, seed)
+      setPendingFocus(null)
     }
     return {
-      openSection: (s: SectionId, sub?: string | null) => {
-        splitRef.current?.routeSection?.(s, sub ?? null, push)
-        setPendingFocus(null)
-      },
       openProject: (projectId: string) => door('projects', { projectId }),
       openSchedule: (scheduleId: string) => door('scheduled', { scheduleId }),
       openOwner: (name: string) => door('agents', { ownerName: name }),
@@ -323,32 +314,19 @@ export function useSessionWorkspace(split?: {
        *  byline); the write-once ones — work item, contribution, context,
        *  console account — were exactly `door(section, seed)` spelled longer. */
       openDetail: (section: SectionId, seed: PaneSeed) => door(section, seed),
-      // ── The doors that carry a focus target (docs/notification-routing.md) ──
-      /** A work.* / mentioned bell: the item's page, with the touched
-       *  sub-entity (the item itself, or one comment) highlighted on arrival. */
-      openWorkItem: (projectId: string, workItemId: string, commentId?: string) =>
-        door('projects', { projectId, workItemId }, { projectId, workItemId, commentId }),
-      /** A change proposal on the agent's review surface (proposal.* bells).
-       *  `ownerName` null ⇒ the caller OWNS the agent ⇒ their Agents hub (the
-       *  review queue); else the definition's own PAGE (COMMONS-26), where
-       *  "Your proposals" lives — with the proposal focused on arrival. */
-      openProposal: (agentId: string, proposalId: string, ownerName: string | null) =>
-        door('agents', ownerName ? { agentId } : {}, { agentId, proposalId }),
-      /** The source agent (agent.forked) — the recipient is its owner, so their
-       *  own Agents hub, with the card highlighted. Never the fork (leak-wall). */
-      openAgent: (agentId: string) => door('agents', {}, { agentId }),
     }
   }, [])
-  const doors = useMemo(() => makeDoors(), [makeDoors])
-  /** The same doors, PUSHING — the page being left rides the target's back
-   *  stack. Named for the behaviour, not for the bell: a proposal row inside a
-   *  page wants it too, and calling the set `notificationDoors` would have made
-   *  that call site read like a notification. */
-  const pushingDoors = useMemo(() => makeDoors(true), [makeDoors])
-  const { openSection, openProject, openSchedule, openOwner, openAgentPage, openDiscussionPage, openDetail } = doors
-  // A proposal row inside an agent page is pane-ORIGINATED, so it wants the
-  // same pushing flavour the bell does — one door, two callers, one behaviour.
-  const openProposal = pushingDoors.openProposal
+
+  // A change proposal on an agent's review surface. `ownerName` null ⇒ the
+  // caller OWNS the agent ⇒ their Agents hub (the review queue); else the
+  // definition's own PAGE (COMMONS-26), where "Your proposals" lives — with the
+  // proposal focused on arrival. `push` marks the pane-ORIGINATED call site (a
+  // proposal row inside a page, ADAPT-18), which is the only caller left now
+  // that the inbox routes its own doors.
+  const openProposal = useCallback((agentId: string, proposalId: string, ownerName: string | null, push?: boolean) => {
+    splitRef.current?.routeDoor?.('agents', ownerName ? { agentId } : {}, push)
+    setPendingFocus({ agentId, proposalId })
+  }, [])
 
   /** Aim the transient highlight at a position — the shell half of a locus door
    *  (SOCIAL-6b). Deliberately kind-AGNOSTIC: which position a locus means is
@@ -387,11 +365,6 @@ export function useSessionWorkspace(split?: {
     openDiscussionPage,
     openDetail,
     openProposal,
-    /** The doors that carry their origin — see `makeDoors`. Handed to the
-     *  notifications panel as a BUNDLE rather than seven `push: true` call
-     *  sites, so the rule lives in one named place and an eighth door
-     *  inherits it. */
-    pushingDoors,
     pinSession,
     renameSession,
     archiveSession,

@@ -810,12 +810,20 @@ export function PaneActionButtons({
 /** The notification bell + its live unread badge (D24) — ONE component for
  *  every host: the rail's header trio and the shell's collapsed mini-rail
  *  (App.tsx). The badge count reads the live notifications hook here, so a
- *  host can never render a bell without the unread cue. */
+ *  host can never render a bell without the unread cue.
+ *
+ *  Since 2026-08-08 it is a DOOR to `/notifications` rather than the opener of
+ *  an overlay — the same page the rail's Notifications row opens. Two controls
+ *  to one place is deliberate (GitHub's bell + inbox): this one is always
+ *  visible and carries the count. They therefore share an accessible name, so
+ *  the bell carries a testid — the rail row is reachable through the Sections
+ *  nav landmark, and this one is not in any nav. */
 export function NotificationBell({ onClick }: { onClick: () => void }) {
   const unreadCount = (useNotifications().data ?? []).filter((r) => !r.read).length
   return (
     <button
       onClick={onClick}
+      data-testid="notification-bell"
       title="Notifications"
       aria-label={unreadCount > 0 ? `Notifications (${unreadCount} unread)` : 'Notifications'}
       className={`relative ${SIDEBAR_ICON_BUTTON}`}

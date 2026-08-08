@@ -53,7 +53,7 @@ test('propose → review side-by-side → merge: the definition evolves and cred
 
   // Owner: the bell rings; the agent card offers the review; the diff shows both sides.
   await openApp(owner.page)
-  await expect(owner.page.getByRole('complementary').getByLabel(/Notifications \(\d+ unread\)/)).toBeVisible({ timeout: 10_000 })
+  await expect(owner.page.getByTestId('notification-bell')).toHaveAttribute('aria-label', /\(\d+ unread\)/, { timeout: 10_000 })
   await owner.page.getByRole('navigation').getByRole('button', { name: 'Agents', exact: true }).click()
   // Scope to THIS agent's card — reused e2e stores carry earlier runs' agents,
   // whose own review buttons would otherwise collide in strict mode.
@@ -87,11 +87,11 @@ test('propose → review side-by-side → merge: the definition evolves and cred
   // — clicking it opens that workspace's profile (the proposer authored v2).
   await ownerCard.getByRole('button', { name: /^by / }).last().click()
   await expect(owner.page.getByText('Recent public activity')).toBeVisible() // a profile-page section
-  await expect(proposer.page.getByRole('complementary').getByLabel(/Notifications \(\d+ unread\)/)).toBeVisible({ timeout: 10_000 })
-  await proposer.page.getByRole('complementary').getByLabel(/Notifications/).click()
+  await expect(proposer.page.getByTestId('notification-bell')).toHaveAttribute('aria-label', /\(\d+ unread\)/, { timeout: 10_000 })
+  await proposer.page.getByTestId('notification-bell').click()
   await expect(
     proposer.page
-      .getByRole('dialog', { name: 'Notifications' })
+      .getByRole('main')
       .getByText(new RegExp(`merged your proposal into “${AGENT}”`)),
   ).toBeVisible()
 

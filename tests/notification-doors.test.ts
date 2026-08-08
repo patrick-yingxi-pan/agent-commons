@@ -134,46 +134,61 @@ test('social.discussed lands on the THREAD, not its subject — the post is on t
 /** ── A bell is an interruption, so Back is the way home ──────────────────────
  *  Owner directive, 2026-08-08: *"the back button should honestly link to
  *  previous page in history. In the case the page is opened from notifications,
- *  the back button should link to it as well."*
+ *  the back button should link to it as well."* Then, on being told the inbox
+ *  was an overlay with no address: *"shouldn't the back button get him to the
+ *  notifications page?"*
  *
- *  Chrome doors reset the back stack — deliberate top-level navigation starts
- *  fresh (ADAPT-18, GitHub's top-nav rule), and the rail and the palette still
- *  do. The notification panel is the exception the rule needed: you did not ASK
- *  to go anywhere, you were told something happened. Landing with no way back
- *  makes answering a bell cost you your place.
+ *  The first answer gave the OVERLAY's doors a pushing flavour at the shell —
+ *  a rule with an exception. The second replaced it: the inbox became a PAGE,
+ *  so its rows are ordinary in-page doors and carry their origin through the
+ *  same funnel every other in-page door uses. The exception was deleted along
+ *  with the machinery that implemented it, which is the better fix and the
+ *  reason this test now asserts a SHAPE rather than a flag.
  *
- *  Locked structurally, because the wiring is what rots: the panel takes ONE
- *  bundle (so no door can be wired with the wrong flavour), the two flavours
- *  come from ONE body (so a new door can't be born with only one), and the
- *  pushing bundle is what App hands the panel. */
-test('the bell’s doors carry their origin — one bundle, from one body', async () => {
-  const { filesUnder, read, ROOT, stripComments } = await import('./helpers/source.ts')
+ *  What must stay true: the inbox is a place (a section with a URL), its doors
+ *  go through the PANE bridge (a shell door would reset the very history the
+ *  page exists to be part of), and no shell-level notification doors survive to
+ *  offer a second way. */
+test('the inbox is a PAGE, and its rows are in-page doors', async () => {
+  const { filesUnder, read, ROOT, sectionViewComponent, stripComments } = await import('./helpers/source.ts')
   const { join } = await import('node:path')
-  const controller = stripComments(read(join(ROOT, 'src', 'controller', 'useSessionWorkspace.ts'))).replace(/\s+/g, ' ')
+  const { pathForView, viewForPath } = await import('../src/lib/urlRoutes.ts')
 
-  // ONE body, two bindings — the plain set and the pushed set.
-  assert.match(controller, /makeDoors = useCallback\(\(push\?: boolean\)/, 'the doors are minted by one parameterized factory')
-  assert.match(controller, /const doors = useMemo\(\(\) => makeDoors\(\)/, 'the plain flavour: chrome navigation starts fresh')
-  assert.match(controller, /pushingDoors = useMemo\(\(\) => makeDoors\(true\)/, 'the pushed flavour: a bell carries its origin')
-  // The push has to reach the router, or both bundles would behave identically.
-  assert.match(controller, /routeDoor\?\.\(section, seed, push\)/, 'the seeded doors pass it through')
-  assert.match(controller, /routeSection\?\.\(s, sub \?\? null, push\)/, '…and so does the bare-section one')
+  // A place: registered like every other section, and addressable. Read as
+  // SOURCE — `sections.tsx` carries JSX, which `node --test` cannot import.
+  const sections = stripComments(read(join(ROOT, 'src', 'lib', 'sections.tsx')))
+  const order = sections.slice(sections.indexOf('SECTION_ORDER'))
+  assert.match(order, /'notifications',/, 'the rail lists it')
+  const loc = { kind: 'section', section: 'notifications' }
+  assert.equal(pathForView(loc, null), '/notifications', 'it has a canonical URL')
+  assert.equal(viewForPath('/notifications')?.loc.section, 'notifications', '…which round-trips')
 
-  // The panel takes the BUNDLE. Seven separate handlers is where one of them
-  // silently keeps the wrong flavour — the shape this test exists to prevent.
-  const panel = stripComments(read(join(ROOT, 'src', 'components', 'NotificationsPanel.tsx'))).replace(/\s+/g, ' ')
-  assert.match(panel, /doors: NotificationDoors/, 'the panel takes one doors bundle')
-  assert.doesNotMatch(panel, /onOpen(Project|Section|WorkItem|Proposal|Agent|Discussion|Owner)\??:/, 'no per-door prop survives to be mis-wired')
+  // Its doors go through the PANE bridge (rel.navigate / onFocusHere), never
+  // the shell's — that is what puts the inbox on the target's back stack.
+  const page = stripComments(sectionViewComponent('NotificationsSection')).replace(/\s+/g, ' ')
+  assert.match(page, /const doors: NotificationDoors = \{/, 'the page owns the door bundle')
+  assert.match(page, /rel\.navigate\('discussions', discussionId\)/, 'a thread bell routes in-pane')
+  assert.match(page, /rel\.navigate\('projects', projectId, workItemId\)/, 'a work bell routes in-pane')
+  assert.match(page, /onFocusHere\(\{ projectId, workItemId, commentId \}\)/, '…carrying the transient highlight')
 
-  const app = stripComments(read(join(ROOT, 'src', 'App.tsx'))).replace(/\s+/g, ' ')
-  assert.match(app, /<NotificationsPanel[^>]*doors=\{pushingDoors\}/, 'App hands the panel the PUSHING bundle')
-
-  // And the rule stays an exception: nothing else in the tree opts in.
-  const users: string[] = []
+  // The overlay is gone, and with it the shell-level notification doors: two
+  // ways in would be two behaviours, and one of them would be the old one.
+  const strays: string[] = []
   for (const f of filesUnder('src')) {
     const rel = f.replace(/\\/g, '/').split('/src/')[1]
-    if (rel === 'controller/useSessionWorkspace.ts') continue
-    if (/pushingDoors/.test(stripComments(read(f)))) users.push(rel)
+    const src = stripComments(read(f))
+    if (/NotificationsPanel|pushingDoors/.test(src)) strays.push(rel)
+    // A shell-level work-item door would be a second way in, with the old
+    // (resetting) behaviour. The SHELL is what must not have one — the inbox
+    // page's own bundle and its interface legitimately name it.
+    const shell = rel === 'App.tsx' || rel === 'controller/useSessionWorkspace.ts'
+    if (shell && /\bopenWorkItem\b/.test(src)) strays.push(`${rel}: openWorkItem`)
   }
-  assert.deepEqual(users, ['App.tsx'], 'the pushing bundle is wired in one place — the shell view')
+  assert.deepEqual(strays, [], 'the overlay and its shell doors are fully retired')
+
+  // The one door that still needs the shell's push flag: a proposal row inside
+  // an agent page — pane-originated, but routed through the shell because it
+  // must also set the focus target.
+  const controller = stripComments(read(join(ROOT, 'src', 'controller', 'useSessionWorkspace.ts'))).replace(/\s+/g, ' ')
+  assert.match(controller, /routeDoor\?\.\('agents', ownerName \? \{ agentId \} : \{\}, push\)/, 'the proposal door keeps its push')
 })

@@ -61,9 +61,13 @@ test('every component that declares aria-modal="true" wires useFocusTrap', () =>
     .filter((m) => m.src.includes('aria-modal="true"'))
 
   // The known modals: New project / New artifact, the artifact viewer, the
-  // search palette, and the Add-context browse window.
+  // search palette, and the Add-context browse window. The floor dropped from 5
+  // to 4 on 2026-08-08, when the notification inbox stopped being a modal and
+  // became a PAGE — a floor is a guard against the scan silently finding
+  // nothing, so it tracks the real population rather than pinning a high-water
+  // mark that would fail every time a dialog correctly stops being one.
   assert.ok(
-    modals.length >= 5,
+    modals.length >= 4,
     `expected the aria-modal dialogs; found only ${modals.length}: ${modals.map((m) => m.rel).join(', ')}`,
   )
 

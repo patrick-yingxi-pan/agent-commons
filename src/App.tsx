@@ -14,7 +14,6 @@ import { useMainSplit } from './controller/useMainSplit'
 import { useShellRoutes } from './controller/useShellRoutes'
 import { hostsSession, paneLocationPath, setMainSplitScope } from './lib/mainSplit'
 import { SearchPanel } from './components/SearchPanel'
-import { NotificationsPanel } from './components/NotificationsPanel'
 import { keys, onSessionRemoved, peek, useCapabilities, useMe, useSessions, useServerEvents } from './api'
 import { conversations, useConversation } from './controller/conversationStore'
 import { sameFocus } from './lib/focus'
@@ -98,8 +97,6 @@ export default function App() {
  *  logic lives in the controllers (controller/) and the model (data/). */
 function Workspace() {
   const [searchOpen, setSearchOpen] = useState(false)
-  // The notification inbox overlay (D24) — the rail bell's panel.
-  const [notifOpen, setNotifOpen] = useState(false)
 
   // Subscribe to the backend's ambient event stream (scheduled runs, standing
   // approvals, connector status). The session list now comes from the server —
@@ -174,7 +171,6 @@ function Workspace() {
     openDiscussionPage,
     openDetail,
     openProposal,
-    pushingDoors,
     pinSession,
     renameSession,
     archiveSession,
@@ -335,8 +331,8 @@ function Workspace() {
       },
       onNewSession: newSession,
       // A proposal row inside a page: pane-originated, so the origin rides the
-      // target's back stack — the same pushing door the bell now uses.
-      onOpenProposal: openProposal,
+      // target's back stack (a chrome door omits the push).
+      onOpenProposal: (agentId, proposalId, ownerName) => openProposal(agentId, proposalId, ownerName, true),
       onOpenProject: openProject,
       onOpenSchedule: openSchedule,
       // A pane composer's chip click toggles ITS session's STORE focus — the
@@ -508,7 +504,7 @@ function Workspace() {
                 onDeleteSession={deleteSessionAndEvict}
                 onToggleCollapse={toggleLeft}
                 onOpenSearch={withRailClose(() => setSearchOpen(true))}
-                onOpenNotifications={withRailClose(() => setNotifOpen(true))}
+                onOpenNotifications={withRailClose(() => openSection('notifications'))}
                 onOpenOwner={withRailClose(openOwner)}
                 onSplitRow={paneSplitRowAct}
                 onSplitCol={paneSplitColAct}
@@ -539,7 +535,7 @@ function Workspace() {
             <MiniRail
               onExpand={openLeft}
               onOpenSearch={() => setSearchOpen(true)}
-              onOpenNotifications={() => setNotifOpen(true)}
+              onOpenNotifications={() => openSection('notifications')}
               onSplitRow={paneSplitRowAct}
               onSplitCol={paneSplitColAct}
               onCloseView={paneCloseAct}
@@ -605,18 +601,6 @@ function Workspace() {
           </main>
         </div>
       </div>
-
-      {notifOpen && (
-        <NotificationsPanel
-          /* A bell's doors PUSH (owner directive 2026-08-08): answering a
-             notification must not cost the reader their place, so the page
-             they were on rides the target's back stack. The whole bundle
-             comes from the controller so the rule can't be half-applied —
-             see `makeDoors` for why it isn't seven `true`s here. */
-          doors={pushingDoors}
-          onClose={() => setNotifOpen(false)}
-        />
-      )}
 
       {searchOpen && (
         <SearchPanel

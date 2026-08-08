@@ -193,10 +193,9 @@ export interface PaneBackOut {
  *  breadcrumb, a relation card's "View in …", a cross-section retarget —
  *  replaces the pane through `fillWith`, which pushes the outgoing page (with
  *  its whole history chain) onto the target's back stack. The shell's chrome
- *  doors never come through here: the rail and the palette reset the stack
- *  instead, while the NOTIFICATION panel routes with the push flag (a bell is
- *  an interruption, so its landing keeps a way home — owner directive
- *  2026-08-08). */
+ *  doors (the rail, the palette) never come through here and reset the stack
+ *  instead. The notification inbox is not chrome — it is a page whose rows come
+ *  through this funnel like every other in-page door. */
 function PaneBody({
   content: c,
   path,
