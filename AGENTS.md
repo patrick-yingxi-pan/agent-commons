@@ -111,7 +111,14 @@ restart.
   test accounts for review*). This app's surface is viewer-relative: owner vs
   visitor controls, the tenant 404 wall, capability tiers, per-account rail
   prefs. A sweep from one account leaves those cells unreachable, and an
-  unreachable cell is a coverage hole, not a skip. Roster + credentials:
+  unreachable cell is a coverage hole, not a skip. **Leave the preview signed
+  in when you finish** (owner directive, 2026-08-08: *always leave the preview
+  signed in so that I can test myself*) — the owner picks the app up where the
+  agent put it down, and a sweep that ends on the auth gate hands them a
+  password prompt instead of the change. Restore Ada (the flagship) with the
+  roster stacked, and use **`http://127.0.0.1:5173`**, not `localhost:5173`:
+  the account stack lives in `localStorage`, so the two spellings are
+  different origins and one of them is always signed out. Roster + credentials:
   [`docs/demo-accounts.md`](docs/demo-accounts.md); procedure:
   [`.claude/skills/ui-review/SKILL.md`](.claude/skills/ui-review/SKILL.md) §1.
 - **Review the diff before every commit, then commit and push** (owner

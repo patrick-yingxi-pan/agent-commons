@@ -47,6 +47,18 @@ sweep as the rulebook's phases 1–3; triage and ratchet per its §3–§4.
 
   A change that touches nothing viewer-relative may sweep as one account —
   say so explicitly, per the no-silent-truncation rule above.
+
+  **Hand the preview back signed in** (owner directive, 2026-08-08: *always
+  leave the preview signed in so that I can test myself*). The sweep ends
+  wherever the last cell left it — a foreign tenant on a 404, a narrow
+  viewport, the auth gate after a storage wipe — and the owner opens that same
+  window next to test by hand. So the last acts of a sweep are: restore **Ada**
+  as the active account with the roster still stacked, a desktop viewport, the
+  light scheme, and a surface that shows the change. Address the app as
+  **`http://127.0.0.1:5173`** throughout: the stack lives in `localStorage`, so
+  `localhost:5173` is a DIFFERENT origin with its own (signed-out) stack —
+  drifting between the two spellings mid-sweep is how a signed-in app appears
+  to have logged itself out.
 - List the matrix explicitly before sweeping, and say what you're *not*
   sweeping and why. Silent truncation reads as "covered everything".
 
