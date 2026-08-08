@@ -17,12 +17,14 @@
  *  This module is that menu's vocabulary and its persistence. The facet ids are
  *  deliberately the SAME ids the rail tree used to carry, so the section bodies
  *  keep filtering on the value they always did — the control moved, the model
- *  didn't. Deliberately pure (one type-only import), so `tests/` can lock the
- *  catalog without a DOM; the live-value hook is `./useSectionFilter.ts`. */
+ *  didn't. Deliberately DOM-free and React-free (uiPrefs guards its localStorage
+ *  access), so `tests/` can lock the catalog — and the stable snapshot at the
+ *  foot of this file — without a browser; `./useSectionFilter.ts` is the thin
+ *  React adapter over it. */
 import type { SectionId } from '../types'
 // Extension-qualified: this module is node-tested, and Node's native TS resolves
 // runtime imports only with the explicit .ts.
-import { getLayout, setLayout } from './uiPrefs.ts'
+import { getLayout, setLayout, subscribeLayout, uiPrefScope } from './uiPrefs.ts'
 
 /** One option of a section's facet dimension. */
 export interface SectionFacet {
@@ -187,6 +189,44 @@ export function loadSectionFilter(section: SectionId): SectionFilterValue {
 export function saveSectionFilter(section: SectionId, value: SectionFilterValue): void {
   setLayout(facetKey(section), value.facet)
   setLayout(sortKey(section), value.sortBy)
+}
+
+/** ── The live value's STABLE snapshot (what `useSectionFilter` reads) ─────────
+ *  `useSyncExternalStore` demands a referentially stable snapshot and
+ *  `loadSectionFilter` mints a fresh object per call — returning that directly
+ *  would re-render forever. So the value is memoized per section, and the memo
+ *  carries BOTH things it depends on:
+ *
+ *  · the stored blob — dropped on every WRITE, via the subscription below.
+ *    Registered at module load, so it runs BEFORE the React subscribers appended
+ *    after it (the Set preserves insertion order) and they re-read a cleared memo.
+ *  · the ACCOUNT that blob belongs to — part of the memo's IDENTITY, not an
+ *    event. A scope switch happens inside App's render (`setUiPrefScope`), where
+ *    notifying live readers is illegal, so this memo cannot be TOLD the account
+ *    changed; it has to notice. Keying on the scope is what buys that switch its
+ *    silence — and it's the half that keeps the fix honest, since a memo that
+ *    only listened would hand the new account the old one's facets.
+ *
+ *  Lives here rather than in the hook so `tests/` can exercise it without React
+ *  or a DOM (uiPrefs guards its localStorage access). */
+let memo = new Map<SectionId, SectionFilterValue>()
+let memoScope: string | null = uiPrefScope()
+
+subscribeLayout(() => {
+  memo = new Map()
+})
+
+export function sectionFilterSnapshot(section: SectionId): SectionFilterValue {
+  const scope = uiPrefScope()
+  if (scope !== memoScope) {
+    memoScope = scope
+    memo = new Map()
+  }
+  const held = memo.get(section)
+  if (held) return held
+  const value = loadSectionFilter(section)
+  memo.set(section, value)
+  return value
 }
 
 /** Is this choice narrowing / re-ordering anything? Drives the menu's accent

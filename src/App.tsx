@@ -74,14 +74,18 @@ export default function App() {
     return <AuthScreen view={authView ?? { kind: 'picker' }} gated={gated} />
   }
   // Per-account chrome + view memory (multi-account): the layout store reads as
-  // THIS account (a plain module set — idempotent per render — done before the
-  // children whose useState initializers read it can mount), and the Workspace
-  // is KEYED by the account, so a switch remounts it: every mount-time read
-  // (rail width, pane folds/heights, panel width, the persisted split TREE —
-  // which IS the account's view memory since Phase 6) re-runs against the
-  // account's own blobs. `ident` holds the last-known identity mid-switch, so
-  // the remount fires exactly when the NEW /me resolves — the old account's
-  // instance never renders as the new one.
+  // THIS account. Both scope setters are pure module writes — idempotent per
+  // render, and NOTIFYING NOTHING, which is what makes them legal here: a store
+  // notify is a setState on every live reader, and one fired from this render
+  // body is the "Cannot update a component while rendering a different
+  // component" error (see setUiPrefScope). They must run during render even so,
+  // because the children's useState initializers read the store on mount. The
+  // Workspace is KEYED by the account, so a switch remounts it: every
+  // mount-time read (rail width, pane folds/heights, panel width, the
+  // persisted split TREE — which IS the account's view memory since Phase 6)
+  // re-runs against the account's own blobs. `ident` holds the last-known
+  // identity mid-switch, so the remount fires exactly when the NEW /me
+  // resolves — the old account's instance never renders as the new one.
   setUiPrefScope(ident.user.id)
   setMainSplitScope(ident.user.id) // the main split tree is per account, like the layout blob
   return <Workspace key={ident.user.id} />
