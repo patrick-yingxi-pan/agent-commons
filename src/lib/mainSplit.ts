@@ -35,7 +35,8 @@ import { pathForView } from './urlRoutes.ts'
  *  conversation (its title carried — resolved when you leave it, the nav.ts
  *  session-title rule, since a run session may be in no list to look up
  *  later). Doors clicked INSIDE pane content push the origin onto the
- *  target's `back`; chrome doors (rail, palette, notifications) reset it.
+ *  target's `back`; chrome doors reset it — except the notification panel,
+ *  which pushes (a bell is an interruption, not a destination).
  *  Plain JSON — the stack persists with the tree. */
 export type PaneLoc =
   | { kind: 'msection'; id: SectionId; sub?: string | null; seed?: PaneSeed }

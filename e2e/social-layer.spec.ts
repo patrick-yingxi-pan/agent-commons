@@ -292,6 +292,10 @@ test('sharing a CONVERSATION: the owner shares from its title bar, the audience 
   // DOOR onto the THREAD's own page — the deepest door of any social kind,
   // because that is where the post actually is.
   await ada.page.reload()
+  // Park her on a NAMED page first: the bell's back-push is only observable
+  // against a known origin, and "wherever the walk happened to leave her" would
+  // make the assertion below a coin flip.
+  await gotoSection(ada.page, 'Commons')
   await ada.page.getByRole('button', { name: 'Notifications' }).click()
   const bell = ada.page.getByRole('button', { name: /posted in the discussion on/ }).first()
   await expect(bell).toBeVisible({ timeout: 20_000 })
@@ -306,6 +310,22 @@ test('sharing a CONVERSATION: the owner shares from its title bar, the audience 
   // It landed on the THREAD's page, not the subject's — the anchor chip is
   // there, pointing back at the exact turn the thread hangs on.
   await expect(ada.page.getByRole('button', { name: /^session · .+ · one turn$/ })).toBeVisible()
+
+  // …and the bell left her a way HOME (owner directive 2026-08-08). A chrome
+  // door normally resets history — deliberate navigation starts fresh — but a
+  // notification is an interruption, not a destination: she was on the Commons
+  // when it rang, so Back names the Commons and returns her there. Without the
+  // push this said "Back to Discussions", the section root, which is not
+  // anywhere she had been.
+  const home = ada.page.getByRole('button', { name: /^Back to / })
+  await expect(home).toHaveAttribute('aria-label', /^Back to Commons$/)
+  await home.click()
+  await expect(ada.page).toHaveURL(/\/commons/, { timeout: 20_000 })
+  // Back through the same door, so the rest of the walk still has the thread —
+  // and so the bell is proved to work a second time, having been marked read.
+  await ada.page.getByRole('button', { name: 'Notifications' }).click()
+  await ada.page.getByRole('button', { name: /posted in the discussion on/ }).first().click()
+  await expect(ada.page.getByText(GUEST_POST).first()).toBeVisible({ timeout: 20_000 })
 
   // ── S5 guardrails, the two-party case ────────────────────────────────────
   // Ada did NOT write this post, but she owns the surface it sits on, so she is

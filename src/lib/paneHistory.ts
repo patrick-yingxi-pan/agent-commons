@@ -7,9 +7,11 @@
  *  cross-section retarget, a session row, a title-bar breadcrumb, a relation
  *  card's "View in …" — replace the pane with the target *plus the origin
  *  pushed* (`pushedBack`); the landing page's back affordance pops the stack
- *  (`contentForLoc`). Chrome doors (the rail, the palette, the notification
- *  panel) route through the shell without a push — deliberate top-level
- *  navigation resets history, GitHub's top-nav rule.
+ *  (`contentForLoc`). Chrome doors (the rail, the palette) route through the
+ *  shell without a push — deliberate top-level navigation resets history,
+ *  GitHub's top-nav rule. The NOTIFICATION panel is the exception (owner
+ *  directive 2026-08-08): a bell is an interruption rather than a destination,
+ *  so its doors push and Back is the way home.
  *
  *  Browser Back/Forward follow the same per-page model (`planPop`): the
  *  address popstate moved to first tries the focused pane's own back top (an

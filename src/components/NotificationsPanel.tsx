@@ -106,26 +106,23 @@ function describe(n: AppNotification): string {
  *  the controller dispatches — the work item's thread, the proposal under review,
  *  the source agent — and clicking marks it read. "Mark all read" settles the badge.
  *  Overlay chrome mirrors the search palette (one dialog family). */
-export function NotificationsPanel({
-  onOpenProject,
-  onOpenSection,
-  onOpenWorkItem,
-  onOpenProposal,
-  onOpenAgent,
-  onOpenDiscussion,
-  onOpenOwner,
-  onClose,
-}: {
-  onOpenProject: (id: string) => void
-  onOpenSection: (s: SectionId) => void
-  onOpenWorkItem: (projectId: string, workItemId: string, commentId?: string) => void
-  onOpenProposal: (agentId: string, proposalId: string, ownerName: string | null) => void
-  onOpenAgent: (agentId: string) => void
+/** Every door a bell can walk through. Taken as ONE bundle, not as seven
+ *  handlers: the shell's `notificationDoors` are the pushing flavour of the same
+ *  doors the rail uses (ADAPT-18 — a bell is an interruption, so back is the way
+ *  home), and a per-prop wiring is exactly where one of them would quietly get
+ *  the wrong flavour. */
+export interface NotificationDoors {
+  openProject: (id: string) => void
+  openSection: (s: SectionId) => void
+  openWorkItem: (projectId: string, workItemId: string, commentId?: string) => void
+  openProposal: (agentId: string, proposalId: string, ownerName: string | null) => void
+  openAgent: (agentId: string) => void
   /** The thread page a `social.discussed` bell lands on. */
-  onOpenDiscussion: (discussionId: string) => void
-  onOpenOwner: (name: string) => void
-  onClose: () => void
-}) {
+  openDiscussionPage: (discussionId: string) => void
+  openOwner: (name: string) => void
+}
+
+export function NotificationsPanel({ doors, onClose }: { doors: NotificationDoors; onClose: () => void }) {
   const dialogRef = useRef<HTMLDivElement>(null)
   const rows = useNotifications().data ?? []
   // My own agent registry — resolves whether a proposal bell lands on MY review
@@ -139,14 +136,14 @@ export function NotificationsPanel({
     const intent = doorFor(n)
     switch (intent.kind) {
       case 'workItem':
-        onOpenWorkItem(intent.projectId, intent.workItemId, intent.commentId)
+        doors.openWorkItem(intent.projectId, intent.workItemId, intent.commentId)
         break
       case 'project':
-        onOpenProject(intent.projectId)
+        doors.openProject(intent.projectId)
         break
       case 'proposal': {
         const iOwn = myAgents.some((a) => a.id === intent.agentId)
-        onOpenProposal(intent.agentId, intent.proposalId, iOwn ? null : n.actor)
+        doors.openProposal(intent.agentId, intent.proposalId, iOwn ? null : n.actor)
         break
       }
       case 'agent': {
@@ -156,18 +153,18 @@ export function NotificationsPanel({
         // not the caller's own hub. A fork bell always rings the owner (who owns the
         // source), so it lands on the hub.
         const iOwn = myAgents.some((a) => a.id === intent.agentId)
-        if (!iOwn && n.kind.startsWith('proposal.')) onOpenOwner(n.actor)
-        else onOpenAgent(intent.agentId)
+        if (!iOwn && n.kind.startsWith('proposal.')) doors.openOwner(n.actor)
+        else doors.openAgent(intent.agentId)
         break
       }
       case 'discussion':
-        onOpenDiscussion(intent.discussionId)
+        doors.openDiscussionPage(intent.discussionId)
         break
       case 'owner':
-        onOpenOwner(intent.ownerName)
+        doors.openOwner(intent.ownerName)
         break
       case 'section':
-        onOpenSection(intent.section)
+        doors.openSection(intent.section)
         break
       default:
         // Exhaustiveness: `doorFor` is total over NotificationKind, but this

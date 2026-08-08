@@ -230,5 +230,13 @@ test('the section body + controller route through the registry; a section lands 
   assert.match(sectionView, /subview \?\? 'accounts'/, 'the maintainer console does the same')
   // A bare-section door routes sub-view NULL into the focused pane (Phase 6).
   const controller = read(join(ROOT, 'src', 'controller', 'useSessionWorkspace.ts'))
-  assert.match(controller, /routeSection\?\.\(s, sub \?\? null\)/, 'opening a section lands on its default (null) sub-view')
+  // The claim is the SUB-VIEW argument, not the arity: the door gained a third
+  // `push` argument in 2026-08 (a bell's doors carry their origin, ADAPT-18),
+  // and pinning the call's exact text failed on a change that left this rule
+  // untouched. Match the argument this test is actually about.
+  assert.match(
+    controller,
+    /routeSection\?\.\(s, sub \?\? null[,)]/,
+    'opening a section lands on its default (null) sub-view',
+  )
 })

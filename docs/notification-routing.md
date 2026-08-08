@@ -221,3 +221,34 @@ findings were fixed and locked:
 
 Verification: `typecheck` + `node --test tests/*.test.ts` (890) + `build` + `npx
 playwright test e2e/notifications.spec.ts` (5) all green. **Initiative complete.**
+
+## R10 — a bell leaves a way home (2026-08-08)
+
+Owner report: *"the back button should honestly link to previous page in
+history. In the case the page is opened from notifications, the back button
+should link to it as well."*
+
+Every door above landed on the right PLACE and left no way back. The reason was
+a rule that had been right for the wrong neighbours: chrome doors reset the back
+stack (ADAPT-18 — deliberate top-level navigation starts fresh, GitHub's top-nav
+rule), and the notification panel had been filed with the rail and the palette
+because it is chrome that floats above a page.
+
+But intent, not chrome, is what the rule is about. **The rail and the palette
+are destinations you asked for; a bell is an interruption you answered.** You
+were working somewhere, something happened elsewhere, you went to look — and
+landing with no way back makes reading a notification cost you your place, which
+is the exact harm the back-history rule exists to prevent. So the panel's doors
+now PUSH, like a door inside a page: back names the page you were on, and
+returns you to it.
+
+Mechanically, the two flavours are minted from **one factory** (`makeDoors` in
+`useSessionWorkspace.ts`, parameterized by `push`) and the panel takes the
+pushing set as a **single bundle** (`pushingDoors` → `NotificationDoors`) rather
+than seven handlers. Two bodies would let a door be born with only one of the
+behaviours; seven props would let one of them be wired with the wrong flavour.
+Locked by `tests/notification-doors.test.ts` (the factory, both bindings, the
+bundle wiring) and walk 4 of `e2e/social-layer.spec.ts`, which rings Ada on the
+Commons, follows the bell to the thread's page, and asserts Back both NAMES and
+REACHES the Commons — verified to fail without the push, reporting the reported
+symptom verbatim ("Back to Discussions").

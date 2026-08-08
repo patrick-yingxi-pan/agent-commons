@@ -173,9 +173,8 @@ function Workspace() {
     openAgentPage,
     openDiscussionPage,
     openDetail,
-    openWorkItem,
     openProposal,
-    openAgent,
+    pushingDoors,
     pinSession,
     renameSession,
     archiveSession,
@@ -335,9 +334,9 @@ function Workspace() {
         focusHere(target)
       },
       onNewSession: newSession,
-      // A proposal row inside a page: pane-originated, so the origin rides
-      // the target's back stack (the chrome doors omit the push).
-      onOpenProposal: (agentId, proposalId, ownerName) => openProposal(agentId, proposalId, ownerName, true),
+      // A proposal row inside a page: pane-originated, so the origin rides the
+      // target's back stack — the same pushing door the bell now uses.
+      onOpenProposal: openProposal,
       onOpenProject: openProject,
       onOpenSchedule: openSchedule,
       // A pane composer's chip click toggles ITS session's STORE focus — the
@@ -609,13 +608,12 @@ function Workspace() {
 
       {notifOpen && (
         <NotificationsPanel
-          onOpenProject={openProject}
-          onOpenSection={openSection}
-          onOpenWorkItem={openWorkItem}
-          onOpenProposal={openProposal}
-          onOpenAgent={openAgent}
-          onOpenDiscussion={openDiscussionPage}
-          onOpenOwner={openOwner}
+          /* A bell's doors PUSH (owner directive 2026-08-08): answering a
+             notification must not cost the reader their place, so the page
+             they were on rides the target's back stack. The whole bundle
+             comes from the controller so the rule can't be half-applied —
+             see `makeDoors` for why it isn't seven `true`s here. */
+          doors={pushingDoors}
           onClose={() => setNotifOpen(false)}
         />
       )}
