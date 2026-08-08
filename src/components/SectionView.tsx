@@ -82,7 +82,7 @@ import { CARD_DOOR_CLASS, ROW_DOOR_CLASS, cardDoorClick } from '../lib/cardDoor'
 import { LEDGER_BOX_CLASS, LEDGER_HEAD_CLASS, LEDGER_COUNT_CLASS, LEDGER_ROW_CLASS, QUIET_CARD_CLASS } from '../lib/ledger'
 import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
 import { SOFT_BUTTON_CLASS, DANGER_BUTTON_CLASS, SECONDARY_BUTTON_CLASS } from '../lib/button'
-import { FIELD_BARE_CLASS, FIELD_SHELL_CLASS, FORM_INPUT_CLASS } from '../lib/formInput'
+import { composerRows, FIELD_BARE_CLASS, FIELD_SHELL_CLASS, FORM_INPUT_CLASS } from '../lib/formInput'
 import { AnchorThreadComposer } from './AnchorThreadComposer'
 import { LocusGutter } from './LocusGutter'
 import { GrantsPanel } from './GrantsPanel'
@@ -2978,7 +2978,6 @@ const RootThreadComposer = ({
   placeholder,
   ariaLabel,
   autoFocus,
-  inputRef,
   onPosted,
   onCancel,
 }: {
@@ -2989,11 +2988,10 @@ const RootThreadComposer = ({
    *  rather than letting every one of them announce "post to this principal's
    *  discussion" in the same words. */
   ariaLabel?: string
-  /** Set by a DISCLOSED composer (the entity panel's, opened from the section
-   *  header's verb): the caret lands where the verb promised. A standing
-   *  composer (the feed card's) keeps the same promise through `inputRef`. */
+  /** Set by a DISCLOSED composer — the entity panel's, opened from the section
+   *  header's verb, and the feed card's, opened by Reply: the caret lands where
+   *  the verb promised. */
   autoFocus?: boolean
-  inputRef?: RefObject<HTMLTextAreaElement | null>
   onPosted?: () => void
   onCancel?: () => void
 }) => {
@@ -3008,7 +3006,6 @@ const RootThreadComposer = ({
       placeholder={placeholder}
       ariaLabel={ariaLabel}
       autoFocus={autoFocus}
-      inputRef={inputRef}
       onPosted={onPosted}
       onCancel={onCancel}
     />
@@ -3044,9 +3041,6 @@ function FeedCard({ item }: { item: CommonsItem }) {
   // WHOLE thread, which is what makes it a real answer rather than a teaser:
   // there is no "view all N comments" left to send anyone elsewhere.
   const [open, setOpen] = useState(false)
-  // The caret's target. The composer STANDS (it is the feed idiom, 2026-07-24),
-  // so it can't take `autoFocus` — it never remounts to fire one.
-  const box = useRef<HTMLTextAreaElement>(null)
   // Same live source the composer gates itself on, so the toggle can't offer a
   // conversation that is empty AND unanswerable — a control that does nothing.
   const canComment = useSocialCapability(kind, id).data?.canComment === true
@@ -3141,11 +3135,7 @@ function FeedCard({ item }: { item: CommonsItem }) {
             someone wants to say the first thing. */}
         {(shown.length > 0 || canComment) && (
           <button
-            onClick={() => {
-              const next = !open
-              setOpen(next)
-              if (next) box.current?.focus()
-            }}
+            onClick={() => setOpen(!open)}
             aria-expanded={open}
             className={cardActClass(open)}
             title={open ? 'Hide the conversation' : 'Open the conversation'}
@@ -3157,23 +3147,31 @@ function FeedCard({ item }: { item: CommonsItem }) {
         )}
         <WatchToggle quiet subject={item.subject} watching={item.watched === true} />
       </div>
-      {open && shown.length > 0 && (
+      {/* The conversation — replies AND the box for adding one — is ONE
+          disclosure (owner directive 2026-08-08). The composer used to stand
+          open under every card, which left a feed of boxes inviting replies to
+          conversations it wasn't showing. Folding them together is also the
+          honest reading of UI-18: a standing composer is for a surface whose
+          whole subject IS the thread, and a card's subject is the post — the
+          talk underneath is secondary, which is precisely why it folds. */}
+      {open && (
         <div className="mt-2 border-t border-line pt-3">
-          <DiscussionPostList posts={shown} onReact={react} onOpenPerson={(n) => rel.navigate('agents', n)} />
+          {shown.length > 0 && (
+            <DiscussionPostList posts={shown} onReact={react} onOpenPerson={(n) => rel.navigate('agents', n)} />
+          )}
+          <div className={shown.length > 0 ? 'mt-3' : undefined}>
+            <RootThreadComposer
+              subject={item.subject}
+              root={root}
+              placeholder="Comment…"
+              ariaLabel={`Comment on ${item.actor}’s ${item.kind}`}
+              // Mounting WITH the disclosure means the caret can land the plain
+              // way again — the ref the standing version needed is gone.
+              autoFocus
+            />
+          </div>
         </div>
       )}
-      <div className="mt-3">
-        <RootThreadComposer
-          subject={item.subject}
-          root={root}
-          placeholder="Comment…"
-          ariaLabel={`Comment on ${item.actor}’s ${item.kind}`}
-          inputRef={box}
-          // What you just said must be visible — posting into a folded thread
-          // would look like the comment vanished.
-          onPosted={() => setOpen(true)}
-        />
-      </div>
     </article>
   )
 }
@@ -3345,11 +3343,9 @@ function PostComposer() {
           aria-label="Say something"
           value={body}
           onChange={(e) => setBody(e.target.value)}
-          // Grows by LINE BREAKS — not by wrapping, which needs measurement —
-          // instead of offering a drag grip, whose handle would land beside the
-          // submit, in the one corner this change exists to clean up. Wrapped
-          // prose past two lines still scrolls, exactly as it did before.
-          rows={Math.min(8, Math.max(2, body.split('\n').length))}
+          // Opens on ONE line, like every other composer, so Post sits on that
+          // line instead of below it — the shared rule, not a local one.
+          rows={composerRows(body, 8)}
           placeholder="Say something — mention a workspace with @ to reach them"
           className={`${FIELD_BARE_CLASS} resize-none`}
         />

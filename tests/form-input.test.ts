@@ -13,7 +13,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { filesUnder, read, stripComments } from './helpers/source.ts'
-import { FIELD_BARE_CLASS, FIELD_SHELL_CLASS, FORM_INPUT_CLASS } from '../src/lib/formInput.ts'
+import { composerRows, FIELD_BARE_CLASS, FIELD_SHELL_CLASS, FORM_INPUT_CLASS } from '../src/lib/formInput.ts'
 import { FOCUS_FLASH_CLASS } from '../src/lib/focusContext.ts'
 
 test('the shared input cue carries the whole field look, tokens only', () => {
@@ -71,6 +71,39 @@ test('the composer shell is the same field with its frame moved outward', () => 
     px(FIELD_SHELL_CLASS, 'p') + px(FIELD_BARE_CLASS, 'px'),
     px(FORM_INPUT_CLASS, 'px'),
     'a composer’s text must start where every other field’s text starts',
+  )
+})
+
+/** A composer's HEIGHT is part of the shape the shell promises. The square's
+ *  box opened at two rows while every other opened at one, so `items-end` put
+ *  its Post on a second line and the same component read as two different
+ *  controls (owner report, 2026-08-08: "the first post button can sit at the
+ *  same line as the box, much like the second"). One rule, one funnel. */
+test('every composer opens on ONE line, then grows by line breaks', () => {
+  // The claim the layout rests on: empty ⇒ one row ⇒ the submit sits ON the
+  // field's line, not under it.
+  assert.equal(composerRows('', 8), 1, 'an empty composer is a single line')
+  assert.equal(composerRows('a sentence with no breaks at all', 8), 1, 'and wrapping does not grow it')
+  assert.equal(composerRows('one\ntwo', 8), 2, 'a line break does')
+  assert.equal(composerRows('one\ntwo\nthree', 2), 2, 'growth stops at max — past it the box scrolls')
+  assert.equal(composerRows('\n'.repeat(50), 6), 6, 'a paste of many lines cannot swallow the page')
+})
+
+test('no composer hand-rolls its own row count', () => {
+  const offenders: string[] = []
+  for (const file of filesUnder('src')) {
+    if (file.replace(/\\/g, '/').endsWith('lib/formInput.ts')) continue
+    const rel = file.replace(/\\/g, '/').split('/src/')[1]
+    for (const m of stripComments(read(file)).matchAll(/rows=\{([^}]*)\}/g)) {
+      // A literal (`rows={2}`) is a fixed-height field, not a growing composer.
+      if (!/\\n|split|includes/.test(m[1])) continue
+      if (!m[1].includes('composerRows(')) offenders.push(`${rel}: rows={${m[1].trim()}}`)
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    'a composer computed its own height — use composerRows() from src/lib/formInput.ts, or the boxes drift apart again',
   )
 })
 

@@ -293,16 +293,38 @@ test('the feed card discloses its thread in place — Reply toggles, nothing nav
   // A disclosure, announced as one: a toggle with no aria-expanded is a button
   // whose state only sighted users can see.
   assert.ok(/aria-expanded=\{open\}/.test(card), 'Reply announces itself as a disclosure')
-  assert.ok(/setOpen\(next\)/.test(card), 'and actually toggles rather than only opening')
+  assert.ok(/setOpen\(!open\)/.test(card), 'and actually toggles rather than only opening')
 
   // The whole thread, not a teaser — `shown`, never a slice of it.
   assert.ok(/posts=\{shown\}/.test(card), 'an opened card renders the entire thread')
   assert.ok(!/shown\.slice/.test(card), 'a tail would leave the rest of the thread reachable from nowhere')
 
-  // Opening lands the caret in the standing composer (which cannot use
-  // autoFocus — it never remounts), so Reply answers at zero replies too.
-  assert.ok(/box\.current\?\.focus\(\)/.test(card), 'opening drops the caret in the composer')
-  assert.ok(/inputRef=\{box\}/.test(card), 'and the composer hands the card that handle')
+  // The composer is INSIDE the disclosure (owner directive 2026-08-08): the
+  // replies and the box for adding one are one thing, so a resting feed can't
+  // offer a reply box for a conversation it isn't showing. Checked as
+  // containment — a composer merely rendered after the block is the old
+  // arrangement — and mounting with the disclosure is what lets the caret land
+  // by plain autoFocus, so the two claims are asserted together.
+  // The block is taken by BALANCED parens, not by "…up to </article>": tying
+  // containment to the disclosure being the card's last child would fail the
+  // day anything legitimate is appended after it, which is a lock that cries
+  // about the wrong thing.
+  const disclosed = (() => {
+    const at = card.indexOf('{open && (')
+    if (at < 0) return ''
+    let i = card.indexOf('(', at)
+    let depth = 0
+    for (; i < card.length; i++) {
+      if (card[i] === '(') depth++
+      else if (card[i] === ')' && --depth === 0) return card.slice(at, i + 1)
+    }
+    return ''
+  })()
+  assert.ok(disclosed, 'the card opens a disclosure block gated on `open`')
+  assert.ok(disclosed.includes('<DiscussionPostList'), 'the replies are inside it')
+  assert.ok(disclosed.includes('<RootThreadComposer'), 'and so is the box for adding one')
+  assert.ok(/autoFocus/.test(disclosed), 'which autoFocuses, since it now mounts with the disclosure')
+  assert.ok(!card.includes('inputRef'), 'the ref the standing version needed is gone with it')
 })
 
 /** S8 — the mention highlight must cover exactly what the server matched. The

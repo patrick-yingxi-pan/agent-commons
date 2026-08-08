@@ -86,17 +86,19 @@ test('no section leaves a compose form standing open — it hangs off the header
   )
 })
 
-test('the standing composers are the surfaces that ARE the conversation', () => {
+test('the ONE standing composer is the surface that IS the conversation', () => {
   // Not everything hides. A composer is chrome on a HOST surface (an entity's
   // Discussion section) and payload on a surface whose whole subject is the
-  // thread: the discussion's own page, and the Commons feed card, where the
-  // owner ruled the inline box is the feed idiom (2026-07-24). Both stay
-  // standing on purpose; this asserts the exception is deliberate, not decay.
+  // thread — which, since 2026-08-08, is the discussion's own PAGE and nothing
+  // else. The Commons feed card held the same exception (owner ruling
+  // 2026-07-24: the inline box is the feed idiom) and lost it the day Reply
+  // became a disclosure: a card's subject is the POST, and the talk underneath
+  // is secondary — exactly what folding it says. A standing box inviting
+  // replies to a conversation the card wasn't showing was the tell.
   const page = componentBody('DiscussionPage')
   assert.ok(page.includes('<AnchorThreadComposer'), 'the discussion page composes through the funnel')
   assert.ok(!page.includes('<textarea'), 'and no longer hand-rolls a second one')
   assert.ok(!/const \[draft/.test(page), 'nor keeps a second draft state beside the funnel’s')
-  assert.ok(componentBody('FeedCard').includes('<RootThreadComposer'), 'the feed card keeps its standing composer')
 })
 
 test('the shared composer can be a disclosed one — it closes and cancels', () => {
@@ -107,10 +109,12 @@ test('the shared composer can be a disclosed one — it closes and cancels', () 
   assert.match(src, /onPosted\?\.\(landed\)/, 'a disclosed composer is told when — and where — the post landed, so it can close and open it')
   assert.ok(src.includes('onCancel &&'), 'a composer opened by an affordance can be closed without posting')
   assert.ok(src.includes('autoFocus'), 'the caret lands where the verb promised')
-  // …and a STANDING one keeps the same promise by another route: it never
-  // remounts, so autoFocus can never fire for it, yet the feed card's Reply
-  // still has to put the caret here.
-  assert.ok(src.includes('inputRef'), 'a standing composer can still be focused by the verb that discloses its thread')
+  // ONE focus mechanism, because there is now one kind of disclosed composer.
+  // The feed card's briefly needed a ref — it stood open, so it never remounted
+  // and autoFocus could never fire for it; folding it into the disclosure took
+  // that requirement away, and the prop went with it rather than lingering as a
+  // second way to do the same thing.
+  assert.ok(!src.includes('inputRef'), 'no second focus route survives the composer that needed it')
 })
 
 /** The submit is a VERB and the cancel is a dismissal, so they must not read as

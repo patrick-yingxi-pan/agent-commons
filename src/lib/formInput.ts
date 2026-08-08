@@ -41,3 +41,18 @@ export const FIELD_SHELL_CLASS = `${FIELD_CHROME} flex items-end gap-1.5 p-1.5 f
  *  inset — the shell's padding supplies the rest, so text still starts 12px in,
  *  exactly where `FORM_INPUT_CLASS`'s `px-3` puts it. */
 export const FIELD_BARE_CLASS = `min-w-0 flex-1 bg-transparent px-1.5 py-1.5 ${FIELD_TEXT}`
+
+/** How tall a composer's box is right now, in rows.
+ *
+ *  ONE rule, because there is now one shape: every composer opens at a SINGLE
+ *  line, so its submit sits ON that line rather than below it (owner directive,
+ *  2026-08-08 — the square's box opened at two rows, which pushed its Post onto
+ *  a second line and made the same component read as two different controls).
+ *  It then grows a row per line break, to `max`.
+ *
+ *  Line BREAKS, not wrapping: wrapping needs measurement, and a textarea that
+ *  reports its own scroll height forces a layout on every keystroke. Wrapped
+ *  prose past `max` scrolls, which is what a resize grip used to be for — and
+ *  the grip had to go, since its handle landed on top of the submit. */
+export const composerRows = (text: string, max: number): number =>
+  Math.min(max, Math.max(1, text.split('\n').length))

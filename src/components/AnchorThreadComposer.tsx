@@ -11,12 +11,12 @@
  *  (subject, locus) — `openDiscussion` in server/store.ts). So callers that
  *  don't already hold the thread may pass `thread: null` and still land in the
  *  right conversation — two clients racing the first post can't fork it. */
-import { useState, type RefObject } from 'react'
+import { useState } from 'react'
 import type { AnchorLocus, Discussion, SocialEntityRef } from '../../contract/index.ts'
 import { openDiscussion, postToDiscussion } from '../api'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { SOFT_BUTTON_CLASS } from '../lib/button'
-import { FIELD_BARE_CLASS, FIELD_SHELL_CLASS } from '../lib/formInput'
+import { composerRows, FIELD_BARE_CLASS, FIELD_SHELL_CLASS } from '../lib/formInput'
 
 export function AnchorThreadComposer({
   subject,
@@ -25,7 +25,6 @@ export function AnchorThreadComposer({
   placeholder,
   ariaLabel,
   autoFocus,
-  inputRef,
   onPosted,
   onCancel,
 }: {
@@ -43,12 +42,6 @@ export function AnchorThreadComposer({
    *  identically. */
   ariaLabel?: string
   autoFocus?: boolean
-  /** The caret handle for a STANDING composer. `autoFocus` only fires on mount,
-   *  so a composer that is always mounted (the feed card's) cannot use it — yet
-   *  the verb that discloses its thread still has to land the caret here (the
-   *  card's Reply). The ref is the same promise, kept by a component that never
-   *  unmounts. */
-  inputRef?: RefObject<HTMLTextAreaElement | null>
   /** Fired after a successful post — a transient composer (the turn gutter's)
    *  closes itself; a persistent one (the entity panel's) ignores it. Receives
    *  the thread the post landed in, which the caller often cannot know in
@@ -91,12 +84,11 @@ export function AnchorThreadComposer({
           control typed twice. */}
       <div className={FIELD_SHELL_CLASS}>
         <textarea
-          ref={inputRef}
           aria-label={ariaLabel ?? `Post to this ${subject.kind}’s discussion`}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder={placeholder ?? (thread ? 'Reply…' : 'Start the discussion…')}
-          rows={draft.includes('\n') ? 3 : 1}
+          rows={composerRows(draft, 6)}
           autoFocus={autoFocus}
           className={`${FIELD_BARE_CLASS} resize-none`}
         />
