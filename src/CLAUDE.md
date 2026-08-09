@@ -197,7 +197,9 @@ the tree fixes — a rail that reflows or navigates-away on expand is the bug.) 
 toggles children without navigating; the row body opens the page.
 
 **A rail child is a PLACE; a partition is a FILTER** (invariant UI-19, owner
-directive 2026-07-24). Two kinds of child, and a section has exactly one kind:
+directive 2026-07-24). Three kinds of child; a section has exactly one kind of
+LIST child (surfaces or instances, never both), and may carry a standing door
+beside it:
 
 - **Declared surfaces** — `src/lib/subviews.ts` (`SECTION_SUBVIEWS`): a hub whose
   children are genuinely different PAGES (the Agents hub's Prompts / Commissions /
@@ -216,6 +218,20 @@ directive 2026-07-24). Two kinds of child, and a section has exactly one kind:
   The key IS the `PaneSeed` field that opens one, so "the rail lists it" and "a row of
   it is addressable" are one fact — `/artifacts/:id` and `/models/:id` exist because
   of this rule.
+- **Standing doors** — a FIXED child whose place already has its own canonical
+  address, so it links out of the section's URL grammar instead of extending it.
+  There is exactly one (owner directive 2026-08-09): the Commons' **Your
+  profile** (`OwnerProfileChild`), the door to your own public face. It sits with
+  the social section rather than the account chip because *a profile is a social
+  page, not an account setting* — the chip switches who you are; this goes to
+  what you look like to everyone else. It is a door and not a sub-view because
+  the page already answers to `/u/:name`, and `/commons/profile` would be a
+  second address for it. That also fixed where profiles LIVE: `OWNER_SECTION`
+  (`lib/paneNav.ts`) is now `commons`, and every byline, follower row, mention
+  and roster entry opens it through the one funnel `useRelations().openOwner`
+  — 22 call sites and four local aliases before. The door reads the
+  **namespace's** name (`tenant.name`), never the person's: only a namespace has
+  a profile. Locked by `tests/owner-door.test.ts` + `e2e/own-profile.spec.ts`.
 
 A partition of a list by a property of its items — kind, state, ownership — is
 **not** a child: it is a filter, and its ONE home is the section row's "Filter &

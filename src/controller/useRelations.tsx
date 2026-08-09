@@ -11,6 +11,7 @@ import type {
   StepTool,
 } from '../types'
 import { emptyGraph, opAppliedInGraph } from '../../contract/index.ts'
+import { OWNER_SECTION } from '../lib/paneNav'
 import {
   applyRelationOp,
   useArtifacts,
@@ -76,12 +77,30 @@ export interface RelationsValue {
   /** The project's public README (D26) — served to every viewer of a shared project. */
   readmeForProject: (pid: string) => string | undefined
   // ── Nav bridge (the card's "View in …" deep-link). The id's meaning follows the
-  //    section (a project / a schedule / an owner display name under agents); the
-  //    optional subId narrows to a sub-entity page (today: a project's work item).
+  //    section (a project / a schedule / an owner display name under the Commons);
+  //    the optional subId narrows to a sub-entity page (today: a project's work item).
   navigate: (section: SectionId, id?: string, subId?: string) => void
+  /** ── The OWNER door — a display name → that namespace's public profile (D21).
+   *  Every byline, follower row, @-mention, credit line and roster entry in the
+   *  app opens the same page, so they share ONE method instead of each spelling
+   *  out `navigate('<section>', name)`: which section HOSTS a profile is one
+   *  fact (OWNER_SECTION), and it moved once already. Composed in
+   *  `useRelations()` from the same `navigate` a pane may have overridden, so an
+   *  owner door stays pane-local exactly like every other door (ADAPT-17) —
+   *  building it in the provider would have captured the ROOT bridge and quietly
+   *  driven the primary pane from inside a split. Locked by
+   *  `tests/owner-door.test.ts`. */
+  openOwner: (name: string) => void
 }
 
-const RelationsContext = createContext<RelationsValue | null>(null)
+/** The PROVIDED half — everything but `openOwner`, which `useRelations()`
+ *  composes below from the pane-scoped navigate. Typed as an omission rather
+ *  than provided-and-overwritten, so the root-bridge version of the owner door
+ *  cannot exist at all: a placeholder here would be dead code that silently
+ *  drives the PRIMARY pane the day something reads the context directly. */
+type ProvidedRelations = Omit<RelationsValue, 'openOwner'>
+
+const RelationsContext = createContext<ProvidedRelations | null>(null)
 
 /** Pane-scoped override of the nav bridge (universal split, ADAPT-17's
  *  pane-locality rule): a split pane hosting a section page provides its own
@@ -120,7 +139,7 @@ export function RelationsProvider({
     [],
   )
 
-  const value = useMemo<RelationsValue>(() => {
+  const value = useMemo<ProvidedRelations>(() => {
     const projectIdForSession = (sid: string) =>
       sid in graph.sessionProject ? graph.sessionProject[sid] : null
     const artifactProjectId = (a: ArtifactItem) => graph.artifactProject[a.id] ?? a.projectId
@@ -174,5 +193,10 @@ export function useRelations(): RelationsValue {
   // one funnel that makes EVERY entity door pane-local when pane-hosted, with
   // zero per-callsite wiring.
   const override = useContext(SectionNavOverride)
-  return useMemo(() => (override ? { ...ctx, navigate: override } : ctx), [ctx, override])
+  return useMemo(() => {
+    // One composed navigate, and `openOwner` built FROM it — so the owner door
+    // is pane-local wherever the bylines are, without a per-callsite prop.
+    const nav = override ?? ctx.navigate
+    return { ...ctx, navigate: nav, openOwner: (name: string) => nav(OWNER_SECTION, name) }
+  }, [ctx, override])
 }

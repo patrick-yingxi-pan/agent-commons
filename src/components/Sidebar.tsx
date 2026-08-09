@@ -38,8 +38,8 @@ import { RowMenu, projectMenuItems, type RowMenuItem } from './RowMenu'
 import { SECTION_META, SECTION_ORDER, SECTION_SUBVIEWS } from '../lib/sections'
 import { SECTION_INSTANCE_KEY } from '../lib/subviews'
 import { SECTION_FILTERS } from '../lib/sectionFilter'
-import { SectionFilterMenu, SectionInstanceChildren, SubNavRow } from './SectionTreeChildren'
-import type { PaneSeed } from '../lib/paneNav'
+import { OwnerProfileChild, SectionFilterMenu, SectionInstanceChildren, SubNavRow } from './SectionTreeChildren'
+import { OWNER_SECTION, type PaneSeed } from '../lib/paneNav'
 import { SIDEBAR_HOVER, SIDEBAR_ICON_BUTTON } from '../lib/sidebar'
 import { SOLID_BUTTON_CLASS } from '../lib/button'
 import { removeSchedule, runScheduleNow, toggleScheduleEnabled, useMe, useNotifications, useSchedules } from '../api'
@@ -74,9 +74,13 @@ import {
 } from '../lib/routineFilter'
 
 
-/** Does this section's row expand? Both kinds of child count (UI-19) — a
- *  declared surface list, or its own rows. Module-level so the state
- *  initializer can call it before the component body runs. */
+/** Does this section's row expand? Both LIST kinds count (UI-19) — a declared
+ *  surface list, or its own rows. The third kind, a standing door, deliberately
+ *  does NOT: it is one fixed row, so a section whose only child was a door would
+ *  be a chevron hiding a single link. It rides a section that already expands
+ *  (`tests/owner-door.test.ts` asserts that pairing, since losing it would make
+ *  the door vanish with nothing failing). Module-level so the state initializer
+ *  can call it before the component body runs. */
 function hasChildren(id: SectionId): boolean {
   return !!SECTION_SUBVIEWS[id] || !!SECTION_INSTANCE_KEY[id]
 }
@@ -530,10 +534,18 @@ export function Sidebar({
           const surfaces = SECTION_SUBVIEWS[id]
           const instanceKey = SECTION_INSTANCE_KEY[id]
           const isExpanded = expanded.has(id)
-          // Which of this section's rows the focused pane is showing — the id
-          // the instance child highlights on. Read from the pane's LIVE detail,
-          // so opening a project from anywhere lights its rail row.
-          const activeDetailId = instanceKey ? (activeSeed?.[instanceKey] ?? null) : null
+          // Which DETAIL page of this section the focused pane is showing (null
+          // = the section's own default view) — the id a child highlights on.
+          // Read from the pane's LIVE detail, so opening a project from anywhere
+          // lights its rail row. Usually the instance key's id; the Commons
+          // additionally hosts namespace PROFILES, whose detail key is
+          // `ownerName` (OWNER_SECTION) — without this the section row would
+          // claim to be on its feed while a profile filled the pane.
+          const activeDetailId = instanceKey
+            ? (activeSeed?.[instanceKey] ?? null)
+            : id === OWNER_SECTION
+              ? (activeSeed?.ownerName ?? null)
+              : null
           return (
             <Fragment key={id}>
               <SectionTreeRow
@@ -552,6 +564,16 @@ export function Sidebar({
                 // HAS a partition, whether its children are surfaces or rows.
                 trailing={SECTION_FILTERS[id] ? <SectionFilterMenu section={id} /> : undefined}
               />
+              {isExpanded && id === OWNER_SECTION && onOpenOwner && (
+                // The standing door — YOUR public face, first among the Commons'
+                // children because it is the one that is you (the lenses below
+                // are what you watch, liked, posted). It opens `/u/:name`, the
+                // profile's own address, so it is a door rather than a sub-view.
+                <OwnerProfileChild
+                  activeOwner={activeSection === id ? (activeSeed?.ownerName ?? null) : null}
+                  onOpenOwner={onOpenOwner}
+                />
+              )}
               {isExpanded &&
                 (surfaces
                   ? surfaces.map((sv) => (

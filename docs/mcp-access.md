@@ -82,6 +82,16 @@ The endpoint is served at the conventional server root **`/mcp`** and at
 `/api/v1/mcp` (same handler). Streamable HTTP: single JSON-RPC 2.0 messages
 per POST (`initialize`, `ping`, `tools/*`, `resources/*`, `prompts/*`).
 
+**Keeping this door in sync with the UI** (owner directive, 2026-08-09):
+generation handles the tools — the catalog comes from the route table, so a
+new route is a new tool and a UI change that adds *no* route needs no new tool
+(minting an endpoint per affordance would be drift, not parity). The
+hand-written seam is the door's `initialize` **instructions**, which point
+machine callers at places in the human UI. Every UI string they quote lives in
+`MCP_UI_COPY` (`server/mcp.ts`) and is scanned against the live components by
+`tests/mcp-ui-sync.test.ts` — earned the day an identity-copy pass renamed the
+panel below and left this door naming the old words, with every suite green.
+
 **The one-click path:** the Contexts page's **"This account is an MCP
 server"** panel shows the endpoint, mints an (optionally labeled) access
 token for the signed-in user (`POST /auth/token`, strictly session-verified;

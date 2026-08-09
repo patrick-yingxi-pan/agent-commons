@@ -126,6 +126,20 @@ restart.
   working diff (adversarial for substantial changes) → fix confirmed findings →
   commit → push. No unreviewed commits, no uncommitted finished work.
 - **Git:** commit and push straight to `main` over HTTPS.
+- **Keep the MCP door in sync with the UI** (owner directive, 2026-08-09:
+  *"always update the MCP interface of this website to keep the UI and MCP in
+  sync"*). Access parity (INV-11) is mostly structural — the tool catalog is
+  GENERATED from the route table, so a new route is a new tool with no second
+  list to update, and a UI change that adds no route needs no new tool
+  (inventing one would be the drift). What is NOT structural is everything
+  hand-written on that boundary: the door's `initialize` **instructions**, which
+  point machine callers at places in the human UI. Every UI string they quote
+  lives in `MCP_UI_COPY` (`server/mcp.ts`) and is scanned against the live
+  components by `tests/mcp-ui-sync.test.ts` — earned when an identity-copy pass
+  renamed a panel and left the MCP door directing callers to words no screen
+  said, with every suite green. So: after a UI change, ask what the MCP door
+  says about the thing you changed; if it quotes copy, it goes through the
+  registry.
 - **The contract is load-bearing** — type-identity between UI and server is the
   portability guarantee ([`contract/CLAUDE.md`](contract/CLAUDE.md)).
 - **One door to the backend** — components read hooks, controllers issue

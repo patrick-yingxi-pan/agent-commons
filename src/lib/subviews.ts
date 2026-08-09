@@ -27,6 +27,18 @@ export type SubView = { id: string; label: string }
  *     expands to the top rows of the very list its page renders, ordered by
  *     that section's stored filter, with a tail row for the rest. The rail and
  *     the page compute that list with ONE function (`./sectionLists.ts`).
+ *  3. **Standing doors** — also not here, and there is exactly one:
+ *     the Commons' **Your profile** (`OwnerProfileChild`, 2026-08-09). Both
+ *     kinds above address a place INSIDE the section's URL grammar
+ *     (`/:section/:subview`, `/:section/:id`). A standing door is a fixed child
+ *     whose place already has its own canonical address — here `/u/:name`, the
+ *     namespace profile every byline in the app opens. Registering it as a
+ *     sub-view would mint `/commons/profile` as a SECOND address for a page
+ *     that has one, and one page ⇒ one URL is the rule this rail's navigation
+ *     is built on. So the row renders beside the lenses and routes through the
+ *     one owner door (`useRelations().openOwner`) like every other name in the
+ *     product. It is still a PLACE, so the directive above is satisfied — what
+ *     differs is only whose grammar its address belongs to.
  *
  *  Scheduled is in neither: its instances already have their own rail pane
  *  (routines, with their own "Filter & sort"), and a second copy of them under

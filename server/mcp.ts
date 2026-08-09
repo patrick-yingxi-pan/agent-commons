@@ -204,9 +204,31 @@ function sendRpc(res: ServerResponse, payload: unknown, status = 200): void {
   res.end(text)
 }
 
+/** ── UI copy the MCP door QUOTES (the UI↔MCP sync rule, owner directive
+ *  2026-08-09: "always update the MCP interface of this website to keep the UI
+ *  and MCP in sync") ─────────────────────────────────────────────────────────
+ *  Tool parity is automatic — the catalog is GENERATED from the route table, so
+ *  a route added tomorrow is a tool tomorrow. What is NOT automatic is the door's
+ *  prose, which points a machine caller at a place in the HUMAN UI. That makes
+ *  the instructions a consumer of UI copy with no compiler behind it: rename the
+ *  panel and the MCP door goes on directing callers to a screen that no longer
+ *  says that. It had already happened — the identity-copy pass on 2026-08-09
+ *  retitled the panel and this string kept the old words for a day, with every
+ *  suite green.
+ *
+ *  So each quoted string is named HERE, interpolated into the instructions
+ *  below, and scanned against the live components by `tests/mcp-ui-sync.test.ts`.
+ *  Quoting more UI copy means adding an entry, not another bare literal. */
+export const MCP_UI_COPY = {
+  /** The rail section hosting the token panel — a real `SECTION_LABELS` label. */
+  section: 'Contexts',
+  /** The panel's own heading, verbatim from `McpAccessCard`. */
+  tokenPanel: 'This account is an MCP server',
+} as const
+
 const INSTRUCTIONS = [
   'Every tool is one HTTP operation of this workspace, dispatched through the same route table, auth wall, and tenancy checks as the web UI (access-parity INV-11) — the three access methods (UI, in-app session, MCP) differ in form, never in capability or policy.',
-  `To authenticate, call post_auth_login with {"body": {"email": "...", "password": "...", "transport": "bearer"}} — the result's body.token is a session credential; present it on subsequent requests as an "Authorization: Bearer <token>" HTTP header. The user can also mint a token in the UI (Contexts → "This workspace is an MCP server") and revoke any token there later.`,
+  `To authenticate, call post_auth_login with {"body": {"email": "...", "password": "...", "transport": "bearer"}} — the result's body.token is a session credential; present it on subsequent requests as an "Authorization: Bearer <token>" HTTP header. The user can also mint a token in the UI (${MCP_UI_COPY.section} → "${MCP_UI_COPY.tokenPanel}") and revoke any token there later.`,
   'Unauthenticated calls see exactly what a signed-out browser sees (the front door; 401 elsewhere when the auth gate is on).',
   'Tool results are the JSON {status, body} of the underlying HTTP response; the send-message tool returns the reply stream as a parsed event array.',
   "Connecting with ?toolset=core on the endpoint URL lists only the curated everyday subset (sessions, messages, projects, artifacts, schedules, search, usage) — tools/call still accepts the full catalog either way, so any operation remains callable by name.",
@@ -214,6 +236,12 @@ const INSTRUCTIONS = [
   'For live push, keep the Mcp-Session-Id this initialize returned and open GET /mcp with it (SSE): ambient workspace events arrive as notifications/message frames, and subscribed resources signal notifications/resources/updated.',
   'Resources mirror the parameterless reads (workspace://… uris; parameterized reads are resource templates); prompts mirror the system-prompt library — both tenant-scoped by your credential.',
 ].join(' ')
+
+/** The `initialize` instructions — exported so `tests/mcp-ui-sync.test.ts` can
+ *  read what the door ACTUALLY says, not just what the registry declares. */
+export function mcpInstructions(): string {
+  return INSTRUCTIONS
+}
 
 // ── MCP sessions (the stateful half: subscriptions + the GET stream) ─────────
 // Transient by design, like the turn registry: a restart just means the client

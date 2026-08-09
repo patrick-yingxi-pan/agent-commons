@@ -385,6 +385,33 @@ names the layer Phase 2 deleted, and the word is still live in this app for two
 other things — the adaptive split workspace, and a context workspace (an
 attached folder). Locked in the identity funnel by `tests/public-face.test.ts`.
 
+#### O-D7b — a profile is a SOCIAL page, and yours has a door (2026-08-09)
+
+Two things this rename left standing, both found by the owner asking for one
+rail entry.
+
+**Your own namespace was the one with no door.** D21 made a display name a
+public handle and every byline a link to it, so the product could reach every
+namespace's face — except the caller's own, which had no entry point anywhere.
+That is backwards for a social layer: the page you are accountable for is the
+one you most need to be able to look at, because it is what everyone else sees
+when they click you. The rail's Commons row now carries **Your profile** as its
+first child. It opens `tenant.name`, not `user.name` — a profile is a
+*namespace's* face (the server's own existence rule is `tenantName(tenantId)
+=== name`), and the rename is exactly what makes those two strings look
+interchangeable when they are not.
+
+**And profiles were living in the wrong section.** `/u/:name` had parsed to the
+**Agents** section since profiles were first reached from that hub's Discover
+directory — an accident that the rail made visible: opening anyone's profile lit
+and auto-expanded Agents. A profile is a social page, so the Commons hosts it
+(`OWNER_SECTION`), which is also what let the new child be a plain rail door
+instead of an exception. The 22 spelled-out `navigate('agents', name)` call
+sites — plus four local aliases, the same funnel invented four times — became
+one `useRelations().openOwner`, composed from the pane-scoped navigate so an
+owner byline inside a split pane still lands in its own pane. Spec row
+SOCIAL-16; locks `tests/owner-door.test.ts`, `e2e/own-profile.spec.ts`.
+
 ### Build order (each shippable, tested, spec-ledgered)
 
 - **O1 — server core. ✅ BUILT (2026-07-12).** `Membership.home` marks the

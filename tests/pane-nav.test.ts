@@ -17,7 +17,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { ROOT, read } from './helpers/source.ts'
-import { paneNavTarget, seedFor } from '../src/lib/paneNav.ts'
+import { OWNER_SECTION, paneNavTarget, seedFor } from '../src/lib/paneNav.ts'
 import { panes, splitPane, pane } from '../src/lib/splitFrame.ts'
 import type { MainPaneContent, MainSplitNode } from '../src/lib/mainSplit.ts'
 
@@ -31,7 +31,7 @@ test('seedFor mirrors the root bridge mapping (App.navigateToSection), shape for
   )
   assert.deepEqual(seedFor('scheduled', 't1'), { scheduleId: 't1' })
   assert.deepEqual(seedFor('contexts', 'c1'), { contextId: 'c1' })
-  assert.deepEqual(seedFor('agents', 'nova'), { ownerName: 'nova' }, 'agents+id = an OWNER profile (agent pages route via the prop)')
+  assert.deepEqual(seedFor(OWNER_SECTION, 'nova'), { ownerName: 'nova' }, 'commons+id = an OWNER profile (agent pages route via the prop)')
   assert.deepEqual(seedFor('admin', 'user-grace'), { adminUserId: 'user-grace' }, "admin+id = an account's console detail (FWD-7 v1.1)")
   assert.deepEqual(seedFor('discussions', 'disc-1'), { discussionId: 'disc-1' })
   // UI-19: the rail lists a content section's ROWS, so every listed kind has to
@@ -70,12 +70,16 @@ test('a same-section entity door lands as pane FOCUS (the reported Contexts bug)
 })
 
 test('a cross-section entity door RETARGETS the pane, seeded with the detail', () => {
-  // An owner byline inside a Projects pane: the pane goes to the profile.
-  assert.deepEqual(paneNavTarget('projects', 'agents', 'nova'), {
+  // An owner byline inside a Projects pane: the pane goes to the profile, which
+  // the COMMONS hosts (OWNER_SECTION — a profile is a social page).
+  assert.deepEqual(paneNavTarget('projects', OWNER_SECTION, 'nova'), {
     kind: 'retarget',
-    section: 'agents',
+    section: 'commons',
     seed: { ownerName: 'nova' },
   })
+  // And the section it USED to live under no longer claims a name: an
+  // `agents` door with an id is now the hub, not a silently-dropped profile.
+  assert.equal(seedFor('agents', 'nova'), null)
   // A linked-context chip inside a Projects pane.
   assert.deepEqual(paneNavTarget('projects', 'contexts', 'ctx-1'), {
     kind: 'retarget',

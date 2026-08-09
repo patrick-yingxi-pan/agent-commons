@@ -8,6 +8,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { pathForView, viewForPath } from '../src/lib/urlRoutes.ts'
 import { SECTION_LABELS, type NavLocation } from '../src/lib/nav.ts'
+import { OWNER_SECTION } from '../src/lib/paneNav.ts'
 import { SECTION_INSTANCE_KEY, SECTION_SUBVIEWS } from '../src/lib/subviews.ts'
 import { DRAFT_ID } from '../src/data/liveSession.ts'
 import type { SectionId } from '../src/types.ts'
@@ -138,11 +139,32 @@ test('an admin account detail round-trips through /admin/users/:id; console subv
   assert.equal(viewForPath('/admin/users/'), null)
 })
 
-test('a workspace profile lives under /u/ and survives names needing encoding', () => {
-  const loc = section({ section: 'agents', ownerName: 'Acme, Inc.' })
+test('a namespace profile lives under /u/ and survives names needing encoding', () => {
+  // The COMMONS hosts it (OWNER_SECTION) — a profile is a social page, and the
+  // rail shows the difference: under the old `agents` host, opening anyone's
+  // profile lit and auto-expanded the Agents row.
+  const loc = section({ section: OWNER_SECTION, ownerName: 'Ada Lovelace' })
   const path = pathForView(loc, null)
-  assert.equal(path, `/u/${encodeURIComponent('Acme, Inc.')}`)
+  assert.equal(path, `/u/${encodeURIComponent('Ada Lovelace')}`)
   assert.deepEqual(viewForPath(path), { loc, subview: null })
+})
+
+test('the profile has exactly ONE address — the rail\'s "Your profile" is a door, not a sub-view', () => {
+  // The standing-door rule (src/lib/subviews.ts). Registering the row as a
+  // Commons sub-view would make `/commons/profile` a second address for the
+  // page `/u/:name` already serves, and a reserved sub-view id beats a detail
+  // id — so it would also shadow a real owner named "profile". Both halves
+  // are asserted, in both directions.
+  assert.equal(viewForPath('/commons/profile'), null, 'no second address for the profile page')
+  assert.ok(
+    !(SECTION_SUBVIEWS.commons ?? []).some((v) => v.id === 'profile'),
+    'the profile is not registered as a Commons sub-view',
+  )
+  // And the door's own address parses to the profile, whoever the owner is.
+  assert.deepEqual(viewForPath('/u/Grace%20Hopper'), {
+    loc: section({ section: OWNER_SECTION, ownerName: 'Grace Hopper' }),
+    subview: null,
+  })
 })
 
 test('addresses the app does not serve parse to null (stay on the default, never guess)', () => {

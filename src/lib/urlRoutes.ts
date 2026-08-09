@@ -10,9 +10,14 @@
  *    /                      the fresh draft (root carries no preference — parse
  *                           returns null so a plain boot restores view memory)
  *    /s/:sessionId          a session thread
- *    /u/:ownerName          a workspace's public profile (D21; the display name
+ *    /u/:ownerName          a namespace's public profile (D21; the display name
  *                           IS the public handle — the explicit /u/ prefix keeps
- *                           profile names from colliding with section names)
+ *                           profile names from colliding with section names).
+ *                           Hosted by the Commons (OWNER_SECTION), which is why
+ *                           this is the profile's ONE address: the rail's "Your
+ *                           profile" child is a standing DOOR to it, never a
+ *                           `/commons/profile` sub-view — a page with two
+ *                           addresses is the thing this module exists to prevent
  *    /:section              a section list (Projects, Agents, …)
  *    /:section/:subview     a section focused on a rail-tree child (ADAPT-13);
  *                           subview ids win over detail ids (reserved words,
@@ -33,6 +38,7 @@
 import type { SectionId } from '../types.ts'
 import { DRAFT_ID } from '../data/liveSession.ts'
 import { SECTION_LABELS, type NavLocation } from './nav.ts'
+import { OWNER_SECTION } from './paneNav.ts'
 import { SECTION_SUBVIEWS } from './subviews.ts'
 
 /** A parsed address: the page plus the section sub-view (which nav history
@@ -89,7 +95,7 @@ export function viewForPath(pathname: string): RoutedView | null {
   }
   if (segs[0] === 'u' && segs.length === 2 && segs[1]) {
     return {
-      loc: { kind: 'section', section: 'agents', projectId: null, scheduleId: null, ownerName: segs[1] },
+      loc: { kind: 'section', section: OWNER_SECTION, projectId: null, scheduleId: null, ownerName: segs[1] },
       subview: null,
     }
   }

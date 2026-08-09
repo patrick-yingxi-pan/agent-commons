@@ -1,6 +1,8 @@
-/** ── The rail tree's two kinds of child ─────────────────────────────────────
- *  A rail child is a PLACE (src/lib/subviews.ts): a declared surface, or one
- *  INSTANCE of the section's list. This module renders the instance kind — the
+/** ── The rail tree's kinds of child ─────────────────────────────────────────
+ *  A rail child is a PLACE (src/lib/subviews.ts): a declared surface, one
+ *  INSTANCE of the section's list, or a STANDING DOOR to a place whose
+ *  canonical address is its own (`OwnerProfileChild`, below — the only one).
+ *  This module renders the latter two. The instance kind is the
  *  top rows of the very list the section page shows, in the same order, sliced
  *  by `RAIL_INSTANCE_CAP` with a tail row that UNFOLDS the rest in place — plus
  *  the control that chooses that order: the section row's "Filter & sort" menu.
@@ -14,7 +16,7 @@
  *  Each section's children mount only while its row is EXPANDED, so a rail
  *  that never opens Models never fetches providers. */
 import { useState, type ReactNode } from 'react'
-import { useMyDiscussions, useMyOrgs, useProviders, useSavedContexts } from '../api'
+import { useMe, useMyDiscussions, useMyOrgs, useProviders, useSavedContexts } from '../api'
 import { useRelations } from '../controller/useRelations'
 import { discussionTitle } from '../../contract/social.ts'
 import type { SectionId } from '../types'
@@ -63,6 +65,49 @@ export function SubNavRow({
       />
       <span className="min-w-0 flex-1 truncate text-left">{label}</span>
     </button>
+  )
+}
+
+/** ── The third kind of rail child: a STANDING DOOR (owner directive, 2026-08-09) ──
+ *  "Your profile" under the Commons — your own public face, `/u/:name`.
+ *
+ *  Why it belongs to the Commons and not to the account chip: a profile is a
+ *  SOCIAL page, not an account setting. The chip's menu switches who you are;
+ *  this row goes to what you look like to everyone else. The Commons row reads
+ *  "what your world shares" and the profile's own tagline reads "everything
+ *  ‹name› shares" — the same sentence, narrowed to you, which is exactly the
+ *  relationship the four lenses beside it already have with the feed.
+ *
+ *  Why it is a door and not a sub-view: the page already has a canonical
+ *  address, and `/commons/profile` would be a second one (`lib/subviews.ts`).
+ *  So it routes through `openOwner` — the same funnel every byline, follower row
+ *  and @-mention uses — and lands on the address anyone else would reach.
+ *
+ *  The name it opens is the **namespace's**, not the user's: a profile is a
+ *  namespace's face (the server's own rule is `tenantName(tenantId) === name`),
+ *  and the account chip's Organizations rows already door by `tenant.name`. On
+ *  the seeded accounts the two names are equal — that is what `lib/accountFace`
+ *  is about — but they are not the same fact, and only one of them has a page. */
+export function OwnerProfileChild({
+  activeOwner,
+  onOpenOwner,
+}: {
+  /** The owner profile the focused pane is showing (null = none) — this row is
+   *  lit only when that profile is YOURS. */
+  activeOwner: string | null
+  onOpenOwner: (name: string) => void
+}) {
+  const tenantName = useMe().data?.tenant.name
+  // No identity yet (the boot read is in flight): render nothing rather than a
+  // row that would door to an empty name.
+  if (!tenantName) return null
+  return (
+    <SubNavRow
+      label="Your profile"
+      title={`Your public profile — everything ${tenantName} shares`}
+      active={activeOwner === tenantName}
+      onClick={() => onOpenOwner(tenantName)}
+    />
   )
 }
 

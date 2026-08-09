@@ -29,7 +29,7 @@
  *      writes with no pane of their own. */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DRAFT_ID } from '../data/liveSession'
-import type { PaneSeed } from '../lib/paneNav'
+import { OWNER_SECTION, type PaneSeed } from '../lib/paneNav'
 import type { FocusTarget } from '../lib/notificationDoor'
 import { pathForView, viewForPath, type RoutedView } from '../lib/urlRoutes'
 import { deleteSession as deleteSessionCmd, loadSession, patchSession, onAccountSwitch } from '../api'
@@ -303,7 +303,11 @@ export function useSessionWorkspace(split?: {
     return {
       openProject: (projectId: string) => door('projects', { projectId }),
       openSchedule: (scheduleId: string) => door('scheduled', { scheduleId }),
-      openOwner: (name: string) => door('agents', { ownerName: name }),
+      // A namespace profile lives under the COMMONS (OWNER_SECTION) — the
+      // social section for the social page. A CHROME door: top-level navigation
+      // starts a fresh back stack (ADAPT-18), which is what the rail's "Your
+      // profile" child wants.
+      openOwner: (name: string) => door(OWNER_SECTION, { ownerName: name }),
       openAgentPage: (agentId: string) => door('agents', { agentId }),
       openDiscussionPage: (discussionId: string) => door('discussions', { discussionId }),
       /** The GENERIC door — any section, any detail seed. The rail's instance

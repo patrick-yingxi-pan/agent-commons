@@ -71,6 +71,21 @@ Explainer: [`docs/mcp-access.md`](../docs/mcp-access.md); locks:
 `tests/mcp-parity.test.ts`, `tests/api-tools.test.ts`, `tests/mcp.test.ts`,
 `tests/auth-bearer.test.ts`.
 
+**The hand-written seam** (owner directive, 2026-08-09: *"always update the MCP
+interface of this website to keep the UI and MCP in sync"*). Generation keeps
+the TOOLS in sync for free; the door's `initialize` **instructions** are prose,
+and they point a machine caller at places in the human UI ("mint a token in
+Contexts → …"). That makes MCP a consumer of UI copy with no compiler behind
+it: rename the panel and the door keeps directing callers to a screen that no
+longer says that — which happened on 2026-08-09, with every suite green. So
+every UI string the door quotes is declared in `MCP_UI_COPY` and scanned
+against the live components by `tests/mcp-ui-sync.test.ts`. Quoting more UI copy
+means adding an entry, never another bare literal. Note what the rule does NOT
+ask for: a UI change that adds no route needs no new tool — parity is about
+capability and policy, not about minting an endpoint per affordance (the rail's
+"Your profile" door composes `get_me` → `get_directory_owners_by_name`, and a
+second address for that profile would be the drift, not the fix).
+
 ## Persistence and snapshots
 
 When the real server runs (`dev` / `start` / `server`), the UI-owned state —

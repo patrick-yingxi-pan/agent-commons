@@ -20,8 +20,9 @@
  *
  *  The id→detail mapping MIRRORS the root bridge (`App.navigateToSection`):
  *  projects+subId → a work item; projects → a project; scheduled → a routine;
- *  contexts → a saved context's page; agents → an OWNER profile (an agent
- *  PAGE routes through the `onOpenAgentPage` prop, never this bridge);
+ *  contexts → a saved context's page; commons → an OWNER profile (see
+ *  OWNER_SECTION below; an agent PAGE routes through the `onOpenAgentPage`
+ *  prop, never this bridge);
  *  admin → an account's detail page in the maintainer console (FWD-7 v1.1).
  *  Dependency-free and node-tested (tests/pane-nav.test.ts) so the mapping
  *  can't silently diverge from the root's. */
@@ -81,6 +82,20 @@ export function locOfSeed(seed: Partial<Record<SeedKey, string | null | undefine
   return Object.fromEntries(PANE_SEED_KEYS.map((k) => [k, seed[k] ?? null])) as Record<SeedKey, string | null>
 }
 
+/** ── Which section HOSTS a namespace profile (D21) ───────────────────────────
+ *  A profile is a SOCIAL page — the public face of a namespace — so the Commons
+ *  hosts it: the section whose row reads "what your world shares" holding the
+ *  page whose tagline reads "everything ‹name› shares". It lived under `agents`
+ *  until 2026-08-09 for a historical reason only (profiles were first reached
+ *  from the Agents hub's Discover directory), and that accident was visible in
+ *  the rail: opening anyone's profile lit — and auto-expanded — Agents.
+ *
+ *  It is a CONSTANT rather than 24 spelled-out call sites because "which section
+ *  hosts a profile" is ONE fact. Every owner door goes through
+ *  `useRelations().openOwner`, which reads it; `tests/owner-door.test.ts` fails
+ *  on a hand-rolled `navigate('<section>', name)`. */
+export const OWNER_SECTION: SectionId = 'commons'
+
 export type PaneNavTarget =
   | { kind: 'focus'; focus: PaneSeed }
   | { kind: 'retarget'; section: SectionId; seed: PaneSeed }
@@ -98,7 +113,7 @@ export function seedFor(section: SectionId, id?: string, subId?: string): PaneSe
   if (section === 'projects') return subId ? { projectId: id, workItemId: subId } : { projectId: id }
   if (section === 'scheduled') return { scheduleId: id }
   if (section === 'contexts') return { contextId: id }
-  if (section === 'agents') return { ownerName: id }
+  if (section === OWNER_SECTION) return { ownerName: id }
   if (section === 'admin') return { adminUserId: id }
   if (section === 'discussions') return { discussionId: id }
   if (section === 'artifacts') return { artifactId: id }

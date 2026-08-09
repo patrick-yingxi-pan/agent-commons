@@ -384,8 +384,12 @@ export function SectionView({
    *  reached by a breadcrumb, a deep-link, or a list-card click. */
   focusProjectId?: string | null
   focusScheduleId?: string | null
-  /** A namespace profile open under the Agents section (D21) — the display name.
-   *  Same single-source-of-truth discipline as the two above. */
+  /** A namespace profile open under the COMMONS section (D21, `OWNER_SECTION`)
+   *  — the display name. A profile is a social page, so the social section hosts
+   *  it; it sat under Agents until 2026-08-09 only because profiles were first
+   *  reached from that hub's Discover directory, and the rail showed the seam
+   *  (opening a profile lit Agents). Same single-source-of-truth discipline as
+   *  the two above. */
   focusOwnerName?: string | null
   /** A work item's own page under the open project (the issue-page analog) —
    *  meaningful only with `focusProjectId`; null = the project page itself. */
@@ -433,7 +437,6 @@ export function SectionView({
       // sub-view is a surface id — defaulting to the worker list when the rail sub-view is
       // null. The content sections below instead take the raw sub-view (a group id or null).
       <AgentCommonsSection
-        owner={focusOwnerName}
         agentId={focusAgentId}
         subview={subview ?? 'agents'}
         onOpenProject={onOpenProject}
@@ -451,7 +454,23 @@ export function SectionView({
         onOpenSession={onOpenSession}
       />
     ) : section === 'commons' ? (
-      <CommonsSection lens={subview} />
+      // The Commons hosts two pages: its feed (with the rail's lenses as
+      // sub-views) and a NAMESPACE PROFILE — the public face of one owner,
+      // addressed at `/u/:name` (D21, `OWNER_SECTION`). The profile is the
+      // section's detail page, exactly as a project is Projects' — which is why
+      // the rail's "Your profile" child is a door to that address and not a
+      // `/commons/profile` sub-view: one page, one URL.
+      focusOwnerName ? (
+        <OwnerProfilePage
+          name={focusOwnerName}
+          onOpenProject={onOpenProject}
+          onOpenAgentPage={onOpenAgentPage}
+          onBack={onBack}
+          backTo={backTo}
+        />
+      ) : (
+        <CommonsSection lens={subview} />
+      )
     ) : section === 'discussions' ? (
       <DiscussionsSection discussionId={focusDiscussionId} onOpenSession={onOpenSession} onFocusHere={onFocusHere} onBack={onBack} backTo={backTo} />
     ) : section === 'notifications' ? (
@@ -913,7 +932,7 @@ function ProjectDetail({
                 ownerName={project.ownerName}
                 own={project.own}
                 onOwnerClick={
-                  project.ownerName ? () => rel.navigate('agents', project.ownerName) : undefined
+                  project.ownerName ? () => rel.openOwner(project.ownerName!) : undefined
                 }
               />
             </div>
@@ -2383,7 +2402,6 @@ function WorkItemRow({
   // each is a door to that owner's profile (the shared OwnerLink), like every other
   // byline. Theme #3's work-item-poster RefLink target, finally built.
   const rel = useRelations()
-  const ownerDoor = (name: string) => rel.navigate('agents', name)
 
   // Notification door (docs/notification-routing.md, R4): when a work.* / mentioned
   // bell targets THIS item, scroll to it, flash a highlight, open its thread, and
@@ -2471,7 +2489,7 @@ function WorkItemRow({
               {o.resolvedByOwner ? (
                 <>
                   {' '}· agent of{' '}
-                  <OwnerLink bare ownerName={o.resolvedByOwner} onClick={() => ownerDoor(o.resolvedByOwner!)} />
+                  <OwnerLink bare ownerName={o.resolvedByOwner} onClick={() => rel.openOwner(o.resolvedByOwner!)} />
                 </>
               ) : null}
               {o.resolvedAt ? ` · ${relativeTime(o.resolvedAt)}` : ''}
@@ -2479,12 +2497,12 @@ function WorkItemRow({
           ) : o.status === 'retracted' ? (
             <>
               {' · '}retracted by{' '}
-              <OwnerLink bare ownerName={o.retractedBy ?? o.postedBy} onClick={() => ownerDoor(o.retractedBy ?? o.postedBy)} />
+              <OwnerLink bare ownerName={o.retractedBy ?? o.postedBy} onClick={() => rel.openOwner(o.retractedBy ?? o.postedBy)} />
               {o.retractedAt ? ` · ${relativeTime(o.retractedAt)}` : ''}
             </>
           ) : (
             <>
-              {' · '}posted by <OwnerLink bare ownerName={o.postedBy} onClick={() => ownerDoor(o.postedBy)} /> ·{' '}
+              {' · '}posted by <OwnerLink bare ownerName={o.postedBy} onClick={() => rel.openOwner(o.postedBy)} /> ·{' '}
               {relativeTime(o.postedAt)} — awaiting a taker
             </>
           )}
@@ -2512,7 +2530,7 @@ function WorkItemRow({
               >
                 {/* S13/FWD-5 — the comment author renders by principal KIND: a human is
                     an owner door; an agent wears the Bot badge (one funnel). */}
-                <ActorByline name={c.author} kind={c.authorKind} onOwnerClick={() => ownerDoor(c.author)} />
+                <ActorByline name={c.author} kind={c.authorKind} onOwnerClick={() => rel.openOwner(c.author)} />
                 <span className="text-ink-faint"> · {relativeTime(c.at)}</span>
                 <div className="whitespace-pre-wrap">{renderCommentBody(c.body)}</div>
               </div>
@@ -2567,7 +2585,6 @@ function WorkItemPage({
   const o = items.find((i) => i.id === workItemId) ?? null
   const myName = useMe().data?.tenant.name
   const rel = useRelations()
-  const ownerDoor = (name: string) => rel.navigate('agents', name)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -2679,7 +2696,7 @@ function WorkItemPage({
         <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-faint">
           {badge}
           <span>
-            posted by <OwnerLink bare ownerName={o.postedBy} onClick={() => ownerDoor(o.postedBy)} /> ·{' '}
+            posted by <OwnerLink bare ownerName={o.postedBy} onClick={() => rel.openOwner(o.postedBy)} /> ·{' '}
             {relativeTime(o.postedAt)}
           </span>
           <span>
@@ -2703,7 +2720,7 @@ function WorkItemPage({
             ev.kind === 'posted' ? (
               <div key={ev.key} className="rounded-lg border border-line bg-surface px-3 py-2">
                 <div className="text-[12px] text-ink-faint">
-                  <OwnerLink bare ownerName={o.postedBy} onClick={() => ownerDoor(o.postedBy)} /> posted this
+                  <OwnerLink bare ownerName={o.postedBy} onClick={() => rel.openOwner(o.postedBy)} /> posted this
                   {o.postedByKind === 'agent' ? ' (agent)' : ''} · {relativeTime(o.postedAt)}
                 </div>
                 <div className="mt-1 whitespace-pre-wrap text-[13px] leading-snug text-ink">
@@ -2722,7 +2739,7 @@ function WorkItemPage({
                   <ActorByline
                     name={ev.comment.author}
                     kind={ev.comment.authorKind}
-                    onOwnerClick={() => ownerDoor(ev.comment.author)}
+                    onOwnerClick={() => rel.openOwner(ev.comment.author)}
                   />
                   <span> · {relativeTime(ev.comment.at)}</span>
                 </div>
@@ -2738,7 +2755,7 @@ function WorkItemPage({
                   {o.resolvedByOwner ? (
                     <>
                       {' '}· agent of{' '}
-                      <OwnerLink bare ownerName={o.resolvedByOwner} onClick={() => ownerDoor(o.resolvedByOwner!)} />
+                      <OwnerLink bare ownerName={o.resolvedByOwner} onClick={() => rel.openOwner(o.resolvedByOwner!)} />
                     </>
                   ) : null}
                   {o.resolvedAt ? ` · ${relativeTime(o.resolvedAt)}` : ''}
@@ -2752,7 +2769,7 @@ function WorkItemPage({
                   <OwnerLink
                     bare
                     ownerName={o.retractedBy ?? o.postedBy}
-                    onClick={() => ownerDoor(o.retractedBy ?? o.postedBy)}
+                    onClick={() => rel.openOwner(o.retractedBy ?? o.postedBy)}
                   />
                   {o.retractedAt ? ` · ${relativeTime(o.retractedAt)}` : ''} — closed unresolved
                 </span>
@@ -2975,7 +2992,7 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
             onReact={react}
             onDelete={(pid) => void deleteDiscussionPost(root.id, pid, subject)}
             onReport={(pid) => void reportDiscussionPost(root.id, pid)}
-            onOpenPerson={(n) => rel.navigate('agents', n)}
+            onOpenPerson={(n) => rel.openOwner(n)}
           />
         </div>
       )}
@@ -3104,7 +3121,7 @@ function FeedCard({ item, standalone = false }: { item: CommonsItem; standalone?
             ownerName={item.actor}
             own={item.mine === true}
             markSize={22}
-            onClick={() => rel.navigate('agents', item.actor)}
+            onClick={() => rel.openOwner(item.actor)}
           />
         </span>
         <span className="text-[12px] text-ink-faint">
@@ -3116,7 +3133,7 @@ function FeedCard({ item, standalone = false }: { item: CommonsItem; standalone?
         <p className="mt-2.5 whitespace-pre-wrap text-[14px] leading-relaxed text-ink-soft">
           {/* S8 — a mention is a door to the person named, from the server's own
               resolution (the set it rang), never a second client-side parse. */}
-          <MentionText body={item.note} mentions={root?.posts[0]?.mentions} onOpen={(n: string) => rel.navigate('agents', n)} />
+          <MentionText body={item.note} mentions={root?.posts[0]?.mentions} onOpen={(n: string) => rel.openOwner(n)} />
         </p>
       )}
       {/* The embed — the resource previewing inside the post; its TITLE is the
@@ -3230,7 +3247,7 @@ function FeedCard({ item, standalone = false }: { item: CommonsItem; standalone?
               // is that the survivor must keep what both of them could do.)
               onDelete={standalone && root ? (pid) => void deleteDiscussionPost(root.id, pid, item.subject) : undefined}
               onReport={standalone && root ? (pid) => void reportDiscussionPost(root.id, pid) : undefined}
-              onOpenPerson={(n) => rel.navigate('agents', n)}
+              onOpenPerson={(n) => rel.openOwner(n)}
             />
           )}
           <div className={shown.length > 0 ? 'mt-3' : undefined}>
@@ -3526,7 +3543,7 @@ function CommonsSection({ lens }: { lens: string | null }) {
                   key={p.id}
                   entry={p}
                   onOpen={() => rel.navigate('projects', p.id)}
-                  onOwnerClick={() => rel.navigate('agents', p.owner)}
+                  onOwnerClick={() => rel.openOwner(p.owner)}
                 />
               ))}
             </div>
@@ -3750,7 +3767,7 @@ function DiscussionPage({
           onReact={(pid) => void reactToDiscussionPost(d.id, pid, d.anchor.ref)}
           onDelete={(pid) => void deleteDiscussionPost(d.id, pid, d.anchor.ref)}
           onReport={(pid) => void reportDiscussionPost(d.id, pid)}
-          onOpenPerson={(n) => rel.navigate('agents', n)}
+          onOpenPerson={(n) => rel.openOwner(n)}
         />
         {/* The ONE thread composer, like every other projection of a thread —
             this page used to hand-roll its own textarea + Post + error state
@@ -3963,7 +3980,7 @@ function NotificationsSection({
       onFocusHere({ agentId })
     },
     openDiscussionPage: (discussionId) => rel.navigate('discussions', discussionId),
-    openOwner: (name) => rel.navigate('agents', name),
+    openOwner: (name) => rel.openOwner(name),
   }
 
   const open = (n: AppNotification) => {
@@ -4388,7 +4405,6 @@ function ContributionPage({
   // promises a number the server won't assign.
   const proposalLandings = useSocialProposals('project', project.id).data ?? []
   const rel = useRelations()
-  const ownerDoor = (name: string) => rel.navigate('agents', name)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -4576,7 +4592,7 @@ function ContributionPage({
             </span>
           )}
           <span>
-            by <OwnerLink bare ownerName={c.contributor} onClick={() => ownerDoor(c.contributor)} /> ·{' '}
+            by <OwnerLink bare ownerName={c.contributor} onClick={() => rel.openOwner(c.contributor)} /> ·{' '}
             {relativeTime(c.openedAt)}
           </span>
           {c.subGoal && <span>· {c.subGoal}</span>}
@@ -4617,7 +4633,7 @@ function ContributionPage({
             ev.kind === 'opened' ? (
               <div key={ev.id} className="rounded-lg border border-line bg-surface px-3 py-2">
                 <div className="text-[12px] text-ink-faint">
-                  <OwnerLink bare ownerName={ev.actor} onClick={() => ownerDoor(ev.actor)} /> opened this
+                  <OwnerLink bare ownerName={ev.actor} onClick={() => rel.openOwner(ev.actor)} /> opened this
                   {ev.actorKind === 'agent' ? ' (agent)' : ''} · {relativeTime(ev.at)}
                 </div>
                 <div className="mt-1 whitespace-pre-wrap text-[13px] leading-snug text-ink">
@@ -4627,7 +4643,7 @@ function ContributionPage({
             ) : ev.kind === 'note' ? (
               <div key={ev.id} className="rounded-lg border border-line bg-surface px-3 py-2">
                 <div className="text-[12px] text-ink-faint">
-                  <OwnerLink bare ownerName={ev.actor} onClick={() => ownerDoor(ev.actor)} />
+                  <OwnerLink bare ownerName={ev.actor} onClick={() => rel.openOwner(ev.actor)} />
                   <span> · {relativeTime(ev.at)}</span>
                 </div>
                 <div className="mt-1 whitespace-pre-wrap text-[13px] leading-snug text-ink-soft">{ev.body}</div>
@@ -4637,7 +4653,7 @@ function ContributionPage({
                 <CheckCircle2 size={14} className="shrink-0 text-ok-strong" />
                 <span>
                   landed as <span className="font-semibold text-ink-soft">L{c.landingNumber}</span> by{' '}
-                  <OwnerLink bare ownerName={ev.actor} onClick={() => ownerDoor(ev.actor)} /> · {relativeTime(ev.at)}
+                  <OwnerLink bare ownerName={ev.actor} onClick={() => rel.openOwner(ev.actor)} /> · {relativeTime(ev.at)}
                 </span>
               </div>
             ) : ev.kind === 'delegated-decision' ? (
@@ -4674,7 +4690,7 @@ function ContributionPage({
               <div key={ev.id} className="flex items-center gap-2 py-0.5 text-[12px] text-ink-faint">
                 <AlertCircle size={14} className="shrink-0 text-warn-strong" />
                 <span>
-                  <OwnerLink bare ownerName={ev.actor} onClick={() => ownerDoor(ev.actor)} /> tightened the gate —
+                  <OwnerLink bare ownerName={ev.actor} onClick={() => rel.openOwner(ev.actor)} /> tightened the gate —
                   adversarial review required before landing · {relativeTime(ev.at)}
                 </span>
               </div>
@@ -4682,7 +4698,7 @@ function ContributionPage({
               <div key={ev.id} className="flex items-center gap-2 py-0.5 text-[12px] text-ink-faint">
                 <Pencil size={14} className="shrink-0 text-ink-faint" />
                 <span>
-                  <OwnerLink bare ownerName={ev.actor} onClick={() => ownerDoor(ev.actor)} /> crystallized{' '}
+                  <OwnerLink bare ownerName={ev.actor} onClick={() => rel.openOwner(ev.actor)} /> crystallized{' '}
                   {ev.body} · {relativeTime(ev.at)}
                 </span>
               </div>
@@ -4690,7 +4706,7 @@ function ContributionPage({
               <div key={ev.id} className="flex items-center gap-2 py-0.5 text-[12px] text-ink-faint">
                 <AlertCircle size={14} className="shrink-0 text-warn-strong" />
                 <span>
-                  <OwnerLink bare ownerName={ev.actor} onClick={() => ownerDoor(ev.actor)} /> proposed the effect
+                  <OwnerLink bare ownerName={ev.actor} onClick={() => rel.openOwner(ev.actor)} /> proposed the effect
                   envelope {ev.body} · {relativeTime(ev.at)}
                 </span>
               </div>
@@ -4698,7 +4714,7 @@ function ContributionPage({
               <div key={ev.id} className="flex items-center gap-2 py-0.5 text-[12px] text-ink-faint">
                 <CheckCircle2 size={14} className="shrink-0 text-ok-strong" />
                 <span>
-                  <OwnerLink bare ownerName={ev.actor} onClick={() => ownerDoor(ev.actor)} /> approved the envelope{' '}
+                  <OwnerLink bare ownerName={ev.actor} onClick={() => rel.openOwner(ev.actor)} /> approved the envelope{' '}
                   {ev.body} · {relativeTime(ev.at)}
                 </span>
               </div>
@@ -4706,7 +4722,7 @@ function ContributionPage({
               <div key={ev.id} className="flex items-center gap-2 py-0.5 text-[12px] text-ink-faint">
                 <span className="ml-0.5 h-2 w-2 shrink-0 rounded-full bg-accent" aria-hidden />
                 <span>
-                  <OwnerLink bare ownerName={ev.actor} onClick={() => ownerDoor(ev.actor)} /> ran {ev.body} ·{' '}
+                  <OwnerLink bare ownerName={ev.actor} onClick={() => rel.openOwner(ev.actor)} /> ran {ev.body} ·{' '}
                   {relativeTime(ev.at)}
                 </span>
               </div>
@@ -6475,7 +6491,6 @@ function StatusPill({ tone, label }: { tone: 'ok' | 'warn' | 'bad' | 'neutral'; 
 type CommonsTab = 'agents' | 'work' | 'prompts' | 'commissions' | 'discover' | 'audit'
 
 function AgentCommonsSection({
-  owner,
   agentId,
   subview,
   onOpenProject,
@@ -6484,9 +6499,7 @@ function AgentCommonsSection({
   onBack,
   backTo,
 }: {
-  /** A namespace profile to show instead of the hub (D21) — null = the hub. */
-  owner: string | null
-  /** A published definition's own page (COMMONS-26) — null = the hub / profile. */
+  /** A published definition's own page (COMMONS-26) — null = the hub. */
   agentId: string | null
   /** The active hub sub-view — a CommonsTab id, defaulting to the worker-agents surface
    *  ('agents') when the section is on its default (rail subview null). */
@@ -6506,17 +6519,6 @@ function AgentCommonsSection({
   // pendingFocus. The controller is the single source of the reset.
   if (agentId) {
     return <AgentPublicPage agentId={agentId} onOpenAgent={onOpenAgentPage} onBack={onBack} backTo={backTo} />
-  }
-  if (owner) {
-    return (
-      <OwnerProfilePage
-        name={owner}
-        onOpenProject={onOpenProject}
-        onOpenAgentPage={onOpenAgentPage}
-        onBack={onBack}
-        backTo={backTo}
-      />
-    )
   }
   return (
     <Page>
@@ -6868,7 +6870,7 @@ function YourWorkTab({ onOpenProposal }: { onOpenProposal: (agentId: string, pro
                   </button>
                   <div className="text-[11px] text-ink-faint">
                     on {p.agentLabel} · by{' '}
-                    <OwnerLink bare ownerName={p.agentOwner} onClick={() => rel.navigate('agents', p.agentOwner)} /> ·{' '}
+                    <OwnerLink bare ownerName={p.agentOwner} onClick={() => rel.openOwner(p.agentOwner)} /> ·{' '}
                     {p.status} · {relativeTime(p.at)}
                   </div>
                 </div>
@@ -7313,7 +7315,7 @@ function AgentPublicForks({
                 {f.label}
               </button>
               <span className="min-w-0 flex-1 truncate">
-                <OwnerLink ownerName={f.owner} own={f.own} onClick={() => rel.navigate('agents', f.owner)} />
+                <OwnerLink ownerName={f.owner} own={f.own} onClick={() => rel.openOwner(f.owner)} />
               </span>
               {f.forkedAtVersion !== undefined && (
                 <span className="shrink-0 text-ink-faint">forked at v{f.forkedAtVersion}</span>
@@ -7342,7 +7344,7 @@ function ChangelogList({ changelog }: { changelog: AgentChangelogEntry[] }) {
       {[...changelog].reverse().map((l) => (
         <li key={l.version}>
           <span className="font-medium text-ink">v{l.version}</span> ·{' '}
-          <OwnerLink ownerName={l.author} onClick={() => rel.navigate('agents', l.author)} /> · {l.note} ·{' '}
+          <OwnerLink ownerName={l.author} onClick={() => rel.openOwner(l.author)} /> · {l.note} ·{' '}
           {relativeTime(l.at)}
         </li>
       ))}
@@ -8724,7 +8726,6 @@ function DiscoverTab({ onOpenAgentPage }: { onOpenAgentPage: (agentId: string) =
   const agents = useAgentDirectory(query).data ?? []
   // Every owner byline is a DOOR to the owner's profile page (D21) — the one
   // "everything they share" surface (it subsumed the old filter chip).
-  const openOwner = (name: string) => rel.navigate('agents', name)
   return (
     <div className="space-y-6">
       <div className="relative">
@@ -8751,7 +8752,7 @@ function DiscoverTab({ onOpenAgentPage }: { onOpenAgentPage: (agentId: string) =
                 key={a.id}
                 entry={a}
                 onView={() => onOpenAgentPage(a.id)}
-                onOwnerClick={() => openOwner(a.owner)}
+                onOwnerClick={() => rel.openOwner(a.owner)}
               />
             ))}
           </div>
@@ -9023,14 +9024,14 @@ function OwnerProfilePage({
             rows={profile.follow.followerList}
             total={profile.follow.followers}
             emptyText={profile.own ? 'Nobody follows you yet.' : `Nobody follows ${profile.name} yet.`}
-            onOpenOwner={(n) => rel.navigate('agents', n)}
+            onOpenOwner={(n) => rel.openOwner(n)}
           />
           <FollowRosterBand
             title="Following"
             rows={profile.follow.followingList}
             total={profile.follow.following}
             emptyText={profile.own ? 'You aren’t following anyone yet.' : `${profile.name} isn’t following anyone yet.`}
-            onOpenOwner={(n) => rel.navigate('agents', n)}
+            onOpenOwner={(n) => rel.openOwner(n)}
           />
         </div>
 
@@ -9047,7 +9048,7 @@ function OwnerProfilePage({
                   key={p.id}
                   entry={p}
                   onOpen={() => onOpenProject(p.id)}
-                  onOwnerClick={() => rel.navigate('agents', p.owner)}
+                  onOwnerClick={() => rel.openOwner(p.owner)}
                 />
               ))}
             </div>
@@ -9073,7 +9074,7 @@ function OwnerProfilePage({
                   key={a.id}
                   entry={a}
                   onView={() => onOpenAgentPage(a.id)}
-                  onOwnerClick={() => rel.navigate('agents', a.owner)}
+                  onOwnerClick={() => rel.openOwner(a.owner)}
                 />
               ))}
             </div>
@@ -9114,7 +9115,7 @@ function OwnerProfilePage({
                         </button>
                       ) : a.owner ? (
                         <button
-                          onClick={() => rel.navigate('agents', a.owner!)}
+                          onClick={() => rel.openOwner(a.owner!)}
                           className={INLINE_ACTION_CLASS}
                           title={`Open ${a.owner}’s profile`}
                         >
@@ -9368,7 +9369,7 @@ function AgentPublicPage({
             <h1 className={PAGE_TITLE_CLASS}>{entry.label}</h1>
             <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12px] text-ink-faint">
               <span className="inline-flex items-center gap-1">
-                <OwnerLink ownerName={entry.owner} own={entry.own} onClick={() => rel.navigate('agents', entry.owner)} />
+                <OwnerLink ownerName={entry.owner} own={entry.own} onClick={() => rel.openOwner(entry.owner)} />
                 {' '}· v{entry.version}
               </span>
               <CreditLine
@@ -9580,7 +9581,7 @@ function ProposeChangeDialog({
           own={entry.own}
           onClick={() => {
             onClose()
-            rel.navigate('agents', entry.owner)
+            rel.openOwner(entry.owner)
           }}
         />{' '}
         — the owner reviews and merges or declines.{' '}
