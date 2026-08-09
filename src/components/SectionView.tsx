@@ -98,8 +98,8 @@ import { MentionText } from './MentionText'
 import { Tooltip } from './Tooltip'
 import { describeLocus, locusFocus } from '../lib/anchorLocus'
 import type { FocusTarget } from '../lib/notificationDoor'
-import { profileTitle, PROFILE_TAGLINE } from '../lib/publicFace'
-import { ActorByline, AgentActor, Byline, CreditLine, OwnerLink, WorkspaceMark } from './PublicFace'
+import { profileTagline, profileTitle } from '../lib/publicFace'
+import { ActorByline, AgentActor, Byline, CreditLine, OwnerLink, IdentityMark } from './PublicFace'
 import { TextDiff } from './TextDiff'
 import { CopyButton } from './CopyButton'
 import { CheckboxRow, DefaultBadge, DefaultToggle } from './Checkbox'
@@ -384,7 +384,7 @@ export function SectionView({
    *  reached by a breadcrumb, a deep-link, or a list-card click. */
   focusProjectId?: string | null
   focusScheduleId?: string | null
-  /** A workspace profile open under the Agents section (D21) — the display name.
+  /** A namespace profile open under the Agents section (D21) — the display name.
    *  Same single-source-of-truth discipline as the two above. */
   focusOwnerName?: string | null
   /** A work item's own page under the open project (the issue-page analog) —
@@ -636,7 +636,7 @@ function ProjectsSection({
           {query.trim()
             ? `No projects match “${query.trim()}”.`
             : filter.facet === 'shared'
-              ? 'No projects shared with you yet — other workspaces’ shared projects show here.'
+              ? 'No projects shared with you yet — projects other people share with you show here.'
               : filter.facet === 'org'
                 ? 'No organization projects yet — a project owned by an org you have a seat in shows here.'
                 : 'No projects yet — create one to group related work.'}
@@ -659,7 +659,7 @@ function ProjectsSection({
           {sharedWithYou.length > 0 && (
             <div className={mine.length > 0 || orgRows.length > 0 ? 'mt-6' : ''}>
               <p className="mb-2 text-[12px] text-ink-faint">
-                Projects other workspaces opened to the commons — visit one to commission your agent
+                Projects other people opened to the commons — visit one to commission your agent
                 or take open work.
               </p>
               {ledger(sharedWithYou, 'Shared with you')}
@@ -907,7 +907,7 @@ function ProjectDetail({
           <h1 className={PAGE_TITLE_CLASS}>{project.name}</h1>
           {(project.shared === true || !own) && (
             <div className="mt-1">
-              {/* The owner name is a DOOR to the workspace's profile page (D21) —
+              {/* The owner name is a DOOR to the owner's profile page (D21) —
                   when the projection stamped one (seed rows carry none). */}
               <Byline
                 ownerName={project.ownerName}
@@ -1500,12 +1500,12 @@ function ProjectScheduleAdd({
  *  Agent. A commission is the leaf of the D8 cascade; the server funnel rejects an
  *  over-grant, so the picker only ever creates valid (inheriting) commissions here. */
 /** Cross-tenant share control (P8) — a Project's owner opens it to Contributors from OTHER
- *  workspaces (tenants). Only CREATED Projects are shareable (the `share-project` op no-ops on a
+ *  namespaces (tenants). Only CREATED Projects are shareable (the `share-project` op no-ops on a
  *  seed id), so the toggle is offered only for those (ContributorsPanel gates it). Applies the
  *  owner-only `share-project` relation op BY HAND — the same op the model proposes
  *  conversationally (`share_project` tool), through the one relation-edit gate. A shared Project
  *  accepts a different tenant's own agent as a Contributor (owner-pays), clamped to what the
- *  Project admits; un-sharing revokes that cross-workspace effect access. */
+ *  Project admits; un-sharing revokes that cross-namespace effect access. */
 function ShareToggle({ project }: { project: Project }) {
   const rel = useRelations()
   const shared = project.shared === true
@@ -1516,7 +1516,7 @@ function ShareToggle({ project }: { project: Project }) {
       type="button"
       onClick={toggle}
       aria-pressed={shared}
-      aria-label={shared ? 'Make project private' : 'Share project across workspaces'}
+      aria-label={shared ? 'Make project private' : 'Share project with others'}
       data-testid="share-toggle"
       className="mb-3 flex w-full items-start gap-2.5 rounded-lg border border-line bg-ink/[0.02] px-2.5 py-2 text-left transition hover:border-ink/20"
     >
@@ -1525,12 +1525,12 @@ function ShareToggle({ project }: { project: Project }) {
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-[12px] font-medium text-ink">
-          {shared ? 'Shared across workspaces' : 'Private to this workspace'}
+          {shared ? 'Shared — others can contribute' : 'Private — only you can contribute'}
         </span>
         <span className="block text-[11px] text-ink-faint">
           {shared
-            ? 'Other workspaces can commission their own agents here (owner-pays).'
-            : 'Only this workspace can contribute. Share to accept cross-workspace agents.'}
+            ? 'The people you share with can commission their own agents here (owner-pays).'
+            : 'Share to accept other people’s agents on this project.'}
         </span>
       </span>
       <span
@@ -2144,7 +2144,7 @@ function CoordinationPanel({ project }: { project: Project }) {
 /** Render a comment body with `@mention` tokens styled (D29) — PURELY cosmetic: a
  *  heuristic `@`+word-run cue, never a claim the name resolved (the server never
  *  confirms a resolution back to the reader, so highlighting can't leak existence).
- *  Multi-word workspace names highlight only their first token — a signal, not the
+ *  Multi-word names highlight only their first token — a signal, not the
  *  full identity, which is all the client may know without an enumerable name list. */
 function renderCommentBody(body: string): ReactNode[] {
   return body.split(/(@[\p{L}\p{N}]+)/u).map((part, i) =>
@@ -2376,11 +2376,11 @@ function WorkItemRow({
   // The SERVER's answer, not a display-name comparison: standing is compared by
   // raw tenant id (names are attacker-controlled and renameable), and those ids
   // are stripped from the wire face — so the client cannot derive this. Gating
-  // on the name was wrong both ways: a renamed workspace lost the retract it
+  // on the name was wrong both ways: a renamed owner lost the retract it
   // holds, and a colliding name was shown one that 403s.
   const mayRetract = o.status === 'open' && o.canRetract === true
-  // S13 — the poster / retractedBy / comment author are workspace public identities, so
-  // each is a door to that workspace's profile (the shared OwnerLink), like every other
+  // S13 — the poster / retractedBy / comment author are public identities, so
+  // each is a door to that owner's profile (the shared OwnerLink), like every other
   // byline. Theme #3's work-item-poster RefLink target, finally built.
   const rel = useRelations()
   const ownerDoor = (name: string) => rel.navigate('agents', name)
@@ -2511,7 +2511,7 @@ function WorkItemRow({
                 }`}
               >
                 {/* S13/FWD-5 — the comment author renders by principal KIND: a human is
-                    a workspace door; an agent wears the Bot badge (one funnel). */}
+                    an owner door; an agent wears the Bot badge (one funnel). */}
                 <ActorByline name={c.author} kind={c.authorKind} onOwnerClick={() => ownerDoor(c.author)} />
                 <span className="text-ink-faint"> · {relativeTime(c.at)}</span>
                 <div className="whitespace-pre-wrap">{renderCommentBody(c.body)}</div>
@@ -3095,7 +3095,7 @@ function FeedCard({ item, standalone = false }: { item: CommonsItem; standalone?
     // a browser test that has to say "this card's Reply", not "the first one".
     <article aria-label={`${item.actor}’s ${item.kind}`} className="rounded-xl border border-line bg-surface px-5 py-4">
       {/* The actor line leads with the identity mark (the feed idiom every
-          popular feed shares) and IS a door to the workspace's profile —
+          popular feed shares) and IS a door to the owner's profile —
           the same OwnerLink every other byline wears. */}
       <div className="flex items-center gap-2">
         <span className="text-[13px] font-medium text-ink">
@@ -3294,7 +3294,7 @@ const LENS_LABEL: Record<string, string> = Object.fromEntries(
 /** What each lens says when it holds nothing — the act that would fill it. An
  *  empty collection is exactly where its verb has to be named. */
 const LENS_EMPTY: Record<string, string> = {
-  following: 'You aren’t following anyone yet — follow a workspace from its profile, and what it publishes collects here.',
+  following: 'You aren’t following anyone yet — follow someone from their profile, and what they publish collects here.',
   watched: 'Nothing watched yet — watch a resource from its card or its page, and its acts land here.',
 
   liked: 'Nothing liked yet — like a post from its card to keep it here.',
@@ -3313,7 +3313,7 @@ const LENS_EMPTY: Record<string, string> = {
  *  emptiness has exactly one cause and the constant is honest. */
 function lensEmptyText(lens: string, followed: string[]): string {
   if (lens === 'following' && followed.length > 0) {
-    const who = followed.length === 1 ? followed[0] : `the ${followed.length} workspaces you follow`
+    const who = followed.length === 1 ? followed[0] : `the ${followed.length} people you follow`
     return `Nothing yet from ${who} — what they publish to your commons collects here.`
   }
   return LENS_EMPTY[lens] ?? 'Nothing here yet.'
@@ -3325,7 +3325,7 @@ function lensEmptyText(lens: string, followed: string[]): string {
  *  effect keyed on (kind, id), not on every render.
  *
  *  Deliberately NOT wired to conversations: a session you are inside is your
- *  own workspace, not something you browsed, and the rail's Recents pane is
+ *  own namespace, not something you browsed, and the rail's Recents pane is
  *  already that history. The lens complements it rather than repeating it. */
 function useRecordView(kind: SocialEntityRef['kind'], id: string | undefined): void {
   useEffect(() => {
@@ -3421,7 +3421,7 @@ function PostComposer() {
           // Opens on ONE line, like every other composer, so Post sits on that
           // line instead of below it — the shared rule, not a local one.
           rows={composerRows(body, 8)}
-          placeholder="Say something — mention a workspace with @ to reach them"
+          placeholder="Say something — mention someone with @ to reach them"
           className={`${FIELD_BARE_CLASS} resize-none`}
         />
         <button
@@ -3505,7 +3505,7 @@ function CommonsSection({ lens }: { lens: string | null }) {
             Browse the commons
           </div>
           <p className="mb-4 text-[12px] text-ink-faint">
-            Every project other workspaces opened to contributors — a searchable directory, not a feed.
+            Every project other people opened to contributors — a searchable directory, not a feed.
           </p>
           <div className="relative mb-4">
             <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint" />
@@ -4645,7 +4645,7 @@ function ContributionPage({
                 <CheckCircle2 size={14} className="shrink-0 text-accent" />
                 <span>
                   {/* The dual stamp IS the actor (the conservation law) — plain
-                      text, never a workspace door: it names delegate + human. */}
+                      text, never an owner door: it names delegate + human. */}
                   {ev.actor}: {ev.body} · {relativeTime(ev.at)}
                 </span>
               </div>
@@ -5724,7 +5724,7 @@ const CONTEXT_GROUPS: { kind: SavedContextKind; label: string }[] = [
 ]
 
 
-/** The reusable context the workspace already knows about — connectors and MCP
+/** The reusable context the account already knows about — connectors and MCP
  *  servers (set up / authenticated once) plus the repos you've attached before.
  *  Manage them here once; any session reuses them from Add-context. Statuses and
  *  removals are interactive (local state), like the Scheduled toggles. */
@@ -6023,8 +6023,8 @@ function ContextsSection({
 }
 
 /** The other direction of the Contexts page (access-parity INV-11): the rows
- *  above are what THIS workspace connects to; this card is how other agents
- *  connect to IT — the workspace as an auth-gated MCP server. The mint is a
+ *  above are what THIS account connects to; this card is how other agents
+ *  connect to IT — the account as an auth-gated MCP server. The mint is a
  *  one-time reveal (the server keeps only the signed token's verifiability,
  *  and this panel keeps nothing); the copy IS the save, same as the relay
  *  secret panel's rule. */
@@ -6071,7 +6071,7 @@ function McpAccessCard() {
       {/* The head's divider comes from the ledger's divide-y — no border-b here. */}
       <div className="flex items-center gap-2 px-4 py-3">
         <Server size={15} className="text-ink-soft" />
-        <span className="text-[13px] font-semibold text-ink">This workspace is an MCP server</span>
+        <span className="text-[13px] font-semibold text-ink">This account is an MCP server</span>
       </div>
       <div className="space-y-3 px-4 py-3.5 text-[13px] leading-relaxed text-ink-soft">
         <p>
@@ -6484,7 +6484,7 @@ function AgentCommonsSection({
   onBack,
   backTo,
 }: {
-  /** A workspace profile to show instead of the hub (D21) — null = the hub. */
+  /** A namespace profile to show instead of the hub (D21) — null = the hub. */
   owner: string | null
   /** A published definition's own page (COMMONS-26) — null = the hub / profile. */
   agentId: string | null
@@ -7331,7 +7331,7 @@ function AgentPublicForks({
  *  when, newest first. A version badge is a number where a lineage lives; this is the
  *  lineage. Shared (surface-audit S4) so the owner's card and the visitor's detail
  *  render the same history and can't drift (form follows function). S12: the AUTHOR is
- *  a workspace byline, so it's a door to that workspace's profile like every other
+ *  an owner byline, so it's a door to that owner's profile like every other
  *  byline (postedBy, resolvedBy, the profile's "authored" line) — via the shared
  *  OwnerLink; `author` IS the profile handle, and store.ownerProfile pushes an
  *  "authored" activity for it, so a bare proposer's profile always resolves. */
@@ -8722,8 +8722,8 @@ function DiscoverTab({ onOpenAgentPage }: { onOpenAgentPage: (agentId: string) =
   const [q, setQ] = useState('')
   const query = q.trim() || undefined
   const agents = useAgentDirectory(query).data ?? []
-  // Every owner byline is a DOOR to the workspace's profile page (D21) — the one
-  // "everything this workspace shares" surface (it subsumed the old filter chip).
+  // Every owner byline is a DOOR to the owner's profile page (D21) — the one
+  // "everything they share" surface (it subsumed the old filter chip).
   const openOwner = (name: string) => rel.navigate('agents', name)
   return (
     <div className="space-y-6">
@@ -8764,7 +8764,7 @@ function DiscoverTab({ onOpenAgentPage }: { onOpenAgentPage: (agentId: string) =
 }
 
 /** One shared Project in the commons — the D17 directory face. Rendered identically
- *  on the Discover tab and a workspace profile (form follows function: same role,
+ *  on the Discover tab and a namespace profile (form follows function: same role,
  *  one card). The card is a DOOR: the shared project page (one page, owner and
  *  visitor alike) is where joining happens; the byline is a door to the owner. */
 function SharedProjectCard({
@@ -8815,9 +8815,9 @@ function SharedProjectCard({
   )
 }
 
-/** ── The workspace profile page (docs/agent-commons.md, D21) ─────────────────
+/** ── The namespace profile page (docs/agent-commons.md, D21) ────────────────
  *  A display name's ONE public face — the GitHub-user-page analog: everything the
- *  workspace shares (projects, agents), its public track record, and its recent
+ *  owner shares (projects, agents), their public track record, and their recent
  *  public acts. Served viewer-independent except the own-marker cue (minted by
  *  profileTitle, never inline): the owner sees this page exactly as visitors do,
  *  which is the point. Reached from any owner byline (directory cards, a shared
@@ -8939,7 +8939,7 @@ function OwnerProfilePage({
           <BackButton to={backTo} onBack={onBack} />
         </div>
         {state.error ? (
-          // The 404 face: a workspace that shares nothing is indistinguishable
+          // The 404 face: an owner that shares nothing is indistinguishable
           // from one that doesn't exist (existence-hiding, D21).
           <Empty>“{name}” shares nothing publicly — or doesn’t exist.</Empty>
         ) : null}
@@ -8954,14 +8954,14 @@ function OwnerProfilePage({
         <BackButton to={backTo} onBack={onBack} />
         {/* The identity mark at page scale — the same derived mark every byline
             wears (identity texture; the Globe stays the SHARED-entity cue). */}
-        <WorkspaceMark name={profile.name} size={48} />
+        <IdentityMark name={profile.name} size={48} />
         <div className="min-w-0">
           <h1 className={PAGE_TITLE_CLASS}>
             {profileTitle(profile.name, profile.own)}
           </h1>
-          <p className="mt-0.5 text-[13px] text-ink-soft">{PROFILE_TAGLINE}</p>
+          <p className="mt-0.5 text-[13px] text-ink-soft">{profileTagline(profile.name)}</p>
           <p className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-ink-faint">
-            {/* The aggregate counts sum this workspace's agents — the door lands on
+            {/* The aggregate counts sum this owner's agents — the door lands on
                 the Published-agents band, whose cards carry the per-agent lineage. */}
             <CreditLine
               contributions={s.contributions}
@@ -8976,7 +8976,7 @@ function OwnerProfilePage({
               {s.publishedAgents} published agent{s.publishedAgents === 1 ? '' : 's'}
             </span>
             {s.openWork > 0 && (
-              <span title="Open work items awaiting a taker across this workspace's shared projects">
+              <span title={`Open work items awaiting a taker across ${profile.name}'s shared projects`}>
                 {s.openWork} open work item{s.openWork === 1 ? '' : 's'}
               </span>
             )}
@@ -8994,7 +8994,7 @@ function OwnerProfilePage({
         </div>
         </div>
         {/* The two acts a PERSON affords — the only controls on this page that
-            act on the workspace rather than navigating within it. Absent on your
+            act on the owner rather than navigating within it. Absent on your
             own profile, where the server reports neither (you cannot follow or
             message yourself). */}
         <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -9054,7 +9054,7 @@ function OwnerProfilePage({
           )}
         </div>
 
-        {/* Commons activity (S5 profiles): what this workspace PUBLISHED and
+        {/* Commons activity (S5 profiles): what this owner PUBLISHED and
             LANDED — a viewer-walled projection of the feed (the caller's own
             Commons read filtered to this actor, so the wall math is the feed's;
             display names are the D21 handle, matching the page's identity key). */}

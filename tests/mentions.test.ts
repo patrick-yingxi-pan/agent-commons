@@ -20,7 +20,7 @@ import { store } from '../server/store.ts'
 import { accounts } from '../server/accounts.ts'
 import { call } from './helpers/http.ts'
 
-const OWNER = 'tenant-acme' // seeded registered workspace — display name "Acme, Inc."
+const OWNER = 'tenant-acme' // seeded registered namespace — display name "Ada Lovelace"
 let n = 0
 
 /** A registered namespace with a controlled display name → mentionable. FWD-5
@@ -61,7 +61,7 @@ test('an @mention on a shared project rings the named workspace — pulled in th
   assert.equal(res.status, 200)
   const got = (await inbox(target.id)).find((x) => x.kind === 'mentioned' && x.subGoal === sg)
   assert.ok(got, 'the mentioned workspace hears it')
-  assert.equal(got.actor, 'Acme, Inc.', 'attributed to the commenter’s public display name')
+  assert.equal(got.actor, 'Ada Lovelace', 'attributed to the commenter’s public display name')
   assert.equal(got.projectId, projectId, 'the bell is a door to the item’s project')
   assert.ok(!('tenantId' in got), 'the recipient field never rides the wire')
 })
@@ -79,7 +79,7 @@ test('a self-mention is a no-op — the actor is always dropped', async () => {
   const projectId = await sharedProject()
   const sg = `self-${n}`
   const item = await postItem(projectId, sg)
-  await comment(projectId, item.id, `@Acme, Inc. reminder to self`)
+  await comment(projectId, item.id, `@Ada Lovelace reminder to self`)
   assert.ok(!(await inbox(OWNER)).some((x) => x.kind === 'mentioned' && x.subGoal === sg), 'no bell for mentioning yourself')
 })
 

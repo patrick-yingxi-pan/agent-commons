@@ -43,7 +43,8 @@ export const LOCAL_IDENTITY: Identity = {
   local: true,
 }
 
-/** The web backend's default principal (no claims, no headers): the seeded org owner. */
+/** The web backend's default principal (no claims, no headers): Ada, in her own
+ *  namespace (the seeds are person namespaces wearing their people's names). */
 const WEB_DEFAULT = { userId: 'user-ada', tenantId: 'tenant-acme' }
 
 /** The signed-out face when the AUTH GATE applies (multi-account §12, hardened):

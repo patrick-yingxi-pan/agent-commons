@@ -41,8 +41,10 @@ test('the console: hidden unsigned, full for the maintainer, absent for everyone
   await expect(maintain).toBeVisible({ timeout: 5_000 })
   await maintain.click()
   await expect(page.getByRole('heading', { name: 'Maintain' })).toBeVisible()
-  // Cross-tenant: accounts from OTHER tenants list (Grace / Beta Platform).
-  await expect(page.getByText('Grace Hopper')).toBeVisible()
+  // Cross-tenant: accounts from OTHER tenants list (Grace's namespace). `.first()`
+  // because her name now appears on BOTH the Accounts and Tenants panels — a
+  // namespace wears its person's name, so the console shows it twice by design.
+  await expect(page.getByText('Grace Hopper').first()).toBeVisible()
   await expect(page.getByText('Tenants')).toBeVisible()
 
   // ── The row is a DOOR (FWD-7 v1.1): Grace's name opens her account's own

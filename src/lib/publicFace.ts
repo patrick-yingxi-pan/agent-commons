@@ -1,39 +1,51 @@
 /** ── The public-face byline (shared-surface UI model) ────────────────────────
- *  One source for the owner label every cross-tenant surface shows — "by Ada Lab
- *  (you)" — so the directory cards, the project page, and the agent detail can't
- *  drift apart (form follows function; locked by tests/public-face.test.ts, which
- *  fails if a component hand-rolls the label). The model this cue serves: **the
- *  entity page is the shared surface — capability shapes affordances, not
- *  location** (src/CLAUDE.md design decisions). */
+ *  One source for the owner label every cross-tenant surface shows — "by Ada
+ *  Lovelace (you)" — so the directory cards, the project page, and the agent
+ *  detail can't drift apart (form follows function; locked by
+ *  tests/public-face.test.ts, which fails if a component hand-rolls the label).
+ *  The model this cue serves: **the entity page is the shared surface —
+ *  capability shapes affordances, not location** (src/CLAUDE.md design decisions).
+ *
+ *  **This module says "workspace" nowhere, by rule** (2026-08-09). A workspace
+ *  is the layer FWD-5 Phase 2 DELETED — what owns and has a profile is a
+ *  NAMESPACE (a person or an org) — and the word is still live in this app for
+ *  two other things: the adaptive split workspace, and a context workspace (an
+ *  attached folder). So identity copy names the OWNER, never the layer. The ban
+ *  is mechanical: tests/public-face.test.ts scans this file and PublicFace.tsx
+ *  for the word, which is the whole identity funnel. */
 
 /** The public owner label. `own` marks the viewer's own row ("(you)"), mirroring
  *  the D17 directory entries' `own` flag and the projection's `Project.own`. */
 export function bylineLabel(ownerName: string | undefined, own: boolean | undefined): string {
-  return `by ${ownerName ?? 'this workspace'}${own ? ' (you)' : ''}`
+  return `by ${ownerName ?? 'an unknown owner'}${own ? ' (you)' : ''}`
 }
 
 /** The shared-entity marker text — pairs with the Globe cue in the Byline
  *  component. Exported so the lock test can assert no component re-hardcodes it. */
 export const SHARED_MARKER = 'Shared · '
 
-/** The workspace-profile page title (D21) — the display name, with the same
- *  "(you)" cue the byline uses when the viewer IS this workspace. Minted here so
+/** The namespace-profile page title (D21) — the display name, with the same
+ *  "(you)" cue the byline uses when the viewer IS this owner. Minted here so
  *  the page can't drift from the byline's own-marker (the lock greps for a
  *  hand-rolled "(you)" in components). */
 export function profileTitle(name: string, own: boolean | undefined): string {
   return own ? `${name} (you)` : name
 }
 
-/** The profile page's one-line subtitle — what the page IS: the aggregation of a
- *  workspace's already-public rows, identical for every viewer (D21). */
-export const PROFILE_TAGLINE = 'Public workspace profile — everything this workspace shares.'
+/** The profile page's one-line subtitle — what the page IS: the aggregation of
+ *  this owner's already-public rows, identical for every viewer (D21). Takes the
+ *  NAME rather than naming the layer: "everything Ada Lovelace shares" says the
+ *  same thing without reaching for a noun for the thing that owns. */
+export function profileTagline(name: string): string {
+  return `Public profile — everything ${name} shares.`
+}
 
-/** ── The workspace identity mark (identity texture — the avatar's role) ───────
+/** ── The identity mark (identity texture — the avatar's role) ────────────────
  *  GitHub's avatar does heavy byline disambiguation; this system stores no images,
  *  so the mark is DERIVED, deterministically, from the one identity fact that is
  *  public — the display name: same name ⇒ same mark, on every surface, every
  *  clone, every viewer (nothing fabricated, nothing stored, nothing to leak).
- *  Rendered by <WorkspaceMark> (PublicFace.tsx) and worn wherever the name is a
+ *  Rendered by <IdentityMark> (PublicFace.tsx) and worn wherever the name is a
  *  door (<OwnerLink>) plus the profile header. Distinct on purpose from the
  *  SIGNED-IN-account discs (AccountMenu / AuthScreen / Message — accent-colored:
  *  their role is "you", not "which namespace"). */

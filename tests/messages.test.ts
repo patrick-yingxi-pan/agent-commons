@@ -23,9 +23,9 @@ import { call } from './helpers/http.ts'
 // The seeded world — see tests/follows.test.ts for why real seeds, not
 // synthetic tenants: reachability is computed from actual published rows.
 const ADA = 'tenant-acme'
-const ADA_NAME = 'Acme, Inc.'
+const ADA_NAME = 'Ada Lovelace'
 const GRACE = 'tenant-beta'
-const GRACE_NAME = 'Beta Platform'
+const GRACE_NAME = 'Grace Hopper'
 const STRANGER = 'tenant-dm-stranger'
 
 const dmTo = (name: string, body: string, as: string) =>

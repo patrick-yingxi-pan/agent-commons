@@ -9,20 +9,46 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { filesUnder, read, stripComments } from './helpers/source.ts'
-import { AGENT_ACTOR_TITLE, agentActorLabel, bylineLabel, identityHue, identityInitial, profileTitle, SHARED_MARKER } from '../src/lib/publicFace.ts'
+import { filesUnder, read, ROOT, stripComments } from './helpers/source.ts'
+import { AGENT_ACTOR_TITLE, agentActorLabel, bylineLabel, identityHue, identityInitial, profileTagline, profileTitle, SHARED_MARKER } from '../src/lib/publicFace.ts'
 
 const src = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
 
 test('bylineLabel — the one owner label', () => {
   assert.equal(bylineLabel('Ada Lab', false), 'by Ada Lab')
   assert.equal(bylineLabel('Ada Lab', true), 'by Ada Lab (you)')
-  assert.equal(bylineLabel(undefined, undefined), 'by this workspace')
+  assert.equal(bylineLabel(undefined, undefined), 'by an unknown owner')
 })
 
 test('profileTitle — the profile page title carries the same own-marker (D21)', () => {
   assert.equal(profileTitle('Ada Lab', false), 'Ada Lab')
   assert.equal(profileTitle('Ada Lab', true), 'Ada Lab (you)')
+})
+
+test('profileTagline names the OWNER, never the layer that owns', () => {
+  assert.equal(profileTagline('Ada Lovelace'), 'Public profile — everything Ada Lovelace shares.')
+})
+
+test('the identity funnel says "workspace" nowhere a user can read it (2026-08-09)', () => {
+  // A workspace is the layer FWD-5 Phase 2 DELETED — what owns and has a profile
+  // is a NAMESPACE — and the word is still live in this app for two other things
+  // (the adaptive split workspace; a context workspace = an attached folder). So
+  // the ban is scoped to the identity FUNNEL, where the whole public face is
+  // minted: ban it there and it cannot reach a profile, a byline or an owner
+  // door anywhere, because every one of them routes through these two files (the
+  // scans above are what make that true).
+  //
+  // COMMENT-STRIPPED on purpose: the rule cannot be stated without saying the
+  // word, and an exemption keyed on the sentence that states it would pardon any
+  // string that happened to contain the same spelling. Strip the prose and the
+  // scan reads only what can reach a screen.
+  for (const rel of [['src', 'lib', 'publicFace.ts'], ['src', 'components', 'PublicFace.tsx']]) {
+    const file = join(ROOT, ...rel)
+    const code = stripComments(read(file))
+    assert.ok(code.length > 200, `${file} — the stripper left no code to scan (a vacuous pass)`)
+    const hit = code.match(/\w*workspace\w*/i)
+    assert.equal(hit, null, `${file} must name the OWNER, not the workspace layer — found "${hit?.[0]}"`)
+  }
 })
 
 test('no component re-hardcodes the byline or the shared marker', () => {
@@ -74,19 +100,19 @@ test('the agent-actor cue has one home — components route through <AgentActor>
   assert.ok(publicFace.includes('agentActorLabel'), 'and the one label source')
 })
 
-test('the workspace identity mark is derived, deterministic, and bounded', () => {
+test('the identity mark is derived, deterministic, and bounded', () => {
   // Same name ⇒ same mark, everywhere — the whole point (no stored avatar state).
   assert.equal(identityHue('Acme, Inc.'), identityHue('Acme, Inc.'))
   assert.ok(identityHue('Personal') >= 0 && identityHue('Personal') < 360)
   // Different names should usually differ (spot-check the demo roster's names).
-  const roster = ['Personal', 'Acme, Inc.', 'GrowthWorks', 'Northlight', 'Harbor Support', 'Rei Lab']
+  const roster = ['Personal', 'Ada Lovelace', 'Grace Hopper', 'Maya Chen', 'Noor Haddad', 'Omar Diaz', 'Rei Tanaka']
   assert.ok(new Set(roster.map(identityHue)).size >= roster.length - 1, 'the demo roster disambiguates')
   assert.equal(identityInitial('ada lab'), 'A')
   assert.equal(identityInitial('  émile'), 'É')
   assert.equal(identityInitial('   '), '?', 'a blank name reads honestly, like bylineLabel')
 })
 
-test('the mark has one home — <WorkspaceMark> in PublicFace; no component hand-rolls a name-hashed color', () => {
+test('the mark has one home — <IdentityMark> in PublicFace; no component hand-rolls a name-hashed color', () => {
   const publicFace = src('../src/components/PublicFace.tsx')
   assert.ok(publicFace.includes('identityHue') && publicFace.includes('identityInitial'), 'the component derives from the one source')
   assert.ok(/aria-hidden/.test(publicFace), 'the mark is texture — the NAME stays the accessible identity')
@@ -95,11 +121,11 @@ test('the mark has one home — <WorkspaceMark> in PublicFace; no component hand
     if (file.endsWith(join('lib', 'publicFace.ts')) || file.endsWith(join('components', 'PublicFace.tsx'))) continue
     assert.ok(
       !/identityHue|identityInitial/.test(stripComments(read(file))),
-      `${file} must wear <WorkspaceMark>, never re-derive the mark`,
+      `${file} must wear <IdentityMark>, never re-derive the mark`,
     )
   }
   const sectionView = src('../src/components/SectionView.tsx')
-  assert.ok(sectionView.includes('<WorkspaceMark'), 'the profile header wears the shared mark')
+  assert.ok(sectionView.includes('<IdentityMark'), 'the profile header wears the shared mark')
 })
 
 test('UI-13 — CreditLine is layout-self-contained (its own flex root, no caller contract)', () => {

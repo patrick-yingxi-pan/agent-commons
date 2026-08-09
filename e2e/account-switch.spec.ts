@@ -53,14 +53,17 @@ test('a mid-generation account switch: the turn survives, the other tenant sees 
 
   // The default identity on the remote backend — server truth on the chip.
   await expect(page.getByTestId('account-chip')).toContainText('Ada Lovelace')
-  await expect(page.getByTestId('account-chip')).toContainText('Acme')
+  // The chip's second line is the account funnel's answer (src/lib/accountFace.ts):
+  // the EMAIL, because the namespace is simply this person and saying so twice
+  // is not a second fact.
+  await expect(page.getByTestId('account-chip')).toContainText('ada@acme.example')
 
   // Sign both seeds in for real (they stack); land as Grace-in-beta, then hop
   // to Ada through the stack — the surface under test from here on.
   await stackSeedAccounts(page)
   await page.reload()
   await expect(page.getByTestId('account-chip')).toContainText('Grace Hopper')
-  await expect(page.getByTestId('account-chip')).toContainText('Beta Platform')
+  await expect(page.getByTestId('account-chip')).toContainText('grace@acme.example')
   await switchTo(page, 'Ada Lovelace', 'Ada Lovelace')
 
   // A FRESH draft, so the send below materializes a new session.
@@ -81,7 +84,7 @@ test('a mid-generation account switch: the turn survives, the other tenant sees 
   // detaches the view — the turn runs on server-side). Grace's one namespace is
   // tenant-beta, so the hop lands there.
   await switchTo(page, 'Grace Hopper', 'Grace Hopper')
-  await expect(page.getByTestId('account-chip')).toContainText('Beta Platform')
+  await expect(page.getByTestId('account-chip')).toContainText('grace@acme.example')
 
   // Tenant isolation across the switch: Grace's world holds none of Ada's
   // session — not in the sidebar, not as thread content.
@@ -143,7 +146,7 @@ test('the menu lists remembered accounts only (no dev directory, no workspace ro
   // Picking the already-active account closes the menu and changes nothing.
   await stack.filter({ hasText: 'Grace' }).click()
   await expect(page.getByTestId('account-chip')).toContainText('Grace Hopper')
-  await expect(page.getByTestId('account-chip')).toContainText('Beta Platform')
+  await expect(page.getByTestId('account-chip')).toContainText('grace@acme.example')
 })
 
 test('per-account view memory: each account is restored to where it was left — section page and open thread alike', async ({ page }) => {

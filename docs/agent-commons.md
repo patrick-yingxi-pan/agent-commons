@@ -1274,9 +1274,9 @@ and opt-in enforcement keeps that honest.
 registered workspace(s) bearing that public name, and drops a **`mentioned`**
 notification (D24) into each one's inbox — pointing at the same public act (project
 → item → who mentioned you). Mentions are additive recipients *beyond* the item's
-watch/owner/poster audience: the whole point is to pull in a workspace that *wasn't*
+watch/owner/poster audience: the whole point is to pull in a namespace that *wasn't*
 already listening. Parsing is longest-registered-name-match anchored at word
-boundaries (`@Beta Platform` binds the two-word name, not `@Beta`; `ada@acme` is not
+boundaries (`@Ada Lovelace` binds the two-word name, not `@Ada`; `ada@acme` is not
 a mention — the `@` must follow a non-word char), so only *real* names ever resolve
 and an `@` followed by nothing registered simply matches nothing (existence-hiding
 by construction — the comment posts identically whether or not a name resolved, so
@@ -1319,7 +1319,7 @@ third-party mention would leak the proposal — `commentOnAgentProposal` deliber
 carries no mention fan-out.
 
 **Rejected alternative.** `@word` single-token parsing (breaks every multi-word
-workspace name — "Acme, Inc.", "Beta Platform"); and a quoted `@"Name"` form
+namespace name — "Ada Lovelace", "Acme, Inc."); and a quoted `@"Name"` form
 (unfamiliar, and still needs the registry to resolve) — longest-name-match against
 the real registry handles spaces and punctuation *and* gives existence-hiding for
 free. Also rejected: mentions that *grant* the mentioned party access to a private

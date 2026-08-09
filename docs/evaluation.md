@@ -114,8 +114,8 @@ evaluator-facing summary:
   simplification; **"anyone
   with the link" means anyone signed in** who redeems it — anonymous rendering
   through the auth gate (and any indexing) is the recorded, deliberately
-  unbuilt production tail; and the seeded share (Acme's *Insights dashboard* →
-  Beta Platform at `propose` tier) is code-owned so the share → discuss →
+  unbuilt production tail; and the seeded share (Ada's *Insights dashboard* →
+  Grace at `propose` tier) is code-owned so the share → discuss →
   improve demo needs no setup. Don't file these as bugs.
 - **The demo scene stands up from a COLD start** (verified 2026-07-22 against an
   empty `.data/`, in a fresh browser profile — which is what a clone gets, since

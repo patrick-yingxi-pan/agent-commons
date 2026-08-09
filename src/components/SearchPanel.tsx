@@ -41,9 +41,9 @@ interface Group {
 /** The command palette — the product's ONE global search surface (D22: the rail
  *  owns search; there is deliberately no top bar). A typed query asks the server
  *  (`GET /search`) for typed, grouped hits across everything the caller can see —
- *  private workspace AND the commons (shared projects, published agents, owners,
+ *  your own namespace AND the commons (shared projects, published agents, owners,
  *  open work) — and every hit DEEP-LINKS: a project hit opens the project page, an
- *  owner hit the workspace profile (D21), a session hit the thread. The empty-query
+ *  owner hit their profile (D21), a session hit the thread. The empty-query
  *  default ("Jump to" + recents) and the Pages group stay client-side — they're
  *  navigation over the shell itself, not entity search. */
 export function SearchPanel({
@@ -225,7 +225,7 @@ export function SearchPanel({
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Search everything — sessions, projects, agents, workspaces…"
+            placeholder="Search everything — sessions, projects, agents, people…"
             className="flex-1 bg-transparent py-3 text-[15px] text-ink outline-none placeholder:text-ink-faint"
           />
           <kbd className="shrink-0 rounded border border-line-strong bg-panel-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-faint">

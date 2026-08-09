@@ -17,6 +17,7 @@ import { rmSync, existsSync, mkdirSync, writeFileSync, readFileSync } from 'node
 import { join, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
 import { saveSnapshot, restoreSnapshot, listSnapshots, buildComprehensive } from '../scripts/snapshot.ts'
+import { accounts } from '../server/accounts.ts'
 
 const TMP = join(tmpdir(), `claude-ui-snapshot-test-${process.pid}`)
 const FS_STORE = join(TMP, 'fs', '.data', 'store.json')
@@ -198,7 +199,7 @@ test('build produces a snapshot covering every persisted slice', async () => {
     'recordView → views (S4, the Recently viewed lens)',
   )
   assert.ok(
-    s.follows?.some(([tenantId, names]) => tenantId === 'tenant-beta' && names.includes('Acme, Inc.')),
+    s.follows?.some(([tenantId, names]) => tenantId === 'tenant-beta' && names.includes('Ada Lovelace')),
     'setFollow → follows (S7, the per-viewer follow slice)',
   )
   const principalRows = s.discussions?.filter((d) => d.anchor.ref.kind === 'principal') ?? []
@@ -248,8 +249,45 @@ test('the built snapshot boots through the real rehydrate path', async () => {
   // (Runs after the build test, which wrote BUILD_STORE.)
   process.env.DATA_FILE = BUILD_STORE
   assert.ok(existsSync(BUILD_STORE), 'the build test wrote the snapshot this test boots')
+
+  // ── A stored display name is a CACHE of its authority id (2026-08-09) ──────
+  // Plant STALE names on the snapshot — exactly what a namespace rename leaves
+  // behind in an existing .data/store.json — and require the boot to re-derive
+  // them from the tenant ids stored beside them. Without this the seed rename
+  // (Acme, Inc. → Ada Lovelace) booted the flagship demo half-renamed, its
+  // seeded DM anchored on a name nobody bears.
+  const stale = JSON.parse(readFileSync(BUILD_STORE, 'utf8'))
+  const dm = stale.discussions.find((d: any) => d.anchor.ref.kind === 'principal' && d.targetTenant)
+  assert.ok(dm, 'the snapshot carries a principal-anchored thread to go stale')
+  dm.anchor.ref.id = 'Stale, Inc.'
+  dm.openedBy = 'Stale, Inc.'
+  dm.posts[0].author = 'Stale, Inc.'
+  const grant = stale.grants.find((g: any) => g.granterTenant)
+  assert.ok(grant, 'and a grant with a granter id')
+  grant.grantedBy = 'Stale, Inc.'
+  // A FOLLOW has no id to re-derive from, so a rename orphans it — and the next
+  // signup to take that name would silently inherit it. Orphans are pruned.
+  const follower = stale.follows[0]
+  assert.ok(follower, 'the snapshot carries a follow to orphan')
+  follower[1] = [...follower[1], 'Stale, Inc.']
+  writeFileSync(BUILD_STORE, JSON.stringify(stale))
+
   const { store } = await import('../server/store.ts')
   store.initPersistence() // loadState(BUILD_STORE) → rehydrate replaces in-memory state from disk
+
+  // Read back through the PUBLIC getters the routes use, not the private
+  // snapshot: what the wire carries is what a stale name would have poisoned.
+  const nameOf = (t: string) => accounts.tenants.get(t)?.name
+  const freshDm = store.getDiscussion(dm.id, dm.openerTenant)
+  assert.ok(freshDm, 'the planted thread is readable by its opener after the boot')
+  assert.equal(freshDm?.anchor.ref.id, nameOf(dm.targetTenant), 'the anchor re-derives from targetTenant')
+  assert.equal(freshDm?.openedBy, nameOf(dm.openerTenant), 'openedBy re-derives from openerTenant')
+  assert.equal(freshDm?.posts[0].author, nameOf(dm.posts[0].authorTenant), 'a post author re-derives from authorTenant')
+  const freshGrant = store.listGrants(grant.subject, grant.granterTenant).find((g) => g.id === grant.id)
+  assert.equal(freshGrant?.grantedBy, nameOf(grant.granterTenant), 'grantedBy re-derives from granterTenant')
+  const kept = store.listFollows(follower[0])
+  assert.ok(!kept.includes('Stale, Inc.'), 'a follow naming nobody is pruned, never left to trap the next signup')
+  assert.deepEqual(kept, [...follower[1]].filter((n: string) => n !== 'Stale, Inc.').sort(), 'and every live follow survives')
 
   const projectIds = [...store.listProjects(), ...store.relationGraph().extraProjects].map((p) => p.id)
   assert.ok(projectIds.includes('p-playground'), 'the created project survives a boot')

@@ -340,6 +340,21 @@ ownership cues (byline, credit, shared marker) come from one primitive
 COMMONS-13). Don't add a visitor-variant page or an owner-only rendering of the same
 entity — gate affordances on `own` inside the one page.
 
+**Identity copy names the OWNER, never "workspace"** (owner directive
+2026-08-09). A workspace is the layer FWD-5 Phase 2 deleted — what owns and has
+a profile is a **namespace** (a person or an org) — and the word is still live
+here for two other things: the *adaptive split workspace* below, and a *context
+workspace* (an attached folder). So identity surfaces say the name
+(`profileTagline(name)` → "everything Ada Lovelace shares"), or "owner" /
+"account" / "people" where a noun is unavoidable. Banned mechanically inside the
+identity funnel — `tests/public-face.test.ts` scans `lib/publicFace.ts` +
+`components/PublicFace.tsx` **comment-stripped** for the word, which suffices
+because every byline, owner door and profile routes through those two files.
+The signed-in twin is `src/lib/accountFace.ts`: one answer for what an account
+row says beneath its name — the email, and the namespace **only when it is not
+simply you** (the seeds wear their people's names, so `user.name` beside
+`tenant.name` prints one name twice). Locked by `tests/account-face.test.ts`.
+
 ## Surface follows the entity's nature
 
 Before choosing a control or layout, ask

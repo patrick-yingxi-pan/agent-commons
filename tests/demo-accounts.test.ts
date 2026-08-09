@@ -52,7 +52,7 @@ test('every demo account signs in with its documented credential and lands in it
   const perUser = new Map<string, number>()
   for (const m of accounts.memberships) perUser.set(m.userId, (perUser.get(m.userId) ?? 0) + 1)
   for (const [userId, count] of perUser) assert.equal(count, 1, `${userId} holds exactly one membership`)
-  assert.ok(accounts.membership('user-grace', 'tenant-beta'), 'Grace’s one namespace is Beta Platform')
+  assert.ok(accounts.membership('user-grace', 'tenant-beta'), 'Grace’s one namespace is her own')
   assert.equal(accounts.membership('user-grace', 'tenant-acme'), undefined, 'her old Acme seat is gone')
 })
 

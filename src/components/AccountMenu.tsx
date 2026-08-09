@@ -40,6 +40,7 @@ import {
   useMyOrgs,
 } from '../api'
 import { openAuthScreen } from '../controller/useAuthScreen'
+import { accountSubtitle } from '../lib/accountFace'
 import { AUTH_ERROR_CLASS, AUTH_INPUT_CLASS, AUTH_PRIMARY_CLASS } from '../lib/authFlow'
 import { HOVER_REVEAL } from '../lib/hoverReveal'
 import { useDismissable } from '../lib/useDismissable'
@@ -55,16 +56,19 @@ export function AccountChip({ onOpenOwner }: { onOpenOwner?: (name: string) => v
     setMode('menu')
   })
   const name = me?.user.name ?? 'You'
-  const namespace = me?.tenant.name ?? 'Personal'
+  // The second line is the account FUNNEL's answer (src/lib/accountFace.ts) —
+  // empty when the namespace is simply this person, so the chip never says one
+  // name twice.
+  const subtitle = me ? accountSubtitle(me.user, me.tenant) : 'Personal'
   const initial = name.trim().charAt(0).toUpperCase() || 'Y'
   const identityRow = (
     <div className="flex items-center gap-2" title={me?.user.email}>
       <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-solid text-sm font-semibold text-on-solid">
         {initial}
       </div>
-      <div className="leading-tight">
-        <div className="text-xs font-medium text-ink">{name}</div>
-        <div className="text-[11px] text-ink-faint">{namespace}</div>
+      <div className="min-w-0 leading-tight">
+        <div className="truncate text-xs font-medium text-ink">{name}</div>
+        {subtitle && <div className="truncate text-[11px] text-ink-faint">{subtitle}</div>}
       </div>
     </div>
   )
@@ -191,7 +195,7 @@ function MenuBody({
               >
                 <span className="min-w-0 flex-1 truncate">
                   {a.user.name}
-                  <span className="ml-1 text-[10px] text-ink-faint">{a.tenant.name}</span>
+                  <span className="ml-1 text-[10px] text-ink-faint">{accountSubtitle(a.user, a.tenant)}</span>
                 </span>
                 {a.current && <span className="text-[10px] text-ink-faint">Active</span>}
               </button>

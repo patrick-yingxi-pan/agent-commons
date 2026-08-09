@@ -32,14 +32,14 @@ test('resolveIdentity: desktop/native defaults to the single local user; the USE
   assert.deepEqual(resolveIdentity('native', { 'x-tenant-id': 'tenant-personal' }), { ...LOCAL_IDENTITY, via: 'headers' })
 })
 
-test('resolveIdentity: the desktop WORKSPACE switches via x-tenant-id (multi-account §5.6, uniform)', () => {
+test('resolveIdentity: the desktop TENANT switches via x-tenant-id (multi-account §5.6, uniform)', () => {
   const work = resolveIdentity('mock', { 'x-tenant-id': 'tenant-work', 'x-user-id': 'user-grace' })
-  assert.equal(work.user.id, 'user-local', 'still the device owner — only the workspace moved')
+  assert.equal(work.user.id, 'user-local', 'still the device owner — only the tenant moved')
   assert.equal(work.tenant.id, 'tenant-work')
   assert.equal(work.tenant.kind, 'org')
-  assert.equal(work.role, 'member', 'in an org workspace the owner default does not carry over')
+  assert.equal(work.role, 'member', 'in an org tenant the owner default does not carry over')
   assert.equal(work.local, true)
-  // Unknown workspace ids synthesize an org, mirroring the web seam.
+  // Unknown tenant ids synthesize an org, mirroring the web seam.
   const other = resolveIdentity('native', { 'x-tenant-id': 'tenant-globex' })
   assert.equal(other.tenant.id, 'tenant-globex')
   assert.equal(other.tenant.kind, 'org')
@@ -49,7 +49,10 @@ test('resolveIdentity: the desktop WORKSPACE switches via x-tenant-id (multi-acc
 test('resolveIdentity: the web backend resolves a tenant-scoped principal (defaults)', () => {
   const me = resolveIdentity('remote')
   assert.equal(me.local, false)
-  assert.equal(me.tenant.kind, 'org')
+  // A seed namespace is `personal` and wears its person's name (2026-08-09):
+  // `tenant-acme` is Ada's OWN namespace, not an org she belongs to.
+  assert.equal(me.tenant.kind, 'personal')
+  assert.equal(me.tenant.name, 'Ada Lovelace')
   assert.equal(me.tenant.id, 'tenant-acme')
   assert.equal(me.user.id, 'user-ada')
   assert.equal(me.role, 'owner')

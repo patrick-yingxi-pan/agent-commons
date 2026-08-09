@@ -300,8 +300,8 @@ test('the seed scene has TALK: the shared project carries a cross-org root threa
   assert.equal(seeded.anchor.locus, undefined, 'locus-free — it is the subject’s ROOT thread')
   assert.equal(seeded.state, 'open')
   assert.equal(seeded.posts.length, 2, 'the audience asks, the owner answers')
-  assert.equal(seeded.posts[0].author, 'Beta Platform')
-  assert.equal(seeded.posts[1].author, 'Acme, Inc.')
+  assert.equal(seeded.posts[0].author, 'Grace Hopper')
+  assert.equal(seeded.posts[1].author, 'Ada Lovelace')
   assert.equal(seeded.posts[1].mine, true, 'the owner’s reply reads as theirs')
   assert.equal(seeded.posts[0].reactions, 1, 'and the seeded reaction shows the thin signal in use')
 

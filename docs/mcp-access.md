@@ -82,7 +82,7 @@ The endpoint is served at the conventional server root **`/mcp`** and at
 `/api/v1/mcp` (same handler). Streamable HTTP: single JSON-RPC 2.0 messages
 per POST (`initialize`, `ping`, `tools/*`, `resources/*`, `prompts/*`).
 
-**The one-click path:** the Contexts page's **"This workspace is an MCP
+**The one-click path:** the Contexts page's **"This account is an MCP
 server"** panel shows the endpoint, mints an (optionally labeled) access
 token for the signed-in user (`POST /auth/token`, strictly session-verified;
 shown once), and offers a **copy-ready `mcpServers` JSON block** with the
@@ -118,7 +118,7 @@ guessed at (INV-9).
 (POSTs work without it — it's only required where state lives). `GET /mcp`
 with the id opens the server→client SSE stream: it refuses anonymous callers
 with 401 while the auth gate is on (the stream is served directly, so
-`server/mcp.ts` applies the wall itself), and every workspace event visible
+`server/mcp.ts` applies the wall itself), and every account event visible
 to your tenant (the same gate as `GET /events`) arrives as a
 `notifications/message` frame (`logger: "workspace.events"`), and resources
 you `resources/subscribe`d signal coarse `notifications/resources/updated`

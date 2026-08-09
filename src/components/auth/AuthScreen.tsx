@@ -19,6 +19,7 @@ import { ArrowLeft, Check } from 'lucide-react'
 import { ClaudeMark } from '../ClaudeMark'
 import { signIn, signUp, switchToAccount, useAuthAccounts } from '../../api'
 import { closeAuthScreen, type AuthScreenView } from '../../controller/useAuthScreen'
+import { accountSubtitle } from '../../lib/accountFace'
 import {
   AUTH_ERROR_CLASS,
   AUTH_INPUT_CLASS,
@@ -281,10 +282,7 @@ function AccountPicker({ onMode }: { onMode: (m: AuthScreenView) => void }) {
             </span>
             <span className="min-w-0 flex-1 leading-tight">
               <span className="block truncate text-sm font-medium text-ink">{a.user.name}</span>
-              <span className="block truncate text-[11px] text-ink-faint">
-                {a.user.email ?? a.tenant.name}
-                {a.user.email ? ` · ${a.tenant.name}` : ''}
-              </span>
+              <span className="block truncate text-[11px] text-ink-faint">{accountSubtitle(a.user, a.tenant)}</span>
             </span>
             {a.current && <span className="text-[10px] font-medium uppercase tracking-wide text-ink-faint">Current</span>}
           </button>

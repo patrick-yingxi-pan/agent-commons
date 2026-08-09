@@ -335,6 +335,56 @@ exercised the honest way: created through the real flow (the e2e founds one,
 invites Grace, and collaborates on an org-owned project). *Rejected:* a seeded
 org — seed surgery for a feature the runtime path must prove anyway.
 
+#### O-D7a — …but a namespace WEARS ITS PERSON'S NAME (amended 2026-08-09)
+
+"Whatever its display name suggests" was the wrong half to concede. O-D7
+declined the **structural** change — making Acme a real org — for a reason that
+still holds. It said nothing in favour of the *string*, and the string was
+doing damage the structure never did: **the namespace name IS the public face.**
+`tenantName` signs every post, comment, follow, @-mention and grant, so the
+flagship demo showed **"Acme, Inc."** performing acts that §2.1 of this document
+says never leave the person. A reader's first impression of the social layer
+contradicted its own identity model, and `kind: 'org'` on five person
+namespaces made the contradiction structural enough that
+[`../../contract/admin.ts`](../../contract/admin.ts) had to add
+`AdminTenantRow.namespace` — *"`kind` alone cannot tell a shared org from an
+org-shaped namespace."*
+
+So the six seeds now read **Ada Lovelace · Grace Hopper · Maya Chen · Noor
+Haddad · Omar Diaz · Rei Tanaka**, all `kind: 'personal'`. This is not a new
+convention: `createUser` has named a runtime namespace after its person since
+Phase 2 — the seeds were the outlier, not the target. Consequences, checked:
+
+- **Nothing moves.** Ownership is by tenant **id** (`tenant-acme` is still
+  Ada's), so no row is touched and every persisted snapshot stays readable.
+- **The `kind` flip is inert.** All three sites that branch on `kind === 'org'`
+  already exclude namespaces via `isNamespace`, so the flag was decorative
+  where it was wrong and unused where it mattered.
+- **"Acme" survives where it was always true** — Ada's email domain and her
+  connector fixtures name the company she works at, which is exactly the
+  GitHub shape: you are `ada`, you work at Acme.
+- **The account chip needed a funnel.** Three surfaces printed `user.name`
+  beside `tenant.name`; honest names turned that into "Ada Lovelace · Ada
+  Lovelace". The duplication was always there, masked by the lie. One answer
+  now, in [`../../src/lib/accountFace.ts`](../../src/lib/accountFace.ts):
+  the email, and the namespace **only when it is not simply you**.
+- **A stored display name is a CACHE of its authority id.** Every social row
+  that carries a public name carries the raw tenant id beside it, and the name
+  is written once at mint — so an existing `.data/store.json` booted the demo
+  half-renamed, its seeded DM anchored on a name nobody bears.
+  `refreshStoredNames` (server/store.ts) re-derives them on every rehydrate,
+  which makes this rename and every future one free. A **follow** has no id to
+  re-derive from, and a dangling one is worse than dead — the next signup to
+  take that name silently inherits it — so orphans are pruned, which is safe
+  precisely because `setFollow` refuses a name it cannot reach. Mutes are not
+  pruned: `setMute` takes any string by design.
+- **Orgs are still runtime-only** (O-D7's actual holding, unchanged).
+
+The companion copy rule: **"workspace" never appears in identity copy.** It
+names the layer Phase 2 deleted, and the word is still live in this app for two
+other things — the adaptive split workspace, and a context workspace (an
+attached folder). Locked in the identity funnel by `tests/public-face.test.ts`.
+
 ### Build order (each shippable, tested, spec-ledgered)
 
 - **O1 — server core. ✅ BUILT (2026-07-12).** `Membership.home` marks the

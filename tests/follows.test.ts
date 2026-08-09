@@ -23,9 +23,9 @@ import { call } from './helpers/http.ts'
 // computed from actual published rows, so a synthetic pair would be unreachable
 // and every assertion below would pass vacuously.
 const ADA = 'tenant-acme'
-const ADA_NAME = 'Acme, Inc.'
+const ADA_NAME = 'Ada Lovelace'
 const GRACE = 'tenant-beta'
-const GRACE_NAME = 'Beta Platform'
+const GRACE_NAME = 'Grace Hopper'
 const STRANGER = 'tenant-follow-stranger'
 
 function resetFollows(tenantId: string) {
@@ -65,7 +65,7 @@ test('follow: the act is name-keyed, listed for the follower, and reported on th
 })
 
 const MAYA = 'tenant-growthworks'
-const MAYA_NAME = 'Growthworks'
+const MAYA_NAME = 'Maya Chen'
 
 /** Publish `from` → `to` with a note, which is what makes the publisher a
  *  visible IDENTITY to that audience (the D21 publisher-existence rule). Both

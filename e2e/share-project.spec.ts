@@ -26,12 +26,12 @@ test('an owner shares a created project and the toggle + backend reflect it (and
   const toggle = page.getByTestId('share-toggle')
   await expect(toggle).toBeVisible()
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
-  await expect(toggle).toContainText('Private to this workspace')
+  await expect(toggle).toContainText('Private — only you can contribute')
 
   // Share it: the toggle flips to Shared…
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
-  await expect(toggle).toContainText('Shared across workspaces')
+  await expect(toggle).toContainText('Shared — others can contribute')
 
   // …and the backend recorded shared:true + a guardianId (the Phase 2a cooperation bridge).
   await expect
@@ -45,5 +45,5 @@ test('an owner shares a created project and the toggle + backend reflect it (and
   // Un-share reverses it (owner can make it private again).
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
-  await expect(toggle).toContainText('Private to this workspace')
+  await expect(toggle).toContainText('Private — only you can contribute')
 })

@@ -377,7 +377,7 @@ function Workspace() {
   // re-renders on each App render.
   // The relations "View in …" deep-link. The second arg is an entity id whose
   // meaning depends on the section: a project to expand, a schedule to open, a
-  // saved context's detail, or — under agents — a workspace display name whose
+  // saved context's detail, or — under agents — an owner display name whose
   // public profile to show (D21).
   // The mapping itself is `seedFor` — the SAME function the pane-local bridge
   // resolves with (src/lib/paneNav.ts), rather than a hand-copied ternary chain

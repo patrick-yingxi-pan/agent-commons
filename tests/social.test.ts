@@ -169,7 +169,7 @@ test('a grant OPENS its subject (SOCIAL-4): granted viewers pass the project wal
   // demo lands with one live cross-org share, no setup.
   const seeded = await call('GET', `/grants?kind=project&id=p-insights`, undefined, { 'x-tenant-id': 'tenant-beta' })
   assert.equal(seeded.status, 200)
-  assert.ok(seeded.json.some((row: any) => row.note && row.grantedBy === 'Acme, Inc.'), 'the seeded publish rides with its note')
+  assert.ok(seeded.json.some((row: any) => row.note && row.grantedBy === 'Ada Lovelace'), 'the seeded publish rides with its note')
 
   // The flagship faces OWN the unstamped seeds for grants (one seat, two faces):
   // Ada-as-Acme reads the full roster and may share the flagship world — a

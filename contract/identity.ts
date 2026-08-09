@@ -8,8 +8,12 @@
  *  The UI reads `Identity` once on boot (design P1 §4: "Identity from /v1/me") to
  *  label the account and adapt org-only affordances; the server stays the gate. */
 
-/** The isolation boundary. `personal` is the desktop N=1 case; `org` is a
- *  multi-user tenant on the web. */
+/** The isolation boundary. `personal` is a NAMESPACE — one account's own, which
+ *  since FWD-5 Phase 2 is every account's home and the desktop N=1 case alike;
+ *  `org` is a multi-member tenant (FWD-6). The flag is descriptive, not a wall:
+ *  it cannot by itself tell a shared org from an org-shaped namespace, which is
+ *  why `AdminTenantRow.namespace` exists and why every wall asks
+ *  `isNamespace`. */
 export interface Tenant {
   id: string
   name: string
@@ -76,7 +80,7 @@ export interface PrincipalRef {
 /** One row of `GET /v1/auth/accounts` — an account that signed in on THIS
  *  browser (carried by the signed account-stack cookie, multi-account §12), the
  *  way GitHub remembers signed-in accounts for its switcher. `tenant` is the
- *  account's LAST-ACTIVE workspace (a switch back lands where you left off).
+ *  account's home NAMESPACE (a switch back lands where you left off).
  *  Stale entries (deleted user, revoked membership) are dropped server-side,
  *  never guessed. */
 export interface AuthAccount {

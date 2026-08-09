@@ -124,7 +124,23 @@ export class AccountRegistry {
    *  also the co-authoring E2E's "Bo"); the other four each own one themed
    *  world. The pre-collapse second seats (local's "Acme (work)" membership,
    *  Grace's Acme membership) are gone — cross-account collaboration is shared
-   *  projects, not shared tenancy. */
+   *  projects, not shared tenancy.
+   *
+   *  **A namespace WEARS ITS PERSON'S NAME** (2026-08-09). These six shipped
+   *  named "Acme, Inc.", "Beta Platform", … and stamped `kind: 'org'` — seed
+   *  residue from the pre-collapse model, which O-D7 declined to re-seed as
+   *  real orgs (it would orphan the flagship dataset from Ada's rail, since
+   *  sessions are person-owned). But O-D7 declined the STRUCTURAL change; the
+   *  display name was never the thing defended, and it was the thing that
+   *  lied: the namespace name IS the public face (`tenantName` signs every
+   *  post, comment, follow and @-mention), so the flagship demo showed a
+   *  COMPANY performing acts that §2.1 of principals-and-namespaces.md says
+   *  never leave the person. `createUser` below has always named a runtime
+   *  namespace after its person — the seeds were the outlier, not the target.
+   *  Tenant IDs are deliberately unchanged (`tenant-acme` stays Ada's id):
+   *  ownership is by id, so a rename moves no rows and keeps every persisted
+   *  snapshot readable. "Acme" survives where it was always true — Ada's email
+   *  domain and her connector fixtures name the company she works at. */
   seed(): void {
     this.users.clear()
     this.tenants.clear()
@@ -162,11 +178,11 @@ export class AccountRegistry {
       passwordHash:
         '16b1e455462e376846f1beceff05330d967adfb03b81725f8ce2b292239cf40971cb1b7a6f40222915f6cf2ab0c22d3d90d52103be4fb676fc38feaadd077dc1',
     }
-    const acme: AccountTenant = { id: 'tenant-acme', name: 'Acme, Inc.', kind: 'org', seeded: true }
+    const acme: AccountTenant = { id: 'tenant-acme', name: 'Ada Lovelace', kind: 'personal', seeded: true }
     put(ada, acme, 'owner')
-    put(grace, { id: 'tenant-beta', name: 'Beta Platform', kind: 'org', seeded: true }, 'owner')
-    // The other four demo principals (docs/demo-accounts.md) — one themed org
-    // each, same precomputed-credential pattern as ada/grace above.
+    put(grace, { id: 'tenant-beta', name: 'Grace Hopper', kind: 'personal', seeded: true }, 'owner')
+    // The other four demo principals (docs/demo-accounts.md) — one themed
+    // namespace each, same precomputed-credential pattern as ada/grace above.
     const maya: AccountUser = {
       id: 'user-maya',
       name: 'Maya Chen',
@@ -176,7 +192,7 @@ export class AccountRegistry {
       passwordHash:
         '877fe51eef0e931f089009293d2ca3fa6b9556f6a55edb5b06148c3f7d1f86b9562595917ee21d430d0ceeffd6b7d24900ef8e33e2bbd47b224df802fa34f324',
     }
-    put(maya, { id: 'tenant-growthworks', name: 'Growthworks', kind: 'org', seeded: true }, 'owner')
+    put(maya, { id: 'tenant-growthworks', name: 'Maya Chen', kind: 'personal', seeded: true }, 'owner')
     const noor: AccountUser = {
       id: 'user-noor',
       name: 'Noor Haddad',
@@ -186,7 +202,7 @@ export class AccountRegistry {
       passwordHash:
         '9503160c2d4679b8bfdc27167a3ccb2f0ecb73a2087095d8fd1a3b504500e692432aba369841719cf6f90798e4459421e9595a5b0d10565ddb0ec5a066c5a112',
     }
-    put(noor, { id: 'tenant-northlight', name: 'Northlight Studio', kind: 'org', seeded: true }, 'owner')
+    put(noor, { id: 'tenant-northlight', name: 'Noor Haddad', kind: 'personal', seeded: true }, 'owner')
     const omar: AccountUser = {
       id: 'user-omar',
       name: 'Omar Diaz',
@@ -196,7 +212,7 @@ export class AccountRegistry {
       passwordHash:
         '649b3db5310aded9715cfe8221591ec594d132c6a37949350cb43a34ea0b02c1602aa7bd0b5d09670a937fd8f612908b18984118567b37850ec8170a31b9973f',
     }
-    put(omar, { id: 'tenant-harbor', name: 'Harbor Support', kind: 'org', seeded: true }, 'owner')
+    put(omar, { id: 'tenant-harbor', name: 'Omar Diaz', kind: 'personal', seeded: true }, 'owner')
     const rei: AccountUser = {
       id: 'user-rei',
       name: 'Rei Tanaka',
@@ -206,7 +222,7 @@ export class AccountRegistry {
       passwordHash:
         '5ccd796b9b5fd9344f34f31628ad1510bf6dd82c06c88a5affc174caf3bdf5dcf1f685bbb585b99b97845a89a7a80176a6d187fae8c9f08fedc0393974b2ff18',
     }
-    put(rei, { id: 'tenant-reislab', name: 'Rei’s Lab', kind: 'personal', seeded: true }, 'owner')
+    put(rei, { id: 'tenant-reislab', name: 'Rei Tanaka', kind: 'personal', seeded: true }, 'owner')
   }
 
   membership(userId: string, tenantId: string): Membership | undefined {

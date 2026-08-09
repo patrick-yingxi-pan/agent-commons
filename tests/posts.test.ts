@@ -23,10 +23,10 @@ const STRANGER = 'tenant-post-stranger'
 /** A real, mentionable name that is NOT a party to the DM below — the mention
  *  has to resolve for the assertion to mean anything (a name nobody wears would
  *  pass vacuously). */
-const OUTSIDER_NAME = 'Growthworks'
+const OUTSIDER_NAME = 'Maya Chen'
 const OUTSIDER = 'tenant-growthworks'
-const ADA_NAME = 'Acme, Inc.'
-const GRACE_NAME = 'Beta Platform'
+const ADA_NAME = 'Ada Lovelace'
+const GRACE_NAME = 'Grace Hopper'
 
 const post = (body: string, tenantId: string) => call('POST', '/posts', { body }, { 'x-tenant-id': tenantId })
 const feed = (tenantId: string) => call('GET', '/commons', undefined, { 'x-tenant-id': tenantId })

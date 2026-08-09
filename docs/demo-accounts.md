@@ -29,14 +29,26 @@
 
 ## The roster
 
+**A namespace wears its person's name** (2026-08-09). Every account holds
+exactly ONE namespace (FWD-5 Phase 2), so the Namespace column repeats the
+account name — that repetition is the model, stated honestly. These six once
+read "Acme, Inc.", "Beta Platform", … and carried `kind: 'org'`: pre-collapse
+residue that made the flagship demo sign every post and comment with a COMPANY
+name, contradicting the rule that attribution never leaves the person
+(`docs/design/principals-and-namespaces.md` §2.1). Tenant IDs are unchanged
+(`tenant-acme` is still Ada's), and "Acme" survives where it was always true —
+her email domain and her connector fixtures name the company she works at.
+Orgs are still exercised the honest way: founded at runtime through the real
+flow (`e2e/orgs.spec.ts`), never seeded (O-D7).
+
 | # | Account | Email · password | Namespace | Theme — what you'll find |
 |---|---------|------------------|-----------|--------------------------|
-| 1 | **Ada Lovelace** | `ada@acme.example` · `ada-demo-password` | **Acme, Inc.** (org) | **The flagship** — product & platform. The Insights + Platform-hardening projects, the auth-refactor repo session, issue-triage + standup routines. |
-| 2 | **Grace Hopper** | `grace@acme.example` · `grace-demo-password` | **Beta Platform** (org) | Deploys & reliability — canary pipeline (repo session), cache-stampede postmortem, on-call error watch. She's also the co-authoring E2E's second tenant. |
-| 3 | **Maya Chen** | `maya@growthworks.example` · `maya-demo-password` | **Growthworks** (org) | Growth & experimentation — onboarding A/B readout, June churn analysis, Q3 board deck, weekly metrics roll-up routine. |
-| 4 | **Noor Haddad** | `noor@northlight.example` · `noor-demo-password` | **Northlight Studio** (org) | Brand & marketing — brand-voice guide, homepage rewrite, logo lockups, weekly site-copy-review routine. |
-| 5 | **Omar Diaz** | `omar@harborsupport.example` · `omar-demo-password` | **Harbor Support** (org) | Support operations — weekly ticket themes, reply-macro refresh, SEV-1 comms, daily ticket-themes routine (with a real failed run). |
-| 6 | **Rei Tanaka** | `rei@reislab.example` · `rei-demo-password` | **Rei's Lab** (personal) | Research & learning — linear-attention paper notes, Rust learning plan, the archived vector-DB chat, daily AI-news briefing routine. |
+| 1 | **Ada Lovelace** | `ada@acme.example` · `ada-demo-password` | **Ada Lovelace** | **The flagship** — product & platform. The Insights + Platform-hardening projects, the auth-refactor repo session, issue-triage + standup routines. |
+| 2 | **Grace Hopper** | `grace@acme.example` · `grace-demo-password` | **Grace Hopper** | Deploys & reliability — canary pipeline (repo session), cache-stampede postmortem, on-call error watch. She's also the co-authoring E2E's second tenant. |
+| 3 | **Maya Chen** | `maya@growthworks.example` · `maya-demo-password` | **Maya Chen** | Growth & experimentation — onboarding A/B readout, June churn analysis, Q3 board deck, weekly metrics roll-up routine. |
+| 4 | **Noor Haddad** | `noor@northlight.example` · `noor-demo-password` | **Noor Haddad** | Brand & marketing — brand-voice guide, homepage rewrite, logo lockups, weekly site-copy-review routine. |
+| 5 | **Omar Diaz** | `omar@harborsupport.example` · `omar-demo-password` | **Omar Diaz** | Support operations — weekly ticket themes, reply-macro refresh, SEV-1 comms, daily ticket-themes routine (with a real failed run). |
+| 6 | **Rei Tanaka** | `rei@reislab.example` · `rei-demo-password` | **Rei Tanaka** | Research & learning — linear-attention paper notes, Rust learning plan, the archived vector-DB chat, daily AI-news briefing routine. |
 
 ## How it's wired
 
@@ -50,7 +62,7 @@
   account multiplicity — FWD-5 Phase 2 collapsed workspaces, and every account
   holds exactly ONE namespace). Untagged seed rows belong to the backend's
   *default principal* — the local user's Personal namespace on the desktop
-  backend, Ada/Acme on the web — **and** to `tenant-acme` explicitly
+  backend, Ada on the web — **and** to `tenant-acme` explicitly
   (`seedVisibleTo`), so signing in as Ada on the desktop shows the same
   flagship world instead of an empty one. Runtime-created rows
   are always stamped with their creator's tenant, so this widens nothing.

@@ -326,18 +326,22 @@ function publicDelegation(d: StoredDelegation, viewerTenant?: string): Delegatio
  *  orthogonality rule allows); the grant rows, walls, and events never branch.
  *  `granterTenant`/`audienceTenant` are server-private (D23: authorization
  *  compares raw ids); `publicGrant` strips them. */
-/** The seed social scene (docs/design/social-layer.md §7): Ada's org has
- *  published the flagship insights Project to Grace's org with a note — so the
- *  demo lands with one live share (readable cross-org, a comment-tier audience)
- *  without any setup. Ids are `grant-seed-*` so runtime mints never collide. */
+/** The seed social scene (docs/design/social-layer.md §7): Ada has published the
+ *  flagship insights Project to Grace with a note — so the demo lands with one
+ *  live share (readable cross-namespace, a comment-tier audience) without any
+ *  setup. Ids are `grant-seed-*` so runtime mints never collide. The audience is
+ *  a `principal`, not an `org`: `tenant-beta` is Grace's PERSON namespace (the
+ *  seeds wear their people's names — server/accounts.ts), and the share path
+ *  reads both kinds as the same tenant id, so the kind's only job is to state
+ *  truthfully which sort of namespace was addressed. */
 const SEED_GRANTS: StoredGrant[] = [
   {
     id: 'grant-seed-1',
     subject: { kind: 'project', id: 'p-insights' },
-    audience: { kind: 'org', orgId: 'tenant-beta' },
+    audience: { kind: 'principal', principalId: 'tenant-beta' },
     tier: 'propose',
     note: 'Sharing our Q3 insights baseline — comments and improvement offers welcome before we lock the readout.',
-    grantedBy: 'Acme, Inc.',
+    grantedBy: 'Ada Lovelace',
     grantedAt: Date.now() - 2 * 86_400_000,
     granterTenant: 'tenant-acme',
     audienceTenant: 'tenant-beta',
@@ -357,7 +361,7 @@ const mutes = new Map<string, Set<string>>()
  *  repo counts as a coverage violation rather than a skip. Deliberately small
  *  and ONE-directional: Grace follows Ada (who publishes), which is exactly the
  *  asymmetric shape a real follow graph has. */
-const SEED_FOLLOWS: [string, string[]][] = [['tenant-beta', ['Acme, Inc.']]]
+const SEED_FOLLOWS: [string, string[]][] = [['tenant-beta', ['Ada Lovelace']]]
 
 /** S7 — per-viewer FOLLOW lists (followee display names): the positive twin of
  *  `mutes`, keyed the same way for the same reason (a display name is the D21
@@ -403,7 +407,7 @@ function publicGrant(g: StoredGrant): Grant {
  *  gutter's "discuss this turn" is unambiguous however many times it's
  *  clicked. Bounds are the D23 discussion-bounds trade-off. */
 /** The seed scene's talk (docs/design/social-layer.md §7). The seeded grant
- *  above hands Grace's org a comment-tier view of Ada's flagship Project; this
+ *  above hands Grace a comment-tier view of Ada's flagship Project; this
  *  is the conversation that share produced — the audience asks, the owner
  *  answers. Without it the demo world had a share with nobody talking: the
  *  Discussions section, the entity panel's thread, and every discussion-detail
@@ -417,14 +421,14 @@ const SEED_DISCUSSIONS: StoredDiscussion[] = [
     // No locus — the subject's ROOT thread, the one public stream per subject.
     anchor: { ref: { kind: 'project', id: 'p-insights' } },
     state: 'open',
-    openedBy: 'Beta Platform',
+    openedBy: 'Grace Hopper',
     openedAt: Date.now() - 36 * 3_600_000,
     openerTenant: 'tenant-beta',
     posts: [
       {
         id: 'dpost-seed-1',
         seq: 1,
-        author: 'Beta Platform',
+        author: 'Grace Hopper',
         authorTenant: 'tenant-beta',
         body: 'Read through the Q3 baseline — the retention cut is clearer than ours. Is the cohort window fixed at 28 days, or does it follow the billing period?',
         at: Date.now() - 36 * 3_600_000,
@@ -433,7 +437,7 @@ const SEED_DISCUSSIONS: StoredDiscussion[] = [
       {
         id: 'dpost-seed-2',
         seq: 2,
-        author: 'Acme, Inc.',
+        author: 'Ada Lovelace',
         authorTenant: 'tenant-acme',
         body: 'Fixed at 28 days for now. Following the billing period is the obvious next cut — worth an improvement offer if you want to take it.',
         at: Date.now() - 30 * 3_600_000,
@@ -447,14 +451,14 @@ const SEED_DISCUSSIONS: StoredDiscussion[] = [
   // on the thread page would every one of them render an empty state, which
   // this repo counts as a coverage violation rather than a skip.
   //
-  // Anchored on 'Acme, Inc.' and opened by Beta Platform, so the PAIR is
+  // Anchored on 'Ada Lovelace' and opened by Grace Hopper, so the PAIR is
   // {tenant-beta, tenant-acme} and both flagship accounts land in a live
   // conversation — Ada sees it from Grace, Grace sees it from Ada.
   {
     id: 'disc-seed-2',
-    anchor: { ref: { kind: 'principal', id: 'Acme, Inc.' } },
+    anchor: { ref: { kind: 'principal', id: 'Ada Lovelace' } },
     state: 'open',
-    openedBy: 'Beta Platform',
+    openedBy: 'Grace Hopper',
     openedAt: Date.now() - 5 * 3_600_000,
     openerTenant: 'tenant-beta',
     targetTenant: 'tenant-acme',
@@ -462,7 +466,7 @@ const SEED_DISCUSSIONS: StoredDiscussion[] = [
       {
         id: 'dpost-seed-3',
         seq: 1,
-        author: 'Beta Platform',
+        author: 'Grace Hopper',
         authorTenant: 'tenant-beta',
         body: 'Off-thread for a second — before I offer the billing-period change, is anyone else already on it? Don’t want to duplicate work.',
         at: Date.now() - 5 * 3_600_000,
@@ -471,7 +475,7 @@ const SEED_DISCUSSIONS: StoredDiscussion[] = [
       {
         id: 'dpost-seed-4',
         seq: 2,
-        author: 'Acme, Inc.',
+        author: 'Ada Lovelace',
         authorTenant: 'tenant-acme',
         body: 'Nobody’s on it. Go ahead — I’ll review it the same day you offer it.',
         at: Date.now() - 4 * 3_600_000,
@@ -1035,18 +1039,18 @@ function workItemAudience(item: StoredOpenSubGoal): Set<string> {
   return out
 }
 
-/** The workspaces a comment names with `@<display name>` (D29), resolved SERVER-SIDE
+/** The namespaces a comment names with `@<display name>` (D29), resolved SERVER-SIDE
  *  against the account registry (the client never receives an enumerable name list —
  *  a mention can't become an identity oracle). Match rules: the `@` must follow a
  *  non-word char (so an email local part like `ada@acme` is NOT a mention); the name
  *  that follows is the LONGEST registered display name whose end lands on a word
- *  boundary (so `@Beta Platform` binds the two-word name, and `@Ada` won't match
+ *  boundary (so `@Ada Lovelace` binds the two-word name, and `@Ada` won't match
  *  inside `@Adam`). "Word char" is Unicode-aware (`\p{L}\p{N}_`), matching the client
  *  highlighter and excluding `x_@Name` / `@Name_x` (review F3). A display name is not
- *  unique (createWorkspace has no guard), so a match resolves to the tenants bearing
- *  it — the display name IS the public identity the whole system trusts; case-folded,
- *  like a handle. The result set is HARD-capped at MENTION_CAP *recipients* — NOT
- *  token matches — so a name borne by K workspaces can't fan one comment out to K
+ *  unique (neither `createUser` nor `createOrg` guards it), so a match resolves to the
+ *  tenants bearing it — the display name IS the public identity the whole system
+ *  trusts; case-folded, like a handle. The result set is HARD-capped at MENTION_CAP
+ *  *recipients* — NOT token matches — so a name borne by K namespaces can't fan one comment out to K
  *  bells (review F1): a self-serviceable notification amplifier. Resolution is a
  *  length-descending HASH lookup (the longest candidate substring that is a registered
  *  name and ends on a boundary wins), so the work per `@` is O(MENTION_MAX_NAME_LEN²) —
@@ -1939,6 +1943,60 @@ function persist(): void {
   if (persistEnabled) saveState(snapshot())
 }
 
+/** ── A stored display name is a CACHE of its authority id ────────────────────
+ *  Every social row that carries a public NAME carries the raw tenant id beside
+ *  it — `grantedBy`/`granterTenant`, `openedBy`/`openerTenant`,
+ *  `author`/`authorTenant`, a principal anchor's id/`targetTenant` — because a
+ *  name is the public face while the id is the authority (the rule
+ *  `StoredDiscussion.targetTenant` was earned for). The name is written once at
+ *  mint (`mintPost` and friends derive it from the id and nothing else), which
+ *  makes it a cache — and a cache goes stale the moment a namespace is renamed.
+ *
+ *  So a snapshot's names are RE-DERIVED on load, not trusted. Earned 2026-08-09
+ *  by the seed rename (Acme, Inc. → Ada Lovelace): without this, an existing
+ *  `.data/store.json` boots the flagship demo half-renamed — the seeded thread
+ *  and DM signed by a company that no longer exists, and the DM's anchor naming
+ *  nobody, which is a broken conversation rather than a cosmetic wart. It
+ *  generalizes past that one rename: any future rename, of a person or an org,
+ *  is now free.
+ *
+ *  Only rows whose id still names a live tenant are refreshed — an id the
+ *  registry has forgotten keeps the name it was written with, which is the
+ *  honest record of who acted.
+ *
+ *  `follows` has no id to re-derive from (a per-viewer preference over a public
+ *  handle, D21), so a rename ORPHANS one — and a dangling follow is not merely
+ *  dead, it is a TRAP: the next signup to take that name silently inherits it,
+ *  the very hazard `StoredDiscussion.targetTenant` exists to prevent one layer
+ *  down. `setFollow` refuses any name it cannot reach, so an entry naming
+ *  nobody could only have been orphaned — pruning it can't discard a live
+ *  preference. `mutes` is deliberately NOT pruned: `setMute` takes any string
+ *  by design (an earmuff is a pure preference, and one may legitimately name a
+ *  party this store has never heard of), so absence there proves nothing. */
+function refreshStoredNames(): void {
+  const known = (id: string | undefined): boolean => id !== undefined && accounts.tenants.has(id)
+  for (const g of grants) {
+    if (known(g.granterTenant)) g.grantedBy = tenantName(g.granterTenant)
+  }
+  for (const d of discussions) {
+    if (known(d.openerTenant)) d.openedBy = tenantName(d.openerTenant)
+    if (d.anchor.ref.kind === 'principal' && d.targetTenant !== undefined && known(d.targetTenant)) {
+      // REPLACED, not mutated in place like the fields around it: a row restored
+      // from SEED_DISCUSSIONS is a shallow `{ ...seed }`, so its `anchor` is the
+      // seed constant's own object — writing through it would rewrite the seed.
+      d.anchor = { ...d.anchor, ref: { ...d.anchor.ref, id: tenantName(d.targetTenant) } }
+    }
+    for (const p of d.posts) {
+      if (known(p.authorTenant)) p.author = tenantName(p.authorTenant)
+    }
+  }
+  const live = new Set([...accounts.tenants.values()].map((t) => t.name))
+  for (const [tenantId, names] of follows) {
+    for (const n of names) if (!live.has(n)) names.delete(n)
+    if (names.size === 0) follows.delete(tenantId)
+  }
+}
+
 /** Replace the in-memory state with a loaded snapshot (rehydrate on boot). The
  *  seed containers are mutated in place (SESSIONS / schedules are imported / fixed
  *  bindings), the rest reassigned, and the id counters restored so freshly minted
@@ -2140,6 +2198,9 @@ function rehydrate(s: PersistedState): void {
     for (const n of names) set.add(n)
     follows.set(t, set)
   }
+  // Every restored display name is a cache — re-derive (and prune) now that
+  // both the account registry and all four social stores are loaded.
+  refreshStoredNames()
   discussionReads.clear()
   for (const [t, marks] of s.discussionReads ?? []) discussionReads.set(t, new Map(marks))
   // D24 — watches + the inbox (empty for a pre-field snapshot); counter falls back

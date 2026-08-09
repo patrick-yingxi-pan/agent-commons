@@ -2,7 +2,7 @@ import { test, expect, type Browser, type Page } from '@playwright/test'
 import { agentBindings } from './agent-bindings.ts'
 
 /** D21/D22 — the findability layer, end to end through the rendered UI: the
- *  workspace PROFILE page (a display name's one public face, reached from any owner
+ *  namespace PROFILE page (a display name's one public face, reached from any owner
  *  byline) and GLOBAL SEARCH (the ⌘K palette answering with server-side typed groups
  *  across private + commons, every hit a deep link). Two tenants again (the F2
  *  header seam, like co-author-article.spec.ts): the owner builds a public face;
@@ -23,7 +23,7 @@ async function newUser(browser: Browser, headers?: Record<string, string>) {
   return { context, page }
 }
 
-test('a workspace profile is reachable from any byline, and global search finds the commons', async ({ browser }) => {
+test('a namespace profile is reachable from any byline, and global search finds the commons', async ({ browser }) => {
   test.setTimeout(120_000)
   const owner = await newUser(browser) // the seeded default tenant
   const visitor = await newUser(browser, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
@@ -71,7 +71,7 @@ test('a workspace profile is reachable from any byline, and global search finds 
 
   // One page, the whole public face: title, tagline, both directories, the acts.
   await expect(visitor.page.getByRole('heading', { name: ownerName })).toBeVisible()
-  await expect(visitor.page.getByText('Public workspace profile — everything this workspace shares.')).toBeVisible()
+  await expect(visitor.page.getByText(`Public profile — everything ${ownerName} shares.`)).toBeVisible()
   await expect(visitor.page.getByText(PROJECT).first()).toBeVisible()
   await expect(visitor.page.getByText(AGENT).first()).toBeVisible()
   // Viewer-relative own-marker: the visitor sees the bare name, no "(you)".
@@ -104,7 +104,7 @@ test('a workspace profile is reachable from any byline, and global search finds 
   await expect(palette.getByText('Workspaces')).toBeVisible()
   await palette.getByRole('button', { name: new RegExp(`^${ownerName}`) }).first().click()
   await expect(visitor.page.getByRole('heading', { name: ownerName })).toBeVisible()
-  await expect(visitor.page.getByText('Public workspace profile — everything this workspace shares.')).toBeVisible()
+  await expect(visitor.page.getByText(`Public profile — everything ${ownerName} shares.`)).toBeVisible()
 
   await owner.context.close()
   await visitor.context.close()

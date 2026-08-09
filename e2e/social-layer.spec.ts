@@ -564,7 +564,7 @@ test('the Commons lenses: an act fills the collection the rail lists it under', 
 
 test('a world with NO social activity: the Commons teaches instead of going blank', async ({ browser }) => {
   test.setTimeout(120_000)
-  // Rei's Lab is the sparsest seeded world — no grants, no threads. Three of the
+  // Rei Tanaka's is the sparsest seeded world — no grants, no threads. Three of the
   // six demo accounts land here, so this empty state is a first impression, not
   // an edge case.
   const rei = await newUser(browser, { 'x-tenant-id': 'tenant-reislab' })
@@ -641,14 +641,15 @@ test('continue from a turn: the fork lands in the forker’s namespace, with pro
  *  anchor would show one of them their own. The node suite asserts the field;
  *  this asserts what a reader actually sees. */
 /** Ada's profile, reached the way the product offers it — a byline door on a
- *  Commons card. Not `page.goto('/u/Acme, Inc.')`: the display name ends in a
- *  dot, and Vite's dev history fallback treats a dotted path as a FILE request,
- *  so the deep link never reaches the SPA and the app boots at '/' with view
- *  memory instead. An in-page door is the truer walk regardless. */
+ *  Commons card, not `page.goto('/u/Ada Lovelace')`. An in-page door is the
+ *  truer walk: it proves the byline IS a door, which a deep link never does.
+ *  (It was also once the only walk that worked — the seed namespace was named
+ *  "Acme, Inc." then, and Vite's dev history fallback treats a dotted path as a
+ *  FILE request, so that deep link never reached the SPA at all.) */
 async function openAdaProfile(page: Page) {
   await gotoSection(page, 'Commons')
-  await page.getByRole('button', { name: 'by Acme, Inc.', exact: true }).first().click()
-  await expect(page.getByRole('heading', { name: 'Acme, Inc.' })).toBeVisible({ timeout: 20_000 })
+  await page.getByRole('button', { name: 'by Ada Lovelace', exact: true }).first().click()
+  await expect(page.getByRole('heading', { name: 'Ada Lovelace' })).toBeVisible({ timeout: 20_000 })
 }
 
 test('follow → the Following lens; message → one thread with two ends', async ({ browser }) => {
@@ -659,7 +660,7 @@ test('follow → the Following lens; message → one thread with two ends', asyn
   const DM = `A direct question about the readout ${STAMP}`
   const DM_REPLY = `Answering from the other end ${STAMP}`
   const FOLLOW_PROJECT = `Follow walk ${STAMP}`
-  const GRACE_NAME = 'Beta Platform'
+  const GRACE_NAME = 'Grace Hopper'
 
   // ── Ada publishes something Grace can see, so the lens has a payload ───────
   await ada.page.goto('/')
@@ -718,30 +719,30 @@ test('follow → the Following lens; message → one thread with two ends', asyn
   // A thread with Ada already exists in the seed, so Message is a DOOR — it
   // lands on the conversation rather than opening a composer.
   await expect(grace.page).toHaveURL(/\/discussions\//, { timeout: 20_000 })
-  await grace.page.getByRole('textbox', { name: 'Reply to Acme, Inc.' }).fill(DM)
-  await grace.page.getByRole('button', { name: 'Reply to Acme, Inc.', exact: true }).click()
+  await grace.page.getByRole('textbox', { name: 'Reply to Ada Lovelace' }).fill(DM)
+  await grace.page.getByRole('button', { name: 'Reply to Ada Lovelace', exact: true }).click()
   await expect(grace.page.getByText(DM)).toBeVisible()
 
   // The page is titled with the OTHER party, and wears no resolve control —
   // a conversation with a person has no settled state to declare.
-  await expect(grace.page.getByRole('heading', { name: 'Acme, Inc.' })).toBeVisible()
+  await expect(grace.page.getByRole('heading', { name: 'Ada Lovelace' })).toBeVisible()
   await expect(grace.page.getByRole('button', { name: /Resolve/ })).toHaveCount(0)
 
   // ── Ada's end: her inbox names GRACE, not herself ─────────────────────────
   await gotoSection(ada.page, 'Messages')
-  const row = ada.page.getByRole('button', { name: 'Beta Platform', exact: true })
+  const row = ada.page.getByRole('button', { name: 'Grace Hopper', exact: true })
   await expect(row).toBeVisible({ timeout: 20_000 })
-  // The anchor of this thread is 'Acme, Inc.' — Ada's OWN name. A surface that
+  // The anchor of this thread is 'Ada Lovelace' — Ada's OWN name. A surface that
   // labelled the row from the anchor would show her herself, which is the whole
   // reason `counterpart` is computed per viewer.
-  await expect(ada.page.getByRole('button', { name: 'Acme, Inc.', exact: true })).toHaveCount(0)
+  await expect(ada.page.getByRole('button', { name: 'Ada Lovelace', exact: true })).toHaveCount(0)
   await row.click()
   await expect(ada.page.getByText(DM)).toBeVisible({ timeout: 20_000 })
 
   // And she can reply — being written to is standing to write back, even though
   // Grace's workspace publishes nothing Ada could have cold-opened to.
-  await ada.page.getByRole('textbox', { name: 'Reply to Beta Platform' }).fill(DM_REPLY)
-  await ada.page.getByRole('button', { name: 'Reply to Beta Platform', exact: true }).click()
+  await ada.page.getByRole('textbox', { name: 'Reply to Grace Hopper' }).fill(DM_REPLY)
+  await ada.page.getByRole('button', { name: 'Reply to Grace Hopper', exact: true }).click()
   await expect(ada.page.getByText(DM_REPLY)).toBeVisible()
 
   // One conversation, two ends: Grace sees Ada's reply in the same thread.
@@ -846,7 +847,7 @@ test('the square: compose → the feed carries it → a mention doors → a stra
   const ada = await newUser(browser)
   const grace = await newUser(browser, { 'x-tenant-id': 'tenant-beta' })
 
-  const SAID = `Shipped the body editor ${STAMP} — @Beta Platform want to try it?`
+  const SAID = `Shipped the body editor ${STAMP} — @Grace Hopper want to try it?`
   const REPLIED = `On it ${STAMP}`
 
   // ── Ada says something ────────────────────────────────────────────────────
@@ -861,10 +862,10 @@ test('the square: compose → the feed carries it → a mention doors → a stra
 
   // The mention is a DOOR, resolved by the server against real names — and it
   // lands on that person's profile.
-  const mention = ada.page.getByRole('button', { name: '@Beta Platform', exact: true }).first()
+  const mention = ada.page.getByRole('button', { name: '@Grace Hopper', exact: true }).first()
   await expect(mention).toBeVisible()
   await mention.click()
-  await expect(ada.page).toHaveURL(/\/u\/Beta(%20|\s)Platform/, { timeout: 20_000 })
+  await expect(ada.page).toHaveURL(/\/u\/Grace(%20|\s)Hopper/, { timeout: 20_000 })
 
   // ── Grace: it is in HER square too (no grant, no follow — that is the wall) ─
   await grace.page.goto('/')
@@ -907,10 +908,10 @@ test('the square: compose → the feed carries it → a mention doors → a stra
 
   // A COMMENTER's name is a door too (owner directive 2026-08-08) — the same
   // profile the mention above reached, from the byline of a reply. Ada's own
-  // byline on this card reads "Acme, Inc. (you)", so the exact name below can
+  // byline on this card reads "Ada Lovelace (you)", so the exact name below can
   // only be the reply's author: the card's head and its body door alike.
-  await ownCard.getByRole('button', { name: 'Beta Platform', exact: true }).click()
-  await expect(ada.page).toHaveURL(/\/u\/Beta(%20|\s)Platform/, { timeout: 20_000 })
+  await ownCard.getByRole('button', { name: 'Grace Hopper', exact: true }).click()
+  await expect(ada.page).toHaveURL(/\/u\/Grace(%20|\s)Hopper/, { timeout: 20_000 })
 
   // …and coming BACK finds the conversation as she left it (owner directive
   // 2026-08-08). The state has to outlive the page for this: the card unmounts
