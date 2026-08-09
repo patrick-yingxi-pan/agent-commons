@@ -261,3 +261,41 @@ Ada, follows the bell to the thread's page, and asserts Back both NAMES and
 REACHES **Notifications**. `e2e/notifications.spec.ts`'s five walks drive the
 page instead of a dialog; the bell carries `data-testid="notification-bell"`
 because it now shares its accessible name with the rail row it opens.
+
+## R11 — a bell is a POINTER at an act, so it dies with the act
+
+*(Owner-reported 2026-08-09.)* Grace's inbox read **"Acme, Inc. replied to your
+post"** twice, doored into a thread containing no such reply, and named a party
+whose profile said "Ada Lovelace". Three defects behind one row:
+
+1. **A retracted post left its bell standing.** `deleteDiscussionPost` removed
+   the post and nothing else, so the inbox went on announcing an act that had
+   un-happened, with a door that landed nowhere. `NOTIFICATION_CAP`'s own
+   contract already called the inbox *"a pointer cache over acts that remain
+   readable … not a second history"* — a pointer at a deleted act is not
+   history, it is a false claim. Fixed at the funnel: `retractNotifications`
+   is the inverse of `notifyTenants`, and every discussion bell now carries the
+   **`postId`** it announces (server-private) so retraction can find exactly its
+   own row — `discussionId` would have silenced the thread's survivors too. The
+   last delete dissolves the thread and takes every remaining row with it.
+2. **The actor NAME had no authority id.** Every other social row pairs a public
+   name with the raw id it derives from; the inbox was the exception, so the
+   2026-08-09 namespace rename left it speaking the old name one click away from
+   the new one. Rows now carry **`actorTenant`**, and `refreshStoredNames`
+   re-derives `actor` on load like every other stored public face.
+3. **Rows minted before those anchors** still sat in snapshots, unreachable by
+   either fix. `retractOrphanedBells` reconciles them at load: a bell whose
+   thread is gone, or whose named post is gone, or — for a legacy row — with no
+   surviving post at its own timestamp (`notifyTenants` stamps `at` in the same
+   tick as the post) is retracted.
+
+**The mistake worth keeping.** The legacy arm first judged a row by whether its
+`actor` name still resolved — and swept two *correct* bells out of the owner's
+store on first run, because after a rename no legacy name resolves. That is the
+staleness this whole change exists to tolerate; it says nothing about whether the
+act happened. Locked by `tests/snapshot.test.ts`, which plants a rename-orphaned
+bell and requires it to SURVIVE, alongside the orphans that must not.
+
+Locks: `tests/posts.test.ts` (retraction takes only its own bell; the last delete
+takes the rest; the name re-derives from `actorTenant`), `tests/snapshot.test.ts`
+(the load-time sweep, in both directions).

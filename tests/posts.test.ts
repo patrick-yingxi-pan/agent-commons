@@ -15,6 +15,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from '../server/store.ts'
+import { accounts } from '../server/accounts.ts'
+import { refreshStoredNames } from '../server/store.ts'
 import { call } from './helpers/http.ts'
 
 const ADA = 'tenant-acme'
@@ -151,6 +153,64 @@ test('a post rings NOBODY; a reply rings the author', async () => {
   // was minted to avoid, one slice earlier.
   assert.equal(rung[0].subjectName, undefined, 'a bell never labels the reader with their own name')
 })
+
+test('a RETRACTED post takes its bell with it — the inbox never announces an act that no longer happened', async () => {
+  // Owner-reported 2026-08-09: the inbox read "X replied to your post" twice for
+  // replies that had since been deleted, and its door landed in a thread where
+  // the reader could not find them. A bell is a POINTER at an act; retracting
+  // the act must retract the pointer ("un-sharing silences the stale audience",
+  // applied to deletion).
+  const p = await post(`Something worth replying to @${GRACE_NAME}`, ADA)
+  const mineNow = () => store.listNotifications(GRACE).filter((n) => n.discussionId === p.json.id)
+  // Precondition: the mention bell really rang, so a later silence is the
+  // RETRACTION and not a mention that never resolved (the vacuous-lock trap).
+  assert.equal(mineNow().length, 1, 'the opening post rang its mention')
+
+  const reply = await call('POST', `/discussions/${p.json.id}/posts`, { body: `and @${GRACE_NAME} again` }, { 'x-tenant-id': ADA })
+  assert.equal(reply.status, 200)
+  const replyId = reply.json.posts[reply.json.posts.length - 1].id
+  assert.equal(mineNow().length, 2, 'the reply rang too')
+
+  // Retract ONLY the reply: its bell goes, the opening post's bell stays. This
+  // is why the row carries the POST id — `discussionId` would silence both.
+  const gone = await call('DELETE', `/discussions/${p.json.id}/posts/${replyId}`, undefined, { 'x-tenant-id': ADA })
+  assert.equal(gone.status, 200)
+  const left = mineNow()
+  assert.equal(left.length, 1, 'the retracted post’s bell is gone, and only that one')
+  assert.equal(left[0].postId, undefined, 'and the server-private anchor never crosses the wire')
+
+  // Dissolving the thread takes the survivor too — a bell that cannot be opened
+  // is worse than no bell.
+  const firstId = p.json.posts[0].id
+  assert.equal((await call('DELETE', `/discussions/${p.json.id}/posts/${firstId}`, undefined, { 'x-tenant-id': ADA })).status, 200)
+  assert.equal(mineNow().length, 0, 'the last delete dissolves the thread, so every bell doored into it dies')
+})
+
+test('a bell’s actor NAME is a cache of its actor tenant — a rename re-derives it', async () => {
+  // The inbox was the one social store carrying a public name with no authority
+  // id beside it, and it showed: after the 2026-08-09 seed rename the bell said
+  // "Acme, Inc. replied to your post" while the post it doored into was signed
+  // "Ada Lovelace" — one person, two names, one click apart.
+  const p = await post('A post whose reply will outlive a rename', ADA)
+  await call('POST', `/discussions/${p.json.id}/posts`, { body: 'replying' }, { 'x-tenant-id': GRACE })
+  const bell = () => store.listNotifications(ADA).find((n) => n.discussionId === p.json.id && n.kind === 'social.replied')
+  assert.equal(bell()?.actor, GRACE_NAME)
+  assert.equal(bell()?.actorTenant, undefined, 'the raw id stays server-private (D23)')
+
+  const tenant = accounts.tenants.get(GRACE)
+  assert.ok(tenant, 'the actor tenant is in the registry')
+  const original = tenant.name
+  try {
+    tenant.name = 'Grace H.'
+    refreshStoredNames()
+    assert.equal(bell()?.actor, 'Grace H.', 'the stored name re-derives from the actor tenant on load')
+  } finally {
+    tenant.name = original
+    refreshStoredNames()
+  }
+  assert.equal(bell()?.actor, GRACE_NAME, 'and back again — the name is never the authority')
+})
+
 
 test('@mentions ring the named — resolved server-side, and only where they can read', async () => {
   const before = store.listNotifications(GRACE).filter((n) => n.kind === 'social.mentioned').length

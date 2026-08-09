@@ -1010,7 +1010,9 @@ function notifyTenants(
   const unique = new Set(recipients)
   unique.delete(actorTenant)
   for (const tenantId of unique) {
-    notifications.push({ ...row, id: `ntf-${(notificationSeq += 1)}`, tenantId, at, read: false })
+    // `actorTenant` rides every row: the display name in `row.actor` is a CACHE
+    // of it, re-derived on load like every other stored public face.
+    notifications.push({ ...row, actorTenant, id: `ntf-${(notificationSeq += 1)}`, tenantId, at, read: false })
     // Per-tenant cap: evict oldest (a pointer cache, not a second history).
     const mine = notifications.filter((x) => x.tenantId === tenantId)
     if (mine.length > NOTIFICATION_CAP) {
@@ -1021,6 +1023,20 @@ function notifyTenants(
     }
     emit({ type: 'notification.changed', tenantId })
   }
+}
+
+/** Drop every inbox row matching `doomed`, and tell each affected recipient's
+ *  stream. The inverse of `notifyTenants`: bells are minted when an act happens
+ *  and must die when it un-happens, or the inbox outlives its own subject matter
+ *  (the "un-sharing silences the stale audience" rule, applied to retraction). */
+function retractNotifications(doomed: (n: StoredNotification) => boolean): void {
+  const touched = new Set<string>()
+  for (let i = notifications.length - 1; i >= 0; i -= 1) {
+    if (!doomed(notifications[i])) continue
+    touched.add(notifications[i].tenantId)
+    notifications.splice(i, 1)
+  }
+  for (const tenantId of touched) emit({ type: 'notification.changed', tenantId })
 }
 
 /** A work item's interested tenants: the Project's watchers, its owner, and the
@@ -1972,8 +1988,11 @@ function persist(): void {
  *  nobody could only have been orphaned — pruning it can't discard a live
  *  preference. `mutes` is deliberately NOT pruned: `setMute` takes any string
  *  by design (an earmuff is a pure preference, and one may legitimately name a
- *  party this store has never heard of), so absence there proves nothing. */
-function refreshStoredNames(): void {
+ *  party this store has never heard of), so absence there proves nothing.
+ *
+ *  Exported for its unit lock (tests/posts.test.ts), like `reconcileSeedTenancy`;
+ *  rehydrate is the one runtime caller. */
+export function refreshStoredNames(): void {
   const known = (id: string | undefined): boolean => id !== undefined && accounts.tenants.has(id)
   for (const g of grants) {
     if (known(g.granterTenant)) g.grantedBy = tenantName(g.granterTenant)
@@ -1990,11 +2009,54 @@ function refreshStoredNames(): void {
       if (known(p.authorTenant)) p.author = tenantName(p.authorTenant)
     }
   }
+  for (const n of notifications) {
+    if (n.actorTenant !== undefined && known(n.actorTenant)) n.actor = tenantName(n.actorTenant)
+  }
   const live = new Set([...accounts.tenants.values()].map((t) => t.name))
   for (const [tenantId, names] of follows) {
     for (const n of names) if (!live.has(n)) names.delete(n)
     if (names.size === 0) follows.delete(tenantId)
   }
+}
+
+/** ── The inbox is a PROJECTION over acts, reconciled on load ─────────────────
+ *  `NOTIFICATION_CAP`'s own contract calls the inbox "a pointer cache over acts
+ *  that remain readable on their backlogs/profiles, not a second history" — so a
+ *  pointer at an act that is gone is not history worth keeping, it is a false
+ *  claim with a dead door. `deleteDiscussionPost` retracts a bell as the post is
+ *  retracted; this is the same rule applied to a SNAPSHOT, which is where rows
+ *  minted before that funnel existed still sit.
+ *
+ *  A discussion bell asserts exactly one thing — *a post landed in this thread* —
+ *  so it can be checked. In order of what the row can prove:
+ *    • its thread is gone → dissolved; the door 404s.
+ *    • it names a POST (every row minted since `postId`) that no longer exists.
+ *    • legacy rows name no post, but `notifyTenants` stamps `at` in the same
+ *      tick as the post it announces — so a surviving post at that INSTANT is
+ *      the act, and no surviving post there means the act was retracted before
+ *      `postId` existed to say which one it was.
+ *
+ *  The timestamp is the right legacy key precisely because the NAME is not.
+ *  Judging a legacy row by whether its `actor` still resolves swept two correct
+ *  bells out of the owner's own store on first run: after a rename no legacy
+ *  actor name resolves, which is the staleness this whole change exists to
+ *  tolerate — it says nothing about whether the act happened. Erring is
+ *  one-directional here: two posts inside the window make a deleted one's bell
+ *  match its neighbour and survive, which is a stale bell (recoverable) rather
+ *  than a destroyed one (not).
+ *
+ *  Scoped to bells carrying a `discussionId` — `work.*` / `proposal.*` rows
+ *  point at acts this sweep cannot see. */
+const LEGACY_BELL_WINDOW_MS = 2_000
+function retractOrphanedBells(): void {
+  const byId = new Map(discussions.map((d) => [d.id, d]))
+  retractNotifications((n) => {
+    if (n.discussionId === undefined) return false
+    const d = byId.get(n.discussionId)
+    if (d === undefined) return true
+    if (n.postId !== undefined) return !d.posts.some((p) => p.id === n.postId)
+    return !d.posts.some((p) => Math.abs(p.at - n.at) <= LEGACY_BELL_WINDOW_MS)
+  })
 }
 
 /** Replace the in-memory state with a loaded snapshot (rehydrate on boot). The
@@ -2198,9 +2260,6 @@ function rehydrate(s: PersistedState): void {
     for (const n of names) set.add(n)
     follows.set(t, set)
   }
-  // Every restored display name is a cache — re-derive (and prune) now that
-  // both the account registry and all four social stores are loaded.
-  refreshStoredNames()
   discussionReads.clear()
   for (const [t, marks] of s.discussionReads ?? []) discussionReads.set(t, new Map(marks))
   // D24 — watches + the inbox (empty for a pre-field snapshot); counter falls back
@@ -2235,6 +2294,13 @@ function rehydrate(s: PersistedState): void {
   replaceMap(AGENT_PROPOSALS, s.agentProposals) // D25 (no-op for a pre-field snapshot)
   replaceMap(A2A_PEERS, s.a2aPeers) // D28 (no-op for a pre-field snapshot)
   a2aPeerSeq = A2A_PEERS.size // ids are `peer-N`; size floors the counter safely past restores
+  // LAST: every restored display name is a cache, and this re-derives (and
+  // prunes) across the account registry, the grants, the threads, the follows
+  // and the inbox — so it runs once, after all of them are loaded. The bell
+  // sweep runs after it, so a row whose name was just re-derived is judged by
+  // the name it actually wears now.
+  refreshStoredNames()
+  retractOrphanedBells()
   // Run sessions are ordinary persisted rows, but a snapshot written before they
   // were (or one whose 'running' run was just swept to 'failed' above) can miss a
   // row or its recap — re-materialize through the same funnel, idempotently.
@@ -5482,7 +5548,10 @@ export const store = {
     // your thing, which is exactly when you want to know. (The append path rings
     // from postToDiscussion; a new thread has no other participants yet, so the
     // audience is just the anchor's owner.)
-    notifyTenants(this.discussionAudience(d), tenantId, discussionBell(d, tenantId, this.commonsSubjectFace(d.anchor.ref).name))
+    notifyTenants(this.discussionAudience(d), tenantId, {
+      ...discussionBell(d, tenantId, this.commonsSubjectFace(d.anchor.ref).name),
+      postId: d.posts[0].id,
+    })
     emit({ type: 'discussion.changed', discussionId: d.id, anchor: d.anchor })
     persist()
     return publicDiscussion(d, tenantId)
@@ -5545,6 +5614,7 @@ export const store = {
       kind: 'social.mentioned',
       actor: tenantName(tenantId),
       discussionId: d.id,
+      postId: post.id,
     })
   },
   /** The caller's discussions hub read (S2): threads they PARTICIPATE in
@@ -5592,7 +5662,10 @@ export const store = {
     d.posts.push(post)
     // Someone is talking about your thing / replied where you're talking. The
     // one social act whose subject nobody would otherwise be told about.
-    notifyTenants(audience, tenantId, discussionBell(d, tenantId, this.commonsSubjectFace(d.anchor.ref).name))
+    notifyTenants(audience, tenantId, {
+      ...discussionBell(d, tenantId, this.commonsSubjectFace(d.anchor.ref).name),
+      postId: post.id,
+    })
     // S8 — and anyone this post NAMES, wherever it was written: a mention is
     // addressed at a person, so it reaches them even when they are neither the
     // anchor's owner nor already in the thread.
@@ -5657,10 +5730,18 @@ export const store = {
     // The SAME predicate the wire face reports (`post.canDelete`).
     if (!canDeletePost(d, d.posts[i].authorTenant, tenantId)) return 'forbidden'
     d.posts.splice(i, 1)
-    if (d.posts.length === 0) discussions.splice(discussions.indexOf(d), 1)
+    const dissolved = d.posts.length === 0
+    if (dissolved) discussions.splice(discussions.indexOf(d), 1)
+    // A bell is a POINTER at an act — so retracting the act retracts the bell.
+    // Without this, a deleted post went on announcing itself: the inbox claimed
+    // a reply that no longer existed, and its door landed in a thread where the
+    // reader could not find one (owner-reported 2026-08-09). Dissolving the
+    // thread takes every remaining row with it — their door is gone too, and a
+    // bell that cannot be opened is worse than no bell.
+    retractNotifications((n) => (dissolved ? n.discussionId === did : n.postId === pid))
     emit({ type: 'discussion.changed', discussionId: d.id, anchor: d.anchor })
     persist()
-    return d.posts.length === 0 ? null : publicDiscussion(d, tenantId)
+    return dissolved ? null : publicDiscussion(d, tenantId)
   },
   /** Report a post (S5): rings the ANCHOR OWNER — the moderator who holds the
    *  delete. Owner moderation first; instance-level escalation is S6. */
@@ -6925,7 +7006,7 @@ export const store = {
     return notifications
       .filter((x) => tenantReadsAs(tenantId, x.tenantId))
       .filter((x) => !muted?.has(x.actor)) // S5 earmuff — the bell honors the mute too
-      .map(({ tenantId: _recipient, ...pub }) => pub)
+      .map(({ tenantId: _recipient, actorTenant: _actor, postId: _post, ...pub }) => pub)
       .reverse()
   },
   /** Mark the caller's rows read — the named ids, or all. Idempotent; emits (and

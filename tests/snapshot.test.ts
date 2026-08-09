@@ -270,6 +270,39 @@ test('the built snapshot boots through the real rehydrate path', async () => {
   const follower = stale.follows[0]
   assert.ok(follower, 'the snapshot carries a follow to orphan')
   follower[1] = [...follower[1], 'Stale, Inc.']
+
+  // ── The inbox is a PROJECTION over acts (owner-reported 2026-08-09) ────────
+  // Plant two LEGACY discussion bells — no postId, no actorTenant, exactly what
+  // a row minted before those anchors looks like — each announcing an act that
+  // cannot be found. A snapshot is where such rows live, so the sweep runs on
+  // load. The third row announces a real, surviving post and must survive: a
+  // sweep that took everything would pass this test having broken the feature.
+  const withPosts = stale.discussions.find((d: any) => d.posts.length > 0)
+  assert.ok(withPosts, 'the snapshot carries a thread to point at')
+  const realActor = accounts.tenants.get(withPosts.posts[0].authorTenant)?.name
+  assert.ok(realActor, 'and its author is a live tenant')
+  const bell = (id: string, extra: any) => ({
+    id,
+    kind: 'social.replied',
+    actor: realActor,
+    discussionId: withPosts.id,
+    tenantId: withPosts.openerTenant,
+    at: withPosts.posts[0].at,
+    read: false,
+    ...extra,
+  })
+  stale.notifications = [
+    ...(stale.notifications ?? []),
+    bell('ntf-orphan-thread', { discussionId: 'disc-vanished' }),
+    // Legacy row whose act is gone: no post survives at its instant.
+    bell('ntf-orphan-act', { at: withPosts.posts[0].at + 60 * 60_000 }),
+    // Legacy row a RENAME orphaned: its actor name resolves to nobody, but the
+    // post it announces is right there. It MUST survive — judging a legacy row
+    // by its name swept two correct bells out of the owner's own store, because
+    // after a rename no legacy name resolves.
+    bell('ntf-renamed-actor', { actor: 'A Name Nobody Wears Now' }),
+    bell('ntf-live', {}),
+  ]
   writeFileSync(BUILD_STORE, JSON.stringify(stale))
 
   const { store } = await import('../server/store.ts')
@@ -285,6 +318,12 @@ test('the built snapshot boots through the real rehydrate path', async () => {
   assert.equal(freshDm?.posts[0].author, nameOf(dm.posts[0].authorTenant), 'a post author re-derives from authorTenant')
   const freshGrant = store.listGrants(grant.subject, grant.granterTenant).find((g) => g.id === grant.id)
   assert.equal(freshGrant?.grantedBy, nameOf(grant.granterTenant), 'grantedBy re-derives from granterTenant')
+  const inbox = store.listNotifications(withPosts.openerTenant).map((n) => n.id)
+  assert.ok(!inbox.includes('ntf-orphan-thread'), 'a bell into a dissolved thread is swept — its door 404s')
+  assert.ok(inbox.includes('ntf-renamed-actor'), 'a bell a RENAME orphaned SURVIVES: a stale actor name is not a missing act')
+  assert.ok(!inbox.includes('ntf-orphan-act'), 'a legacy bell with no post at its instant is swept')
+  assert.ok(inbox.includes('ntf-live'), 'and a bell whose act is still there SURVIVES — the sweep is not a purge')
+
   const kept = store.listFollows(follower[0])
   assert.ok(!kept.includes('Stale, Inc.'), 'a follow naming nobody is pruned, never left to trap the next signup')
   assert.deepEqual(kept, [...follower[1]].filter((n: string) => n !== 'Stale, Inc.').sort(), 'and every live follow survives')

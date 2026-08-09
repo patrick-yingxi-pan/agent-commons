@@ -67,10 +67,32 @@ import { join } from 'node:path'
  *  matching how `savedContexts?` / `auditLog?` were added.) */
 export const STORE_VERSION = 5
 
-/** A notification as STORED — the wire row plus its recipient tenant (server-private;
- *  the tenant-scoped read serves only the caller's own rows, as `AppNotification`). */
+/** A notification as STORED — the wire row plus three server-private anchors the
+ *  read strips (the caller sees a plain `AppNotification`).
+ *
+ *  `tenantId` is the RECIPIENT. The other two exist because a bell is a POINTER
+ *  at an act, and a pointer must survive what happens to the thing it points at:
+ *
+ *  • `actorTenant` — the ACTOR's raw id, so the row's `actor` display name can be
+ *    re-derived when a namespace is renamed (`refreshStoredNames`). Every other
+ *    social row already pairs a public name with its authority id
+ *    (`granterTenant`, `openerTenant`, `authorTenant`); the inbox was the one
+ *    that did not, and it showed: after the 2026-08-09 seed rename the bell said
+ *    "Acme, Inc. replied to your post" while the post it doored into was signed
+ *    "Ada Lovelace" — the same person named two ways across one click.
+ *
+ *  • `postId` — the exact discussion post the bell ANNOUNCES. Without it a
+ *    retracted post left its bell standing: the inbox went on claiming a reply
+ *    that no longer existed, and the door landed in a thread where the reader
+ *    could not find it. `discussionId` cannot stand in — a thread carries many
+ *    posts, and dropping every bell for the thread would silence the survivors.
+ *
+ *  Both additive-optional: a row written before them keeps the name it was
+ *  minted with, and is simply not retractable — the honest degrade. */
 export interface StoredNotification extends AppNotification {
   tenantId: string
+  actorTenant?: string
+  postId?: string
 }
 
 /** A thread comment as STORED — the wire row plus the acting principal (FWD-5
