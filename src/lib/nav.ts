@@ -12,6 +12,7 @@
  *  aren't in any list to look up later); a section location carries only ids, and
  *  its label is resolved at render from the live project / schedule names. */
 import type { SectionId } from '../types'
+import { PANE_SEED_KEYS, type PaneSeed } from './paneNav.ts'
 
 export type NavLocation =
   | { kind: 'session'; sessionId: string; title: string }
@@ -100,18 +101,64 @@ export function pushLocation(stack: NavLocation[], leaving: NavLocation, to: Nav
   return [...stack, leaving]
 }
 
-/** The label for the back button: the destination it will return to. Section
- *  detail pages resolve their project / routine name from the live maps; a bare
- *  section falls back to its list name; a session uses its carried title. */
-export function resolveBackLabel(
-  to: NavLocation | null,
-  names: { project?: Record<string, string>; schedule?: Record<string, string> } = {},
-): string {
+/** The registries the back label can name a page from — a RUNTIME list, so the
+ *  lock can enumerate them and check the one supplier feeds every one. A total
+ *  `resolveBackLabel` handed a half-filled map degrades exactly like the bug it
+ *  replaced, silently, so "is it total?" and "is it fed?" are two questions and
+ *  both are asked (`tests/nav.test.ts`). */
+export const BACK_LABEL_SOURCES = ['project', 'schedule', 'discussion', 'artifact', 'context', 'provider', 'agent'] as const
+
+/** Live display names for the back label, one map per registry, keyed by id.
+ *  Supplied by `BackButton` from the same api hooks the pages themselves read
+ *  (UI-12: every displayed datum reads a LIVE source) — a name absent from a
+ *  map degrades to the section label rather than showing an id. */
+export type BackLabelNames = Partial<Record<(typeof BACK_LABEL_SOURCES)[number], Record<string, string>>>
+
+/** How each DETAIL kind names itself. Typed as a mapped type over `PaneSeed`,
+ *  so the compiler — not a reviewer — forces a decision here the moment a new
+ *  detail kind is added: an unlabeled one used to fall silently through to its
+ *  SECTION name, which is how "Back to Discussions" came to point at one
+ *  specific thread. Returning `undefined` is the honest "no name to give",
+ *  and the caller degrades to the section label. */
+const DETAIL_LABEL: {
+  [K in keyof Required<PaneSeed>]: (id: string, names: BackLabelNames) => string | undefined
+} = {
+  projectId: (id, n) => n.project?.[id],
+  scheduleId: (id, n) => n.schedule?.[id],
+  // A namespace profile is its own label — the display name IS the page (D21).
+  ownerName: (id) => id,
+  // Both are pages NESTED under a project, and `projectId` is reached first
+  // below (it precedes them in PANE_SEED_KEYS), so these are unreachable in
+  // practice — a work item's back reads its project, which is where it lives.
+  // They exist because the map is total, which is the point of the map.
+  workItemId: () => undefined,
+  contributionId: () => undefined,
+  agentId: (id, n) => n.agent?.[id],
+  contextId: (id, n) => n.context?.[id],
+  // The maintainer console's account detail: its roster is grant-walled and
+  // fetched only by the console itself, so a back label would mean a
+  // cross-tenant read from every page in the app. "Maintain" it is.
+  adminUserId: () => undefined,
+  discussionId: (id, n) => n.discussion?.[id],
+  artifactId: (id, n) => n.artifact?.[id],
+  providerId: (id, n) => n.provider?.[id],
+}
+
+/** The label for the back button: the destination it will return to, NAMED.
+ *  A session uses its carried title (resolved when you leave it — run sessions
+ *  are in no list to look up later); a section DETAIL page resolves its own
+ *  name through `DETAIL_LABEL`; a bare section is its list name.
+ *
+ *  The detail walk follows `PANE_SEED_KEYS` — the one ordered key list every
+ *  other seed mapping walks — so precedence is a property of that list rather
+ *  than of the order somebody happened to write the branches in. */
+export function resolveBackLabel(to: NavLocation | null, names: BackLabelNames = {}): string {
   if (!to) return 'Back'
   if (to.kind === 'session') return to.title || 'Back'
-  if (to.projectId) return names.project?.[to.projectId] ?? SECTION_LABELS.projects
-  if (to.scheduleId) return names.schedule?.[to.scheduleId] ?? SECTION_LABELS.scheduled
-  // A workspace profile is its own label — the display name IS the page (D21).
-  if (to.ownerName) return to.ownerName
+  for (const key of PANE_SEED_KEYS) {
+    const id = to[key]
+    if (!id) continue
+    return DETAIL_LABEL[key](id, names) ?? SECTION_LABELS[to.section]
+  }
   return SECTION_LABELS[to.section]
 }

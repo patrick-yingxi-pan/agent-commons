@@ -4,7 +4,11 @@
  *  push→pop sequence, and the destination-naming label. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { sameLocation, pushLocation, resolveBackLabel, SECTION_LABELS, type NavLocation } from '../src/lib/nav.ts'
+import { sameLocation, pushLocation, resolveBackLabel, SECTION_LABELS, type BackLabelNames, type NavLocation } from '../src/lib/nav.ts'
+import { PANE_SEED_KEYS } from '../src/lib/paneNav.ts'
+import { BACK_LABEL_SOURCES } from '../src/lib/nav.ts'
+import { join } from 'node:path'
+import { ROOT, concatSource, read, stripComments } from './helpers/source.ts'
 import type { SectionId } from '../src/types.ts'
 
 const session = (id: string, title = id): NavLocation => ({ kind: 'session', sessionId: id, title })
@@ -79,4 +83,78 @@ test('resolveBackLabel falls back gracefully when a name is missing', () => {
   assert.equal(resolveBackLabel(session('s1', '')), 'Back', 'an empty title is not shown')
   assert.equal(resolveBackLabel(projectDetail('p9'), {}), SECTION_LABELS.projects, 'unknown project ⇒ section name')
   assert.equal(resolveBackLabel(routineDetail('r9'), {}), SECTION_LABELS.scheduled)
+})
+
+test('EVERY detail kind names itself — a back label never says the section for a page', () => {
+  // The defect this locks, found walking the byline door (2026-08-09): back
+  // from a profile to the THREAD you came from landed correctly on
+  // /discussions/disc-seed-1 and announced "Back to Discussions". The label
+  // named only project / schedule / owner, and every other detail kind fell
+  // silently through to its section — so the control's tooltip and its
+  // accessible name (WCAG 4.1.2) described a page other than the one it opens.
+  //
+  // Enumerated from PANE_SEED_KEYS rather than hand-listed, so a NEW detail
+  // kind fails here until it is given a name (the compiler already forces a
+  // DETAIL_LABEL entry; this forces the entry to be a decision, not a stub).
+  const NAMED: Partial<Record<(typeof PANE_SEED_KEYS)[number], { section: SectionId; names: BackLabelNames; want: string }>> = {
+    projectId: { section: 'projects', names: { project: { x: 'Q4 launch planning' } }, want: 'Q4 launch planning' },
+    scheduleId: { section: 'scheduled', names: { schedule: { x: 'Daily news briefing' } }, want: 'Daily news briefing' },
+    ownerName: { section: 'commons', names: {}, want: 'x' },
+    agentId: { section: 'agents', names: { agent: { x: 'Atlas Guide' } }, want: 'Atlas Guide' },
+    contextId: { section: 'contexts', names: { context: { x: 'acme/insights' } }, want: 'acme/insights' },
+    discussionId: { section: 'discussions', names: { discussion: { x: 'Is the retention cut…' } }, want: 'Is the retention cut…' },
+    artifactId: { section: 'artifacts', names: { artifact: { x: 'Launch brief' } }, want: 'Launch brief' },
+    providerId: { section: 'models', names: { provider: { x: 'Together' } }, want: 'Together' },
+  }
+  // The two deliberate abstentions, each with its reason in DETAIL_LABEL: a
+  // work item / contribution is NESTED under its project (which the walk
+  // reaches first, so its label is the project's — asserted below), and the
+  // console's account roster is grant-walled, so naming it would mean a
+  // cross-tenant read from every page in the app.
+  const UNNAMED = ['workItemId', 'contributionId', 'adminUserId'] as const
+  for (const key of PANE_SEED_KEYS) {
+    const spec = NAMED[key]
+    if (!spec) {
+      assert.ok(UNNAMED.includes(key as (typeof UNNAMED)[number]), `${key} has no back label and no argued reason to lack one`)
+      continue
+    }
+    const to: NavLocation = { kind: 'section', section: spec.section, projectId: null, scheduleId: null, [key]: 'x' }
+    assert.equal(resolveBackLabel(to, spec.names), spec.want, `${key} names its own page`)
+    // …and degrades to the section name when the registry hasn't got it.
+    assert.equal(
+      resolveBackLabel(to, {}),
+      key === 'ownerName' ? 'x' : SECTION_LABELS[spec.section],
+      `${key} degrades to its section when unnamed`,
+    )
+  }
+  // A work item's page reads its PROJECT — nested pages take the container's
+  // name, which is why the walk follows PANE_SEED_KEYS order rather than the
+  // order the branches happen to be written in.
+  const workItem: NavLocation = { kind: 'section', section: 'projects', projectId: 'p1', scheduleId: null, workItemId: 'w1' }
+  assert.equal(resolveBackLabel(workItem, { project: { p1: 'Q4 launch planning' } }), 'Q4 launch planning')
+})
+
+test('the ONE back control feeds every name source it can be asked for', () => {
+  // Totality is half the guarantee: a complete function handed a half-filled
+  // map degrades to the section name exactly like the bug, and just as
+  // silently. `BackButton` is the sole caller, so the pairing is checkable —
+  // enumerated from BACK_LABEL_SOURCES, not from a list written twice.
+  const back = stripComments(read(join(ROOT, 'src', 'components', 'BackButton.tsx')))
+  for (const source of BACK_LABEL_SOURCES) {
+    assert.match(back, new RegExp(`\\b${source}:\\s`), `BackButton supplies no live \`${source}\` names`)
+  }
+  // Both directions: a source nobody reads is a map built on every render for
+  // nothing (and a label case somebody meant to write).
+  const nav = stripComments(read(join(ROOT, 'src', 'lib', 'nav.ts')))
+  for (const source of BACK_LABEL_SOURCES) {
+    assert.ok(nav.includes(`n.${source}?.[id]`), `no DETAIL_LABEL case reads the \`${source}\` names`)
+  }
+  // And it is the ONE control — the label can't drift because there is nowhere
+  // for a second copy to drift from.
+  const components = concatSource('src/components')
+  assert.equal(
+    components.split('resolveBackLabel(').length - 1,
+    1,
+    'exactly one caller of resolveBackLabel — the shared BackButton',
+  )
 })

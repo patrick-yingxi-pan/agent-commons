@@ -337,7 +337,15 @@ the same behaviour — worth remembering as a shape: **when a rule needs an
 exception, check whether the thing needing it is in the wrong form.** An
 overlay can never be returned to, because it is not a place. The affordance is the one
 `BackButton` (`src/components/BackButton.tsx`) on detail pages, hub `PageHeader`s
-(when history exists), and the `SessionTitleBar`. Browser Back/Forward apply
+(when history exists), and the `SessionTitleBar`. **It names the page it opens**
+— `resolveBackLabel` walks `PANE_SEED_KEYS` through `DETAIL_LABEL`, a mapped
+type over `PaneSeed` so the compiler forces a label case for every detail kind
+(the old chain named project / schedule / owner and let the rest fall silently
+through to their SECTION: back from a profile landed on one thread and said
+"Back to Discussions"). Names come from live registries — `BACK_LABEL_SOURCES`,
+supplied by the ONE `BackButton`; the lock checks both that the function is
+total and that its supplier feeds every source, because a complete function
+handed a half-filled map degrades exactly like the bug (`tests/nav.test.ts`). Browser Back/Forward apply
 per page too (`planPop`): pop the focused pane's own back top, else REFOCUS the
 pane already showing the address (never clobber with a duplicate), else plain
 route. When adding a door, decide which side of the page/chrome line it's on —

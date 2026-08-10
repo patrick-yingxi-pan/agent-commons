@@ -73,6 +73,41 @@ test("a conversation's breadcrumb page carries back to the conversation (page �
   await expect(page).toHaveURL(/\/s\/auth-refactor$/)
 })
 
+test('an OWNER BYLINE carries its origin — and the back control names the page, not the section', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 })
+  // A thread's own page, reached from the list (the pane's in-section stack).
+  await page.goto('/discussions')
+  await expect(page.getByRole('heading', { name: 'Discussions' })).toBeVisible()
+  const main = page.locator('[data-main-pane]')
+  const thread = main.getByRole('button', { name: /retention cut/ }).first()
+  await expect(thread).toBeVisible()
+  await thread.click()
+  await expect(page).toHaveURL(/\/discussions\/disc-seed-1$/)
+
+  // A post's AUTHOR is an in-page door onto that namespace's profile (UI-23) —
+  // and since 2026-08-09 the Commons hosts profiles, so this is a
+  // cross-section retarget: the pane goes to the profile with the thread
+  // pushed onto its back stack.
+  await main.getByRole('button', { name: 'Grace Hopper', exact: true }).first().click()
+  await expect(page).toHaveURL(/\/u\/Grace%20Hopper$/)
+  await expect(page.getByRole('heading', { name: 'Grace Hopper' })).toBeVisible()
+
+  // The control must NAME the page it opens. It landed on the thread correctly
+  // and announced "Back to Discussions" — the section — because the label
+  // resolved only project / schedule / owner names and every other detail kind
+  // fell through to its section (fixed 2026-08-09; the pure half is locked in
+  // tests/nav.test.ts). A tooltip and an accessible name that describe a
+  // different page than the button opens is the defect, WCAG 4.1.2.
+  const back = page.getByRole('button', { name: /^Back to / })
+  await expect(back).toHaveAttribute('aria-label', /^Back to Read through the Q3 baseline/)
+  await back.click()
+  await expect(page).toHaveURL(/\/discussions\/disc-seed-1$/)
+
+  // And the chain continues out to the list the thread was opened from.
+  await page.getByRole('button', { name: /^Back to / }).click()
+  await expect(page).toHaveURL(/\/discussions$/)
+})
+
 test('browser Back after a FOCUS HOP refocuses the pane that projected the address — never clobbers with a duplicate', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto('/s/auth-refactor')
