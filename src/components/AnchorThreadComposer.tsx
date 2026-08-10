@@ -11,12 +11,15 @@
  *  (subject, locus) — `openDiscussion` in server/store.ts). So callers that
  *  don't already hold the thread may pass `thread: null` and still land in the
  *  right conversation — two clients racing the first post can't fork it. */
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { AnchorLocus, Discussion, SocialEntityRef } from '../../contract/index.ts'
 import { openDiscussion, postToDiscussion } from '../api'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { SOFT_BUTTON_CLASS } from '../lib/button'
 import { composerRows, FIELD_BARE_CLASS, FIELD_SHELL_CLASS } from '../lib/formInput'
+import { POPOVER_SURFACE } from '../lib/popover'
+import { usePopoverShift } from '../lib/usePopoverShift'
+import { applyMention, mentionQuery, suggestMentions, threadVoices } from '../lib/mentionPicker'
 
 export function AnchorThreadComposer({
   subject,
@@ -56,6 +59,39 @@ export function AnchorThreadComposer({
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // ── The @-mention picker (S8) ──────────────────────────────────────────────
+  // A mention only rings if the author reproduces a whole display name, and
+  // every name in this world contains a space — so the composer offers the
+  // names this conversation has already heard rather than leaving the writer to
+  // remember them. The roster is derived from the thread it is already given
+  // (`threadVoices`), so this costs no fetch and mints no new wire face.
+  const fieldRef = useRef<HTMLTextAreaElement>(null)
+  const [mention, setMention] = useState<{ at: number; query: string } | null>(null)
+  const [armed, setArmed] = useState(0)
+  const options = mention ? suggestMentions(threadVoices(thread), mention.query) : []
+  const popRef = usePopoverShift<HTMLUListElement>(options.length > 0)
+  // A mention that was just COMPLETED must not re-arm the picker: accepting one
+  // moves the caret, a caret move is a `select`, and `select` is how the picker
+  // arms — so without this the name it just inserted is offered again and a
+  // second Enter inserts it twice. Cleared by the next real edit.
+  const justAccepted = useRef(false)
+  const syncMention = (text: string, caret: number) => {
+    if (justAccepted.current) return setMention(null)
+    setMention(mentionQuery(text, caret))
+    setArmed(0)
+  }
+  const accept = (name: string) => {
+    if (!mention) return
+    const field = fieldRef.current
+    const next = applyMention(draft, mention.at, field?.selectionStart ?? draft.length, name)
+    justAccepted.current = true
+    setDraft(next.text)
+    setMention(null)
+    requestAnimationFrame(() => {
+      field?.focus()
+      field?.setSelectionRange(next.caret, next.caret)
+    })
+  }
   const send = async () => {
     if (busy || !draft.trim()) return
     setBusy(true)
@@ -66,6 +102,7 @@ export function AnchorThreadComposer({
           await postToDiscussion(thread.id, draft.trim(), subject)
         : await openDiscussion({ anchor: { ref: subject, ...(locus ? { locus } : {}) }, firstPost: draft.trim() })
       setDraft('')
+      setMention(null)
       onPosted?.(landed)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not post.')
@@ -82,11 +119,41 @@ export function AnchorThreadComposer({
           affirmative soft verb, Cancel stays ghost text. Rendering both as the
           same grey text makes "send it" and "throw it away" look like one
           control typed twice. */}
+      {/* The positioning context is a WRAPPER, not the shell itself: the shell's
+          cue is a shared primitive worn verbatim (a composer that hosts its own
+          verbs wears FIELD_SHELL_CLASS), and the picker is anchored under the
+          whole field rather than laid out inside its verb row. */}
+      <div className="relative">
       <div className={FIELD_SHELL_CLASS}>
         <textarea
+          ref={fieldRef}
           aria-label={ariaLabel ?? `Post to this ${subject.kind}’s discussion`}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            justAccepted.current = false // a real edit re-arms the picker
+            setDraft(e.target.value)
+            syncMention(e.target.value, e.target.selectionStart ?? e.target.value.length)
+          }}
+          onKeyDown={(e) => {
+            if (options.length === 0) return
+            // While the picker is open it owns these keys — Enter must complete
+            // the name, not drop a newline into the middle of it.
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+              e.preventDefault()
+              setArmed((i) => (i + (e.key === 'ArrowDown' ? 1 : options.length - 1)) % options.length)
+            } else if (e.key === 'Enter' || e.key === 'Tab') {
+              e.preventDefault()
+              accept(options[armed])
+            } else if (e.key === 'Escape') {
+              e.preventDefault()
+              setMention(null)
+            }
+          }}
+          onBlur={() => setMention(null)}
+          onSelect={(e) => {
+            const el = e.currentTarget
+            syncMention(el.value, el.selectionStart ?? el.value.length)
+          }}
           placeholder={placeholder ?? (thread ? 'Reply…' : 'Start the discussion…')}
           rows={composerRows(draft, 6)}
           autoFocus={autoFocus}
@@ -109,6 +176,47 @@ export function AnchorThreadComposer({
         >
           Post
         </button>
+      </div>
+      {options.length > 0 && (
+        // A completion list, not a menu: it sits under the field it edits and
+        // dies with the blur, so it needs no outside-click machinery. It takes
+        // the shared containment because a composer renders inside panes as
+        // narrow as the rail (UI-1).
+        <ul
+          ref={popRef}
+          role="listbox"
+          aria-label="Mention someone"
+          className={`absolute left-0 top-full z-40 mt-1 w-64 max-w-full py-1 ${POPOVER_SURFACE}`}
+        >
+          {options.map((name, i) => (
+            <li key={name}>
+              <button
+                role="option"
+                aria-selected={i === armed}
+                // The field keeps focus: mousedown fires before blur, so the
+                // picker isn't torn down before the click it was clicked for.
+                onMouseDown={(ev) => {
+                  ev.preventDefault()
+                  accept(name)
+                }}
+                onMouseEnter={() => setArmed(i)}
+                className={`flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-[13px] transition ${
+                  i === armed ? 'bg-panel-2 text-ink' : 'text-ink-soft'
+                }`}
+              >
+                {/* Decorative: the option IS the name, and two text-bearing
+                    children would splice a space into its accessible name
+                    ("@ Beta Platform") — neither what it reads as nor what a
+                    test can address. */}
+                <span aria-hidden="true" className="text-ink-faint">
+                  @
+                </span>
+                <span className="truncate">{name}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       </div>
       {error && <p className="mt-1 text-[11px] text-danger">{error}</p>}
     </div>

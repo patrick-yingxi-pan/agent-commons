@@ -941,3 +941,57 @@ test('the square: compose → the feed carries it → a mention doors → a stra
   await ada.context.close()
   await grace.context.close()
 })
+
+/** ── S8: the mention picker — completing a name you could not type ───────────
+ *  A mention rings only if the author reproduces a whole display name, and every
+ *  name in this world has a space in it ("Beta Platform"), so the composer must
+ *  offer them or the feature is reachable only by people who already know them.
+ *
+ *  What only a browser can prove, given `tests/mention-picker.test.ts` holds the
+ *  pure logic: that the picker ARMS from a real caret in a real field, that
+ *  Enter completes the name instead of dropping a newline into the middle of it,
+ *  that it does not re-arm on the caret move the accept itself caused (a second
+ *  Enter would insert the name twice), and that what it inserted is a name the
+ *  SERVER then resolves — the round trip, not just the typing.
+ *
+ *  "Resolved" is asserted as an EXACT-text match: a resolved mention is its own
+ *  element (`MentionText`), while an unresolved one is part of the surrounding
+ *  text node — so exact-text matching is the DOM's own answer to "did the server
+ *  agree", with no class-name coupling. */
+test('the mention picker completes a multi-word name, and the server resolves what it inserted', async ({ browser }) => {
+  test.setTimeout(120_000)
+  const ada = await newUser(browser)
+  const MENTION_POST = `Roster question ${STAMP}`
+
+  // The seeded thread on Ada's flagship project: Grace opened it, so her name is
+  // a voice in this conversation and therefore offered. Ada's own is not — the
+  // roster drops the caller from the server's `mine` stamps, since `@`-ing
+  // yourself rings nobody.
+  await ada.page.goto('/discussions/disc-seed-1')
+  const field = ada.page.getByRole('textbox', { name: 'Reply to this discussion' })
+  await expect(field).toBeVisible({ timeout: 20_000 })
+  await field.click()
+  await field.pressSequentially('thanks @Grace Ho')
+
+  const picker = ada.page.getByRole('listbox', { name: 'Mention someone' })
+  await expect(picker).toBeVisible({ timeout: 20_000 })
+  // The option is NAMED by the name — its `@` is decorative, or the accessible
+  // name would carry a spliced space ("@ Grace Hopper").
+  await expect(picker.getByRole('option', { name: 'Grace Hopper', exact: true })).toBeVisible()
+  await expect(picker.getByRole('option', { name: 'Ada Lovelace', exact: true })).toHaveCount(0)
+
+  await field.press('Enter')
+  await expect(field).toHaveValue(/thanks @Grace Hopper /)
+  await expect(picker).toHaveCount(0, { timeout: 10_000 })
+
+  await field.pressSequentially(MENTION_POST)
+  await ada.page.getByRole('button', { name: 'Reply to this discussion', exact: true }).click()
+
+  // The round trip: the server resolved the inserted name, so it comes back as
+  // its own element inside the post — the same answer that decided who was rung.
+  const posted = ada.page.locator('p', { hasText: MENTION_POST })
+  await expect(posted).toBeVisible({ timeout: 20_000 })
+  await expect(posted.getByText('@Grace Hopper', { exact: true })).toBeVisible()
+
+  await ada.context.close()
+})
