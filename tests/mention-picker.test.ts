@@ -11,7 +11,8 @@
  *  screenshot. The DOM wiring is `e2e/social-layer.spec.ts`. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { applyMention, mentionQuery, suggestMentions, threadVoices, MAX_MENTION_SUGGESTIONS } from '../src/lib/mentionPicker.ts'
+import { applyMention, mentionQuery, narrowMention, suggestMentions, threadVoices, MAX_MENTION_SUGGESTIONS } from '../src/lib/mentionPicker.ts'
+import { MENTION_MAX_NAME_LEN } from '../contract/index.ts'
 
 /** A thread projection as the server serves it — viewer-relative stamps and all. */
 const thread = (posts: { author: string; mine?: boolean; mentions?: string[] }[], openedBy = 'Acme, Inc.', mine?: boolean) =>
@@ -75,6 +76,32 @@ test('suggestions rank prefix before containment, and are capped', () => {
   assert.deepEqual(suggestMentions(names, ''), names, 'an empty query is the roster itself')
   const many = Array.from({ length: 20 }, (_, i) => `Name ${i}`)
   assert.equal(suggestMentions(many, '').length, MAX_MENTION_SUGGESTIONS, 'a completion list, not a directory')
+})
+
+test('a caret move never OPENS the picker — it only narrows or closes an open one', () => {
+  // The bug this is earned for corrupted drafts. Arming on caret placement meant
+  // clicking inside a mention finished minutes ago re-offered it; an open picker
+  // owns Enter, so the next Enter — pressed for a NEWLINE — spliced the name in
+  // a second time: "thanks @Grace Hopper for the review" became
+  // "thanks @Grace Hopper Hopper for the review". Verified in the browser.
+  const done = 'thanks @Grace Hopper for the review'
+  assert.equal(narrowMention(null, done, 14), null, 'nothing open ⇒ nothing opens, even mid-mention')
+  // …while a picker that IS open tracks the query the caret now implies.
+  const open = { at: 7, query: 'Grace Ho' }
+  assert.deepEqual(narrowMention(open, 'thanks @Grace Ho', 16), { at: 7, query: 'Grace Ho' })
+  assert.deepEqual(narrowMention(open, 'thanks @Grace Ho', 12), { at: 7, query: 'Grac' }, 'moving inside re-reads the query')
+  // A caret that leaves the query — before the `@`, or past a different one —
+  // closes it, so `accept` can never splice at a stale offset.
+  assert.equal(narrowMention(open, 'thanks @Grace Ho', 3), null, 'caret before the @ closes it')
+  assert.equal(narrowMention(open, 'hi @Ada and @Grace Ho', 21), null, 'a different @ is not this picker')
+})
+
+test('the mentionable-name bound is the contract’s, not a second copy', () => {
+  // A picker that kept completing past the length the SERVER will resolve is a
+  // dead affordance; the two were briefly a `const 80` each, joined by a comment
+  // claiming they matched.
+  assert.equal(mentionQuery(`@${'x'.repeat(MENTION_MAX_NAME_LEN)}`, MENTION_MAX_NAME_LEN + 1)?.query.length, MENTION_MAX_NAME_LEN)
+  assert.equal(mentionQuery(`@${'x'.repeat(MENTION_MAX_NAME_LEN + 1)}`, MENTION_MAX_NAME_LEN + 2), null)
 })
 
 test('accepting inserts the WHOLE name and leaves the caret after it', () => {

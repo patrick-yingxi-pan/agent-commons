@@ -11,7 +11,7 @@
  *  (subject, locus) — `openDiscussion` in server/store.ts). So callers that
  *  don't already hold the thread may pass `thread: null` and still land in the
  *  right conversation — two clients racing the first post can't fork it. */
-import { useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { AnchorLocus, Discussion, SocialEntityRef } from '../../contract/index.ts'
 import { openDiscussion, postToDiscussion } from '../api'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
@@ -19,7 +19,7 @@ import { SOFT_BUTTON_CLASS } from '../lib/button'
 import { composerRows, FIELD_BARE_CLASS, FIELD_SHELL_CLASS } from '../lib/formInput'
 import { POPOVER_SURFACE } from '../lib/popover'
 import { usePopoverShift } from '../lib/usePopoverShift'
-import { applyMention, mentionQuery, suggestMentions, threadVoices } from '../lib/mentionPicker'
+import { applyMention, mentionQuery, narrowMention, suggestMentions, threadVoices } from '../lib/mentionPicker'
 
 export function AnchorThreadComposer({
   subject,
@@ -68,29 +68,62 @@ export function AnchorThreadComposer({
   const fieldRef = useRef<HTMLTextAreaElement>(null)
   const [mention, setMention] = useState<{ at: number; query: string } | null>(null)
   const [armed, setArmed] = useState(0)
-  const options = mention ? suggestMentions(threadVoices(thread), mention.query) : []
+  // The roster is stable while a thread is: recomputing it per keystroke walked
+  // and reversed every post in the thread for an answer that had not changed.
+  const voices = useMemo(() => threadVoices(thread), [thread])
+  const options = mention ? suggestMentions(voices, mention.query) : []
   const popRef = usePopoverShift<HTMLUListElement>(options.length > 0)
-  // A mention that was just COMPLETED must not re-arm the picker: accepting one
-  // moves the caret, a caret move is a `select`, and `select` is how the picker
-  // arms — so without this the name it just inserted is offered again and a
-  // second Enter inserts it twice. Cleared by the next real edit.
-  const justAccepted = useRef(false)
-  const syncMention = (text: string, caret: number) => {
-    if (justAccepted.current) return setMention(null)
+  /** TYPING arms the picker — only typing. */
+  const armFromEdit = (text: string, caret: number) => {
     setMention(mentionQuery(text, caret))
     setArmed(0)
   }
+  /** A caret move may only INVALIDATE an open picker, never open one.
+   *
+   *  Arming on caret placement corrupted drafts: clicking inside a mention you
+   *  finished minutes ago re-offered it, and since an open picker owns Enter,
+   *  the next Enter — pressed for a newline — spliced the name in a second time
+   *  ("thanks @Grace Hopper for the review" became "…@Grace Hopper Hopper for
+   *  the review"). It also stole the arrow keys from caret navigation in a
+   *  multi-line draft. The picker belongs to the mention BEING WRITTEN, so a
+   *  caret that leaves that query closes it, and one that stays inside it just
+   *  re-reads the query. */
+  const narrowOnCaret = (text: string, caret: number) => {
+    // Gated on the picker being VISIBLE, not merely on `mention` being set. An
+    // `@` anywhere before the caret leaves a query that matches nothing — an
+    // armed-but-empty state the user cannot see — and narrowing from THAT is
+    // how the corruption survived its first fix: typing the whole line left
+    // "Grace Hopper for the review" armed and invisible, and a later click
+    // inside the name narrowed it back to "Grace ", which had options again.
+    if (options.length === 0) {
+      if (mention) setMention(null)
+      return
+    }
+    setMention(narrowMention(mention, text, caret))
+  }
+  /** Where the caret belongs once the accepted draft has RENDERED. Applied in a
+   *  layout effect rather than a `requestAnimationFrame`, because the frame can
+   *  land before React flushes: `setSelectionRange` fires `select`, and a
+   *  `select` read against the PRE-accept value re-derives the query that was
+   *  just completed — so the picker re-opened offering the name it had inserted,
+   *  and the next Enter (a newline, as far as the writer is concerned) inserted
+   *  it twice. Sequencing the restore after the draft removes the race instead
+   *  of flagging it. */
+  const pendingCaret = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const to = pendingCaret.current
+    if (to === null) return
+    pendingCaret.current = null
+    fieldRef.current?.focus()
+    fieldRef.current?.setSelectionRange(to, to)
+  }, [draft])
   const accept = (name: string) => {
-    if (!mention) return
+    if (!mention || !name) return
     const field = fieldRef.current
     const next = applyMention(draft, mention.at, field?.selectionStart ?? draft.length, name)
-    justAccepted.current = true
     setDraft(next.text)
     setMention(null)
-    requestAnimationFrame(() => {
-      field?.focus()
-      field?.setSelectionRange(next.caret, next.caret)
-    })
+    pendingCaret.current = next.caret
   }
   const send = async () => {
     if (busy || !draft.trim()) return
@@ -130,9 +163,8 @@ export function AnchorThreadComposer({
           aria-label={ariaLabel ?? `Post to this ${subject.kind}’s discussion`}
           value={draft}
           onChange={(e) => {
-            justAccepted.current = false // a real edit re-arms the picker
             setDraft(e.target.value)
-            syncMention(e.target.value, e.target.selectionStart ?? e.target.value.length)
+            armFromEdit(e.target.value, e.target.selectionStart ?? e.target.value.length)
           }}
           onKeyDown={(e) => {
             if (options.length === 0) return
@@ -152,7 +184,7 @@ export function AnchorThreadComposer({
           onBlur={() => setMention(null)}
           onSelect={(e) => {
             const el = e.currentTarget
-            syncMention(el.value, el.selectionStart ?? el.value.length)
+            narrowOnCaret(el.value, el.selectionStart ?? el.value.length)
           }}
           placeholder={placeholder ?? (thread ? 'Reply…' : 'Start the discussion…')}
           rows={composerRows(draft, 6)}
@@ -189,30 +221,35 @@ export function AnchorThreadComposer({
           className={`absolute left-0 top-full z-40 mt-1 w-64 max-w-full py-1 ${POPOVER_SURFACE}`}
         >
           {options.map((name, i) => (
-            <li key={name}>
-              <button
-                role="option"
-                aria-selected={i === armed}
-                // The field keeps focus: mousedown fires before blur, so the
-                // picker isn't torn down before the click it was clicked for.
-                onMouseDown={(ev) => {
-                  ev.preventDefault()
-                  accept(name)
-                }}
-                onMouseEnter={() => setArmed(i)}
-                className={`flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-[13px] transition ${
-                  i === armed ? 'bg-panel-2 text-ink' : 'text-ink-soft'
-                }`}
-              >
-                {/* Decorative: the option IS the name, and two text-bearing
-                    children would splice a space into its accessible name
-                    ("@ Beta Platform") — neither what it reads as nor what a
-                    test can address. */}
-                <span aria-hidden="true" className="text-ink-faint">
-                  @
-                </span>
-                <span className="truncate">{name}</span>
-              </button>
+            // The `li` IS the option. A `listbox` owns `option`s, so wrapping
+            // them in list items put a `listitem` between the two and left the
+            // listbox owning nothing a screen reader would read as a choice.
+            // It is deliberately not a BUTTON either: the field keeps focus and
+            // drives the picker with the arrows, so an option must not be a tab
+            // stop of its own (the combobox pattern).
+            <li
+              key={name}
+              role="option"
+              aria-selected={i === armed}
+              // The field keeps focus: mousedown fires before blur, so the
+              // picker isn't torn down before the click it was clicked for.
+              onMouseDown={(ev) => {
+                ev.preventDefault()
+                accept(name)
+              }}
+              onMouseEnter={() => setArmed(i)}
+              className={`flex w-full cursor-pointer items-center gap-1.5 px-3 py-1.5 text-left text-[13px] transition ${
+                i === armed ? 'bg-panel-2 text-ink' : 'text-ink-soft'
+              }`}
+            >
+              {/* Decorative: the option IS the name, and two text-bearing
+                  children would splice a space into its accessible name
+                  ("@ Grace Hopper") — neither what it reads as nor what a
+                  test can address. */}
+              <span aria-hidden="true" className="text-ink-faint">
+                @
+              </span>
+              <span className="truncate">{name}</span>
             </li>
           ))}
         </ul>

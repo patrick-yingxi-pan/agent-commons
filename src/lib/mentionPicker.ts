@@ -23,10 +23,9 @@
  *  Nothing here restricts what may be mentioned — the server still resolves
  *  whatever is typed, against every name that exists. */
 import type { Discussion } from '../../contract/index.ts'
-
-/** Longest display name the picker will try to complete. Bounds the query scan;
- *  matches the server's own mentionable-name bound. */
-const MAX_NAME_LEN = 80
+// The longest mentionable name is ONE fact, shared with the resolver that will
+// have to match whatever this picker completes — never a second `80`.
+import { MENTION_MAX_NAME_LEN } from '../../contract/index.ts'
 
 /** How many suggestions to show. A completion list, not a directory. */
 export const MAX_MENTION_SUGGESTIONS = 6
@@ -46,7 +45,7 @@ export function mentionQuery(text: string, caret: number): { at: number; query: 
   const prev = before[at - 1]
   if (prev !== undefined && /[\p{L}\p{N}_]/u.test(prev)) return null
   const query = before.slice(at + 1)
-  if (query.length > MAX_NAME_LEN || /[\n\r]/.test(query)) return null
+  if (query.length > MENTION_MAX_NAME_LEN || /[\n\r]/.test(query)) return null
   return { at, query }
 }
 
@@ -81,6 +80,25 @@ export function suggestMentions(names: string[], query: string, max = MAX_MENTIO
   const starts = names.filter((n) => n.toLowerCase().startsWith(q))
   const contains = q.length > 0 ? names.filter((n) => !n.toLowerCase().startsWith(q) && n.toLowerCase().includes(q)) : []
   return [...starts, ...contains].slice(0, max)
+}
+
+/** What a CARET MOVE does to an open picker: keep it (re-reading the query the
+ *  caret now implies) or close it. Never open one — arming belongs to typing.
+ *
+ *  Pure and separate from the component because getting this wrong CORRUPTS
+ *  drafts, silently: the first cut armed on caret placement, so clicking inside
+ *  a mention finished minutes earlier re-offered it, and an open picker owns
+ *  Enter — the next Enter, pressed for a newline, spliced the name in a second
+ *  time ("thanks @Grace Hopper for the review" → "…@Grace Hopper Hopper for the
+ *  review"). It also stole the arrow keys from caret navigation. */
+export function narrowMention(
+  open: { at: number; query: string } | null,
+  text: string,
+  caret: number,
+): { at: number; query: string } | null {
+  if (!open) return null
+  const q = mentionQuery(text, caret)
+  return q && q.at === open.at ? q : null
 }
 
 /** Replace the `@query` at the caret with the full name, leaving one trailing

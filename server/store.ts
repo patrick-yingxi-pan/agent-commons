@@ -96,6 +96,7 @@ import { mintAuthority } from './authority.ts'
 import { ConflictError, ValidationError } from './conflict.ts'
 import { LimitError } from './limit.ts'
 import { scopeMatches } from './runner-runtime.ts'
+import { MENTION_MAX_NAME_LEN } from '../contract/index.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, PROJECT_EFFECT_TYPES, ENVELOPE_HARNESSES, CHANGE_ENTRY_KINDS, DELEGATED_ACT_KINDS, ESCALATION_TRIGGERS, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../contract/index.ts'
 import type { Agent, AgentChangeProposal, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelInfo, ModelProvider, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, Contribution, OpenContributionRequest, Delegation, CreateDelegationRequest, OwnerActivity, FollowRow, OwnerFollowFace, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState, WorkItemComment } from '../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, SEED_PROVIDERS, SEED_PROVIDER_CONFIGS, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from './data/providers.ts'
@@ -894,11 +895,12 @@ const MAX_WORK_ITEM_COMMENT_CHARS = 2000
 // F1: the cap is on resolved targets, not token matches — a display name borne by K
 // workspaces still can't ring K bells, so a comment can't become an amplifier).
 const MENTION_CAP = 10
-// Longest display name (chars) resolvable as a mention target. Bounds the per-`@`
-// candidate scan so parsing is O(bodyLen) — independent of registry size AND its
-// first-char distribution (review F2: a bucket index still scanned O(bucketSize) when
-// names clustered on one first char). A name longer than this simply isn't mentionable.
-const MENTION_MAX_NAME_LEN = 80
+// The longest mentionable display name comes from the CONTRACT: the composer's
+// picker bounds its query by the same fact, and a bound the two ends disagreed
+// about would be a wall on one side and a lie on the other. It bounds the
+// per-`@` candidate scan here, so parsing stays O(bodyLen) — independent of
+// registry size AND its first-char distribution (review F2: a bucket index still
+// scanned O(bucketSize) when names clustered on one first char).
 
 // ── D24 — watching + the per-tenant notification inbox ──────────────────────
 // Watch subscriptions: a SUBJECT key → the tenant ids watching it. Keyed by

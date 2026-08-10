@@ -179,12 +179,14 @@ function DocView({
         // contract's own predicate, the same one the server validates a patch
         // with, so the pencil appears exactly where an edit can land.
         const current = docBlockText(b)
-        // The OPEN editor replaces the block entirely: there is nothing to point
+        const editable = edit !== undefined && current !== undefined
+        // The OPEN editor replaces the block's BODY: there is nothing to point
         // at or discuss while it is a textarea, and a gutter under a form would
-        // anchor talk to a block the writer is mid-way through changing.
-        if (edit && current !== undefined && edit.index === i) {
-          return (
-            <div key={i} className="space-y-1.5">
+        // anchor talk to a block the writer is mid-way through changing. It
+        // still keeps its wrapper below, so a door aimed at this block lands.
+        if (editable && edit.index === i) {
+          const editor = (
+            <div className="space-y-1.5">
               <textarea
                 aria-label={`Rewrite block ${i + 1}`}
                 value={edit.draft}
@@ -204,9 +206,14 @@ function DocView({
               </div>
             </div>
           )
+          return discuss ?
+              <DiscussableBlock key={i} subject={discuss} index={i} gutter={false}>
+                {editor}
+              </DiscussableBlock>
+            : <Fragment key={i}>{editor}</Fragment>
         }
         const body =
-          edit && current !== undefined ?
+          editable ?
             // Recessive until needed (the SECTION_REVEAL idiom): the pencil costs
             // the reading surface nothing until the pointer is on the block. Its
             // lane is RESERVED with padding rather than overlaid — an absolutely
@@ -247,7 +254,21 @@ function DocView({
  *  one-line before→after diff can honestly express a change; discussability only
  *  asks whether there is something to point at. Different questions — so they
  *  get different predicates rather than one borrowed from the other. */
-function DiscussableBlock({ subject, index, children }: { subject: SocialEntityRef; index: number; children: ReactNode }) {
+function DiscussableBlock({
+  subject,
+  index,
+  /** False while this block is OPEN IN THE EDITOR: there is nothing to point at
+   *  or discuss mid-rewrite. The wrapper still renders, so a door aimed at this
+   *  block still lands on it — losing the anchor along with the gutter would
+   *  make the arrival silently do nothing. */
+  gutter = true,
+  children,
+}: {
+  subject: SocialEntityRef
+  index: number
+  gutter?: boolean
+  children: ReactNode
+}) {
   const ref = useRef<HTMLDivElement>(null)
   const { pending } = usePendingFocus()
   // Zero-based: `!== undefined`, never truthiness — block 0 is a real block, and
@@ -259,7 +280,7 @@ function DiscussableBlock({ subject, index, children }: { subject: SocialEntityR
     // its text, so the wrapper carries the inset only while it is lit.
     <div ref={ref} className={`rounded-md ${flash ? `${FOCUS_FLASH_CLASS} -mx-2 px-2` : ''}`}>
       {children}
-      <LocusGutter subject={subject} locus={{ kind: 'artifact-block', block: index }} noun="block" />
+      {gutter && <LocusGutter subject={subject} locus={{ kind: 'artifact-block', block: index }} noun="block" />}
     </div>
   )
 }

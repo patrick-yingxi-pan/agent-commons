@@ -232,6 +232,20 @@ export interface DiscussionPost {
   mentions?: string[]
 }
 
+/** Longest display name (chars) that is resolvable as a mention target — the
+ *  bound BOTH ends of the mention feature answer to, so it lives on the wire
+ *  contract rather than in either of them.
+ *
+ *  The server uses it to bound its per-`@` candidate scan (parsing stays
+ *  O(bodyLen), independent of registry size and of its first-char
+ *  distribution); the composer's picker uses it to bound the query it will try
+ *  to complete. Those are two uses of ONE fact — a name longer than this is not
+ *  mentionable — and a picker that kept offering past a length the resolver
+ *  would refuse is a dead affordance. It was briefly a `const 80` on each side
+ *  joined by a comment claiming they matched, which is the same prose-coupling
+ *  the mention MATCHER itself was consolidated to remove. */
+export const MENTION_MAX_NAME_LEN = 80
+
 /** A thread's display title: its opening post, trimmed to a word boundary with
  *  an ellipsis. Shared because three surfaces show it — the thread page, the
  *  Commons embed, and the rail list — and a bare `slice(0, 80)` cut mid-word

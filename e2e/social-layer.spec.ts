@@ -982,6 +982,12 @@ test('the mention picker completes a multi-word name, and the server resolves wh
 
   await field.press('Enter')
   await expect(field).toHaveValue(/thanks @Grace Hopper /)
+  // The picker must CLOSE on accept. It did not, for two stacked reasons the
+  // browser found and no node test could: the caret restore ran in a
+  // `requestAnimationFrame` that could beat React's flush, so the `select` it
+  // fires re-read the PRE-accept value and re-derived the query just completed.
+  // An open picker owns Enter, so the writer's next Enter — a newline — would
+  // have inserted the name a second time.
   await expect(picker).toHaveCount(0, { timeout: 10_000 })
 
   await field.pressSequentially(MENTION_POST)
@@ -992,6 +998,23 @@ test('the mention picker completes a multi-word name, and the server resolves wh
   const posted = ada.page.locator('p', { hasText: MENTION_POST })
   await expect(posted).toBeVisible({ timeout: 20_000 })
   await expect(posted.getByText('@Grace Hopper', { exact: true })).toBeVisible()
+
+  // ── A CARET MOVE must never re-open the picker ────────────────────────────
+  // On a fresh draft holding a FINISHED mention: clicking back inside the name
+  // used to arm the picker, and an open picker owns Enter — so the writer's
+  // next Enter, meant as a newline, spliced the name in a second time
+  // ("@Grace Hopper for the review" → "@Grace Hopper Hopper for the review").
+  // Arming belongs to typing; a caret move may only close.
+  await field.fill('thanks @Grace Hopper for the review')
+  await expect(picker).toHaveCount(0)
+  await field.click({ position: { x: 62, y: 8 } }) // inside the completed name
+  await expect(picker).toHaveCount(0)
+  const beforeEnter = await field.inputValue()
+  await field.press('Enter')
+  const afterEnter = await field.inputValue()
+  expect(afterEnter.length).toBe(beforeEnter.length + 1) // exactly one newline
+  expect(afterEnter).toContain('\n')
+  expect(afterEnter).not.toContain('Hopper Hopper')
 
   await ada.context.close()
 })
