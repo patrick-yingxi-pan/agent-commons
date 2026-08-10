@@ -14,7 +14,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { ROOT, concatSource, filesUnder, read, stripComments } from './helpers/source.ts'
-import { describeLocus, locusFocus } from '../src/lib/anchorLocus.ts'
+import { describeLocus, locusFocus, sectionForSocialKind } from '../src/lib/anchorLocus.ts'
+import { SOCIAL_ENTITY_KINDS } from '../contract/index.ts'
 import type { AnchorLocus } from '../contract/index.ts'
 
 /** One value per declared variant — the enumeration these tests run over. If a
@@ -22,7 +23,7 @@ import type { AnchorLocus } from '../contract/index.ts'
  *  count assertion fails, which is the point: the ledger can't silently lag. */
 const EVERY_LOCUS: AnchorLocus[] = [
   { kind: 'session-turn', messageId: 'm-1' },
-  { kind: 'artifact-range', from: 4, to: 9 },
+  { kind: 'artifact-block', block: 4 },
   { kind: 'schedule-run', runId: 'run-1' },
   { kind: 'relation-edge', relationId: 'rel-1' },
 ]
@@ -33,7 +34,7 @@ test('every declared locus kind has a human phrase', () => {
   const src = stripComments(read(join(ROOT, 'contract', 'social.ts')))
   const declared = [...src.matchAll(/\|\s*\{\s*kind:\s*'([a-z-]+)'/g)].map((m) => m[1])
   const kinds = EVERY_LOCUS.map((l) => l.kind)
-  for (const k of ['session-turn', 'artifact-range', 'schedule-run', 'relation-edge']) {
+  for (const k of ['session-turn', 'artifact-block', 'schedule-run', 'relation-edge']) {
     assert.ok(declared.includes(k), `${k} is declared in the contract`)
     assert.ok(kinds.includes(k as AnchorLocus['kind']), `${k} is covered by this test's enumeration`)
   }
@@ -47,9 +48,46 @@ test('every declared locus kind has a human phrase', () => {
   }
 })
 
-test('a one-line artifact range reads as a line, not a range', () => {
-  assert.equal(describeLocus({ kind: 'artifact-range', from: 7, to: 7 }), 'line 7')
-  assert.equal(describeLocus({ kind: 'artifact-range', from: 7, to: 9 }), 'lines 7–9')
+test('an artifact position is named by the address the body HAS — a block, not a line', () => {
+  // S0 declared this locus as a {from,to} LINE span, which no surface could ever
+  // mint: these bodies are structured, not linear, so a phrase like "lines 4-9"
+  // would have been a label about something the body does not have - and the S2
+  // gutter stayed blocked on exactly that. It now speaks the same address an
+  // artifact-patch edits by (contract/content.ts), so a patch, a thread and the
+  // reader all mean one thing by "block 3".
+  assert.equal(describeLocus({ kind: 'artifact-block', block: 0 }), 'one block')
+})
+
+test('block 0 is a real position — the zero-index trap a truthiness test would swallow', () => {
+  // The opening paragraph is the one people comment on, and `{artifactBlock: 0}`
+  // is falsy on the field. Every read must ask `!== undefined`.
+  const focus = locusFocus({ ref: { kind: 'artifact', id: 'a-1' }, locus: { kind: 'artifact-block', block: 0 } })
+  assert.deepEqual(focus, { artifactBlock: 0 })
+  assert.notEqual(focus, null, 'the first block resolves to a target, not to "no position"')
+})
+
+test('every social noun answers where its page lives — one map, not one per surface', () => {
+  // Two surfaces asked this (the Commons card and the AnchorChip) with two
+  // hand-copied ternaries, and `artifact` was missing from BOTH — so a thread
+  // anchored to an artifact rendered its own subject as dead text.
+  assert.equal(sectionForSocialKind('artifact'), 'artifacts', 'an artifact has a canonical viewer to open')
+  assert.equal(sectionForSocialKind('project'), 'projects')
+  assert.equal(sectionForSocialKind('discussion'), 'discussions')
+  // A session is a pane fill, not a section page — null is the deliberate answer.
+  assert.equal(sectionForSocialKind('session'), null)
+  // Total over the union: a new noun must decide HERE rather than defaulting to
+  // "no page", which is how the artifact hole opened in the first place.
+  for (const kind of SOCIAL_ENTITY_KINDS) {
+    assert.doesNotThrow(() => sectionForSocialKind(kind), `${kind} is answered`)
+  }
+  // And nobody re-derives it: one home, like the phrases below.
+  for (const file of filesUnder('src')) {
+    if (file.endsWith('anchorLocus.ts')) continue
+    assert.ok(
+      !/kind === 'project' \? 'projects'/.test(stripComments(read(file))),
+      `${file} hand-rolls the kind→section map — route it through sectionForSocialKind`,
+    )
+  }
 })
 
 test('a position whose surface hosts it resolves to that position', () => {
@@ -65,10 +103,10 @@ test('a position whose surface hosts it resolves to that position', () => {
 })
 
 /** Kinds whose surface hosts an addressable row today. The rest are declared in
- *  the contract but have nowhere to land yet — `artifact-range` means LINES and
- *  this prototype's artifact bodies are structured rather than linear (doc
- *  blocks / sheet rows / slides), and a relation edge has no surface at all. */
-const LANDABLE = new Set(['session-turn', 'schedule-run'])
+ *  the contract but have nowhere to land yet — a relation EDGE has no surface
+ *  of its own at all, since no page draws one. (`artifact-block` left this set
+ *  when the viewer grew a per-block gutter — S2's last gap.) */
+const LANDABLE = new Set(['session-turn', 'schedule-run', 'artifact-block'])
 
 test('a position with no focusable surface DEGRADES to no target — never a dead click', () => {
   // The rule the notification doors keep: always somewhere. A kind whose surface
@@ -107,7 +145,7 @@ test('naming a locus kind is only allowed when MINTING one through the shared gu
     const rel = file.replace(/\\/g, '/')
     if (rel.endsWith('lib/anchorLocus.ts')) continue
     const src = stripComments(read(file))
-    if (!/kind: '(session-turn|artifact-range|schedule-run|relation-edge)'/.test(src)) continue
+    if (!/kind: '(session-turn|artifact-block|schedule-run|relation-edge)'/.test(src)) continue
     assert.ok(
       src.includes('LocusGutter'),
       `${rel} names a locus kind without minting through LocusGutter — route it through the one gutter`,

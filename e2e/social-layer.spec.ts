@@ -995,3 +995,55 @@ test('the mention picker completes a multi-word name, and the server resolves wh
 
   await ada.context.close()
 })
+/** ── S2: the artifact BLOCK gutter — an artifact's interior, at last ─────────
+ *  The last gap S2 left open. The locus was declared at S0 as a `{from,to}` LINE
+ *  span and could never be minted: these bodies are structured, not linear, so
+ *  the label would have described something the body does not have. S3 settled
+ *  the address from the other side (`artifact-patch` edits by BLOCK), and this
+ *  locus now speaks it — so a patch, a thread and the reader mean one thing by
+ *  "block 3".
+ *
+ *  Locked here rather than in node because all three halves are DOM: the gutter
+ *  is hover-revealed, the marker only exists once a thread does, and the chip's
+ *  landing is a scroll. `tests/anchor-locus.test.ts` holds the pure resolver. */
+test('a discussion hangs on ONE block of an artifact, and its chip lands back there', async ({ browser }) => {
+  test.setTimeout(120_000)
+  const ada = await newUser(browser)
+  const BLOCK_POST = `This bullet should name the flag ${STAMP}`
+
+  // The flagship one-pager: a doc body, so its blocks are addressable.
+  await ada.page.goto('/artifacts/a1')
+  const openers = ada.page.getByTitle('Discuss this block')
+  await expect(openers.first()).toBeAttached({ timeout: 20_000 })
+  // Every block carries one — including the ones no `artifact-patch` may
+  // rewrite. Patchability asks whether a one-line diff can express a change;
+  // discussability only asks whether there is something to point at.
+  expect(await openers.count()).toBeGreaterThan(1)
+
+  await openers.first().click()
+  await ada.page.getByRole('textbox', { name: 'Post to this block’s discussion' }).fill(BLOCK_POST)
+  await ada.page.getByRole('button', { name: 'Post to this block’s discussion' }).click()
+
+  // The marker exists only once a thread does — the surface pays nothing until
+  // it is used.
+  const marker = ada.page.getByTitle('Open this block’s thread')
+  await expect(marker).toHaveCount(1, { timeout: 20_000 })
+
+  // ── Door: the marker opens the thread's own page, named by its POSITION ────
+  await marker.click()
+  await expect(ada.page.getByRole('heading', { name: BLOCK_POST })).toBeVisible({ timeout: 20_000 })
+  // On the chip's LABEL, not its tooltip: the label carrying the locus phrase IS
+  // the contract (the phrase comes from the one registry). Before this slice the
+  // chip fell through the kind→section map's missing `artifact` arm and rendered
+  // as dead TEXT, so asserting a button is also asserting the door exists.
+  const chip = ada.page.getByRole('button', { name: /^artifact · .+ · one block$/ })
+  await expect(chip).toBeVisible()
+
+  // ── Resolve: the chip lands the viewer ON that block ──────────────────────
+  // The transient flash fades, so this asserts the durable half — the block is
+  // in the viewport, which is what the locus is for.
+  await chip.click()
+  await expect(ada.page.getByTitle('Open this block’s thread')).toBeInViewport({ timeout: 10_000 })
+
+  await ada.context.close()
+})

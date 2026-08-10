@@ -83,7 +83,9 @@ test('SOCIAL-6b: an undeclared locus is REFUSED, not stored (INV-9, strict core)
     { kind: 'session-turn' }, // the variant's field is missing
     { kind: 'session-turn', messageId: 7 }, // …and it is typed
     { kind: 'session-turn', messageId: 'm1', extra: 'smuggled' }, // no extra fields ride along
-    { kind: 'artifact-range', from: 1 },
+    { kind: 'artifact-block' }, // the variant's field is missing
+    { kind: 'artifact-block', block: '2' }, // …and it is typed: an index is a number
+    { kind: 'artifact-block', block: 1, to: 8 }, // a line-span shape no longer rides along
     'not-an-object',
     null,
   ]
@@ -96,7 +98,7 @@ test('SOCIAL-6b: an undeclared locus is REFUSED, not stored (INV-9, strict core)
   // …and the declared variants still pass.
   for (const locus of [
     { kind: 'session-turn', messageId: 'm1' },
-    { kind: 'artifact-range', from: 1, to: 2 },
+    { kind: 'artifact-block', block: 1 },
     { kind: 'schedule-run', runId: 'r1' },
     { kind: 'relation-edge', relationId: 'e1' },
   ]) {
@@ -110,13 +112,13 @@ test('SOCIAL-6b: locus equality is by VALUE, not identity — a re-sent anchor m
   const a = await call(
     'POST',
     '/discussions',
-    { anchor: { ref, locus: { kind: 'artifact-range', from: 3, to: 8 } }, firstPost: 'These lines' },
+    { anchor: { ref, locus: { kind: 'artifact-block', block: 3 } }, firstPost: 'This block' },
     { 'x-tenant-id': OWNER },
   )
   const same = await call(
     'POST',
     '/discussions',
-    { anchor: { ref, locus: { kind: 'artifact-range', from: 3, to: 8 } }, firstPost: 'Still these lines' },
+    { anchor: { ref, locus: { kind: 'artifact-block', block: 3 } }, firstPost: 'Still this block' },
     { 'x-tenant-id': OWNER },
   )
   assert.equal(same.json.id, a.json.id, 'an equal range is the same position')
@@ -126,7 +128,7 @@ test('SOCIAL-6b: locus equality is by VALUE, not identity — a re-sent anchor m
   const overlapping = await call(
     'POST',
     '/discussions',
-    { anchor: { ref, locus: { kind: 'artifact-range', from: 3, to: 9 } }, firstPost: 'A wider read' },
+    { anchor: { ref, locus: { kind: 'artifact-block', block: 9 } }, firstPost: 'Another block' },
     { 'x-tenant-id': OWNER },
   )
   assert.notEqual(overlapping.json.id, a.json.id, 'a different range is a different thread')
@@ -172,7 +174,7 @@ test('comment authority: view reads silently (may react, not post); comment post
 
 test('resolve: opener or anchor owner; a commenting visitor may not; posting stays open after resolve (aftermath)', async () => {
   const { ref } = await arena('comment')
-  const d = (await call('POST', '/discussions', { anchor: { ref, locus: { kind: 'artifact-range', from: 1, to: 4 } }, firstPost: 'Anchored' }, { 'x-tenant-id': AUDIENCE })).json
+  const d = (await call('POST', '/discussions', { anchor: { ref, locus: { kind: 'artifact-block', block: 1 } }, firstPost: 'Anchored' }, { 'x-tenant-id': AUDIENCE })).json
   assert.equal(d.mine, true, 'the opener sees their own flag')
   const byAudienceOther = await call('POST', `/discussions/${d.id}/resolve`, undefined, { 'x-tenant-id': AUDIENCE })
   assert.equal(byAudienceOther.status, 200, 'the opener resolves')

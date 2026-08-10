@@ -13,11 +13,45 @@
  *  exhaustiveness idiom `notificationDoor.ts` uses for bells.
  *
  *  Resolution DEGRADES, never dead-ends: a locus whose surface can't yet focus
- *  a position (an artifact range — the viewer renders no line gutter) resolves
- *  to no focus target and the caller still doors to the entity. The rule is the
- *  notification door's: always somewhere, never a no-op. */
-import type { AnchorLocus, SocialAnchor } from '../../contract/index.ts'
+ *  a position (a relation edge — no page draws one) resolves to no focus target
+ *  and the caller still doors to the entity. The rule is the notification
+ *  door's: always somewhere, never a no-op. */
+import type { AnchorLocus, SocialAnchor, SocialEntityKind } from '../../contract/index.ts'
+import type { SectionId } from '../types'
 import type { FocusTarget } from './notificationDoor'
+
+/** Which rail SECTION opens a social noun's page — the ONE answer, because two
+ *  surfaces ask it (the Commons feed card and the `AnchorChip`) and they were
+ *  asking it with two hand-copied ternaries. That is how `artifact` came to be
+ *  missing from both: an artifact has a canonical viewer at `/artifacts/:id`,
+ *  but neither copy listed it, so a thread anchored to an artifact rendered its
+ *  own subject as dead text.
+ *
+ *  `null` means "no section page of its own": a SESSION is a pane fill, not a
+ *  section (its caller opens the conversation), and the remaining nouns are
+ *  reached through their subject rather than a list of their own. */
+export function sectionForSocialKind(kind: SocialEntityKind): SectionId | null {
+  switch (kind) {
+    case 'project':
+      return 'projects'
+    case 'schedule':
+      return 'scheduled'
+    case 'context':
+      return 'contexts'
+    case 'discussion':
+      return 'discussions'
+    case 'artifact':
+      return 'artifacts'
+    // A session opens as a conversation, not a section page; a proposal and a
+    // principal are reached through their subject and their profile door.
+    case 'session':
+    case 'proposal':
+    case 'principal':
+      return null
+    default:
+      return assertNever(kind, null)
+  }
+}
 
 /** The position in words — the chip's suffix ("· turn in this conversation").
  *  Kept short and lowercase: it reads as a continuation of the entity label. */
@@ -25,9 +59,8 @@ export function describeLocus(locus: AnchorLocus): string {
   switch (locus.kind) {
     case 'session-turn':
       return 'one turn'
-    case 'artifact-range':
-      // A one-line range reads as a line, not a range — the plural is a lie at n=1.
-      return locus.from === locus.to ? `line ${locus.from}` : `lines ${locus.from}–${locus.to}`
+    case 'artifact-block':
+      return 'one block'
     case 'schedule-run':
       return 'one run'
     case 'relation-edge':
@@ -53,13 +86,15 @@ export function locusFocus(anchor: SocialAnchor): FocusTarget | null {
     // A routine's page lists its runs, each an addressable row.
     case 'schedule-run':
       return { runId: locus.runId }
-    // Declared, not yet focusable. `artifact-range` means LINES, but this
-    // prototype's artifact bodies are structured rather than linear (doc blocks
-    // / sheet rows / slides), so there is no line to land on until an artifact
-    // grows a line-oriented body — see the design ledger. A relation edge has no
-    // surface of its own at all. Each becomes a target when its surface grows
-    // the position; until then the chip names it and doors to the entity.
-    case 'artifact-range':
+    // An artifact's viewer renders its body one BLOCK at a time, each an
+    // addressable element — the address `artifact-patch` already edits by, so a
+    // thread and a patch land on the same thing.
+    case 'artifact-block':
+      return { artifactBlock: locus.block }
+    // Declared, not yet focusable: a relation EDGE has no surface of its own at
+    // all — no page renders one edge as an element to land on. It becomes a
+    // target when the graph grows a surface that draws its edges; until then the
+    // chip names it and doors to the entity (always somewhere, never a no-op).
     case 'relation-edge':
       return null
     default:

@@ -34,6 +34,11 @@ export interface FocusTarget {
    *  (`src/lib/anchorLocus.ts`). Same transient contract: the matching run row
    *  scrolls to itself, flashes, and consumes it. */
   runId?: string
+  /** One BLOCK of an artifact body — what an `artifact-block` anchor locus
+   *  resolves to. A zero-based index, so every read must test `!== undefined`
+   *  rather than truthiness: block 0 is a real block, and the first paragraph of
+   *  a document is exactly the one people comment on. */
+  artifactBlock?: number
 }
 
 /** Where a door leads. The precise variants carry the focus; the fallbacks (a legacy

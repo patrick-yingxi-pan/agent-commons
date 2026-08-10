@@ -96,7 +96,7 @@ import { ProposalsPanel } from './ProposalsPanel'
 import { ProposalDeltaView } from './DeltaView'
 import { MentionText } from './MentionText'
 import { Tooltip } from './Tooltip'
-import { describeLocus, locusFocus } from '../lib/anchorLocus'
+import { describeLocus, locusFocus, sectionForSocialKind } from '../lib/anchorLocus'
 import type { FocusTarget } from '../lib/notificationDoor'
 import { profileTagline, profileTitle } from '../lib/publicFace'
 import { ActorByline, AgentActor, Byline, CreditLine, OwnerLink, IdentityMark } from './PublicFace'
@@ -3103,8 +3103,7 @@ function FeedCard({ item, standalone = false }: { item: CommonsItem; standalone?
   const react = (pid: string) => {
     if (root) void reactToDiscussionPost(root.id, pid, item.subject)
   }
-  const target: SectionId | null =
-    kind === 'project' ? 'projects' : kind === 'schedule' ? 'scheduled' : kind === 'context' ? 'contexts' : kind === 'discussion' ? 'discussions' : null
+  const target: SectionId | null = sectionForSocialKind(kind)
   return (
     // An <article>, because that is what it is: a self-contained composition in
     // a feed. It also gives the card an addressable BOUNDARY — the one thing a
@@ -3578,8 +3577,7 @@ function AnchorChip({
 }) {
   const rel = useRelations()
   const { kind, id } = anchor.ref
-  const target: SectionId | null =
-    kind === 'project' ? 'projects' : kind === 'schedule' ? 'scheduled' : kind === 'context' ? 'contexts' : kind === 'discussion' ? 'discussions' : null
+  const target: SectionId | null = sectionForSocialKind(kind)
   const at = anchor.locus ? ` · ${describeLocus(anchor.locus)}` : ''
   const label = `${kind} · ${id}${at}`
   // The position to land on, from the ONE registry — this chip never asks which

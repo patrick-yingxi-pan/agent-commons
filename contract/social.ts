@@ -81,7 +81,25 @@ export interface SocialEntityRef {
  *  "root" anchor a resource's public comment thread hangs on. Each variant is
  *  resolved to a scroll/highlight by that kind's anchor resolver in the UI. */
 export type AnchorLocus =
-  | { kind: 'artifact-range'; from: number; to: number }
+  /** ── One BLOCK of an artifact body (S2, replacing S0's `artifact-range`) ────
+   *  Declared at S0 as a `{from,to}` LINE span, this was the one locus no
+   *  surface could ever mint: these bodies are STRUCTURED, not linear (a doc has
+   *  blocks, a sheet rows, a deck slides), so a line span's own label — "lines
+   *  4–9" — would have been a lie about a body that has no lines. The S2 gutter
+   *  stayed blocked on that for as long as the variant kept its shape.
+   *
+   *  S3 settled the question from the other side: `artifact-patch` had to
+   *  address a body EDIT, and took the address the body actually has
+   *  (`block`, `contract/content.ts`). So the locus now speaks that same
+   *  address rather than inventing a second vocabulary for "which piece of an
+   *  artifact" — one index, meaning the same block to a patch, to a thread and
+   *  to the reader looking at it.
+   *
+   *  Scoped like the patch to a `doc` body's ordered blocks. Sheets, decks and
+   *  figures have no addressed interior yet; when one grows an address, the
+   *  patch and this locus should grow it together, for the same reason they
+   *  share one now. */
+  | { kind: 'artifact-block'; block: number }
   | { kind: 'session-turn'; messageId: string }
   | { kind: 'schedule-run'; runId: string }
   | { kind: 'relation-edge'; relationId: string }
@@ -107,8 +125,8 @@ export function isAnchorLocus(v: unknown): v is AnchorLocus {
     return Object.entries(fields).every(([k, t]) => typeof o[k] === t)
   }
   switch (o.kind) {
-    case 'artifact-range':
-      return shape({ from: 'number', to: 'number' })
+    case 'artifact-block':
+      return shape({ block: 'number' })
     case 'session-turn':
       return shape({ messageId: 'string' })
     case 'schedule-run':

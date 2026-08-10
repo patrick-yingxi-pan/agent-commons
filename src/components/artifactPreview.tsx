@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { Fragment, useRef, useState, type ReactNode } from 'react'
 import {
   ArrowUpRight,
   Box,
@@ -16,7 +16,10 @@ import {
 import type { ArtifactKind } from '../types'
 import type { ArtifactItem } from '../data/cowork'
 import type { ArtifactContent, DocBlock } from '../types'
+import type { SocialEntityRef } from '../../contract/index.ts'
 import { docBlockText } from '../../contract/index.ts'
+import { LocusGutter } from './LocusGutter'
+import { usePendingFocus, useFocusFlash, FOCUS_FLASH_CLASS } from '../lib/focusContext'
 import { useArtifactContent, useFsText, fsContentUrl, updateArtifactBlock } from '../api'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
@@ -149,7 +152,21 @@ export interface DocEdit {
   onCancel: () => void
 }
 
-function DocView({ doc, size, edit }: { doc: Extract<ArtifactContent, { type: 'doc' }>; size: Size; edit?: DocEdit }) {
+function DocView({
+  doc,
+  size,
+  edit,
+  discuss,
+}: {
+  doc: Extract<ArtifactContent, { type: 'doc' }>
+  size: Size
+  edit?: DocEdit
+  /** The artifact this body belongs to, when the surface can host discussion —
+   *  the canonical viewer, and no other (a thumbnail and a side panel are
+   *  previews, not reading surfaces). Present ⇒ each block carries the shared
+   *  locus gutter, so a thread can hang on ONE block. */
+  discuss?: SocialEntityRef
+}) {
   const t = DOC[size]
   const blocks = size === 'thumb' ? doc.blocks.slice(0, 2) : doc.blocks
   return (
@@ -162,8 +179,10 @@ function DocView({ doc, size, edit }: { doc: Extract<ArtifactContent, { type: 'd
         // contract's own predicate, the same one the server validates a patch
         // with, so the pencil appears exactly where an edit can land.
         const current = docBlockText(b)
-        if (!edit || current === undefined) return <DocBlockView key={i} block={b} size={size} />
-        if (edit.index === i) {
+        // The OPEN editor replaces the block entirely: there is nothing to point
+        // at or discuss while it is a textarea, and a gutter under a form would
+        // anchor talk to a block the writer is mid-way through changing.
+        if (edit && current !== undefined && edit.index === i) {
           return (
             <div key={i} className="space-y-1.5">
               <textarea
@@ -186,25 +205,61 @@ function DocView({ doc, size, edit }: { doc: Extract<ArtifactContent, { type: 'd
             </div>
           )
         }
+        const body =
+          edit && current !== undefined ?
+            // Recessive until needed (the SECTION_REVEAL idiom): the pencil costs
+            // the reading surface nothing until the pointer is on the block. Its
+            // lane is RESERVED with padding rather than overlaid — an absolutely
+            // positioned control on top of full-width prose sits on the last word
+            // of the first line (UI-2: a control may not cover content).
+            <div className="group/block relative pr-7">
+              <DocBlockView block={b} size={size} />
+              <button
+                onClick={() => edit.onStart(i, current)}
+                title="Edit this block"
+                aria-label={`Edit block ${i + 1}`}
+                className="absolute right-0 top-0 flex h-6 w-6 items-center justify-center rounded-md text-ink-faint opacity-0 transition hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 group-hover/block:opacity-100"
+              >
+                <Pencil size={12} />
+              </button>
+            </div>
+          : <DocBlockView block={b} size={size} />
+        // A keyed Fragment, not a wrapper div: every preview surface renders
+        // this body too, and an extra node per block would be DOM noise on all
+        // of them for the benefit of the one surface that hosts a gutter.
+        if (!discuss) return <Fragment key={i}>{body}</Fragment>
         return (
-          // Recessive until needed (the SECTION_REVEAL idiom): the pencil costs
-          // the reading surface nothing until the pointer is on the block. Its
-          // lane is RESERVED with padding rather than overlaid — an absolutely
-          // positioned control on top of full-width prose sits on the last word
-          // of the first line (UI-2: a control may not cover content).
-          <div key={i} className="group/block relative pr-7">
-            <DocBlockView block={b} size={size} />
-            <button
-              onClick={() => edit.onStart(i, current)}
-              title="Edit this block"
-              aria-label={`Edit block ${i + 1}`}
-              className="absolute right-0 top-0 flex h-6 w-6 items-center justify-center rounded-md text-ink-faint opacity-0 transition hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 group-hover/block:opacity-100"
-            >
-              <Pencil size={12} />
-            </button>
-          </div>
+          <DiscussableBlock key={i} subject={discuss} index={i}>
+            {body}
+          </DiscussableBlock>
         )
       })}
+    </div>
+  )
+}
+
+/** One block of a doc body, made ADDRESSABLE (social S2): it carries the shared
+ *  locus gutter, so a thread can hang on this block rather than on the whole
+ *  artifact, and it is the element an `artifact-block` anchor lands on.
+ *
+ *  Every block is discussable, including the ones no `artifact-patch` may
+ *  rewrite (a list, a code block, an email header). Patchability asks whether a
+ *  one-line before→after diff can honestly express a change; discussability only
+ *  asks whether there is something to point at. Different questions — so they
+ *  get different predicates rather than one borrowed from the other. */
+function DiscussableBlock({ subject, index, children }: { subject: SocialEntityRef; index: number; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const { pending } = usePendingFocus()
+  // Zero-based: `!== undefined`, never truthiness — block 0 is a real block, and
+  // the opening paragraph is exactly the one people comment on.
+  // The hook returns WHETHER to flash, not a class — the caller styles on it.
+  const flash = useFocusFlash(pending?.artifactBlock !== undefined && pending.artifactBlock === index, ref)
+  return (
+    // The lit cue needs room to read as a highlight of the block rather than of
+    // its text, so the wrapper carries the inset only while it is lit.
+    <div ref={ref} className={`rounded-md ${flash ? `${FOCUS_FLASH_CLASS} -mx-2 px-2` : ''}`}>
+      {children}
+      <LocusGutter subject={subject} locus={{ kind: 'artifact-block', block: index }} noun="block" />
     </div>
   )
 }
@@ -523,6 +578,7 @@ export function ArtifactBodyView({
   served,
   artifactId,
   edit,
+  discuss,
 }: {
   kind: ArtifactKind
   name: string
@@ -536,6 +592,12 @@ export function ArtifactBodyView({
    *  one — the other kinds have no single-string addressable unit — so the
    *  other renderers ignore it rather than pretending. */
   edit?: DocEdit
+  /** Hang the per-block discussion gutter off this artifact (social S2). Passed
+   *  ONLY by the canonical viewer: a thumbnail and a side panel are previews,
+   *  and a preview that sprouted comment affordances would tax every surface an
+   *  artifact appears on. Like `edit`, only a `doc` body has the addressable
+   *  unit, so the other renderers ignore it. */
+  discuss?: SocialEntityRef
   /** When the artifact comes from a served filesystem folder (cloud / runner), its
    *  source + path, so the real file content is fetched + rendered (instead of the
    *  name-keyed authored library). Absent for seeded artifacts and UI-host folders
@@ -562,7 +624,7 @@ export function ArtifactBodyView({
   if (lib) {
     switch (lib.type) {
       case 'doc':
-        return <DocView doc={lib} size={size} edit={edit} />
+        return <DocView doc={lib} size={size} edit={edit} discuss={discuss} />
       case 'sheet':
         return <SheetView sheet={lib} size={size} />
       case 'slides':
@@ -771,6 +833,9 @@ export function ArtifactViewer({
             size="full"
             excerpt={artifact.excerpt}
             edit={edit}
+            // The canonical viewer is the artifact's READING surface, so it is
+            // the one place a block carries its own thread (social S2).
+            discuss={{ kind: 'artifact', id: artifact.id }}
           />
           {/* Improvements (social S3) — the generic ProposalsPanel, the third
               social primitive on the one canonical surface. An artifact could be
