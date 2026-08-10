@@ -1018,6 +1018,60 @@ test('the mention picker completes a multi-word name, and the server resolves wh
 
   await ada.context.close()
 })
+
+/** ── S8: the picker on the SQUARE — where the copy teaches the feature ───────
+ *  The reply composer got the picker first, and it is the one surface whose
+ *  copy never mentioned `@`. The square's says "mention someone with @ to reach
+ *  them" — and a post has no thread to draw voices from, so `threadVoices` is
+ *  structurally empty at exactly the moment the placeholder gives the
+ *  instruction. Its roster is the viewer's own two lists instead: who they
+ *  FOLLOW, then the bylines in the feed in front of them.
+ *
+ *  A browser walk because all three halves are DOM: the roster comes from two
+ *  live queries, the list PORTALS out of the composer (`document.body`), and
+ *  what it inserted has to survive a POST and come back resolved by the server.
+ *  Grace is the caller: the seeded follow graph is one-directional (Grace
+ *  follows Ada, who publishes), which is the asymmetric shape a real one has. */
+test('the square’s composer completes a name the viewer follows, and the post rings it', async ({ browser }) => {
+  test.setTimeout(120_000)
+  const grace = await newUser(browser, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
+  const SQUARE_POST = `Saying this out loud ${STAMP}`
+
+  await grace.page.goto('/commons')
+  const field = grace.page.getByRole('textbox', { name: 'Say something' })
+  await expect(field).toBeVisible({ timeout: 20_000 })
+  await field.click()
+  await field.pressSequentially('morning @Ada Lo')
+
+  const picker = grace.page.getByRole('listbox', { name: 'Mention someone' })
+  await expect(picker).toBeVisible({ timeout: 20_000 })
+  await expect(picker.getByRole('option', { name: 'Ada Lovelace', exact: true })).toBeVisible()
+  // The list escapes the composer entirely — it is portaled to the body, because
+  // a composer is not always in an unclipped box (the work-item field sits
+  // inside a `CardList`, whose ledger recipe carries `overflow-hidden`).
+  expect(await picker.evaluate((el) => el.parentElement?.tagName)).toBe('BODY')
+  // …and it is placed against the FIELD, not against wherever it was rendered.
+  const listBox = await picker.boundingBox()
+  const fieldBox = await field.boundingBox()
+  assert.ok(listBox && fieldBox)
+  expect(Math.abs(listBox.x - fieldBox.x)).toBeLessThan(2)
+  expect(listBox.y).toBeGreaterThan(fieldBox.y)
+
+  await field.press('Enter')
+  await expect(field).toHaveValue(/morning @Ada Lovelace /)
+  await expect(picker).toHaveCount(0, { timeout: 10_000 })
+
+  await field.pressSequentially(SQUARE_POST)
+  await grace.page.getByRole('button', { name: 'Post', exact: true }).first().click()
+
+  // The round trip: the SERVER resolved the inserted name, so it comes back as
+  // its own element — the same resolution that decided who was rung.
+  const posted = grace.page.locator('p', { hasText: SQUARE_POST })
+  await expect(posted).toBeVisible({ timeout: 20_000 })
+  await expect(posted.getByText('@Ada Lovelace', { exact: true })).toBeVisible()
+
+  await grace.context.close()
+})
 /** ── S2: the artifact BLOCK gutter — an artifact's interior, at last ─────────
  *  The last gap S2 left open. The locus was declared at S0 as a `{from,to}` LINE
  *  span and could never be minted: these bodies are structured, not linear, so

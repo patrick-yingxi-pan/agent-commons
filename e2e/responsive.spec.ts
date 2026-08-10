@@ -114,6 +114,36 @@ test('extreme narrow (320×700): every composer popover stays inside the viewpor
     await expect(pop).not.toBeVisible()
   }
 
+  // The @-mention completion list is the one overlay no TRIGGER opens — it is
+  // armed by TYPING, so the loop above can never reach it, and it is portaled
+  // rather than shift-hook-managed (a composer is not always in an unclipped
+  // box), so it carries no `data-popover` either. It still owes UI-1, and this
+  // is the width where a 256px list stops fitting beside an indented field.
+  //
+  // The seeded thread, not the square: this spec runs as the default tenant,
+  // whose square roster is legitimately EMPTY (she follows nobody, and the feed
+  // holds only her own acts, which the `mine` stamp drops) — so no list would
+  // open and the measurement would be of nothing.
+  //
+  // What this proves and what it doesn't: the list opens on a 320px viewport
+  // and lies inside it. It does NOT exercise the clamp — this composer's left
+  // edge is small enough that the list would fit unclamped — so the clamp is
+  // held where it can fail: `tests/popover.test.ts` (the `clampLeft` unit cases
+  // at the boundaries, and the call-site scan that fails this file if the
+  // shared math is dropped).
+  await page.goto('/discussions/disc-seed-1')
+  const reply = page.getByRole('textbox', { name: 'Reply to this discussion' })
+  await expect(reply).toBeVisible({ timeout: 20_000 })
+  await reply.click()
+  await reply.pressSequentially('@')
+  const list = page.getByRole('listbox', { name: 'Mention someone' })
+  await expect(list, 'typing `@` arms the picker').toBeVisible({ timeout: 20_000 })
+  const listBox = (await list.boundingBox())!
+  expect(listBox.x, 'the mention list clears the left edge').toBeGreaterThanOrEqual(MARGIN)
+  expect(listBox.x + listBox.width, 'the mention list clears the right edge').toBeLessThanOrEqual(320 - MARGIN)
+  await page.keyboard.press('Escape')
+  await expect(list).toHaveCount(0)
+
   // Row identity survives 320px (UI-7): the Scheduled rows' trailing controls
   // must not starve the flex-1 name column — the routine name renders at a
   // readable width, not zero (the invisible-but-space-reserving hover cluster

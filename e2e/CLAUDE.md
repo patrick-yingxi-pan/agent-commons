@@ -30,7 +30,11 @@ Anchor specs:
   **block** (the third host, SOCIAL-6c — hover-revealed opener, marker-only-
   once-a-thread-exists, and the chip's landing, all three of which are DOM and
   none of which `node --test` can see); and the **mention picker** completing a
-  multi-word display name and the server resolving what it inserted. The turn
+  multi-word display name and the server resolving what it inserted — on the
+  reply composer (roster = the thread's voices) and on the **square**, where a
+  post has no thread yet so the roster is the viewer's own follows plus the feed
+  bylines, and where the walk also holds the list's PORTAL (it escapes its
+  composer to `document.body` and takes its position from the field). The turn
   walk sets a SHORT
   viewport on purpose: a conversation opens at the bottom, so the earliest turn
   must be off-screen or the "landed on the turn" assertion passes vacuously.

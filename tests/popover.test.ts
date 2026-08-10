@@ -83,7 +83,6 @@ const ANCHORED = [
   'src/components/RunHistoryMenu.tsx',
   'src/components/SessionShareButton.tsx',
   'src/components/MessageButton.tsx',
-  'src/components/AnchorThreadComposer.tsx',
 ]
 
 /** Portal-fixed menus: position themselves, so they clamp via clampLeft. */
@@ -91,6 +90,13 @@ const PORTALED = [
   'src/components/RowMenu.tsx',
   'src/components/FilterMenu.tsx',
   'src/components/RecentOverflowList.tsx',
+  // The @-mention completion list. It lives in the HOOK rather than in any one
+  // composer (four composers offer it), and it PORTALS for a reason the other
+  // three share: a composer is not always in an open box. The work-item field
+  // sits inside a `CardList`, whose ledger recipe carries `overflow-hidden` for
+  // its rounded corners — a CSS-anchored list was clipped by the very row it
+  // belonged to, found in the running app.
+  'src/lib/useMentionPicker.tsx',
 ]
 
 /** The enumeration is DERIVED, not hand-listed: every file that wears the surface
@@ -113,11 +119,16 @@ test('the consumer enumeration is COMPLETE — no popover escapes by not being l
   }
 })
 
+/** The import path to a `src/lib` module from a consumer — either up out of
+ *  `src/components` or, since the mention picker moved into `src/lib` itself,
+ *  a sibling `./`. Both are the SAME module; only the depth differs. */
+const fromLib = (mod: string) => new RegExp(String.raw`from\s+'(?:(?:\.\./)+lib|\.)/${mod}'`)
+
 test('every anchored popover wears the shared surface and the shift hook', () => {
   for (const rel of ANCHORED) {
     const src = read(join(ROOT, ...rel.split('/')))
-    assert.match(src, /from\s+'(\.\.\/)+lib\/popover'/, `${rel} imports the surface cue`)
-    assert.match(src, /from\s+'(\.\.\/)+lib\/usePopoverShift'/, `${rel} imports the shift hook`)
+    assert.match(src, fromLib('popover'), `${rel} imports the surface cue`)
+    assert.match(src, fromLib('usePopoverShift'), `${rel} imports the shift hook`)
     assert.ok(src.includes('POPOVER_SURFACE'), `${rel} wears the shared surface`)
     assert.ok(src.includes('usePopoverShift'), `${rel} self-corrects into the viewport`)
   }
@@ -126,7 +137,7 @@ test('every anchored popover wears the shared surface and the shift hook', () =>
 test('every portal-positioned menu clamps through the shared math', () => {
   for (const rel of PORTALED) {
     const src = read(join(ROOT, ...rel.split('/')))
-    assert.match(src, /from\s+'(\.\.\/)+lib\/popover'/, `${rel} imports the shared module`)
+    assert.match(src, fromLib('popover'), `${rel} imports the shared module`)
     assert.ok(src.includes('clampLeft('), `${rel} clamps via the shared math`)
     assert.ok(src.includes('POPOVER_SURFACE'), `${rel} wears the shared surface`)
   }

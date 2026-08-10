@@ -15,14 +15,19 @@
  *  are exactly the parts that go wrong silently and are invisible in a
  *  screenshot.
  *
- *  The roster is the THREAD's own voices — never a directory, and never a new
- *  wire face. Every name it offers is already rendered on the surface as a
- *  byline or a lit mention, so the picker tells the reader nothing they are not
- *  already looking at. (The S1 rule this respects: a shared resource never shows
- *  its visitors to each other, so the grant AUDIENCE may not become a roster.)
- *  Nothing here restricts what may be mentioned — the server still resolves
- *  whatever is typed, against every name that exists. */
-import type { Discussion } from '../../contract/index.ts'
+ *  ── The roster rule (one rule, one supplier per surface) ────────────────────
+ *  A roster offers only names the viewer is ALREADY looking at or has ALREADY
+ *  declared: a thread's voices, a work item's participants, the people they
+ *  follow. Never a directory and never a new wire face — COMMONS-22's floor is
+ *  that the client gets no enumerable name list, or a mention becomes an
+ *  identity oracle; and S1's is that a shared resource never shows its visitors
+ *  to each other, so a grant AUDIENCE may not become a roster either. Each
+ *  surface supplies its own list through one of the functions below, and none of
+ *  them fetches anything.
+ *
+ *  A roster RESTRICTS nothing — the server still resolves whatever is typed,
+ *  against every name that exists. It is a completion, not a permission. */
+import type { CommonsItem, Discussion } from '../../contract/index.ts'
 // The longest mentionable name is ONE fact, shared with the resolver that will
 // have to match whatever this picker completes — never a second `80`.
 import { MENTION_MAX_NAME_LEN } from '../../contract/index.ts'
@@ -69,6 +74,56 @@ export function threadVoices(thread: Discussion | null): string[] {
   }
   heard.push(thread.openedBy)
   return [...new Set(heard)].filter((n) => n.length > 0 && n !== me)
+}
+
+/** The SQUARE's roster (S8) — for a post, which has no thread to draw voices
+ *  from: the composer is the first word, so `threadVoices` would be empty at
+ *  exactly the moment the placeholder tells the writer to mention someone.
+ *
+ *  Two sources, both already the viewer's own: the people they FOLLOW (S7 — a
+ *  standing relationship they declared and can read back on their profile), then
+ *  the bylines in the feed they are looking at. Follows rank first because a
+ *  stated relationship outranks a name that happens to be scrolling past.
+ *
+ *  The caller's own acts are dropped by the server's `mine` stamp, the same
+ *  derivation `threadVoices` uses — `@`-ing yourself rings nobody. */
+export function squareVoices(follows: readonly string[], feed: readonly CommonsItem[]): string[] {
+  const heard = [...follows, ...feed.filter((i) => i.mine !== true).map((i) => i.actor)]
+  return [...new Set(heard)].filter((n) => n.length > 0)
+}
+
+/** A WORK ITEM's roster (COMMONS-22) — the participants its own thread shows:
+ *  commenters most-recently-heard first, then whoever closed it, then the
+ *  poster. Every one of them is rendered as a byline right there.
+ *
+ *  `me` drops the caller, and here it is a display NAME rather than a
+ *  server-stamped `mine` (a work-item comment carries no such stamp). Legitimate
+ *  because this is a PREFERENCE, not authority — the repo's rule is that
+ *  preference may key on a name while authority never may. The worst a rename or
+ *  a name collision can do is offer one suggestion that rings nobody, which the
+ *  fan-out drops anyway. */
+export function workItemVoices(
+  item: { postedBy: string; retractedBy?: string; comments?: readonly { author: string }[] } | null,
+  me?: string,
+): string[] {
+  if (!item) return []
+  const heard = [...(item.comments ?? [])].reverse().map((c) => c.author)
+  if (item.retractedBy) heard.push(item.retractedBy)
+  heard.push(item.postedBy)
+  return [...new Set(heard)].filter((n) => n.length > 0 && n !== me)
+}
+
+/** The work-item composer's placeholder — ONE string for the two fields that
+ *  post to that route, and it tells the truth about the wall.
+ *
+ *  COMMONS-22 fans a mention out only on a SHARED Project (on a private one the
+ *  audience is the owner alone, so naming an outsider would leak the project's
+ *  existence, and the mention therefore rings nobody). The hint promised the
+ *  notification either way — copy asserting something the server would not do,
+ *  the same defect class as S7's empty state that named a reason that wasn't the
+ *  reason. Where the promise can't be kept, it isn't made. */
+export function mentionHint(shared: boolean): string {
+  return shared ? 'Add a comment… @mention to notify' : 'Add a comment…'
 }
 
 /** Roster names matching what has been typed: prefix matches first (what a

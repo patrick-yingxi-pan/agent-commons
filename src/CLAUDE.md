@@ -119,6 +119,15 @@ locked by `tests/thread-composer.test.ts`, which allows exactly one caller of
 composer for as long as this rule went unlocked. Inside a SECTION the composer is
 **disclosed by the header's verb**, never left standing open (invariant UI-18);
 a standing composer is only for a surface whose whole subject IS the thread)
+and `src/lib/useMentionPicker.tsx` (the ONE `@`-mention completion — the thread
+composer, the square, and both work-item comment fields; the roster is each
+surface's own supplier in `lib/mentionPicker.ts`, never a directory. Two rules
+live in the hook because both fail silently when re-derived: arming belongs to
+TYPING (a caret move may only narrow or close), and an OPEN picker owns Enter —
+which is why a host's keys pass THROUGH the hook rather than sitting beside it,
+so a single-line field whose Enter posts can never post half a name. Locked by
+`tests/mention-picker.test.ts`, whose pairing scan fails any field advertising a
+mention in its placeholder that does not spread the picker's `fieldProps`)
 and `src/lib/spinner.ts` + `src/components/Spinner.tsx` (every loading spinner — its
 spin gated behind `motion-safe:` so it respects `prefers-reduced-motion`, WCAG 2.3.3;
 the lock forbids ANY bare `animate-{spin,pulse,ping,bounce}` so no infinite animation

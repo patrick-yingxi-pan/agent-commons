@@ -99,6 +99,8 @@ import { Tooltip } from './Tooltip'
 import { describeLocus, locusFocus, sectionForSocialKind } from '../lib/anchorLocus'
 import type { FocusTarget } from '../lib/notificationDoor'
 import { profileTagline, profileTitle } from '../lib/publicFace'
+import { mentionHint, squareVoices, workItemVoices } from '../lib/mentionPicker'
+import { useMentionPicker } from '../lib/useMentionPicker'
 import { ActorByline, AgentActor, Byline, CreditLine, OwnerLink, IdentityMark } from './PublicFace'
 import { TextDiff } from './TextDiff'
 import { CopyButton } from './CopyButton'
@@ -2155,7 +2157,7 @@ function CoordinationPanel({ project }: { project: Project }) {
         inside Coordination, one level deeper than its nature (the issues tray, a
         first-class backlog) warrants. Same guardian gate as before: posting routes
         through the guardian walls, so an unguarded project has no backlog. */}
-    {guarded && <OpenWorkList projectId={project.id} />}
+    {guarded && <OpenWorkList projectId={project.id} shared={project.shared === true} />}
     </>
   )
 }
@@ -2183,8 +2185,11 @@ function renderCommentBody(body: string): ReactNode[] {
  *  project's STANDING contributors (through the same role/reach/guardian walls as a
  *  prompted effect); the returned item is already done when one took it. Live on
  *  `openwork.changed`. */
-function OpenWorkList({ projectId }: { projectId: string }) {
+function OpenWorkList({ projectId, shared }: { projectId: string; shared: boolean }) {
   const items = useOpenSubGoals(projectId).data ?? []
+  // Read once here rather than per row: every row's mention roster drops the
+  // caller, and this is one cached query either way.
+  const myName = useMe().data?.tenant.name
   const [subGoal, setSubGoal] = useState('')
   const [type, setType] = useState<ProjectEffectType>('charge')
   const [target, setTarget] = useState('')
@@ -2231,7 +2236,7 @@ function OpenWorkList({ projectId }: { projectId: string }) {
         <CardList>
           {items.map((o) => (
             <div key={o.id} className="px-4 py-3">
-              <WorkItemRow item={o} projectId={projectId} />
+              <WorkItemRow item={o} projectId={projectId} shared={shared} myName={myName} />
             </div>
           ))}
         </CardList>
@@ -2379,9 +2384,15 @@ function WatchToggle({
 function WorkItemRow({
   item: o,
   projectId,
+  shared,
+  myName,
 }: {
   item: OpenSubGoal
   projectId: string
+  /** Whether the Project is shared — the wall COMMONS-22 puts on the mention
+   *  fan-out, and therefore the wall on the hint that promises it. */
+  shared: boolean
+  myName?: string
 }) {
   const comments = o.comments ?? []
   // Remembered across a trip out of this page (`lib/disclosure`), for the same
@@ -2422,6 +2433,20 @@ function WorkItemRow({
     }
   })
 
+  // The mention picker (COMMONS-22's write side). Its roster is this item's own
+  // participants — every one of them a byline already on this row — and it
+  // renders only where a mention can RING: the fan-out is walled to a shared
+  // Project, so on a private one the hint below would promise a notification
+  // that cannot happen.
+  const voices = useMemo(() => (shared ? workItemVoices(o, myName) : []), [shared, o, myName])
+  const mention = useMentionPicker<HTMLInputElement>({
+    roster: voices,
+    draft,
+    setDraft,
+    onKeyDown: (e) => {
+      if (e.key === 'Enter') void send()
+    },
+  })
   const send = async () => {
     if (busy || !draft.trim()) return
     setBusy(true)
@@ -2429,6 +2454,7 @@ function WorkItemRow({
     try {
       await commentOnWorkItem(projectId, o.id, draft.trim())
       setDraft('')
+      mention.close()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not post this comment.')
     } finally {
@@ -2537,10 +2563,9 @@ function WorkItemRow({
             ))}
             <div className="flex items-center gap-1.5">
               <input
+                {...mention.fieldProps}
                 value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && send()}
-                placeholder="Add a comment… @mention to notify"
+                placeholder={mentionHint(shared)}
                 aria-label={`Comment on ${o.subGoal}`}
                 className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
               />
@@ -2551,6 +2576,7 @@ function WorkItemRow({
               >
                 Post
               </button>
+              {mention.list}
             </div>
           </div>
         )}
@@ -2602,6 +2628,36 @@ function WorkItemPage({
   const anchorRef = useRef<HTMLDivElement>(null)
   const flash = useFocusFlash(isFocus, anchorRef, () => setAnchorComment(focusCommentId))
 
+  // Declared ABOVE the missing-item return, with the rest of the hooks: the
+  // picker's roster is this item's own participants, and both it and `send`
+  // have to exist before the early exit that only some renders take.
+  const send = async () => {
+    if (!o || busy || !draft.trim()) return
+    setBusy(true)
+    setError(null)
+    try {
+      await commentOnWorkItem(project.id, o.id, draft.trim())
+      setDraft('')
+      mention.close()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not post this comment.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  // Walled to a shared Project for the same reason the backlog row's is: on a
+  // private one COMMONS-22 rings nobody, so neither the hint nor the completion
+  // it teaches belongs there.
+  const voices = useMemo(() => (project.shared === true ? workItemVoices(o, myName) : []), [project.shared, o, myName])
+  const mention = useMentionPicker<HTMLInputElement>({
+    roster: voices,
+    draft,
+    setDraft,
+    onKeyDown: (e) => {
+      if (e.key === 'Enter') void send()
+    },
+  })
+
   if (!o) {
     return (
       <Page>
@@ -2616,19 +2672,6 @@ function WorkItemPage({
   const comments = o.comments ?? []
   const mayRetract = o.status === 'open' && o.canRetract === true
 
-  const send = async () => {
-    if (busy || !draft.trim()) return
-    setBusy(true)
-    setError(null)
-    try {
-      await commentOnWorkItem(project.id, o.id, draft.trim())
-      setDraft('')
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not post this comment.')
-    } finally {
-      setBusy(false)
-    }
-  }
   const retract = async () => {
     if (busy) return
     setBusy(true)
@@ -2779,13 +2822,14 @@ function WorkItemPage({
         </div>
 
         {/* The conversation continues below the timeline — same funnel as the
-            backlog row's composer (anyone who can see the project may comment). */}
+            backlog row's composer (anyone who can see the project may comment),
+            and the same mention picker: the two composers post to one route, so
+            they must offer one thing. */}
         <div className="mt-4 flex items-center gap-1.5">
           <input
+            {...mention.fieldProps}
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && send()}
-            placeholder="Add a comment… @mention to notify"
+            placeholder={mentionHint(project.shared === true)}
             aria-label={`Comment on ${o.subGoal}`}
             className="min-w-0 flex-1 rounded-md border border-line bg-surface px-3 py-1.5 text-[13px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
           />
@@ -2796,6 +2840,7 @@ function WorkItemPage({
           >
             Post
           </button>
+          {mention.list}
         </div>
         {error && <p className="mt-1.5 text-[12px] text-removed">{error}</p>}
       </div>
@@ -3403,6 +3448,15 @@ function PostComposer() {
   const [body, setBody] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // The picker the placeholder promises. A post has no thread yet — it IS the
+  // first word — so `threadVoices` is empty exactly here, where the copy tells
+  // the writer to reach someone: the square's roster is the people they follow
+  // plus the bylines in the feed they are reading (`squareVoices`). Both lists
+  // are already loaded for this page, so this costs no fetch.
+  const follows = useFollows().data ?? []
+  const feed = useCommons().data ?? []
+  const voices = useMemo(() => squareVoices(follows, feed), [follows, feed])
+  const mention = useMentionPicker<HTMLTextAreaElement>({ roster: voices, draft: body, setDraft: setBody })
   const send = async () => {
     const text = body.trim()
     if (!text || busy) return
@@ -3411,6 +3465,7 @@ function PostComposer() {
     try {
       await openWallPost(text)
       setBody('')
+      mention.close()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not post that.')
     } finally {
@@ -3431,9 +3486,9 @@ function PostComposer() {
           site passed nothing, which is why it shipped as a cramped tint. */}
       <div className={FIELD_SHELL_CLASS}>
         <textarea
+          {...mention.fieldProps}
           aria-label="Say something"
           value={body}
-          onChange={(e) => setBody(e.target.value)}
           // Opens on ONE line, like every other composer, so Post sits on that
           // line instead of below it — the shared rule, not a local one.
           rows={composerRows(body, 8)}
@@ -3448,6 +3503,7 @@ function PostComposer() {
           {busy ? 'Posting…' : 'Post'}
         </button>
       </div>
+      {mention.list}
       {error && <p className="mt-1 truncate text-[11px] text-danger">{error}</p>}
     </div>
   )
