@@ -12,8 +12,8 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  ChevronsDownUp,
-  ChevronsUpDown,
+  ChevronsDown,
+  ChevronsUp,
   ChevronUp,
   Clock,
   Cpu,
@@ -2996,7 +2996,14 @@ function DiscussionPostList({
     })
     if (willFold && spared.has(id)) setReplyingTo(null)
   }
-  const allFolded = posts.length > 0 && posts.every((p) => folded.has(p.id) || spared.has(p.id))
+  /** What each thread-level act has left to do. Deliberately asymmetric, and the
+   *  asymmetry is the fix: "Fold all" works on the ROOTS (it is a bulk press of
+   *  the fold toggle, so it may not reach inside them), while "Unfold all"
+   *  answers for the set at EVERY depth — a thread whose only folded post is
+   *  three levels down still needs the way out, which is exactly the state the
+   *  old single toggle could not represent. */
+  const foldableRoots = roots.filter((p) => !folded.has(p.id) && !spared.has(p.id)).map((p) => p.id)
+  const anyFolded = folded.size > 0
 
   const row = (p: DiscussionPost, depth: number) => {
     const answers = childrenOf.get(p.id) ?? []
@@ -3006,52 +3013,41 @@ function DiscussionPostList({
     const kin = descendantsOf(childrenOf, p.id)
     const branch = kin.size
     const replies = branch === 1 ? '1 reply' : `${branch} replies`
-    // A BRANCH is folded when every post in it is — the post included, and the
-    // same rule the thread's own toggle uses. Its direction has to be right in
-    // the MIXED state, which is precisely what "only this" leaves behind: a
-    // stub whose answers are stubs beneath it.
-    const branchFolded = [p.id, ...kin].every((id) => folded.has(id))
-    /** ── The BRANCH fold ────────────────────────────────────────────────────
-     *  The caret in the gutter folds one post; this folds the post and
-     *  everything under it (owner directive 2026-08-11). The case it exists for
-     *  is the one "only this" creates: every other branch becomes a stub whose
-     *  answers are stubs too, so opening one to read it cost a click per post.
+    /** ── Unfold all, here ───────────────────────────────────────────────────
+     *  The one fold control that is NOT a toggle, and the reason it exists is
+     *  the reason the toggle cannot serve it (owner directive 2026-08-11):
      *
-     *  Rendered in BOTH states — in the act cluster while the post is open, and
-     *  on the STUB while it is not. The stub is where it earns its keep, and
-     *  the first cut put it only in the cluster: available exactly when the
-     *  branch was already open, and gone the moment you needed it.
+     *  The caret is **invertible** — folding a post remembers what its inside
+     *  looked like, and unfolding restores exactly that. That is the right
+     *  default: an arrangement you built by hand should survive being put away.
+     *  But it means the caret can never *flatten* a branch, and after enough
+     *  hand-folding the only way to open one is a click per stub.
      *
-     *  The double chevron is the thread-level "Fold all" glyph, deliberately:
-     *  one chevron means this post, two mean everything in scope, and the scope
-     *  is whatever the control sits on. Only where it differs from the caret
-     *  beside it — a leaf has no branch, and two controls doing one thing is
-     *  worse than one. */
-    const branchFold = branch > 0 && (
-      <Tooltip label={branchFolded ? 'Unfold this whole branch' : 'Fold this whole branch'}>
+     *  So this is unfold-all's own control rather than a mode of the toggle:
+     *  it drops the whole branch's fold state instead of restoring it. It
+     *  appears **only where the two differ** — on a folded post that actually
+     *  has a folded descendant. Anywhere else it is the caret with a second
+     *  glyph, which is how the last cut ended up with a "fold branch" button
+     *  that duplicated the caret exactly. */
+    const buriedKin = [...kin].some((id) => folded.has(id))
+    const unfoldBranch = hidden && buriedKin && (
+      <Tooltip label="Unfold this branch and everything folded inside it">
         <button
           onClick={() =>
             setFolded((f) => {
               const next = new Set(f)
-              for (const id of [p.id, ...kin]) {
-                if (branchFolded) next.delete(id)
-                else if (!spared.has(id)) next.add(id)
-              }
+              for (const id of [p.id, ...kin]) next.delete(id)
               return next
             })
           }
-          aria-expanded={!branchFolded}
-          // Deliberately not "…and its N replies": the caret beside it is
-          // already named "‹author›'s post, N replies", and two controls whose
-          // names both end in "replies" are two controls a reader — or a
-          // locator — has to disambiguate by position. State-neutral, like the
-          // caret's, with `aria-expanded` carrying the direction.
-          aria-label={`${p.author}’s post and everything under it`}
-          className={`${POST_ACT_CLASS} text-ink-faint hover:bg-panel-2 hover:text-ink ${HOVER_REVEAL}`}
+          // NOT a disclosure: it has no folded state to report, because pressing
+          // it is the last thing it ever does on this post — the control stops
+          // existing the moment the branch is open. `aria-expanded` here would
+          // claim a toggle that is not one.
+          aria-label={`Unfold ${p.author}’s post and everything folded inside it`}
+          className={`${POST_ACT_CLASS} shrink-0 text-ink-faint hover:bg-panel-2 hover:text-ink ${HOVER_REVEAL}`}
         >
-          {branchFolded ?
-            <ChevronsUpDown size={12} />
-          : <ChevronsDownUp size={12} />}
+          <ChevronsDown size={12} />
         </button>
       </Tooltip>
     )
@@ -3120,6 +3116,12 @@ function DiscussionPostList({
               }}
               className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md py-0.5 pr-1.5 transition hover:bg-panel-2"
             >
+              {/* Beside the caret it modifies, at the head of the row — a
+                  secondary reading of the same gesture, revealed on hover
+                  (owner directive 2026-08-11). `HOVER_REVEAL` is opacity, so
+                  the slot is reserved and the stub's text does not jump when
+                  the mouse arrives. */}
+              {unfoldBranch}
               <span className="shrink-0 text-[12px] font-medium text-ink">
                 <OwnerLink bare ownerName={p.author} own={p.mine === true} onClick={() => onOpenPerson(p.author)} />
               </span>
@@ -3128,7 +3130,6 @@ function DiscussionPostList({
                 {p.body.replace(/\s+/g, ' ').trim()}
               </span>
               {branch > 0 && <span className="shrink-0 text-[11px] tabular-nums text-ink-faint">{replies}</span>}
-              {branchFold}
             </div>
           )}
           {!hidden && (
@@ -3175,7 +3176,6 @@ function DiscussionPostList({
                     own line instead of squeezing the name to nothing, which is
                     the row-starvation UI-7 exists for. */}
                 <div className="flex shrink-0 items-center gap-0.5">
-                  {branchFold}
                   {/* "Fold the others" — a THREAD-WIDE act reached from one
                       post. Now a glyph like its neighbours (owner directive
                       2026-08-11), which costs it the warning its words carried,
@@ -3198,7 +3198,7 @@ function DiscussionPostList({
                   {posts.length > 1 && (
                     <Tooltip label="Fold everything else">
                       <button
-                        onClick={() => setFolded(sparingTheDraft(foldOthers(posts, tree, p.id)))}
+                        onClick={() => setFolded(sparingTheDraft(foldOthers(tree, p.id, folded)))}
                         aria-label={`Fold every post but ${p.author}’s`}
                         className={`${POST_ACT_CLASS} text-ink-faint hover:bg-panel-2 hover:text-ink ${HOVER_REVEAL}`}
                       >
@@ -3315,29 +3315,45 @@ function DiscussionPostList({
   }
   return (
     <div>
-      {/* ── Fold all ────────────────────────────────────────────────────────
-          One toggle over the whole thread — the rule the rail's Sections header
-          already follows (src/CLAUDE.md), one level down. Its LABEL always
-          states what the click will do, which is why the flip is `allFolded`
-          and not `anyFolded`: on the looser reading, folding a single post
-          would take "Fold all" away exactly when a long thread starts needing
-          it. Either way, getting back out of an all-folded thread is one press.
+      {/* ── Fold all · Unfold all ───────────────────────────────────────────
+          TWO buttons, not a toggle — and that correction is the whole of this
+          revision (owner directive 2026-08-11). As one toggle it read
+          `allFolded ? 'Unfold all' : 'Fold all'`, which meant Unfold all
+          existed for exactly as long as you did not use it: fold everything,
+          open a single stub to read it, and the way back out was gone. Every
+          route to a partly-folded thread had the same dead end.
 
-          Rendered only where there is an "all" to speak of — a lone post has a
-          caret of its own and needs no second control saying the same thing in
-          the corner. */}
-      {posts.length > 1 && (
-        <div className="mb-2 flex justify-end">
-          <button
-            onClick={() => setFolded(allFolded ? new Set() : sparingTheDraft(new Set(posts.map((p) => p.id))))}
-            title={allFolded ? 'Open every post in this thread' : 'Collapse every post to one line'}
-            className={INLINE_ACTION_CLASS}
-          >
-            {allFolded ?
-              <ChevronsUpDown size={12} className="shrink-0" />
-            : <ChevronsDownUp size={12} className="shrink-0" />}
-            {allFolded ? 'Unfold all' : 'Fold all'}
-          </button>
+          They are not inverses, so they should never have shared a control.
+          Fold all is a bulk press of the fold TOGGLE — it folds the roots and
+          leaves their interiors alone, so opening one restores what you had
+          built inside it. Unfold all DISCARDS fold state, at every depth. One
+          is reversible and the other is the discard; a single button cannot
+          honestly offer both.
+
+          Each appears when it has work to do, so the pair is never two
+          equally-lit controls where only one means anything. */}
+      {posts.length > 1 && (foldableRoots.length > 0 || anyFolded) && (
+        <div className="mb-2 flex items-center justify-end gap-1">
+          {foldableRoots.length > 0 && (
+            <button
+              onClick={() => setFolded(sparingTheDraft(new Set([...folded, ...foldableRoots])))}
+              title="Collapse every thread to one line, keeping what you have opened inside them"
+              className={INLINE_ACTION_CLASS}
+            >
+              <ChevronsUp size={12} className="shrink-0" />
+              Fold all
+            </button>
+          )}
+          {anyFolded && (
+            <button
+              onClick={() => setFolded(new Set())}
+              title="Open every post in this thread, at every depth"
+              className={INLINE_ACTION_CLASS}
+            >
+              <ChevronsDown size={12} className="shrink-0" />
+              Unfold all
+            </button>
+          )}
         </div>
       )}
       <ul className="space-y-3">{roots.map((p) => row(p, 0))}</ul>

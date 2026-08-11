@@ -150,7 +150,7 @@ test('the fold caret sits ON the hairline it collapses, at both tiers', () => {
   }
 })
 
-test('“only this” keeps the whole reading line open, and nothing else', () => {
+test('“only this” is the fold TOGGLE pressed on every other thread — it never reaches inside one', () => {
   //      a            f
   //     ╱ ╲            ╲
   //    b   e            g
@@ -159,22 +159,38 @@ test('“only this” keeps the whole reading line open, and nothing else', () =
   const posts = [p('a'), p('b', 'a'), p('c', 'b'), p('d', 'b'), p('e', 'a'), p('f'), p('g', 'f')]
   const tree = buildReplyTree(posts)
 
-  const folded = foldOthers(posts, tree, 'b')
-  // Each of these three is the act's own promise, and each fails differently:
-  // fold the ANCESTOR and "show me only this" hides the this; fold the
-  // DESCENDANTS and soloing a branch shows one row of it; fold nothing else and
-  // the control did nothing at all.
+  // The revision this test was rewritten for (owner directive 2026-08-11). The
+  // first cut folded EVERYTHING off the reading line at every depth, which
+  // quietly made "only this" a fold-all of every other branch: open one of them
+  // afterwards and you got a stub whose answers were stubs too, with whatever
+  // you had arranged in there gone. Now it presses the toggle on the siblings
+  // and stops.
+  const folded = foldOthers(tree, 'b', new Set())
   assert.ok(!folded.has('a'), 'the ancestor stays open — folding it would take b down with it')
   assert.ok(!folded.has('b'), 'the post itself')
   for (const kid of ['c', 'd']) assert.ok(!folded.has(kid), `${kid} — soloing shows the branch entire`)
-  assert.deepEqual([...folded].sort(), ['e', 'f', 'g'], 'and everything off the line folds, at every level')
+  assert.deepEqual([...folded].sort(), ['e', 'f'], 'the siblings at each level of the line, and nothing below them')
+  assert.ok(!folded.has('g'), 'g is INSIDE a folded sibling — its own state is not this act’s business')
 
-  // From a ROOT, its whole subtree is the line.
-  assert.deepEqual([...foldOthers(posts, tree, 'a')].sort(), ['f', 'g'])
+  // Every interior it is handed comes back untouched — the branch it folds AND
+  // the branch it spares. This is the invertibility contract: press the
+  // sibling's caret afterwards and you get back exactly what you had, and your
+  // own branch is the arrangement you left in it, not a freshly flattened one.
+  const withInterior = foldOthers(tree, 'b', new Set(['g', 'c']))
+  assert.ok(withInterior.has('g'), 'a fold inside a branch it folds survives')
+  assert.ok(withInterior.has('c'), 'and so does one inside the branch it spares — “only this” is not an unfold-all')
+  // What it DOES open is the line, because a folded ancestor (or a folded
+  // target) would hide the very post you asked to be shown.
+  const buried = foldOthers(tree, 'b', new Set(['a', 'b']))
+  for (const open of ['a', 'b']) assert.ok(!buried.has(open), `${open} is on the line and must be visible`)
+
+  // From a ROOT it is exactly "fold the other roots", the case the directive names.
+  assert.deepEqual([...foldOthers(tree, 'a', new Set())], ['f'])
   // From the deepest post, every ancestor survives — the chain back up to the
-  // surface is what makes the post reachable at all.
-  const deep = [p('a'), p('b', 'a'), p('c', 'b'), p('d', 'c'), p('other')]
-  assert.deepEqual([...foldOthers(deep, buildReplyTree(deep), 'd')], ['other'])
+  // surface is what makes the post reachable at all — and each contributes its
+  // own unchosen children.
+  const deep = [p('a'), p('b', 'a'), p('c', 'b'), p('d', 'c'), p('aunt', 'b'), p('other')]
+  assert.deepEqual([...foldOthers(buildReplyTree(deep), 'd', new Set())].sort(), ['aunt', 'other'])
 })
 
 test('the chain ABOVE a post is what has to stay open for it to be on screen', () => {
@@ -208,12 +224,12 @@ test('“only this” terminates on a ring rather than hanging the click', () =>
   // reasoning the builder's own guard states. Hand-built, because the builder
   // would (correctly) refuse to produce it: x and y each claim the other.
   const ring = {
-    roots: [],
+    roots: [p('z')],
     childrenOf: new Map([
       ['x', [p('y')]],
       ['y', [p('x')]],
     ]),
   }
-  const folded = foldOthers([p('x'), p('y'), p('z')], ring, 'x')
-  assert.deepEqual([...folded], ['z'], 'the ring is walked once and the unrelated post folds')
+  const folded = foldOthers(ring, 'x', new Set())
+  assert.deepEqual([...folded], ['z'], 'the ring is walked once and the unrelated root folds')
 })

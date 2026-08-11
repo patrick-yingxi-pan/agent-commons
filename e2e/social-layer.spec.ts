@@ -1244,15 +1244,23 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
   await ada.page.getByRole('button', { name: 'Reply to this discussion', exact: true }).click()
   await expect(ada.page.locator('p', { hasText: ASIDE })).toHaveCount(1, { timeout: 20_000 })
 
-  // ── Fold all ── one toggle over the whole thread, whose LABEL always states
-  // what the click will do. Approached from a PARTLY folded thread on purpose:
-  // that is the state the plausible wrong reading (`anyFolded`) gets wrong,
-  // renaming the control to "Unfold all" the moment one post is folded — so
-  // "fold all" would stop being reachable exactly when a long thread starts
-  // needing it. From clean, the two readings are indistinguishable.
+  // ── Fold all · Unfold all ─────────────────────────────────────────────────
+  //  Two INDEPENDENT acts, not a toggle (owner directive 2026-08-11). The walk
+  //  below is shaped entirely around the defect that forced the split: as one
+  //  `allFolded` toggle, "Unfold all" existed only while the thread was
+  //  completely folded, so opening a single stub to read it took the way out
+  //  away. Every route into a partly-folded thread hit the same dead end.
   await fold.click()
   await expect(fold).toHaveAttribute('aria-expanded', 'false')
-  await ada.page.getByRole('button', { name: 'Fold all' }).click()
+  // `exact` on both, and it is not decoration: Playwright matches an accessible
+  // name by SUBSTRING, and "Unfold all" contains "Fold all" — so the loose
+  // locator resolves to two elements the instant the pair is both on screen,
+  // which is the state this whole section exists to reach. It cost a debugging
+  // pass; the same trap waits for anyone naming a control X and its companion
+  // "un-X".
+  const foldAll = ada.page.getByRole('button', { name: 'Fold all', exact: true })
+  const unfoldAll = ada.page.getByRole('button', { name: 'Unfold all', exact: true })
+  await foldAll.click()
   for (const body of [ANSWER, SECOND, ASIDE]) {
     await expect(ada.page.locator('p', { hasText: body })).toHaveCount(0)
   }
@@ -1263,38 +1271,60 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
   // control nobody can see (this assertion was written after that exact
   // mutation survived).
   const asideRow = ada.page.locator('li').filter({ hasText: ASIDE }).first()
-  await expect(asideRow.getByRole('button', { name: /’s post$/ }).first()).not.toHaveClass(/\bopacity-0\b/)
+  await expect(asideRow.getByRole('button', { name: /’s post$/ }).first()).not.toHaveClass(/opacity-0/)
 
-  const unfoldAll = ada.page.getByRole('button', { name: 'Unfold all' })
-  await expect(unfoldAll).toBeVisible()
-
-  // ── The BRANCH fold ───────────────────────────────────────────────────────
-  //  Open ONE branch out of a folded thread in a single click (owner directive
-  //  2026-08-11). This is the case the per-post caret cannot serve, and the
-  //  contrast below is the whole assertion: after "Fold all" or "only this",
-  //  every branch is a stub whose answers are stubs beneath it, so the caret
-  //  opens a post into more stubs and reading one thread costs a click per post.
-  const graceBranch = parent.getByRole('button', { name: /^Grace Hopper’s post and everything under it$/ }).first()
-  await expect(graceBranch).toHaveAttribute('aria-expanded', 'false')
-  await graceBranch.click()
+  // ── Fold all folds the ROOTS, and does not reach inside them ──────────────
+  //  So the caret is invertible: open Grace's root and her whole branch is
+  //  there, exactly as it was. Under the old model "Fold all" folded every post
+  //  at every depth, and this same click gave you a stub whose answers were
+  //  stubs too.
+  await fold.click()
   await expect(parent.locator('p', { hasText: ANSWER })).toHaveCount(1)
   await expect(parent.locator('p', { hasText: SECOND })).toHaveCount(1)
-  // …and nothing OUTSIDE the branch moved: this is a scoped act, not Unfold all
-  // wearing a different glyph.
-  await expect(ada.page.locator('p', { hasText: ASIDE })).toHaveCount(0)
-  // The contrast. Fold the branch again, then use the CARET: it opens Grace's
-  // own words and leaves her answers as stubs. Two controls, two scopes — and
-  // if the branch control ever collapses into the caret, this is what fails.
-  await graceBranch.click()
-  await expect(parent.locator('p', { hasText: ANSWER })).toHaveCount(0)
-  await fold.click()
-  await expect(parent.locator('p', { hasText: 'Read through the Q3 baseline' })).toHaveCount(1)
-  await expect(parent.locator('p', { hasText: ANSWER })).toHaveCount(0)
+  await expect(ada.page.locator('p', { hasText: ASIDE })).toHaveCount(0, { timeout: 20_000 })
 
-  // Back to everything open. Two clicks, not one: the caret above left the
-  // thread PARTLY folded, and the toggle reads "Fold all" in that state — which
-  // is the `allFolded` rule doing its job, not a bug to work around.
-  await ada.page.getByRole('button', { name: 'Fold all' }).click()
+  // ── …and Unfold all survives the partly-folded state ──────────────────────
+  //  The exact dead end the redesign fixes: one stub is open, the rest are not,
+  //  and the way out is still on screen. It also still says "Fold all" — they
+  //  are two acts, both live, because neither is the other's inverse.
+  await expect(unfoldAll).toBeVisible()
+  await expect(foldAll).toBeVisible()
+
+  // ── The per-post UNFOLD ALL ───────────────────────────────────────────────
+  //  Invertibility has a cost: the caret can restore an arrangement but never
+  //  flatten one, so a branch folded by hand takes a click per stub to open.
+  //  This is the discard, and it appears ONLY where it differs from the caret —
+  //  on a folded post that really does have a folded descendant.
+  const graceCaret = parent.getByRole('button', { name: /^Grace Hopper’s post, / }).first()
+  const graceUnfoldAll = parent.getByRole('button', {
+    name: 'Unfold Grace Hopper’s post and everything folded inside it',
+  })
+  // First, the ABSENCE. Fold Grace with a clean interior and the control does
+  // not appear at all — there is nothing to discard, so it would be the caret
+  // wearing a second glyph. (The previous cut had exactly that: a "fold branch"
+  // button that duplicated the caret on every post with answers.) Asserted
+  // BEFORE anything is folded inside her, because after the discard the post is
+  // open again and `hidden` alone hides the control — which is how the first
+  // version of this assertion passed against a mutant with the gate removed.
+  await graceCaret.click()
+  await expect(graceUnfoldAll).toHaveCount(0)
+  await graceCaret.click()
+  // `answerRow` is the containment locator already built above — by CONTAINMENT
+  // rather than author name, since every post this walk writes is Ada's. Its
+  // FIRST caret is ANSWER's own, not a descendant's.
+  await answerRow.getByRole('button', { name: /’s post, / }).first().click() // fold ANSWER, which holds SECOND
+  await expect(parent.locator('p', { hasText: SECOND })).toHaveCount(0)
+  await graceCaret.click() // then fold Grace's root over the top of it
+  // NOW it appears: her branch really does hold a folded post.
+  await expect(graceUnfoldAll).toBeVisible()
+  await graceUnfoldAll.click()
+  // One click, the whole branch — including the post folded two levels down.
+  await expect(parent.locator('p', { hasText: ANSWER })).toHaveCount(1)
+  await expect(parent.locator('p', { hasText: SECOND })).toHaveCount(1)
+  // …and it is GONE now, because there is nothing left in this branch to
+  // discard: a control that would repeat the caret does not render.
+  await expect(graceUnfoldAll).toHaveCount(0)
+
   await unfoldAll.click()
   await expect(ada.page.locator('p', { hasText: ASIDE })).toHaveCount(1)
 
@@ -1383,13 +1413,13 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
   await answerRow.getByRole('button', { name: /^Reply to .+’s post$/ }).first().click()
   const guarded = ada.page.getByRole('textbox', { name: 'Reply to this post' })
   await guarded.fill(`Half-written ${STAMP}`)
-  await ada.page.getByRole('button', { name: 'Fold all' }).click()
+  await ada.page.getByRole('button', { name: 'Fold all', exact: true }).click()
   await expect(guarded).toBeVisible()
   await expect(guarded).toHaveValue(`Half-written ${STAMP}`)
   // The rest of the thread did fold around it — the guard is narrow, not a
   // blanket veto on the act.
   await expect(ada.page.locator('p', { hasText: ASIDE })).toHaveCount(0)
-  await ada.page.getByRole('button', { name: 'Unfold all' }).click()
+  await ada.page.getByRole('button', { name: 'Unfold all', exact: true }).click()
   // Folding it YOURSELF is a different act and CLOSES the composer rather than
   // hiding it — including from an ancestor, which conceals it just as
   // completely (Grace's caret is that ancestor). The claim is about the state,

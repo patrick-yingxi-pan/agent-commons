@@ -169,42 +169,42 @@ export function ancestorsOf<P extends ReplyLike>(tree: ReplyTree<P>, id: string)
   return up
 }
 
-/** "Fold the others" — every post EXCEPT the reading line through `id`.
+/** "Fold the others" — **exactly the fold toggle, pressed on every other thread**
+ *  (owner directive 2026-08-11, replacing a first cut that folded every post off
+ *  the reading line at every depth).
  *
- *  The line is three things, and each is there because dropping it breaks the
- *  act's own promise:
+ *  The difference is the whole point of the redesign. Folding at depth *reached
+ *  inside* the branches it folded, so opening one afterwards gave you a stub
+ *  whose answers were stubs too — the arrangement you had built in there was
+ *  gone, and "fold the others" had quietly become "fold-all everything else".
+ *  A bulk act may fold a post; it may not decide what that post looks like when
+ *  it is opened again.
  *
- *  - the post's **ancestors**, because a folded ancestor takes the post down with
- *    it, and "show me only this" that hides the this is not a feature;
- *  - the **post**;
- *  - its **descendants** — soloing a branch shows the branch ENTIRE, not its
- *    first row. Fold-all is how you ask for a spine.
+ *  So: at each step of the line from a root down to `id`, fold the siblings that
+ *  were not taken, and touch nothing below them. Concretely —
  *
- *  That reading also settles what "the others" means at depth, which is genuinely
- *  ambiguous in words (my siblings? every other branch in the thread?):
- *  everything not on the line I am reading, at every level.
+ *  - every **root** that is not on the line (called on a root, this is the whole
+ *    act, which is the case the directive names);
+ *  - at every ancestor on the line, its children that are not on the line;
+ *  - **never** `id`'s own descendants, which are the branch you asked to see.
  *
- *  Ring-safe in both directions, on the same reasoning `buildReplyTree` states —
- *  the write path cannot build a cycle, and the cost of being wrong is a renderer
- *  that never returns. */
+ *  It takes the current fold set and returns the next one, because the act has
+ *  an unfolding half as well: the line itself is opened, or "show me only this"
+ *  could leave the this behind a stub. Every id it does not name keeps whatever
+ *  state it had — that is the invertibility contract the toggle now owes. */
 export function foldOthers<P extends ReplyLike>(
-  posts: readonly P[],
   tree: ReplyTree<P>,
   id: string,
+  folded: ReadonlySet<string>,
 ): Set<string> {
-  const open = ancestorsOf(tree, id)
-  open.add(id)
-  const stack = [id]
-  while (stack.length > 0) {
-    const next = stack.pop() as string
-    for (const c of tree.childrenOf.get(next) ?? []) {
-      if (open.has(c.id)) continue
-      open.add(c.id)
-      stack.push(c.id)
-    }
+  const line = ancestorsOf(tree, id)
+  line.add(id)
+  const next = new Set(folded)
+  for (const open of line) next.delete(open)
+  for (const r of tree.roots) if (!line.has(r.id)) next.add(r.id)
+  for (const a of line) {
+    if (a === id) continue
+    for (const c of tree.childrenOf.get(a) ?? []) if (!line.has(c.id)) next.add(c.id)
   }
-
-  const folded = new Set<string>()
-  for (const p of posts) if (!open.has(p.id)) folded.add(p.id)
-  return folded
+  return next
 }
