@@ -85,23 +85,31 @@ export function buildReplyTree<P extends ReplyLike>(posts: readonly P[]): ReplyT
   return { roots, childrenOf }
 }
 
-/** How many answers hang below a post, at every depth — the number a folded
- *  post reports, since folding hides the whole branch and not just its first
- *  row. Iterative: a 200-post thread may legitimately be a 200-deep chain. */
-export function descendantCount<P extends ReplyLike>(childrenOf: Map<string, P[]>, id: string): number {
-  let n = 0
+/** Every answer hanging below a post, at every depth — NOT including the post.
+ *  Iterative and `seen`-guarded: a 200-post thread may legitimately be a
+ *  200-deep chain, and a corrupted snapshot may be a ring.
+ *
+ *  Three callers want this set rather than its size: the folded post's count,
+ *  the branch fold (fold a post and everything under it in one act), and the
+ *  cascade delete's "may I remove all of these?" question. */
+export function descendantsOf<P extends ReplyLike>(childrenOf: Map<string, P[]>, id: string): Set<string> {
+  const out = new Set<string>()
   const stack = [id]
-  const seen = new Set<string>()
   while (stack.length > 0) {
     const next = stack.pop() as string
-    if (seen.has(next)) continue
-    seen.add(next)
     for (const c of childrenOf.get(next) ?? []) {
-      n += 1
+      if (out.has(c.id) || c.id === id) continue
+      out.add(c.id)
       stack.push(c.id)
     }
   }
-  return n
+  return out
+}
+
+/** How many answers hang below a post — the number a folded post reports, since
+ *  folding hides the whole branch and not just its first row. */
+export function descendantCount<P extends ReplyLike>(childrenOf: Map<string, P[]>, id: string): number {
+  return descendantsOf(childrenOf, id).size
 }
 
 /** Levels that still buy horizontal space. Past this the chain keeps NESTING —

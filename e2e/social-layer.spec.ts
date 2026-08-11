@@ -1238,6 +1238,8 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
   // already carry several — this guarantees at least one post that is not on
   // Grace's line, whatever a previous run left behind.
   const ASIDE = `An unrelated remark ${STAMP}`
+  const UNDER_A = `First answer to the aside ${STAMP}`
+  const UNDER_B = `Second answer to the aside ${STAMP}`
   await ada.page.getByRole('textbox', { name: 'Reply to this discussion' }).fill(ASIDE)
   await ada.page.getByRole('button', { name: 'Reply to this discussion', exact: true }).click()
   await expect(ada.page.locator('p', { hasText: ASIDE })).toHaveCount(1, { timeout: 20_000 })
@@ -1265,6 +1267,34 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
 
   const unfoldAll = ada.page.getByRole('button', { name: 'Unfold all' })
   await expect(unfoldAll).toBeVisible()
+
+  // ── The BRANCH fold ───────────────────────────────────────────────────────
+  //  Open ONE branch out of a folded thread in a single click (owner directive
+  //  2026-08-11). This is the case the per-post caret cannot serve, and the
+  //  contrast below is the whole assertion: after "Fold all" or "only this",
+  //  every branch is a stub whose answers are stubs beneath it, so the caret
+  //  opens a post into more stubs and reading one thread costs a click per post.
+  const graceBranch = parent.getByRole('button', { name: /^Grace Hopper’s post and everything under it$/ }).first()
+  await expect(graceBranch).toHaveAttribute('aria-expanded', 'false')
+  await graceBranch.click()
+  await expect(parent.locator('p', { hasText: ANSWER })).toHaveCount(1)
+  await expect(parent.locator('p', { hasText: SECOND })).toHaveCount(1)
+  // …and nothing OUTSIDE the branch moved: this is a scoped act, not Unfold all
+  // wearing a different glyph.
+  await expect(ada.page.locator('p', { hasText: ASIDE })).toHaveCount(0)
+  // The contrast. Fold the branch again, then use the CARET: it opens Grace's
+  // own words and leaves her answers as stubs. Two controls, two scopes — and
+  // if the branch control ever collapses into the caret, this is what fails.
+  await graceBranch.click()
+  await expect(parent.locator('p', { hasText: ANSWER })).toHaveCount(0)
+  await fold.click()
+  await expect(parent.locator('p', { hasText: 'Read through the Q3 baseline' })).toHaveCount(1)
+  await expect(parent.locator('p', { hasText: ANSWER })).toHaveCount(0)
+
+  // Back to everything open. Two clicks, not one: the caret above left the
+  // thread PARTLY folded, and the toggle reads "Fold all" in that state — which
+  // is the `allFolded` rule doing its job, not a bug to work around.
+  await ada.page.getByRole('button', { name: 'Fold all' }).click()
   await unfoldAll.click()
   await expect(ada.page.locator('p', { hasText: ASIDE })).toHaveCount(1)
 
@@ -1324,6 +1354,17 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
   // exists because a pointer went where it did not mean to, and a stray Enter
   // would reproduce that one layer up.
   await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
+  // A widening is never INHERITED. Tick the cascade, cancel, reopen — and it is
+  // off again. The choice lives above the dialog (it has to survive the
+  // dialog's own re-render), so "unchecked on arrival" is a reset somebody has
+  // to have written, not a property of mounting; setting the initial state
+  // `false` proves nothing, because the reset is what actually clears it.
+  await dialog.getByRole('checkbox').click()
+  await expect(dialog.getByRole('checkbox')).toHaveAttribute('aria-checked', 'true')
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(dialog).toHaveCount(0)
+  await parent.getByRole('button', { name: /^(Delete|Retract) this post$/ }).first().click()
+  await expect(dialog.getByRole('checkbox')).toHaveAttribute('aria-checked', 'false')
   await dialog.getByRole('button', { name: 'Cancel' }).click()
   await expect(dialog).toHaveCount(0)
   await expect(parent.locator('p', { hasText: 'Read through the Q3 baseline' })).toHaveCount(1)
@@ -1382,10 +1423,43 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
   //  no acts — and NOT "Unfold all", which does not exist here: "only this"
   //  leaves the reading line open, so the thread is partly folded and the
   //  toggle still reads "Fold all" (the `allFolded` rule, working).
+  //  Matched WITHOUT a reply count: this post is still a leaf here, so its
+  //  caret is named "‹author›'s post" flat. (The branch control, which does
+  //  carry a count-free name of its own, reads "…and everything under it" and
+  //  cannot collide.)
   await asideRow.getByRole('button', { name: /’s post$/ }).first().click()
+
+  // ── …and the CASCADE option ───────────────────────────────────────────────
+  //  (owner directive 2026-08-11: "add an option to delete all entries
+  //  underneath the current comment in the confirmation".) Exercised on a
+  //  branch this walk BUILDS — two answers under its own throwaway root — so
+  //  nothing seeded is destroyed and no later spec inherits a hollowed thread.
+  for (const body of [UNDER_A, UNDER_B]) {
+    await asideRow.getByRole('button', { name: /^Reply to .+’s post$/ }).first().click()
+    const f = ada.page.getByRole('textbox', { name: 'Reply to this post' })
+    await f.fill(body)
+    await f.press('Control+Enter')
+    await expect(asideRow.locator('p', { hasText: body })).toHaveCount(1, { timeout: 20_000 })
+  }
   await asideRow.getByRole('button', { name: /^(Delete|Retract) this post$/ }).first().click()
-  await ada.page.getByRole('dialog').getByRole('button', { name: /^(Delete|Retract)$/ }).click()
-  await expect(ada.page.locator('p', { hasText: ASIDE })).toHaveCount(0, { timeout: 20_000 })
+  const cascadeDlg = ada.page.getByRole('dialog')
+  const cascadeBox = cascadeDlg.getByRole('checkbox')
+  // Unchecked on arrival, and the button names the NARROW act: a widening this
+  // destructive is never the default and never inherited from last time.
+  await expect(cascadeBox).toHaveAttribute('aria-checked', 'false')
+  await expect(cascadeDlg.getByRole('button', { name: /^(Delete|Retract)$/ })).toBeVisible()
+  await expect(cascadeDlg).toContainText('2 replies underneath')
+  // Checking it re-words the button to COUNT what it will take — the last thing
+  // read before the last click should not say "Retract" for three posts.
+  await cascadeBox.click()
+  await expect(cascadeBox).toHaveAttribute('aria-checked', 'true')
+  await cascadeDlg.getByRole('button', { name: /^(Delete|Retract) 3 posts$/ }).click()
+  for (const gone of [ASIDE, UNDER_A, UNDER_B]) {
+    await expect(ada.page.locator('p', { hasText: gone })).toHaveCount(0, { timeout: 20_000 })
+  }
+  // The branch went as a BRANCH: nothing was promoted to top level in its place,
+  // which is what a narrow delete would have left behind.
+  await expect(parent.locator('p', { hasText: 'Read through the Q3 baseline' })).toHaveCount(1)
 
   await ada.context.close()
 })

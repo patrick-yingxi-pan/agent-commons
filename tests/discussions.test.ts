@@ -524,3 +524,73 @@ test('S9: retracting a parent PROMOTES its replies rather than stranding them', 
   assert.equal(after.posts[0].id, reply.id)
   assert.equal(after.posts[0].replyTo, undefined, 'promoted to top level, never left pointing at a hole')
 })
+
+test('S9: a CASCADE takes the branch — but only where the caller may delete every post in it', async () => {
+  // The counterpart to the promotion rule above, and the reason it needs a
+  // guard of its own (owner directive 2026-08-11). Promotion exists because
+  // "the author of a parent does not get to retract somebody else's words"; a
+  // cascade that skipped the check would hand exactly that power back through a
+  // checkbox, and it would look like a convenience while doing it.
+  //
+  // A fresh arena per scenario, deliberately: a locus-free open is
+  // GET-OR-CREATE (the root-thread rule at the top of this file), so reusing a
+  // subject silently appends to the same thread — the first version of this
+  // test did exactly that and counted posts from three scenarios at once.
+  const mixed = async () => {
+    const { ref } = await arena()
+    const opened = await call('POST', '/discussions', { anchor: { ref }, firstPost: 'the head' }, { 'x-tenant-id': OWNER })
+    const did = opened.json.id
+    const parent = opened.json.posts[0].id
+    const theirs = (await call('POST', `/discussions/${did}/posts`, { body: 'someone else’s words', replyTo: parent }, { 'x-tenant-id': AUDIENCE })).json.posts.at(-1)
+    const deep = (await call('POST', `/discussions/${did}/posts`, { body: 'and my answer to them', replyTo: theirs.id }, { 'x-tenant-id': OWNER })).json.posts.at(-1)
+    return { did, parent, theirs, deep }
+  }
+
+  // The AUDIENCE authored `theirs` but not `deep`, and does not own the anchor.
+  // Cascading from their own post would take the owner's reply with it, so the
+  // whole act is refused — not partially applied.
+  {
+    const { did, theirs } = await mixed()
+    const refused = await call('DELETE', `/discussions/${did}/posts/${theirs.id}?cascade=1`, undefined, { 'x-tenant-id': AUDIENCE })
+    assert.equal(refused.status, 403, 'a cascade needs the delete over every post underneath, not just the one clicked')
+    const intact = (await call('GET', `/discussions/${did}`, undefined, { 'x-tenant-id': OWNER })).json
+    assert.equal(intact.posts.length, 3, 'and nothing went — all-or-nothing, never a partial cascade reported as success')
+    // Their own post alone is still theirs to retract, unchanged by any of this.
+    assert.equal((await call('DELETE', `/discussions/${did}/posts/${theirs.id}`, undefined, { 'x-tenant-id': AUDIENCE })).status, 200)
+    const narrow = (await call('GET', `/discussions/${did}`, undefined, { 'x-tenant-id': OWNER })).json
+    assert.equal(narrow.posts.length, 2, 'the narrow delete is unaffected')
+    assert.equal(narrow.posts.find((p) => p.id === deepId(narrow, 'and my answer'))?.replyTo, undefined, '`deep` promoted, as the rule above says')
+  }
+
+  // The ANCHOR OWNER holds the delete over their whole surface, so a cascade
+  // from the head takes everything — the AUDIENCE's post included. That is the
+  // moderation power S5 already grants them, not a new one.
+  {
+    const { did, parent } = await mixed()
+    const swept = await call('DELETE', `/discussions/${did}/posts/${parent}?cascade=1`, undefined, { 'x-tenant-id': OWNER })
+    assert.equal(swept.status, 200)
+    assert.equal(swept.json.discussion, null, 'the last post going dissolves the thread')
+    assert.equal((await call('GET', `/discussions/${did}`, undefined, { 'x-tenant-id': OWNER })).status, 404)
+  }
+})
+
+/** The post whose body starts with `prefix` — ids are opaque, bodies are not. */
+function deepId(thread: { posts: { id: string; body: string }[] }, prefix: string): string | undefined {
+  return thread.posts.find((p) => p.body.startsWith(prefix))?.id
+}
+
+test('S9: absent `cascade` is the NARROW delete — INV-9, the minimal-risk reading', async () => {
+  // The most destructive act in the layer must not be what an unadorned request
+  // means. A client that forgets the flag, or a stale caller written before it
+  // existed, gets the delete it already knew about.
+  for (const [name, query] of [['no flag', ''], ['cascade=0', '?cascade=0'], ['cascade=false', '?cascade=false']] as const) {
+    const { ref } = await arena()
+    const fresh = await call('POST', '/discussions', { anchor: { ref }, firstPost: `head ${name}` }, { 'x-tenant-id': OWNER })
+    const id = fresh.json.id
+    const head = fresh.json.posts[0].id
+    await call('POST', `/discussions/${id}/posts`, { body: `under ${name}`, replyTo: head }, { 'x-tenant-id': OWNER })
+    assert.equal((await call('DELETE', `/discussions/${id}/posts/${head}${query}`, undefined, { 'x-tenant-id': OWNER })).status, 200)
+    const after = (await call('GET', `/discussions/${id}`, undefined, { 'x-tenant-id': OWNER })).json
+    assert.equal(after.posts.length, 1, `${name}: the reply survives — only an explicit cascade=1 takes the branch`)
+  }
+})

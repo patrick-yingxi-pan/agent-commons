@@ -585,9 +585,20 @@ export async function forkSession(sourceId: string, atMessageId: string): Promis
 
 /** Delete a post (S5 guardrails) — the AUTHOR retracts their own words, or the
  *  ANCHOR OWNER moderates their surface. Deleting the last post dissolves the
- *  thread, so the anchor's list is invalidated alongside the thread itself. */
-export async function deleteDiscussionPost(did: string, pid: string, anchorRef: { kind: string; id: string }): Promise<void> {
-  await apiDelete(paths.discussionPost(did, pid))
+ *  thread, so the anchor's list is invalidated alongside the thread itself.
+ *
+ *  `cascade` takes the whole BRANCH instead of promoting the answers underneath
+ *  (owner directive 2026-08-11). The server re-asks the delete question of every
+ *  post that would go, so this cannot become a way to retract somebody else's
+ *  words — the UI only OFFERS it where the same answer is already visible on the
+ *  wire (`post.canDelete`), which is affordance-shaping, not the wall. */
+export async function deleteDiscussionPost(
+  did: string,
+  pid: string,
+  anchorRef: { kind: string; id: string },
+  cascade = false,
+): Promise<void> {
+  await apiDelete(paths.discussionPost(did, pid, cascade))
   invalidate(keys.discussions(anchorRef.kind, anchorRef.id))
   invalidate(keys.discussion(did))
   invalidate(keys.myDiscussions)

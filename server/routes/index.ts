@@ -2006,10 +2006,21 @@ export function buildRouter(): Router {
   })
   // S5 guardrails: author-retract or anchor-owner moderation; report rings the
   // owner; mutes are the caller's own earmuffs (never a wall).
-  r.delete('/discussions/:did/posts/:pid', ({ req, res, params }) => {
-    const out = store.deleteDiscussionPost(params.did, params.pid, store.identity(req.headers).tenant.id)
+  r.delete('/discussions/:did/posts/:pid', ({ req, res, params, url }) => {
+    // `?cascade=1` takes the whole branch. Absent is the narrow delete (INV-9:
+    // an absent field means the fixed, minimal-risk answer), and the authority
+    // check runs over every post that would go — see `deleteDiscussionPost`.
+    const cascade = url.searchParams.get('cascade') === '1'
+    const out = store.deleteDiscussionPost(params.did, params.pid, store.identity(req.headers).tenant.id, cascade)
     if (out === undefined) return sendError(res, 'not_found', `No discussion post '${params.pid}'`)
-    if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the author or the subject’s owner may delete a post')
+    if (out === 'forbidden')
+      return sendError(
+        res,
+        'forbidden',
+        cascade ?
+          'Only the author or the subject’s owner may delete a post — and a cascade needs that standing over every reply underneath it'
+        : 'Only the author or the subject’s owner may delete a post',
+      )
     sendJson(res, { ok: true, discussion: out })
   })
   r.post('/discussions/:did/posts/:pid/report', ({ req, res, params }) => {

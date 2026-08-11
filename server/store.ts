@@ -551,6 +551,26 @@ function canDeletePost(d: StoredDiscussion, authorTenant: string, viewerTenant: 
   return tenantWritesAs(viewerTenant, authorTenant) || ownsDiscussionAnchor(d, viewerTenant)
 }
 
+/** Every post under `pid`, at every depth (S9 reply chains). The UI has this
+ *  walk too (`src/lib/replyTree.ts`) and the two deliberately do not share it:
+ *  `src/` and `server/` meet only at `contract/`, which is wire TYPES, and a
+ *  tree walk is not one. Both are `seen`-guarded for the same reason — a ring
+ *  cannot be written through `resolveReplyTarget`, but the cost of being wrong
+ *  is a request that never returns. */
+function postDescendants(d: StoredDiscussion, pid: string): Set<string> {
+  const out = new Set<string>()
+  const stack = [pid]
+  while (stack.length > 0) {
+    const parent = stack.pop() as string
+    for (const p of d.posts) {
+      if (p.replyTo !== parent || p.id === pid || out.has(p.id)) continue
+      out.add(p.id)
+      stack.push(p.id)
+    }
+  }
+  return out
+}
+
 /** S7 — the DM face on the wire. A direct message is not a variant type: it is
  *  a Discussion whose anchor is a person, so these are viewer-relative
  *  DECORATIONS computed at serve time (the `mine` pattern), never stored.
@@ -5846,14 +5866,39 @@ export const store = {
    *  the ANCHOR OWNER moderates their surface — nobody else. Non-parties get
    *  the existence-hiding 404. Deleting the LAST post removes the thread (an
    *  empty discussion is noise, the openDiscussion rule in reverse). */
-  deleteDiscussionPost(did: string, pid: string, tenantId: string): Discussion | null | 'forbidden' | undefined {
+  deleteDiscussionPost(
+    did: string,
+    pid: string,
+    tenantId: string,
+    /** Take the whole BRANCH — the post and every answer under it — instead of
+     *  promoting its children (owner directive 2026-08-11). INV-9: absent means
+     *  the fixed, minimal-risk answer, which is the narrow delete. A cascade
+     *  that happened by default would be the single most destructive act in the
+     *  product reached by the most ordinary click. */
+    cascade = false,
+  ): Discussion | null | 'forbidden' | undefined {
     const d = discussions.find((x) => x.id === did)
     if (!d || !this.discussionReadableBy(d, tenantId)) return undefined
     const i = d.posts.findIndex((x) => x.id === pid)
     if (i < 0) return undefined
-    // The SAME predicate the wire face reports (`post.canDelete`).
-    if (!canDeletePost(d, d.posts[i].authorTenant, tenantId)) return 'forbidden'
-    d.posts.splice(i, 1)
+    // What is going: the post, plus its descendants when cascading.
+    const doomed = new Set<string>([pid])
+    if (cascade) for (const id of postDescendants(d, pid)) doomed.add(id)
+    // The SAME predicate the wire face reports (`post.canDelete`) — asked of
+    // EVERY post that would go, not just the one that was clicked.
+    //
+    // This is what keeps cascade from becoming a way to silence a critic. S9's
+    // promote-on-retract rule exists because "the author of a parent does not
+    // get to retract somebody else's words"; a cascade that skipped the check
+    // would hand that exact power back through a checkbox. So an ANCHOR OWNER
+    // (who may delete anything on their own surface) can take a whole branch,
+    // and a mere author can only take a branch that is entirely their own.
+    // All-or-nothing: a partial cascade would delete some of the words and
+    // report success, leaving the reader to work out which.
+    for (const p of d.posts) {
+      if (doomed.has(p.id) && !canDeletePost(d, p.authorTenant, tenantId)) return 'forbidden'
+    }
+    for (let k = d.posts.length - 1; k >= 0; k -= 1) if (doomed.has(d.posts[k].id)) d.posts.splice(k, 1)
     // S9 — a retracted post must not strand the replies that answered it. They
     // are promoted to top level rather than deleted with it: they are somebody
     // ELSE's words, and the author of a parent does not get to retract them by
@@ -5869,7 +5914,13 @@ export const store = {
     // incoherent. It costs less than it looks: only DIRECT children promote,
     // and each carries its own subtree with it (their descendants still name
     // them), so exactly one edge is cut, not a branch flattened.
-    for (const p of d.posts) if (p.replyTo === pid) delete p.replyTo
+    //
+    // Under a CASCADE this loop finds nothing — a tree has no edge from outside
+    // a subtree into it — and that is exactly why it is left general rather
+    // than branched on `cascade`: the promotion rule is about what survives,
+    // and asking "does anything still point at something that went?" is the
+    // honest form of it either way.
+    for (const p of d.posts) if (p.replyTo !== undefined && doomed.has(p.replyTo)) delete p.replyTo
     const dissolved = d.posts.length === 0
     if (dissolved) discussions.splice(discussions.indexOf(d), 1)
     // A bell is a POINTER at an act — so retracting the act retracts the bell.
@@ -5878,7 +5929,7 @@ export const store = {
     // reader could not find one (owner-reported 2026-08-09). Dissolving the
     // thread takes every remaining row with it — their door is gone too, and a
     // bell that cannot be opened is worse than no bell.
-    retractNotifications((n) => (dissolved ? n.discussionId === did : n.postId === pid))
+    retractNotifications((n) => (dissolved ? n.discussionId === did : n.postId !== undefined && doomed.has(n.postId)))
     emit({ type: 'discussion.changed', discussionId: d.id, anchor: d.anchor })
     persist()
     return dissolved ? null : publicDiscussion(d, tenantId)

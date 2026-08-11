@@ -81,11 +81,37 @@ test('a discussion post is never deleted without asking first', () => {
     )
   }
   // The trash itself opens the dialog…
-  assert.match(s, /onClick=\{\(\) => setConfirmDelete\(p\)\}/, 'the trash arms the dialog rather than acting')
+  assert.match(s, /setConfirmDelete\(p\)/, 'the trash arms the dialog rather than acting')
+  // …with the cascade CLEARED, every time. A widening this destructive must be
+  // re-asked for, never inherited from the last time you agreed to it — and the
+  // state lives above the dialog (it survives the close), so the reset has to be
+  // deliberate.
+  const arm = /onClick=\{\(\) => \{([\s\S]{0,200}?)\}\}/.exec(s.slice(s.indexOf('setCascade(false)') - 120))
+  assert.ok(arm && arm[1].includes('setCascade(false)') && arm[1].includes('setConfirmDelete(p)'),
+    'arming the dialog resets the cascade choice in the same handler')
   // …and stands apart from the reversible verbs beside it (owner directive
   // 2026-08-11: "space delete button a little far away"). Asserted on the
   // trash's own class, since the gap is what makes the neighbouring click safe.
   const trash = /aria-label=\{p\.mine === true \? 'Retract this post' : 'Delete this post'\}[\s\S]{0,240}?className=\{`([^`]*)`\}/.exec(s)
   assert.ok(trash, 'the trash control is findable')
   assert.match(trash[1], /\bml-3\b/, 'the trash sits a deliberate step away from Reply and Endorse')
+})
+
+test('the CASCADE option is offered only over a branch the viewer may delete entirely', () => {
+  // The server is the wall — it re-asks the delete question of every post that
+  // would go (`tests/discussions.test.ts`). This is the affordance half
+  // (SOCIAL-4b): a checkbox offered over somebody else's replies is a promise
+  // the write path then refuses, which is the dead-affordance shape this layer's
+  // audits keep finding. It must read the answer the wire ALREADY carries per
+  // post, never a second rule derived on the client.
+  const s = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const gate = /const mayTakeBranch = ([^\n]*)/.exec(s)
+  assert.ok(gate, 'the cascade option is gated')
+  assert.match(gate[1], /\bevery\(/, 'over EVERY post in the branch, not the clicked one')
+  assert.match(gate[1], /canDelete === true/, 'and on the server’s own answer, not a re-derived rule')
+  assert.match(gate[1], /descendantsOf|under/, 'the set asked about is the branch underneath')
+  // Unchecked by default, and the request only carries it when checked: a
+  // cascade that rode along by default would be the most destructive act in the
+  // product reached by the most ordinary click (INV-9, mirrored on the client).
+  assert.match(s, /onDelete\?\.\(confirmDelete\.id, cascade\)/, 'the confirm passes the choice through verbatim')
 })

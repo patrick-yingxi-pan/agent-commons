@@ -109,7 +109,7 @@ import { useMentionPicker } from '../lib/useMentionPicker'
 import {
   ancestorsOf,
   buildReplyTree,
-  descendantCount,
+  descendantsOf,
   foldOthers,
   replyIndentClass,
   FOLD_GUTTER_CLASS,
@@ -2904,8 +2904,12 @@ function DiscussionPostList({
   posts: DiscussionPost[]
   onReact: (pid: string) => void
   /** Absent on a projection that only PREVIEWS a thread (the feed card's tail):
-   *  a destructive act belongs where the whole thread is. */
-  onDelete?: (pid: string) => void
+   *  a destructive act belongs where the whole thread is.
+   *
+   *  `cascade` takes the branch underneath too (owner directive 2026-08-11);
+   *  the list only ever passes it having asked the dialog, and the server
+   *  re-checks the delete authority over every post that would go. */
+  onDelete?: (pid: string, cascade: boolean) => void
   onReport?: (pid: string) => void
   /** Open a person's profile (S8) — the AUTHOR's name and every @-mention in the
    *  body alike, since both name the same kind of thing: a namespace with a page.
@@ -2934,6 +2938,10 @@ function DiscussionPostList({
   // the dialog names the author and quotes the words, and holding the id would
   // make it re-find in the thread what the click was already holding.
   const [confirmDelete, setConfirmDelete] = useState<DiscussionPost | null>(null)
+  // Whether that retraction takes the branch with it. Reset to false every time
+  // the dialog opens (below), never remembered: a widening this destructive
+  // must be re-asked for, not inherited from the last time you said yes.
+  const [cascade, setCascade] = useState(false)
   // Which posts the READER has folded away. Transient by design: folding is a
   // viewing POSTURE, not a fact about the discussion, so it stays off the wire
   // and does not outlive the page. That is also what keeps every door into a
@@ -2946,6 +2954,10 @@ function DiscussionPostList({
   // module, where a node test can hold them.
   const tree = useMemo(() => buildReplyTree(posts), [posts])
   const { roots, childrenOf } = tree
+  // Post by id — so the cascade option can ask whether the viewer may delete
+  // every post in a branch, from the `canDelete` the server already stamped on
+  // each one, without walking the list once per descendant.
+  const byId = useMemo(() => new Map(posts.map((p) => [p.id, p])), [posts])
 
   /** The posts a thread-wide fold may not touch: the one you are part-way
    *  through ANSWERING, and every post above it.
@@ -2991,8 +3003,58 @@ function DiscussionPostList({
     const hidden = folded.has(p.id)
     // The whole BRANCH, not the first row of it: folding hides descendants too,
     // so a count of direct children would under-report what disappeared.
-    const branch = answers.length === 0 ? 0 : descendantCount(childrenOf, p.id)
+    const kin = descendantsOf(childrenOf, p.id)
+    const branch = kin.size
     const replies = branch === 1 ? '1 reply' : `${branch} replies`
+    // A BRANCH is folded when every post in it is — the post included, and the
+    // same rule the thread's own toggle uses. Its direction has to be right in
+    // the MIXED state, which is precisely what "only this" leaves behind: a
+    // stub whose answers are stubs beneath it.
+    const branchFolded = [p.id, ...kin].every((id) => folded.has(id))
+    /** ── The BRANCH fold ────────────────────────────────────────────────────
+     *  The caret in the gutter folds one post; this folds the post and
+     *  everything under it (owner directive 2026-08-11). The case it exists for
+     *  is the one "only this" creates: every other branch becomes a stub whose
+     *  answers are stubs too, so opening one to read it cost a click per post.
+     *
+     *  Rendered in BOTH states — in the act cluster while the post is open, and
+     *  on the STUB while it is not. The stub is where it earns its keep, and
+     *  the first cut put it only in the cluster: available exactly when the
+     *  branch was already open, and gone the moment you needed it.
+     *
+     *  The double chevron is the thread-level "Fold all" glyph, deliberately:
+     *  one chevron means this post, two mean everything in scope, and the scope
+     *  is whatever the control sits on. Only where it differs from the caret
+     *  beside it — a leaf has no branch, and two controls doing one thing is
+     *  worse than one. */
+    const branchFold = branch > 0 && (
+      <Tooltip label={branchFolded ? 'Unfold this whole branch' : 'Fold this whole branch'}>
+        <button
+          onClick={() =>
+            setFolded((f) => {
+              const next = new Set(f)
+              for (const id of [p.id, ...kin]) {
+                if (branchFolded) next.delete(id)
+                else if (!spared.has(id)) next.add(id)
+              }
+              return next
+            })
+          }
+          aria-expanded={!branchFolded}
+          // Deliberately not "…and its N replies": the caret beside it is
+          // already named "‹author›'s post, N replies", and two controls whose
+          // names both end in "replies" are two controls a reader — or a
+          // locator — has to disambiguate by position. State-neutral, like the
+          // caret's, with `aria-expanded` carrying the direction.
+          aria-label={`${p.author}’s post and everything under it`}
+          className={`${POST_ACT_CLASS} text-ink-faint hover:bg-panel-2 hover:text-ink ${HOVER_REVEAL}`}
+        >
+          {branchFolded ?
+            <ChevronsUpDown size={12} />
+          : <ChevronsDownUp size={12} />}
+        </button>
+      </Tooltip>
+    )
     return (
       <li key={p.id}>
         <div className="group flex items-start gap-1.5">
@@ -3066,6 +3128,7 @@ function DiscussionPostList({
                 {p.body.replace(/\s+/g, ' ').trim()}
               </span>
               {branch > 0 && <span className="shrink-0 text-[11px] tabular-nums text-ink-faint">{replies}</span>}
+              {branchFold}
             </div>
           )}
           {!hidden && (
@@ -3112,6 +3175,7 @@ function DiscussionPostList({
                     own line instead of squeezing the name to nothing, which is
                     the row-starvation UI-7 exists for. */}
                 <div className="flex shrink-0 items-center gap-0.5">
+                  {branchFold}
                   {/* "Fold the others" — a THREAD-WIDE act reached from one
                       post. Now a glyph like its neighbours (owner directive
                       2026-08-11), which costs it the warning its words carried,
@@ -3189,7 +3253,10 @@ function DiscussionPostList({
                   {onDelete && p.canDelete === true && (
                     <Tooltip label={p.mine === true ? 'Retract this post' : 'Delete this post (you own the surface)'}>
                       <button
-                        onClick={() => setConfirmDelete(p)}
+                        onClick={() => {
+                          setCascade(false)
+                          setConfirmDelete(p)
+                        }}
                         aria-label={p.mine === true ? 'Retract this post' : 'Delete this post'}
                         className={`${POST_ACT_CLASS} ml-3 text-ink-faint hover:bg-removed-bg hover:text-removed ${HOVER_REVEAL}`}
                       >
@@ -3281,25 +3348,52 @@ function DiscussionPostList({
           with it. That is the server's actual retract rule (answers are
           promoted, never deleted with their parent), and it is the fact most
           likely to change the reader's mind in either direction. */}
-      {confirmDelete && (
-        <ConfirmDialog
-          title={confirmDelete.mine === true ? 'Retract this post?' : 'Delete this post?'}
-          body={
-            (confirmDelete.mine === true
-              ? 'Your post will be removed from the thread. This cannot be undone.'
-              : `You are removing ${confirmDelete.author}’s post from a surface you own. This cannot be undone.`) +
-            (descendantCount(childrenOf, confirmDelete.id) > 0
-              ? ' The replies underneath it stay — they move up one level.'
-              : '')
-          }
-          confirmLabel={confirmDelete.mine === true ? 'Retract' : 'Delete'}
-          onCancel={() => setConfirmDelete(null)}
-          onConfirm={() => {
-            onDelete?.(confirmDelete.id)
-            setConfirmDelete(null)
-          }}
-        />
-      )}
+      {confirmDelete &&
+        (() => {
+          const under = descendantsOf(childrenOf, confirmDelete.id)
+          const n = under.size
+          // Whether the CASCADE may even be offered. The server re-asks the
+          // delete question of every post that would go — so this is affordance
+          // shaping (SOCIAL-4b), not the wall, and it reads the very answer the
+          // wire already carries per post rather than deriving a second one.
+          //
+          // It is absent, not disabled, where the branch is not all yours: the
+          // body already says what happens to those replies instead (they move
+          // up), which is the explanation a greyed-out box would have needed.
+          const mayTakeBranch = n > 0 && [...under].every((id) => byId.get(id)?.canDelete === true)
+          const mine = confirmDelete.mine === true
+          const verb = mine ? 'Retract' : 'Delete'
+          return (
+            <ConfirmDialog
+              title={mine ? 'Retract this post?' : 'Delete this post?'}
+              body={
+                (mine ?
+                  'Your post will be removed from the thread. This cannot be undone.'
+                : `You are removing ${confirmDelete.author}’s post from a surface you own. This cannot be undone.`) +
+                (n > 0 && !cascade ? ' The replies underneath it stay — they move up one level.' : '')
+              }
+              option={
+                mayTakeBranch ?
+                  {
+                    label: `Delete the ${n === 1 ? 'reply' : `${n} replies`} underneath as well`,
+                    checked: cascade,
+                    onChange: setCascade,
+                  }
+                : undefined
+              }
+              // The button counts what it will take. "Retract" and "Retract 6
+              // posts" are different acts and the control should not use one
+              // word for both — the checkbox is a click away from the button,
+              // and this is the last thing read before the last click.
+              confirmLabel={cascade ? `${verb} ${n + 1} posts` : verb}
+              onCancel={() => setConfirmDelete(null)}
+              onConfirm={() => {
+                onDelete?.(confirmDelete.id, cascade)
+                setConfirmDelete(null)
+              }}
+            />
+          )
+        })()}
     </div>
   )
 }
@@ -3388,7 +3482,7 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
           <DiscussionPostList
             posts={root.posts}
             onReact={react}
-            onDelete={(pid) => void deleteDiscussionPost(root.id, pid, subject)}
+            onDelete={(pid, cascade) => void deleteDiscussionPost(root.id, pid, subject, cascade)}
             onReport={(pid) => void reportDiscussionPost(root.id, pid)}
             onOpenPerson={(n) => rel.openOwner(n)}
             replyComposer={
@@ -3658,7 +3752,7 @@ function FeedCard({ item, standalone = false }: { item: CommonsItem; standalone?
               // (Without this the page LOST the moderation it used to have when
               // it rendered its own list — the cost of unifying two projections
               // is that the survivor must keep what both of them could do.)
-              onDelete={standalone && root ? (pid) => void deleteDiscussionPost(root.id, pid, item.subject) : undefined}
+              onDelete={standalone && root ? (pid, cascade) => void deleteDiscussionPost(root.id, pid, item.subject, cascade) : undefined}
               onReport={standalone && root ? (pid) => void reportDiscussionPost(root.id, pid) : undefined}
               onOpenPerson={(n) => rel.openOwner(n)}
             />
@@ -4188,7 +4282,7 @@ function DiscussionPage({
         <DiscussionPostList
           posts={d.posts}
           onReact={(pid) => void reactToDiscussionPost(d.id, pid, d.anchor.ref)}
-          onDelete={(pid) => void deleteDiscussionPost(d.id, pid, d.anchor.ref)}
+          onDelete={(pid, cascade) => void deleteDiscussionPost(d.id, pid, d.anchor.ref, cascade)}
           onReport={(pid) => void reportDiscussionPost(d.id, pid)}
           onOpenPerson={(n) => rel.openOwner(n)}
           replyComposer={

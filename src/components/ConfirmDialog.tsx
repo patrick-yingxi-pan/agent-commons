@@ -3,6 +3,7 @@ import { SCRIM_CLASS } from '../lib/scrim'
 import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
 import { DANGER_BUTTON_CLASS, SECONDARY_BUTTON_CLASS } from '../lib/button'
 import { useFocusTrap } from '../lib/useFocusTrap'
+import { CheckboxRow } from './Checkbox'
 
 /** ── The confirm dialog ───────────────────────────────────────────────────────
  *  "Are you sure?" as a modal, for an act that cannot be undone — the shape the
@@ -37,6 +38,7 @@ import { useFocusTrap } from '../lib/useFocusTrap'
 export function ConfirmDialog({
   title,
   body,
+  option,
   confirmLabel,
   onConfirm,
   onCancel,
@@ -45,6 +47,13 @@ export function ConfirmDialog({
   /** What is being destroyed and what follows from it. Prose, not "Are you
    *  sure?" — see the header. */
   body: string
+  /** One checkbox that WIDENS the act — today, "take the replies too". Typed as
+   *  a single option rather than a `children` slot on purpose: a confirm that
+   *  can grow arbitrary controls stops being a confirm, and a second question
+   *  asked at the moment of an irreversible one is already the limit. It is
+   *  unchecked on arrival and the caller re-words `confirmLabel` from it, so
+   *  the button always states the wider act before it is pressed. */
+  option?: { label: string; checked: boolean; onChange: (checked: boolean) => void }
   /** The destructive verb, matching the control that opened this ("Retract",
    *  "Delete") so the dialog reads as the same act rather than a second one. */
   confirmLabel: string
@@ -71,6 +80,20 @@ export function ConfirmDialog({
       >
         <p className="text-[14px] font-semibold text-ink">{title}</p>
         <p className="mt-1.5 text-[12px] leading-relaxed text-ink-soft">{body}</p>
+        {/* The shared `CheckboxRow`, not a raw `<input type="checkbox">` — the
+            first cut wrote one and `tests/checkbox.test.ts` caught it. Worth
+            the catch: the raw input would have been the only checkbox in the
+            app not wearing the accent square, in the one dialog where a reader
+            most needs to recognise a control at a glance. */}
+        {option && (
+          <CheckboxRow
+            checked={option.checked}
+            onToggle={() => option.onChange(!option.checked)}
+            className="mt-3 w-full rounded-md bg-panel-2/60 p-2 text-[12px] leading-snug text-ink-soft"
+          >
+            <span>{option.label}</span>
+          </CheckboxRow>
+        )}
         <div className="mt-4 flex items-center justify-end gap-2">
           <button ref={cancelRef} type="button" onClick={onCancel} className={`${SECONDARY_BUTTON_CLASS} px-3 py-1.5 text-[12px]`}>
             Cancel
