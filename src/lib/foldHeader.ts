@@ -5,15 +5,15 @@
  *  header is click-able" stays identical across them: change it once and every fold
  *  header follows, instead of the cue drifting between copy-pasted copies.
  *
- *  These hovers INTENTIONALLY differ from the left rail's (lib/sidebar's
- *  SIDEBAR_HOVER), even though sharing one token is tempting. The reason is the
- *  background each sits on: the page canvas (#faf9f5) is near-white, so a hover only
- *  reads if it DARKENS (bg-panel-2/70); the rail (#f2f0e9) is darker, so its hover
- *  LIGHTENS toward white (bg-surface/70). No single tint is visible on both — a
- *  light tint vanishes on the canvas, a dark tint fights the rail — so each surface
- *  keeps the tint that's actually legible on it. (We tried unifying to the rail
- *  hover; it made the page headers nearly invisible. Don't re-unify without first
- *  changing the page background.)
+ *  These hovers used to differ from the left rail's on purpose, because the rail
+ *  sat a step darker than the page: one tint cannot read on two grounds, so the
+ *  page darkened and the rail lightened toward white. The FLUSH rail (owner
+ *  directive 2026-08-10) killed that premise — `--color-sidebar` IS
+ *  `--color-canvas`, so there is one ground and one cue, `panel-2`, the neutral
+ *  step off it (darker in light mode and LIGHTER in dark; the promise is
+ *  separation from the ground, never a direction). The lock moved with the rule
+ *  rather than outliving it — `tests/foldHeader.test.ts` now asserts the two
+ *  hovers AGREE, and fails a cue painted in the ground's own colour.
  *
  *  Plain strings (no JSX, no imports) so the DOM-less Node test runner can import
  *  and assert them — see tests/foldHeader.test.ts, which locks that every surface
@@ -23,7 +23,7 @@
  *  transition, so mousing over visibly marks the header as clickable. One entry per
  *  surface — the tint chosen to actually read on the background that surface sits on. */
 export const FOLD_HOVER = {
-  /** The page canvas (#faf9f5, near-white) — darken so the hover reads. */
+  /** The page canvas — one step off the ground, the same cue the rail wears. */
   page: 'transition hover:bg-panel-2/70',
   /** Inside a workspace panel — a soft surface lift (matches the panel's own rows). */
   panel: 'transition hover:bg-surface/60',

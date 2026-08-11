@@ -12,6 +12,8 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
   ChevronUp,
   Clock,
   Cpu,
@@ -83,7 +85,7 @@ import { useDisclosure } from '../lib/useDisclosure'
 import { NotificationRow, type NotificationDoors } from './NotificationList'
 import { doorFor } from '../lib/notificationDoor'
 import { DOOR_CLASS, STANDING_DOOR_CLASS } from '../lib/textDoor'
-import { CARD_DOOR_CLASS, ROW_DOOR_CLASS, cardDoorClick } from '../lib/cardDoor'
+import { CARD_DOOR_CLASS, ROW_DOOR_CLASS, cardDoorClick, isCardControlClick } from '../lib/cardDoor'
 import { LEDGER_BOX_CLASS, LEDGER_HEAD_CLASS, LEDGER_COUNT_CLASS, LEDGER_ROW_CLASS, QUIET_CARD_CLASS } from '../lib/ledger'
 import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
 import { SOFT_BUTTON_CLASS, DANGER_BUTTON_CLASS, SECONDARY_BUTTON_CLASS } from '../lib/button'
@@ -102,7 +104,14 @@ import type { FocusTarget } from '../lib/notificationDoor'
 import { profileTagline, profileTitle } from '../lib/publicFace'
 import { mentionHint, squareVoices, workItemVoices } from '../lib/mentionPicker'
 import { useMentionPicker } from '../lib/useMentionPicker'
-import { buildReplyTree, descendantCount, replyIndentClass } from '../lib/replyTree'
+import {
+  ancestorsOf,
+  buildReplyTree,
+  descendantCount,
+  foldOthers,
+  replyIndentClass,
+  FOLD_GUTTER_CLASS,
+} from '../lib/replyTree'
 import { ActorByline, AgentActor, Byline, CreditLine, OwnerLink, IdentityMark } from './PublicFace'
 import { TextDiff } from './TextDiff'
 import { CopyButton } from './CopyButton'
@@ -2919,14 +2928,57 @@ function DiscussionPostList({
   // Which post is open for a reply — transient composing state, so it lives
   // here rather than in the page (the same call the turn gutter makes).
   const [replyingTo, setReplyingTo] = useState<string | null>(null)
-  // Which branches the READER has folded away. Also transient, and per branch
-  // rather than a single "collapse all": the thing someone wants to skip is one
-  // sub-argument, not the depth of the thread.
+  // Which posts the READER has folded away. Transient by design: folding is a
+  // viewing POSTURE, not a fact about the discussion, so it stays off the wire
+  // and does not outlive the page. That is also what keeps every door into a
+  // thread honest — a bell or a mention lands on a post with the thread open,
+  // because there is no stored fold to have hidden it. Persist this and that
+  // stops being true; unfold the path to the focused post if it ever does.
   const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set<string>())
   // S9 — the chain, at whatever depth it runs (owner directive 2026-08-11).
   // Orphans, cycles and the every-post-renders-once invariant live in the pure
   // module, where a node test can hold them.
-  const { roots, childrenOf } = useMemo(() => buildReplyTree(posts), [posts])
+  const tree = useMemo(() => buildReplyTree(posts), [posts])
+  const { roots, childrenOf } = tree
+
+  /** The posts a thread-wide fold may not touch: the one you are part-way
+   *  through ANSWERING, and every post above it.
+   *
+   *  The composer holds an unsaved draft, and a sweep that eats one silently is
+   *  a loss the author only discovers afterwards. The ANCESTORS are the half
+   *  that is easy to get wrong — sparing just the composing post leaves a parent
+   *  free to fold, a folded parent renders none of its children, so the draft
+   *  goes anyway and the guard reads as though it works.
+   *
+   *  Derived ONCE and shared by all three readers below, because a guard and the
+   *  label that describes its result have to agree about what was spared: they
+   *  disagreed for one commit and "Fold all" refused to become "Unfold all"
+   *  while a nested composer was open. */
+  const spared = useMemo(
+    () => (replyingTo === null ? new Set<string>() : new Set([replyingTo, ...ancestorsOf(tree, replyingTo)])),
+    [replyingTo, tree],
+  )
+  const sparingTheDraft = (ids: Set<string>) => {
+    for (const id of spared) ids.delete(id)
+    return ids
+  }
+  /** Your OWN caret still folds a post you are answering — a deliberate act on
+   *  one post rather than a thread-wide sweep — and it closes the composer on
+   *  the way, so the draft never disappears without a gesture that asked for it.
+   *  Folding an ANCESTOR counts: it conceals the composer just as completely,
+   *  and leaving `replyingTo` set would spring the half-written reply back open
+   *  on some later unfold. */
+  const toggle = (id: string) => {
+    const willFold = !folded.has(id)
+    setFolded((f) => {
+      const next = new Set(f)
+      if (willFold) next.add(id)
+      else next.delete(id)
+      return next
+    })
+    if (willFold && spared.has(id)) setReplyingTo(null)
+  }
+  const allFolded = posts.length > 0 && posts.every((p) => folded.has(p.id) || spared.has(p.id))
 
   const row = (p: DiscussionPost, depth: number) => {
     const answers = childrenOf.get(p.id) ?? []
@@ -2934,63 +2986,141 @@ function DiscussionPostList({
     // The whole BRANCH, not the first row of it: folding hides descendants too,
     // so a count of direct children would under-report what disappeared.
     const branch = answers.length === 0 ? 0 : descendantCount(childrenOf, p.id)
+    const replies = branch === 1 ? '1 reply' : `${branch} replies`
     return (
       <li key={p.id}>
-        <div className="group flex items-start gap-2.5">
-          <div className="min-w-0 flex-1">
-            {/* The author is a DOOR onto their profile — the very <OwnerLink>
-                the card's own byline wears, mark and all, so the two names on
-                one card are one kind of thing. A name in a thread is the
-                thread's only handle on the person who wrote it; leaving it inert
-                made a comment a dead end (owner directive 2026-08-08). */}
-            <div className="flex items-center gap-2">
-              <span className="text-[12px] font-medium text-ink">
+        <div className="group flex items-start gap-1.5">
+          {/* ── The fold ──────────────────────────────────────────────────────
+              ONE button across both states, at the same position in the tree, so
+              React keeps the DOM node and the keyboard focus survives the press.
+              Mount a different control per state and folding drops focus to the
+              body — which for a keyboard reader loses their place in the thread
+              entirely, in the very act of tidying it.
+
+              It sits in a fixed gutter at the head of the row, centred on the
+              hairline its own branch hangs from (FOLD_GUTTER_CLASS /
+              replyIndentClass): the control and the thing it collapses are one
+              vertical line (owner directive 2026-08-11).
+
+              The accessible NAME is state-neutral and names the post, with
+              `aria-expanded` carrying which state it is in — a disclosure that
+              renames itself on every press reads as a new control each time. */}
+          <button
+            onClick={() => toggle(p.id)}
+            aria-expanded={!hidden}
+            aria-label={branch > 0 ? `${p.author}’s post, ${replies}` : `${p.author}’s post`}
+            title={hidden ? 'Unfold this post' : 'Fold this post'}
+            // A leaf's caret is hover-revealed where one with answers is not:
+            // that one carries structure ("there is more below this"), which is
+            // information, where a leaf's is only an act. FOLDED, every caret is
+            // pinned visible — a stub whose only way back is invisible is a post
+            // nobody finds again. The slot is reserved in all three cases, so
+            // nothing shifts when a caret appears.
+            className={`${FOLD_GUTTER_CLASS} mt-0.5 flex h-4 items-center justify-center rounded text-ink-faint transition hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${
+              branch > 0 || hidden ? '' : HOVER_REVEAL
+            }`}
+          >
+            {hidden ?
+              <ChevronRight size={12} className="shrink-0" />
+            : <ChevronDown size={12} className="shrink-0" />}
+          </button>
+          {/* ── The stub ──────────────────────────────────────────────────────
+              A folded post is an INDEX ENTRY, not a gap: who, when, the opening
+              words, and how much is hidden underneath. A fold that left only a
+              chevron would compress a long thread into a column of nothing —
+              and coping with a large history is the whole point of the control
+              (owner directive 2026-08-11); you cannot navigate a history you
+              cannot recognise. Whitespace collapses rather than surviving as
+              gaps, so the one line is one line.
+
+              The row takes the mouse and the CARET keeps the keyboard, which is
+              the card-door model (lib/cardDoor) and is here for its second
+              reason rather than its first: the author's name is a door
+              everywhere else in this list, and swallowing it inside one big
+              <button> would have made it inert in exactly the component the
+              "no surface renders an author's name inert" lock was earned for.
+              So the guard is that funnel's — a child that handles its own click
+              is spared centrally, because a child that forgets `stopPropagation`
+              fails silently. Not the funnel's CUE or its handler: this opens no
+              page. It also does without the funnel's drag-select guard on
+              purpose — unfolding costs a click to undo, where navigating away
+              from the text you just highlighted does not. */}
+          {hidden && (
+            <div
+              onClick={(e) => {
+                if (!isCardControlClick(e.target instanceof Element ? e.target : null, e.currentTarget)) toggle(p.id)
+              }}
+              className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md py-0.5 pr-1.5 transition hover:bg-panel-2"
+            >
+              <span className="shrink-0 text-[12px] font-medium text-ink">
                 <OwnerLink bare ownerName={p.author} own={p.mine === true} onClick={() => onOpenPerson(p.author)} />
               </span>
-              <span className="text-[11px] text-ink-faint">{relativeTime(p.at)}</span>
-              {/* The branch fold, and the only control on this row that is NOT
-                  hover-revealed: it carries the count, which is information
-                  rather than an act — and a folded branch whose only way back is
-                  invisible is a branch nobody finds again. The accessible NAME
-                  stays "N replies" in both states, with `aria-expanded` carrying
-                  which one it is, so the control does not rename itself under a
-                  screen reader every time it is pressed. */}
-              {branch > 0 && (
-                <button
-                  onClick={() =>
-                    setFolded((f) => {
-                      const next = new Set(f)
-                      if (!next.delete(p.id)) next.add(p.id)
-                      return next
-                    })
-                  }
-                  aria-expanded={!hidden}
-                  title={hidden ? 'Show this branch' : 'Hide this branch'}
-                  className={`${INLINE_ACTION_CLASS} inline-flex items-center gap-0.5`}
-                >
-                  {hidden ?
-                    <ChevronRight size={11} className="shrink-0" />
-                  : <ChevronDown size={11} className="shrink-0" />}
-                  {branch} {branch === 1 ? 'reply' : 'replies'}
-                </button>
+              <span className="shrink-0 text-[11px] text-ink-faint">{relativeTime(p.at)}</span>
+              <span className="min-w-0 flex-1 truncate text-[12px] text-ink-faint">
+                {p.body.replace(/\s+/g, ' ').trim()}
+              </span>
+              {branch > 0 && <span className="shrink-0 text-[11px] tabular-nums text-ink-faint">{replies}</span>}
+            </div>
+          )}
+          {!hidden && (
+            <div className="min-w-0 flex-1">
+              {/* The author is a DOOR onto their profile — the very <OwnerLink>
+                  the card's own byline wears, mark and all, so the two names on
+                  one card are one kind of thing. A name in a thread is the
+                  thread's only handle on the person who wrote it; leaving it inert
+                  made a comment a dead end (owner directive 2026-08-08). */}
+              <div className="flex items-center gap-2">
+                <span className="text-[12px] font-medium text-ink">
+                  <OwnerLink bare ownerName={p.author} own={p.mine === true} onClick={() => onOpenPerson(p.author)} />
+                </span>
+                <span className="text-[11px] text-ink-faint">{relativeTime(p.at)}</span>
+                {/* "Fold the others" — a THREAD-WIDE act reached from one post,
+                    which is why it is a word and not a glyph: nothing else on
+                    this row changes anything outside it, and an icon would give
+                    no warning. It renders only where it can do something (a lone
+                    post has no others), and `Unfold all` above is its exit — the
+                    arrangement it overwrites is otherwise not one you can get
+                    back, which is the one real cost of the act. */}
+                {posts.length > 1 && (
+                  <button
+                    onClick={() => setFolded(sparingTheDraft(foldOthers(posts, tree, p.id)))}
+                    aria-label={`Fold every post but ${p.author}’s`}
+                    title="Fold everything except this post and its replies"
+                    // HOVER_CUE, not HOVER_REVEAL — the one control in this row
+                    // that GOES AWAY on touch rather than persisting. UI-7 gives
+                    // exactly those two narrow-tier behaviours, and persisting
+                    // was measured at a whole extra line per post on a 375px
+                    // column (the author's name wraps to make room), for a
+                    // shortcut that is reachable in two taps anyway: Fold all,
+                    // then open the one you want. The acts beside it persist
+                    // because nothing else performs them.
+                    className={`${INLINE_ACTION_CLASS} focus-visible:opacity-100 ${HOVER_CUE}`}
+                  >
+                    only this
+                  </button>
+                )}
+              </div>
+              <p className="mt-0.5 whitespace-pre-wrap text-[13px] text-ink-soft">
+                <MentionText body={p.body} mentions={p.mentions} onOpen={onOpenPerson} />
+              </p>
+              {/* The composer is CONTENT — it belongs under the words it answers,
+                  where its own reply will land. Only its trigger is an act, and
+                  that lives in the cluster on the right with the other three. */}
+              {replyComposer && replyingTo === p.id && (
+                <div className="mt-2">{replyComposer(p, () => setReplyingTo(null))}</div>
               )}
             </div>
-            <p className="mt-0.5 whitespace-pre-wrap text-[13px] text-ink-soft">
-              <MentionText body={p.body} mentions={p.mentions} onOpen={onOpenPerson} />
-            </p>
-            {/* The composer is CONTENT — it belongs under the words it answers,
-                where its own reply will land. Only its trigger is an act, and
-                that lives in the cluster on the right with the other three. */}
-            {replyComposer && replyingTo === p.id && (
-              <div className="mt-2">{replyComposer(p, () => setReplyingTo(null))}</div>
-            )}
-          </div>
+          )}
           {/* S9 — Reply joined the per-post act cluster (owner directive
               2026-08-11). It used to be a WORD on its own row under the body:
               the one act rendered unlike the three beside it, and a control row
               inside the content column of every post in the thread. Same role ⇒
-              same look (src/CLAUDE.md), and the body gets its space back. */}
-          {replyComposer && (
+              same look (src/CLAUDE.md), and the body gets its space back.
+
+              A folded post shows NO acts: a stub is an index entry, and offering
+              Reply / Endorse / Retract against words that are not on screen asks
+              for a judgement the reader has not been given the means to make. */}
+          {!hidden && replyComposer && (
             <button
               onClick={() => setReplyingTo((cur) => (cur === p.id ? null : p.id))}
               aria-expanded={replyingTo === p.id}
@@ -3009,20 +3139,22 @@ function DiscussionPostList({
               <ReplyIcon size={12} />
             </button>
           )}
-          <button
-            onClick={() => onReact(p.id)}
-            aria-pressed={p.reacted === true}
-            aria-label={p.reacted ? 'Remove your endorsement' : 'Endorse this post'}
-            className={`flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] transition ${
-              p.reacted
-                ? 'text-accent'
-                : `text-ink-faint hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${p.reactions === 0 ? HOVER_REVEAL : ''}`
-            }`}
-          >
-            <ThumbsUp size={12} />
-            {p.reactions > 0 && <span className="tabular-nums">{p.reactions}</span>}
-          </button>
-          {onDelete && p.canDelete === true && (
+          {!hidden && (
+            <button
+              onClick={() => onReact(p.id)}
+              aria-pressed={p.reacted === true}
+              aria-label={p.reacted ? 'Remove your endorsement' : 'Endorse this post'}
+              className={`flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] transition ${
+                p.reacted
+                  ? 'text-accent'
+                  : `text-ink-faint hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${p.reactions === 0 ? HOVER_REVEAL : ''}`
+              }`}
+            >
+              <ThumbsUp size={12} />
+              {p.reactions > 0 && <span className="tabular-nums">{p.reactions}</span>}
+            </button>
+          )}
+          {!hidden && onDelete && p.canDelete === true && (
             <button
               onClick={() => onDelete(p.id)}
               aria-label={p.mine === true ? 'Retract this post' : 'Delete this post'}
@@ -3032,7 +3164,7 @@ function DiscussionPostList({
               <Trash2 size={12} />
             </button>
           )}
-          {onReport && p.canDelete !== true && (
+          {!hidden && onReport && p.canDelete !== true && (
             <button
               onClick={() => {
                 setReported(p.id)
@@ -3060,7 +3192,36 @@ function DiscussionPostList({
       </li>
     )
   }
-  return <ul className="space-y-3">{roots.map((p) => row(p, 0))}</ul>
+  return (
+    <div>
+      {/* ── Fold all ────────────────────────────────────────────────────────
+          One toggle over the whole thread — the rule the rail's Sections header
+          already follows (src/CLAUDE.md), one level down. Its LABEL always
+          states what the click will do, which is why the flip is `allFolded`
+          and not `anyFolded`: on the looser reading, folding a single post
+          would take "Fold all" away exactly when a long thread starts needing
+          it. Either way, getting back out of an all-folded thread is one press.
+
+          Rendered only where there is an "all" to speak of — a lone post has a
+          caret of its own and needs no second control saying the same thing in
+          the corner. */}
+      {posts.length > 1 && (
+        <div className="mb-2 flex justify-end">
+          <button
+            onClick={() => setFolded(allFolded ? new Set() : sparingTheDraft(new Set(posts.map((p) => p.id))))}
+            title={allFolded ? 'Open every post in this thread' : 'Collapse every post to one line'}
+            className={INLINE_ACTION_CLASS}
+          >
+            {allFolded ?
+              <ChevronsUpDown size={12} className="shrink-0" />
+            : <ChevronsDownUp size={12} className="shrink-0" />}
+            {allFolded ? 'Unfold all' : 'Fold all'}
+          </button>
+        </div>
+      )}
+      <ul className="space-y-3">{roots.map((p) => row(p, 0))}</ul>
+    </div>
+  )
 }
 
 /** The subject's discussions (social S2, SOCIAL-6b) — the ROOT thread as a flat

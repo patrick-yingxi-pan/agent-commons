@@ -12,7 +12,15 @@
  *  assertions that make removing it safe. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildReplyTree, descendantCount, replyIndentClass, MAX_INDENT_DEPTH } from '../src/lib/replyTree.ts'
+import {
+  ancestorsOf,
+  buildReplyTree,
+  descendantCount,
+  foldOthers,
+  replyIndentClass,
+  MAX_INDENT_DEPTH,
+  FOLD_GUTTER_CLASS,
+} from '../src/lib/replyTree.ts'
 
 /** A post, reduced to what the tree needs. */
 const p = (id: string, replyTo?: string) => ({ id, ...(replyTo === undefined ? {} : { replyTo }) })
@@ -102,8 +110,8 @@ test('the indent CLAMPS, and the rail never stops', () => {
   // it is bounded where it is actually a problem — the horizontal budget of a
   // list that renders in a split pane and on the narrow tier.
   for (let d = 1; d <= MAX_INDENT_DEPTH; d += 1) {
-    assert.match(replyIndentClass(d), /\bpl-3\b/, `level ${d} still buys an indent`)
-    assert.match(replyIndentClass(d), /max-sm:pl-2/, `level ${d} indents less where there is less room`)
+    assert.match(replyIndentClass(d), /\bpl-2\b/, `level ${d} still buys an indent`)
+    assert.match(replyIndentClass(d), /max-sm:pl-1\.5/, `level ${d} indents less where there is less room`)
   }
   assert.doesNotMatch(replyIndentClass(MAX_INDENT_DEPTH + 1), /\bpl-/, 'past the clamp it stops spending width')
   assert.doesNotMatch(replyIndentClass(40), /\bpl-/, 'and never resumes')
@@ -114,4 +122,98 @@ test('the indent CLAMPS, and the rail never stops', () => {
   for (const d of [1, MAX_INDENT_DEPTH, MAX_INDENT_DEPTH + 1, 40]) {
     assert.match(replyIndentClass(d), /border-l/, `level ${d} still draws the chain`)
   }
+})
+
+/** The Tailwind spacing number a class set carries on one tier: `w-4` → 4,
+ *  `max-sm:w-3` → 3 on the narrow tier and nothing on the base one (the `:` in
+ *  front of `w-` is not the word boundary the base pattern needs). Undefined
+ *  when the tier does not set the property at all. */
+function scale(classes: string, tier: 'base' | 'narrow', prop: string): number | undefined {
+  const prefix = tier === 'narrow' ? 'max-sm:' : ''
+  const m = new RegExp(`(?:^|\\s)${prefix}${prop}-(\\d+(?:\\.\\d+)?)(?:\\s|$)`).exec(classes)
+  return m ? Number(m[1]) : undefined
+}
+
+test('the fold caret sits ON the hairline it collapses, at both tiers', () => {
+  // The owner's placement rule (2026-08-11): the fold control lines up with the
+  // vertical rule its own branch hangs from. That is one relation held across
+  // two unrelated strings — a gutter WIDTH here, a child list's MARGIN there —
+  // so it is recomputed rather than restated. Nothing else in the suite, and no
+  // screenshot anybody reviews at a glance, would catch a caret two pixels off
+  // the line; it just reads as sloppiness of unknown origin.
+  for (const tier of ['base', 'narrow'] as const) {
+    const gutter = scale(FOLD_GUTTER_CLASS, tier, 'w')
+    const margin = scale(replyIndentClass(1), tier, 'ml')
+    assert.ok(gutter !== undefined, `the ${tier} tier gives the caret a slot`)
+    assert.ok(margin !== undefined, `the ${tier} tier offsets the child list`)
+    assert.equal(margin, gutter / 2, `${tier}: the rail lands on the caret's centre, not beside it`)
+  }
+})
+
+test('“only this” keeps the whole reading line open, and nothing else', () => {
+  //      a            f
+  //     ╱ ╲            ╲
+  //    b   e            g
+  //   ╱ ╲
+  //  c   d
+  const posts = [p('a'), p('b', 'a'), p('c', 'b'), p('d', 'b'), p('e', 'a'), p('f'), p('g', 'f')]
+  const tree = buildReplyTree(posts)
+
+  const folded = foldOthers(posts, tree, 'b')
+  // Each of these three is the act's own promise, and each fails differently:
+  // fold the ANCESTOR and "show me only this" hides the this; fold the
+  // DESCENDANTS and soloing a branch shows one row of it; fold nothing else and
+  // the control did nothing at all.
+  assert.ok(!folded.has('a'), 'the ancestor stays open — folding it would take b down with it')
+  assert.ok(!folded.has('b'), 'the post itself')
+  for (const kid of ['c', 'd']) assert.ok(!folded.has(kid), `${kid} — soloing shows the branch entire`)
+  assert.deepEqual([...folded].sort(), ['e', 'f', 'g'], 'and everything off the line folds, at every level')
+
+  // From a ROOT, its whole subtree is the line.
+  assert.deepEqual([...foldOthers(posts, tree, 'a')].sort(), ['f', 'g'])
+  // From the deepest post, every ancestor survives — the chain back up to the
+  // surface is what makes the post reachable at all.
+  const deep = [p('a'), p('b', 'a'), p('c', 'b'), p('d', 'c'), p('other')]
+  assert.deepEqual([...foldOthers(deep, buildReplyTree(deep), 'd')], ['other'])
+})
+
+test('the chain ABOVE a post is what has to stay open for it to be on screen', () => {
+  // Whoever folds an ancestor folds the post, whatever they meant to do — which
+  // is why the two callers that must not lose a post share this walk instead of
+  // each writing their own. The composer guard is the one that fails silently
+  // without it: sparing the post someone is answering, while leaving its parent
+  // free to fold, hides the draft just as completely and reads as though it
+  // works (found reviewing this change, not by running it).
+  const posts = [p('a'), p('b', 'a'), p('c', 'b'), p('d', 'c'), p('sibling', 'a'), p('other')]
+  const tree = buildReplyTree(posts)
+  assert.deepEqual([...ancestorsOf(tree, 'd')].sort(), ['a', 'b', 'c'], 'every level up, not just the parent')
+  assert.deepEqual([...ancestorsOf(tree, 'b')], ['a'])
+  assert.deepEqual([...ancestorsOf(tree, 'a')], [], 'a root has nothing above it')
+  assert.deepEqual([...ancestorsOf(tree, 'other')], [], 'nor does an unrelated root')
+  assert.deepEqual([...ancestorsOf(tree, 'nonexistent')], [], 'and an id the tree never saw is not an error')
+  // A ring costs one pass, not the tab — the guard `foldOthers` relies on too.
+  const ring = {
+    roots: [],
+    childrenOf: new Map([
+      ['x', [p('y')]],
+      ['y', [p('x')]],
+    ]),
+  }
+  assert.deepEqual([...ancestorsOf(ring, 'x')].sort(), ['x', 'y'].filter((i) => i !== 'x'))
+})
+
+test('“only this” terminates on a ring rather than hanging the click', () => {
+  // `buildReplyTree` cuts every ring before the renderer sees one, so this can
+  // only arrive through a corrupted snapshot or a future writer — the same
+  // reasoning the builder's own guard states. Hand-built, because the builder
+  // would (correctly) refuse to produce it: x and y each claim the other.
+  const ring = {
+    roots: [],
+    childrenOf: new Map([
+      ['x', [p('y')]],
+      ['y', [p('x')]],
+    ]),
+  }
+  const folded = foldOthers([p('x'), p('y'), p('z')], ring, 'x')
+  assert.deepEqual([...folded], ['z'], 'the ring is walked once and the unrelated post folds')
 })

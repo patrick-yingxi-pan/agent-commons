@@ -86,7 +86,7 @@ export function buildReplyTree<P extends ReplyLike>(posts: readonly P[]): ReplyT
 }
 
 /** How many answers hang below a post, at every depth — the number a folded
- *  branch reports, since folding hides the whole branch and not just its first
+ *  post reports, since folding hides the whole branch and not just its first
  *  row. Iterative: a 200-post thread may legitimately be a 200-deep chain. */
 export function descendantCount<P extends ReplyLike>(childrenOf: Map<string, P[]>, id: string): number {
   let n = 0
@@ -107,14 +107,27 @@ export function descendantCount<P extends ReplyLike>(childrenOf: Map<string, P[]
 /** Levels that still buy horizontal space. Past this the chain keeps NESTING —
  *  the relation is real, and re-attributing a deep reply to its grandparent is
  *  the falsehood the depth cap was removed for — but it stops spending width it
- *  cannot get back. At 12px a step (8px on the narrow tier) five levels cost
- *  60px / 40px, which the narrowest pane this app renders can still afford.
+ *  cannot get back. At 17px a step (13px on the narrow tier) five levels cost
+ *  85px / 65px, which the narrowest pane this app renders can still afford.
  *
  *  Why a clamp and not a "continue this thread" link: a discussion here is
  *  capped at 200 posts and typically holds a dozen, so a depth this list cannot
  *  show is rare — and paying for the rare case with a navigation that hides the
  *  common one is the wrong trade. The reader's own fold is the escape hatch. */
 export const MAX_INDENT_DEPTH = 5
+
+/** The fold caret's slot at the head of EVERY post row — a fixed width, reserved
+ *  whether or not a caret is showing, so a caret that only appears on hover never
+ *  nudges the words beside it.
+ *
+ *  Its half-width is the child list's left margin below (`replyIndentClass`),
+ *  which is what puts the caret ON the hairline its own branch hangs from — the
+ *  control and the thing it collapses are one vertical line (owner directive,
+ *  2026-08-11). Two numbers that must agree and live in different strings are two
+ *  numbers that will drift, so `tests/reply-tree.test.ts` recomputes the relation
+ *  rather than restating it: nothing else would notice a caret sitting two pixels
+ *  off the rail. */
+export const FOLD_GUTTER_CLASS = 'w-4 max-sm:w-3 shrink-0'
 
 /** The nested list's own class at `depth` (1 = an answer to a root post).
  *
@@ -123,5 +136,67 @@ export const MAX_INDENT_DEPTH = 5
  *  while the text column stops narrowing. Static class strings, because
  *  Tailwind scans source and a computed `pl-${n}` compiles to nothing. */
 export function replyIndentClass(depth: number): string {
-  return depth <= MAX_INDENT_DEPTH ? 'border-l border-line pl-3 max-sm:pl-2' : 'border-l border-line'
+  const rail = 'ml-2 max-sm:ml-1.5 border-l border-line'
+  return depth <= MAX_INDENT_DEPTH ? `${rail} pl-2 max-sm:pl-1.5` : rail
+}
+
+/** Every post ABOVE `id` in the chain — the posts that must stay open for `id`
+ *  to be on screen at all, since folding one collapses everything under it.
+ *
+ *  Two callers need exactly this, and both get it wrong in the same silent way
+ *  without it: "fold the others" (fold an ancestor and the post you asked to see
+ *  goes with it) and the composer guard in `DiscussionPostList` (fold an
+ *  ancestor and the reply someone is part-way through writing is gone — the
+ *  post itself was spared, but nothing renders it).
+ *
+ *  Ring-safe: the walk stops the first time it revisits, so a corrupted parent
+ *  chain costs one pass rather than the tab. */
+export function ancestorsOf<P extends ReplyLike>(tree: ReplyTree<P>, id: string): Set<string> {
+  // Derived, not stored: `buildReplyTree` already cut every edge that would make
+  // a second parent possible, so this index is total and unambiguous.
+  const parentOf = new Map<string, string>()
+  for (const [pid, kids] of tree.childrenOf) for (const k of kids) parentOf.set(k.id, pid)
+  const up = new Set<string>()
+  for (let at = parentOf.get(id); at !== undefined && at !== id && !up.has(at); at = parentOf.get(at)) up.add(at)
+  return up
+}
+
+/** "Fold the others" — every post EXCEPT the reading line through `id`.
+ *
+ *  The line is three things, and each is there because dropping it breaks the
+ *  act's own promise:
+ *
+ *  - the post's **ancestors**, because a folded ancestor takes the post down with
+ *    it, and "show me only this" that hides the this is not a feature;
+ *  - the **post**;
+ *  - its **descendants** — soloing a branch shows the branch ENTIRE, not its
+ *    first row. Fold-all is how you ask for a spine.
+ *
+ *  That reading also settles what "the others" means at depth, which is genuinely
+ *  ambiguous in words (my siblings? every other branch in the thread?):
+ *  everything not on the line I am reading, at every level.
+ *
+ *  Ring-safe in both directions, on the same reasoning `buildReplyTree` states —
+ *  the write path cannot build a cycle, and the cost of being wrong is a renderer
+ *  that never returns. */
+export function foldOthers<P extends ReplyLike>(
+  posts: readonly P[],
+  tree: ReplyTree<P>,
+  id: string,
+): Set<string> {
+  const open = ancestorsOf(tree, id)
+  open.add(id)
+  const stack = [id]
+  while (stack.length > 0) {
+    const next = stack.pop() as string
+    for (const c of tree.childrenOf.get(next) ?? []) {
+      if (open.has(c.id)) continue
+      open.add(c.id)
+      stack.push(c.id)
+    }
+  }
+
+  const folded = new Set<string>()
+  for (const p of posts) if (!open.has(p.id)) folded.add(p.id)
+  return folded
 }

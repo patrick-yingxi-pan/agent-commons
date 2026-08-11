@@ -1,11 +1,12 @@
 /** Foldable list-section headers share one styling source (src/lib/foldHeader.ts)
- *  so the "this header is clickable" hover cue stays identical across them. Their
- *  hover INTENTIONALLY differs from the left rail's — each surface gets the tint
- *  that reads on its own background (see the foldHeader.ts header). These lock that:
+ *  so the "this header is clickable" hover cue stays identical across them. Since
+ *  the rail went FLUSH (owner directive 2026-08-10) the page and the rail share
+ *  one ground, so they share one cue — see the foldHeader.ts header for the rule
+ *  this replaced. These lock that:
  *    1. every fold-header surface carries a visible hover background,
  *    2. the page class composes the page hover and stays layout-stable,
- *    3. the page hover DARKENS (it must, on the near-white canvas) and so differs
- *       from the rail's lightening hover — they are deliberately not one token,
+ *    3. the page hover and the rail's are the SAME step off that one ground, and
+ *       neither is painted in the ground's own colour,
  *    4. the cue is defined once — no component re-hardcodes it,
  *    5. the consumers source their styling from the shared module. */
 import { test } from 'node:test'

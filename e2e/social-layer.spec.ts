@@ -1135,9 +1135,11 @@ test('a discussion hangs on ONE block of an artifact, and its chip lands back th
 //  `tests/reply-tree.test.ts` holds the arithmetic (orphans, rings, the indent
 //  clamp) and `tests/discussions.test.ts` the write path. What only a browser
 //  can prove is the structure: the composer opens in place, the answer lands
-//  INSIDE its parent's row, a second answer goes DEEPER still, the reader can
-//  fold a branch away, and Ctrl+Enter posts without touching the button.
-test('a reply chain nests to its real depth, folds away, and posts on Ctrl+Enter', async ({ browser }) => {
+//  INSIDE its parent's row, a second answer goes DEEPER still, Ctrl+Enter posts
+//  without touching the button, and the three folds behave — one post collapses
+//  to a stub, "Fold all" turns the thread into an index, and "only this" keeps
+//  the whole reading line (ancestor included) while everything else goes.
+test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Enter', async ({ browser }) => {
   test.setTimeout(120_000)
   const ada = await newUser(browser)
   const ANSWER = `Answering that directly ${STAMP}`
@@ -1198,19 +1200,105 @@ test('a reply chain nests to its real depth, folds away, and posts on Ctrl+Enter
   await expect(answerRow.locator('p', { hasText: SECOND })).toHaveCount(1)
 
   // The reader's escape hatch, which is what makes an unbounded depth safe to
-  // store: fold the branch under Grace's question and BOTH answers go with it —
-  // the count reports the whole branch, not its first row. Addressed as the
-  // FIRST fold in her row rather than by its count, because the e2e store
-  // persists between runs and a hardcoded "2 replies" would hold exactly once.
+  // store: fold Grace's question and BOTH answers go with it — the count
+  // reports the whole branch, not its first row. Addressed as the FIRST fold in
+  // her row rather than by its count, because the e2e store persists between
+  // runs and a hardcoded "2 replies" would hold exactly once.
   const fold = parent.getByRole('button', { name: /repl(y|ies)$/ }).first()
   await expect(fold).toHaveAttribute('aria-expanded', 'true')
   await fold.click()
   await expect(parent.locator('p', { hasText: ANSWER })).toHaveCount(0)
   await expect(parent.locator('p', { hasText: SECOND })).toHaveCount(0)
-  // Folded, it is still the way back — the one control on the row that is never
-  // hover-revealed, because a branch nobody can find again is a branch deleted.
+  // The post's OWN words go too (owner directive 2026-08-11) — this is the
+  // claim that fails against the previous fold, which hid the replies and left
+  // every body on screen. A thread of twenty top-level posts got no shorter,
+  // which is not much of an answer to a long history.
+  await expect(parent.locator('p')).toHaveCount(0)
+  // What it leaves is an INDEX ENTRY, not a gap: the author, and how much is
+  // underneath. A fold that left only a chevron would compress the thread into
+  // a column of nothing.
+  await expect(parent.getByText('Grace Hopper', { exact: true })).toBeVisible()
+  await expect(parent.getByText(/^\d+ repl(y|ies)$/)).toBeVisible()
+  // Folded, the control is still the way back, and still one element: React
+  // keeps the node across the state change, so a keyboard reader who pressed it
+  // is still standing on it.
   await expect(fold).toHaveAttribute('aria-expanded', 'false')
   await fold.click()
+  await expect(parent.locator('p', { hasText: SECOND })).toHaveCount(1)
+
+  // A second, UNRELATED root, so the two thread-wide controls below have an
+  // "everything else" to act on. The e2e store persists and this thread may
+  // already carry several — this guarantees at least one post that is not on
+  // Grace's line, whatever a previous run left behind.
+  const ASIDE = `An unrelated remark ${STAMP}`
+  await ada.page.getByRole('textbox', { name: 'Reply to this discussion' }).fill(ASIDE)
+  await ada.page.getByRole('button', { name: 'Reply to this discussion', exact: true }).click()
+  await expect(ada.page.locator('p', { hasText: ASIDE })).toHaveCount(1, { timeout: 20_000 })
+
+  // ── Fold all ── one toggle over the whole thread, whose LABEL always states
+  // what the click will do. Approached from a PARTLY folded thread on purpose:
+  // that is the state the plausible wrong reading (`anyFolded`) gets wrong,
+  // renaming the control to "Unfold all" the moment one post is folded — so
+  // "fold all" would stop being reachable exactly when a long thread starts
+  // needing it. From clean, the two readings are indistinguishable.
+  await fold.click()
+  await expect(fold).toHaveAttribute('aria-expanded', 'false')
+  await ada.page.getByRole('button', { name: 'Fold all' }).click()
+  for (const body of [ANSWER, SECOND, ASIDE]) {
+    await expect(ada.page.locator('p', { hasText: body })).toHaveCount(0)
+  }
+  // A folded LEAF pins its caret visible, where an open one hover-reveals it:
+  // an invisible way back is a post the reader cannot recover. Asserted on the
+  // CLASS the reveal is spelled in, because Playwright clicks an `opacity-0`
+  // control perfectly happily — a walk that merely presses it goes green on a
+  // control nobody can see (this assertion was written after that exact
+  // mutation survived).
+  const asideRow = ada.page.locator('li').filter({ hasText: ASIDE }).first()
+  await expect(asideRow.getByRole('button', { name: /’s post$/ }).first()).not.toHaveClass(/\bopacity-0\b/)
+
+  const unfoldAll = ada.page.getByRole('button', { name: 'Unfold all' })
+  await expect(unfoldAll).toBeVisible()
+  await unfoldAll.click()
+  await expect(ada.page.locator('p', { hasText: ASIDE })).toHaveCount(1)
+
+  // ── The draft neither thread-wide control may eat ── open a composer on a
+  // NESTED post and fold everything. The composing post is spared, and so is
+  // every post ABOVE it, which is the half that fails silently: sparing only
+  // the post leaves its parent free to fold, a folded parent renders none of
+  // its children, and the half-written reply is gone with the guard still
+  // reading as though it worked (found in review of this change).
+  await answerRow.getByRole('button', { name: /^Reply to .+’s post$/ }).first().click()
+  const guarded = ada.page.getByRole('textbox', { name: 'Reply to this post' })
+  await guarded.fill(`Half-written ${STAMP}`)
+  await ada.page.getByRole('button', { name: 'Fold all' }).click()
+  await expect(guarded).toBeVisible()
+  await expect(guarded).toHaveValue(`Half-written ${STAMP}`)
+  // The rest of the thread did fold around it — the guard is narrow, not a
+  // blanket veto on the act.
+  await expect(ada.page.locator('p', { hasText: ASIDE })).toHaveCount(0)
+  await ada.page.getByRole('button', { name: 'Unfold all' }).click()
+  // Folding it YOURSELF is a different act and CLOSES the composer rather than
+  // hiding it — including from an ancestor, which conceals it just as
+  // completely (Grace's caret is that ancestor). The claim is about the state,
+  // not the render, so it has to be asserted after UNFOLDING: while the
+  // ancestor is folded nothing below it renders either way, so "the composer is
+  // gone" goes green on a composer that is merely out of sight and will spring
+  // back — which is exactly what the first version of this assertion did.
+  await fold.click()
+  await fold.click()
+  await expect(ada.page.getByRole('textbox', { name: 'Reply to this post' })).toHaveCount(0)
+
+  // ── Fold the others ── a thread-wide act reached from ONE post. Fired from
+  // Ada's answer, which is deliberately not a root: the reading line has to
+  // include the ANCESTOR, and an implementation that folds "everything but this
+  // post" passes every other assertion here while hiding the post it was asked
+  // to show — Grace's row would collapse and take the answer down inside it.
+  await answerRow.getByRole('button', { name: /^Fold every post but/ }).first().click()
+  await expect(ada.page.locator('p', { hasText: ASIDE })).toHaveCount(0)
+  await expect(parent.locator('p', { hasText: 'Read through the Q3 baseline' })).toHaveCount(1)
+  await expect(parent.locator('p', { hasText: ANSWER })).toHaveCount(1)
+  // …and the branch UNDER it, entire — soloing a post shows the sub-argument,
+  // not its opening line.
   await expect(parent.locator('p', { hasText: SECOND })).toHaveCount(1)
 
   await ada.context.close()
