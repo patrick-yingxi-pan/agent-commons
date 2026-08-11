@@ -97,7 +97,28 @@ function resolve(palette: string, mode: string): Record<string, string> {
     t = { ...t, ...PALETTE_BLOCKS[palette].light }
     if (mode === 'dark') t = { ...t, ...PALETTE_BLOCKS[palette].dark }
   }
-  return t
+  return deref(t)
+}
+
+/** Follow `var(--other-token)` references to the colour they land on, exactly as
+ *  the browser does. A token may legitimately be WRITTEN as a reference rather
+ *  than a hex: the flush rail declares `--color-sidebar: var(--color-canvas)`,
+ *  so "the rail is the canvas" is one decision stated once instead of the same
+ *  hex copied into eight blocks, where the two could drift apart. Every check
+ *  below still measures a real colour, because the reference is resolved here
+ *  first — chains are followed (bounded, so a cycle cannot hang the suite). */
+function deref(t: Record<string, string>): Record<string, string> {
+  const out = { ...t }
+  for (const key of Object.keys(out)) {
+    let value = out[key]
+    for (let hop = 0; hop < 8; hop += 1) {
+      const ref = value.match(/^var\(\s*(--[a-z0-9-]+)\s*\)$/)?.[1]
+      if (!ref || out[ref] === undefined) break
+      value = out[ref]
+    }
+    out[key] = value
+  }
+  return out
 }
 
 const MODES = ['light', 'dark'] as const

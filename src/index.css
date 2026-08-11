@@ -21,7 +21,11 @@
    ------------------------------------------------------------------------- */
 @theme {
   --color-canvas: #fbf9f8;
-  --color-sidebar: #f6f1ef;
+  /* FLUSH (owner directive 2026-08-10): the rail has no fill of its own —
+     it IS the canvas, and the hairline + spacing carry the boundary. Written
+     as a reference, not a copied hex, so the two can never drift apart; a
+     palette that ever wants a distinct rail overrides this with a literal. */
+  --color-sidebar: var(--color-canvas);
   --color-surface: #fbf9f8;
   --color-panel: #f6f1ef;
   --color-panel-2: #efe8e5;
@@ -156,7 +160,11 @@
   color-scheme: dark;
 
   --color-canvas: #272122;
-  --color-sidebar: #1f1a1b;
+  /* FLUSH (owner directive 2026-08-10): the rail has no fill of its own —
+     it IS the canvas, and the hairline + spacing carry the boundary. Written
+     as a reference, not a copied hex, so the two can never drift apart; a
+     palette that ever wants a distinct rail overrides this with a literal. */
+  --color-sidebar: var(--color-canvas);
   --color-surface: #272122;
   --color-panel: #2d2627;
   --color-panel-2: #352d2e;
@@ -254,7 +262,11 @@
 /* Terracotta — the warm Claude classic, flattened onto one ground. */
 :root[data-palette="terracotta"] {
   --color-canvas: #faf9f5;
-  --color-sidebar: #f2f0e9;
+  /* FLUSH (owner directive 2026-08-10): the rail has no fill of its own —
+     it IS the canvas, and the hairline + spacing carry the boundary. Written
+     as a reference, not a copied hex, so the two can never drift apart; a
+     palette that ever wants a distinct rail overrides this with a literal. */
+  --color-sidebar: var(--color-canvas);
   --color-surface: #faf9f5;
   --color-panel: #f2f0e9;
   --color-panel-2: #ebe8dc;
@@ -284,7 +296,11 @@
 }
 :root[data-palette="terracotta"][data-theme="dark"] {
   --color-canvas: #262624;
-  --color-sidebar: #1f1e1b;
+  /* FLUSH (owner directive 2026-08-10): the rail has no fill of its own —
+     it IS the canvas, and the hairline + spacing carry the boundary. Written
+     as a reference, not a copied hex, so the two can never drift apart; a
+     palette that ever wants a distinct rail overrides this with a literal. */
+  --color-sidebar: var(--color-canvas);
   --color-surface: #262624;
   --color-panel: #2b2a27;
   --color-panel-2: #34332f;
@@ -313,7 +329,11 @@
 /* Indigo — cool ink on porcelain, the blueprint cast. */
 :root[data-palette="indigo"] {
   --color-canvas: #fafbfd;
-  --color-sidebar: #f1f3f8;
+  /* FLUSH (owner directive 2026-08-10): the rail has no fill of its own —
+     it IS the canvas, and the hairline + spacing carry the boundary. Written
+     as a reference, not a copied hex, so the two can never drift apart; a
+     palette that ever wants a distinct rail overrides this with a literal. */
+  --color-sidebar: var(--color-canvas);
   --color-surface: #fafbfd;
   --color-panel: #f1f3f8;
   --color-panel-2: #e9ecf4;
@@ -340,7 +360,11 @@
 }
 :root[data-palette="indigo"][data-theme="dark"] {
   --color-canvas: #212330;
-  --color-sidebar: #1a1c27;
+  /* FLUSH (owner directive 2026-08-10): the rail has no fill of its own —
+     it IS the canvas, and the hairline + spacing carry the boundary. Written
+     as a reference, not a copied hex, so the two can never drift apart; a
+     palette that ever wants a distinct rail overrides this with a literal. */
+  --color-sidebar: var(--color-canvas);
   --color-surface: #212330;
   --color-panel: #272a3a;
   --color-panel-2: #2f3246;
@@ -369,7 +393,11 @@
 /* Forest — deep green on sage, the field notebook. */
 :root[data-palette="forest"] {
   --color-canvas: #f9fbf9;
-  --color-sidebar: #f0f4f0;
+  /* FLUSH (owner directive 2026-08-10): the rail has no fill of its own —
+     it IS the canvas, and the hairline + spacing carry the boundary. Written
+     as a reference, not a copied hex, so the two can never drift apart; a
+     palette that ever wants a distinct rail overrides this with a literal. */
+  --color-sidebar: var(--color-canvas);
   --color-surface: #f9fbf9;
   --color-panel: #f0f4f0;
   --color-panel-2: #e7ede8;
@@ -396,7 +424,11 @@
 }
 :root[data-palette="forest"][data-theme="dark"] {
   --color-canvas: #212623;
-  --color-sidebar: #1a1f1c;
+  /* FLUSH (owner directive 2026-08-10): the rail has no fill of its own —
+     it IS the canvas, and the hairline + spacing carry the boundary. Written
+     as a reference, not a copied hex, so the two can never drift apart; a
+     palette that ever wants a distinct rail overrides this with a literal. */
+  --color-sidebar: var(--color-canvas);
   --color-surface: #212623;
   --color-panel: #272e29;
   --color-panel-2: #2f3831;

@@ -183,12 +183,24 @@ test('the consumers source the face from the module', () => {
     ['src/components/Composer.tsx', 'DANGER_BUTTON_CLASS', 2],
     ['src/components/panels/ArtifactPanel.tsx', 'DANGER_BUTTON_CLASS', 1],
     // PrimaryButton (the shared page-header verb) is a SECONDARY under the
-    // candidate's CTA guardrail. TRUE solids survive only where a surface has
-    // ONE defining act: the rail's New session and the auth Sign in.
+    // candidate's CTA guardrail. Exactly ONE true solid survives: the auth
+    // Sign in — the single act on a screen that has no other.
+    //
+    // The rail's New session left this list on 2026-08-10 (owner directive:
+    // "we don't need such a showy color for new session — spare the color for
+    // more important scenarios"). It is a quiet rail row now, findable by
+    // POSITION rather than fill; the scan below fails if a solid reappears in
+    // the rail, which is the half of this decision worth locking.
     ['src/components/SectionView.tsx', 'SECONDARY_BUTTON_CLASS', 1],
-    ['src/components/Sidebar.tsx', 'SOLID_BUTTON_CLASS', 1],
     ['src/lib/authFlow.ts', 'SOLID_BUTTON_CLASS', 1],
   ]
+  // The rail carries NO solid: navigation chrome may not wear the loudest ink
+  // in the system (owner directive 2026-08-10). Asserted as an absence, since
+  // the consumer table above can only count what is present.
+  assert.ok(
+    !read(join(ROOT, 'src', 'components', 'Sidebar.tsx')).includes('SOLID_BUTTON_CLASS'),
+    'the left rail wears no CTA-tier solid — New session is a quiet row, found by position',
+  )
   for (const [rel, symbol, least] of consumers) {
     const src = read(join(ROOT, ...rel.split('/')))
     assert.match(src, /from '((\.\.\/)+lib\/button|\.\/button(\.ts)?)'/, `${rel} imports the shared face`)

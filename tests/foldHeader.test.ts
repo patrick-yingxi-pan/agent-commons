@@ -34,12 +34,27 @@ test('the page section-header class composes the page hover and stays layout-sta
   }
 })
 
-test('the page hover darkens and so deliberately differs from the rail hover', () => {
-  // The canvas is near-white, so the page header hover must DARKEN to read; the rail
-  // lightens. Sharing one token makes the page hover near-invisible — locked here so
-  // it is not "helpfully" re-unified. See src/lib/foldHeader.ts for the rationale.
-  assert.match(FOLD_HOVER.page, /hover:bg-panel-2/, 'the page hover uses a darkening tint (panel-2)')
-  assert.ok(!FOLD_HOVER.page.includes(SIDEBAR_HOVER), 'the page hover is NOT the rail hover')
+test('the rail and the page share one ground, so both hovers step OFF it', () => {
+  // This lock used to assert the opposite: that the page hover must NOT be the
+  // rail hover. That rule held while the rail sat a step darker than the page —
+  // one tint cannot read on two different grounds, so the rail lightened and the
+  // page darkened.
+  //
+  // The FLUSH rail (owner directive 2026-08-10) killed the premise:
+  // `--color-sidebar` IS `--color-canvas`, so there is exactly one ground and a
+  // `surface` tint paints either surface in its own colour. Both cues are
+  // `panel-2` — the neutral one step off the canvas — and the lock moves with
+  // the rule rather than outliving it.
+  //
+  // Deliberately NOT phrased as "darkens": panel-2 is darker in light mode and
+  // LIGHTER in dark (#352d2e on #272122). The promise is separation from the
+  // ground, not a direction.
+  assert.match(FOLD_HOVER.page, /hover:bg-panel-2/, 'the page hover steps off the ground (panel-2)')
+  assert.match(SIDEBAR_HOVER, /hover:bg-panel-2/, 'and so does the rail — one ground, one cue')
+  // The regression this guards: a cue painted in the ground's own colour.
+  for (const [name, cue] of [['page', FOLD_HOVER.page], ['rail', SIDEBAR_HOVER]] as const) {
+    assert.ok(!cue.includes('hover:bg-surface'), `the ${name} hover must not use surface — it IS the canvas now`)
+  }
 })
 
 test('the page hover cue is defined once — no component re-hardcodes it', () => {

@@ -45,15 +45,51 @@ names its locking test — moving or weakening a rule means moving its lock too.
   claret means "go", bright signal-red means "danger", never both weights on one
   surface. This restyles but does not restructure — the rail, the split
   workspace, and every navigation rule below are unchanged.
-- **The Bindery duet + the seat law** (owner directive 2026-08-03). The default
-  palette is a TWO-color system: claret VERBS against Prussian-blue PLACES
-  (`--color-co(-strong/-tint)`). The accent family owns what you can do — the
-  CTA tier (rail New session, auth Sign in — the only true solids left after
-  the soft-verb demotion; opaque claret read heavy), the SOFT verbs
+- **The rail is FLUSH** (owner directive 2026-08-10). `--color-sidebar` is
+  `var(--color-canvas)` in every palette and mode — a reference, not a copied
+  hex, so the two can never drift and a palette wanting a distinct rail
+  overrides it with a literal. The left panel has no fill of its own; the
+  hairline and spacing carry the boundary, which is the flat-ledger rule applied
+  to the one surface still exempt from it. It replaced a rail derived as *canvas
+  darkened ~2% and nudged toward the accent hue* — a formula, run identically in
+  all four palettes, that could only ever produce a slightly dirty white
+  (owner: *"slightly oriented to the theme color, which is poor taste"*).
+  **The consequence to remember:** a rail cue can no longer be painted in
+  `surface`, because surface IS the rail now — `SIDEBAR_HOVER` and the active
+  row moved to `panel-2`, the neutral one STEP off the canvas (darker in light,
+  *lighter* in dark — the cue promises separation from the ground, never a
+  direction; "it darkens" is true of half the matrix and wrong about the rest).
+  The fold-header lock that had forbidden unifying the rail and page hovers was
+  inverted with the rule it guarded: one ground, one cue
+  (`tests/foldHeader.test.ts`). Contrast's token resolver follows
+  `var()` references so a token may be written as one (`tests/contrast.test.ts`).
+- **The Bindery duet + the seat law** (owner directive 2026-08-03, place clause
+  revised 2026-08-10). The default palette is a TWO-color system: claret VERBS
+  against a Prussian-blue RESPONSE voice (`--color-co(-strong/-tint)`) — it read
+  "against Prussian-blue PLACES" until the rail showed what that cost. The
+  accent family owns what you can do — the
+  CTA tier (**auth Sign in alone** — the only true solid left; the rail's New
+  session left the tier 2026-08-10, owner directive: *"we don't need such a showy
+  color for new session — spare the color for more important scenarios"*. A
+  solid slab across the top of a panel whose every other row is quiet text spent
+  the system's loudest ink on NAVIGATION, leaving nothing louder for the acts
+  inside the workspace that actually commit something. New session is a rail ROW
+  now, findable by POSITION and a ringed glyph, with the accent surviving as the
+  icon alone. Locked as an ABSENCE — `tests/button.test.ts` fails if any solid
+  returns to `Sidebar.tsx`), the SOFT verbs
   (`SOFT_BUTTON_CLASS`, tinted fill), the secondary's hover answer, danger
-  solids. The co family owns where you are — the rail's active pill, title-door
-  hovers, the focus flash, field focus (`focus:border-co`), selection states,
-  checked checkboxes, the keyboard focus ring, the user bubble. Verbs never
+  solids. The co family owns the system's TRANSIENT ANSWER to you — the focus
+  flash on arrival, field focus (`focus:border-co`), selection states, checked
+  checkboxes, the keyboard focus ring, title-door hovers, the user bubble.
+  **Standing location is NOT co** (owner directive 2026-08-10, revising the
+  original "places wear co"): the rail's active row is a neutral fill plus a
+  weight bump (`SIDEBAR_ACTIVE`), because a blue pill made a NAVIGATION marker
+  the loudest thing in the panel that had just given up its solid to stop
+  shouting — and three of the four palettes are single-voice anyway, so the
+  duet was never load-bearing. The sharper line: co means *the system just
+  responded*; weight and fill mean *you are here*. One active look serves every
+  rail row kind (the section pill and the session rows had drifted into two).
+  Locked by `tests/sidebar.test.ts`. Verbs never
   wear co, places never wear accent (locked by `tests/button.test.ts` +
   `tests/form-input.test.ts`); single-voice palettes set co = accent and are
   unchanged. The six capability-chip hues are the EMBELLISHMENT layer — famous-

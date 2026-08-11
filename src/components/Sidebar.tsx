@@ -40,8 +40,7 @@ import { SECTION_INSTANCE_KEY } from '../lib/subviews'
 import { SECTION_FILTERS } from '../lib/sectionFilter'
 import { OwnerProfileChild, SectionFilterMenu, SectionInstanceChildren, SubNavRow } from './SectionTreeChildren'
 import { OWNER_SECTION, type PaneSeed } from '../lib/paneNav'
-import { SIDEBAR_HOVER, SIDEBAR_ICON_BUTTON } from '../lib/sidebar'
-import { SOLID_BUTTON_CLASS } from '../lib/button'
+import { SIDEBAR_ACTIVE, SIDEBAR_HOVER, SIDEBAR_ICON_BUTTON } from '../lib/sidebar'
 import { removeSchedule, runScheduleNow, toggleScheduleEnabled, useMe, useNotifications, useSchedules } from '../api'
 import { AccountChip } from './AccountMenu'
 import { useRelations } from '../controller/useRelations'
@@ -481,14 +480,25 @@ export function Sidebar({
           navigation-role scoping finds it and the two rail navs stay landmark-unique
           (the Sections pane below is the second <nav>, carrying the section rows). */}
       <nav aria-label="Create" className="mt-3 shrink-0 px-2">
-        {/* The rail's New session is the app's ONE CTA-tier solid (the Claret
-            candidate's guardrail: solid claret is reserved for this tier —
-            page-level New-X verbs wear the bordered secondary instead). */}
+        {/* New session is a rail ROW, not a solid (owner directive 2026-08-10:
+            "we don't need such a showy color for new session — spare the color
+            for more important scenarios"). It had been the app's ONE CTA-tier
+            solid, a claret slab across the top of a panel whose every other row
+            is quiet text — which spent the loudest ink in the system on
+            navigation chrome, and left nothing louder for the acts inside the
+            workspace that actually commit something.
+            What makes it findable now is POSITION (first row, its own <nav>) and
+            the ringed glyph, not fill: the same way the desktop app's own
+            sidebar does it. The accent survives here as the icon alone — one
+            small claret mark, which is the seat law's "verbs wear accent" at the
+            smallest dose that still reads. */}
         <button
           onClick={onNewSession}
-          className={`flex w-full items-center justify-center gap-1.5 ${SOLID_BUTTON_CLASS} px-3 py-2 text-[13px]`}
+          className={`flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] text-ink transition ${SIDEBAR_HOVER}`}
         >
-          <Plus size={16} />
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full ring-1 ring-line-strong">
+            <Plus size={13} className="text-accent" />
+          </span>
           New session
         </button>
       </nav>
@@ -951,7 +961,7 @@ function NavRow({
     <button
       onClick={onClick}
       className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] transition ${
-        active ? 'bg-co-tint font-medium text-co-strong' : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
+        active ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
       }`}
     >
       <span className="shrink-0">{icon}</span>
@@ -996,7 +1006,7 @@ function SectionTreeRow({
   return (
     <div
       className={`group flex w-full items-center rounded-lg pr-2 text-[13px] transition ${
-        active ? 'bg-co-tint font-medium text-co-strong' : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
+        active ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
       }`}
     >
       {hasChildren ? (
@@ -1064,7 +1074,7 @@ function SessionRow({
   return (
     <div
       className={`group flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 transition ${
-        active ? 'bg-surface ring-1 ring-line-strong' : SIDEBAR_HOVER
+        active ? SIDEBAR_ACTIVE : SIDEBAR_HOVER
       }`}
     >
       {session.pinned ? (
@@ -1125,7 +1135,7 @@ function RoutineRow({
   return (
     <div
       className={`group flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 transition ${
-        active ? 'bg-surface ring-1 ring-line-strong' : SIDEBAR_HOVER
+        active ? SIDEBAR_ACTIVE : SIDEBAR_HOVER
       }`}
     >
       <RoutineDot enabled={task.enabled} lastStatus={task.lastStatus} />
