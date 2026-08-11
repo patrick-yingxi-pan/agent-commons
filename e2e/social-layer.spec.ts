@@ -1151,12 +1151,19 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
 
   // The affordance names WHO is being answered, so a thread of several voices
   // does not offer half a dozen controls all called "Reply". It lives in the
-  // post's act cluster now, beside the endorsement and the retract — the same
+  // post's act cluster, beside the endorsement and the retract — the same
   // hover-revealed cluster, because it is the same kind of thing (owner
-  // directive 2026-08-11); `title` is what distinguishes it from the word
-  // "Reply" the DM composer and the feed card also use.
+  // directive 2026-08-11); the hover BUBBLE is what distinguishes it from the
+  // word "Reply" the DM composer and the feed card also use.
+  //
+  // That used to be a `title` attribute and this used to assert the attribute
+  // existed, which is a weaker claim than it reads as: an attribute is not an
+  // explanation until something shows it. The cluster went to real Tooltips
+  // when "only this" became a glyph nobody could guess (same directive), so the
+  // whole row explains itself the same way, and this asserts the bubble ARRIVES.
   const replyBtn = parent.getByRole('button', { name: /^Reply to Grace Hopper.s post$/ }).first()
-  await expect(replyBtn).toHaveAttribute('title', 'Reply to this post')
+  await replyBtn.hover()
+  await expect(ada.page.getByRole('tooltip')).toHaveText('Reply to this post')
   await replyBtn.click()
   const field = ada.page.getByRole('textbox', { name: 'Reply to this post' })
   await expect(field).toBeVisible({ timeout: 10_000 })
@@ -1261,6 +1268,71 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
   await unfoldAll.click()
   await expect(ada.page.locator('p', { hasText: ASIDE })).toHaveCount(1)
 
+  // ── The acts sit ON the byline, not at the pane's right edge ──────────────
+  //  (owner directive 2026-08-11: "make the reply, like and delete buttons
+  //  immediately follow the line content instead of right aligned. This makes
+  //  user clicks convenient.") Stated as a MEASUREMENT, because the structural
+  //  version — "the buttons are inside the byline element" — would also pass on
+  //  a byline stretched the full width of the pane with the buttons still
+  //  pinned to its far end, which is the arrangement being replaced.
+  const byline = parent.locator('div.min-w-0 > div').first()
+  const bylineBox = await byline.boundingBox()
+  const replyBox = await parent.getByRole('button', { name: /^Reply to Grace Hopper’s post$/ }).first().boundingBox()
+  const rowBox = await parent.boundingBox()
+  if (!bylineBox || !replyBox || !rowBox) throw new Error('byline / reply / row not laid out')
+  // Reply begins within a short distance of where the byline text ends, rather
+  // than out at the row's edge. The row is ~900px wide here; the old layout put
+  // this button past 1000.
+  expect(replyBox.x - bylineBox.x).toBeLessThan(400)
+  expect(rowBox.x + rowBox.width - replyBox.x).toBeGreaterThan(300)
+  // …and the trash stands apart from the endorsement it sits beside, so the
+  // click that meant "endorse" cannot land on "delete" (same directive).
+  const likeBox = await parent.getByRole('button', { name: /endorse/i }).first().boundingBox()
+  const trashBox = await parent.getByRole('button', { name: /^(Delete|Retract) this post$/ }).first().boundingBox()
+  if (!likeBox || !trashBox) throw new Error('endorse / trash not laid out')
+  const trashGap = trashBox.x - (likeBox.x + likeBox.width)
+  const replyGap = likeBox.x - (replyBox.x + replyBox.width)
+  expect(trashGap).toBeGreaterThan(replyGap + 8)
+
+  // ── "only this" is a glyph that explains itself ───────────────────────────
+  //  (owner directive 2026-08-11: "invent an icon for the only this button,
+  //  possibly with hover message to explain".) An icon-only control whose
+  //  meaning nobody would guess owes the reader the words on hover — and the
+  //  bubble is a real Tooltip, not the browser's `title`, so this can assert it
+  //  arrived rather than that an attribute exists.
+  const onlyThis = parent.getByRole('button', { name: /^Fold every post but/ }).first()
+  await expect(onlyThis).toHaveText('')
+  await onlyThis.hover()
+  await expect(ada.page.getByRole('tooltip')).toHaveText('Fold everything else')
+
+  // ── The trash ASKS ────────────────────────────────────────────────────────
+  //  (owner directive 2026-08-11: "confirm deletion in a pop-up window".) The
+  //  walk that earned it: a mis-aimed click retracted a seeded post and the
+  //  thread lost its opening question, recoverable only by hand-editing the
+  //  store. Cancel is asserted FIRST — a confirm dialog whose Cancel does not
+  //  cancel is worse than no dialog, and only the destroy path gets exercised
+  //  if you test them the other way round.
+  await parent.getByRole('button', { name: /^(Delete|Retract) this post$/ }).first().click()
+  const dialog = ada.page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  // It names whose words go and what happens to the answers underneath — the
+  // fact most likely to change the reader's mind, and true of the server's
+  // actual retract rule.
+  await expect(dialog).toContainText('Grace Hopper')
+  await expect(dialog).toContainText('move up one level')
+  // Focus is on Cancel, never pre-armed on the destructive verb: the dialog
+  // exists because a pointer went where it did not mean to, and a stray Enter
+  // would reproduce that one layer up.
+  await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused()
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(parent.locator('p', { hasText: 'Read through the Q3 baseline' })).toHaveCount(1)
+  // Escape cancels too — dismissal must be the cheap direction.
+  await parent.getByRole('button', { name: /^(Delete|Retract) this post$/ }).first().click()
+  await expect(dialog).toBeVisible()
+  await ada.page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(parent.locator('p', { hasText: 'Read through the Q3 baseline' })).toHaveCount(1)
   // ── The draft neither thread-wide control may eat ── open a composer on a
   // NESTED post and fold everything. The composing post is spared, and so is
   // every post ABOVE it, which is the half that fails silently: sparing only
@@ -1300,6 +1372,20 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
   // …and the branch UNDER it, entire — soloing a post shows the sub-argument,
   // not its opening line.
   await expect(parent.locator('p', { hasText: SECOND })).toHaveCount(1)
+
+  // ── …and confirming really does destroy ───────────────────────────────────
+  //  LAST in the walk, and on the ASIDE post this walk created rather than on
+  //  anything seeded. Both placements are deliberate: two assertions above read
+  //  "ASIDE is folded away", and a post that has been DELETED satisfies those
+  //  vacuously — destroying it earlier would quietly hollow them out (it did,
+  //  for one revision). Its own caret unfolds it first, because a stub carries
+  //  no acts — and NOT "Unfold all", which does not exist here: "only this"
+  //  leaves the reading line open, so the thread is partly folded and the
+  //  toggle still reads "Fold all" (the `allFolded` rule, working).
+  await asideRow.getByRole('button', { name: /’s post$/ }).first().click()
+  await asideRow.getByRole('button', { name: /^(Delete|Retract) this post$/ }).first().click()
+  await ada.page.getByRole('dialog').getByRole('button', { name: /^(Delete|Retract)$/ }).click()
+  await expect(ada.page.locator('p', { hasText: ASIDE })).toHaveCount(0, { timeout: 20_000 })
 
   await ada.context.close()
 })

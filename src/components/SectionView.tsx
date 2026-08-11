@@ -50,6 +50,7 @@ import {
   SquareKanban,
   ThumbsUp,
   Flag,
+  Focus,
   Reply as ReplyIcon,
   Trash2,
   Unplug,
@@ -99,6 +100,7 @@ import { ProposalsPanel } from './ProposalsPanel'
 import { ProposalDeltaView } from './DeltaView'
 import { MentionText } from './MentionText'
 import { Tooltip } from './Tooltip'
+import { ConfirmDialog } from './ConfirmDialog'
 import { describeLocus, locusFocus, sectionForSocialKind } from '../lib/anchorLocus'
 import type { FocusTarget } from '../lib/notificationDoor'
 import { profileTagline, profileTitle } from '../lib/publicFace'
@@ -2928,6 +2930,10 @@ function DiscussionPostList({
   // Which post is open for a reply — transient composing state, so it lives
   // here rather than in the page (the same call the turn gutter makes).
   const [replyingTo, setReplyingTo] = useState<string | null>(null)
+  // The post whose retraction is waiting on an answer. The POST, not its id:
+  // the dialog names the author and quotes the words, and holding the id would
+  // make it re-find in the thread what the click was already holding.
+  const [confirmDelete, setConfirmDelete] = useState<DiscussionPost | null>(null)
   // Which posts the READER has folded away. Transient by design: folding is a
   // viewing POSTURE, not a fact about the discussion, so it stays off the wire
   // and does not outlive the page. That is also what keeps every door into a
@@ -3069,36 +3075,146 @@ function DiscussionPostList({
                   one card are one kind of thing. A name in a thread is the
                   thread's only handle on the person who wrote it; leaving it inert
                   made a comment a dead end (owner directive 2026-08-08). */}
-              <div className="flex items-center gap-2">
-                <span className="text-[12px] font-medium text-ink">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                {/* `shrink-0` here and on the act cluster below makes a starved
+                    byline WRAP rather than squeeze. It changes nothing at any
+                    width this thread is read at — 375px and up, the line fits
+                    either way, measured. It matters when the content column is
+                    genuinely tiny: with the narrow-tier rail drawer open the
+                    column is ~53px, and one shrinkable child means the flex row
+                    compresses "Ada Lovelace (you)" into three stacked words
+                    while the rigid cluster keeps its full width. Rigid on both
+                    sides, the line breaks where a line should break. */}
+                <span className="shrink-0 text-[12px] font-medium text-ink">
                   <OwnerLink bare ownerName={p.author} own={p.mine === true} onClick={() => onOpenPerson(p.author)} />
                 </span>
-                <span className="text-[11px] text-ink-faint">{relativeTime(p.at)}</span>
-                {/* "Fold the others" — a THREAD-WIDE act reached from one post,
-                    which is why it is a word and not a glyph: nothing else on
-                    this row changes anything outside it, and an icon would give
-                    no warning. It renders only where it can do something (a lone
-                    post has no others), and `Unfold all` above is its exit — the
-                    arrangement it overwrites is otherwise not one you can get
-                    back, which is the one real cost of the act. */}
-                {posts.length > 1 && (
-                  <button
-                    onClick={() => setFolded(sparingTheDraft(foldOthers(posts, tree, p.id)))}
-                    aria-label={`Fold every post but ${p.author}’s`}
-                    title="Fold everything except this post and its replies"
-                    // HOVER_CUE, not HOVER_REVEAL — the one control in this row
-                    // that GOES AWAY on touch rather than persisting. UI-7 gives
-                    // exactly those two narrow-tier behaviours, and persisting
-                    // was measured at a whole extra line per post on a 375px
-                    // column (the author's name wraps to make room), for a
-                    // shortcut that is reachable in two taps anyway: Fold all,
-                    // then open the one you want. The acts beside it persist
-                    // because nothing else performs them.
-                    className={`${INLINE_ACTION_CLASS} focus-visible:opacity-100 ${HOVER_CUE}`}
-                  >
-                    only this
-                  </button>
-                )}
+                <span className="shrink-0 text-[11px] text-ink-faint">{relativeTime(p.at)}</span>
+                {/* ── The acts, ON the byline ──────────────────────────────
+                    They used to be right-ALIGNED, pinned to the far edge of a
+                    row whose text often ended a third of the way across: to
+                    answer a post you had read, you travelled the width of the
+                    pane (owner directive 2026-08-11 — *"make the reply, like
+                    and delete buttons immediately follow the line content
+                    instead of right aligned. This makes user clicks
+                    convenient"*). They follow the timestamp now, so the
+                    distance from the words to the verb about them is a few
+                    pixels and does not grow with the pane.
+
+                    On the byline rather than under the body, which is the
+                    other place "after the content" could mean: a control row
+                    beneath every post is a row per post, and Reply was moved
+                    OFF exactly such a row earlier the same day. This spends no
+                    vertical space at all.
+
+                    `flex-wrap` on the line above: below `sm` the cluster is
+                    persistent (UI-7), and name + time + four controls do not
+                    fit a 375px column at depth — so the cluster drops to its
+                    own line instead of squeezing the name to nothing, which is
+                    the row-starvation UI-7 exists for. */}
+                <div className="flex shrink-0 items-center gap-0.5">
+                  {/* "Fold the others" — a THREAD-WIDE act reached from one
+                      post. Now a glyph like its neighbours (owner directive
+                      2026-08-11), which costs it the warning its words carried,
+                      so the explanation moves to a real Tooltip: `title` is the
+                      browser's, arrives after about a second, and is the one
+                      thing on this row nobody would guess. It renders only
+                      where it can do something (a lone post has no others), and
+                      `Unfold all` above is its exit — the arrangement it
+                      overwrites is otherwise not one you can get back.
+
+                      HOVER_REVEAL like the acts beside it, which it briefly was
+                      not: while it read "only this" the words cost a whole
+                      extra line per post on a 375px column, so it took
+                      HOVER_CUE and vanished on touch. Becoming a glyph removed
+                      the reason — measured at 375px, the byline is 18px tall
+                      whether this is shown or hidden — and UI-7's rule for a
+                      real control is that it PERSISTS where there is no hover.
+                      A phone reading a long thread wants this more than a
+                      desktop does, not less. */}
+                  {posts.length > 1 && (
+                    <Tooltip label="Fold everything else">
+                      <button
+                        onClick={() => setFolded(sparingTheDraft(foldOthers(posts, tree, p.id)))}
+                        aria-label={`Fold every post but ${p.author}’s`}
+                        className={`${POST_ACT_CLASS} text-ink-faint hover:bg-panel-2 hover:text-ink ${HOVER_REVEAL}`}
+                      >
+                        <Focus size={12} />
+                      </button>
+                    </Tooltip>
+                  )}
+                  {replyComposer && (
+                    <Tooltip label="Reply to this post">
+                      <button
+                        onClick={() => setReplyingTo((cur) => (cur === p.id ? null : p.id))}
+                        aria-expanded={replyingTo === p.id}
+                        // Names the POST, not just its author: a DM's thread
+                        // composer is already "Reply to ‹counterpart›", and this
+                        // control answers one message inside that conversation.
+                        // Two controls under one accessible name is the
+                        // ambiguity the Post buttons were renamed for — caught
+                        // by an existing DM walk resolving to two elements.
+                        aria-label={`Reply to ${p.author}’s post`}
+                        className={`${POST_ACT_CLASS} text-ink-faint hover:bg-panel-2 hover:text-ink ${
+                          replyingTo === p.id ? '' : HOVER_REVEAL
+                        }`}
+                      >
+                        <ReplyIcon size={12} />
+                      </button>
+                    </Tooltip>
+                  )}
+                  <Tooltip label={p.reacted ? 'Remove your endorsement' : 'Endorse this post'}>
+                    <button
+                      onClick={() => onReact(p.id)}
+                      aria-pressed={p.reacted === true}
+                      aria-label={p.reacted ? 'Remove your endorsement' : 'Endorse this post'}
+                      className={`${POST_ACT_CLASS} gap-1 text-[11px] ${
+                        p.reacted
+                          ? 'text-accent'
+                          : `text-ink-faint hover:bg-panel-2 hover:text-ink ${p.reactions === 0 ? HOVER_REVEAL : ''}`
+                      }`}
+                    >
+                      <ThumbsUp size={12} />
+                      {p.reactions > 0 && <span className="tabular-nums">{p.reactions}</span>}
+                    </button>
+                  </Tooltip>
+                  {/* ── The gap before the irreversible one ───────────────────
+                      Retract/Delete sits a deliberate step away from the verbs
+                      it is nothing like (owner directive 2026-08-11: *"space
+                      delete button a little far away to avoid being clicked by
+                      mistake"*), earned the day a mis-aimed click took the
+                      opening question out of a seeded thread. Distance is only
+                      half the answer — the other half is that it now ASKS
+                      (ConfirmDialog) rather than acting; a gap alone still
+                      loses the post to one confident wrong click. */}
+                  {onDelete && p.canDelete === true && (
+                    <Tooltip label={p.mine === true ? 'Retract this post' : 'Delete this post (you own the surface)'}>
+                      <button
+                        onClick={() => setConfirmDelete(p)}
+                        aria-label={p.mine === true ? 'Retract this post' : 'Delete this post'}
+                        className={`${POST_ACT_CLASS} ml-3 text-ink-faint hover:bg-removed-bg hover:text-removed ${HOVER_REVEAL}`}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </Tooltip>
+                  )}
+                  {onReport && p.canDelete !== true && (
+                    <Tooltip label={reported === p.id ? 'Reported' : 'Report this post to the owner of this surface'}>
+                      <button
+                        onClick={() => {
+                          setReported(p.id)
+                          onReport(p.id)
+                        }}
+                        disabled={reported === p.id}
+                        aria-label="Report this post to the owner of this surface"
+                        className={`${POST_ACT_CLASS} ml-3 text-[11px] text-ink-faint hover:bg-panel-2 hover:text-ink ${
+                          reported === p.id ? '' : HOVER_REVEAL
+                        }`}
+                      >
+                        <Flag size={12} />
+                      </button>
+                    </Tooltip>
+                  )}
+                </div>
               </div>
               <p className="mt-0.5 whitespace-pre-wrap text-[13px] text-ink-soft">
                 <MentionText body={p.body} mentions={p.mentions} onOpen={onOpenPerson} />
@@ -3111,75 +3227,13 @@ function DiscussionPostList({
               )}
             </div>
           )}
-          {/* S9 — Reply joined the per-post act cluster (owner directive
-              2026-08-11). It used to be a WORD on its own row under the body:
-              the one act rendered unlike the three beside it, and a control row
-              inside the content column of every post in the thread. Same role ⇒
-              same look (src/CLAUDE.md), and the body gets its space back.
-
-              A folded post shows NO acts: a stub is an index entry, and offering
-              Reply / Endorse / Retract against words that are not on screen asks
-              for a judgement the reader has not been given the means to make. */}
-          {!hidden && replyComposer && (
-            <button
-              onClick={() => setReplyingTo((cur) => (cur === p.id ? null : p.id))}
-              aria-expanded={replyingTo === p.id}
-              // Names the POST, not just its author: a DM's thread composer is
-              // already "Reply to ‹counterpart›", and this control answers one
-              // message inside that conversation. Two controls under one
-              // accessible name is the ambiguity the Post buttons were renamed
-              // for — caught here by an existing DM walk resolving to two
-              // elements.
-              aria-label={`Reply to ${p.author}’s post`}
-              title="Reply to this post"
-              className={`flex shrink-0 items-center justify-center rounded-md px-1.5 py-0.5 text-ink-faint transition hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${
-                replyingTo === p.id ? '' : HOVER_REVEAL
-              }`}
-            >
-              <ReplyIcon size={12} />
-            </button>
-          )}
-          {!hidden && (
-            <button
-              onClick={() => onReact(p.id)}
-              aria-pressed={p.reacted === true}
-              aria-label={p.reacted ? 'Remove your endorsement' : 'Endorse this post'}
-              className={`flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] transition ${
-                p.reacted
-                  ? 'text-accent'
-                  : `text-ink-faint hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${p.reactions === 0 ? HOVER_REVEAL : ''}`
-              }`}
-            >
-              <ThumbsUp size={12} />
-              {p.reactions > 0 && <span className="tabular-nums">{p.reactions}</span>}
-            </button>
-          )}
-          {!hidden && onDelete && p.canDelete === true && (
-            <button
-              onClick={() => onDelete(p.id)}
-              aria-label={p.mine === true ? 'Retract this post' : 'Delete this post'}
-              title={p.mine === true ? 'Retract this post' : 'Delete this post (you own the surface)'}
-              className={`flex shrink-0 items-center justify-center rounded-md px-1.5 py-0.5 text-ink-faint transition hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 ${HOVER_REVEAL}`}
-            >
-              <Trash2 size={12} />
-            </button>
-          )}
-          {!hidden && onReport && p.canDelete !== true && (
-            <button
-              onClick={() => {
-                setReported(p.id)
-                onReport(p.id)
-              }}
-              disabled={reported === p.id}
-              aria-label="Report this post to the owner of this surface"
-              title={reported === p.id ? 'Reported' : 'Report this post to the owner of this surface'}
-              className={`flex shrink-0 items-center justify-center rounded-md px-1.5 py-0.5 text-[11px] text-ink-faint transition hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${
-                reported === p.id ? '' : HOVER_REVEAL
-              }`}
-            >
-              <Flag size={12} />
-            </button>
-          )}
+          {/* No acts hang off the right edge any more — the whole cluster moved
+              onto the byline above. A FOLDED post shows none of them at all: a
+              stub is an index entry, and offering Reply / Endorse / Retract
+              against words that are not on screen asks for a judgement the
+              reader has not been given the means to make. That falls out of the
+              structure now rather than being repeated per control, since the
+              cluster lives inside the block `hidden` already replaces. */}
         </div>
         {/* The chain. The indent CLAMPS rather than the depth doing so — see
             `replyIndentClass`: past the clamp a level still draws its hairline,
@@ -3220,9 +3274,51 @@ function DiscussionPostList({
         </div>
       )}
       <ul className="space-y-3">{roots.map((p) => row(p, 0))}</ul>
+      {/* The question the trash can now asks. Its BODY is the part that earns
+          the interruption: a dialog that only says "Are you sure?" moves the
+          click without adding anything that would change it, so this one says
+          whose words go, and — when the post has answers — that they do NOT go
+          with it. That is the server's actual retract rule (answers are
+          promoted, never deleted with their parent), and it is the fact most
+          likely to change the reader's mind in either direction. */}
+      {confirmDelete && (
+        <ConfirmDialog
+          title={confirmDelete.mine === true ? 'Retract this post?' : 'Delete this post?'}
+          body={
+            (confirmDelete.mine === true
+              ? 'Your post will be removed from the thread. This cannot be undone.'
+              : `You are removing ${confirmDelete.author}’s post from a surface you own. This cannot be undone.`) +
+            (descendantCount(childrenOf, confirmDelete.id) > 0
+              ? ' The replies underneath it stay — they move up one level.'
+              : '')
+          }
+          confirmLabel={confirmDelete.mine === true ? 'Retract' : 'Delete'}
+          onCancel={() => setConfirmDelete(null)}
+          onConfirm={() => {
+            onDelete?.(confirmDelete.id)
+            setConfirmDelete(null)
+          }}
+        />
+      )}
     </div>
   )
 }
+
+/** Every per-post act wears one face: a compact icon button on the byline. Same
+ *  role ⇒ same look (src/CLAUDE.md) — five controls that had five spellings of
+ *  the same padding and radius between them.
+ *
+ *  SHAPE ONLY — no colour, deliberately. It carried `text-ink-faint` for one
+ *  revision, and the endorsement (which appends `text-accent` when you have
+ *  endorsed) silently stopped showing it: two base `text-*` utilities in one
+ *  class attribute have no defined winner, the cascade decides by the order
+ *  they appear in the generated CSS, and the faint one won. That is the same
+ *  trap `lib/textDoor` records for `border-*`, and the reason a shared
+ *  primitive must not own a property any caller varies. Callers supply the
+ *  resting colour, the hover colour, and the reveal rule — all three genuinely
+ *  differ per act. */
+const POST_ACT_CLASS =
+  'flex shrink-0 items-center justify-center rounded-md px-1.5 py-0.5 transition focus-visible:opacity-100'
 
 /** The subject's discussions (social S2, SOCIAL-6b) — the ROOT thread as a flat
  *  timeline with an inline composer, generic over the anchor ref by

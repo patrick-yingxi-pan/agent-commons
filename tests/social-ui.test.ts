@@ -547,3 +547,29 @@ test('an author’s name is a door wherever a thread shows it — no surface ren
   )
   assert.ok(list.includes('onOpenPerson: (name: string) => void'), 'which is REQUIRED — a doorless post list is not a shape this app has')
 })
+
+test('the shared per-post act face carries no colour of its own', () => {
+  // It carried `text-ink-faint` for one revision, and the ENDORSED state — which
+  // appends `text-accent` — silently stopped showing: two base `text-*`
+  // utilities in one class attribute have no defined winner, the cascade
+  // decides by their order in the generated CSS, and the faint one won. Nothing
+  // failed; the button simply stopped saying you had endorsed the post, in the
+  // same faint grey as one you had not. (The same trap lib/textDoor records for
+  // two `border-*` colours; caught here by reading a computed style in the
+  // running app, which is the only place it was visible.)
+  //
+  // The general rule this instance stands for: a shared primitive must not own
+  // a property that any of its callers vary.
+  const src = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const def = /const POST_ACT_CLASS =\s*'([^']*)'/.exec(src)
+  assert.ok(def, 'the shared per-post act face is defined')
+  const colour = /\btext-(?:ink|accent|co|danger|removed|warn|ok|on-solid)[\w-]*/.exec(def[1])
+  assert.equal(
+    colour?.[0],
+    undefined,
+    `POST_ACT_CLASS must set no resting text colour — callers vary it, and a colour here beats theirs by cascade order, not by intent: "${def[1]}"`,
+  )
+  // …and the two states that must be distinguishable each still name a colour.
+  assert.match(src, /p\.reacted\s*\?\s*'text-accent'/, 'an endorsed post says so in accent')
+  assert.match(src, /\$\{POST_ACT_CLASS\} text-ink-faint/, 'a resting act supplies its own faint')
+})
