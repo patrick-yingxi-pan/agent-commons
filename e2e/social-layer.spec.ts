@@ -1299,16 +1299,25 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
   const graceUnfoldAll = parent.getByRole('button', {
     name: 'Unfold Grace Hopper’s post and everything folded inside it',
   })
-  // First, the ABSENCE. Fold Grace with a clean interior and the control does
-  // not appear at all — there is nothing to discard, so it would be the caret
-  // wearing a second glyph. (The previous cut had exactly that: a "fold branch"
-  // button that duplicated the caret on every post with answers.) Asserted
-  // BEFORE anything is folded inside her, because after the discard the post is
-  // open again and `hidden` alone hides the control — which is how the first
-  // version of this assertion passed against a mutant with the gate removed.
+  // It STANDS on every folded post with replies, whether or not anything is
+  // folded inside it (owner directive 2026-08-11). It used to render only where
+  // it differed from the caret, which was principled and unfindable: the
+  // obvious thing to try is Fold all, Fold all leaves interiors alone, so the
+  // control was absent exactly there. Asserted with a clean interior, which is
+  // the case the old gate refused.
   await graceCaret.click()
-  await expect(graceUnfoldAll).toHaveCount(0)
+  await expect(graceUnfoldAll).toBeVisible()
   await graceCaret.click()
+  // …and never on a post with no replies at all: there is no branch to discard,
+  // and the caret already says everything there is to say.
+  //  Located by TEXT rather than by `has: p`: folding replaces the body <p>
+  //  with a stub, so a locator keyed on the paragraph stops resolving the
+  //  instant the thing it is testing happens. The stub still carries the words
+  //  as its snippet, so `hasText` survives both states.
+  const leafRow = parent.locator('li').filter({ hasText: SECOND }).last()
+  await leafRow.getByRole('button', { name: /’s post$/ }).first().click()
+  await expect(leafRow.getByRole('button', { name: /^Unfold .* everything folded inside it$/ })).toHaveCount(0)
+  await leafRow.getByRole('button', { name: /’s post$/ }).first().click()
   // `answerRow` is the containment locator already built above — by CONTAINMENT
   // rather than author name, since every post this walk writes is Ada's. Its
   // FIRST caret is ANSWER's own, not a descendant's.
@@ -1362,6 +1371,35 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
   // …and it is GONE now, because there is nothing left in this branch to
   // discard: a control that would repeat the caret does not render.
   await expect(graceUnfoldAll).toHaveCount(0)
+
+  // ── …and every discard sits in ONE COLUMN, at every depth ────────────────
+  //  (owner directive 2026-08-11: "horizontally aligned at the left".) Each
+  //  control is positioned against its OWN row — that is what places it
+  //  vertically — so a single column means undoing that row's indent, 17px per
+  //  level. Get it wrong and the column goes crooked by a few pixels per level,
+  //  which reads as sloppiness of unknown origin rather than as a bug.
+  //
+  //  Two depths are needed, and they must be in DIFFERENT branches: a folded
+  //  post hides its own descendants, so a folded root and a folded reply
+  //  underneath it are never on screen together. Grace's branch is the only one
+  //  with replies at this point, so the other seeded root is given one.
+  const COLUMN = `A reply so this root has a branch ${STAMP}`
+  const otherRoot = ada.page.locator('li').filter({ hasText: 'Fixed at 28 days' }).last()
+  await otherRoot.getByRole('button', { name: /^Reply to .+’s post$/ }).first().click()
+  const cf = ada.page.getByRole('textbox', { name: 'Reply to this post' })
+  await cf.fill(COLUMN)
+  await cf.press('Control+Enter')
+  await expect(otherRoot.locator('p', { hasText: COLUMN })).toHaveCount(1, { timeout: 20_000 })
+  // Grace stays OPEN so her folded reply's control is on screen, while the
+  // other root folds and contributes the depth-0 one.
+  await otherRoot.getByRole('button', { name: /’s post, / }).first().click()
+  await answerRow.getByRole('button', { name: /’s post, / }).first().click()
+  const discardX = await ada.page
+    .locator('button[aria-label^="Unfold "][aria-label$="everything folded inside it"]')
+    .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().left)))
+  expect(discardX.length, 'controls at more than one depth are on screen').toBeGreaterThan(1)
+  expect(new Set(discardX).size, `every discard shares one column — got ${discardX.join(', ')}`).toBe(1)
+  await unfoldAll.click()
 
   // Nothing is folded anywhere now, so "Unfold all" has no work and correctly
   // does not render — the other half of the pair's appearance rule, asserted

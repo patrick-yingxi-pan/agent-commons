@@ -170,7 +170,37 @@ export const FOLD_GUTTER_CLASS = 'w-4 max-sm:w-3 shrink-0'
  *  permanently 2px from the screen edge on any stub that qualified. The
  *  thread-level "Unfold all" does the same job one tap further away, so the
  *  cut costs reach, not capability. */
-export const DISCARD_SLOT_CLASS = 'absolute right-full mr-1 max-sm:mr-0.5 max-sm:hidden'
+export const DISCARD_SLOT_CLASS = 'absolute max-sm:hidden'
+
+/** One horizontal step of nesting, in pixels — `replyIndentClass`'s left margin
+ *  plus its hairline plus its padding, at the base tier.
+ *
+ *  Stated as a number because one caller needs to do ARITHMETIC with it, which
+ *  a Tailwind class cannot. Held against the class it describes by
+ *  `tests/reply-tree.test.ts` rather than trusted: a constant that restates a
+ *  layout in a second notation is a constant that drifts, and this one is
+ *  invisible when wrong — the column below just goes crooked by a few pixels
+ *  per level. */
+export const REPLY_INDENT_STEP_PX = 17
+
+/** How far LEFT of its own row's caret the unfold-all hangs, at `depth`.
+ *
+ *  The controls line up in ONE COLUMN down the left of the whole thread rather
+ *  than stepping right with the indent (owner directive 2026-08-11: *"option 1
+ *  and horizontally aligned at the left"*). Each is positioned against its own
+ *  row — that is what gets the vertical placement for free — so holding a
+ *  single column means undoing that row's indent, which is what the `depth`
+ *  term is.
+ *
+ *  Two things fall out, both of them arguments for the column over the
+ *  staircase. A reader scanning for "what is hiding something" reads one column
+ *  instead of a ragged edge. And the space the control needs stops depending on
+ *  depth: every one of them lands where the depth-0 control lands, so if there
+ *  is room for that, there is room for all of them — a staircase, by contrast,
+ *  walks a nested control into the hairline of its own parent's rail. */
+export function discardOffsetPx(depth: number): number {
+  return 4 + depth * REPLY_INDENT_STEP_PX
+}
 
 /** The nested list's own class at `depth` (1 = an answer to a root post).
  *

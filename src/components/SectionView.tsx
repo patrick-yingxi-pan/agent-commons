@@ -110,6 +110,7 @@ import {
   ancestorsOf,
   buildReplyTree,
   descendantsOf,
+  discardOffsetPx,
   foldOthers,
   replyIndentClass,
   DISCARD_SLOT_CLASS,
@@ -3025,13 +3026,18 @@ function DiscussionPostList({
      *  hand-folding the only way to open one is a click per stub.
      *
      *  So this is unfold-all's own control rather than a mode of the toggle:
-     *  it drops the whole branch's fold state instead of restoring it. It
-     *  appears **only where the two differ** — on a folded post that actually
-     *  has a folded descendant. Anywhere else it is the caret with a second
-     *  glyph, which is how the last cut ended up with a "fold branch" button
-     *  that duplicated the caret exactly. */
-    const buriedKin = [...kin].some((id) => folded.has(id))
-    const unfoldBranch = hidden && buriedKin && (
+     *  it drops the whole branch's fold state instead of restoring it.
+     *
+     *  It stands on EVERY folded post with replies, at every depth (owner
+     *  directive 2026-08-11). It used to render only where it DIFFERED from the
+     *  caret — a folded post that really held a folded descendant — which is
+     *  the same "no redundant control" rule that deleted the old fold-branch
+     *  button, and by that rule it was right. It was also unfindable: the
+     *  obvious thing to try is Fold all, and Fold all leaves interiors alone,
+     *  so the control was absent exactly there. Asked for twice in one session,
+     *  a control is not discoverable; predictable placement beats a saved
+     *  glyph, and where nothing is buried it simply agrees with the caret. */
+    const unfoldBranch = hidden && branch > 0 && (
       <Tooltip label="Unfold this branch and everything folded inside it">
         <button
           onClick={() =>
@@ -3046,6 +3052,12 @@ function DiscussionPostList({
           // existing the moment the branch is open. `aria-expanded` here would
           // claim a toggle that is not one.
           aria-label={`Unfold ${p.author}’s post and everything folded inside it`}
+          // Positioned against its own row (which is what places it vertically),
+          // then walked back LEFT by this row's own indent so all of them share
+          // one column — see `discardOffsetPx`. An inline style because the
+          // offset is arithmetic on depth, and a computed Tailwind class
+          // compiles to nothing.
+          style={{ right: `calc(100% + ${discardOffsetPx(depth)}px)` }}
           className={`${DISCARD_SLOT_CLASS} ${FOLD_GUTTER_CLASS} flex h-4 items-center justify-center rounded text-ink-faint transition hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${HOVER_REVEAL}`}
         >
           <ChevronsDown size={12} className="shrink-0" />

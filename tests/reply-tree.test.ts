@@ -20,6 +20,8 @@ import {
   replyIndentClass,
   MAX_INDENT_DEPTH,
   FOLD_GUTTER_CLASS,
+  REPLY_INDENT_STEP_PX,
+  discardOffsetPx,
 } from '../src/lib/replyTree.ts'
 
 /** A post, reduced to what the tree needs. */
@@ -133,6 +135,31 @@ function scale(classes: string, tier: 'base' | 'narrow', prop: string): number |
   const m = new RegExp(`(?:^|\\s)${prefix}${prop}-(\\d+(?:\\.\\d+)?)(?:\\s|$)`).exec(classes)
   return m ? Number(m[1]) : undefined
 }
+
+test('the discard column is arithmetic on the SAME indent the rows use', () => {
+  // `REPLY_INDENT_STEP_PX` restates `replyIndentClass` in a second notation —
+  // pixels, because `discardOffsetPx` has to multiply it by a depth and a
+  // Tailwind class cannot be multiplied. Two notations for one layout is the
+  // shape that drifts, and this one drifts INVISIBLY: the column just goes
+  // crooked a few pixels per level, which reads as sloppiness of unknown origin
+  // rather than as a bug anybody files. So it is recomputed here.
+  //
+  // One step = the child list's left margin + its hairline + its left padding.
+  // Tailwind's spacing scale is 4px per unit; the border is 1px (`border-l`).
+  const cls = replyIndentClass(1)
+  const step = scale(cls, 'base', 'ml') * 4 + 1 + scale(cls, 'base', 'pl') * 4
+  assert.equal(REPLY_INDENT_STEP_PX, step, 'the pixel constant equals the classes it describes')
+
+  // And the offset is that step per level, so every control lands in the column
+  // the depth-0 one occupies. The consequence worth locking is the SPACE claim:
+  // the deepest control needs exactly what the shallowest needs, because it is
+  // in the same place — which is why the column fits wherever the thread fits.
+  const base = discardOffsetPx(0)
+  for (const d of [0, 1, 2, 5, 12]) {
+    assert.equal(discardOffsetPx(d), base + d * step, `depth ${d} undoes exactly its own indent`)
+  }
+  assert.ok(base > 0, 'and the depth-0 control still clears its own caret')
+})
 
 test('the fold caret sits ON the hairline it collapses, at both tiers', () => {
   // The owner's placement rule (2026-08-11): the fold control lines up with the
