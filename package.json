@@ -21,7 +21,8 @@
     "snapshot:save": "node scripts/snapshot.ts save",
     "snapshot:restore": "node scripts/snapshot.ts restore",
     "snapshot:list": "node scripts/snapshot.ts list",
-    "snapshot:build": "node scripts/snapshot.ts build"
+    "snapshot:build": "node scripts/snapshot.ts build",
+    "verify": "node scripts/verify.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",

@@ -4,6 +4,10 @@
 // the old store in memory and persist it right back over the wipe. Specs still
 // STAMP their entity names (the store is shared WITHIN a run); this only stops
 // state accumulating ACROSS runs (strict-mode locator collisions).
+//
+// The path comes from DATA_FILE, which the webServer sets per SHARD — wiping a
+// hard-coded '.data/e2e-store.json' from shard 2 would erase shard 0's store
+// mid-run, which is the one way a sharded suite can corrupt itself.
 import { rmSync } from 'node:fs'
 
-rmSync('.data/e2e-store.json', { force: true })
+rmSync(process.env.DATA_FILE ?? '.data/e2e-store.json', { force: true })

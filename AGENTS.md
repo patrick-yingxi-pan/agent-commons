@@ -48,6 +48,9 @@ for consent before it lands, mirroring the desktop app's permission prompts.
 Other scripts:
 
 ```bash
+npm run verify     # THE SWEEP: typecheck + node suite + build + sharded E2E,
+                   # all in parallel — 172s vs 244s run serially. One pass/fail
+                   # summary; `npm run verify checks` runs just the static half.
 npm run typecheck  # tsc --noEmit over UI + contract  ← run before declaring done
 npm run build      # production build to dist/
 npm run e2e        # Playwright browser E2E — details + gotchas: e2e/CLAUDE.md

@@ -110,7 +110,6 @@ import {
   ancestorsOf,
   buildReplyTree,
   descendantsOf,
-  discardOffsetPx,
   foldOthers,
   replyIndentClass,
   DISCARD_SLOT_CLASS,
@@ -3038,6 +3037,14 @@ function DiscussionPostList({
      *  a control is not discoverable; predictable placement beats a saved
      *  glyph, and where nothing is buried it simply agrees with the caret. */
     const unfoldBranch = hidden && branch > 0 && (
+      // The POSITIONING sits outside the Tooltip, not on the button. Tooltip
+      // wraps its child in a `relative inline-flex` span of its own, so an
+      // `absolute` on the button resolves against THAT span rather than the
+      // gutter — the offset still looked right horizontally (the span collapses
+      // to nothing at the gutter's start) and the vertical line was quietly
+      // wrong. Two pixels, invisible in a screenshot, caught by asserting the
+      // shared centre line rather than eyeballing it.
+      <span className={DISCARD_SLOT_CLASS}>
       <Tooltip label="Unfold this branch and everything folded inside it">
         <button
           onClick={() =>
@@ -3052,17 +3059,12 @@ function DiscussionPostList({
           // existing the moment the branch is open. `aria-expanded` here would
           // claim a toggle that is not one.
           aria-label={`Unfold ${p.author}’s post and everything folded inside it`}
-          // Positioned against its own row (which is what places it vertically),
-          // then walked back LEFT by this row's own indent so all of them share
-          // one column — see `discardOffsetPx`. An inline style because the
-          // offset is arithmetic on depth, and a computed Tailwind class
-          // compiles to nothing.
-          style={{ right: `calc(100% + ${discardOffsetPx(depth)}px)` }}
-          className={`${DISCARD_SLOT_CLASS} ${FOLD_GUTTER_CLASS} flex h-4 items-center justify-center rounded text-ink-faint transition hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${HOVER_REVEAL}`}
+          className={`${FOLD_GUTTER_CLASS} flex h-4 items-center justify-center rounded text-ink-faint transition hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${HOVER_REVEAL}`}
         >
           <ChevronsDown size={12} className="shrink-0" />
         </button>
       </Tooltip>
+      </span>
     )
     return (
       <li key={p.id}>

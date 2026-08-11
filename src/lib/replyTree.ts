@@ -142,65 +142,60 @@ export const FOLD_GUTTER_CLASS = 'w-4 max-sm:w-3 shrink-0'
  *  button without affecting the indent of the texts to the right of the
  *  button"*).
  *
- *  Out of flow is the requirement, not a detail of it. This control renders on
- *  some folded posts and not others — only where it would not merely repeat the
- *  caret — so ANY in-flow spelling moves the words beside it on some rows and
- *  not others. Two attempts got this wrong in opposite directions and both are
- *  worth remembering:
+ *  **It is the caret's SHADOW** (owner directive 2026-08-11, after three wrong
+ *  readings of it): a sibling sitting a fixed distance to the caret's left, on
+ *  the caret's own line, with **that distance identical at every depth**. It
+ *  follows the toggle it modifies. It does not have a position of its own.
  *
- *  1. **No slot.** Stubs sat at two different x positions depending on what was
- *     folded inside them — 341 and 373, one above the other.
- *  2. **A reserved in-flow slot.** That aligned the stubs with each other by
- *     pushing every one of them 32px right of the OPEN rows (357 → 389). It
- *     reads as "folding a post indents it", and it is invisible unless you
- *     compare a folded post with an unfolded one — the comparison the first fix
- *     never made. A reserved slot is only honest where the thing it reserves
- *     for is sometimes-present in a row that is otherwise always the same
- *     shape; here the two row shapes differ anyway.
+ *  `absolute right-full` is exactly that and nothing more — offset from the
+ *  gutter it lives in, so it inherits the gutter's indent for free. Which is
+ *  why the gutter is `relative`. Sized to the caret too: same width, height and
+ *  radius, two controls of one kind reading as a pair.
  *
- *  So it hangs off the caret's own gutter (`absolute right-full`), which is why
- *  that gutter is `relative`, and it is sized to the caret: same width, same
- *  height, same radius — two controls of one kind read as a pair, and matching
- *  the gutter means the space it needs is exactly the space a caret needs. At
- *  depth 0 that space is the page's own left padding: 63px at the desktop tier,
- *  16px at the narrow one against a 12px caret, measured rather than assumed.
+ *  Four spellings were tried; three were wrong, and the wrong ones are the
+ *  content of this comment:
+ *
+ *  1. **In flow, conditional.** Stubs landed at two x positions depending on
+ *     what was folded inside them — 341 and 373, one above the other.
+ *  2. **A reserved in-flow slot.** Aligned the stubs with each other by pushing
+ *     all of them 32px right of the OPEN rows (357 → 389): "folding a post
+ *     indents it". Invisible unless you compare a folded row with an unfolded
+ *     one, which the fix for (1) never did.
+ *  3. **One column down the page**, each control walked left by its own row's
+ *     indent. Tidy, defensible, and *not a shadow* — the gap to the caret grew
+ *     by a level of indent every step down the tree, so the one relationship
+ *     the control has to the thing it modifies was the one thing that changed.
+ *
+ *  The lesson under all three: this control's position is not a layout decision
+ *  to be optimised. It is a fixed relation to another control, and every
+ *  attempt to improve on it broke the relation.
+ *
+ *  Room, measured rather than assumed: at depth 0 the space to its left is the
+ *  page's own padding — 63px at the desktop tier, 16px at the narrow one
+ *  against a 12px caret. Deeper rows have that plus their indent, so depth 0 is
+ *  the binding case.
  *
  *  **Hidden on the narrow tier.** `HOVER_REVEAL` pins hover-revealed controls
  *  visible there (no hover to reveal them with), so this one would sit
  *  permanently 2px from the screen edge on any stub that qualified. The
  *  thread-level "Unfold all" does the same job one tap further away, so the
  *  cut costs reach, not capability. */
-export const DISCARD_SLOT_CLASS = 'absolute max-sm:hidden'
-
-/** One horizontal step of nesting, in pixels — `replyIndentClass`'s left margin
- *  plus its hairline plus its padding, at the base tier.
+/** Four classes, and the vertical alignment comes from the ones NOT here.
  *
- *  Stated as a number because one caller needs to do ARITHMETIC with it, which
- *  a Tailwind class cannot. Held against the class it describes by
- *  `tests/reply-tree.test.ts` rather than trusted: a constant that restates a
- *  layout in a second notation is a constant that drifts, and this one is
- *  invisible when wrong — the column below just goes crooked by a few pixels
- *  per level. */
-export const REPLY_INDENT_STEP_PX = 17
-
-/** How far LEFT of its own row's caret the unfold-all hangs, at `depth`.
+ *  Setting no `top` is deliberate and was arrived at backwards. An abspos box
+ *  with no vertical anchor keeps its STATIC position — where it would have sat
+ *  in flow — which inside the gutter's `items-center` row is already the
+ *  caret's line. Adding `top-0` overrides that with the container's padding-box
+ *  top, and because Tooltip wraps its child in an `inline-flex` span that lands
+ *  on a text baseline, the control then hangs 4px low (measured: centre 214
+ *  against the caret's 210). `top-0` was in this string for one commit as the
+ *  supposed *fix* for that gap. It was the cause.
  *
- *  The controls line up in ONE COLUMN down the left of the whole thread rather
- *  than stepping right with the indent (owner directive 2026-08-11: *"option 1
- *  and horizontally aligned at the left"*). Each is positioned against its own
- *  row — that is what gets the vertical placement for free — so holding a
- *  single column means undoing that row's indent, which is what the `depth`
- *  term is.
- *
- *  Two things fall out, both of them arguments for the column over the
- *  staircase. A reader scanning for "what is hiding something" reads one column
- *  instead of a ragged edge. And the space the control needs stops depending on
- *  depth: every one of them lands where the depth-0 control lands, so if there
- *  is room for that, there is room for all of them — a staircase, by contrast,
- *  walks a nested control into the hairline of its own parent's rail. */
-export function discardOffsetPx(depth: number): number {
-  return 4 + depth * REPLY_INDENT_STEP_PX
-}
+ *  Four pixels is invisible in a screenshot and reads as unexplained
+ *  sloppiness. Only the shared-centre-line assertion in
+ *  `e2e/social-layer.spec.ts` finds it — which is also how the mistake above
+ *  was caught, by mutating the class and watching the lock stay green. */
+export const DISCARD_SLOT_CLASS = 'absolute right-full mr-1 max-sm:hidden'
 
 /** The nested list's own class at `depth` (1 = an answer to a root post).
  *

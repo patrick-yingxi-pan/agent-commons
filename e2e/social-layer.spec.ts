@@ -1372,12 +1372,15 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
   // discard: a control that would repeat the caret does not render.
   await expect(graceUnfoldAll).toHaveCount(0)
 
-  // ── …and every discard sits in ONE COLUMN, at every depth ────────────────
-  //  (owner directive 2026-08-11: "horizontally aligned at the left".) Each
-  //  control is positioned against its OWN row — that is what places it
-  //  vertically — so a single column means undoing that row's indent, 17px per
-  //  level. Get it wrong and the column goes crooked by a few pixels per level,
-  //  which reads as sloppiness of unknown origin rather than as a bug.
+  // ── …and each discard is its own caret's SHADOW ───────────────────────────
+  //  (owner directive 2026-08-11.) A sibling a fixed distance to the caret's
+  //  left, on the caret's line, with that distance IDENTICAL at every depth.
+  //  The control follows the toggle it modifies; it has no position of its own.
+  //
+  //  Measured as a RELATION — gap to its own caret, and shared centre line —
+  //  never as an absolute x. An absolute-x assertion is what encoded the third
+  //  wrong reading of this rule (one column down the page), and it passed
+  //  happily while the gap grew by a level of indent every step down the tree.
   //
   //  Two depths are needed, and they must be in DIFFERENT branches: a folded
   //  post hides its own descendants, so a folded root and a folded reply
@@ -1394,11 +1397,37 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
   // other root folds and contributes the depth-0 one.
   await otherRoot.getByRole('button', { name: /’s post, / }).first().click()
   await answerRow.getByRole('button', { name: /’s post, / }).first().click()
-  const discardX = await ada.page
+  const pairs = await ada.page
     .locator('button[aria-label^="Unfold "][aria-label$="everything folded inside it"]')
-    .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().left)))
-  expect(discardX.length, 'controls at more than one depth are on screen').toBeGreaterThan(1)
-  expect(new Set(discardX).size, `every discard shares one column — got ${discardX.join(', ')}`).toBe(1)
+    .evaluateAll((els) =>
+      els.map((e) => {
+        const d = e.getBoundingClientRect()
+        // Its caret is the other button in the gutter it is absolutely
+        // positioned against — the element it is a shadow OF. Reached by
+        // `closest('div')`, not `parentElement`: the Tooltip wraps each control
+        // in a span of its own, so the parent is that span and not the gutter.
+        const caret = (e.closest('div') as HTMLElement).querySelector('button:not([aria-label^="Unfold "])')
+        const c = (caret as HTMLElement).getBoundingClientRect()
+        return {
+          gap: Math.round(c.left - d.right),
+          dy: Math.round(d.top + d.height / 2 - (c.top + c.height / 2)),
+          x: Math.round(d.left),
+        }
+      }),
+    )
+  expect(pairs.length, 'controls at more than one depth are on screen').toBeGreaterThan(1)
+  // Each control sits at its OWN depth's x — it follows its caret's indent
+  // rather than lining up down the page. Half of "shadow", and the half a
+  // one-column implementation fails: there the two would share an x.
+  expect(
+    new Set(pairs.map((p) => p.x)).size,
+    `each shadow follows its own caret's indent — x ${pairs.map((p) => p.x).join(', ')}`,
+  ).toBe(pairs.length)
+  expect(
+    new Set(pairs.map((p) => p.gap)).size,
+    `every discard sits the same distance from its own caret — gaps ${pairs.map((p) => p.gap).join(', ')}`,
+  ).toBe(1)
+  for (const p of pairs) expect(p.dy, `and on its caret's line (off by ${p.dy}px)`).toBe(0)
   await unfoldAll.click()
 
   // Nothing is folded anywhere now, so "Unfold all" has no work and correctly
