@@ -1427,7 +1427,14 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
     new Set(pairs.map((p) => p.gap)).size,
     `every discard sits the same distance from its own caret — gaps ${pairs.map((p) => p.gap).join(', ')}`,
   ).toBe(1)
-  for (const p of pairs) expect(p.dy, `and on its caret's line (off by ${p.dy}px)`).toBe(0)
+  // Within a pixel, not exactly zero. `devices['Desktop Chrome']` pins
+  // deviceScaleFactor to 1, where this is 0 — but the same code measures 0.67px
+  // off at DPR 1.5 (centres 467.67 vs 467.00), because an abspos box's static
+  // position lands on a fractional device pixel. That is sub-pixel snapping, not
+  // a layout error; the defect this guards was 4px. An exact-zero assertion here
+  // would fail the day anyone adds a fractional-DPR project and would blame the
+  // wrong thing.
+  for (const p of pairs) expect(Math.abs(p.dy), `and on its caret's line (off by ${p.dy}px)`).toBeLessThanOrEqual(1)
   await unfoldAll.click()
 
   // Nothing is folded anywhere now, so "Unfold all" has no work and correctly

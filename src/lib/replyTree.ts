@@ -179,9 +179,9 @@ export const FOLD_GUTTER_CLASS = 'w-4 max-sm:w-3 shrink-0'
  *  visible there (no hover to reveal them with), so this one would sit
  *  permanently 2px from the screen edge on any stub that qualified. The
  *  thread-level "Unfold all" does the same job one tap further away, so the
- *  cut costs reach, not capability. */
-/** Four classes, and the vertical alignment comes from the ones NOT here.
+ *  cut costs reach, not capability.
  *
+ *  **The vertical alignment comes from the classes that are NOT here.**
  *  Setting no `top` is deliberate and was arrived at backwards. An abspos box
  *  with no vertical anchor keeps its STATIC position — where it would have sat
  *  in flow — which inside the gutter's `items-center` row is already the

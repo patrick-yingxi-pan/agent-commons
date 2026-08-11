@@ -18,21 +18,29 @@ import { defineConfig, devices } from '@playwright/test'
  *  without headers resolve to the seeded default (Ada / tenant-acme), so single-actor
  *  specs are unaffected; native-only ops 409 by design and no spec relies on them. */
 /** Shard isolation. `npm run verify` runs several playwright processes at once,
- *  each with `--shard=i/N`, and each needs a stack of its OWN: sharing a UI
- *  port would make them fight, and sharing DATA_FILE or the mock model would
- *  make them corrupt each other. Every one of these is already an env seam the
- *  server reads, so isolation is arithmetic on the shard index rather than new
- *  machinery.
+ *  each over its own slice of the spec files, and each needs a stack of its
+ *  OWN: sharing a UI port would make them fight, and sharing DATA_FILE or the
+ *  mock model would make them corrupt each other. Every one of these is already
+ *  an env seam the server reads, so isolation is arithmetic on the shard index
+ *  rather than new machinery.
  *
  *  `E2E_SHARD` unset ⇒ 0 ⇒ exactly the ports and store this config always used,
  *  so a bare `npm run e2e` is unchanged. */
 const SHARD = Number(process.env.E2E_SHARD ?? 0)
 /** UI port; the mock backend takes PORT+1 (dev.mjs's rule), so shards step by 10. */
 const UI_PORT = 5183 + SHARD * 10
-/** The mock MODEL server. Shared, it is a lifetime hazard rather than a data one:
- *  the first shard to boot wins the port and the rest stand down onto it, so
- *  whichever finishes first takes the model server out from under the others. */
-const MODEL_PORT = 8788 + SHARD
+/** The mock MODEL server, one per shard.
+ *
+ *  Deliberately NOT `8788 + SHARD`, which is what this was: 8788 is the default
+ *  a developer's `npm run dev` already holds, so shard 0 found it in use, stood
+ *  its own mock down and dialled the dev stack's — logging ":8788 in use —
+ *  assuming an external model server is up" on every run. That made the E2E
+ *  depend on a process it does not own: stop or restart `npm run dev` mid-sweep
+ *  and shard 0's generation specs fail on a dead connection. The whole point of
+ *  pinning this seam (see ANTHROPIC_BASE_URL below) is that the model the specs
+ *  talk to is theirs. 8830 is clear of both the dev default and dev.mjs's
+ *  PORT+1 backend rule. */
+const MODEL_PORT = 8830 + SHARD
 const STORE = SHARD === 0 ? '.data/e2e-store.json' : `.data/e2e-store-${SHARD}.json`
 
 export default defineConfig({
