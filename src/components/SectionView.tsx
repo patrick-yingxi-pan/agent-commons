@@ -2886,6 +2886,7 @@ function DiscussionPostList({
   onDelete,
   onReport,
   onOpenPerson,
+  replyComposer,
 }: {
   posts: DiscussionPost[]
   onReact: (pid: string) => void
@@ -2900,11 +2901,34 @@ function DiscussionPostList({
    *  byline was a door while the comments underneath it — the same names, in the
    *  same card — were plain text (owner report, 2026-08-08). */
   onOpenPerson: (name: string) => void
+  /** Render the composer that ANSWERS one post (S9). Absent ⇒ no reply
+   *  affordance at all, which is what a preview projection wants (the feed
+   *  card's tail) — the same cut `onDelete` makes: an act belongs where the
+   *  whole conversation is. The list owns WHICH post is open (transient
+   *  composing state); the host owns how to compose, since only it holds the
+   *  subject and the thread. */
+  replyComposer?: (parentId: string, done: () => void) => ReactNode
 }) {
   const [reported, setReported] = useState<string | null>(null)
-  return (
-    <ul className="space-y-3">
-      {posts.map((p) => (
+  // Which post is open for a reply — transient composing state, so it lives
+  // here rather than in the page (the same call the turn gutter makes).
+  const [replyingTo, setReplyingTo] = useState<string | null>(null)
+  // S9 — group one level deep. Roots keep their order; each root's answers
+  // follow it. A reply whose parent is missing (retracted, or a projection that
+  // carries only the thread's tail) renders as a ROOT rather than vanishing:
+  // the server promotes orphans, but a PREVIEW can legitimately hold a reply
+  // without its parent, and dropping it would silently hide somebody's words.
+  const byParent = new Map<string, DiscussionPost[]>()
+  const present = new Set(posts.map((p) => p.id))
+  const roots: DiscussionPost[] = []
+  for (const p of posts) {
+    if (p.replyTo !== undefined && present.has(p.replyTo)) {
+      const kids = byParent.get(p.replyTo)
+      if (kids) kids.push(p)
+      else byParent.set(p.replyTo, [p])
+    } else roots.push(p)
+  }
+  const row = (p: DiscussionPost) => (
         <li key={p.id} className="group flex items-start gap-2.5">
           <div className="min-w-0 flex-1">
             {/* The author is a DOOR onto their profile — the very <OwnerLink>
@@ -2921,6 +2945,31 @@ function DiscussionPostList({
             <p className="mt-0.5 whitespace-pre-wrap text-[13px] text-ink-soft">
               <MentionText body={p.body} mentions={p.mentions} onOpen={onOpenPerson} />
             </p>
+            {/* S9 — the answer affordance, hover-revealed like the acts on the
+                right: a thread should read as prose until you reach for it.
+                Absent where the thread is only PREVIEWED (the feed card's
+                tail), for the reason `onDelete` is: an act belongs where the
+                whole conversation is. */}
+            {replyComposer && (
+              <div className="mt-1">
+                {replyingTo === p.id ?
+                  replyComposer(p.id, () => setReplyingTo(null))
+                : <button
+                    onClick={() => setReplyingTo(p.id)}
+                    className={`${INLINE_ACTION_CLASS} focus-visible:opacity-100 ${HOVER_REVEAL}`}
+                    // Names the POST, not just its author: a DM's thread
+                    // composer is already "Reply to ‹counterpart›", and this
+                    // control answers one message inside that conversation. Two
+                    // controls under one accessible name is the ambiguity the
+                    // Post buttons were renamed for — caught here by an existing
+                    // DM walk resolving to two elements.
+                    aria-label={`Reply to ${p.author}’s post`}
+                  >
+                    Reply
+                  </button>
+                }
+              </div>
+            )}
           </div>
           <button
             onClick={() => onReact(p.id)}
@@ -2962,7 +3011,22 @@ function DiscussionPostList({
             </button>
           )}
         </li>
-      ))}
+  )
+  return (
+    <ul className="space-y-3">
+      {roots.map((p) => {
+        const answers = byParent.get(p.id)
+        if (!answers) return row(p)
+        return (
+          <li key={p.id}>
+            <ul>{row(p)}</ul>
+            {/* One level, drawn as one indent. The rule itself is the server's
+                (`resolveReplyTarget` flattens), so this rendering can never be
+                asked to draw a depth it has no room for. */}
+            <ul className="mt-3 space-y-3 border-l border-line pl-3">{answers.map(row)}</ul>
+          </li>
+        )
+      })}
     </ul>
   )
 }
@@ -3038,6 +3102,22 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
             onDelete={(pid) => void deleteDiscussionPost(root.id, pid, subject)}
             onReport={(pid) => void reportDiscussionPost(root.id, pid)}
             onOpenPerson={(n) => rel.openOwner(n)}
+            replyComposer={
+              canComment ?
+                (parentId, done) => (
+                  <AnchorThreadComposer
+                    subject={subject}
+                    thread={root}
+                    replyTo={parentId}
+                    placeholder="Reply…"
+                    ariaLabel="Reply to this post"
+                    autoFocus
+                    onPosted={done}
+                    onCancel={done}
+                  />
+                )
+              : undefined
+            }
           />
         </div>
       )}
@@ -3822,6 +3902,22 @@ function DiscussionPage({
           onDelete={(pid) => void deleteDiscussionPost(d.id, pid, d.anchor.ref)}
           onReport={(pid) => void reportDiscussionPost(d.id, pid)}
           onOpenPerson={(n) => rel.openOwner(n)}
+          replyComposer={
+            canComment ?
+              (parentId, done) => (
+                <AnchorThreadComposer
+                  subject={d.anchor.ref}
+                  thread={d}
+                  replyTo={parentId}
+                  placeholder="Reply…"
+                  ariaLabel="Reply to this post"
+                  autoFocus
+                  onPosted={done}
+                  onCancel={done}
+                />
+              )
+            : undefined
+          }
         />
         {/* The ONE thread composer, like every other projection of a thread —
             this page used to hand-roll its own textarea + Post + error state

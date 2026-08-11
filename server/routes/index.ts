@@ -1985,10 +1985,18 @@ export function buildRouter(): Router {
   r.post('/discussions/:did/posts', async ({ req, res, params, body }) => {
     const input = await body<PostToDiscussionRequest>()
     if (typeof input?.body !== 'string' || !input.body.trim()) return sendError(res, 'bad_request', 'a non-empty body is required')
-    const out = store.postToDiscussion(params.did, input.body.trim(), store.identity(req.headers).tenant.id)
+    // S9 — `replyTo` is optional (absent = a top-level post) but TYPED when
+    // present: a non-string is a malformed request, not a shrug to top level.
+    if (input.replyTo !== undefined && typeof input.replyTo !== 'string') {
+      return sendError(res, 'bad_request', 'replyTo must be the id of a post in this discussion')
+    }
+    const out = store.postToDiscussion(params.did, input.body.trim(), store.identity(req.headers).tenant.id, input.replyTo)
     if (out === undefined) return sendError(res, 'not_found', `No discussion '${params.did}'`)
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Commenting needs the comment tier (a view grant reads silently)')
     if (out === 'capped') return sendError(res, 'conflict', 'This discussion is at its post cap')
+    // Refused rather than silently detached: a reply that loses what it answers
+    // is worse than one that fails, because the author cannot see it happen.
+    if (out === 'no-parent') return sendError(res, 'bad_request', 'replyTo must name a post in this discussion')
     sendJson(res, out)
   })
   r.post('/discussions/:did/posts/:pid/react', ({ req, res, params }) => {

@@ -230,6 +230,25 @@ export interface DiscussionPost {
    *  rung, so a second parse on the client could linkify a name that was never
    *  notified. Absent = no mention resolved (INV-9). */
   mentions?: string[]
+  /** ── S9: the post this one answers ─────────────────────────────────────────
+   *  The id of another post in the SAME thread. INV-9: absent = a top-level
+   *  post, which is what every post was before this field existed — so a stored
+   *  row that predates it reads correctly as the root-level remark it was.
+   *
+   *  Exactly ONE level, and the server is what makes that true: replying to a
+   *  reply re-parents to that reply's own parent rather than nesting deeper
+   *  (`postToDiscussion`). The design has said "one-level replies (resist deep
+   *  nesting)" since S2, and enforcing it in the UI alone would leave the rule
+   *  to whoever calls the route — a tree could be built through the API and no
+   *  surface could render it. Depth is a property of the DATA here, not a
+   *  drawing convention.
+   *
+   *  Why answer a post rather than the thread: a thread with more than a couple
+   *  of voices stops being followable when every remark is a sibling — "which of
+   *  these is she answering" is exactly the question a flat list cannot answer.
+   *  One level buys that back; a second buys a forum, which §3's "resist deep
+   *  nesting" rules out by name. */
+  replyTo?: string
 }
 
 /** Longest display name (chars) that is resolvable as a mention target — the
@@ -328,6 +347,12 @@ export interface OpenDiscussionRequest {
 /** `POST /v1/discussions/:id/posts` — append to the thread. */
 export interface PostToDiscussionRequest {
   body: string
+  /** Answer one post rather than the thread (S9). INV-9: absent = a top-level
+   *  post. An id that names no post in THIS thread is REFUSED rather than
+   *  quietly dropped to top-level — a reply that silently detaches from what it
+   *  answers is worse than one that fails, because the author cannot see that it
+   *  happened (the `throughPostId` precedent). */
+  replyTo?: string
 }
 
 /** ── Proposal (S3) — a typed change OFFERED to a resource ────────────────────

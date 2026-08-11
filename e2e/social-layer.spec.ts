@@ -1124,3 +1124,56 @@ test('a discussion hangs on ONE block of an artifact, and its chip lands back th
 
   await ada.context.close()
 })
+// ── S9: replies — an answer renders UNDER what it answers ────────────────────
+//  The depth rule is the server's (`resolveReplyTarget` flattens), and
+//  tests/discussions.test.ts holds it. What only a browser can prove is the
+//  half that is structure: the affordance is hover-revealed, the composer opens
+//  in place, and the answer lands INSIDE its parent's row rather than as one
+//  more sibling in a flat list — which is the whole reason the field exists.
+test('a reply renders nested under the post it answers, one level deep', async ({ browser }) => {
+  test.setTimeout(120_000)
+  const ada = await newUser(browser)
+  const ANSWER = `Answering that directly ${STAMP}`
+  const SECOND = `And answering the answer ${STAMP}`
+
+  await ada.page.goto('/discussions/disc-seed-1')
+  const parent = ada.page.locator('li', { hasText: 'Read through the Q3 baseline' }).first()
+  await expect(parent).toBeVisible({ timeout: 20_000 })
+
+  // The affordance names WHO is being answered, so a thread of several voices
+  // does not offer half a dozen controls all called "Reply".
+  const replyBtn = parent.getByRole('button', { name: /^Reply to Grace Hopper.s post$/ }).first()
+  await replyBtn.click()
+  const field = ada.page.getByRole('textbox', { name: 'Reply to this post' })
+  await expect(field).toBeVisible({ timeout: 10_000 })
+  await field.fill(ANSWER)
+  await ada.page.getByRole('button', { name: 'Reply to this post', exact: true }).click()
+
+  // THE structural assertion: the answer is inside its parent's row, not merely
+  // somewhere on the page. A flat render would satisfy "is visible" and prove
+  // nothing.
+  await expect(parent.getByText(ANSWER)).toBeVisible({ timeout: 20_000 })
+
+  // Answering the ANSWER must not indent further: the server re-parents it to
+  // the root post, so it lands beside the first reply, still inside the parent.
+  const nested = ada.page.locator('li', { hasText: ANSWER }).last()
+  await nested.getByRole('button', { name: /^Reply to .+.s post$/ }).first().click()
+  const field2 = ada.page.getByRole('textbox', { name: 'Reply to this post' })
+  await field2.fill(SECOND)
+  await ada.page.getByRole('button', { name: 'Reply to this post', exact: true }).click()
+  await expect(parent.getByText(SECOND)).toBeVisible({ timeout: 20_000 })
+
+  // …and the thread never grew a second level: every reply's own parent is a
+  // root post, which is what "one level" means in the DOM.
+  const depth = await ada.page.evaluate(() => {
+    const lists = [...document.querySelectorAll('ul')]
+    return Math.max(...lists.map((ul) => {
+      let d = 0
+      for (let e: HTMLElement | null = ul.parentElement; e; e = e.parentElement) if (e.tagName === 'UL') d += 1
+      return d
+    }))
+  })
+  expect(depth).toBeLessThanOrEqual(2) // the root list, one nested answers list — never a third
+
+  await ada.context.close()
+})

@@ -526,8 +526,17 @@ export async function openDiscussion(req: OpenDiscussionRequest): Promise<Discus
 }
 
 /** Append a post to a discussion's thread. */
-export async function postToDiscussion(did: string, body: string, anchorRef: { kind: string; id: string }): Promise<Discussion> {
-  const d = await apiPost<Discussion>(paths.discussionPosts(did), { body } satisfies PostToDiscussionRequest)
+export async function postToDiscussion(
+  did: string,
+  body: string,
+  anchorRef: { kind: string; id: string },
+  /** Answer one post rather than the thread (S9). Absent = a top-level post. */
+  replyTo?: string,
+): Promise<Discussion> {
+  const d = await apiPost<Discussion>(paths.discussionPosts(did), {
+    body,
+    ...(replyTo !== undefined ? { replyTo } : {}),
+  } satisfies PostToDiscussionRequest)
   invalidate(keys.discussions(anchorRef.kind, anchorRef.id))
   invalidate(keys.discussion(did))
   if (anchorRef.kind === 'principal') invalidate(keys.directMessages)

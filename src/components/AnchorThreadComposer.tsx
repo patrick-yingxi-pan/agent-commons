@@ -29,6 +29,7 @@ export function AnchorThreadComposer({
   autoFocus,
   onPosted,
   onCancel,
+  replyTo,
 }: {
   subject: SocialEntityRef
   /** The thread already on this anchor, when the caller holds it — used only to
@@ -54,6 +55,12 @@ export function AnchorThreadComposer({
   /** Present ⇒ render a Cancel beside Post (a composer that was opened by an
    *  affordance must be closable without posting). */
   onCancel?: () => void
+  /** Answer ONE post rather than the thread (S9). Only meaningful with a
+   *  `thread` — there is nothing to answer in a conversation that does not
+   *  exist yet, which is why the open path below ignores it rather than
+   *  inventing a parent. The server owns the one-level rule, so a caller may
+   *  pass a reply's id and get a sibling. */
+  replyTo?: string
 }) {
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
@@ -77,7 +84,7 @@ export function AnchorThreadComposer({
     try {
       const landed =
         thread ?
-          await postToDiscussion(thread.id, draft.trim(), subject)
+          await postToDiscussion(thread.id, draft.trim(), subject, replyTo)
         : await openDiscussion({ anchor: { ref: subject, ...(locus ? { locus } : {}) }, firstPost: draft.trim() })
       setDraft('')
       // The clear never reaches the field's `onChange`, so the picker is told.

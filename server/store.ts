@@ -630,7 +630,7 @@ function discussionBell(
  *  monotonic across the whole store and can never be reused — deriving it from
  *  the thread's surviving posts would hand a deleted post's ordinal to the next
  *  one, and a reader whose mark sat on it would never see that message. */
-function mintPost(body: string, tenantId: string, at = Date.now()): StoredDiscussionPost {
+function mintPost(body: string, tenantId: string, at = Date.now(), replyTo?: string): StoredDiscussionPost {
   const seq = (discussionSeq += 1)
   return {
     id: `dpost-${seq}`,
@@ -640,7 +640,27 @@ function mintPost(body: string, tenantId: string, at = Date.now()): StoredDiscus
     at,
     reactedBy: [],
     seq,
+    ...(replyTo !== undefined ? { replyTo } : {}),
   }
+}
+
+/** ── S9: where a reply actually attaches ─────────────────────────────────────
+ *  One level, enforced HERE rather than drawn that way by the UI: answering a
+ *  reply attaches to that reply's own parent, so the deepest a thread can go is
+ *  parent → reply. The design has said "one-level replies (resist deep nesting)"
+ *  since S2, and a rule kept only in the renderer is a rule the route does not
+ *  have — a client could build a tree through the API that no surface could draw.
+ *
+ *  Returns `'unknown'` for an id that names no post in this thread, which the
+ *  caller REFUSES rather than dropping to top level: a reply that silently
+ *  detaches from what it answers is worse than one that fails, because the
+ *  author cannot see that it happened. */
+function resolveReplyTarget(d: StoredDiscussion, replyTo: string | undefined): string | undefined | 'unknown' {
+  if (replyTo === undefined) return undefined
+  const target = d.posts.find((p) => p.id === replyTo)
+  if (!target) return 'unknown'
+  // The flattening: a reply's parent is never itself a reply.
+  return target.replyTo ?? target.id
 }
 
 function publicDiscussion(d: StoredDiscussion, viewerTenant?: string): Discussion {
@@ -5586,7 +5606,13 @@ export const store = {
             d.anchor.ref.id === req.anchor.ref.id &&
             sameLocus(d.anchor.locus, req.anchor.locus),
         )
-    if (held) return this.postToDiscussion(held.id, req.firstPost, tenantId)
+    if (held) {
+      const out = this.postToDiscussion(held.id, req.firstPost, tenantId)
+      // An OPEN never answers a post — it passes no `replyTo` — so the S9
+      // reply-parent refusal is unreachable here. Narrowed rather than widening
+      // this function's own contract with a case none of its callers can hit.
+      return out === 'no-parent' ? undefined : out
+    }
     if (!this.grantSubjectVisible(req.anchor.ref, tenantId)) return undefined
     if (!this.socialSubjectCommentable(req.anchor.ref, tenantId)) return 'forbidden'
     // The per-subject cap bounds how many threads may hang on ONE resource. It
@@ -5718,23 +5744,45 @@ export const store = {
   },
   /** Append a post — commentable callers only; allowed after resolve too (the
    *  CW7 aftermath rule: a resolved thread's story keeps accruing). */
-  postToDiscussion(id: string, body: string, tenantId: string): Discussion | 'forbidden' | 'capped' | undefined {
+  postToDiscussion(id: string, body: string, tenantId: string, replyTo?: string): Discussion | 'forbidden' | 'capped' | 'no-parent' | undefined {
     const d = discussions.find((x) => x.id === id)
     if (!d || !this.discussionReadableBy(d, tenantId)) return undefined
     if (!this.discussionWritableBy(d, tenantId)) return 'forbidden'
     if (d.posts.length >= MAX_DISCUSSION_POSTS) return 'capped'
+    // S9 — resolve (and flatten) the answered post before anything lands, so a
+    // bad parent refuses the whole write instead of leaving a detached reply.
+    const parent = resolveReplyTarget(d, replyTo)
+    if (parent === 'unknown') return 'no-parent'
     // The interested parties, read BEFORE the post lands so the new author isn't
     // counted as a prior participant (notifyTenants drops the actor anyway, but
     // the set should mean what it says).
     const audience = this.discussionAudience(d)
-    const post = mintPost(body, tenantId)
+    const post = mintPost(body, tenantId, Date.now(), parent)
     d.posts.push(post)
+    // S9 — a REPLY rings the person it answers, and that row REPLACES the
+    // generic one for them: being answered is why they care, and two bells for
+    // one post is the noise the mention rule already refuses. Everyone else in
+    // the thread still hears the ordinary "someone posted" row.
+    const answered = parent !== undefined ? d.posts.find((p) => p.id === parent)?.authorTenant : undefined
+    if (answered !== undefined && answered !== tenantId) {
+      notifyTenants([answered], tenantId, {
+        kind: 'social.replied',
+        actor: tenantName(tenantId),
+        actorTenant: tenantId,
+        discussionId: d.id,
+        postId: post.id,
+      })
+    }
     // Someone is talking about your thing / replied where you're talking. The
     // one social act whose subject nobody would otherwise be told about.
-    notifyTenants(audience, tenantId, {
-      ...discussionBell(d, tenantId, this.commonsSubjectFace(d.anchor.ref).name),
-      postId: post.id,
-    })
+    notifyTenants(
+      audience.filter((t) => t !== answered),
+      tenantId,
+      {
+        ...discussionBell(d, tenantId, this.commonsSubjectFace(d.anchor.ref).name),
+        postId: post.id,
+      },
+    )
     // S8 — and anyone this post NAMES, wherever it was written: a mention is
     // addressed at a person, so it reaches them even when they are neither the
     // anchor's owner nor already in the thread.
@@ -5799,6 +5847,13 @@ export const store = {
     // The SAME predicate the wire face reports (`post.canDelete`).
     if (!canDeletePost(d, d.posts[i].authorTenant, tenantId)) return 'forbidden'
     d.posts.splice(i, 1)
+    // S9 — a retracted post must not strand the replies that answered it. They
+    // are promoted to top level rather than deleted with it: they are somebody
+    // ELSE's words, and the author of a parent does not get to retract them by
+    // retracting their own. An orphan would be worse than either — a reply
+    // pointing at nothing renders as a top-level post anyway, but only by
+    // accident, and any surface that grouped strictly would drop it from view.
+    for (const p of d.posts) if (p.replyTo === pid) delete p.replyTo
     const dissolved = d.posts.length === 0
     if (dissolved) discussions.splice(discussions.indexOf(d), 1)
     // A bell is a POINTER at an act — so retracting the act retracts the bell.

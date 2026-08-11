@@ -354,3 +354,100 @@ test('seed thread ids never collide with runtime mints, and the seeds are code-o
     'and seed rows stay out of the id counter, so restored mints cannot collide',
   )
 })
+
+// ══════════════════════════════════════════════════════════════════════════
+//  S9 — REPLIES: answering one post rather than the thread
+//
+//  The design has called for "one-level replies (resist deep nesting)" since
+//  S2. What these lock is that the ONE LEVEL is a property of the DATA, not a
+//  drawing convention: the rule lives on the write path, so a client cannot
+//  build through the API a tree that no surface could render.
+// ══════════════════════════════════════════════════════════════════════════
+
+test('S9: a reply attaches to the post it answers', async () => {
+  const { ref } = await arena()
+  const opened = await call('POST', '/discussions', { anchor: { ref }, firstPost: 'the question' }, { 'x-tenant-id': OWNER })
+  const did = opened.json.id
+  const parent = opened.json.posts[0].id
+
+  const replied = await call('POST', `/discussions/${did}/posts`, { body: 'the answer', replyTo: parent }, { 'x-tenant-id': AUDIENCE })
+  assert.equal(replied.status, 200)
+  assert.equal(replied.json.posts.at(-1).replyTo, parent, 'the reply names its parent')
+  // A top-level post still carries nothing (INV-9: absent = top level), so a
+  // thread written before this field reads correctly as all-root.
+  const flat = await call('POST', `/discussions/${did}/posts`, { body: 'a separate remark' }, { 'x-tenant-id': AUDIENCE })
+  assert.equal(flat.json.posts.at(-1).replyTo, undefined, 'absent means top level')
+})
+
+test('S9: replying to a REPLY flattens — the depth cap is on the write path', async () => {
+  const { ref } = await arena()
+  const opened = await call('POST', '/discussions', { anchor: { ref }, firstPost: 'root' }, { 'x-tenant-id': OWNER })
+  const did = opened.json.id
+  const root = opened.json.posts[0].id
+  const first = (await call('POST', `/discussions/${did}/posts`, { body: 'reply', replyTo: root }, { 'x-tenant-id': AUDIENCE })).json.posts.at(-1)
+  assert.equal(first.replyTo, root)
+
+  // Answering the REPLY must not nest deeper: it re-parents to that reply's own
+  // parent. Enforced here rather than in the renderer, because a rule kept only
+  // in the UI is a rule the route does not have.
+  const second = (await call('POST', `/discussions/${did}/posts`, { body: 'reply to the reply', replyTo: first.id }, { 'x-tenant-id': OWNER })).json.posts.at(-1)
+  assert.equal(second.replyTo, root, 'the grandchild re-parents to the root post')
+
+  const all = (await call('GET', `/discussions/${did}`, undefined, { 'x-tenant-id': OWNER })).json.posts
+  const byId = new Map(all.map((p) => [p.id, p]))
+  for (const p of all) {
+    if (!p.replyTo) continue
+    assert.equal(byId.get(p.replyTo)?.replyTo, undefined, `${p.id}'s parent is itself top-level — never deeper than one level`)
+  }
+})
+
+test('S9: a replyTo naming no post in THIS thread is refused, not silently detached', async () => {
+  const { ref } = await arena()
+  const a = await call('POST', '/discussions', { anchor: { ref }, firstPost: 'thread A' }, { 'x-tenant-id': OWNER })
+  const b = await call('POST', '/discussions', { anchor: { ref, locus: { kind: 'artifact-block', block: 4 } }, firstPost: 'thread B' }, { 'x-tenant-id': OWNER })
+  const foreign = b.json.posts[0].id
+
+  for (const bad of ['dpost-does-not-exist', foreign]) {
+    const res = await call('POST', `/discussions/${a.json.id}/posts`, { body: 'nope', replyTo: bad }, { 'x-tenant-id': OWNER })
+    assert.equal(res.status, 400, `refused: ${bad}`)
+  }
+  // And nothing landed — a refused write leaves no detached post behind.
+  const after = (await call('GET', `/discussions/${a.json.id}`, undefined, { 'x-tenant-id': OWNER })).json
+  assert.equal(after.posts.length, 1, 'the thread is untouched by the refusals')
+})
+
+test('S9: a reply rings the person it answers, INSTEAD of the generic post bell', async () => {
+  const { ref } = await arena()
+  const opened = await call('POST', '/discussions', { anchor: { ref }, firstPost: 'my question' }, { 'x-tenant-id': OWNER })
+  const did = opened.json.id
+  const parent = opened.json.posts[0].id
+  const inbox = async () => (await call('GET', '/notifications', undefined, { 'x-tenant-id': OWNER })).json
+  const before = new Set((await inbox()).map((r) => r.id))
+
+  await call('POST', `/discussions/${did}/posts`, { body: 'answering you', replyTo: parent }, { 'x-tenant-id': AUDIENCE })
+  const fresh = (await inbox()).filter((r) => !before.has(r.id) && r.discussionId === did)
+  assert.ok(fresh.length > 0, 'the act rang something')
+  assert.ok(fresh.some((r) => r.kind === 'social.replied'), 'the answered author hears that they were answered')
+  assert.ok(
+    !fresh.some((r) => r.kind === 'social.discussed'),
+    'and NOT also the generic row for the same act — the more-specific bell wins, as it does for mentions',
+  )
+})
+
+test('S9: retracting a parent PROMOTES its replies rather than stranding them', async () => {
+  const { ref } = await arena()
+  const opened = await call('POST', '/discussions', { anchor: { ref }, firstPost: 'to be retracted' }, { 'x-tenant-id': OWNER })
+  const did = opened.json.id
+  const parent = opened.json.posts[0].id
+  const reply = (await call('POST', `/discussions/${did}/posts`, { body: 'someone else’s words', replyTo: parent }, { 'x-tenant-id': AUDIENCE })).json.posts.at(-1)
+
+  // The parent's author retracts their own post. The reply is somebody ELSE's
+  // words — retracting a parent may not delete them, and leaving them pointing
+  // at nothing would drop them from any surface that grouped strictly.
+  const del = await call('DELETE', `/discussions/${did}/posts/${parent}`, undefined, { 'x-tenant-id': OWNER })
+  assert.equal(del.status, 200)
+  const after = (await call('GET', `/discussions/${did}`, undefined, { 'x-tenant-id': OWNER })).json
+  assert.equal(after.posts.length, 1, 'the reply survives its parent')
+  assert.equal(after.posts[0].id, reply.id)
+  assert.equal(after.posts[0].replyTo, undefined, 'promoted to top level, never left pointing at a hole')
+})
