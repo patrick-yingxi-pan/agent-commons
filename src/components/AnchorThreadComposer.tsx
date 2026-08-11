@@ -58,8 +58,9 @@ export function AnchorThreadComposer({
   /** Answer ONE post rather than the thread (S9). Only meaningful with a
    *  `thread` — there is nothing to answer in a conversation that does not
    *  exist yet, which is why the open path below ignores it rather than
-   *  inventing a parent. The server owns the one-level rule, so a caller may
-   *  pass a reply's id and get a sibling. */
+   *  inventing a parent. Any post in the thread is a valid parent, at any
+   *  depth: the reply lands where it was aimed, and how deep that is becomes
+   *  the reader's problem to fold, not the writer's to lose. */
   replyTo?: string
 }) {
   const [draft, setDraft] = useState('')
@@ -76,7 +77,24 @@ export function AnchorThreadComposer({
   // The roster is stable while a thread is: recomputing it per keystroke walked
   // and reversed every post in the thread for an answer that had not changed.
   const voices = useMemo(() => threadVoices(thread), [thread])
-  const mention = useMentionPicker<HTMLTextAreaElement>({ roster: voices, draft, setDraft })
+  const mention = useMentionPicker<HTMLTextAreaElement>({
+    roster: voices,
+    draft,
+    setDraft,
+    // Ctrl/⌘+Enter posts (owner directive 2026-08-11). Routed THROUGH the hook
+    // rather than declared on the element, because an open picker owns Enter:
+    // this way the shortcut cannot fire while a half-typed name is being
+    // completed, and the writer never posts "@Grace Ho". Plain Enter stays a
+    // newline — this is a multi-line composer and a post is prose. `send` is
+    // referenced before its declaration on purpose: the two close over each
+    // other (the send path tells the picker to close), and a key event can only
+    // arrive long after both exist.
+    onKeyDown: (e) => {
+      if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey)) return
+      e.preventDefault()
+      void send()
+    },
+  })
   const send = async () => {
     if (busy || !draft.trim()) return
     setBusy(true)
@@ -128,6 +146,11 @@ export function AnchorThreadComposer({
           onClick={() => void send()}
           disabled={busy || !draft.trim()}
           aria-label={ariaLabel ?? `Post to this ${subject.kind}’s discussion`}
+          // The shortcut is discoverable from the control it fires — a keystroke
+          // nothing on screen mentions is a keystroke only its author knows.
+          // ⌘+Enter works too and is deliberately not spelled out: naming both
+          // in a tooltip costs more reading than the Mac reflex it would serve.
+          title="Post (Ctrl+Enter)"
           className={`${SOFT_BUTTON_CLASS} shrink-0 px-3 py-1.5 text-[13px] disabled:opacity-45`}
         >
           Post

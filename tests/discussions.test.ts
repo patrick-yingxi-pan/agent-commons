@@ -358,10 +358,19 @@ test('seed thread ids never collide with runtime mints, and the seeds are code-o
 // ══════════════════════════════════════════════════════════════════════════
 //  S9 — REPLIES: answering one post rather than the thread
 //
-//  The design has called for "one-level replies (resist deep nesting)" since
-//  S2. What these lock is that the ONE LEVEL is a property of the DATA, not a
-//  drawing convention: the rule lives on the write path, so a client cannot
-//  build through the API a tree that no surface could render.
+//  These used to lock a ONE-LEVEL cap on the write path: replying to a reply
+//  re-parented onto the root, so a client could not build through the API a
+//  tree no surface could render. The cap was inverted with the constraint that
+//  earned it (owner directive 2026-08-11) — the surface learned to render a
+//  chain, and the cap was left asserting something false about authorship: a
+//  post answering Ada was STORED as answering Grace, which then rendered under
+//  the wrong remark and rang the wrong person's bell.
+//
+//  So what is locked now is the opposite, and the rest is unchanged: the parent
+//  is whoever was named, at any depth; an unknown parent is still refused; the
+//  bell still follows the parent, which is exactly why the parent has to be
+//  right. Depth is bounded on the SCREEN instead — `tests/reply-tree.test.ts`
+//  holds the clamp and the fold that replaced this rule.
 // ══════════════════════════════════════════════════════════════════════════
 
 test('S9: a reply attaches to the post it answers', async () => {
@@ -379,7 +388,7 @@ test('S9: a reply attaches to the post it answers', async () => {
   assert.equal(flat.json.posts.at(-1).replyTo, undefined, 'absent means top level')
 })
 
-test('S9: replying to a REPLY flattens — the depth cap is on the write path', async () => {
+test('S9: replying to a REPLY nests deeper — the chain records who answered whom', async () => {
   const { ref } = await arena()
   const opened = await call('POST', '/discussions', { anchor: { ref }, firstPost: 'root' }, { 'x-tenant-id': OWNER })
   const did = opened.json.id
@@ -387,18 +396,33 @@ test('S9: replying to a REPLY flattens — the depth cap is on the write path', 
   const first = (await call('POST', `/discussions/${did}/posts`, { body: 'reply', replyTo: root }, { 'x-tenant-id': AUDIENCE })).json.posts.at(-1)
   assert.equal(first.replyTo, root)
 
-  // Answering the REPLY must not nest deeper: it re-parents to that reply's own
-  // parent. Enforced here rather than in the renderer, because a rule kept only
-  // in the UI is a rule the route does not have.
+  // THE inversion. This used to assert `second.replyTo === root` — the depth cap
+  // re-parenting a grandchild onto the root. That answer was wrong about a fact
+  // nobody asked the server to guess: the second post answered AUDIENCE, and the
+  // store recorded it as answering OWNER.
   const second = (await call('POST', `/discussions/${did}/posts`, { body: 'reply to the reply', replyTo: first.id }, { 'x-tenant-id': OWNER })).json.posts.at(-1)
-  assert.equal(second.replyTo, root, 'the grandchild re-parents to the root post')
+  assert.equal(second.replyTo, first.id, 'the grandchild names the reply it actually answered')
 
+  // …and it keeps going. A chain is not a special case of two levels.
+  const third = (await call('POST', `/discussions/${did}/posts`, { body: 'and again', replyTo: second.id }, { 'x-tenant-id': AUDIENCE })).json.posts.at(-1)
+  assert.equal(third.replyTo, second.id)
+
+  // Every parent resolves inside the thread, and following them terminates —
+  // the property the removed cap used to give for free, and the one a recursive
+  // renderer actually depends on.
   const all = (await call('GET', `/discussions/${did}`, undefined, { 'x-tenant-id': OWNER })).json.posts
   const byId = new Map(all.map((p) => [p.id, p]))
   for (const p of all) {
-    if (!p.replyTo) continue
-    assert.equal(byId.get(p.replyTo)?.replyTo, undefined, `${p.id}'s parent is itself top-level — never deeper than one level`)
+    const seen = new Set([p.id])
+    for (let at = p; at.replyTo !== undefined; ) {
+      const up = byId.get(at.replyTo)
+      assert.ok(up, `${at.id} names a parent outside the thread`)
+      assert.ok(!seen.has(up.id), `${p.id} sits in a cycle`)
+      seen.add(up.id)
+      at = up
+    }
   }
+  assert.equal(byId.get(third.id).replyTo, second.id, 'depth three survives the round trip through the wire face')
 })
 
 test('S9: a replyTo naming no post in THIS thread is refused, not silently detached', async () => {
@@ -432,6 +456,55 @@ test('S9: a reply rings the person it answers, INSTEAD of the generic post bell'
     !fresh.some((r) => r.kind === 'social.discussed'),
     'and NOT also the generic row for the same act — the more-specific bell wins, as it does for mentions',
   )
+})
+
+test('S9: deep in a chain, the bell rings the person answered — not the root author', async () => {
+  // The bell was always derived from the resolved parent, so this row locks no
+  // new code. It locks the CONSEQUENCE of the depth cap's removal, which is the
+  // reason the cap had to go: while a grandchild re-parented onto the root, this
+  // arrived at the root author's inbox saying they had been answered by someone
+  // who had answered somebody else entirely. A misdirected bell is the version
+  // of a misattribution the reader cannot even see to correct.
+  // THREE parties, because two cannot show this: the actor is dropped from their
+  // own fan-out, so with only OWNER and AUDIENCE the "wrong" recipient is always
+  // either the right one or the person who just posted — and the negative below
+  // would hold no matter what the server did.
+  const THIRD = 'tenant-acme'
+  const { ref, projectId } = await arena()
+  const g = await call(
+    'POST', '/grants',
+    { subject: { kind: 'project', id: projectId }, audience: { kind: 'org', orgId: THIRD }, tier: 'comment' },
+    { 'x-tenant-id': OWNER },
+  )
+  assert.equal(g.status, 200, 'the third party can speak here')
+
+  const opened = await call('POST', '/discussions', { anchor: { ref }, firstPost: 'the question' }, { 'x-tenant-id': OWNER })
+  const did = opened.json.id
+  const root = opened.json.posts[0].id
+  // AUDIENCE answers OWNER's root…
+  const mid = (await call('POST', `/discussions/${did}/posts`, { body: 'my answer', replyTo: root }, { 'x-tenant-id': AUDIENCE })).json.posts.at(-1)
+
+  const inbox = async (who) => (await call('GET', '/notifications', undefined, { 'x-tenant-id': who })).json
+  const ownerBefore = new Set((await inbox(OWNER)).map((r) => r.id))
+  const audienceBefore = new Set((await inbox(AUDIENCE)).map((r) => r.id))
+
+  // …and THIRD answers THAT. The person answered is AUDIENCE, two levels down.
+  await call('POST', `/discussions/${did}/posts`, { body: 'answering your answer', replyTo: mid.id }, { 'x-tenant-id': THIRD })
+
+  const heard = (rows, before) => rows.filter((r) => !before.has(r.id) && r.discussionId === did)
+  const ownerHeard = heard(await inbox(OWNER), ownerBefore)
+  assert.ok(
+    heard(await inbox(AUDIENCE), audienceBefore).some((r) => r.kind === 'social.replied'),
+    'the author of the post that was answered is the one told they were answered',
+  )
+  assert.ok(
+    !ownerHeard.some((r) => r.kind === 'social.replied'),
+    'the ROOT author is NOT told they were answered — nobody answered them',
+  )
+  // …and the negative above is not silence: OWNER is in this conversation and
+  // still hears the ordinary row, which is what makes the missing reply bell a
+  // statement rather than an absence of fan-out.
+  assert.ok(ownerHeard.some((r) => r.kind === 'social.discussed'), 'the root author hears the generic row instead')
 })
 
 test('S9: retracting a parent PROMOTES its replies rather than stranding them', async () => {

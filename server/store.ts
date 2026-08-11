@@ -645,11 +645,21 @@ function mintPost(body: string, tenantId: string, at = Date.now(), replyTo?: str
 }
 
 /** ── S9: where a reply actually attaches ─────────────────────────────────────
- *  One level, enforced HERE rather than drawn that way by the UI: answering a
- *  reply attaches to that reply's own parent, so the deepest a thread can go is
- *  parent → reply. The design has said "one-level replies (resist deep nesting)"
- *  since S2, and a rule kept only in the renderer is a rule the route does not
- *  have — a client could build a tree through the API that no surface could draw.
+ *  The parent is the post NAMED, at whatever depth it sits — a reply chain is
+ *  recursive (owner directive 2026-08-11).
+ *
+ *  This used to CAP the depth at one level, re-parenting an answer-to-an-answer
+ *  onto that answer's own parent, because the renderer drew exactly one indent
+ *  and a depth rule kept only in the UI is a rule the route does not have. The
+ *  cap outlived its reason and became a lie the surface then repeated: a post
+ *  answering Ada was recorded as answering GRACE, so it rendered under the wrong
+ *  remark and rang the wrong person's bell. When the renderer learned to draw
+ *  the chain, the write path had nothing left to protect — so the rule went out
+ *  with the constraint that earned it, and DEPTH is now the reader's to collapse
+ *  (`lib/replyTree.ts`) rather than the author's to lose.
+ *
+ *  No cycle is reachable from here: a parent must already exist, and the post
+ *  being written carries an id nothing can name yet.
  *
  *  Returns `'unknown'` for an id that names no post in this thread, which the
  *  caller REFUSES rather than dropping to top level: a reply that silently
@@ -657,10 +667,7 @@ function mintPost(body: string, tenantId: string, at = Date.now(), replyTo?: str
  *  author cannot see that it happened. */
 function resolveReplyTarget(d: StoredDiscussion, replyTo: string | undefined): string | undefined | 'unknown' {
   if (replyTo === undefined) return undefined
-  const target = d.posts.find((p) => p.id === replyTo)
-  if (!target) return 'unknown'
-  // The flattening: a reply's parent is never itself a reply.
-  return target.replyTo ?? target.id
+  return d.posts.some((p) => p.id === replyTo) ? replyTo : 'unknown'
 }
 
 function publicDiscussion(d: StoredDiscussion, viewerTenant?: string): Discussion {
@@ -5749,8 +5756,8 @@ export const store = {
     if (!d || !this.discussionReadableBy(d, tenantId)) return undefined
     if (!this.discussionWritableBy(d, tenantId)) return 'forbidden'
     if (d.posts.length >= MAX_DISCUSSION_POSTS) return 'capped'
-    // S9 — resolve (and flatten) the answered post before anything lands, so a
-    // bad parent refuses the whole write instead of leaving a detached reply.
+    // S9 — resolve the answered post before anything lands, so a bad parent
+    // refuses the whole write instead of leaving a detached reply.
     const parent = resolveReplyTarget(d, replyTo)
     if (parent === 'unknown') return 'no-parent'
     // The interested parties, read BEFORE the post lands so the new author isn't
@@ -5853,6 +5860,15 @@ export const store = {
     // retracting their own. An orphan would be worse than either — a reply
     // pointing at nothing renders as a top-level post anyway, but only by
     // accident, and any surface that grouped strictly would drop it from view.
+    //
+    // Deliberately NOT grafted onto the retracted post's own parent, now that
+    // chains run deep (2026-08-11) and the graft would be expressible. Grafting
+    // asserts an edge nobody wrote — "C answers A" when C answered B — which is
+    // the same misattribution the write path stopped making when the depth cap
+    // came out; fixing it on one path and committing it on the other would be
+    // incoherent. It costs less than it looks: only DIRECT children promote,
+    // and each carries its own subtree with it (their descendants still name
+    // them), so exactly one edge is cut, not a branch flattened.
     for (const p of d.posts) if (p.replyTo === pid) delete p.replyTo
     const dissolved = d.posts.length === 0
     if (dissolved) discussions.splice(discussions.indexOf(d), 1)

@@ -48,6 +48,7 @@ import {
   SquareKanban,
   ThumbsUp,
   Flag,
+  Reply as ReplyIcon,
   Trash2,
   Unplug,
   X,
@@ -101,6 +102,7 @@ import type { FocusTarget } from '../lib/notificationDoor'
 import { profileTagline, profileTitle } from '../lib/publicFace'
 import { mentionHint, squareVoices, workItemVoices } from '../lib/mentionPicker'
 import { useMentionPicker } from '../lib/useMentionPicker'
+import { buildReplyTree, descendantCount, replyIndentClass } from '../lib/replyTree'
 import { ActorByline, AgentActor, Byline, CreditLine, OwnerLink, IdentityMark } from './PublicFace'
 import { TextDiff } from './TextDiff'
 import { CopyButton } from './CopyButton'
@@ -2906,30 +2908,35 @@ function DiscussionPostList({
    *  card's tail) — the same cut `onDelete` makes: an act belongs where the
    *  whole conversation is. The list owns WHICH post is open (transient
    *  composing state); the host owns how to compose, since only it holds the
-   *  subject and the thread. */
-  replyComposer?: (parentId: string, done: () => void) => ReactNode
+   *  subject and the thread.
+   *
+   *  Handed the POST and not its id: every host wants the author's name for the
+   *  field's own copy, and the list is already holding the post — passing the id
+   *  made two call sites re-find it in the thread they'd have to be given. */
+  replyComposer?: (parent: DiscussionPost, done: () => void) => ReactNode
 }) {
   const [reported, setReported] = useState<string | null>(null)
   // Which post is open for a reply — transient composing state, so it lives
   // here rather than in the page (the same call the turn gutter makes).
   const [replyingTo, setReplyingTo] = useState<string | null>(null)
-  // S9 — group one level deep. Roots keep their order; each root's answers
-  // follow it. A reply whose parent is missing (retracted, or a projection that
-  // carries only the thread's tail) renders as a ROOT rather than vanishing:
-  // the server promotes orphans, but a PREVIEW can legitimately hold a reply
-  // without its parent, and dropping it would silently hide somebody's words.
-  const byParent = new Map<string, DiscussionPost[]>()
-  const present = new Set(posts.map((p) => p.id))
-  const roots: DiscussionPost[] = []
-  for (const p of posts) {
-    if (p.replyTo !== undefined && present.has(p.replyTo)) {
-      const kids = byParent.get(p.replyTo)
-      if (kids) kids.push(p)
-      else byParent.set(p.replyTo, [p])
-    } else roots.push(p)
-  }
-  const row = (p: DiscussionPost) => (
-        <li key={p.id} className="group flex items-start gap-2.5">
+  // Which branches the READER has folded away. Also transient, and per branch
+  // rather than a single "collapse all": the thing someone wants to skip is one
+  // sub-argument, not the depth of the thread.
+  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set<string>())
+  // S9 — the chain, at whatever depth it runs (owner directive 2026-08-11).
+  // Orphans, cycles and the every-post-renders-once invariant live in the pure
+  // module, where a node test can hold them.
+  const { roots, childrenOf } = useMemo(() => buildReplyTree(posts), [posts])
+
+  const row = (p: DiscussionPost, depth: number) => {
+    const answers = childrenOf.get(p.id) ?? []
+    const hidden = folded.has(p.id)
+    // The whole BRANCH, not the first row of it: folding hides descendants too,
+    // so a count of direct children would under-report what disappeared.
+    const branch = answers.length === 0 ? 0 : descendantCount(childrenOf, p.id)
+    return (
+      <li key={p.id}>
+        <div className="group flex items-start gap-2.5">
           <div className="min-w-0 flex-1">
             {/* The author is a DOOR onto their profile — the very <OwnerLink>
                 the card's own byline wears, mark and all, so the two names on
@@ -2941,36 +2948,67 @@ function DiscussionPostList({
                 <OwnerLink bare ownerName={p.author} own={p.mine === true} onClick={() => onOpenPerson(p.author)} />
               </span>
               <span className="text-[11px] text-ink-faint">{relativeTime(p.at)}</span>
+              {/* The branch fold, and the only control on this row that is NOT
+                  hover-revealed: it carries the count, which is information
+                  rather than an act — and a folded branch whose only way back is
+                  invisible is a branch nobody finds again. The accessible NAME
+                  stays "N replies" in both states, with `aria-expanded` carrying
+                  which one it is, so the control does not rename itself under a
+                  screen reader every time it is pressed. */}
+              {branch > 0 && (
+                <button
+                  onClick={() =>
+                    setFolded((f) => {
+                      const next = new Set(f)
+                      if (!next.delete(p.id)) next.add(p.id)
+                      return next
+                    })
+                  }
+                  aria-expanded={!hidden}
+                  title={hidden ? 'Show this branch' : 'Hide this branch'}
+                  className={`${INLINE_ACTION_CLASS} inline-flex items-center gap-0.5`}
+                >
+                  {hidden ?
+                    <ChevronRight size={11} className="shrink-0" />
+                  : <ChevronDown size={11} className="shrink-0" />}
+                  {branch} {branch === 1 ? 'reply' : 'replies'}
+                </button>
+              )}
             </div>
             <p className="mt-0.5 whitespace-pre-wrap text-[13px] text-ink-soft">
               <MentionText body={p.body} mentions={p.mentions} onOpen={onOpenPerson} />
             </p>
-            {/* S9 — the answer affordance, hover-revealed like the acts on the
-                right: a thread should read as prose until you reach for it.
-                Absent where the thread is only PREVIEWED (the feed card's
-                tail), for the reason `onDelete` is: an act belongs where the
-                whole conversation is. */}
-            {replyComposer && (
-              <div className="mt-1">
-                {replyingTo === p.id ?
-                  replyComposer(p.id, () => setReplyingTo(null))
-                : <button
-                    onClick={() => setReplyingTo(p.id)}
-                    className={`${INLINE_ACTION_CLASS} focus-visible:opacity-100 ${HOVER_REVEAL}`}
-                    // Names the POST, not just its author: a DM's thread
-                    // composer is already "Reply to ‹counterpart›", and this
-                    // control answers one message inside that conversation. Two
-                    // controls under one accessible name is the ambiguity the
-                    // Post buttons were renamed for — caught here by an existing
-                    // DM walk resolving to two elements.
-                    aria-label={`Reply to ${p.author}’s post`}
-                  >
-                    Reply
-                  </button>
-                }
-              </div>
+            {/* The composer is CONTENT — it belongs under the words it answers,
+                where its own reply will land. Only its trigger is an act, and
+                that lives in the cluster on the right with the other three. */}
+            {replyComposer && replyingTo === p.id && (
+              <div className="mt-2">{replyComposer(p, () => setReplyingTo(null))}</div>
             )}
           </div>
+          {/* S9 — Reply joined the per-post act cluster (owner directive
+              2026-08-11). It used to be a WORD on its own row under the body:
+              the one act rendered unlike the three beside it, and a control row
+              inside the content column of every post in the thread. Same role ⇒
+              same look (src/CLAUDE.md), and the body gets its space back. */}
+          {replyComposer && (
+            <button
+              onClick={() => setReplyingTo((cur) => (cur === p.id ? null : p.id))}
+              aria-expanded={replyingTo === p.id}
+              // Names the POST, not just its author: a DM's thread composer is
+              // already "Reply to ‹counterpart›", and this control answers one
+              // message inside that conversation. Two controls under one
+              // accessible name is the ambiguity the Post buttons were renamed
+              // for — caught here by an existing DM walk resolving to two
+              // elements.
+              aria-label={`Reply to ${p.author}’s post`}
+              title="Reply to this post"
+              className={`flex shrink-0 items-center justify-center rounded-md px-1.5 py-0.5 text-ink-faint transition hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${
+                replyingTo === p.id ? '' : HOVER_REVEAL
+              }`}
+            >
+              <ReplyIcon size={12} />
+            </button>
+          )}
           <button
             onClick={() => onReact(p.id)}
             aria-pressed={p.reacted === true}
@@ -3010,25 +3048,19 @@ function DiscussionPostList({
               <Flag size={12} />
             </button>
           )}
-        </li>
-  )
-  return (
-    <ul className="space-y-3">
-      {roots.map((p) => {
-        const answers = byParent.get(p.id)
-        if (!answers) return row(p)
-        return (
-          <li key={p.id}>
-            <ul>{row(p)}</ul>
-            {/* One level, drawn as one indent. The rule itself is the server's
-                (`resolveReplyTarget` flattens), so this rendering can never be
-                asked to draw a depth it has no room for. */}
-            <ul className="mt-3 space-y-3 border-l border-line pl-3">{answers.map(row)}</ul>
-          </li>
-        )
-      })}
-    </ul>
-  )
+        </div>
+        {/* The chain. The indent CLAMPS rather than the depth doing so — see
+            `replyIndentClass`: past the clamp a level still draws its hairline,
+            so the structure stays legible, but it stops spending width this
+            list may not have (it renders in a split pane and on the narrow
+            tier alike). */}
+        {answers.length > 0 && !hidden && (
+          <ul className={`mt-3 space-y-3 ${replyIndentClass(depth + 1)}`}>{answers.map((c) => row(c, depth + 1))}</ul>
+        )}
+      </li>
+    )
+  }
+  return <ul className="space-y-3">{roots.map((p) => row(p, 0))}</ul>
 }
 
 /** The subject's discussions (social S2, SOCIAL-6b) — the ROOT thread as a flat
@@ -3104,12 +3136,12 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
             onOpenPerson={(n) => rel.openOwner(n)}
             replyComposer={
               canComment ?
-                (parentId, done) => (
+                (parent, done) => (
                   <AnchorThreadComposer
                     subject={subject}
                     thread={root}
-                    replyTo={parentId}
-                    placeholder="Reply…"
+                    replyTo={parent.id}
+                    placeholder={`@${parent.author}`}
                     ariaLabel="Reply to this post"
                     autoFocus
                     onPosted={done}
@@ -3904,12 +3936,12 @@ function DiscussionPage({
           onOpenPerson={(n) => rel.openOwner(n)}
           replyComposer={
             canComment ?
-              (parentId, done) => (
+              (parent, done) => (
                 <AnchorThreadComposer
                   subject={d.anchor.ref}
                   thread={d}
-                  replyTo={parentId}
-                  placeholder="Reply…"
+                  replyTo={parent.id}
+                  placeholder={`@${parent.author}`}
                   ariaLabel="Reply to this post"
                   autoFocus
                   onPosted={done}

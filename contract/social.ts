@@ -235,19 +235,27 @@ export interface DiscussionPost {
    *  post, which is what every post was before this field existed — so a stored
    *  row that predates it reads correctly as the root-level remark it was.
    *
-   *  Exactly ONE level, and the server is what makes that true: replying to a
-   *  reply re-parents to that reply's own parent rather than nesting deeper
-   *  (`postToDiscussion`). The design has said "one-level replies (resist deep
-   *  nesting)" since S2, and enforcing it in the UI alone would leave the rule
-   *  to whoever calls the route — a tree could be built through the API and no
-   *  surface could render it. Depth is a property of the DATA here, not a
-   *  drawing convention.
+   *  ANY depth (owner directive 2026-08-11): the parent is whatever post was
+   *  named, so a chain records who answered whom rather than an approximation
+   *  of it. This field carried a one-level cap until the renderer could draw a
+   *  chain — replying to a reply re-parented to that reply's own parent — and
+   *  the cap is worth remembering as a shape: it was correct while the surface
+   *  had one indent to spend, and became a FALSEHOOD the moment the surface
+   *  could show the truth. A post answering Ada was stored as answering Grace;
+   *  it then nested under the wrong remark and rang the wrong person's bell.
+   *
+   *  Depth is therefore not bounded on the wire. It is bounded where it is
+   *  actually a problem — on the screen, by the reader, who collapses a branch
+   *  and whose indent stops growing past the point a narrow pane can hold
+   *  (`src/lib/replyTree.ts`). A cap that discards authorship to protect a
+   *  layout is the wrong side of that trade.
    *
    *  Why answer a post rather than the thread: a thread with more than a couple
    *  of voices stops being followable when every remark is a sibling — "which of
    *  these is she answering" is exactly the question a flat list cannot answer.
-   *  One level buys that back; a second buys a forum, which §3's "resist deep
-   *  nesting" rules out by name. */
+   *
+   *  No cycle is constructible: a parent must already exist when the reply is
+   *  written, and the new post's id is one nothing can name yet. */
   replyTo?: string
 }
 

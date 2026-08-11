@@ -42,3 +42,25 @@ Anchor specs:
 Spec gotchas: the app **opens on a fresh draft** (sending materializes a new
 session), and the sidebar is an `<aside>` (role `complementary`) — only its
 nav buttons carry a `navigation` role.
+
+- **Never assert a posted body with `getByText`.** React mirrors a controlled
+  `<textarea>`'s value into its `defaultValue`, and a textarea's `defaultValue`
+  IS its text content — so `getByText(BODY)` matches the still-OPEN composer
+  holding the draft. "The reply is visible" then goes green *before* the reply
+  exists, and whatever runs next races a write nothing waited for (found
+  2026-08-11: two assertions passed and the structural check after them read a
+  half-rendered thread). Assert on the rendered body element —
+  `locator('p', { hasText: BODY })` — which only the posted post can be.
+- **The e2e store PERSISTS across runs** (`.data/e2e-store.json`, gitignored),
+  and accumulated state eventually shows up as *locator timeouts in unrelated
+  specs* — two consecutive full runs failed in two different walks
+  (`keyboard-resize`, then `co-author-article`), each passing in isolation.
+  Deleting the file restored all 72. So: before blaming a change for a flaky
+  full-suite run, clear the store and re-run — and remember the flip side that
+  `tests/CLAUDE.md` already warns about, that a precondition only true on a
+  clean store is a precondition true exactly once.
+- **Prefer containment over counting for structural claims.** The reply-chain
+  walk measured nesting by counting a `ul`'s `UL` ancestors; it was off by one
+  and said nothing about *which* post had landed where. `parentRow.locator('li')
+  .filter({ has: page.locator('p', { hasText: X }) })` states the claim
+  directly and fails on a flat render.

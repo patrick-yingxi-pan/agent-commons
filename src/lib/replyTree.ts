@@ -1,0 +1,127 @@
+/** ── The reply chain (social S9) ─────────────────────────────────────────────
+ *  Posts arrive as a flat list carrying parent pointers (`DiscussionPost.replyTo`).
+ *  This turns that into the tree a thread is actually shaped like, and answers
+ *  the two questions a recursive render cannot answer for itself: how far to
+ *  indent, and how much is hidden behind a folded branch.
+ *
+ *  Pure and framework-free so the parts that fail SILENTLY are held by
+ *  `tests/reply-tree.test.ts` rather than by a screenshot: an orphan that
+ *  vanishes, a cycle that hangs the renderer, an indent that eats a narrow pane.
+ *
+ *  **Depth is bounded HERE, not on the wire.** The server used to cap replies at
+ *  one level, because one indent was all the surface could draw — and that cap
+ *  discarded authorship to protect a layout, recording a post that answered Ada
+ *  as answering Grace. The cap came out (owner directive 2026-08-11); the
+ *  horizontal budget it was really about is a rendering problem, so it is solved
+ *  where rendering happens, by a clamp and a reader who can fold a branch. */
+
+/** The minimum a post must be for this module: an id, and who it answered. */
+export interface ReplyLike {
+  id: string
+  replyTo?: string
+}
+
+export interface ReplyTree<P extends ReplyLike> {
+  /** Top-level posts, in the order given — a discussion's spine is its
+   *  chronology, and the server serves posts in the order they were written. */
+  roots: P[]
+  /** Answers to one post, in the order given. Absent key = a leaf. */
+  childrenOf: Map<string, P[]>
+}
+
+/** Fold a flat post list into its reply tree.
+ *
+ *  Two shapes get treated as roots, both deliberately:
+ *
+ *  - **An orphan** — a post whose parent is not in THIS list. A preview
+ *    projection legitimately carries a thread's tail without its head, and the
+ *    server promotes real orphans on retract; either way the words are somebody's
+ *    and must render, not vanish.
+ *  - **A post in a cycle.** The write path cannot build one (a parent must
+ *    already exist, and a new post's id is unnameable), so this is defence
+ *    against a corrupted snapshot or a future writer — but the cost of being
+ *    wrong is a renderer that never returns, and the cost of the guard is one
+ *    pass. The FIRST member reached becomes a root and the edge into it is cut,
+ *    so the rest of the ring hangs beneath it exactly once.
+ *
+ *  The invariant both serve, and the one the lock states: **every post appears
+ *  exactly once**, whatever the pointers say. */
+export function buildReplyTree<P extends ReplyLike>(posts: readonly P[]): ReplyTree<P> {
+  const present = new Set(posts.map((p) => p.id))
+  const childrenOf = new Map<string, P[]>()
+  const roots: P[] = []
+  for (const p of posts) {
+    // `parent === p.id` is a self-reply — a one-post cycle, caught here so the
+    // rescue pass below never has to consider the degenerate ring.
+    if (p.replyTo === undefined || p.replyTo === p.id || !present.has(p.replyTo)) {
+      roots.push(p)
+      continue
+    }
+    const kids = childrenOf.get(p.replyTo)
+    if (kids) kids.push(p)
+    else childrenOf.set(p.replyTo, [p])
+  }
+
+  // Reachability, from the roots down. Anything left over is in a ring.
+  const placed = new Set<string>()
+  const walk = (p: P) => {
+    if (placed.has(p.id)) return
+    placed.add(p.id)
+    for (const c of childrenOf.get(p.id) ?? []) walk(c)
+  }
+  for (const r of roots) walk(r)
+  for (const p of posts) {
+    if (placed.has(p.id)) continue
+    // Cut the edge that made it unreachable, THEN promote — promoting alone
+    // leaves the ring intact and the walk below re-enters it forever.
+    const siblings = childrenOf.get(p.replyTo as string)
+    if (siblings) {
+      const i = siblings.indexOf(p)
+      if (i >= 0) siblings.splice(i, 1)
+    }
+    roots.push(p)
+    walk(p)
+  }
+  return { roots, childrenOf }
+}
+
+/** How many answers hang below a post, at every depth — the number a folded
+ *  branch reports, since folding hides the whole branch and not just its first
+ *  row. Iterative: a 200-post thread may legitimately be a 200-deep chain. */
+export function descendantCount<P extends ReplyLike>(childrenOf: Map<string, P[]>, id: string): number {
+  let n = 0
+  const stack = [id]
+  const seen = new Set<string>()
+  while (stack.length > 0) {
+    const next = stack.pop() as string
+    if (seen.has(next)) continue
+    seen.add(next)
+    for (const c of childrenOf.get(next) ?? []) {
+      n += 1
+      stack.push(c.id)
+    }
+  }
+  return n
+}
+
+/** Levels that still buy horizontal space. Past this the chain keeps NESTING —
+ *  the relation is real, and re-attributing a deep reply to its grandparent is
+ *  the falsehood the depth cap was removed for — but it stops spending width it
+ *  cannot get back. At 12px a step (8px on the narrow tier) five levels cost
+ *  60px / 40px, which the narrowest pane this app renders can still afford.
+ *
+ *  Why a clamp and not a "continue this thread" link: a discussion here is
+ *  capped at 200 posts and typically holds a dozen, so a depth this list cannot
+ *  show is rare — and paying for the rare case with a navigation that hides the
+ *  common one is the wrong trade. The reader's own fold is the escape hatch. */
+export const MAX_INDENT_DEPTH = 5
+
+/** The nested list's own class at `depth` (1 = an answer to a root post).
+ *
+ *  The RAIL is unconditional and the padding is not: past the clamp a level
+ *  still draws its own hairline — so "there is more depth here" stays visible —
+ *  while the text column stops narrowing. Static class strings, because
+ *  Tailwind scans source and a computed `pl-${n}` compiles to nothing. */
+export function replyIndentClass(depth: number): string {
+  return depth <= MAX_INDENT_DEPTH ? 'border-l border-line pl-3 max-sm:pl-2' : 'border-l border-line'
+}

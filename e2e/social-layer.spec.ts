@@ -1124,13 +1124,20 @@ test('a discussion hangs on ONE block of an artifact, and its chip lands back th
 
   await ada.context.close()
 })
-// ── S9: replies — an answer renders UNDER what it answers ────────────────────
-//  The depth rule is the server's (`resolveReplyTarget` flattens), and
-//  tests/discussions.test.ts holds it. What only a browser can prove is the
-//  half that is structure: the affordance is hover-revealed, the composer opens
-//  in place, and the answer lands INSIDE its parent's row rather than as one
-//  more sibling in a flat list — which is the whole reason the field exists.
-test('a reply renders nested under the post it answers, one level deep', async ({ browser }) => {
+// ── S9: replies — the chain renders UNDER what it answers, at any depth ──────
+//  This walk used to assert the opposite of its middle section: the server
+//  re-parented an answer-to-an-answer onto the root, and the DOM was checked
+//  for a maximum nesting of one. The cap came out (owner directive 2026-08-11)
+//  because it was recording a falsehood — a post answering Ada was stored as
+//  answering Grace — and the two ends had to move together, which is why this
+//  file changes alongside `tests/discussions.test.ts`.
+//
+//  `tests/reply-tree.test.ts` holds the arithmetic (orphans, rings, the indent
+//  clamp) and `tests/discussions.test.ts` the write path. What only a browser
+//  can prove is the structure: the composer opens in place, the answer lands
+//  INSIDE its parent's row, a second answer goes DEEPER still, the reader can
+//  fold a branch away, and Ctrl+Enter posts without touching the button.
+test('a reply chain nests to its real depth, folds away, and posts on Ctrl+Enter', async ({ browser }) => {
   test.setTimeout(120_000)
   const ada = await newUser(browser)
   const ANSWER = `Answering that directly ${STAMP}`
@@ -1141,39 +1148,70 @@ test('a reply renders nested under the post it answers, one level deep', async (
   await expect(parent).toBeVisible({ timeout: 20_000 })
 
   // The affordance names WHO is being answered, so a thread of several voices
-  // does not offer half a dozen controls all called "Reply".
+  // does not offer half a dozen controls all called "Reply". It lives in the
+  // post's act cluster now, beside the endorsement and the retract — the same
+  // hover-revealed cluster, because it is the same kind of thing (owner
+  // directive 2026-08-11); `title` is what distinguishes it from the word
+  // "Reply" the DM composer and the feed card also use.
   const replyBtn = parent.getByRole('button', { name: /^Reply to Grace Hopper.s post$/ }).first()
+  await expect(replyBtn).toHaveAttribute('title', 'Reply to this post')
   await replyBtn.click()
   const field = ada.page.getByRole('textbox', { name: 'Reply to this post' })
   await expect(field).toBeVisible({ timeout: 10_000 })
+  // The field names its target in its shadow text, so "did I click the right
+  // Reply" is answerable before a word is typed.
+  await expect(field).toHaveAttribute('placeholder', '@Grace Hopper')
   await field.fill(ANSWER)
   await ada.page.getByRole('button', { name: 'Reply to this post', exact: true }).click()
 
   // THE structural assertion: the answer is inside its parent's row, not merely
   // somewhere on the page. A flat render would satisfy "is visible" and prove
   // nothing.
-  await expect(parent.getByText(ANSWER)).toBeVisible({ timeout: 20_000 })
+  //
+  // Matched on the BODY paragraph rather than with `getByText`, which is the
+  // trap this walk fell into: React mirrors a controlled `<textarea>`'s value
+  // into its `defaultValue`, and a textarea's `defaultValue` IS its text
+  // content — so `getByText(POST)` matches the still-open composer holding the
+  // draft, and "the reply is visible" goes green before the reply exists. The
+  // next assertion then races the write it never waited for.
+  await expect(parent.locator('p', { hasText: ANSWER })).toHaveCount(1, { timeout: 20_000 })
 
-  // Answering the ANSWER must not indent further: the server re-parents it to
-  // the root post, so it lands beside the first reply, still inside the parent.
+  // Answering the ANSWER goes DEEPER — it is Ada's reply being answered, not
+  // Grace's question, and the tree now says so. Posted with the KEYBOARD, which
+  // is the only place that shortcut can be proven: the picker owns Enter while
+  // it is open, so "Ctrl+Enter posts" is a claim about a delegation, not about a
+  // key handler.
   const nested = ada.page.locator('li', { hasText: ANSWER }).last()
   await nested.getByRole('button', { name: /^Reply to .+.s post$/ }).first().click()
   const field2 = ada.page.getByRole('textbox', { name: 'Reply to this post' })
   await field2.fill(SECOND)
-  await ada.page.getByRole('button', { name: 'Reply to this post', exact: true }).click()
-  await expect(parent.getByText(SECOND)).toBeVisible({ timeout: 20_000 })
+  await field2.press('Control+Enter')
+  await expect(parent.locator('p', { hasText: SECOND })).toHaveCount(1, { timeout: 20_000 })
 
-  // …and the thread never grew a second level: every reply's own parent is a
-  // root post, which is what "one level" means in the DOM.
-  const depth = await ada.page.evaluate(() => {
-    const lists = [...document.querySelectorAll('ul')]
-    return Math.max(...lists.map((ul) => {
-      let d = 0
-      for (let e: HTMLElement | null = ul.parentElement; e; e = e.parentElement) if (e.tagName === 'UL') d += 1
-      return d
-    }))
-  })
-  expect(depth).toBeLessThanOrEqual(2) // the root list, one nested answers list — never a third
+  // …and the second answer sits inside the FIRST one's row, not beside it. This
+  // is the claim the old cap inverted — it asserted a maximum nesting of one —
+  // and it is stated as CONTAINMENT rather than by counting nodes, because the
+  // count was both off by one (it measured ancestors) and silent about which
+  // post had gone where. On a flat render the two answers are siblings and this
+  // resolves to nothing.
+  const answerRow = parent.locator('li').filter({ has: ada.page.locator('p', { hasText: ANSWER }) }).first()
+  await expect(answerRow.locator('p', { hasText: SECOND })).toHaveCount(1)
+
+  // The reader's escape hatch, which is what makes an unbounded depth safe to
+  // store: fold the branch under Grace's question and BOTH answers go with it —
+  // the count reports the whole branch, not its first row. Addressed as the
+  // FIRST fold in her row rather than by its count, because the e2e store
+  // persists between runs and a hardcoded "2 replies" would hold exactly once.
+  const fold = parent.getByRole('button', { name: /repl(y|ies)$/ }).first()
+  await expect(fold).toHaveAttribute('aria-expanded', 'true')
+  await fold.click()
+  await expect(parent.locator('p', { hasText: ANSWER })).toHaveCount(0)
+  await expect(parent.locator('p', { hasText: SECOND })).toHaveCount(0)
+  // Folded, it is still the way back — the one control on the row that is never
+  // hover-revealed, because a branch nobody can find again is a branch deleted.
+  await expect(fold).toHaveAttribute('aria-expanded', 'false')
+  await fold.click()
+  await expect(parent.locator('p', { hasText: SECOND })).toHaveCount(1)
 
   await ada.context.close()
 })
