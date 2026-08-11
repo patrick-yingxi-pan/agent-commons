@@ -1994,6 +1994,64 @@ function persist(): void {
  *
  *  Exported for its unit lock (tests/posts.test.ts), like `reconcileSeedTenancy`;
  *  rehydrate is the one runtime caller. */
+/** ── Recover a DM's missing addressee id from its own posts ──────────────────
+ *  A principal-anchored thread written before S7 stamped `targetTenant` carries
+ *  only the anchor's display NAME — and a name is a cache, so the seed rename
+ *  (Acme, Inc. → Ada Lovelace) left those rows naming somebody nobody is. The
+ *  consequences compound rather than degrade: `dmParties` resolves to the opener
+ *  ALONE, so the addressee 404s out of her own conversation, the thread vanishes
+ *  from her inbox, and the `social.messaged` bell she was sent becomes a dead
+ *  door — the failure the owner hit on 2026-08-11. `refreshStoredNames` cannot
+ *  help, because it re-derives the anchor FROM the id that is missing.
+ *
+ *  The pair is recoverable from the thread itself: a DM admits exactly two
+ *  writers, so anyone who has POSTED in it was a party. This cannot widen a
+ *  wall — it names only people who demonstrably already wrote there.
+ *
+ *  Deliberately conservative, because a mis-stamp would convert an S8 WALL post
+ *  (`targetTenant === openerTenant`) into a pair-walled DM and hide a public
+ *  utterance. So it repairs only a row that is beyond every other repair — no
+ *  stored id, an anchor name that resolves to nobody — and only when the posts
+ *  name exactly ONE other tenant, leaving anything ambiguous untouched.
+ *
+ *  Runs BEFORE `refreshStoredNames`, which then re-derives the stale anchor from
+ *  the id recovered here. Takes its rows like `reconcileSeedTenancy`, so the
+ *  lock can hand it hand-built legacy shapes (tests/messages.test.ts). */
+export function recoverDmParties(rows: StoredDiscussion[]): void {
+  for (const d of rows) {
+    if (d.anchor.ref.kind !== 'principal' || d.targetTenant !== undefined) continue
+    if (tenantIdForName(d.anchor.ref.id) !== undefined) continue // the name still resolves; nothing to repair
+    const others = [...new Set(d.posts.map((p) => p.authorTenant))].filter((t) => t !== d.openerTenant)
+    if (others.length !== 1 || !accounts.tenants.has(others[0])) continue
+    d.targetTenant = others[0]
+  }
+}
+
+/** ── Recover a legacy DM bell's actor id from the thread it points at ────────
+ *  The other half of the same 2026-08-11 report. A notification's `actor` is a
+ *  stored display NAME, refreshed from `actorTenant` — and a row minted before
+ *  that field keeps whatever name it was written with. After the seed rename
+ *  that left the inbox announcing "Beta Platform sent you a message" while the
+ *  conversation it opens is headed "Grace Hopper": one person, two names, one
+ *  click apart — the exact confusion `StoredNotification`'s own comment warns of.
+ *
+ *  A DM bell can recover what a resource bell cannot: the thread has exactly two
+ *  seats and the row already carries the RECIPIENT (`tenantId`), so the actor is
+ *  the other one, unambiguously. A `social.discussed` bell gets no such repair —
+ *  any of a thread's posters could have rung it, and guessing would put a name
+ *  on an act somebody else committed. Restraint over coverage, as above. */
+export function recoverBellActors(rows: StoredNotification[], threads: StoredDiscussion[]): void {
+  for (const n of rows) {
+    if (n.actorTenant !== undefined || !n.discussionId) continue
+    const d = threads.find((t) => t.id === n.discussionId)
+    if (!d || d.anchor.ref.kind !== 'principal' || isWallThread(d)) continue
+    const parties = d.targetTenant !== undefined ? [d.openerTenant, d.targetTenant] : []
+    const actor = parties.find((p) => p !== n.tenantId)
+    if (actor === undefined || !accounts.tenants.has(actor)) continue
+    n.actorTenant = actor
+  }
+}
+
 export function refreshStoredNames(): void {
   const known = (id: string | undefined): boolean => id !== undefined && accounts.tenants.has(id)
   for (const g of grants) {
@@ -2301,6 +2359,15 @@ function rehydrate(s: PersistedState): void {
   // and the inbox — so it runs once, after all of them are loaded. The bell
   // sweep runs after it, so a row whose name was just re-derived is judged by
   // the name it actually wears now.
+  // BEFORE the name refresh: a legacy DM missing its addressee id gets one back
+  // from its own posts, so the refresh below has an id to re-derive the stale
+  // anchor name from (without it the addressee stays locked out of her own
+  // conversation and her bell is a dead door).
+  recoverDmParties(discussions)
+  // …then the bells pointing at those threads, which need the parties above to
+  // have been recovered first. Both run before the name refresh, which is what
+  // turns the recovered ids back into the names a reader actually sees.
+  recoverBellActors(notifications, discussions)
   refreshStoredNames()
   retractOrphanedBells()
   // Run sessions are ordinary persisted rows, but a snapshot written before they

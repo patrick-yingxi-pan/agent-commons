@@ -17,7 +17,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { ROOT } from './helpers/source.ts'
-import { store } from '../server/store.ts'
+import { store, recoverDmParties, recoverBellActors } from '../server/store.ts'
 import { call } from './helpers/http.ts'
 
 // The seeded world — see tests/follows.test.ts for why real seeds, not
@@ -26,6 +26,7 @@ const ADA = 'tenant-acme'
 const ADA_NAME = 'Ada Lovelace'
 const GRACE = 'tenant-beta'
 const GRACE_NAME = 'Grace Hopper'
+let n = 0 // unique ids for the hand-built legacy rows below
 const STRANGER = 'tenant-dm-stranger'
 
 const dmTo = (name: string, body: string, as: string) =>
@@ -395,4 +396,90 @@ test('refusal: a DM thread is not grantable — the pair wall has no third seat 
   // The cut has to hold in effect, not just in status code.
   const peek = await call('GET', `/discussions/${thread.json.id}`, undefined, { 'x-tenant-id': 'tenant-growthworks' })
   assert.equal(peek.status, 404)
+})
+
+/** ── A legacy DM must not outlive the name it was addressed to ───────────────
+ *  Owner-reported 2026-08-11: a `social.messaged` bell opened "This discussion
+ *  isn't visible from this account (or no longer exists)."
+ *
+ *  The row was written before S7 stamped `targetTenant`, so its only handle on
+ *  the addressee was the anchor's display NAME — and the seed rename
+ *  (Acme, Inc. → Ada Lovelace) left it naming somebody nobody is. From there
+ *  `dmParties` resolves to the OPENER alone, which does not degrade so much as
+ *  compound: the addressee 404s out of her own conversation, it vanishes from
+ *  her inbox, and the bell announcing it becomes a dead door.
+ *  `refreshStoredNames` cannot help — it re-derives the anchor FROM the id that
+ *  is missing.
+ *
+ *  These lock the recovery and, just as importantly, its RESTRAINT: the same
+ *  move applied to an S8 wall post would invent an addressee out of a replier
+ *  and pair-wall a public utterance out of everyone else's sight. */
+const legacyRow = (over: Record<string, unknown> = {}) =>
+  ({
+    id: `disc-legacy-${(n += 1)}`,
+    anchor: { ref: { kind: 'principal', id: 'Acme, Inc.' } }, // a name nobody bears now
+    state: 'open',
+    openedBy: 'Grace Hopper',
+    openedAt: 1,
+    openerTenant: GRACE,
+    // No `targetTenant` — the whole point: this row predates the field.
+    posts: [
+      { id: 'p1', seq: 1, author: 'Grace Hopper', authorTenant: GRACE, body: 'hi', at: 1, reactedBy: [] },
+      { id: 'p2', seq: 2, author: 'Ada Lovelace', authorTenant: ADA, body: 'hello', at: 2, reactedBy: [] },
+    ],
+    ...over,
+  }) as any
+
+test('a legacy DM whose addressee was renamed is recovered from its own posts', () => {
+  const row = legacyRow()
+  assert.equal(row.targetTenant, undefined, 'precondition: nothing identifies the addressee but a dead name')
+  recoverDmParties([row])
+  assert.equal(row.targetTenant, ADA, 'the one other voice in the thread IS the addressee')
+})
+
+test('the recovery refuses anything it cannot prove is a DM', () => {
+  // A WALL post (S8) anchored on its own author, replied to by someone else:
+  // stamping the replier would turn a public post into a two-party DM. The
+  // anchor name is stale here too, so the repair cannot tell it apart — which is
+  // exactly why it must decline whenever more than the pair could be meant.
+  const wallish = legacyRow({
+    posts: [
+      { id: 'p1', seq: 1, author: 'Grace', authorTenant: GRACE, body: 'a post', at: 1, reactedBy: [] },
+      { id: 'p2', seq: 2, author: 'Ada', authorTenant: ADA, body: 'reply', at: 2, reactedBy: [] },
+      { id: 'p3', seq: 3, author: 'Maya', authorTenant: 'tenant-growthworks', body: 'me too', at: 3, reactedBy: [] },
+    ],
+  })
+  recoverDmParties([wallish])
+  assert.equal(wallish.targetTenant, undefined, 'three voices are not a pair — no addressee is invented')
+
+  // A row whose anchor name STILL resolves needs no repair, and must not be
+  // second-guessed: the name is the addressee, exactly as written.
+  const live = legacyRow({ anchor: { ref: { kind: 'principal', id: ADA_NAME } } })
+  recoverDmParties([live])
+  assert.equal(live.targetTenant, undefined, 'a resolvable name is left to the ordinary name path')
+
+  // And a thread that is not principal-anchored is none of this function's business.
+  const resource = legacyRow({ anchor: { ref: { kind: 'project', id: 'p-insights' } } })
+  recoverDmParties([resource])
+  assert.equal(resource.targetTenant, undefined, 'a resource thread is untouched')
+})
+test('a legacy DM bell recovers its actor, so one person is not named two ways', () => {
+  // The other half of the same report: the inbox said "Beta Platform sent you a
+  // message" while the thread it opened was headed "Grace Hopper".
+  const thread = legacyRow({ targetTenant: ADA })
+  const bell: any = { id: 'ntf-legacy-1', kind: 'social.messaged', at: 1, read: false, actor: 'Beta Platform', discussionId: thread.id, tenantId: ADA }
+  recoverBellActors([bell], [thread])
+  assert.equal(bell.actorTenant, GRACE, 'the actor is the party that is not the recipient')
+
+  // A resource-thread bell is NOT repairable — any of its posters could have
+  // rung it, and a guess would credit the act to the wrong person.
+  const resourceBell: any = { id: 'ntf-legacy-2', kind: 'social.discussed', at: 1, read: false, actor: 'Beta Platform', discussionId: 'disc-seed-1', tenantId: ADA }
+  const resourceThread = legacyRow({ id: 'disc-seed-1', anchor: { ref: { kind: 'project', id: 'p-insights' } } })
+  recoverBellActors([resourceBell], [resourceThread])
+  assert.equal(resourceBell.actorTenant, undefined, 'a thread with many possible actors gets no guess')
+
+  // A row that already carries its id is left alone.
+  const fresh: any = { id: 'ntf-3', kind: 'social.messaged', at: 1, read: false, actor: 'Grace Hopper', actorTenant: GRACE, discussionId: thread.id, tenantId: ADA }
+  recoverBellActors([fresh], [thread])
+  assert.equal(fresh.actorTenant, GRACE, 'an already-stamped bell is untouched')
 })
