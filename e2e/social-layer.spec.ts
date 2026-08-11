@@ -1318,25 +1318,43 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
   // NOW it appears: her branch really does hold a folded post.
   await expect(graceUnfoldAll).toBeVisible()
 
-  // ── …and its slot is RESERVED, so the stubs stay in one column ────────────
-  //  This is the exact state that shipped misaligned (owner report 2026-08-11:
-  //  "the mis-alignment looks ugly"): Grace's stub carries the control because
-  //  something is folded inside her, the root below does not, and the control
-  //  was in-flow — so the two authors sat 32px apart, at x=373 and x=341.
+  // ── …and it costs the row NOTHING ─────────────────────────────────────────
+  //  The control appears on some folded posts and not others, so an in-flow
+  //  spelling of it moves the words beside it. Two cuts got this wrong in
+  //  opposite directions, and the assertion below is written to fail against
+  //  BOTH — which the first version was not:
   //
-  //  Measured in PIXELS rather than asserted on a class, because the class is
-  //  what I would have got wrong: a reserved slot is a claim about layout, and
-  //  the only honest oracle for it is where the text actually lands.
-  const authorX = async () => {
-    const boxes = await parent
-      .page()
-      .locator('li > div > div.cursor-pointer > span.font-medium')
-      .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().left)))
-    return boxes
-  }
-  const xs = await authorX()
-  expect(xs.length).toBeGreaterThan(1)
-  expect(new Set(xs).size, `every folded stub's author starts at one x — got ${xs.join(', ')}`).toBe(1)
+  //    no slot        → stubs at two x's depending on what is folded inside
+  //                     them (341 and 373, one above the other)
+  //    reserved slot  → every stub aligned with the others but 32px right of
+  //                     the OPEN rows (357 → 389), i.e. "folding indents"
+  //
+  //  The first lock compared stubs only to stubs, so it went green on the
+  //  second bug — the one an owner then reported. Comparing folded to OPEN is
+  //  the claim that actually matters: a root's author lands in one column
+  //  whatever state the row is in. Pixels, not classes: the class is precisely
+  //  what I got wrong, twice.
+  //  Scoped to the ROOT list and its DIRECT children. A nested `ul` carries
+  //  `space-y-3` too, so the unscoped selector swept up depth-1 and depth-2
+  //  rows and reported their indent as disagreement — three x's for what is
+  //  actually one correct column plus two correct indents.
+  const rootList = ada.page.locator('ul.space-y-3').first()
+  const rootAuthorX = (sel: string) =>
+    rootList.locator(sel).evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().left)))
+  const stubX = await rootAuthorX('> li > div > div.cursor-pointer > span.font-medium')
+  expect(stubX.length, 'more than one root is folded, so the stubs can disagree').toBeGreaterThan(1)
+  await unfoldAll.click()
+  const openX = await rootAuthorX('> li > div > div.min-w-0 > div > span.font-medium')
+  expect(
+    new Set([...stubX, ...openX]).size,
+    `a root's author sits in ONE column, folded or open — stubs ${stubX.join(', ')} vs open ${openX.join(', ')}`,
+  ).toBe(1)
+  // Rebuild the state the discard needs, from the fully-open thread the
+  // measurement above left behind. Order matters: fold the NESTED post first,
+  // while it is still on screen — folding the root first would hide the row
+  // whose caret this needs.
+  await answerRow.getByRole('button', { name: /’s post, / }).first().click()
+  await graceCaret.click()
   await graceUnfoldAll.click()
   // One click, the whole branch — including the post folded two levels down.
   await expect(parent.locator('p', { hasText: ANSWER })).toHaveCount(1)
@@ -1345,7 +1363,11 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
   // discard: a control that would repeat the caret does not render.
   await expect(graceUnfoldAll).toHaveCount(0)
 
-  await unfoldAll.click()
+  // Nothing is folded anywhere now, so "Unfold all" has no work and correctly
+  // does not render — the other half of the pair's appearance rule, asserted
+  // here because this is the one place the walk reaches an empty fold set
+  // without having pressed it.
+  await expect(unfoldAll).toHaveCount(0)
   await expect(ada.page.locator('p', { hasText: ASIDE })).toHaveCount(1)
 
   // ── The acts sit ON the byline, not at the pane's right edge ──────────────

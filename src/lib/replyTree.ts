@@ -137,28 +137,40 @@ export const MAX_INDENT_DEPTH = 5
  *  off the rail. */
 export const FOLD_GUTTER_CLASS = 'w-4 max-sm:w-3 shrink-0'
 
-/** The same rule, one control along: the slot a folded post reserves for its
- *  **unfold-all**, whether or not that post has anything to discard.
+/** The unfold-all's placement: **out of flow, immediately left of the caret**
+ *  (owner directive 2026-08-11 — *"a hover effect to the left of the unfold
+ *  button without affecting the indent of the texts to the right of the
+ *  button"*).
  *
- *  Earned by shipping it without one (owner report, 2026-08-11: *"the
- *  mis-alignment looks ugly"*). The control renders only where it differs from
- *  the caret — a folded post that really holds a folded descendant — so in any
- *  thread it is present on some stubs and absent on others, and an absent
- *  in-flow element is 32px of shift. Two stubs one above the other had their
- *  authors at x=341 and x=373.
+ *  Out of flow is the requirement, not a detail of it. This control renders on
+ *  some folded posts and not others — only where it would not merely repeat the
+ *  caret — so ANY in-flow spelling moves the words beside it on some rows and
+ *  not others. Two attempts got this wrong in opposite directions and both are
+ *  worth remembering:
  *
- *  Why the slot rather than moving the control LEFT of the caret, which is the
- *  first thing that suggests itself: the caret sits centred on the hairline its
- *  own branch hangs from (`FOLD_GUTTER_CLASS` above, and the arithmetic in
- *  `tests/reply-tree.test.ts`). Anything in-flow to its left pushes the caret
- *  off that rail — the same misalignment, moved onto the structural line — and
- *  reserving a permanent slot there would widen EVERY level of indent by the
- *  control's width, roughly tripling what a nesting level costs. This slot is
- *  paid for only inside stubs.
+ *  1. **No slot.** Stubs sat at two different x positions depending on what was
+ *     folded inside them — 341 and 373, one above the other.
+ *  2. **A reserved in-flow slot.** That aligned the stubs with each other by
+ *     pushing every one of them 32px right of the OPEN rows (357 → 389). It
+ *     reads as "folding a post indents it", and it is invisible unless you
+ *     compare a folded post with an unfolded one — the comparison the first fix
+ *     never made. A reserved slot is only honest where the thing it reserves
+ *     for is sometimes-present in a row that is otherwise always the same
+ *     shape; here the two row shapes differ anyway.
  *
- *  The button fills the slot (`w-full`) so the two cannot drift into different
- *  widths — the failure mode a hand-matched magic number invites. */
-export const DISCARD_SLOT_CLASS = 'w-6 shrink-0'
+ *  So it hangs off the caret's own gutter (`absolute right-full`), which is why
+ *  that gutter is `relative`, and it is sized to the caret: same width, same
+ *  height, same radius — two controls of one kind read as a pair, and matching
+ *  the gutter means the space it needs is exactly the space a caret needs. At
+ *  depth 0 that space is the page's own left padding: 63px at the desktop tier,
+ *  16px at the narrow one against a 12px caret, measured rather than assumed.
+ *
+ *  **Hidden on the narrow tier.** `HOVER_REVEAL` pins hover-revealed controls
+ *  visible there (no hover to reveal them with), so this one would sit
+ *  permanently 2px from the screen edge on any stub that qualified. The
+ *  thread-level "Unfold all" does the same job one tap further away, so the
+ *  cut costs reach, not capability. */
+export const DISCARD_SLOT_CLASS = 'absolute right-full mr-1 max-sm:mr-0.5 max-sm:hidden'
 
 /** The nested list's own class at `depth` (1 = an answer to a root post).
  *

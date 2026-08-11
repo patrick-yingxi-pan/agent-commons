@@ -3046,9 +3046,9 @@ function DiscussionPostList({
           // existing the moment the branch is open. `aria-expanded` here would
           // claim a toggle that is not one.
           aria-label={`Unfold ${p.author}’s post and everything folded inside it`}
-          className={`${POST_ACT_CLASS} w-full text-ink-faint hover:bg-panel-2 hover:text-ink ${HOVER_REVEAL}`}
+          className={`${DISCARD_SLOT_CLASS} ${FOLD_GUTTER_CLASS} flex h-4 items-center justify-center rounded text-ink-faint transition hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${HOVER_REVEAL}`}
         >
-          <ChevronsDown size={12} />
+          <ChevronsDown size={12} className="shrink-0" />
         </button>
       </Tooltip>
     )
@@ -3070,6 +3070,18 @@ function DiscussionPostList({
               The accessible NAME is state-neutral and names the post, with
               `aria-expanded` carrying which state it is in — a disclosure that
               renames itself on every press reads as a new control each time. */}
+          {/* The gutter is `relative` so the unfold-all can hang OUT OF FLOW to
+              its left (owner directive 2026-08-11: *"a hover effect to the left
+              of the unfold button without affecting the indent of the texts to
+              the right"*). Out of flow is the whole point: the control appears
+              on some folded posts and not others, so any in-flow spelling of it
+              moves the words beside it. The previous cut reserved an in-flow
+              slot instead, which aligned the stubs with EACH OTHER by pushing
+              all of them 32px right of the open rows — a worse bug than the one
+              it fixed, and invisible unless you compare a folded post to an
+              unfolded one, which is exactly the comparison I had not made. */}
+          <div className={`${FOLD_GUTTER_CLASS} relative mt-0.5 flex h-4 items-center`}>
+            {unfoldBranch}
           <button
             onClick={() => toggle(p.id)}
             aria-expanded={!hidden}
@@ -3081,7 +3093,7 @@ function DiscussionPostList({
             // pinned visible — a stub whose only way back is invisible is a post
             // nobody finds again. The slot is reserved in all three cases, so
             // nothing shifts when a caret appears.
-            className={`${FOLD_GUTTER_CLASS} mt-0.5 flex h-4 items-center justify-center rounded text-ink-faint transition hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${
+            className={`flex h-4 w-full items-center justify-center rounded text-ink-faint transition hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${
               branch > 0 || hidden ? '' : HOVER_REVEAL
             }`}
           >
@@ -3089,6 +3101,7 @@ function DiscussionPostList({
               <ChevronRight size={12} className="shrink-0" />
             : <ChevronDown size={12} className="shrink-0" />}
           </button>
+          </div>
           {/* ── The stub ──────────────────────────────────────────────────────
               A folded post is an INDEX ENTRY, not a gap: who, when, the opening
               words, and how much is hidden underneath. A fold that left only a
@@ -3117,20 +3130,6 @@ function DiscussionPostList({
               }}
               className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md py-0.5 pr-1.5 transition hover:bg-panel-2"
             >
-              {/* Beside the caret it modifies, at the head of the row — a
-                  secondary reading of the same gesture, revealed on hover
-                  (owner directive 2026-08-11).
-
-                  The SLOT is unconditional and only its contents are not.
-                  `HOVER_REVEAL` is opacity, so a control that is merely unhovered
-                  already holds its space — but one that does not RENDER holds
-                  none, and this control deliberately does not render where it
-                  would repeat the caret. That made every stub's author sit at
-                  one of two different x positions depending on what was folded
-                  inside it (owner report 2026-08-11: "the mis-alignment looks
-                  ugly"). Reserving here rather than left of the caret keeps the
-                  caret on its branch hairline — see `DISCARD_SLOT_CLASS`. */}
-              <span className={`${DISCARD_SLOT_CLASS} flex items-center`}>{unfoldBranch}</span>
               <span className="shrink-0 text-[12px] font-medium text-ink">
                 <OwnerLink bare ownerName={p.author} own={p.mine === true} onClick={() => onOpenPerson(p.author)} />
               </span>
