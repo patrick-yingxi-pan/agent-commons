@@ -112,6 +112,7 @@ import {
   descendantsOf,
   foldOthers,
   replyIndentClass,
+  DISCARD_SLOT_CLASS,
   FOLD_GUTTER_CLASS,
 } from '../lib/replyTree'
 import { ActorByline, AgentActor, Byline, CreditLine, OwnerLink, IdentityMark } from './PublicFace'
@@ -3045,7 +3046,7 @@ function DiscussionPostList({
           // existing the moment the branch is open. `aria-expanded` here would
           // claim a toggle that is not one.
           aria-label={`Unfold ${p.author}’s post and everything folded inside it`}
-          className={`${POST_ACT_CLASS} shrink-0 text-ink-faint hover:bg-panel-2 hover:text-ink ${HOVER_REVEAL}`}
+          className={`${POST_ACT_CLASS} w-full text-ink-faint hover:bg-panel-2 hover:text-ink ${HOVER_REVEAL}`}
         >
           <ChevronsDown size={12} />
         </button>
@@ -3118,10 +3119,18 @@ function DiscussionPostList({
             >
               {/* Beside the caret it modifies, at the head of the row — a
                   secondary reading of the same gesture, revealed on hover
-                  (owner directive 2026-08-11). `HOVER_REVEAL` is opacity, so
-                  the slot is reserved and the stub's text does not jump when
-                  the mouse arrives. */}
-              {unfoldBranch}
+                  (owner directive 2026-08-11).
+
+                  The SLOT is unconditional and only its contents are not.
+                  `HOVER_REVEAL` is opacity, so a control that is merely unhovered
+                  already holds its space — but one that does not RENDER holds
+                  none, and this control deliberately does not render where it
+                  would repeat the caret. That made every stub's author sit at
+                  one of two different x positions depending on what was folded
+                  inside it (owner report 2026-08-11: "the mis-alignment looks
+                  ugly"). Reserving here rather than left of the caret keeps the
+                  caret on its branch hairline — see `DISCARD_SLOT_CLASS`. */}
+              <span className={`${DISCARD_SLOT_CLASS} flex items-center`}>{unfoldBranch}</span>
               <span className="shrink-0 text-[12px] font-medium text-ink">
                 <OwnerLink bare ownerName={p.author} own={p.mine === true} onClick={() => onOpenPerson(p.author)} />
               </span>

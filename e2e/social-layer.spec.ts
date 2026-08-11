@@ -1317,6 +1317,26 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
   await graceCaret.click() // then fold Grace's root over the top of it
   // NOW it appears: her branch really does hold a folded post.
   await expect(graceUnfoldAll).toBeVisible()
+
+  // ── …and its slot is RESERVED, so the stubs stay in one column ────────────
+  //  This is the exact state that shipped misaligned (owner report 2026-08-11:
+  //  "the mis-alignment looks ugly"): Grace's stub carries the control because
+  //  something is folded inside her, the root below does not, and the control
+  //  was in-flow — so the two authors sat 32px apart, at x=373 and x=341.
+  //
+  //  Measured in PIXELS rather than asserted on a class, because the class is
+  //  what I would have got wrong: a reserved slot is a claim about layout, and
+  //  the only honest oracle for it is where the text actually lands.
+  const authorX = async () => {
+    const boxes = await parent
+      .page()
+      .locator('li > div > div.cursor-pointer > span.font-medium')
+      .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().left)))
+    return boxes
+  }
+  const xs = await authorX()
+  expect(xs.length).toBeGreaterThan(1)
+  expect(new Set(xs).size, `every folded stub's author starts at one x — got ${xs.join(', ')}`).toBe(1)
   await graceUnfoldAll.click()
   // One click, the whole branch — including the post folded two levels down.
   await expect(parent.locator('p', { hasText: ANSWER })).toHaveCount(1)

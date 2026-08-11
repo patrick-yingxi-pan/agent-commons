@@ -137,6 +137,29 @@ export const MAX_INDENT_DEPTH = 5
  *  off the rail. */
 export const FOLD_GUTTER_CLASS = 'w-4 max-sm:w-3 shrink-0'
 
+/** The same rule, one control along: the slot a folded post reserves for its
+ *  **unfold-all**, whether or not that post has anything to discard.
+ *
+ *  Earned by shipping it without one (owner report, 2026-08-11: *"the
+ *  mis-alignment looks ugly"*). The control renders only where it differs from
+ *  the caret — a folded post that really holds a folded descendant — so in any
+ *  thread it is present on some stubs and absent on others, and an absent
+ *  in-flow element is 32px of shift. Two stubs one above the other had their
+ *  authors at x=341 and x=373.
+ *
+ *  Why the slot rather than moving the control LEFT of the caret, which is the
+ *  first thing that suggests itself: the caret sits centred on the hairline its
+ *  own branch hangs from (`FOLD_GUTTER_CLASS` above, and the arithmetic in
+ *  `tests/reply-tree.test.ts`). Anything in-flow to its left pushes the caret
+ *  off that rail — the same misalignment, moved onto the structural line — and
+ *  reserving a permanent slot there would widen EVERY level of indent by the
+ *  control's width, roughly tripling what a nesting level costs. This slot is
+ *  paid for only inside stubs.
+ *
+ *  The button fills the slot (`w-full`) so the two cannot drift into different
+ *  widths — the failure mode a hand-matched magic number invites. */
+export const DISCARD_SLOT_CLASS = 'w-6 shrink-0'
+
 /** The nested list's own class at `depth` (1 = an answer to a root post).
  *
  *  The RAIL is unconditional and the padding is not: past the clamp a level
