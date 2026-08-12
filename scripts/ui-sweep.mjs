@@ -48,7 +48,7 @@
  *      world is a different layout path — verified 2026-07-22 for Rei's Lab
  *      across eight sections at 320 and 375 (no h-scroll, every empty section
  *      renders legible copy) and locked at the DOM level by the no-activity
- *      walk in e2e/social-layer.spec.ts. Widen here only if that stops holding.
+ *      walk in e2e/social-sharing.spec.ts. Widen here only if that stops holding.
  *
  *  Usage:  npm run ui:sweep          # boots its OWN stack; exits 1 on violations
  *          UI_SWEEP_BASE=http://127.0.0.1:5173 npm run ui:sweep   # existing server

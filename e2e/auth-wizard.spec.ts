@@ -4,6 +4,7 @@
  *  only the active account and lands on the "Choose an account" picker, from
  *  which the remaining account hops back in — again without a credential. */
 import { test, expect, type Page } from '@playwright/test'
+import { ms } from './budget.ts'
 
 const STAMP = Date.now().toString(36)
 const A = { name: `Stack Ana ${STAMP}`, email: `ana-${STAMP}@example.test`, password: `anas-password-${STAMP}` }
@@ -18,14 +19,14 @@ async function completeWizard(page: Page, who: { name: string; email: string; pa
 }
 
 test('two accounts stack; the switcher hops between them instantly; sign-out lands on the picker', async ({ page }) => {
-  test.setTimeout(120_000)
+  test.setTimeout(ms(120_000))
   await page.goto('/')
 
   // ── Account A signs up through the wizard ──
   await page.getByTestId('account-chip').click()
   await page.getByTestId('auth-signup').click()
   await completeWizard(page, A)
-  await expect(page.getByTestId('account-chip')).toContainText(A.name, { timeout: 5_000 })
+  await expect(page.getByTestId('account-chip')).toContainText(A.name, { timeout: ms(5_000) })
 
   // The menu now has an Accounts section: A, active, plus "Add account…".
   await page.getByTestId('account-chip').click()
@@ -38,7 +39,7 @@ test('two accounts stack; the switcher hops between them instantly; sign-out lan
   await expect(page.locator('h1')).toContainText('Add another account')
   await page.getByTestId('auth-open-signup').click()
   await completeWizard(page, B)
-  await expect(page.getByTestId('account-chip')).toContainText(B.name, { timeout: 5_000 })
+  await expect(page.getByTestId('account-chip')).toContainText(B.name, { timeout: ms(5_000) })
 
   // ── Both remembered; the hop to A is one click, no credential ──
   await page.getByTestId('account-chip').click()
@@ -46,7 +47,7 @@ test('two accounts stack; the switcher hops between them instantly; sign-out lan
   await expect(rows).toHaveCount(2)
   await expect(rows.filter({ hasText: B.name })).toContainText('Active')
   await rows.filter({ hasText: A.name }).click()
-  await expect(page.getByTestId('account-chip')).toContainText(A.name, { timeout: 5_000 })
+  await expect(page.getByTestId('account-chip')).toContainText(A.name, { timeout: ms(5_000) })
   await expect(page.getByTestId('auth-screen')).toHaveCount(0) // no sign-in surface involved
 
   // ── SIGN-IN ORDER holds after the hop: A signed in first, so A lists
@@ -59,7 +60,7 @@ test('two accounts stack; the switcher hops between them instantly; sign-out lan
   // ── Sign out (of A) — the hover control on HER row: the picker offers the
   //    REMAINING account (B) ──
   await page.getByTestId('auth-signout').click()
-  await expect(page.getByTestId('auth-screen')).toBeVisible({ timeout: 5_000 })
+  await expect(page.getByTestId('auth-screen')).toBeVisible({ timeout: ms(5_000) })
   await expect(page.locator('h1')).toContainText('Choose an account')
   const picker = page.getByTestId('auth-picker-account')
   await expect(picker).toHaveCount(1)
@@ -67,7 +68,7 @@ test('two accounts stack; the switcher hops between them instantly; sign-out lan
 
   // ── The hop back in from the picker — again, no credential ──
   await picker.click()
-  await expect(page.getByTestId('account-chip')).toContainText(B.name, { timeout: 5_000 })
+  await expect(page.getByTestId('account-chip')).toContainText(B.name, { timeout: ms(5_000) })
 
   // A was forgotten by ITS sign-out (GitHub semantics): only B remains stacked.
   await page.getByTestId('account-chip').click()
@@ -79,17 +80,17 @@ const C = { name: `Stack Cyd ${STAMP}`, email: `cyd-${STAMP}@example.test`, pass
 const D = { name: `Stack Dot ${STAMP}`, email: `dot-${STAMP}@example.test`, password: `dots-password-${STAMP}` }
 
 test('the hover sign-out on a NON-active row forgets just that account, in place', async ({ page }) => {
-  test.setTimeout(120_000)
+  test.setTimeout(ms(120_000))
   await page.goto('/')
   await page.getByTestId('account-chip').click()
   await page.getByTestId('auth-signup').click()
   await completeWizard(page, C)
-  await expect(page.getByTestId('account-chip')).toContainText(C.name, { timeout: 5_000 })
+  await expect(page.getByTestId('account-chip')).toContainText(C.name, { timeout: ms(5_000) })
   await page.getByTestId('account-chip').click()
   await page.getByTestId('auth-add-account').click()
   await page.getByTestId('auth-open-signup').click()
   await completeWizard(page, D)
-  await expect(page.getByTestId('account-chip')).toContainText(D.name, { timeout: 5_000 })
+  await expect(page.getByTestId('account-chip')).toContainText(D.name, { timeout: ms(5_000) })
 
   // D is active; C signed in first and lists first (sign-in order, stable).
   await page.getByTestId('account-chip').click()
@@ -102,7 +103,7 @@ test('the hover sign-out on a NON-active row forgets just that account, in place
   const rowC = page.getByTestId('account-stack-row').filter({ hasText: C.name })
   await rowC.hover()
   await rowC.getByTestId('account-stack-signout').click()
-  await expect(page.getByTestId('account-stack-option')).toHaveCount(1, { timeout: 5_000 })
+  await expect(page.getByTestId('account-stack-option')).toHaveCount(1, { timeout: ms(5_000) })
   await expect(page.getByTestId('account-stack-option')).toContainText(D.name)
   await expect(page.getByTestId('account-chip')).toContainText(D.name)
   await expect(page.getByTestId('auth-screen')).toHaveCount(0)

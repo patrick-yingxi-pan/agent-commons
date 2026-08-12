@@ -14,6 +14,7 @@
  *  harness runs workers:1 over one shared backend, so a per-viewport project
  *  would re-boot the webServer and roughly double the suite's runtime. */
 import { test, expect, type Page } from '@playwright/test'
+import { ms } from './budget.ts'
 
 const STAMP = Date.now().toString(36)
 
@@ -21,7 +22,7 @@ const noHorizontalScroll = async (page: Page) =>
   page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)
 
 test('phone (375×812): rail drawer over a scrim, full-viewport panel takeover, send works, no horizontal scroll', async ({ page }) => {
-  test.setTimeout(120_000)
+  test.setTimeout(ms(120_000))
   await page.setViewportSize({ width: 375, height: 812 })
   await page.goto('/')
 
@@ -63,7 +64,7 @@ test('phone (375×812): rail drawer over a scrim, full-viewport panel takeover, 
   const message = `responsive phone hello ${STAMP}`
   await page.getByPlaceholder('Reply to Claude…').fill(message)
   await page.keyboard.press('Enter')
-  await expect(page.getByText(/free-form chat is canned/).first()).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByText(/free-form chat is canned/).first()).toBeVisible({ timeout: ms(20_000) })
   expect(await noHorizontalScroll(page), 'no horizontal scroll with a thread').toBe(true)
 
   // A context panel on narrow is a TAKEOVER: the seeded repo session restores
@@ -133,11 +134,11 @@ test('extreme narrow (320×700): every composer popover stays inside the viewpor
   // shared math is dropped).
   await page.goto('/discussions/disc-seed-1')
   const reply = page.getByRole('textbox', { name: 'Reply to this discussion' })
-  await expect(reply).toBeVisible({ timeout: 20_000 })
+  await expect(reply).toBeVisible({ timeout: ms(20_000) })
   await reply.click()
   await reply.pressSequentially('@')
   const list = page.getByRole('listbox', { name: 'Mention someone' })
-  await expect(list, 'typing `@` arms the picker').toBeVisible({ timeout: 20_000 })
+  await expect(list, 'typing `@` arms the picker').toBeVisible({ timeout: ms(20_000) })
   const listBox = (await list.boundingBox())!
   expect(listBox.x, 'the mention list clears the left edge').toBeGreaterThanOrEqual(MARGIN)
   expect(listBox.x + listBox.width, 'the mention list clears the right edge').toBeLessThanOrEqual(320 - MARGIN)
@@ -281,6 +282,6 @@ test('landscape phone (844×390, short): compressed chrome, usable composer', as
   await page.getByRole('navigation').getByRole('button', { name: 'New session' }).click()
   await composer.fill(message)
   await page.keyboard.press('Enter')
-  await expect(page.getByText(/free-form chat is canned/).first()).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByText(/free-form chat is canned/).first()).toBeVisible({ timeout: ms(20_000) })
   expect(await noHorizontalScroll(page)).toBe(true)
 })

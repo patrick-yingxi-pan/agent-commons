@@ -1,5 +1,6 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
 import { agentBindings } from './agent-bindings.ts'
+import { ms } from './budget.ts'
 
 /** D21/D22 — the findability layer, end to end through the rendered UI: the
  *  namespace PROFILE page (a display name's one public face, reached from any owner
@@ -24,7 +25,7 @@ async function newUser(browser: Browser, headers?: Record<string, string>) {
 }
 
 test('a namespace profile is reachable from any byline, and global search finds the commons', async ({ browser }) => {
-  test.setTimeout(120_000)
+  test.setTimeout(ms(120_000))
   const owner = await newUser(browser) // the seeded default tenant
   const visitor = await newUser(browser, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
 

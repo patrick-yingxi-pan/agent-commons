@@ -21,23 +21,31 @@ Anchor specs:
 - `e2e/responsive.spec.ts` — the viewport ladder at phone/tablet/landscape
   sizes: the narrow-tier rail drawer, the full-viewport panel takeover, and
   the `short:` chrome compression (spec ADAPT-11).
-- `e2e/social-layer.spec.ts` — the social layer's three walks: publish → the
-  audience's Commons card → one root thread across card and entity page → an
-  offered change landing as L1 in the merged Changes panel; the
-  `/shared/:token` link-redeem door; the **turn gutter** — a discussion
-  anchored to one TURN, minted from its hover gutter and resolved back by the
-  thread page's anchor chip (spec pillar 12); the same gutter on an artifact's
-  **block** (the third host, SOCIAL-6c — hover-revealed opener, marker-only-
-  once-a-thread-exists, and the chip's landing, all three of which are DOM and
-  none of which `node --test` can see); and the **mention picker** completing a
-  multi-word display name and the server resolving what it inserted — on the
-  reply composer (roster = the thread's voices) and on the **square**, where a
-  post has no thread yet so the roster is the viewer's own follows plus the feed
-  bylines, and where the walk also holds the list's PORTAL (it escapes its
-  composer to `document.body` and takes its position from the field). The turn
-  walk sets a SHORT
-  viewport on purpose: a conversation opens at the bottom, so the earliest turn
-  must be off-screen or the "landed on the turn" assertion passes vacuously.
+- **The social layer — three specs, one walk each**, sharing setup through
+  `e2e/social-helpers.ts`. They were one 1,611-line file until it measured 26%
+  of the whole E2E suite; because a lane can never be shorter than its longest
+  spec, that one file set a floor no sharding could beat (see
+  `scripts/verifyPlan.mjs`). The tests are unchanged and were already
+  independent — no constant was shared between any two of them.
+  - `e2e/social-sharing.spec.ts` — publish → the audience's Commons card → one
+    root thread across card and entity page → an offered change landing as L1
+    in the merged Changes panel; the `/shared/:token` link-redeem door; the
+    shared CONVERSATION, ROUTINE and ARTIFACT faces.
+  - `e2e/social-anchors.spec.ts` — a discussion anchored to a POSITION: the
+    **turn gutter** (minted from a turn's hover gutter, resolved back by the
+    thread page's anchor chip — spec pillar 12), the same gutter on a routine's
+    run and on an artifact's **block** (SOCIAL-6c: hover-revealed opener,
+    marker-only-once-a-thread-exists, the chip's landing — all DOM, none of it
+    visible to `node --test`), the turn fork, and the reply chain. The turn walk
+    sets a SHORT viewport on purpose: a conversation opens at the bottom, so the
+    earliest turn must be off-screen or "landed on the turn" passes vacuously.
+  - `e2e/social-square.spec.ts` — the Commons lenses and the empty world, follow
+    → the Following lens, and the **mention picker** completing a multi-word
+    display name with the server resolving what it inserted: on the reply
+    composer (roster = the thread's voices) and on the **square**, where a post
+    has no thread yet so the roster is the viewer's follows plus the feed
+    bylines, and where the walk also holds the list's PORTAL (it escapes its
+    composer to `document.body` and takes its position from the field).
 
 Spec gotchas: the app **opens on a fresh draft** (sending materializes a new
 session), and the sidebar is an `<aside>` (role `complementary`) — only its

@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import { agentBindings } from './agent-bindings.ts'
+import { ms } from './budget.ts'
 
 /** The A2A Agent Card is a machine-readable document, not a page to navigate to.
  *  Clicking "A2A card" used to open the raw JSON endpoint in a new browser tab; it
@@ -14,7 +15,7 @@ const STAMP = Date.now().toString(36)
 const AGENT = `Card subject ${STAMP}`
 
 test('the "A2A card" trigger opens a presented viewer, not a raw-JSON tab', async ({ page, context }) => {
-  test.setTimeout(60_000)
+  test.setTimeout(ms(60_000))
 
   // Create + publish an agent through the API seam (publishing is locked elsewhere) —
   // the "A2A card" affordance shows only on a published definition.

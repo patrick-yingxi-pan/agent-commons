@@ -49,7 +49,10 @@ Other scripts:
 
 ```bash
 npm run verify     # THE SWEEP: typecheck + node suite + build + sharded E2E,
-                   # all in parallel — 150s vs 244s run serially. One pass/fail
+                   # all in parallel — 174s vs 244s run serially on a 12-core
+                   # box. Shard count and every test budget are derived from a
+                   # calibration of the HOST (scripts/hostSpeed.mjs), so this
+                   # adapts rather than assuming one machine. One pass/fail
                    # summary; `npm run verify checks` runs just the static half.
 npm run typecheck  # tsc --noEmit over UI + contract  ← run before declaring done
 npm run build      # production build to dist/

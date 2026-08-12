@@ -1,4 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
+import { ms } from './budget.ts'
 
 /** D26 — the project README through the rendered UI: the owner writes the public
  *  "about" on the one project page; a FOREIGN tenant reads it on the same page —
@@ -19,7 +20,7 @@ async function newUser(browser: Browser, headers?: Record<string, string>) {
 }
 
 test('the owner writes the README; the visitor reads it on the same page, without Edit', async ({ browser }) => {
-  test.setTimeout(120_000)
+  test.setTimeout(ms(120_000))
   const owner = await newUser(browser)
   const visitor = await newUser(browser, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
 

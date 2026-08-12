@@ -9,6 +9,7 @@
  *  pane (a context panel) defers to the page you're on. The tree math is
  *  locked by src/lib/main-split.test.ts; this locks the wiring. */
 import { test, expect, type Page } from '@playwright/test'
+import { ms } from './budget.ts'
 
 /** A repo / workspace session auto-tiles its context PANEL as a pane in the
  *  universal tree on the wide tier (ADAPT-16 folded into ADAPT-17). Close it so
@@ -166,7 +167,7 @@ test('a duplicated conversation pane is fully independent: its own composer stre
   await composer.fill('quick pane check')
   await composer.press('Enter')
   await expect(pane.getByText('quick pane check')).toBeVisible()
-  await expect(pane.getByText(/local mock|workspace/).last()).toBeVisible({ timeout: 15_000 })
+  await expect(pane.getByText(/local mock|workspace/).last()).toBeVisible({ timeout: ms(15_000) })
 
   // …while the PRIMARY (auth-refactor) is untouched; the address names the
   // FOCUSED pane's session (URL-follows-focus).
@@ -242,8 +243,8 @@ test('New session lands in the FOCUSED pane and materializes in place — the pr
   // (.first(): the materialized session is TITLED from the first message, so
   // the text appears in the pane's title bar AND the thread — both correct.)
   await expect(paneB.getByText('draft in a pane').first()).toBeVisible()
-  await expect(paneB.locator('[data-conversation-pane]')).not.toHaveAttribute('data-conversation-pane', 'draft', { timeout: 15_000 })
-  await expect(paneB.getByText(/local mock|workspace/).last()).toBeVisible({ timeout: 15_000 })
+  await expect(paneB.locator('[data-conversation-pane]')).not.toHaveAttribute('data-conversation-pane', 'draft', { timeout: ms(15_000) })
+  await expect(paneB.getByText(/local mock|workspace/).last()).toBeVisible({ timeout: ms(15_000) })
   await expect(page.locator('[data-main-pane="a"]').getByText('token refresh logic').first()).toBeVisible()
   const materialized = new URL(page.url()).pathname
   expect(materialized).toMatch(/^\/s\//)

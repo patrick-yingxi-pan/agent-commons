@@ -15,7 +15,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ROOT, stripComments } from './helpers/source.ts'
-import { envCount, specFiles, specGroups, suiteDirs, suiteFiles, suiteRoots } from '../scripts/verifyPlan.mjs'
+import { envCount, specFiles, specGroups, specWeights, suiteDirs, suiteFiles, suiteRoots, weightsFrom } from '../scripts/verifyPlan.mjs'
 
 test('the sweep runs every node suite the `npm test` glob does', () => {
   // Two enumerations of one set. `package.json`'s `test` script is a RECURSIVE
@@ -91,8 +91,8 @@ test('the shard groups PARTITION the spec files — every one, exactly once', ()
     // The one that bites: an EMPTY group reaches `playwright test` with no path
     // arguments, and that runs the WHOLE suite. So the shape meaning "this
     // shard has nothing to do" is the shape that silently does everything —
-    // and it is reachable, since the shard count is capped at half the core
-    // count, which on a large machine exceeds the number of spec files.
+    // and it is reachable: the shard count comes from the core count, which on
+    // a large machine exceeds the number of spec files.
     for (const g of groups) assert.ok(g.length > 0, `n=${n}: no empty group (it would run the entire suite)`)
     assert.ok(groups.length <= Math.max(1, Math.min(n, all.length)), `n=${n}: never more groups than files`)
   }
@@ -100,10 +100,10 @@ test('the shard groups PARTITION the spec files — every one, exactly once', ()
 
 test('the groups are BALANCED — the heaviest is not the whole suite', () => {
   // Playwright's own `--shard=i/n` splits by declaration order and gave 34 / 16
-  // / 22 of 72; the sweep then waits on the unlucky lane. This is not a claim
-  // about wall-clock (a test count is a weak proxy for a duration, and
-  // measuring it bought 2s) — it is a claim that no lane draws a pathological
-  // share, which is what protects the sweep as the suite grows.
+  // / 22 of 72; the sweep then waits on the unlucky lane. Weighed here by test
+  // COUNT on purpose — the planner splits by measured duration now, and this
+  // asserts the weaker property that survives an empty cache: no lane draws a
+  // pathological share of the files even when nothing has been measured yet.
   const weights = new Map(specFiles().map((f) => [f.file, Math.max(1, f.tests)]))
   const total = [...weights.values()].reduce((a, b) => a + b, 0)
   for (const n of [2, 3, 4]) {
@@ -168,4 +168,73 @@ test('the runner survives a step it cannot even spawn', () => {
     /process\.exit\(/,
     'never process.exit(): writes to a pipe are async on win32, and it discards the failure tail',
   )
+})
+
+/** ── The duration cache ──────────────────────────────────────────────────────
+ *
+ *  Sharding by test COUNT produced an even 24/24/24 that ran 179/141/182
+ *  seconds — the fastest lane idle for 40s of every sweep, because
+ *  `social-layer` cost 7.7s per test and `main-split` 4.8s. So the split is by
+ *  measured share now.
+ *
+ *  A cache that plans the run is a new way for the run to be wrong, and these
+ *  lock the two properties that keep it from being one: it is never a source of
+ *  truth (missing, stale or corrupt must all degrade to the old behaviour), and
+ *  it is host-portable (a share, not a second — so the file a Mac writes still
+ *  means something on the box that reads it). */
+test('the weight cache degrades to test count — it can never break the plan', () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'weights-'))
+  try {
+    const bad = join(tmp, 'nope.json')
+    assert.deepEqual(specWeights(bad), {}, 'a missing cache is empty, not a throw')
+    writeFileSync(join(tmp, 'malformed.json'), '{not json')
+    assert.deepEqual(specWeights(join(tmp, 'malformed.json')), {}, 'a half-written cache is empty, not a throw')
+    writeFileSync(join(tmp, 'junk.json'), JSON.stringify({ a: -1, b: 'x', c: null, d: 0, e: 0.5 }))
+    assert.deepEqual(specWeights(join(tmp, 'junk.json')), { e: 0.5 }, 'only usable positive numbers survive')
+
+    // With no cache at all the planner behaves exactly as it did before it
+    // existed: weight is the file's share of the test count.
+    const plain = specFiles('e2e', {})
+    const totalTests = plain.reduce((n, f) => n + f.tests, 0)
+    assert.ok(totalTests > 0, 'there are tests to weigh')
+    const sum = plain.reduce((n, f) => n + f.weight, 0)
+    assert.ok(Math.abs(sum - 1) < 1e-9, `weights sum to ${sum}, not 1`)
+    for (const f of plain) assert.ok(Math.abs(f.weight - f.tests / totalTests) < 1e-9, `${f.file} fell back wrong`)
+
+    // A cache covering SOME files blends: measured where measured, counted
+    // elsewhere. A new spec must not weigh zero and sink into one lane.
+    const one = plain[0].file
+    const blended = specFiles('e2e', { [one]: 0.9 })
+    assert.equal(blended.find((f) => f.file === one).weight, 0.9, 'the measured file uses its share')
+    for (const f of blended) assert.ok(f.weight > 0, `${f.file} weighs nothing — it would pile into one group`)
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+})
+
+test('recorded weights are SHARES, so the file means the same on another machine', () => {
+  // Seconds would have to be re-measured per host and would be wrong the first
+  // time anyone ran the sweep somewhere new. A Mac that runs everything twice
+  // as fast must produce the same weights as the box that wrote them.
+  const fast = weightsFrom({ 'e2e/a.spec.ts': 10, 'e2e/b.spec.ts': 30 })
+  const slow = weightsFrom({ 'e2e/a.spec.ts': 20, 'e2e/b.spec.ts': 60 })
+  assert.deepEqual(fast, slow, 'a uniformly slower machine records the same shares')
+  assert.ok(Math.abs(Object.values(fast).reduce((a, b) => a + b, 0) - 1) < 1e-9, 'shares sum to 1')
+  assert.deepEqual(weightsFrom({}), {}, 'nothing measured records nothing')
+  assert.deepEqual(weightsFrom({ 'e2e/a.spec.ts': 0 }), {}, 'a zero total cannot be normalised')
+})
+
+test('the split follows the weights, not the file count', () => {
+  // One heavy file and many light ones: a count-blind split would spread by
+  // name; a weight-aware one isolates the heavy file and packs the rest.
+  const files = [
+    { file: 'e2e/heavy.spec.ts', tests: 1, weight: 0.7 },
+    ...Array.from({ length: 6 }, (_, i) => ({ file: `e2e/light${i}.spec.ts`, tests: 5, weight: 0.05 })),
+  ]
+  const groups = specGroups(2, files)
+  const weightOf = new Map(files.map((f) => [f.file, f.weight]))
+  const loads = groups.map((g) => g.reduce((n, f) => n + weightOf.get(f), 0))
+  const heavyLane = groups.findIndex((g) => g.includes('e2e/heavy.spec.ts'))
+  assert.equal(groups[heavyLane].length, 1, 'the heavy file is alone — nothing is queued behind it')
+  assert.ok(Math.max(...loads) <= 0.75, `heaviest lane ${Math.max(...loads)} — the rest did not pack`)
 })

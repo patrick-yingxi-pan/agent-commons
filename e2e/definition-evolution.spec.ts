@@ -1,5 +1,6 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
 import { agentBindings } from './agent-bindings.ts'
+import { ms } from './budget.ts'
 
 /** D25 — the definition evolution loop, end to end through the rendered UI: the
  *  owner publishes; a FOREIGN tenant opens the public detail, proposes a sharper
@@ -23,7 +24,7 @@ async function newUser(browser: Browser, headers?: Record<string, string>) {
 }
 
 test('propose → review side-by-side → merge: the definition evolves and credits the proposer', async ({ browser }) => {
-  test.setTimeout(120_000)
+  test.setTimeout(ms(120_000))
   const owner = await newUser(browser)
   const proposer = await newUser(browser, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
 
@@ -53,7 +54,7 @@ test('propose → review side-by-side → merge: the definition evolves and cred
 
   // Owner: the bell rings; the agent card offers the review; the diff shows both sides.
   await openApp(owner.page)
-  await expect(owner.page.getByTestId('notification-bell')).toHaveAttribute('aria-label', /\(\d+ unread\)/, { timeout: 10_000 })
+  await expect(owner.page.getByTestId('notification-bell')).toHaveAttribute('aria-label', /\(\d+ unread\)/, { timeout: ms(10_000) })
   await owner.page.getByRole('navigation').getByRole('button', { name: 'Agents', exact: true }).click()
   // Scope to THIS agent's card — reused e2e stores carry earlier runs' agents,
   // whose own review buttons would otherwise collide in strict mode.
@@ -87,7 +88,7 @@ test('propose → review side-by-side → merge: the definition evolves and cred
   // — clicking it opens that workspace's profile (the proposer authored v2).
   await ownerCard.getByRole('button', { name: /^by / }).last().click()
   await expect(owner.page.getByText('Recent public activity')).toBeVisible() // a profile-page section
-  await expect(proposer.page.getByTestId('notification-bell')).toHaveAttribute('aria-label', /\(\d+ unread\)/, { timeout: 10_000 })
+  await expect(proposer.page.getByTestId('notification-bell')).toHaveAttribute('aria-label', /\(\d+ unread\)/, { timeout: ms(10_000) })
   await proposer.page.getByTestId('notification-bell').click()
   await expect(
     proposer.page

@@ -1,5 +1,6 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
 import { agentBindings } from './agent-bindings.ts'
+import { ms } from './budget.ts'
 
 /** Surface-audit S7 — a fork is a lineage relationship (this definition descends from
  *  that one, at version N), not a bare label. Locks, through the rendered UI, that a
@@ -17,7 +18,7 @@ async function newUser(browser: Browser, headers?: Record<string, string>) {
 }
 
 test('a forked agent reveals the pinned source version on its lineage line (S7)', async ({ browser }) => {
-  test.setTimeout(120_000)
+  test.setTimeout(ms(120_000))
   const owner = await newUser(browser)
   const forker = await newUser(browser, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
   const AGENT = `Lineage guide ${STAMP}`

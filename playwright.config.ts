@@ -1,4 +1,6 @@
 import { defineConfig, devices } from '@playwright/test'
+import { availableParallelism } from 'node:os'
+import { budget, resolvedFactor } from './scripts/hostSpeed.mjs'
 
 /** End-to-end UI tests (P8 Phase 3 — the checked-in E2E harness).
  *
@@ -27,6 +29,13 @@ import { defineConfig, devices } from '@playwright/test'
  *  `E2E_SHARD` unset ⇒ 0 ⇒ exactly the ports and store this config always used,
  *  so a bare `npm run e2e` is unchanged. */
 const SHARD = Number(process.env.E2E_SHARD ?? 0)
+
+/** How slow this machine is relative to the box every timing in
+ *  scripts/verify.mjs's header was measured on, and how many shards are
+ *  competing for it. `E2E_SHARDS` is what the runner actually launched; a
+ *  direct `npx playwright test` is one lane, so it gets the unscaled budget. */
+const HOST_FACTOR = resolvedFactor()
+const SHARD_TOTAL = Number(process.env.E2E_SHARDS ?? 1) || 1
 /** UI port; the mock backend takes PORT+1 (dev.mjs's rule), so shards step by 10. */
 const UI_PORT = 5183 + SHARD * 10
 /** The mock MODEL server, one per shard.
@@ -45,8 +54,12 @@ const STORE = SHARD === 0 ? '.data/e2e-store.json' : `.data/e2e-store-${SHARD}.j
 
 export default defineConfig({
   testDir: './e2e',
-  timeout: 30_000,
-  expect: { timeout: 8_000 },
+  // Reference milliseconds, scaled to this host and to the contention the sweep
+  // creates by running SHARDS stacks at once. A flat 30s is a claim about one
+  // machine; these numbers have to hold on a Mac, on a laptop throttling, and
+  // alongside two sibling shards. See scripts/hostSpeed.mjs.
+  timeout: budget(30_000, HOST_FACTOR, SHARD_TOTAL),
+  expect: { timeout: budget(8_000, HOST_FACTOR, SHARD_TOTAL) },
   fullyParallel: false,
   workers: 1, // the mock backend is a single shared store — serialize
   forbidOnly: !!process.env.CI,
@@ -75,7 +88,7 @@ export default defineConfig({
     // config's BACKEND/DATA_FILE env (that's exactly how a run once polluted the dev
     // store). The dedicated ports make the fresh boot conflict-free.
     reuseExistingServer: false,
-    timeout: 120_000,
+    timeout: budget(120_000, HOST_FACTOR, SHARD_TOTAL),
     env: {
       PORT: String(UI_PORT),
       DATA_FILE: STORE,

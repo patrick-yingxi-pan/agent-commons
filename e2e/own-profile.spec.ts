@@ -14,13 +14,14 @@
  *  The node suites lock the funnel and the registries (src/lib/owner-door.test.ts,
  *  src/lib/url-routes.test.ts); this locks the wiring. */
 import { test, expect, type Page } from '@playwright/test'
+import { ms } from './budget.ts'
 
 const sectionsNav = (page: Page) => page.getByRole('navigation', { name: 'Sections' })
 const sectionRow = (page: Page, name: string) =>
   sectionsNav(page).getByRole('button', { name, exact: true })
 
 test('the Commons carries a door to your own profile, and holds the highlight', async ({ page }) => {
-  test.setTimeout(120_000)
+  test.setTimeout(ms(120_000))
   await page.goto('/')
   await expect(sectionRow(page, 'Projects')).toBeVisible()
 

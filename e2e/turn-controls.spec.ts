@@ -4,12 +4,13 @@
  *  semantics are node-locked in server/routes/turns.test.ts; this locks the UI
  *  wiring: button → cancelTurn → stream end → coherent thread.) */
 import { test, expect, type Page } from '@playwright/test'
+import { ms } from './budget.ts'
 
 const STAMP = Date.now().toString(36)
 const PACED_MESSAGE = `paced stop me please ${STAMP}`
 
 test('Stop mid-stream: the partial persists, the streaming state stands down', async ({ page }) => {
-  test.setTimeout(60_000)
+  test.setTimeout(ms(60_000))
   await page.goto('/')
   await page.getByRole('navigation').getByRole('button', { name: 'New session' }).click()
 
@@ -17,12 +18,12 @@ test('Stop mid-stream: the partial persists, the streaming state stands down', a
   await page.keyboard.press('Enter')
 
   // Mid-stream: the stop affordance is up and some text has arrived.
-  await expect(page.getByText('Claude is writing…')).toBeVisible({ timeout: 15_000 })
-  await expect(page.getByText(/free-form chat is canned/).first()).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByText('Claude is writing…')).toBeVisible({ timeout: ms(15_000) })
+  await expect(page.getByText(/free-form chat is canned/).first()).toBeVisible({ timeout: ms(15_000) })
   await page.getByRole('button', { name: 'Stop', exact: true }).click()
 
   // The affordance stands down (the stream's own message.end cleared it).
-  await expect(page.getByText('Claude is writing…')).toHaveCount(0, { timeout: 10_000 })
+  await expect(page.getByText('Claude is writing…')).toHaveCount(0, { timeout: ms(10_000) })
 
   // The RECORD holds the cancelled partial: one user turn + one (truncated)
   // assistant turn — shorter than the full canned reply, which ends "…digest.".

@@ -1,5 +1,6 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
 import { agentBindings } from './agent-bindings.ts'
+import { ms } from './budget.ts'
 
 /** D24 — the bell, end to end through the rendered UI: a visitor watches a shared
  *  project; the owner posts a work item; the visitor's bell badges live (the
@@ -27,7 +28,7 @@ async function newUser(browser: Browser, headers?: Record<string, string>) {
 }
 
 test('watch a shared project → the owner acts → the watcher’s bell rings, the row is a door', async ({ browser }) => {
-  test.setTimeout(120_000)
+  test.setTimeout(ms(120_000))
   const owner = await newUser(browser)
   const watcher = await newUser(browser, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
 
@@ -61,7 +62,7 @@ test('watch a shared project → the owner acts → the watcher’s bell rings, 
   await expect(watcher.page.getByTestId('notification-bell')).toHaveAttribute(
     'aria-label',
     /\(\d+ unread\)/,
-    { timeout: 10_000 },
+    { timeout: ms(10_000) },
   )
   await watcher.page.getByTestId('notification-bell').click()
   const panel = watcher.page.getByRole('main')
@@ -87,7 +88,7 @@ test('watch a shared project → the owner acts → the watcher’s bell rings, 
 })
 
 test('a work.commented bell opens the project ON the item’s thread, auto-expanded to the comment (R4 focus)', async ({ browser }) => {
-  test.setTimeout(120_000)
+  test.setTimeout(ms(120_000))
   const owner = await newUser(browser) // seeded default tenant
   const visitor = await newUser(browser, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
   const P = `Focus arena ${STAMP}`
@@ -129,7 +130,7 @@ test('a work.commented bell opens the project ON the item’s thread, auto-expan
   await expect(owner.page.getByTestId('notification-bell')).toHaveAttribute(
     'aria-label',
     /\(\d+ unread\)/,
-    { timeout: 10_000 },
+    { timeout: ms(10_000) },
   )
   await owner.page.getByTestId('notification-bell').click()
   await owner.page
@@ -148,7 +149,7 @@ test('a work.commented bell opens the project ON the item’s thread, auto-expan
 })
 
 test('a proposal.opened bell opens the review dialog directly ON the proposal (R5 owner focus)', async ({ browser }) => {
-  test.setTimeout(120_000)
+  test.setTimeout(ms(120_000))
   const owner = await newUser(browser) // seeded default tenant — owns the agent
   const proposer = await newUser(browser, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
   const AGENT = `Reviewed guide ${STAMP}`
@@ -181,7 +182,7 @@ test('a proposal.opened bell opens the review dialog directly ON the proposal (R
   await expect(owner.page.getByTestId('notification-bell')).toHaveAttribute(
     'aria-label',
     /\(\d+ unread\)/,
-    { timeout: 10_000 },
+    { timeout: ms(10_000) },
   )
   await owner.page.getByTestId('notification-bell').click()
   await owner.page
@@ -199,7 +200,7 @@ test('a proposal.opened bell opens the review dialog directly ON the proposal (R
 })
 
 test('a proposal.merged bell opens the owner’s profile ON Your-proposals, focused (R5b proposer focus)', async ({ browser }) => {
-  test.setTimeout(120_000)
+  test.setTimeout(ms(120_000))
   const owner = await newUser(browser) // seeded default tenant — owns + merges
   const proposer = await newUser(browser, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
   const AGENT = `Accepted guide ${STAMP}`
@@ -245,7 +246,7 @@ test('a proposal.merged bell opens the owner’s profile ON Your-proposals, focu
   await expect(proposer.page.getByTestId('notification-bell')).toHaveAttribute(
     'aria-label',
     /\(\d+ unread\)/,
-    { timeout: 10_000 },
+    { timeout: ms(10_000) },
   )
   await proposer.page.getByTestId('notification-bell').click()
   await proposer.page
@@ -270,7 +271,7 @@ test('a proposal.merged bell opens the owner’s profile ON Your-proposals, focu
 })
 
 test('an agent.forked bell lands on the source agent’s own card in the hub (R6 fork door)', async ({ browser }) => {
-  test.setTimeout(120_000)
+  test.setTimeout(ms(120_000))
   const owner = await newUser(browser) // seeded default tenant — owns the source agent
   const forker = await newUser(browser, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
   const AGENT = `Forkable guide ${STAMP}`
@@ -293,7 +294,7 @@ test('an agent.forked bell lands on the source agent’s own card in the hub (R6
   await expect(owner.page.getByTestId('notification-bell')).toHaveAttribute(
     'aria-label',
     /\(\d+ unread\)/,
-    { timeout: 10_000 },
+    { timeout: ms(10_000) },
   )
   await owner.page.getByTestId('notification-bell').click()
   await owner.page

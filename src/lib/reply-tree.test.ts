@@ -1,6 +1,6 @@
 /** S9 — the reply CHAIN's shape (`src/lib/replyTree.ts`).
  *
- *  The recursive render is held at the DOM level by `e2e/social-layer.spec.ts`.
+ *  The recursive render is held at the DOM level by `e2e/social-anchors.spec.ts`.
  *  What lives here is the arithmetic underneath it, which is exactly the part
  *  that fails silently: a post that renders zero times because its parent is
  *  missing, a post that renders twice, a ring that never returns, an indent that

@@ -1,4 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
+import { ms } from './budget.ts'
 
 /** P8 — the cross-tenant cooperation lifecycle, END TO END through the rendered UI,
  *  as the contrived-but-complete scenario: **two users, from two different tenants,
@@ -116,7 +117,7 @@ async function newUser(browser: Browser, headers?: Record<string, string>) {
 }
 
 test('two tenants each contribute an agent to co-author an article on one shared project', async ({ browser }) => {
-  test.setTimeout(180_000)
+  test.setTimeout(ms(180_000))
   const ada = await newUser(browser) // seeded default: user-ada / tenant-acme (owner)
   const bo = await newUser(browser, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
 
@@ -255,7 +256,7 @@ test('two tenants each contribute an agent to co-author an article on one shared
   await ada.page.getByRole('main').getByRole('button', { name: 'New session' }).click()
   await ada.page.getByPlaceholder('Reply to Claude…').fill('Draft the introduction of our co-authored article.')
   await ada.page.keyboard.press('Enter')
-  await expect(ada.page.getByText(/One conversation that grows into a workspace/)).toBeVisible({ timeout: 20_000 })
+  await expect(ada.page.getByText(/One conversation that grows into a workspace/)).toBeVisible({ timeout: ms(20_000) })
 
   // Bo is a VISITOR on this project page, so the header's New session is (correctly)
   // absent for him — his drafting session is his own tenant-scoped chat, started from
@@ -263,7 +264,7 @@ test('two tenants each contribute an agent to co-author an article on one shared
   await bo.page.getByRole('complementary').getByRole('button', { name: 'New session' }).click()
   await bo.page.getByPlaceholder('Reply to Claude…').fill('Draft the conclusion of our co-authored article.')
   await bo.page.keyboard.press('Enter')
-  await expect(bo.page.getByText(/One conversation that grows into a workspace/)).toBeVisible({ timeout: 20_000 })
+  await expect(bo.page.getByText(/One conversation that grows into a workspace/)).toBeVisible({ timeout: ms(20_000) })
 
   // Session tenancy through the UI: Ada's sidebar never lists Bo's drafting session.
   await reloadApp(ada.page)

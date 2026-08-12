@@ -1,4 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
+import { ms } from './budget.ts'
 
 /** D23 — a work item is a conversation, end to end through the rendered UI:
  *  the owner posts an item on a shared project; a FOREIGN tenant opens the same
@@ -34,7 +35,7 @@ async function newUser(browser: Browser, headers?: Record<string, string>) {
 }
 
 test('a work item hosts a cross-tenant discussion; the poster retracts it honestly', async ({ browser }) => {
-  test.setTimeout(120_000)
+  test.setTimeout(ms(120_000))
   const owner = await newUser(browser) // seeded default tenant
   const visitor = await newUser(browser, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
 

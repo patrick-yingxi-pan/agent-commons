@@ -9,6 +9,7 @@
  *  error that leaves the surface up, while the real credential signs back into
  *  the same world. */
 import { test, expect, type Page } from '@playwright/test'
+import { ms } from './budget.ts'
 
 const STAMP = Date.now().toString(36)
 const NAME = `Onboard Olive ${STAMP}`
@@ -29,7 +30,7 @@ async function completeWizard(page: Page, name: string, email: string, password:
 }
 
 test('create account via the wizard → own world → reload stays signed in → sign out → sign back in', async ({ page, browser }) => {
-  test.setTimeout(120_000)
+  test.setTimeout(ms(120_000))
   await page.goto('/')
   await expect(page.getByTestId('account-chip')).toContainText('Ada Lovelace') // the remote default
 
@@ -42,18 +43,18 @@ test('create account via the wizard → own world → reload stays signed in →
 
   // Signed in immediately — back in the app, chip re-labeled from /v1/me. The
   // namespace bears the person's name (FWD-5 — no "(personal)" suffix).
-  await expect(page.getByTestId('account-chip')).toContainText(NAME, { timeout: 5_000 })
+  await expect(page.getByTestId('account-chip')).toContainText(NAME, { timeout: ms(5_000) })
 
   // The new account's world: fresh sidebar (none of Ada's sessions), own thread.
   await page.getByRole('navigation').getByRole('button', { name: 'New session' }).click()
   await page.getByPlaceholder('Reply to Claude…').fill(MESSAGE)
   await page.keyboard.press('Enter')
-  await expect(page.getByText(/free-form chat is canned/).first()).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByText(/free-form chat is canned/).first()).toBeVisible({ timeout: ms(15_000) })
 
   // ── Reload: the cookie is the persistence — still the new account ──
   await page.reload()
   await expect(page.getByTestId('account-chip')).toContainText(NAME)
-  await expect(page.locator('aside').getByText(new RegExp(MESSAGE.slice(0, 20))).first()).toBeVisible({ timeout: 5_000 })
+  await expect(page.locator('aside').getByText(new RegExp(MESSAGE.slice(0, 20))).first()).toBeVisible({ timeout: ms(5_000) })
 
   // ── Isolation: a fresh context (the seeded default) sees none of it ──
   const other = await browser.newContext()
@@ -66,7 +67,7 @@ test('create account via the wizard → own world → reload stays signed in →
   // ── Sign out: lands on the dedicated auth surface (not the workspace) ──
   await page.getByTestId('account-chip').click()
   await page.getByTestId('auth-signout').click()
-  await expect(page.getByTestId('auth-screen')).toBeVisible({ timeout: 5_000 })
+  await expect(page.getByTestId('auth-screen')).toBeVisible({ timeout: ms(5_000) })
 
   // ── Wrong password: a visible error, the auth surface stays up ──
   await page.getByTestId('auth-email').fill(EMAIL)
@@ -78,8 +79,8 @@ test('create account via the wizard → own world → reload stays signed in →
   // ── The real credential signs back in; the world is still there ──
   await page.getByTestId('auth-password').fill(PASSWORD)
   await page.getByTestId('auth-submit').click()
-  await expect(page.getByTestId('account-chip')).toContainText(NAME, { timeout: 5_000 })
-  await expect(page.locator('aside').getByText(new RegExp(MESSAGE.slice(0, 20))).first()).toBeVisible({ timeout: 5_000 })
+  await expect(page.getByTestId('account-chip')).toContainText(NAME, { timeout: ms(5_000) })
+  await expect(page.locator('aside').getByText(new RegExp(MESSAGE.slice(0, 20))).first()).toBeVisible({ timeout: ms(5_000) })
 })
 
 test('the workspace affordances are gone (FWD-5 Phase 2): no menu section, no wizard step', async ({ page }) => {

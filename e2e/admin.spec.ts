@@ -9,6 +9,7 @@
  *   - signed in as Grace (unlisted), no row — and the pasted /admin URL lands
  *     on the explanatory empty state, not a broken page. */
 import { test, expect, type Page } from '@playwright/test'
+import { ms } from './budget.ts'
 
 const sectionsNav = (page: Page) => page.getByRole('navigation', { name: 'Sections' })
 
@@ -19,7 +20,7 @@ async function signIn(page: Page, email: string, password: string) {
 }
 
 test('the console: hidden unsigned, full for the maintainer, absent for everyone else', async ({ browser, page }) => {
-  test.setTimeout(120_000)
+  test.setTimeout(ms(120_000))
 
   // ── Unsigned (via 'default' — resolves as Ada, but unverified): no row ──
   await page.goto('/')
@@ -38,7 +39,7 @@ test('the console: hidden unsigned, full for the maintainer, absent for everyone
   // ── Ada signs in: the Maintain row appears; the console opens on Accounts ──
   await signIn(page, 'ada@acme.example', 'ada-demo-password')
   const maintain = sectionsNav(page).getByRole('button', { name: 'Maintain', exact: true })
-  await expect(maintain).toBeVisible({ timeout: 5_000 })
+  await expect(maintain).toBeVisible({ timeout: ms(5_000) })
   await maintain.click()
   await expect(page.getByRole('heading', { name: 'Maintain' })).toBeVisible()
   // Cross-tenant: accounts from OTHER tenants list (Grace's namespace). `.first()`
@@ -70,10 +71,10 @@ test('the console: hidden unsigned, full for the maintainer, absent for everyone
   //    confirm and the row disappears ──
   await sectionsNav(page).getByRole('button', { name: 'Credentials', exact: true }).click()
   const tokenRow = page.getByText('e2e console probe')
-  await expect(tokenRow).toBeVisible({ timeout: 5_000 })
+  await expect(tokenRow).toBeVisible({ timeout: ms(5_000) })
   await page.getByRole('button', { name: 'Revoke', exact: true }).first().click()
   await page.getByRole('button', { name: 'Revoke token', exact: true }).click()
-  await expect(page.getByText('e2e console probe')).toHaveCount(0, { timeout: 5_000 })
+  await expect(page.getByText('e2e console probe')).toHaveCount(0, { timeout: ms(5_000) })
 
   // ── Ops: the stat tiles render from the live snapshot ──
   await sectionsNav(page).getByRole('button', { name: 'Ops', exact: true }).click()
@@ -84,7 +85,7 @@ test('the console: hidden unsigned, full for the maintainer, absent for everyone
   await expect(sectionsNav(grace).getByRole('button', { name: 'Maintain', exact: true })).toHaveCount(0)
   await grace.goto('/admin')
   await expect(grace.getByText('This console is for instance maintainers', { exact: false })).toBeVisible({
-    timeout: 5_000,
+    timeout: ms(5_000),
   })
 
   await graceCtx.close()

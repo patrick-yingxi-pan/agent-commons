@@ -5,7 +5,7 @@
  *
  *  The store is DOM-free precisely so the semantics can be exercised here; the
  *  round trip a reader actually makes (open → follow a byline → Back → still
- *  open) is the browser's job, in `e2e/social-layer.spec.ts`. */
+ *  open) is the browser's job, in `e2e/social-square.spec.ts`. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { filesUnder, read, sectionViewComponent, stripComments } from '../../tests/helpers/source.ts'

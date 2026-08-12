@@ -4,6 +4,7 @@
  *  create an ORG-OWNED project through the New-project owner picker and find it
  *  banded under "Your organizations" for both seats. */
 import { test, expect, type Browser, type Page } from '@playwright/test'
+import { ms } from './budget.ts'
 
 const STAMP = Date.now().toString(36)
 const FOUNDER = { name: `Org Founder ${STAMP}`, email: `founder-${STAMP}@example.test`, password: `founders-password-${STAMP}` }
@@ -18,11 +19,11 @@ async function signUp(page: Page, who: { name: string; email: string; password: 
   await page.getByTestId('auth-continue').click()
   await page.getByTestId('auth-password').fill(who.password)
   await page.getByTestId('auth-submit').click()
-  await expect(page.getByTestId('account-chip')).toContainText(who.name, { timeout: 5_000 })
+  await expect(page.getByTestId('account-chip')).toContainText(who.name, { timeout: ms(5_000) })
 }
 
 test('found an org → invite → accept → an org-owned project through the picker, banded for both seats', async ({ browser, page }) => {
-  test.setTimeout(120_000)
+  test.setTimeout(ms(120_000))
   await page.goto('/')
   await signUp(page, FOUNDER)
 
@@ -33,14 +34,14 @@ test('found an org → invite → accept → an org-owned project through the pi
   await page.getByTestId('org-submit').click()
   // The door: the org's namespace page (D21) with the MEMBER PANEL — served for
   // seats even though the org shares nothing public yet.
-  await expect(page.getByTestId('org-member-panel')).toBeVisible({ timeout: 5_000 })
+  await expect(page.getByTestId('org-member-panel')).toBeVisible({ timeout: ms(5_000) })
   await expect(page.getByTestId('org-member-panel')).toContainText(FOUNDER.name)
   await expect(page.getByTestId('org-member-panel')).toContainText('owner')
 
   // ── Invite Grace (a seed with a documented credential) by email ──
   await page.getByLabel('Invite by email').fill('grace@acme.example')
   await page.getByLabel('Invite by email').press('Enter')
-  await expect(page.getByTestId('org-member-panel')).toContainText('grace@acme.example', { timeout: 5_000 })
+  await expect(page.getByTestId('org-member-panel')).toContainText('grace@acme.example', { timeout: ms(5_000) })
 
   // ── Grace accepts from HER chip menu (a second browser context) ──
   const graceCtx = await browser.newContext()
@@ -56,7 +57,7 @@ test('found an org → invite → accept → an org-owned project through the pi
   await expect(grace.getByTestId('org-invite-row')).toContainText(ORG)
   await grace.getByTestId('org-invite-accept').click()
   // The seat mints; the menu's Organizations section now carries the door.
-  await expect(grace.getByTestId('org-option')).toContainText(ORG, { timeout: 5_000 })
+  await expect(grace.getByTestId('org-option')).toContainText(ORG, { timeout: ms(5_000) })
 
   // ── Grace creates an ORG-OWNED project through the owner picker ──
   await grace.keyboard.press('Escape') // close the menu
@@ -74,7 +75,7 @@ test('found an org → invite → accept → an org-owned project through the pi
 
   // ── The FOUNDER sees the same project through their seat (the union) ──
   await page.getByRole('navigation').getByRole('button', { name: 'Projects', exact: true }).click()
-  await expect(page.getByText('Your organizations')).toBeVisible({ timeout: 5_000 })
+  await expect(page.getByText('Your organizations')).toBeVisible({ timeout: ms(5_000) })
   // Scoped to the page — the rail lists the same project now (UI-19).
   await expect(page.getByRole('main').getByText(PROJECT)).toBeVisible()
 
