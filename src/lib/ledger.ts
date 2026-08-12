@@ -34,15 +34,53 @@
  *  the recipe from here — a ledger row inside a card is the box-in-box defect
  *  this module exists to end, and src/lib/ledger.test.ts scans for regressions. */
 
-/** The container: one border, small radius, hairline dividers between children
- *  (the head included). `overflow-hidden` keeps row hover washes inside the
- *  rounded corners. */
-export const LEDGER_BOX_CLASS = 'divide-y divide-line overflow-hidden rounded-md border border-line'
+/** The collection: hairline dividers between rows, and **no frame of its own**
+ *  (owner directive 2026-08-12 — *"remove boxes for items in sections, they are
+ *  visual noise; make section titles and boundaries more clear"*).
+ *
+ *  This replaced `LEDGER_BOX_CLASS`, which added `rounded-md border border-line
+ *  overflow-hidden` around the same rows. The 2026-07-31 flat pass had already
+ *  made that argument once and stopped one step short: it removed the card
+ *  chrome (16px radius, shadow, surface fill) because it out-talked the content,
+ *  and kept a lighter box. Seventeen of them on a page of eight sections is the
+ *  same defect at lower volume — a page reads as a stack of containers before it
+ *  reads as content.
+ *
+ *  **The structure moves UP, to the section title.** A collection sitting under a
+ *  titled section never needed to say "I am a group" — the title already did,
+ *  and the two together said it twice. So the boundary is one horizontal stroke
+ *  under the heading (`LEDGER_RULE_CLASS`) instead of four around the list, and
+ *  the row dividers that survive are doing a different job: separating items, not
+ *  enclosing them.
+ *
+ *  `overflow-hidden` went with the radius it existed to clip, which is the point
+ *  worth remembering if a hover wash ever needs to bleed past a row again. */
+export const LEDGER_LIST_CLASS = 'divide-y divide-line'
 
-/** The container's header band: quiet panel fill, one weight, room for a count
- *  chip and a right-aligned action cluster. */
+/** The boundary a section title draws under itself — the stroke that replaced
+ *  the box. One home, because it is now the ONLY thing separating a section from
+ *  the next one, and a page where half the sections drew it would read as
+ *  broken rather than as quiet.
+ *
+ *  **`line-strong`, where the row dividers are `line`.** That ordering is the
+ *  point and not a preference: after the boxes came off, a section boundary and
+ *  a row separator were the same hairline, so a page of eight sections and
+ *  thirty rows read as thirty-eight equal strokes with no hierarchy in them —
+ *  quieter than the boxes and less legible, which is half of what was asked for
+ *  and the wrong half. One step up is enough to rank them, and `line-strong` is
+ *  the step the palette already defines in both modes (#d9cbc7 / #4c4143). */
+export const LEDGER_RULE_CLASS = 'border-b border-line-strong'
+
+/** A collection's own header row, where it has one that is not a page section's
+ *  (a titled sub-list: "Recent runs", "Workflow", a project group's name).
+ *
+ *  It lost its `bg-panel` fill with the box. A filled band is a header INSIDE a
+ *  container; with no container it is a grey stripe lying on the canvas, which
+ *  is more chrome than the border it replaced, not less. It carries the rule
+ *  instead — the same stroke a section title draws, so a sub-list and a section
+ *  read as one kind of thing at two levels. */
 export const LEDGER_HEAD_CLASS =
-  'flex items-center gap-2 bg-panel px-3.5 py-2 text-[12px] font-semibold text-ink'
+  `flex items-center gap-2 ${LEDGER_RULE_CLASS} px-3.5 py-2 text-[12px] font-semibold text-ink`
 
 /** The count chip inside a ledger head. */
 export const LEDGER_COUNT_CLASS =

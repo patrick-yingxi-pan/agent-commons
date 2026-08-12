@@ -91,7 +91,7 @@ import { NotificationRow, type NotificationDoors } from './NotificationList'
 import { doorFor } from '../lib/notificationDoor'
 import { DOOR_CLASS, STANDING_DOOR_CLASS } from '../lib/textDoor'
 import { CARD_DOOR_CLASS, ROW_DOOR_CLASS, cardDoorClick, isCardControlClick } from '../lib/cardDoor'
-import { LEDGER_BOX_CLASS, LEDGER_HEAD_CLASS, LEDGER_COUNT_CLASS, LEDGER_ROW_CLASS, QUIET_CARD_CLASS } from '../lib/ledger'
+import { LEDGER_LIST_CLASS, LEDGER_HEAD_CLASS, LEDGER_COUNT_CLASS, LEDGER_ROW_CLASS, LEDGER_RULE_CLASS, QUIET_CARD_CLASS } from '../lib/ledger'
 import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
 import { SOFT_BUTTON_CLASS, DANGER_BUTTON_CLASS, SECONDARY_BUTTON_CLASS } from '../lib/button'
 import { composerRows, FIELD_BARE_CLASS, FIELD_SHELL_CLASS, FORM_INPUT_CLASS } from '../lib/formInput'
@@ -643,7 +643,7 @@ function ProjectsSection({
   // stacked a border + radius + shadow around every project; the ledger draws
   // one frame and lets hairlines divide the rows.
   const ledger = (items: Project[], head: string) => (
-    <div className={LEDGER_BOX_CLASS}>
+    <div className={LEDGER_LIST_CLASS}>
       <div className={LEDGER_HEAD_CLASS}>
         {head}
         <span className={LEDGER_COUNT_CLASS}>{items.length}</span>
@@ -2747,7 +2747,7 @@ function WorkItemPage({
         <div className="mb-4">
           <BackButton to={backTo} onBack={onBack} />
         </div>
-        <Empty>This work item no longer exists on “{project.name}”.</Empty>
+        <PageEmpty>This work item no longer exists on “{project.name}”.</PageEmpty>
       </Page>
     )
   }
@@ -4187,7 +4187,7 @@ function CommonsSection({ lens }: { lens: string | null }) {
           a place whose filter the new post may not even satisfy. */}
       {lens === null && <PostComposer />}
       {list.length === 0 ? (
-        <Empty>
+        <PageEmpty>
           {/* A lens names the act that fills it; a facet says what it found
               nothing of; the bare feed explains what a post even is. */}
           {lens
@@ -4195,7 +4195,7 @@ function CommonsSection({ lens }: { lens: string | null }) {
             : filter.facet !== 'all'
               ? `No ${filter.facet} in your commons yet.`
               : 'Nothing here yet — say something above, or share a resource with a note (the note is the post).'}
-        </Empty>
+        </PageEmpty>
       ) : (
         <div className="mx-auto w-full max-w-3xl space-y-4">
           {list.map((item) => (
@@ -4368,7 +4368,7 @@ function DiscussionPage({
             <h1 className={PAGE_TITLE_CLASS}>Discussion</h1>
           </div>
         </header>
-        <Empty>{q.error ? 'This discussion isn’t visible from this account (or no longer exists).' : 'Loading…'}</Empty>
+        <PageEmpty>{q.error ? 'This discussion isn’t visible from this account (or no longer exists).' : 'Loading…'}</PageEmpty>
       </Page>
     )
   }
@@ -4530,11 +4530,11 @@ function DiscussionsSection({
     <Page>
       <PageHeader title="Discussions" />
       {filtered.length === 0 ? (
-        <Empty>
+        <PageEmpty>
           {filter.facet !== 'all'
             ? `No ${filter.facet} discussions you participate in.`
             : 'No discussions yet — start one from any resource’s Discussion section.'}
-        </Empty>
+        </PageEmpty>
       ) : (
         <CardList>
           {filtered.map((d) => (
@@ -4775,9 +4775,9 @@ function MessagesSection() {
     <Page>
       <PageHeader title="Messages" />
       {list.length === 0 ? (
-        <Empty>
+        <PageEmpty>
           No messages yet — open someone’s profile from the commons and use “Message” to start one.
-        </Empty>
+        </PageEmpty>
       ) : (
         <CardList>
           {list.map((d) => {
@@ -5119,7 +5119,7 @@ function ContributionPage({
         <div className="mb-4">
           <BackButton to={backTo} onBack={onBack} />
         </div>
-        <Empty>This contribution no longer exists on “{project.name}”.</Empty>
+        <PageEmpty>This contribution no longer exists on “{project.name}”.</PageEmpty>
       </Page>
     )
   }
@@ -6721,7 +6721,7 @@ function ContextsSection({
                   onToggle={() => foldGroup(g.kind)}
                 />
                 {!isFolded && (
-                  <div className={LEDGER_BOX_CLASS}>
+                  <div className={LEDGER_LIST_CLASS}>
                     {g.items.map((c) => (
                       <ContextRow
                         key={c.id}
@@ -6789,7 +6789,7 @@ function McpAccessCard() {
     ? JSON.stringify({ mcpServers: { workspace: { type: 'http', url: mcpUrl, headers: { Authorization: `Bearer ${minted.token}` } } } }, null, 2)
     : null
   return (
-    <div className={`mt-8 ${LEDGER_BOX_CLASS}`}>
+    <div className={`mt-8 ${LEDGER_LIST_CLASS}`}>
       {/* The head's divider comes from the ledger's divide-y — no border-b here. */}
       <div className="flex items-center gap-2 px-4 py-3">
         <Server size={15} className="text-ink-soft" />
@@ -9648,7 +9648,7 @@ function OwnerProfilePage({
         {state.error ? (
           // The 404 face: an owner that shares nothing is indistinguishable
           // from one that doesn't exist (existence-hiding, D21).
-          <Empty>“{name}” shares nothing publicly — or doesn’t exist.</Empty>
+          <PageEmpty>“{name}” shares nothing publicly — or doesn’t exist.</PageEmpty>
         ) : null}
       </Page>
     )
@@ -10042,7 +10042,7 @@ function AgentPublicPage({
         {entries.data ? (
           // The 404 face: an unpublished definition is indistinguishable from one
           // that never existed (existence-hiding, D18).
-          <Empty>This definition isn’t in the directory — unpublished, or it never existed.</Empty>
+          <PageEmpty>This definition isn’t in the directory — unpublished, or it never existed.</PageEmpty>
         ) : null}
       </Page>
     )
@@ -10437,10 +10437,10 @@ function AdminSection({
       <div className="mx-auto w-full max-w-5xl px-6 py-6">
         <PageHeader title={meta.label} subtitle={meta.subtitle} />
         {!granted ? (
-          <Empty>
+          <PageEmpty>
             This console is for instance maintainers. Sign in as an account on the server’s
             MAINTAINERS allowlist to use it.
-          </Empty>
+          </PageEmpty>
         ) : subview === 'orgs' ? (
           <AdminOrgsPanel />
         ) : subview === 'credentials' ? (
@@ -10495,7 +10495,7 @@ function AdminUserDetail({ userId, onBack, backTo }: { userId: string; onBack: (
         </div>
       </header>
       {!row ? (
-        <Empty>{usersQ.error ? 'The account read failed — are you still on the maintainer allowlist?' : 'Loading account…'}</Empty>
+        <PageEmpty>{usersQ.error ? 'The account read failed — are you still on the maintainer allowlist?' : 'Loading account…'}</PageEmpty>
       ) : (
         <div className="space-y-5">
           {error && <p className="text-[12px] text-removed">{error}</p>}
@@ -11278,7 +11278,7 @@ function ScheduledSection({
                   onToggle={() => foldGroup(g.key)}
                 />
                 {!isFolded && (
-                  <div className={`${LEDGER_BOX_CLASS} ${g.key === 'paused' ? 'opacity-80' : ''}`}>
+                  <div className={`${LEDGER_LIST_CLASS} ${g.key === 'paused' ? 'opacity-80' : ''}`}>
                     {g.items.map((t) => (
                       <ScheduledRow
                         key={t.id}
@@ -11850,7 +11850,7 @@ function WorkflowCard({ task, run, running }: { task: ScheduledTask; run: Schedu
       : 'idle'
 
   return (
-    <div className={`${LEDGER_BOX_CLASS} ${SECTION_REVEAL_GROUP}`}>
+    <div className={`${LEDGER_LIST_CLASS} ${SECTION_REVEAL_GROUP}`}>
       <div className="flex items-center justify-between gap-2 px-4 py-3">
         <span className="text-[13px] font-semibold text-ink">Workflow</span>
         {editing ? (
@@ -12119,7 +12119,7 @@ function RunHistoryCard({
   onOpenRun: (id: string) => void
 }) {
   return (
-    <div className={LEDGER_BOX_CLASS}>
+    <div className={LEDGER_LIST_CLASS}>
       <div className="flex items-center justify-between px-4 py-3">
         <span className="text-[13px] font-semibold text-ink">Recent runs</span>
         {task.runs.length > 0 && <WeekStrip runs={task.runs} />}
@@ -13259,7 +13259,28 @@ function FoldSection({
           between twelve one-line rows — an index that scrolls. Only the
           summary-less case: a stub with words under it still needs the gap it
           would have had. */}
-      <div className={`flex items-center justify-between gap-2 ${folded && summary === undefined ? '' : 'mb-2'}`}>
+      {/* ── The title IS the boundary now ──────────────────────────────────
+          The collections underneath lost their boxes (owner directive
+          2026-08-12: *"remove boxes for items in sections, they are visual
+          noise … make section titles and boundaries more clear"*), so the
+          structure they were carrying has to be carried here instead — a rule
+          under the heading rather than a frame around each list.
+
+          One stroke per section replaces four per collection, and it is doing
+          the job the box was only half doing: a box says "these rows belong
+          together", which the title already said; a rule says "the section
+          starts HERE", which nothing was saying.
+
+          The label goes with it, from `ink-faint` to `ink-soft`. Faint was
+          calibrated when the box was the structure and the label only named it;
+          with the box gone the label is load-bearing, and the quietest ink in
+          the ramp is the wrong weight for the only thing separating two
+          sections. */}
+      <div
+        className={`flex items-center justify-between gap-2 ${LEDGER_RULE_CLASS} pb-1.5 ${
+          folded && summary === undefined ? '' : 'mb-2'
+        }`}
+      >
         <button
           onClick={() => setFolded(!folded)}
           aria-expanded={!folded}
@@ -13270,7 +13291,7 @@ function FoldSection({
             className={`shrink-0 text-ink-faint transition group-hover:text-ink-soft ${folded ? '-rotate-90' : ''}`}
           />
           {icon}
-          <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-ink-faint">{title}</span>
+          <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-ink-soft">{title}</span>
         </button>
         {actions && <SectionActions revealed={revealActions}>{actions}</SectionActions>}
       </div>
@@ -13296,21 +13317,63 @@ function FoldSection({
   )
 }
 
-/** The one main-column LIST container (Recent sessions' box, shared): the ITEMS are
- *  what's contained — one bordered frame around the list, rows divided — while the
- *  section around it stays a bare heading (S17). The chrome is the shared ledger
- *  recipe (lib/ledger): this container predates the flat direction and wore the
- *  card chrome (rounded-xl + shadow) until the 2026-07-31 conversion. */
+/** The one main-column LIST container: rows divided by hairlines, and NOTHING
+ *  around them (owner directive 2026-08-12 — the boxes are visual noise).
+ *
+ *  Its whole history is one argument, made in three steps and each time by
+ *  removing something. It began as a pile of per-item cards; the 2026-07-31 flat
+ *  pass replaced that with one bordered container because the card chrome
+ *  out-talked its content; and this pass took the container's own frame because
+ *  seventeen of them on a page of eight sections was the same defect at lower
+ *  volume. What is left is the part that was always doing the work — a hairline
+ *  between one item and the next.
+ *
+ *  The structure it used to carry moved UP to the section title, which now draws
+ *  a rule (`LEDGER_RULE_CLASS`). A box under a title said "these belong
+ *  together" twice; the rule says "the section starts here", which nothing was
+ *  saying. Chrome comes from the shared recipe (lib/ledger) either way. */
 function CardList({ children }: { children: ReactNode }) {
-  return <div className={LEDGER_BOX_CLASS}>{children}</div>
+  return <div className={LEDGER_LIST_CLASS}>{children}</div>
 }
 
+/** A section with nothing in it — one quiet line, not a frame.
+ *
+ *  It was a dashed 12px-radius box with 48px of vertical padding, which made an
+ *  EMPTY section the loudest thing on a page: a bigger, more decorated shape
+ *  than the full sections around it, drawn to say that nothing is there. That
+ *  inverts the whole point of the pass that removed the list boxes — and it was
+ *  the more expensive of the two, at 39 call sites against 17.
+ *
+ *  Left-aligned rather than centred, because centring only reads as deliberate
+ *  inside a box: with the frame gone, a centred line floats in the column with
+ *  nothing explaining its position. Aligned to the column edge it sits exactly
+ *  where the section's first row would have been, which is what it stands in
+ *  for. */
 function Empty({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-xl border border-dashed border-line py-12 text-center text-[13px] text-ink-faint">
+    <div className="py-1.5 text-[13px] text-ink-faint">
       {children}
     </div>
   )
+}
+
+/** A PAGE with nothing on it — a different role, and it kept its presence.
+ *
+ *  Found by asking where `<Empty>` actually renders: ten of its call sites are
+ *  not a section's empty row but the page's whole content — "this work item no
+ *  longer exists", "this console is for instance maintainers", the Commons feed
+ *  with no posts. Collapsing those to a left-aligned line put a stray sentence
+ *  under a heading on an otherwise blank screen, which reads as a rendering bug
+ *  rather than as an answer.
+ *
+ *  So the two forms split, because they are two roles (form follows function):
+ *  a section's empty state stands in for a ROW and belongs where that row would
+ *  be; a page's empty state stands in for the PAGE and has to occupy it. Both
+ *  lost the dashed frame — that was the noise, and neither role needs it. What
+ *  a page keeps is the space and the centring, which only ever read as
+ *  deliberate because something was holding them. */
+function PageEmpty({ children }: { children: ReactNode }) {
+  return <div className="py-16 text-center text-[13px] text-ink-faint">{children}</div>
 }
 
 function DispatchStatus({ status }: { status: DispatchRun['status'] }) {

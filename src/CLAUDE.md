@@ -49,11 +49,24 @@ awkward to assert is usually a rule whose logic wants to move.
   rose-cast linen neutrals — every neutral biased toward the accent's hue, the
   2026-08-03 harmonization; canvas and surface share one value — boundaries are
   hairlines and spacing, not fill contrast). Containment is semantic: a COLLECTION renders as
-  one bordered container with divider rows when its items are one-liners
-  (Projects, Contexts, Scheduled, `CardList`), or a stack/grid of QUIET CARDS
+  **hairline-divided rows with NO frame** when its items are one-liners
+  (Projects, Contexts, Scheduled, `CardList` — `LEDGER_LIST_CLASS`), or a
+  stack/grid of QUIET CARDS
   when they carry rich bodies (Artifacts, the Commons feed, the Models
-  management cards) — both recipes live in `src/lib/ledger.ts`, with the radius
-  scale: CONTROLS and collections 6px (`rounded-md` — buttons via
+  management cards) — both recipes live in `src/lib/ledger.ts`. **The structure
+  a collection used to draw around itself lives on its SECTION TITLE now**
+  (owner directive 2026-08-12: *"remove boxes for items in sections, they are
+  visual noise; make section titles and boundaries more clear"*) — one rule
+  under the heading (`LEDGER_RULE_CLASS`, `border-line-strong`) instead of four
+  sides around each list, with the label at `ink-soft` since it is now
+  load-bearing rather than merely naming a box. The rule outranks the row
+  dividers (`line`) ON PURPOSE: equal hairlines made a page of eight sections
+  and thirty rows read as thirty-eight equal strokes, which is quieter than the
+  boxes and less legible — half of what was asked for, and the wrong half. An
+  empty section is one quiet line, not a dashed frame: it was the louder defect
+  of the two, at 39 call sites against 17, drawing a bigger shape to say that
+  nothing is there. Radius
+  scale: CONTROLS 6px (`rounded-md` — buttons via
   `src/lib/button.ts`'s one solid/danger face and the bordered secondaries,
   fields via `src/lib/formInput.ts`), cards and hover-row fills 8px,
   standalone objects and dialogs 12px. An interactive

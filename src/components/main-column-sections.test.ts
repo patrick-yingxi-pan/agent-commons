@@ -18,20 +18,23 @@
  *  (configuration folded, content open), and that nothing folds to a gap. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
+import { ROOT, read, sectionViewComponent, stripComments } from '../../tests/helpers/source.ts'
 
-const src = readFileSync(fileURLToPath(new URL('./SectionView.tsx', import.meta.url)), 'utf8')
+const src = read(join(ROOT, 'src', 'components', 'SectionView.tsx'))
 
-/** The source of one top-level function — from its `function Name` to the next
- *  top-level `function `/`const ` declaration (column-0 anchored). */
-const fn = (name: string): string => {
-  const start = src.indexOf(`function ${name}`)
-  assert.ok(start >= 0, `function ${name} exists in SectionView`)
-  const rest = src.slice(start + 1)
-  const next = rest.search(/\n(?:export )?(?:function|const) /)
-  return src.slice(start, next >= 0 ? start + 1 + next : undefined)
-}
+/** One component's source, COMMENT-STRIPPED, through the SHARED extractor.
+ *
+ *  Both halves were mistakes here before they were rules. This suite hand-rolled
+ *  its own extractor while `tests/helpers/source.ts` already held the one
+ *  `social-ui.test.ts` uses — two parsers for one file, which is the drift these
+ *  locks exist to prevent, one level up. And it read RAW source: an extracted
+ *  body runs to the next top-level declaration, so it carries that declaration's
+ *  doc comment, and "FoldSection draws no card chrome" failed on the words
+ *  "rounded-xl + shadow" inside `CardList`'s comment — prose describing chrome
+ *  that had been removed a year earlier. A source scan that reads comments is
+ *  asserting about comments. */
+const fn = (name: string): string => stripComments(sectionViewComponent(name))
 
 /** Every `<FoldSection …>` opening tag's prop text.
  *
@@ -63,10 +66,19 @@ test('S17 — sections are bare headings with carded lists, and there is ONE pri
   // section. This is the assertion that outlived the MainSection/SidePanel
   // split, restated against the survivor.
   const section = fn('FoldSection')
-  assert.ok(
-    !/className="[^"]*(?:border|shadow)/.test(section),
-    'FoldSection itself draws no box — the LIST cards, not the section',
-  )
+  // No BOX — and since 2026-08-12 no box anywhere under it either: the lists
+  // lost their frames and the section draws one horizontal rule instead. So the
+  // assertion is now about the shape, not about who owns it. It also had to stop
+  // matching only `className="…"`: the header's class is a template literal, so
+  // the old spelling would have passed a hand-written border there by accident
+  // of quoting style rather than by being right.
+  // `rounded-md` is deliberately allowed: it is the radius of a hover WASH (the
+  // header button's, the folded summary row's), which is a control cue and not
+  // chrome — `FOLD_HEADER_CLASS` carries one itself. Card chrome starts one step
+  // up, and that is the line this draws.
+  assert.doesNotMatch(section, /rounded-(lg|xl|2xl|3xl)|shadow/, 'FoldSection draws no card chrome')
+  assert.doesNotMatch(section, /\bborder(?!-b\b)[- ]/, 'and no frame — only the bottom rule')
+  assert.match(section, /LEDGER_RULE_CLASS/, 'the boundary comes from the one home, not a hand-written border')
   // The two names it replaced cannot come back. An absence, because the failure
   // mode is additive: someone re-introduces a second section component and the
   // page has two looks again, which is the original defect verbatim.
@@ -117,6 +129,33 @@ test('the fold DEFAULTS are the owner’s split: configuration folded, content o
     assert.ok(open.includes(content), `${content} is a section on these pages`)
     assert.ok(!folded.includes(content), `${content} is content — it opens OPEN`)
   }
+})
+
+test('a PAGE with nothing on it is not a section row — the two empty states stay apart', () => {
+  // Both lost the dashed frame (owner directive 2026-08-12 — it was the noisier
+  // of the two shapes this pass removed, at 39 call sites against the lists' 17).
+  // What they did not lose is the difference between them: a section's empty
+  // state stands in for a ROW and sits where that row would be, while a page's
+  // stands in for the PAGE and has to occupy it. Collapsing both to a left-
+  // aligned line — which the first cut of this change did — puts a stray
+  // sentence under a heading on an otherwise blank screen.
+  const view = stripComments(src)
+  const lines = view.split('\n')
+  const strays: string[] = []
+  lines.forEach((line, i) => {
+    if (!/<Empty>/.test(line)) return
+    // A page-level position: the six lines above open a page rather than a list.
+    const above = lines.slice(Math.max(0, i - 6), i).join('\n')
+    if (/<\/header>|<PageHeader|<BackButton/.test(above)) strays.push(`line ${i + 1}`)
+  })
+  assert.deepEqual(strays, [], `these render a section's empty ROW where a page's empty state belongs: ${strays.join(', ')}`)
+  // Vacuity guards, both directions: the scan needs real subjects of each kind,
+  // or it passes over a file that has stopped using either component.
+  assert.ok(/<PageEmpty>/.test(view), 'the page-level form is in use')
+  assert.ok(/<Empty>/.test(view), 'and so is the section-level one')
+  assert.doesNotMatch(fn('Empty'), /border|rounded-/, 'a section’s empty state draws no frame')
+  assert.doesNotMatch(fn('PageEmpty'), /border|rounded-/, 'nor does a page’s')
+  assert.match(fn('PageEmpty'), /text-center/, 'but a page’s still occupies the page')
 })
 
 test('same-titled sections agree on their default — the key is the title', () => {

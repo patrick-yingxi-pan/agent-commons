@@ -13,7 +13,8 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { ROOT, filesUnder, read, stripComments } from '../../tests/helpers/source.ts'
 import {
-  LEDGER_BOX_CLASS,
+  LEDGER_LIST_CLASS,
+  LEDGER_RULE_CLASS,
   LEDGER_HEAD_CLASS,
   LEDGER_COUNT_CLASS,
   LEDGER_ROW_CLASS,
@@ -22,10 +23,27 @@ import {
 
 const FUNNEL = join('src', 'lib', 'ledger.ts')
 
-test('the ledger recipe is flat — dividers and a small radius, no resting elevation', () => {
-  for (const piece of ['divide-y', 'divide-line', 'rounded-md', 'border-line']) {
-    assert.ok(LEDGER_BOX_CLASS.includes(piece), `the box keeps "${piece}"`)
+test('the ledger recipe is flat AND frameless — dividers only, no box, no resting elevation', () => {
+  // The collection separates its rows and draws nothing around them (owner
+  // directive 2026-08-12). Stated as a presence AND an absence, because the
+  // absence is the whole revision: the 2026-07-31 pass had already asserted the
+  // presences while a border was still there.
+  for (const piece of ['divide-y', 'divide-line']) {
+    assert.ok(LEDGER_LIST_CLASS.includes(piece), `the list keeps "${piece}"`)
   }
+  for (const gone of [/border/, /border-/, /rounded-/, /overflow-hidden/]) {
+    assert.doesNotMatch(LEDGER_LIST_CLASS, gone, `the list draws no frame: "${LEDGER_LIST_CLASS}"`)
+  }
+  // The structure moved UP to the section title, so the stroke that replaced the
+  // box has to exist and has to be a single edge — a rule with four sides is the
+  // box coming back under a new name.
+  assert.match(LEDGER_RULE_CLASS, /border-b/, 'the boundary is one stroke')
+  assert.doesNotMatch(LEDGER_RULE_CLASS, /rounded-|shadow|border-[tlr]/, 'and only one')
+  // The sub-list head lost its panel FILL with the box: a filled band inside a
+  // container is a header, and the same band with no container is a grey stripe
+  // lying on the canvas — more chrome than the border it replaced, not less.
+  assert.doesNotMatch(LEDGER_HEAD_CLASS, /bg-panel/, 'the head band is not a fill any more')
+  assert.ok(LEDGER_HEAD_CLASS.includes(LEDGER_RULE_CLASS), 'it carries the same rule a section title does')
   // The quiet card — the gallery/feed item form — is just as flat: small radius,
   // hairline frame, and NO border color of its own (the flash arm owns color at
   // the call site; two border colors in one class attribute have no winner).
@@ -33,7 +51,7 @@ test('the ledger recipe is flat — dividers and a small radius, no resting elev
   assert.ok(!/border-(line|accent|ink)/.test(QUIET_CARD_CLASS), 'the quiet card leaves border color to the caller')
   // Elevation means FLOATING (popovers, dialogs). A resting collection casting a
   // shadow, or wearing the old card radius, is the regression this direction ends.
-  for (const cue of [LEDGER_BOX_CLASS, LEDGER_HEAD_CLASS, LEDGER_COUNT_CLASS, LEDGER_ROW_CLASS, QUIET_CARD_CLASS]) {
+  for (const cue of [LEDGER_LIST_CLASS, LEDGER_HEAD_CLASS, LEDGER_COUNT_CLASS, LEDGER_ROW_CLASS, QUIET_CARD_CLASS]) {
     assert.ok(!cue.includes('shadow'), `no resting shadow in "${cue}"`)
     assert.ok(!/rounded-(xl|2xl|3xl)/.test(cue), `no card radius in "${cue}"`)
   }
@@ -64,7 +82,7 @@ test('no file under src/ re-hardcodes a bordered divider container', () => {
   assert.deepEqual(
     offenders,
     [],
-    'a bordered divider container was spelled by hand — consume LEDGER_BOX_CLASS (src/lib/ledger.ts)',
+    'a bordered divider container was spelled by hand — and that shape is now doubly wrong: consume LEDGER_LIST_CLASS (src/lib/ledger.ts), which draws no frame at all',
   )
 })
 
@@ -99,7 +117,7 @@ test('the Projects hub consumes the ledger — and the card pile is gone', () =>
   const rel = join('src', 'components', 'SectionView.tsx')
   const src = stripComments(read(join(ROOT, rel)))
   assert.match(src, /from\s+'\.\.\/lib\/ledger'/, 'SectionView imports the shared recipe')
-  for (const symbol of ['LEDGER_BOX_CLASS', 'LEDGER_HEAD_CLASS', 'LEDGER_COUNT_CLASS']) {
+  for (const symbol of ['LEDGER_LIST_CLASS', 'LEDGER_HEAD_CLASS', 'LEDGER_COUNT_CLASS']) {
     assert.ok(src.includes(`{${symbol}}`), `SectionView renders with ${symbol}`)
   }
   // The row wears the shared skeleton AND the door cue — one template literal,
