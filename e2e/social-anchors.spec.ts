@@ -406,6 +406,11 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
   await graceCaret.click()
   await expect(graceUnfoldAll).toBeVisible()
   await graceCaret.click()
+  // …and NOT on an OPEN post whose branch holds no fold: nothing to discard, so
+  // the control would only repeat the caret. This is the complement of the rule
+  // below — the gate is "is there a fold in this branch", and both halves of it
+  // need an assertion or the widening turns into "always render".
+  await expect(graceUnfoldAll).toHaveCount(0)
   // …and never on a post with no replies at all: there is no branch to discard,
   // and the caret already says everything there is to say.
   //  Located by TEXT rather than by `has: p`: folding replaces the body <p>
@@ -421,8 +426,17 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
   // FIRST caret is ANSWER's own, not a descendant's.
   await answerRow.getByRole('button', { name: /’s post, / }).first().click() // fold ANSWER, which holds SECOND
   await expect(parent.locator('p', { hasText: SECOND })).toHaveCount(0)
-  await graceCaret.click() // then fold Grace's root over the top of it
-  // NOW it appears: her branch really does hold a folded post.
+  // ── It appears HERE, while Grace is still open ────────────────────────────
+  //  (owner directive 2026-08-12: *"the unfold all button should also be usable
+  //  when the corresponding fold/unfold button is in unfolded state, since the
+  //  user may want to unfold all sub-levels beneath it"*.) This is the state the
+  //  old `hidden` gate refused, and it is the one where the caret is no help at
+  //  all: pressing Grace's caret folds her, and unfolding restores the same
+  //  buried stub. The only way to flatten this branch was the thread-wide
+  //  Unfold all, which discards every OTHER branch's arrangement to do it.
+  await expect(graceUnfoldAll).toBeVisible()
+  await expect(graceCaret).toHaveAttribute('aria-expanded', 'true')
+  await graceCaret.click() // and it survives folding her root over the top of it
   await expect(graceUnfoldAll).toBeVisible()
 
   // ── …and it costs the row NOTHING ─────────────────────────────────────────
@@ -471,11 +485,14 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
   await expect(graceUnfoldAll).toHaveCount(0)
 
   // ── …and each discard is its own caret's SHADOW ───────────────────────────
-  //  (owner directive 2026-08-11.) A sibling a fixed distance to the caret's
-  //  left, on the caret's line, with that distance IDENTICAL at every depth.
-  //  The control follows the toggle it modifies; it has no position of its own.
+  //  (owner directive 2026-08-11, moved onto the other axis 2026-08-12: *"…
+  //  immediately below the corresponding fold/unfold button and vertically
+  //  aligned with it, instead of being left to it and horizontally aligned"*.)
+  //  A sibling a fixed distance BELOW the caret, in the caret's own column,
+  //  with that distance IDENTICAL at every depth. The control follows the
+  //  toggle it modifies; it has no position of its own.
   //
-  //  Measured as a RELATION — gap to its own caret, and shared centre line —
+  //  Measured as a RELATION — gap to its own caret, and shared centre column —
   //  never as an absolute x. An absolute-x assertion is what encoded the third
   //  wrong reading of this rule (one column down the page), and it passed
   //  happily while the gap grew by a level of indent every step down the tree.
@@ -507,32 +524,47 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
         const caret = (e.closest('div') as HTMLElement).querySelector('button:not([aria-label^="Unfold "])')
         const c = (caret as HTMLElement).getBoundingClientRect()
         return {
-          gap: Math.round(c.left - d.right),
-          dy: Math.round(d.top + d.height / 2 - (c.top + c.height / 2)),
+          gap: Math.round(d.top - c.bottom),
+          dx: Math.round(d.left + d.width / 2 - (c.left + c.width / 2)),
           x: Math.round(d.left),
         }
       }),
     )
   expect(pairs.length, 'controls at more than one depth are on screen').toBeGreaterThan(1)
-  // Each control sits at its OWN depth's x — it follows its caret's indent
-  // rather than lining up down the page. Half of "shadow", and the half a
-  // one-column implementation fails: there the two would share an x.
+  // Each control sits in its OWN caret's column — it follows that caret's
+  // indent rather than lining up down the page. Half of "shadow", and the half
+  // a one-column implementation fails.
+  //
+  //  Stated per-pair (`dx`) rather than as "every x is distinct", which is what
+  //  it used to say and could no longer be true: the control now also stands on
+  //  an OPEN post holding a folded one, so this very measurement has two
+  //  controls at depth 0 on screen — Grace's and the other root's — and a
+  //  distinct-x assertion would fail on correct layout. `dx` is the claim that
+  //  was actually meant, and it is the stronger one: it names each control's own
+  //  caret instead of inferring the relation from a set of numbers.
+  for (const p of pairs) {
+    expect(Math.abs(p.dx), `each shadow is in its own caret's column (off by ${p.dx}px)`).toBeLessThanOrEqual(1)
+  }
+  // …and the column is not vacuously shared because everything is at one depth.
   expect(
     new Set(pairs.map((p) => p.x)).size,
-    `each shadow follows its own caret's indent — x ${pairs.map((p) => p.x).join(', ')}`,
-  ).toBe(pairs.length)
+    `more than one depth is represented — x ${pairs.map((p) => p.x).join(', ')}`,
+  ).toBeGreaterThan(1)
   expect(
     new Set(pairs.map((p) => p.gap)).size,
-    `every discard sits the same distance from its own caret — gaps ${pairs.map((p) => p.gap).join(', ')}`,
+    `every discard sits the same distance below its own caret — gaps ${pairs.map((p) => p.gap).join(', ')}`,
   ).toBe(1)
   // Within a pixel, not exactly zero. `devices['Desktop Chrome']` pins
-  // deviceScaleFactor to 1, where this is 0 — but the same code measures 0.67px
-  // off at DPR 1.5 (centres 467.67 vs 467.00), because an abspos box's static
-  // position lands on a fractional device pixel. That is sub-pixel snapping, not
-  // a layout error; the defect this guards was 4px. An exact-zero assertion here
-  // would fail the day anyone adds a fractional-DPR project and would blame the
-  // wrong thing.
-  for (const p of pairs) expect(Math.abs(p.dy), `and on its caret's line (off by ${p.dy}px)`).toBeLessThanOrEqual(1)
+  // deviceScaleFactor to 1, where this is 0 — but the same code measured 0.67px
+  // off at DPR 1.5 (centres 467.67 vs 467.00) on the horizontal axis this
+  // assertion used to run on, because an abspos box's static position lands on a
+  // fractional device pixel. That is sub-pixel snapping, not a layout error; the
+  // defect this guards was 4px. An exact-zero assertion here would fail the day
+  // anyone adds a fractional-DPR project and would blame the wrong thing.
+  //
+  //  The gap is expected to be 0 (`top-full` abuts the gutter's box exactly),
+  //  and it is asserted as CONSTANT rather than as zero: zero is this cut's
+  //  choice of spacing, while "the same at every depth" is the rule.
   await unfoldAll.click()
 
   // Nothing is folded anywhere now, so "Unfold all" has no work and correctly
@@ -559,14 +591,51 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
   // this button past 1000.
   expect(replyBox.x - bylineBox.x).toBeLessThan(400)
   expect(rowBox.x + rowBox.width - replyBox.x).toBeGreaterThan(300)
-  // …and the trash stands apart from the endorsement it sits beside, so the
-  // click that meant "endorse" cannot land on "delete" (same directive).
-  const likeBox = await parent.getByRole('button', { name: /endorse/i }).first().boundingBox()
-  const trashBox = await parent.getByRole('button', { name: /^(Delete|Retract) this post$/ }).first().boundingBox()
-  if (!likeBox || !trashBox) throw new Error('endorse / trash not laid out')
-  const trashGap = trashBox.x - (likeBox.x + likeBox.width)
-  const replyGap = likeBox.x - (replyBox.x + replyBox.width)
-  expect(trashGap).toBeGreaterThan(replyGap + 8)
+  // ── The ENDORSEMENT leads the cluster ────────────────────────────────────
+  //  (owner report 2026-08-12: *"a clicked like button is displayed immediately
+  //  after the line's text without long whitespaces"*.) It is the one act that
+  //  survives the mouse leaving — with a count on it, it drops HOVER_REVEAL —
+  //  and `HOVER_REVEAL` is `opacity-0`, not `hidden`, so the invisible acts in
+  //  front of it kept their boxes. Ordered third it therefore sat ~52px clear
+  //  of the byline it belongs to, and the size of that gap depended on how many
+  //  hidden controls the post happened to have.
+  //
+  //  Measured against the TIMESTAMP, not asserted as DOM order: "the endorse
+  //  button is the first child" would also pass with a 52px margin on it, which
+  //  is the defect. The 8px is the byline's own `gap-x-2`.
+  const acts = await byline
+    .locator('> div')
+    .first()
+    .getByRole('button')
+    .evaluateAll((els) =>
+      els.map((e) => {
+        const r = e.getBoundingClientRect()
+        return { name: e.getAttribute('aria-label') ?? '', left: r.left, right: r.right }
+      }),
+    )
+  expect(acts.length, 'the byline carries a cluster of acts').toBeGreaterThan(2)
+  expect(acts[0].name, `the endorsement leads — got ${acts.map((a) => a.name).join(' | ')}`).toMatch(/endorse/i)
+  const timeBox = await byline.locator('> span').last().boundingBox()
+  if (!timeBox) throw new Error('timestamp not laid out')
+  expect(
+    Math.round(acts[0].left - (timeBox.x + timeBox.width)),
+    'the endorsement starts one byline gap after the timestamp, not behind a run of invisible boxes',
+  ).toBeLessThan(12)
+
+  // …and the trash stands apart from the acts it sits beside, so the click that
+  // meant "endorse" cannot land on "delete" (same directive). Stated over the
+  // ADJACENT gaps rather than endorse→trash: the endorsement moved to the front
+  // of the cluster, and the old spelling measured across the two controls now
+  // between them — which made the assertion pass for the wrong reason (a
+  // negative "reply gap") instead of failing.
+  const gaps = acts.slice(1).map((a, i) => Math.round(a.left - acts[i].right))
+  const trashAt = acts.findIndex((a) => /^(Delete|Retract) this post$/.test(a.name))
+  expect(trashAt, 'the retract is in this cluster and is not the first thing in it').toBeGreaterThan(0)
+  const others = gaps.filter((_, i) => i !== trashAt - 1)
+  expect(others.length, 'there are ordinary gaps to compare the retract’s against').toBeGreaterThan(0)
+  expect(gaps[trashAt - 1], `retract gap ${gaps[trashAt - 1]} vs ordinary ${others.join(', ')}`).toBeGreaterThan(
+    Math.max(...others) + 8,
+  )
 
   // ── "only this" is a glyph that explains itself ───────────────────────────
   //  (owner directive 2026-08-11: "invent an icon for the only this button,

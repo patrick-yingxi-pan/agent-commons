@@ -108,6 +108,7 @@ import { mentionHint, squareVoices, workItemVoices } from '../lib/mentionPicker'
 import { useMentionPicker } from '../lib/useMentionPicker'
 import {
   ancestorsOf,
+  branchHasFold,
   buildReplyTree,
   descendantsOf,
   foldOthers,
@@ -3035,15 +3036,32 @@ function DiscussionPostList({
      *  obvious thing to try is Fold all, and Fold all leaves interiors alone,
      *  so the control was absent exactly there. Asked for twice in one session,
      *  a control is not discoverable; predictable placement beats a saved
-     *  glyph, and where nothing is buried it simply agrees with the caret. */
-    const unfoldBranch = hidden && branch > 0 && (
+     *  glyph, and where nothing is buried it simply agrees with the caret.
+     *
+     *  …and on an OPEN post that holds a folded one (owner directive
+     *  2026-08-12: *"the unfold all button should also be usable when the
+     *  corresponding fold/unfold button is in unfolded state, since the user may
+     *  want to unfold all sub-levels beneath it"*). The gate used to be `hidden`
+     *  alone, which put the control exactly where it was least needed and
+     *  removed it exactly where it was most: on a FOLDED post the caret already
+     *  opens the top level, while on an OPEN post whose interior you have picked
+     *  apart by hand the caret is no help at all — it folds the post, and
+     *  unfolding restores the same buried stubs. The only control that would
+     *  flatten that branch was "Unfold all" at the thread's head, which pays for
+     *  it by discarding every other branch's arrangement too. The predicate is
+     *  `branchHasFold` (`src/lib/replyTree.ts`), where a node test can hold its
+     *  truth table; the rule it states is simply "render where there is a fold
+     *  in this branch to discard". */
+    const unfoldBranch = branchHasFold(hidden, kin, folded) && (
       // The POSITIONING sits outside the Tooltip, not on the button. Tooltip
       // wraps its child in a `relative inline-flex` span of its own, so an
       // `absolute` on the button resolves against THAT span rather than the
-      // gutter — the offset still looked right horizontally (the span collapses
-      // to nothing at the gutter's start) and the vertical line was quietly
-      // wrong. Two pixels, invisible in a screenshot, caught by asserting the
-      // shared centre line rather than eyeballing it.
+      // gutter — under the old left-hand placement the offset still looked right
+      // horizontally (the span collapses to nothing at the gutter's start) and
+      // the vertical line was quietly wrong. Two pixels, invisible in a
+      // screenshot, caught by asserting the shared centre rather than
+      // eyeballing it. Now that the offset IS the vertical one, the same
+      // mistake would move the control by a whole row.
       <span className={DISCARD_SLOT_CLASS}>
       <Tooltip label="Unfold this branch and everything folded inside it">
         <button
@@ -3058,6 +3076,14 @@ function DiscussionPostList({
           // it is the last thing it ever does on this post — the control stops
           // existing the moment the branch is open. `aria-expanded` here would
           // claim a toggle that is not one.
+          //
+          // The name is the same in both states, and names the BRANCH, which is
+          // what the control acts on either way. Renaming it per state would be
+          // the mistake the caret's own comment above records — a control that
+          // renames itself reads as a new control each time — and here it would
+          // also be a distinction without a difference: on an open post the
+          // "unfold this post" half is simply a no-op, and it is the "everything
+          // folded inside it" half that the reader pressed it for.
           aria-label={`Unfold ${p.author}’s post and everything folded inside it`}
           className={`${FOLD_GUTTER_CLASS} flex h-4 items-center justify-center rounded text-ink-faint transition hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${HOVER_REVEAL}`}
         >
@@ -3084,18 +3110,20 @@ function DiscussionPostList({
               The accessible NAME is state-neutral and names the post, with
               `aria-expanded` carrying which state it is in — a disclosure that
               renames itself on every press reads as a new control each time. */}
-          {/* The gutter is `relative` so the unfold-all can hang OUT OF FLOW to
-              its left (owner directive 2026-08-11: *"a hover effect to the left
-              of the unfold button without affecting the indent of the texts to
-              the right"*). Out of flow is the whole point: the control appears
-              on some folded posts and not others, so any in-flow spelling of it
-              moves the words beside it. The previous cut reserved an in-flow
-              slot instead, which aligned the stubs with EACH OTHER by pushing
-              all of them 32px right of the open rows — a worse bug than the one
-              it fixed, and invisible unless you compare a folded post to an
-              unfolded one, which is exactly the comparison I had not made. */}
+          {/* The gutter is `relative` so the unfold-all can hang OUT OF FLOW
+              directly BELOW the caret, in the caret's own column (owner
+              directive 2026-08-12, moving it from the caret's left where the
+              2026-08-11 directive first put it — see `DISCARD_SLOT_CLASS`).
+              Out of flow is the whole point and did not change with the axis:
+              the control appears on some rows and not others, so any in-flow
+              spelling of it moves something. Horizontally that was the words
+              beside it — one cut reserved an in-flow slot and aligned the stubs
+              with EACH OTHER by pushing all of them 32px right of the open rows,
+              a worse bug than the one it fixed. Vertically it would be the row
+              height itself: a stub is one line tall, and a hover-revealed
+              control that grew it would make the thread twitch under the
+              mouse. */}
           <div className={`${FOLD_GUTTER_CLASS} relative mt-0.5 flex h-4 items-center`}>
-            {unfoldBranch}
           <button
             onClick={() => toggle(p.id)}
             aria-expanded={!hidden}
@@ -3115,6 +3143,15 @@ function DiscussionPostList({
               <ChevronRight size={12} className="shrink-0" />
             : <ChevronDown size={12} className="shrink-0" />}
           </button>
+          {/* AFTER the caret in the DOM, because it is now BELOW it on screen.
+              It used to be written first, which was right while it sat to the
+              caret's left: reading order and tab order agreed. Moving it down
+              without moving it here would have left a keyboard reader landing on
+              the discard before the toggle it modifies, in the opposite order to
+              what they can see (WCAG 2.4.3). It is absolutely positioned, so the
+              swap costs the layout nothing — which is exactly why it would have
+              been easy to miss. */}
+          {unfoldBranch}
           </div>
           {/* ── The stub ──────────────────────────────────────────────────────
               A folded post is an INDEX ENTRY, not a gap: who, when, the opening
@@ -3198,6 +3235,40 @@ function DiscussionPostList({
                     own line instead of squeezing the name to nothing, which is
                     the row-starvation UI-7 exists for. */}
                 <div className="flex shrink-0 items-center gap-0.5">
+                  {/* ── The endorsement goes FIRST ────────────────────────────
+                      It is the only act in this cluster that survives the mouse
+                      leaving: with a count on it, it drops HOVER_REVEAL and
+                      becomes part of the byline. Its neighbours do not — and
+                      `HOVER_REVEAL` is `opacity-0`, not `hidden`, so they keep
+                      their boxes while invisible. Ordered anywhere but first,
+                      an endorsed post therefore read "Grace Hopper · Jul 23 ·
+                      [52px of nothing] · 👍1" — the count floating clear of the
+                      line it belongs to, with the gap silently sized by how
+                      many hidden controls happened to precede it (owner
+                      report, 2026-08-12: *"a clicked like button is displayed
+                      immediately after the line's text without long
+                      whitespaces"*).
+
+                      So the rule is not "like is the most important verb" — it
+                      is that a PERSISTENT control cannot sit behind hidden ones
+                      and still look attached to the text. Anything else in this
+                      cluster that earns a resting state belongs in front of the
+                      hover-revealed ones too. */}
+                  <Tooltip label={p.reacted ? 'Remove your endorsement' : 'Endorse this post'}>
+                    <button
+                      onClick={() => onReact(p.id)}
+                      aria-pressed={p.reacted === true}
+                      aria-label={p.reacted ? 'Remove your endorsement' : 'Endorse this post'}
+                      className={`${POST_ACT_CLASS} gap-1 text-[11px] ${
+                        p.reacted
+                          ? 'text-accent'
+                          : `text-ink-faint hover:bg-panel-2 hover:text-ink ${p.reactions === 0 ? HOVER_REVEAL : ''}`
+                      }`}
+                    >
+                      <ThumbsUp size={12} />
+                      {p.reactions > 0 && <span className="tabular-nums">{p.reactions}</span>}
+                    </button>
+                  </Tooltip>
                   {/* "Fold the others" — a THREAD-WIDE act reached from one
                       post. Now a glyph like its neighbours (owner directive
                       2026-08-11), which costs it the warning its words carried,
@@ -3248,21 +3319,6 @@ function DiscussionPostList({
                       </button>
                     </Tooltip>
                   )}
-                  <Tooltip label={p.reacted ? 'Remove your endorsement' : 'Endorse this post'}>
-                    <button
-                      onClick={() => onReact(p.id)}
-                      aria-pressed={p.reacted === true}
-                      aria-label={p.reacted ? 'Remove your endorsement' : 'Endorse this post'}
-                      className={`${POST_ACT_CLASS} gap-1 text-[11px] ${
-                        p.reacted
-                          ? 'text-accent'
-                          : `text-ink-faint hover:bg-panel-2 hover:text-ink ${p.reactions === 0 ? HOVER_REVEAL : ''}`
-                      }`}
-                    >
-                      <ThumbsUp size={12} />
-                      {p.reactions > 0 && <span className="tabular-nums">{p.reactions}</span>}
-                    </button>
-                  </Tooltip>
                   {/* ── The gap before the irreversible one ───────────────────
                       Retract/Delete sits a deliberate step away from the verbs
                       it is nothing like (owner directive 2026-08-11: *"space

@@ -98,24 +98,52 @@ test('the shard groups PARTITION the spec files — every one, exactly once', ()
   }
 })
 
-test('the groups are BALANCED — the heaviest is not the whole suite', () => {
+test('the groups are BALANCED — the heaviest is not the whole suite, cache or no cache', () => {
   // Playwright's own `--shard=i/n` splits by declaration order and gave 34 / 16
-  // / 22 of 72; the sweep then waits on the unlucky lane. Weighed here by test
-  // COUNT on purpose — the planner splits by measured duration now, and this
-  // asserts the weaker property that survives an empty cache: no lane draws a
-  // pathological share of the files even when nothing has been measured yet.
-  const weights = new Map(specFiles().map((f) => [f.file, Math.max(1, f.tests)]))
-  const total = [...weights.values()].reduce((a, b) => a + b, 0)
-  for (const n of [2, 3, 4]) {
-    const load = specGroups(n).map((g) => g.reduce((s, f) => s + (weights.get(f) ?? 0), 0))
-    const heaviest = Math.max(...load)
-    // A greedy longest-first fit is within (4/3)·optimum; the single biggest
-    // file is an unavoidable floor, so the bound has to admit it.
-    const floor = Math.max(...weights.values())
-    assert.ok(
-      heaviest <= Math.max(floor, (total / n) * 1.5),
-      `n=${n}: heaviest lane ${heaviest} of ${total} — the split is lopsided (${load.join(' / ')})`,
-    )
+  // / 22 of 72; the sweep then waits on the unlucky lane.
+  //
+  //  TWO cases, because the planner has two inputs and this used to conflate
+  //  them. It asserted count-balance of a WEIGHT-driven split — measuring the
+  //  greedy fit against a quantity it was not optimising — which is green
+  //  exactly when the durations happen to track the counts. On a fresh clone
+  //  (no `.data/spec-weights.json`) the two are identical and it passed
+  //  vacuously; here, after a real sweep recorded shares, the same code gave
+  //  20 / 38 / 14 tests over three lanes and failed the machine rather than the
+  //  algorithm. A lock whose subject is a gitignored artifact tests something
+  //  different on every box, and green in CI was never evidence.
+  //
+  //  So each split is now weighed by the quantity it was built from.
+  //
+  //  **What each arm is worth, measured rather than assumed.** Mutating the
+  //  greedy fit to heaviest-first fails the no-cache arm immediately. Three
+  //  other mutations — splitting by FILE count, dropping the heaviest-first
+  //  sort, alphabetical order — pass BOTH arms: over 24 spec files and three
+  //  lanes, greedy is forgiving and a 1.5× bound is loose. So the recorded-share
+  //  arm has not been watched failing, and is a guard against a future planner
+  //  rather than a test that currently discriminates. Said here because the
+  //  opposite claim is what the old spelling made by accident.
+  const cases = [
+    { label: 'no cache — the split falls back to test count', files: specFiles('e2e', {}), of: (f) => Math.max(1, f.tests) },
+    { label: 'recorded shares — the split follows measured duration', files: specFiles(), of: (f) => f.weight },
+  ] as const
+  for (const { label, files, of } of cases) {
+    const weights = new Map(files.map((f) => [f.file, of(f)]))
+    const total = [...weights.values()].reduce((a, b) => a + b, 0)
+    for (const n of [2, 3, 4]) {
+      const load = specGroups(n, files).map((g) => g.reduce((s, f) => s + (weights.get(f) ?? 0), 0))
+      const heaviest = Math.max(...load)
+      // A greedy longest-first fit is within (4/3)·optimum; the single biggest
+      // file is an unavoidable floor, so the bound has to admit it — a lane can
+      // never be shorter than its longest spec, which is why splitting the
+      // biggest FILE is the only thing that moves that floor.
+      const floor = Math.max(...weights.values())
+      assert.ok(
+        heaviest <= Math.max(floor, (total / n) * 1.5),
+        `${label}, n=${n}: heaviest lane ${heaviest.toFixed(3)} of ${total.toFixed(3)} — lopsided (${load
+          .map((v) => v.toFixed(3))
+          .join(' / ')})`,
+      )
+    }
   }
 })
 

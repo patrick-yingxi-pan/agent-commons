@@ -112,6 +112,36 @@ export function descendantCount<P extends ReplyLike>(childrenOf: Map<string, P[]
   return descendantsOf(childrenOf, id).size
 }
 
+/** Whether the per-post unfold-all has anything to discard here — the render
+ *  gate for the control `DISCARD_SLOT_CLASS` places.
+ *
+ *  A branch is the post PLUS everything under it, and the control opens all of
+ *  it, so the question is whether any of that is folded. Two ways to be:
+ *
+ *  - the post itself is folded (`hidden`) — the case it was built for, and it
+ *    stands there whether or not the interior is clean, so the control has a
+ *    predictable place rather than a clever one;
+ *  - the post is OPEN and something inside it is folded (owner directive
+ *    2026-08-12). That case was missing, and it is the one where the caret is
+ *    least able to help: an open post's caret folds it, and unfolding restores
+ *    the same buried stubs, so a reader looking at a branch they have picked
+ *    apart by hand had no control that would flatten it. "Unfold all" at the
+ *    thread's head is the only thing that would, and it discards the fold state
+ *    of every OTHER branch to do it.
+ *
+ *  Pure, and separated from the component for the reason `src/lib/CLAUDE.md`
+ *  gives: `node --test` has no DOM, so a predicate left inline in the JSX can
+ *  only ever be source-scanned. Here its truth table is testable. */
+export function branchHasFold(hidden: boolean, kin: ReadonlySet<string>, folded: ReadonlySet<string>): boolean {
+  if (kin.size === 0) return false
+  if (hidden) return true
+  // Iterate the FOLD SET and ask the branch, not the other way round: a reader
+  // folds a handful of posts where a branch may hold 199, and this runs once per
+  // row per render. Same answer either way; one of them is O(what you clicked).
+  for (const id of folded) if (kin.has(id)) return true
+  return false
+}
+
 /** Levels that still buy horizontal space. Past this the chain keeps NESTING —
  *  the relation is real, and re-attributing a deep reply to its grandparent is
  *  the falsehood the depth cap was removed for — but it stops spending width it
@@ -137,23 +167,44 @@ export const MAX_INDENT_DEPTH = 5
  *  off the rail. */
 export const FOLD_GUTTER_CLASS = 'w-4 max-sm:w-3 shrink-0'
 
-/** The unfold-all's placement: **out of flow, immediately left of the caret**
- *  (owner directive 2026-08-11 — *"a hover effect to the left of the unfold
- *  button without affecting the indent of the texts to the right of the
- *  button"*).
+/** The unfold-all's placement: **out of flow, directly BELOW the caret, in the
+ *  caret's own column** (owner directive 2026-08-12 — *"positioned immediately
+ *  below the corresponding fold/unfold button and vertically aligned with it,
+ *  instead of being left to it and horizontally aligned"*).
  *
- *  **It is the caret's SHADOW** (owner directive 2026-08-11, after three wrong
- *  readings of it): a sibling sitting a fixed distance to the caret's left, on
- *  the caret's own line, with **that distance identical at every depth**. It
- *  follows the toggle it modifies. It does not have a position of its own.
+ *  **It is still the caret's SHADOW**, and the shadow rule is what survived the
+ *  move: a sibling at a FIXED offset from the caret, **identical at every
+ *  depth**, following the toggle it modifies rather than holding a position of
+ *  its own. Only the axis changed — the offset used to be left, and is now
+ *  down. So the two controls now share a centre **column** where they shared a
+ *  centre **line**, which is the caret's own hairline (`FOLD_GUTTER_CLASS` is
+ *  half the child list's margin), and the pair reads as one vertical run: fold
+ *  here, and below it, open everything under here.
  *
- *  `absolute right-full` is exactly that and nothing more — offset from the
- *  gutter it lives in, so it inherits the gutter's indent for free. Which is
- *  why the gutter is `relative`. Sized to the caret too: same width, height and
- *  radius, two controls of one kind reading as a pair.
+ *  Why down beats left, having built both: to the caret's left is the one place
+ *  in this row that belongs to nothing — it is the parent branch's rail and the
+ *  page's own padding — so the control sat in a margin at depth 0 and inside
+ *  someone else's indent below that. Underneath is the space its own branch
+ *  occupies, which is what it acts on.
  *
- *  Four spellings were tried; three were wrong, and the wrong ones are the
- *  content of this comment:
+ *  `absolute left-0 top-full` is exactly that and nothing more — offset from
+ *  the gutter it lives in, so it inherits the gutter's indent for free. Which
+ *  is why the gutter is `relative`. `flex` on the slot, not decoration: the
+ *  Tooltip's `inline-flex` span would otherwise sit on a text baseline and take
+ *  that line box's leading, the same 4px error the vertical note below records.
+ *  Sized to the caret too: same width, height and radius, two controls of one
+ *  kind reading as a pair.
+ *
+ *  **No gap, deliberately.** `top-full` abuts the gutter's 16px box exactly, so
+ *  the glyphs sit ~4px apart (each is 12px in a 16px box) and the control ends
+ *  precisely where the next row's caret box begins. A stub is one line tall and
+ *  the rows are 12px apart, so any positive margin here puts a hover-revealed
+ *  control on top of the NEXT post's caret — the collision is only reachable on
+ *  a folded post, which is the state this control mostly renders in.
+ *
+ *  Five spellings were tried; three were wrong, and the wrong ones are the
+ *  content of this comment (the fourth is the left-hand shadow this replaced,
+ *  which was right about the relation and wrong about the axis):
  *
  *  1. **In flow, conditional.** Stubs landed at two x positions depending on
  *     what was folded inside them — 341 and 373, one above the other.
@@ -168,34 +219,39 @@ export const FOLD_GUTTER_CLASS = 'w-4 max-sm:w-3 shrink-0'
  *
  *  The lesson under all three: this control's position is not a layout decision
  *  to be optimised. It is a fixed relation to another control, and every
- *  attempt to improve on it broke the relation.
+ *  attempt to improve on it broke the relation. That is also why moving the
+ *  offset from left to down was a small change: the relation was already the
+ *  thing being held, and it is held on the other axis now.
  *
- *  Room, measured rather than assumed: at depth 0 the space to its left is the
- *  page's own padding — 63px at the desktop tier, 16px at the narrow one
- *  against a 12px caret. Deeper rows have that plus their indent, so depth 0 is
- *  the binding case.
+ *  Room, measured rather than assumed: the gutter column below a row is empty
+ *  for the whole height of the post — it is the run the child list's hairline
+ *  will occupy — so the binding case is not space but the NEXT row, which the
+ *  no-gap note above sizes against.
  *
- *  **Hidden on the narrow tier.** `HOVER_REVEAL` pins hover-revealed controls
- *  visible there (no hover to reveal them with), so this one would sit
- *  permanently 2px from the screen edge on any stub that qualified. The
- *  thread-level "Unfold all" does the same job one tap further away, so the
- *  cut costs reach, not capability.
+ *  **Hidden on the narrow tier**, still, for a different reason than before.
+ *  The old one was horizontal (2px from the screen edge) and the move retires
+ *  it. The one that replaces it: `HOVER_REVEAL` pins hover-revealed controls
+ *  visible where there is no hover, so every folded stub would grow a permanent
+ *  second glyph 4px above the next post's caret — two chevrons in one column,
+ *  belonging to two different posts. The thread-level "Unfold all" does the
+ *  same job one tap further away, so the cut costs reach, not capability.
  *
- *  **The vertical alignment comes from the classes that are NOT here.**
- *  Setting no `top` is deliberate and was arrived at backwards. An abspos box
- *  with no vertical anchor keeps its STATIC position — where it would have sat
- *  in flow — which inside the gutter's `items-center` row is already the
- *  caret's line. Adding `top-0` overrides that with the container's padding-box
- *  top, and because Tooltip wraps its child in an `inline-flex` span that lands
- *  on a text baseline, the control then hangs 4px low (measured: centre 214
- *  against the caret's 210). `top-0` was in this string for one commit as the
- *  supposed *fix* for that gap. It was the cause.
+ *  **`top-full` is an anchor, and it had to become one.** Setting no `top` used
+ *  to be deliberate: an abspos box with no vertical anchor keeps its STATIC
+ *  position — where it would have sat in flow — which inside the gutter's
+ *  `items-center` row was already the caret's line, and `top-0` (added once as
+ *  the supposed *fix* for a 4px drop) was in fact its cause, because Tooltip's
+ *  `inline-flex` span lands on a text baseline and takes that line box's
+ *  leading. Anchoring below means that leading is back in play, which is what
+ *  `flex` on the slot removes — the child is no longer an inline box, so there
+ *  is no line box to inherit a baseline from. The 4px is measured by the same
+ *  assertion as before (`e2e/social-anchors.spec.ts`), rotated: it now checks
+ *  the shared centre COLUMN and a constant vertical gap.
  *
  *  Four pixels is invisible in a screenshot and reads as unexplained
- *  sloppiness. Only the shared-centre-line assertion in
- *  `e2e/social-anchors.spec.ts` finds it — which is also how the mistake above
- *  was caught, by mutating the class and watching the lock stay green. */
-export const DISCARD_SLOT_CLASS = 'absolute right-full mr-1 max-sm:hidden'
+ *  sloppiness. Only that assertion finds it — which is also how the mistake
+ *  above was caught, by mutating the class and watching the lock stay green. */
+export const DISCARD_SLOT_CLASS = 'absolute left-0 top-full flex max-sm:hidden'
 
 /** The nested list's own class at `depth` (1 = an answer to a root post).
  *
