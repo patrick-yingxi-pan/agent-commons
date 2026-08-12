@@ -64,6 +64,31 @@ export async function createProject(page: Page, name: string) {
   await expect(page.getByRole('heading', { name })).toBeVisible()
 }
 
+/** Open one of the entity page's sections, if it is not open already.
+ *
+ *  Configuration sections open FOLDED (owner decision 2026-08-12 — see
+ *  `src/lib/sectionFold.ts`), so a walk that drives the Sharing form has to do
+ *  what a reader now does: open the section first. Four walks failed on the
+ *  sweep that landed the fold, all with the same shape — `getByLabel('Audience
+ *  kind')` waiting on a control that is no longer rendered.
+ *
+ *  Deliberately IDEMPOTENT rather than a plain click. The posture persists per
+ *  account in `localStorage`, and the e2e store is not the only thing that
+ *  survives a run — a walk that unconditionally clicked would open the section
+ *  on the first pass and CLOSE it on a re-run inside the same context, which is
+ *  the class of flake that reads as "the app broke" and is really the test
+ *  toggling. Scoped to the section headers so it cannot catch the rail's own
+ *  rows: the sidebar has a Scheduled pane whose routine rows are buttons named
+ *  "Scheduled", and an unscoped `getByRole` finds one of those first. */
+export async function openSection(page: Page, title: string) {
+  const header = page
+    .locator('section.group\\/section > div > button[aria-expanded]')
+    .filter({ hasText: new RegExp(`^${title}$`, 'i') })
+  await expect(header).toHaveAttribute('aria-expanded', /true|false/)
+  if ((await header.getAttribute('aria-expanded')) === 'false') await header.click()
+  await expect(header).toHaveAttribute('aria-expanded', 'true')
+}
+
 export async function openProject(page: Page, name: string) {
   await gotoSection(page, 'Projects')
   await page.getByText(name).first().click()

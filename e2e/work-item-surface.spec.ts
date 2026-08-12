@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { openSection } from './social-helpers.ts'
 
 /** Surface-audit S3 — a work item is a LIFECYCLE (posted → done/retracted) carrying
  *  prose to help a taker decide, not a bare status word. Locks, through the rendered
@@ -18,6 +19,9 @@ test('a work item reveals its note and a lifecycle timestamp (S3)', async ({ pag
 
   // Share it — the Open-work backlog (where WorkItemRow lives) renders on a GUARDED
   // project, and sharing assigns the guardian.
+  // Configuration sections open FOLDED (owner decision 2026-08-12), so the share
+  // controls are one click behind their header now — exactly as a reader finds them.
+  await openSection(page, 'Sharing')
   const share = page.getByTestId('share-toggle')
   await share.click()
   await expect(share).toHaveAttribute('aria-pressed', 'true')
@@ -65,6 +69,9 @@ test('a standing resolution renders the attribution chain: agent + owner door (F
   await page.getByRole('button', { name: 'New project' }).click()
   await page.getByPlaceholder('e.g. Insights dashboard').fill(NAME)
   await page.getByRole('button', { name: 'Create project' }).click()
+  // Configuration sections open FOLDED (owner decision 2026-08-12), so the share
+  // controls are one click behind their header now — exactly as a reader finds them.
+  await openSection(page, 'Sharing')
   const share = page.getByTestId('share-toggle')
   await share.click()
   await expect(share).toHaveAttribute('aria-pressed', 'true')

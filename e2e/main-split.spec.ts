@@ -204,16 +204,30 @@ test('a section page + its detail render correctly in a HALF-WIDTH pane — no h
   const detailHScroll = await paneB.evaluate((el) => el.scrollWidth > el.clientWidth + 1)
   expect(detailHScroll, 'the project DETAIL page fits the pane').toBe(false)
 
-  // And the detail's side column STACKS below the main column — the layout
-  // gates on the PANE's container width, not the (wide) viewport (UI-9
-  // generalized: `lg:flex-row` used to hold two squeezed columns here).
+  // The PROJECT detail has no side column to stack any more — it is one column
+  // of foldable sections at every width (owner directive 2026-08-12). Asserted
+  // as an absence rather than deleted, because "no aside" is now the claim: this
+  // arm used to prove the two columns stacked here, and a silent removal would
+  // leave the walk looking like it still checked something about them.
+  await expect(paneB.locator('aside')).toHaveCount(0)
+
+  // …so UI-9's stacking rule follows the pages that still HAVE two columns. A
+  // routine's detail does, and the rule is the point: the layout gates on the
+  // PANE's container width, not the (wide) viewport — `lg:flex-row` used to hold
+  // two squeezed columns in here. Re-pointed rather than dropped; a rule with no
+  // subject left is a rule nothing enforces.
+  await page.locator('nav[aria-label="Sections"]').getByText('Scheduled', { exact: true }).click()
+  await paneB.getByText('Triage new GitHub issues').first().click()
+  await expect(paneB.locator('aside')).toHaveCount(1)
   const stacked = await paneB.evaluate((el) => {
     const aside = el.querySelector('aside')
     if (!aside) return 'no-aside'
     const main = aside.parentElement!.firstElementChild!
     return aside.getBoundingClientRect().top >= main.getBoundingClientRect().bottom - 4
   })
-  expect(stacked, 'the detail side column stacks in a half-width pane').toBe(true)
+  expect(stacked, 'a detail side column stacks in a half-width pane').toBe(true)
+  const routineHScroll = await paneB.evaluate((el) => el.scrollWidth > el.clientWidth + 1)
+  expect(routineHScroll, 'and the stacked page still fits the pane').toBe(false)
 })
 
 test('New session lands in the FOCUSED pane and materializes in place — the primary keeps its content', async ({ page }) => {

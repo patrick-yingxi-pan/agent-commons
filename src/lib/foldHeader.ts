@@ -32,6 +32,16 @@ export const FOLD_HOVER = {
 /** The full class for a page-level section group header: content-width and
  *  left-aligned with the list below (the negative margin cancels the left padding,
  *  so the hover highlight gets breathing room with no resting-state layout shift),
- *  carrying the page hover. */
+ *  carrying the page hover.
+ *
+ *  **Shape and cue only — no bottom margin**, which is the rule `POST_ACT_CLASS`
+ *  states about colour, arrived at here by the same route. It carried `mb-1.5`,
+ *  and `<FoldSection>` (whose own wrapper owns the gap, and which must give that
+ *  gap back when it folds to one line) appended `mb-0` to cancel it. That does
+ *  not cancel anything: two `margin-bottom` utilities in one class attribute
+ *  have no defined winner, the cascade decides by the order they appear in the
+ *  generated CSS, and `mb-1.5` won — measured, 6px where 0 was intended, on
+ *  every section header on every entity page. A shared primitive must not own a
+ *  property any caller varies; the two callers who want the margin now say so. */
 export const FOLD_HEADER_CLASS =
-  `group mb-1.5 -ml-1.5 flex w-fit items-center gap-1.5 rounded-md py-1 pl-1.5 pr-2.5 text-left ${FOLD_HOVER.page}`
+  `group -ml-1.5 flex w-fit items-center gap-1.5 rounded-md py-1 pl-1.5 pr-2.5 text-left ${FOLD_HOVER.page}`

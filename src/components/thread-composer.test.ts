@@ -49,7 +49,7 @@ function topLevelBodies(): string[] {
 }
 
 function sectionComponents(): string[] {
-  return topLevelBodies().filter((body) => body.includes('<MainSection'))
+  return topLevelBodies().filter((body) => body.includes('<FoldSection'))
 }
 
 /** One named component's body — the SHARED extractor (tests/helpers/source.ts),

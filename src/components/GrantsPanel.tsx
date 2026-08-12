@@ -11,6 +11,7 @@ import { useState } from 'react'
 import { MinusCircle } from 'lucide-react'
 import { SHARE_TIERS, type ShareTier, type SocialEntityRef } from '../../contract/index.ts'
 import { createGrant, revokeGrant, useGrants } from '../api'
+import { audienceLabel } from '../lib/audienceLabel'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { HOVER_REVEAL } from '../lib/hoverReveal'
@@ -54,7 +55,7 @@ export function GrantsPanel({ subject }: { subject: SocialEntityRef }) {
           {roster.map((g) => (
             <li key={g.id} className="group flex items-center gap-2">
               <span className="min-w-0 flex-1 truncate text-[12px] text-ink" title={g.note}>
-                {g.audience.kind === 'org' ? g.audience.orgId : g.audience.kind === 'principal' ? g.audience.principalId : 'anyone with the link'}
+                {audienceLabel(g.audience)}
                 {g.note ? ' · published' : ''}
               </span>
               {g.audience.kind === 'link' && (

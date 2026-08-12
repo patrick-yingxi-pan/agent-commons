@@ -425,8 +425,8 @@ export function useContributions(projectId: string): QueryState<Contribution[]> 
 /** A resource's grant roster (social S1) — the owner reads the full roster, an
  *  audience their own rows; an invisible subject reads as the existence-hiding
  *  404 (served as an error state). Live on `grant.changed`. */
-export function useGrants(kind: string, id: string): QueryState<Grant[]> {
-  return useQuery(keys.grants(kind, id), () => apiGet<Grant[]>(paths.grants(kind, id)))
+export function useGrants(kind: string, id: string, enabled = true): QueryState<Grant[]> {
+  return useQuery(keys.grants(kind, id), () => apiGet<Grant[]>(paths.grants(kind, id)), enabled)
 }
 
 /** A subject's discussions (social S2) — root thread first. Live on

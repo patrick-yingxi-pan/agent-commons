@@ -1,4 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
+import { openSection } from './social-helpers.ts'
 import { ms } from './budget.ts'
 
 /** D26 — the project README through the rendered UI: the owner writes the public
@@ -29,6 +30,9 @@ test('the owner writes the README; the visitor reads it on the same page, withou
   await owner.page.getByRole('button', { name: 'New project' }).click()
   await owner.page.getByPlaceholder('e.g. Insights dashboard').fill(PROJECT)
   await owner.page.getByRole('button', { name: 'Create project' }).click()
+  // Configuration sections open FOLDED (owner decision 2026-08-12), so the share
+  // controls are one click behind their header now — exactly as a reader finds them.
+  await openSection(owner.page, 'Sharing')
   const share = owner.page.getByTestId('share-toggle')
   await share.click()
   await expect(share).toHaveAttribute('aria-pressed', 'true')

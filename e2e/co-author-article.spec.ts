@@ -1,4 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
+import { openSection } from './social-helpers.ts'
 import { ms } from './budget.ts'
 
 /** P8 — the cross-tenant cooperation lifecycle, END TO END through the rendered UI,
@@ -129,6 +130,9 @@ test('two tenants each contribute an agent to co-author an article on one shared
   await ada.page.getByRole('button', { name: 'Create project' }).click()
 
   // Share it across workspaces (the P8 bridge: shared ⇒ guarded, cooperable).
+  // Configuration sections open FOLDED (owner decision 2026-08-12), so the share
+  // controls are one click behind their header now — exactly as a reader finds them.
+  await openSection(ada.page, 'Sharing')
   const toggle = ada.page.getByTestId('share-toggle')
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')

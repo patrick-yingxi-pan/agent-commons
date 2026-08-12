@@ -1,4 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
+import { openSection } from './social-helpers.ts'
 import { ms } from './budget.ts'
 
 /** D23 — a work item is a conversation, end to end through the rendered UI:
@@ -45,6 +46,9 @@ test('a work item hosts a cross-tenant discussion; the poster retracts it honest
   await owner.page.getByRole('button', { name: 'New project' }).click()
   await owner.page.getByPlaceholder('e.g. Insights dashboard').fill(PROJECT)
   await owner.page.getByRole('button', { name: 'Create project' }).click()
+  // Configuration sections open FOLDED (owner decision 2026-08-12), so the share
+  // controls are one click behind their header now — exactly as a reader finds them.
+  await openSection(owner.page, 'Sharing')
   const share = owner.page.getByTestId('share-toggle')
   await share.click()
   await expect(share).toHaveAttribute('aria-pressed', 'true')

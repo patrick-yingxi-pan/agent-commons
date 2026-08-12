@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { openSection } from './social-helpers.ts'
 
 /** P8 Phase 3 — the share-project UI, end to end through the rendered app.
  *
@@ -23,6 +24,9 @@ test('an owner shares a created project and the toggle + backend reflect it (and
   await page.getByRole('button', { name: 'Create project' }).click()
 
   // The project detail opens with the Contributors panel's share toggle — private by default.
+  // Configuration sections open FOLDED (owner decision 2026-08-12), so the share
+  // controls are one click behind their header now — exactly as a reader finds them.
+  await openSection(page, 'Sharing')
   const toggle = page.getByTestId('share-toggle')
   await expect(toggle).toBeVisible()
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')

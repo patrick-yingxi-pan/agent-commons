@@ -1,4 +1,4 @@
-import { useContext, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import {
   AlertCircle,
@@ -59,7 +59,11 @@ import {
 } from 'lucide-react'
 import type { AddedContext, AppNotification, ArtifactKind, Connector, SavedContext, SavedContextKind, SectionId } from '../types'
 import { SECTION_META } from '../lib/sections'
-import { FOLD_HEADER_CLASS } from '../lib/foldHeader'
+import { FOLD_HEADER_CLASS, FOLD_HOVER } from '../lib/foldHeader'
+import { useSectionFold } from '../lib/useSectionFold'
+import { audienceLabel } from '../lib/audienceLabel'
+import { isSectionFolded, pageFoldWork, setSectionFolded } from '../lib/sectionFold'
+import { subscribeLayout } from '../lib/uiPrefs'
 import { PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../lib/pageHeader'
 import { connectorIconFor } from '../lib/connectors'
 import { CHIP_TONES, type ChipTone } from '../lib/capabilities'
@@ -933,8 +937,36 @@ function ProjectDetail({
   // `own !== false` covers seeds/optimistic rows the projection hasn't stamped yet.
   const own = project.own !== false
 
+  // The Sharing section's stub reads the SAME roster the section renders
+  // (`GrantsPanel` → `useGrants`), not `project.shared`. Those are two different
+  // facts and the first cut used the wrong one: a seeded project carrying a live
+  // `tenant-beta · published` grant has `shared !== true`, so the folded section
+  // said "Not shared" over an audience that could read it. A summary is an index
+  // entry into content the reader cannot currently see, which is exactly the
+  // position where being wrong costs the most — the thread's stub quotes the
+  // post's own words for the same reason.
+  // Gated on `own`, the way this file's other conditional reads are: the grants
+  // roster is owner-only (P8 redacts it, and existence-hiding means a visitor
+  // probing it gets the same 404 as a missing project), and the only thing this
+  // read feeds is the Sharing stub — which lives inside the owner-only run. An
+  // ungated call fires a request every visitor page load that is refused by
+  // design, which is not a bug you would ever see and not one you should ship.
+  const grants = useGrants('project', project.id, own).data ?? []
+
+  // Which sections this page actually rendered — see `useFoldScope`. Discovered,
+  // not listed: the titles belong to the child components, and a visitor's page
+  // legitimately has fewer.
+  const [foldEntries, FoldScope] = useFoldScope()
+
   return (
     <Page>
+      {/* The reading column wraps the HEADER too, so the title, the fold pair
+          and every section share one left edge. Capping only the body left the
+          h1 174px outboard of the words underneath it — two columns could
+          spend the page's full 7xl because neither was prose, and one column
+          reading as an indented block under a wide title is the bill for that
+          width arriving late. */}
+      <div className="mx-auto w-full max-w-3xl">
       <header className={PAGE_HEADER_CLASS}>
         <div className="flex min-w-0 items-start gap-3">
           <BackButton to={backTo} onBack={onBack} />
@@ -968,18 +1000,33 @@ function ProjectDetail({
         </div>
       </header>
 
-      <div className="flex flex-col gap-6 @3xl:flex-row">
-        {/* Main panel — the project's recent sessions. */}
-        <div className="min-w-0 flex-1">
+      {/* ── ONE column of foldable sections ──────────────────────────────────
+          (Owner directive 2026-08-12: *"two columns and a lot of frames … make
+          it one column of foldable sections"*.)
+
+          The merge is smaller than it looks, because the second column was
+          already conditional: `{own && <aside>}` meant a VISITOR has always
+          been served this exact shape. What changed is that the owner's
+          configuration now sits in the same flow as the content, folded, rather
+          than beside it — see `lib/sectionFold.ts` for why folded is what makes
+          that bearable.
+
+          Capped at a READING column rather than harvesting the full 7xl the
+          page header still uses (owner decision, 2026-08-12). Two columns could
+          spend that width because neither one was prose; one column cannot —
+          About and Discussion are prose, and a 1200px line is unreadable. The
+          margin this leaves is the price of the merge, paid deliberately. */}
+      <SectionFoldControls entries={foldEntries} />
+      <FoldScope>
+      <div className="space-y-6">
           {/* The README (D26) — the PUBLIC "about", read by owner and visitor alike;
               only the owner gets the edit affordance (capability shapes affordances). */}
           <ProjectReadme project={project} own={own} />
-          {/* Main-column sections (S17): each a bare uppercase heading with its list
-              CARDED below — the heading is never inside the box (SidePanel's chrome
-              belongs to the rail; a main-column section wearing it reads as a stray
-              rail panel). */}
-          <div className="space-y-6">
-          <MainSection title="Recent sessions">
+          {/* Every section is the same thing now (S17): a bare uppercase heading
+              with its content below, folded or not. Three nested wrappers became
+              one — the outer was the two-column flex row, the middle was the main
+              column's flex-1, and only the third had a job left (the rhythm). */}
+          <FoldSection title="Recent sessions">
           {convs.length === 0 ? (
             <Empty>
               {own
@@ -1017,7 +1064,7 @@ function ProjectDetail({
               ))}
             </CardList>
           )}
-          </MainSection>
+          </FoldSection>
 
           {/* The commons panels live in the MAIN column, not the rail: Contributors
               and Coordination/Open work are the page's PAYLOAD (for a visitor, the
@@ -1041,28 +1088,38 @@ function ProjectDetail({
           <DiscussionsPanel subject={{ kind: 'project', id: project.id }} own={own} />
           <ContributorsPanel project={project} />
           <CoordinationPanel project={project} />
-          </div>
-        </div>
 
-        {/* Right rail — the OWNER's configuration (instructions, scheduled runs,
-            attached context); a visitor's projection redacts all of it (P8), so
-            the rail renders only for the owner and the visitor page is one column. */}
-        {own && (
-        <aside className="w-full shrink-0 space-y-4 @3xl:w-72">
+          {/* The OWNER's configuration — instructions, sharing, delegation,
+              scheduled runs, attached context. A visitor's projection redacts
+              all of it (P8), so this whole run is owner-only; it used to be the
+              right rail, and is now the tail of the one column, each section
+              declaring `defaultFolded` because configuration is not what you
+              opened a project to read. */}
+          {own && (
+          <>
           <ProjectInstructions project={project} />
 
           {/* Sharing — the owner's audience/onboarding CONFIGURATION (S17): it used
               to hide inside the Contributors payload; config belongs in the rail.
               Seed projects can't toggle share (the server refuses), so the switch
               gates on isCreatedProject; the role pre-selection applies either way. */}
-          <SidePanel title="Sharing" icon={<Globe size={14} />}>
+          <FoldSection
+            title="Sharing"
+            icon={<Globe size={14} />}
+            defaultFolded
+            summary={
+              grants.length > 0 ? grants.map((g) => audienceLabel(g.audience)).join(' · ')
+              : project.shared === true ? 'Shared — no audiences yet'
+              : 'Not shared'
+            }
+          >
             {rel.isCreatedProject(project.id) && <ShareToggle project={project} />}
             {/* The grants roster (social S1) — audience-scoped shares over the
                 generic subject ref; org-wide `shared` above stays the legacy
                 everyone-switch. */}
             <GrantsPanel subject={{ kind: 'project', id: project.id }} />
             <DefaultRolePicker project={project} />
-          </SidePanel>
+          </FoldSection>
 
           {/* Delegation (CW8, Phase F) — the owner's judgment, handed to their
               own worker Agent under a written policy: rail because it is the
@@ -1072,9 +1129,15 @@ function ProjectDetail({
 
           {/* The whole aside is already owner-gated above — these panels don't
               re-check `own` (the inner guards were dead-always-true). */}
-          <SidePanel
+          <FoldSection
             title="Scheduled"
             icon={<Clock size={14} />}
+            defaultFolded
+            summary={
+              hasSchedules ?
+                `${realSchedules.length + staticSchedules.length} routine${realSchedules.length + staticSchedules.length === 1 ? '' : 's'}`
+              : 'No routines'
+            }
             revealActions={!hasSchedules}
             actions={
               <ProjectScheduleAdd
@@ -1118,11 +1181,13 @@ function ProjectDetail({
                 ))}
               </div>
             )}
-          </SidePanel>
+          </FoldSection>
 
-          <SidePanel
+          <FoldSection
             title="Context"
             icon={<Folder size={14} />}
+            defaultFolded
+            summary={contexts.length === 0 ? 'Nothing attached' : contexts.map((c) => c.label).join(' · ')}
             revealActions={contexts.length === 0}
             actions={
               <AddContextButton
@@ -1144,9 +1209,11 @@ function ProjectDetail({
                 ))}
               </div>
             )}
-          </SidePanel>
-        </aside>
-        )}
+          </FoldSection>
+          </>
+          )}
+      </div>
+      </FoldScope>
       </div>
     </Page>
   )
@@ -1168,7 +1235,7 @@ function ProjectReadme({ project, own }: { project: Project; own: boolean }) {
   }
   return (
     <div className="mb-6">
-      <MainSection
+      <FoldSection
         title="About"
         revealActions={!current}
         actions={
@@ -1223,7 +1290,7 @@ function ProjectReadme({ project, own }: { project: Project; own: boolean }) {
           No README yet — the public “about” a visitor reads first.
         </p>
       )}
-      </MainSection>
+      </FoldSection>
     </div>
   )
 }
@@ -1258,9 +1325,11 @@ function ProjectInstructions({ project }: { project: Project }) {
   }, [editing])
 
   return (
-    <SidePanel
+    <FoldSection
       title="Instructions"
       icon={<FileText size={14} />}
+      defaultFolded
+      summary={current ? (current.trim().split(/\r?\n/)[0] ?? '') : 'None yet'}
       revealActions={!current}
       actions={
         !editing ? (
@@ -1311,7 +1380,7 @@ function ProjectInstructions({ project }: { project: Project }) {
           )}
         </div>
       )}
-    </SidePanel>
+    </FoldSection>
   )
 }
 
@@ -1588,7 +1657,7 @@ function ContributorsPanel({ project }: { project: Project }) {
   const available = agents.filter((a) => !commissionedIds.has(a.id))
 
   return (
-    <MainSection
+    <FoldSection
       title="Contributors"
       revealActions={commissions.length === 0}
       actions={
@@ -1610,7 +1679,7 @@ function ContributorsPanel({ project }: { project: Project }) {
           ))}
         </CardList>
       )}
-    </MainSection>
+    </FoldSection>
   )
 }
 
@@ -2062,7 +2131,7 @@ function CoordinationPanel({ project }: { project: Project }) {
 
   return (
     <>
-    <MainSection
+    <FoldSection
       title="Coordination"
       revealActions={subGoals.length === 0 || claiming}
       actions={
@@ -2165,7 +2234,7 @@ function CoordinationPanel({ project }: { project: Project }) {
           )}
         </>
       )}
-    </MainSection>
+    </FoldSection>
 
     {/* Open work is its OWN top-level section (S17) — it was a mini-heading buried
         inside Coordination, one level deeper than its nature (the issues tray, a
@@ -2230,7 +2299,7 @@ function OpenWorkList({ projectId, shared }: { projectId: string; shared: boolea
   }
 
   return (
-    <MainSection
+    <FoldSection
       title="Open work"
       revealActions={items.length === 0 || composing}
       actions={
@@ -2306,7 +2375,7 @@ function OpenWorkList({ projectId, shared }: { projectId: string; shared: boolea
         {error && <p className="text-[11px] text-removed">{error}</p>}
       </div>
       )}
-    </MainSection>
+    </FoldSection>
   )
 }
 
@@ -3559,7 +3628,7 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
       />
     ) : null
   return (
-    <MainSection
+    <FoldSection
       title="Discussion"
       revealActions={!root || composing}
       // Undefined, not an empty fragment: a view-tier reader on an unresolvable
@@ -3617,7 +3686,7 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
           />
         </div>
       )}
-    </MainSection>
+    </FoldSection>
   )
 }
 
@@ -4833,7 +4902,7 @@ function ChangesPanel({ project, own, onOpenSession }: { project: Project; own: 
     })),
   ].sort((a, b) => a.band - b.band || b.order - a.order)
   return (
-    <MainSection
+    <FoldSection
       title="Changes"
       revealActions={rows.length === 0 || composing !== null}
       actions={
@@ -5009,7 +5078,7 @@ function ChangesPanel({ project, own, onOpenSession }: { project: Project; own: 
         </div>
       )}
       {error && <p className="mt-2 text-[11px] text-danger">{error}</p>}
-    </MainSection>
+    </FoldSection>
   )
 }
 
@@ -5410,7 +5479,7 @@ function AttentionPanel({ project }: { project: Project }) {
   if (ledger.asks.length === 0 && !ledger.proposal && total === 0) return null
   const openAsk = (cid: string) => rel.navigate('projects', project.id, `changes/${cid}`)
   return (
-    <MainSection title="Attention">
+    <FoldSection title="Attention">
       {ledger.asks.length === 0 ? (
         <p className="text-[12px] text-ink-faint">Nothing needs you right now.</p>
       ) : (
@@ -5457,7 +5526,7 @@ function AttentionPanel({ project }: { project: Project }) {
           )}
         </div>
       )}
-    </MainSection>
+    </FoldSection>
   )
 }
 
@@ -5492,9 +5561,11 @@ function DelegationPanel({ project }: { project: Project }) {
     }
   }
   return (
-    <SidePanel
+    <FoldSection
       title="Delegation"
       icon={<Check size={14} />}
+      defaultFolded
+      summary={list.length === 0 ? 'No judgment delegated' : `${list.length} standing ${list.length === 1 ? 'policy' : 'policies'}`}
       revealActions={list.length === 0 || composing}
       actions={
         <SectionAction
@@ -5619,7 +5690,7 @@ function DelegationPanel({ project }: { project: Project }) {
           {error && <p className="text-[11px] text-removed">{error}</p>}
         </div>
       )}
-    </SidePanel>
+    </FoldSection>
   )
 }
 
@@ -7004,7 +7075,7 @@ function ContextDetail({
         </div>
 
         <aside className="w-full shrink-0 space-y-4 @3xl:w-72">
-          <SidePanel title="Usage" icon={<Clock size={14} />}>
+          <FoldSection title="Usage" icon={<Clock size={14} />}>
             <div className="space-y-2 text-[13px] text-ink">
               <div className="flex items-center justify-between">
                 <span className="text-ink-soft">Sessions</span>
@@ -7015,10 +7086,10 @@ function ContextDetail({
                 <span className="font-medium">{ctx.lastUsedAt == null ? 'Never' : relativeTime(ctx.lastUsedAt)}</span>
               </div>
             </div>
-          </SidePanel>
+          </FoldSection>
 
           {isRepo && ctx.dependsOnGitHub && (
-            <SidePanel title="Depends on" icon={<Github size={14} />}>
+            <FoldSection title="Depends on" icon={<Github size={14} />}>
               <div className="flex items-center gap-2 text-[13px] text-ink">
                 <Github size={15} className="shrink-0 text-ink-soft" />
                 GitHub connector
@@ -7026,7 +7097,7 @@ function ContextDetail({
               <p className="mt-1.5 text-[12px] leading-relaxed text-ink-faint">
                 Sessions that attach this repo reuse the GitHub connector — no re-cloning.
               </p>
-            </SidePanel>
+            </FoldSection>
           )}
         </aside>
       </div>
@@ -11473,6 +11544,10 @@ function ScheduledDetail({
   const shownRun = running ? null : (task.runs[0] ?? null)
   const DeliveryIcon = stepToolIcon(task.delivery.tool.id)
 
+  // The Sharing stub's source — the roster the section itself renders, never a
+  // second fact about it (the project page's stub got that wrong first).
+  const scheduleGrants = useGrants('schedule', task.id).data ?? []
+
   return (
     <Page>
       <header className={PAGE_HEADER_CLASS}>
@@ -11582,13 +11657,29 @@ function ScheduledDetail({
             page is one column. */}
         {task.own !== false && (
         <aside className="w-full shrink-0 space-y-4 @3xl:w-72">
-          {/* Sharing — the OWNER's audience configuration, in the rail like a
-              project's (config belongs in the rail, S17). Without it the routine's
-              social surface was unreachable: it could be discussed and improved,
-              but never shared with anyone to discuss or improve it. */}
-          <SidePanel title="Sharing" icon={<Globe size={14} />}>
+          {/* Sharing — the OWNER's audience configuration, as on a project.
+              Without it the routine's social surface was unreachable: it could be
+              discussed and improved, but never shared with anyone to discuss or
+              improve it.
+
+              `defaultFolded` here is not decoration — it is REQUIRED to agree with
+              the project page's Sharing, because the fold posture is keyed by
+              TITLE (`lib/sectionFold.ts`: one preference about a kind of content,
+              which is what keeps the key space bounded). Two same-named sections
+              declaring different defaults would differ until the reader touched
+              either one and then agree forever, which is a state nobody designed.
+              The constraint the key imposes is now a lock —
+              `main-column-sections.test.ts`. */}
+          <FoldSection
+            title="Sharing"
+            icon={<Globe size={14} />}
+            defaultFolded
+            summary={
+              scheduleGrants.length > 0 ? scheduleGrants.map((g) => audienceLabel(g.audience)).join(' · ') : 'Not shared'
+            }
+          >
             <GrantsPanel subject={{ kind: 'schedule', id: task.id }} />
-          </SidePanel>
+          </FoldSection>
 
           <SchedulePanel task={task} />
 
@@ -12140,7 +12231,7 @@ function DeliveryPanel({ task }: { task: ScheduledTask }) {
   const displayTarget = override ?? task.delivery.target
 
   return (
-    <SidePanel
+    <FoldSection
       title="Delivers to"
       icon={<SendHorizontal size={14} />}
       actions={
@@ -12229,7 +12320,7 @@ function DeliveryPanel({ task }: { task: ScheduledTask }) {
         </span>
         <Toggle on={notifyOnFail} onToggle={() => void updateSchedule(task.id, { notifyOnFailure: !notifyOnFail })} ariaLabel="Notify me on failure" />
       </label>
-    </SidePanel>
+    </FoldSection>
   )
 }
 
@@ -12259,7 +12350,7 @@ function ContextToolsPanel({ task }: { task: ScheduledTask }) {
   }
 
   return (
-    <SidePanel
+    <FoldSection
       title="Context & tools"
       icon={<Plug size={14} />}
       revealActions={tools.length === 0}
@@ -12310,7 +12401,7 @@ function ContextToolsPanel({ task }: { task: ScheduledTask }) {
           })}
         </div>
       )}
-    </SidePanel>
+    </FoldSection>
   )
 }
 
@@ -12343,7 +12434,7 @@ const TIMEZONES = [
 function SchedulePanel({ task }: { task: ScheduledTask }) {
   const [editing, setEditing] = useState(false)
   return (
-    <SidePanel
+    <FoldSection
       title="Schedule"
       icon={<Clock size={14} />}
       actions={
@@ -12379,7 +12470,7 @@ function SchedulePanel({ task }: { task: ScheduledTask }) {
           {task.startedLabel}
         </div>
       )}
-    </SidePanel>
+    </FoldSection>
   )
 }
 
@@ -12507,7 +12598,7 @@ function CadenceEditor({ task, onClose }: { task: ScheduledTask; onClose: () => 
 function ModelPanel({ task }: { task: ScheduledTask }) {
   const [editing, setEditing] = useState(false)
   return (
-    <SidePanel title="Model" icon={<Sparkles size={14} />}>
+    <FoldSection title="Model" icon={<Sparkles size={14} />}>
       <div className="relative">
         <button
           onClick={() => setEditing((v) => !v)}
@@ -12523,7 +12614,7 @@ function ModelPanel({ task }: { task: ScheduledTask }) {
         {editing && <ScheduleModelPicker task={task} onClose={() => setEditing(false)} />}
       </div>
       <p className="mt-2 text-[11px] leading-relaxed text-ink-faint">Runs headless — no approval prompts.</p>
-    </SidePanel>
+    </FoldSection>
   )
 }
 
@@ -12877,7 +12968,7 @@ function FoldGroupHeader({
   onToggle: () => void
 }) {
   return (
-    <button onClick={onToggle} aria-expanded={!folded} className={FOLD_HEADER_CLASS}>
+    <button onClick={onToggle} aria-expanded={!folded} className={`${FOLD_HEADER_CLASS} mb-1.5`}>
       <ChevronDown
         size={15}
         className={`text-ink-faint transition group-hover:text-ink-soft ${folded ? '-rotate-90' : ''}`}
@@ -13001,62 +13092,206 @@ function SectionActions({ children, revealed }: { children: ReactNode; revealed?
   )
 }
 
-function SidePanel({
+/** ── The page's sections, discovered rather than listed ─────────────────────
+ *  A page-level Fold all needs to know which sections are on the page. The
+ *  cheap answer is an array of twelve titles in `ProjectDetail`, and it is the
+ *  second hand-kept list the "a registry has ONE home" rule exists to forbid
+ *  (`src/lib/CLAUDE.md`): the titles live in the child components — `About` in
+ *  `ProjectReadme`, `Coordination` in `CoordinationPanel` — so a restated list
+ *  is wrong the first time anyone adds, renames or conditionally hides a
+ *  section, and wrong SILENTLY, since Fold all would simply skip it.
+ *
+ *  So the sections register themselves as they mount, and the controls read
+ *  what actually rendered. That also makes the answer correct for free where a
+ *  static list would need a second condition: a VISITOR's page has no
+ *  configuration run (`{own && …}`), and its Fold all offers exactly the seven
+ *  sections a visitor can see. */
+type FoldEntry = { title: string; defaultFolded: boolean }
+const FoldScopeCtx = createContext<((entry: FoldEntry) => () => void) | null>(null)
+
+/** The scope a page opens for its sections. Returns what has registered, in
+ *  mount order, plus the provider to wrap them in. */
+function useFoldScope(): readonly [FoldEntry[], (props: { children: ReactNode }) => ReactNode] {
+  const [entries, setEntries] = useState<FoldEntry[]>([])
+  const register = useCallback((entry: FoldEntry) => {
+    setEntries((es) => (es.some((e) => e.title === entry.title) ? es : [...es, entry]))
+    return () => setEntries((es) => es.filter((e) => e.title !== entry.title))
+  }, [])
+  const Provider = useCallback(
+    ({ children }: { children: ReactNode }) => <FoldScopeCtx.Provider value={register}>{children}</FoldScopeCtx.Provider>,
+    [register],
+  )
+  return [entries, Provider] as const
+}
+
+/** Fold all · Unfold all over one page's sections.
+ *
+ *  TWO buttons and never a toggle, which is SOCIAL-21's rule arrived at the hard
+ *  way in the thread and adopted here rather than re-learned: they are not
+ *  inverses, so a single `allFolded` control disappears exactly when it is
+ *  needed — fold everything, open one section to read it, and the way back has
+ *  relabelled itself. Each renders only when it has work.
+ *
+ *  Simpler than the thread's pair, legitimately: sections do not nest, so Fold
+ *  all has no interior to preserve and the two acts are total over a flat set.
+ *  That difference is the argument against sharing the thread's machinery — the
+ *  rule is worth reusing, the tree is not. */
+function SectionFoldControls({ entries }: { entries: FoldEntry[] }) {
+  const titles = entries.map((e) => e.title)
+  // One subscription for the whole page rather than a hook per section (hooks
+  // cannot be called in a loop): the snapshot is the fold bits as a string, so
+  // `useSyncExternalStore` compares it by value and re-renders only on a change
+  // that this control can see.
+  const read = useCallback(
+    () => entries.map((e) => (isSectionFolded(e.title, e.defaultFolded) ? '1' : '0')).join(''),
+    [entries],
+  )
+  const bits = useSyncExternalStore(subscribeLayout, read, read)
+  const folded = (i: number) => bits[i] === '1'
+  const { foldable, unfoldable } = pageFoldWork(titles, (t) => folded(titles.indexOf(t)))
+  if (foldable.length === 0 && unfoldable.length === 0) return null
+  return (
+    <div className="mb-2 flex items-center justify-end gap-1">
+      {/* The accessible names carry "sections"; the visible text does not.
+          A page can hold a SECOND pair with the same words — the Discussion
+          section contains a thread, and a thread has its own Fold all over its
+          posts — so two controls at different scopes would otherwise share one
+          accessible name, which is the ambiguity the DM composer's Post buttons
+          were renamed for. Both names still CONTAIN their visible text, so
+          "click Fold all" remains a thing a voice user can say (WCAG 2.5.3). */}
+      {foldable.length > 0 && (
+        <button
+          onClick={() => foldable.forEach((t) => setSectionFolded(t, true))}
+          aria-label="Fold all sections"
+          title="Collapse every section on this page to its one-line summary"
+          className={INLINE_ACTION_CLASS}
+        >
+          <ChevronsUp size={12} className="shrink-0" />
+          Fold all
+        </button>
+      )}
+      {unfoldable.length > 0 && (
+        <button
+          onClick={() => unfoldable.forEach((t) => setSectionFolded(t, false))}
+          aria-label="Unfold all sections"
+          title="Open every section on this page"
+          className={INLINE_ACTION_CLASS}
+        >
+          <ChevronsDown size={12} className="shrink-0" />
+          Unfold all
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** ── The ONE page section ───────────────────────────────────────────────────
+ *  A named group of page content with a foldable header. It replaced `SidePanel`
+ *  and `MainSection`, which were two names for one thing: by the time the
+ *  margin-harvest pass (2026-08-03) took the box off the side column, the pair
+ *  differed by an icon and half a rem of margin. Two components differing by a
+ *  prop are one component (owner directive 2026-08-12 — *"one solution for many
+ *  similar problems with adapted UI styles"*); the icon IS the adapted style.
+ *
+ *  **Foldable, and that is the point of the merge.** The entity page was two
+ *  columns of always-open sections; it is one column now, and a column of twelve
+ *  open sections would be a worse page than the two it replaced. Configuration
+ *  opens FOLDED (`defaultFolded`) and content opens open, so the page reads as
+ *  activity with its settings tucked away — the single biggest win being the
+ *  Sharing form, five stacked bordered controls that were the heaviest block on
+ *  the page and are touched about once a project.
+ *
+ *  **A folded section owes a `summary`.** Carried over from the thread's stub,
+ *  which is an INDEX ENTRY and not a gap: who, when, the opening words, how much
+ *  is hidden. "Sharing · tenant-beta, published" is worth folding to; a bare
+ *  chevron is not, and a page of bare chevrons is an index of nothing. It is a
+ *  prop rather than something this component derives, because only the caller
+ *  holds the data — and it renders ONLY while folded, so it can never disagree
+ *  with the content below it.
+ *
+ *  The header is a real `<button>` with `aria-expanded`, wearing the one
+ *  disclosure cue (`FOLD_HEADER_CLASS`) that the Artifacts / Contexts /
+ *  Scheduled group headers wear. The verbs stay OUTSIDE it: nesting a button in
+ *  a button is invalid, and "add a routine" is not "fold this". */
+function FoldSection({
   title,
   icon,
   actions,
   revealActions,
+  defaultFolded,
+  summary,
   children,
 }: {
   title: string
-  icon: ReactNode
+  /** The side-column decoration — presence is the only difference the old
+   *  `SidePanel` had left. Absent on a plain content section. */
+  icon?: ReactNode
   /** Header verbs (SectionAction buttons / popover triggers), hover-revealed. */
   actions?: ReactNode
   /** Pin the verbs visible — pass "the section is empty" (discoverability). */
   revealActions?: boolean
+  /** Open folded the first time. A declaration of what the section is FOR
+   *  (configuration vs content), never a stored value — see `sectionFold.ts`. */
+  defaultFolded?: boolean
+  /** The one-line index entry shown in place of the content while folded. */
+  summary?: ReactNode
   children: ReactNode
 }) {
-  return (
-    // Boxless since the margin-harvest pass (2026-08-03): the side column reads
-    // open-canvas like the main column — the uppercase label and the column's
-    // own gap carry the structure, the same S17 rhythm MainSection set. The box
-    // this drops was the last per-section frame on the entity page.
-    <section className={SECTION_REVEAL_GROUP}>
-      <div className="mb-2.5 flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-          {icon}
-          {title}
-        </div>
-        {actions && <SectionActions revealed={revealActions}>{actions}</SectionActions>}
-      </div>
-      {children}
-    </section>
+  const [folded, setFolded] = useSectionFold(title, defaultFolded)
+  // Announce this section to whatever page is offering Fold all. Absent scope =
+  // no page-level control (a section rendered inside a panel or a card), and the
+  // section works exactly the same — the registry is for the CONTROL's benefit,
+  // never a precondition of folding.
+  const register = useContext(FoldScopeCtx)
+  useEffect(
+    () => register?.({ title, defaultFolded: defaultFolded === true }),
+    [register, title, defaultFolded],
   )
-}
-
-/** A MAIN-column section (S17) — the Recent-sessions idiom shared: a bare uppercase
- *  heading (PanelLabel) with the content below it, NOT a boxed card. SidePanel (the
- *  heading INSIDE the box) is the rail panel's chrome; a main-column section wearing
- *  it reads as a stray rail panel. The section's list cards through <CardList>.
- *  `actions`/`revealActions`: the same header verb cluster SidePanel carries. */
-function MainSection({
-  title,
-  actions,
-  revealActions,
-  children,
-}: {
-  title: string
-  actions?: ReactNode
-  revealActions?: boolean
-  children: ReactNode
-}) {
   return (
+    // Boxless since the margin-harvest pass (2026-08-03): sections read
+    // open-canvas — the uppercase label and the column's own gap carry the
+    // structure. The box this dropped was the last per-section frame here, and
+    // folding is what replaces it as the way to quieten a long page.
     <section className={SECTION_REVEAL_GROUP}>
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <PanelLabel flush>{title}</PanelLabel>
+      {/* The header's bottom margin belongs to the CONTENT under it, so a
+          section folded to nothing gives it back. Fold every section on a
+          project page and the old spelling left 24px of gap plus 8px of margin
+          between twelve one-line rows — an index that scrolls. Only the
+          summary-less case: a stub with words under it still needs the gap it
+          would have had. */}
+      <div className={`flex items-center justify-between gap-2 ${folded && summary === undefined ? '' : 'mb-2'}`}>
+        <button
+          onClick={() => setFolded(!folded)}
+          aria-expanded={!folded}
+          className={`${FOLD_HEADER_CLASS} min-w-0`}
+        >
+          <ChevronDown
+            size={13}
+            className={`shrink-0 text-ink-faint transition group-hover:text-ink-soft ${folded ? '-rotate-90' : ''}`}
+          />
+          {icon}
+          <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-ink-faint">{title}</span>
+        </button>
         {actions && <SectionActions revealed={revealActions}>{actions}</SectionActions>}
       </div>
-      {children}
+      {folded ?
+        summary !== undefined && (
+          // Clickable like the thread's stub, and for the same reason: the row
+          // you are looking at is the way back into what it stands for. `pl-*`
+          // lines the words up under the title rather than under the caret.
+          <button
+            onClick={() => setFolded(false)}
+            // The cue comes from `lib/foldHeader`, not from a copy of its
+            // string. Caught by that module's own lock the first time this
+            // rendered: the stub is a second way into the same disclosure, so a
+            // hand-written hover here would be the exact drift the one-home rule
+            // forbids — two halves of one control lighting differently.
+            className={`-ml-1.5 flex w-full min-w-0 items-center rounded-md py-0.5 pl-[1.9rem] pr-2 text-left text-[12px] text-ink-faint ${FOLD_HOVER.page}`}
+          >
+            <span className="truncate">{summary}</span>
+          </button>
+        )
+      : children}
     </section>
   )
 }

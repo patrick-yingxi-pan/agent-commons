@@ -147,7 +147,21 @@ commission — one compact icon button in the header's right-aligned cluster,
 hover-revealed via `SECTION_REVEAL` in `src/lib/hoverReveal.ts`, pinned visible
 when the section is empty; locked by `src/lib/sectionAction.test.ts`) and
 `src/lib/foldHeader.ts` (every foldable section
-header) and `src/lib/pageHeader.ts` (every PAGE's opening title block — hub and
+header) and `FoldSection` in `src/components/SectionView.tsx` (every SECTION of
+an entity page — ONE primitive with an optional icon, merged 2026-08-12 from the
+`MainSection` / `SidePanel` pair that by then differed by that icon and half a
+rem of margin. An entity page is one reading column of these, **configuration
+folded and content open**; a section that opens folded owes a `summary` — the
+thread's stub rule, an index entry and never a gap. Posture persists per account
+keyed by TITLE (`src/lib/sectionFold.ts`), which is what bounds the key space
+and imposes the one constraint worth knowing: two same-named sections MUST
+declare the same `defaultFolded`, because they share a stored key. What is
+deliberately NOT shared with the thread's fold is `src/lib/replyTree.ts` — a
+discussion is a recursive tree, a page's sections are a flat list; the cue and
+the Fold all · Unfold all rule are the parts that generalize. Locked by
+`src/components/main-column-sections.test.ts`, `src/lib/section-fold.test.ts`
+and `e2e/project-page.spec.ts`)
+and `src/lib/pageHeader.ts` (every PAGE's opening title block — hub and
 detail pages share one title look + container rhythm; the chrome bars
 `SessionTitleBar`/`PanelShell` are a different role, deliberately distinct)
 and `src/lib/scrim.ts` (every dimmed overlay backdrop — the tier scrims and

@@ -33,6 +33,18 @@ test('the page section-header class composes the page hover and stays layout-sta
   for (const piece of ['group', 'w-fit', '-ml-1.5', 'rounded-md']) {
     assert.ok(FOLD_HEADER_CLASS.includes(piece), `keeps "${piece}"`)
   }
+  // …and owns no BOTTOM margin, which is the `POST_ACT_CLASS` rule (a shared
+  // primitive must not own a property its callers vary) arrived at the same way.
+  // It carried `mb-1.5`; `FoldSection` appended `mb-0` to cancel it and did not,
+  // because two `margin-bottom` utilities in one class attribute are resolved by
+  // the generated CSS order, not the string order — 6px where 0 was intended, on
+  // every section header on every entity page. Stated as an ABSENCE because the
+  // failure is silent: nothing breaks, the rows are just wrong by 6px.
+  assert.doesNotMatch(
+    FOLD_HEADER_CLASS,
+    /(^|\s)mb-/,
+    `the callers own their bottom margin — one wants 1.5, one wants none: "${FOLD_HEADER_CLASS}"`,
+  )
 })
 
 test('the rail and the page share one ground, so both hovers step OFF it', () => {
