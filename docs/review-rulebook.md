@@ -42,7 +42,7 @@ of what you changed — memory produces plan-shaped checklists.
    in LIGHT mode, so a palette- or mode-shaped defect is invisible to it — it
    reported 0 violations / 90 of 90 cells on the afternoon the dark-mode CTA
    was sitting at 1.74:1. Colour legibility on solid fills is no longer a
-   judgment call (UI-20 made it mechanical, in `tests/contrast.test.ts`, across
+   judgment call (UI-20 made it mechanical, in `src/lib/contrast.test.ts`, across
    every palette × mode); anything else that varies by theme still needs the
    axis opened by hand.
 4. **Fix.** Triage by severity (§3). Fix at the class level: if two subjects
@@ -119,7 +119,7 @@ before merge.
 A model tool call is a *proposal* — nothing applies until the user confirms;
 the `tool_result` fed back says "proposed, awaiting confirmation", never
 "done"; standing approvals are recorded once, per opKey.
-**Detection:** `node --test server/model/model-tools.test.ts tests/consent-state.test.ts
+**Detection:** `node --test server/model/model-tools.test.ts src/data/consent-state.test.ts
 server/routes/relations-commons.test.ts`; grep new `executeTool` builders for a
 summary that claims completion.
 **Fix:** return the op/escalation as a proposal; make the summary honest.
@@ -137,7 +137,7 @@ A re-applied create op finds its target existing and does not duplicate (the
 create-project exists-check pattern; create-agent's bundled-prompt reuse). An
 async completion names the entry it settles; anything else is answered
 "settled or gone" (410) and can poison nothing.
-**Detection:** `node --test tests/shared-reducer.test.ts server/relay.test.ts
+**Detection:** `node --test contract/shared-reducer.test.ts server/relay.test.ts
 server/routes/relations-commons.test.ts`.
 **Fix:** add the exists-check at apply; key the completion to its entry.
 
@@ -154,8 +154,8 @@ lock all three cases.
 A registry is *managed* in one surface; every control that *offers* its entries
 reads the live registry through the api hooks; no seed mirrors, no
 component-state registries, no hard-coded catalogs.
-**Detection:** `node --test tests/connectivity-freshness.test.ts
-tests/model-picker.test.ts` (catalog-constant scan); grep new pickers for
+**Detection:** `node --test src/api/connectivity-freshness.test.ts
+src/components/model-picker.test.ts` (catalog-constant scan); grep new pickers for
 list literals.
 **Fix:** drive from the hook; if the concept is session-usable, give it a rail
 surface (UI-12; src/CLAUDE.md "Registries have one home").
@@ -164,7 +164,7 @@ surface (UI-12; src/CLAUDE.md "Registries have one home").
 A server mutation invalidates a key something actually reads; an SSE case with
 zero consumers is a bug; cross-tenant composed reads revalidate on mount; the
 open thread reconciles through `onSessionPush`.
-**Detection:** `node --test tests/connectivity-freshness.test.ts`; for a new
+**Detection:** `node --test src/api/connectivity-freshness.test.ts`; for a new
 event type, name its reader in the same diff.
 **Fix:** wire the invalidation in `src/api/events.ts` + lock the reader (UI-12).
 
@@ -190,7 +190,7 @@ match the message; grep new `catch` blocks that swallow into success shapes.
 A new page kind extends `src/lib/urlRoutes.ts` (+ round-trip test) — no path
 minted or parsed anywhere else. A new store mutation takes the acting
 principal as a required parameter and stamps only the kind on the wire.
-**Detection:** `node --test tests/url-routes.test.ts server/routes/principals.test.ts`;
+**Detection:** `node --test src/lib/url-routes.test.ts server/routes/principals.test.ts`;
 grep `pushState`/`location.pathname` outside the controller.
 **Fix:** extend the one mapping / thread the principal (ADAPT-15, INV-10).
 
@@ -258,11 +258,11 @@ popover chrome (`popover.ts`), dismissal (`useDismissable`), copy buttons
 chrome (`paneChrome.ts`), bylines/credit (`PublicFace`), checkboxes
 (`checkbox.ts`). A new control that visually parallels an existing one either
 uses the primitive or unifies both onto a new one.
-**Detection:** the primitive suites (`tests/addTrigger.test.ts`,
-`tests/foldHeader.test.ts`, `tests/scrim.test.ts`, `tests/popover.test.ts`,
-`tests/copy-button.test.ts`, `tests/spinner.test.ts`,
-`tests/useDismissable.test.ts`, `tests/resize-handle.test.ts`,
-`tests/public-face.test.ts`, `tests/checkbox.test.ts`); judgment: two
+**Detection:** the primitive suites (`src/lib/addTrigger.test.ts`,
+`src/lib/foldHeader.test.ts`, `src/lib/scrim.test.ts`, `src/lib/popover.test.ts`,
+`src/lib/copy-button.test.ts`, `src/lib/spinner.test.ts`,
+`src/lib/useDismissable.test.ts`, `src/components/resize-handle.test.ts`,
+`src/lib/public-face.test.ts`, `src/lib/checkbox.test.ts`); judgment: two
 lookalikes rendered differently.
 **Fix:** extract/adopt the shared primitive + enumerating lock (INV-4/5).
 
@@ -271,7 +271,7 @@ No infinite animation outside the `motion-safe:`-gated spinner funnel (the
 bare `animate-*` scan); entrance/exit transitions stay ≤ ~300ms; a keyboard
 gesture is never animated slower than its pointer twin; `prefers-reduced-motion`
 is respected wherever motion exists.
-**Detection:** `node --test tests/spinner.test.ts` (the bare-animate scan);
+**Detection:** `node --test src/lib/spinner.test.ts` (the bare-animate scan);
 judgment for duration/jank; `e2e/keyboard-resize.spec.ts` for the keyboard path.
 **Fix:** gate or bound the animation at the funnel.
 
@@ -291,7 +291,7 @@ container gates on `@container`, not viewport (UI-9); viewport units are
 `dvh` (UI-6); chrome is in-flow on narrow (UI-3); hover-revealed affordances
 resolve the narrow tier (UI-7); tiling (the split frame) exists only where
 the tier has room (ADAPT-16).
-**Detection:** `node --test tests/viewport.test.ts tests/hoverReveal.test.ts`;
+**Detection:** `node --test src/lib/viewport.test.ts src/lib/hoverReveal.test.ts`;
 `npm run ui:sweep` across the five viewports; `npm run e2e`.
 **Fix:** at the tier owner (`viewport.ts`, the shell) — never per-component
 window listeners.
@@ -331,7 +331,7 @@ consistently and note it here.
 A multi-part primitive carries its own layout container (UI-13); related
 controls cluster with consistent gaps; nothing renders butted-together; cards
 and rows keep the section's established padding.
-**Detection:** `node --test tests/public-face.test.ts` (the UI-13 lock);
+**Detection:** `node --test src/lib/public-face.test.ts` (the UI-13 lock);
 judgment.
 **Fix:** root the layout in the primitive, not the caller.
 
@@ -340,14 +340,14 @@ A status dot/badge/pill renders only server-asserted state (the fabricated
 green dot class, UI-12); a disabled control explains itself (`title`); a
 consent card states exactly what confirming will do (the resolved provider /
 prompt / grant / role — INV-9's "show the result" edge).
-**Detection:** `node --test tests/connectivity-freshness.test.ts
-tests/consent-state.test.ts`; judgment: any cue with no live source.
+**Detection:** `node --test src/api/connectivity-freshness.test.ts
+src/data/consent-state.test.ts`; judgment: any cue with no live source.
 **Fix:** bind the cue to the live registry or remove it.
 
 ### A-12 · Ownership and identity render through one face
 Owner-only controls never render for visitors; bylines/credit come from
 `publicFace` (UI-10); agent actors wear the badge, not a door (INV-10).
-**Detection:** `node --test tests/public-face.test.ts`;
+**Detection:** `node --test src/lib/public-face.test.ts`;
 `npm run e2e` (co-author spec); two-account sweep for any new shared surface.
 **Fix:** gate on the projection's `own`; route cues through the funnel.
 
@@ -363,8 +363,8 @@ existing copy locks in component tests.
 Every popover/menu/dialog dismisses on outside-click + Escape (UI-5/INV-5);
 opens within the viewport (UI-1); traps focus if modal; restores focus on
 close; never stacks two scrims of different darkness (UI-4).
-**Detection:** `node --test tests/useDismissable.test.ts tests/scrim.test.ts
-tests/popover.test.ts`; sweep: open every new transient surface at 320×700
+**Detection:** `node --test src/lib/useDismissable.test.ts src/lib/scrim.test.ts
+src/lib/popover.test.ts`; sweep: open every new transient surface at 320×700
 and 844×390.
 **Fix:** the owning funnel.
 

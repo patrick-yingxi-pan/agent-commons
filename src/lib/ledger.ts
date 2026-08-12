@@ -16,7 +16,7 @@
  *  page, along with the row's own sizes and colors.
  *
  *  Plain strings (no JSX) so the DOM-less test runner can import and scan —
- *  tests/ledger.test.ts locks the recipe and forbids hand-rolled copies.
+ *  src/lib/ledger.test.ts locks the recipe and forbids hand-rolled copies.
  *
  *  The flat radius scale (one decision, stated once): collections (ledger
  *  boxes) 6px · items (quiet cards) 8px · standalone interactive objects (the
@@ -32,7 +32,7 @@
  *  Scheduled, CardList → ledger; Artifacts, Commons, Models cards → quiet
  *  card) and swept every resting shadow. When adding a new collection, take
  *  the recipe from here — a ledger row inside a card is the box-in-box defect
- *  this module exists to end, and tests/ledger.test.ts scans for regressions. */
+ *  this module exists to end, and src/lib/ledger.test.ts scans for regressions. */
 
 /** The container: one border, small radius, hairline dividers between children
  *  (the head included). `overflow-hidden` keeps row hover washes inside the

@@ -13,7 +13,7 @@
  *  they keep their own primitives. Don't "helpfully" unify a bar with a title.
  *
  *  Plain strings (no JSX, no imports) so the DOM-less Node test runner can
- *  import and assert them — tests/pageHeader.test.ts locks that no component
+ *  import and assert them — src/lib/pageHeader.test.ts locks that no component
  *  re-hardcodes the look. Consumers may APPEND functional extras (`truncate` on
  *  long user-named titles, input chrome on the rename-in-place variant) — the
  *  family/size/weight/color are what must not fork. */

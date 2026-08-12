@@ -3,7 +3,7 @@
  *  cue can't drift between surfaces (grant rows today; proposal headers and byline
  *  chips later) — form follows function, one styled primitive. Kept in lib (the
  *  COPY_BUTTON_CLASS pattern) so the shared <TierBadge> and the lock test source
- *  the literal from one place; tests/social-ui.test.ts fails if a component
+ *  the literal from one place; src/lib/social-ui.test.ts fails if a component
  *  re-hardcodes a tier label map. */
 import type { ShareTier } from '../../contract/social.ts'
 

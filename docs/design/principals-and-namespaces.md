@@ -227,7 +227,7 @@ what grant* (`resolvedBy`, on the tooltip). One reality finding: **dual credit
 already existed** — D13 built the agent increment (`runProjectEffect`) and the
 owner-profile rollup (`ownerProfile` stats fold, `ownerReputation`) before this
 migration; Phase 3 verified rather than added it. Locks:
-`tests/public-face.test.ts` (funnel + no hand-rolled cue/fallback),
+`src/lib/public-face.test.ts` (funnel + no hand-rolled cue/fallback),
 `server/routes/principals.test.ts` (the chain on the wire),
 `e2e/work-item-surface.spec.ts` (the chain rendered, owner door working).
 
@@ -383,7 +383,7 @@ Phase 2 — the seeds were the outlier, not the target. Consequences, checked:
 The companion copy rule: **"workspace" never appears in identity copy.** It
 names the layer Phase 2 deleted, and the word is still live in this app for two
 other things — the adaptive split workspace, and a context workspace (an
-attached folder). Locked in the identity funnel by `tests/public-face.test.ts`.
+attached folder). Locked in the identity funnel by `src/lib/public-face.test.ts`.
 
 #### O-D7b — a profile is a SOCIAL page, and yours has a door (2026-08-09)
 
@@ -410,7 +410,7 @@ instead of an exception. The 22 spelled-out `navigate('agents', name)` call
 sites — plus four local aliases, the same funnel invented four times — became
 one `useRelations().openOwner`, composed from the pane-scoped navigate so an
 owner byline inside a split pane still lands in its own pane. Spec row
-SOCIAL-16; locks `tests/owner-door.test.ts`, `e2e/own-profile.spec.ts`.
+SOCIAL-16; locks `src/lib/owner-door.test.ts`, `e2e/own-profile.spec.ts`.
 
 ### Build order (each shippable, tested, spec-ledgered)
 

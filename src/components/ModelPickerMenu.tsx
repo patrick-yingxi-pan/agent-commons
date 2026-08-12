@@ -21,7 +21,7 @@ import { useProviders } from '../api'
  *  list API), and an **Effort** section (the model's own levels, falling back to
  *  the provider's vocabulary). No hard-coded catalog anywhere — the default
  *  provider's models are registry rows like any other's (locked by
- *  tests/model-picker.test.ts). Each caller owns its popover chrome + what a pick
+ *  src/components/model-picker.test.ts). Each caller owns its popover chrome + what a pick
  *  *means* (session wiring, a stored routine label, a persisted preference).
  *  Every metadata field is provider-sourced and optional: a provider that can't
  *  enumerate models says so honestly instead of fabricating rows. */

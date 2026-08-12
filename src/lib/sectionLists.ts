@@ -13,7 +13,7 @@
  *  into it; keeping it beside the type is what lets the catalog stay pure
  *  metadata.
  *
- *  Pure (type-only entity imports), so `tests/section-lists.test.ts` can lock
+ *  Pure (type-only entity imports), so `src/lib/section-lists.test.ts` can lock
  *  the orderings without a DOM. */
 import type { ArtifactItem, Discussion, ModelProvider, Project, SavedContext } from '../types'
 import { discussionTitle } from '../../contract/social.ts'

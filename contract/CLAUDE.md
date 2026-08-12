@@ -3,6 +3,13 @@
 Scoped context for the shared wire contract. The always-on map is
 [`AGENTS.md`](../AGENTS.md).
 
+- **The locks live here too.** The suites that pin the contract's own behavior —
+  the shared reducer, the roles/audit/runs/probe/proxy shapes, relation content
+  previews — sit beside the modules they lock as `<module>.test.ts`, excluded
+  from `tsconfig.json` like every other suite. The *cross-layer* scan that
+  proves this directory imports nothing framework- or Node-shaped stays at
+  `tests/contract-boundaries.test.ts`, because its subject is the boundary
+  between layers rather than any one module here.
 - **The contract is load-bearing.** `contract/*.ts` is imported *verbatim* by
   both the Vite UI and the Node server — that type-identity **is** the
   portability guarantee (spec pillar

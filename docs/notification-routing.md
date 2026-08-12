@@ -169,7 +169,7 @@ only when shipped.
 
 | # | Slice | Ships | Status |
 |---|---|---|---|
-| R1 | **Routing brain** — `FocusTarget` + `NavIntent` + `doorFor(n): NavIntent` total over `NotificationKind` (`never` default); a runtime `NOTIFICATION_KINDS` array so the switch + tests can enumerate every kind; degrades a legacy row to the page, never a dead click | `src/lib/notificationDoor.ts`, `contract/notifications.ts`, `tests/notification-doors.test.ts` | ✅ |
+| R1 | **Routing brain** — `FocusTarget` + `NavIntent` + `doorFor(n): NavIntent` total over `NotificationKind` (`never` default); a runtime `NOTIFICATION_KINDS` array so the switch + tests can enumerate every kind; degrades a legacy row to the page, never a dead click | `src/lib/notificationDoor.ts`, `contract/notifications.ts`, `src/lib/notification-doors.test.ts` | ✅ |
 | R2 | **Contract ids** — `workItemId?`/`proposalId?`/`commentId?` on `AppNotification`; populate at every mint site (public-face) | `contract/notifications.ts`, `server/store/index.ts`, `server/routes/notifications.test.ts` (3 R2 tests) | ✅ |
 | R3 | **Panel + controller wiring** — controller `pendingFocus`/`consumeFocus` + nav entry points (`openWorkItem`/`openProposal`/`openAgent`, ownership-resolving the proposal surface) recording history; panel `open(n)` routes through `doorFor` → dispatch (proposals stop being dead clicks) | `useSessionWorkspace.ts`, `NotificationsPanel.tsx`, `App.tsx`; app-verified live (proposal bell → Agents hub); click→navigate→focus e2e lands with R4 | ✅ |
 | R4 | **Work-item doors live** — project page consumes work-item focus (scroll + flash highlight + thread expand + comment anchor) via a `FocusContext`; `work.*` + `mentioned` land precisely | `src/lib/focusContext.ts`, `SectionView.tsx` (`WorkItemRow`), `App.tsx`; `e2e/notifications.spec.ts` (work.commented → auto-expanded thread) | ✅ |
@@ -184,7 +184,7 @@ only when shipped.
 
 The loop stops when **all** hold:
 1. Every `NotificationKind` resolves to a concrete door — the exhaustive switch
-   compiles and `tests/notification-doors.test.ts` passes for every kind.
+   compiles and `src/lib/notification-doors.test.ts` passes for every kind.
 2. Every **built** row (R1–R6) is ✅ with locking tests; the two imagined new-kind
    rows (R7/R8) are resolved — here, ⊘ **rejected** with a verified finding, not built.
 3. The imagined-but-not-built set above is recorded with its rationale (done).
@@ -254,7 +254,7 @@ the form of the thing asking for it.** A modal is only for a transient act
 (surface-from-nature); triaging a list of entities with state and doors is not
 one, which is why Messages had been a page since S7 and this had not.
 
-Locked by `tests/notification-doors.test.ts` (the section is registered, the URL
+Locked by `src/lib/notification-doors.test.ts` (the section is registered, the URL
 round-trips, the rows route through the pane bridge, no shell-level notification
 door or overlay survives) and walk 4 of `e2e/social-layer.spec.ts`, which rings
 Ada, follows the bell to the thread's page, and asserts Back both NAMES and

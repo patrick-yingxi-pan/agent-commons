@@ -1,6 +1,6 @@
 /** The one checkbox cue + the "Default" registry-flag cues — lib-hosted literals
  *  (like COPY_BUTTON_CLASS / SCRIM_CLASS) so the shared components and the lock test
- *  both source them from one place; tests/checkbox.test.ts fails if a component
+ *  both source them from one place; src/lib/checkbox.test.ts fails if a component
  *  re-hardcodes them.
  *
  *  The checkbox square is the repo's single checkbox idiom (it started life as the

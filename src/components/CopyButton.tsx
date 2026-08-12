@@ -4,7 +4,7 @@ import { COPY_BUTTON_CLASS } from '../lib/copyButton'
 /** The one copy-to-clipboard button. Every "Copy" affordance wears this so the cue
  *  (the compact bordered pill, the label swapping to "Copied" on click, and the
  *  self-resetting confirmation) can't drift between copy-pasted copies — form
- *  follows function, one styled primitive (tests/copy-button.test.ts fails if a
+ *  follows function, one styled primitive (src/lib/copy-button.test.ts fails if a
  *  component re-hardcodes the markup). It owns its own transient confirmation
  *  state, so callers just hand it the text to copy. */
 

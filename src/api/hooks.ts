@@ -461,7 +461,7 @@ export function useSocialCapability(kind: string, id: string, enabled = true): Q
  *  2026-08-08). `canPost` was added for the mirror-image DM case and its
  *  comment in contract/social.ts already named the trap; the surfaces just kept
  *  asking the subject. One hook now, so they cannot answer it differently —
- *  locked tree-wide by `tests/social-ui.test.ts`. */
+ *  locked tree-wide by `src/lib/social-ui.test.ts`. */
 export function useCanComment(subject: SocialEntityRef, thread: Discussion | null, enabled = true): boolean {
   const bySubject = useSocialCapability(subject.kind, subject.id, enabled).data?.canComment === true
   return thread ? thread.canPost === true : bySubject

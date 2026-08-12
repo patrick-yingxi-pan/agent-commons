@@ -280,7 +280,7 @@ export const MENTION_MAX_NAME_LEN = 80
  *  abbreviated (the /ui-review judgment pass, 2026-07-22). The rail list was
  *  named here but never actually converted — it kept its own `slice(0, 100)`
  *  until a seeded thread made it visible (2026-07-23), so adoption is now
- *  ENUMERATED rather than asserted in prose: `tests/social-ui.test.ts` fails on
+ *  ENUMERATED rather than asserted in prose: `src/lib/social-ui.test.ts` fails on
  *  any surface that derives a title from a post body without this funnel. */
 export function discussionTitle(firstPost: string | undefined, max = 80): string {
   const body = (firstPost ?? '').trim()

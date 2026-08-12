@@ -12,7 +12,7 @@
  *  identity `findPane` matches on.
  *
  *  Dependency-free on purpose (the railPanes.ts pattern): the components render
- *  whatever this module computes, and tests/split-frame.test.ts locks the math
+ *  whatever this module computes, and src/lib/split-frame.test.ts locks the math
  *  without a DOM. Paths address nodes as strings of 'a'/'b' steps from the root
  *  ('' = root), so the tree round-trips JSON for persistence. Ratios are
  *  clamped on write against CONSTANT bounds (no context-dependent clamp ever

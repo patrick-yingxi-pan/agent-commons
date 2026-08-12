@@ -60,7 +60,7 @@ export const uiPrefScope = (): string | null => scope
  *  scope, so derived snapshots key on `uiPrefScope()` and notice the switch
  *  instead of waiting to be told (`sectionFilterSnapshot`). `setMainSplitScope`
  *  (lib/mainSplit.ts), set on the very next line of App.tsx, has always worked
- *  this way. Locked by tests/pure-updaters.test.ts. */
+ *  this way. Locked by src/lib/pure-updaters.test.ts. */
 export function setUiPrefScope(next: string | null): void {
   scope = next
 }
@@ -95,7 +95,7 @@ export function getLayout<T extends number | boolean | string>(key: string, fall
  *  useState initializer, or a setState UPDATER (updaters replay during render
  *  when the queue is busy; Sidebar's rail toggles once persisted from inside
  *  theirs and drew the "cannot update while rendering" error). Call it from the
- *  event handler, beside the setState. Locked by tests/pure-updaters.test.ts. */
+ *  event handler, beside the setState. Locked by src/lib/pure-updaters.test.ts. */
 export function setLayout(key: string, value: number | boolean | string) {
   try {
     localStorage.setItem(storageKey(), JSON.stringify({ ...load(), [key]: value }))

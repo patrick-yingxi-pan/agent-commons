@@ -47,8 +47,8 @@ but never collapses). As built:
 Driven by `useViewport` (`src/lib/viewport.ts`), which also reports an independent
 height axis — `short` (<480px), the CSS `short:` variant — that compresses fixed
 chrome for landscape phones. Panel width stays user-resizable within each tier
-(handles drop on narrow, where widths are fixed). Locked by `tests/viewport.test.ts`,
-`tests/scrim.test.ts`, `e2e/responsive.spec.ts`.
+(handles drop on narrow, where widths are fixed). Locked by `src/lib/viewport.test.ts`,
+`src/lib/scrim.test.ts`, `e2e/responsive.spec.ts`.
 
 ### 2.4 Accessibility
 

@@ -87,7 +87,7 @@ holds its code, its scoped `CLAUDE.md`, the requirement rows it owns
 at a *layer*, and the layer's own file points at its modules; you load context
 by opening the directory you are working in. `tests/` keeps only what the
 **repo** owns — doc-lint and cross-layer locks with no single module to belong
-to. (Done for `server/`; `src/` and `contract/` still route through `tests/`.)
+to — eight suites plus `helpers/source.ts`, down from 229.
 
 | Working on / wondering about | Read |
 |---|---|
@@ -176,7 +176,6 @@ src/        the UI — api/ (cache, events, commands) · controller/ · componen
 connector/  the session-relay connector (served by the product itself)
 e2e/        Playwright browser specs (DOM-level wiring)
 tests/      what the REPO owns: doc-lint + cross-layer locks, helpers/source.ts
-            (src/ and contract/ suites still live here — colocation pass 2)
 docs/       design notes, spec ledger, explainers
 PROPOSAL.md the written proposal (the argument)
 README.md   architecture + run guide (the engineering tour)

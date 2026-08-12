@@ -126,7 +126,7 @@ lived in a sidebar column. Two refinements closed the worst of it:
   name — same name ⇒ same mark on every surface and clone) worn by every owner door
   (`<OwnerLink>`) and at page scale on the profile header. One primitive
   (`IdentityMark`, the public-face funnel), `aria-hidden` (the NAME stays the
-  accessible identity), locked by `tests/public-face.test.ts`. The signed-in-account
+  accessible identity), locked by `src/lib/public-face.test.ts`. The signed-in-account
   discs (AccountMenu / AuthScreen) stay accent-colored on purpose — "you" is a
   different role than "which namespace".
 

@@ -94,7 +94,7 @@ Consequences that fall out correctly:
   funnel — 22 escape doors fixed with zero per-callsite edits (the owner
   report: a Contexts pane's connector row opened its detail on the primary).
   Conversation doors (open thread / new session / proposal) still hand off
-  deliberately. Locked by `tests/pane-nav.test.ts` (the mapping mirrors
+  deliberately. Locked by `src/lib/pane-nav.test.ts` (the mapping mirrors
   `App.navigateToSection` shape for shape) + `e2e/main-split.spec.ts`
   (verified to fail without the override).
 
@@ -147,7 +147,7 @@ collapses); prune at render, never in storage.
    the global runId (streams keep landing in their keyed entry across
    navigation; only a reset of the same session stales them); sends serialize
    per session, not globally; `adopt` moves the draft's optimistic state under
-   the materialized id. Locked by `tests/conversation-store.test.ts` (keyed
+   the materialized id. Locked by `src/controller/conversation-store.test.ts` (keyed
    isolation, epoch staleness, reconcile-without-stale, adopt-once, failure
    copy, C28 hold, settle hook, keyed notification); all pre-existing tests +
    the full e2e suite pass unchanged.
@@ -160,7 +160,7 @@ collapses); prune at render, never in storage.
    button minting the first frame. Exactly-one-primary invariant
    (`closeMainPane`), per-account persistence, URL parity (a pane's local
    navigation never touches the address). Spec row ADAPT-17; locked by
-   `tests/main-split.test.ts` + `e2e/main-split.spec.ts`.
+   `src/lib/main-split.test.ts` + `e2e/main-split.spec.ts`.
 3. **Multi-conversation panes** — ✅ **LANDED 2026-07-15**: the picker offers
    every conversation; `ConversationPane` renders the thread through the keyed
    store (`usePaneConversation` — the primary's open recipe without its
@@ -168,8 +168,8 @@ collapses); prune at render, never in storage.
    flags + per-session chain; stop included) streaming independently of the
    primary. Consent applies through ONE funnel (`applyEscalationToLive` /
    `escalationBinding` / `approvalView` — the controller refactored onto it).
-   Locked by `tests/conversation-store.test.ts` (dispatchTurn),
-   `tests/escalation-funnel.test.ts`, `e2e/main-split.spec.ts`.
+   Locked by `src/controller/conversation-store.test.ts` (dispatchTurn),
+   `src/data/escalation-funnel.test.ts`, `e2e/main-split.spec.ts`.
    **Homogeneous views landed 2026-07-15** (the owner's rule: refactor first —
    a session is a well-factored view, so panes and primary must render the
    same one): the fully-fledged conversation surface is ONE component,
@@ -199,7 +199,7 @@ collapses); prune at render, never in storage.
    `paneChrome`'s `onSplit` / `onClosePane` chrome; the tree math (`splitFrame.ts`)
    and per-account tree persistence (`claude-ui.mainsplit.v1`) live on. ADAPT-16's
    spec row is **superseded** (kept, not deleted — history stays honest). Locked by
-   `tests/main-split.test.ts` (context-panel vocabulary / identity / dedup /
+   `src/lib/main-split.test.ts` (context-panel vocabulary / identity / dedup /
    aliveness / prune, `setPrimaryContextTree`, the primary-close guard) and
    `e2e/main-split.spec.ts` (the fold-in tiling + rail close; the split-mechanics
    tests close the auto-tiled panel first).
@@ -233,7 +233,7 @@ collapses); prune at render, never in storage.
       the primary is focused), the pane dispatches through the shared funnel,
       and `onDraftAdopted` retargets every draft-id pane to the real id by
       CONTENT match (`retargetDraftPanes` — duplicates follow; same-reference
-      no-op). Locked by `tests/main-split.test.ts` (retarget) +
+      no-op). Locked by `src/lib/main-split.test.ts` (retarget) +
       `e2e/main-split.spec.ts` (New session lands in the focused pane and
       materializes in place; the primary keeps its content; URL unmoved).
    4. ✅ **LANDED 2026-07-16** — URL follows focus (`focusedContent` → the
@@ -279,8 +279,8 @@ collapses); prune at render, never in storage.
       `focusForAdded`/`focusValidIn`), the C28 push-reconcile resurface
       (added to `usePaneConversation`'s push site), and a DRAFT pane's
       composer attach (bound a nonexistent server row; now routes
-      `draft.addSeed`). Locked by `tests/shell-nav.test.ts` (the no-grow-back
-      ratchet + the five re-homes), `tests/focusForAdded.test.ts`
+      `draft.addSeed`). Locked by `src/shell-nav.test.ts` (the no-grow-back
+      ratchet + the five re-homes), `src/data/focusForAdded.test.ts`
       (`focusValidIn`), and the rail-highlight e2e in
       `e2e/main-split.spec.ts`. The adversarial review pass (2 agents over
       the prune diff) surfaced six more, all fixed: **the boot dedup** (the
@@ -324,8 +324,8 @@ collapses); prune at render, never in storage.
         server `reconcile`, cleared by `reset`): a mirror-seeded live
         missing a runtime attach is a transient unknown, never a prune
         signal — the projection-latch rule grew a store face. Locked by
-        `tests/main-split.test.ts` (prune unit), the reconciled-latch lock
-        in `tests/conversation-store.test.ts`, and verified live (pin a
+        `src/lib/main-split.test.ts` (prune unit), the reconciled-latch lock
+        in `src/controller/conversation-store.test.ts`, and verified live (pin a
         duplicate of a repo panel, remove the repo → both context panes
         collapse, no re-projection loop).
    8. ✅ **The tail — LANDED 2026-07-17.** The three remaining items, closing
@@ -350,7 +350,7 @@ collapses); prune at render, never in storage.
         (App) answers the pending target only for that pane, and `PaneBody`
         provides the pane-scoped `FocusContext` — so a duplicate pane
         showing the same page can no longer steal or double-fire a bell's
-        flash. Locked by `tests/shell-nav.test.ts`.
+        flash. Locked by `src/shell-nav.test.ts`.
       Phases 1–8 complete: nothing remains open on the universal-split
       punch list.
    9. ✅ **Choosers out of the pane vocabulary — LANDED 2026-07-17 (UI-15).**
@@ -369,9 +369,9 @@ collapses); prune at render, never in storage.
       retired too — with the runs fallback gone the projection reads only
       STORE state (`focus`), which has no transient-unknown window (the
       latch lesson below stays: it applies whenever a projection reads an
-      async-resolving input). Locked by `tests/run-history.test.ts`,
+      async-resolving input). Locked by `src/components/run-history.test.ts`,
       the migration + single-arg aliveness locks in
-      `tests/main-split.test.ts`, and the rewritten one-pane run e2e in
+      `src/lib/main-split.test.ts`, and the rewritten one-pane run e2e in
       `e2e/main-split.spec.ts`.
 
 ## 4. Decisions locked by the owner (2026-07-15)

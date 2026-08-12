@@ -82,7 +82,7 @@ test('a namespace profile is reachable from any byline, and global search finds 
   // line (plain text, no control of its own) must navigate: the card used to carry
   // an "Open project" button restating a destination its title already reached,
   // while the card body itself was inert. This is the DOM half of the card-door
-  // lock — tests/card-door.test.ts owns the source half.
+  // lock — src/lib/card-door.test.ts owns the source half.
   // "Open to contributors" is the zero-count face of the same meta line — the
   // fresh project here has no contributors yet.
   await visitor.page.getByText(/\d+ contributors?|Open to contributors/).first().click()

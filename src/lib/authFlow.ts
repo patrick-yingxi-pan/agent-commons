@@ -7,7 +7,7 @@
  *
  *  A plain module (no JSX / React / import.meta.env) so the DOM-less Node test
  *  runner locks the step machine and the password rules directly —
- *  tests/auth-flow.test.ts. */
+ *  src/lib/auth-flow.test.ts. */
 
 import { SOLID_BUTTON_CLASS } from './button.ts'
 
@@ -78,7 +78,7 @@ export function stepBefore(step: SignUpStep): SignUpStep | null {
 
 /* ── Shared styled primitives (form follows function) ───────────────────────
  * Every auth-flow form control wears these, so auth surfaces can't drift
- * apart. Locked by tests/auth-flow.test.ts (no component re-hardcodes them). */
+ * apart. Locked by src/lib/auth-flow.test.ts (no component re-hardcodes them). */
 
 export const AUTH_INPUT_CLASS =
   'w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-co focus:outline-none focus:ring-2 focus:ring-co/30'

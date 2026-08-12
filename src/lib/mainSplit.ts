@@ -24,7 +24,7 @@ import { locOfSeed, type PaneSeed } from './paneNav.ts'
 // `Live` is type-only (erased at runtime) — no cycle, and Node's native TS never
 // loads data/liveSession to run this node-tested module.
 import type { Live } from '../data/liveSession'
-// Extension-qualified: this module is node-tested (tests/main-split.test.ts),
+// Extension-qualified: this module is node-tested (src/lib/main-split.test.ts),
 // and Node's native TS resolves runtime imports only with the explicit .ts.
 import { closePane, panes, replacePane, splitPane, type PaneContent, type SplitNode } from './splitFrame.ts'
 import { pathForView } from './urlRoutes.ts'
@@ -271,7 +271,7 @@ export function getMainSplitPref(): MainSplitNode | null {
  *  the title bar's floating run-history click-down — UI-15: a chooser is
  *  chrome, never a pane). Strip those leaves (the sibling inherits the slot);
  *  the boot flow re-opens the remembered page as a concrete pane. Exported
- *  for its lock (tests/main-split.test.ts). */
+ *  for its lock (src/lib/main-split.test.ts). */
 export function migrateMainSplit(tree: MainSplitNode | null): MainSplitNode | null {
   const retired = (c: MainPaneContent): boolean => {
     const kind = (c as { kind: string }).kind

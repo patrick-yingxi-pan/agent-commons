@@ -128,7 +128,7 @@ test('extreme narrow (320×700): every composer popover stays inside the viewpor
   // What this proves and what it doesn't: the list opens on a 320px viewport
   // and lies inside it. It does NOT exercise the clamp — this composer's left
   // edge is small enough that the list would fit unclamped — so the clamp is
-  // held where it can fail: `tests/popover.test.ts` (the `clampLeft` unit cases
+  // held where it can fail: `src/lib/popover.test.ts` (the `clampLeft` unit cases
   // at the boundaries, and the call-site scan that fails this file if the
   // shared math is dropped).
   await page.goto('/discussions/disc-seed-1')

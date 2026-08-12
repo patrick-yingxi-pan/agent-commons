@@ -364,7 +364,7 @@ under the PORT table) and the switcher row noted against PORT-8's identity seam.
   injection, generation guard, identity echo, `/v1/identities`, capability flag.
   *Tests:* `tests/identities-route.test.ts` (remote-only, 409 on native; echo
   header on every responder incl. SSE hello); client-side guard logic factored
-  pure and unit-tested (`tests/account-guard.test.ts`); contract boundaries
+  pure and unit-tested (`src/api/account-guard.test.ts`); contract boundaries
   extended for the new DTOs/events.
 - **P4 — switcher UI + E2E.** Sidebar chip menu; pending-turn/reattach UI; stop
   button → cancel route. *E2E* (`e2e/account-switch.spec.ts`, on the existing
@@ -563,7 +563,7 @@ GitHub-style surface** and makes "multiple accounts on one browser" real
   (stack over the wire: join on signup/login, strict resolution, hop-back
   lands on last-active tenant, credential-less mint refused without the stack,
   sign-out forgets one/all, seed picks never join, `via` on the wire, the
-  `authGate` flag), `tests/auth-flow.test.ts` (wizard step machine, password
+  `authGate` flag), `src/lib/auth-flow.test.ts` (wizard step machine, password
   checklist, server-mirror of the email shape, the shared-primitive lock),
   `e2e/onboarding.spec.ts` (rewritten against the wizard) +
   `e2e/auth-wizard.spec.ts` (two accounts stack → instant hops → sign-out →
@@ -594,7 +594,7 @@ area and a standing temptation to demo the wrong path.
   credential — the device owner never signs in; personal↔work switching rides
   the membership re-mint, as before.
 - **Migrated, not deleted**: the identity-echo / stream-identity / fan-out
-  coverage that shared the old test file moved to `tests/identity-echo.test.ts`;
+  coverage that shared the old test file moved to `server/routes/identity-echo.test.ts`;
   `e2e/account-switch.spec.ts` drives the stack rows (`page.request` sign-ins
   share the browser context's cookie jar, so setup is API-fast and the
   UI-driven switching stays the surface under test).

@@ -14,7 +14,7 @@
  *      touch them. Claret is the base `@theme` block itself, so it has no
  *      override blocks.
  *  Nothing else may touch `data-theme` or `data-palette` — invariant INV-1
- *  (tests/theme.test.ts, tests/spec-conformance.test.ts, which also locks each
+ *  (src/lib/theme.test.ts, tests/spec-conformance.test.ts, which also locks each
  *  palette's CSS blocks to exactly PALETTE_TOKENS, light and dark alike). */
 
 export type ThemePref = 'light' | 'dark' | 'system'
@@ -32,7 +32,7 @@ export type PaletteId = 'claret' | 'terracotta' | 'indigo' | 'forest'
 
 /** The tokens a palette varies — the neutrals, the accent family (including its
  *  SOLID-FILL seat, `*-solid`, which carries `on-solid` text and so is held to
- *  4.5:1 against it by `tests/contrast.test.ts` — invariant UI-20), and the user
+ *  4.5:1 against it by `src/lib/contrast.test.ts` — invariant UI-20), and the user
  *  bubble. Everything else (`ok`/`warn`/`danger` and their solid seats, cap
  *  hues, diff colors, `on-solid` itself) is semantic and palette-invariant; the
  *  conformance lock fails a palette block that strays outside this list, or

@@ -3,7 +3,7 @@
  *  thing" for everyone; this one answers "which of my accounts is this" for the
  *  one person looking — the account chip in the rail footer, the switcher rows
  *  inside it, and the auth screen's picker. Three surfaces, one question, so
- *  one funnel (form follows function; locked by tests/account-face.test.ts).
+ *  one funnel (form follows function; locked by src/lib/account-face.test.ts).
  *
  *  It exists because of what FWD-5 Phase 2 did to identity: account and
  *  namespace collapsed 1:1, and since 2026-08-09 a seed namespace WEARS ITS

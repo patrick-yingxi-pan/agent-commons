@@ -89,7 +89,7 @@ export interface RelationsValue {
    *  owner door stays pane-local exactly like every other door (ADAPT-17) —
    *  building it in the provider would have captured the ROOT bridge and quietly
    *  driven the primary pane from inside a split. Locked by
-   *  `tests/owner-door.test.ts`. */
+   *  `src/lib/owner-door.test.ts`. */
   openOwner: (name: string) => void
 }
 

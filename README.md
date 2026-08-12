@@ -205,13 +205,12 @@ docs/                     # the written record
   capability-broker-architecture.md  # forward-looking: control plane + native-agent registry
 
 tests/                    # the locks the REPO owns (node --test): doc-lint,
-                          # cross-layer contracts, helpers/source.ts — plus the
-                          # src/ and contract/ suites, pending colocation pass 2
+                          # cross-layer contracts, helpers/source.ts
 e2e/                      # Playwright browser specs
 scripts/                  # dev orchestration, the ui-sweep harness, snapshot tooling
 connector/                # the session-relay connector (served by the product itself)
 
-src/
+src/                      # every module carries its CLAUDE.md + *.test.ts siblings
   main.tsx · App.tsx · types.ts (re-exports the contract) · index.css
   api/                    # the UI's one door to the backend
     client.ts             # fetch wrapper (base URL = VITE_API_BASE ?? /api/v1)

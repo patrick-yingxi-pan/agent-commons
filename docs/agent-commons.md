@@ -1799,8 +1799,8 @@ session↔context binding, mediation handle, and single-resource escrow).
   can see, composed exclusively from the same per-tenant reads and redactions the pages
   use; surfaced in the ⌘K palette (the one search surface), where every hit deep-links
   (project → project page, owner/published agent → profile, open work → its backlog).
-  Locked by `server/routes/owner-profile.test.ts`, `server/routes/search.test.ts`, `tests/nav.test.ts`,
-  `tests/public-face.test.ts`, `e2e/profile-and-search.spec.ts`; spec rows COMMONS-14/15.
+  Locked by `server/routes/owner-profile.test.ts`, `server/routes/search.test.ts`, `src/lib/nav.test.ts`,
+  `src/lib/public-face.test.ts`, `e2e/profile-and-search.spec.ts`; spec rows COMMONS-14/15.
 - **Slice 22 — work-item discussion + the honest close (D23). ✅ Built.** An
   `OpenSubGoal` is now a conversation: a flat, append-only **comment thread**
   (display-name attribution, per-comment + per-item caps, postable by anyone who can

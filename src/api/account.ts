@@ -66,7 +66,7 @@ export function onAccountSwitch(fn: () => void): () => void {
   return () => listeners.delete(fn)
 }
 
-// ── Pure policy helpers (locked by tests/account-guard.test.ts) ──────────────
+// ── Pure policy helpers (locked by src/api/account-guard.test.ts) ──────────────
 // (The old accountHeaders/accountQuery injectors died with P6: identity rides
 //  the HttpOnly session cookie, which no client code can — or should — build.)
 

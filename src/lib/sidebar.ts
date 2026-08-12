@@ -3,7 +3,7 @@
  *  rows, the Recents and Scheduled rows, and the Scheduled fold header — shares
  *  one hover cue, so the whole panel reads as a single, consistent surface. It
  *  lives here as one string so it can't drift between those elements; locked by
- *  tests/sidebar.test.ts.
+ *  src/lib/sidebar.test.ts.
  *
  *  The hover is a STEP OFF THE GROUND, not a direction (owner directive
  *  2026-08-10). It used to be 70% `surface` over a rail that sat a step darker

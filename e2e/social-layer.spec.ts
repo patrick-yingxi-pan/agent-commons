@@ -947,7 +947,7 @@ test('the square: compose → the feed carries it → a mention doors → a stra
  *  name in this world has a space in it ("Beta Platform"), so the composer must
  *  offer them or the feature is reachable only by people who already know them.
  *
- *  What only a browser can prove, given `tests/mention-picker.test.ts` holds the
+ *  What only a browser can prove, given `src/lib/mention-picker.test.ts` holds the
  *  pure logic: that the picker ARMS from a real caret in a real field, that
  *  Enter completes the name instead of dropping a newline into the middle of it,
  *  that it does not re-arm on the caret move the accept itself caused (a second
@@ -1082,7 +1082,7 @@ test('the square’s composer completes a name the viewer follows, and the post 
  *
  *  Locked here rather than in node because all three halves are DOM: the gutter
  *  is hover-revealed, the marker only exists once a thread does, and the chip's
- *  landing is a scroll. `tests/anchor-locus.test.ts` holds the pure resolver. */
+ *  landing is a scroll. `src/lib/anchor-locus.test.ts` holds the pure resolver. */
 test('a discussion hangs on ONE block of an artifact, and its chip lands back there', async ({ browser }) => {
   test.setTimeout(120_000)
   const ada = await newUser(browser)
@@ -1132,7 +1132,7 @@ test('a discussion hangs on ONE block of an artifact, and its chip lands back th
 //  answering Grace — and the two ends had to move together, which is why this
 //  file changes alongside `server/routes/discussions.test.ts`.
 //
-//  `tests/reply-tree.test.ts` holds the arithmetic (orphans, rings, the indent
+//  `src/lib/reply-tree.test.ts` holds the arithmetic (orphans, rings, the indent
 //  clamp) and `server/routes/discussions.test.ts` the write path. What only a browser
 //  can prove is the structure: the composer opens in place, the answer lands
 //  INSIDE its parent's row, a second answer goes DEEPER still, Ctrl+Enter posts

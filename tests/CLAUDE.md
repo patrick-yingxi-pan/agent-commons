@@ -7,9 +7,10 @@ The always-on map is [`AGENTS.md`](../AGENTS.md).
 **A suite is a module's own file, not a resident of a parallel tree.** It sits
 beside the code it locks, under that module's directory, with that module's
 `CLAUDE.md` and `SPEC.md` — the same progressive disclosure `CLAUDE.md` gets,
-applied to every kind of file. Done for `server/` (see
-[`server/CLAUDE.md`](../server/CLAUDE.md) for its module table); `src/` and
-`contract/` still route through here and are the next pass.
+applied to every kind of file. Done across all three layers — the module
+tables are in [`server/CLAUDE.md`](../server/CLAUDE.md),
+[`src/CLAUDE.md`](../src/CLAUDE.md) and
+[`contract/CLAUDE.md`](../contract/CLAUDE.md).
 
 The rule for *which* module: **a suite belongs to what it locks, not to what it
 drives through.** A test that exercises auth over HTTP is an auth test and sits

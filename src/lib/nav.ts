@@ -105,7 +105,7 @@ export function pushLocation(stack: NavLocation[], leaving: NavLocation, to: Nav
  *  lock can enumerate them and check the one supplier feeds every one. A total
  *  `resolveBackLabel` handed a half-filled map degrades exactly like the bug it
  *  replaced, silently, so "is it total?" and "is it fed?" are two questions and
- *  both are asked (`tests/nav.test.ts`). */
+ *  both are asked (`src/lib/nav.test.ts`). */
 export const BACK_LABEL_SOURCES = ['project', 'schedule', 'discussion', 'artifact', 'context', 'provider', 'agent'] as const
 
 /** Live display names for the back label, one map per registry, keyed by id.

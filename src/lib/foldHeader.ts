@@ -12,11 +12,11 @@
  *  `--color-canvas`, so there is one ground and one cue, `panel-2`, the neutral
  *  step off it (darker in light mode and LIGHTER in dark; the promise is
  *  separation from the ground, never a direction). The lock moved with the rule
- *  rather than outliving it — `tests/foldHeader.test.ts` now asserts the two
+ *  rather than outliving it — `src/lib/foldHeader.test.ts` now asserts the two
  *  hovers AGREE, and fails a cue painted in the ground's own colour.
  *
  *  Plain strings (no JSX, no imports) so the DOM-less Node test runner can import
- *  and assert them — see tests/foldHeader.test.ts, which locks that every surface
+ *  and assert them — see src/lib/foldHeader.test.ts, which locks that every surface
  *  keeps a visible hover and that nothing re-hardcodes the cue. */
 
 /** The hover affordance for a foldable header: a soft background highlight plus the

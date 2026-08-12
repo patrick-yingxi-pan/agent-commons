@@ -27,7 +27,7 @@ import { useEffect, useRef, type RefObject } from 'react'
  *  dialog via `useFocusTrap`), so one Escape doesn't collapse both layers at once
  *  — the same coordination as `useFocusTrap`'s `closeOnEscape` option.
  *
- *  Locked by tests/useDismissable.test.ts, which fails if a component re-hardcodes
+ *  Locked by src/lib/useDismissable.test.ts, which fails if a component re-hardcodes
  *  the document `mousedown` listener instead of going through this hook. */
 export function useDismissable<T extends HTMLElement = HTMLDivElement>(
   open: boolean,

@@ -4,7 +4,7 @@
  *  catalog, fetched from its endpoint's list API or declared at registration).
  *  The default provider's catalog is what used to be the hard-coded Claude trio;
  *  registering a provider makes its models pickable everywhere at once (the
- *  "registries have one home" rule, locked by tests/model-picker.test.ts).
+ *  "registries have one home" rule, locked by src/components/model-picker.test.ts).
  *
  *  A selection is a two-level **pick** — `{ providerId?, modelId? }` — where each
  *  absence is an inherit (INV-9's shape at the client): no providerId = the

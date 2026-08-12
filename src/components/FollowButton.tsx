@@ -5,7 +5,7 @@ import { setFollow } from '../api'
 /** The ONE follow toggle (S7). Every surface that offers "follow this
  *  workspace" wears this, for the reason `TierBadge` and `WatchToggle` exist:
  *  one styled primitive per role, so the cue can't drift between copy-pasted
- *  copies (form follows function; locked by tests/social-ui.test.ts).
+ *  copies (form follows function; locked by src/lib/social-ui.test.ts).
  *
  *  Deliberately the same anatomy as `WatchToggle` — the two are siblings: watch
  *  is a standing relationship with a RESOURCE, follow with a PERSON. They read

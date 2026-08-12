@@ -2,7 +2,7 @@
  *  same (form follows function, src/CLAUDE.md). Lives in `lib/` rather than
  *  beside its first caller so components outside the section tree — the
  *  conversation's turn composer among them — can share the cue instead of
- *  re-hardcoding it. Locked by `tests/form-input.test.ts`.
+ *  re-hardcoding it. Locked by `src/lib/form-input.test.ts`.
  *
  *  ── Two shapes, one look ────────────────────────────────────────────────────
  *  A field that is only a field wears the whole cue itself (`FORM_INPUT_CLASS`).

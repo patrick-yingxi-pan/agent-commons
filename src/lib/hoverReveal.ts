@@ -15,7 +15,7 @@
  *  `opacity-0`-but-space-reserving. Earned by the first /ui-review sweep:
  *  at 320px the Scheduled and Contexts rows' invisible action clusters starved
  *  the flex-1 name column to ~0px, leaving rows with no identity ("G…").
- *  Locked by tests/hoverReveal.test.ts — a component writing its own
+ *  Locked by src/lib/hoverReveal.test.ts — a component writing its own
  *  `group-hover:opacity-100` fails the scan. Callers add their own focus
  *  variants, colors, and layout. */
 export const HOVER_REVEAL = 'opacity-0 transition group-hover:opacity-100 max-sm:opacity-100'

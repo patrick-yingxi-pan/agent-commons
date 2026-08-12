@@ -11,8 +11,8 @@
  *  lit and auto-expanded the Agents row. Both halves are walked here, because
  *  the highlight is the part a DOM-free test cannot see.
  *
- *  The node suites lock the funnel and the registries (tests/owner-door.test.ts,
- *  tests/url-routes.test.ts); this locks the wiring. */
+ *  The node suites lock the funnel and the registries (src/lib/owner-door.test.ts,
+ *  src/lib/url-routes.test.ts); this locks the wiring. */
 import { test, expect, type Page } from '@playwright/test'
 
 const sectionsNav = (page: Page) => page.getByRole('navigation', { name: 'Sections' })

@@ -24,7 +24,7 @@
  *  OWNER_SECTION below; an agent PAGE routes through the `onOpenAgentPage`
  *  prop, never this bridge);
  *  admin → an account's detail page in the maintainer console (FWD-7 v1.1).
- *  Dependency-free and node-tested (tests/pane-nav.test.ts) so the mapping
+ *  Dependency-free and node-tested (src/lib/pane-nav.test.ts) so the mapping
  *  can't silently diverge from the root's. */
 import type { SectionId } from '../types'
 
@@ -92,7 +92,7 @@ export function locOfSeed(seed: Partial<Record<SeedKey, string | null | undefine
  *
  *  It is a CONSTANT rather than 24 spelled-out call sites because "which section
  *  hosts a profile" is ONE fact. Every owner door goes through
- *  `useRelations().openOwner`, which reads it; `tests/owner-door.test.ts` fails
+ *  `useRelations().openOwner`, which reads it; `src/lib/owner-door.test.ts` fails
  *  on a hand-rolled `navigate('<section>', name)`. */
 export const OWNER_SECTION: SectionId = 'commons'
 

@@ -4,6 +4,27 @@ Scoped context for the UI layer. The always-on map is [`AGENTS.md`](../AGENTS.md
 this file holds the locked design decisions that govern `src/` code. Each rule
 names its locking test — moving or weakening a rule means moving its lock too.
 
+## Layout — a module carries its own context and locks
+
+| Module | What it owns |
+|---|---|
+| [`lib/`](lib/CLAUDE.md) | shared primitives, the registries, the pure derivations |
+| [`components/`](components/CLAUDE.md) | every rendered surface |
+| [`api/`](api/CLAUDE.md) | the one door to the backend (cache, events, hooks) |
+| [`controller/`](controller/CLAUDE.md) | the command side of that door |
+| [`data/`](data/CLAUDE.md) | client-side derivations (the funnel, card states) |
+
+Suites sit beside what they lock, as `<subject>.test.ts`, and are excluded from
+`tsconfig.json` so colocation doesn't silently start typechecking the test
+surface ([`tests/CLAUDE.md`](../tests/CLAUDE.md) measured that cost).
+
+**What a colocated UI suite can prove is limited, and the limit shapes where
+code goes.** `node --test` has no DOM: a suite next to a `.tsx` file can only
+scan its source. So pure logic belongs in [`lib/`](lib/CLAUDE.md) where it is
+locked exactly, browser facts belong in [`e2e/`](../e2e/CLAUDE.md), and what
+neither can reach is verified in the running app **and said so**. A rule that is
+awkward to assert is usually a rule whose logic wants to move.
+
 ## Ground rules
 
 - **One door to the backend.** UI components read through hooks (`src/api`);
@@ -16,12 +37,12 @@ names its locking test — moving or weakening a rule means moving its lock too.
   overriding EXACTLY the `PALETTE_TOKENS` set (neutrals + accent family +
   userbubble) in both modes — semantic ramps are palette-invariant, and the
   picker derives from the `PALETTES` registry, never a hand list (locked by
-  `tests/theme.test.ts` + the per-palette completeness scan in
+  `src/lib/theme.test.ts` + the per-palette completeness scan in
   `tests/spec-conformance.test.ts`). Every color is a `@theme` token in `src/index.css` and dark is a
   single variable-override block there, so components carry **no `dark:`
   variants and no raw Tailwind palette classes** — status cues use the semantic
   `ok`/`warn`/`danger` ramps, text atop solid fills uses `on-solid`. Locked by
-  `tests/spec-conformance.test.ts` (INV-1) + `tests/theme.test.ts`. (This
+  `tests/spec-conformance.test.ts` (INV-1) + `src/lib/theme.test.ts`. (This
   overturns the earlier light-only decision — owner directive, 2026-07-21.)
 - **Flat ledger style, Claret palette** (owner directive 2026-07-31). The visual
   direction is GitHub-Primer-flat on the Claret palette (oxblood accent on
@@ -39,7 +60,7 @@ names its locking test — moving or weakening a rule means moving its lock too.
   object standing alone (the composer, a diff, a proposal card, dialogs) keeps
   its own chrome, and ELEVATION means floating: exactly four overlay surfaces
   cast shadows (`lib/popover`, `lib/dialog` — the one dialog-surface funnel —
-  `Tooltip`, `AccountMenu`). All of it ratcheted by `tests/ledger.test.ts`
+  `Tooltip`, `AccountMenu`). All of it ratcheted by `src/lib/ledger.test.ts`
   (recipes flat, no hand-rolled bordered divider containers, no resting shadow
   of any spelling tree-wide, overlay allowlist alive-checked). The claret accent neighbors the danger reds: solid
   claret means "go", bright signal-red means "danger", never both weights on one
@@ -61,8 +82,8 @@ names its locking test — moving or weakening a rule means moving its lock too.
   direction; "it darkens" is true of half the matrix and wrong about the rest).
   The fold-header lock that had forbidden unifying the rail and page hovers was
   inverted with the rule it guarded: one ground, one cue
-  (`tests/foldHeader.test.ts`). Contrast's token resolver follows
-  `var()` references so a token may be written as one (`tests/contrast.test.ts`).
+  (`src/lib/foldHeader.test.ts`). Contrast's token resolver follows
+  `var()` references so a token may be written as one (`src/lib/contrast.test.ts`).
 - **The Bindery duet + the seat law** (owner directive 2026-08-03, place clause
   revised 2026-08-10). The default palette is a TWO-color system: claret VERBS
   against a Prussian-blue RESPONSE voice (`--color-co(-strong/-tint)`) — it read
@@ -75,7 +96,7 @@ names its locking test — moving or weakening a rule means moving its lock too.
   the system's loudest ink on NAVIGATION, leaving nothing louder for the acts
   inside the workspace that actually commit something. New session is a rail ROW
   now, findable by POSITION and a ringed glyph, with the accent surviving as the
-  icon alone. Locked as an ABSENCE — `tests/button.test.ts` fails if any solid
+  icon alone. Locked as an ABSENCE — `src/lib/button.test.ts` fails if any solid
   returns to `Sidebar.tsx`), the SOFT verbs
   (`SOFT_BUTTON_CLASS`, tinted fill), the secondary's hover answer, danger
   solids. The co family owns the system's TRANSIENT ANSWER to you — the focus
@@ -89,9 +110,9 @@ names its locking test — moving or weakening a rule means moving its lock too.
   duet was never load-bearing. The sharper line: co means *the system just
   responded*; weight and fill mean *you are here*. One active look serves every
   rail row kind (the section pill and the session rows had drifted into two).
-  Locked by `tests/sidebar.test.ts`. Verbs never
-  wear co, places never wear accent (locked by `tests/button.test.ts` +
-  `tests/form-input.test.ts`); single-voice palettes set co = accent and are
+  Locked by `src/lib/sidebar.test.ts`. Verbs never
+  wear co, places never wear accent (locked by `src/lib/button.test.ts` +
+  `src/lib/form-input.test.ts`); single-voice palettes set co = accent and are
   unchanged. The six capability-chip hues are the EMBELLISHMENT layer — famous-
   card pigments (Schönbrunner/Prussian/Burgundy/Marrs/Klein/Titian) at tint
   weight, palette-invariant, never a third voice.
@@ -105,7 +126,7 @@ names its locking test — moving or weakening a rule means moving its lock too.
   against the canvas so the two can't be collapsed back together. **Never pair
   `text-on-solid` with `bg-accent` / `bg-co` / `bg-danger` / `bg-*-strong`** —
   the dark-mode CTA shipped at 1.74:1 that way. Locked by
-  `tests/contrast.test.ts` (the whole palette × mode × seat matrix, plus a
+  `src/lib/contrast.test.ts` (the whole palette × mode × seat matrix, plus a
   tree-wide call-site scan); the image-backdrop exemptions are enumerated there.
 - **No "before" view.** The prototype deliberately does *not* reproduce today's
   three-tab UI. The motivation lives in the docs, and reviewers can diff against
@@ -124,7 +145,7 @@ Embodied by `src/lib/inlineAction.ts` + `src/components/AddTrigger.tsx` (every
 `src/components/SectionAction.tsx` (every SECTION HEADER's verb — edit/add/post/
 commission — one compact icon button in the header's right-aligned cluster,
 hover-revealed via `SECTION_REVEAL` in `src/lib/hoverReveal.ts`, pinned visible
-when the section is empty; locked by `tests/sectionAction.test.ts`) and
+when the section is empty; locked by `src/lib/sectionAction.test.ts`) and
 `src/lib/foldHeader.ts` (every foldable section
 header) and `src/lib/pageHeader.ts` (every PAGE's opening title block — hub and
 detail pages share one title look + container rhythm; the chrome bars
@@ -147,10 +168,10 @@ equal by arithmetic in the lock, so they can't drift into two different-looking
 fields) + `src/lib/focusContext.ts`'s
 `FOCUS_FLASH_CLASS` (the lit highlight every door's target wears on arrival —
 work item, comment, agent card, conversation turn), both locked by
-`tests/form-input.test.ts`, and `src/components/AnchorThreadComposer.tsx` (the ONE
+`src/lib/form-input.test.ts`, and `src/components/AnchorThreadComposer.tsx` (the ONE
 thread composer — the entity panel, the Commons card, the discussion's own page,
 and the conversation's turn gutter all post through it, differing only by anchor;
-locked by `tests/thread-composer.test.ts`, which allows exactly one caller of
+locked by `src/components/thread-composer.test.ts`, which allows exactly one caller of
 `postToDiscussion`/`openDiscussion` — the discussion page hand-rolled a second
 composer for as long as this rule went unlocked. Inside a SECTION the composer is
 **disclosed by the header's verb**, never left standing open (invariant UI-18);
@@ -162,7 +183,7 @@ live in the hook because both fail silently when re-derived: arming belongs to
 TYPING (a caret move may only narrow or close), and an OPEN picker owns Enter —
 which is why a host's keys pass THROUGH the hook rather than sitting beside it,
 so a single-line field whose Enter posts can never post half a name. Locked by
-`tests/mention-picker.test.ts`, whose pairing scan fails any field advertising a
+`src/lib/mention-picker.test.ts`, whose pairing scan fails any field advertising a
 mention in its placeholder that does not spread the picker's `fieldProps`)
 and `src/lib/spinner.ts` + `src/components/Spinner.tsx` (every loading spinner — its
 spin gated behind `motion-safe:` so it respects `prefers-reduced-motion`, WCAG 2.3.3;
@@ -170,13 +191,13 @@ the lock forbids ANY bare `animate-{spin,pulse,ping,bounce}` so no infinite anim
 ships ungated — which also keeps a headless screenshot from chasing an animation that
 never settles);
 each shared cue is locked by a test
-that fails if a component re-hardcodes it (`tests/addTrigger.test.ts`,
-`tests/foldHeader.test.ts`, `tests/pageHeader.test.ts`, `tests/scrim.test.ts`,
-`tests/popover.test.ts`, `tests/copy-button.test.ts`, `tests/spinner.test.ts`).
+that fails if a component re-hardcodes it (`src/lib/addTrigger.test.ts`,
+`src/lib/foldHeader.test.ts`, `src/lib/pageHeader.test.ts`, `src/lib/scrim.test.ts`,
+`src/lib/popover.test.ts`, `src/lib/copy-button.test.ts`, `src/lib/spinner.test.ts`).
 The same rule governs
 shared *behaviour*, not just styling: every popover / dropdown / menu dismisses on
 outside-click + Escape through one hook, `src/lib/useDismissable.ts` (locked by
-`tests/useDismissable.test.ts`, which fails if a component re-hardcodes the document
+`src/lib/useDismissable.test.ts`, which fails if a component re-hardcodes the document
 `mousedown` listener). Add new shared tokens / hooks the same way — one source of
 truth, asserted by a test. The primitives double as **enumeration handles for
 review**: because every subject routes through one funnel, a single scan (or a
@@ -205,7 +226,7 @@ through the api hooks**, never a hard-coded mirror. (The composer's model list
 was once a frozen trio while providers lived in a hub tab — registering a model
 didn't make it selectable; that class of drift is the target.) Embodied by
 `src/components/ModelPickerMenu.tsx` (the one provider→model→effort menu, all
-three pickers) and locked by `tests/model-picker.test.ts`, which fails if ANY
+three pickers) and locked by `src/components/model-picker.test.ts`, which fails if ANY
 src/ file declares a model/effort catalog constant: the models a picker lists
 are each provider's **own catalog** (`ModelProvider.models` — fetched from its
 endpoint's `GET /v1/models` or declared at registration, spec MODEL-16/-17), so
@@ -228,7 +249,7 @@ missed every runtime-created project), no SSE case that invalidates a key nothin
 reads, no component-state "registry" that evaporates on unmount (the Contexts
 page's add/remove once did), no asserted status a registry actually owns (the
 composer quick list's fabricated green dot). Locked by
-`tests/connectivity-freshness.test.ts` + `server/store/event-tenancy.test.ts` (the
+`src/api/connectivity-freshness.test.ts` + `server/store/event-tenancy.test.ts` (the
 2026-07 connectivity audit's ratchet).
 
 ## Rail navigation is an inline disclosure tree
@@ -276,7 +297,7 @@ beside it:
   and roster entry opens it through the one funnel `useRelations().openOwner`
   — 22 call sites and four local aliases before. The door reads the
   **namespace's** name (`tenant.name`), never the person's: only a namespace has
-  a profile. Locked by `tests/owner-door.test.ts` + `e2e/own-profile.spec.ts`.
+  a profile. Locked by `src/lib/owner-door.test.ts` + `e2e/own-profile.spec.ts`.
 
 A partition of a list by a property of its items — kind, state, ownership — is
 **not** a child: it is a filter, and its ONE home is the section row's "Filter &
@@ -289,10 +310,10 @@ otherwise the rail's eight names are not the page's first eight, which is worse
 than listing none. Scheduled is in NEITHER registry: its instances already have
 their own rail pane, and the same list twice in one rail is worse than once. A
 section lands on its **default** view (rail sub-view `null`; each hub body maps
-null to its own default). Locked by `tests/section-subviews.test.ts` (inline tree
+null to its own default). Locked by `src/lib/section-subviews.test.ts` (inline tree
 not a push; the registries disjoint; the shared-funnel pairing scanned both ways;
-no second facet control), `tests/section-lists.test.ts`, and
-`tests/url-routes.test.ts` (every listed kind round-trips as a URL).
+no second facet control), `src/lib/section-lists.test.ts`, and
+`src/lib/url-routes.test.ts` (every listed kind round-trips as a URL).
 A **Sections** header carries one **fold/unfold-all** toggle. The
 rail's lower body is an **accordion of foldable, resizable panes** — Sections, Scheduled,
 Recents. Each pane's header has a **fold caret** (symmetric across all three); folding
@@ -321,9 +342,9 @@ Dividers **drop on the narrow tier** (`resizable` false → panes flow in the
 drawer, ADAPT-11; folding still works). Two **labeled** `<nav>` landmarks keep the rail
 landmark-unique (WCAG) *and* section rows navigation-scoped for e2e — "Create" (New
 session) and "Sections" (the tree) — while Scheduled/Recents stay out of navigation.
-Locked by `tests/rail-panes.test.ts` (fold combos + flex promotion, fit-to-avail clamp,
+Locked by `src/lib/rail-panes.test.ts` (fold combos + flex promotion, fit-to-avail clamp,
 min floors both drag directions, no clamp-leak into storage) and
-`tests/resize-handle.test.ts` + `e2e/keyboard-resize.spec.ts` (the keyboard path).
+`src/components/resize-handle.test.ts` + `e2e/keyboard-resize.spec.ts` (the keyboard path).
 
 ## Every page has a canonical URL — the address bar projects the nav model
 
@@ -340,7 +361,7 @@ link opens what it names; an account switch restores memory and rewrites the
 address). Transient focus (a highlighted item / comment) is not page identity and
 stays out of the URL. When adding a page kind, extend the mapping + its
 round-trip test — never parse or mint a path anywhere else. Locked by
-`tests/url-routes.test.ts`; spec row ADAPT-15. Companion rule — **titles are
+`src/lib/url-routes.test.ts`; spec row ADAPT-15. Companion rule — **titles are
 doors**: a card / list row fronting a page makes its TITLE the primary click
 target (GitHub's title-as-link), wired to the same handler as the explicit open
 affordance (`CommonsCardHead`'s `onOpen`; the work-item title opens its thread).
@@ -349,7 +370,7 @@ source byline — wears the one cue in `src/lib/textDoor.ts` (`DOOR_CLASS` /
 `STANDING_DOOR_CLASS`); callers append only color, size and layout, for the
 reasons the module states. External links, the dotted provenance opener, and
 quiet ghost text *actions* (`INLINE_ACTION_CLASS`) are deliberately not doors.
-Locked by `tests/text-door.test.ts` (invariant UI-16), whose scans read the
+Locked by `src/lib/text-door.test.ts` (invariant UI-16), whose scans read the
 whole `src/` tree — the shape a one-home lock must have, since the file-scoped
 version of this rule missed two strays for as long as it existed. The
 container-level half is `src/lib/cardDoor.ts` (invariant UI-17): a card or list
@@ -360,7 +381,7 @@ the keyboard door and the accessible name, `cardDoorClick` + `CARD_DOOR_CLASS` /
 `role="button" tabIndex={0}` on the container — that doubles the tab stop and
 makes the card's whole text its accessible name. A card door needs no restating
 "Open ‹thing›" action, and its hover cue must promise **exactly** what takes the
-click: `tests/card-door.test.ts` scans that pairing in both directions, because
+click: `src/lib/card-door.test.ts` scans that pairing in both directions, because
 the bug it was earned for was a row that lit up wider than it was clickable.
 
 ## The back-history rule — an in-page door carries its origin; browser Back is per-page
@@ -390,12 +411,12 @@ through to their SECTION: back from a profile landed on one thread and said
 "Back to Discussions"). Names come from live registries — `BACK_LABEL_SOURCES`,
 supplied by the ONE `BackButton`; the lock checks both that the function is
 total and that its supplier feeds every source, because a complete function
-handed a half-filled map degrades exactly like the bug (`tests/nav.test.ts`). Browser Back/Forward apply
+handed a half-filled map degrades exactly like the bug (`src/lib/nav.test.ts`). Browser Back/Forward apply
 per page too (`planPop`): pop the focused pane's own back top, else REFOCUS the
 pane already showing the address (never clobber with a duplicate), else plain
 route. When adding a door, decide which side of the page/chrome line it's on —
 in-page doors must route through the pane funnel (or a push-flagged shell door),
-never bare `routeToFocused`. Locked by `tests/pane-history.test.ts` +
+never bare `routeToFocused`. Locked by `src/lib/pane-history.test.ts` +
 `e2e/back-history.spec.ts`.
 
 ## The entity page is the shared surface — capability shapes affordances, not location
@@ -416,13 +437,13 @@ here for two other things: the *adaptive split workspace* below, and a *context
 workspace* (an attached folder). So identity surfaces say the name
 (`profileTagline(name)` → "everything Ada Lovelace shares"), or "owner" /
 "account" / "people" where a noun is unavoidable. Banned mechanically inside the
-identity funnel — `tests/public-face.test.ts` scans `lib/publicFace.ts` +
+identity funnel — `src/lib/public-face.test.ts` scans `lib/publicFace.ts` +
 `components/PublicFace.tsx` **comment-stripped** for the word, which suffices
 because every byline, owner door and profile routes through those two files.
 The signed-in twin is `src/lib/accountFace.ts`: one answer for what an account
 row says beneath its name — the email, and the namespace **only when it is not
 simply you** (the seeds wear their people's names, so `user.name` beside
-`tenant.name` prints one name twice). Locked by `tests/account-face.test.ts`.
+`tenant.name` prints one name twice). Locked by `src/lib/account-face.test.ts`.
 
 ## Surface follows the entity's nature
 

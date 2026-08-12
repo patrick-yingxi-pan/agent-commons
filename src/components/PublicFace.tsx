@@ -3,7 +3,7 @@
  *  shares — Globe + "Shared · by X"), and the **CreditLine** (the public track
  *  record — D13 contributions + D18 forks). One source so a shared project's
  *  page, its directory card, and a published agent's card/detail all state the
- *  same fact the same way (form follows function; tests/public-face.test.ts
+ *  same fact the same way (form follows function; src/lib/public-face.test.ts
  *  fails if a component re-hardcodes the cue). */
 import { Award, Bot, GitFork, Globe } from 'lucide-react'
 import type { ReactNode } from 'react'

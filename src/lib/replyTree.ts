@@ -5,7 +5,7 @@
  *  indent, and how much is hidden behind a folded branch.
  *
  *  Pure and framework-free so the parts that fail SILENTLY are held by
- *  `tests/reply-tree.test.ts` rather than by a screenshot: an orphan that
+ *  `src/lib/reply-tree.test.ts` rather than by a screenshot: an orphan that
  *  vanishes, a cycle that hangs the renderer, an indent that eats a narrow pane.
  *
  *  **Depth is bounded HERE, not on the wire.** The server used to cap replies at
@@ -132,7 +132,7 @@ export const MAX_INDENT_DEPTH = 5
  *  which is what puts the caret ON the hairline its own branch hangs from — the
  *  control and the thing it collapses are one vertical line (owner directive,
  *  2026-08-11). Two numbers that must agree and live in different strings are two
- *  numbers that will drift, so `tests/reply-tree.test.ts` recomputes the relation
+ *  numbers that will drift, so `src/lib/reply-tree.test.ts` recomputes the relation
  *  rather than restating it: nothing else would notice a caret sitting two pixels
  *  off the rail. */
 export const FOLD_GUTTER_CLASS = 'w-4 max-sm:w-3 shrink-0'

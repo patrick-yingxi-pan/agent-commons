@@ -8,7 +8,7 @@
  *  Pure and dependency-injected on purpose (the railPanes/splitFrame pattern):
  *  the transport (send / reattach / cancel — the src/api commands in the real
  *  wiring, a fake in node tests) is passed into the factory, so
- *  tests/conversation-store.test.ts locks the keyed isolation, the epoch
+ *  src/controller/conversation-store.test.ts locks the keyed isolation, the epoch
  *  staleness, and the draft-adoption move without a DOM or a fetch.
  *
  *  ── Epochs replace the old global runId ─────────────────────────────────────

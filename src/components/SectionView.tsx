@@ -9588,7 +9588,7 @@ function OwnerProfilePage({
         {/* Two columns only when the PAGE is wide enough — `@2xl`, not `sm:`.
             This page renders inside split panes, so a viewport gate would put
             two roster columns in a 380px pane on a wide window (the UI-9 rule,
-            locked by tests/pane-safe-layout.test.ts — which caught this). */}
+            locked by src/components/pane-safe-layout.test.ts — which caught this). */}
         <div ref={followBandRef} className="grid gap-6 @2xl:grid-cols-2">
           <FollowRosterBand
             title="Followers"

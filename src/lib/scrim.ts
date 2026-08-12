@@ -5,5 +5,5 @@
  *  between copies. Callers add their own z-index / click handling.
  *
  *  Form follows function (src/CLAUDE.md): components must use this constant instead
- *  of re-hardcoding the backdrop — locked by tests/scrim.test.ts. */
+ *  of re-hardcoding the backdrop — locked by src/lib/scrim.test.ts. */
 export const SCRIM_CLASS = 'absolute inset-0 bg-black/30'

@@ -12,7 +12,7 @@ import { usePopoverShift } from '../lib/usePopoverShift'
  *  the button chrome, the popover container, and the dismiss-on-outside-click + Escape
  *  behaviour (via the shared `useDismissable` hook) live here once.
  *
- *  Locked by tests/gaugePopover.test.ts, which fails if Hosts/Providers re-hardcode
+ *  Locked by src/components/gaugePopover.test.ts, which fails if Hosts/Providers re-hardcode
  *  the gauge button or popover shell instead of going through this component. */
 export function GaugePopover({
   icon,

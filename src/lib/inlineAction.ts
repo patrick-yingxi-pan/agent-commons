@@ -12,7 +12,7 @@
  *  they moved to the headers in the 2026-07 noise pass.
  *
  *  A plain string (no JSX / imports) so the DOM-less Node test runner can import
- *  and assert it — see tests/addTrigger.test.ts. The "+ Add" specialisation (this
+ *  and assert it — see src/lib/addTrigger.test.ts. The "+ Add" specialisation (this
  *  class + a Plus glyph + dialog aria) is the AddTrigger component
  *  (src/components/AddTrigger.tsx). */
 export const INLINE_ACTION_CLASS =

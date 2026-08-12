@@ -7,7 +7,7 @@
  *  ADDRESS BAR PROJECTS THE FOCUSED PANE (Phase 6): retargeting or focusing a
  *  page pane rewrites the URL to its canonical location; a focused NON-page
  *  pane (a context panel) defers to the page you're on. The tree math is
- *  locked by tests/main-split.test.ts; this locks the wiring. */
+ *  locked by src/lib/main-split.test.ts; this locks the wiring. */
 import { test, expect, type Page } from '@playwright/test'
 
 /** A repo / workspace session auto-tiles its context PANEL as a pane in the

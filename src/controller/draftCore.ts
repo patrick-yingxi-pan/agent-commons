@@ -5,7 +5,7 @@
  *  after the primary dissolves) drives the identical flow: no fork, one
  *  behavior. Pure and dependency-injected on purpose (the conversationCore
  *  pattern): the api calls and the panel-pref write are passed into the
- *  factory, so tests/draft-core.test.ts locks the coalesced materialization,
+ *  factory, so src/controller/draft-core.test.ts locks the coalesced materialization,
  *  the flush-before-send ordering, the late model-pick write, and the focus
  *  carry without a DOM or a fetch.
  *
@@ -24,7 +24,7 @@
 import type { Session } from '../../contract/index'
 import type { AddedContext, PanelFocus } from '../types'
 import type { ModelPick } from '../lib/models'
-// Extension-qualified: this module is node-tested (tests/draft-core.test.ts),
+// Extension-qualified: this module is node-tested (src/controller/draft-core.test.ts),
 // and Node's native TS resolves runtime imports only with the explicit .ts.
 import {
   addContextToLive,

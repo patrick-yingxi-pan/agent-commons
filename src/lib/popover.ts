@@ -13,13 +13,13 @@
  *  therefore two parts, both sourced from here:
  *    • POPOVER_SURFACE — the shared chrome, including the width clamp
  *      `max-w-[calc(100vw-16px)]` (16px = 2 × POPOVER_MARGIN; locked together
- *      by tests/popover.test.ts) so no popover can be wider than the viewport;
+ *      by src/lib/popover.test.ts) so no popover can be wider than the viewport;
  *    • usePopoverShift (lib/usePopoverShift.ts) — measures the anchored rect
  *      and translates it back inside the viewport via `shiftIntoSpan`.
  *
  *  Form follows function (src/CLAUDE.md): same role ⇒ same look ⇒ same behaviour.
  *  Components must wear POPOVER_SURFACE and take their containment from this
- *  module instead of re-hardcoding either — locked by tests/popover.test.ts,
+ *  module instead of re-hardcoding either — locked by src/lib/popover.test.ts,
  *  which fails on any anchored surface that re-declares the chrome inline.
  *
  *  This invariant was earned the ratchet way (docs/ui-invariants.md): the

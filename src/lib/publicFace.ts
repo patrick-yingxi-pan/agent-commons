@@ -2,7 +2,7 @@
  *  One source for the owner label every cross-tenant surface shows — "by Ada
  *  Lovelace (you)" — so the directory cards, the project page, and the agent
  *  detail can't drift apart (form follows function; locked by
- *  tests/public-face.test.ts, which fails if a component hand-rolls the label).
+ *  src/lib/public-face.test.ts, which fails if a component hand-rolls the label).
  *  The model this cue serves: **the entity page is the shared surface —
  *  capability shapes affordances, not location** (src/CLAUDE.md design decisions).
  *
@@ -11,7 +11,7 @@
  *  NAMESPACE (a person or an org) — and the word is still live in this app for
  *  two other things: the adaptive split workspace, and a context workspace (an
  *  attached folder). So identity copy names the OWNER, never the layer. The ban
- *  is mechanical: tests/public-face.test.ts scans this file and PublicFace.tsx
+ *  is mechanical: src/lib/public-face.test.ts scans this file and PublicFace.tsx
  *  for the word, which is the whole identity funnel. */
 
 /** The public owner label. `own` marks the viewer's own row ("(you)"), mirroring

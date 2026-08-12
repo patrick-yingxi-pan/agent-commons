@@ -4,7 +4,7 @@ import { SECTION_ACTION_CLASS } from '../lib/sectionAction'
 /** The one section-header action button — every verb in a section header's
  *  hover-revealed cluster (edit, add, post, commission…) renders through this,
  *  so the cue can't drift between copy-pasted copies (form follows function;
- *  locked by tests/sectionAction.test.ts). Icon-only: the destination stays
+ *  locked by src/lib/sectionAction.test.ts). Icon-only: the destination stays
  *  NAMED via title + aria-label, like the page back arrow. */
 export function SectionAction({
   label,

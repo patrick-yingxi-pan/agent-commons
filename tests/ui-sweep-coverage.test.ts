@@ -15,10 +15,11 @@
  *  actually visits, and the harness's loud-not-fatal navigation contract. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { ROOT, read as readAbs } from './helpers/source.ts'
 import { CELLS, SECTIONS, createLedger } from '../scripts/ui-sweep-ledger.mjs'
 
-const read = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8')
+const read = (p: string) => readAbs(join(ROOT, p))
 const SWEEP = read('scripts/ui-sweep.mjs')
 
 // ── the ledger: what a green run is allowed to mean ─────────────────────────

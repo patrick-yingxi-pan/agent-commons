@@ -20,7 +20,7 @@
  *  pane with a copy), then a plain focused-pane retarget (a fresh landing).
  *
  *  Pure + dependency-free beyond the split vocabulary, so
- *  tests/pane-history.test.ts locks the model without a DOM. */
+ *  src/lib/pane-history.test.ts locks the model without a DOM. */
 import type { NavLocation } from './nav.ts'
 import { locOfSeed, seedOfLoc, PANE_SEED_KEYS, type PaneSeed } from './paneNav.ts'
 import { paneLocationPath, type MainPaneContent, type MainSplitNode, type PaneLoc } from './mainSplit.ts'

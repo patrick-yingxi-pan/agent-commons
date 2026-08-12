@@ -9,11 +9,31 @@ import { join } from 'node:path'
 export const ROOT = join(import.meta.dirname, '..', '..')
 
 /** Absolute paths of every source file under `dir` (recursive), excluding ambient
- *  `.d.ts` declarations (which are erased and never executed). */
+ *  `.d.ts` declarations (which are erased and never executed) and the SUITES
+ *  themselves.
+ *
+ *  Suites are excluded because every lock built on this helper asks a question
+ *  about the SHIPPED source — "does any surface still use `pl-14`", "does
+ *  anything here use non-erasable TypeScript". Once the suites colocated into
+ *  `src/` and `server/`, this walk started reaching them, and a suite that
+ *  QUOTES the string it forbids became its own counter-example: the `pl-14`
+ *  lock failed by finding the sentence in which it names `pl-14`. That is a
+ *  false positive with a nasty shape, because the honest fix looks like
+ *  weakening the rule. Excluded here, once, rather than at each of the dozen
+ *  call sites — and no coverage is lost, since a suite proves itself by
+ *  running. */
 export function filesUnder(dir, exts = ['.ts', '.tsx']) {
   const base = join(ROOT, dir)
   const found = readdirSync(base, { recursive: true })
-    .filter((f) => typeof f === 'string' && exts.some((e) => f.endsWith(e)) && !f.endsWith('.d.ts'))
+    .filter(
+      (f) =>
+        typeof f === 'string' &&
+        exts.some((e) => f.endsWith(e)) &&
+        !f.endsWith('.d.ts') &&
+        !f.endsWith('.test.ts') &&
+        !f.endsWith('.test.tsx') &&
+        !/(^|[\\/])testkit[\\/]/.test(f),
+    )
     .map((f) => join(base, f))
   // A source scan that finds NOTHING passes every assertion it was going to
   // make, having checked nothing — the vacuity that green suites hide. This

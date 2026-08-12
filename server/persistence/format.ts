@@ -187,7 +187,7 @@ export interface StoredDiscussion extends Omit<Discussion, 'posts' | 'mine'> {
    *  The anchor itself carries a DISPLAY NAME, because that is the public face
    *  every social payload wears. But a name is not an identity: `createUser`
    *  guards uniqueness on EMAIL, not name, so two workspaces can wear the same
-   *  one — and this repo's own earned rule (tests/social-ui.test.ts) is that
+   *  one — and this repo's own earned rule (src/lib/social-ui.test.ts) is that
    *  preference may key on a name while AUTHORITY never may. A DM's wall is
    *  authority, so resolving "who are the two parties" by name at read time
    *  would let a later signup wearing the same display name change who a

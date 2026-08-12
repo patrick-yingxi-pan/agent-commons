@@ -3,7 +3,7 @@
  *  it — across section boundaries and across the page↔conversation line — and
  *  the browser's Back/Forward walk the same per-page model (pop the focused
  *  pane's own history; refocus the pane a focus-hop entry names; never clobber
- *  a pane with a duplicate). The model is locked by tests/pane-history.test.ts;
+ *  a pane with a duplicate). The model is locked by src/lib/pane-history.test.ts;
  *  this locks the wiring end to end. */
 import { test, expect, type Page } from '@playwright/test'
 
@@ -96,7 +96,7 @@ test('an OWNER BYLINE carries its origin — and the back control names the page
   // and announced "Back to Discussions" — the section — because the label
   // resolved only project / schedule / owner names and every other detail kind
   // fell through to its section (fixed 2026-08-09; the pure half is locked in
-  // tests/nav.test.ts). A tooltip and an accessible name that describe a
+  // src/lib/nav.test.ts). A tooltip and an accessible name that describe a
   // different page than the button opens is the defect, WCAG 4.1.2.
   const back = page.getByRole('button', { name: /^Back to / })
   await expect(back).toHaveAttribute('aria-label', /^Back to Read through the Q3 baseline/)

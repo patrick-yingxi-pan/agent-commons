@@ -13,7 +13,7 @@
  *  A second, independent axis handles HEIGHT: `short` (<480px tall — a landscape
  *  phone) compresses the fixed chrome (proposal band, caption bar, composer). It is
  *  exposed both here (for JS decisions) and as the Tailwind `short:` custom variant
- *  in src/index.css — the two literals are locked together by tests/viewport.test.ts.
+ *  in src/index.css — the two literals are locked together by src/lib/viewport.test.ts.
  *
  *  The width helpers are pure (unit-tested); `useViewport` wires them to the window.
  *  Persisted rail/panel widths are clamped at RENDER time by these helpers — never

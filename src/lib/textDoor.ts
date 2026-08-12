@@ -33,7 +33,7 @@
  *  door inside a metadata line is `text-ink-soft`.
  *
  *  Plain strings (no JSX, no imports) so the DOM-less Node test runner can
- *  import and assert them — tests/text-door.test.ts scans every file under src/
+ *  import and assert them — src/lib/text-door.test.ts scans every file under src/
  *  and fails if a component spells a door by hand.
  *
  *  NOT this role, deliberately — don't "helpfully" unify these:

@@ -3,7 +3,7 @@
  *  arrow keys step and that announces its value (aria-valuenow, WCAG 4.1.2). Wired
  *  proofs: the vertical rail-width handle, a horizontal pane gutter, and the panel
  *  handle — the one strip that rides a width-ANIMATED container, where rapid
- *  presses once swallowed steps; the source lock (tests/resize-handle.test.ts)
+ *  presses once swallowed steps; the source lock (src/components/resize-handle.test.ts)
  *  enumerates the one remaining call site through the same funnel. Also locks that
  *  a keyboard gesture PERSISTS the size it produced (move → end runs in one tick;
  *  an at-render-only ref stored the previous size, so a reload snapped it back). */

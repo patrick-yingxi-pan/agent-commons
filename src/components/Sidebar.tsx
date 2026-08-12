@@ -77,7 +77,7 @@ import {
  *  surface list, or its own rows. The third kind, a standing door, deliberately
  *  does NOT: it is one fixed row, so a section whose only child was a door would
  *  be a chevron hiding a single link. It rides a section that already expands
- *  (`tests/owner-door.test.ts` asserts that pairing, since losing it would make
+ *  (`src/lib/owner-door.test.ts` asserts that pairing, since losing it would make
  *  the door vanish with nothing failing). Module-level so the state initializer
  *  can call it before the component body runs. */
 function hasChildren(id: SectionId): boolean {
@@ -207,7 +207,7 @@ export function Sidebar({
   // run an updater during the render phase, and a setLayout there notifies the
   // live useSectionFilter readers mid-render — the "Cannot update a component
   // while rendering a different component" console error this rail shipped
-  // until 2026-07-31. Locked by tests/pure-updaters.test.ts.
+  // until 2026-07-31. Locked by src/lib/pure-updaters.test.ts.
   const toggleExpand = (id: SectionId) => {
     const willOpen = !expanded.has(id)
     setLayout(`treeOpen.${id}`, willOpen)

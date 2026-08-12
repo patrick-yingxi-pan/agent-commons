@@ -12,7 +12,7 @@
  *  popover is up, exactly like RowMenu's trigger.
  *
  *  A plain string (no JSX / imports) so the DOM-less Node test runner can import
- *  and assert it — tests/sectionAction.test.ts locks that every section-header
+ *  and assert it — src/lib/sectionAction.test.ts locks that every section-header
  *  action renders through the shared <SectionAction> component. */
 export const SECTION_ACTION_CLASS =
   'flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink data-[open=true]:bg-panel-2 data-[open=true]:text-ink'

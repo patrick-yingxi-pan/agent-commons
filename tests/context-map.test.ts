@@ -13,9 +13,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, existsSync } from 'node:fs'
 import { dirname, relative, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { ROOT } from './helpers/source.ts'
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 /** Link prefixes that leave the repo. Spelled out with their separators: a bare
  *  `startsWith('http')` also swallows a RELATIVE link into a directory named
  *  `http/` — which `server/http/` is, so the link check below silently skipped
@@ -61,6 +60,11 @@ const SCOPED_HOMES: Record<string, string[]> = {
   'server/persistence/CLAUDE.md': ['atomic', 'STORE_VERSION', 'SPEC.md'],
   'server/data/CLAUDE.md': ['reconcileSeedTenancy', 'demo-accounts.md'],
   'server/testkit/CLAUDE.md': ['buildRouter()', 'No fixtures here'],
+  'src/lib/CLAUDE.md': ['A registry has ONE home', 'Primitives are shared, not restyled'],
+  'src/components/CLAUDE.md': ['no DOM', 'Form follows function'],
+  'src/api/CLAUDE.md': ['CACHE of the backend', 'One door'],
+  'src/controller/CLAUDE.md': ['sequences; it does not decide policy', 'consent-gated'],
+  'src/data/CLAUDE.md': ['not a fixture store', 'funnel is one table'],
 }
 
 test('the always-loaded files stay small, and the moved bodies stay out', () => {

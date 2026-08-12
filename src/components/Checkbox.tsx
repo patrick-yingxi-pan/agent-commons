@@ -9,7 +9,7 @@ import {
 
 /** The one checkbox square (cue in src/lib/checkbox.ts) — every checkbox in the app
  *  wears this accent-filled square, never a raw `<input type="checkbox">` (form
- *  follows function; tests/checkbox.test.ts fails on either escape). Presentational:
+ *  follows function; src/lib/checkbox.test.ts fails on either escape). Presentational:
  *  the interactive wrapper (a `role="checkbox"` button) supplies the behavior. */
 export function CheckSquare({ checked, className }: { checked: boolean; className?: string }) {
   return (
@@ -49,7 +49,7 @@ export function CheckboxRow({
 
 /** The one "set as default" control a registry create/edit dialog offers (Model
  *  providers, system prompts) — form follows function: both dialogs wear this exact
- *  row, and tests/checkbox.test.ts fails if one re-hardcodes its own checkbox.
+ *  row, and src/lib/checkbox.test.ts fails if one re-hardcodes its own checkbox.
  *
  *  The flag it toggles is a **UI shortcut only**: the flagged entry is what the
  *  New-agent pickers pre-select — the API never resolves an absent binding to it,

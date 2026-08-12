@@ -14,7 +14,7 @@
     "start": "node server/index.ts",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test": "node --test \"server/**/*.test.ts\" \"tests/**/*.test.ts\"",
+    "test": "node --test \"contract/**/*.test.ts\" \"server/**/*.test.ts\" \"src/**/*.test.ts\" \"tests/**/*.test.ts\"",
     "e2e": "playwright test",
     "ui:sweep": "node scripts/ui-sweep.mjs",
     "preview": "vite preview",

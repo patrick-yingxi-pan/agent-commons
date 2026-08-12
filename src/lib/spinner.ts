@@ -4,6 +4,6 @@
  *  static icon — kinder to motion-sensitive viewers, and it also lets a headless
  *  screenshot reach a stable frame instead of chasing a never-ending animation).
  *  Kept in lib like SCRIM_CLASS / COPY_BUTTON_CLASS so the shared <Spinner> and
- *  the lock test source it from one place; tests/spinner.test.ts fails if a
+ *  the lock test source it from one place; src/lib/spinner.test.ts fails if a
  *  component re-hardcodes bare `animate-spin` (which would ignore the setting). */
 export const SPINNER_CLASS = 'motion-safe:animate-spin'

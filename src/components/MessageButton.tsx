@@ -14,7 +14,7 @@
  *  names are neither unique nor identities, and the pair is the server's fact
  *  (the review that earned the widened name-comparison lock).
  *
- *  The composer is the shared one on purpose (`tests/thread-composer.test.ts`
+ *  The composer is the shared one on purpose (`src/components/thread-composer.test.ts`
  *  admits exactly one caller of `openDiscussion`): a DM's first message must
  *  behave like every other first post — same field, same Post verb, same
  *  get-or-create race safety — because it IS one.

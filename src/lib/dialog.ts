@@ -4,7 +4,7 @@
  *  floating surface — 12px radius, a ring instead of a border, and the deep
  *  shadow that says "above the page". Dialogs are one of the FOUR things
  *  allowed to float under the flat direction (with lib/popover's menus, the
- *  tooltip, and the account menu) — tests/ledger.test.ts enforces that roster,
+ *  tooltip, and the account menu) — src/lib/ledger.test.ts enforces that roster,
  *  and this module existing is what keeps SectionView itself off it.
  *
  *  Before this funnel the identical spelling was retyped at eight call sites

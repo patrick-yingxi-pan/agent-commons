@@ -17,7 +17,7 @@
  *  lesson. Ghost/text buttons (INLINE_ACTION_CLASS) and bordered secondaries
  *  are different roles, deliberately not here.
  *
- *  Plain strings so the DOM-less runner can scan — tests/button.test.ts locks
+ *  Plain strings so the DOM-less runner can scan — src/lib/button.test.ts locks
  *  the recipe and forbids the dead spellings tree-wide. */
 
 /** The affirmative solid: claret, deepening on hover through the accent ramp's
@@ -25,7 +25,7 @@
  *  `on-solid` text: `accent` is tuned to be READ on the canvas, which in dark
  *  mode makes it far too light to sit white text on (this button shipped at
  *  2.20:1 on Forest dark, 1.74:1 on hover). Invariant UI-20, locked by
- *  tests/contrast.test.ts. */
+ *  src/lib/contrast.test.ts. */
 export const SOLID_BUTTON_CLASS =
   'rounded-md bg-accent-solid font-medium text-on-solid transition hover:bg-accent-solid-strong'
 

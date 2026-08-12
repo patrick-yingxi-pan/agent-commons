@@ -34,7 +34,7 @@ import { CheckboxRow } from './Checkbox'
  *    caller's own words — a confirm that only says "Are you sure?" moves the
  *    click without adding the information that would change it.
  *
- *  Locked by `tests/confirm-dialog.test.ts`. */
+ *  Locked by `src/lib/confirm-dialog.test.ts`. */
 export function ConfirmDialog({
   title,
   body,
@@ -81,7 +81,7 @@ export function ConfirmDialog({
         <p className="text-[14px] font-semibold text-ink">{title}</p>
         <p className="mt-1.5 text-[12px] leading-relaxed text-ink-soft">{body}</p>
         {/* The shared `CheckboxRow`, not a raw `<input type="checkbox">` — the
-            first cut wrote one and `tests/checkbox.test.ts` caught it. Worth
+            first cut wrote one and `src/lib/checkbox.test.ts` caught it. Worth
             the catch: the raw input would have been the only checkbox in the
             app not wearing the accent square, in the one dialog where a reader
             most needs to recognise a control at a glance. */}

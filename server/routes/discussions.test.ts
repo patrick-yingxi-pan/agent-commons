@@ -369,7 +369,7 @@ test('seed thread ids never collide with runtime mints, and the seeds are code-o
 //  So what is locked now is the opposite, and the rest is unchanged: the parent
 //  is whoever was named, at any depth; an unknown parent is still refused; the
 //  bell still follows the parent, which is exactly why the parent has to be
-//  right. Depth is bounded on the SCREEN instead — `tests/reply-tree.test.ts`
+//  right. Depth is bounded on the SCREEN instead — `src/lib/reply-tree.test.ts`
 //  holds the clamp and the fold that replaced this rule.
 // ══════════════════════════════════════════════════════════════════════════
 
