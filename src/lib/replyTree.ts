@@ -193,7 +193,7 @@ export const FOLD_GUTTER_CLASS = 'w-4 max-sm:w-3 shrink-0'
  *
  *  Four pixels is invisible in a screenshot and reads as unexplained
  *  sloppiness. Only the shared-centre-line assertion in
- *  `e2e/social-sharing.spec.ts` finds it — which is also how the mistake above
+ *  `e2e/social-anchors.spec.ts` finds it — which is also how the mistake above
  *  was caught, by mutating the class and watching the lock stay green. */
 export const DISCARD_SLOT_CLASS = 'absolute right-full mr-1 max-sm:hidden'
 

@@ -100,7 +100,12 @@ const SHARDS = Math.max(
       process.stdout.write(`${m}
 `),
     ),
-    availableParallelism(),
+    // Still capped at cores/2, the pre-existing guardrail. The default dropped
+    // to cores/4 because oversubscription measured SLOWER (6 shards on 12
+    // cores: 219s vs 195s, with a flake) — which is a reason to lower the
+    // ceiling, never to raise it. An override may explore the region between
+    // the two; it may not go past where the measurement stops.
+    Math.max(1, Math.floor(availableParallelism() / 2)),
   ),
 )
 const ONLY = process.argv.slice(2)
@@ -253,6 +258,13 @@ function recordWeights(rs) {
   // reporter's line format is Playwright's, not ours, and it can change under
   // us. Silence is the correct outcome then, not an empty file.
   if (Object.keys(weights).length < 2) return
+  // Only specs that still exist. A deleted one would otherwise keep its share
+  // forever (social-layer's 23.6% outlived the file), so the numbers stop
+  // summing to 1 and the file grows entries for paths nobody can open. Written
+  // from THIS run's specs, so pruning is a property of the write, not a
+  // separate sweep that could be forgotten.
+  const live = new Set(specFiles().map((f) => f.file))
+  for (const k of Object.keys(weights)) if (!live.has(k)) delete weights[k]
   try {
     mkdirSync(dirname(WEIGHTS_FILE), { recursive: true })
     writeFileSync(WEIGHTS_FILE, `${JSON.stringify(weights, null, 2)}\n`)

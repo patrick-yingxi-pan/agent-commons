@@ -84,18 +84,29 @@ export function suiteFiles(dirs = suiteRoots()) {
  *  nothing fails because it is missing, stale, or corrupt. */
 export const WEIGHTS_FILE = '.data/spec-weights.json'
 
+/** Memoised default-path read — see `specWeights`. */
+let cachedWeights = null
+
 /** The recorded shares, or `{}` if there are none to be had. Deliberately total:
  *  a half-written or hand-edited cache degrades the SPLIT, which costs seconds,
  *  and must never take down the sweep, which costs the whole run. */
 export function specWeights(file = WEIGHTS_FILE) {
+  if (file === WEIGHTS_FILE && cachedWeights) return cachedWeights
+  let out = {}
   try {
     const raw = JSON.parse(readFileSync(file, 'utf8'))
-    const out = {}
     for (const [k, v] of Object.entries(raw ?? {})) if (Number.isFinite(v) && v > 0) out[k] = v
-    return out
   } catch {
-    return {}
+    out = {}
   }
+  // Memoised for the default path only: `specFiles`' default parameter is
+  // evaluated per CALL, and the planner asks several times per run (through
+  // specGroups, and again for the coverage total) — re-reading and re-parsing
+  // the same JSON each time is I/O inside a function that advertises itself as
+  // a pure plan. An explicit path is never memoised, so tests keep passing
+  // fixtures without poisoning the cache for each other.
+  if (file === WEIGHTS_FILE) cachedWeights = out
+  return out
 }
 
 /** Every browser spec file with the number of tests it declares AND the weight

@@ -8,7 +8,7 @@
  *
  *  Pure functions, so the parts that fail silently — where a query starts, what
  *  ranks, the insertion arithmetic — are held here rather than left to a
- *  screenshot. The DOM wiring is `e2e/social-sharing.spec.ts`. */
+ *  screenshot. The DOM wiring is `e2e/social-square.spec.ts`. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join, relative, sep } from 'node:path'

@@ -40,7 +40,15 @@ const CALIBRATION_ITERATIONS = 4_000_000
  *  budget doubles. Recorded as a measured constant rather than re-derived at
  *  runtime, because a moving reference makes every past measurement in that
  *  header unreadable — and re-deriving it on a busy machine would quietly
- *  redefine "normal" as "whatever today is". */
+ *  redefine "normal" as "whatever today is".
+ *
+ *  **Measured on a BUSY machine** (a dev server and ~30 node processes were
+ *  running), so it reads slow, and a quiet run of the same box calibrates
+ *  faster and floors to 1. That is the safe direction — budgets never tighten —
+ *  but it means the constant is "this box under load", not "this box". Anyone
+ *  re-deriving it on an idle machine will get a materially smaller number; the
+ *  question to ask before changing it is whether every budget should shrink,
+ *  since that is what lowering this does. */
 export const REFERENCE_MS = 15.2
 
 /** Milliseconds for the calibration loop on this host, right now.
@@ -105,6 +113,18 @@ export function resolvedFactor(env = process.env) {
   return hostFactor()
 }
 
+/** How much each ADDITIONAL shard is assumed to slow a test down.
+ *
+ *  **This one is an estimate, not a measurement** — said plainly because the
+ *  rest of this file exists to replace exactly that. What IS measured: six
+ *  shards took 219s to do three shards' 195s of work, so three concurrent
+ *  stacks cost real time per test; and the three failures that prompted all of
+ *  this missed a 20s budget by 0.1s, so the shortfall being absorbed is small.
+ *  0.25 per extra shard covers that with margin without turning a hang into a
+ *  coffee break. Tighten it only against a measurement of per-test slowdown at
+ *  N shards, which nothing here has yet made. */
+const CONTENTION_PER_EXTRA_SHARD = 0.25
+
 /** A budget in ms, scaled for this host and for the contention the sweep itself
  *  creates. Shards compete, so N shards is a real slowdown the base number was
  *  never measured against.
@@ -113,6 +133,6 @@ export function resolvedFactor(env = process.env) {
  *  is the worst a budget can grow, so a pathological calibration inflates a
  *  hang into a long wait, never into a run that never ends. */
 export function budget(baseMs, factor = 1, shards = 1) {
-  const contention = 1 + Math.max(0, shards - 1) * 0.25
+  const contention = 1 + Math.max(0, shards - 1) * CONTENTION_PER_EXTRA_SHARD
   return Math.round(baseMs * Math.min(4, Math.max(1, factor)) * contention)
 }

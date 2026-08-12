@@ -258,7 +258,7 @@ one, which is why Messages had been a page since S7 and this had not.
 
 Locked by `src/lib/notification-doors.test.ts` (the section is registered, the URL
 round-trips, the rows route through the pane bridge, no shell-level notification
-door or overlay survives) and walk 4 of `e2e/social-square.spec.ts`, which rings
+door or overlay survives) and walk 4 of `e2e/social-sharing.spec.ts`, which rings
 Ada, follows the bell to the thread's page, and asserts Back both NAMES and
 REACHES **Notifications**. `e2e/notifications.spec.ts`'s five walks drive the
 page instead of a dialog; the bell carries `data-testid="notification-bell"`

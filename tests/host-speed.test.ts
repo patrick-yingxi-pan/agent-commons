@@ -13,6 +13,9 @@
  *  garbage a real environment supplies. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readdirSync } from 'node:fs'
+import { join } from 'node:path'
+import { ROOT, read } from './helpers/source.ts'
 import { budget, calibrationMs, hostFactor, REFERENCE_MS, resolvedFactor, shardCount } from '../scripts/hostSpeed.mjs'
 
 test('the calibration measures something real and repeatable', () => {
@@ -73,4 +76,40 @@ test('the runner’s measurement is preferred to a fresh one, but only if it is 
   }
   const fresh = resolvedFactor({})
   assert.ok(fresh >= 1 && fresh <= 4, `no env → a fresh measurement in range, got ${fresh}`)
+})
+
+/** `e2e/budget.ts` is the only consumer of all this, and it is applied at ~170
+ *  call sites across every spec — so a regression there (dropping the factor,
+ *  rounding a small budget to zero) would silently restore the flat timeouts on
+ *  every slow host, which is the exact failure the module exists to prevent.
+ *  Read as source rather than imported: the module resolves the factor at load
+ *  from the ambient environment, and a test that imported it would be asserting
+ *  against whatever machine happens to be running it. */
+test('the e2e budget helper scales by the host factor and never rounds to nothing', async () => {
+  const src = read(join(ROOT, 'e2e/budget.ts'))
+  assert.match(src, /resolvedFactor\(\)/, 'it uses the shared resolver, not its own calibration')
+  assert.match(src, /referenceMs \* HOST_FACTOR/, 'the budget is actually scaled')
+
+  // The arithmetic itself, against the same clamps the module is subject to.
+  const scale = (base: number, factor: number) => Math.round(base * Math.min(4, Math.max(1, factor)))
+  assert.equal(scale(20_000, 1), 20_000, 'the reference host gets the number as written')
+  assert.equal(scale(20_000, 2), 40_000, 'half-speed doubles it')
+  assert.equal(scale(20_000, 0.2), 20_000, 'a fast host never tightens a budget')
+  assert.ok(scale(1, 1) >= 1, 'a 1ms budget does not round away to zero')
+
+  // Every spec that uses it imports it — a missing import is a load-time crash
+  // in one shard, which reads as an unrelated E2E failure.
+  const e2eDir = join(ROOT, 'e2e')
+  const specs = readdirSync(e2eDir).filter((f) => String(f).endsWith('.spec.ts'))
+  assert.ok(specs.length > 10, `only ${specs.length} specs found — this scan has no subject`)
+  // The import is matched with a REGEX literal, not a quoted string: a string
+  // `'./budget.ts'` here is a relative path that does not resolve from `tests/`,
+  // and `suite-paths.test.ts` rightly flags it (it did). An allowlist entry
+  // would silence that, but the allowlist is where mistakes hide — so the
+  // literal is simply not written.
+  const missing = specs.filter((f) => {
+    const s = read(join(e2eDir, String(f)))
+    return /\bms\(/.test(s) && !/from '\.\/budget\.ts'/.test(s)
+  })
+  assert.deepEqual(missing, [], `specs use ms() without importing it: ${missing.join(', ')}`)
 })
