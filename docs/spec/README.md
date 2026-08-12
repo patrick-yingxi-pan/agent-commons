@@ -45,12 +45,30 @@ that satisfies it and the suites that lock it — and the pillar here keeps the
 *Intent* and links down. **Pillars keep the claim; modules keep the rows.** One
 home per row, so there is no second copy to drift.
 
-Migrated so far: [`07-persistence.md`](07-persistence.md) →
-[`server/persistence/SPEC.md`](../../server/persistence/SPEC.md). The rest still
-hold their tables, because a row can only move once its locking test has found
-its module — and `src/` and `contract/` have not been colocated yet. Rows that
-genuinely span layers (the design invariants, the mock boundary) stay here by
-right, not by default.
+Migrated: [`07-persistence.md`](07-persistence.md) →
+[`server/persistence/SPEC.md`](../../server/persistence/SPEC.md).
+
+**Why only that one — measured, not assumed** (2026-08-12, after all three
+layers colocated, so every locking test had found its module). Of **200**
+requirement rows: **70** are locked entirely within one module, **80** name
+suites in two or more, and **50** cite no test (in-app or planned). At a **40%
+cross-module** rate, no other pillar is close to `07`'s ~100% single-owner
+shape, and splitting one would put some rows in a module and leave the rest
+behind — turning a pillar you can read in one sitting into a hunt across eight
+files, for the third of rows that happen to qualify.
+
+That ratio is not a defect in the ledger; it is what this system is. A
+requirement like "an escalation is consent-gated and lands in place" is
+*supposed* to be pinned by a contract test, a route test, and a browser spec at
+once — a row that only one module could break would be a smaller claim than the
+one worth making. **So a pillar migrates when its rows are single-owner, and not
+because migration is the pattern.** Re-run the measurement before assuming that
+has changed.
+
+Wherever rows do live, `tests/spec-conformance.test.ts` scans them — it walks
+`docs/spec/` **and** every module `SPEC.md`. That is load-bearing: when the
+persistence rows moved, they left the scan's reach and six ✅ rows went
+unchecked until the walk was widened to follow them.
 
 ## Status legend
 

@@ -362,8 +362,9 @@ under the PORT table) and the switcher row noted against PORT-8's identity seam.
   attaches; post-turn retry returns the persisted message).
 - **P3 — client account layer + identity surface.** `account.ts`, header/query
   injection, generation guard, identity echo, `/v1/identities`, capability flag.
-  *Tests:* `tests/identities-route.test.ts` (remote-only, 409 on native; echo
-  header on every responder incl. SSE hello); client-side guard logic factored
+  *Tests:* `server/routes/identity-echo.test.ts` (echo header on every responder
+  incl. SSE hello — it absorbed these cases when P9 tombstoned `/v1/identities`
+  and deleted the route suite); client-side guard logic factored
   pure and unit-tested (`src/api/account-guard.test.ts`); contract boundaries
   extended for the new DTOs/events.
 - **P4 — switcher UI + E2E.** Sidebar chip menu; pending-turn/reattach UI; stop
@@ -507,8 +508,10 @@ GitHub-style surface** and makes "multiple accounts on one browser" real
     them on the picker); `?all=1` forgets everything.
   - **Per-account view + layout memory** (2026-07, client-side): switching
     back to an account restores it exactly where it was left — the open thread
-    or section page (with sub-view / detail focus) via `src/lib/viewMemory.ts`,
-    and the account's own chrome (rail width/collapse, pane heights + folds,
+    or section page (with sub-view / detail focus) — **superseded**: the
+    view-memory singleton was pruned when panes became the authority, and
+    `src/shell-nav.test.ts` now BANS `viewMemory`/`saveViewLocation` from the
+    shell — and the account's own chrome (rail width/collapse, pane heights + folds,
     the section tree's chevron expansion, panel width) via the account-scoped
     layout blob (`src/lib/uiPrefs.ts`, seeded from the legacy unscoped blob on
     first use; the tree persists one `treeOpen.‹section›` boolean per EXPLICIT
@@ -520,8 +523,8 @@ GitHub-style surface** and makes "multiple accounts on one browser" real
     fresh draft) and saves on every navigation (stopped at switch-away so the
     land-on-draft reset can't clobber the real place). Data is never stored —
     only "where you were"; the pages re-read the server as the account.
-    Locked by `tests/view-memory.test.ts` (the stores) and
-    `e2e/account-switch.spec.ts` (the restore choreography, reload included).
+    Locked by `e2e/account-switch.spec.ts` (the restore choreography, reload
+    included); the stores' own suite went with the singleton.
   - `DELETE /v1/auth/accounts/:id` (2026-07) forgets ONE remembered account —
     the switcher rows' HOVER sign-out; forgetting the active account also
     clears the session (a remembered-list can't outlive the session proving

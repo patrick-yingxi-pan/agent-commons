@@ -16,7 +16,9 @@
 
 ## The problem, precisely
 
-`src/components/NotificationsPanel.tsx` `open(n)`:
+`src/components/NotificationsPanel.tsx` `open(n)` (the file is
+`NotificationList.tsx` since the inbox became a section — this snapshot is the
+pre-initiative state it describes):
 
 ```ts
 if (n.kind === 'agent.forked') onOpenSection('agents')

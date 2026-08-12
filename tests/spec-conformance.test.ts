@@ -20,7 +20,21 @@ import { join } from 'node:path'
 import { ROOT, read, filesUnder, concatSource } from './helpers/source.ts'
 
 const STATUS_GLYPHS = ['✅', '🟡', '🧭', '📝']
-const specFiles = () => filesUnder('docs/spec', ['.md'])
+
+/** Module-local requirement tables — a `SPEC.md` beside the code it governs.
+ *
+ *  These MUST be scanned here. When the persistence rows moved out of
+ *  `docs/spec/07` and into `server/persistence/SPEC.md` (colocation, 2026-08-12)
+ *  they left this file's reach entirely: six ✅ rows stopped being checked for a
+ *  status glyph, for a locking-test citation, and for path rot — silently, with
+ *  the pillar still green because it no longer had rows to be wrong about. A
+ *  ledger whose oracle does not follow its rows is not a ledger. */
+const moduleSpecFiles = () =>
+  ['contract', 'server', 'src']
+    .flatMap((d) => filesUnder(d, ['.md']))
+    .filter((f) => f.endsWith('SPEC.md'))
+
+const specFiles = () => [...filesUnder('docs/spec', ['.md']), ...moduleSpecFiles()]
 const pillarFiles = () => specFiles().filter((f) => !f.endsWith('README.md'))
 const rel = (f) => f.slice(ROOT.length + 1)
 
@@ -51,12 +65,18 @@ function repoPathsIn(markdown) {
   return out
 }
 
-test('every repo path referenced in docs/spec exists on disk', () => {
+test('every repo path referenced in the spec exists on disk', () => {
   const files = specFiles()
   assert.ok(files.length >= 8, 'expected the spec pillar files to be present')
+  assert.ok(moduleSpecFiles().length >= 1, 'expected at least one module-local SPEC.md to be in scope')
   const missing = []
   for (const file of files) {
     for (const ref of repoPathsIn(read(file))) {
+      // Repo-root paths, in a module SPEC.md exactly as in a pillar. The file
+      // is local because it SITS beside its code; the paths inside it do not
+      // also have to be relative, and making them relative put them OUTSIDE
+      // `repoPathsIn` — a bare `persist.ts` is not dir-prefixed, so it was
+      // collected by nothing and could rot freely. One convention, one check.
       if (!existsSync(join(ROOT, ref))) missing.push(`${rel(file)} → \`${ref}\``)
     }
   }
